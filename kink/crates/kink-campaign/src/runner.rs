@@ -742,7 +742,7 @@ enum StoredRun {
     /// with the requesting call's ([`DefinitionExclusions::combined`]).
     Executed {
         executed: Box<Executed>,
-        load: DefinitionExclusions,
+        load: Box<DefinitionExclusions>,
     },
     /// A run whose producing load was excluded ([`DefinitionExclusions::definition_exclusion`]:
     /// a load stack stop, an implementation-chosen hook): the execution is not kept, so it can
@@ -1147,7 +1147,7 @@ impl<'v> BaselineSession<'v> {
                 // The classifier-dependent part of the run, again (flow F-16), under the facts of
                 // the load that produced it and of this call's load (re-pin R0c).
                 StoredRun::Executed { executed, load } => (
-                    runtime.judge_on(campaign, test, executed, Some(load)),
+                    runtime.judge_on(campaign, test, executed, Some(&**load)),
                     executed.cache.clone(),
                 ),
                 StoredRun::Excluded { exclusion, cache } => (
@@ -1179,7 +1179,7 @@ impl<'v> BaselineSession<'v> {
             },
             None => StoredRun::Executed {
                 executed: Box::new(executed),
-                load: runtime.exclusions.clone(),
+                load: Box::new(runtime.exclusions.clone()),
             },
         };
         self.runs.push(StoredBaseline { key, run });
@@ -3945,7 +3945,7 @@ mod tests {
                         },
                         run: StoredRun::Executed {
                             executed: Box::new(executed),
-                            load: DefinitionExclusions::default(),
+                            load: Box::default(),
                         },
                     });
                     let (evidence, _) = session.baseline_run(&mut runtime, &campaign, test, true);

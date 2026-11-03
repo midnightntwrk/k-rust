@@ -22,10 +22,10 @@ use k_rust::kore::{
 use k_rust::names::KoreAttribute;
 use k_rust_backend::nesting::with_simplification_stack_budget;
 use kink_native::exclusion::{
-    BUILTIN_OPEN_HOOKS, DOMAINS_OPEN_HOOKS, DefinitionExclusions, Exclusion,
+    BUILTIN_OPEN_HOOKS, CauseLink, CausePart, DOMAINS_OPEN_HOOKS, DefinitionExclusions, Exclusion,
     IMPLEMENTATION_CHOSEN_HOOKS, K_RUST_IMPLEMENTATION_CHOSEN_HOOKS, RUN_LIST_HOOKS,
-    SHORT_CIRCUIT_HOOKS, UNDOCUMENTED_EVALUATED_HOOKS, census_hook,
-    state_references_implementation_chosen,
+    ReadingDependence, SHORT_CIRCUIT_HOOKS, SentenceLink, ShortCircuitCause, ShortCircuitEffect,
+    UNDOCUMENTED_EVALUATED_HOOKS, census_hook, state_references_implementation_chosen,
 };
 use kink_native::execution::{
     AdaptedExecution, ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile,
@@ -1872,6 +1872,393 @@ fn a_skipped_application_the_ceil_theory_discharges_flags_nothing() {
     });
 }
 
+/// The cause chains of `exclusions` are whole: one per rule of `short_circuit_conditions` (as
+/// `Applicability`) and of `short_circuit_results` (as `Result`); the rule and each equation
+/// named with its id, source and location; each function named one of
+/// `short_circuit_symbols`, a function after an operator being that operator's term's head; the
+/// last link an operator, with its hook and declaring module, whose term depends on no
+/// function's reading; and every sentence the lists name has its link.
+fn assert_causes_are_whole(exclusions: &DefinitionExclusions) {
+    let named = |effect| {
+        exclusions
+            .short_circuit_causes
+            .iter()
+            .filter(|cause| cause.effect == effect)
+            .map(|cause| cause.rule.name.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        named(ShortCircuitEffect::Applicability),
+        exclusions.short_circuit_conditions,
+        "{exclusions:?}"
+    );
+    assert_eq!(
+        named(ShortCircuitEffect::Result),
+        exclusions.short_circuit_results,
+        "{exclusions:?}"
+    );
+    let placed = |link: &SentenceLink| {
+        link.id.as_deref() == Some(link.name.as_str())
+            && link
+                .source
+                .as_deref()
+                .is_some_and(|source| source.ends_with(".k"))
+            && link.location.is_some()
+    };
+    for cause in &exclusions.short_circuit_causes {
+        assert!(placed(&cause.rule), "{cause:#?}");
+        let mut after_operator: Option<&str> = None;
+        for link in &cause.links {
+            match link {
+                CauseLink::Function {
+                    function, equation, ..
+                } => {
+                    assert!(
+                        exclusions.short_circuit_symbols.contains(&function.id)
+                            && function.module.is_some()
+                            && placed(equation),
+                        "{cause:#?}"
+                    );
+                    if let Some(head) = after_operator.take() {
+                        assert_eq!(head, function.id, "{cause:#?}");
+                    }
+                }
+                CauseLink::Operator(operator) => {
+                    assert!(
+                        operator.operator.hook.is_some() && operator.operator.module.is_some(),
+                        "{cause:#?}"
+                    );
+                    after_operator = Some(&operator.term_symbol.id);
+                }
+            }
+        }
+        let Some(CauseLink::Operator(last)) = cause.links.last() else {
+            panic!("{cause:#?}: the chain ends with an operator")
+        };
+        assert!(
+            !exclusions
+                .short_circuit_symbols
+                .contains(&last.term_symbol.id),
+            "{cause:#?}"
+        );
+    }
+    for name in exclusions
+        .short_circuit_conditions
+        .iter()
+        .chain(&exclusions.short_circuit_results)
+        .chain(&exclusions.equals_conditions)
+        .chain(
+            exclusions
+                .role_rooted_axioms
+                .iter()
+                .filter(|name| *name != "an unnamed equation"),
+        )
+        .chain(exclusions.implementation_chosen.iter().map(|r| &r.sentence))
+    {
+        assert!(
+            exclusions
+                .sentences
+                .get(name)
+                .is_some_and(|link| &link.name == name),
+            "{name}: {exclusions:?}"
+        );
+    }
+}
+
+/// The cause of the rule labelled `label` with `effect`.
+fn cause_of<'e>(
+    exclusions: &'e DefinitionExclusions,
+    label: &str,
+    effect: ShortCircuitEffect,
+) -> &'e ShortCircuitCause {
+    exclusions
+        .short_circuit_causes
+        .iter()
+        .find(|cause| cause.rule.label.as_deref() == Some(label) && cause.effect == effect)
+        .unwrap_or_else(|| panic!("{label} {effect:?}: {exclusions:#?}"))
+}
+
+/// The links of `cause` as `(function, equation label)` for a function and `(operator hook,
+/// term hook or symbol)` for an operator.
+fn chain(cause: &ShortCircuitCause) -> Vec<(String, String)> {
+    cause
+        .links
+        .iter()
+        .map(|link| match link {
+            CauseLink::Function {
+                function, equation, ..
+            } => (
+                function.id.clone(),
+                equation.label.clone().unwrap_or_default(),
+            ),
+            CauseLink::Operator(operator) => (
+                operator.operator.hook.clone().unwrap_or_default(),
+                operator
+                    .term_symbol
+                    .hook
+                    .clone()
+                    .unwrap_or_else(|| operator.term_symbol.id.clone()),
+            ),
+        })
+        .collect()
+}
+
+/// The 1-based line of `fixture` (`testdata/k/<dir>/<name>.k`) that holds `text`.
+fn line_of(dir: &str, name: &str, text: &str) -> u32 {
+    let source =
+        std::fs::read_to_string(Path::new(support::DIR).join(format!("{dir}/{name}.k"))).unwrap();
+    let index = source
+        .lines()
+        .position(|line| line.contains(text))
+        .unwrap_or_else(|| panic!("{name}: {text}"));
+    u32::try_from(index + 1).unwrap()
+}
+
+/// SM83's shape (`scfetch.k`), at a state that still depends on the reading: the rules `fetch`
+/// and `fetch-halt-bug` apply `decode`, whose condition skips `bitRangeInt(Op, Off, 2) ==Int 0`
+/// under `andThenBool` below `notBool`, and that application owes `Off >=Int 0`. Each rule's
+/// cause names the rule, `decode` with its equation and the leaf there, `andThenBool` and the
+/// `bitRangeInt` operand, each with its module, label, position and compiled id. With
+/// `decode-inc` dropped, only `decode-unknown`'s `owise` guard holds the leaf, and the chain
+/// names that equation.
+#[test]
+fn a_definition_exclusion_names_rule_function_equation_operator_and_operand() {
+    on_a_big_stack(|| {
+        let (side, module) = fixture("r0c", "scfetch");
+        let full = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        let owise = exclusions_after(&side, &module, |kore| {
+            drop_axioms(kore, &["SCFETCH.decode-inc"]);
+        });
+        for (exclusions, equation) in [
+            (&full, "SCFETCH.decode-inc"),
+            (&owise, "SCFETCH.decode-unknown"),
+        ] {
+            assert_eq!(
+                exclusions.definition_exclusion(),
+                Some(Exclusion::ShortCircuitReading)
+            );
+            assert_eq!(
+                exclusions.short_circuit_symbols,
+                std::iter::once("Lbldecode".to_owned()).collect()
+            );
+            assert_eq!(
+                exclusions
+                    .short_circuit_conditions
+                    .iter()
+                    .cloned()
+                    .collect::<BTreeSet<_>>(),
+                rule_ids(
+                    &side,
+                    &module,
+                    &[
+                        "SCFETCH.fetch".to_owned(),
+                        "SCFETCH.fetch-halt-bug".to_owned()
+                    ]
+                ),
+            );
+            assert_causes_are_whole(exclusions);
+            for (rule, text) in [
+                ("SCFETCH.fetch", "rule [fetch]:"),
+                ("SCFETCH.fetch-halt-bug", "rule [fetch-halt-bug]:"),
+            ] {
+                let cause = cause_of(exclusions, rule, ShortCircuitEffect::Applicability);
+                assert_eq!(cause.part, CausePart::RightSide, "{cause:#?}");
+                assert_eq!(cause.rule.module, "SCFETCH");
+                assert!(
+                    cause
+                        .rule
+                        .source
+                        .as_deref()
+                        .is_some_and(|s| s.ends_with("scfetch.k")),
+                    "{cause:#?}"
+                );
+                assert_eq!(
+                    cause.rule.location.map(|location| location.start_line),
+                    Some(line_of("r0c", "scfetch", text)),
+                    "{cause:#?}"
+                );
+                assert_eq!(
+                    chain(cause),
+                    [
+                        ("Lbldecode".to_owned(), equation.to_owned()),
+                        ("BOOL.andThen".to_owned(), "INT.bitRange".to_owned()),
+                    ],
+                    "{cause:#?}"
+                );
+                let CauseLink::Function {
+                    function,
+                    dependence,
+                    equation: link,
+                    part,
+                } = &cause.links[0]
+                else {
+                    panic!("{cause:#?}")
+                };
+                assert_eq!(*dependence, ReadingDependence::Valued);
+                assert_eq!(function.module.as_deref(), Some("SCFETCH"));
+                assert_eq!(
+                    function.location.map(|location| location.start_line),
+                    Some(line_of("r0c", "scfetch", "syntax Instr ::= decode")),
+                    "{function:#?}"
+                );
+                assert_eq!(
+                    link.location.map(|location| location.start_line),
+                    Some(line_of(
+                        "r0c",
+                        "scfetch",
+                        &format!("rule [{}]", equation.trim_start_matches("SCFETCH."))
+                    )),
+                    "{link:#?}"
+                );
+                let CausePart::Condition { leaf } = part else {
+                    panic!("{cause:#?}: the equation's condition")
+                };
+                assert!(leaf.to_string().contains("notBool"), "{leaf}");
+                let operator = cause.operator().unwrap();
+                assert_eq!(operator.position, 1);
+                assert!(
+                    operator.operator.source.is_some() && operator.operator.location.is_some(),
+                    "{operator:#?}"
+                );
+                assert!(
+                    operator.operand.to_string().contains("LblbitRangeInt")
+                        && operator.term.to_string().starts_with("LblbitRangeInt"),
+                    "{operator:#?}"
+                );
+            }
+        }
+    });
+}
+
+/// The cause chains of CF-01's controls and of the earlier short-circuit fixtures, which give
+/// the same verdicts as before: a rule's own condition (`scctl`'s `rnb`, `rob`, `roe` under
+/// `andThenBool`, `orBool`, `orElseBool`; `scmloe`'s `rnot` under `\not`; `screq`'s `rq`), a
+/// function its right-hand side applies (`scctl`'s and `scmloe`'s `go`, through each first
+/// equation, or through the `owise` guard once those are dropped; `screq`'s `vg`), a result
+/// (`scpd`'s `go` through `f`'s `#if`), and an operand that applies a function that can be
+/// undefined (`scthru`'s `go`: `andBool`, then `h`, then `#if` over `pd(A)`).
+#[test]
+fn every_short_circuit_exclusion_names_its_cause_chain() {
+    on_a_big_stack(|| {
+        let (side, module) = fixture("r0c", "scctl");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        assert_causes_are_whole(&exclusions);
+        for (rule, hook) in [
+            ("SCCTL.rnb", "BOOL.andThen"),
+            ("SCCTL.rob", "BOOL.or"),
+            ("SCCTL.roe", "BOOL.orElse"),
+        ] {
+            let cause = cause_of(&exclusions, rule, ShortCircuitEffect::Applicability);
+            assert!(
+                matches!(&cause.part, CausePart::Condition { .. }),
+                "{cause:#?}"
+            );
+            assert_eq!(
+                chain(cause),
+                [(hook.to_owned(), "INT.tdiv".to_owned())],
+                "{cause:#?}"
+            );
+        }
+        let go = cause_of(&exclusions, "SCCTL.go", ShortCircuitEffect::Applicability);
+        let [(function, equation), _] = &chain(go)[..] else {
+            panic!("{go:#?}")
+        };
+        assert_eq!(
+            equation,
+            &format!("SCCTL.{}1", function.trim_start_matches("Lbl")),
+            "{go:#?}"
+        );
+        let owise = exclusions_after(&side, &module, |kore| {
+            drop_axioms(kore, &["SCCTL.nb1", "SCCTL.ob1", "SCCTL.oe1"]);
+        });
+        assert_causes_are_whole(&owise);
+        let go = cause_of(&owise, "SCCTL.go", ShortCircuitEffect::Applicability);
+        let [(function, equation), _] = &chain(go)[..] else {
+            panic!("{go:#?}")
+        };
+        assert_eq!(
+            equation,
+            &format!("SCCTL.{}2", function.trim_start_matches("Lbl")),
+            "{go:#?}"
+        );
+
+        let (side, module) = fixture("r0c", "scmloe");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        assert_causes_are_whole(&exclusions);
+        let rnot = cause_of(
+            &exclusions,
+            "SCMLOE.rnot",
+            ShortCircuitEffect::Applicability,
+        );
+        assert_eq!(
+            chain(rnot),
+            [("BOOL.orElse".to_owned(), "INT.tdiv".to_owned())],
+            "{rnot:#?}"
+        );
+
+        let (side, module) = fixture("r0c", "screq");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        assert_causes_are_whole(&exclusions);
+        let rq = cause_of(&exclusions, "SCREQ.rq", ShortCircuitEffect::Applicability);
+        assert_eq!(
+            chain(rq),
+            [("BOOL.or".to_owned(), "INT.tdiv".to_owned())],
+            "{rq:#?}"
+        );
+        let vg = cause_of(&exclusions, "SCREQ.vg", ShortCircuitEffect::Applicability);
+        let [(function, _), operator] = &chain(vg)[..] else {
+            panic!("{vg:#?}")
+        };
+        assert_eq!(
+            (function.as_str(), operator),
+            ("Lblg", &("BOOL.or".to_owned(), "INT.tdiv".to_owned())),
+            "{vg:#?}"
+        );
+
+        let (side, module) = fixture("r0c", "scpd");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        assert_causes_are_whole(&exclusions);
+        let go = cause_of(&exclusions, "SCPD.go", ShortCircuitEffect::Result);
+        let [(function, _), operator] = &chain(go)[..] else {
+            panic!("{go:#?}")
+        };
+        assert_eq!(
+            (function.as_str(), operator),
+            ("Lblf", &("KEQUAL.ite".to_owned(), "Lblpd".to_owned())),
+            "{go:#?}"
+        );
+        assert_eq!(go.operator().unwrap().position, 2, "{go:#?}");
+
+        let (side, module) = fixture("r0c", "scthru");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        assert_causes_are_whole(&exclusions);
+        let go = cause_of(&exclusions, "SCTHRU.go", ShortCircuitEffect::Result);
+        let [first, (function, _), last] = &chain(go)[..] else {
+            panic!("{go:#?}")
+        };
+        assert_eq!(
+            (first, function.as_str(), last),
+            (
+                &("BOOL.and".to_owned(), "Lblh".to_owned()),
+                "Lblh",
+                &("KEQUAL.ite".to_owned(), "Lblpd".to_owned())
+            ),
+            "{go:#?}"
+        );
+        assert!(
+            matches!(
+                &go.links[1],
+                CauseLink::Function {
+                    dependence: ReadingDependence::Undefined,
+                    part: CausePart::RightSide,
+                    ..
+                }
+            ),
+            "{go:#?}"
+        );
+    });
+}
+
 /// KINK-SC-DEFINED (fz26 P7-SIMPLE-KINK review B3 and round 2): `f(A) => #if A >=Int 0 #then A
 /// #else pd(A) #fi`, with `pd` defined exactly on negatives, skips `pd(A)` where a guard holds,
 /// and `pd(A)` occurs in no other operand: `f(3)` is undefined in k-rust's reading and `3` in a
@@ -2499,7 +2886,12 @@ mod kink_tier {
                 .find(|rule| rule.label.as_deref() == Some("EQCOND.go"))
                 .expect("go")
                 .id;
-            assert_eq!(exclusions.equals_conditions, [go]);
+            assert_eq!(exclusions.equals_conditions, std::slice::from_ref(&go));
+            assert_eq!(
+                exclusions.sentences[&go].label.as_deref(),
+                Some("EQCOND.go"),
+                "{exclusions:?}"
+            );
             assert_eq!(
                 exclusions.definition_exclusion(),
                 Some(Exclusion::EqualsCondition)
@@ -2531,6 +2923,15 @@ mod kink_tier {
                 .expect("siba")
                 .id;
             assert_eq!(exclusions.short_circuit_results, [siba]);
+            assert_causes_are_whole(&exclusions);
+            assert_eq!(
+                chain(cause_of(
+                    &exclusions,
+                    "SCSIB.siba",
+                    ShortCircuitEffect::Result
+                )),
+                [("BOOL.and".to_owned(), "INT.tdiv".to_owned())]
+            );
             assert_eq!(
                 exclusions.definition_exclusion(),
                 Some(Exclusion::ShortCircuitReading)

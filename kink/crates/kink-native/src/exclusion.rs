@@ -122,7 +122,12 @@
 //!   `\exists`, no longer depends on the reading through such a condition. And a partial
 //!   application that owes nothing beyond its arguments under the definition's ceil theory
 //!   (`bitRangeInt(X, 4, 4)`, `X /Int 16`) is no possibly undefined term of a skipped operand
-//!   (`ShortCircuitAnalysis::owes_nothing`).
+//!   (`ShortCircuitAnalysis::owes_nothing`). Each rule that excludes the definition this way
+//!   carries its cause ([`DefinitionExclusions::short_circuit_causes`]): the rule and the leaf
+//!   of its condition or its right-hand side, each function it applies with the equation and
+//!   leaf through which that function depends on the reading, and the operator and the
+//!   possibly undefined operand where the dependence originates, each sentence and symbol with
+//!   its module, label, source position and compiled id.
 //! - [`Exclusion::AllowanceRefusal`]: a leaf reports a hook left unevaluated whose refusal reads
 //!   the process's memory allowance (Execute promise exclusion, findings A-07, B-02, B-07): the
 //!   result is a function of the host, not of the inputs a key names. Since re-pin adoption A-1
@@ -155,6 +160,7 @@
 use std::collections::BTreeSet;
 
 use k_rust::backend::BackendDiagnosticOutput;
+use k_rust::definition::ast::Location;
 use k_rust::kore::{
     ast::{Attributes, Definition, Pattern, Sentence},
     walk,
@@ -901,6 +907,162 @@ pub struct HookReference {
     pub hook: String,
 }
 
+/// A sentence of a definition as the cause of an exclusion names it: where it was written and
+/// what it compiled to.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct SentenceLink {
+    /// The name the lists of [`DefinitionExclusions`] give the sentence: its `UNIQUE_ID`, else
+    /// its label, else its source and location, else `<unnamed>`.
+    pub name: String,
+    /// The KORE module that holds the sentence.
+    pub module: String,
+    /// Its `label` attribute (`MODULE.label`), if it has one.
+    pub label: Option<String>,
+    /// The path its `Source` attribute names, if it has one.
+    pub source: Option<String>,
+    /// The span its `Location` attribute names, if it has one in kompile's
+    /// `Location(start_line,start_column,end_line,end_column)` form.
+    pub location: Option<Location>,
+    /// Its compiled id, the `UNIQUE_ID` attribute, if it has one.
+    pub id: Option<String>,
+}
+
+/// A symbol as the cause of an exclusion names it: its compiled id and its declaration.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct SymbolLink {
+    /// The compiled id, the KORE symbol name (`Lbldecode`, `Lbl'Unds'andThenBool'Unds'`).
+    pub id: String,
+    /// The KORE module that holds the symbol's declaration, which need not be the K module whose
+    /// production declares it; `None` when no module of the definition declares it.
+    pub module: Option<String>,
+    /// The K label of its declaration (the `klabel` attribute), if it has one.
+    pub label: Option<String>,
+    /// The hook of its declaration (`BOOL.andThen`), if it has one.
+    pub hook: Option<String>,
+    /// The path the `Source` attribute of its declaration names, if it has one.
+    pub source: Option<String>,
+    /// The span the `Location` attribute of its declaration names, if it has one.
+    pub location: Option<Location>,
+}
+
+/// How a rewrite rule that excludes the definition depends on the short-circuit reading
+/// ([`Exclusion::ShortCircuitReading`]).
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum ShortCircuitEffect {
+    /// Whether the rule applies can differ between the readings: its condition depends on the
+    /// reading, or its right-hand side applies a function whose own condition does
+    /// ([`DefinitionExclusions::short_circuit_conditions`]).
+    Applicability,
+    /// The rule's result can be undefined in k-rust's reading where a short-circuiting backend
+    /// gives a value ([`DefinitionExclusions::short_circuit_results`]).
+    Result,
+}
+
+/// How a function depends on the short-circuit reading.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum ReadingDependence {
+    /// An application can be undefined in k-rust's reading where a short-circuiting backend gives
+    /// a value: an equation's right-hand side can be.
+    Undefined,
+    /// An application's value can differ between the readings with no undefined step: an
+    /// equation's condition depends on the reading, so k-rust may apply another equation (or
+    /// its right-hand side applies a function for which this holds).
+    Valued,
+}
+
+/// The part of a sentence at which the next link of a cause chain sits.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum CausePart {
+    /// A leaf of the sentence's condition (a rewrite rule's `requires` and left-hand side, an
+    /// equation's antecedent, an `owise` equation's guard included): the Bool term `C` of a leaf
+    /// `\equals(C, true)`, or a part the analysis reads as a whole (a configuration, `\in`,
+    /// `\ceil`, an `\equals` of two terms).
+    Condition {
+        /// The leaf's Bool term, or the part read as a whole.
+        leaf: Pattern,
+    },
+    /// The sentence's right-hand side.
+    RightSide,
+}
+
+/// A short-circuit operator over an operand a backend may skip that may be undefined: the last
+/// link of a cause chain, or the link before the function that its `term` applies.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct OperatorLink {
+    /// The operator (`andThenBool`, `orElseBool`, `andBool`, `orBool`, `impliesBool`, `#if`).
+    pub operator: SymbolLink,
+    /// The argument position of the operand.
+    pub position: usize,
+    /// The operand a backend may skip, as the sentence of the previous link holds it.
+    pub operand: Pattern,
+    /// An application in the operand that may be undefined and that no operand evaluated
+    /// whenever this one is skipped evaluates: where it is undefined and the operand skipped,
+    /// k-rust's reading is undefined and a short-circuiting one is not.
+    pub term: Pattern,
+    /// The head symbol of [`Self::term`]: a partial function whose application owes something
+    /// under the definition's ceil theory, or a function that depends on the reading, which the
+    /// next link of the chain then names.
+    pub term_symbol: SymbolLink,
+}
+
+/// A link of a short-circuit cause chain ([`ShortCircuitCause::links`]).
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum CauseLink {
+    /// The previous link applies `function`, which depends on the reading as `dependence` says
+    /// through its equation `equation`, at `part` of it.
+    Function {
+        function: SymbolLink,
+        dependence: ReadingDependence,
+        equation: SentenceLink,
+        part: CausePart,
+    },
+    /// The previous link applies a short-circuit operator over an operand that may be undefined.
+    Operator(OperatorLink),
+}
+
+/// Why a rewrite rule excludes the definition through the short-circuit reading: the rule, where
+/// in it the dependence shows, and the chain from there to a short-circuit operator over an
+/// operand that may be undefined.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct ShortCircuitCause {
+    /// The rule excluded.
+    pub rule: SentenceLink,
+    /// How it depends on the reading.
+    pub effect: ShortCircuitEffect,
+    /// Where in the rule the first link sits.
+    pub part: CausePart,
+    /// From the rule to the operator, in order: each function applied, with the equation through
+    /// which it depends on the reading, and each operator whose possibly undefined term applies
+    /// the next function; the last link is an operator whose term depends on no function's
+    /// reading (a partial application that owes something under the ceil theory). A function's
+    /// link names the first equation found to make it depend on the reading, in the order of
+    /// the analysis's fixed point, so every chain is finite and names only functions that
+    /// depended on the reading before the function that applies them.
+    pub links: Vec<CauseLink>,
+}
+
+impl ShortCircuitCause {
+    /// Each function of the chain, with the equation through which it depends on the reading.
+    pub fn functions(&self) -> impl Iterator<Item = (&SymbolLink, &SentenceLink)> {
+        self.links.iter().filter_map(|link| match link {
+            CauseLink::Function {
+                function, equation, ..
+            } => Some((function, equation)),
+            CauseLink::Operator(_) => None,
+        })
+    }
+
+    /// The chain's last operator: the short-circuit operator over an operand that may be
+    /// undefined at which the dependence originates.
+    #[must_use]
+    pub fn operator(&self) -> Option<&OperatorLink> {
+        self.links.iter().rev().find_map(|link| match link {
+            CauseLink::Operator(operator) => Some(operator),
+            CauseLink::Function { .. } => None,
+        })
+    }
+}
+
 /// What a loaded definition contributes to the exclusions of every run on it. Built once per
 /// backend, from the compiled KORE the backend loaded and that backend's selected definition.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -937,10 +1099,18 @@ pub struct DefinitionExclusions {
     /// condition or right-hand side does, directly or through another such symbol): a test's
     /// initial state that applies one is no evidence.
     pub short_circuit_symbols: BTreeSet<String>,
+    /// The cause of each rule of [`Self::short_circuit_conditions`] (as
+    /// [`ShortCircuitEffect::Applicability`]) and of [`Self::short_circuit_results`] (as
+    /// [`ShortCircuitEffect::Result`]): one per rule and effect.
+    pub short_circuit_causes: Vec<ShortCircuitCause>,
     /// The rewrite rules and equations (each as its id, label or position) whose condition holds
     /// an `\equals` between two terms, a K `{ A #Equals B }`, other than the Bool reading
     /// `\equals(C, true)` of a K condition ([`Exclusion::EqualsCondition`]).
     pub equals_conditions: Vec<String>,
+    /// The sentence each name in the lists above stands for, by that name (the first sentence of
+    /// the definition that has it, for a name two sentences share): the census references'
+    /// sentences, the role-rooted axioms and the short-circuit and `\equals` conditions' rules.
+    pub sentences: std::collections::BTreeMap<String, SentenceLink>,
 }
 
 /// A compiled side loaded for one module on this thread, with the exclusions read from it
@@ -1083,9 +1253,11 @@ impl DefinitionExclusions {
         }
         let mut short_circuit = ShortCircuitAnalysis::of(definition);
         short_circuit.close_over(kore);
+        let declarations = SymbolDeclarations::of(kore);
         let mut short_circuit_conditions = BTreeSet::new();
         let mut short_circuit_rules = BTreeSet::new();
         let mut short_circuit_results = BTreeSet::new();
+        let mut short_circuit_causes = BTreeSet::new();
         let mut equals_conditions = BTreeSet::new();
         for module in &kore.modules {
             for sentence in &module.sentences {
@@ -1103,19 +1275,56 @@ impl DefinitionExclusions {
                 let Some((conditions, left, right)) = rewrite_sides(pattern) else {
                     continue;
                 };
-                if conditions
+                let applicability = conditions
                     .iter()
                     .chain([&left])
-                    .any(|side| short_circuit.condition_side(side))
-                    || short_circuit.applies(right, &short_circuit.valued)
-                {
+                    .find_map(|side| short_circuit.condition_side(side))
+                    .map(|(leaf, witness)| (CausePart::Condition { leaf }, witness))
+                    .or_else(|| {
+                        short_circuit
+                            .applies_dependent(right, ReadingDependence::Valued)
+                            .map(|witness| (CausePart::RightSide, witness))
+                    });
+                if let Some((part, witness)) = applicability {
                     short_circuit_conditions.insert(sentence_name(attributes));
+                    short_circuit_causes.insert(ShortCircuitCause {
+                        rule: sentence_link(&module.name, attributes),
+                        effect: ShortCircuitEffect::Applicability,
+                        part,
+                        links: short_circuit.links(&witness, &declarations),
+                    });
                 }
-                if short_circuit.result(right) {
+                if let Some(witness) = short_circuit.result(right) {
                     short_circuit_results.insert(sentence_name(attributes));
                     if let Some(id) = string_attribute(attributes, KoreAttribute::UniqueId) {
                         short_circuit_rules.insert(id.to_owned());
                     }
+                    short_circuit_causes.insert(ShortCircuitCause {
+                        rule: sentence_link(&module.name, attributes),
+                        effect: ShortCircuitEffect::Result,
+                        part: CausePart::RightSide,
+                        links: short_circuit.links(&witness, &declarations),
+                    });
+                }
+            }
+        }
+        let named = implementation_chosen
+            .iter()
+            .map(|reference| &reference.sentence)
+            .chain(&role_rooted_axioms)
+            .chain(&short_circuit_conditions)
+            .chain(&short_circuit_results)
+            .chain(&equals_conditions)
+            .collect::<BTreeSet<_>>();
+        let mut sentences = std::collections::BTreeMap::new();
+        for module in &kore.modules {
+            for sentence in &module.sentences {
+                let Some(attributes) = sentence_attributes(sentence) else {
+                    continue;
+                };
+                let name = sentence_name(attributes);
+                if named.contains(&name) && !sentences.contains_key(&name) {
+                    sentences.insert(name, sentence_link(&module.name, attributes));
                 }
             }
         }
@@ -1132,7 +1341,9 @@ impl DefinitionExclusions {
                 .union(&short_circuit.valued)
                 .cloned()
                 .collect(),
+            short_circuit_causes: short_circuit_causes.into_iter().collect(),
             equals_conditions: equals_conditions.into_iter().collect(),
+            sentences,
         }
     }
 
@@ -1176,8 +1387,8 @@ impl DefinitionExclusions {
     /// The facts of two loads of one definition taken together, each exclusion holding when it
     /// holds on either load (re-pin R0c): the load stack stops are added, and the census
     /// references, the role-rooted axioms, the `preserves-definedness` ids and the short-circuit
-    /// rules, conditions and symbols are united. A run
-    /// produced on one load and judged on another is judged under this (a baseline run a
+    /// rules, conditions, symbols and causes are united, as are the sentences named (`self`'s
+    /// link where both name a sentence). A run produced on one load and judged on another is judged under this (a baseline run a
     /// session reuses, kink-campaign `BaselineSession`).
     #[must_use]
     pub fn combined(&self, other: &Self) -> Self {
@@ -1213,7 +1424,14 @@ impl DefinitionExclusions {
                 .union(&other.short_circuit_symbols)
                 .cloned()
                 .collect(),
+            short_circuit_causes: union(&self.short_circuit_causes, &other.short_circuit_causes),
             equals_conditions: union(&self.equals_conditions, &other.equals_conditions),
+            sentences: other
+                .sentences
+                .iter()
+                .chain(&self.sentences)
+                .map(|(name, link)| (name.clone(), link.clone()))
+                .collect(),
         }
     }
 
@@ -1439,6 +1657,82 @@ struct ShortCircuitAnalysis<'d> {
     /// inapplicable in both readings (a guard such as `lengthBytes(B) ==Int 1 andBool B[0] ==Int
     /// 128`).
     conjunctive: BTreeSet<String>,
+    /// Why each function of [`Self::undefined`] and of [`Self::valued`] is there, recorded by
+    /// [`Self::close_over`] when it inserts the function: the equation, its part and the witness
+    /// found there. A witness names only functions inserted before, so following the reasons
+    /// from any witness ends ([`Self::links`]).
+    reasons: std::collections::BTreeMap<(String, ReadingDependence), Reason>,
+}
+
+/// Where a pattern depends on the short-circuit reading, as [`ShortCircuitAnalysis`]'s
+/// predicates find it.
+#[derive(Clone, Debug)]
+enum Witness {
+    /// A short-circuit operator whose argument at `position`, `operand`, a backend may skip and
+    /// holds `term`, a possibly undefined application ([`ShortCircuitAnalysis::may`]) no operand
+    /// evaluated whenever it is skipped evaluates. `through` is how `term`'s head depends on the
+    /// reading when the witness was found, if it does.
+    Operator {
+        operator: String,
+        position: usize,
+        operand: Pattern,
+        term: Pattern,
+        through: Option<ReadingDependence>,
+    },
+    /// An application of a function that depends on the reading as `dependence` says.
+    Function {
+        symbol: String,
+        dependence: ReadingDependence,
+    },
+}
+
+/// Why a function depends on the reading ([`ShortCircuitAnalysis::reasons`]).
+#[derive(Clone, Debug)]
+struct Reason {
+    equation: SentenceLink,
+    part: CausePart,
+    witness: Witness,
+}
+
+/// The symbol declarations of a KORE definition, by symbol name, with their modules.
+struct SymbolDeclarations<'k>(std::collections::BTreeMap<&'k str, (&'k str, &'k Attributes)>);
+
+impl<'k> SymbolDeclarations<'k> {
+    fn of(kore: &'k Definition) -> Self {
+        let mut declarations = std::collections::BTreeMap::new();
+        for module in &kore.modules {
+            for sentence in &module.sentences {
+                if let Sentence::SymbolDeclaration {
+                    symbol, attributes, ..
+                } = sentence
+                {
+                    declarations
+                        .entry(symbol.name.as_str())
+                        .or_insert((module.name.as_str(), attributes));
+                }
+            }
+        }
+        Self(declarations)
+    }
+
+    /// The link of the symbol named `id`.
+    fn link(&self, id: &str) -> SymbolLink {
+        let declaration = self.0.get(id);
+        let attribute = |key| {
+            declaration
+                .and_then(|(_, attributes)| string_attribute(attributes, key))
+                .map(str::to_owned)
+        };
+        SymbolLink {
+            id: id.to_owned(),
+            module: declaration.map(|(module, _)| (*module).to_owned()),
+            label: attribute(KoreAttribute::Klabel),
+            hook: attribute(KoreAttribute::Hook),
+            source: attribute(KoreAttribute::Source).map(|source| source_path(&source)),
+            location: attribute(KoreAttribute::Location)
+                .and_then(|location| parse_location(&location)),
+        }
+    }
 }
 
 impl<'d> ShortCircuitAnalysis<'d> {
@@ -1469,33 +1763,63 @@ impl<'d> ShortCircuitAnalysis<'d> {
             undefined: BTreeSet::new(),
             valued: BTreeSet::new(),
             conjunctive: BTreeSet::new(),
+            reasons: std::collections::BTreeMap::new(),
         }
     }
 
     /// Close [`Self::undefined`] and [`Self::valued`] over every equation of `kore`, whatever its
-    /// source (a prelude function can depend on the reading too).
+    /// source (a prelude function can depend on the reading too), recording why each function is
+    /// inserted ([`Self::reasons`]).
     fn close_over(&mut self, kore: &Definition) {
-        let equations = kore
-            .modules
-            .iter()
-            .flat_map(|module| &module.sentences)
-            .filter_map(|sentence| match sentence {
-                Sentence::Axiom { pattern, .. } => equation_parts(pattern),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
+        let mut equations = Vec::new();
+        for module in &kore.modules {
+            for sentence in &module.sentences {
+                if let Sentence::Axiom {
+                    pattern,
+                    attributes,
+                    ..
+                } = sentence
+                    && let Some((head, condition, right)) = equation_parts(pattern)
+                {
+                    equations.push((module.name.as_str(), attributes, head, condition, right));
+                }
+            }
+        }
         loop {
             let mut changed = false;
-            for (head, condition, right) in &equations {
-                if !self.undefined.contains(*head) && self.result(right) {
+            for (module, attributes, head, condition, right) in &equations {
+                if !self.undefined.contains(*head)
+                    && let Some(witness) = self.result(right)
+                {
                     self.undefined.insert((*head).to_owned());
+                    self.reasons.insert(
+                        ((*head).to_owned(), ReadingDependence::Undefined),
+                        Reason {
+                            equation: sentence_link(module, attributes),
+                            part: CausePart::RightSide,
+                            witness,
+                        },
+                    );
                     changed = true;
                 }
                 if !self.valued.contains(*head)
-                    && (condition.is_some_and(|condition| self.condition_side(condition))
-                        || self.applies(right, &self.valued))
+                    && let Some((part, witness)) = condition
+                        .and_then(|condition| self.condition_side(condition))
+                        .map(|(leaf, witness)| (CausePart::Condition { leaf }, witness))
+                        .or_else(|| {
+                            self.applies_dependent(right, ReadingDependence::Valued)
+                                .map(|witness| (CausePart::RightSide, witness))
+                        })
                 {
                     self.valued.insert((*head).to_owned());
+                    self.reasons.insert(
+                        ((*head).to_owned(), ReadingDependence::Valued),
+                        Reason {
+                            equation: sentence_link(module, attributes),
+                            part,
+                            witness,
+                        },
+                    );
                     changed = true;
                 }
             }
@@ -1514,7 +1838,7 @@ impl<'d> ShortCircuitAnalysis<'d> {
                 .filter(|function| {
                     equations
                         .iter()
-                        .any(|(head, _, right)| head == function && self.condition(right))
+                        .any(|(_, _, head, _, right)| head == function && self.condition(right))
                 })
                 .cloned()
                 .collect::<Vec<_>>();
@@ -1529,13 +1853,88 @@ impl<'d> ShortCircuitAnalysis<'d> {
 
     /// Whether `pattern` applies a symbol of `symbols`.
     fn applies(&self, pattern: &Pattern, symbols: &BTreeSet<String>) -> bool {
-        let mut found = false;
-        walk::for_each_post_order(pattern, |node| {
-            if let Pattern::Application { symbol, .. } = node {
-                found |= symbols.contains(symbol.name.as_str());
+        applied(pattern, symbols).is_some()
+    }
+
+    /// The first application in `pattern` (in post-order) of a function that depends on the
+    /// reading as `dependence` says ([`Self::undefined`], [`Self::valued`]).
+    fn applies_dependent(
+        &self,
+        pattern: &Pattern,
+        dependence: ReadingDependence,
+    ) -> Option<Witness> {
+        let functions = match dependence {
+            ReadingDependence::Undefined => &self.undefined,
+            ReadingDependence::Valued => &self.valued,
+        };
+        applied(pattern, functions).map(|symbol| Witness::Function { symbol, dependence })
+    }
+
+    /// How `term`'s head depends on the reading now, if it does: [`Self::undefined`] before
+    /// [`Self::valued`].
+    fn dependence(&self, term: &Pattern) -> Option<ReadingDependence> {
+        let Pattern::Application { symbol, .. } = term else {
+            return None;
+        };
+        let name = symbol.name.as_str();
+        if self.undefined.contains(name) {
+            Some(ReadingDependence::Undefined)
+        } else if self.valued.contains(name) {
+            Some(ReadingDependence::Valued)
+        } else {
+            None
+        }
+    }
+
+    /// The cause chain from `witness` ([`ShortCircuitCause::links`]): its operator, or the
+    /// function it applies, then the reasons ([`Self::reasons`]) from there. A function is
+    /// followed once, so the chain is finite whatever the reasons hold.
+    fn links(&self, witness: &Witness, declarations: &SymbolDeclarations<'_>) -> Vec<CauseLink> {
+        let mut links = Vec::new();
+        let mut followed = BTreeSet::new();
+        let mut witness = witness;
+        loop {
+            let next = match witness {
+                Witness::Operator {
+                    operator,
+                    position,
+                    operand,
+                    term,
+                    through,
+                } => {
+                    let head = match term {
+                        Pattern::Application { symbol, .. } => symbol.name.as_str(),
+                        _ => "",
+                    };
+                    links.push(CauseLink::Operator(OperatorLink {
+                        operator: declarations.link(operator),
+                        position: *position,
+                        operand: operand.clone(),
+                        term: term.clone(),
+                        term_symbol: declarations.link(head),
+                    }));
+                    match through {
+                        Some(dependence) => (head.to_owned(), *dependence),
+                        None => break,
+                    }
+                }
+                Witness::Function { symbol, dependence } => (symbol.clone(), *dependence),
+            };
+            let Some(reason) = self.reasons.get(&next) else {
+                break;
+            };
+            if !followed.insert(next.clone()) {
+                break;
             }
-        });
-        found
+            links.push(CauseLink::Function {
+                function: declarations.link(&next.0),
+                dependence: next.1,
+                equation: reason.equation.clone(),
+                part: reason.part.clone(),
+            });
+            witness = &reason.witness;
+        }
+        links
     }
 
     /// Whether `symbol` depends on the reading ([`Self::undefined`], [`Self::valued`]).
@@ -1661,35 +2060,48 @@ impl<'d> ShortCircuitAnalysis<'d> {
     /// `Must` of the condition or of the other branch). That is sound by induction on the depth
     /// of evaluation, which needs evaluation to terminate (premise A1, k-rust `data_term`).
     fn direct(&self, pattern: &Pattern) -> bool {
-        let mut found = false;
+        self.direct_witness(pattern).is_some()
+    }
+
+    /// [`Self::direct`]'s witness: the first such operator node in post-order, at its first such
+    /// position, with the first term of `May(arg_i)` outside the other positions' `Must`.
+    fn direct_witness(&self, pattern: &Pattern) -> Option<Witness> {
+        let mut found = None;
         walk::for_each_post_order(pattern, |node| {
-            if !found
+            if found.is_none()
                 && let Pattern::Application { symbol, arguments } = node
                 && let Some(positions) = self.operators.get(symbol.name.as_str())
             {
-                found = positions.iter().any(|position| {
-                    let Some(skipped) = arguments.get(*position) else {
-                        return false;
-                    };
+                found = positions.iter().find_map(|position| {
+                    let skipped = arguments.get(*position)?;
                     let mut evaluated = BTreeSet::new();
                     for (index, other) in arguments.iter().enumerate() {
                         if index != *position {
                             evaluated.extend(self.must(other));
                         }
                     }
-                    self.may(skipped)
-                        .iter()
-                        .any(|term| !evaluated.contains(term))
+                    let term = self
+                        .may(skipped)
+                        .into_iter()
+                        .find(|term| !evaluated.contains(term))?;
+                    Some(Witness::Operator {
+                        operator: symbol.name.clone(),
+                        position: *position,
+                        operand: skipped.clone(),
+                        through: self.dependence(&term),
+                        term,
+                    })
                 });
             }
         });
         found
     }
 
-    /// Whether a rule's or an equation's right-hand side `right` can be undefined in k-rust's
-    /// reading where a short-circuiting backend gives a value.
-    fn result(&self, right: &Pattern) -> bool {
-        self.direct(right) || self.applies(right, &self.undefined)
+    /// Where a rule's or an equation's right-hand side `right` can be undefined in k-rust's
+    /// reading where a short-circuiting backend gives a value, if it can.
+    fn result(&self, right: &Pattern) -> Option<Witness> {
+        self.direct_witness(right)
+            .or_else(|| self.applies_dependent(right, ReadingDependence::Undefined))
     }
 
     /// Whether a condition term (a `requires` clause, `Bool`) can be true in one reading and
@@ -1699,32 +2111,39 @@ impl<'d> ShortCircuitAnalysis<'d> {
     /// call that is undefined in k-rust's reading is `false` or undefined in the other, and the
     /// rule applies in neither.
     fn condition(&self, condition: &Pattern) -> bool {
+        self.condition_witness(condition).is_some()
+    }
+
+    /// [`Self::condition`]'s witness: that of the first conjunct, or of the first argument of a
+    /// conjunctive call, that has one; at any other term, a short-circuit operator
+    /// ([`Self::direct_witness`]), else an application of a function of [`Self::undefined`],
+    /// else of [`Self::valued`].
+    fn condition_witness(&self, condition: &Pattern) -> Option<Witness> {
+        let term = |term: &Pattern| {
+            self.direct_witness(term)
+                .or_else(|| self.applies_dependent(term, ReadingDependence::Undefined))
+                .or_else(|| self.applies_dependent(term, ReadingDependence::Valued))
+        };
         match condition {
             // An equation's right-hand side `\and(term, ensures)`.
-            Pattern::And { arguments, .. } => {
-                arguments.iter().any(|argument| self.condition(argument))
-            }
+            Pattern::And { arguments, .. } => arguments
+                .iter()
+                .find_map(|argument| self.condition_witness(argument)),
             Pattern::Application { symbol, arguments }
                 if self.conjunctions.contains(symbol.name.as_str()) =>
             {
-                arguments.iter().any(|argument| self.condition(argument))
+                arguments
+                    .iter()
+                    .find_map(|argument| self.condition_witness(argument))
             }
             // A conjunctive call is `false` where k-rust's reading makes it undefined, as a
             // conjunct is, so only its arguments can make the condition depend on the reading.
             Pattern::Application { symbol, arguments }
                 if self.conjunctive.contains(symbol.name.as_str()) =>
             {
-                arguments.iter().any(|argument| {
-                    self.direct(argument)
-                        || self.applies(argument, &self.undefined)
-                        || self.applies(argument, &self.valued)
-                })
+                arguments.iter().find_map(term)
             }
-            _ => {
-                self.direct(condition)
-                    || self.applies(condition, &self.undefined)
-                    || self.applies(condition, &self.valued)
-            }
+            _ => term(condition),
         }
     }
 
@@ -1759,23 +2178,98 @@ impl<'d> ShortCircuitAnalysis<'d> {
     /// Before CF-01 only the top-level `\and` and `\implies` were walked into, so an `owise`
     /// guard over an `andThenBool` condition with a partial skippable operand (SM83's
     /// `decode`, whose conditions apply `bitRangeInt`) excluded the definition.
-    fn condition_side(&self, side: &Pattern) -> bool {
+    ///
+    /// It returns the first leaf that depends on the reading, in the order the connectives hold
+    /// their operands, with [`Self::condition_witness`] of it: the leaf is the Bool term `C` of a
+    /// leaf `\equals(C, true)`, or the part read as a whole.
+    fn condition_side(&self, side: &Pattern) -> Option<(Pattern, Witness)> {
         match side {
             Pattern::And { arguments, .. } | Pattern::Or { arguments, .. } => arguments
                 .iter()
-                .any(|argument| self.condition_side(argument)),
+                .find_map(|argument| self.condition_side(argument)),
             Pattern::Not { argument, .. } => self.condition_side(argument),
-            Pattern::Implies { left, right, .. } | Pattern::Iff { left, right, .. } => {
-                self.condition_side(left) || self.condition_side(right)
-            }
+            Pattern::Implies { left, right, .. } | Pattern::Iff { left, right, .. } => self
+                .condition_side(left)
+                .or_else(|| self.condition_side(right)),
             Pattern::Exists { body, .. } | Pattern::Forall { body, .. } => {
                 self.condition_side(body)
             }
-            Pattern::Equals { left, right, .. } if is_true(right) => self.condition(left),
-            Pattern::Top { .. } | Pattern::Bottom { .. } => false,
-            other => self.condition(other),
+            Pattern::Equals { left, right, .. } if is_true(right) => self
+                .condition_witness(left)
+                .map(|witness| ((**left).clone(), witness)),
+            Pattern::Top { .. } | Pattern::Bottom { .. } => None,
+            other => self
+                .condition_witness(other)
+                .map(|witness| (other.clone(), witness)),
         }
     }
+}
+
+/// The first application in `pattern` (in post-order) of a symbol of `symbols`.
+fn applied(pattern: &Pattern, symbols: &BTreeSet<String>) -> Option<String> {
+    let mut found = None;
+    walk::for_each_post_order(pattern, |node| {
+        if found.is_none()
+            && let Pattern::Application { symbol, .. } = node
+            && symbols.contains(symbol.name.as_str())
+        {
+            found = Some(symbol.name.clone());
+        }
+    });
+    found
+}
+
+/// The attributes of `sentence`, for every kind that carries a position or an id.
+fn sentence_attributes(sentence: &Sentence) -> Option<&Attributes> {
+    match sentence {
+        Sentence::Axiom { attributes, .. }
+        | Sentence::Claim { attributes, .. }
+        | Sentence::AliasDeclaration { attributes, .. }
+        | Sentence::SymbolDeclaration { attributes, .. } => Some(attributes),
+        Sentence::Import { .. } | Sentence::SortDeclaration { .. } => None,
+    }
+}
+
+/// The link of a sentence of `module` with `attributes`.
+fn sentence_link(module: &str, attributes: &Attributes) -> SentenceLink {
+    let attribute = |key| string_attribute(attributes, key).map(str::to_owned);
+    SentenceLink {
+        name: sentence_name(attributes),
+        module: module.to_owned(),
+        label: attribute(KoreAttribute::Label),
+        source: attribute(KoreAttribute::Source).map(|source| source_path(&source)),
+        location: attribute(KoreAttribute::Location).and_then(|location| parse_location(&location)),
+        id: attribute(KoreAttribute::UniqueId),
+    }
+}
+
+/// The path a `Source` attribute names (kompile writes `Source(path)`).
+fn source_path(source: &str) -> String {
+    source
+        .strip_prefix("Source(")
+        .and_then(|path| path.strip_suffix(')'))
+        .unwrap_or(source)
+        .to_owned()
+}
+
+/// The span a `Location` attribute names, in kompile's
+/// `Location(start_line,start_column,end_line,end_column)` form.
+fn parse_location(location: &str) -> Option<Location> {
+    let numbers = location
+        .strip_prefix("Location(")?
+        .strip_suffix(')')?
+        .split(',')
+        .map(|part| part.trim().parse::<u32>().ok())
+        .collect::<Option<Vec<_>>>()?;
+    let [start_line, start_column, end_line, end_column] = numbers[..] else {
+        return None;
+    };
+    Some(Location {
+        start_line,
+        start_column,
+        end_line,
+        end_column,
+    })
 }
 
 /// Whether `sentence` is a rewrite axiom ([`rewrite_sides`]).
