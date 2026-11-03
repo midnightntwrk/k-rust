@@ -163,7 +163,16 @@ pub fn definition_digest(definition: &Definition, spec_module: &str) -> String {
 ///   included. A set variable denotes any set of elements, while the simplifier's rewrites
 ///   (`true = notBool c` read as `\not(c = true)`) and the solver's one-value reading hold only
 ///   for terms denoting at most one, so a claim's predicates over one could be decided where K
-///   does not entail the decision.
+///   does not entail the decision;
+/// - `discarded-operand-conjunction-definedness-6`: the definedness of an operand `#if`,
+///   `andThenBool` or `orElseBool` discards states the `\ceil` of each term-level `\and` in it.
+///   A conjunction is defined only where its sides share an element, which their own
+///   definedness does not imply, and every application is strict, so
+///   `#if true #then X #else (X /\ 0) #fi` is `X` only where `X` is 0. The previous reading
+///   stated only the sides' definedness, so `\not(X = #if true #then X #else (X /\ 0) #fi)`
+///   was `\bottom` where K satisfies it at every `X` but 0, and a claim whose constraints held
+///   such an operand could be proven vacuously, or a branch pruned; every proof saved under the
+///   previous reading is set aside.
 ///
 /// The backend gives a claim its reading when it internalizes it
 /// (`k_rust_backend::claim::internalize_reachability_claim` and
@@ -174,7 +183,7 @@ pub fn definition_digest(definition: &Definition, spec_module: &str) -> String {
 /// solver's reading of a predicate, or to the facts the solver is given. A change that only
 /// proves more (a completeness gain) need not, since every answer the previous reading gave
 /// still holds.
-const CLAIM_READING: &str = "solver-set-variable-conjunctions-refused-5";
+const CLAIM_READING: &str = "discarded-operand-conjunction-definedness-6";
 
 /// The assumptions of a proof run that change what a `proven` claim certifies, beside the
 /// compiled definition ([`saved_proofs_digest`]).

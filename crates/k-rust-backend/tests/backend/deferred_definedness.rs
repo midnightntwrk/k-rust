@@ -447,6 +447,41 @@ fn a_nested_conditional_states_its_discarded_atoms_once() {
     );
 }
 
+#[test]
+fn a_discarded_term_conjunction_states_its_own_definedness() {
+    // `X /\ 0` is defined exactly where `X` is 0: its sides are defined everywhere, so their
+    // atoms are not its definedness. Every application is strict, so wherever the conjunction
+    // stands in the discarded operand (bare, under the total `+Int`, under `==Int` in a nested
+    // conditional's condition) the operand owes the conjunction's own atom; under the partial
+    // `tdiv` it owes `tdiv`'s atom and the conjunction's.
+    let definition = definition();
+    let conjunction = r#"\and{SortInt{}}(X:SortInt{}, \dv{SortInt{}}("0"))"#;
+    let discarding = |operand: String| {
+        format!(r#"ite{{}}(\dv{{SortBool{{}}}}("true"), \dv{{SortInt{{}}}}("1"), {operand})"#)
+    };
+    for operand in [
+        conjunction.to_owned(),
+        format!(r#"plus{{}}({conjunction}, \dv{{SortInt{{}}}}("1"))"#),
+        format!(
+            r#"ite{{}}(eqInt{{}}({conjunction}, \dv{{SortInt{{}}}}("1")), \dv{{SortInt{{}}}}("1"), \dv{{SortInt{{}}}}("2"))"#
+        ),
+    ] {
+        assert_eq!(
+            constraints_of(&definition, &discarding(operand.clone())),
+            [defined(&definition, conjunction)],
+            "{operand}"
+        );
+    }
+    let partial = format!(r#"tdiv{{}}(\dv{{SortInt{{}}}}("1"), {conjunction})"#);
+    assert_eq!(
+        constraints_of(&definition, &discarding(partial.clone())),
+        [
+            defined(&definition, &partial),
+            defined(&definition, conjunction)
+        ]
+    );
+}
+
 /// A request's constraints are admitted with the definedness of their atoms stated (`Admitted`).
 /// When that definedness depends on an impure application in an operand a conditional does not
 /// evaluate (here `1 /Int imp()`, discarded or not by `#if X ==Int 0`), no equivalent predicate
