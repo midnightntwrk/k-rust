@@ -131,7 +131,9 @@ fn emit(target: &Path, manifest: &Path) -> String {
         &["--output", output.to_str().unwrap()],
     );
     assert!(success, "{stderr}");
-    fs::read_to_string(output.join("definition.k")).unwrap()
+    krs_test_support::without_source_comments(
+        &fs::read_to_string(output.join("definition.k")).unwrap(),
+    )
 }
 
 /// The `configuration` declaration's cell lines.

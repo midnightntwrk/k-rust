@@ -7,7 +7,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use krs_test_support::{fixture_build_env, krs_command, shared_fixture_target, temp_dir};
+use krs_test_support::{
+    fixture_build_env, krs_command, shared_fixture_target, temp_dir, without_source_comments,
+};
 
 const LIGHT: &str = r#"
 use k::builtin::KSequence;
@@ -244,7 +246,7 @@ fn a_rule_variable_at_k_item_keeps_the_framework_module() {
     );
     let definition = checked_definition(target.path(), &manifest);
     assert!(
-        definition.starts_with("module KRS-FRAMEWORK\n"),
+        without_source_comments(&definition).starts_with("module KRS-FRAMEWORK\n"),
         "{definition}"
     );
     assert!(

@@ -7,7 +7,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use krs_test_support::{fixture_build_env, krs_command, shared_fixture_target, temp_dir};
+use krs_test_support::{
+    fixture_build_env, krs_command, shared_fixture_target, temp_dir, without_source_comments,
+};
 
 const PREAMBLE: &str = r#"
 use k::builtin::{Int, KSequence, List, int, list};
@@ -193,7 +195,11 @@ fn a_shorthand_entry_is_the_entry_binding_the_cell_name() {
     let shorthand = package(temporary.path(), "shorthand", SHORTHAND);
     let long = package(temporary.path(), "long", LONG);
     let shorthand_k = emitted_k(target.path(), &shorthand);
-    assert_eq!(shorthand_k, emitted_k(target.path(), &long));
+    // The packages' names differ, and the source comments name them.
+    assert_eq!(
+        without_source_comments(&shorthand_k),
+        without_source_comments(&emitted_k(target.path(), &long))
+    );
     assert!(
         shorthand_k.contains("<gas> Gas:Int </gas>"),
         "the restated cell is a read:\n{shorthand_k}"
@@ -371,7 +377,11 @@ fn a_shorthand_instance_child_is_the_child_bound_to_its_name() {
     );
     let long = package_over(temporary.path(), "instance-long", ACCOUNTS, INSTANCE_LONG);
     let shorthand_k = emitted_k(target.path(), &shorthand);
-    assert_eq!(shorthand_k, emitted_k(target.path(), &long));
+    // The packages' names differ, and the source comments name them.
+    assert_eq!(
+        without_source_comments(&shorthand_k),
+        without_source_comments(&emitted_k(target.path(), &long))
+    );
     let words = shorthand_k.split_whitespace().collect::<Vec<_>>().join(" ");
     for written in [
         // The created instance writes the bound variables.

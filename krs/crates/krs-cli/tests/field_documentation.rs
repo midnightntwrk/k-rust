@@ -7,7 +7,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use krs_test_support::{fixture_build_env, krs_command, shared_fixture_target, temp_dir};
+use krs_test_support::{
+    fixture_build_env, krs_command, shared_fixture_target, temp_dir, without_source_comments,
+};
 
 /// A package with a `{DOC}` placeholder before each documentable field.
 const SOURCE: &str = r#"
@@ -169,5 +171,9 @@ fn field_doc_comments_document_only_the_rust_item() {
         "{expanded}"
     );
     let reference = package(temporary.path(), "expanded", &expanded);
-    assert_eq!(emit(target.path(), &reference).0, definition);
+    // The reference package is named `expanded`, which the source comments name.
+    assert_eq!(
+        without_source_comments(&emit(target.path(), &reference).0),
+        without_source_comments(&definition)
+    );
 }

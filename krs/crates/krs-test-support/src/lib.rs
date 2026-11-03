@@ -144,6 +144,30 @@ pub fn default_labels(text: &str) -> String {
     out
 }
 
+/// Emitted K `text` without the comments that name its Rust sources: the artifact's header (its
+/// unindented comment lines) and the `// KRS` line above each sentence. A test of the sentences'
+/// K reads them this way; the comments have tests of their own.
+#[must_use]
+pub fn without_source_comments(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut header = true;
+    for line in text.split_inclusive('\n') {
+        if header && line.starts_with("//") {
+            continue;
+        }
+        if header && line == "\n" {
+            header = false;
+            continue;
+        }
+        header = false;
+        if line.trim_start().starts_with("// KRS ") {
+            continue;
+        }
+        out.push_str(line);
+    }
+    out
+}
+
 /// A temporary directory removed when its guard is dropped.
 pub use tempfile::TempDir;
 

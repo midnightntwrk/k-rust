@@ -233,7 +233,9 @@ fn a_computation_remainder_is_a_value_moved_unless_put_back() {
         &["--output", output.to_str().unwrap()],
     );
     assert!(success, "{stderr}");
-    let k = fs::read_to_string(output.join("definition.k")).unwrap();
+    let k = krs_test_support::without_source_comments(
+        &fs::read_to_string(output.join("definition.k")).unwrap(),
+    );
     expect_test::expect![[r"
         rule [park]:
             <k> park ~> Tail:K => bump ~> resume </k>

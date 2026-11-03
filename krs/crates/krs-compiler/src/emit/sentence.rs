@@ -112,13 +112,19 @@ pub(super) fn emit_sentence(
     Ok(())
 }
 
-/// `src/lib.rs:12:1`: the package-relative file and position of a `raw_k!`.
-pub(crate) fn raw_location(raw: &krs_ir::RawSentence) -> String {
-    let file = raw.origin.origin().exact_authored_range().map_or_else(
+/// `my-package/src/lib.rs`: the package and package-relative file of a `raw_k!`, without its
+/// line and column, so that an edit that only moves Rust lines leaves the emitted K unchanged.
+fn raw_location(raw: &krs_ir::RawSentence) -> String {
+    raw.origin.origin().exact_authored_range().map_or_else(
         || "<unknown>".to_owned(),
-        |range| range.file.package_relative_path().to_owned(),
-    );
-    format!("{file}:{}:{}", raw.line, raw.column)
+        |range| {
+            format!(
+                "{}/{}",
+                range.file.package().cargo_name(),
+                range.file.package_relative_path()
+            )
+        },
+    )
 }
 
 fn emit_production(

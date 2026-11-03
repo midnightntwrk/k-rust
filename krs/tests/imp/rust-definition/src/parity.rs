@@ -802,10 +802,28 @@ fn first_difference<'a>(left: &'a Json, right: &'a Json, path: &str) -> Option<S
 /// `rest @ ..` so that `cells!` can repeat them. This is deliberately scoped
 /// to labeled rules, leaving declarations, claims, equations, side conditions,
 /// and every non-frame fragment byte-exact.
+///
+/// The comments that name the Rust source are dropped first: the header (the
+/// comment lines that open the file, up to the blank line after them) and each
+/// sentence's `// KRS` line. The two packages are different Rust sources of one
+/// definition, so they name different packages and items, and the lines are
+/// K comments that no sentence's meaning depends on. Every other comment is
+/// compared.
 fn normalized_emitted_k(source: &str) -> String {
     let mut in_labeled_rule = false;
-    source
-        .lines()
+    let header = source
+        .split_inclusive('\n')
+        .take_while(|line| line.starts_with("//"))
+        .map(str::len)
+        .sum::<usize>();
+    let body = &source[header..];
+    let body = if header > 0 {
+        body.strip_prefix('\n').unwrap_or(body)
+    } else {
+        body
+    };
+    body.lines()
+        .filter(|line| !line.trim_start().starts_with("// KRS "))
         .map(|line| {
             let trimmed = line.trim_start();
             if trimmed.starts_with("rule [") {

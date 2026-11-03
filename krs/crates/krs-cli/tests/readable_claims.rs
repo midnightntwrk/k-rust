@@ -515,7 +515,7 @@ fn emitted(target: &Path, manifest: &Path, name: &str) -> String {
         &["--output", output.to_str().unwrap()],
     );
     assert!(success, "{stderr}");
-    fs::read_to_string(output.join(name)).unwrap()
+    krs_test_support::without_source_comments(&fs::read_to_string(output.join(name)).unwrap())
 }
 
 /// The claim results `krs prove` reports, one line per claim.

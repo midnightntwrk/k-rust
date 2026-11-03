@@ -2414,9 +2414,16 @@ mod tests {
             assert!(excerpt.starts_with(&format!("  claim [{}]:", row["label"].as_str().unwrap())));
             assert!(excerpt.ends_with('\n'));
         }
-        assert_eq!(
-            rows[0]["generated"]["end_byte"],
-            rows[1]["generated"]["start_byte"]
+        // Between two claims stands only the second's `// KRS` line, outside every range.
+        let byte = |row: &Value, key: &str| {
+            usize::try_from(row["generated"][key].as_u64().unwrap()).unwrap()
+        };
+        let gap =
+            std::str::from_utf8(&source[byte(&rows[0], "end_byte")..byte(&rows[1], "start_byte")])
+                .unwrap();
+        assert!(
+            gap.starts_with("  // KRS ") && gap.ends_with('\n') && gap.lines().count() == 1,
+            "{gap:?}"
         );
     }
 

@@ -1066,7 +1066,14 @@ impl DefinitionSentence {
     /// built without claims leaves out with them.
     #[must_use]
     pub fn is_lifted_from_claim(&self) -> bool {
-        sentence_item(self.origin()).is_some_and(krs_ir::lifted_from_claim)
+        self.item().is_some_and(krs_ir::lifted_from_claim)
+    }
+
+    /// The item this sentence was lowered from: the item of its origin's last frame, the
+    /// Definition-IR transformation, or `None` when that frame names none.
+    #[must_use]
+    pub fn item(&self) -> Option<&StableItemId> {
+        sentence_item(self.origin())
     }
 
     /// Returns the mandatory sentence origin.

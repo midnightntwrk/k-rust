@@ -1,3 +1,4 @@
+mod annotation;
 mod sentence;
 mod term;
 mod token;
@@ -24,6 +25,8 @@ use crate::{
     LoweredDefinition, SourceMap, SymbolMap,
     sidecar::{GeneratedRanges, SidecarError},
 };
+use annotation::header;
+pub use annotation::{SentenceSource, SentenceSources};
 use sentence::emit_sentence;
 use term::Rendered;
 use token::TokenLexicon;
@@ -178,35 +181,10 @@ impl From<SidecarError> for EmitError {
 pub fn emit_k(lowered: &LoweredDefinition) -> Result<EmittedK, EmitError> {
     let definition = lowered.definition();
     let context = EmitContext::new(definition);
+    let sources = SentenceSources::new(definition);
     let mut writer = Writer::default();
     let mut claims = Vec::new();
-    // Each package's program-syntax module precedes the semantics module that
-    // imports it, as in the K tutorials' `IMP-SYNTAX`/`IMP` pairs.
-    let mut modules = definition
-        .modules()
-        .iter()
-        .filter(|module| !module.is_spec())
-        .collect::<Vec<_>>();
-    modules.sort_by_key(|module| {
-        let name = module.id().as_str();
-        match module.role() {
-            ModuleRole::ProgramSyntax => (
-                name.strip_suffix(crate::partition::PROGRAM_SYNTAX_SUFFIX)
-                    .unwrap_or(name),
-                0,
-            ),
-            ModuleRole::Semantics | ModuleRole::Spec => (name, 1),
-        }
-    });
-    for (index, module) in modules.into_iter().enumerate() {
-        if index != 0 {
-            writer.push("\n");
-        }
-        emit_module(module, &context, &mut writer, Some(&mut claims))?;
-    }
-    if !writer.source.ends_with('\n') {
-        writer.push("\n");
-    }
+    emit_definition_modules(definition, &context, &sources, &mut writer, &mut claims)?;
     let mut spec_writer = Writer::default();
     let author_modules = spec_modules_in_import_order(definition);
     let mut spec_modules = Vec::new();
@@ -232,7 +210,7 @@ pub fn emit_k(lowered: &LoweredDefinition) -> Result<EmittedK, EmitError> {
     for module in author_modules {
         let spec_context = EmitContext::new(definition).for_spec_module(definition, module);
         spec_writer.push("\n");
-        emit_module(module, &spec_context, &mut spec_writer, None)?;
+        emit_module(module, &spec_context, &sources, &mut spec_writer, None)?;
         spec_modules.push(module.id().as_str().to_owned());
     }
     let generated = if claims.is_empty() {
@@ -260,12 +238,14 @@ pub fn emit_k(lowered: &LoweredDefinition) -> Result<EmittedK, EmitError> {
         }
         spec_writer.push("\n\n");
         for claim in claims {
+            spec_writer.push_source(claim, &sources);
             emit_sentence(claim, &context, &mut spec_writer)?;
         }
         spec_writer.push("endmodule\n");
         spec_modules.push(module.clone());
         Some(module)
     };
+    spec_writer.prepend_header()?;
     let source_map = lowered.source_map().clone().with_generated_ranges(&[
         (DEFINITION_ARTIFACT, &writer.source, &writer.ranges),
         (SPEC_ARTIFACT, &spec_writer.source, &spec_writer.ranges),
@@ -280,6 +260,44 @@ pub fn emit_k(lowered: &LoweredDefinition) -> Result<EmittedK, EmitError> {
         symbol_map: lowered.symbol_map().clone(),
         source_map,
     })
+}
+
+/// Writes `definition.k`: every module but the spec modules, each package's program-syntax
+/// module before the semantics module that imports it, as in the K tutorials' `IMP-SYNTAX`/`IMP`
+/// pairs, under the header; the modules' claims are moved to `claims`.
+fn emit_definition_modules<'a>(
+    definition: &'a DefinitionIr,
+    context: &EmitContext<'_>,
+    sources: &SentenceSources<'_>,
+    writer: &mut Writer,
+    claims: &mut Vec<&'a DefinitionSentence>,
+) -> Result<(), EmitError> {
+    let mut modules = definition
+        .modules()
+        .iter()
+        .filter(|module| !module.is_spec())
+        .collect::<Vec<_>>();
+    modules.sort_by_key(|module| {
+        let name = module.id().as_str();
+        match module.role() {
+            ModuleRole::ProgramSyntax => (
+                name.strip_suffix(crate::partition::PROGRAM_SYNTAX_SUFFIX)
+                    .unwrap_or(name),
+                0,
+            ),
+            ModuleRole::Semantics | ModuleRole::Spec => (name, 1),
+        }
+    });
+    for (index, module) in modules.into_iter().enumerate() {
+        if index != 0 {
+            writer.push("\n");
+        }
+        emit_module(module, context, sources, writer, Some(claims))?;
+    }
+    if !writer.source.ends_with('\n') {
+        writer.push("\n");
+    }
+    writer.prepend_header()
 }
 
 /// The author spec modules (KF-041), each after every spec module it imports,
@@ -712,11 +730,50 @@ fn collect_repeated_ancestors(
 struct Writer {
     source: String,
     ranges: GeneratedRanges,
+    /// The Cargo packages of the authored files of every module and sentence written.
+    packages: BTreeSet<String>,
 }
 
 impl Writer {
     fn push(&mut self, text: &str) {
         self.source.push_str(text);
+    }
+
+    /// Records the package of `origin`'s authored file for the header.
+    fn note_package(&mut self, origin: &krs_ir::NodeOrigin) {
+        if let Some(krs_ir::OriginFrame::Ranged {
+            kind: krs_ir::RangedOriginKind::Authored,
+            range,
+            ..
+        }) = origin.origin().frames().first()
+        {
+            self.packages
+                .insert(range.file.package().cargo_name().to_owned());
+        }
+    }
+
+    /// Writes the `// KRS` line naming `sentence`'s Rust source, when it has one, and notes
+    /// its package; the line precedes the capability lines and the sentence's recorded range.
+    fn push_source(&mut self, sentence: &DefinitionSentence, sources: &SentenceSources<'_>) {
+        self.note_package(sentence.origin());
+        if let Some(source) = sources.source(sentence) {
+            self.push("  ");
+            self.push(&source.to_string());
+            self.push("\n");
+        }
+    }
+
+    /// Writes the [`header`] before everything written so far, shifting every recorded range.
+    fn prepend_header(&mut self) -> Result<(), EmitError> {
+        let packages = self.packages.iter().map(String::as_str).collect::<Vec<_>>();
+        let header = header(&packages);
+        self.source.insert_str(0, &header);
+        for range in self.ranges.values_mut() {
+            *range = range
+                .checked_shift(header.len())
+                .ok_or(SidecarError::InvalidGeneratedRange)?;
+        }
+        Ok(())
     }
 
     fn record(&mut self, key: &SourceMapKey, start: usize, end: usize) -> Result<(), EmitError> {
@@ -743,9 +800,11 @@ impl Writer {
 fn emit_module<'a>(
     module: &'a DefinitionModule,
     context: &EmitContext<'_>,
+    sources: &SentenceSources<'_>,
     writer: &mut Writer,
     claims: Option<&mut Vec<&'a DefinitionSentence>>,
 ) -> Result<(), EmitError> {
+    writer.note_package(module.origin());
     let module_start = writer.source.len();
     writer.push("module ");
     writer.push(module.id().as_str());
@@ -777,6 +836,7 @@ fn emit_module<'a>(
         if previous_group.is_some_and(|previous| previous != group) {
             writer.push("\n");
         }
+        writer.push_source(sentence, sources);
         emit_sentence(sentence, context, writer)?;
         previous_group = Some(group);
     }

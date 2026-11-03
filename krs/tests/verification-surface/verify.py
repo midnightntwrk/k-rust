@@ -399,7 +399,8 @@ LESSON_SPEC = "LESSON-SPEC"
 LESSON_SPEC_FRAGMENT = (
     "module LESSON-SPEC\n  imports ID-SYNTAX\n  imports INT-SYNTAX\n  imports KRS-L22-LESSON\n  imports MAP\n\n"
     + IMP_SUM_TOKEN
-    + "\n  claim [dollar-assign]:\n"
+    + "\n  // KRS krs-verification-surface-l22-lesson/src/lib.rs: dollar_assign\n"
+    "  claim [dollar-assign]:\n"
     "    <k> $n = N:Int ; $m = M:Int ; ~> Tail:K => .K ~> Tail:K </k>\n"
     "    <store> S:Map => S:Map [ $n <- N:Int ] [ $m <- M:Int ] </store>\n"
     "endmodule\n"

@@ -137,7 +137,9 @@ fn emitted_k(target: &Path, manifest: &Path) -> String {
         &["--output", output.to_str().unwrap()],
     );
     assert!(success, "{stderr}");
-    fs::read_to_string(output.join("definition.k")).unwrap()
+    krs_test_support::without_source_comments(
+        &fs::read_to_string(output.join("definition.k")).unwrap(),
+    )
 }
 
 /// The `error[..]` headlines and messages of `krs check`.
@@ -554,7 +556,11 @@ fn a_group_record_may_omit_children_where_it_matches_a_configuration_cell() {
             &["--output", output.to_str().unwrap()],
         );
         assert!(success, "{stderr}");
-        ["definition.k", "spec.k"].map(|file| fs::read_to_string(output.join(file)).unwrap())
+        ["definition.k", "spec.k"].map(|file| {
+            krs_test_support::without_source_comments(
+                &fs::read_to_string(output.join(file)).unwrap(),
+            )
+        })
     };
     let lenient = emitted("omitting", false);
     assert_eq!(lenient, emitted("rest", true));

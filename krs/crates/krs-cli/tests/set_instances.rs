@@ -528,7 +528,9 @@ fn emitted_rules(labels: &[&str]) -> String {
         &["--output", output.to_str().unwrap()],
     );
     assert!(success, "{stderr}");
-    let definition = fs::read_to_string(output.join("definition.k")).unwrap();
+    let definition = krs_test_support::without_source_comments(
+        &fs::read_to_string(output.join("definition.k")).unwrap(),
+    );
     let mut rules = Vec::new();
     for label in labels {
         let rule = definition

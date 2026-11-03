@@ -261,7 +261,9 @@ fn typed_positions_accept_fitting_writes() {
         &["--output", output.to_str().unwrap()],
     );
     assert!(success, "{stderr}");
-    let definition = fs::read_to_string(output.join("definition.k")).unwrap();
+    let definition = krs_test_support::without_source_comments(
+        &fs::read_to_string(output.join("definition.k")).unwrap(),
+    );
     expect_test::expect![[r#"
         [
             "<k> op 1 ~> put Name:Id _ => .K ... </k> <env> E:Map => E:Map [ Name:Id <- 1 ] </env>",
@@ -363,7 +365,9 @@ fn a_key_computed_by_a_projected_read_is_guarded() {
         &["--output", output.to_str().unwrap()],
     );
     assert!(success, "{stderr}");
-    let definition = fs::read_to_string(output.join("definition.k")).unwrap();
+    let definition = krs_test_support::without_source_comments(
+        &fs::read_to_string(output.join("definition.k")).unwrap(),
+    );
     // An equation, its label (a hash of the sentence) left out.
     let equation = |head: &str| {
         let text = definition
@@ -895,7 +899,9 @@ k::claims! {
         &["--output", output.to_str().unwrap()],
     );
     assert!(success, "{stderr}");
-    let definition = fs::read_to_string(output.join("definition.k")).unwrap();
+    let definition = krs_test_support::without_source_comments(
+        &fs::read_to_string(output.join("definition.k")).unwrap(),
+    );
     expect_test::expect![[r#"
         [
             "<k> op 1 ~> put Name:Id S:Stmt => .K ... </k> <seen> _ => keys(.Map [ Name:Id <- S:Stmt ]) </seen>",
@@ -1422,9 +1428,10 @@ fn untyped_sources_meet_typed_element_positions() {
     );
     assert!(success, "{stderr}");
     assert!(
-        fs::read_to_string(output.join("definition.k"))
-            .unwrap()
-            .contains("<stack> ListItem({$XS:List [ 0 ]}:>Value) </stack>")
+        krs_test_support::without_source_comments(
+            &fs::read_to_string(output.join("definition.k")).unwrap()
+        )
+        .contains("<stack> ListItem({$XS:List [ 0 ]}:>Value) </stack>")
     );
     let rejected = [
         (

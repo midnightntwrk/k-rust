@@ -490,7 +490,9 @@ fn a_record_pattern_may_name_no_field() {
         let (success, expanded, stderr) = krs(target.path(), &manifest, "expand", &[]);
         assert!(success, "{stderr}");
         (
-            fs::read_to_string(output.join("definition.k")).unwrap(),
+            krs_test_support::without_source_comments(
+                &fs::read_to_string(output.join("definition.k")).unwrap(),
+            ),
             expanded,
         )
     };
@@ -598,8 +600,12 @@ fn emitted(target: &Path, manifest: &Path) -> (String, String) {
     );
     assert!(success, "{stderr}");
     (
-        fs::read_to_string(output.join("definition.k")).unwrap(),
-        fs::read_to_string(output.join("spec.k")).unwrap_or_default(),
+        krs_test_support::without_source_comments(
+            &fs::read_to_string(output.join("definition.k")).unwrap(),
+        ),
+        krs_test_support::without_source_comments(
+            &fs::read_to_string(output.join("spec.k")).unwrap_or_default(),
+        ),
     )
 }
 

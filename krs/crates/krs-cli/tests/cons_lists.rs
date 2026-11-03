@@ -368,7 +368,9 @@ fn definition_k(target: &Path, root: &Path, name: &str, source: &str) -> String 
     files.iter().fold(String::new(), |mut emitted, path| {
         let name = path.file_name().unwrap().to_string_lossy();
         writeln!(emitted, "// {name}").unwrap();
-        emitted.push_str(&fs::read_to_string(path).unwrap());
+        emitted.push_str(&krs_test_support::without_source_comments(
+            &fs::read_to_string(path).unwrap(),
+        ));
         emitted
     })
 }

@@ -26,9 +26,10 @@ and nowhere else. Each rule maps two K texts that mean the same thing to one tex
    whose content holds no rewrite, is read as `...` (with the `~>` before it, for a `K` rest).
    Such a variable is matched and never used, which is what K's anonymous `...` rest is. A
    rewrite in the cell is excluded, since `A => B R:Map` writes `R` on the right-hand side.
-4. The comment the emitter writes before a raw K sentence, `// raw_k! FILE:LINE:COLUMN (opaque
-   to KRS)`, is read without its line and column. K ignores a comment, and the printed file
-   holds the same `raw_k!` text at another line.
+4. The comments the emitter writes to name the Rust source rather than the K are left out: the
+   artifact's header (its unindented comment lines) and the `// KRS PACKAGE/FILE: ITEM` line
+   above a sentence. K ignores a comment, and the printed source names some sentences by
+   another item: `krs expand` prints a shorthand branch as the equation fn it stands for.
 
 Everything else must be equal, and a sentence one side has and the other has not is a
 difference, at any position.
@@ -45,7 +46,10 @@ _SENTENCE = re.compile(
 )
 _VARIABLE = re.compile(r"\b([A-Z][A-Za-z0-9_']*):(?=[A-Za-z#])")
 _REST_SORTS = ("K", "Map", "Set", "List", "Bag")
-_RAW_K_COMMENT = re.compile(r"(// raw_k! \S+?):\d+:\d+( \(opaque to KRS\))")
+_HEADER = re.compile(r"\A(?://[^\n]*\n)+\n?")
+"""The header of an emitted K artifact: the comment lines that open it and the blank line after
+them."""
+_SOURCE_LINE = re.compile(r"^[ \t]*// KRS [^\n]*\n", re.MULTILINE)
 _LEAF_CELL = re.compile(r"<([A-Za-z][A-Za-z0-9-]*)((?:\s[^<>]*)?)>([^<>]*)</\1>")
 _K_CONTENT = re.compile(r"\s*(?:\$[A-Za-z][A-Za-z0-9_]*:K|\.K)\s*")
 _MAIN_CELL = re.compile(r"\smaincell=")
@@ -57,7 +61,7 @@ declares none."""
 def sentences(text: str) -> list[str]:
     """The sentences of an emitted K text, each with its whitespace collapsed."""
 
-    text = _RAW_K_COMMENT.sub(r"\1\2", text)
+    text = _SOURCE_LINE.sub("", _HEADER.sub("", text, count=1))
     return [" ".join(block.split()) for block in _SENTENCE.split(text) if block.split()]
 
 

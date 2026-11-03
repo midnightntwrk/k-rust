@@ -148,6 +148,7 @@ from support.fixture_gate import (  # noqa: E402
     ACCEPTED, JAVA_TOOLS, Emitted, Fixture, FixtureGate, Program, diagnostic_lines,
     java_run_outcome,
 )
+from support.kdefinition import without_source_comments  # noqa: E402
 from support.krs import build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.pins import Ledger  # noqa: E402
@@ -535,8 +536,9 @@ def verify_sugar(harness: FixtureGate) -> None:
     emitted = harness.emit(SUGAR)
     harness.check(SUGAR_LONG)
     long_form = harness.emit_unpinned(SUGAR_LONG, harness.workspace / "emitted-long" / SUGAR_LONG.package)
-    sugar_source = emitted.source.read_text(encoding="utf-8")
-    long_source = (long_form / emitted.source.name).read_text(encoding="utf-8")
+    # The comments that name the Rust sources name each package's own items.
+    sugar_source = without_source_comments(emitted.source.read_text(encoding="utf-8"))
+    long_source = without_source_comments((long_form / emitted.source.name).read_text(encoding="utf-8"))
     if sugar_source != long_source:
         raise GateError(
             f"{SUGAR.package}: the emitted K differs from its long form {SUGAR_LONG.package}"
@@ -574,8 +576,8 @@ def verify_bits(harness: FixtureGate) -> None:
     harness.check(BITS_LONG)
     long_form = harness.emit_unpinned(BITS_LONG, harness.workspace / "emitted-long" / BITS_LONG.package)
     hidden, named = BITS_HIDDEN_BINDER
-    sugar_source = emitted.source.read_text(encoding="utf-8")
-    long_source = (long_form / emitted.source.name).read_text(encoding="utf-8")
+    sugar_source = without_source_comments(emitted.source.read_text(encoding="utf-8"))
+    long_source = without_source_comments((long_form / emitted.source.name).read_text(encoding="utf-8"))
     if f"{named}:Int" not in long_source or f"{hidden}:Int" not in sugar_source:
         raise GateError(f"{BITS.package}: the binders the comparison renames are absent")
     if sugar_source.replace(hidden, named) != long_source:

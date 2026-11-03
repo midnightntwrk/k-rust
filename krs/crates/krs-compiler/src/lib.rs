@@ -27,9 +27,9 @@ mod token_values;
 pub use artifacts::*;
 pub use coverage::coverage_warnings;
 pub use emit::{
-    DeclaredCellType, EmitError, EmittedK, EmittedSpec, declared_cell_types,
-    definition_module_imports, definition_sentence_source, emit_k, smt_only_function_warnings,
-    trusted_claim_warnings,
+    DeclaredCellType, EmitError, EmittedK, EmittedSpec, SentenceSource, SentenceSources,
+    declared_cell_types, definition_module_imports, definition_sentence_source, emit_k,
+    smt_only_function_warnings, trusted_claim_warnings,
 };
 pub use error::{AnalysisError, AnalysisErrorKind};
 pub use lowering::{CollisionNamespace, LoweredDefinition, LoweringError, lower_semantic_theory};

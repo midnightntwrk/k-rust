@@ -973,7 +973,7 @@ def raw_k(harness: FixtureGate) -> None:
     emitted = harness.emit(RAW_K)
     source = emitted.source.read_text(encoding="utf-8")
     for line in (
-        "  // raw_k! src/lib.rs:38:1 (opaque to KRS)\n"
+        "  // raw_k! krs-builtin-raw-k/src/lib.rs (opaque to KRS)\n"
         "  rule <k> double(I:Int) => I +Int I ... </k> [label(raw-double)]\n",
         "  imports INT\n",
     ):

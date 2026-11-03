@@ -143,6 +143,7 @@ import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, entry, krs_gate  # noqa: E402
 from support.fixture_gate import Fixture, FixtureGate, Program  # noqa: E402
+from support.kdefinition import without_source_comments  # noqa: E402
 from support.krs import build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.process import run  # noqa: E402
@@ -762,9 +763,12 @@ def main() -> int:
         harness.check(NONDET)
         harness.expand(NONDET)
         nondet = harness.emit(NONDET)
-        # A default label spells the item path, `krs_nondet--div`, so the key is looked for
-        # outside the labels.
-        unlabelled = re.sub(r"label\([^)]*\)", "label()", nondet.source.read_text(encoding="utf-8"))
+        # A default label spells the item path, `krs_nondet--div`, and the comments that name
+        # the Rust sources name the package, so the key is looked for in the sentences alone.
+        unlabelled = re.sub(
+            r"label\([^)]*\)", "label()",
+            without_source_comments(nondet.source.read_text(encoding="utf-8")),
+        )
         if "nondet" in unlabelled:
             raise GateError("the check-only nondet key reached the emitted K")
         harness.compare(nondet, NONDET_PROGRAMS, sort="Exp", search=True)

@@ -212,7 +212,9 @@ fn emitted(target: &Path, manifest: &Path) -> (String, String) {
         &["--output", output.to_str().unwrap()],
     );
     assert!(success, "{stderr}");
-    let read = |file: &str| fs::read_to_string(output.join(file)).unwrap();
+    let read = |file: &str| {
+        krs_test_support::without_source_comments(&fs::read_to_string(output.join(file)).unwrap())
+    };
     (read("definition.k"), read("spec.k"))
 }
 
