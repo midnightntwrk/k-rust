@@ -1638,8 +1638,12 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// `$ENV:Int` has a sort the syntax module has (through `INT-SYNTAX`), so its text is read with
+/// the syntax module's grammar first; `two()` is a function only the main module declares, so
+/// that grammar does not parse it and the main module's reads it, giving the pinned `krun`'s
+/// value.
 #[test]
-fn reference_krun_parses_configuration_variables_with_the_main_module() {
+fn reference_krun_falls_back_to_the_main_module_for_a_configuration_variable() {
     // reference: k/result/bin/krun 1.pgm --definition ref -cENV='two()' --output kore
     let fixtures =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/cli/cfg");

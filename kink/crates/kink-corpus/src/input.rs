@@ -9,7 +9,6 @@ use k_rust::{
         CompileOptions,
         initial_configuration::{
             ConfigurationAssembler, ConfigurationError, ProgramGrammar, program_start_position,
-            variable_reading_modules,
         },
     },
     kore::ast::Pattern,
@@ -154,17 +153,13 @@ pub fn input_grammar_builds() -> usize {
 }
 
 /// What assembling inputs of one compiled definition needs, built once per definition: the
-/// program grammar, the declared variables, the grammar each variable's text is read with first,
-/// the start sort and whether the definition has stream cells.
+/// program grammar, the declared variables, the start sort and whether the definition has stream
+/// cells.
 pub struct InputGrammar {
     grammar: ProgramGrammar,
     main_module: String,
     syntax_module: String,
     variables: BTreeMap<String, Sort>,
-    /// The variables whose text is read with the syntax module's grammar first, as a program is
-    /// (k-rust `variable_reading_modules`): the rule krs-exec reads them with, so one text denotes
-    /// one term in both tools.
-    reading_modules: BTreeMap<String, String>,
     default_start: Sort,
     stream_cells: bool,
 }
@@ -210,24 +205,14 @@ impl InputGrammar {
         let default_start =
             program_start_position(variables.get("PGM").unwrap_or(&Sort::new("KItem")));
         let syntax_module = loaded.syntax_module.to_string();
-        let reading_modules =
-            variable_reading_modules(&grammar, &syntax_module, &variables).map_err(input_error)?;
         Ok(Self {
             grammar,
             main_module: loaded.baseline.definition().main_module.to_string(),
             syntax_module,
             variables,
-            reading_modules,
             default_start,
             stream_cells: has_stream_cells(&compiled.artifacts().execution_definition),
         })
-    }
-
-    /// The configuration variables, without `$`, whose text kink reads with the syntax module's
-    /// grammar first (k-rust `variable_reading_modules`), in name order. Only these can read
-    /// differently under [`InputAssembler::reading_with_main_module`].
-    pub fn syntax_read_variables(&self) -> impl Iterator<Item = &str> {
-        self.reading_modules.keys().map(String::as_str)
     }
 }
 
@@ -249,25 +234,6 @@ impl fmt::Debug for InputAssembler<'_> {
 
 impl<'g> InputAssembler<'g> {
     pub fn new(grammar: &'g InputGrammar) -> Self {
-        Self {
-            grammar,
-            assembler: ConfigurationAssembler::new(
-                &grammar.grammar,
-                grammar.main_module.as_str(),
-                grammar.syntax_module.as_str(),
-                &grammar.variables,
-            )
-            .reading_variables_with(grammar.reading_modules.clone()),
-        }
-    }
-
-    /// An assembler that reads every configuration variable's text with the main module's
-    /// grammar alone (or the module its cell's `parser` attribute names), as krun reads `-c` and
-    /// a k-rust-fuzz campaign assembles a case. It differs from [`Self::new`] only on the
-    /// variables [`InputGrammar::syntax_read_variables`] names, and only on texts the two
-    /// grammars read as different terms (or that one of them does not parse): kink-flow's `fuzz`
-    /// uses it to recognize a case whose campaign input is not kink's.
-    pub fn reading_with_main_module(grammar: &'g InputGrammar) -> Self {
         Self {
             grammar,
             assembler: ConfigurationAssembler::new(

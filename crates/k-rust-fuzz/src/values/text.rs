@@ -222,11 +222,16 @@ impl TextSyntax {
         printed.warnings.is_empty().then(|| one_line(&printed.text))
     }
 
-    /// `text` read at the sort whose K name is `sort`, as the configuration assembler reads a
-    /// configuration value of that sort: parsed in the main module, macro-expanded, injected at
-    /// the sort, and converted to KORE. The injection to `sort` around the whole value is
-    /// removed: the result is the value at its own sort, as [`super::print::to_kore`] gives it,
-    /// since the assembler replaces that injection by the one the value's position needs.
+    /// `text` read at the sort whose K name is `sort` with the main module's grammar,
+    /// macro-expanded, injected at the sort, and converted to KORE, as the configuration
+    /// assembler reads a configuration value of a sort the syntax module does not have. A value
+    /// of a sort the syntax module has the assembler reads with the syntax module's grammar
+    /// first (k-rust `variable_reading_modules`); the main module's grammar holds that grammar,
+    /// so the two readings differ only on a text the main module's scanner reads with another
+    /// token sort, or that its further productions make ambiguous or parse otherwise. The
+    /// injection to `sort` around the whole value is removed: the result is the value at its own
+    /// sort, as [`super::print::to_kore`] gives it, since the assembler replaces that injection
+    /// by the one the value's position needs.
     ///
     /// # Errors
     ///

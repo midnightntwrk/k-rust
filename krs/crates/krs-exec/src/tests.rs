@@ -525,6 +525,88 @@ fn parse_positions_name_the_line_and_column() {
     assert_eq!(super::located("prog.imp", "foo", Some(99)), "prog.imp");
 }
 
+/// A variable's text that neither grammar of the reading rule parses is reported with both
+/// failures, located where the text stops being readable under the rule: `word0` at `Word` is the
+/// `Word` `word` and then a stray `0` under the syntax module's grammar, while the main module's
+/// scanner reads `word` as a `Name` and fails at its start.
+#[test]
+fn a_variable_neither_grammar_reads_reports_both_failures_at_the_later_one() {
+    use k_rust::{
+        builtin::embedded,
+        kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
+        outer::{LoadOptions, ResolvedSource, load_with_options},
+    };
+
+    use super::configuration::{AssemblyError, Binding, Configuration};
+
+    let source = r#"
+module TOKENS-SYNTAX
+  syntax Word ::= r"w[a-z]*" [token]
+  syntax Pgm ::= "run" [symbol(run)]
+endmodule
+module TOKENS
+  imports TOKENS-SYNTAX
+  imports BASIC-K
+  syntax Name ::= r"wor[a-z]*" [token, prec(2)]
+  configuration <k> $PGM:Pgm </k> <w> $W:Word </w>
+endmodule
+"#;
+    let mut resolver =
+        |_: &str, path: &str| embedded(path).ok_or_else(|| format!("missing builtin {path}"));
+    let loaded = load_with_options(
+        ResolvedSource::new("tokens.k", source),
+        "TOKENS",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![embedded("prelude.md").unwrap()],
+            ..CompilationBackend::Rust.load_options()
+        },
+    )
+    .unwrap();
+    let compiled = compile_loaded_definition(
+        &loaded,
+        CompileOptions {
+            backend: CompilationBackend::Rust,
+            ..CompileOptions::default()
+        },
+    )
+    .unwrap();
+    let mut configuration =
+        Configuration::new(&loaded.into_definition(), compiled.configuration_variables).unwrap();
+    let variables = BTreeMap::from([("W".to_owned(), Binding::Text("word0".to_owned()))]);
+    let Err(AssemblyError::Configuration(error)) =
+        configuration.assemble_pattern(Some(&Binding::Text("run".to_owned())), &variables, None)
+    else {
+        panic!("`word0` at Word should not parse");
+    };
+    let sources = BTreeMap::from([(
+        "W".to_owned(),
+        super::Source {
+            label: "w.txt".to_owned(),
+            text: Some("word0".to_owned()),
+        },
+    )]);
+    let ExecError::Parse {
+        input,
+        sort,
+        message,
+    } = super::configuration_error(&error, &sources, &[])
+    else {
+        panic!("{error}");
+    };
+    assert_eq!(
+        (input.as_str(), sort.as_str()),
+        ("w.txt:1:5", "Word"),
+        "{message}"
+    );
+    assert!(
+        message.starts_with("syntax module attempt: ")
+            && message.contains("TOKENS-SYNTAX")
+            && message.contains("; main module attempt: "),
+        "{message}"
+    );
+}
+
 #[test]
 fn log_lines_keep_each_user_log_message_in_order() {
     let effects = ["first", "second"].map(|message| EffectOutput::UserLog {

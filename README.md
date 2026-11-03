@@ -299,7 +299,9 @@ The compiled-directory mode takes its module identities and parser data from the
 
 `-c NAME=VALUE` binds the configuration variable `$NAME` to `VALUE` parsed at its declared sort.
 In the Rust API, `kompile::ConfigurationAssembler` builds the same `initGeneratedTopCell` pattern from a frontend definition, its main and syntax modules, and the declared variable sorts, without the CLI (it is available in the portable build).
-It parses the program with the syntax module and each variable with its cell's `parser` module (`STRING-SYNTAX` for a `String` `$IO` or `$STDIN` without one, the main module otherwise), expands macros, adds sort injections, and converts tokens with the hooks of the module that parsed them:
+It parses the program with the syntax module.
+It parses a variable with its cell's `parser` module, or without one, with `STRING-SYNTAX` for a `String` `$IO` or `$STDIN`; any other variable is input as a program is, so it is parsed with the syntax module first wherever that module has the variable's sort (or the sort is `K` or `KItem`), then with the main module, and with the main module alone otherwise ([Configuration variable text](docs/compatibility.md#configuration-variable-text)).
+It then expands macros, adds sort injections, and converts tokens with the hooks of the module that parsed them:
 
 ```rust
 let grammar = ProgramGrammar::new(&frontend_definition)?;

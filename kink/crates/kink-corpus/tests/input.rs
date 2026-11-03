@@ -2,8 +2,9 @@ use std::path::PathBuf;
 
 use k_rust::{
     backend::{Backend, BackendOptions},
-    kompile::CompileOptions,
+    kompile::{CompileOptions, ConfigurationError, ProgramGrammar, program_start_position},
     kore::{codec::to_value, parser::parse_definition},
+    krun::{KrunAssembler, KrunInputs, ProgramText},
 };
 use kink_corpus::{
     CorpusSource, InputAssembler, InputError, InputGrammar, LoadedSource, ProgramSource,
@@ -338,33 +339,37 @@ fn a_term_binds_pgm_as_its_program_text_does() {
     );
 }
 
-/// The reading krun's `-c` gives (and a k-rust-fuzz campaign's assembly): every variable's text
-/// read with the main module's grammar alone. On `tokens.k` only `$W` (a sort of the syntax
-/// module) is read with the syntax module first, and with the main module alone `word` at `Word`
-/// does not parse, since the main module's scanner reads it as a `Name`.
+/// kink reads a configuration variable's text as krun reads `-c` (and so as a k-rust-fuzz
+/// campaign assembles a case): both read it through k-rust's `ConfigurationAssembler`, with the
+/// one reading rule, so on `tokens.k` the program `run` with `$W` and `$N` given as `word` is one
+/// initial configuration in both, `$W` a `Word` and `$N` a `Name`.
 #[test]
-fn the_main_module_reading_is_the_reading_krun_gives() {
+fn kink_reads_variables_as_krun_reads_them() {
     let loaded = load_with_syntax("tokens.k", "TOKENS", "TOKENS-SYNTAX");
-    let grammar = InputGrammar::prepare(&loaded, None).unwrap();
-    assert_eq!(grammar.syntax_read_variables().collect::<Vec<_>>(), ["W"]);
-    let variables = |w: &str| -> Vec<(String, VariableInput)> {
-        vec![("W".into(), w.into()), ("N".into(), "word".into())]
+    let input = TestInputSpec {
+        program: Some(ProgramSource::Text("run".into())),
+        start_sort: None,
+        variables: vec![("W".into(), "word".into()), ("N".into(), "word".into())],
     };
-    let mut krun = InputAssembler::reading_with_main_module(&grammar);
-    assert!(matches!(
-        krun.assemble(Some(("run", None)), &variables("word")),
-        Err(InputError::Parse(_))
-    ));
-    // A text both grammars read as one term gives one configuration.
-    let mut kink = InputAssembler::new(&grammar);
-    assert_eq!(
-        krun.assemble(Some(("run", None)), &variables("w")),
-        kink.assemble(Some(("run", None)), &variables("w"))
-    );
-    assert!(
-        kink.assemble(Some(("run", None)), &variables("word"))
-            .is_ok()
-    );
+    let kink = assemble_input(&loaded, &input).unwrap();
+    let compiled = NativeValidator::bind(loaded.baseline.clone(), CompileOptions::default())
+        .compile_baseline()
+        .unwrap();
+    let grammar = ProgramGrammar::new(loaded.baseline.definition()).unwrap();
+    let variables = &compiled.artifacts().configuration_variables;
+    let start = program_start_position(&variables["PGM"]);
+    let krun = KrunAssembler::new(&grammar, "TOKENS", "TOKENS-SYNTAX", variables)
+        .assemble(
+            &KrunInputs {
+                start_sort: &start,
+                program: Some(ProgramText::unnamed("run")),
+                configuration_variables: &[("W", "word"), ("N", "word")],
+                io: false,
+            },
+            || Ok::<_, ConfigurationError>(Vec::new()),
+        )
+        .unwrap();
+    assert_eq!(kink, krun);
 }
 
 /// A program text on a definition that declares no configuration variable binds nothing, and so

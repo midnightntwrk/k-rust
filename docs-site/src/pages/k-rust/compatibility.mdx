@@ -657,6 +657,25 @@ A translated initializer's body-derived identifier is aligned with the reference
 The parsed-definition comparison removes only the exact private module and its imports and translates the same initializer reads before injection.
 It counts all rewrites, rejects a reference declaring or using either private transport symbol, and retains unrelated equations, lookups, projections and no-junk alternatives.
 
+## Configuration variable text
+
+A configuration variable's text is input, as a program is, and every reader of it reads it with one rule (`ConfigurationAssembler`): `krun`'s `-c`, a k-rust-fuzz case, krs-exec and kink.
+`$PGM` is read with the syntax module's grammar.
+A variable whose cell names a `parser` module is read with that module's grammar alone, and a `String` `$IO` or `$STDIN` without one with `STRING-SYNTAX`'s.
+Any other variable is read with the syntax module's grammar first wherever that module has the variable's sort, or the sort is `K` or `KItem`, and with the main module's grammar where the syntax module's does not parse the text; a variable of a sort the syntax module does not have is read with the main module's grammar alone (`variable_reading_modules`).
+
+The syntax module's grammar is the grammar programs are written in.
+The main module's grammar holds it, since the main module imports the syntax module, and adds every token sort and production of the semantics, so its scanner can read a program's token as a token of another sort, and its productions can make a program's text ambiguous or give it another parse.
+A text of a sort the syntax module has therefore denotes the term the syntax module's grammar gives it, as the same text written in a program does.
+The main module's grammar reads what the syntax module's does not parse because it also has productions with which a value can be written that no program writes: a function (`-cENV=two()` with `two()` declared in the main module) or a builtin collection's constructors.
+Where neither grammar parses the text, the error gives both failures (`syntax module attempt: ...; main module attempt: ...`), since the text is no value of the variable under either.
+
+The pinned K frontend's `krun` reads a `-c` value whose cell names no `parser` module with the main module's grammar alone.
+Since the main module's grammar holds the syntax module's, the two readings differ only on a text that the main module's scanner reads with another token sort, or that its further productions make ambiguous or parse otherwise; on every other text they give one term.
+With a token sort `Word ::= r"w[a-z]*"` in the syntax module and `Name ::= r"wor[a-z]*" [prec(2)]` in the main module, the main module's scanner reads `word` as a `Name` wherever it stands, so for `$W:Word` the text `word` does not parse with the main module's grammar alone and is the `Word` `word` here, and for `$V:K` it is a `Name` with the main module's grammar alone and the `Word` here; for `$N:Name`, a sort the syntax module does not have, it is the `Name` in both.
+This is a recorded divergence: read with the main module's grammar alone, a variable of a program's sort would take another language than the program's, in which a token a program writes at that sort does not parse or denotes another term.
+No reference fixture holds a text on which the two readings differ; `reference_krun_falls_back_to_the_main_module_for_a_configuration_variable` in [cli.rs](https://github.com/midnightntwrk/k-rust/blob/main/crates/k-rust/tests/cli.rs) checks `-cENV=two()`, which the syntax module's grammar does not parse, against the pinned `krun`, and `krun_reads_a_variable_of_a_program_sort_as_a_program_is_read` and `krun_reports_both_grammars_failures_for_a_variable_neither_reads` in [krun_front.rs](https://github.com/midnightntwrk/k-rust/blob/main/crates/k-rust/tests/krun_front.rs) check the example above and the error.
+
 ## Refuted local-function patterns
 
 `#let P = E #in B` and `#fun(P => B)(E)` denote `B` under the binding that matches `E` against `P`, and nothing when `E` is no instance of `P`: in matching logic, `\exists vars(P). (E = P) /\ B`, which is `\bottom` when `E` cannot equal any instance of `P`.

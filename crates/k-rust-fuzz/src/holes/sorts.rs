@@ -458,14 +458,15 @@ enum KindWas {
 /// - the declared sort of a configuration variable whose cell names a parser module other than
 ///   the main module (`<lib parser="LIB, IMP-SYNTAX">`), in that module: a module chosen as the
 ///   grammar of a binding is the grammar of program text, as the syntax module is for `$PGM`;
-/// - the declared sort of a configuration variable the main module parses (krun's default), in
-///   the syntax module, when the syntax module is not the main module and the sort is `K` or
-///   `KItem` or is declared among the syntax module's sentences. The terms of a sort that a text
-///   can denote are given by the sort's productions, whichever module parses it; a sort whose
-///   productions are in the syntax module, the grammar programs are written in, has programs as
-///   values (and `K` or `KItem` any term of that grammar). The data sorts a semantics declares
-///   for its inputs (`Tx`) are declared in the main module or other semantic modules, so they
-///   are not seeds.
+/// - the declared sort of any other configuration variable, in the syntax module, when the
+///   syntax module is not the main module and the sort is `K` or `KItem` or is declared among
+///   the syntax module's sentences. Without a `parser` attribute such a variable is one krun
+///   reads with the syntax module's grammar first, as a program is read (k-rust
+///   `variable_reading_modules`). The terms of a sort that a text can denote are given by the
+///   sort's productions, whichever module parses it; a sort whose productions are in the syntax
+///   module, the grammar programs are written in, has programs as values (and `K` or `KItem`
+///   any term of that grammar). The data sorts a semantics declares for its inputs (`Tx`) are
+///   declared in the main module or other semantic modules, so they are not seeds.
 ///
 /// When the syntax module is the main module (a one-module definition), every sort is declared
 /// there, so where a sort is declared says nothing about whether its values are programs: only
@@ -496,8 +497,9 @@ fn closure_seeds(
             .or_default()
             .push(start);
     }
-    // krun's choice of the module that parses each binding: the cell's `parser` attribute, else
-    // the main module (`STRING-SYNTAX` for the `String` streams, which are hooked).
+    // The modules the cells' `parser` attributes name; krun reads every other binding with the
+    // syntax module's grammar first where that module has its sort (`K` and `KItem` included),
+    // else with the main module's (`STRING-SYNTAX` for the `String` streams, which are hooked).
     let parsers = parser_modules(frontend, &definition.main_module).map_err(|message| {
         CampaignError::Definition {
             message: format!("the configuration's parser attributes: {message}"),

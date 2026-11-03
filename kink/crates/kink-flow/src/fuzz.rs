@@ -39,12 +39,9 @@
 //! from the baseline's grammar for both sides, so a run of no case first compares each side's
 //! initial configuration at the holes' anchors: a mutant that assembles the template otherwise
 //! (a `[macro]` edit) is refused before any case, and so is a baseline that assembles it otherwise
-//! than kink does. The campaign assembles a case as krun does, reading every configuration
-//! variable's text with the main module's grammar alone, while kink reads a variable of a program
-//! sort with the syntax module's grammar first (k-rust `variable_reading_modules`, the rule
-//! krs-exec reads it with): a template whose variable texts the two readings read as different
-//! terms is refused before the campaign starts (`variable-reading-differs`), and a candidate
-//! whose instantiated text does is an `assembly-mismatch` whose detail says so. Each
+//! than kink does. The campaign assembles a case as krun does, and krun reads a configuration
+//! variable's text with the rule kink reads it with (k-rust `variable_reading_modules`, applied
+//! by k-rust's `ConfigurationAssembler` for both), so one text is one input to both. Each
 //! candidate's program is then assembled by kink exactly as a `[[program]]`
 //! ([`check_assembly`]), and each side's initial configuration must be that configuration, or
 //! the candidate is not offered (`assembly-mismatch`). The last `run` document, only read, gives
@@ -1020,31 +1017,15 @@ pub fn check_assembly(
     let kink_digest = digest_hex(kink.to_string().as_bytes());
     let mut sides = Vec::new();
     let mut details = Vec::new();
-    // The program as the campaign reads its variables (krun's `-c` reading), assembled only when
-    // a side differs from kink's assembly.
-    let mut main_module_reading = None;
     for side in &case.sides {
         let role = role_name(side.role);
         match parse_pattern(&side.initial_configuration) {
             Ok(pattern) if pattern == kink => {}
-            Ok(pattern) => {
+            Ok(_) => {
                 sides.push(role.to_owned());
-                let read = main_module_reading.get_or_insert_with(|| {
-                    inputs.assemble_reading_main_module(program, instantiated)
-                });
-                let cause = if read.as_ref().is_ok_and(|read| *read == pattern) {
-                    format!(
-                        ": it is the program with every variable's text read with the main \
-                         module's grammar alone, as the campaign reads it, where kink reads {} \
-                         with the syntax module's first",
-                        dollar_names(&inputs.syntax_read_variables())
-                    )
-                } else {
-                    String::new()
-                };
                 details.push(format!(
                     "the {role}'s initial configuration (sha256 {}) is not kink's assembly of \
-                     the program (sha256 {kink_digest}){cause}",
+                     the program (sha256 {kink_digest})",
                     digest_hex(side.initial_configuration.as_bytes())
                 ));
             }
@@ -1064,48 +1045,6 @@ pub fn check_assembly(
             detail: details.join("; "),
         }
     }
-}
-
-/// Why the campaign's reading of `program`'s variables (krun's `-c` reading, the main module's
-/// grammar alone) gives another input than kink's, whose assembly of the program is `kink`:
-/// `None` when it gives `kink`. Only the variables kink reads with the syntax module's grammar
-/// first can read differently; the detail names those the program binds.
-fn reading_differs(
-    inputs: &mut InputSession<'_>,
-    program: &Program,
-    case: &CaseInputs,
-    kink: &KorePattern,
-) -> Option<String> {
-    let read = inputs.assemble_reading_main_module(program, case);
-    if read.as_ref().is_ok_and(|read| read == kink) {
-        return None;
-    }
-    let syntax_read = inputs.syntax_read_variables();
-    let bound = program
-        .variables
-        .iter()
-        .map(|(name, _)| name.strip_prefix('$').unwrap_or(name).to_owned())
-        .filter(|name| syntax_read.contains(name))
-        .collect::<Vec<_>>();
-    let difference = match read {
-        Ok(_) => "reads it as another initial configuration".to_owned(),
-        Err(error) => format!("does not assemble it ({error})"),
-    };
-    Some(format!(
-        "kink reads {} with the syntax module's grammar first, as krs-exec reads a variable's \
-         text, and the campaign assembles a case as krun does, reading every variable's text \
-         with the main module's grammar alone; that reading of the template {difference}",
-        dollar_names(&bound)
-    ))
-}
-
-/// `names` (configuration variables without `$`) as a message lists them.
-fn dollar_names(names: &[String]) -> String {
-    names
-        .iter()
-        .map(|name| format!("${name}"))
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 /// The stream defaults kink assembles a program with (kink-corpus `assemble_input_with`): `$IO`
@@ -1832,30 +1771,10 @@ pub fn fuzz_front(
             thread_stack_size: Some(DEFINITION_STACK_BYTES as u64),
         },
     };
-    // kink's assembly of the template (`[[program]]`'s), and the variable reading the campaign
-    // shares with krun's `-c`: kink reads a variable of a program sort with the syntax module's
-    // grammar first (k-rust `variable_reading_modules`, the rule krs-exec reads it with), while
-    // the campaign assembles as krun does, with the main module's grammar alone. Where the two
-    // read the template as different terms, no candidate of the campaign could be kink's input.
+    // kink's assembly of the template (`[[program]]`'s), which the campaign baseline's assembly
+    // must equal (`template-assembly-differs`, below).
     let template_input = template_program(template, &instance);
     let kink_template = inputs.test_case(&template_input, &template_inputs(&instance));
-    if let Ok(test) = &kink_template
-        && let Some(detail) = reading_differs(
-            &mut inputs,
-            &template_input,
-            &template_inputs(&instance),
-            &test.initial_state,
-        )
-    {
-        return refuse(
-            document,
-            Refusal::new("assembly", "variable-reading-differs", detail),
-            "no witness of this campaign could be kink's: write each variable's text so that the \
-             two grammars read it as one term (a text only the syntax module's grammar reads as \
-             the variable's value cannot be fuzzed until the campaign reads variables as kink \
-             does)",
-        );
-    }
     let mut campaign = match Campaign::new(campaign_spec) {
         Ok(campaign) => campaign,
         Err(error) => {

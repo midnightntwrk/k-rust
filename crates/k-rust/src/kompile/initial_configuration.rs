@@ -119,11 +119,15 @@ pub enum ConfigurationError {
         variable: String,
         module: String,
     },
-    /// A configuration value that does not parse at its declared sort.
+    /// A configuration value that does not parse at its declared sort. `error` is the failure of
+    /// the last grammar tried; where the variable was read with the syntax module's grammar first
+    /// ([`variable_reading_modules`]), `syntax_attempt` is that grammar's failure and `error` the
+    /// main module's.
     Parse {
         variable: String,
         sort: KastSort,
         error: Box<ProgramParseError>,
+        syntax_attempt: Option<Box<ProgramParseError>>,
     },
     /// The program text does not parse at the requested start sort.
     Program(ProgramParseError),
@@ -196,9 +200,20 @@ impl fmt::Display for ConfigurationError {
                 variable,
                 sort,
                 error,
+                syntax_attempt: None,
             } => write!(
                 f,
                 "could not parse configuration variable `${variable}` at sort {sort}: {error}"
+            ),
+            Self::Parse {
+                variable,
+                sort,
+                error,
+                syntax_attempt: Some(syntax_attempt),
+            } => write!(
+                f,
+                "could not parse configuration variable `${variable}` at sort {sort}: syntax \
+                 module attempt: {syntax_attempt}; main module attempt: {error}"
             ),
             Self::Program(error) => error.fmt(f),
             Self::ParserAttribute(message) | Self::MacroExpansion(message) => f.write_str(message),
@@ -288,9 +303,13 @@ impl From<TermConversionError> for ConfigurationError {
 ///
 /// - The program is parsed with the syntax module. A variable is parsed with the module its
 ///   cell's `parser` attribute names; without one, a `String`-sorted `$IO` or `$STDIN` is parsed
-///   with `STRING-SYNTAX`, and any other variable with the main module. `$IO` and `$STDIN` are the
-///   stream variables whose `String` values the runner supplies, so their text is a `String`
-///   literal and the `String` literal grammar is its parser when the cell declares none.
+///   with `STRING-SYNTAX`, and any other variable as [`variable_reading_modules`] says: with the
+///   syntax module's grammar first wherever that module has the variable's sort (or the sort is
+///   `K` or `KItem`), then with the main module's, and with the main module's alone otherwise.
+///   `$IO` and `$STDIN` are the stream variables whose `String` values the runner supplies, so
+///   their text is a `String` literal and the `String` literal grammar is its parser when the
+///   cell declares none. Every caller reads a variable's text with this one rule (krun's `-c`,
+///   k-rust-fuzz, krs-exec and kink), so one text denotes one term in all of them.
 /// - A `K`-sorted variable prefers an item reading, then tries the visible K grammar only
 ///   when there is no item reading or entry sort. Every payload travels as a boxed K value.
 /// - Every value is macro-expanded in the main module and instantiated at its position,
@@ -312,9 +331,9 @@ pub struct ConfigurationAssembler<'g> {
     syntax_module: String,
     variables: &'g BTreeMap<String, KastSort>,
     parser_modules: Option<BTreeMap<String, String>>,
-    /// The module reading each named variable that no `parser` attribute names
-    /// ([`Self::reading_variables_with`]).
-    variable_modules: BTreeMap<String, String>,
+    /// The module reading first each variable that [`variable_reading_modules`] selects, computed
+    /// on first use.
+    variable_modules: Option<BTreeMap<String, String>>,
     expansion: Option<ProgramExpansion<'g>>,
     parsers: BTreeMap<String, ProgramParser>,
     injector: Option<SortInjector<'g, 'g>>,
@@ -340,7 +359,7 @@ impl<'g> ConfigurationAssembler<'g> {
             syntax_module: syntax_module.into(),
             variables,
             parser_modules: None,
-            variable_modules: BTreeMap::new(),
+            variable_modules: None,
             expansion: None,
             parsers: BTreeMap::new(),
             injector: None,
@@ -407,27 +426,6 @@ impl<'g> ConfigurationAssembler<'g> {
             value,
         });
         Ok(())
-    }
-
-    /// This assembler, reading each variable `modules` names (without its `$`) first with that
-    /// module's grammar where no `parser` attribute of its cell names one and it is no stream
-    /// variable, and with the main module's grammar where that one does not parse the text.
-    #[must_use]
-    pub fn reading_variables_with(mut self, modules: BTreeMap<String, String>) -> Self {
-        self.variable_modules = modules;
-        self
-    }
-
-    /// This assembler, reading each variable as a program is read where its sort allows
-    /// ([`variable_reading_modules`]): [`Self::reading_variables_with`] the syntax module for
-    /// every variable that rule selects.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ConfigurationError::ParserAttribute`] for a malformed cell `parser` attribute.
-    pub fn reading_variables_as_programs(self) -> Result<Self, ConfigurationError> {
-        let modules = variable_reading_modules(self.grammar, &self.syntax_module, self.variables)?;
-        Ok(self.reading_variables_with(modules))
     }
 
     /// Bind `$PGM` to `term`, a term over this definition's labels built without the parser:
@@ -497,9 +495,13 @@ impl<'g> ConfigurationAssembler<'g> {
         let (name, sort) = (name.as_str(), &sort);
         let resolved = self.grammar.resolved();
         let parse_sort = configuration_position(sort);
-        // The first module whose grammar parses the text reads it; where none does, the last
-        // one's failure is reported.
+        // The first module whose grammar parses the text reads it. Where none does, each one's
+        // failure is reported: the text is no value under the rule, which reads it with either
+        // grammar, so neither failure alone says why (a text written as a program's input fails
+        // where the syntax module's grammar stops, one that needs a production only the main
+        // module has where the main module's does).
         let mut read = None;
+        let mut syntax_attempt = None;
         for parser_module in self.parser_modules_of(name, sort)? {
             if !self.parsers.contains_key(&parser_module) {
                 self.parsers.insert(
@@ -513,7 +515,9 @@ impl<'g> ConfigurationAssembler<'g> {
                 self.parsers[&parser_module].parse(&parse_sort, text)
             };
             let done = parsed.is_ok();
-            read = Some((parser_module, parsed));
+            if let Some((_, Err(failed))) = read.replace((parser_module, parsed)) {
+                syntax_attempt = Some(Box::new(failed));
+            }
             if done {
                 break;
             }
@@ -523,6 +527,7 @@ impl<'g> ConfigurationAssembler<'g> {
             variable: name.into(),
             sort: sort.clone(),
             error: Box::new(error),
+            syntax_attempt,
         })?;
         let expanded = self.expand(parsed, &parse_sort)?;
         if self.injector.is_none() {
@@ -590,8 +595,8 @@ impl<'g> ConfigurationAssembler<'g> {
 
     /// The modules whose grammars read the value of the variable `name` of sort `sort`, in the
     /// order they are tried: its cell's `parser` module alone; `STRING-SYNTAX` alone for a stream
-    /// variable; the module [`Self::reading_variables_with`] names for it, then the main module;
-    /// or the main module alone.
+    /// variable; the syntax module, then the main module, for a variable
+    /// [`variable_reading_modules`] selects; or the main module alone.
     fn parser_modules_of(
         &mut self,
         name: &str,
@@ -603,14 +608,14 @@ impl<'g> ConfigurationAssembler<'g> {
             None if matches!(name, "IO" | "STDIN") && sort.is_builtin(BuiltinSort::String) => {
                 vec!["STRING-SYNTAX".to_owned()]
             }
-            None => self
-                .variable_modules
-                .get(name)
-                .filter(|module| **module != self.main_module)
-                .cloned()
-                .into_iter()
-                .chain([self.main_module.clone()])
-                .collect(),
+            None => {
+                let first = self.variable_modules()?.get(name).cloned();
+                first
+                    .filter(|module| *module != self.main_module)
+                    .into_iter()
+                    .chain([self.main_module.clone()])
+                    .collect()
+            }
         };
         for parser_module in &modules {
             if self.grammar.resolved().module_id(parser_module).is_none() {
@@ -769,6 +774,22 @@ impl<'g> ConfigurationAssembler<'g> {
         if let Some(injector) = &self.program_injector {
             injector.reset_sort_parameters();
         }
+    }
+
+    /// [`variable_reading_modules`] of this assembler's grammar, syntax module and variables,
+    /// computed on first use: like the `parser` attributes, it depends on the definition alone.
+    fn variable_modules(&mut self) -> Result<&BTreeMap<String, String>, ConfigurationError> {
+        if self.variable_modules.is_none() {
+            self.variable_modules = Some(variable_reading_modules(
+                self.grammar,
+                &self.syntax_module,
+                self.variables,
+            )?);
+        }
+        Ok(self
+            .variable_modules
+            .as_ref()
+            .expect("the variable modules were computed above"))
     }
 
     fn parser_modules(&mut self) -> Result<&BTreeMap<String, String>, ConfigurationError> {
@@ -1029,8 +1050,8 @@ pub fn program_start_position(declared: &KastSort) -> KastSort {
 /// The module whose grammar reads first each configuration variable of `variables` but `$PGM`
 /// that no cell `parser` attribute assigns one and that is no stream variable (`$IO`, `$STDIN`
 /// at `String`, read with `STRING-SYNTAX`): the syntax module `syntax_module`, a program's
-/// grammar, wherever it has the variable's sort; [`ConfigurationAssembler::reading_variables_with`]
-/// takes the result.
+/// grammar, wherever it has the variable's sort. [`ConfigurationAssembler`] reads every variable
+/// with it.
 ///
 /// A variable's text is input, as a program is, and the main module's grammar holds more than a
 /// program can write: every token sort of the definition, so its scanner reads `word` as an `Id`
@@ -1043,7 +1064,9 @@ pub fn program_start_position(declared: &KastSort) -> KastSort {
 /// module) is read with the main module's grammar alone.
 ///
 /// Every tool that reads a configuration variable's text for one definition reads it with this
-/// rule, so one text denotes one term in all of them.
+/// rule, through [`ConfigurationAssembler`], so one text denotes one term in all of them: krun's
+/// `-c` and k-rust-fuzz (through `KrunAssembler`), krs-exec and kink. A tool that needs to know
+/// which variables a program's grammar reads (krs-exec's read-back of a print) calls it itself.
 ///
 /// # Errors
 ///

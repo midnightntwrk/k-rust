@@ -47,6 +47,23 @@ module STREAMS
 endmodule
 "#;
 
+/// A token sort of the syntax module (`Word`) and one of the main module (`Name`) whose regex the
+/// main module's scanner prefers for `word`: under the main module's grammar `word` is a `Name`
+/// wherever it stands, and at `Word` it does not parse.
+const TOKENS: &str = r#"
+module TOKENS-SYNTAX
+  syntax Word ::= r"w[a-z]*" [token]
+  syntax Pgm ::= "run" [symbol(run)]
+endmodule
+
+module TOKENS
+  imports TOKENS-SYNTAX
+  imports BASIC-K
+  syntax Name ::= r"wor[a-z]*" [token, prec(2)]
+  configuration <k> $PGM:Pgm </k> <w> $W:Word </w> <n> $N:Name </n> <v> $V:K </v>
+endmodule
+"#;
+
 const IMP_SUM: &str =
     "int n, sum; n = 10; sum = 0; while (!(n <= 0)) { sum = sum + n; n = n + -1; }";
 const IMP_SHORT: &str = "int x; x = 3 + 4;";
@@ -114,6 +131,11 @@ fn imp() -> Arc<Compiled> {
 fn streams() -> Arc<Compiled> {
     static COMPILED: shared::Shared<Compiled> = shared::Shared::new();
     COMPILED.get(|| Compiled::new(STREAMS, "STREAMS"))
+}
+
+fn tokens() -> Arc<Compiled> {
+    static COMPILED: shared::Shared<Compiled> = shared::Shared::new();
+    COMPILED.get(|| Compiled::new(TOKENS, "TOKENS"))
 }
 
 fn print(pattern: &Pattern) -> String {
@@ -386,6 +408,103 @@ fn an_assembler_from_its_parts_is_the_definitions() {
     .assemble(&inputs, read)
     .unwrap();
     assert_eq!(print(&from_parts), print(&from_definition));
+}
+
+/// krun reads a `-c` value as every tool reads a configuration variable's text
+/// (`variable_reading_modules`): with the syntax module's grammar first wherever that module has
+/// the variable's sort, and for a `K` variable, then with the main module's. So `word` given for
+/// the `Word` variable `$W` is that `Word`, and for the `K` variable `$V` too, while for `$N`,
+/// whose sort `Name` only the main module has, it is a `Name`. Read with the main module's grammar
+/// alone, `word` at `Word` would not parse, and at `K` it would be a `Name`.
+#[test]
+fn krun_reads_a_variable_of_a_program_sort_as_a_program_is_read() {
+    let compiled = tokens();
+    let definition = compiled.definition();
+    let grammar = definition.program_grammar().unwrap();
+    let mut assembler = definition.assembler(&grammar);
+    let sort = parse_sort("Pgm").unwrap();
+    let initial = assembler
+        .assemble(
+            &KrunInputs {
+                start_sort: &sort,
+                program: Some(ProgramText::unnamed("run")),
+                configuration_variables: &[("W", "word"), ("N", "word"), ("V", "word")],
+                io: false,
+            },
+            no_input,
+        )
+        .unwrap();
+    let printed = print(&initial);
+    let entry = |name: &str, value: &str| {
+        format!(
+            r#"\dv{{SortKConfigVar{{}}}}("${name}")), Lbl'Hash'KConfigValue{{}}(kseq{{}}({value}, dotk{{}}()))"#
+        )
+    };
+    for expected in [
+        entry(
+            "W",
+            r#"inj{SortWord{}, SortKItem{}}(\dv{SortWord{}}("word"))"#,
+        ),
+        entry(
+            "N",
+            r#"inj{SortName{}, SortKItem{}}(\dv{SortName{}}("word"))"#,
+        ),
+        entry(
+            "V",
+            r#"inj{SortWord{}, SortKItem{}}(\dv{SortWord{}}("word"))"#,
+        ),
+    ] {
+        assert!(printed.contains(&expected), "{expected}: {printed}");
+    }
+}
+
+/// A text neither grammar of the reading rule parses is no value of the variable under either,
+/// so the error gives both failures: `w0rd` at `Word` fails in the syntax module's grammar and in
+/// the main module's, and the syntax module's failure, a program's reading of the text, is not
+/// hidden behind the main module's.
+#[test]
+fn krun_reports_both_grammars_failures_for_a_variable_neither_reads() {
+    let compiled = tokens();
+    let definition = compiled.definition();
+    let grammar = definition.program_grammar().unwrap();
+    let mut assembler = definition.assembler(&grammar);
+    let sort = parse_sort("Pgm").unwrap();
+    let error = assembler
+        .assemble(
+            &KrunInputs {
+                start_sort: &sort,
+                program: Some(ProgramText::unnamed("run")),
+                configuration_variables: &[("W", "w0rd"), ("N", "word"), ("V", "word")],
+                io: false,
+            },
+            no_input,
+        )
+        .unwrap_err();
+    let ConfigurationError::Parse {
+        variable,
+        error: main,
+        syntax_attempt: Some(syntax),
+        ..
+    } = &error
+    else {
+        panic!("{error:?}");
+    };
+    assert_eq!(
+        (
+            variable.as_str(),
+            syntax.module.as_str(),
+            main.module.as_str()
+        ),
+        ("W", "TOKENS-SYNTAX", "TOKENS"),
+        "{error}"
+    );
+    let message = error.to_string();
+    assert!(
+        message.starts_with(
+            "could not parse configuration variable `$W` at sort Word: syntax module attempt: "
+        ) && message.contains("; main module attempt: "),
+        "{message}"
+    );
 }
 
 #[test]

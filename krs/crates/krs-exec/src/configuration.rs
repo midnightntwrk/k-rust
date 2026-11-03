@@ -208,7 +208,8 @@ impl Configuration {
         let resolved = grammar.program.resolved();
         let syntax_module = k_rust::outer::resolve_syntax_module(resolved, None)?.name;
         let parser_modules = parser_modules(resolved, &main_module)?;
-        // The rule every tool reads a variable's text with (`variable_reading_modules`).
+        // The rule every tool reads a variable's text with (`variable_reading_modules`), which
+        // the assembler applies itself; `parse_variable` reads with it too.
         let variable_modules = k_rust::kompile::variable_reading_modules(
             &grammar.program,
             &syntax_module,
@@ -220,8 +221,7 @@ impl Configuration {
             main_module.clone(),
             syntax_module.clone(),
             &grammar.variables,
-        )
-        .reading_variables_with(variable_modules.clone());
+        );
         Ok(Self {
             main_module,
             syntax_module,

@@ -20,6 +20,10 @@
 //! - the per-candidate assembly check: a hand-altered initial configuration is an
 //!   `assembly-mismatch`, and every witness above matches kink's assembly;
 //! - a Markdown template without `start_sort` takes kink's default start sort and parses;
+//! - the campaign reads a configuration variable's text as kink does: on a `tokens.k`-shaped
+//!   definition a template binding `$W` and the `K` variable `$V` to `word` (a `Word` only the
+//!   syntax module's grammar reads) assembles as kink's before any case (light), and is fuzzed,
+//!   its witness matching kink's assembly and confirmed;
 //! - the last `run` document gives the template's class, the mutation's reaching programs as
 //!   suggested templates, and the warnings.
 
@@ -465,72 +469,65 @@ fn scratch_flow(name: &str, entry: &str, spec: &str, manifest: &str, mutations: 
     dir
 }
 
-/// A token sort of the syntax module (`Word`) and one of the main module (`Name`) whose regex the
-/// main module's scanner prefers for `word`: kink reads `$W` and the `K` variable `$V` with the
-/// syntax module's grammar first, so `word` is a `Word` there, while the main module's grammar
-/// reads `word` at `Word` not at all and at `K` as a `Name`.
-const READING_K: &str = "module READING-SYNTAX
-  syntax Word ::= r\"w[a-z]*\" [token]
-  syntax Pgm ::= \"run\" [symbol(run)]
+/// A definition of the shape of `testdata/corpus/tokens.k`, written out here on its own (its
+/// program takes an `Int`, it binds a `K` variable `$V` as well, and it has a rule): a token sort
+/// of the syntax module (`Word`) and one of the main module (`Name`) whose regex the main
+/// module's scanner prefers for `word`. `go` fires only when `$W` and `$V` hold the `Word` `word`
+/// and the program's integer is above 5, so a witness exists only where the campaign reads the
+/// text `word` of `$W` and of `$V` as kink does, as that `Word`: with the main module's grammar
+/// alone `word` does not parse at `Word`, and at `K` it is a `Name`.
+const TOKENS_K: &str = r#"
+module TOKENS-SYNTAX
+  imports INT-SYNTAX
+  syntax Word ::= r"w[a-z]*" [token]
+  syntax Pgm ::= run(Int) [symbol(run)]
 endmodule
 
-module READING
-  imports READING-SYNTAX
-  imports BASIC-K
-  syntax Name ::= r\"wor[a-z]*\" [token, prec(2)]
-  configuration <k> $PGM:Pgm </k> <w> $W:Word </w> <v> $V:K </v>
-  rule [go]: <k> run => .K </k>
+module TOKENS
+  imports TOKENS-SYNTAX
+  imports INT
+  imports BOOL
+  syntax Name ::= r"wor[a-z]*" [token, prec(2)]
+  configuration <k> $PGM:Pgm </k> <w> $W:Word </w> <n> $N:Name </n> <v> $V:K </v>
+  rule [go]: <k> run(I) => .K </k> <w> #token("word", "Word") </w>
+             <v> #token("word", "Word") </v>
+    requires I >Int 5
 endmodule
-";
+"#;
 
-/// The campaign assembles a case as krun does, reading every variable's text with the main
-/// module's grammar alone, while kink reads a variable of a program sort with the syntax
-/// module's grammar first: a template that the two readings read differently (a text the
-/// campaign's reading does not parse, or reads as another term) is refused before the campaign
-/// starts, since no candidate of it could be kink's input.
+const TOKENS_MANIFEST: &str = "[spec]\nentry = \"tokens.k\"\nmain_module = \"TOKENS\"\n\
+                               syntax_module = \"TOKENS-SYNTAX\"\n\n[[program]]\nid = \
+                               \"one\"\ntext = \"run(1)\"\nvariables = { W = \"word\", N = \
+                               \"word\", V = \"word\" }\n";
+
+/// The campaign reads a configuration variable's text as kink does (k-rust
+/// `variable_reading_modules`, krun's `-c` reading too): on [`TOKENS_K`] the template binds `$W`
+/// and the `K` variable `$V` to `word`, a `Word` only the syntax module's grammar reads there, so
+/// a run of no case passes the up-front assembly checks: kink assembles the template, and the
+/// campaign baseline's initial configuration at the holes' anchors is kink's assembly.
 #[test]
-fn a_template_the_campaign_reads_otherwise_than_kink_is_refused() {
-    let manifest = "[spec]\nentry = \"reading.k\"\nmain_module = \"READING\"\nsyntax_module = \
-                    \"READING-SYNTAX\"\n\n[[program]]\nid = \"word\"\ntext = \"run\"\n\
-                    variables = { W = \"word\", V = \"w\" }\n\n[[program]]\nid = \"item\"\n\
-                    text = \"run\"\nvariables = { W = \"w\", V = \"word\" }\n";
-    let dir = scratch_flow("variable-reading", "reading.k", READING_K, manifest, "");
-    let templates = "[[template]]\nid = \"word\"\nprogram = \"word\"\n\n[[template]]\nid = \
-                     \"item\"\nprogram = \"item\"\n";
-    for (template, difference) in [
-        ("word", "that reading of the template does not assemble it"),
-        (
-            "item",
-            "that reading of the template reads it as another initial configuration",
-        ),
-    ] {
-        let (document, ok) = run_job(
-            &dir,
-            templates,
-            template,
-            Job::Reach("go".into(), true),
-            FuzzOptions::default(),
-        );
-        assert!(!ok, "{template}: {document:#}");
-        let refusal = &document["job"]["refusal"];
-        assert_eq!(
-            (&refusal["stage"], &refusal["reason"]),
-            (
-                &Value::from("assembly"),
-                &Value::from("variable-reading-differs")
-            ),
-            "{template}: {document:#}"
-        );
-        let detail = refusal["detail"].as_str().unwrap();
-        assert!(
-            detail.starts_with(
-                "kink reads $V, $W with the syntax module's grammar first, as krs-exec reads a \
-                 variable's text, and the campaign assembles a case as krun does"
-            ) && detail.contains(difference),
-            "{template}: {detail}"
-        );
-    }
+fn a_template_whose_variables_only_the_syntax_module_reads_assembles_as_kinks() {
+    let dir = scratch_flow("tokens-assembly", "tokens.k", TOKENS_K, TOKENS_MANIFEST, "");
+    let (document, _) = run_job(
+        &dir,
+        TOKENS_TEMPLATES,
+        "run-holes",
+        Job::Reach("go".into(), true),
+        FuzzOptions {
+            filter: false,
+            ..imp_options(0)
+        },
+    );
+    assert_eq!(document["job"]["refusal"], Value::Null, "{document:#}");
+    let assembly = &document["assembly"];
+    let kink = &assembly["kink_template"]["sha256"];
+    assert!(kink.is_string(), "{assembly:#}");
+    assert_eq!(&assembly["baseline_anchor"], kink, "{assembly:#}");
 }
+
+const TOKENS_TEMPLATES: &str = "[[template]]\nid = \"run-holes\"\nprogram = \"one\"\n\
+                                [[template.hole]]\nname = \"X\"\nsort = \"Int\"\nfind = \
+                                \"run(1)\"\nliteral = \"1\"\nrange = { min = 0, max = 9 }\n";
 
 /// A template of a corpus program with typed inputs (`inputs`) is refused before any case: a
 /// fuzz campaign varies and replays K text only, so it could neither carry the typed inputs into
@@ -1580,6 +1577,44 @@ endmodule
         assert_eq!(document["program"]["confirmed"], true);
         let premises = document["program"]["premises"].as_array().unwrap();
         assert!(!premises.is_empty() && premises.iter().all(|p| p["in_flow"] == false));
+    }
+
+    /// The campaign reads a configuration variable's text as kink does (k-rust
+    /// `variable_reading_modules`, krun's `-c` reading too): on the `tokens.k`-shaped
+    /// [`TOKENS_K`] the template binds `$W` and `$V` to `word`, which is the `Word` `word` in
+    /// both, so the job runs (no assembly refusal), the reach job finds a program that fires `go`
+    /// (`X >= 6`), its initial configuration is kink's assembly on both counts, and kink confirms
+    /// it.
+    #[test]
+    #[ignore = "kink"]
+    fn a_template_whose_variable_only_the_syntax_module_reads_is_fuzzed_as_kink_reads_it() {
+        let dir = scratch_flow("tokens", "tokens.k", TOKENS_K, TOKENS_MANIFEST, "");
+        let (document, ok) = run_job(
+            &dir,
+            TOKENS_TEMPLATES,
+            "run-holes",
+            Job::Reach("go".into(), true),
+            FuzzOptions {
+                confirm: true,
+                ..imp_options(40)
+            },
+        );
+        assert!(ok, "{document:#}");
+        assert_eq!(document["job"]["refusal"], Value::Null, "{document:#}");
+        assert_eq!(
+            document["job"]["rule"]["label"], "TOKENS.go",
+            "{document:#}"
+        );
+        assert_eq!(document["stopped"], Value::Null, "{document:#}");
+        let attempt = &document["attempts"][0];
+        let candidate = &attempt["candidate"];
+        assert_eq!(candidate["assembly"]["status"], "match", "{candidate:#}");
+        assert_eq!(candidate["comparable"]["holds"], true, "{candidate:#}");
+        let x = candidate["holes"][0]["k-text"].as_str().unwrap_or_default();
+        assert!(x.parse::<i64>().is_ok_and(|x| x >= 6), "{candidate:#}");
+        let confirmation = &attempt["confirmation"];
+        assert_eq!(confirmation["confirmed"], true, "{confirmation:#}");
+        assert_eq!(confirmation["status"], "reached", "{confirmation:#}");
     }
 
     /// The reach job (T5) finds a program whose comparable all-paths run applies `big` (`--fired`:

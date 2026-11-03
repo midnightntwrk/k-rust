@@ -2819,6 +2819,27 @@ fn parse_position(error: &ProgramParseError) -> Option<usize> {
     }
 }
 
+/// Where a configuration variable's text stops being readable, given the failure of the last
+/// grammar that read it (`error`) and, where the syntax module's grammar read it first, that
+/// grammar's (`syntax_attempt`).
+///
+/// The reading rule admits a text when either grammar parses it, so a prefix of the text still
+/// extends to an admitted text exactly when it does under one of the grammars: the text stops at
+/// the later of the two failures' positions. A failure that is no `NoParse` (an ambiguity, a
+/// grammar defect) did not stop at a point of the text, so then no position is given.
+fn variable_parse_position(
+    error: &ProgramParseError,
+    syntax_attempt: Option<&ProgramParseError>,
+) -> Option<usize> {
+    let main = parse_position(error);
+    match syntax_attempt {
+        None => main,
+        Some(syntax_attempt) => main
+            .zip(parse_position(syntax_attempt))
+            .map(|(main, syntax)| main.max(syntax)),
+    }
+}
+
 fn boxed_parse_position(error: &(dyn std::error::Error + 'static)) -> Option<usize> {
     if let Some(ProgramError::Parse(error)) = error.downcast_ref::<ProgramError>() {
         return parse_position(error);
@@ -2893,15 +2914,26 @@ fn configuration_error(
             variable,
             sort,
             error,
+            syntax_attempt,
         } => {
             let name = variable.strip_prefix('$').unwrap_or(variable);
+            let syntax_attempt = syntax_attempt.as_deref();
             ExecError::Parse {
                 input: sources.get(name).map_or_else(
                     || format!("-c {name}"),
-                    |source| source.located(parse_position(error)),
+                    |source| source.located(variable_parse_position(error, syntax_attempt)),
                 ),
                 sort: sort.to_string(),
-                message: error.to_string(),
+                // Read with the syntax module's grammar first and then the main module's, the
+                // text is no value under either, so neither failure alone says why.
+                message: syntax_attempt.map_or_else(
+                    || error.to_string(),
+                    |syntax_attempt| {
+                        format!(
+                            "syntax module attempt: {syntax_attempt}; main module attempt: {error}"
+                        )
+                    },
+                ),
             }
         }
         Error::Missing { names: missing } => ExecError::MissingVariables(

@@ -390,7 +390,6 @@ impl ProgramInputs {
             decoder: &self.decoder,
             time: self.time,
             assembler: None,
-            main_module_assembler: None,
             ceil_memo: CeilMemo::default(),
         }
     }
@@ -483,8 +482,6 @@ pub struct InputSession<'a> {
     decoder: &'a Decoder,
     time: Duration,
     assembler: Option<InputAssembler<'a>>,
-    /// The assembler of [`Self::assemble_reading_main_module`], built on its first use.
-    main_module_assembler: Option<InputAssembler<'a>>,
     /// The ceil-theory judgements of the initial-state exclusions read so far, on the input
     /// backend's definition ([`Self::exclusion`]).
     ceil_memo: CeilMemo,
@@ -586,41 +583,6 @@ impl<'a> InputSession<'a> {
             },
             exclusion,
         ))
-    }
-
-    /// The program's initial configuration as krun's `-c` reading and a k-rust-fuzz campaign
-    /// assemble it: [`Self::test_case`]'s assembly, with every configuration variable's text
-    /// read with the main module's grammar alone (kink-corpus
-    /// `InputAssembler::reading_with_main_module`), and none of its checks. It differs from
-    /// kink's own assembly only where kink reads a variable of
-    /// [`Self::syntax_read_variables`] with the syntax module's grammar as another term; the
-    /// error is the assembler's message.
-    pub fn assemble_reading_main_module(
-        &mut self,
-        program: &Program,
-        inputs: &CaseInputs,
-    ) -> Result<k_rust::kore::ast::Pattern, String> {
-        let grammar = self.grammar().map_err(|refusal| refusal.detail)?;
-        self.main_module_assembler
-            .get_or_insert_with(|| InputAssembler::reading_with_main_module(grammar))
-            .assemble(
-                inputs
-                    .text
-                    .as_deref()
-                    .map(|text| (text, program.start_sort.as_deref())),
-                &bindings(program, inputs),
-            )
-            .map_err(|error| error.to_string())
-    }
-
-    /// The configuration variables, without `$`, whose text kink reads with the syntax module's
-    /// grammar first (kink-corpus `InputGrammar::syntax_read_variables`); empty when the
-    /// specification's grammar does not build.
-    pub fn syntax_read_variables(&self) -> Vec<String> {
-        self.grammar().map_or_else(
-            |_| Vec::new(),
-            |grammar| grammar.syntax_read_variables().map(str::to_owned).collect(),
-        )
     }
 
     /// The specification's input grammar, built on first use.

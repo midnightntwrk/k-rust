@@ -2,8 +2,9 @@
 // review S2). Which module parses a binding, and where its sort's grammar lives, decide whether
 // its values are program syntax:
 // - `$LIB` is read with the syntax module (its cell's `parser` attribute);
-// - `$LIB2` has no attribute, so the main module reads it, but `Lib2` and `Body` are declared in
-//   the syntax module, the grammar programs are written in;
+// - `$LIB2` has no attribute, and `Lib2` and `Body` are declared in the syntax module, the
+//   grammar programs are written in, so it is read with the syntax module's grammar first, as a
+//   program is;
 // - `$EXT` is read with a second grammar module, `SYNTAXVARS-EXT`, that its cell names.
 // None of `Lib`, `Lib2`, `Body`, `Ext` and `Arg` is reached from `Pgm`. `$C` binds a `Circle`
 // and `$SHAPE` a `Shape`, its supersort, both declared in the main module: a hole on `$C` takes
