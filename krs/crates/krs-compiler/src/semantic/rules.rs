@@ -27,7 +27,7 @@ use super::origin::{
     generated_semantic_id, key_range, role_key, semantic_cell_id, semantic_origin,
     semantic_origin_from_primary,
 };
-use super::references::{declared_kind, require_cell_field};
+use super::references::{declared_kind, declared_multiplicity, require_cell_field};
 use krs_ir::cell_kind::{CellKind, Multiplicity, Notation, Order};
 
 /// The framework `KItem` sort, which every descriptor bundle carries (both
@@ -1468,8 +1468,7 @@ fn infer_readable_state(
             };
             // A pattern looks a Set collection up by an instance, read as a key is.
             let looked_up = subject
-                && declared_kind(field, declarations).multiplicity()
-                    == Multiplicity::Many(Order::Set)
+                && declared_multiplicity(field, declarations) == Multiplicity::Many(Order::Set)
                 && super::function_patterns::matches_evaluated_sentence(
                     builder.descriptor.payload(),
                 );

@@ -204,6 +204,7 @@ register_codes! {
         STALE_ANCHOR: "krs::collect::stale-anchor" [Environment] => "A host anchor did not match the corresponding reparsed semantic node.",
         AMBIGUOUS_ANCHOR: "krs::collect::ambiguous-anchor" [Internal] => "More than one reparsed invocation matched a host descriptor.",
         PROVENANCE_MISMATCH: "krs::collect::provenance-mismatch" [Internal] => "The macro and shared parser disagreed about the complete anchor set.",
+        CELL_KIND_DISAGREEMENT: "krs::collect::cell-kind-disagreement" [Internal] => "The collector's host declaration of a cell and its collected declaration give the cell different kinds.",
     }
     /// Diagnostics from semantic analysis and definition lowering.
     analysis {

@@ -5,7 +5,7 @@ use std::{env, error::Error, path::PathBuf};
 const USAGE: &str = "usage:
   krs-gate compile [--timings FILE] DEFINITION-IR OUTPUT-KORE
   krs-gate collector-bundle COLLECTOR-STDOUT DESCRIPTOR-BUNDLE
-  krs-gate cell-kinds DESCRIPTOR-BUNDLE SOURCE-DIR...
+  krs-gate cell-kinds DESCRIPTOR-BUNDLE CARGO-PACKAGE=SOURCE-DIR...
   krs-gate session
   krs-gate kore-compare REFERENCE NATIVE MODULE [--label FROM=CANONICAL]... [--reference-claims PATH MODULE]
   krs-gate kore-canonicalize INPUT OUTPUT
@@ -29,11 +29,17 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
         Some(command) if command == "cell-kinds" => {
             let bundle = PathBuf::from(arguments.next().ok_or(USAGE)?);
-            let sources = arguments.map(PathBuf::from).collect::<Vec<_>>();
-            if sources.is_empty() {
+            let packages = arguments
+                .map(|argument| {
+                    let argument = argument.into_string().map_err(|_| USAGE)?;
+                    let (name, source) = argument.split_once('=').ok_or(USAGE)?;
+                    Ok((name.to_owned(), PathBuf::from(source)))
+                })
+                .collect::<Result<Vec<_>, &str>>()?;
+            if packages.is_empty() {
                 return Err(USAGE.into());
             }
-            let compared = krs_gate::cell_kinds::run(&bundle, &sources)?;
+            let compared = krs_gate::cell_kinds::run(&bundle, &packages)?;
             println!("cell kinds agree: {compared} cells, collected and parsed");
             Ok(())
         }

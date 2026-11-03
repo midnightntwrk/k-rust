@@ -6,12 +6,28 @@
 //! ([`krs_ir::cell_kind::DescriptorCell`], which the collector resolves and every
 //! compile-path reader after it reads). [`agreement`] checks that both give every declared cell
 //! the same kind, so the views cannot drift apart unseen.
+//!
+//! What each side reads is its own: the parsed side reads the attribute strings, the `KCell`
+//! identifier, the builtin sorts and the cons lists by the names the source writes, and the
+//! nested groups by the last segment of their declaration path; the collected side reads the
+//! resolved declaration, its stable identities, and the collected grammar's cons productions.
+//! Both share [`CellKind::of`], the fold of a view into layers, and the attribute parser that
+//! both views' inputs come from.
+//!
+//! **Limits of a source-only view.** The parsed side does not resolve Rust names. A builtin
+//! imported under another name (`use k::builtin::List as Stack;` and `Cell<Stack>`) is a plain
+//! leaf there and a `List` leaf in the collected view; a user sort named `List`, `Map` or `Set`
+//! is the reverse; and a cons-list sort declared in a package whose source is not among `files`
+//! is a plain leaf there. Each is reported as a disagreement, though it is a limit of this check
+//! and not a drift between the views. No fixture or port writes one.
 
 use krs_ir::cell_kind::{CellKind, DescriptorCell};
-use krs_ir::{DescriptorIndex, DescriptorPayload, DescriptorSortRef};
+use krs_ir::{DescriptorIndex, DescriptorPayload};
 use syn::ext::IdentExt;
 
-use crate::{ConfigurationCell, ConfigurationDeclaration};
+use crate::{
+    ConfigurationCell, ConfigurationDeclaration, EnumConstructorDeclaration, SyntaxListDeclaration,
+};
 
 /// Compares, for every configuration and nested cell declaration `index` holds, each field's
 /// collected kind with the kind of the same field parsed from `files`. Returns the number of
@@ -19,8 +35,9 @@ use crate::{ConfigurationCell, ConfigurationDeclaration};
 ///
 /// The parsed declarations are the structs of `files` (at any module depth) marked
 /// `#[k::configuration]` or `#[k::cell]`, matched to a collected declaration by name and field
-/// names. A leaf is a cons list in the parsed view when its sort's name is the name of a sort the
-/// collected grammar makes a cons list: the source alone does not say which sort is one.
+/// names; parsed declarations no collected one matches are not compared. A leaf is a cons list
+/// in the parsed view when its sort's name is one `files` declares a cons list: a
+/// `#[k::syntax_list]` enum's own name, or a `#[k::cons_list]` constructors enum's `sort`.
 ///
 /// # Errors
 ///
@@ -28,20 +45,10 @@ use crate::{ConfigurationCell, ConfigurationDeclaration};
 pub fn agreement(index: &DescriptorIndex<'_>, files: &[syn::File]) -> Result<usize, Vec<String>> {
     let mut failures = Vec::new();
     let mut parsed = Vec::new();
+    let mut cons_lists = Vec::new();
     for file in files {
-        declarations(&file.items, &mut parsed, &mut failures);
+        declarations(&file.items, &mut parsed, &mut cons_lists, &mut failures);
     }
-    let cons_lists = index
-        .values()
-        .filter_map(|descriptor| match descriptor.payload() {
-            DescriptorPayload::Grammar(grammar) => krs_ir::cell_kind::cons_list_sort(grammar),
-            _ => None,
-        })
-        .filter_map(|sort| match &sort.sort {
-            DescriptorSortRef::Declared(id) => Some(id.item_name().to_owned()),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
     let mut compared = 0;
     for descriptor in index.values() {
         let declaration = match descriptor.payload() {
@@ -91,14 +98,21 @@ pub fn agreement(index: &DescriptorIndex<'_>, files: &[syn::File]) -> Result<usi
     }
 }
 
-/// Every `#[k::configuration]` and `#[k::cell]` struct of `items`, inline modules included.
+/// Every `#[k::configuration]` and `#[k::cell]` struct of `items`, and the name of every sort
+/// they declare a cons list, inline modules included.
 fn declarations(
     items: &[syn::Item],
     parsed: &mut Vec<ConfigurationDeclaration>,
+    cons_lists: &mut Vec<String>,
     failures: &mut Vec<String>,
 ) {
     for item in items {
         match item {
+            syn::Item::Enum(item) => {
+                if let Some(sort) = cons_list_sort_name(item, failures) {
+                    cons_lists.push(sort);
+                }
+            }
             syn::Item::Struct(item) => {
                 let marked = item.attrs.iter().any(|attribute| {
                     attribute.path().segments.last().is_some_and(|segment| {
@@ -118,10 +132,56 @@ fn declarations(
             }
             syn::Item::Mod(module) => {
                 if let Some((_, items)) = &module.content {
-                    declarations(items, parsed, failures);
+                    declarations(items, parsed, cons_lists, failures);
                 }
             }
             _ => {}
+        }
+    }
+}
+
+/// The name of the sort the enum `item` declares a cons list, read from the source: a
+/// `#[k::syntax_list]` enum is the list sort itself, and a `#[k::constructors(sort = S)]` enum
+/// marked `#[k::cons_list]` builds the list sort `S`.
+fn cons_list_sort_name(item: &syn::ItemEnum, failures: &mut Vec<String>) -> Option<String> {
+    let marked = |name: &str| {
+        item.attrs.iter().any(|attribute| {
+            attribute
+                .path()
+                .segments
+                .last()
+                .is_some_and(|segment| segment.ident == name)
+        })
+    };
+    if marked("syntax_list") {
+        return match SyntaxListDeclaration::from_attributed_item(item.clone()) {
+            Ok(_) => Some(item.ident.unraw().to_string()),
+            Err(error) => {
+                failures.push(format!(
+                    "`{}` does not parse as a syntax list: {error:?}",
+                    item.ident
+                ));
+                None
+            }
+        };
+    }
+    if !(marked("constructors") && marked("cons_list")) {
+        return None;
+    }
+    match EnumConstructorDeclaration::from_attributed_item(item.clone()) {
+        Ok(declaration) => declaration.cons_list().and_then(|_| {
+            declaration
+                .sort()
+                .segments
+                .last()
+                .map(|segment| segment.ident.unraw().to_string())
+        }),
+        Err(error) => {
+            failures.push(format!(
+                "`{}` does not parse as a constructors enum: {error:?}",
+                item.ident
+            ));
+            None
         }
     }
 }

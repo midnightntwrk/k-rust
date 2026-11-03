@@ -401,6 +401,18 @@ pub(super) fn declared_kind(
     krs_ir::cell_kind::DescriptorCell::new(field, declarations).kind()
 }
 
+/// The declared multiplicity of `field`, [`declared_kind`]'s outermost layer, read from the
+/// field's own attributes without building the kinds of a group's descendants.
+pub(super) fn declared_multiplicity(
+    field: &DescriptorCellField,
+    declarations: &DescriptorIndex<'_>,
+) -> krs_ir::cell_kind::Multiplicity {
+    krs_ir::cell_kind::CellView::multiplicity(&krs_ir::cell_kind::DescriptorCell::new(
+        field,
+        declarations,
+    ))
+}
+
 pub(super) fn require_cell_field<'a>(
     identity: &DescriptorCellIdentity,
     declarations: &'a DescriptorIndex<'_>,

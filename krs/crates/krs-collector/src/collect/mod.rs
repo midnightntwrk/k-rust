@@ -13,8 +13,8 @@ use crate::{CollectionError, CollectionErrorKind};
 
 use provenance::materialize_descriptor_provenance;
 use resolve::{
-    declared_cell_field_table, declared_type_table, resolve_head_rule_targets,
-    resolve_payload_reading,
+    HostCellDeclarations, HostCellKinds, check_cell_kinds, declared_cell_field_table,
+    declared_type_table, host_cell_kinds, resolve_head_rule_targets, resolve_payload_reading,
 };
 pub use run::run_collector;
 use source::canonicalize_path;
@@ -414,6 +414,9 @@ struct ResolutionTables {
     declarations: HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
     cell_fields: HashMap<resolve::HostCellKey, krs_ir::DescriptorCellIdentity>,
     head_targets: Vec<resolve::HeadRuleTarget>,
+    /// Every declared cell's kind as the host declaration gives it, checked against the
+    /// collected declaration once the bundle is resolved.
+    cell_kinds: HostCellKinds,
 }
 
 /// Sorts `pending` by final identity (K namespace order; host identities sort by Cargo package)
@@ -431,13 +434,16 @@ fn resolution_tables(
         .collect::<HashMap<_, _>>();
     let declarations = declared_type_table(pending, builtins)?;
     let cell_fields = declared_cell_field_table(pending)?;
-    let mut head_targets = resolve_head_rule_targets(pending, &cell_fields, builtins)?;
+    let views = HostCellDeclarations::new(pending, builtins);
+    let mut head_targets = resolve_head_rule_targets(pending, &cell_fields, &views)?;
+    let cell_kinds = host_cell_kinds(pending, &views);
     locate_main_cell_refusals(&mut head_targets, pending, contexts);
     Ok(ResolutionTables {
         context_aliases,
         declarations,
         cell_fields,
         head_targets,
+        cell_kinds,
     })
 }
 
@@ -452,6 +458,7 @@ fn resolve_pending_descriptors(
         declarations,
         cell_fields,
         head_targets,
+        cell_kinds,
     } = timings.try_span("collector.resolve.tables", |_| {
         resolution_tables(&mut pending, contexts, builtins)
     })?;
@@ -547,6 +554,7 @@ fn resolve_pending_descriptors(
                     format!("invalid declaration metadata coverage: {error}"),
                 )
             })?;
+        check_cell_kinds(&bundle, &cell_kinds)?;
         Ok(bundle)
     })
 }

@@ -20,7 +20,7 @@ use super::built_maps::{MapBase, writes_over_whole_map};
 use super::catalog::semantic_sort_ref;
 use super::error::DescriptorLoweringError;
 use super::origin::{semantic_cell_id, semantic_origin};
-use super::references::{declared_kind, require_cell_field};
+use super::references::{declared_kind, declared_multiplicity, require_cell_field};
 use krs_ir::cell_kind::{CellKind, Layer, Multiplicity};
 
 /// A rule cell state as transported.
@@ -314,7 +314,7 @@ pub(super) fn lower_optional_clause(
     let presence_error = |key: &ProvenanceKey, reason: String| {
         collection_error(&descriptor, codes::analysis::OPTIONAL_PRESENCE, key, reason)
     };
-    if declared_kind(declared, declarations).multiplicity() != Multiplicity::Optional {
+    if declared_multiplicity(declared, declarations) != Multiplicity::Optional {
         return Err(presence_error(
             &cell.key,
             format!(
@@ -748,7 +748,7 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
                 ),
             ));
         };
-        if declared_kind(declared, self.declarations).multiplicity() != Multiplicity::One {
+        if declared_multiplicity(declared, self.declarations) != Multiplicity::One {
             return Err(collection_error(
                 self.descriptor,
                 codes::analysis::COLLECTION_ENTRY,
@@ -1095,7 +1095,7 @@ fn present_optional_cell<'t>(
     declarations: &DescriptorIndex<'_>,
 ) -> Result<Option<&'t str>, DescriptorLoweringError> {
     let declared = require_cell_field(&template.field.cell, declarations)?;
-    match declared_kind(declared, declarations).multiplicity() {
+    match declared_multiplicity(declared, declarations) {
         Multiplicity::Optional => {
             return Ok(template
                 .absent

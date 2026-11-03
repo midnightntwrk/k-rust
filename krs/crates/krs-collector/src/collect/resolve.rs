@@ -367,6 +367,90 @@ impl CellView for HostCell<'_> {
     }
 }
 
+/// The kind of every cell field each fixed configuration and `#[k::cell]` struct declares, as
+/// the collector reads it from the host declaration ([`HostCell`]), by the declaring
+/// descriptor's identity and the field's Rust name.
+pub(super) type HostCellKinds = Vec<(StableItemId, Vec<(String, CellKind)>)>;
+
+/// The kinds [`HostCell`] gives every declared cell field of `pending`.
+pub(super) fn host_cell_kinds(
+    pending: &[PendingDescriptor],
+    views: &HostCellDeclarations<'_>,
+) -> HostCellKinds {
+    pending
+        .iter()
+        .filter_map(|descriptor| {
+            let declaration = match &descriptor.host.payload {
+                HostDescriptorPayload::Cell(declaration) => declaration.as_ref(),
+                HostDescriptorPayload::FixedConfiguration(configuration) => {
+                    &configuration.declaration
+                }
+                _ => return None,
+            };
+            let fields = declaration
+                .fields
+                .iter()
+                .map(|field| (field.rust_field.clone(), CellKind::of(&views.cell(field))))
+                .collect();
+            Some((descriptor.id.clone(), fields))
+        })
+        .collect()
+}
+
+/// Checks that the collector's two readings of each cell give it one kind: the host
+/// declaration, which the collector decides with before the descriptors are resolved
+/// ([`HostCell`], resolved by Rust types), and the collected declaration, which every
+/// compile-path reader after collection asks ([`krs_ir::cell_kind::DescriptorCell`], resolved by
+/// stable identities). They read different inputs (nested groups by `TypeId` against the index;
+/// builtins by their registered markers against `DescriptorSortRef::Builtin`; cons lists by the
+/// grammar's resolved type against its stable identity), so a disagreement is a collector
+/// fault, never the author's.
+///
+/// # Errors
+///
+/// Returns an internal [`CollectionErrorKind::CellKindDisagreement`] naming the first field the
+/// readings disagree on, with both kinds.
+pub(super) fn check_cell_kinds(
+    bundle: &krs_ir::DescriptorBundle,
+    host: &HostCellKinds,
+) -> Result<(), CollectionError> {
+    let index = krs_ir::DescriptorIndex::new(bundle);
+    let disagreement = |detail: String| {
+        CollectionError::new(
+            CollectionErrorKind::CellKindDisagreement,
+            format!("internal error: {detail}"),
+        )
+    };
+    for (owner, fields) in host {
+        let declaration = index.cell_owner(owner).map_err(|error| {
+            disagreement(format!(
+                "the cells `{}` declares have no collected declaration: {error}",
+                owner.item_name()
+            ))
+        })?;
+        for (field, host_kind) in fields {
+            let collected = declaration
+                .fields
+                .iter()
+                .find(|collected| &collected.rust_field == field)
+                .ok_or_else(|| {
+                    disagreement(format!(
+                        "the cell `{}.{field}` has no collected declaration",
+                        owner.item_name()
+                    ))
+                })?;
+            let collected_kind = krs_ir::cell_kind::DescriptorCell::new(collected, &index).kind();
+            if *host_kind != collected_kind {
+                return Err(disagreement(format!(
+                    "the collector reads the cell `{}.{field}` as {host_kind:?} from its host declaration and as {collected_kind:?} from its collected declaration",
+                    owner.item_name()
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct HeadRuleTarget {
     configuration: StableItemId,
@@ -501,7 +585,7 @@ fn collect_head_rule_cells(
 pub(super) fn resolve_head_rule_targets(
     pending: &[PendingDescriptor],
     cell_fields: &HashMap<HostCellKey, krs_ir::DescriptorCellIdentity>,
-    builtins: Option<&HostBuiltinRegistry>,
+    views: &HostCellDeclarations<'_>,
 ) -> Result<Vec<HeadRuleTarget>, CollectionError> {
     if !pending
         .iter()
@@ -531,7 +615,6 @@ pub(super) fn resolve_head_rule_targets(
             Some((key.resolve(), declaration.as_ref()))
         })
         .collect::<HashMap<_, _>>();
-    let views = HostCellDeclarations::new(pending, builtins);
     let targets = configurations
         .into_iter()
         .map(|(descriptor, configuration)| {
@@ -540,7 +623,7 @@ pub(super) fn resolve_head_rule_targets(
             collect_head_rule_cells(
                 &configuration.declaration,
                 &cell_declarations,
-                &views,
+                views,
                 cell_fields,
                 &mut HashSet::new(),
                 &mut cells,

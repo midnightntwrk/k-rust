@@ -81,6 +81,9 @@ pub enum CollectionErrorKind {
     MatchesInMatchedField,
     /// A record update there.
     RecordUpdateInMatchedField,
+    /// The collector's host declaration of a cell and its collected declaration give the cell
+    /// different kinds: a collector fault.
+    CellKindDisagreement,
 }
 
 /// Typed host-collection diagnostic with a stable category and human detail.
@@ -237,6 +240,7 @@ impl ToDiagnostic for CollectionError {
             CollectionErrorKind::LetInMatchedField => codes::expand::LET_OUTSIDE_TERM,
             CollectionErrorKind::MatchesInMatchedField => codes::expand::MATCHES_OUTSIDE_CONDITION,
             CollectionErrorKind::RecordUpdateInMatchedField => codes::syntax::INVALID_RECORD_UPDATE,
+            CollectionErrorKind::CellKindDisagreement => codes::collect::CELL_KIND_DISAGREEMENT,
         };
         let diagnostic = Diagnostic::error(
             code,

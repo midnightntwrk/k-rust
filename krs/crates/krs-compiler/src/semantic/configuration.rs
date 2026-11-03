@@ -20,7 +20,7 @@ use super::collection_types::{CollectionTyping, Root, SortType, Walker};
 use super::error::{DescriptorLoweringError, ImplicitPresentCell};
 use super::infer::{CollectionUse, StructuredTermBuilder, initial_binding_constraints};
 use super::origin::{generated_semantic_id, key_range, semantic_cell_id, semantic_origin};
-use super::references::{declared_kind, require_cell_field};
+use super::references::{declared_kind, declared_multiplicity, require_cell_field};
 use krs_ir::cell_kind::{CellKind, Multiplicity};
 
 pub(super) fn lower_fixed_configuration_descriptor(
@@ -321,8 +321,7 @@ fn add_present_optional_cells(
 ) -> Result<(), DescriptorLoweringError> {
     for cell in cells {
         let declared = require_cell_field(&cell.field.cell, declarations)?;
-        let optional =
-            declared_kind(declared, declarations).multiplicity() == Multiplicity::Optional;
+        let optional = declared_multiplicity(declared, declarations) == Multiplicity::Optional;
         match (&cell.absent, optional) {
             (Some(absent), false) => {
                 return Err(super::cell_states::collection_error(
@@ -522,7 +521,7 @@ fn cell_attributes(
     descriptor: &Descriptor,
     declaration: &DescriptorCellDeclaration,
     field: &DescriptorCellField,
-    kind: &CellKind,
+    multiplicity: Multiplicity,
     name: &str,
     present: Option<&NodeOrigin>,
 ) -> Result<Vec<CellAttribute>, DescriptorLoweringError> {
@@ -574,7 +573,7 @@ fn cell_attributes(
             "cell-exit",
         )?));
     }
-    let optional = kind.multiplicity() == Multiplicity::Optional;
+    let optional = multiplicity == Multiplicity::Optional;
     if let Some(initial) = &field.initial {
         // An optional cell's initializer says whether it starts present, so the flag would
         // repeat it or contradict it.
@@ -615,29 +614,33 @@ fn lower_cell_declaration(
             .emitted_name
             .as_ref()
             .map_or_else(|| field.rust_field.clone(), |name| name.value.clone());
-        let kind = declared_kind(field, declarations);
+        let multiplicity = declared_multiplicity(field, declarations);
         let attributes = cell_attributes(
             descriptor,
             declaration,
             field,
-            &kind,
+            multiplicity,
             &name,
             scope.present.get(&id),
         )?;
-        let repeated = if kind.multiplicity() == Multiplicity::One {
+        let repeated = if multiplicity == Multiplicity::One {
             scope.repeated.clone()
         } else {
             Some(name.clone())
         };
-        for attribute in &attributes {
-            scope.console.check_declaration(
-                attribute,
-                &name,
-                &id,
-                &field.content,
-                repeated.as_deref(),
-                &kind,
-            )?;
+        // The kind's content (a computation or not) is asked only of a cell with attributes.
+        if !attributes.is_empty() {
+            let kind = declared_kind(field, declarations);
+            for attribute in &attributes {
+                scope.console.check_declaration(
+                    attribute,
+                    &name,
+                    &id,
+                    &field.content,
+                    repeated.as_deref(),
+                    &kind,
+                )?;
+            }
         }
         let origin = semantic_origin(
             descriptor,

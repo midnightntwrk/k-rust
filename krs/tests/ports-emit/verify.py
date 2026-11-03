@@ -8,7 +8,7 @@ and `krs fmt --check`, the `krs check` descriptor count and warnings, the
 `krs expand` digest and its independent compile, two fresh emissions and a
 cached replay, and the digest of every emitted artifact. A difference fails
 here exactly as it would fail the heavy gate. It also compares the kind of
-every cell the emitted descriptor bundle declares with the kind the port's
+every cell each emitted descriptor bundle declares with the kind the port's
 source declares (`krs-gate cell-kinds`), the two views every kind reader asks. The heavy pins are never
 recorded here; an intended change to an artifact is recorded by the port's
 own gate.
@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 import subprocess
@@ -154,22 +155,38 @@ def macro_output(session: krs_gate.Session, port: PortEmission) -> tuple[dict[st
 
 
 def cell_kinds(gate: Path, port: PortEmission, workspace: Path, environment: Mapping[str, str]) -> str:
-    """Compare the cell kinds the emitted descriptor bundle declares with the port source's.
+    """Compare the cell kinds every descriptor bundle the port's emission wrote declares with the source's.
 
     The collector's declaration of each cell, which every compile-path reader asks for its
     kind, and the source's, which the macros and the class oracle parse, must agree
-    (`krs-gate cell-kinds`). The port's own package, `port.packages[0]`, is the one emitted.
+    (`krs-gate cell-kinds`). Each bundle is compared with the source of the port package that
+    declares its cells, which the gate picks by the cells' Cargo package; a bundle that declares
+    no cell, or cells of no port package, fails.
     """
     bundles = sorted(workspace.rglob("descriptor-bundle.json"))
     if not bundles:
         raise GateError(f"{port.label} emission left no descriptor-bundle.json to compare cell kinds with")
-    completed = subprocess.run(
-        [str(gate), "cell-kinds", str(bundles[0]), str(ROOT / port.packages[0] / "src")],
-        capture_output=True, text=True, env={**os.environ, **environment}, check=False,
-    )
-    if completed.returncode != 0:
-        raise GateError(f"{port.label} cell kinds: {completed.stderr.strip() or completed.stdout.strip()}")
-    return completed.stdout.strip()
+    packages = []
+    for relative in port.packages:
+        with (ROOT / relative / "Cargo.toml").open("rb") as stream:
+            name = tomllib.load(stream)["package"]["name"]
+        packages.append(f"{name}={ROOT / relative / 'src'}")
+    cells = 0
+    for bundle in bundles:
+        completed = subprocess.run(
+            [str(gate), "cell-kinds", str(bundle), *packages],
+            capture_output=True, text=True, env={**os.environ, **environment}, check=False,
+        )
+        if completed.returncode != 0:
+            raise GateError(
+                f"{port.label} cell kinds of {bundle.relative_to(workspace)}: "
+                f"{completed.stderr.strip() or completed.stdout.strip()}"
+            )
+        match = re.fullmatch(r"cell kinds agree: (\d+) cells, collected and parsed", completed.stdout.strip())
+        if match is None:
+            raise GateError(f"{port.label} cell kinds of {bundle.relative_to(workspace)}: {completed.stdout.strip()}")
+        cells += int(match.group(1))
+    return f"cell kinds agree in {len(bundles)} bundle{'' if len(bundles) == 1 else 's'} ({cells} cells)"
 
 
 def main() -> int:

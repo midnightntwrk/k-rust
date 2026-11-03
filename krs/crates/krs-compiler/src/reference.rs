@@ -795,6 +795,7 @@ impl<'a> Expansion<'a> {
                         semantic_rule,
                         package.writing(&written),
                         bundle,
+                        descriptor_index,
                     )?),
                     invocation_attributes,
                 ));
@@ -1594,52 +1595,38 @@ fn render_reference_token_term_type(
     Ok(quote!(k::Term<#token>))
 }
 
+/// The collected declaration of `cell`, as its owner's declaration holds it.
+fn declared_cell<'a>(
+    cell: &krs_ir::DescriptorCellIdentity,
+    index: &DescriptorIndex<'a>,
+) -> Option<&'a krs_ir::DescriptorCellField> {
+    index
+        .cell_owner(&cell.owner)
+        .ok()?
+        .fields
+        .iter()
+        .find(|field| field.rust_field == cell.field)
+}
+
 /// Whether `cell` is a fixed nested (group) cell, whose `cells!` entry is
-/// written without a wrapper because it mirrors the expanded struct (KF-016).
-fn is_group_cell(cell: &krs_ir::DescriptorCellIdentity, bundle: &krs_ir::DescriptorBundle) -> bool {
-    bundle.descriptors().iter().any(|descriptor| {
-        if descriptor.id() != &cell.owner {
-            return false;
-        }
-        let declaration = match descriptor.payload() {
-            DescriptorPayload::Cell(declaration) => declaration.as_ref(),
-            DescriptorPayload::FixedConfiguration(configuration) => &configuration.declaration,
-            _ => return false,
-        };
-        declaration.fields.iter().any(|field| {
-            field.rust_field == cell.field
-                && matches!(field.content, krs_ir::ProtocolCellContent::Nested { .. })
-        })
+/// written without a wrapper because it mirrors the expanded struct (KF-016):
+/// its declared kind's content is a group.
+fn is_group_cell(cell: &krs_ir::DescriptorCellIdentity, index: &DescriptorIndex<'_>) -> bool {
+    declared_cell(cell, index).is_some_and(|field| {
+        krs_ir::cell_kind::DescriptorCell::new(field, index)
+            .kind()
+            .group()
+            .is_some()
     })
 }
 
-/// Whether `cell` is a fixed optional (`?`) cell, whose `cells!` entry is `Some(..)` or `None`.
-fn is_optional_cell(
-    cell: &krs_ir::DescriptorCellIdentity,
-    bundle: &krs_ir::DescriptorBundle,
-) -> bool {
-    bundle.descriptors().iter().any(|descriptor| {
-        if descriptor.id() != &cell.owner {
-            return false;
-        }
-        let declaration = match descriptor.payload() {
-            DescriptorPayload::Cell(declaration) => declaration.as_ref(),
-            DescriptorPayload::FixedConfiguration(configuration) => &configuration.declaration,
-            _ => return false,
-        };
-        declaration.fields.iter().any(|field| {
-            field.rust_field == cell.field
-                && krs_ir::cell_kind::declared_multiplicity(
-                    field
-                        .multiplicity
-                        .as_ref()
-                        .map(|multiplicity| multiplicity.value.as_str()),
-                    field
-                        .cell_type
-                        .as_ref()
-                        .map(|cell_type| cell_type.value.into()),
-                ) == krs_ir::cell_kind::Multiplicity::Optional
-        })
+/// Whether `cell` is a fixed optional (`?`) cell, whose `cells!` entry is `Some(..)` or `None`:
+/// its declared kind's multiplicity is presence.
+fn is_optional_cell(cell: &krs_ir::DescriptorCellIdentity, index: &DescriptorIndex<'_>) -> bool {
+    declared_cell(cell, index).is_some_and(|field| {
+        krs_ir::cell_kind::CellView::multiplicity(&krs_ir::cell_kind::DescriptorCell::new(
+            field, index,
+        )) == krs_ir::cell_kind::Multiplicity::Optional
     })
 }
 
@@ -2392,6 +2379,7 @@ fn render_rule(
     semantic: &SemanticRule,
     package: PathScope<'_>,
     bundle: &krs_ir::DescriptorBundle,
+    descriptor_index: &DescriptorIndex<'_>,
 ) -> Result<syn::ItemFn, ReferenceExpansionError> {
     let variable_sorts = semantic
         .variables()
@@ -2497,6 +2485,7 @@ fn render_rule(
                     &mut StateRendering {
                         package,
                         bundle,
+                        descriptor_index,
                         reserved: &mut reserved,
                         tails: &mut instance_tails,
                         rests: ordinal,
@@ -2600,8 +2589,8 @@ fn render_rule(
                 after,
                 ..
             } => {
-                let group = is_group_cell(&cell.cell, bundle);
-                let optional = is_optional_cell(&cell.cell, bundle);
+                let group = is_group_cell(&cell.cell, descriptor_index);
+                let optional = is_optional_cell(&cell.cell, descriptor_index);
                 let cell = render_rule_cell_field(&cell.cell, &rule.configuration, package)?;
                 let before = render_term(before, true, package, bundle)?;
                 let after = after
@@ -2891,6 +2880,8 @@ fn render_equation_row(
 struct StateRendering<'a> {
     package: PathScope<'a>,
     bundle: &'a krs_ir::DescriptorBundle,
+    /// The bundle's index, built once per expansion.
+    descriptor_index: &'a DescriptorIndex<'a>,
     reserved: &'a mut BTreeSet<String>,
     /// Instance `k` tails named so far (`tail0`, `tail1`, ..).
     tails: &'a mut usize,
@@ -2909,7 +2900,7 @@ fn render_readable_state(
 ) -> Result<(TokenStream, Option<TokenStream>), ReferenceExpansionError> {
     use krs_ir::ProtocolRuleStateTerm as State;
     let field = render_rule_cell_field(&cell.cell, configuration, rendering.package)?;
-    let group = is_group_cell(&cell.cell, rendering.bundle);
+    let group = is_group_cell(&cell.cell, rendering.descriptor_index);
     let optional = |state: &State<krs_ir::DescriptorTerm>,
                     pattern: bool|
      -> Result<TokenStream, ReferenceExpansionError> {
@@ -2934,7 +2925,7 @@ fn render_readable_state(
     match (before, after) {
         (State::Instances(before), after) => {
             let rest = fresh_ident(&format!("instances{}", rendering.rests), rendering.reserved)?;
-            let declaration = collection_declaration(&cell.cell, rendering.bundle)
+            let declaration = collection_declaration(&cell.cell, rendering.descriptor_index)
                 .ok_or(ReferenceExpansionError::UnsupportedState)?;
             let owner = render_declared_path(&declaration, rendering.package)?;
             // Each matched instance's `k` tail, by label, reused by the
@@ -2968,9 +2959,8 @@ fn render_readable_state(
 /// The instance declaration of a collection cell.
 fn collection_declaration(
     cell: &krs_ir::DescriptorCellIdentity,
-    bundle: &krs_ir::DescriptorBundle,
+    index: &DescriptorIndex<'_>,
 ) -> Option<StableItemId> {
-    let index = DescriptorIndex::new(bundle);
     let owner = index.cell_owner(&cell.owner).ok()?;
     let field = owner
         .fields
