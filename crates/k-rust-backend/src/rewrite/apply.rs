@@ -1851,6 +1851,8 @@ fn instantiate(
             rename(&unclear_requires),
         )
     };
+    // Every alternative's application records this substitution; they share one map.
+    let substitution = Arc::new(substitution);
     let existential_substitution = freshen_existentials(rule, pattern, fresh_counter);
     let mut condition_knowledge = match_knowledge;
     extend_unique(&mut condition_knowledge, unclear_requires.iter().cloned());
@@ -2164,7 +2166,7 @@ fn apply_rhs_alternative(
     pattern: &Pattern,
     rhs: &Term,
     ensures: &Condition,
-    substitution: &Substitution,
+    substitution: &Arc<Substitution>,
     existential_substitution: &Substitution,
     condition_knowledge: &[Predicate],
     match_conditions: &[Predicate],
@@ -2354,11 +2356,18 @@ fn apply_rhs_alternative(
         .computed_attributes
         .lhs_alias_variables
         .get_or_init(|| term_alias_variables(&rule.lhs));
-    let rule_substitution = substitution
-        .iter()
-        .filter(|(variable, _)| !alias_variables.contains(*variable))
-        .map(|(variable, value)| (variable.clone(), value.clone()))
-        .collect();
+    // Without alias variables the diagnostic view is the substitution itself, shared.
+    let rule_substitution = if alias_variables.is_empty() {
+        Arc::clone(substitution)
+    } else {
+        Arc::new(
+            substitution
+                .iter()
+                .filter(|(variable, _)| !alias_variables.contains(*variable))
+                .map(|(variable, value)| (variable.clone(), value.clone()))
+                .collect(),
+        )
+    };
     let mut rule_predicates = Vec::new();
     extend_unique(&mut rule_predicates, match_conditions.iter().cloned());
     extend_unique(&mut rule_predicates, unclear_requires.iter().cloned());
@@ -2421,7 +2430,7 @@ fn apply_rhs_alternative(
             } else {
                 crate::path_facts::Dependence::default()
             },
-            substitution: substitution.clone(),
+            substitution: Arc::clone(substitution),
             rule_substitution,
             rule_predicates,
             effects,

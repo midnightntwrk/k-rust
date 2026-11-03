@@ -174,10 +174,12 @@ pub struct AppliedRule {
     /// record of the rule's claim the successor's normalization observes rests on too
     /// (`crate::path_facts::Dependence`; equality ignores it).
     pub(crate) premises_depend: crate::path_facts::Dependence,
-    pub substitution: Substitution,
+    /// The rule variables' bindings, shared by the applications of one match's alternatives.
+    pub substitution: Arc<Substitution>,
     /// Rule-variable bindings suitable for execution diagnostics. Variables introduced solely as
-    /// term aliases (`P #as X`) are implementation details and are omitted from this view.
-    pub rule_substitution: Substitution,
+    /// term aliases (`P #as X`) are implementation details and are omitted from this view; for a
+    /// rule without aliases it is the same map as `substitution`.
+    pub rule_substitution: Arc<Substitution>,
     /// Conditions introduced by this rule application, before they are merged with the incoming
     /// path constraints. RPC diagnostics use this provenance to report `rule-predicate` exactly.
     pub rule_predicates: Vec<Predicate>,

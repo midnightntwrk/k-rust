@@ -909,7 +909,7 @@ impl ObservationLog {
                 id: id.clone(),
                 class: TransitionClass::Rewrite,
                 rule_label: applied.label.clone(),
-                bindings: applied.rule_substitution.clone(),
+                bindings: Substitution::clone(&applied.rule_substitution),
                 introduced_predicates: applied.rule_predicates.clone(),
                 before: applied.before.clone(),
                 after: applied.pattern.clone(),
