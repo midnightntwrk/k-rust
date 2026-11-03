@@ -1064,15 +1064,21 @@ impl Drop for DeadlineGuard {
 
 /// The error type for `?` inside one module: both layers propagate. Never returned across a
 /// module boundary; [`Layered::layered`] converts it there.
+///
+/// Both layers are boxed, so that the type is two words whatever the failure: every result of the
+/// recursive simplifier holds one, and a frame of its recursion holds several such results, while
+/// a stop or a failure is the exceptional outcome, whose allocation costs nothing on the paths
+/// that answer (`simplify`'s `tests::recursion_stack`).
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum Unwind<F> {
-    Stop(Stop),
-    Fail(F),
+    Stop(Box<Stop>),
+    Fail(Box<F>),
 }
 
 impl<F> From<Stop> for Unwind<F> {
+    #[cold]
     fn from(stop: Stop) -> Self {
-        Self::Stop(stop)
+        Self::Stop(Box::new(stop))
     }
 }
 
@@ -1088,7 +1094,7 @@ impl<F> Unwind<F> {
     pub(crate) fn map_fail<G>(self, map: impl FnOnce(F) -> G) -> Unwind<G> {
         match self {
             Self::Stop(stop) => Unwind::Stop(stop),
-            Self::Fail(failure) => Unwind::Fail(map(failure)),
+            Self::Fail(failure) => Unwind::Fail(Box::new(map(*failure))),
         }
     }
 }
@@ -1100,8 +1106,9 @@ impl<F> Unwind<F> {
 macro_rules! unwind_failures {
     ($($failure:ty),* $(,)?) => {
         $(impl From<$failure> for Unwind<$failure> {
+            #[cold]
             fn from(failure: $failure) -> Self {
-                Self::Fail(failure)
+                Self::Fail(Box::new(failure))
             }
         })*
     };
@@ -1114,22 +1121,29 @@ unwind_failures!(
 );
 
 impl From<crate::builtin::BuiltinError> for Unwind<crate::simplify::SimplificationError> {
+    #[cold]
     fn from(failure: crate::builtin::BuiltinError) -> Self {
-        Self::Fail(crate::simplify::SimplificationError::Builtin(failure))
+        Self::Fail(Box::new(crate::simplify::SimplificationError::Builtin(
+            failure,
+        )))
     }
 }
 
 impl From<crate::simplify::SimplificationError> for Unwind<crate::implication::ImplicationError> {
+    #[cold]
     fn from(failure: crate::simplify::SimplificationError) -> Self {
-        Self::Fail(crate::implication::ImplicationError::Simplification(
-            failure,
+        Self::Fail(Box::new(
+            crate::implication::ImplicationError::Simplification(failure),
         ))
     }
 }
 
 impl From<crate::matching::SortError> for Unwind<crate::implication::ImplicationError> {
+    #[cold]
     fn from(failure: crate::matching::SortError) -> Self {
-        Self::Fail(crate::implication::ImplicationError::Subsorting(failure))
+        Self::Fail(Box::new(crate::implication::ImplicationError::Subsorting(
+            failure,
+        )))
     }
 }
 
@@ -1144,17 +1158,17 @@ impl<T, F> Layered<T, F> for Result<T, Unwind<F>> {
     fn layered(self) -> Stoppable<Result<T, F>> {
         match self {
             Ok(value) => Ok(Ok(value)),
-            Err(Unwind::Fail(failure)) => Ok(Err(failure)),
-            Err(Unwind::Stop(stop)) => Err(stop),
+            Err(Unwind::Fail(failure)) => Ok(Err(*failure)),
+            Err(Unwind::Stop(stop)) => Err(*stop),
         }
     }
 }
 
-// The layering adds no bytes: the stop variant fits in each failure's niche. A regression would
-// grow the frames of the recursive simplifier that `STACK_RED_ZONE` is sized for, so the
-// assertions hold wherever the red zone does. On wasm32 the stack is unguarded, and there the
-// 8-byte alignment of `StopCause::Deadline`'s `Duration` rounds the 4-byte-aligned failures up
-// by 4 bytes.
+// `Unwind` is two words whatever the failure, and the layering adds no bytes to a failure: the
+// stop variant fits in its niche. A regression would grow the frames of the recursive simplifier
+// that `STACK_RED_ZONE` is sized for, so the assertions hold wherever the red zone does. On wasm32
+// the stack is unguarded, and there the 8-byte alignment of `StopCause::Deadline`'s `Duration`
+// rounds the 4-byte-aligned failures up by 4 bytes.
 #[cfg(not(target_family = "wasm"))]
 const _: () = {
     use std::mem::size_of;
@@ -1166,9 +1180,12 @@ const _: () = {
         smt::{Satisfiability, SmtError},
     };
 
-    assert!(size_of::<Unwind<BuiltinError>>() == size_of::<BuiltinError>());
-    assert!(size_of::<Unwind<SimplificationError>>() == size_of::<SimplificationError>());
-    assert!(size_of::<Unwind<ImplicationError>>() == size_of::<ImplicationError>());
+    assert!(size_of::<Unwind<BuiltinError>>() == 2 * size_of::<usize>());
+    assert!(size_of::<Unwind<SimplificationError>>() == 2 * size_of::<usize>());
+    assert!(size_of::<Unwind<ImplicationError>>() == 2 * size_of::<usize>());
+    assert!(
+        size_of::<Stoppable<Result<(), SimplificationError>>>() == size_of::<SimplificationError>()
+    );
     assert!(
         size_of::<Stoppable<Result<Satisfiability, SmtError>>>()
             == size_of::<Result<Satisfiability, SmtError>>()

@@ -987,37 +987,52 @@ pub(crate) fn collecting() -> bool {
 /// Without a current collector nothing is recorded either way, and the buffer is empty. If
 /// `action` unwinds, its emissions are discarded and the current collector is restored.
 pub(crate) fn buffer<T>(action: impl FnOnce() -> T) -> (T, Buffered) {
-    struct Restore(Option<Sink>);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            if let Some(enclosing) = self.0.take() {
-                SINK.with(|sink| *sink.borrow_mut() = Some(enclosing));
-            }
+    let buffering = Buffering::start();
+    let result = action();
+    (result, buffering.finish())
+}
+
+/// [`buffer`] as a guard, for a caller whose work would otherwise be a closure with a frame of
+/// its own on a recursion (`simplify::evaluate_equation_condition`): the emissions between
+/// [`Buffering::start`] and [`Buffering::finish`] are held in the [`Buffered`] `finish` returns.
+/// Dropped unfinished, also when the work unwinds, it discards them and restores the current
+/// collector. Buffers close in the reverse order they start.
+pub(crate) struct Buffering(Option<Sink>);
+
+impl Buffering {
+    /// Hold the emissions from here on, where a collector is open (the enclosing one is kept).
+    pub(crate) fn start() -> Self {
+        Self(SINK.with(|sink| {
+            let mut sink = sink.borrow_mut();
+            let enclosing = sink.take()?;
+            *sink = Some(Sink {
+                unit: true,
+                emissions: Vec::new(),
+            });
+            Some(enclosing)
+        }))
+    }
+
+    /// The emissions held since [`Buffering::start`], with the enclosing collector restored.
+    pub(crate) fn finish(mut self) -> Buffered {
+        let Some(enclosing) = self.0.take() else {
+            return Buffered(Vec::new());
+        };
+        let inner = SINK
+            .with(|sink| sink.borrow_mut().take())
+            .map(|inner| inner.emissions)
+            .unwrap_or_default();
+        SINK.with(|sink| *sink.borrow_mut() = Some(enclosing));
+        Buffered(inner)
+    }
+}
+
+impl Drop for Buffering {
+    fn drop(&mut self) {
+        if let Some(enclosing) = self.0.take() {
+            SINK.with(|sink| *sink.borrow_mut() = Some(enclosing));
         }
     }
-    let Some(enclosing) = SINK.with(|sink| {
-        let mut sink = sink.borrow_mut();
-        let enclosing = sink.take()?;
-        *sink = Some(Sink {
-            unit: true,
-            emissions: Vec::new(),
-        });
-        Some(enclosing)
-    }) else {
-        return (action(), Buffered(Vec::new()));
-    };
-    let mut restore = Restore(Some(enclosing));
-    let result = action();
-    let inner = SINK
-        .with(|sink| sink.borrow_mut().take())
-        .map(|inner| inner.emissions)
-        .unwrap_or_default();
-    let enclosing = restore
-        .0
-        .take()
-        .expect("the enclosing collector is restored once");
-    SINK.with(|sink| *sink.borrow_mut() = Some(enclosing));
-    (result, Buffered(inner))
 }
 
 /// Append each diagnostic of `diagnostics` that `list` does not hold yet, in order.

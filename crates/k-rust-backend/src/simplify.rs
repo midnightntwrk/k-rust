@@ -1134,10 +1134,13 @@ fn simplify_predicates_entry(
         // A stop is handled first and propagates: the unsimplified predicates answer an
         // exhausted budget, never a stop.
         Err(Unwind::Stop(stop)) => Err(Unwind::Stop(stop)),
-        Err(Unwind::Fail(
-            SimplificationError::IterationLimit { .. }
-            | SimplificationError::PredicateIterationLimit { .. },
-        )) if options.budget == BudgetPolicy::KeepPartial => {
+        Err(Unwind::Fail(failure))
+            if matches!(
+                *failure,
+                SimplificationError::IterationLimit { .. }
+                    | SimplificationError::PredicateIterationLimit { .. }
+            ) && options.budget == BudgetPolicy::KeepPartial =>
+        {
             diagnostic::emit(BackendDiagnostic::SimplificationBudgetExhausted {
                 limit: options.max_iterations,
                 subject: BudgetSubject::Predicates,
@@ -1718,61 +1721,161 @@ fn simplify_conjunction_with_budget(
     let _apart = crate::rule::ApartScope::enter();
     let _domain = crate::term::domain::DomainScope::enter(definition);
     let _hook_values = crate::deferred::HookValueScope::enter(definition);
-    let conjuncts = distinct_conjuncts(predicates);
-    let known_index = KnownConjuncts::of(known_predicates);
-    // Each conjunct is simplified under the known predicates and the other conjuncts as they
-    // stand when its turn comes: the earlier ones already simplified, the later ones as given.
-    // A conjunct replaced by a form equivalent to it under the rest of the current conjunction
-    // leaves the conjunction equivalent, so every round is. Simplifying each conjunct under the
-    // others as given is not: in `X = 1 ∧ 1 = X` each equality is discharged by the other,
-    // and `X = 1` is lost.
-    //
-    // The assumption list holds the known predicates, without `\top`, which states nothing,
-    // then one slot per conjunct that is not known, holding its current value; the conjunct
-    // being simplified is not an assumption, so its slot holds `\top` meanwhile and the index
-    // skips it by position.
-    let mut assumptions = known_predicates
-        .iter()
-        .filter(|predicate| **predicate != Predicate::True)
-        .cloned()
-        .collect::<Vec<_>>();
-    count_conjunction_inputs(&conjuncts, assumptions.len());
-    let mut level = LevelConjuncts::new(assumptions.len());
-    let slots = conjuncts
-        .iter()
-        .map(|&predicate| {
-            if known_index.contains(predicate) {
-                None
-            } else {
-                assumptions.push(predicate.clone());
-                Some(level.push(predicate))
+    let mut conjunction = Conjunction::new(predicates, known_predicates);
+    for index in 0..conjunction.conjuncts.len() {
+        let result = match conjunction.kept(definition, index, known_predicates, settled) {
+            Some(result) => result,
+            None => {
+                let excluded_path_condition = conjunction.path_condition_excluding(index);
+                let path_condition = match &excluded_path_condition {
+                    Some(path_condition) => path_condition,
+                    None => {
+                        conjunction.build_full_path_condition();
+                        conjunction
+                            .full_path_condition
+                            .as_ref()
+                            .expect("the path condition was just built")
+                    }
+                };
+                let assumptions = PredicateAssumptions::new(
+                    TermAssumptions {
+                        predicates: &conjunction.assumptions,
+                        path_condition,
+                    },
+                    &conjunction.known_index,
+                    Some((&conjunction.level, conjunction.slots[index])),
+                );
+                let mut predicate_remaining = *remaining;
+                simplify_predicate_with_budget(
+                    definition,
+                    conjunction.conjuncts[index],
+                    &assumptions,
+                    limit,
+                    &mut predicate_remaining,
+                    active_conditions,
+                    solver,
+                )?
             }
+        };
+        if conjunction.absorb(index, result) {
+            return Ok(vec![Predicate::False]);
+        }
+    }
+    let simplified = match conjunction.finish(definition, limit, remaining)? {
+        ControlFlow::Break(simplified) => return Ok(simplified),
+        ControlFlow::Continue(simplified) => simplified,
+    };
+    // Invariant: `remaining` was decremented in `finish`, so nesting depth <= the budget.
+    simplify_conjunction_with_budget(
+        definition,
+        &simplified,
+        known_predicates,
+        limit,
+        remaining,
+        active_conditions,
+        solver,
+        settled,
+    )
+}
+
+/// The state of one pass of [`simplify_conjunction_with_budget`] over its conjuncts, boxed, with
+/// the work of the pass around the simplification of each conjunct out of line: the pass's
+/// frame is part of every frame of a recursion through an equation's `requires`, which decides
+/// a conjunction once per level, so only a pointer to the state and the conjunct's assumptions
+/// are (`tests::recursion_stack`).
+///
+/// Each conjunct is simplified under the known predicates and the other conjuncts as they
+/// stand when its turn comes: the earlier ones already simplified, the later ones as given.
+/// A conjunct replaced by a form equivalent to it under the rest of the current conjunction
+/// leaves the conjunction equivalent, so every round is. Simplifying each conjunct under the
+/// others as given is not: in `X = 1 ∧ 1 = X` each equality is discharged by the other,
+/// and `X = 1` is lost.
+///
+/// The assumption list holds the known predicates, without `\top`, which states nothing,
+/// then one slot per conjunct that is not known, holding its current value; the conjunct
+/// being simplified is not an assumption, so its slot holds `\top` meanwhile and the index
+/// skips it by position.
+struct Conjunction<'p> {
+    /// The distinct conjuncts, nested `And`s flattened.
+    conjuncts: Vec<&'p Predicate>,
+    known_index: KnownConjuncts<'p>,
+    /// The known predicates other than `\top`, then a slot per conjunct that is not known.
+    assumptions: Vec<Predicate>,
+    level: LevelConjuncts,
+    /// Each conjunct's slot of `assumptions` from `level.offset` on, if it is not known.
+    slots: Vec<Option<usize>>,
+    known_equalities: Vec<(Term, Term)>,
+    /// The equalities of each additional conjunct as it currently stands.
+    conjunct_equalities: Vec<Vec<(Term, Term)>>,
+    /// The path condition of every current equality, rebuilt only after one of them changed.
+    full_path_condition: Option<PathConditionReplacements>,
+    /// The terms the known predicates state defined, with their subterms, built at the first
+    /// `\ceil` conjunct: such a conjunct over one of them holds (`known_defined_subterms`). The
+    /// known predicates are kept by the caller, so the definedness stays stated by them.
+    known_defined: Option<FxHashSet<Term>>,
+    simplified: Vec<Predicate>,
+}
+
+impl<'p> Conjunction<'p> {
+    #[inline(never)]
+    fn new(predicates: &'p [Predicate], known_predicates: &'p [Predicate]) -> Box<Self> {
+        let conjuncts = distinct_conjuncts(predicates);
+        let known_index = KnownConjuncts::of(known_predicates);
+        let mut assumptions = known_predicates
+            .iter()
+            .filter(|predicate| **predicate != Predicate::True)
+            .cloned()
+            .collect::<Vec<_>>();
+        count_conjunction_inputs(&conjuncts, assumptions.len());
+        let mut level = LevelConjuncts::new(assumptions.len());
+        let slots = conjuncts
+            .iter()
+            .map(|&predicate| {
+                if known_index.contains(predicate) {
+                    None
+                } else {
+                    assumptions.push(predicate.clone());
+                    Some(level.push(predicate))
+                }
+            })
+            .collect::<Vec<_>>();
+        let mut known_equalities = Vec::new();
+        collect_conjunctive_equalities(known_predicates, &mut known_equalities);
+        let known_equalities = owned_equalities(known_equalities);
+        let conjunct_equalities = conjuncts
+            .iter()
+            .enumerate()
+            .map(|(index, &predicate)| {
+                if slots[index].is_none() {
+                    return Vec::new();
+                }
+                let mut equalities = Vec::new();
+                collect_conjunctive_equalities(std::slice::from_ref(predicate), &mut equalities);
+                owned_equalities(equalities)
+            })
+            .collect::<Vec<_>>();
+        let simplified = Vec::with_capacity(conjuncts.len());
+        Box::new(Self {
+            conjuncts,
+            known_index,
+            assumptions,
+            level,
+            slots,
+            known_equalities,
+            conjunct_equalities,
+            full_path_condition: None,
+            known_defined: None,
+            simplified,
         })
-        .collect::<Vec<_>>();
-    let offset = level.offset;
-    let mut known_equalities = Vec::new();
-    collect_conjunctive_equalities(known_predicates, &mut known_equalities);
-    let known_equalities = owned_equalities(known_equalities);
-    // The equalities of each additional conjunct as it currently stands.
-    let mut conjunct_equalities = conjuncts
-        .iter()
-        .enumerate()
-        .map(|(index, &predicate)| {
-            if slots[index].is_none() {
-                return Vec::new();
-            }
-            let mut equalities = Vec::new();
-            collect_conjunctive_equalities(std::slice::from_ref(predicate), &mut equalities);
-            owned_equalities(equalities)
-        })
-        .collect::<Vec<_>>();
-    let path_condition_excluding = |conjunct_equalities: &[Vec<(Term, Term)>],
-                                    excluded: Option<usize>| {
+    }
+
+    /// The path condition of the known equalities and those of every conjunct but `excluded`.
+    fn path_condition_without(&self, excluded: Option<usize>) -> PathConditionReplacements {
         PathConditionReplacements::from_equalities(
-            known_equalities
+            self.known_equalities
                 .iter()
                 .chain(
-                    conjunct_equalities
+                    self.conjunct_equalities
                         .iter()
                         .enumerate()
                         .filter(|(position, _)| Some(*position) != excluded)
@@ -1780,31 +1883,55 @@ fn simplify_conjunction_with_budget(
                 )
                 .map(|(left, right)| (left, right)),
         )
-    };
-    // The path condition of every current equality, rebuilt only after one of them changed.
-    let mut full_path_condition = None;
-    // The terms the known predicates state defined, with their subterms, built at the first
-    // `\ceil` conjunct: such a conjunct over one of them holds (`known_defined_subterms`). The
-    // known predicates are kept by the caller, so the definedness stays stated by them.
-    let mut known_defined = None;
-    let mut simplified = Vec::with_capacity(conjuncts.len());
-    for (index, &predicate) in conjuncts.iter().enumerate() {
+    }
+
+    /// The path condition conjunct `index` is simplified under, where it has equalities of its
+    /// own: the others' without them.
+    #[inline(never)]
+    fn path_condition_excluding(&self, index: usize) -> Option<PathConditionReplacements> {
+        (!self.conjunct_equalities[index].is_empty())
+            .then(|| self.path_condition_without(Some(index)))
+    }
+
+    /// Build the path condition of every current equality, unless it stands.
+    #[inline(never)]
+    fn build_full_path_condition(&mut self) {
+        if self.full_path_condition.is_none() {
+            self.full_path_condition = Some(self.path_condition_without(None));
+        }
+    }
+
+    /// Conjunct `index`, taken out of the assumptions of its own simplification, and its value
+    /// where it is kept without one: `\top` where the known predicates state its subject
+    /// defined, itself where it is `settled`'s atom alone beside the known predicates.
+    #[inline(never)]
+    fn kept(
+        &mut self,
+        definition: &BackendDefinition,
+        index: usize,
+        known_predicates: &[Predicate],
+        settled: Option<&Predicate>,
+    ) -> Option<Predicate> {
+        let predicate = self.conjuncts[index];
+        let offset = self.level.offset;
         // The conjunct is not an assumption of its own simplification.
-        if let Some(slot) = slots[index] {
-            assumptions[offset + slot] = Predicate::True;
+        if let Some(slot) = self.slots[index] {
+            self.assumptions[offset + slot] = Predicate::True;
         }
         // A deferred atom over an impure application (never stated by `deferred_obligations`)
         // is not a fact to read off the known predicates: it goes to the atom's own arm, which
         // raises the unsupported-hook outcome.
-        let result = if let Predicate::Ceil(subject) | Predicate::Defined(subject) = predicate
-            && known_defined
+        if let Predicate::Ceil(subject) | Predicate::Defined(subject) = predicate
+            && self
+                .known_defined
                 .get_or_insert_with(|| known_defined_subterms(definition, known_predicates))
                 .contains(subject)
             && !(matches!(predicate, Predicate::Defined(_))
                 && crate::deferred::impure_outcome(definition, subject).is_some())
         {
-            Ok(Predicate::True)
-        } else if settled.is_some_and(|atom| {
+            return Some(Predicate::True);
+        }
+        if settled.is_some_and(|atom| {
             // The pass of a definedness atom's arm (`settled`) is over the atom's expansion: `A`
             // and the members `M`, the conjunction that `ceil_term` states of `A`'s subject, which
             // is equivalent to `A`, so `A` implies every member. A round may discharge a member by
@@ -1819,90 +1946,78 @@ fn simplify_conjunction_with_budget(
             // and the stop fires only in a later round. An absence follows its members and may be
             // met alone in round 1, but its arm beside its members returns the atom itself. The
             // ceil and predicate theories still run on the pass's result.
-            predicate == atom && only_true_or_known(&assumptions[offset..], &known_index)
+            predicate == atom && only_true_or_known(&self.assumptions[offset..], &self.known_index)
         }) {
-            Ok(predicate.clone())
-        } else {
-            let excluded_path_condition = (!conjunct_equalities[index].is_empty())
-                .then(|| path_condition_excluding(&conjunct_equalities, Some(index)));
-            let path_condition = match &excluded_path_condition {
-                Some(path_condition) => path_condition,
-                None => full_path_condition
-                    .get_or_insert_with(|| path_condition_excluding(&conjunct_equalities, None)),
-            };
-            let assumptions = PredicateAssumptions::new(
-                TermAssumptions {
-                    predicates: &assumptions,
-                    path_condition,
-                },
-                &known_index,
-                Some((&level, slots[index])),
-            );
-            let mut predicate_remaining = *remaining;
-            simplify_predicate_with_budget(
-                definition,
-                predicate,
-                &assumptions,
-                limit,
-                &mut predicate_remaining,
-                active_conditions,
-                solver,
-            )
-        }?;
+            return Some(predicate.clone());
+        }
+        None
+    }
+
+    /// Conjunct `index` simplified to `result`, which the later conjuncts are simplified under;
+    /// whether the conjunction is false.
+    #[inline(never)]
+    fn absorb(&mut self, index: usize, result: Predicate) -> bool {
         // A false conjunct makes the conjunction false: the later conjuncts are not simplified.
         // A conditional's condition precedes its branch's equation in the conjunction that
         // states it (`implication::remainder_obligation`), so a branch the condition excludes
         // is never simplified, and an operand the conditional never evaluates stays unevaluated.
         if result == Predicate::False {
-            return Ok(vec![Predicate::False]);
+            return true;
         }
-        if let Some(slot) = slots[index] {
-            if result != *predicate {
+        if let Some(slot) = self.slots[index] {
+            if result != *self.conjuncts[index] {
                 let mut equalities = Vec::new();
                 collect_conjunctive_equalities(std::slice::from_ref(&result), &mut equalities);
                 let equalities = owned_equalities(equalities);
-                if equalities != conjunct_equalities[index] {
-                    conjunct_equalities[index] = equalities;
-                    full_path_condition = None;
+                if equalities != self.conjunct_equalities[index] {
+                    self.conjunct_equalities[index] = equalities;
+                    self.full_path_condition = None;
                 }
-                level.replace(slot, &result);
+                self.level.replace(slot, &result);
             }
-            assumptions[offset + slot] = result.clone();
+            self.assumptions[self.level.offset + slot] = result.clone();
         }
-        simplified.push(result);
+        self.simplified.push(result);
+        false
     }
-    let mut simplified = if violates_finite_constructor_domain(definition, &simplified) {
-        vec![Predicate::False]
-    } else {
-        simplified
-    };
-    if simplified.contains(&Predicate::False) {
-        simplified = vec![Predicate::False];
-    } else {
-        simplified.retain(|predicate| predicate != &Predicate::True);
-    }
-    if simplified.iter().eq(conjuncts.iter().copied()) {
-        return Ok(simplified);
-    }
-    if *remaining == 0 {
-        return Err(SimplificationError::PredicateIterationLimit {
-            limit,
-            predicate: Predicate::And(simplified.into()),
+
+    /// The end of the pass: its result where it is a fixed point (`Break`), else the conjunction
+    /// it gave, for another pass charged to `remaining` (`Continue`).
+    #[inline(never)]
+    fn finish(
+        self: Box<Self>,
+        definition: &BackendDefinition,
+        limit: usize,
+        remaining: &mut usize,
+    ) -> SimplifyResult<ControlFlow<Vec<Predicate>, Vec<Predicate>>> {
+        let Self {
+            conjuncts,
+            simplified,
+            ..
+        } = *self;
+        let mut simplified = if violates_finite_constructor_domain(definition, &simplified) {
+            vec![Predicate::False]
+        } else {
+            simplified
+        };
+        if simplified.contains(&Predicate::False) {
+            simplified = vec![Predicate::False];
+        } else {
+            simplified.retain(|predicate| predicate != &Predicate::True);
         }
-        .into());
+        if simplified.iter().eq(conjuncts.iter().copied()) {
+            return Ok(ControlFlow::Break(simplified));
+        }
+        if *remaining == 0 {
+            return Err(SimplificationError::PredicateIterationLimit {
+                limit,
+                predicate: Predicate::And(simplified.into()),
+            }
+            .into());
+        }
+        *remaining -= 1;
+        Ok(ControlFlow::Continue(simplified))
     }
-    *remaining -= 1;
-    // Invariant: `remaining` was decremented just above, so nesting depth <= the budget.
-    simplify_conjunction_with_budget(
-        definition,
-        &simplified,
-        known_predicates,
-        limit,
-        remaining,
-        active_conditions,
-        solver,
-        settled,
-    )
 }
 
 /// Whether every conjunct of `predicates`, nested `And`s flattened, is `\top` or one of `known`,
@@ -1959,6 +2074,9 @@ fn count_conjunction_inputs(conjuncts: &[&Predicate], known: usize) {
     }
 }
 
+/// Inlined: it is a frame of a recursion through an equation's `requires`, under
+/// [`simplify_rule_predicates_or_keep`], and holds little across the conjunction's simplification.
+#[inline]
 fn simplify_rule_predicates(
     definition: &BackendDefinition,
     condition_key: (&str, &Term),
@@ -2034,7 +2152,7 @@ fn simplify_rule_predicates_or_keep(
         Ok(simplified) => Ok(simplified),
         Err(Unwind::Stop(stop)) => Err(Unwind::Stop(stop)),
         Err(Unwind::Fail(failure)) => {
-            record_rule_condition_failure(rule, failure);
+            record_rule_condition_failure(rule, *failure);
             Ok(predicates)
         }
     }
@@ -2162,14 +2280,83 @@ fn evaluate_equation_condition(
     let rule_id = rule.unique_id.as_str();
     crate::coverage::note_matched(rule_id);
     let (requires, matched) = instance.into_requires();
+    let scope = ConditionMemo::enter(solver);
+    let solver = scope.solver();
+    let pending = match condition_memo_probe(
+        definition,
+        rule_id,
+        anchor,
+        &requires,
+        &matched,
+        known_predicates,
+        options,
+        active_conditions,
+        solver,
+        scope.nested,
+    ) {
+        ControlFlow::Break(outcome) => return Ok(note_undecided_verdict(outcome)),
+        ControlFlow::Continue(pending) => pending,
+    };
+    let collected = diagnostic::collecting();
+    let facts_from = crate::path_facts::marker();
+    let undecided_from = crate::smt::undecided_on_thread();
+    // The count and the buffer are guards, not closures around the decision, which would each
+    // take a frame of their own on every level of a recursion through `requires`.
+    let counting = stop::StackStopCount::start();
+    let buffering = diagnostic::Buffering::start();
+    let verdict = decide_equation_condition(
+        definition,
+        rule,
+        unbound_result,
+        rule_variables,
+        anchor,
+        requires,
+        matched,
+        known_predicates,
+        options,
+        active_conditions,
+        solver,
+    );
+    let emissions = buffering.finish();
+    let stack_stops = counting.finish();
+    condition_decided(
+        pending,
+        verdict,
+        emissions,
+        stack_stops,
+        undecided_from,
+        solver,
+        facts_from,
+        collected,
+    )
+}
+
+/// The probe of [`evaluate_equation_condition`]'s condition in the memo of verdicts, where a
+/// `nested` scope keeps them: the verdict served (`Break`), else what a verdict kept will be
+/// recorded under, boxed (`Continue`). Out of line, as the record of the verdict is
+/// ([`condition_decided`]): a recursion through an equation's `requires` passes through
+/// `evaluate_equation_condition` once per level, so only what is live across the decision is
+/// part of every frame of it (`tests::recursion_stack`).
+#[allow(clippy::too_many_arguments)]
+#[inline(never)]
+fn condition_memo_probe<'a>(
+    definition: &BackendDefinition,
+    rule_id: &'a str,
+    anchor: Option<&'a Term>,
+    requires: &crate::condition::InstantiatedCondition,
+    matched: &crate::condition::MatchedEquation,
+    known_predicates: &'a [Predicate],
+    options: SimplificationOptions,
+    active_conditions: &'a BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+    nested: bool,
+) -> ControlFlow<EquationCondition, Option<Box<PendingKey<'a>>>> {
     // `R[t]` must hold on the element `t` denotes, and holds there only where its terms are
     // defined, so their definedness joins the requires. The definedness of the bound terms
     // themselves is the `\ceil(t)` factor, which is carried rather than decided, so it is taken
     // as known and not restated as a requires.
     let bound_definedness = matched.bindings().as_known();
-    let scope = ConditionMemo::enter(solver);
-    let solver = scope.solver();
-    let probe = scope.nested.then(|| {
+    let probe = nested.then(|| {
         ConditionMemoProbe::new(
             definition,
             rule_id,
@@ -2186,29 +2373,27 @@ fn evaluate_equation_condition(
     if let Some(probe) = &probe
         && let Some(outcome) = ConditionMemo::served(probe)
     {
-        return Ok(note_undecided_verdict(outcome));
+        return ControlFlow::Break(outcome);
     }
-    let pending = probe.map(ConditionMemoProbe::into_pending);
-    let collected = diagnostic::collecting();
-    let facts_from = crate::path_facts::marker();
-    let undecided_from = crate::smt::undecided_on_thread();
-    let ((verdict, emissions), stack_stops) = stop::counting_stack_stops(|| {
-        diagnostic::buffer(|| {
-            decide_equation_condition(
-                definition,
-                rule,
-                unbound_result,
-                rule_variables,
-                anchor,
-                requires,
-                matched,
-                known_predicates,
-                options,
-                active_conditions,
-                solver,
-            )
-        })
-    });
+    ControlFlow::Continue(probe.map(|probe| Box::new(probe.into_pending())))
+}
+
+/// The end of [`evaluate_equation_condition`] once its decision gave `verdict`, with its
+/// diagnostics `emissions`, `stack_stops` stops for want of stack inside, and the solver's
+/// undecided answers on this thread at `undecided_from` before it: the diagnostics committed,
+/// and the verdict kept under `pending` where it is a function of the key.
+#[allow(clippy::too_many_arguments)]
+#[inline(never)]
+fn condition_decided(
+    pending: Option<Box<PendingKey<'_>>>,
+    verdict: SimplifyResult<EquationCondition>,
+    emissions: diagnostic::Buffered,
+    stack_stops: usize,
+    undecided_from: usize,
+    solver: &dyn SmtSolver,
+    facts_from: crate::path_facts::Marker,
+    collected: bool,
+) -> SimplifyResult<EquationCondition> {
     emissions.commit_copy();
     // A refinement inside that ran out of native stack was dismissed, and its outcome kept
     // coarser than a decision with more stack left would reach; an undecided solver answer may
@@ -2221,7 +2406,7 @@ fn evaluate_equation_condition(
         && !undecided
         && let Ok(verdict) = &verdict
     {
-        ConditionMemo::record(pending, verdict, facts_from, emissions, collected);
+        ConditionMemo::record(*pending, verdict, facts_from, emissions, collected);
     }
     verdict.map(note_undecided_verdict)
 }
@@ -3055,14 +3240,7 @@ fn decide_equation_condition(
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<EquationCondition> {
     let rule_id = rule.unique_id.as_str();
-    let bound_definedness = matched.bindings().as_known();
-    let definedness_known = if bound_definedness.is_empty() {
-        None
-    } else {
-        let mut known = known_predicates.to_vec();
-        known.extend(bound_definedness.iter().cloned());
-        Some(known)
-    };
+    let definedness_known = known_with_bindings(known_predicates, &matched);
     let definedness_known = definedness_known.as_deref().unwrap_or(known_predicates);
     let predicates = if let Some(anchor) = anchor {
         requires.simplify(
@@ -3097,10 +3275,65 @@ fn decide_equation_condition(
             },
         )??
     } else {
-        requires
-            .with_definedness(definition, definedness_known)
-            .map_err(SimplificationError::from)?
+        unanchored_condition(definition, requires, definedness_known)?
     };
+    condition_verdict(
+        rule,
+        unbound_result,
+        rule_variables,
+        predicates,
+        matched,
+        known_predicates,
+        solver,
+    )
+}
+
+/// The known predicates of [`decide_equation_condition`] with the definedness of the terms
+/// `matched` binds, where it binds any. Out of line, as the verdict is ([`condition_verdict`]).
+#[inline(never)]
+fn known_with_bindings(
+    known_predicates: &[Predicate],
+    matched: &crate::condition::MatchedEquation,
+) -> Option<Vec<Predicate>> {
+    let bound_definedness = matched.bindings().as_known();
+    if bound_definedness.is_empty() {
+        None
+    } else {
+        let mut known = known_predicates.to_vec();
+        known.extend(bound_definedness.iter().cloned());
+        Some(known)
+    }
+}
+
+/// The condition `requires` of [`decide_equation_condition`] with no anchor, its definedness
+/// stated under `definedness_known` and nothing simplified. Out of line, as the verdict is
+/// ([`condition_verdict`]).
+#[inline(never)]
+fn unanchored_condition(
+    definition: &BackendDefinition,
+    requires: crate::condition::InstantiatedCondition,
+    definedness_known: &[Predicate],
+) -> SimplifyResult<Vec<Predicate>> {
+    requires
+        .with_definedness(definition, definedness_known)
+        .map_err(|failure| SimplificationError::from(failure).into())
+}
+
+/// The verdict of [`decide_equation_condition`] on its condition simplified to `predicates`.
+/// Out of line: a recursion through an equation's `requires` passes through
+/// `decide_equation_condition` once per level, so only what is live across the simplification of
+/// the condition is part of every frame of it (`tests::recursion_stack`).
+#[inline(never)]
+fn condition_verdict(
+    rule: &RuleAttributes,
+    unbound_result: &[String],
+    rule_variables: &BTreeSet<Variable>,
+    predicates: Vec<Predicate>,
+    matched: crate::condition::MatchedEquation,
+    known_predicates: &[Predicate],
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<EquationCondition> {
+    let rule_id = rule.unique_id.as_str();
     Ok(
         match decide_rule_condition(rule, &predicates, rule_variables, known_predicates, solver)? {
             RuleCondition::Refuted => EquationCondition::Refuted,
@@ -3438,34 +3671,255 @@ fn simplify_predicate_on_stack(
     // otherwise (a library caller's predicate) is the unsupported-hook outcome before any known
     // fact can decide it.
     if let Predicate::Defined(subject) = predicate
-        && let Some(outcome) = crate::deferred::impure_outcome(definition, subject)
+        && let Some(failure) = impure_failure(definition, subject)
     {
-        return Err(SimplificationError::from(outcome).into());
+        return Err(failure);
     }
     match assumptions.truth(predicate) {
         Some(true) => return Ok(Predicate::True),
         Some(false) => return Ok(Predicate::False),
         None => {}
     }
-    let simplify_term = |term: &Term| {
-        let mut term_remaining = *remaining;
-        simplify_with_budget(
+    // Each arm ends the simplification out of line, the predicate theories included, so that
+    // this frame holds only what is live across the simplification of an equality's sides or a
+    // ceil's operand.
+    match predicate {
+        Predicate::Equals(left, right) => {
+            let simplified_left = predicate_operand(
+                definition,
+                left,
+                assumptions,
+                limit,
+                *remaining,
+                active_conditions,
+                solver,
+            )?;
+            let simplified_right = predicate_operand(
+                definition,
+                right,
+                assumptions,
+                limit,
+                *remaining,
+                active_conditions,
+                solver,
+            )?;
+            equality_of_sides(
+                definition,
+                predicate,
+                (left, right),
+                simplified_left,
+                simplified_right,
+                assumptions,
+                limit,
+                remaining,
+                active_conditions,
+                solver,
+            )
+        }
+        Predicate::Ceil(term) => {
+            if let Some(done) = ceil_of_term_conjunctions(
+                definition,
+                term,
+                assumptions,
+                limit,
+                remaining,
+                active_conditions,
+                solver,
+            ) {
+                return done;
+            }
+            let simplified = predicate_operand(
+                definition,
+                term,
+                assumptions,
+                limit,
+                *remaining,
+                active_conditions,
+                solver,
+            );
+            ceil_of_operand(
+                definition,
+                predicate,
+                simplified,
+                assumptions,
+                limit,
+                remaining,
+                active_conditions,
+                solver,
+            )
+        }
+        Predicate::Not(inner) => negation(
             definition,
-            term,
-            &assumptions.terms,
-            SimplificationOptions {
-                max_iterations: limit,
-                budget: BudgetPolicy::Fail,
-            },
-            &mut term_remaining,
+            predicate,
+            inner,
+            assumptions,
+            limit,
+            remaining,
             active_conditions,
             solver,
-            None,
+        ),
+        Predicate::Or(inner) => disjunction(
+            definition,
+            predicate,
+            inner,
+            assumptions,
+            limit,
+            remaining,
+            active_conditions,
+            solver,
+        ),
+        predicate => other_predicate(
+            definition,
+            predicate,
+            assumptions,
+            limit,
+            remaining,
+            active_conditions,
+            solver,
+        ),
+    }
+}
+
+/// The negation arm of [`simplify_predicate_on_stack`]: `predicate` is `\not` of `inner`,
+/// simplified under its own copy of `remaining`. Out of line, as [`equality_of_sides`] is, and
+/// apart from [`other_predicate`]: only this frame is part of a recursion through a negated
+/// predicate (`tests::recursion_stack`).
+#[allow(clippy::too_many_arguments)]
+#[inline(never)]
+fn negation(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    inner: &Predicate,
+    assumptions: &PredicateAssumptions<'_>,
+    limit: usize,
+    remaining: &mut usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<Predicate> {
+    let mut inner_remaining = *remaining;
+    let inner = simplify_predicate_with_budget(
+        definition,
+        inner,
+        assumptions,
+        limit,
+        &mut inner_remaining,
+        active_conditions,
+        solver,
+    )?;
+    predicate_theories(
+        definition,
+        predicate,
+        Predicate::Not(Arc::new(inner)),
+        assumptions,
+        limit,
+        remaining,
+        active_conditions,
+        solver,
+    )
+}
+
+/// The disjunction arm of [`simplify_predicate_on_stack`]: `predicate` is `\or` of `inner`, each
+/// simplified under its own copy of `remaining`. Out of line, as [`negation`] is: only this frame
+/// is part of a recursion through a disjunct (`tests::recursion_stack`).
+#[allow(clippy::too_many_arguments)]
+#[inline(never)]
+fn disjunction(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    inner: &[Predicate],
+    assumptions: &PredicateAssumptions<'_>,
+    limit: usize,
+    remaining: &mut usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<Predicate> {
+    let inner = inner
+        .iter()
+        .map(|predicate| {
+            let mut predicate_remaining = *remaining;
+            simplify_predicate_with_budget(
+                definition,
+                predicate,
+                assumptions,
+                limit,
+                &mut predicate_remaining,
+                active_conditions,
+                solver,
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    predicate_theories(
+        definition,
+        predicate,
+        Predicate::Or(inner.into()),
+        assumptions,
+        limit,
+        remaining,
+        active_conditions,
+        solver,
+    )
+}
+
+/// The simplification of `term`, an operand of a predicate's atom, under the predicate's
+/// assumptions: its own copy of `remaining` as the term budget, which fails when spent, and no
+/// execution's evaluation. Inlined, so that it adds no frame to a recursion through a predicate's
+/// operand (`tests::recursion_stack`).
+#[inline(always)]
+fn predicate_operand(
+    definition: &BackendDefinition,
+    term: &Term,
+    assumptions: &PredicateAssumptions<'_>,
+    limit: usize,
+    remaining: usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<Simplification> {
+    let mut term_remaining = remaining;
+    simplify_with_budget(
+        definition,
+        term,
+        &assumptions.terms,
+        SimplificationOptions {
+            max_iterations: limit,
+            budget: BudgetPolicy::Fail,
+        },
+        &mut term_remaining,
+        active_conditions,
+        solver,
+        None,
+    )
+}
+
+/// [`simplify_predicate_on_stack`] of a predicate other than an equality, a `\ceil`, a negation
+/// or a disjunction.
+#[allow(clippy::too_many_arguments)]
+#[inline(never)]
+fn other_predicate(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    assumptions: &PredicateAssumptions<'_>,
+    limit: usize,
+    remaining: &mut usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<Predicate> {
+    let simplify_term = |term: &Term| {
+        predicate_operand(
+            definition,
+            term,
+            assumptions,
+            limit,
+            *remaining,
+            active_conditions,
+            solver,
         )
     };
     let simplified = match predicate {
         Predicate::True => Predicate::True,
         Predicate::False => Predicate::False,
+        Predicate::Equals(..) | Predicate::Ceil(..) | Predicate::Not(_) | Predicate::Or(_) => {
+            unreachable!("the caller simplifies an equality, a ceil, a negation and a disjunction")
+        }
         Predicate::Term(term) => {
             let simplified = simplify_term(term)?.into_parts();
             with_simplification_constraints(
@@ -3473,251 +3927,20 @@ fn simplify_predicate_on_stack(
                 Predicate::Term(simplified.term),
             )
         }
-        Predicate::Equals(left, right) => {
-            let simplified_left = simplify_term(left)?;
-            let simplified_right = simplify_term(right)?;
-            // A side rewritten to `C /\ l'` is used, with `C` conjoined, only when the other
-            // side is provably defined: `\equals(C /\ l', r)` is `C /\ \equals(l', r)` when
-            // `r` is not empty and `\not \ceil(r)` when `C` fails and `r` is empty, since
-            // `\equals(\bottom, \bottom)` is `\top`. The other side is witnessed by its own
-            // rewritten term when that carried no constraint (the two are equal) and by its
-            // original term otherwise. A side that fails the check stays as it was.
-            let provably_defined = |term: &Term| {
-                term_is_provably_defined(definition, term, |obligation| {
-                    assumptions.contains(obligation)
-                })
-            };
-            let witness = |original: &'_ Term, simplified: &'_ Simplification| -> Term {
-                if simplified.is_unconditional() {
-                    simplified.term.clone()
-                } else {
-                    original.clone()
-                }
-            };
-            let use_left = simplified_left.is_unconditional()
-                || provably_defined(&witness(right, &simplified_right));
-            let use_right = simplified_right.is_unconditional()
-                || provably_defined(&witness(left, &simplified_left));
-            let mut constraints = Vec::new();
-            let left = if use_left {
-                let simplified_left = simplified_left.into_parts();
-                constraints.extend(simplified_left.conditions);
-                simplified_left.term
-            } else {
-                left.clone()
-            };
-            let right = if use_right {
-                let simplified_right = simplified_right.into_parts();
-                constraints.extend(simplified_right.conditions);
-                simplified_right.term
-            } else {
-                right.clone()
-            };
-            let known = |obligation: &Predicate| assumptions.contains(obligation);
-            let equality = normalize_hooked_boolean_predicate(
-                definition,
-                Predicate::Equals(left, right),
-                &known,
-            );
-            let equality = normalize_injection_equality(definition, equality, &known);
-            let equality = match equality {
-                Predicate::Equals(left, right) => {
-                    let (equality, resimplify) =
-                        match terms_apart(Some(definition.sort_graph()), &left, &right) {
-                            // R-eq: disjoint denotations are equal exactly where both are empty;
-                            // a provably defined side makes that condition false.
-                            Some(apart) => {
-                                let equality = apart.equality(left, right, provably_defined);
-                                let resimplify = matches!(equality, Predicate::And(_));
-                                (equality, resimplify)
-                            }
-                            // Decomposition is an equivalence, so with the budget spent
-                            // the equality is kept as it is.
-                            None if *remaining > 0 => {
-                                match decompose_free_application(&left, &right, provably_defined) {
-                                    Some(decomposed) => (decomposed, true),
-                                    None => (Predicate::Equals(left, right), false),
-                                }
-                            }
-                            None => (Predicate::Equals(left, right), false),
-                        };
-                    if resimplify {
-                        // Re-enter under the same budget so negated ceils reach ceil theory
-                        // and argument equalities reach injection and path-condition theory.
-                        let conjunction = with_simplification_constraints(constraints, equality);
-                        if *remaining == 0 {
-                            return Err(SimplificationError::PredicateIterationLimit {
-                                limit,
-                                predicate: conjunction,
-                            }
-                            .into());
-                        }
-                        *remaining -= 1;
-                        return simplify_predicate_with_budget(
-                            definition,
-                            &conjunction,
-                            assumptions,
-                            limit,
-                            remaining,
-                            active_conditions,
-                            solver,
-                        );
-                    }
-                    equality
-                }
-                equality => equality,
-            };
-            with_simplification_constraints(constraints, equality)
-        }
-        Predicate::Ceil(term) => {
-            // `ceil_term` states only the operands' definedness of a term-level conjunction,
-            // which is not all of it (`term_is_provably_defined`): the conjunctions are read
-            // first, as equalities of their operands (`without_term_conjunctions`). They are
-            // read in the operand as written, before simplification: a strict symbol that
-            // discards an operand (`#if`, `andThenBool`, `orElseBool`) is still undefined where
-            // the discarded operand is, and simplifying it would leave that operand's
-            // conjunctions only as deferred definedness obligations.
-            if contains_term_conjunction(term)
-                && let Some((plain, equalities)) = without_term_conjunctions(term)
-            {
-                let mut constraints = vec![Predicate::Ceil(plain)];
-                constraints.extend(equalities);
-                let conjunction = Predicate::And(constraints.into());
-                if *remaining == 0 {
-                    return Err(SimplificationError::PredicateIterationLimit {
-                        limit,
-                        predicate: conjunction,
-                    }
-                    .into());
-                }
-                *remaining -= 1;
-                return simplify_predicate_with_budget(
-                    definition,
-                    &conjunction,
-                    assumptions,
-                    limit,
-                    remaining,
-                    active_conditions,
-                    solver,
-                );
-            }
-            let simplified = simplify_term(term)?.into_parts();
-            let unchanged = Predicate::Ceil(simplified.term.clone());
-            // A conjunction the simplification of the operand builds is read the same way.
-            if contains_term_conjunction(&simplified.term) {
-                let mut constraints = simplified.conditions.into_predicates();
-                let Some((plain, equalities)) = without_term_conjunctions(&simplified.term) else {
-                    return Ok(with_simplification_constraints(constraints, unchanged));
-                };
-                constraints.push(Predicate::Ceil(plain));
-                constraints.extend(equalities);
-                let conjunction = Predicate::And(constraints.into());
-                if *remaining == 0 {
-                    return Err(SimplificationError::PredicateIterationLimit {
-                        limit,
-                        predicate: conjunction,
-                    }
-                    .into());
-                }
-                *remaining -= 1;
-                return simplify_predicate_with_budget(
-                    definition,
-                    &conjunction,
-                    assumptions,
-                    limit,
-                    remaining,
-                    active_conditions,
-                    solver,
-                );
-            }
-            let mut expanded =
-                ceil_term(definition, &simplified.term).map_err(SimplificationError::from)?;
-            // An opaque parent ceil remains a conjunct after expansion. Do not repeatedly
-            // add child ceils already supplied by the surrounding conjunction, nor those the
-            // assumptions already state ([`expansion_obligations`]).
-            if expansion_obligations(definition, &mut expanded, &unchanged, assumptions)? {
-                return Ok(with_simplification_constraints(
-                    simplified.conditions.into_predicates(),
-                    Predicate::True,
-                ));
-            }
-            if expanded.as_slice() == [unchanged.clone()] {
-                // A listing only an execution evaluates (`crate::evaluation`) is defined exactly
-                // when its collection is: a closed map with distinct constructor-like keys is
-                // defined when its values are, and then has a listing. The collection's own
-                // obligations are the other members of its `ceil_term`, here none or assumed. An
-                // `outside-domain` application of a partial symbol is not known to be
-                // defined (`ChosenValue::defined`). A hook whose text gives every argument of
-                // its sorts a value is defined wherever its arguments are, at a partial symbol
-                // too (`builtin::defined_on_every_argument`).
-                let defined = defined_where_its_arguments_are(definition, &simplified.term)?;
-                with_simplification_constraints(
-                    simplified.conditions.into_predicates(),
-                    if defined { Predicate::True } else { unchanged },
-                )
-            } else {
-                // The expansion supplies the definedness of the subterms as sibling conjuncts,
-                // and a conditional ceil equation on the parent is decided under them only by
-                // a further pass over the conjunction. Take that pass here, so that an entry
-                // without a surrounding conjunction fixed point reaches the equation too.
-                let mut constraints = simplified.conditions.into_predicates();
-                constraints.extend(expanded);
-                let conjunction = Predicate::And(constraints.into());
-                if *remaining == 0 {
-                    return Err(SimplificationError::PredicateIterationLimit {
-                        limit,
-                        predicate: conjunction,
-                    }
-                    .into());
-                }
-                *remaining -= 1;
-                // The pass keeps the atom as it is once the atom is alone beside the known
-                // predicates: this simplification of it is the one in progress
-                // (`simplify_conjunction_with_budget`).
-                return simplify_predicate_with_budget(
-                    definition,
-                    &conjunction,
-                    &assumptions.settling_at(&unchanged),
-                    limit,
-                    remaining,
-                    active_conditions,
-                    solver,
-                );
-            }
-        }
         // A deferred atom is decided only by the steps of `crate::deferred` (and by the known
         // facts and the solver): its subject is never given to the term simplifier, and no
         // ceil, simplification or predicate lemma is applied to it.
         Predicate::Defined(term) => {
-            if assumptions.contains(&Predicate::Ceil(term.clone())) {
-                return Ok(Predicate::True);
-            }
-            return match crate::deferred::decide_defined(definition, term)? {
-                Err(outcome) => Err(SimplificationError::from(outcome).into()),
-                Ok(DeferredDecision::Established) => Ok(Predicate::True),
-                Ok(DeferredDecision::Refuted) => Ok(Predicate::False),
-                Ok(DeferredDecision::Open) => Ok(predicate.clone()),
-                Ok(DeferredDecision::Replaced(atoms)) => {
-                    let conjunction = Predicate::And(atoms.into());
-                    if *remaining == 0 {
-                        return Err(SimplificationError::PredicateIterationLimit {
-                            limit,
-                            predicate: conjunction,
-                        }
-                        .into());
-                    }
-                    *remaining -= 1;
-                    simplify_predicate_with_budget(
-                        definition,
-                        &conjunction,
-                        assumptions,
-                        limit,
-                        remaining,
-                        active_conditions,
-                        solver,
-                    )
-                }
-            };
+            return defined_arm(
+                definition,
+                predicate,
+                term,
+                assumptions,
+                limit,
+                remaining,
+                active_conditions,
+                solver,
+            );
         }
         Predicate::Floor(term) => {
             let simplified = simplify_term(term)?;
@@ -3737,68 +3960,18 @@ fn simplify_predicate_on_stack(
             with_simplification_constraints(constraints, Predicate::In(left.term, right.term))
         }
         Predicate::Absent(absence) => {
-            // The absence is the definedness of its joined collection, whose value, if any, is
-            // a variable: `ceil_term` of it states the same fact through the key and the rest
-            // alone. Over an opaque rest that is the atom again beside the key's and the rest's
-            // own obligations; over a rest that has become a collection with entries it is the
-            // key's disequalities from those entries and its absence from their rest.
-            let key = simplify_term(absence.key())?.into_parts();
-            let rest = simplify_term(absence.rest())?.into_parts();
-            let mut constraints = key.conditions.into_predicates();
-            constraints.extend(rest.conditions);
-            let simplified = Absence::predicate(absence.collection(), key.term, rest.term);
-            let joined = match &simplified {
-                Predicate::Absent(absence) => absence.joined(),
-                Predicate::Ceil(joined) => joined,
-                _ => unreachable!("an absence is an atom or the ceil of its joined set"),
-            };
-            let mut expanded = ceil_term(definition, joined).map_err(SimplificationError::from)?;
-            // As for `\ceil` above: an opaque atom remains a conjunct of its expansion. An
-            // absence is no `\ceil` or definedness atom, so it never holds as a known-defined
-            // term does, unless it became the `\ceil` of its joined collection, which holds
-            // where the assumptions state that collection defined.
-            if expansion_obligations(definition, &mut expanded, &simplified, assumptions)? {
-                return Ok(with_simplification_constraints(
-                    constraints,
-                    Predicate::True,
-                ));
-            }
-            if expanded.as_slice() == std::slice::from_ref(&simplified) {
-                with_simplification_constraints(constraints, simplified)
-            } else {
-                constraints.extend(expanded);
-                let conjunction = Predicate::And(constraints.into());
-                if *remaining == 0 {
-                    return Err(SimplificationError::PredicateIterationLimit {
-                        limit,
-                        predicate: conjunction,
-                    }
-                    .into());
-                }
-                *remaining -= 1;
-                // As for `\ceil` above, the pass keeps the atom once it is alone.
-                return simplify_predicate_with_budget(
-                    definition,
-                    &conjunction,
-                    &assumptions.settling_at(&simplified),
-                    limit,
-                    remaining,
-                    active_conditions,
-                    solver,
-                );
-            }
-        }
-        Predicate::Not(inner) => {
-            let mut inner_remaining = *remaining;
-            Predicate::Not(Arc::new(simplify_predicate_with_budget(
+            match absence_arm(
                 definition,
-                inner,
+                absence,
                 assumptions,
                 limit,
-                &mut inner_remaining,
+                remaining,
                 active_conditions,
                 solver,
-            )?))
+            )? {
+                AtomStep::Done(predicate) => return Ok(predicate),
+                AtomStep::Simplified(predicate) => predicate,
+            }
         }
         Predicate::And(inner) => {
             let mut inner_remaining = *remaining;
@@ -3813,24 +3986,6 @@ fn simplify_predicate_on_stack(
                 assumptions.settled,
             )?;
             Predicate::And(inner.into())
-        }
-        Predicate::Or(inner) => {
-            let inner = inner
-                .iter()
-                .map(|predicate| {
-                    let mut predicate_remaining = *remaining;
-                    simplify_predicate_with_budget(
-                        definition,
-                        predicate,
-                        assumptions,
-                        limit,
-                        &mut predicate_remaining,
-                        active_conditions,
-                        solver,
-                    )
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            Predicate::Or(inner.into())
         }
         Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
             let mut left_remaining = *remaining;
@@ -3890,6 +4045,457 @@ fn simplify_predicate_on_stack(
             }
         }
     };
+    predicate_theories(
+        definition,
+        predicate,
+        simplified,
+        assumptions,
+        limit,
+        remaining,
+        active_conditions,
+        solver,
+    )
+}
+
+/// The unsupported-hook failure of a deferred atom over an impure application
+/// (`deferred::impure_outcome`), out of line ([`equality_of_sides`]).
+#[inline(never)]
+fn impure_failure(
+    definition: &BackendDefinition,
+    subject: &Term,
+) -> Option<Unwind<SimplificationError>> {
+    crate::deferred::impure_outcome(definition, subject)
+        .map(|outcome| SimplificationError::from(outcome).into())
+}
+
+/// What an atom's arm of [`simplify_predicate_on_stack`], out of line, made of it.
+enum AtomStep {
+    /// The predicate's simplification, returned as it is.
+    Done(Predicate),
+    /// The atom with its terms simplified, which the predicate theories are tried on next
+    /// ([`predicate_theories`]).
+    Simplified(Predicate),
+}
+
+/// The `\equals` arm of [`simplify_predicate_on_stack`] on `predicate` once its sides `left` and
+/// `right` were simplified to `simplified_left` and `simplified_right`, to the end of the
+/// predicate's simplification. Out of line, as the other arms ([`other_predicate`]) and the
+/// predicate theories ([`predicate_theories`]) are: a recursion through an equation's `requires`
+/// passes through the simplification of the sides once per level, so only what is live across it
+/// is part of every frame of it (`tests::recursion_stack`).
+#[allow(clippy::too_many_arguments)]
+#[inline(never)]
+fn equality_of_sides(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    (left, right): (&Term, &Term),
+    simplified_left: Simplification,
+    simplified_right: Simplification,
+    assumptions: &PredicateAssumptions<'_>,
+    limit: usize,
+    remaining: &mut usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<Predicate> {
+    // A side rewritten to `C /\ l'` is used, with `C` conjoined, only when the other
+    // side is provably defined: `\equals(C /\ l', r)` is `C /\ \equals(l', r)` when
+    // `r` is not empty and `\not \ceil(r)` when `C` fails and `r` is empty, since
+    // `\equals(\bottom, \bottom)` is `\top`. The other side is witnessed by its own
+    // rewritten term when that carried no constraint (the two are equal) and by its
+    // original term otherwise. A side that fails the check stays as it was.
+    let provably_defined = |term: &Term| {
+        term_is_provably_defined(definition, term, |obligation| {
+            assumptions.contains(obligation)
+        })
+    };
+    let witness = |original: &'_ Term, simplified: &'_ Simplification| -> Term {
+        if simplified.is_unconditional() {
+            simplified.term.clone()
+        } else {
+            original.clone()
+        }
+    };
+    let use_left =
+        simplified_left.is_unconditional() || provably_defined(&witness(right, &simplified_right));
+    let use_right =
+        simplified_right.is_unconditional() || provably_defined(&witness(left, &simplified_left));
+    let mut constraints = Vec::new();
+    let left = if use_left {
+        let simplified_left = simplified_left.into_parts();
+        constraints.extend(simplified_left.conditions);
+        simplified_left.term
+    } else {
+        left.clone()
+    };
+    let right = if use_right {
+        let simplified_right = simplified_right.into_parts();
+        constraints.extend(simplified_right.conditions);
+        simplified_right.term
+    } else {
+        right.clone()
+    };
+    let known = |obligation: &Predicate| assumptions.contains(obligation);
+    let equality =
+        normalize_hooked_boolean_predicate(definition, Predicate::Equals(left, right), &known);
+    let equality = normalize_injection_equality(definition, equality, &known);
+    let equality = match equality {
+        Predicate::Equals(left, right) => {
+            let (equality, resimplify) =
+                match terms_apart(Some(definition.sort_graph()), &left, &right) {
+                    // R-eq: disjoint denotations are equal exactly where both are empty;
+                    // a provably defined side makes that condition false.
+                    Some(apart) => {
+                        let equality = apart.equality(left, right, provably_defined);
+                        let resimplify = matches!(equality, Predicate::And(_));
+                        (equality, resimplify)
+                    }
+                    // Decomposition is an equivalence, so with the budget spent
+                    // the equality is kept as it is.
+                    None if *remaining > 0 => {
+                        match decompose_free_application(&left, &right, provably_defined) {
+                            Some(decomposed) => (decomposed, true),
+                            None => (Predicate::Equals(left, right), false),
+                        }
+                    }
+                    None => (Predicate::Equals(left, right), false),
+                };
+            if resimplify {
+                // Re-enter under the same budget so negated ceils reach ceil theory
+                // and argument equalities reach injection and path-condition theory.
+                let conjunction = with_simplification_constraints(constraints, equality);
+                if *remaining == 0 {
+                    return Err(SimplificationError::PredicateIterationLimit {
+                        limit,
+                        predicate: conjunction,
+                    }
+                    .into());
+                }
+                *remaining -= 1;
+                return simplify_predicate_with_budget(
+                    definition,
+                    &conjunction,
+                    assumptions,
+                    limit,
+                    remaining,
+                    active_conditions,
+                    solver,
+                );
+            }
+            equality
+        }
+        equality => equality,
+    };
+    predicate_theories(
+        definition,
+        predicate,
+        with_simplification_constraints(constraints, equality),
+        assumptions,
+        limit,
+        remaining,
+        active_conditions,
+        solver,
+    )
+}
+
+/// The `\ceil` arm of [`simplify_predicate_on_stack`] on `\ceil(term)` before its operand is
+/// simplified: the predicate's simplification when `term` holds a term-level conjunction, else
+/// `None`. Out of line, as [`ceil_of_operand`] and [`equality_of_sides`] are: a recursion through
+/// a `\ceil` atom of an equation's `requires` passes through the simplification of the operand
+/// once per level, so only what is live across it is part of every frame of it
+/// (`tests::recursion_stack`).
+#[inline(never)]
+fn ceil_of_term_conjunctions(
+    definition: &BackendDefinition,
+    term: &Term,
+    assumptions: &PredicateAssumptions<'_>,
+    limit: usize,
+    remaining: &mut usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> Option<SimplifyResult<Predicate>> {
+    // `ceil_term` states only the operands' definedness of a term-level conjunction,
+    // which is not all of it (`term_is_provably_defined`): the conjunctions are read
+    // first, as equalities of their operands (`without_term_conjunctions`). They are
+    // read in the operand as written, before simplification: a strict symbol that
+    // discards an operand (`#if`, `andThenBool`, `orElseBool`) is still undefined where
+    // the discarded operand is, and simplifying it would leave that operand's
+    // conjunctions only as deferred definedness obligations.
+    if contains_term_conjunction(term)
+        && let Some((plain, equalities)) = without_term_conjunctions(term)
+    {
+        let mut constraints = vec![Predicate::Ceil(plain)];
+        constraints.extend(equalities);
+        let conjunction = Predicate::And(constraints.into());
+        if *remaining == 0 {
+            return Some(Err(SimplificationError::PredicateIterationLimit {
+                limit,
+                predicate: conjunction,
+            }
+            .into()));
+        }
+        *remaining -= 1;
+        return Some(simplify_predicate_with_budget(
+            definition,
+            &conjunction,
+            assumptions,
+            limit,
+            remaining,
+            active_conditions,
+            solver,
+        ));
+    }
+    None
+}
+
+/// The `\ceil` arm of [`simplify_predicate_on_stack`] on `predicate`, a `\ceil`, once its operand
+/// was simplified to `simplified`, to the end of the predicate's simplification
+/// ([`ceil_of_term_conjunctions`]). The operand's failure or stop is returned here, so that the
+/// recursive frame holds no slot of its own for the simplified operand.
+#[allow(clippy::too_many_arguments)]
+#[inline(never)]
+fn ceil_of_operand(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    simplified: SimplifyResult<Simplification>,
+    assumptions: &PredicateAssumptions<'_>,
+    limit: usize,
+    remaining: &mut usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<Predicate> {
+    let simplified = simplified?.into_parts();
+    let unchanged = Predicate::Ceil(simplified.term.clone());
+    // A conjunction the simplification of the operand builds is read the same way.
+    if contains_term_conjunction(&simplified.term) {
+        let mut constraints = simplified.conditions.into_predicates();
+        let Some((plain, equalities)) = without_term_conjunctions(&simplified.term) else {
+            return Ok(with_simplification_constraints(constraints, unchanged));
+        };
+        constraints.push(Predicate::Ceil(plain));
+        constraints.extend(equalities);
+        let conjunction = Predicate::And(constraints.into());
+        if *remaining == 0 {
+            return Err(SimplificationError::PredicateIterationLimit {
+                limit,
+                predicate: conjunction,
+            }
+            .into());
+        }
+        *remaining -= 1;
+        return simplify_predicate_with_budget(
+            definition,
+            &conjunction,
+            assumptions,
+            limit,
+            remaining,
+            active_conditions,
+            solver,
+        );
+    }
+    let mut expanded =
+        ceil_term(definition, &simplified.term).map_err(SimplificationError::from)?;
+    // An opaque parent ceil remains a conjunct after expansion. Do not repeatedly
+    // add child ceils already supplied by the surrounding conjunction, nor those the
+    // assumptions already state ([`expansion_obligations`]).
+    if expansion_obligations(definition, &mut expanded, &unchanged, assumptions)? {
+        return Ok(with_simplification_constraints(
+            simplified.conditions.into_predicates(),
+            Predicate::True,
+        ));
+    }
+    let atom = if expanded.as_slice() == [unchanged.clone()] {
+        // A listing only an execution evaluates (`crate::evaluation`) is defined exactly
+        // when its collection is: a closed map with distinct constructor-like keys is
+        // defined when its values are, and then has a listing. The collection's own
+        // obligations are the other members of its `ceil_term`, here none or assumed. An
+        // `outside-domain` application of a partial symbol is not known to be
+        // defined (`ChosenValue::defined`). A hook whose text gives every argument of
+        // its sorts a value is defined wherever its arguments are, at a partial symbol
+        // too (`builtin::defined_on_every_argument`).
+        let defined = defined_where_its_arguments_are(definition, &simplified.term)?;
+        with_simplification_constraints(
+            simplified.conditions.into_predicates(),
+            if defined { Predicate::True } else { unchanged },
+        )
+    } else {
+        // The expansion supplies the definedness of the subterms as sibling conjuncts,
+        // and a conditional ceil equation on the parent is decided under them only by
+        // a further pass over the conjunction. Take that pass here, so that an entry
+        // without a surrounding conjunction fixed point reaches the equation too.
+        let mut constraints = simplified.conditions.into_predicates();
+        constraints.extend(expanded);
+        let conjunction = Predicate::And(constraints.into());
+        if *remaining == 0 {
+            return Err(SimplificationError::PredicateIterationLimit {
+                limit,
+                predicate: conjunction,
+            }
+            .into());
+        }
+        *remaining -= 1;
+        // The pass keeps the atom as it is once the atom is alone beside the known
+        // predicates: this simplification of it is the one in progress
+        // (`simplify_conjunction_with_budget`).
+        return simplify_predicate_with_budget(
+            definition,
+            &conjunction,
+            &assumptions.settling_at(&unchanged),
+            limit,
+            remaining,
+            active_conditions,
+            solver,
+        );
+    };
+    predicate_theories(
+        definition,
+        predicate,
+        atom,
+        assumptions,
+        limit,
+        remaining,
+        active_conditions,
+        solver,
+    )
+}
+
+/// The deferred-atom arm of [`simplify_predicate_on_stack`] ([`equality_of_sides`]): a deferred
+/// atom is decided only by the steps of `crate::deferred` (and by the known facts and the
+/// solver): its subject is never given to the term simplifier, and no ceil, simplification or
+/// predicate lemma is applied to it.
+#[allow(clippy::too_many_arguments)]
+#[inline(never)]
+fn defined_arm(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    term: &Term,
+    assumptions: &PredicateAssumptions<'_>,
+    limit: usize,
+    remaining: &mut usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<Predicate> {
+    if assumptions.contains(&Predicate::Ceil(term.clone())) {
+        return Ok(Predicate::True);
+    }
+    match crate::deferred::decide_defined(definition, term)? {
+        Err(outcome) => Err(SimplificationError::from(outcome).into()),
+        Ok(DeferredDecision::Established) => Ok(Predicate::True),
+        Ok(DeferredDecision::Refuted) => Ok(Predicate::False),
+        Ok(DeferredDecision::Open) => Ok(predicate.clone()),
+        Ok(DeferredDecision::Replaced(atoms)) => {
+            let conjunction = Predicate::And(atoms.into());
+            if *remaining == 0 {
+                return Err(SimplificationError::PredicateIterationLimit {
+                    limit,
+                    predicate: conjunction,
+                }
+                .into());
+            }
+            *remaining -= 1;
+            simplify_predicate_with_budget(
+                definition,
+                &conjunction,
+                assumptions,
+                limit,
+                remaining,
+                active_conditions,
+                solver,
+            )
+        }
+    }
+}
+
+/// The absence arm of [`simplify_predicate_on_stack`] ([`equality_of_sides`]).
+#[inline(never)]
+fn absence_arm(
+    definition: &BackendDefinition,
+    absence: &Absence,
+    assumptions: &PredicateAssumptions<'_>,
+    limit: usize,
+    remaining: &mut usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<AtomStep> {
+    let simplify_term = |term: &Term| {
+        predicate_operand(
+            definition,
+            term,
+            assumptions,
+            limit,
+            *remaining,
+            active_conditions,
+            solver,
+        )
+    };
+    // The absence is the definedness of its joined collection, whose value, if any, is
+    // a variable: `ceil_term` of it states the same fact through the key and the rest
+    // alone. Over an opaque rest that is the atom again beside the key's and the rest's
+    // own obligations; over a rest that has become a collection with entries it is the
+    // key's disequalities from those entries and its absence from their rest.
+    let key = simplify_term(absence.key())?.into_parts();
+    let rest = simplify_term(absence.rest())?.into_parts();
+    let mut constraints = key.conditions.into_predicates();
+    constraints.extend(rest.conditions);
+    let simplified = Absence::predicate(absence.collection(), key.term, rest.term);
+    let joined = match &simplified {
+        Predicate::Absent(absence) => absence.joined(),
+        Predicate::Ceil(joined) => joined,
+        _ => unreachable!("an absence is an atom or the ceil of its joined set"),
+    };
+    let mut expanded = ceil_term(definition, joined).map_err(SimplificationError::from)?;
+    // As for `\ceil` above: an opaque atom remains a conjunct of its expansion. An
+    // absence is no `\ceil` or definedness atom, so it never holds as a known-defined
+    // term does, unless it became the `\ceil` of its joined collection, which holds
+    // where the assumptions state that collection defined.
+    if expansion_obligations(definition, &mut expanded, &simplified, assumptions)? {
+        return Ok(AtomStep::Done(with_simplification_constraints(
+            constraints,
+            Predicate::True,
+        )));
+    }
+    Ok(AtomStep::Simplified(
+        if expanded.as_slice() == std::slice::from_ref(&simplified) {
+            with_simplification_constraints(constraints, simplified)
+        } else {
+            constraints.extend(expanded);
+            let conjunction = Predicate::And(constraints.into());
+            if *remaining == 0 {
+                return Err(SimplificationError::PredicateIterationLimit {
+                    limit,
+                    predicate: conjunction,
+                }
+                .into());
+            }
+            *remaining -= 1;
+            // As for `\ceil` above, the pass keeps the atom once it is alone.
+            return simplify_predicate_with_budget(
+                definition,
+                &conjunction,
+                &assumptions.settling_at(&simplified),
+                limit,
+                remaining,
+                active_conditions,
+                solver,
+            )
+            .map(AtomStep::Done);
+        },
+    ))
+}
+
+/// The end of [`simplify_predicate_on_stack`] on `simplified`, the simplification of
+/// `predicate`'s operands: normalized, then rewritten by the ceil and predicate theories.
+#[allow(clippy::too_many_arguments)]
+#[inline(never)]
+fn predicate_theories(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    simplified: Predicate,
+    assumptions: &PredicateAssumptions<'_>,
+    limit: usize,
+    remaining: &mut usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<Predicate> {
     // Every predicate this function returns is hereditarily normalized: a constant, a
     // recursive call's result, or the result below. A connective's operands were simplified
     // above, so they are such results, and one level of normalization over them equals
@@ -6452,8 +7058,9 @@ struct Lineage {
     /// The values this lineage's nested lineages computed for `Unspecified` applications, open
     /// from the first such step on (`UnspecifiedValues`).
     values: Option<UnspecifiedValues>,
-    /// After an `Unspecified` step failed, the equations its application is retried without.
-    retry: Option<UnspecifiedRetry>,
+    /// After an `Unspecified` step failed, the equations its application is retried without
+    /// (boxed: a retry is rare, and the lineage is part of every frame of a nested evaluation).
+    retry: Option<Box<UnspecifiedRetry>>,
     /// The function-equation steps this lineage took on `Unspecified` applications, oldest first,
     /// each an attempt that lasts to the end of the lineage (`UnspecifiedFrame`).
     frames: Vec<UnspecifiedFrame>,
@@ -6562,7 +7169,7 @@ impl Lineage {
         definition: &BackendDefinition,
         children: Simplification,
         before_children: Option<Term>,
-        retried: Option<UnspecifiedRetry>,
+        retried: Option<Box<UnspecifiedRetry>>,
         assumptions: &TermAssumptions<'_>,
         options: SimplificationOptions,
         remaining: &mut usize,
@@ -6579,7 +7186,8 @@ impl Lineage {
             crate::path_facts::Marker::default()
         };
         let retrying = retried.is_some();
-        let (root, root_step, root_equation, unspecified) = simplify_root(
+        // The root step's result is unwrapped by `after_root`: one slot of this frame holds it.
+        let root = simplify_root(
             definition,
             &children.term,
             before_children.as_ref(),
@@ -6589,7 +7197,38 @@ impl Lineage {
             solver,
             execution.as_deref_mut(),
             retried,
-        )?;
+        );
+        self.after_root(
+            children,
+            root,
+            before_root,
+            retrying,
+            assumptions,
+            options,
+            remaining,
+            execution,
+        )
+    }
+
+    /// What the lineage keeps of a round's children step and its root step `root`, which
+    /// [`Lineage::root_step`] took from `before_root` (`retrying` an `Unspecified` application
+    /// or not). Out of line: a recursion through an equation's `requires` passes through
+    /// `simplify_root` once per level, so only what is live across that call is part of every
+    /// frame of it (`tests::recursion_stack`).
+    #[allow(clippy::too_many_arguments)]
+    #[inline(never)]
+    fn after_root(
+        &mut self,
+        children: Simplification,
+        root: SimplifyResult<RootResult>,
+        before_root: crate::path_facts::Marker,
+        retrying: bool,
+        assumptions: &TermAssumptions<'_>,
+        options: SimplificationOptions,
+        remaining: &mut usize,
+        execution: Option<&mut ExecutionEvaluationContext>,
+    ) -> SimplifyResult<ControlFlow<Term, Term>> {
+        let (root, root_step, root_equation, unspecified) = root?;
         let children = self.accumulated.absorb(children);
         let opened = unspecified.is_some();
         let mut before_step = unspecified.as_ref().map(|_| self.accumulated.mark());
@@ -6816,7 +7455,7 @@ impl Lineage {
         diagnostic::discard_since(before.diagnostics);
         history.excluded.push(rule);
         history.contingent = min_depth(history.contingent, failed.contingent);
-        self.retry = Some(history);
+        self.retry = Some(Box::new(history));
         ControlFlow::Continue(application)
     }
 }
@@ -7832,12 +8471,13 @@ enum RootStep {
 
 /// What `simplify_root` made of a root: the result, what produced it, the equation it applied,
 /// and, for a function equation applied to an `Unspecified` application, the attempt the lineage
-/// keeps open until it ends (`UnspecifiedFrame`).
+/// keeps open until it ends (`UnspecifiedFrame`), boxed: such a step is rare, and the result is
+/// part of every frame of a recursion through an equation's `requires` (`Lineage::root_step`).
 type RootResult = (
     Simplification,
     RootStep,
     Option<Arc<RewriteRule>>,
-    Option<UnspecifiedStep>,
+    Option<Box<UnspecifiedStep>>,
 );
 
 /// One root step: a builtin hook, else the function theory, else the simplification theory.
@@ -7859,12 +8499,13 @@ type RootResult = (
 /// and the hook states the definedness of the operand it discards as deferred atoms
 /// (`hook_argument_definedness`, `crate::deferred`), which no evaluation decides.
 ///
-/// Not inlined: `simplify_on_stack` recurses once per level of nested evaluation through
-/// `simplify_children`, and calls this function only after that call has returned, so none of
-/// its locals is live across the recursion; inlined, they would be part of every one of those
-/// frames.
+/// Its one caller, [`Lineage::root_step`], is out of line from the lineage, whose frame a nested
+/// evaluation recurses through once per level by `simplify_children`, so this function's locals
+/// are no part of those frames; it is inlined there, since a recursion through an equation's
+/// `requires` passes through both once per level. Its work other than the theories' scans is out
+/// of line ([`root_builtin`], [`unspecified_function_scan`], [`root_unrewritten`]).
 #[allow(clippy::too_many_arguments)]
-#[inline(never)]
+#[inline]
 fn simplify_root(
     definition: &BackendDefinition,
     term: &Term,
@@ -7874,87 +8515,18 @@ fn simplify_root(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
     mut execution: Option<&mut ExecutionEvaluationContext>,
-    retry: Option<UnspecifiedRetry>,
+    retry: Option<Box<UnspecifiedRetry>>,
 ) -> SimplifyResult<RootResult> {
     let known_predicates = assumptions.predicates;
-    // A set holding an element twice, or a map binding a key twice (with the same value or
-    // not), is `\bottom`: concatenation of sets and of maps is defined only on disjoint
-    // elements and keys, and syntactically equal terms denote the same element on every
-    // instance. The constructors keep the repeat (`Term::set`, `Term::map`) and leave such a
-    // node unevaluated, so it reaches this root step wherever it was built (a rule's
-    // right-hand side, a function equation's result, a substitution), and it is reported here
-    // as `\bottom`, the way a builtin's undefined result is below. Elements that are not
-    // syntactically equal may still denote one element; that stays the definedness condition
-    // `ceil_term` states for the node. A `ceil_free` collection has pairwise distinct
-    // elements and keys, so only other collections are scanned.
-    if !term.attributes().ceil_free() && term.repeated_collection_key().is_some() {
-        return Ok((
-            Simplification::repeated_collection(term),
-            RootStep::Other,
-            None,
-            None,
-        ));
-    }
-    // A console hook reads the console when there is one, so an evaluation that reaches one
-    // depends on whether it runs with it (`Reads`).
-    if let TermKind::Application { symbol, .. } = term.kind()
-        && let Some(hook) = symbol.attributes.hook.as_deref()
-        && hook.starts_with("IO.")
-        && matches!(hook, "IO.getc" | "IO.read" | "IO.putc" | "IO.write")
-    {
-        UnspecifiedEvaluation::read_console();
-    }
-    let builtin = match execution.as_deref_mut() {
-        Some(execution) => evaluate_builtin_in_execution(term, definition, execution),
-        None => evaluate_builtin(term, definition),
-    }?
-    .map_err(SimplificationError::Builtin)?;
-    // Concrete domain/resource decisions take precedence. These symbolic identities use the
-    // same hook result path, including the definedness of every original strict argument.
-    let builtin = if builtin == BuiltinResult::NotApplicable {
-        crate::builtin::reduce_symbolic(definition, term, known_predicates)
-    } else {
-        builtin
-    };
-    // Outside an execution the entry leaves a value the definition leaves to the
-    // implementation unevaluated, as `Unsupported`, so that no normal-form certificate is
-    // recorded for it below (`builtin::evaluate_declared`).
-    let unsupported = match builtin {
-        BuiltinResult::NotApplicable => None,
-        BuiltinResult::Unsupported(reason) => Some(reason),
-        builtin => {
-            measure::bump(Counter::SimplifyBuiltinEvaluations);
-            let TermKind::Application { symbol, .. } = term.kind() else {
-                unreachable!("only applications have builtin hooks")
-            };
-            let outcome = match builtin {
-                BuiltinResult::Value(result) => HookOutcome::Value(result),
-                BuiltinResult::Bottom(_) => HookOutcome::Bottom,
-                BuiltinResult::Effect(effect) => {
-                    HookOutcome::Effect(builtin_effect_result(definition, term, &effect)?, effect)
-                }
-                BuiltinResult::NotApplicable | BuiltinResult::Unsupported(_) => unreachable!(),
-            };
-            let hook = symbol
-                .attributes
-                .hook
-                .as_deref()
-                .expect("evaluated builtin has a hook");
-            return Ok((
-                Simplification::hook(
-                    definition,
-                    term,
-                    before_children,
-                    outcome,
-                    hook,
-                    known_predicates,
-                )
-                .map_err(SimplificationError::from)?,
-                RootStep::Other,
-                None,
-                None,
-            ));
-        }
+    let unsupported = match root_builtin(
+        definition,
+        term,
+        before_children,
+        known_predicates,
+        execution.as_deref_mut(),
+    )? {
+        ControlFlow::Break(result) => return Ok(result),
+        ControlFlow::Continue(unsupported) => unsupported,
     };
     // The diagnostics of the indeterminate equation attempts of either theory, committed only if
     // neither theory rewrites the term.
@@ -7990,145 +8562,21 @@ fn simplify_root(
         cut = true;
         TheoryScan::NotCacheable
     } else {
-        // The console the evaluation would read: its position, when there is one. A failed
-        // attempt's reads are undone, so an evaluation that ends unevaluated ends where it began.
-        let given = EvaluationGiven {
-            assumptions,
-            options,
-            active: active_conditions,
-            console: execution.as_deref().map(ExecutionEvaluationContext::cursor),
-            solver,
-        };
-        let recorded = UnspecifiedValues::recorded(term, &given);
-        // A recorded value is the value an evaluation now would give; a recorded failure is where
-        // its evaluation would end, so only its last scan is repeated (`UnspecifiedValues`). A
-        // retry continues the application's evaluation.
-        let mut history = match (retry, recorded) {
-            (Some(history), _) => history,
-            (None, Some((RecordedOutcome::Value(result, rule, facts), reads))) => {
-                UnspecifiedEvaluation::reach(&reads);
-                crate::path_facts::replay(&facts);
-                let step = if term.attributes().variables.is_empty() && result.is_unconditional() {
-                    RootStep::DeterminedFunctionStep
-                } else {
-                    RootStep::Other
-                };
-                return Ok((result, step, Some(rule), None));
-            }
-            (
-                None,
-                Some((
-                    RecordedOutcome::Failed {
-                        excluded,
-                        contingent,
-                        facts,
-                    },
-                    reads,
-                )),
-            ) => {
-                UnspecifiedEvaluation::reach(&reads);
-                let facts_from = crate::path_facts::marker();
-                crate::path_facts::replay(&facts);
-                UnspecifiedRetry {
-                    excluded,
-                    contingent,
-                    reads,
-                    exhausted: false,
-                    facts_from,
-                }
-            }
-            (None, None) => UnspecifiedRetry {
-                facts_from: crate::path_facts::marker(),
-                ..UnspecifiedRetry::default()
-            },
-        };
-        let diagnostics = diagnostic::mark();
-        let mut opened = None;
-        let scan = scan_term_theory::<FunctionTheory>(
+        match unspecified_function_scan(
             definition,
             term,
+            assumptions,
+            options,
+            active_conditions,
+            solver,
+            execution.as_deref(),
+            retry,
             &mut indeterminate,
-            |rule, set_aside| {
-                // An equation whose attempt failed on this application is not tried again; it was
-                // not refuted, so it keeps lower-priority equations from applying in its place.
-                if history
-                    .excluded
-                    .iter()
-                    .any(|failed| Arc::ptr_eq(failed, rule))
-                {
-                    return Ok(EquationAttempt::Recurred);
-                }
-                let evaluation = UnspecifiedEvaluation::enter(term);
-                let attempt = apply_equation(
-                    definition,
-                    rule,
-                    term,
-                    known_predicates,
-                    options,
-                    active_conditions,
-                    solver,
-                    set_aside,
-                )?;
-                match attempt {
-                    // The `requires` holds, with whatever it reached left as it is, so it holds for
-                    // every value of what it reached; the attempt goes on in the lineage, which
-                    // decides it on its outcome, the conditions its `ensures` left open included.
-                    // A result that keeps the subject (`Simplification::bottom_subject`) states it
-                    // empty and has no lineage.
-                    EquationAttempt::Applied(result) => {
-                        if result.term != *term {
-                            opened = Some(evaluation);
-                        } else if !result
-                            .conjoined()
-                            .any(|predicate| *predicate == Predicate::False)
-                        {
-                            // The equation's result is the application itself (`A = A`): it
-                            // states the application through itself and gives no value, as a
-                            // result that still holds it after more steps does.
-                            history.reads.merge(&evaluation.reads_below(), usize::MAX);
-                            history.excluded.push(Arc::clone(rule));
-                            return Ok(EquationAttempt::Recurred);
-                        }
-                        Ok(EquationAttempt::Applied(result))
-                    }
-                    // An undecided `requires` keeps the application unevaluated; if what it reached
-                    // was an application below this one on the stack, that is contingent on the
-                    // attempt that application is in.
-                    EquationAttempt::Indeterminate(reason) => {
-                        history.contingent =
-                            min_depth(history.contingent, evaluation.contingent_cut());
-                        history.reads.merge(&evaluation.reads_below(), usize::MAX);
-                        Ok(EquationAttempt::Indeterminate(reason))
-                    }
-                    // A refuted `requires` was refuted with whatever it reached left as it is, so it
-                    // is refuted for every value of it.
-                    attempt => {
-                        history.reads.merge(&evaluation.reads_below(), usize::MAX);
-                        Ok(attempt)
-                    }
-                }
-            },
-        )?;
-        if let TheoryScan::Applied(result, rule) = scan {
-            let step = if term.attributes().variables.is_empty() && result.is_unconditional() {
-                RootStep::DeterminedFunctionStep
-            } else {
-                RootStep::Other
-            };
-            let unspecified = opened.map(|evaluation| UnspecifiedStep {
-                evaluation,
-                history,
-                diagnostics,
-            });
-            return Ok((result, step, Some(rule), unspecified));
+            &mut contingent,
+        )? {
+            ControlFlow::Break(result) => return Ok(result),
+            ControlFlow::Continue(scan) => scan,
         }
-        // The evaluation ends with the application unevaluated. If an attempt failed in it, it is
-        // recorded with what it read, for later evaluations that would read the same.
-        if !history.excluded.is_empty() && !history.exhausted {
-            UnspecifiedValues::record_failed(term, &history, &given);
-        }
-        contingent = history.contingent;
-        scan
     };
     if let TheoryScan::Applied(result, rule) = function_scan {
         let step = if term.attributes().variables.is_empty() && result.is_unconditional() {
@@ -8136,7 +8584,7 @@ fn simplify_root(
         } else {
             RootStep::Other
         };
-        return Ok((result, step, Some(rule), None));
+        return Ok((*result, step, Some(rule), None));
     }
     let simplification_scan = match apply_theory_noting_cuts::<SimplificationTheory>(
         definition,
@@ -8149,10 +8597,291 @@ fn simplify_root(
         &mut contingent,
     )? {
         TheoryScan::Applied(result, rule) => {
-            return Ok((result, RootStep::Other, Some(rule), None));
+            return Ok((*result, RootStep::Other, Some(rule), None));
         }
         scan => scan,
     };
+    root_unrewritten(
+        definition,
+        term,
+        unsupported,
+        unspecified,
+        cut,
+        contingent,
+        indeterminate,
+        function_scan,
+        simplification_scan,
+    )
+}
+
+/// The builtin step of [`simplify_root`]: a repeated collection's `\bottom`, or a hook's
+/// evaluation (`Break`), else why the hook gave no value, if it has one (`Continue`). Out of
+/// line, as the other parts of `simplify_root` that do not call the theories are: a recursion
+/// through an equation's `requires` passes through `simplify_root` once per level, so only what
+/// is live across the theories' scans is part of every frame of it (`tests::recursion_stack`).
+#[inline(never)]
+fn root_builtin(
+    definition: &BackendDefinition,
+    term: &Term,
+    before_children: Option<&Term>,
+    known_predicates: &[Predicate],
+    execution: Option<&mut ExecutionEvaluationContext>,
+) -> SimplifyResult<ControlFlow<RootResult, Option<UnsupportedHookReason>>> {
+    // A set holding an element twice, or a map binding a key twice (with the same value or
+    // not), is `\bottom`: concatenation of sets and of maps is defined only on disjoint
+    // elements and keys, and syntactically equal terms denote the same element on every
+    // instance. The constructors keep the repeat (`Term::set`, `Term::map`) and leave such a
+    // node unevaluated, so it reaches this root step wherever it was built (a rule's
+    // right-hand side, a function equation's result, a substitution), and it is reported here
+    // as `\bottom`, the way a builtin's undefined result is below. Elements that are not
+    // syntactically equal may still denote one element; that stays the definedness condition
+    // `ceil_term` states for the node. A `ceil_free` collection has pairwise distinct
+    // elements and keys, so only other collections are scanned.
+    if !term.attributes().ceil_free() && term.repeated_collection_key().is_some() {
+        return Ok(ControlFlow::Break((
+            Simplification::repeated_collection(term),
+            RootStep::Other,
+            None,
+            None,
+        )));
+    }
+    // A console hook reads the console when there is one, so an evaluation that reaches one
+    // depends on whether it runs with it (`Reads`).
+    if let TermKind::Application { symbol, .. } = term.kind()
+        && let Some(hook) = symbol.attributes.hook.as_deref()
+        && hook.starts_with("IO.")
+        && matches!(hook, "IO.getc" | "IO.read" | "IO.putc" | "IO.write")
+    {
+        UnspecifiedEvaluation::read_console();
+    }
+    let builtin = match execution {
+        Some(execution) => evaluate_builtin_in_execution(term, definition, execution),
+        None => evaluate_builtin(term, definition),
+    }?
+    .map_err(SimplificationError::Builtin)?;
+    // Concrete domain/resource decisions take precedence. These symbolic identities use the
+    // same hook result path, including the definedness of every original strict argument.
+    let builtin = if builtin == BuiltinResult::NotApplicable {
+        crate::builtin::reduce_symbolic(definition, term, known_predicates)
+    } else {
+        builtin
+    };
+    // Outside an execution the entry leaves a value the definition leaves to the
+    // implementation unevaluated, as `Unsupported`, so that no normal-form certificate is
+    // recorded for it below (`builtin::evaluate_declared`).
+    let unsupported = match builtin {
+        BuiltinResult::NotApplicable => None,
+        BuiltinResult::Unsupported(reason) => Some(reason),
+        builtin => {
+            measure::bump(Counter::SimplifyBuiltinEvaluations);
+            let TermKind::Application { symbol, .. } = term.kind() else {
+                unreachable!("only applications have builtin hooks")
+            };
+            let outcome = match builtin {
+                BuiltinResult::Value(result) => HookOutcome::Value(result),
+                BuiltinResult::Bottom(_) => HookOutcome::Bottom,
+                BuiltinResult::Effect(effect) => {
+                    HookOutcome::Effect(builtin_effect_result(definition, term, &effect)?, effect)
+                }
+                BuiltinResult::NotApplicable | BuiltinResult::Unsupported(_) => unreachable!(),
+            };
+            let hook = symbol
+                .attributes
+                .hook
+                .as_deref()
+                .expect("evaluated builtin has a hook");
+            return Ok(ControlFlow::Break((
+                Simplification::hook(
+                    definition,
+                    term,
+                    before_children,
+                    outcome,
+                    hook,
+                    known_predicates,
+                )
+                .map_err(SimplificationError::from)?,
+                RootStep::Other,
+                None,
+                None,
+            )));
+        }
+    };
+    Ok(ControlFlow::Continue(unsupported))
+}
+
+/// The function-theory scan of [`simplify_root`] on an `Unspecified` application, each equation
+/// an attempt that lasts to the end of the lineage that takes its step: a value recorded or found
+/// (`Break`), else the scan, with `contingent` set to the depth the application is left
+/// unevaluated for want of (`Continue`).
+#[allow(clippy::too_many_arguments)]
+#[inline(never)]
+fn unspecified_function_scan(
+    definition: &BackendDefinition,
+    term: &Term,
+    assumptions: &TermAssumptions<'_>,
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+    execution: Option<&ExecutionEvaluationContext>,
+    retry: Option<Box<UnspecifiedRetry>>,
+    indeterminate: &mut IndeterminateAttempts,
+    contingent: &mut Option<usize>,
+) -> SimplifyResult<ControlFlow<RootResult, TheoryScan<FunctionTheory>>> {
+    let known_predicates = assumptions.predicates;
+    // The console the evaluation would read: its position, when there is one. A failed
+    // attempt's reads are undone, so an evaluation that ends unevaluated ends where it began.
+    let given = EvaluationGiven {
+        assumptions,
+        options,
+        active: active_conditions,
+        console: execution.map(ExecutionEvaluationContext::cursor),
+        solver,
+    };
+    let recorded = UnspecifiedValues::recorded(term, &given);
+    // A recorded value is the value an evaluation now would give; a recorded failure is where
+    // its evaluation would end, so only its last scan is repeated (`UnspecifiedValues`). A
+    // retry continues the application's evaluation.
+    let mut history = match (retry, recorded) {
+        (Some(history), _) => *history,
+        (None, Some((RecordedOutcome::Value(result, rule, facts), reads))) => {
+            UnspecifiedEvaluation::reach(&reads);
+            crate::path_facts::replay(&facts);
+            let step = if term.attributes().variables.is_empty() && result.is_unconditional() {
+                RootStep::DeterminedFunctionStep
+            } else {
+                RootStep::Other
+            };
+            return Ok(ControlFlow::Break((result, step, Some(rule), None)));
+        }
+        (
+            None,
+            Some((
+                RecordedOutcome::Failed {
+                    excluded,
+                    contingent,
+                    facts,
+                },
+                reads,
+            )),
+        ) => {
+            UnspecifiedEvaluation::reach(&reads);
+            let facts_from = crate::path_facts::marker();
+            crate::path_facts::replay(&facts);
+            UnspecifiedRetry {
+                excluded,
+                contingent,
+                reads,
+                exhausted: false,
+                facts_from,
+            }
+        }
+        (None, None) => UnspecifiedRetry {
+            facts_from: crate::path_facts::marker(),
+            ..UnspecifiedRetry::default()
+        },
+    };
+    let diagnostics = diagnostic::mark();
+    let mut opened = None;
+    let scan =
+        scan_term_theory::<FunctionTheory>(definition, term, indeterminate, |rule, set_aside| {
+            // An equation whose attempt failed on this application is not tried again; it was
+            // not refuted, so it keeps lower-priority equations from applying in its place.
+            if history
+                .excluded
+                .iter()
+                .any(|failed| Arc::ptr_eq(failed, rule))
+            {
+                return Ok(EquationAttempt::Recurred);
+            }
+            let evaluation = UnspecifiedEvaluation::enter(term);
+            let attempt = apply_equation(
+                definition,
+                rule,
+                term,
+                known_predicates,
+                options,
+                active_conditions,
+                solver,
+                set_aside,
+            )?;
+            match attempt {
+                // The `requires` holds, with whatever it reached left as it is, so it holds for
+                // every value of what it reached; the attempt goes on in the lineage, which
+                // decides it on its outcome, the conditions its `ensures` left open included.
+                // A result that keeps the subject (`Simplification::bottom_subject`) states it
+                // empty and has no lineage.
+                EquationAttempt::Applied(result) => {
+                    if result.term != *term {
+                        opened = Some(evaluation);
+                    } else if !result
+                        .conjoined()
+                        .any(|predicate| *predicate == Predicate::False)
+                    {
+                        // The equation's result is the application itself (`A = A`): it
+                        // states the application through itself and gives no value, as a
+                        // result that still holds it after more steps does.
+                        history.reads.merge(&evaluation.reads_below(), usize::MAX);
+                        history.excluded.push(Arc::clone(rule));
+                        return Ok(EquationAttempt::Recurred);
+                    }
+                    Ok(EquationAttempt::Applied(result))
+                }
+                // An undecided `requires` keeps the application unevaluated; if what it reached
+                // was an application below this one on the stack, that is contingent on the
+                // attempt that application is in.
+                EquationAttempt::Indeterminate(reason) => {
+                    history.contingent = min_depth(history.contingent, evaluation.contingent_cut());
+                    history.reads.merge(&evaluation.reads_below(), usize::MAX);
+                    Ok(EquationAttempt::Indeterminate(reason))
+                }
+                // A refuted `requires` was refuted with whatever it reached left as it is, so it
+                // is refuted for every value of it.
+                attempt => {
+                    history.reads.merge(&evaluation.reads_below(), usize::MAX);
+                    Ok(attempt)
+                }
+            }
+        })?;
+    if let TheoryScan::Applied(result, rule) = scan {
+        let step = if term.attributes().variables.is_empty() && result.is_unconditional() {
+            RootStep::DeterminedFunctionStep
+        } else {
+            RootStep::Other
+        };
+        let unspecified = opened.map(|evaluation| {
+            Box::new(UnspecifiedStep {
+                evaluation,
+                history,
+                diagnostics,
+            })
+        });
+        return Ok(ControlFlow::Break((*result, step, Some(rule), unspecified)));
+    }
+    // The evaluation ends with the application unevaluated. If an attempt failed in it, it is
+    // recorded with what it read, for later evaluations that would read the same.
+    if !history.excluded.is_empty() && !history.exhausted {
+        UnspecifiedValues::record_failed(term, &history, &given);
+    }
+    *contingent = history.contingent;
+    Ok(ControlFlow::Continue(scan))
+}
+
+/// The end of [`simplify_root`] when neither theory rewrote `term`: the indeterminate attempts
+/// committed, an uncomputed hook reported, and the term kept, with its fixed point recorded where
+/// both scans are `NotApplicable`.
+#[allow(clippy::too_many_arguments)]
+#[inline(never)]
+fn root_unrewritten(
+    definition: &BackendDefinition,
+    term: &Term,
+    unsupported: Option<UnsupportedHookReason>,
+    unspecified: bool,
+    cut: bool,
+    contingent: Option<usize>,
+    indeterminate: IndeterminateAttempts,
+    function_scan: TheoryScan<FunctionTheory>,
+    simplification_scan: TheoryScan<SimplificationTheory>,
+) -> SimplifyResult<RootResult> {
     // No equation rewrote the term, which is kept: the indeterminate attempts explain why.
     indeterminate.commit(|| Subject::Term(term.clone()));
     // Kept only for want of a value an open attempt is computing, it is an occurrence cut for the
@@ -9606,8 +10335,107 @@ fn apply_equation(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
     set_aside: SetAsideRequires,
-) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>> {
+) -> SimplifyResult<EquationAttempt<Box<Simplification>, MatchFailed>> {
     measure::bump(Counter::SimplifyEquationAttempts);
+    let (rule, mut instances, set_aside) = match instances_to_scan(
+        definition,
+        rule,
+        term,
+        known_predicates,
+        options,
+        active_conditions,
+        solver,
+        set_aside,
+    )? {
+        ControlFlow::Break(attempt) => return Ok(attempt),
+        ControlFlow::Continue(scan) => scan,
+    };
+    // One usable instance, the common case, is applied from this frame: the scan of a single
+    // instance is that instance's attempt (`scan_instances`), and the frames of the scan and of
+    // its closure would be part of every frame of a recursion through the equation's `requires`.
+    if instances.len() == 1
+        && let Some(Instance::Usable(substitution)) =
+            instances.pop_if(|instance| matches!(instance, Instance::Usable(_)))
+    {
+        return apply_equation_instance(
+            definition,
+            &rule,
+            term,
+            substitution,
+            known_predicates,
+            options,
+            active_conditions,
+            solver,
+        );
+    }
+    scan_instances(instances, |instance| match SetAsideInstance::of(instance) {
+        Ok(instance) => set_aside_instance(
+            definition,
+            &rule,
+            term,
+            instance,
+            known_predicates,
+            options,
+            active_conditions,
+            solver,
+            set_aside,
+        ),
+        Err(instance) => instance.attempt(|substitution| {
+            apply_equation_instance(
+                definition,
+                &rule,
+                term,
+                substitution,
+                known_predicates,
+                options,
+                active_conditions,
+                solver,
+            )
+        }),
+    })
+}
+
+/// An equation [`apply_equation`] tries: as written, or renamed apart from the subject, boxed so
+/// that the frames of the recursion through an equation's `requires` do not hold a rule each.
+enum EquationRule<'r> {
+    Written(&'r RewriteRule),
+    Renamed(Box<RewriteRule>),
+}
+
+impl std::ops::Deref for EquationRule<'_> {
+    type Target = RewriteRule;
+
+    fn deref(&self) -> &RewriteRule {
+        match self {
+            EquationRule::Written(rule) => rule,
+            EquationRule::Renamed(rule) => rule,
+        }
+    }
+}
+
+/// The matching of [`apply_equation`]'s equation against `term`: the attempt's outcome where
+/// no instance is to be scanned (`Break`), else the equation, its instances, and whether a
+/// set-aside instance's `requires` is decided (`Continue`). Out of line, as the decision of a
+/// set-aside instance is ([`set_aside_instance`]): a recursion through an equation's `requires`
+/// passes through `apply_equation` once per level, so only what is live across the scan is part
+/// of every frame of it (`tests::recursion_stack`).
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+#[inline(never)]
+fn instances_to_scan<'r>(
+    definition: &BackendDefinition,
+    rule: &'r RewriteRule,
+    term: &Term,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+    set_aside: SetAsideRequires,
+) -> SimplifyResult<
+    ControlFlow<
+        EquationAttempt<Box<Simplification>, MatchFailed>,
+        (EquationRule<'r>, Vec<Instance>, SetAsideRequires),
+    >,
+> {
     let (rule, instances) = equation_instances(definition, rule, term, known_predicates);
     if !matches!(instances, EquationInstances::NotMatched(_)) {
         // The left-hand side matched, or its matching is undecided: whatever the scan then
@@ -9615,7 +10443,9 @@ fn apply_equation(
         crate::coverage::note_offered(&rule.attributes.unique_id);
     }
     let instances = match instances {
-        EquationInstances::NotMatched(failed) => return Ok(EquationAttempt::NotApplicable(failed)),
+        EquationInstances::NotMatched(failed) => {
+            return Ok(ControlFlow::Break(EquationAttempt::NotApplicable(failed)));
+        }
         EquationInstances::LiteralCandidate(literal) => {
             return apply_literal_equation_instance(
                 definition,
@@ -9627,12 +10457,13 @@ fn apply_equation(
                 active_conditions,
                 solver,
                 set_aside,
-            );
+            )
+            .map(ControlFlow::Break);
         }
         EquationInstances::Undecided => {
-            return Ok(EquationAttempt::Indeterminate(
+            return Ok(ControlFlow::Break(EquationAttempt::Indeterminate(
                 ConditionIndeterminacy::ImplicationIndeterminate,
-            ));
+            )));
         }
         EquationInstances::Matched(instances) => instances,
     };
@@ -9646,42 +10477,68 @@ fn apply_equation(
     } else {
         set_aside
     };
-    scan_instances(instances, |instance| {
-        let (substitution, equalities) = match instance {
-            Instance::SetAside(substitution) => (substitution, Vec::new()),
-            Instance::Conditional(substitution) => subject_equalities(&rule, substitution),
-            instance => {
-                return instance.attempt(|substitution| {
-                    apply_equation_instance(
-                        definition,
-                        &rule,
-                        term,
-                        substitution,
-                        known_predicates,
-                        options,
-                        active_conditions,
-                        solver,
-                    )
-                });
-            }
-        };
-        // Only where a lower function group follows can the decision change the outcome
-        // (`SetAsideRequires`); elsewhere the instance is read as `Unused` undecided.
-        if set_aside == SetAsideRequires::Unused {
-            return Ok(EquationAttempt::Unused);
+    let rule = match rule {
+        Cow::Borrowed(rule) => EquationRule::Written(rule),
+        Cow::Owned(rule) => EquationRule::Renamed(Box::new(rule)),
+    };
+    Ok(ControlFlow::Continue((rule, instances, set_aside)))
+}
+
+/// An [`Instance`] whose `requires` the function scan decides where a lower function group
+/// follows ([`set_aside_instance`]).
+enum SetAsideInstance {
+    /// [`Instance::SetAside`].
+    SetAside(Substitution),
+    /// [`Instance::Conditional`].
+    Conditional(Substitution),
+}
+
+impl SetAsideInstance {
+    /// `instance` as a set-aside or conditional instance, or `instance` itself when it is neither.
+    fn of(instance: Instance) -> Result<Self, Instance> {
+        match instance {
+            Instance::SetAside(substitution) => Ok(Self::SetAside(substitution)),
+            Instance::Conditional(substitution) => Ok(Self::Conditional(substitution)),
+            instance => Err(instance),
         }
-        decide_unused_instance(
-            definition,
-            &rule,
-            term,
-            substitution,
-            equalities,
-            known_predicates,
-            options,
-            active_conditions,
-            solver,
-        )
-    })
+    }
+}
+
+/// A set-aside or conditional `instance` of [`apply_equation`]'s equation `rule`
+/// ([`instances_to_scan`]).
+#[allow(clippy::too_many_arguments)]
+#[inline(never)]
+fn set_aside_instance(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    term: &Term,
+    instance: SetAsideInstance,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+    set_aside: SetAsideRequires,
+) -> SimplifyResult<EquationAttempt<Box<Simplification>, MatchFailed>> {
+    let (substitution, equalities) = match instance {
+        SetAsideInstance::SetAside(substitution) => (substitution, Vec::new()),
+        SetAsideInstance::Conditional(substitution) => subject_equalities(rule, substitution),
+    };
+    // Only where a lower function group follows can the decision change the outcome
+    // (`SetAsideRequires`); elsewhere the instance is read as `Unused` undecided.
+    if set_aside == SetAsideRequires::Unused {
+        return Ok(EquationAttempt::Unused);
+    }
+    decide_unused_instance(
+        definition,
+        rule,
+        term,
+        substitution,
+        equalities,
+        known_predicates,
+        options,
+        active_conditions,
+        solver,
+    )
 }
 
 /// A candidate instance when matching the left-hand side left undecided only pairs of
@@ -9741,7 +10598,7 @@ fn apply_literal_equation_instance(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
     set_aside: SetAsideRequires,
-) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>> {
+) -> SimplifyResult<EquationAttempt<Box<Simplification>, MatchFailed>> {
     let (substitution, equalities) = literal.into_parts();
     let subjects = equalities.iter().map(|equality| {
         let Predicate::Equals(subject, _) = equality else {
@@ -9763,7 +10620,7 @@ fn apply_literal_equation_instance(
     {
         if set_aside == SetAsideRequires::Decide
             && let EquationAttempt::ContextDependent =
-                decide_unused_instance::<Simplification, MatchFailed>(
+                decide_unused_instance::<Box<Simplification>, MatchFailed>(
                     definition,
                     rule,
                     term,
@@ -10114,8 +10971,11 @@ fn classify_equation_instance(
 }
 
 /// Apply the instance of `rule` under `substitution`, one matching of its left-hand side against
-/// `term` that the evaluator may use ([`Instance::Usable`]).
+/// `term` that the evaluator may use ([`Instance::Usable`]). Inlined, as
+/// [`apply_prepared_equation_instance`] is: both are frames of a recursion through an equation's
+/// `requires`, and what they hold across the decision of the condition is small.
 #[allow(clippy::too_many_arguments)]
+#[inline]
 fn apply_equation_instance(
     definition: &BackendDefinition,
     rule: &RewriteRule,
@@ -10125,11 +10985,8 @@ fn apply_equation_instance(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>> {
-    let consumed = ConsumedDefinedness::of_arguments(definition, &rule.lhs, term)
-        .map_err(SimplificationError::from)?;
-    let instance = EquationInstance::new(definition, &rule.requires, substitution, consumed)
-        .map_err(SimplificationError::from)?;
+) -> SimplifyResult<EquationAttempt<Box<Simplification>, MatchFailed>> {
+    let instance = equation_instance(definition, rule, term, substitution)?;
     apply_prepared_equation_instance(
         definition,
         rule,
@@ -10142,7 +10999,26 @@ fn apply_equation_instance(
     )
 }
 
+/// The instance of `rule` at `term` under `substitution` ([`apply_equation_instance`]). Out of
+/// line, as the work of [`apply_prepared_equation_instance`] after its condition is
+/// ([`equation_instance_result`]): a recursion through an equation's `requires` passes through
+/// both once per level, so only what is live across the decision of the condition is part of
+/// every frame of it (`tests::recursion_stack`).
+#[inline(never)]
+fn equation_instance(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    term: &Term,
+    substitution: Substitution,
+) -> SimplifyResult<EquationInstance> {
+    let consumed = ConsumedDefinedness::of_arguments(definition, &rule.lhs, term)
+        .map_err(SimplificationError::from)?;
+    EquationInstance::new(definition, &rule.requires, substitution, consumed)
+        .map_err(|failure| SimplificationError::from(failure).into())
+}
+
 #[allow(clippy::too_many_arguments)]
+#[inline]
 fn apply_prepared_equation_instance(
     definition: &BackendDefinition,
     rule: &RewriteRule,
@@ -10152,7 +11028,7 @@ fn apply_prepared_equation_instance(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>> {
+) -> SimplifyResult<EquationAttempt<Box<Simplification>, MatchFailed>> {
     // The equation `f(X) = rhs requires R` is an axiom over every element `X`. A term `t` bound
     // to `X` is a functional pattern (at most one element), so `f(t) = \ceil(t) /\ rhs[t]` when
     // `R[t]` holds on that element: both sides are empty when `t` is, and equal to `rhs[t]`
@@ -10178,6 +11054,33 @@ fn apply_prepared_equation_instance(
             return Ok(EquationAttempt::Indeterminate(reason));
         }
     };
+    equation_instance_result(
+        definition,
+        rule,
+        term,
+        matched,
+        known_predicates,
+        options,
+        active_conditions,
+        solver,
+    )
+}
+
+/// The rest of [`apply_prepared_equation_instance`] once the instance's `requires` was
+/// satisfied with `matched`: the definedness of its bindings decided, then its `ensures`, and
+/// the result ([`equation_instance`]).
+#[allow(clippy::too_many_arguments)]
+#[inline(never)]
+fn equation_instance_result(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    term: &Term,
+    matched: crate::condition::MatchedEquation,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<EquationAttempt<Box<Simplification>, MatchFailed>> {
     // The definedness obligations are not a reason to refuse the equation: an obligation the
     // path condition does not decide is carried as a constraint of the result, where it keeps
     // the `\ceil(t)` factor of the equality explicit. A refuted obligation means `t` is empty
@@ -10197,10 +11100,8 @@ fn apply_prepared_equation_instance(
     )? {
         DecidedEquation::Defined(defined) => defined,
         DecidedEquation::Refuted(_) => {
-            return Ok(EquationAttempt::Applied(Simplification::bottom_subject(
-                rule,
-                term,
-                claims_checked_in(definition),
+            return Ok(EquationAttempt::Applied(Box::new(
+                Simplification::bottom_subject(rule, term, claims_checked_in(definition)),
             )));
         }
     };
@@ -10271,18 +11172,15 @@ fn apply_prepared_equation_instance(
         }
     }
     match live.len() {
-        0 => Ok(EquationAttempt::Applied(Simplification::bottom_result(
-            rule, term,
+        0 => Ok(EquationAttempt::Applied(Box::new(
+            Simplification::bottom_result(rule, term),
         ))),
         1 => {
             let (term, ensures) = live.pop().expect("one live alternative");
             // The open `ensures` is what the equation asserts of its result; a `\bottom` here
             // is a refuted `ensures` or a bottom right-hand side, the subject's own emptiness.
-            Ok(EquationAttempt::Applied(Simplification::equation(
-                rule,
-                term,
-                ensures,
-                defined.into_carried(),
+            Ok(EquationAttempt::Applied(Box::new(
+                Simplification::equation(rule, term, ensures, defined.into_carried()),
             )))
         }
         alternatives => Err(SimplificationError::DisjunctiveResult {

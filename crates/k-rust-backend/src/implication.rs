@@ -1022,7 +1022,7 @@ pub fn check_implication_with_existentials_complete(
         SimplificationOptions::default(),
         solver,
     )
-    .and_then(|checked| grade_verdict(checked, definition, solver).map_err(Unwind::Stop))
+    .and_then(|checked| grade_verdict(checked, definition, solver).map_err(Unwind::from))
     .layered()
 }
 
