@@ -1238,6 +1238,17 @@ fn accepted(id: &str) -> bool {
     matches!(EXPECTED.get(id), Some(Expected::Accept(_)))
 }
 
+/// The sentence a kinds-base case's entry stands in, by its ID's second segment (its side, or
+/// the name of its group's sentence, `class_matrix::kinds::groups`), so that a readable case's
+/// `cells!` twin is the entry of the same sentence; other bases write one sentence per side.
+fn sentence_of(case: &Case) -> &str {
+    if case.base == Base::Kinds {
+        case.id.split('/').nth(1).unwrap_or_default()
+    } else {
+        ""
+    }
+}
+
 /// Check 3 (P7): a readable entry is admitted exactly where the `cells!` entry it abbreviates
 /// is, but for a listed readable-only refusal; and an accepted readable rule whose abbreviation
 /// is a generated accepted case is linked to it by `same_k_as`.
@@ -1250,6 +1261,7 @@ fn check_3_readable_abbreviates_cells() {
             (
                 (
                     case.base,
+                    sentence_of(case),
                     side_name(entry),
                     entry.entry.cell.clone(),
                     entry.entry.spelling.clone(),
@@ -1300,12 +1312,16 @@ fn check_3_readable_abbreviates_cells() {
         if case.family != Family::Readable || !accepted(&case.id) {
             continue;
         }
-        let Some((_, twin)) = twins.iter().find(|((base, side, cell, spelling), _)| {
-            *base == case.base
-                && *side == side_name(entry)
-                && *cell == entry.entry.cell
-                && *spelling == abbreviation
-        }) else {
+        let Some((_, twin)) = twins
+            .iter()
+            .find(|((base, sentence, side, cell, spelling), _)| {
+                *base == case.base
+                    && *sentence == sentence_of(case)
+                    && *side == side_name(entry)
+                    && *cell == entry.entry.cell
+                    && *spelling == abbreviation
+            })
+        else {
             *counts
                 .entry("readable accepted, no generated twin".to_owned())
                 .or_default() += 1;

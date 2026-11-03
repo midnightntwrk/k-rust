@@ -5300,6 +5300,349 @@ deviation = "krs::analysis::invalid-term @ spelling"
 finding = "S5-L4"
 deviation = "accepted"
 
+# S5.0g item 3b: the kinds base's groups (`class_matrix::kinds::groups`), each red owned by the finding of
+# the first mistake the compiler meets.
+
+["cells/alias/kinds/frame/f @ k::fragment![crate::G { a: x, b: y }]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["cells/alias/kinds/pc/k::configuration::Cell(p @ x)"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ item"
+
+["cells/deep-a/kinds/aa/k::configuration::Cell(x)"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["cells/deep-a/kinds/hpay/k::configuration::Cell(y)"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["cells/deep-b/kinds/aa/k::configuration::Cell(x)"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/deep-b/kinds/hpay/k::configuration::Cell(x)"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/g3-a/kinds/account/{ k::fragment![crate::Acct { id: z, acounter: Some(y), .. }], .. }"]
+finding = "S5-G3"
+deviation = "krs::expand::not-a-declaration @ spelling"
+
+["cells/g3-c/kinds/account/{ k::fragment![crate::Acct { acounter: Some(x), ..me }], ..instances0 }"]
+finding = "S5-G3"
+deviation = "krs::expand::not-a-declaration @ item; krs::expand::not-a-declaration @ spelling"
+
+["cells/g3-d/kinds/account/{ k::fragment![crate::Acct { id: z, aqueue: Aqueue { ajob: [Ajob { apay: y }, ..] }, .. }], .. }"]
+finding = "S5-G3"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["cells/g5-a/kinds/olist/Some(k::configuration::Cell([..r]))"]
+finding = "S5-N1"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["cells/g5-c/kinds/hstack/k::configuration::Cell([z, ..])"]
+finding = "S5-F2"
+deviation = "krs::analysis::invalid-record-update @ item"
+
+["cells/g5-c/kinds/opt/Some(k::fragment![crate::H { hpc: y, .. }])"]
+finding = "S5-F2"
+deviation = "krs::analysis::invalid-record-update @ spelling"
+
+["cells/g5-d/kinds/hpc/k::configuration::Cell(z)"]
+finding = "S5-S1"
+deviation = "krs::analysis::optional-presence @ item"
+
+["cells/lint/kinds/env/k::configuration::Cell(k::map![..])"]
+finding = "S5-P1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["cells/lint/kinds/frame/k::fragment![crate::G { .. }]"]
+finding = "S5-F2"
+deviation = "krs::analysis::invalid-record-update @ spelling"
+
+["cells/lint/kinds/job/[]"]
+finding = "S5-E1"
+deviation = "krs::analysis::collection-entry @ entry"
+
+["cells/lint/kinds/prog/k::configuration::KCell(..)"]
+finding = "S5-Q1"
+deviation = "accepted, without the lint no-effect-entry"
+
+["cells/path-a/kinds/key/k::configuration::Cell(x)"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["cells/path-a/kinds/payload/k::configuration::Cell(x)"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["cells/path-b/kinds/payload/k::configuration::Cell(x)"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["cells/path-c/kinds/key/k::configuration::Cell(x)"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["cells/path-d/kinds/id/k::configuration::Cell(x)"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["cells/path-e/kinds/id/k::configuration::Cell(x)"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["claim/alias/kinds/pc/p @ x"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-pattern-as @ item"
+
+["claim/deep-a/kinds/aa/x"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["claim/deep-a/kinds/hpay/y"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["claim/deep-b/kinds/aa/x"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/deep-b/kinds/hpay/x"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["claim/g1-a/kinds/account/{ Acct { acounter: Some(x), ..me }, .. }"]
+finding = "S5-G3"
+deviation = "krs::expand::not-a-declaration @ spelling"
+
+["claim/g1-a/kinds/stack/[me @ Acct { id: z, .. }, ..]"]
+finding = "S5-G3"
+deviation = "krs::expand::not-a-declaration @ item"
+
+["claim/g1-b/kinds/account/{ Acct { aframe: Ag { aa: x }, ..me }, .. }"]
+finding = "S5-G1"
+deviation = "krs::analysis::unknown-instance-label @ spelling"
+
+["claim/g1-c/kinds/account/{ Acct { aprog: [x], ..me }, .. }"]
+finding = "S5-G1"
+deviation = "krs::analysis::unknown-instance-label @ spelling"
+
+["claim/g1-d/kinds/account/{ Acct { aprog: [x, ..], ..me }, .. }"]
+finding = "S5-G1"
+deviation = "krs::analysis::unknown-instance-label @ spelling"
+
+["claim/g1-e/kinds/account/{ Acct { aenv: { x -> 1 }, ..me }, .. }"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["claim/g3-a/kinds/account/{ Acct { id: z, acounter: Some(y), .. }, .. }"]
+finding = "S5-G3"
+deviation = "krs::expand::not-a-declaration @ spelling"
+
+["claim/g3-c/kinds/account/{ Acct { acounter: Some(x), ..me }, .. }"]
+finding = "S5-G3"
+deviation = "krs::expand::not-a-declaration @ item; krs::expand::not-a-declaration @ spelling"
+
+["claim/g3-d/kinds/account/{ Acct { id: z, aqueue: Aqueue { ajob: [Ajob { apay: y }, ..] }, .. }, .. }"]
+finding = "S5-G3"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["claim/g4-c/kinds/account/{ Acct { aqueue: Aqueue { ajob: [Ajob { apay: x, ..j }, ..] }, ..me }, .. }"]
+finding = "S5-K1"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["claim/g4-d/kinds/account/{ Acct { aenv: { v -> x, .. }, ..me }, .. }"]
+finding = "S5-H2"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["claim/g5-a/kinds/olist/Some([..r])"]
+finding = "S5-N1"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["claim/g5-c/kinds/hstack/[z, ..]"]
+finding = "S5-S1"
+deviation = "krs::analysis::group-and-descendant @ item"
+
+["claim/g5-d/kinds/hpc/z"]
+finding = "S5-S1"
+deviation = "krs::analysis::optional-presence @ item"
+
+["claim/lint/kinds/frame/G { .. }"]
+finding = "S5-Q1"
+deviation = "accepted, without the lint no-effect-entry"
+
+["claim/lint/kinds/job/[]"]
+finding = "S5-E1"
+deviation = "krs::analysis::collection-entry @ entry"
+
+["claim/path-a/kinds/key/x"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["claim/path-a/kinds/payload/x"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["claim/path-b/kinds/payload/x"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["claim/path-c/kinds/key/x"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["claim/path-d/kinds/id/x"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["claim/path-e/kinds/id/x"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["init/kinds/env/k::map![0 -> 1, r @ ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["init/kinds/frame/f @ G { a: 0, b: 0 }"]
+finding = "S0-9"
+deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::rust-syntax @ spelling"
+
+["init/kinds/prog/k::k![Cmd::Go(), r @ ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["init/kinds/stack/[0, r @ ..]"]
+finding = "S0-9"
+deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::rust-expansion::uncoded-error @ spelling; krs::syntax::rust-syntax @ spelling"
+
+["k3/readable/lint/kinds/frame/G { .. }"]
+finding = "S5-F2"
+deviation = "other K than cells/lint/kinds/frame/k::fragment![crate::G { .. }]"
+
+["k8/cells/g5-a/kinds/olist/Some(k::configuration::Cell([..r]))"]
+finding = "S5-N1"
+deviation = "refused where the table accepts, advising `rest`"
+
+["k8/claim/g5-a/kinds/olist/Some([..r])"]
+finding = "S5-N1"
+deviation = "refused where the table accepts, advising `rest`"
+
+["k8/readable/g5-a/kinds/olist/Some([..r])"]
+finding = "S5-N1"
+deviation = "refused where the table accepts, advising `rest`"
+
+["readable/alias/kinds/pc/p @ x"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-pattern-as @ item"
+
+["readable/deep-a/kinds/aa/x"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["readable/deep-a/kinds/hpay/y"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["readable/deep-b/kinds/aa/x"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/deep-b/kinds/hpay/x"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ item"
+
+["readable/g1-a/kinds/account/{ Acct { acounter: Some(x), ..me }, .. }"]
+finding = "S5-G3"
+deviation = "krs::expand::not-a-declaration @ spelling"
+
+["readable/g1-a/kinds/stack/[me @ Acct { id: z, .. }, ..]"]
+finding = "S5-G3"
+deviation = "krs::expand::not-a-declaration @ item"
+
+["readable/g1-b/kinds/account/{ Acct { aframe: Ag { aa: x }, ..me }, .. }"]
+finding = "S5-G1"
+deviation = "krs::analysis::unknown-instance-label @ spelling"
+
+["readable/g1-c/kinds/account/{ Acct { aprog: [x], ..me }, .. }"]
+finding = "S5-G1"
+deviation = "krs::analysis::unknown-instance-label @ spelling"
+
+["readable/g1-d/kinds/account/{ Acct { aprog: [x, ..], ..me }, .. }"]
+finding = "S5-G1"
+deviation = "krs::analysis::unknown-instance-label @ spelling"
+
+["readable/g1-e/kinds/account/{ Acct { aenv: { x -> 1 }, ..me }, .. }"]
+finding = "S5-B1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["readable/g3-a/kinds/account/{ Acct { id: z, acounter: Some(y), .. }, .. }"]
+finding = "S5-G3"
+deviation = "krs::expand::not-a-declaration @ spelling"
+
+["readable/g3-c/kinds/account/{ Acct { acounter: Some(x), ..me }, .. }"]
+finding = "S5-G3"
+deviation = "krs::expand::not-a-declaration @ item; krs::expand::not-a-declaration @ spelling"
+
+["readable/g3-d/kinds/account/{ Acct { id: z, aqueue: Aqueue { ajob: [Ajob { apay: y }, ..] }, .. }, .. }"]
+finding = "S5-G3"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["readable/g4-c/kinds/account/{ Acct { aqueue: Aqueue { ajob: [Ajob { apay: x, ..j }, ..] }, ..me }, .. }"]
+finding = "S5-K1"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["readable/g4-d/kinds/account/{ Acct { aenv: { v -> x, .. }, ..me }, .. }"]
+finding = "S5-H2"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+
+["readable/g5-a/kinds/olist/Some([..r])"]
+finding = "S5-N1"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["readable/g5-c/kinds/hstack/[z, ..]"]
+finding = "S5-S1"
+deviation = "krs::analysis::group-and-descendant @ item"
+
+["readable/g5-d/kinds/hpc/z"]
+finding = "S5-S1"
+deviation = "krs::analysis::optional-presence @ item"
+
+["readable/lint/kinds/frame/G { .. }"]
+finding = "S5-Q1"
+deviation = "accepted, without the lint no-effect-entry"
+
+["readable/lint/kinds/job/[]"]
+finding = "S5-E1"
+deviation = "krs::analysis::collection-entry @ entry"
+
+["readable/path-a/kinds/key/x"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["readable/path-a/kinds/payload/x"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["readable/path-b/kinds/payload/x"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["readable/path-c/kinds/key/x"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["readable/path-d/kinds/id/x"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["readable/path-e/kinds/id/x"]
+finding = "S5-S1"
+deviation = "accepted"
+
 # S5.0g item 3a: the compiled sweep's reds (shard `sweep`), each owned by the finding whose `what` covers its
 # pattern (the progress log's "Part (b), item 3a" lists the patterns and their kinds).
 

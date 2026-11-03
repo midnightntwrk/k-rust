@@ -832,7 +832,9 @@ pub fn cases() -> Vec<Case> {
         .iter()
         .filter_map(|case| {
             let entry = case.cell_entry()?;
-            entry.entry.path.is_empty().then(|| {
+            // A kinds group's sentence (item 3b's) is written for its interactions across
+            // entries, so it witnesses no single-entry sweep cell.
+            (!kinds::of_group(case) && entry.entry.path.is_empty()).then(|| {
                 sweep::row_key(
                     &entry_cases::declared_stack(case, &entry.entry.cell),
                     &entry,

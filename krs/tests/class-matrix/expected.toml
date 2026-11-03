@@ -5338,6 +5338,194 @@ match = 'sweep/cells/result/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc
 class = "wildcard-outside-pattern"
 at = "spelling"
 
+# S5.0g item 3b: the kinds base's groups (refusals), every row from the cells oracle's `outcome`
+# (`class_matrix::kinds::groups`; tests/cells_oracle.rs `the_kinds_cases_outcomes_print_on_request`): the
+# listed groups the compiled sweep does not reach at its root, and the multi-entry gaps G1, G3, G4, G5.
+[[refuse]]
+match = '{cells,claim,readable}/g5-d/kinds/opt/None'
+class = "absence-test-without-creation"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/alias/kinds/frame/f @ G \{ a: x\, b: y \}'
+class = "alias-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/alias/kinds/frame/f @ k::fragment![crate::G \{ a: x\, b: y \}]'
+class = "alias-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/alias/kinds/pc/k::configuration::Cell(p @ x)'
+class = "alias-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/alias/kinds/pc/p @ x'
+class = "alias-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'init/kinds/env/k::map![0 -> 1\, r @ ..]'
+class = "alias-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'init/kinds/frame/f @ G \{ a: 0\, b: 0 \}'
+class = "alias-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'init/kinds/prog/k::k![Cmd::Go()\, r @ ..]'
+class = "alias-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'init/kinds/stack/[0\, r @ ..]'
+class = "alias-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/g4-d/kinds/account/\{ k::fragment![crate::Acct \{ aenv: k::map![v -> x\, ..]\, ..me \}]\, ..instances0 \}'
+class = "anonymous-rest-in-map-literal"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/deep-a/kinds/aa/k::configuration::Cell(x)'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/deep-a/kinds/aa/x'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/deep-b/kinds/aa/k::configuration::Cell(x)'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/deep-b/kinds/aa/x'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/path-a/kinds/key/k::configuration::Cell(x)'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/path-a/kinds/key/x'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/path-a/kinds/payload/k::configuration::Cell(x)'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/path-a/kinds/payload/x'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/path-b/kinds/payload/k::configuration::Cell(x)'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/path-b/kinds/payload/x'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/path-c/kinds/key/k::configuration::Cell(x)'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/path-c/kinds/key/x'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/path-d/kinds/id/k::configuration::Cell(x)'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/path-d/kinds/id/x'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/path-e/kinds/id/k::configuration::Cell(x)'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/path-e/kinds/id/x'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/g5-c/kinds/opt/Some(H \{ hpc: y\, .. \})'
+class = "group-and-descendant"
+at = "item"
+
+[[refuse]]
+match = 'cells/g5-c/kinds/opt/Some(k::fragment![crate::H \{ hpc: y\, .. \}])'
+class = "group-and-descendant"
+at = "item"
+
+[[refuse]]
+match = 'cells/deep-a/kinds/hpay/k::configuration::Cell(y)'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/deep-a/kinds/hpay/y'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/deep-b/kinds/hpay/k::configuration::Cell(x)'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/deep-b/kinds/hpay/x'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/g5-c/kinds/hstack/[z\, ..]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/g5-c/kinds/hstack/k::configuration::Cell([z\, ..])'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/g5-d/kinds/hpc/k::configuration::Cell(z)'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/g5-d/kinds/hpc/z'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/g1-d/kinds/account/\{ Acct \{ aprog: [x\, ..]\, ..me \}\, .. \}'
+class = "rest-mismatch"
+at = "entry"
+
 [accept."cells/result/counter/None"]
 k = """
 rule [case-TAG]:
@@ -13782,6 +13970,415 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
+# S5.0g item 3b: the kinds base's groups (accepts, K written by `--record`).
+[accept."cells/g3-a/kinds/account/{ k::fragment![crate::Acct { id: z, acounter: Some(y), .. }], .. }"]
+
+[accept."cells/g3-c/kinds/account/{ k::fragment![crate::Acct { acounter: Some(x), ..me }], ..instances0 }"]
+
+[accept."cells/g3-d/kinds/account/{ k::fragment![crate::Acct { id: z, aqueue: Aqueue { ajob: [Ajob { apay: y }, ..] }, .. }], .. }"]
+
+[accept."cells/g4-a/kinds/account/{ k::fragment![crate::Acct { id: x, aframe: Ag { aa: x }, .. }], ..instances0 }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(.Bag => <account>
+<id> V0:Int </id>
+<aframe> <aa> V0:Int </aa> </aframe>
+...
+</account>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/g4-b/kinds/account/{ k::fragment![crate::Acct { aframe: Ag { aa: x }, ..me }], ..instances0 }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<account>
+<id> V1:Int </id>
+(<aframe> <aa> V2:Int </aa> </aframe> => <aframe> <aa> V0:Int </aa> </aframe>)
+...
+</account>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."cells/g5-a/kinds/olist/Some(k::configuration::Cell([..r]))"]
+
+[accept."cells/lint/kinds/account/{ k::fragment![crate::Acct { .. }], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<account>
+.Bag ...
+</account>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/lint/kinds/bag/{ k::fragment![crate::Obj { .. }], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<bag>
+.Bag ...
+</bag>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/lint/kinds/env/k::configuration::Cell(k::map![..])"]
+lint = "no-effect-entry"
+
+[accept."cells/lint/kinds/frame/k::fragment![crate::G { .. }]"]
+lint = "no-effect-entry"
+
+[accept."cells/lint/kinds/job/[]"]
+
+[accept."cells/lint/kinds/prog/k::configuration::KCell(..)"]
+lint = "no-effect-entry"
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<prog> .K ... </prog>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/shorthand/kinds/account/{ k::fragment![crate::Acct { id, .. }], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<account>
+<id> V0:Int </id>
+...
+</account>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/shorthand/kinds/bag/{ k::fragment![crate::Obj { key, .. }], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<bag>
+<key> V0:Int </key>
+...
+</bag>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."cells/shorthand/kinds/job/[k::fragment![crate::Job { payload, .. }], ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+<job>
+<payload> V0:Int </payload>
+...
+</job>
+...
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/g1-a/kinds/account/{ Acct { acounter: Some(x), ..me }, .. }"]
+
+[accept."claim/g1-a/kinds/stack/[me @ Acct { id: z, .. }, ..]"]
+
+[accept."claim/g1-b/kinds/account/{ Acct { aframe: Ag { aa: x }, ..me }, .. }"]
+
+[accept."claim/g1-c/kinds/account/{ Acct { aprog: [x], ..me }, .. }"]
+
+[accept."claim/g1-e/kinds/account/{ Acct { aenv: { x -> 1 }, ..me }, .. }"]
+
+[accept."claim/g1-restore/kinds/frame/G { a: x, ..saved }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<stack> ListItem(<frame> <a> V1:Int </a> <b> V2:Int </b> </frame>) V3:List => V3:List </stack>
+(_:FrameCell => <frame> <a> V0:Int </a> <b> V2:Int </b> </frame>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."claim/g1-restore/kinds/stack/[saved @ G { a: z, .. }, ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<stack> ListItem(<frame> <a> V1:Int </a> <b> V2:Int </b> </frame>) V3:List => V3:List </stack>
+(_:FrameCell => <frame> <a> V0:Int </a> <b> V2:Int </b> </frame>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."claim/g3-a/kinds/account/{ Acct { id: z, acounter: Some(y), .. }, .. }"]
+
+[accept."claim/g3-c/kinds/account/{ Acct { acounter: Some(x), ..me }, .. }"]
+
+[accept."claim/g3-d/kinds/account/{ Acct { id: z, aqueue: Aqueue { ajob: [Ajob { apay: y }, ..] }, .. }, .. }"]
+
+[accept."claim/g4-a/kinds/account/{ Acct { id: x, aframe: Ag { aa: x }, .. }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(.Bag => <account>
+<id> V0:Int </id>
+<aframe> <aa> V0:Int </aa> </aframe>
+...
+</account>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."claim/g4-b/kinds/account/{ Acct { aframe: Ag { aa: x }, ..me }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<account>
+<id> V1:Int </id>
+(<aframe> <aa> V2:Int </aa> </aframe> => <aframe> <aa> V0:Int </aa> </aframe>)
+...
+</account>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."claim/g4-c/kinds/account/{ Acct { aqueue: Aqueue { ajob: [Ajob { apay: x, ..j }, ..] }, ..me }, .. }"]
+
+[accept."claim/g4-d/kinds/account/{ Acct { aenv: { v -> x, .. }, ..me }, .. }"]
+
+[accept."claim/g5-a/kinds/olist/Some([..r])"]
+
+[accept."claim/lint/kinds/account/{ Acct { .. }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<account>
+.Bag ...
+</account>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/lint/kinds/bag/{ Obj { .. }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<bag>
+.Bag ...
+</bag>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/lint/kinds/frame/G { .. }"]
+lint = "no-effect-entry"
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<frame> <a> _ </a> <b> _ </b> </frame>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/lint/kinds/job/[]"]
+
+[accept."claim/shorthand/kinds/account/{ Acct { id, .. }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<account>
+<id> V0:Int </id>
+...
+</account>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/shorthand/kinds/bag/{ Obj { key, .. }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<bag>
+<key> V0:Int </key>
+...
+</bag>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/shorthand/kinds/job/[Job { payload, .. }, ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+<job>
+<payload> V0:Int </payload>
+...
+</job>
+...
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/g1-a/kinds/account/{ Acct { acounter: Some(x), ..me }, .. }"]
+
+[accept."readable/g1-a/kinds/stack/[me @ Acct { id: z, .. }, ..]"]
+
+[accept."readable/g1-b/kinds/account/{ Acct { aframe: Ag { aa: x }, ..me }, .. }"]
+
+[accept."readable/g1-c/kinds/account/{ Acct { aprog: [x], ..me }, .. }"]
+
+[accept."readable/g1-e/kinds/account/{ Acct { aenv: { x -> 1 }, ..me }, .. }"]
+
+[accept."readable/g1-restore/kinds/frame/G { a: x, ..saved }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<stack> ListItem(<frame> <a> V1:Int </a> <b> V2:Int </b> </frame>) V3:List => V3:List </stack>
+(_:FrameCell => <frame> <a> V0:Int </a> <b> V2:Int </b> </frame>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."readable/g1-restore/kinds/stack/[saved @ G { a: z, .. }, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<stack> ListItem(<frame> <a> V1:Int </a> <b> V2:Int </b> </frame>) V3:List => V3:List </stack>
+(_:FrameCell => <frame> <a> V0:Int </a> <b> V2:Int </b> </frame>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."readable/g3-a/kinds/account/{ Acct { id: z, acounter: Some(y), .. }, .. }"]
+same_k_as = ["cells/g3-a/kinds/account/{ k::fragment![crate::Acct { id: z, acounter: Some(y), .. }], .. }"]
+
+[accept."readable/g3-c/kinds/account/{ Acct { acounter: Some(x), ..me }, .. }"]
+same_k_as = ["cells/g3-c/kinds/account/{ k::fragment![crate::Acct { acounter: Some(x), ..me }], ..instances0 }"]
+
+[accept."readable/g3-d/kinds/account/{ Acct { id: z, aqueue: Aqueue { ajob: [Ajob { apay: y }, ..] }, .. }, .. }"]
+same_k_as = ["cells/g3-d/kinds/account/{ k::fragment![crate::Acct { id: z, aqueue: Aqueue { ajob: [Ajob { apay: y }, ..] }, .. }], .. }"]
+
+[accept."readable/g4-a/kinds/account/{ Acct { id: x, aframe: Ag { aa: x }, .. }, .. }"]
+same_k_as = ["cells/g4-a/kinds/account/{ k::fragment![crate::Acct { id: x, aframe: Ag { aa: x }, .. }], ..instances0 }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(.Bag => <account>
+<id> V0:Int </id>
+<aframe> <aa> V0:Int </aa> </aframe>
+...
+</account>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."readable/g4-b/kinds/account/{ Acct { aframe: Ag { aa: x }, ..me }, .. }"]
+same_k_as = ["cells/g4-b/kinds/account/{ k::fragment![crate::Acct { aframe: Ag { aa: x }, ..me }], ..instances0 }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<account>
+<id> V1:Int </id>
+(<aframe> <aa> V2:Int </aa> </aframe> => <aframe> <aa> V0:Int </aa> </aframe>)
+...
+</account>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."readable/g4-c/kinds/account/{ Acct { aqueue: Aqueue { ajob: [Ajob { apay: x, ..j }, ..] }, ..me }, .. }"]
+
+[accept."readable/g4-d/kinds/account/{ Acct { aenv: { v -> x, .. }, ..me }, .. }"]
+
+[accept."readable/g5-a/kinds/olist/Some([..r])"]
+same_k_as = ["cells/g5-a/kinds/olist/Some(k::configuration::Cell([..r]))"]
+
+[accept."readable/lint/kinds/account/{ Acct { .. }, .. }"]
+same_k_as = ["cells/lint/kinds/account/{ k::fragment![crate::Acct { .. }], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<account>
+.Bag ...
+</account>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/lint/kinds/bag/{ Obj { .. }, .. }"]
+same_k_as = ["cells/lint/kinds/bag/{ k::fragment![crate::Obj { .. }], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<bag>
+.Bag ...
+</bag>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/lint/kinds/frame/G { .. }"]
+same_k_as = ["cells/lint/kinds/frame/k::fragment![crate::G { .. }]"]
+lint = "no-effect-entry"
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<frame> <a> _ </a> <b> _ </b> </frame>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/lint/kinds/job/[]"]
+same_k_as = ["cells/lint/kinds/job/[]"]
+
+[accept."readable/shorthand/kinds/account/{ Acct { id, .. }, .. }"]
+same_k_as = ["cells/shorthand/kinds/account/{ k::fragment![crate::Acct { id, .. }], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<account>
+<id> V0:Int </id>
+...
+</account>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/shorthand/kinds/bag/{ Obj { key, .. }, .. }"]
+same_k_as = ["cells/shorthand/kinds/bag/{ k::fragment![crate::Obj { key, .. }], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<bag>
+<key> V0:Int </key>
+...
+</bag>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."readable/shorthand/kinds/job/[Job { payload, .. }, ..]"]
+same_k_as = ["cells/shorthand/kinds/job/[k::fragment![crate::Job { payload, .. }], ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+<job>
+<payload> V0:Int </payload>
+...
+</job>
+...
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
 # Cell-entry exceptions: the cell-entry rows that depart from the cells oracle
 # (`class_matrix::cells_oracle`), each with the principle it departs by: `E3` (no `..pgm` in an
 # initializer's `k!`), or `C-lim: REASON`, a stated
@@ -13804,6 +14401,9 @@ principle = "C-lim: a map read has no result side until M3; on a `?` Map leaf it
 
 [cell-exception.'cells-run/result/bag/\{ k::fragment![crate::Obj \{ key: x\, m: k::map![x -> y\, ..] \}]\, ..instances0 \}']
 principle = "C-lim: a `cells!` result's map literal with a rest is refused at the form until M3, at a content root too (design:M3); there P6 judges it by pairing: the field's value is the Map child's entry (P1), and the instance is created, so the child had no content and its `..` keeps none (rest-mismatch; S5.0g fixes review F-1)"
+
+[cell-exception.'cells/g4-d/kinds/account/\{ k::fragment![crate::Acct \{ aenv: k::map![v -> x\, ..]\, ..me \}]\, ..instances0 \}']
+principle = "C-lim: a `cells!` result's map literal with a rest is refused at the form until M3 (design:M3); a fragment field's value is its Map child's content root (S5.0g fixes review F-1), two levels deep here (an updated instance's Map child), which P6 judges by pairing: the update keeps the child's rest through `..me`"
 
 [cell-exception.'init/k/k::k![Cmd::Go()\, ..pgm]']
 principle = "E3"

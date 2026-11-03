@@ -1837,7 +1837,7 @@ fn names(spelling: &Spelling, out: &mut BTreeSet<String>) {
 }
 
 /// The names a subject entry binds: its binders and aliases (a named rest is no parameter).
-fn bound_by(spelling: &Spelling) -> BTreeSet<String> {
+pub(super) fn bound_by(spelling: &Spelling) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     names(spelling, &mut out);
     out
@@ -1863,7 +1863,7 @@ fn position_type(stack: &[Layer]) -> String {
 }
 
 /// The `cells!` parameters `spelling`'s binders need, each typed by its position on `stack`.
-fn binder_types(spelling: &Spelling, stack: &[Layer], out: &mut Vec<(String, String)>) {
+pub(super) fn binder_types(spelling: &Spelling, stack: &[Layer], out: &mut Vec<(String, String)>) {
     let mut add = |name: &str, ty: String| {
         if !out.iter().any(|(known, _)| known == name) {
             out.push((name.to_owned(), ty));

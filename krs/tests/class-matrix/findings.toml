@@ -117,15 +117,35 @@ kind = "bug"
 what = "a `cells!` map result without `..` after a subject's anonymous rest silently keeps the rest, where the spelling says the result is the whole map (decision D2, P6)"
 risk = "KRS writes K's `...` frame for the subject's anonymous rest and the result's entries over it, so the rule keeps every other entry of the map: the author's exact `k::map![5 -> old, x -> y]` reads as the whole new content in Rust, and nothing tells them the rest is kept"
 
+["S5-E1"]
+owner = "S5"
+kind = "bug"
+what = "a subject's exact empty instance list on a List collection (`job: []`, readable and `cells!`) is refused (\"the collection entry `job` names no instance\", `collection-entry`): P2 and P6 read it as the collection holding no instance, a constraint K matches, so the subject is admitted (R9: no lint, it constrains): S5.2's readable, S5.3's `cells!` (S5.0g item 3b)"
+
 ["S5-F2"]
 owner = "S5"
 kind = "bug"
 what = "a `cells!` group fragment is read as the reference notation that names every field: in a subject its `..` is refused (`k::fragment![crate::G { a: x, .. }]`, `invalid-record-update`, so a matched result whose subject entry writes it is refused for that entry), and a child's content written bare (`hl: [x, ..]`, `mm: k::map![..]`) is refused (`invalid-state-macro`), though readable `G { a: x, .. }` abbreviates to that fragment (P7, design §2.3 `abbreviate`) and a field's value is its child's entry (P1, P6; F-1); S5.3's"
 
+["S5-G1"]
+owner = "S5"
+kind = "bug"
+what = "an instance update whose base is a record of the instance's constructor matched in another cell (`stack: [me @ Acct { id: z, .. }, ..]`, then `account: { Acct { aframe: Ag { aa: x }, ..me }, .. }`) is refused (\"`..me` names no instance of `account` labelled `me @` in the pattern\", `unknown-instance-label`): the label names no subject instance and its base is matched elsewhere, so it is a created instance taking `me`'s other fields (S5.0g pattern review P-R3, P0; P6 `..base` updates): S5.2's readable, S5.3's `cells!` (S5.0g item 3b, G1)"
+
+["S5-G3"]
+owner = "S5"
+kind = "bug"
+what = "an instance record naming a `?` child (`Acct { id: z, acounter: Some(y), .. }`) is refused (\"`Option<_>` is not a KRS declaration of this name\", `not-a-declaration`), and one naming a `*` child's instances (`aqueue: Aqueue { ajob: [Ajob { apay: y }, ..] }`) is refused as an invalid descriptor term: the child is an entry of the instance with a meaning (P1, P2; the orchestrator's G3 ruling withdraws design §7's C-lim row), and K writes the configuration (S5.0g item 3b, G3): S5.2's readable, S5.3's `cells!`"
+
 ["S5-H1"]
 owner = "S5"
 kind = "feature"
 what = "a result on a Map leaf whose subject entry matched the map with a readable map read (`env: { z -> y, .. }`) is refused for that match (\"a preserved map-item cell is omitted from the machine-rule result\"): the subject's map read is a frame the result may not replace, the stated M3 limitation (design:M3), so the result entry's own answer is never reached (S5.0g item 3a fixes, F-6)"
+
+["S5-H2"]
+owner = "S5"
+kind = "feature"
+what = "a readable result writing an updated instance's Map child with a map read and a rest (`{ Acct { aenv: { v -> x, .. }, ..me }, .. }`) is refused (\"in a term, `map![..]` is a literal\"): P6 reads it as the child's frame write over the subject's `aenv: { v -> y, .. }`, which the M3 limitation refuses at the record's level (design:M3); `cell_entries` admits it at an instance's child, so no `[cell-exception]` can name it until both depart alike (S5.0g item 3b, G4)"
 
 ["S5-I1"]
 owner = "S5"
@@ -149,11 +169,21 @@ owner = "S5"
 kind = "bug"
 what = "an initializer that also places the program in a second computation cell beside `k` (`prog: k::k![pgm]`) is refused `krs::analysis::main-cell` (\"more than one reads the program\"), though `k` is the computation cell by its name and the other cell holds a copy of the program (P1: a cell's role plays no part); S5.4's"
 
+["S5-N1"]
+owner = "S5"
+kind = "bug"
+what = "a result list holding only a named rest put back (`olist: Some([..r])`, `Cell([..r])`) is refused (\"`[..rest]` has no element: it is the list `rest` itself, so write `rest`\", `invalid-list-notation`) with advice to write `r`: P6 reads `..name` as the named rest put back, and `[..r]` means what `r` means, so nothing is ambiguous (P0) and the spelling is admitted (S5.0g item 3b, G5): S5.2's readable, S5.3's `cells!`"
+
 ["S5-O1"]
 owner = "S5"
 kind = "bug"
 what = "a record with a bare `..` that leaves a field open, as an element of a result's list (`stack: [G { a: x, .. }, ..]`), is accepted, where it is `open-record-outside-pattern` (P6: a bare `..` in a result is Rust's default fields, which only a created instance has; S5.0g R4); S5.2's"
 risk = "KRS builds the element with the unnamed field `b` left as an unbound variable or a frame (I: the case's K is not recorded while its row refuses it), so the rule writes a `G` term whose `b` nothing determines, while the Rust spelling reads as defaults"
+
+["S5-P1"]
+owner = "S5"
+kind = "bug"
+what = "a `cells!` subject's map holding only a rest, `Cell(k::map![..])`, is a parse error (\"expected identifier\"): R9 admits it with the `no-effect-entry` lint (it constrains and binds nothing, P0, Q1), as `Cell(k::map![y -> x, ..])` is admitted: S5.3's (S5.0g item 3b)"
 
 ["S5-Q1"]
 owner = "S5"

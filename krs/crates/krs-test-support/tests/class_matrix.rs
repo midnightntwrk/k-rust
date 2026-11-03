@@ -95,19 +95,25 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // 7 kinds × 13 spellings × 2 sides, 8 typed cells × 4 contents × 2 sides, the kinds
             // base's 15 stacks × 9 marks (S5.0g), and its listed cases: a group named with its
             // child, the 2-child group record written whole and naming one child on each side,
-            // `Some(_)` in a result, and (readable only) a rule that writes no cell.
-            (Family::Readable, 182 + 64 + 15 * 9 + 7),
-            (Family::Claim, 182 + 64 + 15 * 9 + 6),
+            // `Some(_)` in a result, and (readable only) a rule that writes no cell; and item
+            // 3b's groups (`kinds::groups`), 39 entries in each readable form.
+            (Family::Readable, 182 + 64 + 15 * 9 + 7 + 39),
+            (Family::Claim, 182 + 64 + 15 * 9 + 6 + 39),
             // 7 kinds × (13 subject + 13 result spellings), the kinds base's 15 stacks × 9
             // marks, S5-F1's result fragment with a bare `..` (and its machine-base twin on the
-            // one-child group), and the 2-child group's fragment naming one child on each side.
-            (Family::Cells, 182 + 15 * 9 + 2 + 2),
+            // one-child group), the 2-child group's fragment naming one child on each side, and
+            // item 3b's groups (32 entries: 2 lints are `cells!`-only, 9 G1 and G4 entries are readable-only until their parameters are found).
+            (Family::Cells, 182 + 15 * 9 + 2 + 2 + 32),
             // 7 kinds × 19 values, the computation cell's remainder, 3 field orders and the
             // nested group's, the optional cell declared `initial` written present, the 4 main-cell
             // shapes × 3 forms of a sentence that names no cell, 8 typed cells × 4 contents, and
             // the typed `stmt` written after it starts, and the kinds base's 15 stacks × 10
-            // initializer marks.
-            (Family::Init, 133 + 1 + 3 + 1 + 1 + 4 * 3 + 32 + 1 + 15 * 10),
+            // initializer marks, and item 3b's 4 named rests and aliases in a value (S5.0's
+            // ruling 4).
+            (
+                Family::Init,
+                133 + 1 + 3 + 1 + 1 + 4 * 3 + 32 + 1 + 15 * 10 + 4
+            ),
             // (81 positions of depth 1 + 25 positions constructs open) × 51 constructs, the alias
             // roots' slots each splitting their position's constructs with a twin by whether they
             // read `x`, 3 elements in each static subject's set concatenation, and 2 spellings

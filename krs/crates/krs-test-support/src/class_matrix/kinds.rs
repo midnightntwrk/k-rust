@@ -25,6 +25,8 @@ use super::{
     Base, BaseText, Case, CaseSpec, Command, Family, ItemBuilder, OwnReason, Packaging, Side,
 };
 
+mod groups;
+
 /// A cell's multiplicity.
 #[derive(Clone, Copy)]
 pub(super) enum Mult {
@@ -1284,6 +1286,13 @@ fn listed() -> Vec<Generated> {
             },
         ));
     }
+    out.extend(groups::cases());
+    for (cell, text) in groups::INITIALIZERS {
+        out.push(init_case(
+            cell,
+            &written(text, super::sweep::read(Form::Init, text)),
+        ));
+    }
     out
 }
 
@@ -1293,6 +1302,17 @@ static GENERATED: LazyLock<BTreeMap<String, EntryCase>> = LazyLock::new(|| {
         .map(|generated| (generated.case.id, generated.entry))
         .collect()
 });
+
+/// Whether `case` is one of the kinds base's groups ([`groups`]), item 3b's sentences of
+/// several entries and listed single entries.
+pub(super) fn of_group(case: &Case) -> bool {
+    case.base == Base::Kinds
+        && case
+            .id
+            .split('/')
+            .nth(1)
+            .is_some_and(|segment| groups::GROUPS.iter().any(|group| group.tag == segment))
+}
 
 /// The kinds base's cases.
 pub(super) fn cases(cases: &mut Vec<Case>) {
