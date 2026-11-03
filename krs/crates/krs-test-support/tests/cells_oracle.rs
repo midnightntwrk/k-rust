@@ -4445,10 +4445,8 @@ fn check_6_the_recorded_k_keeps_a_frame_exactly_where_p6_says() {
 /// rest.
 #[derive(Debug)]
 enum RecordFrame {
-    /// A record of the group the cell holds (the cell's own group, or one instance's); `keeps`
-    /// is `None` where its `..` follows every child, which leaves no field to keep, so K's
-    /// frame there is empty whether written or not.
-    Record { cell: String, keeps: Option<bool> },
+    /// A record of the group the cell holds (the cell's own group, or one instance's).
+    Record { cell: String, keeps: bool },
     /// The instances of a collection, of which `records` are records.
     Instances {
         cell: String,
@@ -4460,7 +4458,8 @@ enum RecordFrame {
 /// Every record frame an entry's spelling writes, below presence and through the children of
 /// the records it writes. On a subject a record's `..` (or `..base`) matches the fields it does
 /// not name; on a result an update `..label` keeps them and a created instance's `..` takes its
-/// template's, K's `...` alike; an initializer's value is complete, so it writes none.
+/// template's, K's `...` alike, while a bare `..` after every child keeps none (the exact
+/// record); an initializer's value is complete, so it writes none.
 fn record_frames(
     cell: &str,
     side: Side,
@@ -4473,9 +4472,13 @@ fn record_frames(
         other => other,
     };
     let keeps = |rest: bool| rest && side != Side::Initializer;
+    // A built record whose bare `..` follows every child keeps nothing: the `..` leaves no
+    // field for Rust's defaults, and the record is the exact one (P6, P0).
     let record_keeps = |group: &Group, record: &Record| {
-        (record.rest == RecordRest::Exact || record.fields.len() != group.children.len())
-            .then(|| keeps(record.rest != RecordRest::Exact))
+        let vacuous = side == Side::Result
+            && record.rest == RecordRest::Open
+            && record.fields.len() == group.children.len();
+        !vacuous && keeps(record.rest != RecordRest::Exact)
     };
     let record = |group: &Group, item: &Spelling| match item {
         Spelling::Alias(_, inner) => match &**inner {
@@ -4619,7 +4622,7 @@ fn record_frames_agree(
         &entry.entry.spelling,
         &mut frames,
     );
-    let mut records = BTreeMap::<&str, Vec<Option<bool>>>::new();
+    let mut records = BTreeMap::<&str, Vec<bool>>::new();
     for frame in &frames {
         match frame {
             RecordFrame::Record { cell, keeps } => {
@@ -4670,12 +4673,6 @@ fn record_frames_agree(
             continue;
         }
         for (keeps, content) in wanted.into_iter().zip(contents) {
-            let Some(keeps) = keeps else {
-                *counts
-                    .entry("record frames unjudged (a `..` after every child keeps nothing)")
-                    .or_default() += 1;
-                continue;
-            };
             *counts.entry("record frames judged").or_default() += 1;
             let has_frame = top_level_frame(content);
             if has_frame != keeps {
