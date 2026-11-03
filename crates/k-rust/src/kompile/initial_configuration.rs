@@ -418,6 +418,76 @@ impl<'g> ConfigurationAssembler<'g> {
         self
     }
 
+    /// This assembler, reading each variable as a program is read where its sort allows
+    /// ([`variable_reading_modules`]): [`Self::reading_variables_with`] the syntax module for
+    /// every variable that rule selects.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigurationError::ParserAttribute`] for a malformed cell `parser` attribute.
+    pub fn reading_variables_as_programs(self) -> Result<Self, ConfigurationError> {
+        let modules = variable_reading_modules(self.grammar, &self.syntax_module, self.variables)?;
+        Ok(self.reading_variables_with(modules))
+    }
+
+    /// Bind `$PGM` to `term`, a term over this definition's labels built without the parser:
+    /// [`Self::program`] after its parse, as [`Self::bind_term`] is [`Self::bind`] after its
+    /// parse.
+    ///
+    /// The term is macro-expanded and typed as a parsed program is, and its tokens take the
+    /// syntax module's lexical hooks, the module a program text is read with; its sort must be
+    /// at most `$PGM`'s declared sort, which the parser guarantees for text by parsing at that
+    /// sort. A failed bind leaves the configuration unchanged.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigurationError::UnknownVariable`] when the definition declares no `$PGM`,
+    /// [`ConfigurationError::Duplicate`] when a program is already bound, and the expansion's
+    /// or typing's error otherwise ([`ConfigurationError::ValueSort`] for a term of another
+    /// sort).
+    pub fn program_term(&mut self, term: Term) -> Result<(), ConfigurationError> {
+        if self.program.is_some() {
+            return Err(ConfigurationError::Duplicate { name: "PGM".into() });
+        }
+        let Some(sort) = self.variables.get("PGM").cloned() else {
+            return Err(ConfigurationError::UnknownVariable {
+                name: "PGM".into(),
+                available: self
+                    .variables
+                    .keys()
+                    .map(|candidate| format!("${candidate}"))
+                    .collect(),
+            });
+        };
+        let expanded = self.expand(
+            ParsedProgram::from_term(term),
+            &configuration_position(&sort),
+        )?;
+        let resolved = self.grammar.resolved();
+        if self.program_injector.is_none() {
+            self.program_injector = Some(SortInjector::new(resolved, &self.main_module)?);
+        }
+        let injector = self
+            .program_injector
+            .as_ref()
+            .expect("the program injector was created above");
+        injector.reset_sort_parameters();
+        let value = ConfigurationValue::from_expanded_at(
+            injector,
+            resolved,
+            &self.main_module,
+            &self.syntax_module,
+            &expanded,
+            "$PGM",
+            &sort,
+        )?;
+        self.program = Some(ConfigurationBinding {
+            name: "$PGM".to_owned(),
+            value,
+        });
+        Ok(())
+    }
+
     /// Bind the configuration variable `name` (with or without its `$`) to `text`.
     ///
     /// The name is checked before the text is parsed, so a repeated or undeclared name is
@@ -954,6 +1024,68 @@ mod value {
 /// symbol is KItem and its result is a licensed item embedding.
 pub fn program_start_position(declared: &KastSort) -> KastSort {
     configuration_position(declared)
+}
+
+/// The module whose grammar reads first each configuration variable of `variables` but `$PGM`
+/// that no cell `parser` attribute assigns one and that is no stream variable (`$IO`, `$STDIN`
+/// at `String`, read with `STRING-SYNTAX`): the syntax module `syntax_module`, a program's
+/// grammar, wherever it has the variable's sort; [`ConfigurationAssembler::reading_variables_with`]
+/// takes the result.
+///
+/// A variable's text is input, as a program is, and the main module's grammar holds more than a
+/// program can write: every token sort of the definition, so its scanner reads `word` as an `Id`
+/// wherever it stands, also where a variable of a token sort `Word` means that `Word`. A `K` or
+/// `KItem` variable takes any item, which the syntax module reads as it reads `$PGM`. Where the
+/// syntax module's grammar does not parse the text, the main module's reads it: it also has the
+/// productions only rules may use (a builtin collection's constructors, a production the
+/// partition placed in the semantics module), with which a value can be written. A sort the
+/// syntax module does not have (a builtin collection's, which K supplies only with a full
+/// module) is read with the main module's grammar alone.
+///
+/// Every tool that reads a configuration variable's text for one definition reads it with this
+/// rule, so one text denotes one term in all of them.
+///
+/// # Errors
+///
+/// Returns [`ConfigurationError::ParserAttribute`] for a malformed cell `parser` attribute.
+pub fn variable_reading_modules(
+    grammar: &ProgramGrammar,
+    syntax_module: &str,
+    variables: &BTreeMap<String, KastSort>,
+) -> Result<BTreeMap<String, String>, ConfigurationError> {
+    let resolved = grammar.resolved();
+    let declared = parser_modules(resolved, &grammar.definition().main_module)
+        .map_err(ConfigurationError::ParserAttribute)?;
+    let program_sorts = resolved
+        .module_id(syntax_module)
+        .map(|module| {
+            resolved
+                .sentences(module)
+                .into_iter()
+                .filter_map(|sentence| {
+                    let (Sentence::SyntaxSort { sort, .. } | Sentence::Production { sort, .. }) =
+                        sentence
+                    else {
+                        return None;
+                    };
+                    Some(sort.name.clone())
+                })
+                .collect::<BTreeSet<_>>()
+        })
+        .unwrap_or_default();
+    Ok(variables
+        .iter()
+        .filter(|(name, sort)| {
+            name.as_str() != "PGM"
+                && !declared.contains_key(name.as_str())
+                && !(matches!(name.as_str(), "IO" | "STDIN")
+                    && sort.is_builtin(BuiltinSort::String))
+                && (sort.is_builtin(BuiltinSort::K)
+                    || sort.is_builtin(BuiltinSort::KItem)
+                    || program_sorts.contains(&sort.name))
+        })
+        .map(|(name, _)| (name.clone(), syntax_module.to_owned()))
+        .collect())
 }
 
 /// KItem is the instantiation preference for an open result read at K; fixed K values retain K.

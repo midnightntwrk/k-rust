@@ -38,7 +38,7 @@ pub use compile::{
 pub use fresh_names::GeneratedVariableIdentity;
 pub use initial_configuration::{
     ConfigurationAssembler, ConfigurationError, ProgramGrammar, UnlocatableTerm, ValueSortMismatch,
-    program_start_position,
+    program_start_position, variable_reading_modules,
 };
 #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
 pub use invariants::assert_frontend_pattern;
