@@ -834,6 +834,20 @@ pub enum RulePatternError {
         head: String,
         sentence: Box<SentenceKey>,
     },
+    /// An executable rewrite rule holding a free set variable (`variable`, as the definition
+    /// spells it) that its left-hand-side term does not bind: in its right-hand side (the term,
+    /// a disjunct's term or `ensures`, or its predicates), its `ensures`, or only its
+    /// `requires`. A left-hand-side set variable is bound by the match to a subterm of the
+    /// state, one element; an unbound one is not, and the step would put a fresh free set
+    /// variable in the state (`rewrite::apply::mint_unbound_rule_variables` keeps a variable's
+    /// kind), which denotes any set of elements while the simplifier and the solver read each
+    /// term as denoting at most one. Carries the axiom's name and position
+    /// ([`RuleAttributes::diagnostic_name`]) and its sentence.
+    UnboundSetVariable {
+        variable: String,
+        axiom: String,
+        sentence: Box<SentenceKey>,
+    },
 }
 
 /// What is wrong with a pattern the backend reads as a constrained term (a rule's side, a
@@ -920,6 +934,15 @@ impl std::fmt::Display for RulePatternError {
                  only \\top or predicates, which denote every value of its sort or none, while \
                  a function or anywhere application has at most one value; write it as a \
                  `simplification` lemma or give the value"
+            ),
+            Self::UnboundSetVariable {
+                variable, axiom, ..
+            } => write!(
+                formatter,
+                "the rewrite rule {axiom} holds the set variable `{variable}`, which its \
+                 left-hand side does not bind; a step would put it in the state free, where it \
+                 may denote several elements or none, while the backend reads each term as \
+                 denoting at most one element; use an element variable"
             ),
         }
     }
@@ -1893,6 +1916,25 @@ pub fn internalize_axiom(
                         existentials.clone(),
                         split.then_some(index),
                     );
+                    if let Some(variable) = rule
+                        .computed_attributes
+                        .unbound_variables
+                        .iter()
+                        .find(|variable| variable.kind == VariableKind::Set)
+                    {
+                        return Err(DefinitionError::RulePattern(
+                            RulePatternError::UnboundSetVariable {
+                                variable: split_marker(
+                                    &variable.name,
+                                    &[VariableProvenance::Rule, VariableProvenance::Existential],
+                                )
+                                .1
+                                .into_owned(),
+                                axiom: attributes.diagnostic_name(str::to_owned),
+                                sentence: Box::new(sentence.clone()),
+                            },
+                        ));
+                    }
                     rule.computed_attributes.association_open =
                         association_open(&rule.lhs, &rule.rhs);
                     Ok(InternalizedRule::Term(RuleKind::Rewrite, rule))

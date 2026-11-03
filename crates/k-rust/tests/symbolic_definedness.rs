@@ -1124,6 +1124,64 @@ endmodule
         assert!(checked >= programs.len(), "{checked}");
     }
 
+    /// GAP K40: a set variable denotes any set of elements, and the simplifier and the solver
+    /// read each term as denoting at most one. With `P = Q = {true, false}`, `c = @P /\ @Q` is
+    /// `{true, false}`, so `true = notBool c` is false, while `kore-simplify` gave the rewrite
+    /// `\not(true = c)` beside it, which is true; and with `g = c andBool true`,
+    /// `⌈g⌉ /\ ⌈notBool c⌉ /\ \not(true = g) /\ \not(true = notBool c)` has that instance,
+    /// though get-model answered `Unsat`. Every route refuses such a request, naming the
+    /// variable; the same request over element variables is answered.
+    #[test]
+    fn a_request_holding_a_free_set_variable_is_refused_on_every_route() {
+        let mut backend = backend();
+        for (p, q, refused) in [("@P", "@Q", true), ("P", "Q", false)] {
+            let c = format!("\\and{{SortBool{{}}}}({p}:SortBool{{}}, {q}:SortBool{{}})");
+            let n = format!("LblnotBool'Unds'{{}}({c})");
+            let g = format!("Lbl'Unds'andBool'Unds'{{}}({c}, \\dv{{SortBool{{}}}}(\"true\"))");
+            let ceil = |term: &str| format!("\\ceil{{SortBool{{}}, {SORT}}}({term})");
+            let model = and(
+                &pos(),
+                &and(
+                    &and(&ceil(&g), &ceil(&n)),
+                    &and(&not(&holds(&g)), &not(&holds(&n))),
+                ),
+            );
+            let simplified = and(&pos(), &not(&holds(&n)));
+            let outcome = |result: Result<(), BackendError>| match result {
+                Ok(()) => false,
+                Err(error) => {
+                    assert!(error.to_string().contains("set variable `@P`"), "{error}");
+                    true
+                }
+            };
+            let simplify = backend
+                .simplify(PatternRequest::new(parse(&simplified)))
+                .map(drop);
+            assert_eq!(outcome(simplify), refused, "simplify {p}");
+            let implies = backend
+                .implies(ImplicationRequest::new(parse(&simplified), parse(&pos())))
+                .map(drop);
+            assert_eq!(outcome(implies), refused, "implies {p}");
+            let implied = backend
+                .implies(ImplicationRequest::new(parse(&pos()), parse(&simplified)))
+                .map(drop);
+            assert_eq!(outcome(implied), refused, "implies, consequent {p}");
+            let execute = backend
+                .execute(ExecuteRequest::new(parse(&simplified)))
+                .map(drop);
+            assert_eq!(outcome(execute), refused, "execute {p}");
+            if backend.capabilities().smt {
+                let model = backend.get_model(PatternRequest::new(parse(&model)));
+                if refused {
+                    assert!(outcome(model.map(drop)), "get-model {p}");
+                } else {
+                    let model = model.unwrap();
+                    assert_eq!(model.satisfiable, "unsat", "{model:?}");
+                }
+            }
+        }
+    }
+
     const Z: &str = "Z:SortInt{}";
     const W: &str = "W:SortInt{}";
 
@@ -1303,12 +1361,67 @@ endmodule
         assert_ne!(implies_bottom(&mut backend, &pattern), "valid");
     }
 
+    /// GAP K36: an atom over an Int `\and` is decided by the solver. With `l = Z +Int 1` and
+    /// `r = W *Int 2`, `(l /\ r) >Int 0` holds exactly where `l = r` and `l > 0`: elsewhere the
+    /// intersection is `\bottom`, and so is the comparison. Admission states `l = r` beside the
+    /// atom, which the simplifier cannot use as a substitution, so the solver reads the
+    /// conjunction: as defined exactly where `l = r` (its domain plan) with `l`'s value there. So
+    /// the atom implies `l > 0`, follows from `l = r /\ l > 0`, and its negation beside `l = r`
+    /// implies `\not(l > 0)` and beside `l > 0` implies `l =/= r`; `l > 0` alone does not imply
+    /// it. Before GAP K36 the solver had no translation of a non-Boolean `\and`
+    /// (`NonBooleanAnd`), and each of these was `unknown`.
+    #[test]
+    fn a_request_atom_over_an_integer_term_conjunction_is_decided_by_its_definedness() {
+        let mut backend = backend();
+        if !backend.capabilities().smt {
+            return;
+        }
+        let positive =
+            |term: &str| holds(&format!("Lbl'Unds-GT-'Int'Unds'{{}}({term}, {})", int(0)));
+        let l = format!("Lbl'UndsPlus'Int'Unds'{{}}({Z}, {})", int(1));
+        let r = format!("Lbl'UndsStar'Int'Unds'{{}}({W}, {})", int(2));
+        let atom = positive(&format!("\\and{{SortInt{{}}}}({l}, {r})"));
+        let mut implies = |antecedent: &str, consequent: &str| {
+            backend
+                .implies(ImplicationRequest::new(
+                    parse(&and(&pos3(), antecedent)),
+                    parse(&and(&pos3(), consequent)),
+                ))
+                .map(|result| result.status)
+        };
+        for (case, antecedent, consequent) in [
+            ("the atom implies l > 0", atom.clone(), positive(&l)),
+            (
+                "l = r and l > 0 imply the atom",
+                and(&equals(&l, &r), &positive(&l)),
+                atom.clone(),
+            ),
+            (
+                "its negation beside l = r implies not l > 0",
+                and(&not(&atom), &equals(&l, &r)),
+                not(&positive(&l)),
+            ),
+            (
+                "its negation beside l > 0 implies l =/= r",
+                and(&not(&atom), &positive(&l)),
+                not(&equals(&l, &r)),
+            ),
+        ] {
+            let status = implies(&antecedent, &consequent);
+            assert_eq!(status.as_deref().ok(), Some("valid"), "{case}: {status:?}");
+        }
+        let status = implies(&positive(&l), &atom);
+        assert_ne!(status.as_deref().ok(), Some("valid"), "{status:?}");
+    }
+
     /// GAP K30: `B /\ true ==Bool true` holds exactly where `B` is `true`, where the intersection
     /// is `true`; elsewhere the intersection is `\bottom` and the atom is false. A request with
-    /// it is admitted, and `implies` decides it as `B = true` both ways, and shows its negation
-    /// where `B = false`. That the negation implies `B = false` is not shown (the solver reads the
-    /// intersection and its definedness as opaque, and the stated obligation `B = true` lies
-    /// inside the negation), but it is never refuted.
+    /// it is admitted, and `implies` decides it as `B = true` both ways, and its negation as
+    /// `B = false` both ways: since GAP K35 the solver reads the intersection as defined exactly
+    /// where `B = true` (its sides' equality) with `B`'s value there, so the negation, which
+    /// holds exactly where the intersection is undefined, implies `B = false` (before, the
+    /// solver read the intersection and its definedness as opaque, and that query was
+    /// `unknown`).
     #[test]
     fn a_request_atom_over_a_boolean_term_conjunction_is_decided_by_its_definedness() {
         let mut backend = backend();
@@ -1335,15 +1448,11 @@ endmodule
             ("the atom implies B = true", atom.clone(), is("true")),
             ("B = true implies the atom", is("true"), atom.clone()),
             ("B = false implies its negation", is("false"), not(&atom)),
+            ("its negation implies B = false", not(&atom), is("false")),
         ] {
             let status = implies(&antecedent, &consequent);
             assert_eq!(status.as_deref().ok(), Some("valid"), "{case}: {status:?}");
         }
-        let status = implies(&not(&atom), &is("false"));
-        assert!(
-            status.as_deref().is_ok_and(|status| status != "invalid"),
-            "{status:?}"
-        );
         let status = implies(&is("false"), &atom);
         assert_ne!(status.as_deref().ok(), Some("valid"), "{status:?}");
     }

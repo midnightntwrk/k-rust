@@ -2,7 +2,7 @@
 
 use k_rust_backend::{
     builtin::{BuiltinEffect, UnsupportedHookReason},
-    definition::BackendDefinition,
+    definition::{BackendDefinition, DefinitionError, UnstatedDefinedness},
     diagnostic::{self, BackendDiagnostic},
     rewrite::Pattern,
     rule::Predicate,
@@ -2766,6 +2766,253 @@ fn equation_set_variable_bindings_do_not_require_definedness() {
     assert!(result.constraints().is_empty());
 }
 
+/// GAP K40: a hooked Bool with `notBool`, a constructor `mk` to hold a request's term, and a
+/// lemma whose rule variable is a set variable, as KEVM's `andBool` lemmas are
+/// (`@VarB1:SortBool`).
+fn set_variable_definition() -> BackendDefinition {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortFoo{} []
+                hooked-symbol notBool{}(SortBool{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("BOOL.not"), smt-hook{}("not")]
+                hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.gt"), smt-hook{}(">")]
+                symbol mk{}(SortInt{}) : SortFoo{} [constructor{}()]
+                symbol pair{}(SortInt{}, SortInt{}) : SortFoo{} [constructor{}()]
+                symbol both{}(SortBool{}, SortBool{}) : SortBool{} [function{}(), total{}()]
+                axiom{R} \implies{R}(\top{R}(), \equals{SortBool{}, R}(
+                    both{}(@VarB1:SortBool{}, \dv{SortBool{}}("true")),
+                    \and{SortBool{}}(@VarB1:SortBool{}, \top{SortBool{}}())
+                )) [simplification{}()]
+                axiom{R} \implies{R}(
+                    \equals{SortBool{}, R}(notBool{}(@VarB1:SortBool{}), \dv{SortBool{}}("false")),
+                    \equals{SortBool{}, R}(
+                        both{}(@VarB1:SortBool{}, \dv{SortBool{}}("false")),
+                        \and{SortBool{}}(@VarB1:SortBool{}, \top{SortBool{}}())
+                    )
+                ) [simplification{}()]
+            endmodule []"#,
+    )
+    .expect("definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+}
+
+/// The set variable an admission refused, if it refused one.
+fn refused_set_variable<T: std::fmt::Debug>(result: Result<T, DefinitionError>) -> Option<String> {
+    match result {
+        Err(DefinitionError::UnstatedDefinedness(UnstatedDefinedness::SetVariable(variable))) => {
+            Some(variable)
+        }
+        other => {
+            assert!(other.is_ok(), "{other:?}");
+            None
+        }
+    }
+}
+
+/// GAP K40: a set variable denotes any set of elements, and every other term at most one. The
+/// simplifier's rewrites and the solver's reading of a term as one value hold only for the
+/// latter: with `P = Q = {true, false}`, `true = notBool(@P /\ @Q)` is false, and its rewrite
+/// `\not(true = @P /\ @Q)` is true, so `kore-simplify` gave the wrong
+/// `\not(... \not(true = @P /\ @Q))` for the predicate below, and a get-model of a pattern
+/// holding it answered `Unsat` before the solver ran. So every internalization of a request
+/// refuses a free set variable, naming it, and the same pattern over element variables is
+/// admitted.
+#[test]
+fn a_request_holding_a_free_set_variable_is_refused_at_admission() {
+    let definition = set_variable_definition();
+    for (p, q, refused) in [("@P", "@Q", Some("@P".to_owned())), ("P", "Q", None)] {
+        let c = format!(r#"\and{{SortBool{{}}}}({p}:SortBool{{}}, {q}:SortBool{{}})"#);
+        let predicate = format!(
+            r#"\not{{SortFoo{{}}}}(\equals{{SortBool{{}}, SortFoo{{}}}}(\dv{{SortBool{{}}}}("true"), notBool{{}}({c})))"#
+        );
+        let pattern = parse_pattern(&format!(
+            r#"\and{{SortFoo{{}}}}(mk{{}}(X:SortInt{{}}), {predicate})"#
+        ))
+        .unwrap();
+        let predicate = parse_pattern(&predicate).unwrap();
+        let c = parse_pattern(&c).unwrap();
+        let admit = |pattern| definition.admit_unverified(pattern, &[]);
+        assert_eq!(refused_set_variable(admit(&c).internalize_term()), refused);
+        assert_eq!(
+            refused_set_variable(admit(&predicate).internalize_predicate()),
+            refused
+        );
+        for pattern in [&predicate, &pattern] {
+            assert_eq!(
+                refused_set_variable(admit(pattern).internalize_pattern_or_predicate()),
+                refused
+            );
+        }
+        for result in [
+            refused_set_variable(admit(&pattern).internalize_pattern()),
+            refused_set_variable(admit(&pattern).internalize_model_predicate()),
+            refused_set_variable(admit(&pattern).internalize_implication_pattern()),
+            refused_set_variable(admit(&pattern).internalize_disjunction()),
+            refused_set_variable(
+                definition
+                    .verify_standalone_pattern(&pattern, &[])
+                    .unwrap()
+                    .internalize_pattern(),
+            ),
+        ] {
+            assert_eq!(result, refused);
+        }
+    }
+}
+
+/// GAP K40 (review fix): a match target's variables are read existentially, as a rule's
+/// left-hand-side variables are: a state `s` matches when some valuation puts `s` in the target.
+/// Every application, injection, collection and term conjunction denotes the pointwise union
+/// over its arguments' elements, so for a set variable `@X` occurring once in the term and in
+/// none of the constraints, `∃@X. s ∈ C[@X]` holds iff `∃e. s ∈ C[e]` for an element `e`: the
+/// element reading, which matching computes, and the subterm the match binds is a witness. Such
+/// a target is admitted (`Admitted::as_match_target`).
+///
+/// With two occurrences, or one also in a constraint, a set of several elements can do what no
+/// element does, and matching's one element binding would answer a definite "no match": against
+/// `pair(1, 2)`, `pair(@X, @X)` matches at `@X = {1, 2}`, and so does `pair(@X, 2) /\ \not(@X =
+/// 1)` (`{1, 2} = {1}` is false), while no element binding matches either (both answered
+/// `\bottom` before this fix). Those targets are refused, as are a set variable only the
+/// constraints hold, and every set variable of the same pattern admitted as another request.
+#[test]
+fn a_match_target_admits_a_set_variable_its_term_holds_once_and_no_constraint_reads() {
+    let definition = set_variable_definition();
+    let not_one = |variable: &str| {
+        format!(
+            r#"\not{{SortFoo{{}}}}(\equals{{SortInt{{}}, SortFoo{{}}}}({variable}:SortInt{{}}, \dv{{SortInt{{}}}}("1")))"#
+        )
+    };
+    for (pattern, refused) in [
+        (r#"mk{}(@X:SortInt{})"#.to_owned(), None),
+        (r#"pair{}(@X:SortInt{}, @Y:SortInt{})"#.to_owned(), None),
+        (
+            format!(
+                r#"\and{{SortFoo{{}}}}(pair{{}}(@X:SortInt{{}}, Y:SortInt{{}}), {})"#,
+                not_one("Y")
+            ),
+            None,
+        ),
+        // Two occurrences in the term.
+        (
+            r#"pair{}(@X:SortInt{}, @X:SortInt{})"#.to_owned(),
+            Some("@X"),
+        ),
+        // One occurrence in the term, and one in a constraint.
+        (
+            format!(
+                r#"\and{{SortFoo{{}}}}(pair{{}}(@X:SortInt{{}}, \dv{{SortInt{{}}}}("2")), {})"#,
+                not_one("@X")
+            ),
+            Some("@X"),
+        ),
+        (
+            r#"\and{SortFoo{}}(mk{}(@X:SortInt{}), \equals{SortBool{}, SortFoo{}}(\dv{SortBool{}}("true"), gtInt{}(@X:SortInt{}, \dv{SortInt{}}("0"))))"#.to_owned(),
+            Some("@X"),
+        ),
+        // Only a constraint holds it.
+        (
+            r#"\and{SortFoo{}}(mk{}(X:SortInt{}), \not{SortFoo{}}(\equals{SortBool{}, SortFoo{}}(\dv{SortBool{}}("true"), notBool{}(\and{SortBool{}}(@P:SortBool{}, @Q:SortBool{})))))"#.to_owned(),
+            Some("@P"),
+        ),
+    ] {
+        // Every pattern here holds a set variable, which any other request refuses.
+        assert!(pattern.contains('@'), "{pattern}");
+        let pattern = parse_pattern(&pattern).unwrap();
+        let target = || definition.admit_unverified(&pattern, &[]).as_match_target();
+        assert_eq!(
+            refused_set_variable(target().internalize_pattern()),
+            refused.map(str::to_owned),
+            "{pattern:?}"
+        );
+        assert_eq!(
+            refused_set_variable(target().internalize_disjunction()),
+            refused.map(str::to_owned),
+            "{pattern:?}"
+        );
+        assert!(
+            refused_set_variable(
+                definition
+                    .admit_unverified(&pattern, &[])
+                    .internalize_pattern()
+            )
+            .is_some(),
+            "{pattern:?}"
+        );
+    }
+}
+
+/// GAP K40: a set variable of a definition's lemma is a rule variable, instantiated by the
+/// request's term it is matched against (`both(@VarB1, true) = @VarB1` at `@VarB1 :=
+/// gtInt(X, 0)`), so refusing a request's free set variables leaves such lemmas applying.
+#[test]
+fn a_lemma_over_set_variables_still_applies_to_a_request() {
+    let definition = set_variable_definition();
+    let input = term(
+        &definition,
+        r#"both{}(gtInt{}(X:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("true"))"#,
+    );
+    let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+    assert_eq!(
+        result.term,
+        term(&definition, r#"gtInt{}(X:SortInt{}, \dv{SortInt{}}("0"))"#)
+    );
+    assert_eq!(result.applied_rules.len(), 1, "{:?}", result.applied_rules);
+}
+
+/// GAP K40 (review nit): a lemma whose `requires` reads its set variable,
+/// `both(@VarB1, false) = @VarB1 requires notBool(@VarB1) = false`, still applies to a request's
+/// `both(gtInt(X, 0), false)` where the path makes `gtInt(X, 0)` true: the condition is
+/// instantiated by the request's term before the solver reads it, so the solver's refusal of a
+/// set variable is never reached. Without that path fact the condition is not valid, and the
+/// lemma does not fire.
+#[cfg(feature = "z3")]
+#[test]
+fn a_conditional_lemma_over_set_variables_is_decided_on_the_request_term() {
+    let definition = set_variable_definition();
+    let solver = k_rust_backend::smt::Z3Solver::new(&definition).expect("Z3 should start");
+    let positive = term(&definition, r#"gtInt{}(X:SortInt{}, \dv{SortInt{}}("0"))"#);
+    let predicate = Predicate::Term(term(
+        &definition,
+        r#"both{}(gtInt{}(X:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("false"))"#,
+    ));
+    let decide = |known: &[Predicate]| {
+        simplify_and_decide_predicate_with_solver(
+            &definition,
+            &predicate,
+            known,
+            SimplificationOptions::default(),
+            &solver,
+        )
+        .unwrap()
+    };
+    assert_eq!(decide(&[Predicate::Term(positive)]), Predicate::True);
+    assert_ne!(decide(&[]), Predicate::True);
+}
+
+/// The term `source`, internalized with element variables, with each of `names` replaced by the
+/// set variable `@name` of the same sort: a library caller may build such a term, though no
+/// rewrite rule may introduce one (it is refused at load) and no request may hold one (GAP K40).
+fn with_set_variables(
+    definition: &BackendDefinition,
+    source: &str,
+    names: &[(&str, &str)],
+) -> Term {
+    let substitution = names
+        .iter()
+        .map(|(name, sort)| {
+            (
+                Variable::new(*name, Sort::simple(*sort)),
+                Term::variable(Variable::set(format!("@{name}"), Sort::simple(*sort))),
+            )
+        })
+        .collect::<Substitution>();
+    k_rust_backend::substitution::substitute(&term(definition, source), &substitution)
+}
+
 #[test]
 fn element_variable_bindings_to_set_patterns_are_indeterminate() {
     // `f(I) = pair(I, I)` is an axiom for every element `I`; on `f(@Y)` it would give the union
@@ -2794,7 +3041,7 @@ fn element_variable_bindings_to_set_patterns_are_indeterminate() {
             "#,
     );
 
-    let input = term(&definition, "f{}(@Y:SortS{})");
+    let input = with_set_variables(&definition, "f{}(Y:SortS{})", &[("Y", "SortS")]);
     let result = simplify(&definition, &input, SimplificationOptions::default())
         .expect("a non-functional binding is not an error");
     assert_eq!(result.term, input);
@@ -6706,18 +6953,17 @@ fn z3_keeps_a_predicate_its_encoding_cannot_pose() {
             module MAIN
                 hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
                 hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol second{}(SortInt{}) : SortInt{} [function{}(), total{}(), smt-hook{}("(+ #1 #2)")]
             endmodule []"#,
     )
     .unwrap();
     let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
-    // A term-level `\and` of two integers has no SMT encoding; the predicate is still a
-    // constraint and comes back unchanged.
+    // An `smt-hook` that names an argument its symbol does not have has no SMT encoding; the
+    // predicate is still a constraint and comes back unchanged. (A term-level `\and` of two
+    // integers served here before GAP K36, which reads it by its domain plan.)
     let predicate = Predicate::Equals(
         term(&definition, "X:SortInt{}"),
-        Term::and(
-            term(&definition, "Y:SortInt{}"),
-            term(&definition, "Z:SortInt{}"),
-        ),
+        term(&definition, "second{}(Y:SortInt{})"),
     );
 
     let (result, diagnostics) = diagnostic::collect(|| {
@@ -6735,7 +6981,12 @@ fn z3_keeps_a_predicate_its_encoding_cannot_pose() {
     assert!(matches!(
         diagnostics.as_slice(),
         [BackendDiagnostic::UndecidedPredicate {
-            reason: ConditionIndeterminacy::Untranslatable(TranslationError::NonBooleanAnd(_)),
+            reason: ConditionIndeterminacy::Untranslatable(
+                TranslationError::PlaceholderOutOfBounds {
+                    placeholder: 2,
+                    arguments: 1
+                }
+            ),
             ..
         }]
     ));
@@ -8491,7 +8742,11 @@ fn the_definedness_of_a_term_conjunction_states_the_equality_of_its_operands() {
     assert_eq!(simplified(&ceil(&and("X:SortS{}", A))), equal);
     assert_eq!(simplified(&ceil(&wrap(&and("X:SortS{}", A)))), equal);
 
-    let opaque = ceil(&and("@S:SortS{}", A));
+    let opaque = Predicate::Ceil(with_set_variables(
+        &definition,
+        &and("S:SortS{}", A),
+        &[("S", "SortS")],
+    ));
     assert_eq!(simplified(&opaque), opaque);
 }
 

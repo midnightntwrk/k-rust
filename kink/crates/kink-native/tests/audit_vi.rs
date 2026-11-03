@@ -24,7 +24,9 @@ use k_rust::kore::{
     codec,
 };
 use k_rust_backend::externalize;
-use kink_native::execution::{ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile};
+use kink_native::execution::{
+    ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget, HaltClass, SolverProfile,
+};
 use kink_native::{
     NativeValidator, bridge,
     feasibility::{LeafFeasibility, TestInitialState},
@@ -497,9 +499,13 @@ fn freshgen_split(validator: &NativeValidator) -> Patch {
 }
 
 /// VI-AT8: a set variable spelled like a printed marked set variable, `@Rule-hM` (v3 prints
-/// `@Rule#M` so), reads back verbatim as a set variable of that name and prints unchanged.
-/// A test may hold it: execution admits the state and stops at one Indeterminate leaf, so the
-/// path is incomplete (kink-campaign `audit_vi_at8_set_variable_in_a_test_is_not_killed`).
+/// `@Rule#M` so), is read verbatim as a set variable of that name and prints unchanged.
+/// A test may not hold one free: k-rust refuses a request with a free set variable (GAP K40),
+/// naming it as written, so the state's internalization is refused, and so is its run, where the
+/// adapter's own reading of the state meets the refusal (`InvalidState`), and
+/// kink's own admission refuses it first (`bridge::validate_test_initial_state`; kink-campaign
+/// `audit_vi_at8_set_variable_in_a_test_is_not_killed`). Before K40 the run was one
+/// Indeterminate leaf.
 #[test]
 fn audit_vi_at8_set_variable_spelling_reads_back_verbatim() {
     let validator = cache::validator("guardedmem.k");
@@ -518,41 +524,29 @@ fn audit_vi_at8_set_variable_spelling_reads_back_verbatim() {
     );
     guarded
         .with_solver(None, |definition, _| {
-            let internal = definition
+            let error = definition
                 .admit_unverified(&initial, &[])
                 .internalize_pattern()
-                .expect("a set variable identifier is read");
-            let variables = internal
-                .term
-                .attributes()
-                .variables
-                .iter()
-                .map(|variable| (variable.name.to_string(), variable.kind))
-                .collect::<BTreeSet<_>>();
-            assert!(
-                variables.contains(&(
-                    "@Rule-hM".to_owned(),
-                    k_rust_backend::term::VariableKind::Set
-                )),
-                "{variables:?}"
-            );
-            let printed = externalize::constrained_pattern(&internal);
-            assert_eq!(printed.free_variables(), initial.free_variables());
+                .expect_err("a free set variable is refused");
+            assert!(error.to_string().contains("`@Rule-hM`"), "{error}");
             Ok::<_, BackendError>(())
         })
-        .expect("set variable round trip");
-    // Reachable as a test variable: the adapter admits it (only element variables are checked
-    // for inhabitation), and the run is one Indeterminate leaf (the rule binds `V` to the set
-    // variable but the step is undecided), so the path is incomplete in both profiles.
-    let run = ExecutionAdapter::with_profile(SolverProfile::BUILD)
-        .execute(&mut guarded, &initial, BUDGET)
-        .expect("a set variable is admitted");
-    assert_eq!(
-        run.leaves()
-            .iter()
-            .map(|leaf| (leaf.halt, leaf.feasibility))
-            .collect::<Vec<_>>(),
-        [(HaltClass::Indeterminate, LeafFeasibility::Unknown)]
+        .expect("set variable refusal");
+    let printed = externalize::term(&k_rust_backend::term::Term::variable(
+        k_rust_backend::term::Variable::set(
+            "@Rule-hM",
+            k_rust_backend::term::Sort::simple("SortInt"),
+        ),
+    ));
+    assert_eq!(printed, set);
+    let run = ExecutionAdapter::with_profile(SolverProfile::BUILD).execute(
+        &mut guarded,
+        &initial,
+        BUDGET,
+    );
+    assert!(
+        matches!(&run, Err(ExecutionAdapterFailure::InvalidState(message)) if message.contains("SetVariable(\"@Rule-hM\")")),
+        "{run:?}"
     );
 }
 

@@ -690,11 +690,24 @@ pub(super) fn domain_plan(
                 TermKind::List { .. } if definition.list_operations(&term.sort()).is_some() => {
                     Some(Vec::new())
                 }
+                // A term-level `\and` denotes the intersection of its sides. Each side without a
+                // set variable denotes one element or none, so the intersection is one element,
+                // the sides' common one, exactly where both are defined and equal, and empty
+                // elsewhere: the plan is that equality (`definedness::and_side`, the equality of
+                // the sides' first conjuncts, which denote the sides' elements there), with the
+                // sides' domains below. With a set variable it is the conjunction's own `\ceil`,
+                // read as opaque. The value read under the plan is the first conjunct's
+                // (`TranslationState::translate_term_node_plain`) (GAP K35). Nothing here reads
+                // the sort, so the plan is every sort's (GAP K36).
+                TermKind::And(left, right) => Some(
+                    crate::definedness::and_side(term, left, right)
+                        .into_iter()
+                        .collect(),
+                ),
                 TermKind::Application { .. }
                 | TermKind::Map { .. }
                 | TermKind::List { .. }
-                | TermKind::Set { .. }
-                | TermKind::And(..) => None,
+                | TermKind::Set { .. } => None,
             })
         },
     )?;
@@ -763,11 +776,6 @@ fn domain_lemmas(
     }
 }
 
-/// Admit a plan's conditions: every term an atom reads is pure (`eligible_operand`, memoized
-/// over the shared DAG, so a shared argument costs its distinct nodes once per query), and no
-/// atom reads a term-level `\and`, whose definedness is more than its operands' (the
-/// translation refuses a non-Boolean one). One unit of `remaining` per predicate node and term
-/// read; the terms are not walked as trees.
 /// Whether `term` holds a term-level `\and`. Each distinct node is read once per query: the
 /// nodes of a walk that found none are recorded (`TranslationState::conjunction_free`), and one
 /// unit of `remaining` is charged per node read; `true` when the budget runs out, which refuses
@@ -794,6 +802,12 @@ fn holds_term_conjunction(
     false
 }
 
+/// Admit a plan's conditions: every term an atom reads is pure (`eligible_operand`, memoized
+/// over the shared DAG, so a shared argument costs its distinct nodes once per query), and no
+/// atom reads a term-level `\and`, whose definedness is more than its operands' (a
+/// conservative bound: the translation reads such an atom under the conjunction's domain plan,
+/// so admitting it would be faithful too). One unit of `remaining` per predicate node and term
+/// read; the terms are not walked as trees.
 #[cfg(any(feature = "z3", test))]
 fn admit_conditions(
     state: &mut TranslationState,

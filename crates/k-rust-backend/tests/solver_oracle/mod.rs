@@ -281,6 +281,9 @@ pub struct Free {
     pub open: bool,
     /// The case mentions `sel`, which the solver reads through its summary.
     pub summary: bool,
+    /// The case holds a term-level `\and` (GAP K30), which the solver reads by its domain plan
+    /// (GAP K35).
+    pub conjunction: bool,
 }
 
 impl IntT {
@@ -295,7 +298,12 @@ impl IntT {
                 free.open = true;
                 a.free(free);
             }
-            Self::Add(a, b) | Self::Div(a, b) | Self::Pow(a, b) | Self::And(a, b) => {
+            Self::Add(a, b) | Self::Div(a, b) | Self::Pow(a, b) => {
+                a.free(free);
+                b.free(free);
+            }
+            Self::And(a, b) => {
+                free.conjunction = true;
                 a.free(free);
                 b.free(free);
             }
@@ -338,7 +346,12 @@ impl BoolT {
                 a.free(free);
                 b.free(free);
             }
-            Self::Or(a, b) | Self::And(a, b) => {
+            Self::Or(a, b) => {
+                a.free(free);
+                b.free(free);
+            }
+            Self::And(a, b) => {
+                free.conjunction = true;
                 a.free(free);
                 b.free(free);
             }
@@ -407,6 +420,8 @@ impl Pred {
                 free.bool |= inner.bool;
                 free.map |= inner.map;
                 free.open |= inner.open;
+                free.summary |= inner.summary;
+                free.conjunction |= inner.conjunction;
             }
         }
     }
@@ -1110,11 +1125,9 @@ pub fn terms(depth: u32, symbolic_exponents: bool) -> Terms {
 }
 
 /// [`terms`], and with `conjunctions` also term-level `\and`s of two Int or two Bool terms
-/// (GAP K30), a Bool one drawn as often as a negation and an Int one a quarter as often as a sum:
-/// the solver does not translate a non-Boolean `\and` (`TranslationError::NonBooleanAnd`), so a
-/// case that holds one decides nothing past the simplifier, and a rare draw keeps those cases to
-/// a few percent of a run (the simplifier still meets them). Without `conjunctions` the draw is
-/// [`terms`]'s, case for case.
+/// (GAP K30), a Bool one drawn as often as a negation and an Int one about as often as a sum
+/// (K30's weight): the solver reads both by their domain plan (GAP K35, K36). Without
+/// `conjunctions` the draw is [`terms`]'s, case for case.
 pub fn terms_with(depth: u32, symbolic_exponents: bool, conjunctions: bool) -> Terms {
     let mut level = Terms {
         int: int_leaf(),
@@ -1147,7 +1160,7 @@ pub fn terms_with(depth: u32, symbolic_exponents: bool, conjunctions: bool) -> T
         .boxed();
         let next_int = if conjunctions {
             prop_oneof![
-                124 => next_int,
+                29 => next_int,
                 1 => (b(&int), b(&int)).prop_map(|(a, c)| IntT::And(a, c)),
             ]
             .boxed()

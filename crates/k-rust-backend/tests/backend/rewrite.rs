@@ -2647,6 +2647,89 @@ fn aborts_before_lower_priorities_when_requires_are_unknown() {
     ));
 }
 
+/// GAP K40 (review fix): a rewrite rule holding a free set variable its left-hand-side term does
+/// not bind is refused at load, naming the variable as the definition spells it, wherever the
+/// variable is: the right-hand-side term, a disjunct's term or `ensures`, the right-hand side's
+/// predicates, the `ensures`, or only the `requires`. The match binds a left-hand-side set
+/// variable to a subterm of the state, one element; an unbound one would be minted into the
+/// state as a fresh free set variable, which denotes any set of elements, while the simplifier
+/// and the solver read each term as denoting at most one. A set variable the left-hand side
+/// binds, and an unbound element variable, still load.
+#[test]
+fn a_rewrite_rule_with_an_unbound_set_variable_is_refused_at_load() {
+    use k_rust_backend::{definition::DefinitionError, rule::RulePatternError};
+
+    let zero = |variable: &str| {
+        format!(
+            r#"\equals{{SortS{{}}, SortS{{}}}}({variable}:SortS{{}}, \dv{{SortS{{}}}}("zero"))"#
+        )
+    };
+    let and = |left: &str, right: &str| format!(r#"\and{{SortS{{}}}}({left}, {right})"#);
+    let lhs = and(r#"wrap{}(X:SortS{})"#, r#"\top{SortS{}}()"#);
+    let wrapped = |variable: &str| format!(r#"wrap{{}}({variable}:SortS{{}})"#);
+    let cases = [
+        // The right-hand-side term.
+        (lhs.clone(), wrapped("@Y"), Some("@Y")),
+        // A disjunct's term, and a disjunct's `ensures`.
+        (
+            lhs.clone(),
+            format!(r#"\or{{SortS{{}}}}({}, {})"#, wrapped("X"), wrapped("@Y")),
+            Some("@Y"),
+        ),
+        (
+            lhs.clone(),
+            format!(
+                r#"\or{{SortS{{}}}}({}, {})"#,
+                wrapped("X"),
+                and(&wrapped("X"), &zero("@Y"))
+            ),
+            Some("@Y"),
+        ),
+        // The `ensures`.
+        (lhs.clone(), and(&wrapped("X"), &zero("@Y")), Some("@Y")),
+        // Only the `requires`.
+        (
+            and(r#"wrap{}(X:SortS{})"#, &zero("@Y")),
+            wrapped("X"),
+            Some("@Y"),
+        ),
+        // Bound by the left-hand side, or an element variable: loaded.
+        (
+            and(r#"wrap{}(@X:SortS{})"#, r#"\top{SortS{}}()"#),
+            and(&wrapped("@X"), &zero("@X")),
+            None,
+        ),
+        (lhs.clone(), and(&wrapped("Y"), &zero("Y")), None),
+    ];
+    for (lhs, rhs, refused) in cases {
+        let source = format!(
+            r#"[]
+            module MAIN
+                sort SortS{{}} [hasDomainValues{{}}()]
+                symbol wrap{{}}(SortS{{}}) : SortS{{}}
+                    [function{{}}(), total{{}}(), injective{{}}(), no-evaluators{{}}()]
+                axiom{{}} \rewrites{{SortS{{}}}}({lhs}, {rhs}) [label{{}}("mint")]
+            endmodule []"#
+        );
+        let syntax = parse_definition(&source).expect("definition should parse");
+        match (BackendDefinition::internalize(&syntax, "MAIN"), refused) {
+            (Ok(_), None) => {}
+            (
+                Err(DefinitionError::RulePattern(RulePatternError::UnboundSetVariable {
+                    variable,
+                    axiom,
+                    ..
+                })),
+                Some(refused),
+            ) => {
+                assert_eq!(variable, refused, "{rhs}");
+                assert!(axiom.contains("mint"), "{axiom}");
+            }
+            (other, _) => panic!("{lhs} => {rhs}: {:?}", other.err()),
+        }
+    }
+}
+
 #[test]
 fn element_variable_bindings_to_set_patterns_do_not_rewrite() {
     // `wrap(I) => pair(I, I)` is an axiom for every element `I`; instantiating it at the set
@@ -2663,8 +2746,17 @@ fn element_variable_bindings_to_set_patterns_do_not_rewrite() {
     );
     let mut fresh = FreshCounter::default();
 
+    // No request holds a set variable (GAP K40), so the subject is built: a library caller may
+    // build one, though no rewrite rule may introduce one (it is refused at load).
+    let sort = Sort::simple("SortS");
     let set_subject = Pattern {
-        term: internal_term(&definition, "wrap{}(@Y:SortS{})"),
+        term: substitute(
+            &internal_term(&definition, "wrap{}(Y:SortS{})"),
+            &Substitution::from([(
+                Variable::new("Y", sort),
+                Term::variable(Variable::set("@Y", sort)),
+            )]),
+        ),
         constraints: Vec::new(),
     };
     assert!(matches!(

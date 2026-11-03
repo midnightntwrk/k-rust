@@ -3422,6 +3422,395 @@ mod tests {
         );
     }
 
+    /// GAP K35: a term-level `\and` denotes the common value of its sides where both denote it,
+    /// and nothing elsewhere, so the solver reads it as a partial operation: defined exactly
+    /// where `D(l) ∧ D(r) ∧ l = r`, with the value of `l` there. `eqb(B ∧ true, true)` then holds
+    /// exactly where `B` is `true`, and its negation exactly where `B` is `false` (the
+    /// conjunction is `\bottom` there), so "¬atom ⇒ B = false" is valid; the domain is a closed
+    /// formula, so the query is exact and its model a K valuation.
+    #[test]
+    fn a_boolean_term_conjunction_is_defined_where_its_sides_are_equal() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol eqb{}(SortBool{}, SortBool{}) : SortBool{} [function{}(), total{}(), smt-hook{}("=")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = Z3Solver::new(&definition).unwrap();
+        let boolean =
+            |value: &str| crate::term::Term::raw_domain_value(Sort::simple("SortBool"), value);
+        let b = Variable::new("B", Sort::simple("SortBool"));
+        let atom = Predicate::Term(term(
+            &definition,
+            r#"eqb{}(\and{SortBool{}}(B:SortBool{}, \dv{SortBool{}}("true")), \dv{SortBool{}}("true"))"#,
+        ));
+        let not = |predicate: &Predicate| Predicate::Not(std::sync::Arc::new(predicate.clone()));
+        let is =
+            |value: &str| Predicate::Equals(crate::term::Term::variable(b.clone()), boolean(value));
+        let s = Substitution::new();
+        for (known, checked, expected) in [
+            (not(&atom), is("false"), Validity::Valid),
+            (atom.clone(), is("true"), Validity::Valid),
+            (is("true"), atom.clone(), Validity::Valid),
+            (is("false"), not(&atom), Validity::Valid),
+            (is("false"), atom.clone(), Validity::Refuted),
+        ] {
+            assert_eq!(
+                solver.check_predicates(
+                    std::slice::from_ref(&known),
+                    &s,
+                    std::slice::from_ref(&checked)
+                ),
+                Ok(Ok(expected)),
+                "{known:?} => {checked:?}"
+            );
+        }
+        for (query, value) in [(not(&atom), "false"), (atom.clone(), "true")] {
+            assert_eq!(
+                solver.get_model(&ModelQuery::for_solver_tests(
+                    std::slice::from_ref(&query),
+                    &s
+                )),
+                Ok(Ok(ModelResult::Sat(Substitution::from([(
+                    b.clone(),
+                    boolean(value)
+                )])))),
+                "{query:?}"
+            );
+        }
+    }
+
+    /// GAP K36: an `\and` of any sort is read as the Boolean one is (GAP K35): defined where its
+    /// sides are defined and equal, with their common value. So `X ∧ Y = 4` holds exactly where
+    /// both are 4 and has that model, `\not(X ∧ 3 = 3)` holds exactly where `X` is not 3, and
+    /// `\ceil(X ∧ Y)` is `X = Y`.
+    #[test]
+    fn an_integer_term_conjunction_is_defined_where_its_sides_are_equal() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let int = |value: &str| crate::term::Term::raw_domain_value(Sort::simple("SortInt"), value);
+        let variable =
+            |name: &str| crate::term::Term::variable(Variable::new(name, Sort::simple("SortInt")));
+        let and =
+            |left: crate::term::Term, right: crate::term::Term| crate::term::Term::and(left, right);
+        let not = |predicate: Predicate| Predicate::Not(std::sync::Arc::new(predicate));
+        let s = Substitution::new();
+        let four = Predicate::Equals(and(variable("X"), variable("Y")), int("4"));
+        assert_eq!(
+            solver.is_sat(
+                &[
+                    four.clone(),
+                    not(Predicate::Equals(variable("Y"), int("4")))
+                ],
+                &s
+            ),
+            Ok(Ok(Satisfiability::Unsat))
+        );
+        assert_eq!(
+            solver.get_model(&ModelQuery::for_solver_tests(
+                std::slice::from_ref(&four),
+                &s
+            )),
+            Ok(Ok(ModelResult::Sat(Substitution::from([
+                (x(), int("4")),
+                (Variable::new("Y", Sort::simple("SortInt")), int("4")),
+            ]))))
+        );
+        let three = Predicate::Equals(and(variable("X"), int("3")), int("3"));
+        assert_eq!(
+            solver.check_predicates(
+                &[not(three.clone())],
+                &s,
+                &[not(Predicate::Equals(variable("X"), int("3")))]
+            ),
+            Ok(Ok(Validity::Valid))
+        );
+        assert_eq!(
+            solver.check_predicates(&[], &s, &[Predicate::Equals(variable("X"), int("3"))]),
+            Ok(Ok(Validity::Contingent))
+        );
+        let defined = Predicate::Ceil(and(variable("X"), variable("Y")));
+        assert_eq!(
+            solver.check_predicates(&[], &s, std::slice::from_ref(&defined)),
+            Ok(Ok(Validity::Contingent))
+        );
+        assert_eq!(
+            solver.check_predicates(
+                &[Predicate::Equals(variable("X"), variable("Y"))],
+                &s,
+                std::slice::from_ref(&defined)
+            ),
+            Ok(Ok(Validity::Valid))
+        );
+        assert_eq!(
+            solver.check_predicates(
+                &[defined],
+                &s,
+                &[Predicate::Equals(variable("X"), variable("Y"))]
+            ),
+            Ok(Ok(Validity::Valid))
+        );
+    }
+
+    /// GAP K36 at an uninterpreted sort: `F ∧ G` over a user sort is defined exactly where
+    /// `F = G`, the plan's equality being SMT `=` over the sort's uninterpreted values, which
+    /// every K model satisfies with the sort read as K's carrier. So `\ceil(F ∧ G)` is `F = G`
+    /// both ways, and an atom `isA(F ∧ G)` holds only there: with `F ≠ G` it is refuted, while
+    /// its negation is satisfiable (the conjunction is `\bottom` there). `isA` and the sort are
+    /// uninterpreted, so a query over the atom is approximate and offers no model.
+    #[test]
+    fn a_term_conjunction_at_an_uninterpreted_sort_is_defined_where_its_sides_are_equal() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortFoo{} []
+                symbol isA{}(SortFoo{}) : SortBool{} [function{}(), total{}(), smtlib{}("isA")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = Z3Solver::new(&definition).unwrap();
+        let foo =
+            |name: &str| crate::term::Term::variable(Variable::new(name, Sort::simple("SortFoo")));
+        let not = |predicate: Predicate| Predicate::Not(std::sync::Arc::new(predicate));
+        let s = Substitution::new();
+        let same = Predicate::Equals(foo("F"), foo("G"));
+        let defined = Predicate::Ceil(crate::term::Term::and(foo("F"), foo("G")));
+        assert_eq!(
+            solver.check_predicates(&[], &s, std::slice::from_ref(&defined)),
+            Ok(Ok(Validity::Contingent))
+        );
+        assert_eq!(
+            solver.check_predicates(
+                std::slice::from_ref(&same),
+                &s,
+                std::slice::from_ref(&defined)
+            ),
+            Ok(Ok(Validity::Valid))
+        );
+        assert_eq!(
+            solver.check_predicates(
+                std::slice::from_ref(&defined),
+                &s,
+                std::slice::from_ref(&same)
+            ),
+            Ok(Ok(Validity::Valid))
+        );
+        let atom = Predicate::Term(term(
+            &definition,
+            r#"isA{}(\and{SortFoo{}}(F:SortFoo{}, G:SortFoo{}))"#,
+        ));
+        assert_eq!(
+            solver.is_sat(&[atom.clone(), not(same.clone())], &s),
+            Ok(Ok(Satisfiability::Unsat))
+        );
+        assert_eq!(
+            solver.check_predicates(std::slice::from_ref(&atom), &s, std::slice::from_ref(&same)),
+            Ok(Ok(Validity::Valid))
+        );
+        let apart = [not(atom.clone()), not(same)];
+        assert_eq!(solver.is_sat(&apart, &s), Ok(Ok(Satisfiability::Sat)));
+        for query in [&[atom][..], &apart[..]] {
+            assert_eq!(
+                solver.get_model(&ModelQuery::for_solver_tests(query, &s)),
+                Ok(Ok(ModelResult::Unknown(APPROXIMATE_MODEL_REASON.into())))
+            );
+        }
+    }
+
+    /// A term-level `\and` denotes the intersection of what its sides denote. A side with no set
+    /// variable denotes at most one element, so a conjunction with such a side does too, and the
+    /// solver may read it as one value (gated by its domain). When both sides hold set
+    /// variables the intersection may have several elements, and no single value reads it: with
+    /// `S = T = {-1, 0}`, `st = @S ∧ @T` is `{-1, 0}`, so `g = st + 1 > 0` and `n = st + 1 <= 0`
+    /// are both `{false, true}`: both are defined and neither is `{true}`. So `⌈g⌉ ∧ ⌈n⌉ ∧ ¬(g =
+    /// true)` does not imply `n = true`, which a reading of `st` as one SMT constant makes valid.
+    /// The Boolean `@P ∧ @Q` is `{false, true}` when both are: defined, neither `true` nor
+    /// `false`. Such a conjunction is refused (`NonBooleanAnd`), and its atom is not posed. With
+    /// one side an element variable, `@S ∧ X` is at most `{X}`, and the implication is valid.
+    #[test]
+    fn a_term_conjunction_of_two_sides_with_set_variables_is_not_read_as_one_value() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol plus{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), total{}(), smt-hook{}("+")]
+                symbol gt{}(SortInt{}, SortInt{}) : SortBool{} [function{}(), total{}(), smt-hook{}(">")]
+                symbol le{}(SortInt{}, SortInt{}) : SortBool{} [function{}(), total{}(), smt-hook{}("<=")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = Z3Solver::new(&definition).unwrap();
+        let boolean =
+            |value: &str| crate::term::Term::raw_domain_value(Sort::simple("SortBool"), value);
+        let not = |predicate: Predicate| Predicate::Not(std::sync::Arc::new(predicate));
+        let s = Substitution::new();
+        let shapes = |st: &str| {
+            let atom = |symbol: &str| {
+                term(
+                    &definition,
+                    &format!(
+                        r#"{symbol}{{}}(plus{{}}({st}, \dv{{SortInt{{}}}}("1")), \dv{{SortInt{{}}}}("0"))"#
+                    ),
+                )
+            };
+            let (g, n) = (atom("gt"), atom("le"));
+            (
+                vec![
+                    Predicate::Ceil(g.clone()),
+                    Predicate::Ceil(n.clone()),
+                    not(Predicate::Equals(boolean("true"), g)),
+                ],
+                Predicate::Equals(boolean("true"), n),
+            )
+        };
+        fn refused<T>(result: &Result<T, SmtError>) -> bool {
+            matches!(
+                result,
+                Err(SmtError::Translation(
+                    crate::smt::TranslationError::NonBooleanAnd(_)
+                ))
+            )
+        }
+        let two = r#"\and{SortInt{}}(@S:SortInt{}, @T:SortInt{})"#;
+        let (known, checked) = shapes(two);
+        let answer = solver
+            .check_predicates(&known, &s, std::slice::from_ref(&checked))
+            .unwrap();
+        assert!(refused(&answer), "{answer:?}");
+        let (mut both, n) = shapes(two);
+        both.push(not(n));
+        let answer = solver.is_sat(&both, &s).unwrap();
+        assert!(refused(&answer), "{answer:?}");
+        let answer = solver
+            .get_model(&ModelQuery::for_solver_tests(&both, &s))
+            .unwrap();
+        assert!(refused(&answer), "{answer:?}");
+        let (known, checked) = shapes(r#"\and{SortInt{}}(@S:SortInt{}, X:SortInt{})"#);
+        assert_eq!(
+            solver.check_predicates(&known, &s, std::slice::from_ref(&checked)),
+            Ok(Ok(Validity::Valid))
+        );
+        let c = term(
+            &definition,
+            r#"\and{SortBool{}}(@P:SortBool{}, @Q:SortBool{})"#,
+        );
+        let known = [
+            Predicate::Ceil(c.clone()),
+            not(Predicate::Equals(c.clone(), boolean("true"))),
+        ];
+        let answer = solver
+            .check_predicates(
+                &known,
+                &s,
+                &[Predicate::Equals(c.clone(), boolean("false"))],
+            )
+            .unwrap();
+        assert!(refused(&answer), "{answer:?}");
+        let both = [
+            Predicate::Ceil(c.clone()),
+            not(Predicate::Equals(c.clone(), boolean("true"))),
+            not(Predicate::Equals(c.clone(), boolean("false"))),
+        ];
+        let answer = solver.is_sat(&both, &s).unwrap();
+        assert!(refused(&answer), "{answer:?}");
+        let answer = solver
+            .get_model(&ModelQuery::for_solver_tests(&both, &s))
+            .unwrap();
+        assert!(refused(&answer), "{answer:?}");
+    }
+
+    /// GAP K40: a set variable may denote several elements, so the solver reads no term holding
+    /// one as one value, and a library caller's query over one is refused, not answered.
+    /// With `S = {-1, 0}`, `g = (S + 1 > 0)` and `n = (S + 1 <= 0)` are both `{false, true}`:
+    /// defined, and neither is `true`. So `⌈g⌉ ∧ ⌈n⌉ ∧ ¬(true = g) ⇒ true = n` is not
+    /// entailed, though it is valid for every one value of `S`. The same holds below an
+    /// application the solver reads as an opaque value (`opaque(@S) + 1`, no `smt` attribute),
+    /// which reaches no variable arm. A term-level `\and` with a side that holds no set
+    /// variable denotes at most one element and is still read (the K35 test above).
+    #[test]
+    fn a_set_variable_is_not_read_as_one_value() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol plus{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), total{}(), smt-hook{}("+")]
+                symbol gt{}(SortInt{}, SortInt{}) : SortBool{} [function{}(), total{}(), smt-hook{}(">")]
+                symbol le{}(SortInt{}, SortInt{}) : SortBool{} [function{}(), total{}(), smt-hook{}("<=")]
+                symbol opaque{}(SortInt{}) : SortInt{} [function{}(), total{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = Z3Solver::new(&definition).unwrap();
+        let boolean =
+            |value: &str| crate::term::Term::raw_domain_value(Sort::simple("SortBool"), value);
+        let not = |predicate: Predicate| Predicate::Not(std::sync::Arc::new(predicate));
+        let s = Substitution::new();
+        let shapes = |st: &str| {
+            let atom = |symbol: &str| {
+                term(
+                    &definition,
+                    &format!(
+                        r#"{symbol}{{}}(plus{{}}({st}, \dv{{SortInt{{}}}}("1")), \dv{{SortInt{{}}}}("0"))"#
+                    ),
+                )
+            };
+            let (g, n) = (atom("gt"), atom("le"));
+            (
+                vec![
+                    Predicate::Ceil(g.clone()),
+                    Predicate::Ceil(n.clone()),
+                    not(Predicate::Equals(boolean("true"), g)),
+                ],
+                Predicate::Equals(boolean("true"), n),
+            )
+        };
+        fn refused<T>(result: &Result<T, SmtError>) -> bool {
+            matches!(
+                result,
+                Err(SmtError::Translation(
+                    crate::smt::TranslationError::NonBooleanAnd(_)
+                ))
+            )
+        }
+        for st in ["@S:SortInt{}", "opaque{}(@S:SortInt{})"] {
+            let (known, checked) = shapes(st);
+            let answer = solver
+                .check_predicates(&known, &s, std::slice::from_ref(&checked))
+                .unwrap();
+            assert!(refused(&answer), "{st}: {answer:?}");
+            let (mut both, n) = shapes(st);
+            both.push(not(n));
+            let answer = solver.is_sat(&both, &s).unwrap();
+            assert!(refused(&answer), "{st}: {answer:?}");
+            let answer = solver
+                .get_model(&ModelQuery::for_solver_tests(&both, &s))
+                .unwrap();
+            assert!(refused(&answer), "{st}: {answer:?}");
+        }
+        for st in ["X:SortInt{}", "opaque{}(X:SortInt{})"] {
+            let (known, checked) = shapes(st);
+            assert_eq!(
+                solver.check_predicates(&known, &s, std::slice::from_ref(&checked)),
+                Ok(Ok(Validity::Valid)),
+                "{st}"
+            );
+        }
+    }
+
     /// GAP K23: a node is named in a scope outside a binder only when the binder binds none of
     /// its variables. In `\exists Y. (half(X) = Y /\ \forall X. half(X) = Y)` the inner
     /// `half(X)` reads the `X` the `\forall` binds, not the free `X` of the first conjunct, so

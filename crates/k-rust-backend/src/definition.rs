@@ -97,7 +97,7 @@ use crate::{
     term::{
         AlgebraicAxioms, CollectionMetadata, CollectionSymbols, DomainKind, FunctionType, HeadRole,
         ListDefinition, MapDefinition, Name, Sort, SortNode, Sorts, Symbol, SymbolAttributes,
-        SymbolDeclaration, SymbolType, Term, TermKind, Variable,
+        SymbolDeclaration, SymbolType, Term, TermKind, Variable, VariableKind,
         domain::{TextRejection, validate_text},
         names::{HookName, variable_name_problems},
         sort_name,
@@ -588,6 +588,8 @@ pub struct Admitted<'a> {
     /// Where an execution's internalization adds the open literals it reads
     /// ([`Admitted::for_execution`]); `None` refuses them.
     literals: Option<&'a RequestLiterals>,
+    /// Whether the pattern's term may hold set variables ([`Admitted::as_match_target`]).
+    match_target: bool,
 }
 
 /// The literals of a request whose element the definition leaves open (`crate::literal`), as
@@ -614,6 +616,22 @@ impl RequestLiterals {
     /// The literals read so far.
     pub fn to_vec(&self) -> Vec<std::sync::Arc<str>> {
         self.0.borrow().clone()
+    }
+}
+
+/// Add to `occurrences` each occurrence of a set variable in `term`, descending only into the
+/// subterms that hold one (`definedness::holds_set_variable`).
+fn count_set_variable_occurrences(term: &Term, occurrences: &mut BTreeMap<Variable, usize>) {
+    if let TermKind::Variable(variable) = term.kind() {
+        if variable.kind == VariableKind::Set {
+            *occurrences.entry(variable.clone()).or_default() += 1;
+        }
+        return;
+    }
+    for child in crate::term::immediate_children(term.kind()) {
+        if crate::definedness::holds_set_variable(child) {
+            count_set_variable_occurrences(child, occurrences);
+        }
     }
 }
 
@@ -651,6 +669,96 @@ impl<'a> Admitted<'a> {
         }
     }
 
+    /// The pattern admitted as a match target, a pattern other patterns are matched against
+    /// (a search target, `kore-match-disjunction`'s pattern): a set variable that occurs exactly
+    /// once in its term and in none of its constraints is admitted, and every other set variable
+    /// is still refused ([`UnstatedDefinedness::SetVariable`]).
+    ///
+    /// A match target's variables are read existentially, as a rule's left-hand-side variables
+    /// are: a state `s` matches when some valuation puts `s` in the target. Every application,
+    /// injection, collection and term conjunction denotes the pointwise union over its
+    /// arguments' elements, `C[S] = ⋃_{e ∈ S} C[e]`, so for a set variable `S` that occurs once
+    /// in the term `C[S]` and in no constraint, `∃S. s ∈ C[S]` holds iff `∃e. s ∈ C[e]` for an
+    /// element `e`. That is the element-variable reading, which matching computes: the subterm
+    /// `t` the match binds is a witness, and the reported `S = t` names one (the condition
+    /// itself is `t ∈ S`). With two occurrences, or one also in a constraint, a set of several
+    /// elements can do what no element does, and matching's one binding would answer a definite
+    /// "no match": against `p(a, b)`, `p(@X, @X)` matches at `@X = {a, b}`, and so does
+    /// `p(@X, b) /\ \not(@X = a)`, since `{a, b} = {a}` is false. So those are refused, as is a
+    /// set variable only the constraints hold, which no match binds.
+    pub fn as_match_target(self) -> Self {
+        Self {
+            match_target: true,
+            ..self
+        }
+    }
+
+    /// Refuse the pattern when the internalized `term` or `predicates` hold a set variable that
+    /// the admission does not admit ([`UnstatedDefinedness::SetVariable`]).
+    ///
+    /// A set variable denotes any set of elements, `\bottom` and sets of several elements
+    /// included, while every other term denotes at most one element. The simplifier's rewrites
+    /// (`true = notBool c` read as `\not(c = true)`, say) and the solver's reading of a term as
+    /// one value hold only for terms that denote at most one element: with `@P = @Q = {true,
+    /// false}`, `notBool(@P /\ @Q)` is `{false, true}`, so `true = notBool(@P /\ @Q)` is false,
+    /// and its rewrite `\not(true = @P /\ @Q)` is true. So a request holds none, and no answer
+    /// rests on that reading. A match target's term may hold one that occurs once in it and in
+    /// none of its constraints ([`Self::as_match_target`]).
+    fn refuse_set_variables<'p>(
+        self,
+        term: Option<&Term>,
+        predicates: impl IntoIterator<Item = &'p crate::rule::Predicate>,
+    ) -> Result<(), DefinitionError> {
+        let predicates = predicates.into_iter().collect::<Vec<_>>();
+        // The set variables a match target admits: those the term holds exactly once and no
+        // constraint holds.
+        let mut admitted = BTreeSet::new();
+        if self.match_target
+            && let Some(term) = term
+            && crate::definedness::holds_set_variable(term)
+        {
+            let mut occurrences = BTreeMap::new();
+            count_set_variable_occurrences(term, &mut occurrences);
+            admitted.extend(
+                occurrences
+                    .into_iter()
+                    .filter_map(|(variable, count)| (count == 1).then_some(variable)),
+            );
+            for predicate in &predicates {
+                predicate.visit_terms(&mut |term: &Term| {
+                    if crate::definedness::holds_set_variable(term) {
+                        for variable in &term.attributes().variables {
+                            admitted.remove(variable);
+                        }
+                    }
+                });
+            }
+        }
+        let mut refused = None;
+        let mut check = |term: &Term| {
+            if refused.is_none()
+                && crate::definedness::holds_set_variable(term)
+                && let Some(variable) = term.attributes().variables.iter().find(|variable| {
+                    variable.kind == VariableKind::Set && !admitted.contains(*variable)
+                })
+            {
+                refused = Some(variable.name.to_string());
+            }
+        };
+        if let Some(term) = term {
+            check(term);
+        }
+        for predicate in predicates {
+            predicate.visit_terms(&mut check);
+        }
+        match refused {
+            Some(variable) => Err(DefinitionError::UnstatedDefinedness(
+                UnstatedDefinedness::SetVariable(variable),
+            )),
+            None => Ok(()),
+        }
+    }
+
     /// Run `internalize`, an internalization of the pattern, reading its literals as the
     /// admission says ([`Self::for_execution`]).
     fn reading_literals<T>(
@@ -681,10 +789,12 @@ impl<'a> Admitted<'a> {
 
     /// Internalize the pattern as a term, checking its sort injections.
     pub fn internalize_term(self) -> Result<Term, DefinitionError> {
-        self.reading_literals(|| {
+        let term = self.reading_literals(|| {
             self.definition
                 .internalize_term(self.pattern, self.sort_variables)
-        })
+        })?;
+        self.refuse_set_variables(Some(&term), [])?;
+        Ok(term)
     }
 
     /// Internalize a constrained KORE pattern into its term and predicate components.
@@ -695,6 +805,7 @@ impl<'a> Admitted<'a> {
             self.definition
                 .internalize_pattern(self.pattern, self.sort_variables)
         })?;
+        self.refuse_set_variables(Some(&pattern.term), &pattern.constraints)?;
         self.explicit_pattern(pattern)
     }
 
@@ -709,9 +820,11 @@ impl<'a> Admitted<'a> {
                     .internalize_pattern_or_predicate(self.pattern, self.sort_variables)
             })? {
                 PatternOrPredicate::Term(pattern) => {
+                    self.refuse_set_variables(Some(&pattern.term), &pattern.constraints)?;
                     PatternOrPredicate::Term(self.explicit_pattern(pattern)?)
                 }
                 PatternOrPredicate::Predicate(predicate, sort) => {
+                    self.refuse_set_variables(None, [&predicate])?;
                     PatternOrPredicate::Predicate(self.explicit_predicate(predicate)?, sort)
                 }
             },
@@ -726,6 +839,7 @@ impl<'a> Admitted<'a> {
             self.definition
                 .internalize_predicate(self.pattern, self.sort_variables)
         })?;
+        self.refuse_set_variables(None, [&predicate])?;
         Ok((self.explicit_predicate(predicate)?, sort))
     }
 
@@ -739,7 +853,10 @@ impl<'a> Admitted<'a> {
             self.definition
                 .internalize_model_predicate(self.pattern, self.sort_variables)
         })?
-        .map(|(predicate, sort)| Ok((self.explicit_predicate(predicate)?, sort)))
+        .map(|(predicate, sort)| {
+            self.refuse_set_variables(None, [&predicate])?;
+            Ok((self.explicit_predicate(predicate)?, sort))
+        })
         .transpose()
     }
 
@@ -753,6 +870,16 @@ impl<'a> Admitted<'a> {
             self.definition
                 .internalize_implication_pattern(self.pattern, self.sort_variables)
         })?;
+        // A quantifier binds an element variable, so a set variable it names is refused too.
+        if let Some(variable) = existentials
+            .iter()
+            .find(|variable| variable.kind == VariableKind::Set)
+        {
+            return Err(DefinitionError::UnstatedDefinedness(
+                UnstatedDefinedness::SetVariable(variable.name.to_string()),
+            ));
+        }
+        self.refuse_set_variables(Some(&pattern.term), &pattern.constraints)?;
         Ok((self.explicit_pattern(pattern)?, existentials))
     }
 
@@ -766,7 +893,10 @@ impl<'a> Admitted<'a> {
                 .internalize_disjunction(self.pattern, self.sort_variables)
         })?
         .into_iter()
-        .map(|pattern| self.explicit_pattern(pattern))
+        .map(|pattern| {
+            self.refuse_set_variables(Some(&pattern.term), &pattern.constraints)?;
+            self.explicit_pattern(pattern)
+        })
         .collect()
     }
 
@@ -1562,6 +1692,11 @@ pub enum UnstatedDefinedness {
     /// ([`RulePatternError::TermConnectiveInConjunction`]) or a term of another sort than Bool
     /// read as a predicate ([`RulePatternError::NonBoolTermAsPredicate`]).
     RefusedReading(Box<RulePatternError>),
+    /// Not a definedness: the pattern holds this set variable, as written, free
+    /// ([`Admitted::refuse_set_variables`]). It denotes any set of elements, while the
+    /// backend's simplifier and solver read each term as denoting at most one, so no decision
+    /// over it is given; a claim holding one is not proven.
+    SetVariable(String),
 }
 
 impl From<crate::definedness::PredicateDefinednessFailure> for UnstatedDefinedness {
@@ -1592,6 +1727,11 @@ impl fmt::Display for UnstatedDefinedness {
             Self::OpenLiteral(literal) => write!(
                 formatter,
                 "the claim holds the literal `{literal}`, whose element the definition leaves open (class literal)"
+            ),
+            Self::SetVariable(variable) => write!(
+                formatter,
+                "it holds the set variable `{variable}` free, which may denote several elements \
+                 or none, and the backend reads each term as denoting at most one element"
             ),
         }
     }
@@ -1882,7 +2022,10 @@ impl fmt::Display for DefinitionError {
                 formatter,
                 "The predicates of the pattern cannot be read faithfully: {error}"
             ),
-            Self::UnstatedDefinedness(reason @ UnstatedDefinedness::OpenLiteral(_)) => {
+            Self::UnstatedDefinedness(
+                reason
+                @ (UnstatedDefinedness::OpenLiteral(_) | UnstatedDefinedness::SetVariable(_)),
+            ) => {
                 write!(formatter, "The pattern cannot be read faithfully: {reason}")
             }
             Self::OpenLiteral(literal) => write!(
@@ -3341,6 +3484,7 @@ impl BackendDefinition {
             sort_variables,
             admission: Admission::Verified,
             literals: None,
+            match_target: false,
         })
     }
 
@@ -3361,6 +3505,7 @@ impl BackendDefinition {
             sort_variables,
             admission: Admission::Unverified,
             literals: None,
+            match_target: false,
         }
     }
 

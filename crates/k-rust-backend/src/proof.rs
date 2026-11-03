@@ -258,7 +258,8 @@ impl fmt::Display for ProofError {
         match self {
             Self::Implication(error) => write!(formatter, "{error}"),
             Self::UnstatedDefinedness(
-                reason @ crate::definition::UnstatedDefinedness::OpenLiteral(_),
+                reason @ (crate::definition::UnstatedDefinedness::OpenLiteral(_)
+                | crate::definition::UnstatedDefinedness::SetVariable(_)),
             ) => write!(formatter, "the claim cannot be read faithfully: {reason}"),
             Self::UnstatedDefinedness(reason) => {
                 write!(

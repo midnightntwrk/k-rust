@@ -154,11 +154,13 @@ pub(crate) fn internalize_reachability_claim(
         )
     });
     let (unstated, lhs, rhs) = sides?;
-    let unstated = unstated.or_else(|| {
-        open_literals
-            .first()
-            .map(|literal| UnstatedDefinedness::OpenLiteral(literal.to_string()))
-    });
+    let unstated = unstated
+        .or_else(|| {
+            open_literals
+                .first()
+                .map(|literal| UnstatedDefinedness::OpenLiteral(literal.to_string()))
+        })
+        .or_else(|| set_variable(&lhs, &rhs, &existentials));
     if rhs.is_empty() {
         return Err(DefinitionError::Claim(ClaimError::MissingRightHandSide));
     }
@@ -225,6 +227,35 @@ fn claim_sides(
     let rhs = sides(right, ConditionSlot::Last)?;
     let lhs = sides(left, ConditionSlot::First)?;
     Ok((lhs, rhs))
+}
+
+/// A set variable the claim holds, as [`UnstatedDefinedness::SetVariable`]: one of its sides'
+/// terms or constraints, or an existential (a quantifier binds an element variable).
+///
+/// A claim's variables are read as ranging over the elements of its instances, and a set
+/// variable denotes any set of them, which the simplifier and the solver, reading each term as
+/// denoting at most one element, do not decide faithfully
+/// (`definition::Admitted::refuse_set_variables`). Such a claim is refused, and is no
+/// assumption either.
+fn set_variable(
+    lhs: &[Pattern],
+    rhs: &[Pattern],
+    existentials: &BTreeSet<Variable>,
+) -> Option<UnstatedDefinedness> {
+    let set = |variable: &Variable| variable.kind == crate::term::VariableKind::Set;
+    let mut found = existentials.iter().find(|variable| set(variable)).cloned();
+    for side in lhs.iter().chain(rhs) {
+        let mut check = |term: &crate::term::Term| {
+            if found.is_none() && crate::definedness::holds_set_variable(term) {
+                found = term.attributes().variables.iter().find(|v| set(v)).cloned();
+            }
+        };
+        check(&side.term);
+        for constraint in &side.constraints {
+            constraint.visit_terms(&mut check);
+        }
+    }
+    found.map(|variable| UnstatedDefinedness::SetVariable(variable.name.to_string()))
 }
 
 /// Why the predicate reading refused a claim's side, when `error` is such a refusal: an
@@ -372,6 +403,57 @@ mod tests {
             claim.lhs.constraints,
             "the stored form is a fixed point"
         );
+    }
+
+    /// GAP K40: a claim's variables range over the elements of its instances, and a set
+    /// variable denotes any set of them, which the simplifier and the solver do not read
+    /// faithfully; so a claim holding one free, in a side's term or a side's constraint, is
+    /// refused alone, naming it, and the alias parameters `@X` of the modalities, bound by their
+    /// definitions, refuse nothing. (A quantifier over a set variable does not parse.)
+    #[test]
+    fn refuses_a_claim_holding_a_set_variable() {
+        let claim = |label: &str, left: &str, right: &str| {
+            format!(
+                r#"claim{{}} \implies{{SortS{{}}}}({left}, weakAlwaysFinally{{SortS{{}}}}({right})) [label{{}}("{label}")]"#
+            )
+        };
+        let definition = definition(
+            &[
+                claim(
+                    "element",
+                    r"c{}(X:SortS{})",
+                    r"\and{SortS{}}(c{}(X:SortS{}), \top{SortS{}}())",
+                ),
+                claim(
+                    "term",
+                    r"c{}(@X:SortS{})",
+                    r"\and{SortS{}}(c{}(@X:SortS{}), \top{SortS{}}())",
+                ),
+                claim(
+                    "constraint",
+                    r"\and{SortS{}}(\equals{SortS{}, SortS{}}(X:SortS{}, @Y:SortS{}), c{}(X:SortS{}))",
+                    r"\and{SortS{}}(c{}(X:SortS{}), \top{SortS{}}())",
+                ),
+            ]
+            .join("\n"),
+        );
+        let unstated = |label: &str| {
+            definition
+                .reachability_claims()
+                .iter()
+                .find(|claim| claim.attributes.label.as_deref() == Some(label))
+                .unwrap_or_else(|| panic!("{label} is loaded"))
+                .unstated
+                .clone()
+        };
+        assert_eq!(unstated("element"), None);
+        for (label, variable) in [("term", "@X"), ("constraint", "@Y")] {
+            assert_eq!(
+                unstated(label),
+                Some(UnstatedDefinedness::SetVariable(variable.to_owned())),
+                "{label}"
+            );
+        }
     }
 
     #[test]

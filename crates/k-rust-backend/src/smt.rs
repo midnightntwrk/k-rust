@@ -1033,6 +1033,11 @@ impl TranslationState {
     }
 
     fn translate_term_node(&mut self, term: &Term) -> Result<SExpr, TranslationError> {
+        // Every reading below gives the term one value, which a term that may denote several
+        // elements has not; such a term is refused before any of them (`may_denote_several`).
+        if may_denote_several(term) {
+            return Err(TranslationError::NonBooleanAnd(term.clone()));
+        }
         let reading = self.observations.get(term).cloned();
         let demands = self
             .observation_demands
@@ -1117,20 +1122,42 @@ impl TranslationState {
         match term.kind() {
             // A term-level `\and` denotes the intersection of its operands' values, `\bottom` where
             // they differ, not their Boolean conjunction: `true /\ false` is `\bottom`, not
-            // `false`. A Boolean one is therefore an unrelated constant, as any term without a
-            // translation. Every atom over it is read under its domain (`atom_with_domains`), an
-            // opaque `\ceil` here, so the constant is read only where the intersection is defined,
-            // where a model of the definition gives it the intersection's value: faithful in every
-            // polarity, `\not(c = true) /\ \not(c = false)` holding where the domain does not.
-            // A request or condition with such an atom states that domain beside it, the equality
-            // of the operands (`definedness::and_side`, GAP K30).
-            TermKind::And(left, right)
-                if left.sort().is_builtin(BuiltinSort::Bool)
-                    && right.sort().is_builtin(BuiltinSort::Bool) =>
-            {
-                Ok(self.abstract_term(term, Exactness::Approximate))
+            // `false`. Without a set variable it is therefore a partial operation of its
+            // operands, at any sort: defined exactly where both are defined and equal, its
+            // domain plan (`functional::domain_plan`, `definedness::and_side`), and there its
+            // value is their common element, which its first conjunct denotes
+            // (`Term::first_conjunct`). Every atom over it is read under that domain
+            // (`atom_with_domains`), so the first conjunct's value is read only where it is the
+            // conjunction's, as a partial hook's total operation is: faithful in every polarity,
+            // and exact where the operands' readings and domains are (GAP K35, K36).
+            // A request or condition with such an atom states that domain beside it, the
+            // equality of the operands (`definedness::and_side`, GAP K30).
+            //
+            // With a set variable the conjunction is read by how many elements it may denote.
+            // When one side holds none, that side denotes at most one element, so the
+            // intersection does too: it is that element or nothing, an opaque constant of its
+            // sort read under its opaque `\ceil` (every K valuation extends to a model, the
+            // constant taking the element where there is one), an approximate reading. When
+            // both sides hold set variables the intersection may have several elements
+            // (`@S ∧ @T` with `S = T = {-1, 0}` is `{-1, 0}`), and no single value reads it:
+            // `(@S ∧ @T) + 1 > 0` is then `{false, true}`, defined and neither `true` nor
+            // `false`, which no one SMT constant for the conjunction satisfies. The opaque `\ceil` does not save that
+            // reading: an atom is gated by its operand's domain, which a stated `\ceil` of the
+            // operand removes, and the domain holding does not make the operand one value.
+            // Such a conjunction is refused, so no atom over it is posed
+            // (`TranslationError::NonBooleanAnd`, the wire variant this refusal reuses); the
+            // node's own check (`may_denote_several`) refuses it before this arm is reached.
+            TermKind::And(left, right) => {
+                if crate::definedness::holds_set_variable(left)
+                    && crate::definedness::holds_set_variable(right)
+                {
+                    Err(TranslationError::NonBooleanAnd(term.clone()))
+                } else if crate::definedness::holds_set_variable(term) {
+                    Ok(self.abstract_term(term, Exactness::Approximate))
+                } else {
+                    self.translate_term(term.first_conjunct())
+                }
             }
-            TermKind::And(..) => Err(TranslationError::NonBooleanAnd(term.clone())),
             TermKind::Application {
                 symbol, arguments, ..
             } if let Some(operation) = literal::read(symbol, &term.sort(), arguments) => {
@@ -1278,6 +1305,14 @@ impl TranslationState {
 
     /// A memoized DAG walk using the same local functionality predicate as matching, and
     /// the existing definition's transitive effect closure. No contextual facts are cached.
+    ///
+    /// A term-level `\and` is eligible too where its operands are, which matching's predicate
+    /// does not admit because a conjunction is no term to bind a variable to: an operand that
+    /// is eligible holds no set variable and denotes at most one element, so the intersection
+    /// does too, the operands' common element where both are defined and equal (GAP K35). Its
+    /// domain is then a plan (`functional::domain_plan`), and an application over it is read as
+    /// one over any other operand, under the conjunction's domain, since every application is
+    /// strict.
     fn eligible_operand(&mut self, term: &Term) -> bool {
         let Some(policy) = self.congruence.clone() else {
             return false;
@@ -1287,7 +1322,8 @@ impl TranslationState {
             if self.eligible_operands.contains_key(&term) {
                 continue;
             }
-            let local = crate::rewrite::functional_pattern_node(&term)
+            let local = (crate::rewrite::functional_pattern_node(&term)
+                || matches!(term.kind(), TermKind::And(..)))
                 && match term.kind() {
                     TermKind::Application { symbol, .. } => {
                         !symbol.attributes.binder
@@ -2575,8 +2611,56 @@ fn translate_query_in_state(
     Ok((translation, declarations, substitution, known, checked))
 }
 
+/// Whether `term` may denote several elements, so that no one SMT value reads it: it holds a set
+/// variable that is not below a term-level `\and` one of whose sides holds none.
+///
+/// A set variable denotes any set of elements. Every other term denotes at most one: an element
+/// variable or a domain value one, an application (every symbol is a partial function, a
+/// constructor a total one) at most one when its arguments do, and a conjunction the
+/// intersection of its sides, at most one when one side is. Applications, injections and
+/// collections are strict in their parts, so a part that may denote several makes the whole
+/// one that may. A conjunction both of whose sides hold set variables is taken to (it may be
+/// smaller, `(@S /\ X) /\ @T`, and is then refused conservatively); one with a side that holds
+/// none is read as an opaque constant without reading its other side (`translate_term_node_plain`).
+///
+/// A request holds no set variable (`definition::Admitted`); this is the solver's own refusal, for
+/// a library caller's terms (a rewrite rule that would introduce one is refused at load,
+/// `RulePatternError::UnboundSetVariable`).
+/// `holds_set_variable` is one look, so a term without one costs nothing here.
+fn may_denote_several(term: &Term) -> bool {
+    let mut pending = vec![term];
+    while let Some(term) = pending.pop() {
+        if !crate::definedness::holds_set_variable(term) {
+            continue;
+        }
+        match term.kind() {
+            TermKind::Variable(_) => return true,
+            TermKind::And(left, right) => {
+                if crate::definedness::holds_set_variable(left)
+                    && crate::definedness::holds_set_variable(right)
+                {
+                    return true;
+                }
+            }
+            kind @ (TermKind::Application { .. }
+            | TermKind::DomainValue { .. }
+            | TermKind::Injection { .. }
+            | TermKind::Map { .. }
+            | TermKind::List { .. }
+            | TermKind::Set { .. }) => pending.extend(crate::term::immediate_children(kind)),
+        }
+    }
+    false
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum TranslationError {
+    /// A term that may denote several elements, so that no single SMT value reads it: a set
+    /// variable, or a term holding one outside a term-level `\and` with a side that holds none
+    /// (`may_denote_several`), such as a conjunction both of whose sides hold set variables.
+    /// Every set-variable-free conjunction is translated (GAP K36 reads one of any sort by its
+    /// domain plan). The name, from when a non-Boolean conjunction was refused, is kept for the
+    /// wire format (`non-boolean-and`), which carries the refused term.
     NonBooleanAnd(Term),
     PlaceholderOutOfBounds {
         placeholder: usize,
@@ -4539,7 +4623,10 @@ mod tests {
 
     /// A term-level `\and` is the intersection of its operands, `\bottom` where they differ, so a
     /// Boolean one is not their conjunction: `\equals(true /\ false, false)` is false in K, while
-    /// `(= (and true false) false)` holds. It translates as an unrelated constant.
+    /// `(= (and true false) false)` holds. Its value is its first conjunct's, read only under
+    /// its domain (GAP K35), here an opaque atom, since without the definition's policy there is
+    /// no domain plan: no SMT `and` of the operands is written, and the second operand is not
+    /// read at all.
     #[test]
     fn a_boolean_term_conjunction_is_not_translated_as_a_conjunction() {
         let boolean = Sort::simple("SortBool");
@@ -4550,15 +4637,9 @@ mod tests {
         );
         let mut state = TranslationState::new();
         let translated = state.translate_predicate(&predicate).unwrap().to_string();
-        // The constant is the conjunction's only mapped term: neither operand is translated, so
-        // no SMT `and` of them is written. (Since GAP K15 the atom carries the conjunction's
-        // domain, `(and D (= c false))`, an SMT `and` of the domain and the equality.)
-        assert_eq!(state.mappings.len(), 1, "{translated}");
-        assert!(
-            !state.mappings.contains_key(&operand("B1"))
-                && !state.mappings.contains_key(&operand("B2")),
-            "{translated}"
-        );
+        assert_eq!(translated, "(and SMT-2 (= SMT-1 false))");
+        assert_eq!(state.mappings.get(&operand("B1")), Some(&"SMT-1".into()));
+        assert!(!state.mappings.contains_key(&operand("B2")), "{translated}");
         assert_eq!(state.exactness(), Exactness::Approximate);
     }
 

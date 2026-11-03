@@ -2159,6 +2159,7 @@ impl Backend {
                     definition
                         .admit_unverified(&matching.pattern, &[])
                         .for_execution(&literals)
+                        .as_match_target()
                         .internalize_pattern()
                         .map(|target| StateMatchOptions {
                             target,
@@ -2424,6 +2425,7 @@ impl Backend {
             let target = definition
                 .admit_unverified(&target_syntax, &[])
                 .for_execution(&literals)
+                .as_match_target()
                 .internalize_pattern()
                 .map_err(error("could not internalize search pattern"))?;
             let options = SearchOptions {
@@ -2504,6 +2506,7 @@ impl Backend {
             let target = definition
                 .admit_unverified(&target_syntax, &[])
                 .for_execution(&literals)
+                .as_match_target()
                 .internalize_pattern()
                 .map_err(error("could not internalize search pattern"))?;
             let options = SearchOptions {
@@ -4053,17 +4056,26 @@ mod tests {
             ) [label{}("narrow")]
         endmodule []"#;
 
-    #[cfg(not(feature = "z3-inference"))]
+    /// The module `MAIN` of [`SET_BINDING_DEFINITION`] without its `mint` rule.
+    const SET_BINDING_BASE: &str = r#"[]
+        module MAIN
+            sort SortS{} []
+            symbol go{}() : SortS{} [constructor{}()]
+            symbol wrap{}(SortS{}) : SortS{} [constructor{}()]
+        endmodule []"#;
+
+    /// `mint`'s right-hand side holds a set variable its left-hand side does not bind, so a step
+    /// from `go()` would give `wrap(@Y')`, a fresh free set variable: the definition is refused
+    /// at load (GAP K40 review fix, `RulePatternError::UnboundSetVariable`).
     const SET_BINDING_DEFINITION: &str = r#"[]
         module MAIN
             sort SortS{} []
+            symbol go{}() : SortS{} [constructor{}()]
             symbol wrap{}(SortS{}) : SortS{} [constructor{}()]
-            symbol pair{}(SortS{}, SortS{}) : SortS{}
-                [function{}(), total{}(), injective{}(), no-evaluators{}()]
             axiom{} \rewrites{SortS{}}(
-                \and{SortS{}}(wrap{}(I:SortS{}), \top{SortS{}}()),
-                pair{}(I:SortS{}, I:SortS{})
-            ) [label{}("duplicate")]
+                \and{SortS{}}(go{}(), \top{SortS{}}()),
+                wrap{}(@Y:SortS{})
+            ) [label{}("mint")]
         endmodule []"#;
 
     /// A hook declared at an arity its builtin does not take (`INT.add` of three arguments), and
@@ -4181,7 +4193,6 @@ mod tests {
         let cases = [
             (INDETERMINATE_DEFINITION, "wrap{}(Y:SortInt{})", "requires"),
             (NARROWING_DEFINITION, "wrap{}(Y:SortS{})", "smt"),
-            (SET_BINDING_DEFINITION, "wrap{}(@Y:SortS{})", "match"),
         ];
         for (definition, state, kind) in cases {
             let mut backend = Backend::new(definition, "MAIN", BackendOptions::default()).unwrap();
@@ -4194,10 +4205,7 @@ mod tests {
             let encoded = serde_json::to_value(&leaf).unwrap();
             assert_eq!(encoded["cause"]["kind"], kind, "{state}: {encoded}");
             assert!(encoded["cause"]["rule"].is_string(), "{encoded}");
-            assert_eq!(
-                leaf.cause.as_ref().unwrap().solver_unavailable(),
-                kind != "match"
-            );
+            assert!(leaf.cause.as_ref().unwrap().solver_unavailable());
             if kind == "smt" {
                 assert_eq!(encoded["cause"]["error"]["kind"], "unavailable");
             }
@@ -4212,6 +4220,36 @@ mod tests {
         assert_ne!(leaf.reason, HaltReasonOutput::Indeterminate);
         assert!(leaf.cause.is_none());
         assert!(serde_json::to_value(leaf).unwrap().get("cause").is_none());
+    }
+
+    /// GAP K40 (review fix): a rewrite rule whose right-hand side holds a set variable its
+    /// left-hand side does not bind is refused, naming the variable and the rule, both in the
+    /// definition a backend starts from and in a module added to it: a step would put a fresh
+    /// free set variable in the state, which may denote several elements while the backend
+    /// reads each term as one. Before, `go()` stepped to `wrap(@Y')`, and the published
+    /// `match` cause of an element variable bound to it had that route; no request or rule
+    /// route reaches it now.
+    #[test]
+    fn a_rewrite_rule_minting_a_set_variable_is_refused_at_load_and_by_add_module() {
+        let names = |message: &str| message.contains("`@Y`") && message.contains("mint");
+        let loaded = Backend::new(SET_BINDING_DEFINITION, "MAIN", BackendOptions::default())
+            .err()
+            .expect("the definition is refused");
+        assert!(names(loaded.message()), "{}", loaded.message());
+        let mut backend =
+            Backend::new(SET_BINDING_BASE, "MAIN", BackendOptions::default()).unwrap();
+        let added = backend
+            .add_module(
+                r#"module MINT import MAIN []
+                    axiom{} \rewrites{SortS{}}(
+                        \and{SortS{}}(go{}(), \top{SortS{}}()),
+                        wrap{}(@Y:SortS{})
+                    ) [label{}("mint")]
+                endmodule []"#,
+                false,
+            )
+            .unwrap_err();
+        assert!(names(added.message()), "{}", added.message());
     }
 
     fn backend() -> Backend {

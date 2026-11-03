@@ -587,20 +587,24 @@ fn push_list_items<'a>(
 /// conjuncts. The attribute `ceil_free` of a conjunction requires sides without obligations
 /// and equal first conjuncts (term.rs `ceil_free`). This is `andSide` of
 /// `lean/KRust/TermAttributes.lean`.
-fn and_side(and: &Term, left: &Term, right: &Term) -> Option<Predicate> {
+pub(crate) fn and_side(and: &Term, left: &Term, right: &Term) -> Option<Predicate> {
     if left == right {
         return None;
     }
-    let holds_set_variable = and
-        .attributes()
-        .variables
-        .last()
-        .is_some_and(|greatest| greatest.kind == VariableKind::Set);
-    if holds_set_variable {
+    if holds_set_variable(and) {
         return Some(Predicate::Ceil(and.clone()));
     }
     let (left, right) = (left.first_conjunct(), right.first_conjunct());
     (left != right).then(|| Predicate::Equals(left.clone(), right.clone()))
+}
+
+/// Whether `term` holds a set variable: `Variable` orders by kind first and a set variable is
+/// the greater kind, so the greatest of the term's stored variables shows it in O(1).
+pub(crate) fn holds_set_variable(term: &Term) -> bool {
+    term.attributes()
+        .variables
+        .last()
+        .is_some_and(|greatest| greatest.kind == VariableKind::Set)
 }
 
 /// One node of the definedness walk: appends the node's own obligations to `before` and its
