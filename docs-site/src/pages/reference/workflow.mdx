@@ -125,7 +125,7 @@ An entry is keyed by the digest of the Definition IR's canonical JSON and the `k
 `prove --spec-module NAME` also keeps the proof definition it compiles for that author spec module, under the same key plus NAME (the Definition IR digest covers the spec module's content), so a second proof of an unchanged spec module compiles neither.
 `--no-reuse` or `KRS_NO_REUSE=1` compiles again and replaces the entry.
 A cache directory inside the package's Cargo workspace is never used, so an entry is never committed with the package: each command then warns (`krs::exec::stage-cache`) and compiles the definition again, and setting `KRS_STAGE_CACHE_DIR` to a directory outside the workspace restores reuse.
-FILE (or `-` for standard input) binds the main parameter of the `#[k::init]` (the one marked `#[k::config_var(.., main)]`, or the one the computation cell reads when none is marked), whatever its K name: as a program, at the start position of its sort, where that parameter is `$PGM`, and as `-c` text of that parameter otherwise; a definition without a main parameter refuses FILE.
+FILE (or `-` for standard input) binds the main parameter of the `#[k::init]` (the one marked `#[k::config_var(.., main)]`, or the one the computation cell reads when none is marked), whatever its K name: as a program, at the start position of its sort, where that parameter is `$PGM`, and as `-c` text of that parameter otherwise; a definition without a main parameter refuses FILE, naming every parameter to bind by name instead ([inputs by name](#inputs-by-name)).
 `-c NAME=TEXT` binds a parameter by its Rust name (`env`) or its configuration variable's K name (`ENVIRONMENT` or `$ENVIRONMENT`); FILE together with a binding of the main parameter by name binds it twice and is refused.
 `run` follows one path, choosing one successor per step as krun does, and `search` returns the set of reachable final states; `--mode` selects `all`, `one-step`, or `one-or-more-steps` instead.
 `prove` proves every claim, or each `--claim` label given as the exact label or a unique suffix; `--spec-module NAME` proves the claims of an author spec module (`kprove --spec-module`) instead of the generated `<MAIN>-SPEC` ([spec modules](/verification/reachability-claims#spec-modules)).
@@ -142,6 +142,157 @@ A definition with a `stream = "stdin"` cell reads standard input into it before 
 `run` and `search` write each line that `io::log` logs to standard error, one per line and before their own report, as `krun` and `krun --search` do on K's LLVM backend; `--output json` also reports them as `log`.
 
 The current commands are `fmt`, `check`, `expand`, `emit-k`, `build`, `parse`, `run`, `search`, and `prove`.
+
+## Inputs by name
+
+```console
+krs run --package my-semantics --definition main --case cases/boot.toml
+krs run --package my-semantics --definition main --input 'pc=256' --input 'rom={"$file": "boot.bin"}' -c 'memory=.Map'
+```
+
+A definition's inputs are the parameters of its `#[k::init]`, and `run` and `search` bind each one by its Rust name (`rom`) or its configuration variable's K name (`ROM` or `$ROM`), from whichever option gives it.
+`--case FILE` binds the inputs a case document gives: a `.toml` file whose `[inputs]` table, or a `.json` file whose `inputs` object, holds one value per input by name; any other top-level key is refused.
+`--input NAME=JSON` binds one input to a JSON document, and may be repeated.
+A value of `--case` or `--input` is a document of the typed encoding below, read at the parameter's declared type, element types included, so no K text is needed; `{"$text": ..}` and `{"$text-file": ..}` give K text instead, parsed as `-c` text is.
+A file that a document names is read relative to the document that names it: the case file's directory, the directory of the data file that includes it, or the working directory for an `--input` document.
+FILE, `--case`, `--input`, and `-c` are bound in that order, and a parameter that any two of them bind is bound twice and refused; every parameter must be bound, the main parameter by FILE or by name.
+A refusal names the input, its declared type, the position inside the document, and the reason.
+A value that applies a function (`{"$call": ..}`) is the definition's computation: the configuration holds the application, which is evaluated when the first state is simplified, before the first step, so `--depth 0` shows its value; an application that has no value leaves no initial state, and the run ends `undefined` after 0 steps, naming the application.
+A `Float` input runs under `run` and `search`, but the corpus tool kink refuses a test state that holds a `Float` value.
+
+A case for a definition whose inputs are a `Map<Int, Int>` memory, a `Bytes` ROM, an `Int` program counter, and an `entry` of a declared sort:
+
+```toml
+[inputs]
+memory = { "$data-file" = "data/memory.toml" }  # "0x0100" = 0, "0x0101" = 195, ...
+rom = { "$file" = "data/boot.bin" }             # the file's bytes, unchanged
+pc = 0x100
+entry = { Load = { addr = 2, len = 3 } }        # the constructor Instr::Load of Op
+# pc = { "$call" = { "Boot" = { n = 0 } } }     # Boot(0), evaluated before the first step
+```
+
+The rest of this section is generated from the module documentation of `krs-exec`'s `inputs` module, the encoding's normative statement.
+
+{/* Generated by docs-site/scripts/sync-k-rust.py from the module documentation of krs/crates/krs-exec/src/inputs.rs; edit it there and run `bun run sync:snippets`. */}
+
+### The encoding
+
+This section is the normative statement of the encoding.
+
+A *document* is a value of the JSON data model: null, a boolean, a number, a string, an array,
+or an object. A TOML document is first converted to it (`toml_document`): integers and
+booleans, strings, arrays and tables as themselves, a finite float as a number, a NaN or an
+infinity as `{"$float": "NaN"}`, `{"$float": "Infinity"}` or `{"$float": "-Infinity"}`, and a
+datetime is refused, since it has no reading as a term. A JSON text is read with duplicate
+object keys refused (`json_document`); a TOML parser refuses them itself.
+
+A document is decoded at a *position*. A position is a declared type: a sort and, for a
+collection, its element types (`Map<Int, Int>`, the type of the parameter or of an element
+inside it). A position is *untyped* where the declared type says nothing: a `K` sort, the
+elements of a collection whose element types are not declared (the field of a constructor
+declared `List`, the elements of `$list`), and the field of a sort no KRS declaration names.
+
+Every document has at most one reading at a position. Shorthands are read only where the
+position's type decides them; elsewhere a *tagged form* states the reading. Where a shorthand
+has two readings at a position, the document is refused and the message names the tagged
+form of each reading. The decoder refuses rather than guesses.
+
+#### Tagged forms
+
+A tagged form is an object with exactly one key, which starts with `$`; no Rust identifier
+does, so a tag never collides with a constructor or field name. An object with a `$` key and
+other keys is refused. A tagged form means the same at every position, and one whose term is
+of a sort that is not at most the position's sort is refused.
+
+A map key is not a Rust identifier, and one that starts with `$` (a `String` or token key)
+would make the object shorthand of a `Map` a tagged form: such a map is written in the pairs
+form, `[["$x", 1]]`, and the refusal of the object says so.
+
+| form | value | where |
+|---|---|---|
+| `{"$text": "K text"}` | the text, parsed at the parameter's sort as `-c` parses it | a whole input only |
+| `{"$text-file": "path"}` | the file's UTF-8 text, as `$text`; parse locations carry the file's name | a whole input only |
+| `{"$file": "path"}` | a `Bytes` of the file's bytes, unchanged | anywhere `Bytes` fits |
+| `{"$hex": "00ff1a"}` | a `Bytes` of the bytes the hex digits spell (an even count, either case, no separators) | anywhere `Bytes` fits |
+| `{"$data-file": "path"}` | the document the file holds (`.json` or `.toml`, by extension), decoded at this position | anywhere |
+| `{"$string": "text"}` | a `String` | anywhere |
+| `{"$int": "-0x1f"}`, `{"$int": 31}` | an `Int`: a string by the integer grammar of the `Int` row below, or an integer | anywhere |
+| `{"$float": 1.5}`, `{"$float": "1.5f"}` | a `Float`: a number read as at `Float` (below), or the value a K `Float` literal names | anywhere |
+| `{"$token": "text"}` | a token of the position's sort, which is a token sort | a token sort |
+| `{"$token": {"sort": "Id", "text": "x"}}` | a token of the named token sort | anywhere |
+| `{"$list": [..]}`, `{"$set": [..]}`, `{"$seq": [..]}` | a `List`, a `Set`, a K sequence, of untyped elements | anywhere |
+| `{"$map": [[key, value], ..]}` | a `Map` of untyped keys and values | anywhere |
+| `{"$call": {"path::f": fields}}` | the application of the function `f` to its arguments | anywhere |
+
+A token's text, as `$token` or as a shorthand, is not checked against its sort's lexical
+syntax: it denotes the domain value of that sort with that text, a term of the sort, even
+where no K text of the definition spells it (`"top"` at a sort whose tokens match
+`@[a-z]+`), while `$text` of the same text fails to parse.
+
+A path in `$file`, `$text-file` or `$data-file` is relative to the document that holds it
+(the case file, or the data file that includes it), and the decoder reads no file itself: the
+caller's `InputFiles` resolves and reads it. A `$data-file` that includes itself, directly
+or through others, is refused naming the cycle.
+
+#### Constructors and functions
+
+A constructor is written `{"Name": fields}`, with `fields` an object by field name or an array
+in declaration order (a tuple variant's fields are named `0`, `1`, ..), and `[]` or `{}` for
+none; at a position of a declared sort a bare string `"Name"` is a nullary constructor.
+`Name` is the declaration's path or a `::`-aligned suffix of it (`Register::A`, `A`), resolved
+among the constructors whose result sort is at most the position's sort (among all
+constructors at an untyped position); a name that selects several is refused naming them.
+Each field is decoded at its declared sort, with no element types: a field declared `List` has
+untyped elements.
+
+A function is applied with `$call`, its arguments written as a constructor's fields and
+resolved among the function productions whose result sort is at most the position's sort. A
+function written in the constructor form, and a constructor under `$call`, are refused: a
+reader of a case sees which parts are data and which are computed. Any function may be applied,
+partial and `internal` ones included, as the initializer's body may apply them; the
+configuration holds the application, which the definition's equations evaluate when the first
+state is simplified, before the first step.
+
+#### Shorthands
+
+| position | shorthands |
+|---|---|
+| `Int` | an integer; a string of an optional `-` and decimal digits, or of `0x`, `0o` or `0b` and digits of that base (for values beyond 64 bits, and for hex); a number with a fraction or an exponent is refused, since JSON delivers an integer beyond 64 bits as one and it would be rounded |
+| `Bool` | `true`, `false` |
+| `String` | a string |
+| `Float` | a number, or a string that is a K `Float` literal; an integer is its binary64 value when binary64 holds it exactly and is refused otherwise; a number with a fraction or an exponent is its binary64 value, but one with an integral value of 2^64 or more, or of -2^63 or less, is refused, since a JSON reader delivers an integer it cannot hold as such a number, already rounded (write it as a K `Float` literal) |
+| `Bytes` | an array of integers in `0..=255`; a bare string is refused, since its byte encoding is not determined |
+| a token sort (`Id`, a `#[k::token]` sort) | a string, the token's text |
+| `List<E>`, `Set<E>` | an array of documents at `E`; a `Set` with two elements that decode equal is refused |
+| `Map<K, V>` | an object, each key read at `K` from its string (an `Int` by the integer grammar, a `String` verbatim, a `Bool` from `"true"` or `"false"`, a token's text, a nullary constructor's name) and each value at `V`; or an array of `[key, value]` pairs; two keys that decode equal are refused |
+| a declared sort | a constructor form; a bare string: a nullary constructor, a token of a token sort at most it, or a `String` where `String` is at most it; a boolean where `Bool` is; a number where `Int` or `Float` is (below); an array or an object where a collection sort is, as at that sort with untyped elements |
+| untyped | an integer (an `Int`), a boolean (a `Bool`), a number with a nonzero fraction (a `Float`), a constructor form, a tagged form; a bare string, an array, a number with an integral value written as a float, and any other object are refused as undetermined |
+
+At a declared sort that is no builtin, the document's JSON type decides the builtin, as at an
+untyped position: a string is never an `Int` or a `Float` there, so `"12"` at `Val`, with
+`Int` and `String` subsorts of `Val`, is the `String` `"12"` (an `Int` beyond 64 bits is
+written `{"$int": ..}`). A number is an `Int` where `Int` is at most the sort and a `Float`,
+read as at `Float`, where `Float` is and `Int` is not. Where both are, an integer is an `Int`,
+a number with a nonzero fraction a `Float`, and a number with an integral value written as a
+float (`2.0`) is refused as undetermined, since JSON delivers an integer beyond 64 bits so:
+the `Float` is written `{"$float": 2.0}`. A map key, which is always a string, is read at its
+sort by every reading of the strings the `Map` row lists, so `"12"` as a key at `Val` reads
+as an `Int` and as a `String` and is refused; such a map is written in the pairs form.
+
+Two map keys or set elements that decode equal are refused because K's concatenation of two
+maps that bind one key, or of two sets that share an element, has no value: keeping either
+binding would accept a document that denotes no term, and would let `{"1": 2, "01": 3}` mean
+a map that the text `1 |-> 2 1 |-> 3` does not.
+
+A decoded value is still checked where a parsed one is: the configuration assembler requires
+its sort to be at most the variable's declared sort, and every part of a collection to fit the
+declared element types. The decoder's own checks make the refusal earlier and name the
+position inside the document.
+
+Not in the encoding: `$text` inside a value, sort-parametric productions (refused as
+`ValueIndex::ctor` refuses them), and console input.
+
+{/* End of the text generated from krs/crates/krs-exec/src/inputs.rs. */}
 
 ## Read failures by stage
 

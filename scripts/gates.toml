@@ -426,7 +426,9 @@ command = "scripts/reference-rpc-differential.sh bounded-search"
 
 # The site's mirror of k-rust's reader-facing docs (docs-site/scripts/sync-k-rust.py): an edit to a
 # mirrored doc owes the regenerated page, which the site's own `bun run check` reads but no
-# registry entry did, so a stale mirror went unnoticed across several changes.
+# registry entry did, so a stale mirror went unnoticed across several changes. The same script
+# mirrors krs-exec's normative statement of the typed input encoding (the `inputs` module's
+# documentation) into a region of the workflow reference.
 [[gate]]
 name = "docs-mirror"
 run = "certification"
@@ -435,6 +437,8 @@ paths = [
   '^docs/(amendments|compatibility|fuzzing)\.md$',
   '^docs-site/src/pages/k-rust/(amendments|compatibility|fuzzing)\.mdx$',
   '^docs-site/scripts/sync-k-rust\.py$',
+  '^krs/crates/krs-exec/src/inputs\.rs$',
+  '^docs-site/src/pages/reference/workflow\.mdx$',
 ]
 
 # KRS's gates (krs/tests/gates.sh). They compare KRS's emitted K and its native route through these
