@@ -91,10 +91,6 @@ impl ParametricInstance {
         })
     }
 
-    pub(crate) fn sentence(&self) -> &Sentence {
-        &self.sentence
-    }
-
     pub(crate) fn origin(&self) -> &ParametricOrigin {
         &self.origin
     }
