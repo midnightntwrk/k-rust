@@ -6769,10 +6769,10 @@ mod tests {
         let source = emit_k(&definition).expect("KMIR definition emits");
         let semantic_json = semantic.to_canonical_json().unwrap();
         let definition_json = definition.definition().to_canonical_json().unwrap();
-        assert!(semantic_json.contains(r#""term_kind": "list""#));
-        assert!(semantic_json.contains(r#""operation": "get""#));
-        assert!(definition_json.contains(r#""term_kind": "list""#));
-        assert!(definition_json.contains(r#""operation": "get""#));
+        assert!(semantic_json.contains(r#""term_kind":"list""#));
+        assert!(semantic_json.contains(r#""operation":"get""#));
+        assert!(definition_json.contains(r#""term_kind":"list""#));
+        assert!(definition_json.contains(r#""operation":"get""#));
         assert!(source.source().contains("imports LIST"));
         assert!(!source.source().contains("<blocks>"));
         assert!(source.source().contains("<locals>"));

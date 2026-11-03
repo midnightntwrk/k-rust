@@ -368,13 +368,13 @@ fn expression_grammar_and_rule_round_trip_deterministically() {
     testing::assert_canonical_contract(&bundle);
     let forward = bundle.to_canonical_json().unwrap();
     assert!(forward.contains(&format!(
-        "\"protocol_version\": {}",
+        "\"protocol_version\":{}",
         krs_ir::SchemaVersion::CURRENT.0
     )));
-    assert!(forward.contains("\"attribute_kind\": \"documentation\""));
+    assert!(forward.contains("\"attribute_kind\":\"documentation\""));
     assert!(forward.contains("Adds two values."));
     assert!(forward.contains("\"structured_rule\""));
-    assert!(forward.contains("\"grammar_kind\": \"production\""));
+    assert!(forward.contains("\"grammar_kind\":\"production\""));
     assert!(!forward.contains("TypeId"));
     assert!(!forward.contains("_+Int_"));
     let decoded: DescriptorBundle = serde_json::from_str(&forward).unwrap();
@@ -674,7 +674,7 @@ fn bare_unit_constructor_is_an_application_with_reference_provenance() {
     let bundle = krs_ir::testing::descriptor_bundle(descriptors).unwrap();
     testing::assert_canonical_contract(&bundle);
     let json = bundle.to_canonical_json().unwrap();
-    assert!(json.contains("\"head_class\": \"bare_reference\""));
+    assert!(json.contains("\"head_class\":\"bare_reference\""));
 
     let mut descriptors = expression_descriptors();
     let DescriptorPayload::StructuredRule(rule) = &mut descriptors[1].payload else {
@@ -1280,9 +1280,9 @@ fn token_bracket_subsort_precedence_and_associativity_are_complete() {
     let json = bundle.to_canonical_json().unwrap();
     let decoded: DescriptorBundle = serde_json::from_str(&json).unwrap();
     assert_eq!(decoded.descriptors().len(), 5);
-    assert!(json.contains("\"sort_source\": \"builtin\""));
-    assert!(json.contains("\"grammar_kind\": \"precedence\""));
-    assert!(json.contains("\"grammar_kind\": \"associativity\""));
+    assert!(json.contains("\"sort_source\":\"builtin\""));
+    assert!(json.contains("\"grammar_kind\":\"precedence\""));
+    assert!(json.contains("\"grammar_kind\":\"associativity\""));
 }
 
 #[test]

@@ -164,7 +164,7 @@ fn commands_share_the_production_collection_and_definition_pipeline() {
         descriptor["protocol_version"],
         krs_ir::SchemaVersion::CURRENT.0
     );
-    assert!(descriptor_bundle.contains("\"item_name\": \"Machine\""));
+    assert!(descriptor_bundle.contains("\"item_name\":\"Machine\""));
     for name in ["semantic-ir.json", "definition-ir.json"] {
         let document: serde_json::Value =
             serde_json::from_slice(&fs::read(emitted.join(name)).unwrap()).unwrap();

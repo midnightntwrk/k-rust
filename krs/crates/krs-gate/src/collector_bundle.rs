@@ -18,14 +18,14 @@ pub fn run(collector: &Path, descriptor_bundle: &Path) -> Result<Value, Box<dyn 
             collector.display()
         )
     })?;
-    let pretty: DescriptorBundle = krs_ir::json::from_slice(&fs::read(descriptor_bundle)?)
+    let emitted: DescriptorBundle = krs_ir::json::from_slice(&fs::read(descriptor_bundle)?)
         .map_err(|error| {
             format!(
                 "invalid descriptor bundle `{}`: {error}",
                 descriptor_bundle.display()
             )
         })?;
-    if restored != pretty {
+    if restored != emitted {
         return Err("decoded collector stdout differs from the emitted descriptor bundle".into());
     }
     let mut kinds = BTreeMap::<String, usize>::new();
@@ -54,25 +54,25 @@ mod tests {
     ) {
         let directory = krs_test_support::temp_dir();
         let collector = directory.path().join("collector-stdout.json");
-        let pretty = directory.path().join("descriptor-bundle.json");
+        let bundle = directory.path().join("descriptor-bundle.json");
         fs::write(
             &collector,
             include_bytes!("../../krs-ir/tests/golden/collector_sort_constructors.json"),
         )
         .unwrap();
         fs::write(
-            &pretty,
+            &bundle,
             include_bytes!("../../krs-ir/tests/golden/sort_constructors.json"),
         )
         .unwrap();
-        (directory, collector, pretty)
+        (directory, collector, bundle)
     }
 
     #[test]
     fn accepts_equal_pair_and_reports_wire_version_and_canonical_kinds() {
-        let (_directory, collector, pretty) = inputs();
+        let (_directory, collector, bundle) = inputs();
         assert_eq!(
-            run(&collector, &pretty).unwrap(),
+            run(&collector, &bundle).unwrap(),
             json!({
                 "protocol_version": krs_ir::transport::collector::VERSION,
                 "descriptors": 3,
@@ -83,9 +83,9 @@ mod tests {
 
     #[test]
     fn rejects_mismatched_pair() {
-        let (_directory, collector, pretty) = inputs();
+        let (_directory, collector, bundle) = inputs();
         fs::write(
-            &pretty,
+            &bundle,
             DescriptorBundle::new(Vec::new())
                 .unwrap()
                 .to_canonical_json()
@@ -93,7 +93,7 @@ mod tests {
         )
         .unwrap();
         assert!(
-            run(&collector, &pretty)
+            run(&collector, &bundle)
                 .unwrap_err()
                 .to_string()
                 .contains("decoded collector stdout differs")

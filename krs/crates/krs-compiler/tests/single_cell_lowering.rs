@@ -204,7 +204,7 @@ fn lowering_appends_definition_origins_and_source_ranges_are_honest() {
             .source_map()
             .to_canonical_json()
             .unwrap()
-            .contains("\"artifact\": \"definition.k\"")
+            .contains("\"artifact\":\"definition.k\"")
     );
 }
 

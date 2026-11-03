@@ -829,7 +829,7 @@ fn configuration_rule_round_trips_with_exact_side_specific_provenance() {
     testing::assert_canonical_contract(&bundle);
     let json = bundle.to_canonical_json().unwrap();
     assert!(json.contains(&format!(
-        "\"protocol_version\": {}",
+        "\"protocol_version\":{}",
         krs_ir::SchemaVersion::CURRENT.0
     )));
     assert!(json.contains("\"configuration_rule\""));

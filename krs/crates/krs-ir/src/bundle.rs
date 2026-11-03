@@ -292,7 +292,7 @@ impl DescriptorBundle {
             .find(|declaration| declaration.id() == id)
     }
 
-    /// Returns canonical, inspectable JSON with one trailing newline.
+    /// Returns canonical compact JSON with one trailing newline ([`crate::json::write_canonical`]).
     ///
     /// Descriptor and declaration orders are canonical in the bundle value.
     ///

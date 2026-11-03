@@ -536,9 +536,9 @@ fn calc_fixed_state_is_target_neutral_and_deterministic() {
         configuration,
     )
     .unwrap();
-    assert!(first.contains("\"operation\": \"item\""));
-    assert!(first.contains("\"operation\": \"update\""));
-    assert!(first.contains("\"sort\": \"id\""));
+    assert!(first.contains("\"operation\":\"item\""));
+    assert!(first.contains("\"operation\":\"update\""));
+    assert!(first.contains("\"sort\":\"id\""));
     assert!(!first.contains("raw_k_label"));
     assert!(!first.contains("parser_ast"));
 }

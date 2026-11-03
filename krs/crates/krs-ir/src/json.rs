@@ -14,10 +14,13 @@ use std::thread;
 /// Serde deserialization within a finite stack budget.
 pub const MAX_IR_JSON_DEPTH: usize = 1024;
 
-/// Writes `value`'s canonical JSON encoding to `writer`: pretty JSON with one trailing newline.
+/// Writes `value`'s canonical JSON encoding to `writer`: compact JSON (no whitespace outside
+/// strings) with one trailing newline.
 ///
 /// This is the one definition of the encoding; [`to_canonical_string`] is it collected in
 /// memory, so a digest computed by streaming into a hasher is the digest of the canonical bytes.
+/// Whitespace between tokens carries no information, and a reader parses the document, so the
+/// encoding writes none; `jq .` indents a document for reading.
 ///
 /// # Errors
 ///
@@ -27,7 +30,7 @@ pub fn write_canonical<W: io::Write, T: Serialize + ?Sized>(
     mut writer: W,
     value: &T,
 ) -> serde_json::Result<()> {
-    serde_json::to_writer_pretty(&mut writer, value)?;
+    serde_json::to_writer(&mut writer, value)?;
     writer.write_all(b"\n").map_err(serde_json::Error::io)
 }
 
@@ -117,15 +120,16 @@ mod tests {
     use super::{MAX_IR_JSON_DEPTH, from_slice, to_canonical_string, write_canonical};
 
     #[test]
-    fn canonical_encoding_is_pretty_json_with_one_trailing_newline() {
-        let value = serde_json::json!({ "b": [1, { "c": null }], "a": "x" });
+    fn canonical_encoding_is_compact_json_with_one_trailing_newline() {
+        let value = serde_json::json!({ "a": "x", "b": [1, { "c": null }] });
         let mut streamed = Vec::new();
         write_canonical(&mut streamed, &value).unwrap();
         let text = to_canonical_string(&value).unwrap();
         assert_eq!(text.as_bytes(), streamed);
+        assert_eq!(text, "{\"a\":\"x\",\"b\":[1,{\"c\":null}]}\n");
         assert_eq!(
             text,
-            format!("{}\n", serde_json::to_string_pretty(&value).unwrap())
+            format!("{}\n", serde_json::to_string(&value).unwrap())
         );
     }
 

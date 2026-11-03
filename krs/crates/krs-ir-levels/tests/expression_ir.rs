@@ -494,9 +494,9 @@ fn representative_expression_definition_has_canonical_bytes() {
     testing::assert_canonical_contract(&definition);
     let normal = definition.to_canonical_json().unwrap();
     expect_test::expect_file!["golden/definition_expr.json"].assert_eq(&normal);
-    assert!(normal.contains("\"sort\": \"int\""));
-    assert!(normal.contains("\"sort\": \"bool\""));
-    assert!(normal.contains("\"application\": \"int_add\""));
+    assert!(normal.contains("\"sort\":\"int\""));
+    assert!(normal.contains("\"sort\":\"bool\""));
+    assert!(normal.contains("\"application\":\"int_add\""));
     assert!(!normal.contains("INT.add"));
     assert!(!normal.contains("resolved_production_id"));
 }
@@ -764,8 +764,8 @@ fn semantic_expression_contract_resolves_builtin_sorts_and_applications() {
     let theory = SemanticTheory::new(vec![main, syntax]).unwrap();
     testing::assert_canonical_contract(&theory);
     let json = theory.to_canonical_json().unwrap();
-    assert!(json.contains("\"application\": \"int_add\""));
-    assert!(json.contains("\"sort\": \"int\""));
+    assert!(json.contains("\"application\":\"int_add\""));
+    assert!(json.contains("\"sort\":\"int\""));
     assert!(!json.contains("INT.add"));
 }
 

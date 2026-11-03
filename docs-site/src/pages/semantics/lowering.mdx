@@ -69,6 +69,10 @@ Each variable in emitted K takes its authored binder name in K's capitalized for
 - `symbols.json`, stable-to-emitted identity mappings; and
 - `sources.json`, generated ranges traced through authored macro and transformation frames.
 
+Each JSON artifact is compact JSON with one trailing newline and no whitespace outside strings.
+KRS's serializer writes one encoding for each in-memory value, with object members in the order the value's type fixes; the encoding is not RFC 8785 canonical JSON, so another serializer may write the same value differently.
+`jq .` indents an artifact for reading.
+
 Use an explicit output directory:
 
 ```sh

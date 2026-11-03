@@ -197,7 +197,7 @@ impl SymbolMap {
         &self.capability_requirements
     }
 
-    /// Serializes stable pretty JSON with one trailing newline.
+    /// Serializes stable compact JSON with one trailing newline ([`krs_ir::json::write_canonical`]).
     ///
     /// # Errors
     ///
@@ -716,7 +716,7 @@ impl SourceMap {
         &self.entries
     }
 
-    /// Serializes stable pretty JSON with one trailing newline.
+    /// Serializes stable compact JSON with one trailing newline ([`krs_ir::json::write_canonical`]).
     ///
     /// # Errors
     ///
