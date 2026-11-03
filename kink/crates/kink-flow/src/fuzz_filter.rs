@@ -100,7 +100,7 @@ use kink_campaign::{KINK_IDENTITY, WorkBudget};
 use kink_native::{
     bridge::{LeafTerm, leaf_term},
     data::{DataFacts, data_ends},
-    exclusion::{DefinitionExclusions, Exclusion, ValidatedLoad},
+    exclusion::{CeilMemo, DefinitionExclusions, Exclusion, ValidatedLoad},
     execution::HaltClass,
     feasibility::TestInitialState,
     step_events::{LocalTest, NonValue, ObservationDecider},
@@ -158,6 +158,9 @@ pub struct FilterSide {
     /// of the side accepts for the rest of the campaign (module documentation, "One verdict per
     /// case").
     reachable: bool,
+    /// The ceil-theory judgements of the state exclusions judged on the side's definition, the
+    /// one its backend selects for the default module on every call.
+    ceil_memo: CeilMemo,
 }
 
 impl FilterSide {
@@ -170,6 +173,7 @@ impl FilterSide {
             sorts,
             data,
             reachable: true,
+            ceil_memo: CeilMemo::default(),
         };
         side.reachable = side
             .load
@@ -234,13 +238,14 @@ impl FilterSide {
             return Guarded::Unreached;
         }
         let exclusions = &self.load.exclusions;
+        let memo = &mut self.ceil_memo;
         let result = self
             .load
             .backend
             .with_solver_over(None, &[initial], |definition, _| {
                 Ok::<_, BackendError>(
                     exclusions
-                        .state_exclusion(definition, initial)
+                        .state_exclusion_memoized(definition, initial, memo)
                         .map(Exclusion::name),
                 )
             });

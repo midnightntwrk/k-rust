@@ -14,7 +14,12 @@ use std::time::Duration;
 
 use k_rust::backend::{Backend, BackendOptions};
 use k_rust::kompile::CompileOptions;
-use k_rust::kore::{ast::Pattern, parser::parse_definition, parser::parse_pattern};
+use k_rust::kore::{
+    ast::{Definition, Pattern, Sentence},
+    parser::parse_definition,
+    parser::parse_pattern,
+};
+use k_rust::names::KoreAttribute;
 use k_rust_backend::nesting::with_simplification_stack_budget;
 use kink_native::exclusion::{
     BUILTIN_OPEN_HOOKS, DOMAINS_OPEN_HOOKS, DefinitionExclusions, Exclusion,
@@ -1532,12 +1537,16 @@ fn a_condition_that_depends_on_the_short_circuit_reading_excludes_the_definition
 /// `fc("xb")` is evidence. Before KINK-SC-DEFINED `findChar` was reading-dependent and the
 /// definition was excluded.
 ///
-/// `replace` and `replaceAll` (prelude `STRING-COMMON`) stay reading-dependent: `replace`'s
-/// `owise` equation negates `Count >Int 0 andBool findString(Source, ToReplace, 0) >=Int 0`,
-/// whose skippable `findString` application, of a function declared partial, no other operand
-/// evaluates; at `Count` 0 a short-circuiting backend takes the `owise` equation whatever
-/// `findString` is, where k-rust's reading needs it defined. `replaceAll` applies `replace`.
-/// Neither is applied here, so nothing is excluded.
+/// CF-01 re-pin: `replace` and `replaceAll` (prelude `STRING-COMMON`) no longer depend on the
+/// reading. `replace`'s `owise` equation negates `Count >Int 0 andBool findString(Source,
+/// ToReplace, 0) >=Int 0` under k-rust's guard `\not(\or(\exists.(\equals(C, true) /\ ..), ..))`;
+/// that `C` is an `andBool` tree over atoms, which both readings make `true` exactly where every
+/// atom is, differing only as `false` versus `\bottom`, and `\equals(false, true)` and
+/// `\equals(\bottom, true)` are both `\bottom`, so the guard holds in both readings at the same
+/// arguments. Before CF-01 the guard was read as a whole term, and the skippable `findString`
+/// application, which no other operand evaluates, flagged both functions; the comment claimed
+/// that k-rust's reading needs `findString` defined for the `owise` equation, which the guard's
+/// meaning does not say. Neither function is applied here, so nothing was or is excluded.
 #[test]
 fn a_skipped_operand_whose_partial_terms_another_operand_evaluates_flags_nothing() {
     on_a_big_stack(|| {
@@ -1552,11 +1561,8 @@ fn a_skipped_operand_whose_partial_terms_another_operand_evaluates_flags_nothing
                     .map_or(symbol.as_str(), |(head, _)| head)
             })
             .collect::<BTreeSet<_>>();
-        assert_eq!(
-            flagged,
-            BTreeSet::from(["Lblreplace", "LblreplaceAll"]),
-            "{exclusions:?}"
-        );
+        // CF-01: before, `{Lblreplace, LblreplaceAll}` (the conservative `owise` reading above).
+        assert_eq!(flagged, BTreeSet::new(), "{exclusions:?}");
         assert!(
             exclusions.short_circuit_conditions.is_empty()
                 && exclusions.short_circuit_results.is_empty(),
@@ -1577,8 +1583,9 @@ fn a_skipped_operand_whose_partial_terms_another_operand_evaluates_flags_nothing
 /// KINK-SC-DEFINED: the prelude's stdin rules, which kompile copies into a definition with a
 /// `stdin` stream cell, have `requires` clauses over `findChar`; with `findChar` no longer
 /// reading-dependent, no rule of such a definition is a short-circuit row. Before, three rules
-/// were (stock SIMPLE's `short-circuit-reading` exclusion). The prelude's `replace` and
-/// `replaceAll` stay reading-dependent (above), but no rule applies them. Since
+/// were (stock SIMPLE's `short-circuit-reading` exclusion). Since CF-01 the prelude's
+/// `replace` and `replaceAll` no longer depend on the reading either (above); before, they did,
+/// but no rule applies them. Since
 /// KINK-CENSUS-RUNLIST the copied rules' console operation (`#getc`) is on the run list, so the
 /// definition is not excluded at all; before, the census of `IO.getc` excluded it.
 #[test]
@@ -1589,10 +1596,276 @@ fn the_prelude_stdin_rules_are_no_short_circuit_row() {
         assert!(
             exclusions.short_circuit_conditions.is_empty()
                 && exclusions.short_circuit_results.is_empty()
-                && exclusions
-                    .short_circuit_symbols
-                    .iter()
-                    .all(|symbol| symbol.starts_with("Lblreplace")),
+                // CF-01: before, every flagged symbol was `replace`'s or `replaceAll`'s.
+                && exclusions.short_circuit_symbols.is_empty(),
+            "{exclusions:?}"
+        );
+        assert_eq!(exclusions.definition_exclusion(), None, "{exclusions:?}");
+    });
+}
+
+/// The exclusions of `side`'s compiled KORE after `edit`, loaded for `module` as
+/// `DefinitionExclusions::load_validated` loads it unedited.
+fn exclusions_after(
+    side: &ValidatedDefinition,
+    module: &str,
+    edit: impl FnOnce(&mut Definition),
+) -> DefinitionExclusions {
+    let mut kore = parse_definition(&side.artifacts().definition_kore).unwrap();
+    edit(&mut kore);
+    let mut backend =
+        Backend::from_definition(kore.clone(), module, BackendOptions::default()).unwrap();
+    let selected = backend.select_definition(None).unwrap();
+    DefinitionExclusions::of(
+        &kore,
+        &selected,
+        &side.compile_options().builtin_source_prefixes,
+    )
+}
+
+/// The label of an axiom, `MODULE.label`.
+fn axiom_label(sentence: &Sentence) -> Option<&str> {
+    match sentence {
+        Sentence::Axiom { attributes, .. } => attributes.string(KoreAttribute::Label).ok()?,
+        _ => None,
+    }
+}
+
+/// Drop the axioms labelled one of `labels`.
+fn drop_axioms(kore: &mut Definition, labels: &[&str]) {
+    for module in &mut kore.modules {
+        module
+            .sentences
+            .retain(|sentence| !axiom_label(sentence).is_some_and(|label| labels.contains(&label)));
+    }
+}
+
+/// Write the first `\implies` inside the antecedent of the equation labelled `label` as `\iff`
+/// (K has no syntax for `\iff`, which a KORE definition can hold).
+fn implies_to_iff(kore: &mut Definition, label: &str) {
+    fn antecedent(pattern: &mut Pattern) -> Option<&mut Pattern> {
+        match pattern {
+            Pattern::Forall { body, .. } | Pattern::Exists { body, .. } => antecedent(body),
+            Pattern::Implies { left, .. } => Some(left),
+            _ => None,
+        }
+    }
+    fn first(pattern: &mut Pattern) -> bool {
+        if let Pattern::Implies { sort, left, right } = pattern {
+            let iff = Pattern::Iff {
+                sort: sort.clone(),
+                left: left.clone(),
+                right: right.clone(),
+            };
+            *pattern = iff;
+            return true;
+        }
+        match pattern {
+            Pattern::And { arguments, .. } | Pattern::Or { arguments, .. } => {
+                arguments.iter_mut().any(first)
+            }
+            Pattern::Not { argument, .. } => first(argument),
+            Pattern::Exists { body, .. } | Pattern::Forall { body, .. } => first(body),
+            _ => false,
+        }
+    }
+    let mut patched = 0;
+    for module in &mut kore.modules {
+        for sentence in &mut module.sentences {
+            if axiom_label(sentence) == Some(label)
+                && let Sentence::Axiom { pattern, .. } = sentence
+            {
+                assert!(
+                    antecedent(pattern).is_some_and(first),
+                    "{label}: no \\implies"
+                );
+                patched += 1;
+            }
+        }
+    }
+    assert_eq!(patched, 1, "{label}");
+}
+
+/// The matching-logic connectives a condition can hold, as the fixtures `scmlat.k` and
+/// `scmloe.k` name their functions (`c<name>`) and rules (`r<name>`): `\and`, `\or`, `\not`,
+/// `\implies`, `\exists`, `\forall` (and `\iff`, patched into `cimp1`).
+const CONNECTIVES: [&str; 6] = ["and", "or", "not", "imp", "ex", "all"];
+
+/// The rule ids of `labels` in `side`'s rule catalog.
+fn rule_ids(side: &ValidatedDefinition, module: &str, labels: &[String]) -> BTreeSet<String> {
+    let catalog = backend(side, module).rule_catalog(None).unwrap();
+    labels
+        .iter()
+        .map(|label| {
+            catalog
+                .iter()
+                .find(|rule| rule.label.as_deref() == Some(label.as_str()))
+                .unwrap_or_else(|| panic!("{label}"))
+                .id
+                .clone()
+        })
+        .collect()
+}
+
+/// CF-01 (FB-01): a condition's `\equals(C, true)` leaves whose `C` is a tree of `andThenBool`
+/// and `andBool` over reading-independent atoms have the same truth value in both readings, the
+/// short-circuiting one and k-rust's strict one (they differ only as `false` versus `\bottom`,
+/// and both are `\bottom` under `\equals(_, true)`), and so has every connective over them:
+/// `\and`, `\or`, `\not`, `\implies`, `\exists`, `\forall`, `\iff`, and the `owise` guard
+/// `\not(\or(\exists.(..), \bottom))` of each function. The skippable `X /Int Y` is undefined
+/// where `Y` is 0. Nothing depends on the reading, so the definition is comparable; before CF-01
+/// every function was flagged (each through its `owise` guard, read as one term), and so were
+/// the rules `ror`, `rnot`, `rex` and `rall`, whose connective was read as one term, and `gp`
+/// and `go`, which apply the functions (`rand` and `rimp` were not: `\and` and `\implies`
+/// were walked into already). `plain` is Foldiboy's control, an `owise` over `X >=Int 0
+/// andThenBool X /Int Y ==Int 0`: `gp(-1, 0)` gives `0` in both readings (`false` and
+/// `\bottom` both leave the `owise` equation) and is evidence.
+#[test]
+fn a_connective_over_and_then_leaves_does_not_depend_on_the_reading() {
+    on_a_big_stack(|| {
+        let (side, module) = fixture("r0c", "scmlat");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        assert!(
+            exclusions.short_circuit_symbols.is_empty()
+                && exclusions.short_circuit_conditions.is_empty()
+                && exclusions.short_circuit_results.is_empty(),
+            "{exclusions:?}"
+        );
+        assert_eq!(exclusions.definition_exclusion(), None, "{exclusions:?}");
+        let iff = exclusions_after(&side, &module, |kore| implies_to_iff(kore, "SCMLAT.cimp1"));
+        assert!(iff.short_circuit_symbols.is_empty(), "\\iff: {iff:?}");
+        assert_eq!(iff.definition_exclusion(), None, "\\iff: {iff:?}");
+        for (x, y, value) in [(-1, 0, r#""0""#), (0, 5, r#""1""#)] {
+            let execution = run(
+                &side,
+                &module,
+                support::app("Lblgp", vec![support::int(x), support::int(y)]),
+            );
+            let [leaf] = execution.leaves() else {
+                panic!("gp({x}, {y}): one leaf")
+            };
+            assert_eq!(leaf.halt, HaltClass::Stuck, "gp({x}, {y})");
+            assert!(
+                leaf.branch.state.to_string().contains(value),
+                "gp({x}, {y}): {}",
+                leaf.branch.state
+            );
+            assert_eq!(exclusions.run_exclusion(&execution), None, "gp({x}, {y})");
+        }
+    });
+}
+
+/// CF-01: the same connectives over a leaf whose `C` is `Y ==Int 0 orElseBool X /Int Y ..`
+/// (`scmloe.k`). Where `Y` is 0 a short-circuiting backend gives `C = true` and k-rust's
+/// reading `\bottom`, so the leaf itself differs and the predicate-truth argument does not
+/// cover it: it keeps the operand-definedness analysis, and `X /Int Y` owes `Y =/=Int 0`, which
+/// no other operand evaluates. Every function depends on the reading through its first
+/// equation, and through its `owise` guard alone (the first equations dropped), every rule
+/// whose condition holds such a leaf is flagged, and so is `\iff` (patched into `cimp1`, its
+/// `owise` equation dropped).
+#[test]
+fn a_connective_over_an_or_else_leaf_with_an_undefined_skippable_operand_is_excluded() {
+    on_a_big_stack(|| {
+        let (side, module) = fixture("r0c", "scmloe");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        let functions = CONNECTIVES
+            .iter()
+            .map(|name| format!("Lblc{name}"))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(exclusions.short_circuit_symbols, functions);
+        let rules = CONNECTIVES
+            .iter()
+            .map(|name| format!("SCMLOE.r{name}"))
+            .chain(["SCMLOE.go".to_owned()])
+            .collect::<Vec<_>>();
+        assert_eq!(
+            exclusions
+                .short_circuit_conditions
+                .iter()
+                .cloned()
+                .collect::<BTreeSet<_>>(),
+            rule_ids(&side, &module, &rules),
+        );
+        assert_eq!(
+            exclusions.definition_exclusion(),
+            Some(Exclusion::ShortCircuitReading)
+        );
+        let first = CONNECTIVES
+            .iter()
+            .map(|name| format!("SCMLOE.c{name}1"))
+            .collect::<Vec<_>>();
+        let first = first.iter().map(String::as_str).collect::<Vec<_>>();
+        let owise = exclusions_after(&side, &module, |kore| drop_axioms(kore, &first));
+        assert_eq!(owise.short_circuit_symbols, functions, "owise: {owise:?}");
+        let iff = exclusions_after(&side, &module, |kore| {
+            drop_axioms(kore, &["SCMLOE.cimp2"]);
+            implies_to_iff(kore, "SCMLOE.cimp1");
+        });
+        assert!(
+            iff.short_circuit_symbols.contains("Lblcimp"),
+            "\\iff: {iff:?}"
+        );
+    });
+}
+
+/// CF-01's controls (`scctl.k`): a `notBool`, `orBool` or `orElseBool` shape whose skippable
+/// operand is `X /Int Y`, `Y` a program input, stays excluded in a rule's condition (`rnb`,
+/// `rob`, `roe`), in an equation's condition, and as the `owise` equation beside it reaches
+/// that condition (the first equations dropped). Below those operators the readings can differ
+/// as `true` versus `\bottom`, so the leaf keeps the operand-definedness analysis.
+#[test]
+fn a_skipped_division_below_not_or_or_else_stays_excluded() {
+    on_a_big_stack(|| {
+        let (side, module) = fixture("r0c", "scctl");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        let functions = ["Lblnb", "Lblob", "Lbloe"]
+            .map(str::to_owned)
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        assert_eq!(exclusions.short_circuit_symbols, functions);
+        let rules = ["SCCTL.rnb", "SCCTL.rob", "SCCTL.roe", "SCCTL.go"].map(str::to_owned);
+        assert_eq!(
+            exclusions
+                .short_circuit_conditions
+                .iter()
+                .cloned()
+                .collect::<BTreeSet<_>>(),
+            rule_ids(&side, &module, &rules),
+        );
+        assert_eq!(
+            exclusions.definition_exclusion(),
+            Some(Exclusion::ShortCircuitReading)
+        );
+        let owise = exclusions_after(&side, &module, |kore| {
+            drop_axioms(kore, &["SCCTL.nb1", "SCCTL.ob1", "SCCTL.oe1"]);
+        });
+        assert_eq!(owise.short_circuit_symbols, functions, "owise: {owise:?}");
+        assert_eq!(
+            owise.definition_exclusion(),
+            Some(Exclusion::ShortCircuitReading)
+        );
+    });
+}
+
+/// CF-01: a partial application in a skipped operand counts as possibly undefined only where the
+/// loaded definition's ceil theory does not discharge it beyond its arguments (`scceil.k`, each
+/// function `notBool (X >=Int 0 andThenBool OP ==Int 0)`, Foldiboy's conj-bitrange-explicit
+/// shape). The ceil equations of `INT-SYMBOLIC-KORE` (`/Int`, `%Int`, `modInt`, `>>Int`,
+/// `<<Int`) and of `INT-SYMBOLIC-KORE-AMENDMENTS` (`divInt`, `bitRangeInt`, `^Int`, `^%Int`) are
+/// in that theory and discharge each at literal arguments that make their condition `\top`, so
+/// none of those functions depends on the reading; `log2Int(X)` owes `X >Int 0` and `X /Int Y`
+/// owes `Y =/=Int 0`, so `clog` and `cdy` do. Before CF-01 every function was flagged.
+#[test]
+fn a_skipped_application_the_ceil_theory_discharges_flags_nothing() {
+    on_a_big_stack(|| {
+        let (side, module) = fixture("r0c", "scceil");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        assert_eq!(
+            exclusions.short_circuit_symbols,
+            ["Lblclog", "Lblcdy"]
+                .map(str::to_owned)
+                .into_iter()
+                .collect::<BTreeSet<_>>(),
             "{exclusions:?}"
         );
         assert_eq!(exclusions.definition_exclusion(), None, "{exclusions:?}");

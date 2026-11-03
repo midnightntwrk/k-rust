@@ -113,7 +113,16 @@
 //!   runs whenever it is skipped: where it is, both readings are undefined together (the
 //!   must/may rule of `ShortCircuitAnalysis::direct`, which reads no guard's truth; a recursive
 //!   function's own calls are read under premise A1, termination). It clears the prelude's
-//!   `findChar` and so the stdin stream rules over it.
+//!   `findChar` and so the stdin stream rules over it. Since CF-01 a condition's
+//!   matching-logic connectives are walked into down to their `\equals(C, true)` leaves, and a
+//!   leaf whose `C` is a tree of `andThenBool` and `andBool` over reading-independent atoms has
+//!   the same truth value in both readings, as has every connective over such leaves (the
+//!   predicate-truth argument at `ShortCircuitAnalysis::condition_side`, with its scope): an
+//!   `owise` equation, whose guard negates its competitors' conditions under `\not`, `\or` and
+//!   `\exists`, no longer depends on the reading through such a condition. And a partial
+//!   application that owes nothing beyond its arguments under the definition's ceil theory
+//!   (`bitRangeInt(X, 4, 4)`, `X /Int 16`) is no possibly undefined term of a skipped operand
+//!   (`ShortCircuitAnalysis::owes_nothing`).
 //! - [`Exclusion::AllowanceRefusal`]: a leaf reports a hook left unevaluated whose refusal reads
 //!   the process's memory allowance (Execute promise exclusion, findings A-07, B-02, B-07): the
 //!   result is a function of the host, not of the inputs a key names. Since re-pin adoption A-1
@@ -180,7 +189,12 @@ use crate::execution::{AdaptedExecution, AdaptedLeaf, HaltClass, RunFacts};
 /// excluded by its list (`implementation-chosen-value`). It narrows what is excluded, and so
 /// widens what a kill rests on: a run's Float arithmetic, which the census used to refuse, is
 /// read through k-rust's roundTiesToEven and one NaN per format (kink README, P-F1, P-F3, P-F4).
-pub const DEFINITION_EXCLUSION_VERSION: &str = "kink-native/definition-exclusion/v4";
+/// v5 (CF-01): a condition's matching-logic connectives (`\or`, `\not`, `\iff`, `\exists`,
+/// `\forall`, beside `\and` and `\implies`) are walked into down to their `\equals(C, true)`
+/// leaves, so an `owise` guard over an `andThenBool`/`andBool` condition no longer excludes,
+/// and a partial application that owes nothing under the definition's ceil theory no longer
+/// counts as possibly undefined. Both only narrow what is excluded.
+pub const DEFINITION_EXCLUSION_VERSION: &str = "kink-native/definition-exclusion/v5";
 
 /// The hooks for which k-rust 8f8ad57c5 says it may compute a value the definition leaves open,
 /// the hooks for which its classifier `chosen_value` (`k-rust-backend/src/builtin.rs`;
@@ -826,9 +840,13 @@ pub const SHORT_CIRCUIT_HOOKS: &[(&str, &[usize])] = &[
     ("KEQUAL.ite", &[1, 2]),
 ];
 
-/// The conjunctions whose operands, at the top of a rule's condition, may be undefined without
-/// making the rule's applicability depend on the reading: a skipped operand makes the condition
-/// `false` where k-rust's reading makes it undefined, and the rule applies in neither.
+/// The conjunctions whose operands, at the top of the Bool term `C` of a condition's leaf
+/// `\equals(C, true)`, may be undefined without making the leaf's truth value depend on the
+/// reading: a skipped operand makes `C` `false` where k-rust's reading makes it undefined, and
+/// the leaf is `\bottom` in both. The leaf may sit under any matching-logic connective of the
+/// condition (`\and`, `\or`, `\not`, `\implies`, `\iff`, `\exists`, `\forall`), whose truth
+/// value is a function of its operands' (the predicate-truth argument at
+/// `ShortCircuitAnalysis::condition_side`).
 const CONJUNCTION_HOOKS: [&str; 2] = ["BOOL.and", "BOOL.andThen"];
 
 /// The hooks whose result size the process's memory allowance caps (k-rust `bytes.rs`, the only
@@ -900,10 +918,11 @@ pub struct DefinitionExclusions {
     /// The `UNIQUE_ID`s of the axioms written with `preserves-definedness`.
     pub preserves_definedness: BTreeSet<String>,
     /// The rewrite rules (each as its id, label or position) whose applicability or result
-    /// depends on the short-circuit reading with no leaf to show it: a condition that, below its
-    /// top-level conjunction, applies a short-circuit operator over an operand that may be
-    /// undefined, or that applies a function whose value depends on the reading; or a right-hand
-    /// side that applies a function whose own condition does ([`Exclusion::ShortCircuitReading`]).
+    /// depends on the short-circuit reading with no leaf to show it: a condition one of whose
+    /// `\equals(C, true)` leaves, below the conjunctions at the top of `C`, applies a
+    /// short-circuit operator over an operand that may be undefined, or that applies a function
+    /// whose value depends on the reading; or a right-hand side that applies a function whose
+    /// own condition does ([`Exclusion::ShortCircuitReading`]).
     pub short_circuit_conditions: Vec<String>,
     /// The `UNIQUE_ID`s of the rewrite rules whose right-hand side applies a short-circuit
     /// operator over an operand that may be undefined, directly or through a function whose
@@ -1328,10 +1347,24 @@ impl DefinitionExclusions {
         definition: &BackendDefinition,
         state: &Pattern,
     ) -> Option<Exclusion> {
+        self.state_exclusion_memoized(definition, state, &mut CeilMemo::default())
+    }
+
+    /// [`Self::state_exclusion`] with the ceil-theory judgements of `memo`, which must have been
+    /// filled only on `definition`; the judgements it makes are added to `memo`. A caller that
+    /// judges many states on one definition (kink-flow's fuzz filter) keeps one memo for it, so
+    /// each application is internalized and its ceil simplified once.
+    #[must_use]
+    pub fn state_exclusion_memoized(
+        &self,
+        definition: &BackendDefinition,
+        state: &Pattern,
+        memo: &mut CeilMemo,
+    ) -> Option<Exclusion> {
         state_references_implementation_chosen(definition, state)
             .then_some(Exclusion::ImplementationChosenHook)
             .or_else(|| {
-                self.state_depends_on_short_circuit(definition, state)
+                self.state_depends_on_short_circuit_memoized(definition, state, memo)
                     .then_some(Exclusion::ShortCircuitReading)
             })
     }
@@ -1345,16 +1378,47 @@ impl DefinitionExclusions {
         definition: &BackendDefinition,
         state: &Pattern,
     ) -> bool {
-        let mut reading = ShortCircuitAnalysis::of(definition);
-        reading.undefined.clone_from(&self.short_circuit_symbols);
-        reading.applies(state, &self.short_circuit_symbols) || reading.direct(state)
+        self.state_depends_on_short_circuit_memoized(definition, state, &mut CeilMemo::default())
     }
+
+    /// [`Self::state_depends_on_short_circuit`] with the ceil-theory judgements of `memo`
+    /// ([`Self::state_exclusion_memoized`]).
+    #[must_use]
+    pub fn state_depends_on_short_circuit_memoized(
+        &self,
+        definition: &BackendDefinition,
+        state: &Pattern,
+        memo: &mut CeilMemo,
+    ) -> bool {
+        let mut reading = ShortCircuitAnalysis::of(definition);
+        reading.owes_nothing = std::cell::RefCell::new(std::mem::take(&mut memo.owes_nothing));
+        reading.undefined.clone_from(&self.short_circuit_symbols);
+        let depends = reading.applies(state, &self.short_circuit_symbols) || reading.direct(state);
+        memo.owes_nothing = reading.owes_nothing.into_inner();
+        depends
+    }
+}
+
+/// The ceil-theory judgements of the short-circuit analysis on one loaded definition
+/// (`ShortCircuitAnalysis::owes_nothing` of each application judged so far), kept across
+/// [`DefinitionExclusions::state_exclusion_memoized`] calls on that definition. A judgement
+/// depends only on the application and the definition, so a memo is valid for exactly the
+/// definition it was filled on.
+#[derive(Debug, Default)]
+pub struct CeilMemo {
+    /// Whether each application judged owes nothing beyond its arguments.
+    owes_nothing: std::collections::BTreeMap<Pattern, bool>,
 }
 
 /// The short-circuit reading of one loaded definition ([`Exclusion::ShortCircuitReading`]): its
 /// operators, its partial functions, and, once closed over the definition's equations, the
 /// functions whose value depends on the reading.
-struct ShortCircuitAnalysis {
+struct ShortCircuitAnalysis<'d> {
+    /// The loaded definition, whose ceil theory says which partial applications owe nothing
+    /// beyond their arguments ([`Self::owes_nothing`]).
+    definition: &'d BackendDefinition,
+    /// [`Self::owes_nothing`] of each application asked so far.
+    owes_nothing: std::cell::RefCell<std::collections::BTreeMap<Pattern, bool>>,
     /// Each short-circuit operator symbol with the argument positions a backend may skip.
     operators: std::collections::BTreeMap<String, &'static [usize]>,
     /// The conjunction operator symbols ([`CONJUNCTION_HOOKS`]).
@@ -1377,8 +1441,8 @@ struct ShortCircuitAnalysis {
     conjunctive: BTreeSet<String>,
 }
 
-impl ShortCircuitAnalysis {
-    fn of(definition: &BackendDefinition) -> Self {
+impl<'d> ShortCircuitAnalysis<'d> {
+    fn of(definition: &'d BackendDefinition) -> Self {
         let mut operators = std::collections::BTreeMap::new();
         let mut conjunctions = BTreeSet::new();
         let mut partial = BTreeSet::new();
@@ -1397,6 +1461,8 @@ impl ShortCircuitAnalysis {
             }
         }
         Self {
+            definition,
+            owes_nothing: std::cell::RefCell::default(),
             operators,
             conjunctions,
             partial,
@@ -1478,22 +1544,59 @@ impl ShortCircuitAnalysis {
     }
 
     /// `May(pattern)`: the applications anywhere in `pattern` that may be undefined, of a
-    /// partial function or of a function that can be undefined in k-rust's reading
-    /// ([`Self::undefined`]). Where `pattern` is undefined on an instance, one of them is: every
-    /// other symbol is total, a constructor or a domain value, and every symbol is strict. (An
-    /// application of a total function of [`Self::valued`] is flagged by every caller wherever
-    /// it occurs.)
+    /// function that can be undefined in k-rust's reading ([`Self::undefined`]), or of a partial
+    /// function unless the application owes nothing beyond its arguments under the definition's
+    /// ceil theory ([`Self::owes_nothing`]; CF-01). Where `pattern` is undefined on an instance,
+    /// one of them is. Every symbol is strict, so on that instance some application is undefined
+    /// while all its arguments are defined (an innermost undefined one); its symbol is not total,
+    /// a constructor or a domain value, and it is no application that owes nothing beyond its
+    /// arguments, since that one is defined wherever its arguments are. (An application of a
+    /// total function of [`Self::valued`] is flagged by every caller wherever it occurs.)
     fn may(&self, pattern: &Pattern) -> BTreeSet<Pattern> {
         let mut out = BTreeSet::new();
         walk::for_each_post_order(pattern, |node| {
-            if let Pattern::Application { symbol, .. } = node
-                && (self.partial.contains(symbol.name.as_str())
-                    || self.undefined.contains(symbol.name.as_str()))
-            {
-                out.insert(node.clone());
+            if let Pattern::Application { symbol, .. } = node {
+                let name = symbol.name.as_str();
+                if self.undefined.contains(name)
+                    || (self.partial.contains(name)
+                        && (self.reading_dependent(name) || !self.owes_nothing(node)))
+                {
+                    out.insert(node.clone());
+                }
             }
         });
         out
+    }
+
+    /// Whether the application `node`, of a partial function that does not depend on the reading,
+    /// owes nothing beyond the definedness of its arguments under the loaded definition's ceil
+    /// theory (CF-01): k-rust-backend's `application_owes_nothing` of `node` internalized as a
+    /// term, which holds when `apply_ceil_equation` discharges the node's own obligation, such as
+    /// an unconditional ceil equation whose condition, instantiated at the node, simplifies to
+    /// `\top`. The judgement is made once, over the node's variables, so it holds on every
+    /// instance: `bitRangeInt(X, 4, 4)` owes nothing (domains.md `INT-SYMBOLIC-KORE-AMENDMENTS`,
+    /// AM-10: `4 >=Int 0 andBool 4 >=Int 0`), `X /Int 16` owes nothing (`INT-SYMBOLIC-KORE`:
+    /// `16 =/=Int 0`), and `X /Int Y` owes `Y =/=Int 0`. It reads the ceil theory of the
+    /// definition the side runs, so it covers every hook with a ceil equation and a definition's
+    /// own `#Ceil` lemmas, and it trusts the ceil equations that definition keeps as the analysis
+    /// trusts its `total` declarations (a mutant's claim removal deletes the lemmas that mention
+    /// an edited symbol). A node that does not internalize on the definition (one under a sort
+    /// variable, or holding a literal the definition leaves open) owes its `\ceil`.
+    fn owes_nothing(&self, node: &Pattern) -> bool {
+        if let Some(known) = self.owes_nothing.borrow().get(node) {
+            return *known;
+        }
+        let owes_nothing = self
+            .definition
+            .admit_unverified(node, &[])
+            .internalize_term()
+            .is_ok_and(|term| {
+                k_rust_backend::definedness::application_owes_nothing(self.definition, &term)
+            });
+        self.owes_nothing
+            .borrow_mut()
+            .insert(node.clone(), owes_nothing);
+        owes_nothing
     }
 
     /// `Must(pattern)`: applications of partial functions that do not depend on the reading
@@ -1627,18 +1730,49 @@ impl ShortCircuitAnalysis {
 
     /// [`Self::condition`] of the side of an axiom that holds its condition: a rewrite rule's
     /// left-hand side (its configuration and `\equals(requires, true)`), or an equation's
-    /// antecedent (`\equals(requires, true)` and its argument constraints). Any part other than
-    /// a `requires` clause counts as a whole.
+    /// antecedent (`\equals(requires, true)` and its argument constraints, or, for an `owise`
+    /// equation, also k-rust's guard `\not(\or(\exists.(\equals(C_i, true) /\ match_i), ...,
+    /// \bottom))` over the conditions `C_i` of its competitors, kompile `equations.rs`). The
+    /// matching-logic connectives (`\and`, `\or`, `\not`, `\implies`, `\iff`, `\exists`,
+    /// `\forall`) are walked into, a leaf `\equals(C, true)` is read by [`Self::condition`] of
+    /// its Bool term `C`, and any other part (a configuration, `\in`, `\ceil`, an `\equals` of
+    /// two terms) counts as a whole.
+    ///
+    /// The predicate-truth argument (CF-01), which holds exactly for such a leaf whose `C`
+    /// [`Self::condition`] passes: a tree of `andThenBool` and `andBool` over atoms that do not
+    /// depend on the reading (conjunctive calls included). The two readings kink admits are the
+    /// short-circuiting one and k-rust's strict one, in which every application is strict. In
+    /// both, such a `C` is `true` exactly where every atom is `true`: a skipped conjunct makes
+    /// its conjunction `false` in the short-circuiting reading and `\bottom` in k-rust's where
+    /// it is undefined, and a conjunction whose conjuncts are all evaluated is the same in both.
+    /// So the readings differ there only as `false` versus `\bottom`, and `\equals(false, true)`
+    /// and `\equals(\bottom, true)` are both `\bottom`: the leaf has the same truth value in
+    /// both readings on every instance, and so has every connective over such leaves, since a
+    /// connective over predicates is a function of its operands' truth values. The argument
+    /// does not cover a leaf whose `C` has a skippable operand under `orElseBool`, `notBool`,
+    /// `impliesBool` or `#if` (or under any operator other than the conjunctions at its top):
+    /// there the readings can differ as `true` versus `\bottom` (`true orElseBool u`, `notBool
+    /// (false andThenBool u)`), so `\equals(C, true)` itself differs. Such a leaf keeps the
+    /// operand-definedness analysis ([`Self::direct`] in [`Self::condition`]): it counts unless
+    /// every skippable operand's possibly undefined applications are evaluated by an operand
+    /// that runs whenever it is skipped, or owe nothing under the ceil theory ([`Self::may`]).
+    /// Before CF-01 only the top-level `\and` and `\implies` were walked into, so an `owise`
+    /// guard over an `andThenBool` condition with a partial skippable operand (SM83's
+    /// `decode`, whose conditions apply `bitRangeInt`) excluded the definition.
     fn condition_side(&self, side: &Pattern) -> bool {
         match side {
-            Pattern::And { arguments, .. } => arguments
+            Pattern::And { arguments, .. } | Pattern::Or { arguments, .. } => arguments
                 .iter()
                 .any(|argument| self.condition_side(argument)),
-            Pattern::Equals { left, right, .. } if is_true(right) => self.condition(left),
-            Pattern::Implies { left, right, .. } => {
+            Pattern::Not { argument, .. } => self.condition_side(argument),
+            Pattern::Implies { left, right, .. } | Pattern::Iff { left, right, .. } => {
                 self.condition_side(left) || self.condition_side(right)
             }
-            Pattern::Top { .. } => false,
+            Pattern::Exists { body, .. } | Pattern::Forall { body, .. } => {
+                self.condition_side(body)
+            }
+            Pattern::Equals { left, right, .. } if is_true(right) => self.condition(left),
+            Pattern::Top { .. } | Pattern::Bottom { .. } => false,
             other => self.condition(other),
         }
     }
