@@ -3433,3 +3433,1764 @@ deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configu
 ["k8/cells-run/subject/counter/k::configuration::KCell(x, ..)"]
 finding = "S5-A"
 deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+# S5.0g: the kinds base (`class_matrix::kinds`) and S5-F1's machine-base twin, recorded from filtered runs
+# of the readable, cells and init shards. Owners as ruled: a path-named cell below `?`/`*`, admitted or
+# refused with another code, S5-S1 (its K3, S6's); the overwrite and the subject lint, S5-Q1; the second
+# computation's brackets, S5-C2; own-level wrong codes S0-9 (cells! wrappers S5-A, `job: [x, ..]` S5-Q2,
+# initializers B1 and B2); K8 advice S0-9.
+["init/kinds/account/[0]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+
+["init/kinds/bag/[0]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+
+["init/kinds/code/[0]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+
+["init/kinds/counter/[0]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+
+["init/kinds/env/[0]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+
+["init/kinds/frame/[0]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+
+["init/kinds/job/[0]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+
+["init/kinds/ogroup/[0]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+
+["init/kinds/olist/[0]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+
+["init/kinds/omap/[0]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+
+["init/kinds/pc/[0]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+
+["init/kinds/prog/[0]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+
+["init/kinds/seq/[0]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+
+["init/kinds/set/[0]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+
+["init/kinds/stack/[0]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+
+["init/kinds/account/0"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/account/Cmd::Go()"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/account/Some(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/account/k::absent!(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/account/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/account/k::map![0 -> 1]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/account/pgm"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/bag/0"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/bag/Cmd::Go()"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/bag/Some(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/bag/k::absent!(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/bag/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/bag/k::map![0 -> 1]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/bag/pgm"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/code/0"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/code/Cmd::Go()"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/code/G { a: 0, b: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/code/Some(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/code/k::absent!(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/code/k::map![0 -> 1]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/code/pgm"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/counter/0"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/counter/Cmd::Go()"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/counter/G { a: 0, b: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/counter/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/counter/k::map![0 -> 1]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/counter/pgm"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/env/G { a: 0, b: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/env/Some(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/env/k::absent!(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/env/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/frame/0"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/frame/Cmd::Go()"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/frame/Some(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/frame/k::absent!(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/frame/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/frame/k::map![0 -> 1]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/frame/pgm"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/job/0"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/job/Cmd::Go()"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/job/Some(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/job/k::absent!(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/job/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/job/k::map![0 -> 1]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/job/pgm"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/ogroup/0"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/ogroup/Cmd::Go()"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/ogroup/O { oa: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/ogroup/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/ogroup/k::map![0 -> 1]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/ogroup/pgm"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/olist/0"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/olist/Cmd::Go()"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/olist/G { a: 0, b: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/olist/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/olist/k::map![0 -> 1]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/olist/pgm"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/omap/0"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/omap/Cmd::Go()"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/omap/G { a: 0, b: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/omap/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/omap/k::map![0 -> 1]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/omap/pgm"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/pc/G { a: 0, b: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/pc/Some(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/pc/k::absent!(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/pc/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/prog/0"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/prog/Cmd::Go()"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/prog/G { a: 0, b: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/prog/Some(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/prog/k::absent!(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/prog/k::map![0 -> 1]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/prog/pgm"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/seq/G { a: 0, b: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/seq/Some(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/seq/k::absent!(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/seq/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/set/G { a: 0, b: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/set/Some(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/set/k::absent!(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/set/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/stack/G { a: 0, b: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/stack/Some(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/stack/k::absent!(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["init/kinds/stack/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+
+["cells/overwrite/kinds/account/_"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["cells/overwrite/kinds/counter/_"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["cells/overwrite/kinds/env/_"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["cells/overwrite/kinds/ogroup/_"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["cells/overwrite/kinds/pc/_"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["cells/result/kinds/frame/k::fragment![crate::G { a: x }]"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["cells/result/kinds/frame/k::fragment![crate::G { a: x, .. }]"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["cells/subject/kinds/frame/k::fragment![crate::G { a: x }]"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["claim/overwrite/kinds/account/{ y -> x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["claim/overwrite/kinds/counter/{ y -> x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["claim/overwrite/kinds/ogroup/{ y -> x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["claim/overwrite/kinds/pc/{ y -> x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["claim/result/kinds/code/G { a: x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ entry"
+
+["claim/result/kinds/code/x"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ entry"
+
+["claim/result/kinds/job/Job { payload: x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["claim/result/kinds/job/x"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["claim/result/kinds/olist/G { a: x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["claim/result/kinds/olist/[x, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["claim/result/kinds/olist/x"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["claim/result/kinds/set/[x, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["claim/subject/kinds/omap/{ G { a: x, .. }, .. }"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ item"
+
+["claim/subject/kinds/prog/{ G { a: x, .. }, .. }"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ item"
+
+["claim/subject/kinds/seq/{ G { a: x, .. }, .. }"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ item"
+
+["k8/cells/result/kinds/abag/[k::fragment![crate::Aobj { akey: x, .. }], ..]"]
+finding = "S0-9"
+deviation = "collection-without-instances advises none, and its refusal advises `abag: { .. }`"
+
+["k8/cells/result/kinds/job/k::configuration::Cell(x)"]
+finding = "S0-9"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/cells/subject/kinds/acounter/k::configuration::Cell(x)"]
+finding = "S0-9"
+deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/cells/subject/kinds/aogroup/k::configuration::Cell(x)"]
+finding = "S0-9"
+deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/cells/subject/kinds/omap/k::configuration::KCell(x, ..)"]
+finding = "S0-9"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/claim/result/kinds/aprog/0"]
+finding = "S0-9"
+deviation = "collection-without-instances advises none, and its refusal advises `rest @ ..`"
+
+["k8/claim/result/kinds/aprog/None"]
+finding = "S0-9"
+deviation = "collection-without-instances advises none, and its refusal advises `rest @ ..`"
+
+["k8/claim/result/kinds/code/G { a: x, .. }"]
+finding = "S0-9"
+deviation = "cell-wrapper advises none, and its refusal advises `rest @ ..`"
+
+["k8/claim/result/kinds/code/x"]
+finding = "S0-9"
+deviation = "cell-wrapper advises none, and its refusal advises `rest @ ..`"
+
+["k8/readable/result/kinds/aprog/0"]
+finding = "S0-9"
+deviation = "collection-without-instances advises none, and its refusal advises `rest @ ..`"
+
+["k8/readable/result/kinds/aprog/None"]
+finding = "S0-9"
+deviation = "collection-without-instances advises none, and its refusal advises `rest @ ..`"
+
+["k8/readable/result/kinds/code/G { a: x, .. }"]
+finding = "S0-9"
+deviation = "cell-wrapper advises none, and its refusal advises `rest @ ..`"
+
+["k8/readable/result/kinds/code/x"]
+finding = "S0-9"
+deviation = "cell-wrapper advises none, and its refusal advises `rest @ ..`"
+
+["readable/overwrite/kinds/account/{ y -> x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["readable/overwrite/kinds/counter/{ y -> x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["readable/overwrite/kinds/ogroup/{ y -> x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["readable/overwrite/kinds/pc/{ y -> x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["readable/result/kinds/code/G { a: x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ entry"
+
+["readable/result/kinds/code/x"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ entry"
+
+["readable/result/kinds/job/Job { payload: x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["readable/result/kinds/job/x"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["readable/result/kinds/olist/G { a: x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["readable/result/kinds/olist/[x, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["readable/result/kinds/olist/x"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["readable/result/kinds/set/[x, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["readable/subject/kinds/omap/{ G { a: x, .. }, .. }"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ item"
+
+["readable/subject/kinds/prog/{ G { a: x, .. }, .. }"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ item"
+
+["readable/subject/kinds/seq/{ G { a: x, .. }, .. }"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ item"
+
+["cells/result/kinds/job/k::configuration::Cell(x)"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["cells/subject/kinds/bag/k::configuration::KCell(x, ..)"]
+finding = "S5-A"
+deviation = "krs::analysis::collection-entry @ entry"
+
+["cells/subject/kinds/omap/k::configuration::KCell(x, ..)"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["claim/result/kinds/code/[x, ..]"]
+finding = "S5-C2"
+deviation = "krs::analysis::invalid-list-notation @ item"
+
+["readable/result/kinds/code/[x, ..]"]
+finding = "S5-C2"
+deviation = "krs::analysis::invalid-list-notation @ item"
+
+["cells/result/frame/k::fragment![crate::Frame { ret: x, .. }]"]
+finding = "S5-F1"
+deviation = "accepted"
+
+["init/kinds/code/k::k![pgm]"]
+finding = "S5-M1"
+deviation = "krs::analysis::main-cell @ item"
+
+["init/kinds/prog/k::k![pgm]"]
+finding = "S5-M1"
+deviation = "krs::analysis::main-cell @ item"
+
+["k8/init/kinds/code/k::k![pgm]"]
+finding = "S5-M1"
+deviation = "refused where the table accepts, advising `main`"
+
+["k8/init/kinds/prog/k::k![pgm]"]
+finding = "S5-M1"
+deviation = "refused where the table accepts, advising `main`"
+
+["cells/overwrite/kinds/account/None"]
+finding = "S5-Q1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/account/[k::fragment![crate::Acct { id: x, .. }], ..]"]
+finding = "S5-Q1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/counter/None"]
+finding = "S5-Q1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/counter/[k::fragment![crate::G { a: x, .. }], ..]"]
+finding = "S5-Q1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/env/None"]
+finding = "S5-Q1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/env/[k::fragment![crate::G { a: x, .. }], ..]"]
+finding = "S5-Q1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/ogroup/None"]
+finding = "S5-Q1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/ogroup/[k::fragment![crate::O { oa: x, .. }], ..]"]
+finding = "S5-Q1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/pc/None"]
+finding = "S5-Q1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/pc/[k::fragment![crate::G { a: x, .. }], ..]"]
+finding = "S5-Q1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["claim/overwrite/kinds/account/0"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/account/None"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/counter/0"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/counter/None"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/env/0"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/env/None"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/ogroup/0"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/ogroup/None"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/pc/0"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/pc/None"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/subject/kinds/bag/_"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/subject/kinds/frame/_"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/subject/kinds/omap/_"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/subject/kinds/prog/_"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/subject/kinds/seq/_"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/account/0"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/account/None"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/counter/0"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/counter/None"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/env/0"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/env/None"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/ogroup/0"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/ogroup/None"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/pc/0"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/pc/None"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/subject/kinds/bag/_"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/subject/kinds/frame/_"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/subject/kinds/omap/_"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/subject/kinds/prog/_"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/subject/kinds/seq/_"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/result/kinds/job/[x, ..]"]
+finding = "S5-Q2"
+deviation = "krs::analysis::invalid-list-notation @ item"
+
+["readable/result/kinds/job/[x, ..]"]
+finding = "S5-Q2"
+deviation = "krs::analysis::invalid-list-notation @ item"
+
+["cells/overwrite/kinds/acode/Some(k::configuration::Cell(x))"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/acode/k::configuration::KCell(x)"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/acode/x"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/ajob/Some(k::configuration::Cell(x))"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/ajob/k::configuration::KCell(x)"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/ajob/x"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/aolist/Some(k::configuration::Cell(x))"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/aolist/k::configuration::KCell(x)"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/aolist/x"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/aset/Some(k::configuration::Cell(x))"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/aset/k::configuration::KCell(x)"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/aset/x"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/astack/Some(k::configuration::Cell(x))"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/astack/k::configuration::KCell(x)"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/astack/x"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/hbag/k::configuration::Cell(x)"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/hbag/k::fragment![crate::Hobj { hkey: x, .. }]"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/hbag/{ k::fragment![crate::Hobj { hkey: x, .. }], .. }"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/hframe/k::configuration::Cell(x)"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/hframe/k::fragment![crate::Hg { ha: x, .. }]"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/hframe/{ k::fragment![crate::Hg { ha: x, .. }], .. }"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/homap/k::configuration::Cell(x)"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/homap/k::fragment![crate::G { a: x, .. }]"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/homap/{ k::fragment![crate::G { a: x, .. }], .. }"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/hprog/k::configuration::Cell(x)"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/hprog/k::fragment![crate::G { a: x, .. }]"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/hprog/{ k::fragment![crate::G { a: x, .. }], .. }"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/hseq/k::configuration::Cell(x)"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/hseq/k::fragment![crate::G { a: x, .. }]"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/overwrite/kinds/hseq/{ k::fragment![crate::G { a: x, .. }], .. }"]
+finding = "S5-S1"
+deviation = "krs::analysis::unsupported-shape @ item"
+
+["cells/result/kinds/abag/None"]
+finding = "S5-S1"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["cells/result/kinds/abag/_"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["cells/result/kinds/aframe/None"]
+finding = "S5-S1"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["cells/result/kinds/aframe/_"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["cells/result/kinds/aomap/None"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["cells/result/kinds/aomap/_"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["cells/result/kinds/aprog/None"]
+finding = "S5-S1"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["cells/result/kinds/aprog/_"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["cells/result/kinds/aseq/None"]
+finding = "S5-S1"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["cells/result/kinds/aseq/_"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["cells/result/kinds/hacct/x"]
+finding = "S5-S1"
+deviation = "krs::analysis::collection-entry @ entry"
+
+["cells/result/kinds/hcounter/Some(k::configuration::Cell(x))"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["cells/result/kinds/henv/k::configuration::KCell(x)"]
+finding = "S5-S1"
+deviation = "krs::analysis::cell-wrapper @ entry"
+
+["cells/result/kinds/henv/x"]
+finding = "S5-S1"
+deviation = "krs::analysis::cell-wrapper @ entry"
+
+["cells/result/kinds/hpc/k::configuration::KCell(x)"]
+finding = "S5-S1"
+deviation = "krs::analysis::cell-wrapper @ entry"
+
+["cells/result/kinds/hpc/x"]
+finding = "S5-S1"
+deviation = "krs::analysis::cell-wrapper @ entry"
+
+["cells/subject/kinds/aacct/k::fragment![crate::Aacct { aid: x, .. }]"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-record-update @ spelling"
+
+["cells/subject/kinds/aacct/{ k::fragment![crate::Aacct { aid: x, .. }], .. }"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["cells/subject/kinds/acounter/k::configuration::Cell(x)"]
+finding = "S5-S1"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["cells/subject/kinds/acounter/k::fragment![crate::G { a: x, .. }]"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-record-update @ spelling"
+
+["cells/subject/kinds/aenv/k::configuration::Cell(x)"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["cells/subject/kinds/aenv/k::fragment![crate::G { a: x, .. }]"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-record-update @ spelling"
+
+["cells/subject/kinds/aogroup/k::configuration::Cell(x)"]
+finding = "S5-S1"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["cells/subject/kinds/aogroup/k::fragment![crate::Ao { aoa: x, .. }]"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-record-update @ spelling"
+
+["cells/subject/kinds/apc/k::configuration::Cell(x)"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["cells/subject/kinds/apc/k::fragment![crate::G { a: x, .. }]"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-record-update @ spelling"
+
+["cells/subject/kinds/hcode/[k::fragment![crate::G { a: x, .. }], ..]"]
+finding = "S5-S1"
+deviation = "krs::analysis::collection-entry @ entry"
+
+["cells/subject/kinds/hcode/_"]
+finding = "S5-S1"
+deviation = "krs::analysis::cell-wrapper @ entry"
+
+["cells/subject/kinds/hjob/[k::fragment![crate::Hjob { hpay: x, .. }], ..]"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["cells/subject/kinds/hjob/_"]
+finding = "S5-S1"
+deviation = "krs::analysis::collection-entry @ entry"
+
+["cells/subject/kinds/holist/[k::fragment![crate::G { a: x, .. }], ..]"]
+finding = "S5-S1"
+deviation = "krs::analysis::collection-entry @ entry"
+
+["cells/subject/kinds/hset/[k::fragment![crate::G { a: x, .. }], ..]"]
+finding = "S5-S1"
+deviation = "krs::analysis::collection-entry @ entry"
+
+["cells/subject/kinds/hset/_"]
+finding = "S5-S1"
+deviation = "krs::analysis::cell-wrapper @ entry"
+
+["cells/subject/kinds/hstack/[k::fragment![crate::G { a: x, .. }], ..]"]
+finding = "S5-S1"
+deviation = "krs::analysis::collection-entry @ entry"
+
+["cells/subject/kinds/hstack/_"]
+finding = "S5-S1"
+deviation = "krs::analysis::cell-wrapper @ entry"
+
+["claim/overwrite/kinds/acode/Some(x)"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/acode/_"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/acode/{ G { a: x, .. }, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["claim/overwrite/kinds/ajob/Some(x)"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/ajob/_"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/ajob/{ Ajob { apay: x, .. }, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["claim/overwrite/kinds/aolist/Some(x)"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/aolist/_"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/aolist/{ G { a: x, .. }, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["claim/overwrite/kinds/aset/Some(x)"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/aset/_"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/aset/{ G { a: x, .. }, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["claim/overwrite/kinds/astack/Some(x)"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/astack/_"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/astack/{ G { a: x, .. }, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["claim/overwrite/kinds/hbag/Hobj { hkey: x, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/hbag/[x, ..]"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/hbag/x"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/hframe/Hg { ha: x, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/hframe/[x, ..]"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/hframe/x"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/homap/G { a: x, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/homap/[x, ..]"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/homap/x"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/hprog/G { a: x, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/hprog/[x, ..]"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/hprog/x"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/hseq/G { a: x, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/hseq/[x, ..]"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/overwrite/kinds/hseq/x"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/result/kinds/abag/0"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["claim/result/kinds/abag/None"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["claim/result/kinds/abag/{ y -> x, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["claim/result/kinds/aframe/0"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["claim/result/kinds/aframe/None"]
+finding = "S5-S1"
+deviation = "krs::expand::not-a-declaration @ spelling"
+
+["claim/result/kinds/aframe/{ y -> x, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["claim/result/kinds/aomap/0"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["claim/result/kinds/aomap/None"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["claim/result/kinds/aomap/{ y -> x, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["claim/result/kinds/aprog/0"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-list-notation @ entry"
+
+["claim/result/kinds/aprog/None"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-list-notation @ entry"
+
+["claim/result/kinds/aprog/{ y -> x, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["claim/result/kinds/aseq/0"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["claim/result/kinds/aseq/None"]
+finding = "S5-S1"
+deviation = "krs::expand::not-a-declaration @ spelling"
+
+["claim/result/kinds/aseq/{ y -> x, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["claim/result/kinds/hacct/Some(x)"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["claim/result/kinds/hacct/_"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["claim/result/kinds/hacct/{ Hacct { hid: x, .. }, .. }"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["claim/result/kinds/hcounter/Some(x)"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["claim/result/kinds/hcounter/_"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["claim/result/kinds/hcounter/{ G { a: x, .. }, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["claim/result/kinds/henv/Some(x)"]
+finding = "S5-S1"
+deviation = "krs::expand::not-a-declaration @ spelling"
+
+["claim/result/kinds/henv/{ G { a: x, .. }, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["claim/result/kinds/hogroup/Some(x)"]
+finding = "S5-S1"
+deviation = "krs::analysis::incompatible-binder @ spelling"
+
+["claim/result/kinds/hogroup/_"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["claim/result/kinds/hogroup/{ Ho { hoa: x, .. }, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["claim/result/kinds/hpc/Some(x)"]
+finding = "S5-S1"
+deviation = "krs::expand::not-a-declaration @ spelling"
+
+["claim/result/kinds/hpc/{ G { a: x, .. }, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["claim/subject/kinds/aacct/Aacct { aid: x, .. }"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["claim/subject/kinds/aacct/[x, ..]"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["claim/subject/kinds/aacct/x"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["claim/subject/kinds/acounter/G { a: x, .. }"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["claim/subject/kinds/acounter/[x, ..]"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["claim/subject/kinds/acounter/x"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["claim/subject/kinds/aenv/G { a: x, .. }"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["claim/subject/kinds/aenv/[x, ..]"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["claim/subject/kinds/aenv/x"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["claim/subject/kinds/aogroup/Ao { aoa: x, .. }"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["claim/subject/kinds/aogroup/[x, ..]"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["claim/subject/kinds/aogroup/x"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["claim/subject/kinds/apc/G { a: x, .. }"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["claim/subject/kinds/apc/[x, ..]"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["claim/subject/kinds/apc/x"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["claim/subject/kinds/hcode/0"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["claim/subject/kinds/hcode/{ y -> x, .. }"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ entry"
+
+["claim/subject/kinds/hjob/0"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["claim/subject/kinds/hjob/{ y -> x, .. }"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ entry"
+
+["claim/subject/kinds/holist/0"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["claim/subject/kinds/holist/{ y -> x, .. }"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ entry"
+
+["claim/subject/kinds/hset/0"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["claim/subject/kinds/hset/{ y -> x, .. }"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ entry"
+
+["claim/subject/kinds/hstack/0"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["claim/subject/kinds/hstack/{ y -> x, .. }"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ entry"
+
+["k3/claim/subject/kinds/aacct/Aacct { aid: x, .. }"]
+finding = "S5-S1"
+deviation = "printed surface refused: krs::analysis::collection-entry @ item"
+
+["k3/claim/subject/kinds/aacct/x"]
+finding = "S5-S1"
+deviation = "printed surface refused: krs::analysis::collection-entry @ item"
+
+["k3/readable/subject/kinds/aacct/Aacct { aid: x, .. }"]
+finding = "S5-S1"
+deviation = "printed surface refused: krs::analysis::collection-entry @ item"
+
+["k3/readable/subject/kinds/aacct/x"]
+finding = "S5-S1"
+deviation = "printed surface refused: krs::analysis::collection-entry @ item"
+
+["readable/overwrite/kinds/acode/Some(x)"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/acode/_"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/acode/{ G { a: x, .. }, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["readable/overwrite/kinds/ajob/Some(x)"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/ajob/_"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/ajob/{ Ajob { apay: x, .. }, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["readable/overwrite/kinds/aolist/Some(x)"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/aolist/_"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/aolist/{ G { a: x, .. }, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["readable/overwrite/kinds/aset/Some(x)"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/aset/_"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/aset/{ G { a: x, .. }, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["readable/overwrite/kinds/astack/Some(x)"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/astack/_"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/astack/{ G { a: x, .. }, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["readable/overwrite/kinds/hbag/Hobj { hkey: x, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/hbag/[x, ..]"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/hbag/x"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/hframe/Hg { ha: x, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/hframe/[x, ..]"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/hframe/x"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/homap/G { a: x, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/homap/[x, ..]"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/homap/x"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/hprog/G { a: x, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/hprog/[x, ..]"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/hprog/x"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/hseq/G { a: x, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/hseq/[x, ..]"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/overwrite/kinds/hseq/x"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/result/kinds/abag/0"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["readable/result/kinds/abag/None"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["readable/result/kinds/abag/{ y -> x, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["readable/result/kinds/aframe/0"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["readable/result/kinds/aframe/None"]
+finding = "S5-S1"
+deviation = "krs::expand::not-a-declaration @ spelling"
+
+["readable/result/kinds/aframe/{ y -> x, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["readable/result/kinds/aomap/0"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["readable/result/kinds/aomap/None"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["readable/result/kinds/aomap/{ y -> x, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["readable/result/kinds/aprog/0"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-list-notation @ entry"
+
+["readable/result/kinds/aprog/None"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-list-notation @ entry"
+
+["readable/result/kinds/aprog/{ y -> x, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["readable/result/kinds/aseq/0"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["readable/result/kinds/aseq/None"]
+finding = "S5-S1"
+deviation = "krs::expand::not-a-declaration @ spelling"
+
+["readable/result/kinds/aseq/{ y -> x, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["readable/result/kinds/hacct/Some(x)"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["readable/result/kinds/hacct/_"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["readable/result/kinds/hacct/{ Hacct { hid: x, .. }, .. }"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["readable/result/kinds/hcounter/Some(x)"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["readable/result/kinds/hcounter/_"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["readable/result/kinds/hcounter/{ G { a: x, .. }, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["readable/result/kinds/henv/Some(x)"]
+finding = "S5-S1"
+deviation = "krs::expand::not-a-declaration @ spelling"
+
+["readable/result/kinds/henv/{ G { a: x, .. }, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["readable/result/kinds/hogroup/Some(x)"]
+finding = "S5-S1"
+deviation = "krs::analysis::incompatible-binder @ spelling"
+
+["readable/result/kinds/hogroup/_"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["readable/result/kinds/hogroup/{ Ho { hoa: x, .. }, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+
+["readable/result/kinds/hpc/Some(x)"]
+finding = "S5-S1"
+deviation = "krs::expand::not-a-declaration @ spelling"
+
+["readable/result/kinds/hpc/{ G { a: x, .. }, .. }"]
+finding = "S5-S1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+["readable/subject/kinds/aacct/Aacct { aid: x, .. }"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["readable/subject/kinds/aacct/[x, ..]"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["readable/subject/kinds/aacct/x"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["readable/subject/kinds/acounter/G { a: x, .. }"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["readable/subject/kinds/acounter/[x, ..]"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["readable/subject/kinds/acounter/x"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["readable/subject/kinds/aenv/G { a: x, .. }"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["readable/subject/kinds/aenv/[x, ..]"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["readable/subject/kinds/aenv/x"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["readable/subject/kinds/aogroup/Ao { aoa: x, .. }"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["readable/subject/kinds/aogroup/[x, ..]"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["readable/subject/kinds/aogroup/x"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["readable/subject/kinds/apc/G { a: x, .. }"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["readable/subject/kinds/apc/[x, ..]"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["readable/subject/kinds/apc/x"]
+finding = "S5-S1"
+deviation = "accepted"
+
+["readable/subject/kinds/hcode/0"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["readable/subject/kinds/hcode/{ y -> x, .. }"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ entry"
+
+["readable/subject/kinds/hjob/0"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["readable/subject/kinds/hjob/{ y -> x, .. }"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ entry"
+
+["readable/subject/kinds/holist/0"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["readable/subject/kinds/holist/{ y -> x, .. }"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ entry"
+
+["readable/subject/kinds/hset/0"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["readable/subject/kinds/hset/{ y -> x, .. }"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ entry"
+
+["readable/subject/kinds/hstack/0"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["readable/subject/kinds/hstack/{ y -> x, .. }"]
+finding = "S5-S1"
+deviation = "krs::analysis::invalid-term @ entry"

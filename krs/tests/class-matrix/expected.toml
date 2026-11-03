@@ -1718,7 +1718,7 @@ at = "spelling"
 
 # S5.0g: the cases the ticket lists beside the kinds array (`class_matrix::kinds` `listed`)
 [[refuse]]
-match = 'cells/result/kinds/frame/k::fragment![crate::G \{ a: x\, .. \}]'
+match = '{cells/result/kinds/frame/k::fragment![crate::G \{ a: x\, .. \}],cells/result/frame/k::fragment![crate::Frame \{ ret: x\, .. \}]}'
 class = "open-record-outside-pattern"
 at = "spelling"
 

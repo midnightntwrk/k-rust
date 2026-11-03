@@ -224,8 +224,21 @@ fn old(kind: CellKind, construct: &str) -> (&'static str, Vec<(&'static str, &'s
 /// - The computation cell's subject: `k: S, pc: Cell(_)`, and the result writes `pc` only.
 /// - The computation cell's result: `k: KCell(C(x, y))`, the whole cell, and the result is
 ///   `k: S`.
+///
+/// And S5-F1's machine-base twin: a result fragment of the one-child group with a bare `..`
+/// over the matched group (S5.0g).
 pub(super) fn cases(cases: &mut Vec<Case>) {
     family(cases, Family::Cells, Base::Machine);
+    let at = Placement {
+        family: Family::Cells,
+        base: Base::Machine,
+        kind: CellKind::Group,
+    };
+    cases.push(at.case(
+        Side::Result,
+        "k::fragment![crate::Frame { ret: x, .. }]",
+        &[],
+    ));
 }
 
 /// The `cells!` rules again on the run base, each with K7's plan ([`config_drivers::cells`]), and

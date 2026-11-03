@@ -91,6 +91,10 @@ pub fn declared(construct: &str) -> Option<Spelling> {
         "k::fragment![crate::Frame { ret: x }]" => {
             frag("Frame", vec![("ret", x())], RecordRest::Exact)
         }
+        // S5-F1's machine-base twin (`cells::cases`).
+        "k::fragment![crate::Frame { ret: x, .. }]" => {
+            frag("Frame", vec![("ret", x())], RecordRest::Open)
+        }
         "[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..]" => {
             Spelling::InstList(seq(
                 vec![frag("Job", vec![("payload", x())], RecordRest::Open)],
