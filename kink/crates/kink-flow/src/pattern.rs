@@ -455,9 +455,15 @@ impl Lowering {
                  file)"
             )
         })?;
+        // The target is checked as the search admits it ([`Searcher::search`]): as a match
+        // target, whose variables are existential, so a set variable matching binds (`@_`
+        // compiles to one) is admitted and others are refused, by k-rust's one admission
+        // (`Admitted::as_match_target`). The lowering and the search then refuse the same
+        // patterns.
         definition
             .verify_standalone_pattern(&compiled.pattern, &[])
             .map_err(|e| format!("the compiled pattern is not a pattern of the baseline: {e}"))?
+            .as_match_target()
             .internalize_pattern()
             .map_err(|e| format!("the compiled pattern does not internalize: {e:?}"))?;
         let generated = compiled
@@ -1714,5 +1720,47 @@ mod tests {
             });
             incomplete(&outcome, UNDEFINED_STATE);
         });
+    }
+
+    /// A pattern is lowered to the target the search reads, and admitted as the search admits
+    /// it (`Admitted::as_match_target`): `@_` compiles to a set variable matching binds, so
+    /// `<k> @_ </k>` lowers and finds the state `add` reaches; a set variable written twice is
+    /// refused by the lowering as the search refuses it.
+    #[test]
+    fn a_pattern_is_admitted_as_its_search_admits_it() {
+        std::thread::Builder::new()
+            .stack_size(kink_corpus::cli::DEFINITION_STACK_BYTES)
+            .spawn(|| {
+                let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/flow/calc");
+                let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
+                let (_, admitted) = crate::admit::admit_spec(&manifest);
+                let (spec, mut inputs) = admitted.expect("calc is admitted");
+                let main = &manifest.spec.main_module;
+                let mut searcher = Searcher::new(&spec, main, manifest.budget).unwrap();
+                let lowering = Lowering::new(&spec, main).unwrap();
+                let lowered = lowering
+                    .lower("<k> @_ </k>", searcher.definition())
+                    .expect("a once-occurring set variable is a match target's");
+                assert!(
+                    !lowered.generated.is_empty(),
+                    "`@_` is a generated variable"
+                );
+                let program = manifest.programs.iter().find(|p| p.id == "add").unwrap();
+                let mut inputs = inputs.session(&spec);
+                let text = inputs.text(program).unwrap();
+                let test = inputs.test_case(program, text).unwrap();
+                let (outcome, _) = searcher.search(&test.initial_state, &lowered);
+                assert!(
+                    matches!(outcome, SearchOutcome::Hit(_)),
+                    "`<k> @_ </k>` matches a state of `add`: {outcome:?}"
+                );
+                let refused = lowering
+                    .lower("<k> @X ~> @X </k>", searcher.definition())
+                    .expect_err("a set variable written twice is no match target");
+                assert!(refused.contains("SetVariable"), "{refused}");
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 }
