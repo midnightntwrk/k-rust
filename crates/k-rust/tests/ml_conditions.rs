@@ -2848,6 +2848,36 @@ fn krun_pattern_with_a_predicate_condition_finds_the_states_it_admits() {
     }
 }
 
+/// A search target's set variable that occurs once in its term is bound by matching, as an
+/// element variable is (`Admitted::as_match_target`): `@_` compiles to one, at the sort the
+/// position infers, with that sort's predicate stated beside it, and finds the final states the
+/// element pattern `X` finds. A set variable written twice is refused: a set of several elements
+/// can match where no element does.
+#[cfg(feature = "cli")]
+#[test]
+fn krun_pattern_binds_a_once_occurring_set_variable_as_an_element() {
+    let (status, element, stderr) = krun_pattern(BRANCHES, "<k> done(X) </k>");
+    assert_eq!(status, 0, "{stderr}");
+    for pattern in ["<k> done(@_) </k>", "<k> @_ </k>"] {
+        let (status, stdout, stderr) = krun_pattern(BRANCHES, pattern);
+        assert_eq!(status, 0, "{pattern}: {stderr}");
+        assert!(
+            !stdout.trim().is_empty(),
+            "{pattern}: no state found: {stderr}"
+        );
+        if pattern == "<k> done(@_) </k>" {
+            assert_eq!(
+                stdout.matches("done").count(),
+                element.matches("done").count(),
+                "{pattern} finds the states `done(X)` finds: {stdout} / {element}"
+            );
+        }
+    }
+    let (status, _, stderr) = krun_pattern(BRANCHES, "<k> @X ~> @X </k>");
+    assert_ne!(status, 0, "a set variable written twice is refused");
+    assert!(stderr.contains("`@VarX`"), "{stderr}");
+}
+
 // ---------------------------------------------------------------- effects inside predicate operands
 
 /// The line of the first rule `io_source` places.

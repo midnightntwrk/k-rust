@@ -2783,6 +2783,7 @@ fn set_variable_definition() -> BackendDefinition {
                 symbol mk{}(SortInt{}) : SortFoo{} [constructor{}()]
                 symbol pair{}(SortInt{}, SortInt{}) : SortFoo{} [constructor{}()]
                 symbol both{}(SortBool{}, SortBool{}) : SortBool{} [function{}(), total{}()]
+                symbol half{}(SortInt{}) : SortInt{} [function{}()]
                 axiom{R} \implies{R}(\top{R}(), \equals{SortBool{}, R}(
                     both{}(@VarB1:SortBool{}, \dv{SortBool{}}("true")),
                     \and{SortBool{}}(@VarB1:SortBool{}, \top{SortBool{}}())
@@ -2878,8 +2879,16 @@ fn a_request_holding_a_free_set_variable_is_refused_at_admission() {
 /// 1)` (`{1, 2} = {1}` is false), while no element binding matches either (both answered
 /// `\bottom` before this fix). Those targets are refused, as are a set variable only the
 /// constraints hold, and every set variable of the same pattern admitted as another request.
+///
+/// A constraint may hold it when the constraint holds at a set exactly where it holds at each
+/// element: an equation `t[@X] = v` of total symbols, `@X` once in `t` and no set variable in
+/// `v`. Each `t[e]` is one element, so `t[@X] = v` holds exactly when `@X` is not empty and
+/// `t[e] = v` at each `e ∈ @X`, the element the match binds included: `mk(@X) /\ true =
+/// gtInt(@X, 0)` is admitted (the search pattern compiler states `isK(@_) = true` beside each
+/// `@_`). A partial symbol (`half(e)` may be `\bottom`), a second occurrence, or a set variable on
+/// both sides breaks that, and is refused.
 #[test]
-fn a_match_target_admits_a_set_variable_its_term_holds_once_and_no_constraint_reads() {
+fn a_match_target_admits_a_set_variable_its_term_holds_once_and_constraints_read_elementwise() {
     let definition = set_variable_definition();
     let not_one = |variable: &str| {
         format!(
@@ -2909,8 +2918,22 @@ fn a_match_target_admits_a_set_variable_its_term_holds_once_and_no_constraint_re
             ),
             Some("@X"),
         ),
+        // An equation of total symbols holding it once, against a term holding none.
         (
             r#"\and{SortFoo{}}(mk{}(@X:SortInt{}), \equals{SortBool{}, SortFoo{}}(\dv{SortBool{}}("true"), gtInt{}(@X:SortInt{}, \dv{SortInt{}}("0"))))"#.to_owned(),
+            None,
+        ),
+        // The same through a partial symbol, twice in the equation, or on both sides.
+        (
+            r#"\and{SortFoo{}}(mk{}(@X:SortInt{}), \equals{SortInt{}, SortFoo{}}(\dv{SortInt{}}("1"), half{}(@X:SortInt{})))"#.to_owned(),
+            Some("@X"),
+        ),
+        (
+            r#"\and{SortFoo{}}(mk{}(@X:SortInt{}), \equals{SortBool{}, SortFoo{}}(\dv{SortBool{}}("true"), gtInt{}(@X:SortInt{}, @X:SortInt{})))"#.to_owned(),
+            Some("@X"),
+        ),
+        (
+            r#"\and{SortFoo{}}(pair{}(@X:SortInt{}, @Y:SortInt{}), \equals{SortInt{}, SortFoo{}}(@X:SortInt{}, @Y:SortInt{}))"#.to_owned(),
             Some("@X"),
         ),
         // Only a constraint holds it.

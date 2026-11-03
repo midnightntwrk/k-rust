@@ -619,6 +619,49 @@ impl RequestLiterals {
     }
 }
 
+/// Whether `predicate` holds at a set exactly where it holds at each of the set's elements, read
+/// as a constraint on the one set variable it holds ([`Admitted::as_match_target`]): an equation
+/// `t = v` (either way round) of terms of total symbols ([`denotes_one_element`]) where `t` holds
+/// one set variable once and `v` holds none.
+fn holds_at_each_element(predicate: &crate::rule::Predicate) -> bool {
+    let crate::rule::Predicate::Equals(left, right) = predicate else {
+        return false;
+    };
+    let (with, without) = match (
+        crate::definedness::holds_set_variable(left),
+        crate::definedness::holds_set_variable(right),
+    ) {
+        (true, false) => (left, right),
+        (false, true) => (right, left),
+        _ => return false,
+    };
+    let mut occurrences = BTreeMap::new();
+    count_set_variable_occurrences(with, &mut occurrences);
+    occurrences.len() == 1
+        && occurrences.values().all(|count| *count == 1)
+        && denotes_one_element(with)
+        && denotes_one_element(without)
+}
+
+/// Whether `term` denotes exactly one element when each of its set variables is read at one
+/// element: it is built of variables, domain values, injections and applications of
+/// constructors and of symbols declared total, each of which maps elements to one element.
+fn denotes_one_element(term: &Term) -> bool {
+    match term.kind() {
+        TermKind::Variable(_) | TermKind::DomainValue { .. } => true,
+        TermKind::Injection { term, .. } => denotes_one_element(term),
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            matches!(
+                symbol.attributes.symbol_type,
+                SymbolType::Constructor | SymbolType::Function(FunctionType::Total)
+            ) && arguments.iter().all(denotes_one_element)
+        }
+        _ => false,
+    }
+}
+
 /// Add to `occurrences` each occurrence of a set variable in `term`, descending only into the
 /// subterms that hold one (`definedness::holds_set_variable`).
 fn count_set_variable_occurrences(term: &Term, occurrences: &mut BTreeMap<Variable, usize>) {
@@ -686,6 +729,15 @@ impl<'a> Admitted<'a> {
     /// "no match": against `p(a, b)`, `p(@X, @X)` matches at `@X = {a, b}`, and so does
     /// `p(@X, b) /\ \not(@X = a)`, since `{a, b} = {a}` is false. So those are refused, as is a
     /// set variable only the constraints hold, which no match binds.
+    ///
+    /// A constraint may hold the variable when it holds at `S` only if it holds at each element
+    /// of `S` ([`holds_at_each_element`]): the equation `t[S] = v` of a term `t` of total symbols
+    /// holding `S` once, and a term `v` of total symbols holding no set variable. Each `t[e]` and
+    /// `v` is then one element, so `t[S] = ⋃_{e ∈ S} t[e]` equals `v` exactly when `S` is not
+    /// empty and `t[e] = v` for each `e ∈ S`; with `C[S]` as above, the element the match binds
+    /// satisfies it. The search pattern compiler states one for every variable it reads at a
+    /// sort, `isK(@_) = true` for `@_` at `K` (`isK` is total), so `<k> @_ </k>` is admitted; the
+    /// match condition instantiates the constraint at the bound subterm before it is read.
     pub fn as_match_target(self) -> Self {
         Self {
             match_target: true,
@@ -703,7 +755,8 @@ impl<'a> Admitted<'a> {
     /// false}`, `notBool(@P /\ @Q)` is `{false, true}`, so `true = notBool(@P /\ @Q)` is false,
     /// and its rewrite `\not(true = @P /\ @Q)` is true. So a request holds none, and no answer
     /// rests on that reading. A match target's term may hold one that occurs once in it and in
-    /// none of its constraints ([`Self::as_match_target`]).
+    /// none of its constraints but equations that hold at each of its elements
+    /// ([`Self::as_match_target`]).
     fn refuse_set_variables<'p>(
         self,
         term: Option<&Term>,
@@ -711,7 +764,8 @@ impl<'a> Admitted<'a> {
     ) -> Result<(), DefinitionError> {
         let predicates = predicates.into_iter().collect::<Vec<_>>();
         // The set variables a match target admits: those the term holds exactly once and no
-        // constraint holds.
+        // constraint holds, except an equation that holds at a set exactly where it holds at
+        // each of its elements ([`holds_at_each_element`]).
         let mut admitted = BTreeSet::new();
         if self.match_target
             && let Some(term) = term
@@ -724,7 +778,10 @@ impl<'a> Admitted<'a> {
                     .into_iter()
                     .filter_map(|(variable, count)| (count == 1).then_some(variable)),
             );
-            for predicate in &predicates {
+            for predicate in predicates
+                .iter()
+                .filter(|predicate| !holds_at_each_element(predicate))
+            {
                 predicate.visit_terms(&mut |term: &Term| {
                     if crate::definedness::holds_set_variable(term) {
                         for variable in &term.attributes().variables {
