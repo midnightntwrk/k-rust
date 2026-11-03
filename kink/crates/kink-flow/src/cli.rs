@@ -2,8 +2,10 @@
 //!
 //! Exit status: [`EXIT_OK`] when the command did its job and found nothing wrong with the
 //! corpus, [`EXIT_CORPUS`] when the manifest, the specification, a program or a mutation is
-//! refused (the document says which and why), or, for `check`, when a program cannot be judged on
-//! the baseline, and [`EXIT_USAGE`] on a usage error (stderr).
+//! refused (the document says which and why), or, for `check`, when a fact known before any
+//! mutant runs makes a verdict impossible (a program cannot be judged on the baseline, or the
+//! baseline has no data under `[spec] assume_joined`), and [`EXIT_USAGE`] on a usage error
+//! (stderr).
 //!
 //! A mutation list (`MUTATIONS` below) is a `MUTATIONS.toml` file or a mutations directory of
 //! `<topic>.toml` files ([`MutationList::read`]).
@@ -841,9 +843,9 @@ pub fn check_corpus_mutations(
 
 /// The document of `check --mutations` and its exit status: the check document
 /// ([`check_document`]) with `mutation_list`, `mutations` and `coverage`, and [`EXIT_OK`] when
-/// every program can be judged on the baseline as far as admission shows
-/// ([`FlowAdmission::all_judgeable`]), the list decodes and no mutation is refused (by resolution
-/// or by a finding with `refusal: true`), else [`EXIT_CORPUS`].
+/// no fact known before any mutant runs makes a verdict impossible
+/// ([`FlowAdmission::verdicts_possible`]), the list decodes and no mutation is refused (by
+/// resolution or by a finding with `refusal: true`), else [`EXIT_CORPUS`].
 pub fn check_mutations_document(checked: &CorpusMutationCheck) -> (Value, u8) {
     let mut document = check_document(&checked.admission);
     match &checked.list {
@@ -866,7 +868,7 @@ pub fn check_mutations_document(checked: &CorpusMutationCheck) -> (Value, u8) {
             .mutations
             .as_ref()
             .is_some_and(MutationCheck::refused);
-    let status = if checked.admission.all_judgeable() && !refused {
+    let status = if checked.admission.verdicts_possible() && !refused {
         EXIT_OK
     } else {
         EXIT_CORPUS
@@ -875,14 +877,14 @@ pub fn check_mutations_document(checked: &CorpusMutationCheck) -> (Value, u8) {
 }
 
 /// `kink-flow check FLOW.toml` without a mutation list: admission alone, and [`EXIT_OK`] exactly
-/// when every program can be judged on the baseline as far as admission shows
-/// ([`FlowAdmission::all_judgeable`]).
+/// when no fact known before any mutant runs makes a verdict impossible
+/// ([`FlowAdmission::verdicts_possible`]).
 fn check_admission(manifest: &Path) -> (Value, u8) {
     match FlowManifest::read(manifest) {
         Err(error) => (manifest_refused(&error), EXIT_CORPUS),
         Ok(manifest) => {
             let admission = admit(&manifest);
-            let status = if admission.all_judgeable() {
+            let status = if admission.verdicts_possible() {
                 EXIT_OK
             } else {
                 EXIT_CORPUS
@@ -894,10 +896,12 @@ fn check_admission(manifest: &Path) -> (Value, u8) {
 
 /// The version of the check document: 2 adds `mutation_list`, `mutations` and `coverage` (null
 /// without `--mutations`); 3 adds `spec.exclusion` and the program outcome `excluded`, and
-/// exits 1 when any program cannot be judged on the baseline, a definition exclusion included.
-pub const CHECK_VERSION: u64 = 3;
+/// exits 1 when any program cannot be judged on the baseline, a definition exclusion included;
+/// 4 adds `data` and `spec.baseline_findings`, and exits 1 when the baseline has no data under
+/// `[spec] assume_joined` ([`FlowAdmission::verdicts_possible`]).
+pub const CHECK_VERSION: u64 = 4;
 
-fn header(spec: Value, programs: Vec<Value>) -> Value {
+fn header(spec: Value, programs: Vec<Value>, data: Value) -> Value {
     json!({
         "schema": "kink-flow-check",
         "version": CHECK_VERSION,
@@ -905,6 +909,7 @@ fn header(spec: Value, programs: Vec<Value>) -> Value {
         "profile": SolverProfile::BUILD.name(),
         "spec": spec,
         "programs": programs,
+        "data": data,
         "mutation_list": null,
         "mutations": null,
         "coverage": null,
@@ -922,8 +927,10 @@ pub fn manifest_refused(error: &ManifestError) -> Value {
             "detail": error.to_string(),
             "files": [],
             "exclusion": null,
+            "baseline_findings": null,
         }),
         Vec::new(),
+        Value::Null,
     )
 }
 
@@ -932,6 +939,10 @@ pub fn manifest_refused(error: &ManifestError) -> Value {
 /// or the specification is refused). A program is `ok`, `refused` (stage, reason and detail of
 /// the refusal), or `excluded`: admitted, but every run of it on the baseline is excluded before
 /// it runs (stage `definition` or `initial-state`, the exclusion's name as reason, and why).
+/// `data` is the baseline's full critical-pair check under `[spec] assume_joined`, as the run,
+/// `results` and `query` documents print it (kink-native `DataFacts::value`), and
+/// `spec.baseline_findings` says why the baseline has no data ([`baseline_findings`]); both are
+/// null when the specification is refused.
 pub fn check_document(admission: &FlowAdmission) -> Value {
     let record = &admission.record;
     let refusal = record.refusal.as_ref();
@@ -956,6 +967,10 @@ pub fn check_document(admission: &FlowAdmission) -> Value {
             .map(|f| json!({"name": f.name, "sha256": f.sha256.to_string()}))
             .collect::<Vec<_>>(),
         "exclusion": exclusion,
+        "baseline_findings": admission
+            .spec
+            .as_ref()
+            .map_or(Value::Null, |spec| baseline_findings(&spec.data)),
     });
     let programs = admission
         .programs
@@ -984,5 +999,120 @@ pub fn check_document(admission: &FlowAdmission) -> Value {
             }),
         })
         .collect();
-    header(spec, programs)
+    let data = admission
+        .spec
+        .as_ref()
+        .map_or(Value::Null, |spec| spec.data.value());
+    header(spec, programs, data)
+}
+
+/// Why the baseline has no data under `[spec] assume_joined`, so that no mutation can have a
+/// verdict but `unknown` (`baseline-findings`) and no query a `no`: null when it has data, else
+/// `{detail, findings, incomplete}`. `findings` lists each finding no name assumes,
+/// `{name, verdict, description, next}`, `next` being what to do about it
+/// ([`finding_next`]); `incomplete` is null, or `{detail, next}` when the check did not read the
+/// whole definition (kink-native `DataFacts::incomplete`); `detail` says both in one text,
+/// naming at most [`crate::exclusion::DETAIL_CAUSES`] findings.
+#[must_use]
+pub fn baseline_findings(data: &kink_native::data::DataFacts) -> Value {
+    if data.has_data() {
+        return Value::Null;
+    }
+    let unnamed = data.unnamed();
+    let incomplete = data.incomplete();
+    let mut reasons = Vec::new();
+    if !unnamed.is_empty() {
+        reasons.push(format!(
+            "has {} finding(s) that [spec] assume_joined leaves unnamed",
+            unnamed.len()
+        ));
+    }
+    if let Some(why) = &incomplete {
+        reasons.push(format!("did not read the whole definition ({why})"));
+    }
+    let mut items = unnamed
+        .iter()
+        .map(|finding| {
+            format!(
+                "{} ({}: {}): {}",
+                finding.name.as_deref().map_or_else(
+                    || "a finding with no name".to_owned(),
+                    |name| format!("`{name}`")
+                ),
+                finding.verdict.name(),
+                finding.description,
+                finding_next(finding)
+            )
+        })
+        .collect::<Vec<_>>();
+    let shown = items.len().min(crate::exclusion::DETAIL_CAUSES);
+    let more = items.len() - shown;
+    items.truncate(shown);
+    if more > 0 {
+        items.push(format!("and {more} more (findings)"));
+    }
+    if incomplete.is_some() {
+        items.push(format!(
+            "for what the check did not read: {INCOMPLETE_NEXT}"
+        ));
+    }
+    json!({
+        "detail": format!(
+            "the baseline's full critical-pair check {}, so no end of the definition is data: \
+             every mutation with a program to run is unknown (baseline-findings) and no query \
+             answers no; {}",
+            reasons.join(" and "),
+            items.join("; ")
+        ),
+        "findings": unnamed
+            .iter()
+            .map(|finding| json!({
+                "name": finding.name,
+                "verdict": finding.verdict.name(),
+                "description": finding.description,
+                "next": finding_next(finding),
+            }))
+            .collect::<Vec<_>>(),
+        "incomplete": incomplete.map(|why| json!({"detail": why, "next": INCOMPLETE_NEXT})),
+    })
+}
+
+/// What to do when the full critical-pair check did not read the whole definition: no name
+/// assumes what the check did not read, so only k-rust's checker can remove it.
+const INCOMPLETE_NEXT: &str = "report it: it is a limit of k-rust's checker, and no [spec] \
+                               assume_joined name can assume a part of the definition the check \
+                               did not read";
+
+/// What to do about a finding that `[spec] assume_joined` leaves unnamed, by what it is
+/// (kink-native `FindingVerdict`): a name assumes the finding away, so naming it is right only
+/// where the definition is right and the checker could not show it. A decided finding is a fact
+/// about the definition as written and no name assumes it (admission refuses one,
+/// `name-refused`); a genuine one has a ground input with two normal forms, so a name would be a
+/// premise known to be false; an undecided one may be a limit of the checker, which the author
+/// reviews; a finding with no name cannot be named at all.
+#[must_use]
+pub fn finding_next(finding: &kink_native::data::NamedFinding) -> String {
+    use kink_native::data::FindingVerdict;
+    let Some(name) = &finding.name else {
+        return "fix the definition: the finding has no name, so no [spec] assume_joined entry \
+                assumes it"
+            .to_owned();
+    };
+    match finding.verdict {
+        FindingVerdict::Decided => "fix the definition: a decided finding is a fact about the \
+                                    definition as written, which no [spec] assume_joined name \
+                                    assumes"
+            .to_owned(),
+        FindingVerdict::Genuine => format!(
+            "fix the definition: a ground input of this pair has two normal forms, so the pair \
+             does not join; naming `{name}` in [spec] assume_joined makes every verdict hold \
+             only under a premise known to be false"
+        ),
+        FindingVerdict::Undecided => format!(
+            "review it: if the definition is right here and the checker only could not show it \
+             (the pair joins, the equation agrees with its hook or applies as written, the \
+             precondition is met), name `{name}` in [spec] assume_joined; otherwise fix the \
+             definition"
+        ),
+    }
 }

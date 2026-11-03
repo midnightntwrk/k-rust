@@ -83,6 +83,7 @@ fn calc_is_admitted_with_every_program_ok_and_the_document_is_exact() {
         keys(&document),
         [
             "coverage",
+            "data",
             "k_rust_revision",
             "mutation_list",
             "mutations",
@@ -94,7 +95,7 @@ fn calc_is_admitted_with_every_program_ok_and_the_document_is_exact() {
         ]
     );
     assert_eq!(document["schema"], "kink-flow-check");
-    assert_eq!(document["version"], 3);
+    assert_eq!(document["version"], 4);
     // Without --mutations no list is checked.
     for key in ["mutation_list", "mutations", "coverage"] {
         assert!(document[key].is_null(), "{key}");
@@ -108,7 +109,21 @@ fn calc_is_admitted_with_every_program_ok_and_the_document_is_exact() {
     );
     assert_eq!(
         keys(&document["spec"]),
-        ["detail", "exclusion", "files", "outcome", "reason", "stage"]
+        [
+            "baseline_findings",
+            "detail",
+            "exclusion",
+            "files",
+            "outcome",
+            "reason",
+            "stage"
+        ]
+    );
+    // calc's full critical-pair check has no finding: its baseline has data.
+    assert!(document["spec"]["baseline_findings"].is_null());
+    assert_eq!(
+        document["data"],
+        serde_json::json!({"assume_joined": [], "has_data": true, "incomplete": null, "findings": []})
     );
     assert_eq!(document["spec"]["outcome"], "admitted");
     assert!(document["spec"]["stage"].is_null() && document["spec"]["reason"].is_null());
@@ -650,7 +665,7 @@ fn check_resolves_every_mutation_and_runs_no_program() {
     );
     let (document, status) = check_list(&manifest, &mutations, None);
     assert_eq!(status, EXIT_CORPUS, "{document:#}");
-    assert_eq!(document["version"], 3);
+    assert_eq!(document["version"], 4);
     assert_eq!(document["spec"]["outcome"], "admitted");
     assert_eq!(document["mutation_list"]["outcome"], "ok");
     // Nothing ran and nothing was written: no cache, so no unreached-rule warning.
@@ -902,7 +917,7 @@ fn a_definition_exclusion_names_its_cause_chain_and_fails_check() {
         Some(kink_native::exclusion::Exclusion::ShortCircuitReading)
     );
     assert_eq!(status, EXIT_CORPUS, "{document:#}");
-    assert_eq!(document["version"], 3);
+    assert_eq!(document["version"], 4);
     assert_eq!(document["spec"]["outcome"], "admitted");
     for program in document["programs"].as_array().unwrap() {
         assert_eq!(

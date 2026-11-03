@@ -22,7 +22,9 @@
 //! mutation list, `check --mutations` ([`check`]), and CF-13 the mutations directory and anchors
 //! by a suffix of a label's components ([`mutation`]). CF-02 reads the definition exclusions at
 //! admission, prints why each holds with one formatter for every command ([`exclusion`]), and
-//! makes `check` fail when a program cannot be judged on the baseline. CF-11 lets a case bind every
+//! makes `check` fail when a fact known before any mutant runs makes a verdict impossible: a
+//! program that cannot be judged on the baseline, or a baseline with no data under
+//! `[spec] assume_joined`, whose findings it names with what to do. CF-11 lets a case bind every
 //! configuration variable by name, with no program text on a definition without `$PGM`, and
 //! from typed inputs a front end's [`InputDecoder`] reads; it refuses a case whose initial
 //! configuration has no value on the baseline ([`admit`]).

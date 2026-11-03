@@ -34,7 +34,10 @@
 //! baseline is excluded before it runs ([`ProgramAdmission::exclusion`]): by the definition
 //! exclusion, or by the exclusion of its initial configuration. Neither refuses anything: a
 //! program so excluded is admitted, `results` runs it and reports its class, and `check` fails
-//! on it, since it cannot be judged on the baseline (README, `check`).
+//! on it, since it cannot be judged on the baseline (README, `check`). A finding of the full
+//! critical-pair check that `[spec] assume_joined` leaves unnamed refuses nothing either, and
+//! `check` fails on it too, since no mutation can then have a verdict but `unknown`
+//! ([`FlowAdmission::verdicts_possible`]).
 
 pub use crate::exclusion::ExclusionScope;
 use crate::manifest::{Decoder, FlowManifest, Program};
@@ -174,8 +177,8 @@ pub struct AdmittedSpec {
     /// The baseline's full critical-pair check under `[spec] assume_joined`, computed once, on
     /// the input backend (`Backend::from_definition` of the compile, the route kink runs it on;
     /// fz26 KINK-BASELINE-FINDINGS). While a finding is left no end is data, so no mutation can
-    /// be killed (`baseline-findings`), no comparable program can kill, and no query `no` is
-    /// given.
+    /// be killed (`baseline-findings`), no comparable program can kill, no query `no` is given,
+    /// and `check` fails ([`FlowAdmission::verdicts_possible`]).
     pub data: DataFacts,
     /// The definition exclusions of the input backend's load (kink-native
     /// `DefinitionExclusions::of` of the compiled KORE and the definition the backend selected
@@ -256,10 +259,20 @@ impl FlowAdmission {
 
     /// The specification is admitted and every program can be judged on the baseline as far as
     /// admission shows ([`ProgramAdmission::judgeable`]): no program is refused, and no exclusion
-    /// holds for every run of one, the definition exclusion included. `check` exits 0 exactly
-    /// when this holds (and, with `--mutations`, the list is not refused).
+    /// holds for every run of one, the definition exclusion included.
     pub fn all_judgeable(&self) -> bool {
         self.spec.is_some() && self.programs.iter().all(ProgramAdmission::judgeable)
+    }
+
+    /// No fact known before any mutant runs makes a verdict impossible: every program can be
+    /// judged on the baseline ([`Self::all_judgeable`]), and the baseline has data under
+    /// `[spec] assume_joined` (kink-native `DataFacts::has_data` of [`AdmittedSpec::data`]: no
+    /// finding is left unnamed and the check read the whole definition), without which `run`
+    /// makes every mutation with a program to run `unknown` (`baseline-findings`) and `query`
+    /// gives no `no`. `check` exits 0 exactly when this holds (and, with `--mutations`, the list
+    /// is not refused).
+    pub fn verdicts_possible(&self) -> bool {
+        self.all_judgeable() && self.spec.as_ref().is_some_and(|spec| spec.data.has_data())
     }
 }
 

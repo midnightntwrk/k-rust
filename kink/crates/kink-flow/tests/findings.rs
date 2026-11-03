@@ -17,6 +17,8 @@
 //!   `tests/kink_names.rs`), each is `killed` again.
 //! - A name that names no finding refuses the specification (stage `assume-joined`).
 //! - A tier-1 store that says `killed` (as a run before this ticket wrote it) decides nothing.
+//! - `check` fails on each, with and without `--mutations`, naming each finding with what to do
+//!   by its verdict, while its program stays `ok`; with every finding named it passes.
 
 mod flow_support;
 
@@ -26,6 +28,7 @@ use kink_corpus::cli::DEFINITION_STACK_BYTES;
 use kink_flow::{
     FlowManifest, MutationList,
     admit::admit,
+    cli::{CheckOptions, EXIT_CORPUS, EXIT_OK, check, check_with},
     digest::{execution_digest, mutation_identity, outcome_context},
     outcomes::{CachedOutcome, OutcomeRecord, OutcomeStore},
     pattern::PatternList,
@@ -171,6 +174,100 @@ fn on_stack(body: impl FnOnce() + Send + 'static) {
         .unwrap()
         .join()
         .unwrap();
+}
+
+/// `check` is the loop's compile step: it fails when a fact known before any mutant runs makes a
+/// verdict impossible, and an unassumed finding makes every mutation `unknown`. Each repro's
+/// program is still judged (`ok`); `spec.baseline_findings` names each finding with its next step
+/// by verdict, `data` is the run document's. Fail at base: `check` exited 0 on all seven.
+#[test]
+fn check_fails_on_each_repro_until_its_findings_are_named() {
+    on_stack(|| {
+        for (name, names) in NAMES {
+            let dir = repro(name, "check", None);
+            let (document, status) = check(&dir.join("FLOW.toml"));
+            assert_eq!(status, EXIT_CORPUS, "{name}: {document:#}");
+            assert_eq!(document["version"], 4);
+            assert_eq!(document["spec"]["outcome"], "admitted", "{name}");
+            assert_eq!(document["programs"][0]["outcome"], "ok", "{name}");
+            assert_eq!(document["data"]["has_data"], false, "{name}");
+            assert_eq!(named(&document["data"]["findings"]), expected(names));
+            let blocking = &document["spec"]["baseline_findings"];
+            assert_eq!(named(&blocking["findings"]), expected(names), "{name}");
+            assert!(blocking["incomplete"].is_null(), "{name}: {blocking:#}");
+            let detail = blocking["detail"].as_str().unwrap();
+            assert!(detail.contains("baseline-findings"), "{name}: {detail}");
+            for (finding, (written, verdict)) in blocking["findings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .zip(names.iter())
+            {
+                assert!(detail.contains(&format!("`{written}`")), "{name}: {detail}");
+                let next = finding["next"].as_str().unwrap();
+                assert!(
+                    !finding["description"].as_str().unwrap().is_empty(),
+                    "{name}"
+                );
+                match *verdict {
+                    "genuine" => assert!(
+                        next.starts_with("fix the definition: a ground input of this pair"),
+                        "{name}: {next}"
+                    ),
+                    "undecided" => assert!(
+                        next.starts_with("review it:")
+                            && next.contains(&format!("name `{written}` in [spec] assume_joined"))
+                            && next.ends_with("otherwise fix the definition"),
+                        "{name}: {next}"
+                    ),
+                    other => panic!("{name}: no repro has a {other} finding"),
+                }
+            }
+
+            // With a mutation list too: the list resolves and no mutation is refused, and check
+            // still fails.
+            let options = CheckOptions {
+                mutations: Some(dir.join("MUTATIONS.toml")),
+                cache: None,
+            };
+            let (listed, status) = check_with(&dir.join("FLOW.toml"), &options);
+            assert_eq!(status, EXIT_CORPUS, "{name}: {listed:#}");
+            assert_eq!(listed["mutation_list"]["outcome"], "ok", "{name}");
+            assert_eq!(
+                listed["mutations"][0]["outcome"], "ok",
+                "{name}: {listed:#}"
+            );
+            assert_eq!(listed["spec"]["baseline_findings"], *blocking, "{name}");
+
+            // Every finding named: the baseline has data and check passes.
+            let premises = names.iter().map(|(name, _)| *name).collect::<Vec<_>>();
+            let dir = repro(name, "check-named", Some(&premises));
+            let (document, status) = check(&dir.join("FLOW.toml"));
+            assert_eq!(status, EXIT_OK, "{name}: {document:#}");
+            assert!(document["spec"]["baseline_findings"].is_null(), "{name}");
+            assert_eq!(document["data"]["has_data"], true, "{name}");
+            // The manifest keeps the names sorted.
+            let mut sorted = premises.clone();
+            sorted.sort_unstable();
+            assert_eq!(document["data"]["assume_joined"], json!(sorted), "{name}");
+            assert!(
+                document["data"]["findings"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|finding| finding["assumed"] == true),
+                "{name}"
+            );
+            let (listed, status) = check_with(
+                &dir.join("FLOW.toml"),
+                &CheckOptions {
+                    mutations: Some(dir.join("MUTATIONS.toml")),
+                    cache: None,
+                },
+            );
+            assert_eq!(status, EXIT_OK, "{name}: {listed:#}");
+        }
+    });
 }
 
 mod kink_tier {

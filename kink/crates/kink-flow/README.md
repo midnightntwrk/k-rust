@@ -18,7 +18,7 @@ per-input pattern checks with the `query` command (flow F-18; "Checking a patter
 the `fuzz` command: hole values of a template program that kill a mutation, reach a rule or hit a pattern, found by k-rust-fuzz on kink's own sides (fz26 P7-KINKFLOW T3a and T5; "Killing a survivor with `fuzz`" below),
 the mutations directory, anchors by a suffix of a label's components and the required `misunderstanding` (CF-13; `MUTATIONS.toml` below),
 the resolve-only check of a mutation list, `check --mutations` (CF-18; "Checking mutations" below),
-and the definition exclusions read at admission, each named with its causes by one formatter for every command, with `check` failing when a program cannot be judged on the baseline (CF-02; "When `check` fails" below).
+and the definition exclusions read at admission, each named with its causes by one formatter for every command, with `check` failing when a fact known before any mutant runs makes a verdict impossible (CF-02; "When `check` fails" below).
 
 ## Building
 
@@ -121,20 +121,28 @@ and decides for each admitted program whether every run of it on the baseline is
 by the definition exclusion, which excludes every run on the specification, or by the exclusion of the program's initial configuration (it applies a hook whose value the definition leaves open, or a function or operator whose value depends on the short-circuit reading).
 Neither refuses anything: `results` still runs such a program and gives it no comparable class; its cause says this exclusion as `check` says it, unless a reason only the run shows comes first (a timeout, or a run that contradicts a claim).
 
-**When `check` fails.** `check` fails when any program cannot be judged on the baseline, whatever the reason.
-A program is judged on the baseline when `results` can give it a class from its baseline run; `check` decides what can be decided without running it:
-a program cannot be judged when the specification is refused, when the program is refused, or when every run of it is excluded.
-A definition exclusion is one such reason, not a special case: it makes every program `excluded`.
+**When `check` fails.** `check` fails when a fact known before any mutant runs makes a verdict impossible.
+`check` is the compile step of the loop: passing it and then reporting no verdict is the outcome it exists to prevent.
+Two kinds of fact are known then, and each is an instance of the rule, not a special case:
+
+- A program that cannot be judged on the baseline takes part in no verdict: no run of it can kill a mutant or show that one survives.
+  A program is judged on the baseline when `results` can give it a class from its baseline run, and it cannot be when the specification is refused, when the program is refused, or when every run of it is excluded.
+  A definition exclusion makes every program `excluded`.
+- A baseline with no data gives no mutation a verdict but `unknown`.
+  When the baseline's full critical-pair check has a finding that `[spec] assume_joined` leaves unnamed, or did not read the whole definition, no end of the definition is data (root README, "What a kill trusts"): every mutation with a program to run is `unknown` (`baseline-findings`), no comparable program can kill, and no query answers `no`.
+  The programs are still judged (`results` gives each its class and marks it `unable_to_kill`), so they stay `ok`; `spec.baseline_findings` names each finding with what to do about it.
+
 What only a run shows (a timeout, a final configuration kink does not compare, an exclusion a run's own lists give) is `results`' class, not `check`'s: `check` runs no program.
-A finding of the critical-pair check that `[spec] assume_joined` leaves unnamed does not stop a program from being judged (`results` gives it its class and marks it `unable_to_kill`), so it does not make `check` fail.
 
 It prints one JSON document:
 
 ```json
-{"schema": "kink-flow-check", "version": 3, "k_rust_revision": "...", "profile": "no-z3",
+{"schema": "kink-flow-check", "version": 4, "k_rust_revision": "...", "profile": "no-z3",
  "spec": {"outcome": "admitted", "stage": null, "reason": null, "detail": null,
-          "files": [{"name": "calc.k", "sha256": "..."}], "exclusion": null},
+          "files": [{"name": "calc.k", "sha256": "..."}], "exclusion": null,
+          "baseline_findings": null},
  "programs": [{"id": "add", "outcome": "ok", "stage": null, "reason": null, "detail": null}],
+ "data": {"assume_joined": [], "has_data": true, "incomplete": null, "findings": []},
  "mutation_list": null, "mutations": null, "coverage": null}
 ```
 
@@ -151,11 +159,23 @@ A sentence is `{name, module, label, id, source, location}` (`id` its compiled `
 For `implementation-chosen-hook` a cause is `{sentence, symbol, hook}`, for `equals-condition` `{sentence}`; a `load-stack-stop` has none (`detail` gives the count).
 `results` and `run` print the definition exclusion with the same formatter (kink-flow `exclusion`), and `fuzz` its `detail`.
 
+`data` is the baseline's full critical-pair check under `[spec] assume_joined`, as the run, `results` and `query` documents print it (`{assume_joined, has_data, incomplete, findings}`, below under `run`); null when the specification is refused.
+`spec.baseline_findings` is null when the baseline has data (or the specification is refused), else `{detail, findings, incomplete}`:
+`findings` lists each finding no name assumes, `{name, verdict, description, next}`, with `next` saying what to do about it by its verdict;
+`incomplete` is null, or `{detail, next}` when the check did not read the whole definition;
+and `detail` says both in one text, naming at most eight findings.
+A name assumes a finding away, so naming one is right only where the definition is right and the checker could not show it:
+for an `undecided` finding, review it: name it in `[spec] assume_joined` if it does not hold of the definition (the pair joins; for an equation, it agrees with its hook or applies as written; for a precondition, it is met), or else fix the definition;
+a `genuine` finding is a pair a ground input of which has two normal forms, so fix the definition (a name is accepted, but every verdict then rests on a premise known to be false);
+a `decided` finding, or one with no name, cannot be named, so fix the definition;
+and no name can assume what the check did not read, so an incomplete check is a limit of k-rust's checker to report.
+
 Version 2 (CF-18) adds `mutation_list`, `mutations` and `coverage`, which are null without `--mutations`.
 Version 3 (CF-02) adds `spec.exclusion` and the program outcome `excluded`, and `check` exits 1 when a program cannot be judged on the baseline; before, a definition with a definition exclusion passed `check` with every program `ok`.
+Version 4 adds `data` and `spec.baseline_findings`, and `check` exits 1 when the baseline has no data under `[spec] assume_joined`; before, such a specification passed `check`, and `run` then reported every mutation `unknown`.
 
-Exit status: 0 when every program is `ok` (so the specification is admitted) and, with `--mutations`, the list decodes and no mutation is refused (warnings do not count);
-1 when the manifest, the specification, a program, the mutation list or a mutation is refused, or a program is `excluded`; 2 on a usage error (message on stderr).
+Exit status: 0 when every program is `ok` (so the specification is admitted), `spec.baseline_findings` is null and, with `--mutations`, the list decodes and no mutation is refused (warnings do not count);
+1 when the manifest, the specification, a program, the mutation list or a mutation is refused, a program is `excluded`, or the baseline has no data (`spec.baseline_findings`); 2 on a usage error (message on stderr).
 
 ### Checking mutations
 
