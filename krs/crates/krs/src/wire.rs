@@ -782,6 +782,7 @@ mod tests {
                     stream: None,
                     exit: None,
                     initial: None,
+                    unobservable: None,
                     content: ProtocolCellContent::Leaf {
                         wrapper_key: key(ProvenanceRole::ConfigurationCellWrapper),
                         wrapper: CellWrapper::Cell,
@@ -802,6 +803,7 @@ mod tests {
                     stream: None,
                     exit: None,
                     initial: None,
+                    unobservable: None,
                     content: ProtocolCellContent::Nested {
                         declaration: krs_ir::wire::WireCellDeclarationReference {
                             key: key(ProvenanceRole::ConfigurationField),
@@ -830,6 +832,7 @@ mod tests {
                     stream: None,
                     exit: None,
                     initial: None,
+                    unobservable: None,
                     content: ProtocolCellContent::Leaf {
                         wrapper_key: key(ProvenanceRole::ConfigurationCellWrapper),
                         wrapper: CellWrapper::Cell,
@@ -850,6 +853,7 @@ mod tests {
                     stream: None,
                     exit: None,
                     initial: None,
+                    unobservable: None,
                     content: ProtocolCellContent::Nested {
                         declaration: krs_ir::HostCellDeclarationReference {
                             key: key(ProvenanceRole::ConfigurationField),

@@ -790,7 +790,8 @@ pub enum DescriptorLoweringError {
         /// The item the error arose in: the innermost enclosing frame that knows one names it.
         item: Option<Box<StableItemId>>,
     },
-    /// A `stream` or `exit` cell does not have the shape K requires (KF-035).
+    /// A `stream` or `exit` cell does not have the shape K requires (KF-035), or it or a cell
+    /// holding it is declared `unobservable`, although every run observes it.
     InvalidConsoleCell {
         /// Stable reason naming the cell.
         reason: String,

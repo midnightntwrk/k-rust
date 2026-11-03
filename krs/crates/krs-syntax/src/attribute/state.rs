@@ -78,6 +78,7 @@ pub struct CellAttributePayload {
     stream: Option<LitStr>,
     exit: Option<Ident>,
     initial: Option<Ident>,
+    unobservable: Option<Ident>,
     keys: CellAttributeKeys,
     /// The anchors of the payload's standalone keying, which
     /// [`Self::provenance`] returns.
@@ -94,6 +95,7 @@ pub struct CellAttributeKeys {
     stream: Option<ProvenanceKey>,
     exit: Option<ProvenanceKey>,
     initial: Option<ProvenanceKey>,
+    unobservable: Option<ProvenanceKey>,
 }
 
 impl CellAttributeKeys {
@@ -137,6 +139,12 @@ impl CellAttributeKeys {
     #[must_use]
     pub const fn initial(&self) -> Option<&ProvenanceKey> {
         self.initial.as_ref()
+    }
+
+    /// The key of the `unobservable` flag.
+    #[must_use]
+    pub const fn unobservable(&self) -> Option<&ProvenanceKey> {
+        self.unobservable.as_ref()
     }
 }
 
@@ -190,6 +198,14 @@ impl CellAttributePayload {
         self.initial.as_ref()
     }
 
+    /// The bare `unobservable` flag: the cell holds state no use of the
+    /// definition may observe, so a tool that compares runs leaves its
+    /// content out.
+    #[must_use]
+    pub const fn unobservable(&self) -> Option<&Ident> {
+        self.unobservable.as_ref()
+    }
+
     /// The keys of the authored values, from the sentence that holds the
     /// attribute: the attribute alone, or its field's configuration.
     #[must_use]
@@ -198,7 +214,7 @@ impl CellAttributePayload {
     }
 
     /// Returns exact value anchors in stable name, color, multiplicity, type, stream, exit,
-    /// initial order.
+    /// initial, unobservable order.
     ///
     /// # Errors
     ///
@@ -216,7 +232,7 @@ impl CellAttributePayload {
     }
 
     /// Keys each authored value in name, color, multiplicity, type, stream,
-    /// exit, initial order: as the next of its role, or, inside a
+    /// exit, initial, unobservable order: as the next of its role, or, inside a
     /// configuration, at the ordinal of its field's key `field`.
     /// The anchors of the payload's own keying are forgotten here and
     /// recorded again by that keying: an enclosing sentence's pass leaves
@@ -232,7 +248,7 @@ impl CellAttributePayload {
             ProvenanceRole,
             Option<TokenRange>,
             &mut Option<ProvenanceKey>,
-        ); 7] = [
+        ); 8] = [
             (
                 ProvenanceRole::ConfigurationCellName,
                 self.name.as_ref().map(TokenRange::for_tokens).transpose()?,
@@ -282,6 +298,14 @@ impl CellAttributePayload {
                     .map(TokenRange::for_tokens)
                     .transpose()?,
                 &mut self.keys.initial,
+            ),
+            (
+                ProvenanceRole::ConfigurationCellUnobservable,
+                self.unobservable
+                    .as_ref()
+                    .map(TokenRange::for_tokens)
+                    .transpose()?,
+                &mut self.keys.unobservable,
             ),
         ];
         for (role, range, slot) in slots {
@@ -444,16 +468,22 @@ fn parse_cell_stream(input: ParseStream<'_>) -> Result<CellAttributePayload, Par
     let mut stream = None;
     let mut exit = None;
     let mut initial = None;
+    let mut unobservable = None;
     while !input.is_empty() {
         let key: Ident = input.parse()?;
         let key_name = key.to_string();
-        if key_name == "exit" || key_name == "initial" {
-            let (slot, name, reason): (&mut Option<Ident>, &'static str, &'static str) =
-                if key_name == "exit" {
-                    (&mut exit, "exit", "exit takes no value")
-                } else {
-                    (&mut initial, "initial", "initial takes no value")
-                };
+        let flag: Option<(&mut Option<Ident>, &'static str, &'static str)> = match key_name.as_str()
+        {
+            "exit" => Some((&mut exit, "exit", "exit takes no value")),
+            "initial" => Some((&mut initial, "initial", "initial takes no value")),
+            "unobservable" => Some((
+                &mut unobservable,
+                "unobservable",
+                "unobservable takes no value",
+            )),
+            _ => None,
+        };
+        if let Some((slot, name, reason)) = flag {
             if slot.is_some() {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::DuplicateArgument { name },
@@ -557,6 +587,7 @@ fn parse_cell_stream(input: ParseStream<'_>) -> Result<CellAttributePayload, Par
         stream,
         exit,
         initial,
+        unobservable,
         keys: CellAttributeKeys::default(),
         anchors: Vec::new(),
     }
@@ -662,7 +693,7 @@ impl ConfigurationAttribute {
 #[cfg(test)]
 impl CellAttributePayload {
     /// Records the keys of the name, colour, multiplicity, type, stream,
-    /// exit and initial values.
+    /// exit, initial and unobservable values.
     pub(crate) fn keyed_nodes(
         &self,
         nodes: &mut crate::keyed_nodes::KeyedNodes,
@@ -679,7 +710,11 @@ impl CellAttributePayload {
                 nodes.push_tokens(key.as_ref(), value)?;
             }
         }
-        for (key, value) in [(&keys.exit, &self.exit), (&keys.initial, &self.initial)] {
+        for (key, value) in [
+            (&keys.exit, &self.exit),
+            (&keys.initial, &self.initial),
+            (&keys.unobservable, &self.unobservable),
+        ] {
             if let Some(value) = value {
                 nodes.push_tokens(key.as_ref(), value)?;
             }

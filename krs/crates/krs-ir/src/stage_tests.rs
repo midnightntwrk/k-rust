@@ -208,6 +208,7 @@ fn field(
         stream: None,
         exit: None,
         initial: None,
+        unobservable: None,
         content,
     }
 }

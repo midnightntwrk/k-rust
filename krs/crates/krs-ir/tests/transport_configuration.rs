@@ -69,6 +69,7 @@ fn cell_field(
         stream: None,
         exit: None,
         initial: None,
+        unobservable: None,
         content: ProtocolCellContent::Leaf {
             wrapper_key: key(ProvenanceRole::ConfigurationCellWrapper, ordinal),
             wrapper,

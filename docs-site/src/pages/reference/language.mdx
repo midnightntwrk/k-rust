@@ -1268,6 +1268,16 @@ Configuration initializers accept such ground terms directly: `input: list::empt
 `krs run` reads standard input to end of file before the first step, as `krun --io off` does, prints what the output cell holds when the run ends, and exits with the exit cell's value; give the program as a file, because FILE `-` and the stdin cell would both read standard input.
 Because I/O is state, search and rollback stay sound, but K's search has no console I/O, so `krs search` refuses a definition with stream cells; `krs prove` treats them as ordinary List cells.
 
+### Unobservable cells
+
+The bare flag `#[k::cell(unobservable)]` states that a cell holds state no use of the definition may observe, such as a temporary the semantics needs between steps and no result of a run reports (a CPU's internal W and Z registers).
+It changes nothing the definition computes: KRS emits it as the K cell property `unobservable=""`, no compilation pass reads it, and every run, search and proof is the same with or without it.
+A tool that compares runs leaves the content of an unobservable cell, and of every cell inside it, out of the comparison and compares every other cell; a mutation that changes only unobservable state is therefore not caught, and a cell marked unobservable by mistake can only hide a difference, never make one.
+The cell keeps its K name in what such a tool reports, `name = ".."` included.
+A cell every run observes cannot be unobservable (`krs::analysis::console-cell`): the exit cell, whose final value is the process exit status, a stream cell, whose content is console input or output, and a cell that holds either.
+The flag may stand on an optional or collection cell, where it covers the whole cell; a tool that needs a fixed position for an unobservable cell refuses one inside such a cell, and marking the enclosing cell unobservable, or moving the cell out of it, is the fix.
+`unobservable` is a k-rust cell property that Java K does not have, so Java K refuses an emitted definition that uses it ([Unobservable cells](/k-rust/compatibility#unobservable-cells)).
+
 ## Program syntax and the module pair
 
 K decides what a program may contain with the main syntax module and what rules may use with the main module.

@@ -50,6 +50,7 @@ pub(super) fn lower_fixed_configuration_descriptor(
         &mut CellScope {
             console: &mut console,
             repeated: None,
+            unobservable: None,
             present: &present,
         },
     )?;
@@ -294,6 +295,9 @@ struct ConsoleCells {
 struct CellScope<'a> {
     console: &'a mut ConsoleCells,
     repeated: Option<String>,
+    /// The nearest `unobservable` cell, the cell itself included: its emitted name and the
+    /// provenance of its flag.
+    unobservable: Option<(String, NodeOrigin)>,
     /// The optional cells the initializer starts present ([`present_optional_cells`]).
     present: &'a BTreeMap<SemanticId, NodeOrigin>,
 }
@@ -358,6 +362,38 @@ fn within_repeated(name: &str, repeated: &str) -> String {
     } else {
         format!("is inside the repeated cell `{repeated}`")
     }
+}
+
+/// Refuses `unobservable` on the console cell `name` and on every cell holding it.
+///
+/// `unobservable` is the nearest unobservable cell, the cell itself included, with the
+/// provenance of its flag. The exit cell's final value is the process exit status and a stream
+/// cell's content is console input or output, so every run observes both, and a cell no use may
+/// observe cannot be or hold either.
+fn check_observed_console_cell(
+    attributes: &[CellAttribute],
+    name: &str,
+    unobservable: Option<&(String, NodeOrigin)>,
+) -> Result<(), DescriptorLoweringError> {
+    let Some((holder, origin)) = unobservable else {
+        return Ok(());
+    };
+    for attribute in attributes {
+        let (kind, observed) = match attribute {
+            CellAttribute::Stream { .. } => ("stream", "content is console input or output"),
+            CellAttribute::Exit { .. } => ("exit", "final value is the process exit status"),
+            _ => continue,
+        };
+        let reason = if holder == name {
+            format!("cell `{name}` cannot be unobservable: its {observed}")
+        } else {
+            format!(
+                "cell `{holder}` cannot be unobservable: it holds the {kind} cell `{name}`, whose {observed}"
+            )
+        };
+        return Err(console_error(reason, origin));
+    }
+    Ok(())
 }
 
 fn console_error(reason: String, origin: &NodeOrigin) -> DescriptorLoweringError {
@@ -472,7 +508,8 @@ impl ConsoleCells {
             CellAttribute::Color { .. }
             | CellAttribute::Multiplicity { .. }
             | CellAttribute::CollectionType { .. }
-            | CellAttribute::Initial { .. } => {}
+            | CellAttribute::Initial { .. }
+            | CellAttribute::Unobservable { .. } => {}
         }
         Ok(())
     }
@@ -597,6 +634,13 @@ fn cell_attributes(
     if let Some(origin) = present.filter(|_| optional) {
         attributes.push(CellAttribute::initial(origin.clone()));
     }
+    if let Some(unobservable) = &field.unobservable {
+        attributes.push(CellAttribute::unobservable(semantic_origin(
+            descriptor,
+            unobservable.key.clone(),
+            "cell-unobservable",
+        )?));
+    }
     Ok(attributes)
 }
 
@@ -628,6 +672,13 @@ fn lower_cell_declaration(
         } else {
             Some(name.clone())
         };
+        let unobservable = attributes
+            .iter()
+            .find_map(|attribute| match attribute {
+                CellAttribute::Unobservable { origin } => Some((name.clone(), origin.clone())),
+                _ => None,
+            })
+            .or_else(|| scope.unobservable.clone());
         // The kind's content (a computation or not) is asked only of a cell with attributes.
         if !attributes.is_empty() {
             let kind = declared_kind(field, declarations);
@@ -641,6 +692,7 @@ fn lower_cell_declaration(
                     &kind,
                 )?;
             }
+            check_observed_console_cell(&attributes, &name, unobservable.as_ref())?;
         }
         let origin = semantic_origin(
             descriptor,
@@ -675,6 +727,7 @@ fn lower_cell_declaration(
                     &mut CellScope {
                         console: scope.console,
                         repeated,
+                        unobservable,
                         present: scope.present,
                     },
                 )?;

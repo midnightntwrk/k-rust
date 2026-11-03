@@ -1742,6 +1742,7 @@ fn native_cell_properties(attributes: &[CellAttribute], main: bool) -> NativeTer
             CellAttribute::Stream { value, .. } => ("stream", value.as_str()),
             CellAttribute::Exit { .. } => ("exit", ""),
             CellAttribute::Initial { .. } => ("initial", ""),
+            CellAttribute::Unobservable { .. } => ("unobservable", ""),
         })
         .collect::<Vec<_>>();
     if main {

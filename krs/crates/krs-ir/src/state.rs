@@ -140,6 +140,13 @@ pub enum CellAttribute {
         /// Provenance for the authored flag.
         origin: NodeOrigin,
     },
+    /// `unobservable=""`: the cell holds state no use of the definition
+    /// may observe. It changes nothing the definition computes; a tool that
+    /// compares runs leaves the cell's content out of the comparison.
+    Unobservable {
+        /// Provenance for the authored flag.
+        origin: NodeOrigin,
+    },
 }
 
 /// Standard streams K connects a stream cell to (K 7.1.337 has no stderr stream cell).
@@ -273,6 +280,12 @@ impl CellAttribute {
         Self::Initial { origin }
     }
 
+    /// Creates the `unobservable` flag of a cell.
+    #[must_use]
+    pub const fn unobservable(origin: NodeOrigin) -> Self {
+        Self::Unobservable { origin }
+    }
+
     /// Returns provenance for this metadata value.
     #[must_use]
     pub const fn origin(&self) -> &NodeOrigin {
@@ -282,7 +295,8 @@ impl CellAttribute {
             | Self::CollectionType { origin, .. }
             | Self::Stream { origin, .. }
             | Self::Exit { origin }
-            | Self::Initial { origin } => origin,
+            | Self::Initial { origin }
+            | Self::Unobservable { origin } => origin,
         }
     }
 }

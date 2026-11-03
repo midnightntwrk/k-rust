@@ -1,4 +1,4 @@
-//! Stream and exit cell attributes and ground initializer terms (KF-035).
+//! Stream, exit and unobservable cell attributes and ground initializer terms (KF-035).
 
 use krs_syntax::KrsSyntax;
 use krs_syntax::{InitializerCellContent, ProvenanceRole, StateTerm};
@@ -71,4 +71,59 @@ fn literals_and_qualified_calls_are_readable_initializer_terms() {
     // A bare call is still a host call, not a term.
     krs_syntax::InitializerFunction::parse_source("fn init() -> Self { Self { status: make() } }")
         .unwrap_err();
+}
+
+#[test]
+fn unobservable_is_a_bare_flag_with_an_anchor() {
+    let scratch = krs_syntax::CellAttributePayload::parse_source("unobservable").unwrap();
+    assert!(scratch.unobservable().is_some());
+    assert!(scratch.exit().is_none());
+    let keyed =
+        krs_syntax::CellAttributePayload::parse_source(r#"unobservable, color = "red""#).unwrap();
+    assert_eq!(
+        keyed
+            .provenance()
+            .unwrap()
+            .iter()
+            .map(krs_syntax::ProvenanceAnchor::role)
+            .collect::<Vec<_>>(),
+        [
+            ProvenanceRole::ConfigurationCellColor,
+            ProvenanceRole::ConfigurationCellUnobservable,
+        ]
+    );
+    for (source, expected) in [
+        (
+            r#"unobservable = "x""#,
+            krs_syntax::SyntaxErrorKind::InvalidCellAttribute {
+                reason: "unobservable takes no value",
+            },
+        ),
+        (
+            "unobservable, unobservable",
+            krs_syntax::SyntaxErrorKind::DuplicateArgument {
+                name: "unobservable",
+            },
+        ),
+    ] {
+        let error = krs_syntax::CellAttributePayload::parse_source(source).unwrap_err();
+        assert_eq!(error.kind(), &expected, "{source}");
+    }
+}
+
+#[test]
+fn configuration_anchors_unobservable_per_field() {
+    let declaration = krs_syntax::ConfigurationDeclaration::parse_source(
+        r"struct Machine {
+            #[k::cell] k: KSequence,
+            #[k::cell(unobservable)] scratch: Int,
+        }",
+    )
+    .unwrap();
+    let anchors = declaration.provenance().unwrap();
+    let unobservable = anchors
+        .iter()
+        .find(|anchor| anchor.role() == ProvenanceRole::ConfigurationCellUnobservable)
+        .unwrap();
+    assert_eq!(unobservable.ordinal(), 1);
 }

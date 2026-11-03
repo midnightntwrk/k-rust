@@ -124,7 +124,7 @@ pub use transport::configuration::{
     CellWrapper, DescriptorCellCollectionType, DescriptorCellColor, DescriptorCellDeclaration,
     DescriptorCellDeclarationReference, DescriptorCellExit, DescriptorCellField,
     DescriptorCellIdentity, DescriptorCellInitial, DescriptorCellMultiplicity, DescriptorCellName,
-    DescriptorCellReference, DescriptorCellStream, DescriptorCellType,
+    DescriptorCellReference, DescriptorCellStream, DescriptorCellType, DescriptorCellUnobservable,
     DescriptorConfigurationDeclaration, DescriptorConfigurationInitializer,
     DescriptorConfigurationRoot, DescriptorConfigurationVariable, DescriptorFixedConfiguration,
     DescriptorInitializerAbsent, DescriptorInitializerCell, DescriptorInitializerStateTerm,
@@ -215,7 +215,7 @@ pub struct SchemaVersion(pub u32);
 
 impl SchemaVersion {
     /// The only version this release reads and writes.
-    pub const CURRENT: Self = Self(72);
+    pub const CURRENT: Self = Self(73);
 }
 
 impl Default for SchemaVersion {

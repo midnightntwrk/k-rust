@@ -10,11 +10,12 @@ use krs_ir::testing::assert_canonical_contract;
 use krs_ir::{
     BuiltinSort, CellStream, CellWrapper, DescriptorCellExit, DescriptorCellField,
     DescriptorCellInitial, DescriptorCellMultiplicity, DescriptorCellReference,
-    DescriptorCellStream, DescriptorFixedConfiguration, DescriptorInitializerAbsent,
-    DescriptorInitializerCell, DescriptorPayload, DescriptorSortRef, DescriptorTerm, ItemKind,
-    ProtocolCellContent, ProtocolInitializerCellContent, ProtocolInitializerStateTerm,
-    ProtocolInitializerTerm, ProtocolRuleFrame, ProtocolRuleMap, ProtocolRuleMapBody,
-    ProtocolRuleMapItem, ProtocolRuleStateTerm, ProvenanceRole, RuleSide, SortDescriptor,
+    DescriptorCellStream, DescriptorCellUnobservable, DescriptorFixedConfiguration,
+    DescriptorInitializerAbsent, DescriptorInitializerCell, DescriptorPayload, DescriptorSortRef,
+    DescriptorTerm, ItemKind, ProtocolCellContent, ProtocolInitializerCellContent,
+    ProtocolInitializerStateTerm, ProtocolInitializerTerm, ProtocolRuleFrame, ProtocolRuleMap,
+    ProtocolRuleMapBody, ProtocolRuleMapItem, ProtocolRuleStateTerm, ProvenanceRole, RuleSide,
+    SortDescriptor,
 };
 
 #[path = "fixtures/configuration.rs"]
@@ -571,6 +572,12 @@ fn exit(ordinal: u32) -> DescriptorCellExit {
     }
 }
 
+fn unobservable(ordinal: u32) -> DescriptorCellUnobservable {
+    DescriptorCellUnobservable {
+        key: key(ProvenanceRole::ConfigurationCellUnobservable, ordinal),
+    }
+}
+
 fn set_leaf_sort(field: &mut DescriptorCellField, sort: BuiltinSort) {
     let ProtocolCellContent::Leaf { sort: content, .. } = &mut field.content else {
         unreachable!();
@@ -680,6 +687,88 @@ fn at_most_one_cell_reads_standard_input() {
     });
     assert!(
         error.contains("cells `env` and `input` both declare stream = \"stdin\""),
+        "{error}"
+    );
+}
+
+/// `unobservable` is a statement about the cell that changes nothing it computes: it reaches the
+/// Definition IR as its own attribute and the emitted K as ` unobservable=""`, whose exact range
+/// the source map records.
+#[test]
+fn an_unobservable_cell_lowers_and_emits_its_flag() {
+    let semantic = lower_descriptor_bundle(
+        &edited_bundle(|configuration| {
+            configuration.declaration.fields[1].unobservable = Some(unobservable(1));
+        })
+        .build()
+        .unwrap(),
+    )
+    .unwrap();
+    let (lowered, emitted) = assert_lowering_contract(&semantic);
+    let env = lowered
+        .definition()
+        .modules()
+        .iter()
+        .flat_map(krs_ir_levels::DefinitionModule::sentences)
+        .find_map(|sentence| match sentence {
+            krs_ir_levels::DefinitionSentence::Configuration(configuration) => configuration
+                .cells()
+                .iter()
+                .find(|cell| cell.name() == "env"),
+            _ => None,
+        })
+        .unwrap();
+    let [krs_ir::CellAttribute::Unobservable { origin }] = env.attributes() else {
+        panic!(
+            "`env` carries exactly its unobservable flag: {:?}",
+            env.attributes()
+        );
+    };
+    let source = emitted.source();
+    assert!(source.contains("<env unobservable=\"\">"), "{source}");
+    let entry = emitted
+        .source_map()
+        .entries()
+        .iter()
+        .find(|entry| entry.key() == origin.key())
+        .unwrap();
+    assert_eq!(
+        entry.node_kind(),
+        krs_compiler::SourceMapNodeKind::CellAttribute
+    );
+    let range = entry.generated().unwrap();
+    assert_eq!(range.artifact(), "definition.k");
+    assert_eq!(
+        &source[usize::try_from(range.start_byte()).unwrap()
+            ..usize::try_from(range.end_byte()).unwrap()],
+        " unobservable=\"\""
+    );
+}
+
+/// The exit cell's final value is the process exit status and a stream cell's content is console
+/// input or output: every run observes both, so neither can be unobservable.
+#[test]
+fn a_console_cell_cannot_be_unobservable() {
+    let error = console_error(|configuration| {
+        let env = &mut configuration.declaration.fields[1];
+        set_leaf_sort(env, BuiltinSort::Int);
+        env.exit = Some(exit(1));
+        env.unobservable = Some(unobservable(1));
+    });
+    assert!(
+        error.contains(
+            "cell `env` cannot be unobservable: its final value is the process exit status"
+        ),
+        "{error}"
+    );
+    let error = console_error(|configuration| {
+        let env = &mut configuration.declaration.fields[1];
+        set_leaf_sort(env, BuiltinSort::List);
+        env.stream = Some(stream(1, CellStream::Stdout));
+        env.unobservable = Some(unobservable(1));
+    });
+    assert!(
+        error.contains("cell `env` cannot be unobservable: its content is console input or output"),
         "{error}"
     );
 }

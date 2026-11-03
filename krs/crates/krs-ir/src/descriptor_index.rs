@@ -561,6 +561,7 @@ mod tests {
                 stream: None,
                 exit: None,
                 initial: None,
+                unobservable: None,
                 content: ProtocolCellContent::Leaf {
                     wrapper_key: role(ProvenanceRole::ConfigurationCellWrapper),
                     wrapper: CellWrapper::Cell,

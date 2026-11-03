@@ -217,6 +217,15 @@ pub struct DescriptorCellInitial {
     pub key: ProvenanceKey,
 }
 
+/// Optional bare `unobservable` flag of a cell: no use of the definition may
+/// observe its content.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DescriptorCellUnobservable {
+    /// Exact flag-identifier provenance.
+    pub key: ProvenanceKey,
+}
+
 /// `k::absent!(template)`, the initializer of an optional (`?`) cell that
 /// starts absent; an optional cell whose initializer lacks it starts present
 /// with its value.
@@ -344,10 +353,13 @@ protocol_shape! {
         /// Optional `initial` flag of an optional or collection cell (KF-023).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub initial: Option<DescriptorCellInitial> => [keep],
+        /// Optional `unobservable` flag; absent for an observable cell.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub unobservable: Option<DescriptorCellUnobservable> => [keep],
         /// Typed leaf or nested content.
         pub content: ProtocolCellContent<S, N> => [nested sort_map nominal_map],
     }
-    map_order: [content, reference, rust_field, emitted_name, color, multiplicity, cell_type, stream, exit, initial];
+    map_order: [content, reference, rust_field, emitted_name, color, multiplicity, cell_type, stream, exit, initial, unobservable];
 }
 
 /// Stable fixed-cell field.
@@ -1460,6 +1472,12 @@ fn validate_cell_metadata<I, S, N>(
             ));
         }
         keys.define(&initial.key, ProvenanceRole::ConfigurationCellInitial)?;
+    }
+    if let Some(unobservable) = &field.unobservable {
+        keys.define(
+            &unobservable.key,
+            ProvenanceRole::ConfigurationCellUnobservable,
+        )?;
     }
     Ok(emitted)
 }

@@ -49,7 +49,8 @@ impl ConsoleCells {
                     CellAttribute::Color { .. }
                     | CellAttribute::Multiplicity { .. }
                     | CellAttribute::CollectionType { .. }
-                    | CellAttribute::Initial { .. } => {}
+                    | CellAttribute::Initial { .. }
+                    | CellAttribute::Unobservable { .. } => {}
                 }
             }
             if let FixedCellContent::Children { children } = cell.content() {

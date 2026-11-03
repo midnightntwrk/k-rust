@@ -119,6 +119,7 @@ pub fn machine_configuration(start: StableItemId) -> DescriptorInputs {
                 stream: None,
                 exit: None,
                 initial: None,
+                unobservable: None,
                 content: krs_ir::ProtocolCellContent::Leaf {
                     wrapper_key: key(ProvenanceRole::ConfigurationCellWrapper, 0),
                     wrapper: CellWrapper::KCell,

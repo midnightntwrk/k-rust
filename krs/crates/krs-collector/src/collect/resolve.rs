@@ -2259,6 +2259,7 @@ mod tests {
             stream: None,
             exit: None,
             initial: None,
+            unobservable: None,
             content: krs_ir::ProtocolCellContent::Leaf {
                 wrapper_key: ProvenanceKey::new(krs_ir::ProvenanceRole::ConfigurationField, 1),
                 wrapper: krs_ir::CellWrapper::Cell,

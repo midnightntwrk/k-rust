@@ -9,7 +9,7 @@ use krs_ir::wire::{
 use krs_ir::{
     CellWrapper, DescriptorCellColor, DescriptorCellExit, DescriptorCellInitial,
     DescriptorCellMultiplicity, DescriptorCellName, DescriptorCellStream, DescriptorCellType,
-    DescriptorConfigurationRoot, ProtocolCellContent,
+    DescriptorCellUnobservable, DescriptorConfigurationRoot, ProtocolCellContent,
 };
 use krs_syntax::KrsSyntax;
 use krs_syntax::{ConfigurationCellContent, TokenRange};
@@ -449,6 +449,15 @@ fn configuration_fields(
                     .map(|key| DescriptorCellInitial { key })
             })
             .transpose()?;
+        let unobservable = field
+            .attribute()
+            .unobservable()
+            .map(|_| {
+                ledger
+                    .define(keys.unobservable())
+                    .map(|key| DescriptorCellUnobservable { key })
+            })
+            .transpose()?;
         let content = configuration_content(
             field,
             index,
@@ -478,6 +487,7 @@ fn configuration_fields(
             stream,
             exit,
             initial,
+            unobservable,
             content,
         });
     }

@@ -875,7 +875,8 @@ fn insert_fixed_configuration(
                     | CellAttribute::CollectionType { origin, .. }
                     | CellAttribute::Stream { origin, .. }
                     | CellAttribute::Exit { origin }
-                    | CellAttribute::Initial { origin } => {
+                    | CellAttribute::Initial { origin }
+                    | CellAttribute::Unobservable { origin } => {
                         insert_origin(entries, origin, SourceMapNodeKind::CellAttribute)?;
                     }
                 }

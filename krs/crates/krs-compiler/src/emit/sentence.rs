@@ -645,42 +645,33 @@ fn emit_fixed_cell(
     writer.push("<");
     writer.push(cell.name());
     for attribute in cell.attributes() {
+        let attribute_start = writer.source.len();
         match attribute {
-            CellAttribute::Color { origin, value } => {
-                let attribute_start = writer.source.len();
+            CellAttribute::Color { value, .. } => {
                 writer.push(" color=");
                 writer.push(&quoted_kstring(value.as_str()));
-                writer.record(origin.key(), attribute_start, writer.source.len())?;
             }
-            CellAttribute::Multiplicity { origin, value } => {
-                let attribute_start = writer.source.len();
+            CellAttribute::Multiplicity { value, .. } => {
                 writer.push(" multiplicity=");
                 writer.push(&quoted_kstring(value.as_str()));
-                writer.record(origin.key(), attribute_start, writer.source.len())?;
             }
-            CellAttribute::CollectionType { origin, value } => {
-                let attribute_start = writer.source.len();
+            CellAttribute::CollectionType { value, .. } => {
                 writer.push(" type=");
                 writer.push(&quoted_kstring(value.as_str()));
-                writer.record(origin.key(), attribute_start, writer.source.len())?;
             }
-            CellAttribute::Stream { origin, value } => {
-                let attribute_start = writer.source.len();
+            CellAttribute::Stream { value, .. } => {
                 writer.push(" stream=");
                 writer.push(&quoted_kstring(value.as_str()));
-                writer.record(origin.key(), attribute_start, writer.source.len())?;
             }
-            CellAttribute::Exit { origin } => {
-                let attribute_start = writer.source.len();
-                writer.push(" exit=\"\"");
-                writer.record(origin.key(), attribute_start, writer.source.len())?;
-            }
-            CellAttribute::Initial { origin } => {
-                let attribute_start = writer.source.len();
-                writer.push(" initial=\"\"");
-                writer.record(origin.key(), attribute_start, writer.source.len())?;
-            }
+            CellAttribute::Exit { .. } => writer.push(" exit=\"\""),
+            CellAttribute::Initial { .. } => writer.push(" initial=\"\""),
+            CellAttribute::Unobservable { .. } => writer.push(" unobservable=\"\""),
         }
+        writer.record(
+            attribute.origin().key(),
+            attribute_start,
+            writer.source.len(),
+        )?;
     }
     // K takes the cell named `k` as the main cell by its name; any other main cell says so.
     if scope.main == Some(cell.id()) && cell.name() != "k" {

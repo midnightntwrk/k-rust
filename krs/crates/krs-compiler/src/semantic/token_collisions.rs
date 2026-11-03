@@ -124,6 +124,7 @@ fn collect_names<'a, S, C>(cell: &'a FixedCell<S, C>, names: &mut Vec<Configurat
             CellAttribute::Stream { .. } => "stream",
             CellAttribute::Exit { .. } => "exit",
             CellAttribute::Initial { .. } => "initial",
+            CellAttribute::Unobservable { .. } => "unobservable",
         };
         names.push(ConfigurationName::Property {
             key,

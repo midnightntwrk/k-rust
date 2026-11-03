@@ -249,7 +249,7 @@ register_codes! {
         UNDEFINED_LEXICAL: "krs::analysis::undefined-lexical" => "A token, layout, or lexical regex refers to a `{Name}` that no `k::lexical!` declares.",
         RECURSIVE_LEXICAL: "krs::analysis::recursive-lexical" => "Lexicals refer to each other, directly or through other lexicals, in a cycle.",
         INVALID_SYNTAX_LIST: "krs::analysis::invalid-syntax-list" => "A `#[k::syntax_list]` sort has an element of its own sort, another constructor or subsort, or a terminator `.Sort` that another terminal already spells.",
-        CONSOLE_CELL: "krs::analysis::console-cell" => "A stream or exit cell does not have the shape K requires.",
+        CONSOLE_CELL: "krs::analysis::console-cell" => "A stream or exit cell does not have the shape K requires, or it or a cell holding it is declared unobservable.",
         FRESH_BINDER_POSITION: "krs::analysis::fresh-binder-position" => "A `#[k::fresh]` binder occurs in the pattern or `requires`, shadows a pattern binding, or is unused; a fresh value exists only once the step happens.",
         NO_FRESH_GENERATOR: "krs::analysis::no-fresh-generator" => "A `#[k::fresh]` binder has a sort without a `fresh_generator` function (Int and Id have K's own).",
         DUPLICATE_FRESH_GENERATOR: "krs::analysis::duplicate-fresh-generator" => "A sort has more than one `fresh_generator` function.",

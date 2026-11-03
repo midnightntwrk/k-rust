@@ -154,7 +154,7 @@ impl FixedCellField {
             TokenRange::for_tokens(&self.name)?,
         )?;
         // Cell-attribute anchors in the payload's order (name, color, multiplicity,
-        // type, stream, exit), at this field's ordinal.
+        // type, stream, exit, initial, unobservable), at this field's ordinal.
         self.attribute.allocate_keys(keys, Some(&field))?;
         match &mut self.content {
             ConfigurationCellContent::Leaf {

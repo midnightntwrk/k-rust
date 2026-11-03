@@ -251,6 +251,13 @@ impl Sample for DescriptorCellExit {
         }]
     }
 }
+impl Sample for DescriptorCellUnobservable {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<ProvenanceKey>(),
+        }]
+    }
+}
 impl Sample for CellWrapper {
     fn samples() -> Vec<Self> {
         vec![Self::Cell]
@@ -1064,8 +1071,11 @@ impl Sample for CellAttribute {
                 Self::Initial {
                     origin: sample::<NodeOrigin>(),
                 },
+                Self::Unobservable {
+                    origin: sample::<NodeOrigin>(),
+                },
             ],
-            6,
+            7,
             "CellAttribute",
             |value| match value {
                 Self::Color { .. } => 0,
@@ -1074,6 +1084,7 @@ impl Sample for CellAttribute {
                 Self::Stream { .. } => 3,
                 Self::Exit { .. } => 4,
                 Self::Initial { .. } => 5,
+                Self::Unobservable { .. } => 6,
             },
         )
     }
@@ -3915,6 +3926,7 @@ impl<
             stream: sample::<Option<DescriptorCellStream>>(),
             exit: sample::<Option<DescriptorCellExit>>(),
             initial: sample::<Option<DescriptorCellInitial>>(),
+            unobservable: sample::<Option<DescriptorCellUnobservable>>(),
             content: sample::<ProtocolCellContent<S, N>>(),
         }]
     }

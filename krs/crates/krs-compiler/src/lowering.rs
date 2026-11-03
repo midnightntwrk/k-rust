@@ -1663,6 +1663,9 @@ fn lower_cell_attributes(
                 None,
                 Some("initial"),
             )?)),
+            CellAttribute::Unobservable { origin } => Ok(CellAttribute::unobservable(
+                origins.lower(origin, "cell-attribute", None, Some("unobservable"))?,
+            )),
         })
         .collect()
 }

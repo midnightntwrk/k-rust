@@ -583,6 +583,9 @@ provenance_roles! {
     /// `k::absent!` around an optional cell's initializer template: the cell
     /// starts absent. Numbered as the cell is.
     InitializerAbsent => "initializer_absent",
+    /// Bare `unobservable` flag of a cell: no use of the definition may
+    /// observe its content.
+    ConfigurationCellUnobservable => "configuration_cell_unobservable",
 }
 
 impl Serialize for ProvenanceRole {
