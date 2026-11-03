@@ -222,13 +222,18 @@ enum Reach {
 
 impl BudgetUse {
     /// What a subterm's simplification that started from `start`, left `left`, and whose least
-    /// reading of its caller's budget was `low` (`usize::MAX` for none) read.
-    fn of_subterm(start: usize, left: usize, low: usize) -> Self {
+    /// reading of its caller's budget was `low` (`None` for none) read. One that read none took
+    /// no charged step, so decremented nothing, and left what it started from.
+    fn of_subterm(start: usize, left: usize, low: Option<usize>) -> Self {
         let reach = match low {
-            usize::MAX => Reach::Unread,
-            0 => Reach::RanOut,
-            low => Reach::Above(start.saturating_sub(low)),
+            None => Reach::Unread,
+            Some(0) => Reach::RanOut,
+            Some(low) => Reach::Above(start.saturating_sub(low)),
         };
+        debug_assert!(
+            reach != Reach::Unread || left == start,
+            "a simplification that read none of its budget, from {start}, left {left}"
+        );
         Self { start, left, reach }
     }
 
@@ -241,14 +246,27 @@ impl BudgetUse {
         }
     }
 
+    /// Whether this one is served from more budgets than `other` ([`BudgetUse::serves`]): one
+    /// that read none is served from every budget, one whose least reading was above 0 from every
+    /// budget above its depth (the more, the lower the depth), and one that ran out, or a
+    /// destination's, from the one budget it started from.
+    fn serves_more_than(self, other: Self) -> bool {
+        match (self.reach, other.reach) {
+            (Reach::Unread, other) => other != Reach::Unread,
+            (Reach::Above(depth), Reach::Above(other)) => depth < other,
+            (Reach::Above(_), Reach::RanOut | Reach::OwnLineage) => true,
+            (Reach::Above(_) | Reach::RanOut | Reach::OwnLineage, _) => false,
+        }
+    }
+
     /// What a simplification from `budget`, which this one serves ([`BudgetUse::serves`]),
-    /// leaves, and its least reading of `budget` (`usize::MAX` for none).
-    fn for_budget(self, budget: usize) -> (usize, usize) {
+    /// leaves, and its least reading of `budget` (`None` for none).
+    fn for_budget(self, budget: usize) -> (usize, Option<usize>) {
         let spent = self.start - self.left;
         let low = match self.reach {
-            Reach::Unread | Reach::OwnLineage => usize::MAX,
-            Reach::Above(depth) => budget - depth,
-            Reach::RanOut => 0,
+            Reach::Unread | Reach::OwnLineage => None,
+            Reach::Above(depth) => Some(budget - depth),
+            Reach::RanOut => Some(0),
         };
         (budget - spent, low)
     }
@@ -781,7 +799,7 @@ fn serve(
     crate::rule::skip_apart_names(served.replayed.apart);
     super::note_undecided_times(served.replayed.undecided);
     let (left, low) = served.replayed.budget.for_budget(*budget);
-    if low != usize::MAX {
+    if let Some(low) = low {
         super::note_budget_reading(low);
     }
     *budget = left;
@@ -795,7 +813,7 @@ pub(super) struct Pending<'a> {
     probe: Probe<'a>,
     watch: Watch,
     stack_stops: stop::StackStopCount,
-    readings: usize,
+    readings: Option<usize>,
 }
 
 impl<'a> Pending<'a> {
@@ -838,14 +856,15 @@ impl<'a> Pending<'a> {
                 }
             }
             Ok((simplification, replayed)) => {
-                NormalForms::record(
+                if NormalForms::record(
                     &probe,
                     simplification.clone(),
                     watch.facts_open,
                     watch.collected,
                     replayed,
-                );
-                measure::bump(site.recorded());
+                ) {
+                    measure::bump(site.recorded());
+                }
             }
         }
     }
@@ -1049,13 +1068,15 @@ impl NormalForms {
         })
     }
 
+    /// Record `simplification` under `probe`'s key, unless the one held there is kept
+    /// (below); whether it was recorded.
     fn record(
         probe: &Probe<'_>,
         simplification: Simplification,
         facts_open: bool,
         collected: bool,
         replayed: Replayed,
-    ) {
+    ) -> bool {
         let renaming = probe.renaming.clone();
         let own_bytes = std::mem::size_of::<(NormalFormKey, Recorded)>()
             + std::mem::size_of_val(&*renaming)
@@ -1063,7 +1084,7 @@ impl NormalForms {
             + simplification.applied_rules.len() * std::mem::size_of::<String>();
         NORMAL_FORMS.with_borrow_mut(|record| {
             let Some(record) = record.as_mut() else {
-                return;
+                return false;
             };
             // A bound on the memory the record holds, not on what is served: a cleared record
             // simplifies again what it no longer holds.
@@ -1087,8 +1108,6 @@ impl NormalForms {
                 .subject
                 .active
                 .map(|active| record.intern_active(active));
-            let bytes = own_bytes
-                + record.count_new_nodes(probe.subject.node, &simplification) * NODE_BYTES;
             let key = NormalFormKey {
                 subject: probe.subject.node.clone(),
                 renaming,
@@ -1097,6 +1116,23 @@ impl NormalForms {
                 active,
                 scalars: probe.scalars,
             };
+            // A simplification recorded again where the one held was not served replaces it: a
+            // path-fact record or a collector is open now that was not then, or the held one does
+            // not serve the budget this one started from. The held one is kept where it serves
+            // more budgets than this one and wherever this one is served else: replacing it then
+            // (a simplification that ran out of a small budget, in place of one that serves every
+            // budget above its depth) would only lose reuse, since each serves only what a new
+            // simplification gives.
+            if let Some(held) = record.entries.get(&key)
+                && held.replayed.budget.serves_more_than(replayed.budget)
+                && (held.facts_open || !facts_open)
+                && (held.collected || !collected)
+            {
+                return false;
+            }
+            let bytes = own_bytes
+                + record.count_new_nodes(probe.subject.node, &simplification) * NODE_BYTES;
+            let key = key;
             record.retained += bytes;
             let recorded = Recorded {
                 simplification,
@@ -1105,12 +1141,11 @@ impl NormalForms {
                 replayed,
                 bytes,
             };
-            // A simplification recorded again where the one held was not served (a path-fact
-            // record or a collector open now and not then) replaces it.
             if let Some(replaced) = record.entries.insert(key, recorded) {
                 record.retained -= replaced.bytes;
             }
-        });
+            true
+        })
     }
 
     /// The one copy of `path_condition` the record holds, made now if there is none.
@@ -1308,7 +1343,9 @@ mod tests {
 
     /// `f(X) = X` only under `X >Int 0`, which the solver is asked about; `pair` is a
     /// constructor that holds two of them; `k(X) = f(X)` and `k2(X) = k(X)`, unconditional, so
-    /// that a lineage of `k2(Y)` takes two charged steps, reading its budget twice.
+    /// that a lineage of `k2(Y)` takes two charged steps, reading its budget twice. `g(X) = X`
+    /// only under `pos(X)`, where `pos(X) = true` unconditionally: simplified, `g`'s condition is
+    /// `true`; as written, it is `pos(X)`, on which the solver decides nothing.
     fn definition() -> BackendDefinition {
         let source = r#"[]
             module MAIN
@@ -1319,6 +1356,8 @@ mod tests {
                 symbol pair{}(SortInt{}, SortInt{}) : SortP{} [constructor{}()]
                 symbol k{}(SortInt{}) : SortInt{} [function{}()]
                 symbol k2{}(SortInt{}) : SortInt{} [function{}()]
+                symbol g{}(SortInt{}) : SortInt{} [function{}()]
+                symbol pos{}(SortInt{}) : SortBool{} [function{}(), total{}()]
                 hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
                     [function{}(), total{}(), hook{}("INT.gt"), smt-hook{}(">")]
                 axiom{R} \implies{R}(
@@ -1342,6 +1381,17 @@ mod tests {
                     \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, Z:SortInt{}), \top{R}())),
                     \equals{SortInt{}, R}(k2{}(X0:SortInt{}), \and{SortInt{}}(k{}(Z:SortInt{}), \top{SortInt{}}()))
                 ) [label{}("k2-k")]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \equals{SortBool{}, R}(pos{}(X0:SortInt{}), \dv{SortBool{}}("true")),
+                        \and{R}(\in{SortInt{}, R}(X0:SortInt{}, Z:SortInt{}), \top{R}())
+                    ),
+                    \equals{SortInt{}, R}(g{}(X0:SortInt{}), \and{SortInt{}}(Z:SortInt{}, \top{SortInt{}}()))
+                ) [label{}("g-pos")]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, Z:SortInt{}), \top{R}())),
+                    \equals{SortBool{}, R}(pos{}(X0:SortInt{}), \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}()))
+                ) [label{}("pos-true")]
             endmodule []"#;
         let syntax = parse_definition(source).expect("the definition parses");
         BackendDefinition::internalize(&syntax, "MAIN").expect("the definition internalizes")
@@ -1662,6 +1712,62 @@ mod tests {
         }
     }
 
+    /// GAP K17 part e: the active set is in a subterm's key because what a subterm simplifies
+    /// to depends on it. `g(Y)` under no active condition decides `g`'s condition simplified,
+    /// `pos(Y)` to `true`, and is `Y`; under the set that holds `g`'s own condition at `g(Y)`,
+    /// that condition is met again and kept as written, `pos(Y)`, which the solver leaves
+    /// undecided, and `g(Y)` stays. Neither is served the other's simplification (without the
+    /// set in the key, the second would be served `Y`), and each is served under its own set.
+    #[test]
+    fn a_subterm_simplified_differently_under_two_active_sets_is_served_under_its_own_only() {
+        let definition = definition();
+        let solver = Contingent;
+        let subject = term(&definition, "g{}(Y:SortInt{})");
+        let known = [above(&definition, "0")];
+        let runs = || {
+            in_a_proof(|| {
+                let (none, met_again) = (
+                    Given::under(&known),
+                    Given {
+                        active: BTreeSet::from([("g-pos".to_owned(), subject.clone())]),
+                        ..Given::under(&known)
+                    },
+                );
+                [&none, &met_again, &none, &met_again]
+                    .map(|given| simplify_subterm(&definition, &subject, given, &solver))
+            })
+        };
+        let recorded = runs();
+        let fresh = without_normal_forms(runs);
+        let [none, met_again, none_again, met_again_again] = &recorded;
+        assert_eq!(
+            none.simplification.term,
+            term(&definition, "Y:SortInt{}"),
+            "{none:#?}"
+        );
+        assert_eq!(none.undecided, 0, "{none:#?}");
+        assert_eq!(met_again.simplification.term, subject, "{met_again:#?}");
+        assert!(met_again.undecided > 0, "{met_again:#?}");
+        for first in [none, met_again] {
+            assert_eq!(first.served, 0, "{first:#?}");
+            assert!(first.recorded > 0, "{first:#?}");
+        }
+        for again in [none_again, met_again_again] {
+            assert_eq!(
+                (again.recorded, again.served, again.attempts),
+                (0, 1, 0),
+                "{again:#?}"
+            );
+        }
+        for (run, fresh) in recorded.iter().zip(&fresh) {
+            assert_eq!(run.simplification, fresh.simplification);
+            assert_eq!(
+                (run.undecided, run.remaining),
+                (fresh.undecided, fresh.remaining)
+            );
+        }
+    }
+
     /// The simplifications of `subject` from each budget in `budgets`, in a proof's record
     /// (keeping a partial result where the budget runs out), and the same with nothing recorded.
     fn from_budgets<const N: usize>(
@@ -1752,6 +1858,30 @@ mod tests {
         );
     }
 
+    /// GAP K17 part e: a record is not replaced by one served from fewer budgets. `k2(Y)` from 5
+    /// is recorded with its least reading 4 (served from every budget above 1); from 1 it is not
+    /// served that one, and runs out, which a reuse serves from 1 only: the held one is kept, so
+    /// from 9 it is served, and leaves 7.
+    #[test]
+    fn a_subterm_record_is_not_replaced_by_one_served_from_fewer_budgets() {
+        let definition = definition();
+        let subject = term(&definition, "k2{}(Y:SortInt{})");
+        let ([wide, ran_out, again], _) = from_budgets(&definition, &subject, [5, 1, 9]);
+        assert_eq!((wide.recorded, wide.served), (2, 1), "{wide:#?}");
+        assert!(ran_out.simplification.exhausted.is_some(), "{ran_out:#?}");
+        assert_eq!((ran_out.recorded, ran_out.served), (0, 0), "{ran_out:#?}");
+        assert_eq!(
+            (
+                again.recorded,
+                again.served,
+                again.attempts,
+                again.remaining
+            ),
+            (0, 1, 0, 7),
+            "{again:#?}"
+        );
+    }
+
     /// GAP K17 part e: the budgets a subterm is served from are bounded by its least reading, not
     /// by the budget it leaves: a child's lineage spends a copy of its parent's budget, which the
     /// parent's budget left does not show. `pair(k2(Y), Y)` from 5 leaves 5 (a constructor takes
@@ -1779,8 +1909,9 @@ mod tests {
             (0, 1, 0, 2),
             "{alike:#?}"
         );
-        // `pair(..)` and `k2(Y)` are each simplified again, and run out.
-        assert_eq!((short.recorded, short.served), (2, 0), "{short:#?}");
+        // `pair(..)` and `k2(Y)` are each simplified again, and run out; neither replaces the
+        // one held, which is served from more budgets.
+        assert_eq!((short.recorded, short.served), (0, 0), "{short:#?}");
         assert!(short.simplification.exhausted.is_some(), "{short:#?}");
     }
 

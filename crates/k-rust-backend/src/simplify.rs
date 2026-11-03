@@ -2260,32 +2260,36 @@ fn undecided_so_far() -> u64 {
 thread_local! {
     /// The least iteration budget a charged root step of a term lineage read on this thread
     /// ([`Lineage::root_step`], which tests it against 0) since the innermost routed
-    /// simplification (`normal_forms`) or budget of its own ([`OwnBudget`]) began, `usize::MAX`
-    /// where none was read. The term simplifier reads a lineage's budget nowhere else but to
+    /// simplification (`normal_forms`) or budget of its own ([`OwnBudget`]) began, `None`
+    /// where none was read (a reading of `usize::MAX`, an unbounded budget's, is a reading too). The term simplifier reads a lineage's budget nowhere else but to
     /// copy it to a child, to decrement it after that test, to compare two readings of one
     /// lineage (`Recurrence`), or to restore an earlier reading (an undone `Unspecified` step),
     /// so a simplification that read only values above 0 reads the same truth values from any
     /// budget its least reading stays above 0 under (`normal_forms::BudgetUse`).
-    static BUDGET_LOW: Cell<usize> = const { Cell::new(usize::MAX) };
+    static BUDGET_LOW: Cell<Option<usize>> = const { Cell::new(None) };
 }
 
 /// Note a reading of a lineage's budget ([`BUDGET_LOW`]).
 #[inline]
 fn note_budget_reading(remaining: usize) {
-    BUDGET_LOW.set(BUDGET_LOW.get().min(remaining));
+    let low = BUDGET_LOW.get().map_or(remaining, |low| low.min(remaining));
+    BUDGET_LOW.set(Some(low));
 }
 
 /// Start watching the readings of a routed simplification's budget ([`BUDGET_LOW`]): the
 /// readings so far, which the caller restores with [`budget_readings_finish`].
-fn budget_readings_start() -> usize {
-    BUDGET_LOW.replace(usize::MAX)
+fn budget_readings_start() -> Option<usize> {
+    BUDGET_LOW.replace(None)
 }
 
 /// The least reading since [`budget_readings_start`] gave `before`; the readings around it
 /// then include it, since the routed simplification ran on a copy of their budget.
-fn budget_readings_finish(before: usize) -> usize {
+fn budget_readings_finish(before: Option<usize>) -> Option<usize> {
     let low = BUDGET_LOW.get();
-    BUDGET_LOW.set(before.min(low));
+    BUDGET_LOW.set(match (before, low) {
+        (Some(before), Some(low)) => Some(before.min(low)),
+        (before, low) => before.or(low),
+    });
     low
 }
 
@@ -2293,7 +2297,7 @@ fn budget_readings_finish(before: usize) -> usize {
 /// restored as they were: work whose readings the run does not make (`normal_forms`'s check of
 /// a served simplification).
 #[cfg(feature = "check-normal-forms")]
-fn budget_readings_discard(before: usize) -> usize {
+fn budget_readings_discard(before: Option<usize>) -> Option<usize> {
     BUDGET_LOW.replace(before)
 }
 
@@ -2301,12 +2305,12 @@ fn budget_readings_discard(before: usize) -> usize {
 /// budget, open while it lives: its readings are kept from the readings around
 /// ([`BUDGET_LOW`]), which are of another budget, and those are restored when it closes (also
 /// on unwinding).
-struct OwnBudget(usize);
+struct OwnBudget(Option<usize>);
 
 impl OwnBudget {
     #[inline]
     fn enter() -> Self {
-        Self(BUDGET_LOW.replace(usize::MAX))
+        Self(BUDGET_LOW.replace(None))
     }
 }
 
