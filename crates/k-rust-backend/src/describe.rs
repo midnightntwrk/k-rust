@@ -561,7 +561,7 @@ impl Display for TranslationError {
         match self {
             Self::NonBooleanAnd(term) => write!(
                 formatter,
-                "a term conjunction both of whose sides hold set variables may denote several values and cannot be translated: {}",
+                "a term holding a set variable (outside a term conjunction with a side that holds none) may denote several values and cannot be translated: {}",
                 compact_term(term)
             ),
             Self::PlaceholderOutOfBounds {

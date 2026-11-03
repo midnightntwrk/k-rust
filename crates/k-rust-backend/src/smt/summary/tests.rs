@@ -1041,19 +1041,22 @@ fn actual_scalar_emission_shares_dependencies_and_keeps_actual_operand_admission
     let emitted = state.translate_term(&call).unwrap().to_string();
     assert!(emitted.contains("SMT-"));
     assert_eq!(state.exactness(), super::super::Exactness::Exact);
-    // Reusing the exact same signature cannot admit a set-valued actual argument.
+    // Reusing the exact same signature cannot admit a set-valued actual argument. Since GAP
+    // K40 the application is not read as one opaque value either: `outer(@Set)` is the union
+    // of `outer`'s values over the elements of `Set`, which may be several, so no one SMT value
+    // reads it, and the translation refuses it (`may_denote_several`).
     let set = Term::variable(Variable::set("Set", Sort::simple("SortInt")));
     let TermKind::Application { symbol, .. } = call.kind() else {
         unreachable!()
     };
     let set_call = Term::application(symbol.clone(), vec![], vec![set]);
-    let reading = super::reading(&state.summaries, &set_call)
-        .unwrap()
-        .name
-        .clone();
-    let refused = state.translate_term(&set_call).unwrap().to_string();
-    assert!(!refused.contains(&format!("({reading} ")));
-    assert_eq!(state.exactness(), super::super::Exactness::Approximate);
+    assert!(super::reading(&state.summaries, &set_call).is_some());
+    assert_eq!(
+        state.translate_term(&set_call),
+        Err(super::super::TranslationError::NonBooleanAnd(
+            set_call.clone()
+        ))
+    );
 }
 
 #[cfg(feature = "z3")]

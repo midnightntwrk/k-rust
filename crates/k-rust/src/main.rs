@@ -3196,7 +3196,7 @@ fn kore_match_disjunction_command(options: KoreMatchDisjunctionArgs) -> Result<(
         let target = backend.with_solver(None, |definition, _| {
             definition
                 .verify_standalone_pattern(&target, &[])
-                .and_then(|admitted| admitted.internalize_pattern())
+                .and_then(|admitted| admitted.as_match_target().internalize_pattern())
                 .map_err(|error| BackendError::new(error.to_string()))
         })?;
 

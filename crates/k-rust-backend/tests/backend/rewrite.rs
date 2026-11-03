@@ -2663,8 +2663,17 @@ fn element_variable_bindings_to_set_patterns_do_not_rewrite() {
     );
     let mut fresh = FreshCounter::default();
 
+    // No request holds a set variable (GAP K40), so the subject is built: a library caller may
+    // build one, and a rewrite rule's right-hand side may introduce one.
+    let sort = Sort::simple("SortS");
     let set_subject = Pattern {
-        term: internal_term(&definition, "wrap{}(@Y:SortS{})"),
+        term: substitute(
+            &internal_term(&definition, "wrap{}(Y:SortS{})"),
+            &Substitution::from([(
+                Variable::new("Y", sort),
+                Term::variable(Variable::set("@Y", sort)),
+            )]),
+        ),
         constraints: Vec::new(),
     };
     assert!(matches!(

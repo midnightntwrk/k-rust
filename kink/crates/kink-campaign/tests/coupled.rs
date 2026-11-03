@@ -7514,9 +7514,10 @@ mod kink_tier {
     }
 
     /// VI-AT8: a test whose state holds set variables spelled like printed marked set variables
-    /// (`@Rule-hM`, `@Rule#M` printed) is admitted, and its run stops at an Indeterminate leaf
-    /// (kink-native `audit_vi.rs`), so the baseline's slots are incomplete: the campaign is
-    /// refused against the A2 rename and against K, in both schedules, never a kill.
+    /// (`@Rule-hM`, `@Rule#M` printed) is refused by kink's admission of a test state
+    /// (`bridge::validate_test_initial_state`), and k-rust refuses its run too (GAP K40;
+    /// kink-native `audit_vi.rs`): the campaign is refused against the A2 rename and against K,
+    /// in both schedules, never a kill.
     #[test]
     #[ignore = "kink"]
     fn audit_vi_at8_set_variable_in_a_test_is_not_killed() {

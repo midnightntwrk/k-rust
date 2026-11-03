@@ -1124,6 +1124,64 @@ endmodule
         assert!(checked >= programs.len(), "{checked}");
     }
 
+    /// GAP K40: a set variable denotes any set of elements, and the simplifier and the solver
+    /// read each term as denoting at most one. With `P = Q = {true, false}`, `c = @P /\ @Q` is
+    /// `{true, false}`, so `true = notBool c` is false, while `kore-simplify` gave the rewrite
+    /// `\not(true = c)` beside it, which is true; and with `g = c andBool true`,
+    /// `⌈g⌉ /\ ⌈notBool c⌉ /\ \not(true = g) /\ \not(true = notBool c)` has that instance,
+    /// though get-model answered `Unsat`. Every route refuses such a request, naming the
+    /// variable; the same request over element variables is answered.
+    #[test]
+    fn a_request_holding_a_free_set_variable_is_refused_on_every_route() {
+        let mut backend = backend();
+        for (p, q, refused) in [("@P", "@Q", true), ("P", "Q", false)] {
+            let c = format!("\\and{{SortBool{{}}}}({p}:SortBool{{}}, {q}:SortBool{{}})");
+            let n = format!("LblnotBool'Unds'{{}}({c})");
+            let g = format!("Lbl'Unds'andBool'Unds'{{}}({c}, \\dv{{SortBool{{}}}}(\"true\"))");
+            let ceil = |term: &str| format!("\\ceil{{SortBool{{}}, {SORT}}}({term})");
+            let model = and(
+                &pos(),
+                &and(
+                    &and(&ceil(&g), &ceil(&n)),
+                    &and(&not(&holds(&g)), &not(&holds(&n))),
+                ),
+            );
+            let simplified = and(&pos(), &not(&holds(&n)));
+            let outcome = |result: Result<(), BackendError>| match result {
+                Ok(()) => false,
+                Err(error) => {
+                    assert!(error.to_string().contains("set variable `@P`"), "{error}");
+                    true
+                }
+            };
+            let simplify = backend
+                .simplify(PatternRequest::new(parse(&simplified)))
+                .map(drop);
+            assert_eq!(outcome(simplify), refused, "simplify {p}");
+            let implies = backend
+                .implies(ImplicationRequest::new(parse(&simplified), parse(&pos())))
+                .map(drop);
+            assert_eq!(outcome(implies), refused, "implies {p}");
+            let implied = backend
+                .implies(ImplicationRequest::new(parse(&pos()), parse(&simplified)))
+                .map(drop);
+            assert_eq!(outcome(implied), refused, "implies, consequent {p}");
+            let execute = backend
+                .execute(ExecuteRequest::new(parse(&simplified)))
+                .map(drop);
+            assert_eq!(outcome(execute), refused, "execute {p}");
+            if backend.capabilities().smt {
+                let model = backend.get_model(PatternRequest::new(parse(&model)));
+                if refused {
+                    assert!(outcome(model.map(drop)), "get-model {p}");
+                } else {
+                    let model = model.unwrap();
+                    assert_eq!(model.satisfiable, "unsat", "{model:?}");
+                }
+            }
+        }
+    }
+
     const Z: &str = "Z:SortInt{}";
     const W: &str = "W:SortInt{}";
 

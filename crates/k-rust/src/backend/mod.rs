@@ -2159,6 +2159,7 @@ impl Backend {
                     definition
                         .admit_unverified(&matching.pattern, &[])
                         .for_execution(&literals)
+                        .as_match_target()
                         .internalize_pattern()
                         .map(|target| StateMatchOptions {
                             target,
@@ -2424,6 +2425,7 @@ impl Backend {
             let target = definition
                 .admit_unverified(&target_syntax, &[])
                 .for_execution(&literals)
+                .as_match_target()
                 .internalize_pattern()
                 .map_err(error("could not internalize search pattern"))?;
             let options = SearchOptions {
@@ -2504,6 +2506,7 @@ impl Backend {
             let target = definition
                 .admit_unverified(&target_syntax, &[])
                 .for_execution(&literals)
+                .as_match_target()
                 .internalize_pattern()
                 .map_err(error("could not internalize search pattern"))?;
             let options = SearchOptions {
@@ -4054,12 +4057,20 @@ mod tests {
         endmodule []"#;
 
     #[cfg(not(feature = "z3-inference"))]
+    /// No request holds a set variable (GAP K40), so `mint`'s right-hand side introduces one:
+    /// the step from `go()` gives `wrap(@Y')`, a fresh set variable, on which `duplicate` binds
+    /// an element variable to a set pattern and is indeterminate.
     const SET_BINDING_DEFINITION: &str = r#"[]
         module MAIN
             sort SortS{} []
+            symbol go{}() : SortS{} [constructor{}()]
             symbol wrap{}(SortS{}) : SortS{} [constructor{}()]
             symbol pair{}(SortS{}, SortS{}) : SortS{}
                 [function{}(), total{}(), injective{}(), no-evaluators{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(go{}(), \top{SortS{}}()),
+                wrap{}(@Y:SortS{})
+            ) [label{}("mint")]
             axiom{} \rewrites{SortS{}}(
                 \and{SortS{}}(wrap{}(I:SortS{}), \top{SortS{}}()),
                 pair{}(I:SortS{}, I:SortS{})
@@ -4181,7 +4192,7 @@ mod tests {
         let cases = [
             (INDETERMINATE_DEFINITION, "wrap{}(Y:SortInt{})", "requires"),
             (NARROWING_DEFINITION, "wrap{}(Y:SortS{})", "smt"),
-            (SET_BINDING_DEFINITION, "wrap{}(@Y:SortS{})", "match"),
+            (SET_BINDING_DEFINITION, "go{}()", "match"),
         ];
         for (definition, state, kind) in cases {
             let mut backend = Backend::new(definition, "MAIN", BackendOptions::default()).unwrap();

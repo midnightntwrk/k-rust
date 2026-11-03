@@ -1033,6 +1033,11 @@ impl TranslationState {
     }
 
     fn translate_term_node(&mut self, term: &Term) -> Result<SExpr, TranslationError> {
+        // Every reading below gives the term one value, which a term that may denote several
+        // elements has not; such a term is refused before any of them (`may_denote_several`).
+        if may_denote_several(term) {
+            return Err(TranslationError::NonBooleanAnd(term.clone()));
+        }
         let reading = self.observations.get(term).cloned();
         let demands = self
             .observation_demands
@@ -1140,7 +1145,8 @@ impl TranslationState {
             // reading: an atom is gated by its operand's domain, which a stated `\ceil` of the
             // operand removes, and the domain holding does not make the operand one value.
             // Such a conjunction is refused, so no atom over it is posed
-            // (`TranslationError::NonBooleanAnd`, the wire variant this refusal reuses).
+            // (`TranslationError::NonBooleanAnd`, the wire variant this refusal reuses); the
+            // node's own check (`may_denote_several`) refuses it before this arm is reached.
             TermKind::And(left, right) => {
                 if crate::definedness::holds_set_variable(left)
                     && crate::definedness::holds_set_variable(right)
@@ -2605,12 +2611,55 @@ fn translate_query_in_state(
     Ok((translation, declarations, substitution, known, checked))
 }
 
+/// Whether `term` may denote several elements, so that no one SMT value reads it: it holds a set
+/// variable that is not below a term-level `\and` one of whose sides holds none.
+///
+/// A set variable denotes any set of elements. Every other term denotes at most one: an element
+/// variable or a domain value one, an application (every symbol is a partial function, a
+/// constructor a total one) at most one when its arguments do, and a conjunction the
+/// intersection of its sides, at most one when one side is. Applications, injections and
+/// collections are strict in their parts, so a part that may denote several makes the whole
+/// one that may. A conjunction both of whose sides hold set variables is taken to (it may be
+/// smaller, `(@S /\ X) /\ @T`, and is then refused conservatively); one with a side that holds
+/// none is read as an opaque constant without reading its other side (`translate_term_node_plain`).
+///
+/// A request holds no set variable (`definition::Admitted`); this is the solver's own refusal, for
+/// a library caller's terms and for a set variable a rewrite rule's right-hand side introduces.
+/// `holds_set_variable` is one look, so a term without one costs nothing here.
+fn may_denote_several(term: &Term) -> bool {
+    let mut pending = vec![term];
+    while let Some(term) = pending.pop() {
+        if !crate::definedness::holds_set_variable(term) {
+            continue;
+        }
+        match term.kind() {
+            TermKind::Variable(_) => return true,
+            TermKind::And(left, right) => {
+                if crate::definedness::holds_set_variable(left)
+                    && crate::definedness::holds_set_variable(right)
+                {
+                    return true;
+                }
+            }
+            kind @ (TermKind::Application { .. }
+            | TermKind::DomainValue { .. }
+            | TermKind::Injection { .. }
+            | TermKind::Map { .. }
+            | TermKind::List { .. }
+            | TermKind::Set { .. }) => pending.extend(crate::term::immediate_children(kind)),
+        }
+    }
+    false
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum TranslationError {
-    /// A term-level `\and` both of whose sides hold set variables: it may denote several
-    /// elements, so no single SMT value reads it. Every other conjunction is translated (GAP
-    /// K36 reads one of any sort by its domain plan); the name, from when a non-Boolean
-    /// conjunction was refused, is kept for the wire format (`non-boolean-and`).
+    /// A term that may denote several elements, so that no single SMT value reads it: a set
+    /// variable, or a term holding one outside a term-level `\and` with a side that holds none
+    /// (`may_denote_several`), such as a conjunction both of whose sides hold set variables.
+    /// Every set-variable-free conjunction is translated (GAP K36 reads one of any sort by its
+    /// domain plan). The name, from when a non-Boolean conjunction was refused, is kept for the
+    /// wire format (`non-boolean-and`), which carries the refused term.
     NonBooleanAnd(Term),
     PlaceholderOutOfBounds {
         placeholder: usize,

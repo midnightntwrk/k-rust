@@ -244,7 +244,12 @@ pub fn prepare_backend_match_target(
     // A target is matched by an execution or a search of a program (`krun`), which takes
     // k-rust's element of an open literal and marks it.
     let literals = k_rust_backend::definition::RequestLiterals::new();
-    let pattern = admitted.for_execution(&literals).internalize_pattern()?;
+    // A target's term may hold set variables, pattern variables the match binds
+    // (`Admitted::as_match_target`); `@_` compiles to one.
+    let pattern = admitted
+        .for_execution(&literals)
+        .as_match_target()
+        .internalize_pattern()?;
     let generated_anonymous_variables =
         map_generated_anonymous_variables(&pattern, &compiled.generated_anonymous_variables)?;
     Ok(BackendMatchTarget {

@@ -3730,6 +3730,87 @@ mod tests {
         assert!(refused(&answer), "{answer:?}");
     }
 
+    /// GAP K40: a set variable may denote several elements, so the solver reads no term holding
+    /// one as one value, and a library caller's query over one is refused, not answered.
+    /// With `S = {-1, 0}`, `g = (S + 1 > 0)` and `n = (S + 1 <= 0)` are both `{false, true}`:
+    /// defined, and neither is `true`. So `⌈g⌉ ∧ ⌈n⌉ ∧ ¬(true = g) ⇒ true = n` is not
+    /// entailed, though it is valid for every one value of `S`. The same holds below an
+    /// application the solver reads as an opaque value (`opaque(@S) + 1`, no `smt` attribute),
+    /// which reaches no variable arm. A term-level `\and` with a side that holds no set
+    /// variable denotes at most one element and is still read (the K35 test above).
+    #[test]
+    fn a_set_variable_is_not_read_as_one_value() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol plus{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), total{}(), smt-hook{}("+")]
+                symbol gt{}(SortInt{}, SortInt{}) : SortBool{} [function{}(), total{}(), smt-hook{}(">")]
+                symbol le{}(SortInt{}, SortInt{}) : SortBool{} [function{}(), total{}(), smt-hook{}("<=")]
+                symbol opaque{}(SortInt{}) : SortInt{} [function{}(), total{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = Z3Solver::new(&definition).unwrap();
+        let boolean =
+            |value: &str| crate::term::Term::raw_domain_value(Sort::simple("SortBool"), value);
+        let not = |predicate: Predicate| Predicate::Not(std::sync::Arc::new(predicate));
+        let s = Substitution::new();
+        let shapes = |st: &str| {
+            let atom = |symbol: &str| {
+                term(
+                    &definition,
+                    &format!(
+                        r#"{symbol}{{}}(plus{{}}({st}, \dv{{SortInt{{}}}}("1")), \dv{{SortInt{{}}}}("0"))"#
+                    ),
+                )
+            };
+            let (g, n) = (atom("gt"), atom("le"));
+            (
+                vec![
+                    Predicate::Ceil(g.clone()),
+                    Predicate::Ceil(n.clone()),
+                    not(Predicate::Equals(boolean("true"), g)),
+                ],
+                Predicate::Equals(boolean("true"), n),
+            )
+        };
+        fn refused<T>(result: &Result<T, SmtError>) -> bool {
+            matches!(
+                result,
+                Err(SmtError::Translation(
+                    crate::smt::TranslationError::NonBooleanAnd(_)
+                ))
+            )
+        }
+        for st in ["@S:SortInt{}", "opaque{}(@S:SortInt{})"] {
+            let (known, checked) = shapes(st);
+            let answer = solver
+                .check_predicates(&known, &s, std::slice::from_ref(&checked))
+                .unwrap();
+            assert!(refused(&answer), "{st}: {answer:?}");
+            let (mut both, n) = shapes(st);
+            both.push(not(n));
+            let answer = solver.is_sat(&both, &s).unwrap();
+            assert!(refused(&answer), "{st}: {answer:?}");
+            let answer = solver
+                .get_model(&ModelQuery::for_solver_tests(&both, &s))
+                .unwrap();
+            assert!(refused(&answer), "{st}: {answer:?}");
+        }
+        for st in ["X:SortInt{}", "opaque{}(X:SortInt{})"] {
+            let (known, checked) = shapes(st);
+            assert_eq!(
+                solver.check_predicates(&known, &s, std::slice::from_ref(&checked)),
+                Ok(Ok(Validity::Valid)),
+                "{st}"
+            );
+        }
+    }
+
     /// GAP K23: a node is named in a scope outside a binder only when the binder binds none of
     /// its variables. In `\exists Y. (half(X) = Y /\ \forall X. half(X) = Y)` the inner
     /// `half(X)` reads the `X` the `\forall` binds, not the free `X` of the first conjunct, so

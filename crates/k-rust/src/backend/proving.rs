@@ -156,7 +156,14 @@ pub fn definition_digest(definition: &Definition, spec_module: &str) -> String {
 ///   reading took it as one opaque SMT constant, so facts K satisfies (an atom over it defined
 ///   and neither `true` nor `false`) were contradictory to the solver, which could answer valid
 ///   or unsatisfiable where K does not, and so prove a false claim; every proof saved under the
-///   previous reading is set aside.
+///   previous reading is set aside. Unreleased, so extended rather than renamed (GAP K40): a
+///   claim holding a set variable free, on either side or as an existential, is refused
+///   (`UnstatedDefinedness::SetVariable`), and the solver refuses every term that may denote
+///   several elements, a set variable outside a conjunction with a side that holds none
+///   included. A set variable denotes any set of elements, while the simplifier's rewrites
+///   (`true = notBool c` read as `\not(c = true)`) and the solver's one-value reading hold only
+///   for terms denoting at most one, so a claim's predicates over one could be decided where K
+///   does not entail the decision.
 ///
 /// The backend gives a claim its reading when it internalizes it
 /// (`k_rust_backend::claim::internalize_reachability_claim` and

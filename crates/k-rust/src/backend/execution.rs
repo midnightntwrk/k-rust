@@ -2198,6 +2198,7 @@ fn load_backend_target(
     let pattern = definition
         .verify_standalone_pattern(&syntax, &[])?
         .for_execution(&literals)
+        .as_match_target()
         .internalize_pattern()?;
     Ok(BackendMatchTarget {
         pattern,
