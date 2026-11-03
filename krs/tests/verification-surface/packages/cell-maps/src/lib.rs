@@ -20,10 +20,7 @@
 //!   left only (finding NT-9-1); the end map is that rest with the two entries
 //!   written over it in that order, so where `b` is `a` the later entry's 0 is
 //!   the value at `a`, and where `b` is a key of the rest it is overwritten.
-//!   `moved-one`'s rest is empty; `moved-rest`'s is any map, `rest`;
-//! - `moved-anon`: `movea(a, b)` writes the same entries over the rest its
-//!   rule leaves anonymous (`..`), which the rule binds on the left only to a
-//!   name it generates; the end map is `moved-rest`'s.
+//!   `moved-one`'s rest is empty; `moved-rest`'s is any map, `rest`.
 //!
 //! Each claim has a negative control, `<label>-false`, whose end state no
 //! path reaches; neither prover may prove it. The `moved` controls write the
@@ -47,7 +44,6 @@ pub enum ExpSyntax {
     #[k::syntax("got({a})")] Got { a: Int },
     #[k::syntax("put({a},{v})")] Put { a: Int, v: Int },
     #[k::syntax("move({a},{b})")] Move { a: Int, b: Int },
-    #[k::syntax("movea({a},{b})")] MoveAnon { a: Int, b: Int },
 }
 
 #[k::configuration]
@@ -142,7 +138,9 @@ fn put(
 }
 
 /// `move(a, b)` writes 10 at `a`, then the old value at `b`, over the rest of the map: `b` may
-/// be any key, so the result is the update chain over the rest.
+/// be any key, so the result is the update chain over the rest. The rest is named: a `cells!`
+/// result keeps a map's rest with `..rest`, since a map's anonymous `..` has no result side until
+/// M3, and a result without `..` over an anonymous rest is refused (`rest-mismatch`, P6).
 #[k::rule(label = "move")]
 fn move_rule(
     a: Term<Int>,
@@ -157,25 +155,6 @@ fn move_rule(
     k::cells! {
         k: k::configuration::KCell(..tail),
         env: k::configuration::Cell(map![a -> 10, b -> v, ..rest]),
-        ..state
-    }
-}
-
-/// `movea(a, b)` is `move(a, b)` over a rest the rule does not name.
-#[k::rule(label = "movea")]
-fn move_anon(
-    a: Term<Int>,
-    b: Term<Int>,
-    v: Term<Int>,
-    k::cells! {
-        k: k::configuration::KCell(ExpSyntax::MoveAnon(a, b), tail @ ..),
-        env: k::configuration::Cell(map![a -> v, ..]),
-        state @ ..
-    }: Machine,
-) -> Machine {
-    k::cells! {
-        k: k::configuration::KCell(..tail),
-        env: k::configuration::Cell(map![a -> 10, b -> v]),
         ..state
     }
 }
@@ -289,24 +268,6 @@ fn moved_rest(
     }
 }
 
-/// `movea(a, b)` over `a` and any rest: that rest with 10 at `a`, then 0 at `b`, written over it.
-#[k::claim(all_paths, label = "moved-anon")]
-fn moved_anon(
-    a: Term<Int>,
-    b: Term<Int>,
-    k::cells! {
-        k: k::configuration::KCell(ExpSyntax::MoveAnon(a, b), tail @ ..),
-        env: k::configuration::Cell(map![a -> 0, rest @ ..]),
-        state @ ..
-    }: Machine,
-) -> Machine {
-    k::cells! {
-        k: k::configuration::KCell(..tail),
-        env: k::configuration::Cell(map![a -> 10, b -> 0, ..rest]),
-        ..state
-    }
-}
-
 // Negative controls: each claim above with a false end state, which neither prover may prove.
 
 /// `sym-one` ending with 11, a value no step writes.
@@ -407,24 +368,6 @@ fn moved_rest_false(
     b: Term<Int>,
     k::cells! {
         k: k::configuration::KCell(ExpSyntax::Move(a, b), tail @ ..),
-        env: k::configuration::Cell(map![a -> 0, rest @ ..]),
-        state @ ..
-    }: Machine,
-) -> Machine {
-    k::cells! {
-        k: k::configuration::KCell(..tail),
-        env: k::configuration::Cell(map![b -> 0, a -> 10, ..rest]),
-        ..state
-    }
-}
-
-/// `moved-anon` with the two entries in the other order: wrong where `b` is `a`.
-#[k::claim(all_paths, label = "moved-anon-false")]
-fn moved_anon_false(
-    a: Term<Int>,
-    b: Term<Int>,
-    k::cells! {
-        k: k::configuration::KCell(ExpSyntax::MoveAnon(a, b), tail @ ..),
         env: k::configuration::Cell(map![a -> 0, rest @ ..]),
         state @ ..
     }: Machine,

@@ -4,7 +4,7 @@
     "krs-configuration-cells-framing": "aa937f64180bb4f2c781969cd9e48996892c328460d485dd36cf3ffb8074e186",
     "krs-configuration-cells-groups": "3da569e0e8e294ec44cf43a3210cda502685712eae3fba8b8f6492b5a1723886",
     "krs-configuration-cells-optional": "27a76054c97ae7a9fd79c4a0fbbae44d6c51ccd3f61c44b31704c1e57c2bb914",
-    "krs-configuration-cells-threads": "54236db69ae18f2fb2c287024f8cda7c4f6323e54edc5466cfa5155f6a9c9e71",
+    "krs-configuration-cells-threads": "35ae0324f423ca596ca7eab586754ea4cb39b71f9611563dc55b9e61a2892b91",
     "krs-configuration-cells-objects": "8fa40aba16561970ac7d87508e9b81b3e551ff3875d97e3a4b42e72bfb116b8e",
     "krs-configuration-cells-queue": "7f1e1998155b9a78e6db091517dbc68eab134462fcf2cb7f4a974920c11437bc",
     "krs-configuration-cells-optional-config-var-initial": "1fc5570ecdd2379194c3f124075366590a5d8a659a526d007816f0a97f0459ab",
@@ -21,7 +21,7 @@
       "definition.k": "32ae3e802104a18717ec45f7667fbd624e0bfd7590933ec67d3377da6d5ea442"
     },
     "krs-configuration-cells-threads": {
-      "definition.k": "71e7f172f6f34c0272922580364a9fd5ab3c826fe495b0f98280f6db4c796eb7"
+      "definition.k": "7d8c004069631e56761441d5f0341131634d09be615166b76c3d0f0f89462399"
     },
     "krs-configuration-cells-objects": {
       "definition.k": "f73af7dd7a6d14c0b4de76e183f40a31ecc9de20555bcdac1b0ffc3bd362dd0e"
@@ -40,11 +40,11 @@
     "krs-configuration-cells-framing": "1d25e49093726825b81d54a6ada5fd854fc20d44cd0c47de89cdbad9f55fb6cd",
     "krs-configuration-cells-groups": "8785d182cc21a611dbc0491f8861fade93cf764ca8e9f58c3f8ede8434d60bbb",
     "krs-configuration-cells-optional": "3ba3518efb70e9b4ec985a03d6d53325108be9d5c2bb2ddd905e514bdf4487fc",
-    "krs-configuration-cells-threads": "4fa00d45562e3d3950153ee61100fbef171acfb9bc996e691ab0d33ead0c321a",
     "krs-configuration-cells-objects": "ee55b73e078490923820b5bd8abfe9712f39e19308b6266a5a21ac9f18f59286",
     "krs-configuration-cells-queue": "4b317808832163506f0859913b5a6a4a257e76b0bab7ece52232e891551a106d",
     "krs-configuration-cells-optional-config-var-initial": "cf72e17bfd8065dec0ae6a81c07389aa76a455c215cdbee633adc13622798bfe",
-    "krs-configuration-cells-set-instances": "c9bb80d18f108bc4c0914a1d441291a103e68ed7ca0679b4a65b61612cb93a6a"
+    "krs-configuration-cells-set-instances": "c9bb80d18f108bc4c0914a1d441291a103e68ed7ca0679b4a65b61612cb93a6a",
+    "krs-configuration-cells-threads": "1081c9c9e63f3f18050b9def2c3ef0b38e456b19d85d46cdac104c7c5e8202b7"
   },
   "outcomes": {
     "krs-configuration-cells-framing": {
@@ -464,5 +464,8 @@
     "krs-configuration-cells-optional-config-var-initial": {
       "go": []
     }
+  },
+  "known_round_trip_failures": {
+    "krs-configuration-cells-threads": "check: krs::analysis::collection-entry"
   }
 }

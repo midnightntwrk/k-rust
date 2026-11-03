@@ -10,8 +10,10 @@
 //! result, `Thread { k: [n, ..], ..me }` updates `me` in place and
 //! `Thread { id: n, k: [ss], .. }` creates a thread whose other children
 //! take their template defaults. A subject instance left out of the result
-//! is removed. Rules over `k` alone, such as `assign` and the strictness
-//! rules, match the computation cell of any thread.
+//! is removed. `var` and `assign` read and update the computation cell of
+//! some thread the same way: `k` lies below the `*` collection, so a rule
+//! names it through its thread's instance record. The sort rules and the
+//! strictness rules apply at the computation cell of any thread.
 //!
 //! - `spawn { s }` creates a thread running `s` and evaluates to its id;
 //! - `join t` waits until thread `t` reaches `return i;`, removes it, and
@@ -117,19 +119,19 @@ k::rules! {
 
     /// Read a variable.
     var: {
-        k: [name, ..],
+        thread: { me @ Thread { k: [name, ..], .. }, .. },
         state: { name -> value, .. },
     } => {
-        k: [value, ..],
+        thread: { Thread { k: [value, ..], ..me }, .. },
     }
     where name: Id;
 
     /// Assign a value.
     assign: {
-        k: [StmtSyntax::Assign(name, value), ..],
+        thread: { me @ Thread { k: [StmtSyntax::Assign(name, value), ..], .. }, .. },
         state: s,
     } => {
-        k: [..],
+        thread: { Thread { k: [..], ..me }, .. },
         state: map::update(s, name, value),
     }
     where value: Int;

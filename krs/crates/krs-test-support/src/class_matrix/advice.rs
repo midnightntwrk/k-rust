@@ -655,12 +655,6 @@ pub const UNCHECKED: &[Unchecked] = &[
         reason: "the advice is S5-Q1's no-effect refusal of a written `[..]` on a collection (its own red), binding the whole content with a binder at the cell's name; the sweep's whole-binder column writes it as `x`, and the class's advised case writes the instances",
     },
     Unchecked {
-        class: "instance-list-shape",
-        forms: &["`abag: \\{ .. \\}`"],
-        shards: &["cells"],
-        reason: "the advice writes the Set collection's own instance braces at a cell named by its path below a `*` ancestor, which the cell's own kind refuses first (S5.0g review R3) and the path then refuses (S1 (b)); the class's advised case writes a List collection's instances",
-    },
-    Unchecked {
         class: "island-at-subject-root",
         forms: OWN_CLAUSE,
         shards: &["terms"],

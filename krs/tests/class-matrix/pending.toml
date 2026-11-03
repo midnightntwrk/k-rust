@@ -4310,11 +4310,35 @@ deviation = "printed surface refused: krs::analysis::collection-entry @ item"
 finding = "S5-S1"
 deviation = "printed surface refused: krs::analysis::collection-entry @ item"
 
+["k3/readable/path-d/kinds/id/x"]
+finding = "S5-S1"
+deviation = "printed surface refused: krs::analysis::collection-entry @ item"
+
 ["k3/readable/subject/kinds/aacct/Aacct { aid: x, .. }"]
 finding = "S5-S1"
 deviation = "printed surface refused: krs::analysis::collection-entry @ item"
 
 ["k3/readable/subject/kinds/aacct/x"]
+finding = "S5-S1"
+deviation = "printed surface refused: krs::analysis::collection-entry @ item"
+
+["k3/readable/subject/kinds/acounter/x"]
+finding = "S5-S1"
+deviation = "printed surface refused: krs::analysis::collection-entry @ item"
+
+["k3/readable/subject/kinds/aenv/x"]
+finding = "S5-S1"
+deviation = "printed surface refused: krs::analysis::collection-entry @ item"
+
+["k3/readable/subject/kinds/aogroup/Ao { aoa: x, .. }"]
+finding = "S5-S1"
+deviation = "printed surface refused: krs::analysis::collection-entry @ item"
+
+["k3/readable/subject/kinds/aogroup/x"]
+finding = "S5-S1"
+deviation = "printed surface refused: krs::analysis::collection-entry @ item"
+
+["k3/readable/subject/kinds/apc/x"]
 finding = "S5-S1"
 deviation = "printed surface refused: krs::analysis::collection-entry @ item"
 
@@ -5378,314 +5402,6 @@ deviation = "accepted"
 finding = "B8"
 deviation = "accepted"
 
-["k8/sweep/cells/result/acct/[k::fragment![crate::Gm { ma: x, .. }], ..]"]
-finding = "S0-9"
-deviation = "instance-list-shape's refusal advises `acct: { .. }`, which readable/subject/job/[Job { payload: x, .. }, ..] does not write (sweep/cells/result/acct/{ k::fragment![crate::Gm { ma: x, .. }], .. } does)"
-
-["k8/sweep/cells/result/acct/k::configuration::Cell(x)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/result/acct/k::configuration::KCell(x)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/result/bag/[k::fragment![crate::Gs { sa: x, .. }], ..]"]
-finding = "S0-9"
-deviation = "instance-list-shape's refusal advises `bag: { .. }`, which readable/subject/job/[Job { payload: x, .. }, ..] does not write (cells-run/result/bag/{ k::fragment![crate::Obj { key: k::builtin::int::add(x, 1), m: k::map![x -> y] }], ..instances0 } does)"
-
-["k8/sweep/cells/result/bag/k::configuration::Cell(x)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/result/bag/k::configuration::KCell(x)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/result/c16-acc/{ k::fragment![crate::A { aid: 5, ..me }], .. }"]
-finding = "S0-9"
-deviation = "map-collection-key advises none, and its refusal advises `aid: _`"
-
-["k8/sweep/cells/result/c17-acc/{ k::fragment![crate::A { al: [x], ..me }], .. }"]
-finding = "S0-9"
-deviation = "refused where the table accepts, advising `al: _`"
-
-["k8/sweep/cells/result/c22-acc/{ k::fragment![crate::A { al: [x], .. }], .. }"]
-finding = "S0-9"
-deviation = "map-collection-key advises none, and its refusal advises `aid: ..`"
-
-["k8/sweep/cells/result/counter/k::fragment![crate::G { a: x, .. }]"]
-finding = "S0-9"
-deviation = "open-record-outside-pattern advises none, and its refusal advises `Some(..)`"
-
-["k8/sweep/cells/result/job/k::configuration::Cell(x)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/result/job/k::configuration::KCell(x)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/result/olist/k::configuration::KCell(x)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/result/olist/k::fragment![crate::G { a: x, .. }]"]
-finding = "S0-9"
-deviation = "open-record-outside-pattern advises none, and its refusal advises `Some(..)`"
-
-["k8/sweep/cells/result/omap/k::configuration::KCell(x)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/result/omap/k::fragment![crate::G { a: x, .. }]"]
-finding = "S0-9"
-deviation = "open-record-outside-pattern advises none, and its refusal advises `Some(..)`"
-
-["k8/sweep/cells/subject/acct/[k::fragment![crate::Gm { ma: x, .. }], ..]"]
-finding = "S0-9"
-deviation = "instance-list-shape's refusal advises `acct: { .. }`, which readable/subject/job/[Job { payload: x, .. }, ..] does not write (sweep/cells/result/acct/{ k::fragment![crate::Gm { ma: x, .. }], .. } does)"
-
-["k8/sweep/cells/subject/bag/[k::fragment![crate::Gs { sa: x, .. }], ..]"]
-finding = "S0-9"
-deviation = "instance-list-shape's refusal advises `bag: { .. }`, which readable/subject/job/[Job { payload: x, .. }, ..] does not write (cells-run/result/bag/{ k::fragment![crate::Obj { key: k::builtin::int::add(x, 1), m: k::map![x -> y] }], ..instances0 } does)"
-
-["k8/sweep/cells/subject/counter/k::configuration::Cell([.., x])"]
-finding = "S0-9"
-deviation = "bracket-reading advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/subject/counter/k::configuration::KCell(x)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/subject/ogroup/Some(k::configuration::Cell(x))"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/subject/ogroup/k::configuration::Cell([.., x])"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/subject/ogroup/k::configuration::Cell([x, ..])"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/subject/ogroup/k::configuration::Cell(_)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/subject/ogroup/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/subject/ogroup/k::configuration::Cell(x)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/subject/ogroup/k::configuration::KCell(x)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/subject/ogroup/k::configuration::KCell(x, ..)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/subject/ogroup/k::fragment![crate::Gp { pa: x }]"]
-finding = "S0-9"
-deviation = "record-missing-children advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/subject/olist/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "map-notation-at-non-map advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/subject/olist/k::configuration::KCell(x)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/subject/olist/k::configuration::KCell(x, ..)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/subject/omap/k::configuration::Cell([.., x])"]
-finding = "S0-9"
-deviation = "bracket-reading advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/subject/omap/k::configuration::Cell([x, ..])"]
-finding = "S0-9"
-deviation = "bracket-reading advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/subject/omap/k::configuration::KCell(x)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/acct/[k::fragment![crate::Gm { ma: x, .. }], ..]"]
-finding = "S0-9"
-deviation = "instance-list-shape's refusal advises `acct: { .. }`, which readable/subject/job/[Job { payload: x, .. }, ..] does not write (sweep/cells/result/acct/{ k::fragment![crate::Gm { ma: x, .. }], .. } does)"
-
-["k8/sweep/cells/written/acct/k::configuration::Cell([.., x])"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/acct/k::configuration::Cell([x, ..])"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/acct/k::configuration::Cell(_)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/acct/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/acct/k::configuration::Cell(x)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/acct/k::configuration::KCell(x)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/acct/k::configuration::KCell(x, ..)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/bag/[k::fragment![crate::Gs { sa: x, .. }], ..]"]
-finding = "S0-9"
-deviation = "instance-list-shape's refusal advises `bag: { .. }`, which readable/subject/job/[Job { payload: x, .. }, ..] does not write (cells-run/result/bag/{ k::fragment![crate::Obj { key: k::builtin::int::add(x, 1), m: k::map![x -> y] }], ..instances0 } does)"
-
-["k8/sweep/cells/written/bag/k::configuration::Cell([.., x])"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/bag/k::configuration::Cell([x, ..])"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/bag/k::configuration::Cell(_)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/bag/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/bag/k::configuration::Cell(x)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/bag/k::configuration::KCell(x)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/bag/k::configuration::KCell(x, ..)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/counter/k::configuration::Cell([.., x])"]
-finding = "S0-9"
-deviation = "bracket-reading advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/counter/k::configuration::Cell([x, ..])"]
-finding = "S0-9"
-deviation = "bracket-reading advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/counter/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "map-notation-at-non-map advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/counter/k::configuration::KCell(x)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/counter/k::configuration::KCell(x, ..)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/job/k::configuration::Cell([.., x])"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/job/k::configuration::Cell([x, ..])"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/job/k::configuration::Cell(_)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/job/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/job/k::configuration::Cell(x)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/job/k::configuration::KCell(x)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/job/k::configuration::KCell(x, ..)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/ogroup/Some(k::configuration::Cell(x))"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/ogroup/k::configuration::Cell([.., x])"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/ogroup/k::configuration::Cell([x, ..])"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/ogroup/k::configuration::Cell(_)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/ogroup/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/ogroup/k::configuration::Cell(x)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/ogroup/k::configuration::KCell(x)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/ogroup/k::configuration::KCell(x, ..)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/ogroup/k::fragment![crate::Gp { pa: x }]"]
-finding = "S0-9"
-deviation = "record-missing-children advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/olist/k::configuration::KCell(x)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/omap/k::configuration::Cell([.., x])"]
-finding = "S0-9"
-deviation = "bracket-reading advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/omap/k::configuration::Cell([x, ..])"]
-finding = "S0-9"
-deviation = "bracket-reading advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/omap/k::configuration::KCell(x)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
-["k8/sweep/cells/written/omap/k::configuration::KCell(x, ..)"]
-finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
-
 ["k8/sweep/claim/result/acct/[..]"]
 finding = "S0-9"
 deviation = "instance-list-shape's refusal advises `acct: { .. }`, which readable/subject/job/[Job { payload: x, .. }, ..] does not write (sweep/cells/result/acct/{ k::fragment![crate::Gm { ma: x, .. }], .. } does)"
@@ -5705,10 +5421,6 @@ deviation = "instance-list-shape's refusal advises `bag: { .. }`, which readable
 ["k8/sweep/claim/result/bag/[Gs { sa: x, .. }, ..]"]
 finding = "S0-9"
 deviation = "instance-list-shape's refusal advises `bag: { .. }`, which readable/subject/job/[Job { payload: x, .. }, ..] does not write (cells-run/result/bag/{ k::fragment![crate::Obj { key: k::builtin::int::add(x, 1), m: k::map![x -> y] }], ..instances0 } does)"
-
-["k8/sweep/claim/result/c17-acc/{ A { al: [x], ..me }, .. }"]
-finding = "S0-9"
-deviation = "refused where the table accepts, advising `al: _`"
 
 ["k8/sweep/claim/result/c22-acc/{ A { al: [x], .. }, .. }"]
 finding = "S0-9"
@@ -6141,10 +5853,6 @@ deviation = "instance-list-shape's refusal advises `bag: { .. }`, which readable
 ["k8/sweep/readable/result/bag/[Gs { sa: x, .. }, ..]"]
 finding = "S0-9"
 deviation = "instance-list-shape's refusal advises `bag: { .. }`, which readable/subject/job/[Job { payload: x, .. }, ..] does not write (cells-run/result/bag/{ k::fragment![crate::Obj { key: k::builtin::int::add(x, 1), m: k::map![x -> y] }], ..instances0 } does)"
-
-["k8/sweep/readable/result/c17-acc/{ A { al: [x], ..me }, .. }"]
-finding = "S0-9"
-deviation = "refused where the table accepts, advising `al: _`"
 
 ["k8/sweep/readable/result/c22-acc/{ A { al: [x], .. }, .. }"]
 finding = "S0-9"
@@ -6898,10 +6606,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/result/acct/k::fragment![crate::Gm { ma: x }]"]
-finding = "S0-9"
-deviation = "krs::analysis::collection-entry @ entry"
-
 ["sweep/cells/result/bag/_"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -6926,10 +6630,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/result/bag/k::fragment![crate::Gs { sa: x }]"]
-finding = "S0-9"
-deviation = "krs::analysis::collection-entry @ entry"
-
 ["sweep/cells/result/c02-hcell/k::fragment![crate::H { hl: [x, ..], hb: 0 }]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -6937,18 +6637,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 ["sweep/cells/result/c07-ohcell/Some(k::fragment![crate::Ho { ohl: [x, ..], ohb: 0 }])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/result/c09-tjob/[k::fragment![crate::T { tk: [x], ..me }], ..]"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-list-notation @ item"
-
-["sweep/cells/result/c16-acc/{ k::fragment![crate::A { aid: 5, ..me }], .. }"]
-finding = "S0-9"
-deviation = "krs::analysis::collection-entry @ spelling"
-
-["sweep/cells/result/c38-ogroup/Some(k::fragment![crate::Gp { pa: x }])"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ spelling"
 
 ["sweep/cells/result/counter/_"]
 finding = "S0-9"
@@ -6974,10 +6662,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/result/counter/k::fragment![crate::G { a: x, .. }]"]
-finding = "S0-9"
-deviation = "krs::analysis::optional-presence @ entry"
-
 ["sweep/cells/result/env/_"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -6990,10 +6674,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
 
-["sweep/cells/result/env/k::configuration::Cell(x)"]
-finding = "S0-9"
-deviation = "krs::analysis::incompatible-binder @ item"
-
 ["sweep/cells/result/env/k::configuration::KCell(.., x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -7005,10 +6685,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 ["sweep/cells/result/env/k::configuration::KCell(x, .., y)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/result/env/k::fragment![crate::G { a: x, .. }]"]
-finding = "S0-9"
-deviation = "krs::analysis::cell-wrapper @ entry"
 
 ["sweep/cells/result/f02-mcell/k::fragment![crate::M { mm: k::map![y -> x, ..], mn: 0 }]"]
 finding = "S0-9"
@@ -7090,10 +6766,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/result/job/k::fragment![crate::Gl { la: x }]"]
-finding = "S0-9"
-deviation = "krs::analysis::collection-entry @ entry"
-
 ["sweep/cells/result/ogroup/_"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -7117,10 +6789,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 ["sweep/cells/result/ogroup/k::configuration::KCell(x, .., y)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/result/olist/Some(k::configuration::Cell(x))"]
-finding = "S0-9"
-deviation = "krs::analysis::incompatible-binder @ item"
 
 ["sweep/cells/result/olist/_"]
 finding = "S0-9"
@@ -7146,14 +6814,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/result/olist/k::fragment![crate::G { a: x, .. }]"]
-finding = "S0-9"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/result/omap/Some(k::configuration::Cell(x))"]
-finding = "S0-9"
-deviation = "krs::analysis::incompatible-binder @ item"
-
 ["sweep/cells/result/omap/_"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -7177,10 +6837,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 ["sweep/cells/result/omap/k::configuration::KCell(x, .., y)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/result/omap/k::fragment![crate::G { a: x, .. }]"]
-finding = "S0-9"
-deviation = "krs::analysis::optional-presence @ entry"
 
 ["sweep/cells/result/pc/_"]
 finding = "S0-9"
@@ -7206,10 +6862,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/result/pc/k::fragment![crate::G { a: x, .. }]"]
-finding = "S0-9"
-deviation = "krs::analysis::cell-wrapper @ entry"
-
 ["sweep/cells/result/prog/_"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -7230,10 +6882,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/result/prog/k::fragment![crate::G { a: x, .. }]"]
-finding = "S0-9"
-deviation = "krs::analysis::cell-wrapper @ entry"
-
 ["sweep/cells/result/seq/_"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -7241,10 +6889,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 ["sweep/cells/result/seq/k::configuration::Cell([.., x])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/cells/result/seq/k::configuration::Cell(x)"]
-finding = "S0-9"
-deviation = "krs::analysis::incompatible-binder @ item"
 
 ["sweep/cells/result/seq/k::configuration::KCell(.., x)"]
 finding = "S0-9"
@@ -7257,10 +6901,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 ["sweep/cells/result/seq/k::configuration::KCell(x, .., y)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/result/seq/k::fragment![crate::G { a: x, .. }]"]
-finding = "S0-9"
-deviation = "krs::analysis::cell-wrapper @ entry"
 
 ["sweep/cells/result/set/_"]
 finding = "S0-9"
@@ -7290,10 +6930,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/result/stack/k::configuration::Cell(x)"]
-finding = "S0-9"
-deviation = "krs::analysis::incompatible-binder @ item"
-
 ["sweep/cells/result/stack/k::configuration::KCell(.., x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -7305,14 +6941,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 ["sweep/cells/result/stack/k::configuration::KCell(x, .., y)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/result/stack/k::fragment![crate::G { a: x, .. }]"]
-finding = "S0-9"
-deviation = "krs::analysis::cell-wrapper @ entry"
-
-["sweep/cells/result/u00-tjob/[k::fragment![crate::T { tk: [x], ..me }], ..]"]
-finding = "S0-9"
-deviation = "krs::analysis::unknown-instance-label @ spelling"
 
 ["sweep/cells/result/u01-tjob/[k::fragment![crate::T { tk: [x, ..], ..me }], ..]"]
 finding = "S0-9"
@@ -7330,10 +6958,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/subject/acct/k::fragment![crate::Gm { ma: x }]"]
-finding = "S0-9"
-deviation = "krs::analysis::collection-entry @ entry"
-
 ["sweep/cells/subject/bag/k::configuration::KCell(.., x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -7341,14 +6965,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 ["sweep/cells/subject/bag/k::configuration::KCell(x, .., y)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/subject/bag/k::fragment![crate::Gs { sa: x }]"]
-finding = "S0-9"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["sweep/cells/subject/counter/k::configuration::Cell([.., x])"]
-finding = "S0-9"
-deviation = "krs::analysis::optional-presence @ entry"
 
 ["sweep/cells/subject/counter/k::configuration::KCell(.., x)"]
 finding = "S0-9"
@@ -7382,10 +6998,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/subject/job/k::fragment![crate::Gl { la: x }]"]
-finding = "S0-9"
-deviation = "krs::analysis::collection-entry @ entry"
-
 ["sweep/cells/subject/ogroup/k::configuration::KCell(.., x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -7394,14 +7006,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/subject/ogroup/k::fragment![crate::Gp { pa: x }]"]
-finding = "S0-9"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/subject/olist/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::analysis::optional-presence @ entry"
-
 ["sweep/cells/subject/olist/k::configuration::KCell(.., x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -7409,14 +7013,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 ["sweep/cells/subject/olist/k::configuration::KCell(x, .., y)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/subject/omap/k::configuration::Cell([.., x])"]
-finding = "S0-9"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/subject/omap/k::configuration::Cell([x, ..])"]
-finding = "S0-9"
-deviation = "krs::analysis::optional-presence @ entry"
 
 ["sweep/cells/subject/omap/k::configuration::KCell(.., x)"]
 finding = "S0-9"
@@ -7466,10 +7062,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/written/acct/_"]
-finding = "S0-9"
-deviation = "krs::analysis::optional-presence @ entry"
-
 ["sweep/cells/written/acct/k::configuration::KCell(.., x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -7478,18 +7070,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/written/acct/k::fragment![crate::Gm { ma: x }]"]
-finding = "S0-9"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/acct/x"]
-finding = "S0-9"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/bag/_"]
-finding = "S0-9"
-deviation = "krs::analysis::optional-presence @ entry"
-
 ["sweep/cells/written/bag/k::configuration::KCell(.., x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -7497,26 +7077,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 ["sweep/cells/written/bag/k::configuration::KCell(x, .., y)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/written/bag/k::fragment![crate::Gs { sa: x }]"]
-finding = "S0-9"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/bag/x"]
-finding = "S0-9"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/counter/k::configuration::Cell([.., x])"]
-finding = "S0-9"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/counter/k::configuration::Cell([x, ..])"]
-finding = "S0-9"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/counter/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-9"
-deviation = "krs::analysis::optional-presence @ entry"
 
 ["sweep/cells/written/counter/k::configuration::KCell(.., x)"]
 finding = "S0-9"
@@ -7542,14 +7102,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/written/frame/k::fragment![crate::G { a: x }]"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/cells/written/job/_"]
-finding = "S0-9"
-deviation = "krs::analysis::optional-presence @ entry"
-
 ["sweep/cells/written/job/k::configuration::KCell(.., x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -7558,14 +7110,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/written/job/k::fragment![crate::Gl { la: x }]"]
-finding = "S0-9"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/job/x"]
-finding = "S0-9"
-deviation = "krs::analysis::optional-presence @ entry"
-
 ["sweep/cells/written/ogroup/k::configuration::KCell(.., x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -7573,10 +7117,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 ["sweep/cells/written/ogroup/k::configuration::KCell(x, .., y)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/written/ogroup/k::fragment![crate::Gp { pa: x }]"]
-finding = "S0-9"
-deviation = "krs::analysis::optional-presence @ entry"
 
 ["sweep/cells/written/olist/[k::fragment![crate::G { a: x, .. }], ..]"]
 finding = "S0-9"
@@ -7609,14 +7149,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 ["sweep/cells/written/olist/{ k::fragment![crate::G { a: x, .. }], .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ item"
-
-["sweep/cells/written/omap/k::configuration::Cell([.., x])"]
-finding = "S0-9"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/omap/k::configuration::Cell([x, ..])"]
-finding = "S0-9"
-deviation = "krs::analysis::optional-presence @ entry"
 
 ["sweep/cells/written/omap/k::configuration::KCell(.., x)"]
 finding = "S0-9"
@@ -12694,282 +12226,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ entry"
 
-["sweep/cells/result/acct/k::configuration::Cell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/result/acct/k::configuration::KCell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/result/bag/k::configuration::Cell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/result/bag/k::configuration::KCell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/result/job/k::configuration::Cell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/result/job/k::configuration::KCell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/result/olist/k::configuration::KCell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/result/omap/k::configuration::KCell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/subject/acct/k::configuration::Cell([.., x])"]
-finding = "S5-A"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["sweep/cells/subject/acct/k::configuration::Cell([x, ..])"]
-finding = "S5-A"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["sweep/cells/subject/acct/k::configuration::Cell(_)"]
-finding = "S5-A"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["sweep/cells/subject/acct/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S5-A"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["sweep/cells/subject/acct/k::configuration::Cell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["sweep/cells/subject/acct/k::configuration::KCell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["sweep/cells/subject/acct/k::configuration::KCell(x, ..)"]
-finding = "S5-A"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["sweep/cells/subject/bag/k::configuration::Cell([.., x])"]
-finding = "S5-A"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["sweep/cells/subject/bag/k::configuration::Cell([x, ..])"]
-finding = "S5-A"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["sweep/cells/subject/bag/k::configuration::Cell(_)"]
-finding = "S5-A"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["sweep/cells/subject/bag/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S5-A"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["sweep/cells/subject/bag/k::configuration::Cell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["sweep/cells/subject/bag/k::configuration::KCell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["sweep/cells/subject/counter/k::configuration::KCell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/subject/job/k::configuration::Cell([.., x])"]
-finding = "S5-A"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["sweep/cells/subject/job/k::configuration::KCell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::collection-entry @ entry"
-
-["sweep/cells/subject/ogroup/Some(k::configuration::Cell(x))"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/subject/ogroup/k::configuration::Cell([.., x])"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/subject/ogroup/k::configuration::Cell([x, ..])"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/subject/ogroup/k::configuration::Cell(_)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/subject/ogroup/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/subject/ogroup/k::configuration::Cell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/subject/ogroup/k::configuration::KCell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/subject/ogroup/k::configuration::KCell(x, ..)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/subject/olist/k::configuration::KCell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/subject/olist/k::configuration::KCell(x, ..)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/subject/omap/k::configuration::KCell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/acct/k::configuration::Cell([.., x])"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/acct/k::configuration::Cell([x, ..])"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/acct/k::configuration::Cell(_)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/acct/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/acct/k::configuration::Cell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/acct/k::configuration::KCell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/acct/k::configuration::KCell(x, ..)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/bag/k::configuration::Cell([.., x])"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/bag/k::configuration::Cell([x, ..])"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/bag/k::configuration::Cell(_)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/bag/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/bag/k::configuration::Cell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/bag/k::configuration::KCell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/bag/k::configuration::KCell(x, ..)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/counter/k::configuration::KCell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/counter/k::configuration::KCell(x, ..)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/job/k::configuration::Cell([.., x])"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/job/k::configuration::Cell([x, ..])"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/job/k::configuration::Cell(_)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/job/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/job/k::configuration::Cell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/job/k::configuration::KCell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/job/k::configuration::KCell(x, ..)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/ogroup/Some(k::configuration::Cell(x))"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/ogroup/k::configuration::Cell([.., x])"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/ogroup/k::configuration::Cell([x, ..])"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/ogroup/k::configuration::Cell(_)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/ogroup/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/ogroup/k::configuration::Cell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/ogroup/k::configuration::KCell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/ogroup/k::configuration::KCell(x, ..)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/olist/k::configuration::KCell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/omap/k::configuration::KCell(x)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
-["sweep/cells/written/omap/k::configuration::KCell(x, ..)"]
-finding = "S5-A"
-deviation = "krs::analysis::optional-presence @ entry"
-
 ["sweep/claim/result/f05-mcell/M { mm: { y -> x }, mn: 0 }"]
 finding = "S5-B1"
 deviation = "krs::syntax::rust-syntax @ item"
@@ -14282,549 +13538,9 @@ deviation = "accepted"
 finding = "S5-O1"
 deviation = "accepted"
 
-["sweep/cells/overwrite/acct/Some(k::configuration::Cell(x))"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/acct/[k::fragment![crate::Gm { ma: x, .. }], ..]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/acct/k::configuration::Cell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/acct/k::configuration::KCell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/acct/k::fragment![crate::Gm { ma: x }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/acct/k::fragment![crate::Gm { ma: x, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/acct/k::fragment![crate::Gm { ma: x, mb: y, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/acct/x"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/acct/{ k::fragment![crate::Gm { ma: x, .. }], .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/bag/None"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/bag/Some(k::configuration::Cell(x))"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/bag/[k::fragment![crate::Gs { sa: x, .. }], ..]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/bag/k::configuration::Cell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/bag/k::configuration::KCell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/bag/k::fragment![crate::Gs { sa: x }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/bag/k::fragment![crate::Gs { sa: x, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/bag/k::fragment![crate::Gs { sa: x, sb: y, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/bag/x"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/bag/{ k::fragment![crate::Gs { sa: x, .. }], .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/c05-hcell/k::fragment![crate::H { hl: [x], hb: 0 }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
 ["sweep/cells/overwrite/c25-ccell/k::fragment![crate::C { cc: [x], cn: 0 }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/c29-wcell/k::fragment![crate::W { wg: Gw { wa: x, wb: y }, wn: 0 }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/counter/Some(k::configuration::Cell(x))"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/counter/k::configuration::Cell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/counter/k::configuration::KCell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/counter/k::fragment![crate::G { a: x }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/counter/k::fragment![crate::G { a: x, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/counter/k::fragment![crate::G { a: x, b: y, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/counter/x"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/counter/{ k::fragment![crate::G { a: x, .. }], .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/env/Some(k::configuration::Cell(x))"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/env/k::configuration::Cell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/env/k::configuration::KCell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/env/k::fragment![crate::G { a: x }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/env/k::fragment![crate::G { a: x, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/env/k::fragment![crate::G { a: x, b: y, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/env/x"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/env/{ k::fragment![crate::G { a: x, .. }], .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/frame/None"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/frame/Some(k::configuration::Cell(x))"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/frame/[k::fragment![crate::G { a: x, .. }], ..]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/frame/k::configuration::Cell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/frame/k::configuration::KCell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/frame/k::fragment![crate::G { a: x }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/frame/k::fragment![crate::G { a: x, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/frame/k::fragment![crate::G { a: x, b: y, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/frame/x"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/frame/{ k::fragment![crate::G { a: x, .. }], .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/job/None"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/job/Some(k::configuration::Cell(x))"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/job/[k::fragment![crate::Gl { la: x, .. }], ..]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/job/k::configuration::Cell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/job/k::configuration::KCell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/job/k::fragment![crate::Gl { la: x }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/job/k::fragment![crate::Gl { la: x, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/job/k::fragment![crate::Gl { la: x, lb: y, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/job/x"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/job/{ k::fragment![crate::Gl { la: x, .. }], .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/ogroup/Some(k::configuration::Cell(x))"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/ogroup/[k::fragment![crate::Gp { pa: x, .. }], ..]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/ogroup/k::configuration::Cell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/ogroup/k::configuration::KCell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/ogroup/k::fragment![crate::Gp { pa: x }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/ogroup/k::fragment![crate::Gp { pa: x, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/ogroup/k::fragment![crate::Gp { pa: x, pb: y, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/ogroup/x"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/ogroup/{ k::fragment![crate::Gp { pa: x, .. }], .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/olist/None"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/olist/Some(k::configuration::Cell(x))"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/olist/[k::fragment![crate::G { a: x, .. }], ..]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/olist/k::configuration::Cell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/olist/k::configuration::KCell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/olist/k::fragment![crate::G { a: x }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/olist/k::fragment![crate::G { a: x, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/olist/k::fragment![crate::G { a: x, b: y, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/olist/x"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/olist/{ k::fragment![crate::G { a: x, .. }], .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/omap/None"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/omap/Some(k::configuration::Cell(x))"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/omap/[k::fragment![crate::G { a: x, .. }], ..]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/omap/k::configuration::Cell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/omap/k::configuration::KCell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/omap/k::fragment![crate::G { a: x }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/omap/k::fragment![crate::G { a: x, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/omap/k::fragment![crate::G { a: x, b: y, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/omap/x"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/omap/{ k::fragment![crate::G { a: x, .. }], .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/pc/Some(k::configuration::Cell(x))"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/pc/k::configuration::Cell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/pc/k::configuration::KCell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/pc/k::fragment![crate::G { a: x }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/pc/k::fragment![crate::G { a: x, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/pc/k::fragment![crate::G { a: x, b: y, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/pc/x"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/pc/{ k::fragment![crate::G { a: x, .. }], .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/prog/None"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/prog/Some(k::configuration::Cell(x))"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/prog/[k::fragment![crate::G { a: x, .. }], ..]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/prog/k::configuration::Cell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/prog/k::configuration::KCell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/prog/k::fragment![crate::G { a: x }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/prog/k::fragment![crate::G { a: x, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/prog/k::fragment![crate::G { a: x, b: y, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/prog/x"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/prog/{ k::fragment![crate::G { a: x, .. }], .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/seq/None"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/seq/Some(k::configuration::Cell(x))"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/seq/[k::fragment![crate::G { a: x, .. }], ..]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/seq/k::configuration::Cell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/seq/k::configuration::KCell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/seq/k::fragment![crate::G { a: x }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/seq/k::fragment![crate::G { a: x, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/seq/k::fragment![crate::G { a: x, b: y, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/seq/x"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/seq/{ k::fragment![crate::G { a: x, .. }], .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/set/None"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/set/Some(k::configuration::Cell(x))"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/set/[k::fragment![crate::G { a: x, .. }], ..]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/set/k::configuration::Cell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/set/k::configuration::KCell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/set/k::fragment![crate::G { a: x }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/set/k::fragment![crate::G { a: x, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/set/k::fragment![crate::G { a: x, b: y, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/set/x"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/set/{ k::fragment![crate::G { a: x, .. }], .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/stack/None"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/stack/Some(k::configuration::Cell(x))"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/stack/[k::fragment![crate::G { a: x, .. }], ..]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/stack/k::configuration::Cell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/stack/k::configuration::KCell(x)"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/stack/k::fragment![crate::G { a: x }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/stack/k::fragment![crate::G { a: x, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/stack/k::fragment![crate::G { a: x, b: y, .. }]"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/stack/x"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/overwrite/stack/{ k::fragment![crate::G { a: x, .. }], .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::unsupported-shape @ item"
-
-["sweep/cells/result/c17-acc/{ k::fragment![crate::A { al: [x], ..me }], .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::collection-entry @ spelling"
+finding = "S5-C2"
+deviation = "krs::analysis::invalid-list-notation @ spelling"
 
 ["sweep/cells/subject/seq/k::configuration::Cell(_)"]
 finding = "S5-Q1"
@@ -15779,8 +14495,8 @@ finding = "S5-Q1"
 deviation = "krs::syntax::rust-syntax @ entry"
 
 ["sweep/claim/result/c17-acc/{ A { al: [x], ..me }, .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::collection-entry @ spelling"
+finding = "S5-V2"
+deviation = "krs::analysis::invalid-term @ spelling"
 
 ["sweep/claim/subject/acct/_"]
 finding = "S5-Q1"
@@ -16771,8 +15487,8 @@ finding = "S5-Q1"
 deviation = "krs::syntax::rust-syntax @ entry"
 
 ["sweep/readable/result/c17-acc/{ A { al: [x], ..me }, .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::collection-entry @ spelling"
+finding = "S5-V2"
+deviation = "krs::analysis::invalid-term @ spelling"
 
 ["sweep/readable/subject/acct/_"]
 finding = "S5-Q1"
@@ -16865,14 +15581,6 @@ deviation = "krs::analysis::invalid-list-notation @ entry"
 ["sweep/readable/written/job/[x]"]
 finding = "S5-Q2"
 deviation = "krs::analysis::invalid-list-notation @ entry"
-
-["sweep/cells/result/c18-acc/{ k::fragment![crate::A { al: [x], ..me }], .. }"]
-finding = "S5-R1"
-deviation = "accepted"
-
-["sweep/cells/result/prog/k::configuration::KCell(x)"]
-finding = "S5-R1"
-deviation = "accepted"
 
 ["sweep/claim/result/c00-hcell/H { hl: [x], hb: 0 }"]
 finding = "S5-R1"
@@ -16985,3 +15693,9 @@ deviation = "krs::analysis::invalid-term @ spelling"
 ["sweep/readable/result/c36-ogroup/Some(Gp { pa: x, .. })"]
 finding = "S5-X1"
 deviation = "krs::analysis::invalid-term @ spelling"
+
+# S5-Y1 (S5.3 part 2c): the overwrite of an unmatched computation by an exact `cells!` result keeps
+# the old content behind the frame; the K recorded for the case is the principled one, by hand.
+["sweep/cells/overwrite/prog/k::configuration::KCell(x)"]
+finding = "S5-Y1"
+deviation = "accepted, with other K than recorded"

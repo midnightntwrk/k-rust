@@ -220,6 +220,11 @@ OPTIONAL_REFERENCE = (
 )
 
 THREADS = Fixture(MANIFEST, "krs-configuration-cells-threads")
+# The threads round trip is a known failure (`known_round_trip_failures` in pins.json, owned by
+# S5.6): `krs expand` prints the sort rules `add` (`for Exp`) and `seq` (`for Stmt`) as `cells!`
+# rules naming `crate::Thread::k` by its path, a cell below the `*` collection `thread`, which
+# S1 (b) refuses (`collection-without-instances`). The printer must print a sort rule whose main
+# cell lies below `*` or `?` through the instance record, as it prints `spawn` and `join`.
 THREADS_PROGRAMS = (
     Program("spawn-join", "a = spawn {return 1 + 2;}; b = join a; return b;", "accepted", "return 3;"),
     Program(

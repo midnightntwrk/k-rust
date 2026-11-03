@@ -2377,6 +2377,18 @@ match = 'sweep/{claim,readable}/result/frame/x'
 class = "binder-sort"
 at = "spelling"
 
+# S5.3: the overwrite (Q1) of a cell the subject does not match, with the command's `Int` binder,
+# which the lattice refuses where the cell holds a `Map`, a cons list, a `Set`, a `List` or a group.
+[[refuse]]
+match = 'sweep/cells/overwrite/{env,seq,set,stack}/k::configuration::Cell(x)'
+class = "binder-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/frame/x'
+class = "binder-sort"
+at = "spelling"
+
 [[refuse]]
 match = 'sweep/{claim,readable}/overwrite/{counter,ogroup,omap}/Some([..])'
 class = "bracket-reading"
@@ -10662,28 +10674,53 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 # S5.0g item 3a: the compiled sweep's accepts (K written by `--record`).
 [accept."sweep/cells/overwrite/c05-hcell/k::fragment![crate::H { hl: [x], hb: 0 }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(_:HcellCell => <hcell> <hl> ListItem(V0:Int) </hl> <hb> 0 </hb> </hcell>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/cells/overwrite/c25-ccell/k::fragment![crate::C { cc: [x], cn: 0 }]"]
 
 [accept."sweep/cells/overwrite/c29-wcell/k::fragment![crate::W { wg: Gw { wa: x, wb: y }, wn: 0 }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(_:WcellCell => <wcell> <wg> <wa> V0:Int </wa> <wb> V1:Int </wb> </wg> <wn> 0 </wn> </wcell>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."sweep/cells/overwrite/c30-wcell/k::fragment![crate::W { wg: Gw { wa: x, wb: y, .. }, wn: 0 }]"]
 
-[accept."sweep/cells/overwrite/env/k::configuration::Cell(x)"]
-
 [accept."sweep/cells/overwrite/frame/k::fragment![crate::G { a: x, b: y, .. }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(_:FrameCell => <frame> <a> V0:Int </a> <b> V1:Int </b> </frame>)
 
-[accept."sweep/cells/overwrite/frame/x"]
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."sweep/cells/overwrite/pc/k::configuration::Cell(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<pc> _ => V0:Int </pc>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/cells/overwrite/prog/k::configuration::KCell(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<prog> _ => V0:Int </prog>
 
-[accept."sweep/cells/overwrite/seq/k::configuration::Cell(x)"]
-
-[accept."sweep/cells/overwrite/set/k::configuration::Cell(x)"]
-
-[accept."sweep/cells/overwrite/stack/k::configuration::Cell(x)"]
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/cells/result/acct/{ k::fragment![crate::Gm { ma: x, .. }], .. }"]
 k = """
@@ -10762,6 +10799,17 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/cells/result/c17-acc/{ k::fragment![crate::A { al: [x], ..me }], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<acc>
+<aid> V1:Int </aid>
+<al> _ => ListItem(V0:Int) </al>
+...
+</acc>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/cells/result/c19-acc/{ k::fragment![crate::A { al: [x, ..], ..me }], .. }"]
 
