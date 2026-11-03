@@ -2079,6 +2079,177 @@ fn a_result_group_fragment_with_a_bare_rest_is_refused_over_an_existing_group() 
     ]);
 }
 
+/// D-1's thread collection, `* List of T { k: KSequence, n: Int }`, and group
+/// `H { l: List, b: Int }`, each with a child whose content has a root (P6).
+fn d1_stacks() -> (Vec<Layer>, Layer) {
+    let int = Layer::Leaf(Notation::Plain);
+    let threads = vec![
+        Layer::Instances(Order::List),
+        Layer::Group(Group {
+            name: "T".to_owned(),
+            children: vec![
+                ("k".to_owned(), vec![Layer::Computation]),
+                ("n".to_owned(), vec![int.clone()]),
+            ],
+        }),
+    ];
+    let h = Layer::Group(Group {
+        name: "H".to_owned(),
+        children: vec![
+            ("l".to_owned(), vec![Layer::Leaf(Notation::List)]),
+            ("b".to_owned(), vec![int]),
+        ],
+    });
+    (threads, h)
+}
+
+/// A result probe of D-1 and D-2, binding `x`, `y`, `z` and `me`.
+const fn child_probe<'p>(
+    form: Form,
+    stack: &'p [Layer],
+    text: &'p str,
+    other: Option<&'p str>,
+) -> Probe<'p> {
+    Probe {
+        form,
+        side: Side::Result,
+        path: &[],
+        stack,
+        text,
+        other,
+        written: false,
+        bound: &["x", "y", "z", "me"],
+    }
+}
+
+/// D-1 (S5.0g): a group or instance record's children are entries of their own cells (P1), and
+/// rests pair at each content root (P6). In an instance update a child's other side is the same
+/// child of the subject instance the update labels (R10), an unmatched child where that instance
+/// does not name it (Q1, Q3); a created instance's child has none (R2). The first two are the
+/// S5.0g stop's instance probes.
+#[test]
+fn an_instance_records_children_pair_their_rests_at_their_own_content_roots() {
+    let (threads, _) = d1_stacks();
+    let rm = Outcome::Refuse("rest-mismatch");
+    let me = Some("[me @ T { k: [y, ..], .. }, ..]");
+    let me_cells = Some("[me @ k::fragment![crate::T { k: [y, ..], .. }], ..]");
+    let probe = |form, text, other| child_probe(form, &threads, text, other);
+    probes_agree(&[
+        (probe(Form::Readable, "[T { k: [x], ..me }, ..]", me), rm),
+        (
+            probe(Form::Readable, "[T { k: [x, ..], n: 1 }, ..]", Some("[..]")),
+            rm,
+        ),
+        // The update that keeps the rest, and a created instance's exact computation.
+        (
+            probe(Form::Readable, "[T { k: [x, ..], ..me }, ..]", me),
+            Outcome::After,
+        ),
+        (
+            probe(Form::Readable, "[T { k: [x], n: 1 }, ..]", Some("[..]")),
+            Outcome::After,
+        ),
+        // Their `cells!` forms.
+        (
+            probe(
+                Form::Cells,
+                "[k::fragment![crate::T { k: [x], ..me }], ..]",
+                me_cells,
+            ),
+            rm,
+        ),
+        (
+            probe(
+                Form::Cells,
+                "[k::fragment![crate::T { k: [x, ..], ..me }], ..]",
+                me_cells,
+            ),
+            Outcome::After,
+        ),
+        // A child the labelled instance does not name is overwritten (Q1): a readable rule does
+        // not drop a continuation it did not match (Q3); `cells!` may.
+        (
+            probe(
+                Form::Readable,
+                "[T { k: [x], ..me }, ..]",
+                Some("[me @ T { n: y, .. }, ..]"),
+            ),
+            Outcome::Refuse("continuation-in-readable"),
+        ),
+        (
+            probe(
+                Form::Cells,
+                "[k::fragment![crate::T { k: [x], ..me }], ..]",
+                Some("[me @ k::fragment![crate::T { n: y, .. }], ..]"),
+            ),
+            Outcome::After,
+        ),
+    ]);
+}
+
+/// D-1 (S5.0g), for groups: a matched group's child pairs with the subject record's same child,
+/// one the subject does not name is overwritten (Q1), and an overwritten group's child is
+/// unmatched; a `?` cell created over a subject `None` creates its group's children (R2). The
+/// first two are the S5.0g stop's group probes.
+#[test]
+fn a_group_records_children_pair_their_rests_at_their_own_content_roots() {
+    let (_, h) = d1_stacks();
+    let group = [h.clone()];
+    let optional = [Layer::Optional, h];
+    let rm = Outcome::Refuse("rest-mismatch");
+    let subject = Some("H { l: [y, ..], .. }");
+    probes_agree(&[
+        (
+            child_probe(Form::Readable, &group, "H { l: [x], b: 1 }", subject),
+            rm,
+        ),
+        (
+            child_probe(Form::Readable, &group, "H { l: [x, ..], b: 1 }", None),
+            rm,
+        ),
+        (
+            child_probe(Form::Readable, &group, "H { l: [x, ..], b: 1 }", subject),
+            Outcome::After,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &group,
+                "H { l: [x], b: 1 }",
+                Some("H { b: y, .. }"),
+            ),
+            Outcome::After,
+        ),
+        (
+            child_probe(
+                Form::Cells,
+                &group,
+                "k::fragment![crate::H { l: [x], b: 1 }]",
+                Some("k::fragment![crate::H { l: [y, ..], .. }]"),
+            ),
+            rm,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &optional,
+                "Some(H { l: [x, ..], b: 1 })",
+                Some("None"),
+            ),
+            rm,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &optional,
+                "Some(H { l: [x], b: 1 })",
+                Some("Some(H { l: [y, ..], .. })"),
+            ),
+            rm,
+        ),
+    ]);
+}
+
 /// Ruling 3 on F2: `name @ P` names what a pattern matched, so a result holds none, at any depth
 /// (§2.3 step 1), before the path is judged.
 #[test]

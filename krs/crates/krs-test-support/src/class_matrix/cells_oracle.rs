@@ -25,7 +25,12 @@
 //! 3. **pairing**: rests (P6), absence (P5), Q1's lint and overwrite (a result over a cell the
 //!    subject does not match, [`Context::other`] `None`), Q3, and a bare `..` in a result's group
 //!    record for a group that exists, matched or overwritten (P6: Rust's default fields, which
-//!    only a created instance has).
+//!    only a created instance has). A result is paired at every content root it writes: its
+//!    cell's, and each child's of the group and instance records it writes (P1: a child is an
+//!    entry of its own cell), against the child's own other side: the subject record's same
+//!    child, the same child of the subject instance an update `..me` labels (R10), an unmatched
+//!    child where the subject does not name it, and none for a created instance's or `?`
+//!    cell's child.
 //!
 //! It answers [`Outcome::After`] where steps 1–3 admit and a value position holds a term whose
 //! sort the lattice must check (step 4, the compiler's). [`rule_outcome`] answers step 5, the
@@ -948,85 +953,196 @@ impl Judge<'_> {
                 Ok((total(spelling, stack) && !binds(spelling)).then_some(NO_EFFECT_ENTRY))
             }
             Side::Result => {
-                let Some(other) = &self.context.other else {
-                    // Q1: a result over a cell the subject does not match overwrites it, which
-                    // means one configuration only where the cell's presence is known (P5) and
-                    // no rest the subject never matched is kept (P6); a readable rule neither
-                    // drops nor keeps unmatched the continuation (Q3).
-                    let readable = matches!(self.form, Form::Readable | Form::Claim);
-                    return match stack.first() {
-                        Some(Layer::Optional) => {
-                            refuse("unmatched-optional-result", Step::Pairing, 0).map(|()| None)
-                        }
-                        Some(Layer::Computation) if readable => {
-                            refuse("continuation-in-readable", Step::Pairing, 0).map(|()| None)
-                        }
-                        // P6: the overwritten group exists already, so it has no default fields.
-                        _ if open_record_on_existing(stack, spelling, None) => {
-                            refuse("open-record-outside-pattern", Step::Pairing, 0).map(|()| None)
-                        }
-                        _ if root(spelling) == Root::Rest(Rest::Anon) => {
-                            refuse("rest-mismatch", Step::Pairing, 0).map(|()| None)
-                        }
-                        _ => Ok(None),
-                    };
-                };
-                // P5: `None` removes the cell, and with it all its content, its rest included;
-                // it writes no content root, so P6 has no rest to pair.
-                if *spelling == Spelling::Missing {
-                    return Ok(None);
-                }
-                // P6: a bare `..` in a result is Rust's default fields, which only a created
-                // instance has (its template); a matched group has none.
-                if open_record_on_existing(stack, spelling, Some(other)) {
-                    refuse("open-record-outside-pattern", Step::Pairing, 0)?;
-                }
-                // P6: a result rest is the subject's rest of the same cell, and a subject's
-                // anonymous rest is kept only by a result `..` (D2).
-                let (result, subject) = (root(spelling), root(other));
-                let anon = Root::Rest(Rest::Anon);
-                if (result == anon) != (subject == anon) {
-                    refuse("rest-mismatch", Step::Pairing, 0)?;
-                }
-                Ok(None)
+                let other = self
+                    .context
+                    .other
+                    .as_ref()
+                    .map_or(Other::Unmatched, Other::Matched);
+                self.pair_result(stack, spelling, other).map(|()| None)
             }
             Side::Guard | Side::Initializer => Ok(None),
         }
     }
+
+    /// Step 3 for a result's content, at the entry's cell or at a child's (P1: a group or
+    /// instance record's children are entries of their own cells): its content root against
+    /// its other side (P6), then each child the group or instance records it writes name,
+    /// against the child's own other side.
+    fn pair_result(
+        &self,
+        stack: &[Layer],
+        spelling: &Spelling,
+        other: Other<'_>,
+    ) -> Result<(), Refusal> {
+        let anon = Root::Rest(Rest::Anon);
+        match other {
+            Other::Unmatched => {
+                // Q1: a result over a cell the subject does not match overwrites it, which
+                // means one configuration only where the cell's presence is known (P5) and no
+                // rest the subject never matched is kept (P6); a readable rule neither drops nor
+                // keeps unmatched the continuation (Q3).
+                let readable = matches!(self.form, Form::Readable | Form::Claim);
+                match stack.first() {
+                    Some(Layer::Optional) => {
+                        return refuse("unmatched-optional-result", Step::Pairing, 0);
+                    }
+                    Some(Layer::Computation) if readable => {
+                        return refuse("continuation-in-readable", Step::Pairing, 0);
+                    }
+                    _ if root(spelling) == anon => {
+                        return refuse("rest-mismatch", Step::Pairing, 0);
+                    }
+                    _ => {}
+                }
+            }
+            Other::Matched(subject) => {
+                // P5: `None` removes the cell, and with it all its content, its rest included;
+                // it writes no content root, so P6 has no rest to pair.
+                if *spelling == Spelling::Missing {
+                    return Ok(());
+                }
+                // P6: a result rest is the subject's rest of the same cell, and a subject's
+                // anonymous rest is kept only by a result `..` (D2).
+                if (root(spelling) == anon) != (root(subject) == anon) {
+                    return refuse("rest-mismatch", Step::Pairing, 0);
+                }
+            }
+            // P6: a created cell had no content, so a `..` keeps no rest the subject wrote.
+            Other::Created => {
+                if root(spelling) == anon {
+                    return refuse("rest-mismatch", Step::Pairing, 0);
+                }
+            }
+        }
+        self.pair_children(stack, spelling, other)
+    }
+
+    /// The children of the group or instance records a result's content writes, each against
+    /// its own other side ([`Other`]).
+    fn pair_children(
+        &self,
+        stack: &[Layer],
+        spelling: &Spelling,
+        other: Other<'_>,
+    ) -> Result<(), Refusal> {
+        match (stack, spelling) {
+            ([Layer::Optional, below @ ..], Spelling::Present(inner)) => {
+                self.pair_children(below, inner, other.present())
+            }
+            ([Layer::Group(group), ..], _) => {
+                let Some(record) = record_of(spelling, group) else {
+                    return Ok(());
+                };
+                // P6: a bare `..` in a result is Rust's default fields, which only a created
+                // instance has (its template); a group that exists, matched or overwritten,
+                // has none. A fragment of the group is its record (P7: readable
+                // `G { a: x, .. }` abbreviates `k::fragment![crate::G { a: x, .. }]`), as Q1's
+                // lint reads it ([`total`]).
+                if record.rest == RecordRest::Open && other != Other::Created {
+                    return refuse("open-record-outside-pattern", Step::Pairing, 0);
+                }
+                self.pair_fields(group, record, other)
+            }
+            ([Layer::Instances(_), Layer::Group(group), ..], _) => {
+                for item in seq_of(spelling).map_or(&[][..], |(items, _)| items) {
+                    if let Some(record) = record_of(item, group) {
+                        self.pair_fields(group, record, other.instance(record))?;
+                    }
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Each field of `record`, a record of `group`, against the same child of `other`.
+    fn pair_fields(&self, group: &Group, record: &Record, other: Other<'_>) -> Result<(), Refusal> {
+        for (name, value) in &record.fields {
+            if let Some(stack) = child(group, name) {
+                self.pair_result(stack, value, other.child(group, name))?;
+            }
+        }
+        Ok(())
+    }
 }
 
-/// Whether a result `spelling` writes a group record with a bare `..` for a group that exists:
-/// the cell's own group, which the subject matches or the result overwrites (`other` `None`),
-/// or the group inside a `?` cell the subject matches present, and their group children. A
-/// fragment of the group is its record (P7: readable `G { a: x, .. }` abbreviates
-/// `k::fragment![crate::G { a: x, .. }]`), as Q1's lint reads it ([`total`]). A collection's
-/// instance record is a created instance's, and a `?` cell over a subject `None` is created, so
-/// neither is. A result holds no alias (step 1).
-fn open_record_on_existing(stack: &[Layer], spelling: &Spelling, other: Option<&Spelling>) -> bool {
-    fn existing(stack: &[Layer], spelling: &Spelling) -> bool {
-        let (Some(Layer::Group(group)), Spelling::Record(record) | Spelling::Fragment(record)) =
-            (stack.first(), spelling)
-        else {
-            return false;
-        };
-        record.head == group.name
-            && (record.rest == RecordRest::Open
-                || record.fields.iter().any(|(name, value)| {
-                    child(group, name).is_some_and(|stack| existing(stack, value))
-                }))
-    }
-    fn unaliased(spelling: &Spelling) -> &Spelling {
-        match spelling {
-            Spelling::Alias(_, inner) => inner,
+/// What a result's content is paired with (P6): at the entry's own cell, the subject's entry
+/// of the cell, or none where the subject does not match it (Q1's overwrite); at a child of a
+/// group or instance record (P1), the other side of its record's same child (R10).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Other<'s> {
+    /// The subject's entry of the same cell.
+    Matched(&'s Spelling),
+    /// The cell exists and the subject does not match it: the result overwrites it (Q1).
+    Unmatched,
+    /// The cell is created, with the instance or the `?` cell that holds it: it had no content.
+    Created,
+}
+
+impl Other<'_> {
+    /// The other side of what a result `Some(..)` holds: the subject's `Some(..)`'s, or a cell
+    /// the result creates over a subject `None` (P5).
+    fn present(self) -> Self {
+        match self {
+            Self::Matched(subject) => match unaliased(subject) {
+                Spelling::Present(inner) => Self::Matched(inner),
+                Spelling::Missing => Self::Created,
+                _ => Self::Unmatched,
+            },
             other => other,
         }
     }
-    match (stack.first(), spelling, other.map(unaliased)) {
-        (Some(Layer::Optional), Spelling::Present(inner), Some(Spelling::Present(_))) => {
-            existing(&stack[1..], inner)
+
+    /// The other side of `group`'s child `name` in a record whose other side is `self`: the
+    /// subject's record's same child, or an unmatched child where the subject's record does not
+    /// name it (or is no record of the group); a created record's child is created.
+    fn child(self, group: &Group, name: &str) -> Self {
+        match self {
+            Self::Matched(subject) => record_of(subject, group)
+                .and_then(|record| record.fields.iter().find(|(field, _)| field == name))
+                .map_or(Self::Unmatched, |(_, value)| Self::Matched(value)),
+            other => other,
         }
-        (Some(Layer::Group(_)), spelling, _) => existing(stack, spelling),
-        _ => false,
+    }
+
+    /// The other side of an instance record a result writes in a collection whose other side is
+    /// `self`: an update `..label` changes in place the subject's instance labelled `label`
+    /// (R10), which the update matched, or an instance the subject does not show where no
+    /// instance has the label; any other instance record creates an instance (P6: its `..` is
+    /// its template's).
+    fn instance(self, record: &Record) -> Self {
+        let RecordRest::Update(label) = &record.rest else {
+            return Self::Created;
+        };
+        let Self::Matched(subject) = self else {
+            return Self::Unmatched;
+        };
+        seq_of(unaliased(subject))
+            .and_then(|(items, _)| {
+                items.iter().find_map(|item| match item {
+                    Spelling::Alias(name, inner) if name == label => Some(Self::Matched(inner)),
+                    _ => None,
+                })
+            })
+            .unwrap_or(Self::Unmatched)
+    }
+}
+
+/// The record of `group` that `spelling` writes, below an alias: a record, or its fragment.
+fn record_of<'s>(spelling: &'s Spelling, group: &Group) -> Option<&'s Record> {
+    match unaliased(spelling) {
+        Spelling::Record(record) | Spelling::Fragment(record) if record.head == group.name => {
+            Some(record)
+        }
+        _ => None,
+    }
+}
+
+/// `spelling` below an alias.
+fn unaliased(spelling: &Spelling) -> &Spelling {
+    match spelling {
+        Spelling::Alias(_, inner) => inner,
+        other => other,
     }
 }
 
