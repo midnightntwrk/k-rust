@@ -34,6 +34,14 @@ deviation = "0 pairs only coverage holds; 14 pairs only k-rust-disambiguation ho
 finding = "S0-8"
 deviation = "0 pairs only coverage holds; 14 pairs only k-rust-subsorts holds"
 
+["lattice/class-kinds/coverage~k-rust-disambiguation/s-kitem"]
+finding = "S0-8"
+deviation = "0 pairs only coverage holds; 37 pairs only k-rust-disambiguation holds"
+
+["lattice/class-kinds/coverage~k-rust-subsorts/s-kitem"]
+finding = "S0-8"
+deviation = "0 pairs only coverage holds; 37 pairs only k-rust-subsorts holds"
+
 ["lattice/class-machine/coverage~k-rust-disambiguation/s-kitem"]
 finding = "S0-8"
 deviation = "0 pairs only coverage holds; 14 pairs only k-rust-disambiguation holds"
@@ -5194,3 +5202,21 @@ deviation = "krs::analysis::invalid-term @ spelling"
 ["readable/subject/kinds/hstack/{ y -> x, .. }"]
 finding = "S5-S1"
 deviation = "krs::analysis::invalid-term @ entry"
+
+# S5.0g, L4: a readable record naming one of the 2-child group's two children. In a subject it is
+# accepted (S5-L4); in a result it is refused with the descriptor term's code (S0-9).
+["claim/result/kinds/frame/G { a: x }"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["claim/subject/kinds/frame/G { a: x }"]
+finding = "S5-L4"
+deviation = "accepted"
+
+["readable/result/kinds/frame/G { a: x }"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["readable/subject/kinds/frame/G { a: x }"]
+finding = "S5-L4"
+deviation = "accepted"

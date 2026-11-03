@@ -2364,10 +2364,31 @@ rule [case-TAG]:
 """
 
 [accept."cells/subject/kinds/frame/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+V0:FrameCell
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."cells/subject/kinds/omap/Some(k::configuration::Cell(x))"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<omap> ... </omap>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."cells/subject/kinds/prog/k::configuration::KCell(x, ..)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<prog> V0:KItem ... </prog>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."cells/subject/pc/k::configuration::Cell(0)"]
 k = """
@@ -2515,6 +2536,13 @@ syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%
 [accept."claim/result/kinds/code/[x, ..]"]
 
 [accept."claim/result/kinds/frame/G { a: x, b: y }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(V2:FrameCell => <frame> <a> V0:Int </a> <b> V1:Int </b> </frame>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."claim/result/pc/0"]
 k = """
@@ -2893,13 +2921,37 @@ claim [case-TAG]:
 """
 
 [accept."claim/subject/kinds/bag/{ Obj { key: x, .. }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<bag>
+<key> V0:Int </key>
+...
+</bag>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."claim/subject/kinds/frame/G { a: x, b: y }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<frame> <a> V0:Int </a> <b> V1:Int </b> </frame>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."claim/subject/kinds/frame/_"]
 lint = "no-effect-entry"
 
 [accept."claim/subject/kinds/omap/Some(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<omap> ... </omap>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."claim/subject/kinds/seq/_"]
 lint = "no-effect-entry"
@@ -3376,34 +3428,1360 @@ configuration
 [accept."init/k/[pgm]"]
 
 [accept."init/kinds/bag/Obj { key: 0 }"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<prog> .K </prog>
+<aux>
+<code> .K </code>
+</aux>
+<pc> 0 </pc>
+<stack> .List </stack>
+<seq> . Ints </seq>
+<env> .Map </env>
+<set> .Set </set>
+<frame>
+<a> 0 </a>
+<b> 0 </b>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<olist multiplicity="?"> .List </olist>
+<omap multiplicity="?"> .Map </omap>
+<ogroup multiplicity="?">
+<oa> 0 </oa>
+</ogroup>
+<opt multiplicity="?">
+<hprog> .K </hprog>
+<hcode> .K </hcode>
+<hpc> 0 </hpc>
+<hstack> .List </hstack>
+<hseq> . Ints </hseq>
+<henv> .Map </henv>
+<hset> .Set </hset>
+<hframe>
+<ha> 0 </ha>
+</hframe>
+<hcounter multiplicity="?"> 0 </hcounter>
+<holist multiplicity="?"> .List </holist>
+<homap multiplicity="?"> .Map </homap>
+<hogroup multiplicity="?">
+<hoa> 0 </hoa>
+</hogroup>
+<hqueue>
+<hjob multiplicity="*" type="List">
+<hpay> 0 </hpay>
+</hjob>
+</hqueue>
+<hshelf>
+<hbag multiplicity="*" type="Set">
+<hkey> 0 </hkey>
+</hbag>
+</hshelf>
+<hbank>
+<hacct multiplicity="*" type="Map">
+<hid> 0 </hid>
+</hacct>
+</hbank>
+</opt>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+<shelf>
+<bag multiplicity="*" type="Set">
+<key> 0 </key>
+</bag>
+</shelf>
+<bank>
+<account multiplicity="*" type="Map">
+<id> 0 </id>
+<aprog> .K </aprog>
+<acode> .K </acode>
+<apc> 0 </apc>
+<astack> .List </astack>
+<aseq> . Ints </aseq>
+<aenv> .Map </aenv>
+<aset> .Set </aset>
+<aframe>
+<aa> 0 </aa>
+</aframe>
+<acounter multiplicity="?"> 0 </acounter>
+<aolist multiplicity="?"> .List </aolist>
+<aomap multiplicity="?"> .Map </aomap>
+<aogroup multiplicity="?">
+<aoa> 0 </aoa>
+</aogroup>
+<aqueue>
+<ajob multiplicity="*" type="List">
+<apay> 0 </apay>
+</ajob>
+</aqueue>
+<ashelf>
+<abag multiplicity="*" type="Set">
+<akey> 0 </akey>
+</abag>
+</ashelf>
+<abank>
+<aacct multiplicity="*" type="Map">
+<aid> 0 </aid>
+</aacct>
+</abank>
+</account>
+</bank>
+"""
 
 [accept."init/kinds/code/[0]"]
 
 [accept."init/kinds/code/k::k![pgm]"]
 
 [accept."init/kinds/counter/Some(0)"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<prog> .K </prog>
+<aux>
+<code> .K </code>
+</aux>
+<pc> 0 </pc>
+<stack> .List </stack>
+<seq> . Ints </seq>
+<env> .Map </env>
+<set> .Set </set>
+<frame>
+<a> 0 </a>
+<b> 0 </b>
+</frame>
+<counter multiplicity="?" initial=""> 0 </counter>
+<olist multiplicity="?"> .List </olist>
+<omap multiplicity="?"> .Map </omap>
+<ogroup multiplicity="?">
+<oa> 0 </oa>
+</ogroup>
+<opt multiplicity="?">
+<hprog> .K </hprog>
+<hcode> .K </hcode>
+<hpc> 0 </hpc>
+<hstack> .List </hstack>
+<hseq> . Ints </hseq>
+<henv> .Map </henv>
+<hset> .Set </hset>
+<hframe>
+<ha> 0 </ha>
+</hframe>
+<hcounter multiplicity="?"> 0 </hcounter>
+<holist multiplicity="?"> .List </holist>
+<homap multiplicity="?"> .Map </homap>
+<hogroup multiplicity="?">
+<hoa> 0 </hoa>
+</hogroup>
+<hqueue>
+<hjob multiplicity="*" type="List">
+<hpay> 0 </hpay>
+</hjob>
+</hqueue>
+<hshelf>
+<hbag multiplicity="*" type="Set">
+<hkey> 0 </hkey>
+</hbag>
+</hshelf>
+<hbank>
+<hacct multiplicity="*" type="Map">
+<hid> 0 </hid>
+</hacct>
+</hbank>
+</opt>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+<shelf>
+<bag multiplicity="*" type="Set">
+<key> 0 </key>
+</bag>
+</shelf>
+<bank>
+<account multiplicity="*" type="Map">
+<id> 0 </id>
+<aprog> .K </aprog>
+<acode> .K </acode>
+<apc> 0 </apc>
+<astack> .List </astack>
+<aseq> . Ints </aseq>
+<aenv> .Map </aenv>
+<aset> .Set </aset>
+<aframe>
+<aa> 0 </aa>
+</aframe>
+<acounter multiplicity="?"> 0 </acounter>
+<aolist multiplicity="?"> .List </aolist>
+<aomap multiplicity="?"> .Map </aomap>
+<aogroup multiplicity="?">
+<aoa> 0 </aoa>
+</aogroup>
+<aqueue>
+<ajob multiplicity="*" type="List">
+<apay> 0 </apay>
+</ajob>
+</aqueue>
+<ashelf>
+<abag multiplicity="*" type="Set">
+<akey> 0 </akey>
+</abag>
+</ashelf>
+<abank>
+<aacct multiplicity="*" type="Map">
+<aid> 0 </aid>
+</aacct>
+</abank>
+</account>
+</bank>
+"""
 
 [accept."init/kinds/counter/k::absent!(0)"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<prog> .K </prog>
+<aux>
+<code> .K </code>
+</aux>
+<pc> 0 </pc>
+<stack> .List </stack>
+<seq> . Ints </seq>
+<env> .Map </env>
+<set> .Set </set>
+<frame>
+<a> 0 </a>
+<b> 0 </b>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<olist multiplicity="?"> .List </olist>
+<omap multiplicity="?"> .Map </omap>
+<ogroup multiplicity="?">
+<oa> 0 </oa>
+</ogroup>
+<opt multiplicity="?">
+<hprog> .K </hprog>
+<hcode> .K </hcode>
+<hpc> 0 </hpc>
+<hstack> .List </hstack>
+<hseq> . Ints </hseq>
+<henv> .Map </henv>
+<hset> .Set </hset>
+<hframe>
+<ha> 0 </ha>
+</hframe>
+<hcounter multiplicity="?"> 0 </hcounter>
+<holist multiplicity="?"> .List </holist>
+<homap multiplicity="?"> .Map </homap>
+<hogroup multiplicity="?">
+<hoa> 0 </hoa>
+</hogroup>
+<hqueue>
+<hjob multiplicity="*" type="List">
+<hpay> 0 </hpay>
+</hjob>
+</hqueue>
+<hshelf>
+<hbag multiplicity="*" type="Set">
+<hkey> 0 </hkey>
+</hbag>
+</hshelf>
+<hbank>
+<hacct multiplicity="*" type="Map">
+<hid> 0 </hid>
+</hacct>
+</hbank>
+</opt>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+<shelf>
+<bag multiplicity="*" type="Set">
+<key> 0 </key>
+</bag>
+</shelf>
+<bank>
+<account multiplicity="*" type="Map">
+<id> 0 </id>
+<aprog> .K </aprog>
+<acode> .K </acode>
+<apc> 0 </apc>
+<astack> .List </astack>
+<aseq> . Ints </aseq>
+<aenv> .Map </aenv>
+<aset> .Set </aset>
+<aframe>
+<aa> 0 </aa>
+</aframe>
+<acounter multiplicity="?"> 0 </acounter>
+<aolist multiplicity="?"> .List </aolist>
+<aomap multiplicity="?"> .Map </aomap>
+<aogroup multiplicity="?">
+<aoa> 0 </aoa>
+</aogroup>
+<aqueue>
+<ajob multiplicity="*" type="List">
+<apay> 0 </apay>
+</ajob>
+</aqueue>
+<ashelf>
+<abag multiplicity="*" type="Set">
+<akey> 0 </akey>
+</abag>
+</ashelf>
+<abank>
+<aacct multiplicity="*" type="Map">
+<aid> 0 </aid>
+</aacct>
+</abank>
+</account>
+</bank>
+"""
 
 [accept."init/kinds/env/k::map![0 -> 1]"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<prog> .K </prog>
+<aux>
+<code> .K </code>
+</aux>
+<pc> 0 </pc>
+<stack> .List </stack>
+<seq> . Ints </seq>
+<env> 0 |-> 1 </env>
+<set> .Set </set>
+<frame>
+<a> 0 </a>
+<b> 0 </b>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<olist multiplicity="?"> .List </olist>
+<omap multiplicity="?"> .Map </omap>
+<ogroup multiplicity="?">
+<oa> 0 </oa>
+</ogroup>
+<opt multiplicity="?">
+<hprog> .K </hprog>
+<hcode> .K </hcode>
+<hpc> 0 </hpc>
+<hstack> .List </hstack>
+<hseq> . Ints </hseq>
+<henv> .Map </henv>
+<hset> .Set </hset>
+<hframe>
+<ha> 0 </ha>
+</hframe>
+<hcounter multiplicity="?"> 0 </hcounter>
+<holist multiplicity="?"> .List </holist>
+<homap multiplicity="?"> .Map </homap>
+<hogroup multiplicity="?">
+<hoa> 0 </hoa>
+</hogroup>
+<hqueue>
+<hjob multiplicity="*" type="List">
+<hpay> 0 </hpay>
+</hjob>
+</hqueue>
+<hshelf>
+<hbag multiplicity="*" type="Set">
+<hkey> 0 </hkey>
+</hbag>
+</hshelf>
+<hbank>
+<hacct multiplicity="*" type="Map">
+<hid> 0 </hid>
+</hacct>
+</hbank>
+</opt>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+<shelf>
+<bag multiplicity="*" type="Set">
+<key> 0 </key>
+</bag>
+</shelf>
+<bank>
+<account multiplicity="*" type="Map">
+<id> 0 </id>
+<aprog> .K </aprog>
+<acode> .K </acode>
+<apc> 0 </apc>
+<astack> .List </astack>
+<aseq> . Ints </aseq>
+<aenv> .Map </aenv>
+<aset> .Set </aset>
+<aframe>
+<aa> 0 </aa>
+</aframe>
+<acounter multiplicity="?"> 0 </acounter>
+<aolist multiplicity="?"> .List </aolist>
+<aomap multiplicity="?"> .Map </aomap>
+<aogroup multiplicity="?">
+<aoa> 0 </aoa>
+</aogroup>
+<aqueue>
+<ajob multiplicity="*" type="List">
+<apay> 0 </apay>
+</ajob>
+</aqueue>
+<ashelf>
+<abag multiplicity="*" type="Set">
+<akey> 0 </akey>
+</abag>
+</ashelf>
+<abank>
+<aacct multiplicity="*" type="Map">
+<aid> 0 </aid>
+</aacct>
+</abank>
+</account>
+</bank>
+"""
 
 [accept."init/kinds/frame/G { a: 0, b: 0 }"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<prog> .K </prog>
+<aux>
+<code> .K </code>
+</aux>
+<pc> 0 </pc>
+<stack> .List </stack>
+<seq> . Ints </seq>
+<env> .Map </env>
+<set> .Set </set>
+<frame>
+<a> 0 </a>
+<b> 0 </b>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<olist multiplicity="?"> .List </olist>
+<omap multiplicity="?"> .Map </omap>
+<ogroup multiplicity="?">
+<oa> 0 </oa>
+</ogroup>
+<opt multiplicity="?">
+<hprog> .K </hprog>
+<hcode> .K </hcode>
+<hpc> 0 </hpc>
+<hstack> .List </hstack>
+<hseq> . Ints </hseq>
+<henv> .Map </henv>
+<hset> .Set </hset>
+<hframe>
+<ha> 0 </ha>
+</hframe>
+<hcounter multiplicity="?"> 0 </hcounter>
+<holist multiplicity="?"> .List </holist>
+<homap multiplicity="?"> .Map </homap>
+<hogroup multiplicity="?">
+<hoa> 0 </hoa>
+</hogroup>
+<hqueue>
+<hjob multiplicity="*" type="List">
+<hpay> 0 </hpay>
+</hjob>
+</hqueue>
+<hshelf>
+<hbag multiplicity="*" type="Set">
+<hkey> 0 </hkey>
+</hbag>
+</hshelf>
+<hbank>
+<hacct multiplicity="*" type="Map">
+<hid> 0 </hid>
+</hacct>
+</hbank>
+</opt>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+<shelf>
+<bag multiplicity="*" type="Set">
+<key> 0 </key>
+</bag>
+</shelf>
+<bank>
+<account multiplicity="*" type="Map">
+<id> 0 </id>
+<aprog> .K </aprog>
+<acode> .K </acode>
+<apc> 0 </apc>
+<astack> .List </astack>
+<aseq> . Ints </aseq>
+<aenv> .Map </aenv>
+<aset> .Set </aset>
+<aframe>
+<aa> 0 </aa>
+</aframe>
+<acounter multiplicity="?"> 0 </acounter>
+<aolist multiplicity="?"> .List </aolist>
+<aomap multiplicity="?"> .Map </aomap>
+<aogroup multiplicity="?">
+<aoa> 0 </aoa>
+</aogroup>
+<aqueue>
+<ajob multiplicity="*" type="List">
+<apay> 0 </apay>
+</ajob>
+</aqueue>
+<ashelf>
+<abag multiplicity="*" type="Set">
+<akey> 0 </akey>
+</abag>
+</ashelf>
+<abank>
+<aacct multiplicity="*" type="Map">
+<aid> 0 </aid>
+</aacct>
+</abank>
+</account>
+</bank>
+"""
 
 [accept."init/kinds/job/Job { payload: 0 }"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<prog> .K </prog>
+<aux>
+<code> .K </code>
+</aux>
+<pc> 0 </pc>
+<stack> .List </stack>
+<seq> . Ints </seq>
+<env> .Map </env>
+<set> .Set </set>
+<frame>
+<a> 0 </a>
+<b> 0 </b>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<olist multiplicity="?"> .List </olist>
+<omap multiplicity="?"> .Map </omap>
+<ogroup multiplicity="?">
+<oa> 0 </oa>
+</ogroup>
+<opt multiplicity="?">
+<hprog> .K </hprog>
+<hcode> .K </hcode>
+<hpc> 0 </hpc>
+<hstack> .List </hstack>
+<hseq> . Ints </hseq>
+<henv> .Map </henv>
+<hset> .Set </hset>
+<hframe>
+<ha> 0 </ha>
+</hframe>
+<hcounter multiplicity="?"> 0 </hcounter>
+<holist multiplicity="?"> .List </holist>
+<homap multiplicity="?"> .Map </homap>
+<hogroup multiplicity="?">
+<hoa> 0 </hoa>
+</hogroup>
+<hqueue>
+<hjob multiplicity="*" type="List">
+<hpay> 0 </hpay>
+</hjob>
+</hqueue>
+<hshelf>
+<hbag multiplicity="*" type="Set">
+<hkey> 0 </hkey>
+</hbag>
+</hshelf>
+<hbank>
+<hacct multiplicity="*" type="Map">
+<hid> 0 </hid>
+</hacct>
+</hbank>
+</opt>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+<shelf>
+<bag multiplicity="*" type="Set">
+<key> 0 </key>
+</bag>
+</shelf>
+<bank>
+<account multiplicity="*" type="Map">
+<id> 0 </id>
+<aprog> .K </aprog>
+<acode> .K </acode>
+<apc> 0 </apc>
+<astack> .List </astack>
+<aseq> . Ints </aseq>
+<aenv> .Map </aenv>
+<aset> .Set </aset>
+<aframe>
+<aa> 0 </aa>
+</aframe>
+<acounter multiplicity="?"> 0 </acounter>
+<aolist multiplicity="?"> .List </aolist>
+<aomap multiplicity="?"> .Map </aomap>
+<aogroup multiplicity="?">
+<aoa> 0 </aoa>
+</aogroup>
+<aqueue>
+<ajob multiplicity="*" type="List">
+<apay> 0 </apay>
+</ajob>
+</aqueue>
+<ashelf>
+<abag multiplicity="*" type="Set">
+<akey> 0 </akey>
+</abag>
+</ashelf>
+<abank>
+<aacct multiplicity="*" type="Map">
+<aid> 0 </aid>
+</aacct>
+</abank>
+</account>
+</bank>
+"""
 
 [accept."init/kinds/ogroup/Some(O { oa: 0 })"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<prog> .K </prog>
+<aux>
+<code> .K </code>
+</aux>
+<pc> 0 </pc>
+<stack> .List </stack>
+<seq> . Ints </seq>
+<env> .Map </env>
+<set> .Set </set>
+<frame>
+<a> 0 </a>
+<b> 0 </b>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<olist multiplicity="?"> .List </olist>
+<omap multiplicity="?"> .Map </omap>
+<ogroup multiplicity="?" initial="">
+<oa> 0 </oa>
+</ogroup>
+<opt multiplicity="?">
+<hprog> .K </hprog>
+<hcode> .K </hcode>
+<hpc> 0 </hpc>
+<hstack> .List </hstack>
+<hseq> . Ints </hseq>
+<henv> .Map </henv>
+<hset> .Set </hset>
+<hframe>
+<ha> 0 </ha>
+</hframe>
+<hcounter multiplicity="?"> 0 </hcounter>
+<holist multiplicity="?"> .List </holist>
+<homap multiplicity="?"> .Map </homap>
+<hogroup multiplicity="?">
+<hoa> 0 </hoa>
+</hogroup>
+<hqueue>
+<hjob multiplicity="*" type="List">
+<hpay> 0 </hpay>
+</hjob>
+</hqueue>
+<hshelf>
+<hbag multiplicity="*" type="Set">
+<hkey> 0 </hkey>
+</hbag>
+</hshelf>
+<hbank>
+<hacct multiplicity="*" type="Map">
+<hid> 0 </hid>
+</hacct>
+</hbank>
+</opt>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+<shelf>
+<bag multiplicity="*" type="Set">
+<key> 0 </key>
+</bag>
+</shelf>
+<bank>
+<account multiplicity="*" type="Map">
+<id> 0 </id>
+<aprog> .K </aprog>
+<acode> .K </acode>
+<apc> 0 </apc>
+<astack> .List </astack>
+<aseq> . Ints </aseq>
+<aenv> .Map </aenv>
+<aset> .Set </aset>
+<aframe>
+<aa> 0 </aa>
+</aframe>
+<acounter multiplicity="?"> 0 </acounter>
+<aolist multiplicity="?"> .List </aolist>
+<aomap multiplicity="?"> .Map </aomap>
+<aogroup multiplicity="?">
+<aoa> 0 </aoa>
+</aogroup>
+<aqueue>
+<ajob multiplicity="*" type="List">
+<apay> 0 </apay>
+</ajob>
+</aqueue>
+<ashelf>
+<abag multiplicity="*" type="Set">
+<akey> 0 </akey>
+</abag>
+</ashelf>
+<abank>
+<aacct multiplicity="*" type="Map">
+<aid> 0 </aid>
+</aacct>
+</abank>
+</account>
+</bank>
+"""
 
 [accept."init/kinds/ogroup/k::absent!(O { oa: 0 })"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<prog> .K </prog>
+<aux>
+<code> .K </code>
+</aux>
+<pc> 0 </pc>
+<stack> .List </stack>
+<seq> . Ints </seq>
+<env> .Map </env>
+<set> .Set </set>
+<frame>
+<a> 0 </a>
+<b> 0 </b>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<olist multiplicity="?"> .List </olist>
+<omap multiplicity="?"> .Map </omap>
+<ogroup multiplicity="?">
+<oa> 0 </oa>
+</ogroup>
+<opt multiplicity="?">
+<hprog> .K </hprog>
+<hcode> .K </hcode>
+<hpc> 0 </hpc>
+<hstack> .List </hstack>
+<hseq> . Ints </hseq>
+<henv> .Map </henv>
+<hset> .Set </hset>
+<hframe>
+<ha> 0 </ha>
+</hframe>
+<hcounter multiplicity="?"> 0 </hcounter>
+<holist multiplicity="?"> .List </holist>
+<homap multiplicity="?"> .Map </homap>
+<hogroup multiplicity="?">
+<hoa> 0 </hoa>
+</hogroup>
+<hqueue>
+<hjob multiplicity="*" type="List">
+<hpay> 0 </hpay>
+</hjob>
+</hqueue>
+<hshelf>
+<hbag multiplicity="*" type="Set">
+<hkey> 0 </hkey>
+</hbag>
+</hshelf>
+<hbank>
+<hacct multiplicity="*" type="Map">
+<hid> 0 </hid>
+</hacct>
+</hbank>
+</opt>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+<shelf>
+<bag multiplicity="*" type="Set">
+<key> 0 </key>
+</bag>
+</shelf>
+<bank>
+<account multiplicity="*" type="Map">
+<id> 0 </id>
+<aprog> .K </aprog>
+<acode> .K </acode>
+<apc> 0 </apc>
+<astack> .List </astack>
+<aseq> . Ints </aseq>
+<aenv> .Map </aenv>
+<aset> .Set </aset>
+<aframe>
+<aa> 0 </aa>
+</aframe>
+<acounter multiplicity="?"> 0 </acounter>
+<aolist multiplicity="?"> .List </aolist>
+<aomap multiplicity="?"> .Map </aomap>
+<aogroup multiplicity="?">
+<aoa> 0 </aoa>
+</aogroup>
+<aqueue>
+<ajob multiplicity="*" type="List">
+<apay> 0 </apay>
+</ajob>
+</aqueue>
+<ashelf>
+<abag multiplicity="*" type="Set">
+<akey> 0 </akey>
+</abag>
+</ashelf>
+<abank>
+<aacct multiplicity="*" type="Map">
+<aid> 0 </aid>
+</aacct>
+</abank>
+</account>
+</bank>
+"""
 
 [accept."init/kinds/olist/Some(list::empty())"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<prog> .K </prog>
+<aux>
+<code> .K </code>
+</aux>
+<pc> 0 </pc>
+<stack> .List </stack>
+<seq> . Ints </seq>
+<env> .Map </env>
+<set> .Set </set>
+<frame>
+<a> 0 </a>
+<b> 0 </b>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<olist multiplicity="?" initial=""> .List </olist>
+<omap multiplicity="?"> .Map </omap>
+<ogroup multiplicity="?">
+<oa> 0 </oa>
+</ogroup>
+<opt multiplicity="?">
+<hprog> .K </hprog>
+<hcode> .K </hcode>
+<hpc> 0 </hpc>
+<hstack> .List </hstack>
+<hseq> . Ints </hseq>
+<henv> .Map </henv>
+<hset> .Set </hset>
+<hframe>
+<ha> 0 </ha>
+</hframe>
+<hcounter multiplicity="?"> 0 </hcounter>
+<holist multiplicity="?"> .List </holist>
+<homap multiplicity="?"> .Map </homap>
+<hogroup multiplicity="?">
+<hoa> 0 </hoa>
+</hogroup>
+<hqueue>
+<hjob multiplicity="*" type="List">
+<hpay> 0 </hpay>
+</hjob>
+</hqueue>
+<hshelf>
+<hbag multiplicity="*" type="Set">
+<hkey> 0 </hkey>
+</hbag>
+</hshelf>
+<hbank>
+<hacct multiplicity="*" type="Map">
+<hid> 0 </hid>
+</hacct>
+</hbank>
+</opt>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+<shelf>
+<bag multiplicity="*" type="Set">
+<key> 0 </key>
+</bag>
+</shelf>
+<bank>
+<account multiplicity="*" type="Map">
+<id> 0 </id>
+<aprog> .K </aprog>
+<acode> .K </acode>
+<apc> 0 </apc>
+<astack> .List </astack>
+<aseq> . Ints </aseq>
+<aenv> .Map </aenv>
+<aset> .Set </aset>
+<aframe>
+<aa> 0 </aa>
+</aframe>
+<acounter multiplicity="?"> 0 </acounter>
+<aolist multiplicity="?"> .List </aolist>
+<aomap multiplicity="?"> .Map </aomap>
+<aogroup multiplicity="?">
+<aoa> 0 </aoa>
+</aogroup>
+<aqueue>
+<ajob multiplicity="*" type="List">
+<apay> 0 </apay>
+</ajob>
+</aqueue>
+<ashelf>
+<abag multiplicity="*" type="Set">
+<akey> 0 </akey>
+</abag>
+</ashelf>
+<abank>
+<aacct multiplicity="*" type="Map">
+<aid> 0 </aid>
+</aacct>
+</abank>
+</account>
+</bank>
+"""
 
 [accept."init/kinds/olist/k::absent!(list::empty())"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<prog> .K </prog>
+<aux>
+<code> .K </code>
+</aux>
+<pc> 0 </pc>
+<stack> .List </stack>
+<seq> . Ints </seq>
+<env> .Map </env>
+<set> .Set </set>
+<frame>
+<a> 0 </a>
+<b> 0 </b>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<olist multiplicity="?"> .List </olist>
+<omap multiplicity="?"> .Map </omap>
+<ogroup multiplicity="?">
+<oa> 0 </oa>
+</ogroup>
+<opt multiplicity="?">
+<hprog> .K </hprog>
+<hcode> .K </hcode>
+<hpc> 0 </hpc>
+<hstack> .List </hstack>
+<hseq> . Ints </hseq>
+<henv> .Map </henv>
+<hset> .Set </hset>
+<hframe>
+<ha> 0 </ha>
+</hframe>
+<hcounter multiplicity="?"> 0 </hcounter>
+<holist multiplicity="?"> .List </holist>
+<homap multiplicity="?"> .Map </homap>
+<hogroup multiplicity="?">
+<hoa> 0 </hoa>
+</hogroup>
+<hqueue>
+<hjob multiplicity="*" type="List">
+<hpay> 0 </hpay>
+</hjob>
+</hqueue>
+<hshelf>
+<hbag multiplicity="*" type="Set">
+<hkey> 0 </hkey>
+</hbag>
+</hshelf>
+<hbank>
+<hacct multiplicity="*" type="Map">
+<hid> 0 </hid>
+</hacct>
+</hbank>
+</opt>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+<shelf>
+<bag multiplicity="*" type="Set">
+<key> 0 </key>
+</bag>
+</shelf>
+<bank>
+<account multiplicity="*" type="Map">
+<id> 0 </id>
+<aprog> .K </aprog>
+<acode> .K </acode>
+<apc> 0 </apc>
+<astack> .List </astack>
+<aseq> . Ints </aseq>
+<aenv> .Map </aenv>
+<aset> .Set </aset>
+<aframe>
+<aa> 0 </aa>
+</aframe>
+<acounter multiplicity="?"> 0 </acounter>
+<aolist multiplicity="?"> .List </aolist>
+<aomap multiplicity="?"> .Map </aomap>
+<aogroup multiplicity="?">
+<aoa> 0 </aoa>
+</aogroup>
+<aqueue>
+<ajob multiplicity="*" type="List">
+<apay> 0 </apay>
+</ajob>
+</aqueue>
+<ashelf>
+<abag multiplicity="*" type="Set">
+<akey> 0 </akey>
+</abag>
+</ashelf>
+<abank>
+<aacct multiplicity="*" type="Map">
+<aid> 0 </aid>
+</aacct>
+</abank>
+</account>
+</bank>
+"""
 
 [accept."init/kinds/omap/Some(k::map![])"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<prog> .K </prog>
+<aux>
+<code> .K </code>
+</aux>
+<pc> 0 </pc>
+<stack> .List </stack>
+<seq> . Ints </seq>
+<env> .Map </env>
+<set> .Set </set>
+<frame>
+<a> 0 </a>
+<b> 0 </b>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<olist multiplicity="?"> .List </olist>
+<omap multiplicity="?" initial=""> .Map </omap>
+<ogroup multiplicity="?">
+<oa> 0 </oa>
+</ogroup>
+<opt multiplicity="?">
+<hprog> .K </hprog>
+<hcode> .K </hcode>
+<hpc> 0 </hpc>
+<hstack> .List </hstack>
+<hseq> . Ints </hseq>
+<henv> .Map </henv>
+<hset> .Set </hset>
+<hframe>
+<ha> 0 </ha>
+</hframe>
+<hcounter multiplicity="?"> 0 </hcounter>
+<holist multiplicity="?"> .List </holist>
+<homap multiplicity="?"> .Map </homap>
+<hogroup multiplicity="?">
+<hoa> 0 </hoa>
+</hogroup>
+<hqueue>
+<hjob multiplicity="*" type="List">
+<hpay> 0 </hpay>
+</hjob>
+</hqueue>
+<hshelf>
+<hbag multiplicity="*" type="Set">
+<hkey> 0 </hkey>
+</hbag>
+</hshelf>
+<hbank>
+<hacct multiplicity="*" type="Map">
+<hid> 0 </hid>
+</hacct>
+</hbank>
+</opt>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+<shelf>
+<bag multiplicity="*" type="Set">
+<key> 0 </key>
+</bag>
+</shelf>
+<bank>
+<account multiplicity="*" type="Map">
+<id> 0 </id>
+<aprog> .K </aprog>
+<acode> .K </acode>
+<apc> 0 </apc>
+<astack> .List </astack>
+<aseq> . Ints </aseq>
+<aenv> .Map </aenv>
+<aset> .Set </aset>
+<aframe>
+<aa> 0 </aa>
+</aframe>
+<acounter multiplicity="?"> 0 </acounter>
+<aolist multiplicity="?"> .List </aolist>
+<aomap multiplicity="?"> .Map </aomap>
+<aogroup multiplicity="?">
+<aoa> 0 </aoa>
+</aogroup>
+<aqueue>
+<ajob multiplicity="*" type="List">
+<apay> 0 </apay>
+</ajob>
+</aqueue>
+<ashelf>
+<abag multiplicity="*" type="Set">
+<akey> 0 </akey>
+</abag>
+</ashelf>
+<abank>
+<aacct multiplicity="*" type="Map">
+<aid> 0 </aid>
+</aacct>
+</abank>
+</account>
+</bank>
+"""
 
 [accept."init/kinds/omap/k::absent!(k::map![])"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<prog> .K </prog>
+<aux>
+<code> .K </code>
+</aux>
+<pc> 0 </pc>
+<stack> .List </stack>
+<seq> . Ints </seq>
+<env> .Map </env>
+<set> .Set </set>
+<frame>
+<a> 0 </a>
+<b> 0 </b>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<olist multiplicity="?"> .List </olist>
+<omap multiplicity="?"> .Map </omap>
+<ogroup multiplicity="?">
+<oa> 0 </oa>
+</ogroup>
+<opt multiplicity="?">
+<hprog> .K </hprog>
+<hcode> .K </hcode>
+<hpc> 0 </hpc>
+<hstack> .List </hstack>
+<hseq> . Ints </hseq>
+<henv> .Map </henv>
+<hset> .Set </hset>
+<hframe>
+<ha> 0 </ha>
+</hframe>
+<hcounter multiplicity="?"> 0 </hcounter>
+<holist multiplicity="?"> .List </holist>
+<homap multiplicity="?"> .Map </homap>
+<hogroup multiplicity="?">
+<hoa> 0 </hoa>
+</hogroup>
+<hqueue>
+<hjob multiplicity="*" type="List">
+<hpay> 0 </hpay>
+</hjob>
+</hqueue>
+<hshelf>
+<hbag multiplicity="*" type="Set">
+<hkey> 0 </hkey>
+</hbag>
+</hshelf>
+<hbank>
+<hacct multiplicity="*" type="Map">
+<hid> 0 </hid>
+</hacct>
+</hbank>
+</opt>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+<shelf>
+<bag multiplicity="*" type="Set">
+<key> 0 </key>
+</bag>
+</shelf>
+<bank>
+<account multiplicity="*" type="Map">
+<id> 0 </id>
+<aprog> .K </aprog>
+<acode> .K </acode>
+<apc> 0 </apc>
+<astack> .List </astack>
+<aseq> . Ints </aseq>
+<aenv> .Map </aenv>
+<aset> .Set </aset>
+<aframe>
+<aa> 0 </aa>
+</aframe>
+<acounter multiplicity="?"> 0 </acounter>
+<aolist multiplicity="?"> .List </aolist>
+<aomap multiplicity="?"> .Map </aomap>
+<aogroup multiplicity="?">
+<aoa> 0 </aoa>
+</aogroup>
+<aqueue>
+<ajob multiplicity="*" type="List">
+<apay> 0 </apay>
+</ajob>
+</aqueue>
+<ashelf>
+<abag multiplicity="*" type="Set">
+<akey> 0 </akey>
+</abag>
+</ashelf>
+<abank>
+<aacct multiplicity="*" type="Map">
+<aid> 0 </aid>
+</aacct>
+</abank>
+</account>
+</bank>
+"""
 
 [accept."init/kinds/pc/0"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<prog> .K </prog>
+<aux>
+<code> .K </code>
+</aux>
+<pc> 0 </pc>
+<stack> .List </stack>
+<seq> . Ints </seq>
+<env> .Map </env>
+<set> .Set </set>
+<frame>
+<a> 0 </a>
+<b> 0 </b>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<olist multiplicity="?"> .List </olist>
+<omap multiplicity="?"> .Map </omap>
+<ogroup multiplicity="?">
+<oa> 0 </oa>
+</ogroup>
+<opt multiplicity="?">
+<hprog> .K </hprog>
+<hcode> .K </hcode>
+<hpc> 0 </hpc>
+<hstack> .List </hstack>
+<hseq> . Ints </hseq>
+<henv> .Map </henv>
+<hset> .Set </hset>
+<hframe>
+<ha> 0 </ha>
+</hframe>
+<hcounter multiplicity="?"> 0 </hcounter>
+<holist multiplicity="?"> .List </holist>
+<homap multiplicity="?"> .Map </homap>
+<hogroup multiplicity="?">
+<hoa> 0 </hoa>
+</hogroup>
+<hqueue>
+<hjob multiplicity="*" type="List">
+<hpay> 0 </hpay>
+</hjob>
+</hqueue>
+<hshelf>
+<hbag multiplicity="*" type="Set">
+<hkey> 0 </hkey>
+</hbag>
+</hshelf>
+<hbank>
+<hacct multiplicity="*" type="Map">
+<hid> 0 </hid>
+</hacct>
+</hbank>
+</opt>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+<shelf>
+<bag multiplicity="*" type="Set">
+<key> 0 </key>
+</bag>
+</shelf>
+<bank>
+<account multiplicity="*" type="Map">
+<id> 0 </id>
+<aprog> .K </aprog>
+<acode> .K </acode>
+<apc> 0 </apc>
+<astack> .List </astack>
+<aseq> . Ints </aseq>
+<aenv> .Map </aenv>
+<aset> .Set </aset>
+<aframe>
+<aa> 0 </aa>
+</aframe>
+<acounter multiplicity="?"> 0 </acounter>
+<aolist multiplicity="?"> .List </aolist>
+<aomap multiplicity="?"> .Map </aomap>
+<aogroup multiplicity="?">
+<aoa> 0 </aoa>
+</aogroup>
+<aqueue>
+<ajob multiplicity="*" type="List">
+<apay> 0 </apay>
+</ajob>
+</aqueue>
+<ashelf>
+<abag multiplicity="*" type="Set">
+<akey> 0 </akey>
+</abag>
+</ashelf>
+<abank>
+<aacct multiplicity="*" type="Map">
+<aid> 0 </aid>
+</aacct>
+</abank>
+</account>
+</bank>
+"""
 
 [accept."init/kinds/prog/[0]"]
 
@@ -4162,6 +5540,13 @@ syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%
 [accept."readable/result/kinds/code/[x, ..]"]
 
 [accept."readable/result/kinds/frame/G { a: x, b: y }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(V2:FrameCell => <frame> <a> V0:Int </a> <b> V1:Int </b> </frame>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."readable/result/pc/0"]
 k = """
@@ -4549,14 +5934,38 @@ rule [case-TAG]:
 same_k_as = ["cells/subject/k/k::configuration::KCell(x, ..)"]
 
 [accept."readable/subject/kinds/bag/{ Obj { key: x, .. }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<bag>
+<key> V0:Int </key>
+...
+</bag>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."readable/subject/kinds/frame/G { a: x, b: y }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<frame> <a> V0:Int </a> <b> V1:Int </b> </frame>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."readable/subject/kinds/frame/_"]
 lint = "no-effect-entry"
 
 [accept."readable/subject/kinds/omap/Some(x)"]
 same_k_as = ["cells/subject/kinds/omap/Some(k::configuration::Cell(x))"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<omap> ... </omap>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."readable/subject/kinds/seq/_"]
 lint = "no-effect-entry"

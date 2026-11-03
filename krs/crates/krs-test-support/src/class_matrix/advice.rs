@@ -599,8 +599,8 @@ const OWN_CLAUSE_REASON: &str = "the advice is the case's own sentence rewritten
 /// The forms that narrow a variable to its cell's sort, as a binder's type or as a projection:
 /// the variables and sorts the cases' cells give them.
 const NARROWED: &[&str] = &[
-    r"`{x,pgm,any}: {Bool,Int,List,Map,Stmt,Value}`",
-    r"`k::project!({Bool,Int,List,Map,Stmt,Value}\, {x,pgm,any})`",
+    r"`{x,pgm,any}: {Bool,Int,Ints,List,Map,Set,Stmt,Value}`",
+    r"`k::project!({Bool,Int,Ints,List,Map,Set,Stmt,Value}\, {x,pgm,any})`",
 ];
 
 /// The reviewed unchecked advice of every case shard, by class ([`Unchecked`]). A case shard with

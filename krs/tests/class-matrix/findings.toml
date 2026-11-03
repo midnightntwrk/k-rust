@@ -119,6 +119,12 @@ kind = "bug"
 what = "a `cells!` result fragment of a matched group with a bare `..` that names every child (`k::fragment![crate::Frame { ret: x, .. }]` on the one-child `Frame`) is accepted, its `..` dropped (P6, ruling 1: a bare `..` in a result is Rust's default fields, which only a created instance has; P7); S5.3's"
 risk = "KRS ignores the bare `..` and writes the exact fragment, `<frame> <ret> X </ret> </frame>`: the spelling says \"the defaults for the fields not named\", which a matched group does not have, and nothing tells the author that the `..` meant nothing"
 
+["S5-L4"]
+owner = "S5"
+kind = "bug"
+what = "a readable subject record that names some of its group's children and writes no `..` (`frame: G { a: x }` on `G { a, b }`) is accepted (L4: `record-missing-children`; P6, records follow Rust: without `..` a record names every field); S5.2's"
+risk = "KRS leaves the unnamed child `b` unconstrained, as `G { a: x, .. }` says: the rule matches whatever `b` holds, while the record without `..` reads in Rust as naming every field, so the missing `b` is a mistake nobody is told about"
+
 ["S5-M1"]
 owner = "S5"
 kind = "bug"
