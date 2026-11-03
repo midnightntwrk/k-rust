@@ -424,6 +424,19 @@ name = "weekly-rpc"
 run = "weekly"
 command = "scripts/reference-rpc-differential.sh bounded-search"
 
+# The site's mirror of k-rust's reader-facing docs (docs-site/scripts/sync-k-rust.py): an edit to a
+# mirrored doc owes the regenerated page, which the site's own `bun run check` reads but no
+# registry entry did, so a stale mirror went unnoticed across several changes.
+[[gate]]
+name = "docs-mirror"
+run = "certification"
+command = "docs-site/scripts/sync-k-rust.py --check"
+paths = [
+  '^docs/(amendments|compatibility|fuzzing)\.md$',
+  '^docs-site/src/pages/k-rust/(amendments|compatibility|fuzzing)\.mdx$',
+  '^docs-site/scripts/sync-k-rust\.py$',
+]
+
 # KRS's gates (krs/tests/gates.sh). They compare KRS's emitted K and its native route through these
 # crates with Java K results that a per-user reference cache replays; a cold cache runs K 7.1.337.
 [[gate]]
