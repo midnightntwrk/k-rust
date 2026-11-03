@@ -349,7 +349,7 @@ fn conditions_cannot_name_configuration_or_instance_remainders() {
         [
             "state-requires: error[krs::syntax::unsupported-rule-body]: unsupported rule body: this name is the remainder of the configuration: it stands for the cells this rule leaves out, which K completes from the declaration, so it is not a term a condition can test @ 66:26",
             "state-ensures: error[krs::syntax::unsupported-rule-body]: unsupported rule body: this name is the remainder of the configuration: it stands for the cells this rule leaves out, which K completes from the declaration, so it is not a term a condition can test @ 66:25",
-            "instances-requires: error[krs::syntax::unsupported-rule-body]: unsupported rule body: this name is the remainder of a collection's instances: it stands for the instances this rule leaves out, which stay as they are, so it is not a term a condition can test @ 150:26",
+            "instances-requires: error[krs::syntax::unsupported-rule-body]: unsupported rule body: this name is the remainder of a collection's instances: it stands for the instances this rule leaves out, which stay as they are, so it is not a term a condition can test @ 152:26",
         ]
     "#]]
     .assert_debug_eq(&errors);
