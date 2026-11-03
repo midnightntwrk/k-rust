@@ -1324,8 +1324,8 @@ impl EntryCase {
 ///   and there is no guard, so the rule matches every configuration;
 /// - `rule-changes-no-cell`: a rule writes no cell;
 /// - `unused-configuration-variable`: no initializer value names a configuration variable;
-/// - `main-cell-not-k`: the program is placed in a computation cell other than the one named
-///   `k`, which K takes as the computation cell by its name.
+/// - `main-cell-not-k`: the program is placed in a computation cell, and not in the one named
+///   `k`, which K takes as the computation cell by its name, whatever order the entries come in.
 #[must_use]
 pub fn rule_outcome(template: &Template, entry: &Entry, outcome: Outcome) -> Option<&'static str> {
     if !outcome.admits() {
@@ -1353,17 +1353,15 @@ pub fn rule_outcome(template: &Template, entry: &Entry, outcome: Outcome) -> Opt
         }
         Sentence::Claim => None,
         Sentence::Initializer => {
+            let computation = |entry: &Entry| entry.stack.last() == Some(&Layer::Computation);
+            let k = |entry: &Entry| entry.cell == "k" && computation(entry);
             for (variable, main) in &template.variables {
-                let mut holders = entries().filter(|entry| mentions(&entry.spelling, variable));
-                let Some(holder) = holders.next() else {
+                let holders = || entries().filter(|entry| mentions(&entry.spelling, variable));
+                if holders().next().is_none() {
                     return Some("unused-configuration-variable");
-                };
-                let computation = |entry: &Entry| entry.stack.last() == Some(&Layer::Computation);
-                if *main
-                    && computation(holder)
-                    && holder.cell != "k"
-                    && entries().any(|entry| entry.cell == "k" && computation(entry))
-                {
+                }
+                // Which entries hold the program is a set: their order states nothing.
+                if *main && holders().any(computation) && !holders().any(k) && entries().any(k) {
                     return Some("main-cell-not-k");
                 }
             }

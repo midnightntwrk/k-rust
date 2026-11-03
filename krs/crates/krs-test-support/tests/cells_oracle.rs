@@ -2897,6 +2897,51 @@ fn an_update_of_a_map_collections_instance_that_writes_its_key_is_refused() {
 /// below it, on either side, names that cell twice. The compiler refuses it today with
 /// `krs::analysis::group-and-descendant` (`semantic/rules.rs` `check_group_descendants`, the
 /// `configuration-cells` fixture `group-and-leaf`); the oracle answers it at step 5, first.
+/// R6 (S5.0g review): an initializer's program in a computation cell other than `k` while a
+/// `k` computation exists is `main-cell-not-k` when no `k` cell holds the program, whatever the
+/// order of the entries; the program in `k` and in a second computation (S5-M1's rows, P0, P1)
+/// is no such refusal in either order.
+#[test]
+fn the_main_cell_rule_reads_the_entries_as_a_set() {
+    use class_matrix::cells_oracle::build::seq;
+    use class_matrix::cells_oracle::{Entry, Sentence};
+    let kmac = |items| Spelling::KMacro(seq(items, None));
+    let entry = |cell: &str, spelling| Entry {
+        cell: cell.to_owned(),
+        side: Side::Initializer,
+        path: Vec::new(),
+        stack: vec![Layer::Computation],
+        spelling,
+    };
+    let pgm = || kmac(vec![Spelling::ConfigVar("pgm".to_owned())]);
+    let empty = || kmac(Vec::new());
+    let init = |entries| Template {
+        sentence: Sentence::Initializer,
+        entries,
+        guard: false,
+        variables: vec![("pgm".to_owned(), true)],
+    };
+    let admitted = Outcome::Admit { lint: None };
+    let judged = |template: &Template, own: &Entry| rule_outcome(template, own, admitted);
+    let (k_pgm, prog_pgm) = (entry("k", pgm()), entry("prog", pgm()));
+    let (k_empty, prog_empty) = (entry("k", empty()), entry("prog", empty()));
+    // The program in `prog` alone, `k` empty: refused, with either entry first.
+    assert_eq!(
+        judged(&init(vec![k_empty.clone()]), &prog_pgm),
+        Some("main-cell-not-k")
+    );
+    assert_eq!(
+        judged(&init(vec![prog_pgm.clone()]), &k_empty),
+        Some("main-cell-not-k")
+    );
+    // The program in `k` and in `prog`: `k` holds it, in either order.
+    assert_eq!(judged(&init(vec![k_pgm.clone()]), &prog_pgm), None);
+    assert_eq!(judged(&init(vec![prog_pgm.clone()]), &k_pgm), None);
+    // The program in `k` alone.
+    assert_eq!(judged(&init(vec![prog_empty.clone()]), &k_pgm), None);
+    assert_eq!(judged(&init(vec![k_pgm]), &prog_empty), None);
+}
+
 #[test]
 fn a_rule_naming_a_group_and_a_cell_below_it_is_refused_on_the_whole_rule() {
     use class_matrix::cells_oracle::build::{bind, lit, open, seq};
