@@ -3633,7 +3633,7 @@ mod tests {
     /// are both `{false, true}`: both are defined and neither is `{true}`. So `⌈g⌉ ∧ ⌈n⌉ ∧ ¬(g =
     /// true)` does not imply `n = true`, which a reading of `st` as one SMT constant makes valid.
     /// The Boolean `@P ∧ @Q` is `{false, true}` when both are: defined, neither `true` nor
-    /// `false`. Such a conjunction is refused (`NonBooleanAnd`), and its atom is not posed. With
+    /// `false`. Such a conjunction is refused (`MayDenoteSeveral`), and its atom is not posed. With
     /// one side an element variable, `@S ∧ X` is at most `{X}`, and the implication is valid.
     #[test]
     fn a_term_conjunction_of_two_sides_with_set_variables_is_not_read_as_one_value() {
@@ -3678,7 +3678,7 @@ mod tests {
             matches!(
                 result,
                 Err(SmtError::Translation(
-                    crate::smt::TranslationError::NonBooleanAnd(_)
+                    crate::smt::TranslationError::MayDenoteSeveral(_)
                 ))
             )
         }
@@ -3782,7 +3782,7 @@ mod tests {
             matches!(
                 result,
                 Err(SmtError::Translation(
-                    crate::smt::TranslationError::NonBooleanAnd(_)
+                    crate::smt::TranslationError::MayDenoteSeveral(_)
                 ))
             )
         }

@@ -579,7 +579,10 @@ pub enum BuiltinFailureOutput {
 #[serde(tag = "kind", deny_unknown_fields, rename_all = "kebab-case")]
 #[serde(bound(deserialize = "K: Deserialize<'de>"))]
 pub enum TranslationFailureOutput<K = Value> {
-    NonBooleanAnd {
+    /// A term that may denote several elements (`TranslationError::MayDenoteSeveral`). Its wire
+    /// name is from when a non-Boolean term conjunction was refused, and is kept.
+    #[serde(rename = "non-boolean-and")]
+    MayDenoteSeveral {
         term: K,
     },
     PlaceholderOutOfBounds {
@@ -1470,7 +1473,7 @@ fn translation_failure_output<K: WireKore>(
     result_sort: &Sort,
 ) -> Result<TranslationFailureOutput<K>, BackendError> {
     Ok(match error {
-        TranslationError::NonBooleanAnd(term) => TranslationFailureOutput::NonBooleanAnd {
+        TranslationError::MayDenoteSeveral(term) => TranslationFailureOutput::MayDenoteSeveral {
             term: encode_term(&term)?,
         },
         TranslationError::PlaceholderOutOfBounds {

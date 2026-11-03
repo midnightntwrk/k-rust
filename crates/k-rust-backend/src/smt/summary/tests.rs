@@ -1053,7 +1053,7 @@ fn actual_scalar_emission_shares_dependencies_and_keeps_actual_operand_admission
     assert!(super::reading(&state.summaries, &set_call).is_some());
     assert_eq!(
         state.translate_term(&set_call),
-        Err(super::super::TranslationError::NonBooleanAnd(
+        Err(super::super::TranslationError::MayDenoteSeveral(
             set_call.clone()
         ))
     );

@@ -777,7 +777,7 @@ struct UntranslatableSolver(TranslationError);
 
 impl UntranslatableSolver {
     fn non_boolean_and(definition: &BackendDefinition) -> Self {
-        Self(TranslationError::NonBooleanAnd(term(
+        Self(TranslationError::MayDenoteSeveral(term(
             definition,
             r"\and{SortS{}}(Y:SortS{}, Z:SortS{})",
         )))

@@ -1369,7 +1369,7 @@ endmodule
     /// the atom implies `l > 0`, follows from `l = r /\ l > 0`, and its negation beside `l = r`
     /// implies `\not(l > 0)` and beside `l > 0` implies `l =/= r`; `l > 0` alone does not imply
     /// it. Before GAP K36 the solver had no translation of a non-Boolean `\and`
-    /// (`NonBooleanAnd`), and each of these was `unknown`.
+    /// (`MayDenoteSeveral`), and each of these was `unknown`.
     #[test]
     fn a_request_atom_over_an_integer_term_conjunction_is_decided_by_its_definedness() {
         let mut backend = backend();

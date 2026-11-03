@@ -559,7 +559,7 @@ impl Display for SmtError {
 impl Display for TranslationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NonBooleanAnd(term) => write!(
+            Self::MayDenoteSeveral(term) => write!(
                 formatter,
                 "a term holding a set variable (outside a term conjunction with a side that holds none) may denote several values and cannot be translated: {}",
                 compact_term(term)

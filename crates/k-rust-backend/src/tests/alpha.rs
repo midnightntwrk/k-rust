@@ -426,7 +426,7 @@ fn collect_translation_error(
 ) -> Result<(), String> {
     use TranslationError::*;
     match (left, right) {
-        (NonBooleanAnd(left), NonBooleanAnd(right)) => collect_term(left, right, context),
+        (MayDenoteSeveral(left), MayDenoteSeveral(right)) => collect_term(left, right, context),
         (
             SmtLemmaSurplusMappings {
                 rule_id: li,
@@ -467,7 +467,7 @@ fn collect_translation_error(
 fn rename_translation_error(error: &TranslationError, context: &AlphaContext) -> TranslationError {
     use TranslationError::*;
     match error {
-        NonBooleanAnd(term) => NonBooleanAnd(rename_term(term, context)),
+        MayDenoteSeveral(term) => MayDenoteSeveral(rename_term(term, context)),
         SmtLemmaSurplusMappings { rule_id, terms } => SmtLemmaSurplusMappings {
             rule_id: rule_id.clone(),
             terms: terms

@@ -1036,7 +1036,7 @@ impl TranslationState {
         // Every reading below gives the term one value, which a term that may denote several
         // elements has not; such a term is refused before any of them (`may_denote_several`).
         if may_denote_several(term) {
-            return Err(TranslationError::NonBooleanAnd(term.clone()));
+            return Err(TranslationError::MayDenoteSeveral(term.clone()));
         }
         let reading = self.observations.get(term).cloned();
         let demands = self
@@ -1145,13 +1145,13 @@ impl TranslationState {
             // reading: an atom is gated by its operand's domain, which a stated `\ceil` of the
             // operand removes, and the domain holding does not make the operand one value.
             // Such a conjunction is refused, so no atom over it is posed
-            // (`TranslationError::NonBooleanAnd`, the wire variant this refusal reuses); the
+            // (`TranslationError::MayDenoteSeveral`, on the wire `non-boolean-and`); the
             // node's own check (`may_denote_several`) refuses it before this arm is reached.
             TermKind::And(left, right) => {
                 if crate::definedness::holds_set_variable(left)
                     && crate::definedness::holds_set_variable(right)
                 {
-                    Err(TranslationError::NonBooleanAnd(term.clone()))
+                    Err(TranslationError::MayDenoteSeveral(term.clone()))
                 } else if crate::definedness::holds_set_variable(term) {
                     Ok(self.abstract_term(term, Exactness::Approximate))
                 } else {
@@ -2659,9 +2659,9 @@ pub enum TranslationError {
     /// variable, or a term holding one outside a term-level `\and` with a side that holds none
     /// (`may_denote_several`), such as a conjunction both of whose sides hold set variables.
     /// Every set-variable-free conjunction is translated (GAP K36 reads one of any sort by its
-    /// domain plan). The name, from when a non-Boolean conjunction was refused, is kept for the
-    /// wire format (`non-boolean-and`), which carries the refused term.
-    NonBooleanAnd(Term),
+    /// domain plan). Its wire name is `non-boolean-and`, from when a non-Boolean conjunction
+    /// was refused; the wire carries the refused term.
+    MayDenoteSeveral(Term),
     PlaceholderOutOfBounds {
         placeholder: usize,
         arguments: usize,

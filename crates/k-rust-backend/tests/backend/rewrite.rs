@@ -2803,7 +2803,7 @@ fn untranslatable_requires_is_an_smt_indeterminate_leaf() {
         term: internal_term(&definition, "wrap{}(Y:SortS{})"),
         constraints: Vec::new(),
     };
-    let untranslatable = TranslationError::NonBooleanAnd(internal_term(
+    let untranslatable = TranslationError::MayDenoteSeveral(internal_term(
         &definition,
         r"\and{SortS{}}(Y:SortS{}, Z:SortS{})",
     ));
@@ -2930,7 +2930,7 @@ fn rhs_definedness_obligation_verdicts_are_mapped_per_site() {
         &definition,
         r#"partial{}(\dv{SortS{}}("start"))"#,
     ));
-    let untranslatable = TranslationError::NonBooleanAnd(internal_term(
+    let untranslatable = TranslationError::MayDenoteSeveral(internal_term(
         &definition,
         r"\and{SortS{}}(Y:SortS{}, Z:SortS{})",
     ));
@@ -2987,7 +2987,7 @@ fn ensures_verdicts_are_mapped_per_site_in_the_rewriter() {
         internal_term(&definition, "Z:SortS{}"),
         internal_term(&definition, r#"\dv{SortS{}}("expected")"#),
     );
-    let untranslatable = TranslationError::NonBooleanAnd(internal_term(
+    let untranslatable = TranslationError::MayDenoteSeveral(internal_term(
         &definition,
         r"\and{SortS{}}(Y:SortS{}, Z:SortS{})",
     ));
