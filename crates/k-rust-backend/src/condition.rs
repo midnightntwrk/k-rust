@@ -228,9 +228,9 @@ impl InstantiatedCondition {
             bool,
         ) -> Stoppable<Result<Vec<Predicate>, SimplificationError>>,
     ) -> Stoppable<Result<Vec<Predicate>, SimplificationError>> {
-        let conditions = match faithful_conditions(definition, self.0) {
+        let conditions = match faithful(definition, self.0) {
             Ok(conditions) => conditions,
-            Err(failure) => return Ok(Err(failure.into())),
+            Err(failure) => return Ok(Err(*failure)),
         };
         let mut ceil_free = true;
         let mut ground = true;
@@ -269,16 +269,39 @@ impl InstantiatedCondition {
                 }
             }
             let _restore = Restore(GENERAL_CONDITION_PATH.with(|flag| flag.replace(true)));
-            return match condition_definedness(definition, conditions, definedness_known) {
+            return match stated(definition, conditions, definedness_known) {
                 Ok(conditions) => simplify(conditions, known, false),
-                Err(outcome) => Ok(Err(outcome.into())),
+                Err(failure) => Ok(Err(*failure)),
             };
         }
-        match condition_definedness(definition, conditions, definedness_known) {
+        match stated(definition, conditions, definedness_known) {
             Ok(conditions) => simplify(conditions, known, false),
-            Err(outcome) => Ok(Err(outcome.into())),
+            Err(failure) => Ok(Err(*failure)),
         }
     }
+}
+
+/// `faithful_conditions` for [`InstantiatedCondition::simplify`], its failure boxed. Out of line,
+/// as [`stated`] is: the simplification of a condition is a frame of every level of a recursion
+/// through an equation's `requires`, and holds only what is live across `simplify`
+/// (`simplify`'s `tests::recursion_stack`).
+#[inline(never)]
+fn faithful(
+    definition: &BackendDefinition,
+    conditions: Vec<Predicate>,
+) -> Result<Vec<Predicate>, Box<SimplificationError>> {
+    faithful_conditions(definition, conditions).map_err(|failure| Box::new(failure.into()))
+}
+
+/// `condition_definedness` for [`InstantiatedCondition::simplify`], its failure boxed
+/// ([`faithful`]).
+#[inline(never)]
+fn stated(
+    definition: &BackendDefinition,
+    conditions: Vec<Predicate>,
+    known: &[Predicate],
+) -> Result<Vec<Predicate>, Box<SimplificationError>> {
+    condition_definedness(definition, conditions, known).map_err(|outcome| Box::new(outcome.into()))
 }
 
 thread_local! {

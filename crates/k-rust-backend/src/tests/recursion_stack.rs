@@ -154,9 +154,13 @@ const OPTIMIZED: bool = cfg!(any(
 
 /// The most stack one level of a recursion through an equation's `requires` may take in an
 /// optimized build ([`Chain::Condition`]): a level is a decision, with the predicate simplifier's
-/// frames and a routed term level inside it. About 18.8 KiB are taken at opt-level 1 with debug
-/// assertions on x86_64, 0.3 KiB of which the routing adds (`deepest`: 18,978 bytes unrouted).
-const STACK_PER_DECISION_LEVEL: usize = 24 * 1024;
+/// frames and a routed term level inside it. About 6.2 KiB are taken at opt-level 1 with debug
+/// assertions on x86_64, 0.2 KiB of which the routing adds (`deepest`: 6,302 bytes routed, 6,078
+/// unrouted), where 18.8 KiB were taken while the work of each frame on that path besides the
+/// recursive call (the builtin step, the record of a verdict, the predicate theories, the
+/// combination of several instances, ...) was part of the frame, and while a failure, a stop and
+/// an applied equation's result were carried up the frames unboxed.
+const STACK_PER_DECISION_LEVEL: usize = 8 * 1024;
 
 fn takes_at_most_its_bound_of_stack_per_level(chain: Chain) {
     let syntax = parse_definition(DEFINITION).expect("the fixture parses");

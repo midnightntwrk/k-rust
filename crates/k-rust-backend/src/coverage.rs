@@ -638,6 +638,21 @@ where
         if !offering() || std::thread::panicking() {
             return;
         }
+        self.offer_untaken();
+    }
+}
+
+impl<'a, R, G, P> Selection<'a, R, G, P>
+where
+    R: Candidate + 'a,
+    G: Iterator<Item = (u8, &'a [Arc<R>])> + Clone,
+    P: FnMut(&R) -> bool,
+{
+    /// Offer every candidate not taken ([`Selection`]). Out of line, so that the probe's work is
+    /// no part of the frame of a selection site, which the simplifier's recursion may pass
+    /// through once per level (`simplify`'s `tests::recursion_stack`).
+    #[inline(never)]
+    fn offer_untaken(&mut self) {
         let (taken_group, taken_index) = self.taken.get();
         for (position, (_, rules)) in self.groups.clone().enumerate().skip(taken_group) {
             let start = if position == taken_group {

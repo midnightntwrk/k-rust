@@ -11,7 +11,7 @@
 use std::{marker::PhantomData, sync::Arc};
 
 use crate::{
-    coverage::{Selection, by_priority, every},
+    coverage::{Selection, every},
     definition::BackendDefinition,
     diagnostic::{self, Buffered, Subject},
     matching::MatchFailed,
@@ -103,8 +103,9 @@ impl TermTheory for SimplificationTheory {
 pub(crate) struct NoOfferedEquationMatched<K>(PhantomData<K>);
 
 pub(super) enum TheoryScan<K> {
-    /// The result of the equation that applied, and that equation.
-    Applied(Simplification, Arc<RewriteRule>),
+    /// The result of the equation that applied, boxed (it is carried up every frame of a
+    /// recursion through an equation's `requires`), and that equation.
+    Applied(Box<Simplification>, Arc<RewriteRule>),
     Blocked,
     /// No equation applied, but some equation was passed over for a reason other than a failed
     /// match (see [`GroupScan::NotCacheable`] and [`GroupScan::Unused`]); the term is not a
@@ -127,7 +128,10 @@ pub(super) enum TheoryScan<K> {
 /// role = "part"
 /// sites = ["scan_term_theory", "scan_alternatives", "scan_group", "scan_instances"]
 /// ```
+/// Inlined: each instance has one caller (its `attempt` is a closure of that caller), and the
+/// scan is a frame of a recursion through an equation's `requires` (`tests::recursion_stack`).
 #[deny(clippy::wildcard_enum_match_arm)]
+#[inline]
 pub(super) fn scan_term_theory<K: TermTheory>(
     definition: &BackendDefinition,
     term: &Term,
@@ -135,13 +139,20 @@ pub(super) fn scan_term_theory<K: TermTheory>(
     mut attempt: impl FnMut(
         &Arc<RewriteRule>,
         SetAsideRequires,
-    ) -> SimplifyResult<EquationAttempt<Simplification, MatchFailed>>,
+    ) -> SimplifyResult<EquationAttempt<Box<Simplification>, MatchFailed>>,
 ) -> SimplifyResult<TheoryScan<K>> {
     let groups = applicable_groups(K::theory(definition), &term_index(term));
+    // The groups in priority order, as a slice: a selection over the map's own iterator would
+    // hold that iterator twice in this frame, which is part of every frame of a recursion through
+    // an equation's `requires` (`tests::recursion_stack`).
+    let groups = groups
+        .iter()
+        .map(|(priority, rules)| (*priority, rules.as_slice()))
+        .collect::<Vec<_>>();
     // The scan stops at the group that applies or blocks: the equations it never tries are
     // offered (`crate::coverage::Selection`).
     let selection = Selection::new(
-        by_priority(&groups),
+        groups.iter().copied(),
         every,
         equation_probe(definition, term),
     );
@@ -217,12 +228,18 @@ pub(crate) fn equation_probe(
     definition: &BackendDefinition,
     term: &Term,
 ) -> impl FnMut(&RewriteRule) -> bool {
-    move |rule| {
-        !matches!(
-            equation_instances(definition, rule, term, &[]).1,
-            EquationInstances::NotMatched(_)
-        )
-    }
+    move |rule| has_instance(definition, rule, term)
+}
+
+/// Whether `rule` has an instance at `term` ([`equation_probe`]). Out of line, so that the
+/// enumeration's rule and instances are no part of the frame of a scan that ends by offering
+/// what it did not try (`tests::recursion_stack`).
+#[inline(never)]
+fn has_instance(definition: &BackendDefinition, rule: &RewriteRule, term: &Term) -> bool {
+    !matches!(
+        equation_instances(definition, rule, term, &[]).1,
+        EquationInstances::NotMatched(_)
+    )
 }
 
 /// The outcome of one equation attempt. `N` is the evidence a `NotApplicable` attempt carries:
@@ -329,6 +346,7 @@ pub(super) enum Combined<T, N> {
 /// refuted or the equation not used, are dropped: they explain no result. A failed attempt's
 /// are committed, as the failure is what the scan returns.
 #[deny(clippy::wildcard_enum_match_arm)]
+#[inline]
 fn scan_alternatives<A, T, N>(
     alternatives: impl IntoIterator<Item = A>,
     mut attempt: impl FnMut(A) -> SimplifyResult<EquationAttempt<T, N>>,
@@ -339,7 +357,11 @@ fn scan_alternatives<A, T, N>(
     let mut unused = false;
     let mut not_applicable = None;
     for alternative in alternatives {
-        let (outcome, diagnostics) = diagnostic::buffer(|| attempt(alternative));
+        // A guard, not `diagnostic::buffer`, whose closure would take a frame of its own on every
+        // level of a recursion through an equation's `requires`.
+        let buffering = diagnostic::Buffering::start();
+        let outcome = attempt(alternative);
+        let diagnostics = buffering.finish();
         let outcome = match outcome {
             Ok(outcome) => outcome,
             Err(unwind) => {
@@ -384,6 +406,7 @@ fn scan_alternatives<A, T, N>(
 /// were otherwise context dependent is not cacheable. The diagnostics of the undecided attempts are held in `indeterminate_attempts`,
 /// for the caller to commit if the subject is kept.
 #[deny(clippy::wildcard_enum_match_arm)]
+#[inline]
 pub(super) fn scan_group<'r, R: 'r, T, N>(
     rules: impl IntoIterator<Item = &'r Arc<R>>,
     indeterminate_attempts: &mut IndeterminateAttempts,
@@ -425,6 +448,18 @@ pub(super) fn scan_instances<S, T, N>(
     if instances.len() == 1 {
         return attempt(instances.pop().expect("one instance"));
     }
+    scan_several_instances(instances, attempt)
+}
+
+/// [`scan_instances`] of more than one instance. Out of line: a recursion through an equation's
+/// `requires` passes through the scan of its single instance once per level, so the combination
+/// of several is no part of every frame of it (`tests::recursion_stack`).
+#[deny(clippy::wildcard_enum_match_arm)]
+#[inline(never)]
+fn scan_several_instances<S, T, N>(
+    instances: Vec<S>,
+    attempt: impl FnMut(S) -> SimplifyResult<EquationAttempt<T, N>>,
+) -> SimplifyResult<EquationAttempt<T, N>> {
     let (combined, undecided) = scan_alternatives(instances, attempt)?;
     let commit_undecided = |outcome| {
         for diagnostics in undecided {

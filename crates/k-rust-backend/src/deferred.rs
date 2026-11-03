@@ -1044,6 +1044,9 @@ pub(crate) struct HookValueScope<'a> {
 }
 
 impl<'a> HookValueScope<'a> {
+    /// Out of line: the predicate simplifier enters a scope at every level of a recursion
+    /// through an equation's `requires`, whose frames would otherwise hold its temporaries.
+    #[inline(never)]
     pub(crate) fn enter(definition: &'a BackendDefinition) -> Self {
         let shares = HOOK_VALUES.with_borrow(|values| {
             values
@@ -1066,6 +1069,16 @@ impl<'a> HookValueScope<'a> {
 
 impl Drop for HookValueScope<'_> {
     fn drop(&mut self) {
+        if self.replaced.is_some() {
+            self.restore();
+        }
+    }
+}
+
+impl HookValueScope<'_> {
+    /// The results this scope replaced, restored ([`HookValueScope::enter`]).
+    #[inline(never)]
+    fn restore(&mut self) {
         if let Some(previous) = self.replaced.take() {
             HOOK_VALUES.set(previous);
         }
