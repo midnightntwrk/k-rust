@@ -10,13 +10,14 @@
 
 use std::fmt::Write as _;
 use std::io::{IsTerminal as _, Read};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use krs_diagnostic::{Code, codes};
 use krs_exec::{
-    CompiledStage, ConfigInputs, Coverage, CoverageOptions, ExecError, Halt, PrintStyle, Printed,
-    ProgramInput, ProveOptions, REPORT_SCHEMA, ReadBack, RunOptions, SearchMode, SearchOptions,
-    Semantics, SourceText, SpecStage, Step, StepOrigin, Term, Verdict,
+    Case, CompiledStage, ConfigInputs, ConfigValue, Coverage, CoverageOptions, ExecError, Halt,
+    InputError, InputFiles, PrintStyle, Printed, ProgramInput, ProveOptions, REPORT_SCHEMA,
+    ReadBack, RunOptions, SearchMode, SearchOptions, Semantics, SourceText, SpecStage, Step,
+    StepOrigin, Term, Verdict, json_document,
 };
 use krs_ir::measure::Measurement;
 use serde_json::json;
@@ -67,7 +68,7 @@ pub enum ColorChoice {
 /// `krs parse` inputs.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ParseRequest {
-    /// `--sort`; the default is the sort of `$PGM`.
+    /// `--sort`; the default is the main parameter's sort.
     pub sort: Option<String>,
     /// FILE, or standard input.
     pub input: ProgramSource,
@@ -78,8 +79,12 @@ pub struct ParseRequest {
 /// `krs run` inputs.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RunRequest {
-    /// FILE, bound to `$PGM`.
+    /// FILE, bound to the main parameter.
     pub input: Option<ProgramSource>,
+    /// `--case FILE`: a case document, whose inputs are bound by name.
+    pub case: Option<PathBuf>,
+    /// `--input NAME=JSON` bindings, each a document of the typed encoding, in command-line order.
+    pub inputs: Vec<(String, String)>,
     /// `-c NAME=TEXT` bindings, in command-line order.
     pub variables: Vec<(String, String)>,
     /// `--depth`.
@@ -97,8 +102,12 @@ pub struct RunRequest {
 /// `krs search` inputs.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SearchRequest {
-    /// FILE, bound to `$PGM`.
+    /// FILE, bound to the main parameter.
     pub input: Option<ProgramSource>,
+    /// `--case FILE`: a case document, whose inputs are bound by name.
+    pub case: Option<PathBuf>,
+    /// `--input NAME=JSON` bindings, each a document of the typed encoding, in command-line order.
+    pub inputs: Vec<(String, String)>,
     /// `-c NAME=TEXT` bindings, in command-line order.
     pub variables: Vec<(String, String)>,
     /// `--mode`.
@@ -391,12 +400,125 @@ fn dispatch(semantics: &mut Semantics, command: &Command) -> Result<CommandOutco
     }
 }
 
+/// The inputs of a run or search: FILE, `--case`, `--input` and `-c`, which [`configure`] binds
+/// in that order.
+#[derive(Clone, Copy)]
+struct Inputs<'a> {
+    program: Option<&'a ProgramSource>,
+    case: Option<&'a Path>,
+    typed: &'a [(String, String)],
+    variables: &'a [(String, String)],
+}
+
+impl<'a> Inputs<'a> {
+    fn of_run(request: &'a RunRequest) -> Self {
+        Self {
+            program: request.input.as_ref(),
+            case: request.case.as_deref(),
+            typed: &request.inputs,
+            variables: &request.variables,
+        }
+    }
+
+    fn of_search(request: &'a SearchRequest) -> Self {
+        Self {
+            program: request.input.as_ref(),
+            case: request.case.as_deref(),
+            typed: &request.inputs,
+            variables: &request.variables,
+        }
+    }
+}
+
+/// The files a case or an `--input` document names, read from the filesystem.
+///
+/// A path is relative to the directory of the document that names it: the case file's, the
+/// data file's that includes it, or the working directory for an `--input` document. A file is
+/// named by its canonical path, which is what tells a `$data-file` that includes itself from
+/// one that includes another file of the same spelling.
+struct CaseFiles {
+    /// The directory of the top document's paths.
+    base: PathBuf,
+}
+
+impl InputFiles for CaseFiles {
+    fn read(&mut self, from: Option<&str>, path: &str) -> Result<(String, Vec<u8>), String> {
+        let directory = match from {
+            Some(from) => Path::new(from)
+                .parent()
+                .map_or_else(PathBuf::new, Path::to_path_buf),
+            None => self.base.clone(),
+        };
+        let written = directory.join(path);
+        let resolved = written
+            .canonicalize()
+            .map_err(|error| format!("could not read `{}`: {error}", written.display()))?;
+        let name = resolved
+            .to_str()
+            .ok_or_else(|| format!("`{}` is not a UTF-8 path", resolved.display()))?
+            .to_owned();
+        let bytes = std::fs::read(&resolved)
+            .map_err(|error| format!("could not read `{name}`: {error}"))?;
+        Ok((name, bytes))
+    }
+}
+
+/// The case document `path` states, read by its extension (`.toml` or `.json`, which the
+/// command line checked).
+fn read_case(path: &Path) -> Result<Case, Failure> {
+    let text = std::fs::read_to_string(path).map_err(|error| {
+        Failure::Read(format!(
+            "could not read the case `{}`: {error}",
+            path.display()
+        ))
+    })?;
+    let case = if path
+        .extension()
+        .is_some_and(|extension| extension == "json")
+    {
+        Case::from_json(&text)
+    } else {
+        Case::from_toml(&text)
+    };
+    case.map_err(|error| {
+        Failure::Exec(ExecError::Input(InputError {
+            parameter: None,
+            declared: None,
+            position: String::new(),
+            message: format!("case `{}`: {error}", path.display()),
+        }))
+    })
+}
+
+/// The value the `--input NAME=JSON` document `document` gives the input `name`.
+fn typed_input(
+    semantics: &Semantics,
+    name: &str,
+    document: &str,
+    files: &mut CaseFiles,
+) -> Result<ConfigValue, Failure> {
+    let parameter = semantics.parameter(name)?;
+    let document = json_document(document).map_err(|error| {
+        ExecError::Input(InputError {
+            parameter: Some(parameter.name.clone()),
+            declared: Some(parameter.ty.to_string()),
+            ..error
+        })
+    })?;
+    Ok(semantics.decode_input(name, &document, files)?)
+}
+
 fn configure(
     semantics: &mut Semantics,
-    input: Option<&ProgramSource>,
-    variables: &[(String, String)],
+    inputs: Inputs<'_>,
     console_input: bool,
 ) -> Result<krs_exec::State, Failure> {
+    let Inputs {
+        program: input,
+        case,
+        typed,
+        variables,
+    } = inputs;
     // FILE is checked against the main parameter before it is read, so a stray FILE is
     // reported as such; an unbound main parameter is reported by `configure`.
     if input.is_some() {
@@ -423,12 +545,36 @@ fn configure(
     } else {
         None
     };
+    // Every binding goes through `configure`'s one resolver, so a parameter that any two of
+    // FILE, the case, `--input` and `-c` bind is bound twice.
+    let mut bindings = match case {
+        Some(path) => {
+            let mut files = CaseFiles {
+                base: path.parent().map_or_else(PathBuf::new, Path::to_path_buf),
+            };
+            semantics
+                .case_inputs(&read_case(path)?, None, &mut files)?
+                .variables
+        }
+        None => Vec::new(),
+    };
+    let mut files = CaseFiles {
+        base: PathBuf::new(),
+    };
+    for (name, document) in typed {
+        bindings.push((
+            name.clone(),
+            typed_input(semantics, name, document, &mut files)?,
+        ));
+    }
+    bindings.extend(
+        variables
+            .iter()
+            .map(|(name, text)| (name.clone(), text.as_str().into())),
+    );
     Ok(semantics.configure(&ConfigInputs {
         program,
-        variables: variables
-            .iter()
-            .map(|(name, text)| (name.clone(), text.as_str().into()))
-            .collect(),
+        variables: bindings,
         stdin,
     })?)
 }
@@ -450,7 +596,7 @@ fn read_console_input() -> Result<Vec<u8>, Failure> {
 
 fn run(semantics: &mut Semantics, request: &RunRequest) -> Result<CommandOutcome, Failure> {
     let smt = semantics.capabilities().smt;
-    let state = configure(semantics, request.input.as_ref(), &request.variables, true)?;
+    let state = configure(semantics, Inputs::of_run(request), true)?;
     let report = semantics.run(
         &state,
         RunOptions {
@@ -526,7 +672,7 @@ fn run(semantics: &mut Semantics, request: &RunRequest) -> Result<CommandOutcome
 }
 
 fn search(semantics: &mut Semantics, request: &SearchRequest) -> Result<CommandOutcome, Failure> {
-    let state = configure(semantics, request.input.as_ref(), &request.variables, false)?;
+    let state = configure(semantics, Inputs::of_search(request), false)?;
     let report = semantics.search(
         &state,
         SearchOptions {
