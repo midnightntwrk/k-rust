@@ -4,7 +4,8 @@
 //! abbreviates (check 3), the advice of a missing layer (check 4), the generated coverage of the
 //! domain (check 5), and the recorded K's frames against P6 (check 6). Outside the generated
 //! cases: the review's probes, and the sweep of `outcome` over the whole domain, checked in as
-//! `cells-outcome-sweep.tsv`.
+//! `cells-outcome-sweep.tsv`, with its row patterns and their principles in
+//! `cells-outcome-patterns.tsv`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -1552,9 +1553,10 @@ fn stack_name(cell: &str, stack: &[Layer]) -> String {
 }
 
 /// The reason of an [`UNCOVERED`] entry whose tuples no case covers because the sweep golden
-/// prints `outcome` at each of them, and its review judges it (the coverage ruling: cases cover
-/// every pair of the domain's dimensions; interactions of more than two are the sweep's).
-const SWEEP: &str = "judged by the reviewed sweep row";
+/// prints `outcome` at each of them, and the row's pattern in [`PATTERNS_FILE`] states the
+/// principle that gives it, for review (the coverage ruling: cases cover every pair of the
+/// domain's dimensions; interactions of more than two are the sweep's).
+const SWEEP: &str = "judged by the sweep row's reviewed pattern in cells-outcome-patterns.tsv";
 
 /// The tuples of the domain no generated case covers: `(form, side, path, stack, mark, reason)`,
 /// each part a value or `*` for every value. An entry with the [`SWEEP`] reason leaves its tuples
@@ -4196,6 +4198,344 @@ fn the_outcome_sweep_is_the_golden() {
             sweep.lines().nth(line)
         );
     }
+}
+
+/// Where the sweep's row patterns are kept: each distinct pattern of `cells-outcome-sweep.tsv`
+/// once, with the rows that share it and the principle that gives it, the reviewed state that
+/// [`SWEEP`] points at (`KRS_CELLS_PATTERNS_RECORD=1` rewrites it).
+const PATTERNS_FILE: &str = "cells-outcome-patterns.tsv";
+
+/// The line of a pattern that holds its principle.
+const PRINCIPLE: &str = "principle";
+
+/// The header line that records which review signed the patterns off; kept on a rewrite.
+const REVIEWED: &str = "# reviewed:";
+
+/// One table of the sweep, as printed: its name (up to a `:`), its column header and its rows.
+struct SweepTable<'s> {
+    name: &'s str,
+    header: Vec<&'s str>,
+    rows: Vec<Vec<&'s str>>,
+}
+
+fn sweep_tables(sweep: &str) -> Vec<SweepTable<'_>> {
+    let mut tables: Vec<SweepTable<'_>> = Vec::new();
+    for line in sweep.lines() {
+        if let Some(title) = line.strip_prefix("## ") {
+            tables.push(SweepTable {
+                name: title.split(':').next().unwrap_or(title),
+                header: Vec::new(),
+                rows: Vec::new(),
+            });
+        } else if !line.starts_with('#')
+            && let Some(table) = tables.last_mut()
+        {
+            let cells = line.split('\t').collect();
+            if table.header.is_empty() {
+                table.header = cells;
+            } else {
+                table.rows.push(cells);
+            }
+        }
+    }
+    tables
+}
+
+/// A row pattern: its answer lines (a label and the answers across the table's columns) and the
+/// row groups that have exactly those answers.
+struct Pattern {
+    lines: Vec<(String, Vec<String>)>,
+    members: Vec<Vec<String>>,
+}
+
+/// A table of the patterns golden: its name, the prefix of its patterns' IDs, its columns, and
+/// its patterns in the order their first member is printed in the sweep.
+struct PatternTable {
+    name: &'static str,
+    prefix: &'static str,
+    columns: Vec<String>,
+    patterns: Vec<Pattern>,
+}
+
+impl PatternTable {
+    fn add(&mut self, lines: Vec<(String, Vec<String>)>, member: Vec<String>) {
+        match self
+            .patterns
+            .iter_mut()
+            .find(|pattern| pattern.lines == lines)
+        {
+            Some(pattern) => pattern.members.push(member),
+            None => self.patterns.push(Pattern {
+                lines,
+                members: vec![member],
+            }),
+        }
+    }
+}
+
+fn owned(cells: &[&str]) -> Vec<String> {
+    cells.iter().map(|cell| (*cell).to_owned()).collect()
+}
+
+/// A main table's patterns: a row group is a side and a stack, its pattern the answers of its
+/// three rows (path `-`, `?`, `*`). The forms given share their columns, so they share patterns,
+/// and a member names the forms whose row group it is.
+fn main_patterns(
+    tables: &[SweepTable<'_>],
+    name: &'static str,
+    prefix: &'static str,
+    forms: &[&str],
+) -> PatternTable {
+    let table = |form: &str| {
+        tables
+            .iter()
+            .find(|table| table.name == form)
+            .unwrap_or_else(|| panic!("the sweep has no table {form}"))
+    };
+    let columns = &table(forms[0]).header[4..];
+    let mut out = PatternTable {
+        name,
+        prefix,
+        columns: owned(columns),
+        patterns: Vec::new(),
+    };
+    for form in forms {
+        let table = table(form);
+        assert_eq!(
+            &table.header[4..],
+            columns,
+            "{form}'s columns are {}'s",
+            forms[0]
+        );
+        let mut groups: Vec<(&str, &str)> = Vec::new();
+        let mut rows = BTreeMap::new();
+        for row in &table.rows {
+            let (side, path, stack) = (row[0], row[1], row[2]);
+            if !groups.contains(&(side, stack)) {
+                groups.push((side, stack));
+            }
+            rows.insert((side, path, stack), &row[4..]);
+        }
+        for (side, stack) in groups {
+            let lines = ["-", "?", "*"]
+                .iter()
+                .map(|path| {
+                    let row = rows
+                        .get(&(side, *path, stack))
+                        .unwrap_or_else(|| panic!("{form}: no row {side} {path} {stack}"));
+                    ((*path).to_owned(), owned(row))
+                })
+                .collect::<Vec<_>>();
+            let pattern = out
+                .patterns
+                .iter()
+                .position(|pattern| pattern.lines == lines);
+            let member = pattern.and_then(|at| {
+                out.patterns[at]
+                    .members
+                    .iter_mut()
+                    .find(|member| member[1] == side && member[2] == stack)
+            });
+            match member {
+                Some(member) => {
+                    member[0].push_str(", ");
+                    member[0].push_str(form);
+                }
+                None => out.add(lines, owned(&[form, side, stack])),
+            }
+        }
+    }
+    out
+}
+
+/// The children sections' patterns: a row group is one result (its answers in readable, claim
+/// and `cells!`, whose rows follow in that order) or one initializer value (its one answer).
+fn children_patterns(tables: &[SweepTable<'_>]) -> [PatternTable; 2] {
+    let children = tables
+        .iter()
+        .find(|table| table.name == "children")
+        .expect("the sweep has a children table");
+    let forms = ["readable", "claim", "cells"];
+    let per_form = children.rows.len() / forms.len();
+    let mut table = PatternTable {
+        name: "children",
+        prefix: "ch",
+        columns: owned(&forms),
+        patterns: Vec::new(),
+    };
+    for at in 0..per_form {
+        let rows = (0..forms.len())
+            .map(|form| &children.rows[form * per_form + at])
+            .collect::<Vec<_>>();
+        for (row, form) in rows.iter().zip(forms) {
+            assert_eq!((row[0], row[1]), (form, rows[0][1]), "children row {at}");
+        }
+        let answers = rows.iter().map(|row| row[4].to_owned()).collect();
+        table.add(
+            vec![("answers".to_owned(), answers)],
+            owned(&[rows[0][1], rows[0][2], rows[0][3]]),
+        );
+    }
+    let results = table;
+    let init = tables
+        .iter()
+        .find(|table| table.name == "children, init")
+        .expect("the sweep has a children, init table");
+    let mut table = PatternTable {
+        name: "children, init",
+        prefix: "ci",
+        columns: owned(&["init"]),
+        patterns: Vec::new(),
+    };
+    for row in &init.rows {
+        table.add(
+            vec![("answer".to_owned(), owned(&[row[4]]))],
+            owned(&[row[1], row[3]]),
+        );
+    }
+    [results, table]
+}
+
+/// The principles of the checked-in patterns file, by table and answer lines, and its review line.
+fn golden_principles(golden: &str) -> (BTreeMap<(String, String), String>, String) {
+    let mut principles = BTreeMap::new();
+    let mut reviewed = format!("{REVIEWED} not yet (S5.0g part (b), item 2)");
+    let mut section = String::new();
+    let mut answers = BTreeMap::<String, String>::new();
+    for line in golden.lines() {
+        if line.starts_with(REVIEWED) {
+            line.clone_into(&mut reviewed);
+        } else if let Some(name) = line.strip_prefix("## ") {
+            name.clone_into(&mut section);
+        } else if !line.starts_with('#') {
+            let mut cells = line.splitn(3, '\t');
+            let (Some(id), Some(label)) = (cells.next(), cells.next()) else {
+                continue;
+            };
+            let rest = cells.next().unwrap_or_default();
+            if label == PRINCIPLE {
+                let key = (section.clone(), answers.remove(id).unwrap_or_default());
+                principles.insert(key, rest.to_owned());
+            } else if label != "member" && label != "line" {
+                let entry = answers.entry(id.to_owned()).or_default();
+                let _ = writeln!(entry, "{label}\t{rest}");
+            }
+        }
+    }
+    (principles, reviewed)
+}
+
+/// The patterns of the sweep, rendered with each pattern's principle taken from `golden` (the
+/// checked-in file) where `golden` has a pattern with the same table and answers, else empty.
+fn sweep_patterns(sweep: &str, golden: &str) -> String {
+    let tables = sweep_tables(sweep);
+    let mut out = vec![
+        main_patterns(&tables, "readable, claim", "rc", &["readable", "claim"]),
+        main_patterns(&tables, "cells", "c", &["cells"]),
+        main_patterns(&tables, "init", "i", &["init"]),
+    ];
+    out.extend(children_patterns(&tables));
+    let (principles, reviewed) = golden_principles(golden);
+    let mut text = String::new();
+    text.push_str(concat!(
+        "# The row patterns of `cells-outcome-sweep.tsv`: each distinct pattern once, with the rows\n",
+        "# that share it and the principle that gives it (P0-P7 and E1-E3 of S5-principles.md, the\n",
+        "# design's S1 (b), L1-L5 and Q1-Q3, and the S5.0 and S5.0g rulings). It is the reviewed\n",
+        "# judgement check 5's `SWEEP` reason names: the sweep's tuples no case covers are judged\n",
+        "# here. Generated by krs-test-support `--test cells_oracle`\n",
+        "# (`the_sweep_patterns_are_the_golden`) from the sweep; rewrite with\n",
+        "# KRS_CELLS_PATTERNS_RECORD=1, which keeps the principle of every pattern whose answers are\n",
+        "# unchanged and leaves a new one's empty: the test fails until it is written.\n",
+        "#\n",
+        "# A pattern is exact: a table and the answers, cell by cell, of one row group across the\n",
+        "# table's columns (the sweep's short names and `|product:` marks).\n",
+        "# - readable, claim; cells; init: a row group is a side and a stack, and its pattern is its\n",
+        "#   three rows, path `-`, `?` and `*`, one line each. readable and claim have the same\n",
+        "#   columns, so they share patterns; a member names its forms. A row's `other` is a\n",
+        "#   function of its form, side and stack, so a member determines it.\n",
+        "# - children: a row group is one result of the sweep's children section, its pattern the\n",
+        "#   answers in readable, claim and cells! (whose row writes each record as its fragment); a\n",
+        "#   member is its stack, `other` and result, in readable's spelling.\n",
+        "# - children, init: a row group is one value, its pattern the one answer.\n",
+        "# Lines: `ID  PATH|answers  ANSWERS..` (the pattern), `ID  member  ..` (each row group that\n",
+        "# has it), `ID  principle  TEXT`. IDs number the patterns in the order their first member is\n",
+        "# printed in the sweep.\n",
+        "#\n",
+        "# The path rule, R3 (each main pattern's `?` and `*` lines): an entry naming a cell below a\n",
+        "#   `?` or `*` ancestor is judged on its own layers first (the form step, then P3 against the\n",
+        "#   cell's own stack, refusals inside its marks included) and those refusals stand; whatever\n",
+        "#   they admit is then refused for the ancestor (S1 (b)): `owp` below `?`, `cwi` below `*`.\n",
+        "#   A pairing refusal of the `-` row (rm, uor, atc, Q3's overwrite cir, F3's open record\n",
+        "#   over an existing group) comes after the path, so the path class replaces it. The\n",
+        "#   product's departures (E1 `cbi`, the List back instance `ils`, M3 `mrr`) are kind-step\n",
+        "#   answers and show through.\n",
+    ));
+    text.push_str(&reviewed);
+    text.push('\n');
+    for table in &out {
+        let _ = write!(
+            text,
+            "#\n## {}\npattern\tline\t{}\n",
+            table.name,
+            table.columns.join("\t")
+        );
+        for (at, pattern) in table.patterns.iter().enumerate() {
+            let id = format!("{}{:02}", table.prefix, at + 1);
+            let mut key = String::new();
+            for (label, answers) in &pattern.lines {
+                let answers = answers.join("\t");
+                let _ = writeln!(text, "{id}\t{label}\t{answers}");
+                let _ = writeln!(key, "{label}\t{answers}");
+            }
+            for member in &pattern.members {
+                let _ = writeln!(text, "{id}\tmember\t{}", member.join("\t"));
+            }
+            let principle = principles
+                .get(&(table.name.to_owned(), key))
+                .map_or("", String::as_str);
+            let _ = writeln!(text, "{id}\t{PRINCIPLE}\t{principle}");
+        }
+    }
+    text
+}
+
+/// The sweep's patterns are the checked-in ones, each with a principle: a sweep row that moves
+/// to another pattern, a new pattern, or a pattern whose rows change shows as a diff of
+/// `cells-outcome-patterns.tsv`, and a pattern without a principle fails.
+#[test]
+fn the_sweep_patterns_are_the_golden() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/class-matrix")
+        .join(PATTERNS_FILE);
+    let golden = std::fs::read_to_string(&path).unwrap_or_default();
+    let patterns = sweep_patterns(&outcome_sweep(), &golden);
+    if std::env::var_os("KRS_CELLS_PATTERNS_RECORD").is_some() {
+        std::fs::write(&path, &patterns)
+            .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+    } else if golden != patterns {
+        let line = golden
+            .lines()
+            .zip(patterns.lines())
+            .position(|(was, is)| was != is)
+            .unwrap_or_else(|| golden.lines().count().min(patterns.lines().count()));
+        panic!(
+            "{PATTERNS_FILE} differs from the sweep's patterns from line {}: was {:?}, is {:?}; \
+             a sweep row changed pattern, a pattern appeared or its rows changed: review it, \
+             record it with KRS_CELLS_PATTERNS_RECORD=1 and write each new pattern's principle",
+            line + 1,
+            golden.lines().nth(line),
+            patterns.lines().nth(line)
+        );
+    }
+    let suffix = format!("\t{PRINCIPLE}\t");
+    let unprincipled = patterns
+        .lines()
+        .filter_map(|line| line.strip_suffix(&suffix))
+        .collect::<Vec<_>>();
+    assert!(
+        unprincipled.is_empty(),
+        "{PATTERNS_FILE}: patterns without a principle: {unprincipled:?}"
+    );
 }
 
 /// Every content root an entry's spelling writes, with its cell's name: the entry's own content
