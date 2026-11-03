@@ -3557,6 +3557,74 @@ mod tests {
         );
     }
 
+    /// GAP K36 at an uninterpreted sort: `F ∧ G` over a user sort is defined exactly where
+    /// `F = G`, the plan's equality being SMT `=` over the sort's uninterpreted values, which
+    /// every K model satisfies with the sort read as K's carrier. So `\ceil(F ∧ G)` is `F = G`
+    /// both ways, and an atom `isA(F ∧ G)` holds only there: with `F ≠ G` it is refuted, while
+    /// its negation is satisfiable (the conjunction is `\bottom` there). `isA` and the sort are
+    /// uninterpreted, so a query over the atom is approximate and offers no model.
+    #[test]
+    fn a_term_conjunction_at_an_uninterpreted_sort_is_defined_where_its_sides_are_equal() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortFoo{} []
+                symbol isA{}(SortFoo{}) : SortBool{} [function{}(), total{}(), smtlib{}("isA")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = Z3Solver::new(&definition).unwrap();
+        let foo =
+            |name: &str| crate::term::Term::variable(Variable::new(name, Sort::simple("SortFoo")));
+        let not = |predicate: Predicate| Predicate::Not(std::sync::Arc::new(predicate));
+        let s = Substitution::new();
+        let same = Predicate::Equals(foo("F"), foo("G"));
+        let defined = Predicate::Ceil(crate::term::Term::and(foo("F"), foo("G")));
+        assert_eq!(
+            solver.check_predicates(&[], &s, std::slice::from_ref(&defined)),
+            Ok(Ok(Validity::Contingent))
+        );
+        assert_eq!(
+            solver.check_predicates(
+                std::slice::from_ref(&same),
+                &s,
+                std::slice::from_ref(&defined)
+            ),
+            Ok(Ok(Validity::Valid))
+        );
+        assert_eq!(
+            solver.check_predicates(
+                std::slice::from_ref(&defined),
+                &s,
+                std::slice::from_ref(&same)
+            ),
+            Ok(Ok(Validity::Valid))
+        );
+        let atom = Predicate::Term(term(
+            &definition,
+            r#"isA{}(\and{SortFoo{}}(F:SortFoo{}, G:SortFoo{}))"#,
+        ));
+        assert_eq!(
+            solver.is_sat(&[atom.clone(), not(same.clone())], &s),
+            Ok(Ok(Satisfiability::Unsat))
+        );
+        assert_eq!(
+            solver.check_predicates(std::slice::from_ref(&atom), &s, std::slice::from_ref(&same)),
+            Ok(Ok(Validity::Valid))
+        );
+        let apart = [not(atom.clone()), not(same)];
+        assert_eq!(solver.is_sat(&apart, &s), Ok(Ok(Satisfiability::Sat)));
+        for query in [&[atom][..], &apart[..]] {
+            assert_eq!(
+                solver.get_model(&ModelQuery::for_solver_tests(query, &s)),
+                Ok(Ok(ModelResult::Unknown(APPROXIMATE_MODEL_REASON.into())))
+            );
+        }
+    }
+
     /// A term-level `\and` denotes the intersection of what its sides denote. A side with no set
     /// variable denotes at most one element, so a conjunction with such a side does too, and the
     /// solver may read it as one value (gated by its domain). When both sides hold set

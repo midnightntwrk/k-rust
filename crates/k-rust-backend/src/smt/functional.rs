@@ -776,12 +776,6 @@ fn domain_lemmas(
     }
 }
 
-/// Admit a plan's conditions: every term an atom reads is pure (`eligible_operand`, memoized
-/// over the shared DAG, so a shared argument costs its distinct nodes once per query), and no
-/// atom reads a term-level `\and`, whose definedness is more than its operands' (a
-/// conservative bound: the translation reads such an atom under the conjunction's domain plan,
-/// so admitting it would be faithful too). One unit of `remaining` per predicate node and term
-/// read; the terms are not walked as trees.
 /// Whether `term` holds a term-level `\and`. Each distinct node is read once per query: the
 /// nodes of a walk that found none are recorded (`TranslationState::conjunction_free`), and one
 /// unit of `remaining` is charged per node read; `true` when the budget runs out, which refuses
@@ -808,6 +802,12 @@ fn holds_term_conjunction(
     false
 }
 
+/// Admit a plan's conditions: every term an atom reads is pure (`eligible_operand`, memoized
+/// over the shared DAG, so a shared argument costs its distinct nodes once per query), and no
+/// atom reads a term-level `\and`, whose definedness is more than its operands' (a
+/// conservative bound: the translation reads such an atom under the conjunction's domain plan,
+/// so admitting it would be faithful too). One unit of `remaining` per predicate node and term
+/// read; the terms are not walked as trees.
 #[cfg(any(feature = "z3", test))]
 fn admit_conditions(
     state: &mut TranslationState,
