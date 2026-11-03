@@ -2145,12 +2145,19 @@ impl Backend {
                 "step timeouts require a host monotonic clock and are unavailable in this WebAssembly build",
             ));
         }
-        let syntax = request.state;
+        let mut syntax = request.state;
         let module = request.module_name.as_deref();
-        let match_request = request.match_states;
+        let mut match_request = request.match_states;
+        // The run reads the state and the target only as associated: it validates and
+        // internalizes them and names the state's variables, and echoes neither.
+        let definition = self.associate_request(
+            module,
+            std::iter::once(&mut syntax)
+                .chain(match_request.as_mut().map(|matching| &mut matching.pattern)),
+        )?;
         let mut patterns = vec![&syntax];
         patterns.extend(match_request.as_ref().map(|matching| &matching.pattern));
-        self.with_solver_over(module, &patterns, |definition, solver| {
+        self.with_solver_on(definition, &patterns, |definition, solver| {
             definition
                 .validate_executable_pattern(&syntax)
                 .map_err(kinded(
@@ -2266,10 +2273,12 @@ impl Backend {
         request.validate_schema()?;
         let schema_version = request.schema_version;
         let mut options = search_options(&request);
-        let syntax = request.state;
+        let mut syntax = request.state;
         options.request_names = RequestNames::of_received(&[&syntax]);
         let module = request.module_name.as_deref();
-        self.with_solver_over(module, &[&syntax], |definition, solver| {
+        // The search reads the state only as associated: it validates and internalizes it.
+        let definition = self.associate_request(module, [&mut syntax])?;
+        self.with_solver_on(definition, &[&syntax], |definition, solver| {
             definition
                 .validate_executable_pattern(&syntax)
                 .map_err(kinded(
@@ -2341,10 +2350,12 @@ impl Backend {
         request.validate_schema()?;
         let schema_version = request.schema_version;
         let mut options = search_options(&request);
-        let syntax = request.state;
+        let mut syntax = request.state;
         options.request_names = RequestNames::of_received(&[&syntax]);
         let module = request.module_name.as_deref();
-        self.with_solver_over(module, &[&syntax], |definition, solver| {
+        // The search reads the state only as associated: it validates and internalizes it.
+        let definition = self.associate_request(module, [&mut syntax])?;
+        self.with_solver_on(definition, &[&syntax], |definition, solver| {
             definition
                 .validate_executable_pattern(&syntax)
                 .map_err(kinded(
@@ -2416,14 +2427,18 @@ impl Backend {
         request.validate_schema()?;
         let schema_version = request.schema_version;
         let mut options = pattern_search_options(&request);
-        let initial_syntax = request.state;
-        let target_syntax = request.pattern;
+        let mut initial_syntax = request.state;
+        let mut target_syntax = request.pattern;
         // The target is internalized without the executable check, so it may apply aliases that
         // drop variables the client wrote; the search mints no name spelled like one of them.
         options.request_names = RequestNames::of_received(&[&initial_syntax, &target_syntax]);
         let module = request.module_name.as_deref();
+        // The search reads the state and the target only as associated: it validates and
+        // internalizes them.
+        let definition =
+            self.associate_request(module, [&mut initial_syntax, &mut target_syntax])?;
         let patterns = [&initial_syntax, &target_syntax];
-        self.with_solver_over(module, &patterns, |definition, solver| {
+        self.with_solver_on(definition, &patterns, |definition, solver| {
             definition
                 .validate_executable_pattern(&initial_syntax)
                 .map_err(kinded(
@@ -2497,14 +2512,18 @@ impl Backend {
         request.validate_schema()?;
         let schema_version = request.schema_version;
         let mut options = pattern_search_options(&request);
-        let initial_syntax = request.state;
-        let target_syntax = request.pattern;
+        let mut initial_syntax = request.state;
+        let mut target_syntax = request.pattern;
         // The target is internalized without the executable check, so it may apply aliases that
         // drop variables the client wrote; the search mints no name spelled like one of them.
         options.request_names = RequestNames::of_received(&[&initial_syntax, &target_syntax]);
         let module = request.module_name.as_deref();
+        // The search reads the state and the target only as associated: it validates and
+        // internalizes them.
+        let definition =
+            self.associate_request(module, [&mut initial_syntax, &mut target_syntax])?;
         let patterns = [&initial_syntax, &target_syntax];
-        self.with_solver_over(module, &patterns, |definition, solver| {
+        self.with_solver_on(definition, &patterns, |definition, solver| {
             definition
                 .validate_executable_pattern(&initial_syntax)
                 .map_err(kinded(
@@ -2652,13 +2671,12 @@ impl Backend {
         finish: impl FnOnce(KorePattern) -> Result<T, BackendError>,
     ) -> Result<T, BackendError> {
         validate_backend_schema_version(request.schema_version)?;
-        let syntax = request.state;
-        self.simplify_kore_with(
-            request.module_name.as_deref(),
-            &syntax,
-            Admission::Unverified,
-            finish,
-        )
+        let mut syntax = request.state;
+        let module = request.module_name.as_deref();
+        // A proof route (`k_rust_backend::evaluation`), the definition's first load included.
+        let _proof = EvaluationScope::enter(EvaluationMode::Proof);
+        let definition = self.associate_request(module, [&mut syntax])?;
+        self.simplify_associated(definition, &syntax, Admission::Unverified, finish)
     }
 
     /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::implies_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
@@ -2682,10 +2700,14 @@ impl Backend {
         finish: impl FnOnce(ImplicationResult) -> Result<T, BackendError>,
     ) -> Result<T, BackendError> {
         validate_backend_schema_version(request.schema_version)?;
-        let antecedent = request.antecedent;
-        let consequent = request.consequent;
-        self.implies_kore_with(
-            request.module_name.as_deref(),
+        let mut antecedent = request.antecedent;
+        let mut consequent = request.consequent;
+        let module = request.module_name.as_deref();
+        // A proof route (`k_rust_backend::evaluation`), the definition's first load included.
+        let _proof = EvaluationScope::enter(EvaluationMode::Proof);
+        let definition = self.associate_request(module, [&mut antecedent, &mut consequent])?;
+        self.implies_associated(
+            definition,
             &antecedent,
             &consequent,
             Admission::Unverified,
@@ -2739,9 +2761,14 @@ impl Backend {
         }
         #[cfg(feature = "z3-inference")]
         {
-            let syntax = request.state;
-            self.model_for_with(
-                request.module_name.as_deref(),
+            let mut syntax = request.state;
+            let module = request.module_name.as_deref();
+            // A proof route (`k_rust_backend::evaluation`), the definition's first load
+            // included.
+            let _proof = EvaluationScope::enter(EvaluationMode::Proof);
+            let definition = self.associate_request(module, [&mut syntax])?;
+            self.model_for_associated(
+                definition,
                 &syntax,
                 Admission::Unverified,
                 |result, result_sort| {
@@ -3010,6 +3037,12 @@ impl Backend {
     /// segments up to the operation's simplification stack budget
     /// ([`Self::set_simplification_stack_budget`]). Patterns too deep for the largest stack the
     /// backend provides are refused with `InsufficientStack` before the operation runs.
+    ///
+    /// The stack is sized for `patterns` as given, so `operation` must read those patterns
+    /// and no deeper form of them. The facade's own operations pass the request with its
+    /// builtin collections associated (`BackendDefinition::associated_collections`), so that a
+    /// collection's length adds no level to the stack they take; a caller that wants the same
+    /// associates its patterns in the selected definition first and reads the associated ones.
     pub fn with_solver_over<T, E>(
         &mut self,
         module: Option<&str>,
@@ -3019,11 +3052,46 @@ impl Backend {
     where
         E: From<BackendError> + From<StopCause>,
     {
-        let definition = self
-            .session
+        let definition = self.definition_of(module).map_err(E::from)?;
+        self.with_solver_on(definition, patterns, operation)
+    }
+
+    /// The definition of `module`, selected as every operation selects it, loaded on first use.
+    pub(crate) fn definition_of(
+        &self,
+        module: Option<&str>,
+    ) -> Result<Arc<BackendDefinition>, BackendError> {
+        self.session
             .definition(module)
             .map_err(error("could not select backend module"))
-            .map_err(E::from)?;
+    }
+
+    /// The definition of `module` ([`Self::definition_of`]), after associating the builtin
+    /// collections of `patterns`, a request's own copies, in it, in place
+    /// (`BackendDefinition::associate_collections`): the request the operation sizes its stack
+    /// for and internalizes.
+    pub(crate) fn associate_request<'p>(
+        &self,
+        module: Option<&str>,
+        patterns: impl IntoIterator<Item = &'p mut KorePattern>,
+    ) -> Result<Arc<BackendDefinition>, BackendError> {
+        let definition = self.definition_of(module)?;
+        for pattern in patterns {
+            definition.associate_collections(pattern);
+        }
+        Ok(definition)
+    }
+
+    /// [`Self::with_solver_over`] on `definition`, already selected.
+    pub(crate) fn with_solver_on<T, E>(
+        &mut self,
+        definition: Arc<BackendDefinition>,
+        patterns: &[&KorePattern],
+        operation: impl FnOnce(&BackendDefinition, &dyn SmtSolver) -> Result<T, E>,
+    ) -> Result<T, E>
+    where
+        E: From<BackendError> + From<StopCause>,
+    {
         let depth = definition.operation_depth(patterns);
         let budget = self.simplification_stack_budget;
         k_rust_backend::nesting::with_stack(depth, || {

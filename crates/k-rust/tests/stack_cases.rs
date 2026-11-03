@@ -1,8 +1,9 @@
 //! Inputs that once overflowed the native stack while loading or compiling, each compiled on a
 //! small thread at a size that overflowed it, executions whose evaluation recurses far deeper
-//! than their input, run through the backend facade on a small thread, and KORE patterns a
-//! million levels deep converted to KAST on an 8 MiB thread (`docs/backend-port.md`, "Stack
-//! bounds").
+//! than their input, run through the backend facade on a small thread, KORE patterns a million
+//! levels deep converted to KAST on an 8 MiB thread, and a request holding a list longer than
+//! the backend's deepest stack executed through the facade on an 8 MiB thread
+//! (`docs/backend-port.md`, "Stack bounds").
 //!
 //! A failure here is a stack overflow, which aborts the process; these tests live in their own
 //! binary so that the abort takes down only this file's tests.
@@ -408,5 +409,44 @@ fn a_million_level_sort_converts_to_kast_on_an_8_mib_thread() {
             level = parameter;
         }
         assert!(level.name == "Int" && level.parameters.is_empty());
+    });
+}
+
+/// A definition with a builtin `List` of integers and a constructor `wrap` of a list, and no
+/// rule.
+const LIST_STATE: &str = r#"[]
+    module MAIN
+        hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+        hooked-sort SortList{}
+            [hook{}("LIST.List"), unit{}(listUnit{}()), element{}(listItem{}()), concat{}(listConcat{}())]
+        sort SortState{} []
+        hooked-symbol listUnit{}() : SortList{} [function{}(), total{}(), hook{}("LIST.unit")]
+        hooked-symbol listItem{}(SortInt{}) : SortList{} [function{}(), total{}(), hook{}("LIST.element")]
+        hooked-symbol listConcat{}(SortList{}, SortList{}) : SortList{}
+            [function{}(), total{}(), hook{}("LIST.concat"), assoc{}()]
+        symbol wrap{}(SortList{}) : SortState{} [constructor{}(), functional{}()]
+    endmodule []"#;
+
+/// A state holding a list one entry longer than the deepest pattern the backend provides a
+/// stack for, written as a right-nested `listConcat` chain, executes on an 8 MiB thread and
+/// returns its one leaf with every entry: the facade sizes the operation for the request with
+/// its collections associated, where the list is one level deep. Sized for the nested chain,
+/// it was refused with `InsufficientStack` on any thread.
+#[test]
+fn a_state_holding_a_list_longer_than_the_backend_depth_executes_on_an_8_mib_thread() {
+    on_a_conversion_thread(|| {
+        let entries = k_rust_backend::nesting::max_depth() + 1;
+        let element = |value: usize| apply("listItem", vec![int(value)]);
+        let mut list = element(entries - 1);
+        for value in (0..entries - 1).rev() {
+            list = apply("listConcat", vec![element(value), list]);
+        }
+        let mut backend = Backend::new(LIST_STATE, "MAIN", BackendOptions::default())
+            .expect("the definition loads");
+        let mut request = ExecuteRequest::new(apply("wrap", vec![list]));
+        request.max_depth = Some(0);
+        let result = backend.execute_json(request).expect("the state executes");
+        assert_eq!(result.matches(r#""wrap""#).count(), 1, "one leaf");
+        assert_eq!(result.matches(r#""listItem""#).count(), entries);
     });
 }

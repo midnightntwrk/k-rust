@@ -456,7 +456,9 @@ fn prepare_initial(
 /// drops of the internal terms built from it. All of it runs on a stack the backend measures from
 /// the configuration and the definition (`BackendDefinition::with_stack_for`), which refuses a
 /// configuration too deep for any stack it provides.
-/// `zone` is [`BackendDefinition::operation_depth`] of the initial configuration.
+/// `zone` is [`BackendDefinition::operation_depth`] of the initial configuration with its builtin
+/// collections associated (`BackendDefinition::associated_collections`), the form krun
+/// validates and internalizes, so a collection's length adds no level to it.
 fn on_initial_stack<T>(
     zone: usize,
     work: impl FnOnce() -> Result<T, Box<dyn Error>>,
@@ -480,9 +482,10 @@ pub fn with_initial_term<T>(
     initial: &Pattern,
     run: impl FnOnce(BackendDefinition, InitialTerm) -> Result<T, Box<dyn Error>>,
 ) -> Result<T, Box<dyn Error>> {
-    let zone = definition.operation_depth(&[initial]);
+    let initial = definition.associated_collections(initial);
+    let zone = definition.operation_depth(&[&initial]);
     on_initial_stack(zone, || {
-        let term = prepare_initial(&definition, initial)?;
+        let term = prepare_initial(&definition, &initial)?;
         run(definition, term)
     })
 }
@@ -503,9 +506,10 @@ pub fn with_initial_term_on<T>(
     run: impl FnOnce(&mut Backend, InitialTerm) -> Result<T, Box<dyn Error>>,
 ) -> Result<T, Box<dyn Error>> {
     let definition = backend.select_definition(None)?;
-    let zone = definition.operation_depth(&[initial]);
+    let initial = definition.associated_collections(initial);
+    let zone = definition.operation_depth(&[&initial]);
     on_initial_stack(zone, || {
-        let term = prepare_initial(&definition, initial)?;
+        let term = prepare_initial(&definition, &initial)?;
         run(backend, term)
     })
 }

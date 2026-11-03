@@ -1,5 +1,6 @@
 //! KORE syntax, parsing, printing, and serialization.
 
+pub mod associate;
 pub mod ast;
 pub mod binary;
 pub mod codec;

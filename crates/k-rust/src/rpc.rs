@@ -613,7 +613,9 @@ impl RpcService {
         }
     }
 
-    fn ensure_module(&mut self, module: Option<&str>) -> Result<(), RpcFault> {
+    /// The definition of `module`, selected and loaded; the first selection of each definition
+    /// prints its value-claim warnings.
+    fn ensure_module(&mut self, module: Option<&str>) -> Result<Arc<BackendDefinition>, RpcFault> {
         let requested = module.unwrap_or(self.backend.default_module()).to_owned();
         let definition = self
             .backend
@@ -624,7 +626,7 @@ impl RpcService {
                 eprintln!("{warning}");
             }
         }
-        Ok(())
+        Ok(definition)
     }
 
     /// Handle one complete JSON-RPC message. Notifications intentionally produce no response.
@@ -793,19 +795,22 @@ impl RpcService {
             evaluation_mode,
         } = params;
         let _booster_only = booster_only;
-        self.ensure_module(module.as_deref())?;
+        let selected = self.ensure_module(module.as_deref())?;
         let syntax = state.0;
+        // The run validates and internalizes the state with its builtin collections associated
+        // and is sized for that form; a fault locates its pattern in the state as received.
+        let associated = selected.associated_collections(&syntax);
         self.backend
-            .with_solver_over(module.as_deref(), &[&syntax], |definition, solver| {
+            .with_solver_over(module.as_deref(), &[&associated], |definition, solver| {
                 definition
-                    .validate_executable_pattern(&syntax)
+                    .validate_executable_pattern(&associated)
                     .map_err(|error| pattern_fault(error, &syntax))?;
                 // An execution takes k-rust's element of a literal the definition leaves open and
                 // marks every leaf with it; in the default mode a state holding one is refused,
                 // as no answer outside an execution may rest on that element.
                 let evaluation: EvaluationMode = evaluation_mode.into();
                 let literals = k_rust_backend::definition::RequestLiterals::new();
-                let admitted = definition.admit_unverified(&syntax, &[]);
+                let admitted = definition.admit_unverified(&associated, &[]);
                 let admitted = if evaluation == EvaluationMode::Execution {
                     admitted.for_execution(&literals)
                 } else {
@@ -958,13 +963,16 @@ impl RpcService {
     fn simplify(&mut self, params: SimplifyParams) -> Result<RpcValue, RpcFault> {
         let _booster_only = params.booster_only;
         let _haskell_logging = params.haskell_logging;
-        self.ensure_module(params.module.as_deref())?;
+        let selected = self.ensure_module(params.module.as_deref())?;
         let syntax = params.state.0;
+        // Simplified with its builtin collections associated, the form the stack is sized for;
+        // a fault locates its pattern in the state as received.
+        let associated = selected.associated_collections(&syntax);
         self.backend.with_solver_over(
             params.module.as_deref(),
-            &[&syntax],
+            &[&associated],
             |definition, solver| match definition
-                .admit_unverified(&syntax, &[])
+                .admit_unverified(&associated, &[])
                 .internalize_pattern_or_predicate()
                 .map_err(|error| pattern_fault(error, &syntax))?
             {
@@ -1064,14 +1072,17 @@ impl RpcService {
     fn get_model(&mut self, params: GetModelParams) -> Result<Value, RpcFault> {
         let _booster_only = params.booster_only;
         let _haskell_logging = params.haskell_logging;
-        self.ensure_module(params.module.as_deref())?;
+        let selected = self.ensure_module(params.module.as_deref())?;
         let syntax = params.state.0;
+        // Internalized with its builtin collections associated, the form the stack is sized
+        // for; a fault locates its pattern in the state as received.
+        let associated = selected.associated_collections(&syntax);
         self.backend.with_solver_over(
             params.module.as_deref(),
-            &[&syntax],
+            &[&associated],
             |definition, solver| {
                 let Some((predicate, result_sort)) = definition
-                    .admit_unverified(&syntax, &[])
+                    .admit_unverified(&associated, &[])
                     .internalize_model_predicate()
                     .map_err(|error| pattern_fault(error, &syntax))?
                 else {
@@ -1103,14 +1114,22 @@ impl RpcService {
         // backend already runs the in-process implication path it selects.
         let _assume_defined = params.assume_defined;
         let _haskell_logging = params.haskell_logging;
-        self.ensure_module(params.module.as_deref())?;
+        let selected = self.ensure_module(params.module.as_deref())?;
         let antecedent = params.antecedent.0;
         let consequent = params.consequent.0;
+        // The backend's passes (the request's validation, admission and internalization) read
+        // the two patterns with their builtin collections associated, the form the stack is
+        // sized for; the response echoes the patterns as received, and a fault locates its
+        // pattern there. Association rewrites no root these read, no variable and no sort.
+        let associated_antecedent = selected.associated_collections(&antecedent);
+        let associated_consequent = selected.associated_collections(&consequent);
         self.backend.with_solver_over(
             params.module.as_deref(),
-            &[&antecedent, &consequent],
+            &[&associated_antecedent, &associated_consequent],
             |definition, solver| {
-        if let Err(request_error) = validate_request(definition, &antecedent, &consequent) {
+        if let Err(request_error) =
+            validate_request(definition, &associated_antecedent, &associated_consequent)
+        {
             return Err(match request_error {
                 ImplicationRequestError::MacroOrAlias { side, name } => {
                     let pattern = match side {
@@ -1165,7 +1184,7 @@ impl RpcService {
             .collect::<Vec<_>>();
         if let Some(verdict) = bottom_antecedent(&antecedent) {
             let (_, result_sort) = definition
-                .admit_unverified(&antecedent, &sort_variables)
+                .admit_unverified(&associated_antecedent, &sort_variables)
                 .internalize_predicate()
                 .map_err(|error| pattern_fault(error, &antecedent))?;
             if matches!(
@@ -1175,7 +1194,7 @@ impl RpcService {
                 return implication_result(&antecedent, &consequent, &result_sort, verdict);
             }
             let (consequent_pattern, _) = definition
-                .admit_unverified(&consequent, &sort_variables)
+                .admit_unverified(&associated_consequent, &sort_variables)
                 .internalize_implication_pattern()
                 .map_err(|error| pattern_fault(error, &consequent))?;
             let consequent = simplified_implication_response_syntax(
@@ -1187,7 +1206,7 @@ impl RpcService {
             return implication_result(&antecedent, &consequent, &result_sort, verdict);
         }
         let (antecedent_pattern, antecedent_existentials) = definition
-            .admit_unverified(&antecedent, &sort_variables)
+            .admit_unverified(&associated_antecedent, &sort_variables)
             .internalize_implication_pattern()
             .map_err(|error| pattern_fault(error, &antecedent))?;
         let result_sort = antecedent_pattern.term.sort();
@@ -1197,7 +1216,7 @@ impl RpcService {
                     definition,
                     &antecedent_pattern,
                     &antecedent_existentials,
-                    definition.admit_unverified(&consequent, &sort_variables),
+                    definition.admit_unverified(&associated_consequent, &sort_variables),
                     solver,
                 )
                 .map_err(stopped_request)?
@@ -1211,6 +1230,7 @@ impl RpcService {
                 let consequent = simplified_not_consequent_response_syntax(
                     definition,
                     &consequent,
+                    &associated_consequent,
                     &sort_variables,
                     solver,
                 )?;
@@ -1233,7 +1253,7 @@ impl RpcService {
             return implication_result(&antecedent, &consequent, &result_sort, verdict);
         }
         let (consequent_pattern, consequent_existentials) = definition
-            .admit_unverified(&consequent, &sort_variables)
+            .admit_unverified(&associated_consequent, &sort_variables)
             .internalize_implication_pattern()
             .map_err(|error| pattern_fault(error, &consequent))?;
         if result_sort != consequent_pattern.term.sort() {
@@ -1656,30 +1676,49 @@ fn simplified_implication_response_syntax(
     Ok(result)
 }
 
+/// The response syntax of a `\not` consequent `original`, whose associated form
+/// (`BackendDefinition::associated_collections`) is `associated`: the negated pattern is
+/// internalized from `associated`, the form the operation's stack is sized for, and echoed from
+/// `original`. Association rewrites applications only, so the two have the same `\exists` and
+/// `\not` prefix.
 fn simplified_not_consequent_response_syntax(
     definition: &BackendDefinition,
     original: &KorePattern,
+    associated: &KorePattern,
     sort_variables: &[BackendName],
     solver: &dyn SmtSolver,
 ) -> Result<KorePattern, RpcFault> {
-    Ok(match original {
-        KorePattern::Exists {
-            sort,
-            variable,
-            body,
-        } => KorePattern::Exists {
+    Ok(match (original, associated) {
+        (
+            KorePattern::Exists {
+                sort,
+                variable,
+                body,
+            },
+            KorePattern::Exists {
+                body: associated_body,
+                ..
+            },
+        ) => KorePattern::Exists {
             sort: sort.clone(),
             variable: variable.clone(),
             body: Box::new(simplified_not_consequent_response_syntax(
                 definition,
                 body,
+                associated_body,
                 sort_variables,
                 solver,
             )?),
         },
-        KorePattern::Not { sort, argument } => {
+        (
+            KorePattern::Not { sort, argument },
+            KorePattern::Not {
+                argument: associated_argument,
+                ..
+            },
+        ) => {
             let (pattern, _) = definition
-                .admit_unverified(argument, sort_variables)
+                .admit_unverified(associated_argument, sort_variables)
                 .internalize_implication_pattern()
                 .map_err(|error| pattern_fault(error, argument))?;
             KorePattern::Not {
@@ -5427,6 +5466,118 @@ endmodule
         );
         client.shutdown(Shutdown::Write).unwrap();
         done.recv_timeout(Duration::from_secs(60)).unwrap().unwrap();
+    }
+
+    /// A definition with a builtin `List` of integers and a constructor `wrap` of a list, and no
+    /// rule.
+    const LIST_DEFINITION: &str = r#"[]
+    module MAIN
+        hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+        hooked-sort SortList{}
+            [hook{}("LIST.List"), unit{}(listUnit{}()), element{}(listItem{}()), concat{}(listConcat{}())]
+        sort SortState{} []
+        hooked-symbol listUnit{}() : SortList{} [function{}(), total{}(), hook{}("LIST.unit")]
+        hooked-symbol listItem{}(SortInt{}) : SortList{} [function{}(), total{}(), hook{}("LIST.element")]
+        hooked-symbol listConcat{}(SortList{}, SortList{}) : SortList{}
+            [function{}(), total{}(), hook{}("LIST.concat"), assoc{}()]
+        symbol wrap{}(SortList{}) : SortState{} [constructor{}(), functional{}()]
+    endmodule []"#;
+
+    /// An `execute` and a `simplify` whose state holds a list one entry longer than the deepest
+    /// pattern the backend provides a stack for, written as a right-nested `listConcat` chain,
+    /// are answered on an 8 MiB thread with the state, every entry kept: the server sizes the
+    /// operation for the state with its builtin collections associated and reads that form.
+    /// Sized for the nested chain, each was refused for want of stack on any thread.
+    #[test]
+    #[ignore = "36 s and 2.6 GB of resident memory in the dev profile; the facade's execute at this \
+                depth runs by default in tests/stack_cases.rs, and the association of every RPC \
+                method's request is the same call"]
+    fn a_state_holding_a_list_longer_than_the_backend_depth_is_answered() {
+        thread::Builder::new()
+            .stack_size(8 << 20)
+            .spawn(|| {
+                let entries = nesting::max_depth() + 1;
+                let item = |value: usize| {
+                    format!(
+                        r#"{{"tag":"App","name":"listItem","sorts":[],"args":[{{"tag":"DV","sort":{{"tag":"SortApp","name":"SortInt","args":[]}},"value":"{value}"}}]}}"#
+                    )
+                };
+                let mut state = String::from(
+                    r#"{"format":"KORE","version":1,"term":{"tag":"App","name":"wrap","sorts":[],"args":["#,
+                );
+                for value in 0..entries - 1 {
+                    state.push_str(r#"{"tag":"App","name":"listConcat","sorts":[],"args":["#);
+                    state.push_str(&item(value));
+                    state.push(',');
+                }
+                state.push_str(&item(entries - 1));
+                state.push_str(&"]}".repeat(entries - 1));
+                state.push_str("]}}");
+                let mut service = RpcService::new(BackendSession::new(
+                    parse_definition(LIST_DEFINITION).unwrap(),
+                    "MAIN",
+                ));
+                for (id, method, extra) in [(1, "execute", r#","max-depth":0"#), (2, "simplify", "")] {
+                    let response = service
+                        .handle_line(&format!(
+                            r#"{{"jsonrpc":"2.0","id":{id},"method":"{method}","params":{{"state":{state}{extra}}}}}"#
+                        ))
+                        .unwrap();
+                    assert!(
+                        response.contains(r#""result""#),
+                        "{method}: {}",
+                        &response[..response.len().min(2000)]
+                    );
+                    assert_eq!(
+                        response.matches(r#""listItem""#).count(),
+                        entries,
+                        "{method}"
+                    );
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    /// A fault inside a collection's spine locates the pattern it names in the state as
+    /// received: the server reads an associated copy of the state, in which the ill-sorted
+    /// `listConcat` application is one fold of an associative application and has no
+    /// arguments of its own to locate.
+    #[test]
+    fn a_fault_inside_a_spine_is_located_in_the_state_as_received() {
+        let mut service = RpcService::new(BackendSession::new(
+            parse_definition(LIST_DEFINITION).unwrap(),
+            "MAIN",
+        ));
+        let item = |value: u8| format!(r#"listItem{{}}(\dv{{SortInt{{}}}}("{value}"))"#);
+        let misplaced = format!("wrap{{}}({})", item(2));
+        let state = parse_pattern(&format!(
+            "wrap{{}}(listConcat{{}}({}, listConcat{{}}({}, {misplaced})))",
+            item(0),
+            item(1)
+        ))
+        .unwrap();
+        for (id, method) in [(1, "execute"), (2, "simplify")] {
+            let response = request(
+                &mut service,
+                id,
+                method,
+                json!({ "state": encode_kore(&state).unwrap() }),
+            );
+            assert_eq!(
+                response["error"],
+                json!({
+                    "code": 2,
+                    "message": "Could not verify pattern",
+                    "data": [{
+                        "term": encode_kore(&parse_pattern(&misplaced).unwrap()).unwrap(),
+                        "error": "Incorrect sort: expected SortList{} but got SortState{}",
+                    }],
+                }),
+                "{method}"
+            );
+        }
     }
 
     /// A response that carries deep KORE as JSON values is written and dropped on a 1 MiB

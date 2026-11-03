@@ -2,10 +2,10 @@
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
-use std::{collections::BTreeSet, error::Error};
+use std::{collections::BTreeSet, error::Error, sync::Arc};
 
 use k_rust_backend::{
-    definition::{Admission, DefinitionError},
+    definition::{Admission, BackendDefinition, DefinitionError},
     externalize::{self, ConjunctionShape, External, Printable, ResultSort},
     implication::{
         Bindings, ImplicationCondition, ImplicationError, ImplicationRequestError,
@@ -77,7 +77,9 @@ impl Backend {
 
     /// [`Self::implies_kore`], with `finish` turning the verdict and the result sort into the
     /// operation's result inside the operation, on the stack that the backend provides for the
-    /// two patterns (`Backend::with_solver_over`), where the verdict is also dropped.
+    /// two patterns with their builtin collections associated (`Backend::with_solver_over`,
+    /// `BackendDefinition::associated_collections`), where the verdict is also dropped; the
+    /// operation reads the associated forms, and the two patterns themselves are not changed.
     pub fn implies_kore_with<T>(
         &mut self,
         module: Option<&str>,
@@ -86,15 +88,35 @@ impl Backend {
         admission: Admission,
         finish: impl FnOnce(ImplicationVerdict, Sort) -> Result<T, BackendError>,
     ) -> Result<T, BackendError> {
-        // A proof route (`k_rust_backend::evaluation`).
+        // A proof route (`k_rust_backend::evaluation`), the definition's first load included.
         let _proof = EvaluationScope::enter(EvaluationMode::Proof);
-        self.with_solver_over(module, &[antecedent, consequent], |definition, solver| {
-            let (verdict, sort) =
-                check_kore(definition, solver, antecedent, consequent, admission)?;
-            // As in `simplify_kore_with`: a cancellation set aside during the work is the answer.
-            k_rust_backend::stop::check().map_err(stopped_operation)?;
-            finish(verdict, sort)
-        })
+        let definition = self.definition_of(module)?;
+        let antecedent = definition.associated_collections(antecedent);
+        let consequent = definition.associated_collections(consequent);
+        self.implies_associated(definition, &antecedent, &consequent, admission, finish)
+    }
+
+    /// [`Self::implies_kore_with`] in `definition`, of the two patterns with their builtin
+    /// collections associated, inside the caller's proof scope.
+    pub(crate) fn implies_associated<T>(
+        &mut self,
+        definition: Arc<BackendDefinition>,
+        antecedent: &Pattern,
+        consequent: &Pattern,
+        admission: Admission,
+        finish: impl FnOnce(ImplicationVerdict, Sort) -> Result<T, BackendError>,
+    ) -> Result<T, BackendError> {
+        self.with_solver_on(
+            definition,
+            &[antecedent, consequent],
+            |definition, solver| {
+                let (verdict, sort) =
+                    check_kore(definition, solver, antecedent, consequent, admission)?;
+                // As in `simplify_kore_with`: a cancellation set aside during the work is the answer.
+                k_rust_backend::stop::check().map_err(stopped_operation)?;
+                finish(verdict, sort)
+            },
+        )
     }
 }
 

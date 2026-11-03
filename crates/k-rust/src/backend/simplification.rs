@@ -1,5 +1,7 @@
 //! Shared standalone simplification and model-generation orchestration.
 
+use std::sync::Arc;
+
 use k_rust_backend::evaluation::{EvaluationMode, EvaluationScope, with_evaluation};
 use k_rust_backend::{
     definition::BackendDefinition,
@@ -94,7 +96,9 @@ impl Backend {
 
     /// [`Self::simplify_kore`], with `finish` turning the simplified pattern into the
     /// operation's result inside the operation, on the stack that the backend provides for
-    /// `syntax` (`Backend::with_solver_over`).
+    /// `syntax` with its builtin collections associated (`Backend::with_solver_over`,
+    /// `BackendDefinition::associated_collections`), which is the form the operation reads;
+    /// `syntax` itself is not changed.
     pub fn simplify_kore_with<T>(
         &mut self,
         module: Option<&str>,
@@ -102,9 +106,23 @@ impl Backend {
         admission: Admission,
         finish: impl FnOnce(KorePattern) -> Result<T, BackendError>,
     ) -> Result<T, BackendError> {
-        // A proof route (`k_rust_backend::evaluation`).
+        // A proof route (`k_rust_backend::evaluation`), the definition's first load included.
         let _proof = EvaluationScope::enter(EvaluationMode::Proof);
-        self.with_solver_over(module, &[syntax], |definition, solver| {
+        let definition = self.definition_of(module)?;
+        let associated = definition.associated_collections(syntax);
+        self.simplify_associated(definition, &associated, admission, finish)
+    }
+
+    /// [`Self::simplify_kore_with`] in `definition`, of `syntax` with its builtin collections
+    /// associated, inside the caller's proof scope.
+    pub(crate) fn simplify_associated<T>(
+        &mut self,
+        definition: Arc<BackendDefinition>,
+        syntax: &KorePattern,
+        admission: Admission,
+        finish: impl FnOnce(KorePattern) -> Result<T, BackendError>,
+    ) -> Result<T, BackendError> {
+        self.with_solver_on(definition, &[syntax], |definition, solver| {
             let simplified = match admit(definition, syntax, &[], admission, "KORE pattern")?
                 .internalize_pattern_or_predicate()
                 .map_err(error("could not internalize KORE pattern"))?
@@ -159,7 +177,9 @@ impl Backend {
 
     /// [`Self::model_for`], with `finish` turning the model and the predicate's sort into the
     /// operation's result inside the operation, on the stack that the backend provides for
-    /// `syntax` (`Backend::with_solver_over`), where they are also dropped.
+    /// `syntax` with its builtin collections associated (`Backend::with_solver_over`,
+    /// `BackendDefinition::associated_collections`), where they are also dropped; the
+    /// operation reads the associated form, and `syntax` itself is not changed.
     #[cfg(feature = "z3-inference")]
     pub fn model_for_with<T>(
         &mut self,
@@ -168,9 +188,24 @@ impl Backend {
         admission: Admission,
         finish: impl FnOnce(ModelResult, Option<Sort>) -> Result<T, BackendError>,
     ) -> Result<T, BackendError> {
-        // A proof route (`k_rust_backend::evaluation`).
+        // A proof route (`k_rust_backend::evaluation`), the definition's first load included.
         let _proof = EvaluationScope::enter(EvaluationMode::Proof);
-        self.with_solver_over(module, &[syntax], |definition, solver| {
+        let definition = self.definition_of(module)?;
+        let associated = definition.associated_collections(syntax);
+        self.model_for_associated(definition, &associated, admission, finish)
+    }
+
+    /// [`Self::model_for_with`] in `definition`, of `syntax` with its builtin collections
+    /// associated, inside the caller's proof scope.
+    #[cfg(feature = "z3-inference")]
+    pub(crate) fn model_for_associated<T>(
+        &mut self,
+        definition: Arc<BackendDefinition>,
+        syntax: &KorePattern,
+        admission: Admission,
+        finish: impl FnOnce(ModelResult, Option<Sort>) -> Result<T, BackendError>,
+    ) -> Result<T, BackendError> {
+        self.with_solver_on(definition, &[syntax], |definition, solver| {
             let Some((predicate, result_sort)) =
                 admit(definition, syntax, &[], admission, "model predicate")?
                     .internalize_model_predicate()

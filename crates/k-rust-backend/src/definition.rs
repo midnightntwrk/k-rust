@@ -2146,12 +2146,7 @@ impl crate::nesting::Unfolding for BackendDefinition {
         else {
             return arguments.len();
         };
-        let symbols = match collection {
-            CollectionMetadata::Map(definition) => &definition.symbols,
-            CollectionMetadata::List(definition) | CollectionMetadata::Set(definition) => {
-                &definition.symbols
-            }
-        };
+        let symbols = collection_symbols(collection);
         let opaque = arguments
             .iter()
             .filter(|argument| {
@@ -2221,12 +2216,111 @@ impl BackendDefinition {
     /// them and to the internal terms built from them, on a stack that holds the recursion
     /// over [`Self::operation_depth`] levels (`nesting::with_stack`). The work's result must
     /// hold no internal term built from `patterns`, since it is dropped outside that stack.
+    ///
+    /// The stack is sized for `patterns` as given, so `work` must read those patterns and no
+    /// deeper form of them; [`Self::with_stack_for_associated`] sizes it for their associated
+    /// form and hands that form to `work`.
     pub fn with_stack_for<R>(
         &self,
         patterns: &[&kore::Pattern],
         work: impl FnOnce() -> R,
     ) -> Result<R, DefinitionError> {
         crate::nesting::with_stack(self.operation_depth(patterns), work)
+    }
+
+    /// [`Self::with_stack_for`] over the associated form of `patterns`
+    /// ([`Self::associated_collections`]), which `work` receives in place of `patterns`, in
+    /// the same order: the stack holds the recursion over the associated patterns, which is
+    /// what `work` must read.
+    pub fn with_stack_for_associated<R>(
+        &self,
+        patterns: &[&kore::Pattern],
+        work: impl FnOnce(&[&kore::Pattern]) -> R,
+    ) -> Result<R, DefinitionError> {
+        let associated = patterns
+            .iter()
+            .map(|pattern| self.associated_collections(pattern))
+            .collect::<Vec<_>>();
+        let associated = associated.iter().map(AsRef::as_ref).collect::<Vec<_>>();
+        self.with_stack_for(&associated, || work(&associated))
+    }
+
+    /// Whether `symbol` is the concatenation symbol of one of the definition's builtin
+    /// collections, applied with as many sort arguments as it declares, to two arguments: the
+    /// spines [`Self::associate_collections`] writes as associative applications.
+    fn associates(&self, symbol: &kore::Symbol) -> bool {
+        self.symbols
+            .get(symbol.name.as_str())
+            .is_some_and(|declared| {
+                declared
+                    .attributes
+                    .collection
+                    .as_ref()
+                    .is_some_and(|collection| {
+                        *collection_symbols(collection).concat == *symbol.name
+                    })
+                    && declared.sort_variables.len() == symbol.sort_parameters.len()
+                    && declared.argument_sorts.len() == 2
+            })
+    }
+
+    /// Write each spine of three or more applications of a builtin collection's concatenation
+    /// symbol in `pattern` as the associative application it is notation for, in place
+    /// (`k_rust_kore::kore::associate`), so that a collection's length adds no level to the
+    /// height of `pattern` ([`crate::nesting::Unfolding::associative_levels`]).
+    ///
+    /// The result denotes the pattern `pattern` denotes, by the definition of the notation.
+    /// This definition also internalizes the two to the same internal term, constraints and
+    /// floated predicates included and in the same order, and refuses them with the same
+    /// error, since the internalization of an associative application performs the steps of
+    /// the nested applications it denotes in their order:
+    ///
+    /// - A right spine `s(a1, s(a2, … s(a(n-1), an)…))` is internalized node by node, each node
+    ///   internalizing its arguments in order before it applies `s`, so the arguments are
+    ///   internalized in the order a1, …, an before any application, and the applications run
+    ///   innermost first: `s(a(n-1), an)`, then `s(a(n-2), ·)`, up to `s(a1, ·)`. The `\right-assoc`
+    ///   arm internalizes a1, …, an in order and folds from the last in the same order.
+    /// - A left spine `s(…s(s(a1, a2), a3)…, an)` internalizes a1 and a2, applies `s`, then
+    ///   internalizes a3 and applies `s`, and so on; the `\left-assoc` arm folds each argument
+    ///   as soon as it is internalized, in the same order.
+    /// - Each node of the nested form also checks its symbol's shape before its arguments
+    ///   (`validate_application_shape`: the symbol is declared, with as many sort arguments and
+    ///   arguments as it takes). Only applications for which that check succeeds are rewritten
+    ///   (a declared concatenation symbol, with its declared number of sort arguments, applied
+    ///   to two arguments), so the check the associative form omits cannot fail.
+    ///
+    /// Each step is the same call on the same internal arguments, so it builds the same term
+    /// or fails with the same error first; predicates are floated while the arguments are
+    /// internalized, in document order in both forms.
+    pub fn associate_collections(&self, pattern: &mut kore::Pattern) {
+        k_rust_kore::kore::associate::associate(pattern, |symbol| self.associates(symbol));
+    }
+
+    /// `pattern` with its builtin collections associated ([`Self::associate_collections`]):
+    /// borrowed when it has no spine to rewrite, which one walk decides, and otherwise a copy
+    /// associated in place.
+    pub fn associated_collections<'p>(
+        &self,
+        pattern: &'p kore::Pattern,
+    ) -> std::borrow::Cow<'p, kore::Pattern> {
+        let associates = |symbol: &kore::Symbol| self.associates(symbol);
+        if k_rust_kore::kore::associate::is_associated(pattern, associates) {
+            std::borrow::Cow::Borrowed(pattern)
+        } else {
+            let mut copy = pattern.clone();
+            self.associate_collections(&mut copy);
+            std::borrow::Cow::Owned(copy)
+        }
+    }
+}
+
+/// The unit, element and concatenation symbols of `collection`.
+fn collection_symbols(collection: &CollectionMetadata) -> &CollectionSymbols {
+    match collection {
+        CollectionMetadata::Map(definition) => &definition.symbols,
+        CollectionMetadata::List(definition) | CollectionMetadata::Set(definition) => {
+            &definition.symbols
+        }
     }
 }
 
@@ -3866,37 +3960,50 @@ impl BackendDefinition {
                 symbol,
                 arguments,
             } => {
-                let arguments = arguments
-                    .iter()
-                    .map(|argument| {
-                        self.internalize_term_with(
-                            argument,
-                            sort_variables,
-                            injection_role,
-                            floated,
-                            deferred_predicates.as_deref_mut(),
-                            reading,
-                        )
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                let mut iter: Box<dyn Iterator<Item = Term>> = match associativity {
-                    kore::Associativity::Left => Box::new(arguments.into_iter()),
-                    kore::Associativity::Right => Box::new(arguments.into_iter().rev()),
+                // The steps, and their order, of the nested applications the notation denotes
+                // (`BackendDefinition::associate_collections`), so the two forms build the same
+                // term and report the same error first.
+                let mut internalize = |argument| {
+                    self.internalize_term_with(
+                        argument,
+                        sort_variables,
+                        injection_role,
+                        floated,
+                        deferred_predicates.as_deref_mut(),
+                        reading,
+                    )
                 };
-                let Some(mut result) = iter.next() else {
-                    return Err(DefinitionError::EmptyAssociativeApplication(
-                        symbol.name.clone(),
-                    ));
+                let apply = |pair| {
+                    self.internalize_application(symbol, pair, sort_variables, injection_role)
                 };
-                for argument in iter {
-                    let pair = match associativity {
-                        kore::Associativity::Left => vec![result, argument],
-                        kore::Associativity::Right => vec![argument, result],
-                    };
-                    result =
-                        self.internalize_application(symbol, pair, sort_variables, injection_role)?;
+                let empty = || DefinitionError::EmptyAssociativeApplication(symbol.name.clone());
+                match associativity {
+                    // `s(…s(s(a1, a2), a3)…, an)` applies `s` to what it has internalized
+                    // before it internalizes the next argument.
+                    kore::Associativity::Left => {
+                        let mut arguments = arguments.iter();
+                        let mut result = internalize(arguments.next().ok_or_else(empty)?)?;
+                        for argument in arguments {
+                            let argument = internalize(argument)?;
+                            result = apply(vec![result, argument])?;
+                        }
+                        Ok(result)
+                    }
+                    // `s(a1, s(a2, … s(a(n-1), an)…))` internalizes every argument, in order,
+                    // before its innermost application, and applies `s` from there outwards.
+                    kore::Associativity::Right => {
+                        let arguments = arguments
+                            .iter()
+                            .map(&mut internalize)
+                            .collect::<Result<Vec<_>, _>>()?;
+                        let mut arguments = arguments.into_iter().rev();
+                        let mut result = arguments.next().ok_or_else(empty)?;
+                        for argument in arguments {
+                            result = apply(vec![argument, result])?;
+                        }
+                        Ok(result)
+                    }
                 }
-                Ok(result)
             }
             kore::Pattern::Top { .. } => Err(DefinitionError::ExpectedTerm("top")),
             kore::Pattern::Bottom { .. } => Err(DefinitionError::ExpectedTerm("bottom")),

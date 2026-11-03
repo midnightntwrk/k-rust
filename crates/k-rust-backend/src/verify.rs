@@ -251,28 +251,47 @@ impl<'a> VerifyContext<'a> {
                     expected_arguments.len()
                 )));
             };
-            let mut operands = arguments
-                .iter()
-                .map(|argument| ctx.pattern(argument))
-                .collect::<Result<Vec<_>, _>>()?;
-            // The accumulated fold is the first operand of a left fold step and the second of
-            // a right fold step.
-            let (accumulated_expected, operand_expected) = match associativity {
-                kore::Associativity::Left => (left, right),
-                kore::Associativity::Right => {
-                    operands.reverse();
-                    (right, left)
-                }
+            // The checks, and their order, of the nested applications the notation denotes:
+            // each application checks its first argument, then reads and checks its second,
+            // so the two forms report the same failure first.
+            let Some((first, rest)) = arguments.split_first() else {
+                return Err(ctx.error("Associative application needs at least one operand."));
             };
-            let mut operands = operands.into_iter();
-            let first = operands
-                .next()
-                .ok_or_else(|| ctx.error("Associative application needs at least one operand."))?;
-            operands.try_fold(first, |accumulated, operand| {
-                ctx.expect_sort(accumulated_expected, accumulated)?;
-                ctx.expect_sort(operand_expected, operand)?;
-                Ok(result)
-            })
+            match associativity {
+                // `f(…f(f(a1, a2), a3)…, an)`: each application reads its first argument, the
+                // one below it, before its second.
+                kore::Associativity::Left => {
+                    let mut accumulated = ctx.pattern(first)?;
+                    for operand in rest {
+                        ctx.expect_sort(left, accumulated)?;
+                        let operand = ctx.pattern(operand)?;
+                        ctx.expect_sort(right, operand)?;
+                        accumulated = result;
+                    }
+                    Ok(accumulated)
+                }
+                // `f(a1, f(a2, …f(an-1, an)…))`: each application reads and checks its first
+                // argument before the application below it, the innermost one checks an, and
+                // each application above it then checks the result below it.
+                kore::Associativity::Right => {
+                    let Some((last, init)) = arguments.split_last() else {
+                        unreachable!("the arguments are not empty");
+                    };
+                    for operand in init {
+                        let operand = ctx.pattern(operand)?;
+                        ctx.expect_sort(left, operand)?;
+                    }
+                    let last = ctx.pattern(last)?;
+                    if init.is_empty() {
+                        return Ok(last);
+                    }
+                    ctx.expect_sort(right, last)?;
+                    for _ in 1..init.len() {
+                        ctx.expect_sort(right, result)?;
+                    }
+                    Ok(result)
+                }
+            }
         })
     }
 
