@@ -964,3 +964,195 @@ fn a_projection_s_definedness_is_a_condition_read_as_any_other() {
     };
     assert_eq!(over, [pattern(opaque)]);
 }
+
+/// The entries of the deep states below: a log of a million entries, which a state holds as a
+/// chain one level per entry.
+const LOG_ENTRIES: usize = 1_000_000;
+
+/// Run `work` on a thread of 8 MiB, a main thread's default on Linux: a walk that recursed once
+/// per level of a state overflowed it at a few thousand levels.
+fn on_an_8_mib_thread(work: impl FnOnce() + Send + 'static) {
+    std::thread::Builder::new()
+        .stack_size(8 << 20)
+        .spawn(work)
+        .expect("the worker spawns")
+        .join()
+        .expect("the worker finishes");
+}
+
+/// Heads of a state that logs `acc` entries in a builtin list: the list's symbols and `acc`
+/// build values, and `f` is a partial function defined by its equations alone.
+struct LogHeads;
+
+impl valueless::Heads for LogHeads {
+    fn is_equational_partial(&self, symbol: &str) -> bool {
+        symbol == "f"
+    }
+
+    fn is_data(&self, symbol: &str) -> bool {
+        matches!(
+            symbol,
+            "Lbl'Unds'List'Unds'" | "LblListItem" | "Lbl'Stop'List" | "acc" | "state"
+        )
+    }
+}
+
+fn apply(name: &str, arguments: Vec<k_rust::kore::ast::Pattern>) -> k_rust::kore::ast::Pattern {
+    k_rust::kore::ast::Pattern::Application {
+        symbol: k_rust::kore::ast::Symbol {
+            name: name.to_owned(),
+            sort_parameters: Vec::new(),
+        },
+        arguments,
+    }
+}
+
+/// How a log's `_List_` chain nests: each entry concatenated after the entries before it (`Left`),
+/// as a step that appends to a log builds it, or before the entries after it (`Right`).
+#[derive(Clone, Copy, Debug)]
+enum Nesting {
+    Left,
+    Right,
+}
+
+/// `state(log)`, `log` a `_List_` chain of [`LOG_ENTRIES`] `acc` entries nested as `nesting`
+/// says, over `first`, the chain's innermost part.
+fn logged(first: k_rust::kore::ast::Pattern, nesting: Nesting) -> k_rust::kore::ast::Pattern {
+    let mut log = first;
+    for entry in 0..LOG_ENTRIES {
+        let value = k_rust::kore::ast::Pattern::DomainValue {
+            sort: k_rust::kore::ast::Sort::Application {
+                name: "SortInt".to_owned(),
+                arguments: Vec::new(),
+            },
+            value: k_rust::kore::ast::KoreString::from_bytes(entry.to_string().into_bytes()),
+        };
+        let item = apply("LblListItem", vec![apply("acc", vec![value])]);
+        let arguments = match nesting {
+            Nesting::Left => vec![log, item],
+            Nesting::Right => vec![item, log],
+        };
+        log = apply("Lbl'Unds'List'Unds'", arguments);
+    }
+    apply("state", vec![log])
+}
+
+fn state_sort() -> k_rust::kore::ast::Sort {
+    k_rust::kore::ast::Sort::Application {
+        name: "SortState".to_owned(),
+        arguments: Vec::new(),
+    }
+}
+
+/// A state that holds a million-entry log, nested either way, is read on an 8 MiB thread: whether
+/// it is a value, the witnesses it holds, whether it holds a variable, and a `#Ceil` of it.
+#[test]
+fn a_million_entry_log_is_read_for_witnesses_on_an_8_mib_thread() {
+    on_an_8_mib_thread(|| {
+        for nesting in [Nesting::Left, Nesting::Right] {
+            let heads = LogHeads;
+            let empty = logged(apply("Lbl'Stop'List", Vec::new()), nesting);
+            assert!(valueless::is_value(&empty, &heads));
+            assert!(!valueless::is_symbolic(&empty));
+            let mut held = Vec::new();
+            valueless::witnesses(&empty, &heads, &mut held);
+            assert!(held.is_empty());
+            let ceil = k_rust::kore::ast::Pattern::Ceil {
+                operand_sort: Box::new(state_sort()),
+                result_sort: state_sort(),
+                argument: Box::new(empty),
+            };
+            let mut read = Vec::new();
+            assert_eq!(
+                valueless::read(&[&ceil], &heads, &mut read),
+                valueless::Reading::Holds
+            );
+            drop(ceil);
+
+            // The witness is the log's innermost part, a million levels down.
+            let witness = pattern(F_TRUE);
+            let over_witness = logged(witness.clone(), nesting);
+            assert!(!valueless::is_value(&over_witness, &heads));
+            let mut held = Vec::new();
+            valueless::witnesses(&over_witness, &heads, &mut held);
+            assert_eq!(held, [&witness]);
+            let ceil = k_rust::kore::ast::Pattern::Ceil {
+                operand_sort: Box::new(state_sort()),
+                result_sort: state_sort(),
+                argument: Box::new(over_witness),
+            };
+            let mut read = Vec::new();
+            assert_eq!(
+                valueless::read(&[&ceil], &heads, &mut read),
+                valueless::Reading::Fails
+            );
+            assert_eq!(read, [&witness]);
+            drop(ceil);
+
+            // A variable a million levels down is found, and a quantifier's own variable there is
+            // not the run's.
+            let variable = k_rust::kore::ast::Variable {
+                kind: k_rust::kore::ast::VariableKind::Element,
+                name: "VarV".to_owned(),
+                sort: state_sort(),
+            };
+            let over_variable = logged(
+                k_rust::kore::ast::Pattern::Variable(variable.clone()),
+                nesting,
+            );
+            assert!(valueless::is_symbolic(&over_variable));
+            let bound = k_rust::kore::ast::Pattern::Exists {
+                sort: state_sort(),
+                variable: Box::new(variable.clone()),
+                body: Box::new(k_rust::kore::ast::Pattern::Equals {
+                    operand_sort: Box::new(state_sort()),
+                    result_sort: state_sort(),
+                    left: Box::new(k_rust::kore::ast::Pattern::Variable(variable)),
+                    right: Box::new(over_variable),
+                }),
+            };
+            let mut read = Vec::new();
+            assert_eq!(
+                valueless::read(&[&bound], &heads, &mut read),
+                valueless::Reading::Open { over: vec![&bound] }
+            );
+            assert!(read.is_empty());
+        }
+    });
+}
+
+/// A state whose path condition is a million conjuncts, nested one `#And` per conjunct, splits
+/// on an 8 MiB thread into its configuration and its conjuncts in order.
+#[test]
+fn a_million_nested_conjuncts_split_on_an_8_mib_thread() {
+    on_an_8_mib_thread(|| {
+        let configuration = apply("go", Vec::new());
+        let conjunct = |index: usize| k_rust::kore::ast::Pattern::Equals {
+            operand_sort: Box::new(state_sort()),
+            result_sort: state_sort(),
+            left: Box::new(apply("acc", vec![apply(&format!("c{index}"), Vec::new())])),
+            right: Box::new(apply("acc", vec![apply(&format!("c{index}"), Vec::new())])),
+        };
+        let mut condition = conjunct(LOG_ENTRIES - 1);
+        for index in (0..LOG_ENTRIES - 1).rev() {
+            condition = k_rust::kore::ast::Pattern::And {
+                sort: state_sort(),
+                arguments: vec![conjunct(index), condition],
+            };
+        }
+        let state = k_rust::kore::ast::Pattern::And {
+            sort: state_sort(),
+            arguments: vec![configuration.clone(), condition],
+        };
+        let split = valueless::split(&state);
+        assert_eq!(split.configuration, Some(&configuration));
+        assert_eq!(split.predicates.len(), LOG_ENTRIES);
+        for index in [0, 1, LOG_ENTRIES - 1] {
+            assert_eq!(
+                split.predicates[index],
+                &conjunct(index),
+                "conjunct {index}"
+            );
+        }
+    });
+}

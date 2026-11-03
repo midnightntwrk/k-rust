@@ -49,14 +49,19 @@ impl Heads for Undecided {
 
 /// Whether `pattern` is a value: a domain value, or data over values.
 pub(crate) fn is_value(pattern: &Pattern, heads: &dyn Heads) -> bool {
-    match pattern {
-        Pattern::DomainValue { .. } => true,
-        Pattern::Application { symbol, arguments } => {
-            heads.is_data(&symbol.name)
-                && arguments.iter().all(|argument| is_value(argument, heads))
+    // A collection is a chain one level per element, so the walk keeps the terms still to read
+    // on a stack of its own rather than the thread's.
+    let mut pending = vec![pattern];
+    while let Some(pattern) = pending.pop() {
+        match pattern {
+            Pattern::DomainValue { .. } => {}
+            Pattern::Application { symbol, arguments } if heads.is_data(&symbol.name) => {
+                pending.extend(arguments);
+            }
+            _ => return false,
         }
-        _ => false,
     }
+    true
 }
 
 /// Whether `pattern` has a value at every valuation of its variables: a value, or an element
@@ -78,15 +83,19 @@ fn is_witness(pattern: &Pattern, heads: &dyn Heads) -> bool {
 }
 
 /// Adds to `out` each witness `pattern` holds, outermost first, each once.
+///
+/// The terms are visited in pre-order, children left to right, below no witness, from a stack
+/// of their own: a state's collection is a chain one level per element.
 pub(crate) fn witnesses<'a>(pattern: &'a Pattern, heads: &dyn Heads, out: &mut Vec<&'a Pattern>) {
-    if is_witness(pattern, heads) {
-        if !out.contains(&pattern) {
-            out.push(pattern);
+    let mut pending = vec![pattern];
+    while let Some(pattern) = pending.pop() {
+        if is_witness(pattern, heads) {
+            if !out.contains(&pattern) {
+                out.push(pattern);
+            }
+            continue;
         }
-        return;
-    }
-    for child in walk::children(pattern) {
-        witnesses(child, heads, out);
+        pending.extend(walk::children(pattern).into_iter().rev());
     }
 }
 
@@ -149,14 +158,15 @@ pub(crate) fn read<'a>(
     }
 }
 
+/// Adds to `out` the conjuncts of `pattern`, left to right, below every `#And`, however deeply
+/// the `#And`s nest.
 fn conjoined<'a>(pattern: &'a Pattern, out: &mut Vec<&'a Pattern>) {
-    match pattern {
-        Pattern::And { arguments, .. } => {
-            for argument in arguments {
-                conjoined(argument, out);
-            }
+    let mut pending = vec![pattern];
+    while let Some(pattern) = pending.pop() {
+        match pattern {
+            Pattern::And { arguments, .. } => pending.extend(arguments.iter().rev()),
+            other => out.push(other),
         }
-        other => out.push(other),
     }
 }
 
@@ -164,20 +174,24 @@ fn conjoined<'a>(pattern: &'a Pattern, out: &mut Vec<&'a Pattern>) {
 /// (the backend states a projection's definedness as `#Exists V . {t #Equals V}`), or `#Ceil`,
 /// `#Floor`, `#Equals`, `#In`, `#Top` or `#Bottom`.
 fn is_predicate(pattern: &Pattern) -> bool {
-    match pattern {
-        Pattern::Top { .. }
-        | Pattern::Bottom { .. }
-        | Pattern::Ceil { .. }
-        | Pattern::Floor { .. }
-        | Pattern::Equals { .. }
-        | Pattern::In { .. } => true,
-        Pattern::Not { argument, .. } => is_predicate(argument),
-        Pattern::And { arguments, .. } | Pattern::Or { arguments, .. } => {
-            arguments.iter().all(is_predicate)
+    let mut pending = vec![pattern];
+    while let Some(pattern) = pending.pop() {
+        match pattern {
+            Pattern::Top { .. }
+            | Pattern::Bottom { .. }
+            | Pattern::Ceil { .. }
+            | Pattern::Floor { .. }
+            | Pattern::Equals { .. }
+            | Pattern::In { .. } => {}
+            Pattern::Not { argument, .. } => pending.push(argument),
+            Pattern::And { arguments, .. } | Pattern::Or { arguments, .. } => {
+                pending.extend(arguments);
+            }
+            Pattern::Exists { body, .. } | Pattern::Forall { body, .. } => pending.push(body),
+            _ => return false,
         }
-        Pattern::Exists { body, .. } | Pattern::Forall { body, .. } => is_predicate(body),
-        _ => false,
     }
+    true
 }
 
 /// Whether `predicate` holds, `None` where the reading does not decide it; the witnesses a
@@ -191,6 +205,10 @@ fn is_predicate(pattern: &Pattern) -> bool {
 ///   witnesses and values, which hold no variable, so it is the same at every value of `V`, and
 ///   every sort has one. The terms an undecided `p` reads that mention `V` are not the run's.
 /// - Anything else is undecided.
+///
+/// The reading recurses once per connective or quantifier of `predicate`, as the definition's
+/// conditions nest them; the terms under them, which may hold a collection, are walked from
+/// stacks of their own.
 fn holds<'a>(
     predicate: &'a Pattern,
     heads: &dyn Heads,
@@ -276,13 +294,26 @@ fn note<'a>(out: &mut Vec<&'a Pattern>, terms: Vec<&'a Pattern>) {
 
 /// Whether `pattern` holds `variable`.
 fn mentions(pattern: &Pattern, variable: &Variable) -> bool {
-    matches!(pattern, Pattern::Variable(held) if held == variable)
-        || walk::children(pattern)
-            .into_iter()
-            .any(|child| mentions(child, variable))
+    any_node(
+        pattern,
+        |node| matches!(node, Pattern::Variable(held) if held == variable),
+    )
 }
 
 /// Whether `pattern` holds a variable.
 pub(crate) fn is_symbolic(pattern: &Pattern) -> bool {
-    matches!(pattern, Pattern::Variable(_)) || walk::children(pattern).into_iter().any(is_symbolic)
+    any_node(pattern, |node| matches!(node, Pattern::Variable(_)))
+}
+
+/// Whether some node of `pattern` satisfies `test`, the nodes visited from a stack of the walk's
+/// own.
+fn any_node(pattern: &Pattern, test: impl Fn(&Pattern) -> bool) -> bool {
+    let mut pending = vec![pattern];
+    while let Some(pattern) = pending.pop() {
+        if test(pattern) {
+            return true;
+        }
+        pending.extend(walk::children(pattern));
+    }
+    false
 }

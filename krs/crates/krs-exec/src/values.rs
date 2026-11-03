@@ -1345,27 +1345,39 @@ impl ValueIndex {
 
     /// Flatten a K sequence into `items`; `false` when a part is neither an item nor a sequence.
     fn sequence(&self, pattern: &Pattern, items: &mut Vec<Value>) -> Result<bool, ValueError> {
-        if let Pattern::Application { symbol, arguments }
-        | Pattern::AssociativeApplication {
-            symbol, arguments, ..
-        } = pattern
-        {
+        // A sequence is a chain one level per item: the parts still to read, leftmost on top,
+        // are kept on a stack of the walk's own.
+        let mut pending = vec![pattern];
+        while let Some(pattern) = pending.pop() {
+            let (Pattern::Application { symbol, arguments }
+            | Pattern::AssociativeApplication {
+                symbol, arguments, ..
+            }) = pattern
+            else {
+                return Ok(false);
+            };
             let name = symbol.name.as_str();
             if name == WellKnownSymbol::DotK.as_str() {
-                return Ok(arguments.is_empty());
-            }
-            if name == WellKnownSymbol::KSeq.as_str() || name == WellKnownSymbol::Append.as_str() {
+                if !arguments.is_empty() {
+                    return Ok(false);
+                }
+            } else if name == WellKnownSymbol::KSeq.as_str()
+                || name == WellKnownSymbol::Append.as_str()
+            {
                 let [head, tail] = arguments.as_slice() else {
                     return Err(ValueError::Malformed(format!("{pattern}")));
                 };
+                pending.push(tail);
                 if name == WellKnownSymbol::KSeq.as_str() {
                     items.push(self.decode(head)?);
-                    return self.sequence(tail, items);
+                } else {
+                    pending.push(head);
                 }
-                return Ok(self.sequence(head, items)? && self.sequence(tail, items)?);
+            } else {
+                return Ok(false);
             }
         }
-        Ok(false)
+        Ok(true)
     }
 
     fn collection(&self, pattern: &Pattern, collection: Collection) -> Result<Value, ValueError> {
@@ -1415,28 +1427,37 @@ impl ValueIndex {
         collection: Collection,
         elements: &mut Vec<Vec<&'p Pattern>>,
     ) -> bool {
-        let (Pattern::Application { symbol, arguments }
-        | Pattern::AssociativeApplication {
-            symbol, arguments, ..
-        }) = pattern
-        else {
-            return false;
-        };
-        match self.collections.get(&symbol.name) {
-            Some(&(kind, Role::Unit)) if kind == collection => arguments.is_empty(),
-            Some(&(kind, Role::Element)) if kind == collection => {
-                let expected = if collection == Collection::Map { 2 } else { 1 };
-                if arguments.len() != expected {
-                    return false;
+        // A collection is a chain one level per element: the parts still to read, leftmost on
+        // top, are kept on a stack of the walk's own.
+        let mut pending = vec![pattern];
+        while let Some(pattern) = pending.pop() {
+            let (Pattern::Application { symbol, arguments }
+            | Pattern::AssociativeApplication {
+                symbol, arguments, ..
+            }) = pattern
+            else {
+                return false;
+            };
+            match self.collections.get(&symbol.name) {
+                Some(&(kind, Role::Unit)) if kind == collection => {
+                    if !arguments.is_empty() {
+                        return false;
+                    }
                 }
-                elements.push(arguments.iter().collect());
-                true
+                Some(&(kind, Role::Element)) if kind == collection => {
+                    let expected = if collection == Collection::Map { 2 } else { 1 };
+                    if arguments.len() != expected {
+                        return false;
+                    }
+                    elements.push(arguments.iter().collect());
+                }
+                Some(&(kind, Role::Concat)) if kind == collection => {
+                    pending.extend(arguments.iter().rev());
+                }
+                _ => return false,
             }
-            Some(&(kind, Role::Concat)) if kind == collection => arguments
-                .iter()
-                .all(|argument| self.collection_elements(argument, collection, elements)),
-            _ => false,
         }
+        true
     }
 
     fn constructor(
@@ -1783,9 +1804,10 @@ pub(crate) fn index_of(text: &str, ctors: &[(&str, &str, &[&str])]) -> ValueInde
 
 #[cfg(test)]
 mod tests {
+    use k_rust::kore::ast::{Pattern, Symbol};
     use k_rust::kore::parser::parse_pattern;
 
-    use super::{Decl, Float, Value, ValueIndex, index_of};
+    use super::{Decl, Float, Value, ValueIndex, WellKnownSymbol, index_of};
 
     /// `c` is a constructor an `anywhere` rule rewrites, `c(a) => c(b)`: `c(b)`, which no
     /// equation reduces, is a value of `c`; `c(a)`, which the rule still reduces, is none.
@@ -1824,6 +1846,60 @@ mod tests {
             decode("c{}(a{}())")
         );
         assert!(matches!(decode("a{}()"), Value::Ctor(_)));
+    }
+
+    /// A K sequence of a million items, a chain one level per item, flattens on an 8 MiB thread,
+    /// a main thread's default on Linux, in order, whether `kseq` nests it to the right or
+    /// `append` nests it to the left.
+    #[test]
+    fn a_million_item_sequence_decodes_on_an_8_mib_thread() {
+        std::thread::Builder::new()
+            .stack_size(8 << 20)
+            .spawn(|| {
+                const ITEMS: usize = 1_000_000;
+                let index = anywhere_index();
+                let items = [
+                    parse_pattern("inj{SortS{}, SortKItem{}}(a{}())").unwrap(),
+                    parse_pattern("inj{SortS{}, SortKItem{}}(b{}())").unwrap(),
+                ];
+                let decoded = items.each_ref().map(|item| index.decode(item).unwrap());
+                let dotk = || Pattern::Application {
+                    symbol: Symbol {
+                        name: WellKnownSymbol::DotK.as_str().to_owned(),
+                        sort_parameters: Vec::new(),
+                    },
+                    arguments: Vec::new(),
+                };
+                let pair =
+                    |name: WellKnownSymbol, head: Pattern, tail: Pattern| Pattern::Application {
+                        symbol: Symbol {
+                            name: name.as_str().to_owned(),
+                            sort_parameters: Vec::new(),
+                        },
+                        arguments: vec![head, tail],
+                    };
+                let mut right = dotk();
+                for item in (0..ITEMS).rev() {
+                    right = pair(WellKnownSymbol::KSeq, items[item % 2].clone(), right);
+                }
+                let mut left = dotk();
+                for item in 0..ITEMS {
+                    let single = pair(WellKnownSymbol::KSeq, items[item % 2].clone(), dotk());
+                    left = pair(WellKnownSymbol::Append, left, single);
+                }
+                for sequence in [right, left] {
+                    let Value::Seq(read) = index.decode(&sequence).unwrap() else {
+                        panic!("a sequence of items decodes to its items");
+                    };
+                    assert_eq!(read.len(), ITEMS);
+                    for (position, item) in read.iter().enumerate() {
+                        assert_eq!(item, &decoded[position % 2], "item {position}");
+                    }
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 
     #[test]
