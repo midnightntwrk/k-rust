@@ -97,6 +97,7 @@ mod machine;
 pub mod oracle;
 pub mod pending;
 pub mod positions;
+pub mod sweep;
 pub mod table;
 mod terms;
 
@@ -114,7 +115,7 @@ pub const FRONT_CASE_CAP: usize = 6_000;
 /// The shards of the fast tier, each the families one of its tests runs, and each within
 /// [`FRONT_CASE_CAP`]: the collection notation's term cases are a shard of their own, and so,
 /// since NT-12's static productions took the first shard past the cap, are the term family's.
-pub const FRONT_SHARDS: [&[Family]; 3] = [
+pub const FRONT_SHARDS: [&[Family]; 4] = [
     &[
         Family::Readable,
         Family::Claim,
@@ -127,6 +128,7 @@ pub const FRONT_SHARDS: [&[Family]; 3] = [
     ],
     &[Family::Notation],
     &[Family::Terms],
+    &[Family::Sweep],
 ];
 
 /// The family a case belongs to: its form, which fixes its base and its templates.
@@ -159,11 +161,15 @@ pub enum Family {
     /// The `cells!` family's rules on the run base, as [`Family::ReadableRun`] is the readable
     /// family's.
     CellsRun,
+    /// The compiled sweep ([`sweep`]): one readable, claim, `cells!` or initializer case on
+    /// [`Base::Sweep`] for each cell of the cells oracle's sweep named at its record's level, so
+    /// that the compiler's verdict witnesses `outcome` there (S5.0g part (b), item 3a).
+    Sweep,
 }
 
 impl Family {
     /// Every family, in ID order.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::Readable,
         Self::Claim,
         Self::Cells,
@@ -174,6 +180,7 @@ impl Family {
         Self::Attributes,
         Self::ReadableRun,
         Self::CellsRun,
+        Self::Sweep,
     ];
 
     /// The first segment of the IDs of this family's cases.
@@ -190,6 +197,7 @@ impl Family {
             Self::Attributes => "attrs",
             Self::ReadableRun => "readable-run",
             Self::CellsRun => "cells-run",
+            Self::Sweep => "sweep",
         }
     }
 
@@ -244,11 +252,14 @@ pub enum Base {
     /// group and inside a Map collection's instance (S5.0g, [`kinds`]): readable records, claims,
     /// `cells!` rules and initializers over every pair of the domain's dimensions.
     Kinds,
+    /// A cell of every stack the cells oracle's sweep names, the compiled sweep's ([`sweep`],
+    /// [`Family::Sweep`]).
+    Sweep,
 }
 
 impl Base {
     /// Every base.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::Machine,
         Self::Typed,
         Self::Terms,
@@ -259,6 +270,7 @@ impl Base {
         Self::MainCell,
         Self::MainK,
         Self::Kinds,
+        Self::Sweep,
     ];
 
     /// The base's own source, with no case: its default initializer and no command.
@@ -285,6 +297,7 @@ impl Base {
             Self::MainCell => machine::main_base(),
             Self::MainK => machine::main_k_base(),
             Self::Kinds => kinds::base(),
+            Self::Sweep => sweep::base(),
         }
     }
 }
@@ -815,6 +828,19 @@ pub fn cases() -> Vec<Case> {
     machine::readable_runs(&mut cases);
     cells::runs(&mut cases);
     kinds::cases(&mut cases);
+    let existing = cases
+        .iter()
+        .filter_map(|case| {
+            let entry = case.cell_entry()?;
+            entry.entry.path.is_empty().then(|| {
+                sweep::row_key(
+                    &entry_cases::declared_stack(case, &entry.entry.cell),
+                    &entry,
+                )
+            })
+        })
+        .collect();
+    sweep::cases(&existing, &mut cases);
     terms::cases(&mut cases);
     cases.sort_by(|left, right| left.id.cmp(&right.id));
     for shard in FRONT_SHARDS {

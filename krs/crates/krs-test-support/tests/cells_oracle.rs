@@ -28,6 +28,15 @@ use krs_test_support::class_matrix::cells_oracle::{
 };
 use krs_test_support::class_matrix::invariants::registry_kind;
 use krs_test_support::class_matrix::pending::{self, Pending};
+use krs_test_support::class_matrix::sweep;
+use krs_test_support::class_matrix::sweep::{
+    CHILDREN as CHILDREN_SWEEP, CHILDREN_UNBASED as CHILDREN_UNBASED_SWEEP,
+    FRAGMENT_CHILD as FRAGMENT_CHILD_SWEEP, INITIALIZER_CHILDREN as INITIALIZER_CHILDREN_SWEEP,
+    back_spellings as sweep_back_spellings, children_stack, form_name, group_g,
+    group_of as sweep_group, main_tables as sweep_main_tables,
+    more_spellings as sweep_more_spellings, nested_collection_stack, spellings as sweep_spellings,
+    stack_name, stacks as sweep_stacks, subject as sweep_subject, untexted,
+};
 use krs_test_support::class_matrix::table::{Expected, Glob, TERM_ACCEPTS_FILE, Table, twin};
 use krs_test_support::class_matrix::{self, Base, Case, Family, Side, entry_cases};
 
@@ -957,7 +966,7 @@ fn template_agreement(
                 on(Side::Result).is_some()
             ));
         }
-        Side::Result if entry.context.other != on(Side::Subject) => {
+        Side::Result if entry.context.other.as_ref().map(untexted) != on(Side::Subject) => {
             return Err(format!(
                 "the template's subject entry of `{cell}` is {:?}, the rendered sentence's {:?}",
                 entry.context.other,
@@ -1145,7 +1154,7 @@ fn check_2_the_product_admits_as_the_table_says() {
                 continue;
             }
         };
-        if declared_as(&spelling) != entry.entry.spelling {
+        if declared_as(&spelling) != untexted(&entry.entry.spelling) {
             failures.push(format!(
                 "{}: the product reads {:?}, the generator declares {:?}",
                 case.id,
@@ -1532,33 +1541,6 @@ fn mark_name(form: Form, spelling: &Spelling) -> String {
     .to_owned()
 }
 
-fn stack_name(cell: &str, stack: &[Layer]) -> String {
-    let leaf = |notation: &Notation| match notation {
-        Notation::Plain => "leaf Int",
-        Notation::List => "leaf List",
-        Notation::Cons => "leaf Cons",
-        Notation::Map => "leaf Map",
-        Notation::Set => "leaf Set",
-    };
-    match stack {
-        [Layer::Computation] if cell.ends_with("code") => "second computation".to_owned(),
-        [Layer::Computation] => "computation".to_owned(),
-        [Layer::Leaf(notation)] => leaf(notation).to_owned(),
-        [Layer::Group(_)] => "group".to_owned(),
-        [Layer::Optional, Layer::Leaf(notation)] => format!("? {}", leaf(notation)),
-        [Layer::Optional, Layer::Group(_)] => "? group".to_owned(),
-        [Layer::Instances(order), ..] => format!(
-            "* {}",
-            match order {
-                Order::List => "List",
-                Order::Set => "Set",
-                Order::Map => "Map",
-            }
-        ),
-        other => format!("{other:?}"),
-    }
-}
-
 /// The reason of an [`UNCOVERED`] entry whose tuples no case covers because the sweep golden
 /// prints `outcome` at each of them, and the row's pattern in [`PATTERNS_FILE`] states the
 /// principle that gives it, for review (the coverage ruling: cases cover every pair of the
@@ -1570,15 +1552,6 @@ const SWEEP: &str = "judged by the sweep row's reviewed pattern in cells-outcome
 /// to the sweep golden, which must print `outcome` at each; check 5 still requires every pair of
 /// the domain's dimensions to be some case's, unless an entry with another reason names it.
 const UNCOVERED: [(&str, &str, &str, &str, &str, &str); 1] = [("*", "*", "*", "*", "*", SWEEP)];
-
-fn form_name(form: Form) -> &'static str {
-    match form {
-        Form::Readable => "readable",
-        Form::Claim => "claim",
-        Form::Cells => "cells",
-        Form::Init => "init",
-    }
-}
 
 /// The side as check 5 names it: a result over a cell its subject does not match is
 /// `result-unmatched`.
@@ -1997,14 +1970,6 @@ impl Probe<'_> {
 
 fn int() -> Vec<Layer> {
     vec![Layer::Leaf(Notation::Plain)]
-}
-
-/// The sweep's group `G`, two `Int` children (so a record naming one is not complete).
-fn group_g() -> Layer {
-    Layer::Group(Group {
-        name: "G".to_owned(),
-        children: vec![("a".to_owned(), int()), ("b".to_owned(), int())],
-    })
 }
 
 /// The review's probes of S1 (b) and Q1's overwrite (R1, R2), outside every generated case: the
@@ -3949,194 +3914,6 @@ fn sweep_name(outcome: Outcome) -> String {
     }
 }
 
-/// The sweep's own stacks: every kind the domain has (check 5's, but the second computation,
-/// which differs from the first by its name only, P1), with `G` as the group and the
-/// collections' instance group.
-fn sweep_stacks() -> Vec<(&'static str, Vec<Layer>)> {
-    let leaf = |notation| vec![Layer::Leaf(notation)];
-    let optional = |mut stack: Vec<Layer>| {
-        stack.insert(0, Layer::Optional);
-        stack
-    };
-    let many = |order| vec![Layer::Instances(order), group_g()];
-    vec![
-        ("computation", vec![Layer::Computation]),
-        ("leaf Int", leaf(Notation::Plain)),
-        ("leaf List", leaf(Notation::List)),
-        ("leaf Cons", leaf(Notation::Cons)),
-        ("leaf Map", leaf(Notation::Map)),
-        ("leaf Set", leaf(Notation::Set)),
-        ("group G", vec![group_g()]),
-        ("? leaf Int", optional(leaf(Notation::Plain))),
-        ("? leaf List", optional(leaf(Notation::List))),
-        ("? leaf Map", optional(leaf(Notation::Map))),
-        ("? group G", optional(vec![group_g()])),
-        ("* List of G", many(Order::List)),
-        ("* Set of G", many(Order::Set)),
-        ("* Map of G", many(Order::Map)),
-    ]
-}
-
-/// The entry a matched result's subject writes in its cell: the cell's content with an
-/// anonymous rest at its content root where it has one, else a binder.
-fn sweep_subject(form: Form, stack: &[Layer]) -> String {
-    let cells = form == Form::Cells;
-    let inner = |text: &str| {
-        if cells {
-            format!("k::configuration::Cell({text})")
-        } else {
-            text.to_owned()
-        }
-    };
-    match stack {
-        [Layer::Optional, rest @ ..] => format!("Some({})", sweep_subject(form, rest)),
-        [Layer::Computation] if cells => "k::configuration::KCell(y, ..)".to_owned(),
-        [Layer::Computation] => "[y, ..]".to_owned(),
-        [Layer::Leaf(Notation::List | Notation::Cons)] => inner("[y, ..]"),
-        [Layer::Leaf(Notation::Map)] if cells => inner("k::map![z -> y, ..]"),
-        [Layer::Leaf(Notation::Map)] => "{ z -> y, .. }".to_owned(),
-        [Layer::Leaf(_)] => inner("old"),
-        [Layer::Group(_)] if cells => "k::fragment![crate::G { a: y, .. }]".to_owned(),
-        [Layer::Group(_)] => "G { a: y, .. }".to_owned(),
-        [Layer::Instances(Order::List), ..] if cells => {
-            "[k::fragment![crate::G { a: y, .. }], ..]".to_owned()
-        }
-        [Layer::Instances(_), ..] if cells => {
-            "{ k::fragment![crate::G { a: y, .. }], .. }".to_owned()
-        }
-        [Layer::Instances(Order::List), ..] => "[G { a: y, .. }, ..]".to_owned(),
-        [Layer::Instances(_), ..] => "{ G { a: y, .. }, .. }".to_owned(),
-        other => panic!("no sweep subject for {other:?}"),
-    }
-}
-
-/// The spellings the sweep writes in each form, one per column: each mark of the form, and the
-/// rests and records that pairing and L4 read.
-const fn sweep_spellings(form: Form) -> &'static [&'static str] {
-    match form {
-        Form::Readable | Form::Claim => &[
-            "Some(x)",
-            "None",
-            "[x, ..]",
-            "[x]",
-            "[..]",
-            "[.., x]",
-            "[x, r @ ..]",
-            "{ G { a: x, .. }, .. }",
-            "{ y -> x, .. }",
-            "x",
-            "_",
-            "0",
-            "G { a: x, .. }",
-            "G { a: x, b: y, .. }",
-            "G { a: x }",
-        ],
-        Form::Cells => &[
-            "Some(k::configuration::Cell(x))",
-            "None",
-            "k::configuration::Cell(x)",
-            "k::configuration::Cell([x, ..])",
-            "k::configuration::Cell(k::map![y -> x, ..])",
-            "k::configuration::KCell(x, ..)",
-            "k::configuration::KCell(x)",
-            "[k::fragment![crate::G { a: x, .. }], ..]",
-            "{ k::fragment![crate::G { a: x, .. }], .. }",
-            "x",
-            "_",
-            "k::fragment![crate::G { a: x, .. }]",
-            "k::fragment![crate::G { a: x, b: y, .. }]",
-            "k::fragment![crate::G { a: x }]",
-        ],
-        Form::Init => &[
-            "Some(0)",
-            "k::absent!(0)",
-            "None",
-            "k::k![pgm]",
-            "k::k![Cmd::Go(), ..]",
-            "[0]",
-            "[0, ..]",
-            "k::map![0 -> 1]",
-            "0",
-            "G { a: 0, b: 0 }",
-            "G { a: 0 }",
-            "Cmd::Go()",
-            "pgm",
-        ],
-    }
-}
-
-/// The sweep's second table of each form: single-entry spellings the first does not print (the
-/// S5.0g pattern review's gaps G7, G8 and G9), each a column of its own table so that the first
-/// table's patterns stand as reviewed.
-const fn sweep_more_spellings(form: Form) -> &'static [&'static str] {
-    match form {
-        // G8: a bracketed instance record (P-R4), a value item in unordered braces (Q2), the
-        // readable map literal (`READABLE_ONLY`), `_` inside `Some` (a result's placement),
-        // `Some` of an open record and of a sequence, an exact instance set (Q1's exact
-        // overwrite of a collection), and an instance record that does not name a Map
-        // collection's key.
-        Form::Readable | Form::Claim => &[
-            "[G { a: x, .. }, ..]",
-            "{ x, .. }",
-            "map![y -> x, ..]",
-            "Some(_)",
-            "Some(G { .. })",
-            "Some([..])",
-            "{ G { a: x, b: y } }",
-            "{ G { b: x, .. }, .. }",
-        ],
-        // G9: back items (E1, the List back instance, P-R1) and `Cell(_)` (Q1's lint).
-        Form::Cells => &[
-            "k::configuration::Cell([.., x])",
-            "k::configuration::KCell(.., x)",
-            "k::configuration::Cell(_)",
-        ],
-        // G7: a record update, E3's splice of the program, D2 #8's map base.
-        Form::Init => &[
-            "G { a: 0, ..base }",
-            "k::k![Cmd::Go(), ..pgm]",
-            "k::map![0 -> 1, ..env]",
-        ],
-    }
-}
-
-/// The sweep's third table of each form that has one: the computation's back items in `cells!`
-/// (E1 holds in every form, the S5.0g fixes review's F-6), a table of its own so that the
-/// second table's patterns stand as reviewed.
-const fn sweep_back_spellings(form: Form) -> &'static [&'static str] {
-    match form {
-        Form::Cells => &["k::configuration::KCell(x, .., y)"],
-        Form::Readable | Form::Claim | Form::Init => &[],
-    }
-}
-
-/// The sweep's main tables: each form's, then its second table ([`sweep_more_spellings`]), then
-/// its third where it has one ([`sweep_back_spellings`]).
-fn sweep_main_tables() -> Vec<(String, Form, &'static [&'static str])> {
-    let forms = [Form::Readable, Form::Claim, Form::Cells, Form::Init];
-    let first = forms
-        .iter()
-        .map(|form| (form_name(*form).to_owned(), *form, sweep_spellings(*form)));
-    let second = forms.iter().map(|form| {
-        (
-            format!("{} more", form_name(*form)),
-            *form,
-            sweep_more_spellings(*form),
-        )
-    });
-    let third = forms
-        .iter()
-        .filter(|form| !sweep_back_spellings(**form).is_empty())
-        .map(|form| {
-            (
-                format!("{} back", form_name(*form)),
-                *form,
-                sweep_back_spellings(*form),
-            )
-        });
-    first.chain(second).chain(third).collect()
-}
-
 /// The sweep of [`outcome`] over form × side (a subject whose cell the result leaves or writes,
 /// a result over a matched or an unmatched cell, an initializer) × path (none, below a `?`
 /// ancestor, below a `*` ancestor) × stack × spelling, with the product's answer where it
@@ -4234,666 +4011,6 @@ fn outcome_sweep() -> String {
     children_sweep(&mut out);
     out
 }
-
-/// A group of the children sweep: its name and its children's own layers, in declaration
-/// order (a Map collection's key is its first child).
-fn sweep_group(name: &str, children: &[(&str, Layer)]) -> Layer {
-    Layer::Group(Group {
-        name: name.to_owned(),
-        children: children
-            .iter()
-            .map(|(child, layer)| ((*child).to_owned(), vec![layer.clone()]))
-            .collect(),
-    })
-}
-
-/// The children sweep's stacks, by name.
-fn children_stack(name: &str) -> Vec<Layer> {
-    let list = Layer::Leaf(Notation::List);
-    let int = Layer::Leaf(Notation::Plain);
-    let h = || sweep_group("H", &[("l", list.clone()), ("b", int.clone())]);
-    match name {
-        "group H" => vec![h()],
-        "? group H" => vec![Layer::Optional, h()],
-        "* List of T" => vec![
-            Layer::Instances(Order::List),
-            sweep_group("T", &[("k", Layer::Computation), ("n", int.clone())]),
-        ],
-        "* Map of A" => vec![
-            Layer::Instances(Order::Map),
-            sweep_group("A", &[("id", int.clone()), ("l", list.clone())]),
-        ],
-        "group C" => vec![sweep_group(
-            "C",
-            &[("c", Layer::Computation), ("n", int.clone())],
-        )],
-        "group O" => vec![Layer::Group(Group {
-            name: "O".to_owned(),
-            children: vec![
-                ("o".to_owned(), vec![Layer::Optional, int.clone()]),
-                ("n".to_owned(), vec![int.clone()]),
-            ],
-        })],
-        "group W" => vec![sweep_group("W", &[("g", group_g()), ("n", int.clone())])],
-        "group M" => vec![sweep_group(
-            "M",
-            &[("m", Layer::Leaf(Notation::Map)), ("n", int.clone())],
-        )],
-        "? group G" => vec![Layer::Optional, group_g()],
-        "? leaf List" => vec![Layer::Optional, list.clone()],
-        other => panic!("no children-sweep stack {other}"),
-    }
-}
-
-/// The children sweep's rows: a stack, the subject's entry of the cell (`-`: the subject does
-/// not match it), and a result, each written in readable (claim alike) and in `cells!`.
-const CHILDREN_SWEEP: [(&str, [&str; 2], [&str; 2]); 39] = [
-    (
-        "group H",
-        [
-            "H { l: [y, ..], .. }",
-            "k::fragment![crate::H { l: [y, ..], .. }]",
-        ],
-        [
-            "H { l: [x], b: 0 }",
-            "k::fragment![crate::H { l: [x], b: 0 }]",
-        ],
-    ),
-    (
-        "group H",
-        [
-            "H { l: [y, ..], .. }",
-            "k::fragment![crate::H { l: [y, ..], .. }]",
-        ],
-        [
-            "H { l: [x, ..], b: 0 }",
-            "k::fragment![crate::H { l: [x, ..], b: 0 }]",
-        ],
-    ),
-    (
-        "group H",
-        ["H { b: y, .. }", "k::fragment![crate::H { b: y, .. }]"],
-        [
-            "H { l: [x, ..], b: 0 }",
-            "k::fragment![crate::H { l: [x, ..], b: 0 }]",
-        ],
-    ),
-    (
-        "group H",
-        ["H { b: y, .. }", "k::fragment![crate::H { b: y, .. }]"],
-        [
-            "H { l: [x], b: 0 }",
-            "k::fragment![crate::H { l: [x], b: 0 }]",
-        ],
-    ),
-    (
-        "group H",
-        ["-", "-"],
-        [
-            "H { l: [x, ..], b: 0 }",
-            "k::fragment![crate::H { l: [x, ..], b: 0 }]",
-        ],
-    ),
-    (
-        "group H",
-        ["-", "-"],
-        [
-            "H { l: [x], b: 0 }",
-            "k::fragment![crate::H { l: [x], b: 0 }]",
-        ],
-    ),
-    (
-        "? group H",
-        [
-            "Some(H { l: [y, ..], .. })",
-            "Some(k::fragment![crate::H { l: [y, ..], .. }])",
-        ],
-        [
-            "Some(H { l: [x], b: 0 })",
-            "Some(k::fragment![crate::H { l: [x], b: 0 }])",
-        ],
-    ),
-    (
-        "? group H",
-        ["None", "None"],
-        [
-            "Some(H { l: [x, ..], b: 0 })",
-            "Some(k::fragment![crate::H { l: [x, ..], b: 0 }])",
-        ],
-    ),
-    (
-        "? group H",
-        ["None", "None"],
-        [
-            "Some(H { l: [x], b: 0 })",
-            "Some(k::fragment![crate::H { l: [x], b: 0 }])",
-        ],
-    ),
-    (
-        "* List of T",
-        [
-            "[me @ T { k: [y, ..], .. }, ..]",
-            "[me @ k::fragment![crate::T { k: [y, ..], .. }], ..]",
-        ],
-        [
-            "[T { k: [x], ..me }, ..]",
-            "[k::fragment![crate::T { k: [x], ..me }], ..]",
-        ],
-    ),
-    (
-        "* List of T",
-        [
-            "[me @ T { k: [y, ..], .. }, ..]",
-            "[me @ k::fragment![crate::T { k: [y, ..], .. }], ..]",
-        ],
-        [
-            "[T { k: [x, ..], ..me }, ..]",
-            "[k::fragment![crate::T { k: [x, ..], ..me }], ..]",
-        ],
-    ),
-    (
-        "* List of T",
-        [
-            "[me @ T { n: y, .. }, ..]",
-            "[me @ k::fragment![crate::T { n: y, .. }], ..]",
-        ],
-        [
-            "[T { n: 0, ..me }, ..]",
-            "[k::fragment![crate::T { n: 0, ..me }], ..]",
-        ],
-    ),
-    (
-        "* List of T",
-        ["[..]", "[..]"],
-        [
-            "[T { k: [x], n: 0 }, ..]",
-            "[k::fragment![crate::T { k: [x], n: 0 }], ..]",
-        ],
-    ),
-    (
-        "* List of T",
-        ["[..]", "[..]"],
-        [
-            "[T { k: [x, ..], n: 0 }, ..]",
-            "[k::fragment![crate::T { k: [x, ..], n: 0 }], ..]",
-        ],
-    ),
-    (
-        "* Map of A",
-        [
-            "{ me @ A { id: z, .. }, .. }",
-            "{ me @ k::fragment![crate::A { id: z, .. }], .. }",
-        ],
-        [
-            "{ A { id: 5, ..me }, .. }",
-            "{ k::fragment![crate::A { id: 5, ..me }], .. }",
-        ],
-    ),
-    (
-        "* Map of A",
-        [
-            "{ me @ A { id: z, .. }, .. }",
-            "{ me @ k::fragment![crate::A { id: z, .. }], .. }",
-        ],
-        [
-            "{ A { id: z, ..me }, .. }",
-            "{ k::fragment![crate::A { id: z, ..me }], .. }",
-        ],
-    ),
-    (
-        "* Map of A",
-        [
-            "{ me @ A { l: [y, ..], .. }, .. }",
-            "{ me @ k::fragment![crate::A { l: [y, ..], .. }], .. }",
-        ],
-        [
-            "{ A { id: 5, ..me }, .. }",
-            "{ k::fragment![crate::A { id: 5, ..me }], .. }",
-        ],
-    ),
-    (
-        "* Map of A",
-        [
-            "{ me @ A { id: z, .. }, .. }",
-            "{ me @ k::fragment![crate::A { id: z, .. }], .. }",
-        ],
-        [
-            "{ A { l: [x], ..me }, .. }",
-            "{ k::fragment![crate::A { l: [x], ..me }], .. }",
-        ],
-    ),
-    (
-        "* Map of A",
-        [
-            "{ me @ A { id: z, l: [y, ..] }, .. }",
-            "{ me @ k::fragment![crate::A { id: z, l: [y, ..] }], .. }",
-        ],
-        [
-            "{ A { l: [x], ..me }, .. }",
-            "{ k::fragment![crate::A { l: [x], ..me }], .. }",
-        ],
-    ),
-    (
-        "* Map of A",
-        [
-            "{ me @ A { id: z, l: [y, ..] }, .. }",
-            "{ me @ k::fragment![crate::A { id: z, l: [y, ..] }], .. }",
-        ],
-        [
-            "{ A { l: [x, ..], ..me }, .. }",
-            "{ k::fragment![crate::A { l: [x, ..], ..me }], .. }",
-        ],
-    ),
-    (
-        "* Map of A",
-        ["{ .. }", "{ .. }"],
-        [
-            "{ A { id: 5, l: [x] }, .. }",
-            "{ k::fragment![crate::A { id: 5, l: [x] }], .. }",
-        ],
-    ),
-    (
-        "* Map of A",
-        [
-            "{ me @ A { id: z, .. }, .. }",
-            "{ me @ k::fragment![crate::A { id: z, .. }], .. }",
-        ],
-        [
-            "{ A { id: y, ..me }, .. }",
-            "{ k::fragment![crate::A { id: y, ..me }], .. }",
-        ],
-    ),
-    (
-        "* Map of A",
-        ["{ .. }", "{ .. }"],
-        [
-            "{ A { l: [x], .. }, .. }",
-            "{ k::fragment![crate::A { l: [x], .. }], .. }",
-        ],
-    ),
-    (
-        "* Map of A",
-        ["{ .. }", "{ .. }"],
-        [
-            "{ A { id: 5, .. }, .. }",
-            "{ k::fragment![crate::A { id: 5, .. }], .. }",
-        ],
-    ),
-    (
-        "* List of T",
-        ["[..]", "[..]"],
-        [
-            "[T { n: 0, .. }, ..]",
-            "[k::fragment![crate::T { n: 0, .. }], ..]",
-        ],
-    ),
-    // R1 (S5.0g review): an overwritten group's children are unmatched, not created (Q1): its
-    // computation child (Q3), its `?` child (P5) and its group child (P6) each pair as an
-    // overwrite.
-    (
-        "group C",
-        ["-", "-"],
-        [
-            "C { c: [x], n: 0 }",
-            "k::fragment![crate::C { c: [x], n: 0 }]",
-        ],
-    ),
-    (
-        "group O",
-        ["-", "-"],
-        [
-            "O { o: Some(1), n: 0 }",
-            "k::fragment![crate::O { o: Some(1), n: 0 }]",
-        ],
-    ),
-    (
-        "group O",
-        ["-", "-"],
-        [
-            "O { o: None, n: 0 }",
-            "k::fragment![crate::O { o: None, n: 0 }]",
-        ],
-    ),
-    (
-        "group W",
-        ["-", "-"],
-        [
-            "W { g: G { a: x, .. }, n: 0 }",
-            "k::fragment![crate::W { g: G { a: x, .. }, n: 0 }]",
-        ],
-    ),
-    (
-        "group W",
-        ["-", "-"],
-        [
-            "W { g: G { a: x, b: y }, n: 0 }",
-            "k::fragment![crate::W { g: G { a: x, b: y }, n: 0 }]",
-        ],
-    ),
-    // A bare `..` that names every child leaves no field open: the exact record (P6, P0).
-    (
-        "group W",
-        ["-", "-"],
-        [
-            "W { g: G { a: x, b: y, .. }, n: 0 }",
-            "k::fragment![crate::W { g: G { a: x, b: y, .. }, n: 0 }]",
-        ],
-    ),
-    // P-R3 (S5.0g pattern review): an update whose label no subject instance has, of a value
-    // the sentence matches elsewhere (`me` is bound), creates an instance.
-    (
-        "* List of T",
-        ["[..]", "[..]"],
-        [
-            "[T { k: [x, ..], ..me }, ..]",
-            "[k::fragment![crate::T { k: [x, ..], ..me }], ..]",
-        ],
-    ),
-    (
-        "* List of T",
-        ["[..]", "[..]"],
-        [
-            "[T { k: [x], ..me }, ..]",
-            "[k::fragment![crate::T { k: [x], ..me }], ..]",
-        ],
-    ),
-    (
-        "* Map of A",
-        ["{ .. }", "{ .. }"],
-        [
-            "{ A { l: [x, ..], ..me }, .. }",
-            "{ k::fragment![crate::A { l: [x, ..], ..me }], .. }",
-        ],
-    ),
-    // R9 (P0): an update writing the key as the same literal its subject matched keeps it.
-    (
-        "* Map of A",
-        [
-            "{ me @ A { id: 5, .. }, .. }",
-            "{ me @ k::fragment![crate::A { id: 5, .. }], .. }",
-        ],
-        [
-            "{ A { id: 5, ..me }, .. }",
-            "{ k::fragment![crate::A { id: 5, ..me }], .. }",
-        ],
-    ),
-    (
-        "* Map of A",
-        [
-            "{ me @ A { id: 5, .. }, .. }",
-            "{ me @ k::fragment![crate::A { id: 5, .. }], .. }",
-        ],
-        [
-            "{ A { id: 6, ..me }, .. }",
-            "{ k::fragment![crate::A { id: 6, ..me }], .. }",
-        ],
-    ),
-    // G2 (S5.0g pattern review): a `?` cell whose subject is `None`, which the result creates at
-    // the entry's root (P5, P6).
-    (
-        "? group G",
-        ["None", "None"],
-        [
-            "Some(G { a: x, .. })",
-            "Some(k::fragment![crate::G { a: x, .. }])",
-        ],
-    ),
-    (
-        "? leaf List",
-        ["None", "None"],
-        ["Some([x, ..])", "Some(k::configuration::Cell([x, ..]))"],
-    ),
-    (
-        "? group G",
-        ["None", "None"],
-        ["Some(G { a: x })", "Some(k::fragment![crate::G { a: x }])"],
-    ),
-];
-
-/// The children sweep's updates whose label the sentence matches nowhere (S5.0g pattern review
-/// P-R3): the subject shows no instance labelled `me`, and nothing else binds it.
-const CHILDREN_UNBASED_SWEEP: [(&str, [&str; 2], [&str; 2]); 3] = [
-    (
-        "* List of T",
-        ["[..]", "[..]"],
-        [
-            "[T { k: [x], ..me }, ..]",
-            "[k::fragment![crate::T { k: [x], ..me }], ..]",
-        ],
-    ),
-    (
-        "* List of T",
-        ["[..]", "[..]"],
-        [
-            "[T { k: [x, ..], ..me }, ..]",
-            "[k::fragment![crate::T { k: [x, ..], ..me }], ..]",
-        ],
-    ),
-    (
-        "* Map of A",
-        ["{ .. }", "{ .. }"],
-        [
-            "{ A { l: [x, ..], ..me }, .. }",
-            "{ k::fragment![crate::A { l: [x, ..], ..me }], .. }",
-        ],
-    ),
-];
-
-/// The fragment-child sweep's rows (the S5.0g fixes review's F-1, ruled): a group record whose
-/// child holds a Map, a List or a computation, in a subject and in a result, the child framed or
-/// exact, and in a result over a subject child framed, exact or not named. Each is a side, a
-/// stack, the subject's entry of the cell (`-`: none; a subject's own row has none) and the
-/// entry, each written in readable (claim alike) and in `cells!`, whose fragment writes the
-/// child's content bare (P1: the field's value is the child's entry, its content root, P6).
-const FRAGMENT_CHILD_SWEEP: [(&str, &str, [&str; 2], [&str; 2]); 21] = [
-    (
-        "subject",
-        "group M",
-        ["-", "-"],
-        [
-            "M { m: { y -> x, .. }, .. }",
-            "k::fragment![crate::M { m: k::map![y -> x, ..], .. }]",
-        ],
-    ),
-    (
-        "subject",
-        "group M",
-        ["-", "-"],
-        [
-            "M { m: { y -> x }, .. }",
-            "k::fragment![crate::M { m: k::map![y -> x], .. }]",
-        ],
-    ),
-    (
-        "result",
-        "group M",
-        [
-            "M { m: { z -> y, .. }, .. }",
-            "k::fragment![crate::M { m: k::map![z -> y, ..], .. }]",
-        ],
-        [
-            "M { m: { y -> x, .. }, n: 0 }",
-            "k::fragment![crate::M { m: k::map![y -> x, ..], n: 0 }]",
-        ],
-    ),
-    (
-        "result",
-        "group M",
-        [
-            "M { m: { z -> y }, .. }",
-            "k::fragment![crate::M { m: k::map![z -> y], .. }]",
-        ],
-        [
-            "M { m: { y -> x, .. }, n: 0 }",
-            "k::fragment![crate::M { m: k::map![y -> x, ..], n: 0 }]",
-        ],
-    ),
-    (
-        "result",
-        "group M",
-        [
-            "M { m: { z -> y, .. }, .. }",
-            "k::fragment![crate::M { m: k::map![z -> y, ..], .. }]",
-        ],
-        [
-            "M { m: { y -> x }, n: 0 }",
-            "k::fragment![crate::M { m: k::map![y -> x], n: 0 }]",
-        ],
-    ),
-    (
-        "result",
-        "group M",
-        [
-            "M { m: { z -> y }, .. }",
-            "k::fragment![crate::M { m: k::map![z -> y], .. }]",
-        ],
-        [
-            "M { m: { y -> x }, n: 0 }",
-            "k::fragment![crate::M { m: k::map![y -> x], n: 0 }]",
-        ],
-    ),
-    (
-        "result",
-        "group M",
-        ["M { n: z, .. }", "k::fragment![crate::M { n: z, .. }]"],
-        [
-            "M { m: { y -> x, .. }, n: 0 }",
-            "k::fragment![crate::M { m: k::map![y -> x, ..], n: 0 }]",
-        ],
-    ),
-    (
-        "subject",
-        "group H",
-        ["-", "-"],
-        [
-            "H { l: [y, ..], .. }",
-            "k::fragment![crate::H { l: [y, ..], .. }]",
-        ],
-    ),
-    (
-        "subject",
-        "group H",
-        ["-", "-"],
-        ["H { l: [y], .. }", "k::fragment![crate::H { l: [y], .. }]"],
-    ),
-    (
-        "result",
-        "group H",
-        [
-            "H { l: [z, ..], .. }",
-            "k::fragment![crate::H { l: [z, ..], .. }]",
-        ],
-        [
-            "H { l: [x, ..], b: 0 }",
-            "k::fragment![crate::H { l: [x, ..], b: 0 }]",
-        ],
-    ),
-    (
-        "result",
-        "group H",
-        ["H { l: [z], .. }", "k::fragment![crate::H { l: [z], .. }]"],
-        [
-            "H { l: [x, ..], b: 0 }",
-            "k::fragment![crate::H { l: [x, ..], b: 0 }]",
-        ],
-    ),
-    (
-        "result",
-        "group H",
-        [
-            "H { l: [z, ..], .. }",
-            "k::fragment![crate::H { l: [z, ..], .. }]",
-        ],
-        [
-            "H { l: [x], b: 0 }",
-            "k::fragment![crate::H { l: [x], b: 0 }]",
-        ],
-    ),
-    (
-        "result",
-        "group H",
-        ["H { l: [z], .. }", "k::fragment![crate::H { l: [z], .. }]"],
-        [
-            "H { l: [x], b: 0 }",
-            "k::fragment![crate::H { l: [x], b: 0 }]",
-        ],
-    ),
-    (
-        "result",
-        "group H",
-        ["H { b: z, .. }", "k::fragment![crate::H { b: z, .. }]"],
-        [
-            "H { l: [x, ..], b: 0 }",
-            "k::fragment![crate::H { l: [x, ..], b: 0 }]",
-        ],
-    ),
-    (
-        "subject",
-        "group C",
-        ["-", "-"],
-        [
-            "C { c: [y, ..], .. }",
-            "k::fragment![crate::C { c: [y, ..], .. }]",
-        ],
-    ),
-    (
-        "subject",
-        "group C",
-        ["-", "-"],
-        ["C { c: [y], .. }", "k::fragment![crate::C { c: [y], .. }]"],
-    ),
-    (
-        "result",
-        "group C",
-        [
-            "C { c: [z, ..], .. }",
-            "k::fragment![crate::C { c: [z, ..], .. }]",
-        ],
-        [
-            "C { c: [x, ..], n: 0 }",
-            "k::fragment![crate::C { c: [x, ..], n: 0 }]",
-        ],
-    ),
-    (
-        "result",
-        "group C",
-        ["C { c: [z], .. }", "k::fragment![crate::C { c: [z], .. }]"],
-        [
-            "C { c: [x, ..], n: 0 }",
-            "k::fragment![crate::C { c: [x, ..], n: 0 }]",
-        ],
-    ),
-    (
-        "result",
-        "group C",
-        [
-            "C { c: [z, ..], .. }",
-            "k::fragment![crate::C { c: [z, ..], .. }]",
-        ],
-        [
-            "C { c: [x], n: 0 }",
-            "k::fragment![crate::C { c: [x], n: 0 }]",
-        ],
-    ),
-    (
-        "result",
-        "group C",
-        ["C { c: [z], .. }", "k::fragment![crate::C { c: [z], .. }]"],
-        [
-            "C { c: [x], n: 0 }",
-            "k::fragment![crate::C { c: [x], n: 0 }]",
-        ],
-    ),
-    (
-        "result",
-        "group C",
-        ["C { n: z, .. }", "k::fragment![crate::C { n: z, .. }]"],
-        [
-            "C { c: [x, ..], n: 0 }",
-            "k::fragment![crate::C { c: [x, ..], n: 0 }]",
-        ],
-    ),
-];
 
 /// The fragment-child sweep (the S5.0g fixes review's F-1): a group record's Map, List or
 /// computation child at its own content root, in readable, claim and `cells!`, so that a
@@ -5010,61 +4127,6 @@ fn children_rows(out: &mut String, rows: &[(&str, [&str; 2], [&str; 2])], bound:
         }
     }
 }
-
-/// D-5's stacks: a Map collection of `Q { id: Int, js: * List of J { p: Int } }`, and a plain
-/// group `P { js: * List of J }`, each with a collection child.
-fn nested_collection_stack(name: &str) -> Vec<Layer> {
-    let int = Layer::Leaf(Notation::Plain);
-    let js = vec![
-        Layer::Instances(Order::List),
-        sweep_group("J", &[("p", int.clone())]),
-    ];
-    let group = |head: &str, mut children: Vec<(String, Vec<Layer>)>| {
-        children.push(("js".to_owned(), js.clone()));
-        Layer::Group(Group {
-            name: head.to_owned(),
-            children,
-        })
-    };
-    match name {
-        "* Map of Q" => vec![
-            Layer::Instances(Order::Map),
-            group("Q", vec![("id".to_owned(), vec![int.clone()])]),
-        ],
-        "group P" => vec![group("P", Vec::new())],
-        // G7: a template with a `?` child, and a Map collection's template.
-        "group O" => vec![Layer::Group(Group {
-            name: "O".to_owned(),
-            children: vec![
-                ("o".to_owned(), vec![Layer::Optional, int.clone()]),
-                ("n".to_owned(), vec![int]),
-            ],
-        })],
-        "* Map of A" => vec![
-            Layer::Instances(Order::Map),
-            sweep_group("A", &[("id", int), ("l", Layer::Leaf(Notation::List))]),
-        ],
-        other => panic!("no nested-collection stack {other}"),
-    }
-}
-
-/// The initializer rows of the children sweep (D-5, P5): a template record whose child is a
-/// collection, valued by that collection's own instance template, or otherwise.
-const INITIALIZER_CHILDREN_SWEEP: [(&str, &str); 11] = [
-    ("* Map of Q", "Q { id: 0, js: J { p: 0 } }"),
-    ("* Map of Q", "Q { id: 0, js: [J { p: 0 }] }"),
-    ("* Map of Q", "Q { id: 0, js: 0 }"),
-    ("group P", "P { js: J { p: 0 } }"),
-    ("group P", "P { js: Some(J { p: 0 }) }"),
-    ("group P", "P { js: 0 }"),
-    // G7 (S5.0g pattern review): `k::absent!` in a template's `?` child, and a Map collection's
-    // template, which names its key or omits it.
-    ("group O", "O { o: k::absent!(0), n: 0 }"),
-    ("group O", "O { o: Some(0), n: 0 }"),
-    ("group O", "O { o: 0, n: 0 }"),
-    ("* Map of A", "A { id: 0, l: [0] }"),
-    ("* Map of A", "A { l: [0] }"),
-];
 
 fn initializer_children_sweep(out: &mut String) {
     out.push_str(concat!(
@@ -6147,322 +5209,249 @@ fn every_principle_line_cites_the_registry() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
-/// Where the compiled witnesses of the patterns are accounted for (measure (a)).
+/// Where the root sweep cells no compiled case witnesses are accounted for (measure (a)).
 const WITNESSES_FILE: &str = "cells-outcome-witnesses.tsv";
-
-/// A generated case's row group as the sweep names it: its form, its side (a subject the result
-/// leaves or writes, a result over a matched or an unmatched cell), its stack.
-fn sweep_row_of(case: &Case, entry: &EntryCase) -> (&'static str, &'static str, String) {
-    let side = match entry.entry.side {
-        Side::Subject if entry.context.written => "subject, written",
-        Side::Subject => "subject",
-        Side::Result if entry.context.other.is_some() => "result, matched",
-        Side::Result => "result, unmatched",
-        _ => "init",
-    };
-    let declared = entry_cases::declared_stack(case, &entry.entry.cell);
-    let stack = match stack_name(&entry.entry.cell, &declared).as_str() {
-        "second computation" => "computation".to_owned(),
-        "group" => "group G".to_owned(),
-        "? group" => "? group G".to_owned(),
-        list if list.starts_with("* ") => format!("{list} of G"),
-        other => other.to_owned(),
-    };
-    (form_name(entry.form), side, stack)
-}
-
-/// The unwitnessed answers of the patterns: for each pattern, each member's forms, side and
-/// stack, and each distinct answer of its rows (the oracle's, its product mark dropped), the
-/// ones no generated case on that form, side and stack answers. A generated case is compiled
-/// by its `krs-class` shard, so a witness carries the compiler's own verdict on the answer, as
-/// a conforming case or a red.
-fn unwitnessed() -> BTreeSet<(String, String, String, String)> {
-    let mut witnessed = BTreeSet::new();
-    for (case, entry) in ENTRIES.iter() {
-        let (form, side, stack) = sweep_row_of(case, entry);
-        witnessed.insert((
-            form.to_owned(),
-            side.to_owned(),
-            stack,
-            sweep_name(entry.outcome()),
-        ));
-    }
-    let sweep = outcome_sweep();
-    let tables = sweep_tables(&sweep);
-    let mut missing = BTreeSet::new();
-    for table in &tables {
-        let main = !table.name.starts_with("children");
-        let form = table.name.split(' ').next().unwrap_or(table.name);
-        let stack_at = table
-            .header
-            .iter()
-            .position(|cell| *cell == "stack")
-            .expect("a stack column");
-        let side_at = table.header.iter().position(|cell| *cell == "side");
-        for row in &table.rows {
-            let (side, stack, answers) = if main {
-                (row[0], row[2], &row[4..])
-            } else {
-                (
-                    side_at.map_or("result", |at| row[at]),
-                    row[stack_at],
-                    &row[row.len() - 1..],
-                )
-            };
-            let form = if main { form } else { row[0] };
-            for answer in answers {
-                let answer = answer.split('|').next().unwrap_or(answer);
-                let seen = witnessed.contains(&(
-                    form.to_owned(),
-                    side.to_owned(),
-                    stack.to_owned(),
-                    answer.to_owned(),
-                ));
-                if !seen {
-                    missing.insert((
-                        table.name.to_owned(),
-                        side.to_owned(),
-                        stack.to_owned(),
-                        answer.to_owned(),
-                    ));
-                }
-            }
-        }
-    }
-    missing
-}
-
-/// Measure (a) of the S5.0g pattern review fixes, in its fallback form: the compiler's own
-/// verdict cannot be had on every sweep tuple in process (the compile path reaches cell-entry
-/// lowering only after rustc builds the case's package and the collector runs it), so every
-/// pattern's answer on every stack it names is required to be some generated, compiled case's
-/// answer on that form, side and stack, or to be listed in [`WITNESSES_FILE`] with the reason
-/// it has none. A new unwitnessed answer fails until listed with a reason; a listed one that is
-/// witnessed or gone fails as stale. `KRS_CELLS_WITNESSES_RECORD=1` rewrites the file, keeping
-/// the reason of every entry still unwitnessed.
-#[test]
-fn every_pattern_answer_on_every_stack_is_witnessed_by_a_compiled_case() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/class-matrix")
-        .join(WITNESSES_FILE);
-    let golden = std::fs::read_to_string(&path).unwrap_or_default();
-    let mut reasons = BTreeMap::new();
-    for line in golden.lines().filter(|line| !line.starts_with('#')) {
-        let cells = line.splitn(5, '\t').collect::<Vec<_>>();
-        if let [table, side, stack, answer, reason] = cells[..] {
-            reasons.insert(
-                (
-                    table.to_owned(),
-                    side.to_owned(),
-                    stack.to_owned(),
-                    answer.to_owned(),
-                ),
-                reason.to_owned(),
-            );
-        }
-    }
-    let missing = unwitnessed();
-    if std::env::var_os("KRS_CELLS_WITNESSES_RECORD").is_some() {
-        let mut text = String::from(concat!(
-            "# The patterns' answers no generated case witnesses (measure (a) of the S5.0g pattern\n",
-            "# review fixes, its fallback form): `TABLE  SIDE  STACK  ANSWER  REASON`, one line per\n",
-            "# sweep table, row side, stack and distinct answer that no generated, compiled case on that\n",
-            "# form, side and stack answers. Generated by krs-test-support `--test cells_oracle`\n",
-            "# (`every_pattern_answer_on_every_stack_is_witnessed_by_a_compiled_case`); rewrite with\n",
-            "# KRS_CELLS_WITNESSES_RECORD=1, which keeps each listed reason and leaves a new entry's\n",
-            "# empty: the test fails until it is written. Each entry is a case item 3 owes, or says why\n",
-            "# none can be generated.\n",
-        ));
-        for key in &missing {
-            let reason = reasons.get(key).map_or("", String::as_str);
-            let _ = writeln!(text, "{}\t{}\t{}\t{}\t{reason}", key.0, key.1, key.2, key.3);
-        }
-        std::fs::write(&path, text).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
-        return;
-    }
-    let mut failures = Vec::new();
-    for key in &missing {
-        match reasons.get(key) {
-            None => failures.push(format!(
-                "{key:?}: no generated case witnesses this answer and {WITNESSES_FILE} lists no reason"
-            )),
-            Some(reason) if reason.trim().is_empty() => {
-                failures.push(format!("{key:?}: listed without a reason"));
-            }
-            Some(_) => {}
-        }
-    }
-    for key in reasons.keys().filter(|key| !missing.contains(*key)) {
-        failures.push(format!(
-            "{key:?}: listed in {WITNESSES_FILE}, and a generated case witnesses it or the sweep \
-             no longer answers it: remove it"
-        ));
-    }
-    println!("{} unwitnessed answers listed", missing.len());
-    assert!(
-        failures.is_empty(),
-        "{} failures: {:#?}",
-        failures.len(),
-        failures.iter().take(40).collect::<Vec<_>>()
-    );
-}
 
 /// The cases a pending entry names, by any test's key ([`pending::case_of`]): each is red on
 /// some test, so its compiled verdict is not the one its row states.
-fn pending_cases() -> BTreeSet<String> {
+fn pending_cases() -> BTreeMap<String, BTreeSet<String>> {
     let pending = Pending::parse(&read_class_matrix("pending.toml"))
         .unwrap_or_else(|errors| panic!("pending.toml: {errors:#?}"));
-    pending
-        .entries
-        .keys()
-        .filter_map(|key| pending::case_of(key))
-        .map(str::to_owned)
-        .collect()
+    let mut cases = BTreeMap::<String, BTreeSet<String>>::new();
+    for (key, entry) in &pending.entries {
+        if let Some(case) = pending::case_of(key) {
+            cases
+                .entry(case.to_owned())
+                .or_default()
+                .insert(entry.finding.clone());
+        }
+    }
+    cases
 }
 
-/// The witnesses of measure (a): every generated case named at its record's level (path `-`)
-/// whose row agrees with `outcome`, which no `[cell-exception]` names and no pending entry names
-/// (itself or its run twin), as `(form, side, stack, spelling)`. Such a case is compiled by its
-/// `krs-class` shard and conforms there, so the compiler's verdict on its spelling is the one
-/// `outcome` gives; an excepted or red case's verdict is another, and witnesses nothing. The
-/// spelling is kept as its data's printed form, which tells spellings apart as the data does.
-fn witnesses() -> BTreeSet<(String, String, String, String)> {
-    let exceptions = exceptions();
-    let pending = pending_cases();
-    let red =
-        |id: &str| pending.contains(id) || twin(id).is_some_and(|twin| pending.contains(&twin));
-    ENTRIES
-        .iter()
-        .filter(|(case, entry)| {
-            entry.entry.path.is_empty()
-                && agrees(entry.outcome(), &EXPECTED[&case.id])
-                && naming(&case.id, &exceptions).is_empty()
-                && !red(&case.id)
-        })
-        .map(|(case, entry)| {
-            let (form, side, stack) = sweep_row_of(case, entry);
-            (
-                form.to_owned(),
-                side.to_owned(),
-                stack,
-                format!("{:?}", entry.entry.spelling),
-            )
-        })
-        .collect()
-}
-
-/// A sweep cell measure (a) keys a witness by: `(table, side, stack, column)`.
-type WitnessKey = (String, String, String, String);
-
-/// The sweep cells measure (a) requires a witness of, keyed without their answer: `(table,
-/// side, stack, column)`, one per main table's row at path `-` and column (the column is the
-/// entry's spelling), and one per children row (its side is the result over the row's `other`,
-/// its column the result), each with the form its entry is written in and its spelling as the
-/// generator declares one. A path row (`?`, `*`) needs no witness of its own: S5.0g:R3 judges it
-/// from the cell's own answer, its `-` row's, and check 4's path step judges the advice there.
-fn witness_cells() -> Vec<(WitnessKey, Form, Spelling)> {
-    let sweep = outcome_sweep();
-    let mut cells = Vec::new();
-    let declared = |form: Form, text: &str| {
-        let probe = Probe {
-            form,
-            side: Side::Subject,
-            path: &[],
-            stack: &[],
-            text,
-            other: None,
-            written: false,
-            bound: &[],
-        };
-        declared_as(&probe.read(text))
-    };
-    for table in sweep_tables(&sweep) {
+/// The sweep cells measure (a) requires a witness of, keyed `(table, side, stack, column)`, as
+/// the checked-in sweep prints them: one per main table's row at path `-` and column (the column
+/// is the entry's spelling), and one per children row (its side is its form and side, over the
+/// row's `other` where it has one; its column the entry). A path row (`?`, `*`) needs no witness
+/// of its own: S5.0g:R3 judges it from the cell's own answer, its `-` row's, and check 4's path
+/// step judges the advice there.
+fn printed_root_cells(sweep: &str) -> BTreeSet<sweep::Key> {
+    let mut cells = BTreeSet::new();
+    for table in sweep_tables(sweep) {
         if table.name.starts_with("children") {
             let at = |name: &str| table.header.iter().position(|cell| *cell == name);
             let (stack, other) = (at("stack").expect("a stack column"), at("other"));
             let entry = table.header.len() - 2;
             for row in &table.rows {
-                let form = match row[0] {
-                    "readable" => Form::Readable,
-                    "claim" => Form::Claim,
-                    "cells" => Form::Cells,
-                    _ => Form::Init,
-                };
                 let written = at("side").map_or("result", |side| row[side]);
                 let side = match other.map(|other| row[other]) {
-                    _ if form == Form::Init => "init".to_owned(),
+                    _ if row[0] == "init" => "init".to_owned(),
                     Some("-") | None => format!("{} {written}", row[0]),
                     Some(other) => format!("{} {written} over {other}", row[0]),
                 };
-                let key = (
+                cells.insert((
                     table.name.to_owned(),
                     side,
                     row[stack].to_owned(),
                     row[entry].to_owned(),
-                );
-                cells.push((key, form, declared(form, row[entry])));
+                ));
             }
             continue;
         }
-        let form = match table.name.split(' ').next() {
-            Some("readable") => Form::Readable,
-            Some("claim") => Form::Claim,
-            Some("cells") => Form::Cells,
-            _ => Form::Init,
-        };
         for row in table.rows.iter().filter(|row| row[1] == "-") {
             for column in &table.header[4..] {
-                let key = (
+                cells.insert((
                     table.name.to_owned(),
                     row[0].to_owned(),
                     row[2].to_owned(),
                     (*column).to_owned(),
-                );
-                cells.push((key, form, declared(form, column)));
+                ));
             }
         }
     }
     cells
 }
 
-/// The sweep cells no conforming, unexcepted generated case witnesses ([`witnesses`]).
-fn unwitnessed_cells() -> BTreeSet<WitnessKey> {
-    let witnesses = witnesses();
-    witness_cells()
-        .into_iter()
-        .filter(|((_, side, stack, _), form, spelling)| {
-            !witnesses.contains(&(
-                form_name(*form).to_owned(),
-                side.clone(),
-                stack.clone(),
-                format!("{spelling:?}"),
-            ))
-        })
-        .map(|(key, ..)| key)
-        .collect()
+/// The sweep's answer at a root cell, as the sweep's probe gives it.
+fn sweep_answer(cell: &sweep::Cell) -> Outcome {
+    let stack = sweep::named_stack(cell.stack);
+    Probe {
+        form: cell.form,
+        side: cell.side,
+        path: &[],
+        stack: &stack,
+        text: cell.text,
+        other: cell.other.as_deref(),
+        written: cell.written,
+        bound: cell.bound,
+    }
+    .oracle()
 }
 
-/// The sweep cells measure (a) keyed by (form, side, stack, column) at path `-` (the S5.0g
-/// fixes review's F-2, ruled) leaves unwitnessed, counted by table: the size of the witness
-/// list that key would check in, measured before the list is written (it is not yet: the
-/// count is over the ruling's bound, so the orchestrator decides its form first).
-#[test]
-#[ignore = "prints measure (a)'s unwitnessed count; run on request"]
-fn the_unwitnessed_sweep_cells_count() {
-    let all = witness_cells();
-    let missing = unwitnessed_cells();
-    let mut by_table = BTreeMap::<&str, (usize, usize)>::new();
-    for (key, ..) in &all {
-        let entry = by_table.entry(key.0.as_str()).or_default();
-        entry.0 += 1;
-        if missing.contains(key) {
-            entry.1 += 1;
+/// Whether a case witnesses a root cell whose sweep answer is `answer`: its row agrees with
+/// `outcome`, and so its compiled verdict, which conforms (no pending entry names it), is
+/// `outcome`'s; it means the cell (its `outcome` is the cell's answer); and no
+/// `[cell-exception]` names it (an excepted row departs from `outcome`, so its verdict witnesses
+/// the departure, not `outcome`).
+fn witnesses_cell(
+    id: &str,
+    entry: &EntryCase,
+    answer: Outcome,
+    exceptions: &[(Glob, String, String)],
+    red: &BTreeMap<String, BTreeSet<String>>,
+) -> bool {
+    agrees(entry.outcome(), &EXPECTED[id])
+        && entry.outcome() == answer
+        && naming(id, exceptions).is_empty()
+        && !red.contains_key(id)
+}
+
+/// Each root sweep cell no compiled case witnesses, with the reason, from the cases themselves:
+/// `red: FINDINGS (ID)` where the cell's case is red (the compiler departs from `outcome` there,
+/// under those findings), `excepted: PRINCIPLE (ID)` where an exception holds its row at the
+/// product's answer, or the generator's `unbuilt:` reason where no case can be compiled; and
+/// `no witness (IDS)` where a case exists and witnesses nothing for another reason (its row or
+/// its answer disagrees), which is no reason and fails.
+fn unwitnessed_cells() -> BTreeMap<sweep::Key, String> {
+    let exceptions = exceptions();
+    let red = pending_cases();
+    let unbuilt = sweep::unbuilt();
+    let mut by_key = BTreeMap::<sweep::Key, Vec<&(&Case, EntryCase)>>::new();
+    let mut by_row = BTreeMap::<(String, String, String, String), Vec<&(&Case, EntryCase)>>::new();
+    for generated in ENTRIES.iter() {
+        let (case, entry) = generated;
+        if let Some(key) = sweep::key_of(&case.id) {
+            by_key.entry(key.clone()).or_default().push(generated);
+        } else if entry.entry.path.is_empty() {
+            let stack = entry_cases::declared_stack(case, &entry.entry.cell);
+            by_row
+                .entry(sweep::row_key(&stack, entry))
+                .or_default()
+                .push(generated);
         }
     }
-    for (table, (cells, unwitnessed)) in &by_table {
-        println!("{table}\t{cells} cells\t{unwitnessed} unwitnessed");
+    let mut out = BTreeMap::new();
+    for cell in sweep::cells() {
+        let answer = sweep_answer(&cell);
+        let mut candidates = by_key.get(&cell.key).cloned().unwrap_or_default();
+        candidates.extend(
+            by_row
+                .get(&sweep::main_key(&cell))
+                .into_iter()
+                .flatten()
+                .copied(),
+        );
+        if candidates
+            .iter()
+            .any(|(case, entry)| witnesses_cell(&case.id, entry, answer, &exceptions, &red))
+        {
+            continue;
+        }
+        let reason = if let Some(reason) = unbuilt.get(&cell.key) {
+            (*reason).to_owned()
+        } else if let Some((case, _)) = candidates
+            .iter()
+            .find(|(case, _)| red.contains_key(&case.id))
+        {
+            let findings = red[&case.id].iter().cloned().collect::<Vec<_>>();
+            format!("red: {} ({})", findings.join(", "), case.id)
+        } else if let Some((case, _)) = candidates
+            .iter()
+            .find(|(case, _)| !naming(&case.id, &exceptions).is_empty())
+        {
+            let principle = exceptions
+                .iter()
+                .find(|(glob, ..)| glob.matches(&case.id))
+                .map_or("", |(_, _, principle)| principle.as_str());
+            format!("excepted: {principle} ({})", case.id)
+        } else {
+            let ids = candidates
+                .iter()
+                .map(|(case, _)| case.id.as_str())
+                .collect::<Vec<_>>();
+            format!("no witness ({})", ids.join(", "))
+        };
+        out.insert(cell.key, reason);
     }
-    println!("total\t{} cells\t{} unwitnessed", all.len(), missing.len());
+    out
+}
+
+/// Measure (a) in the key of the S5.0g fixes review's ruling 2 (F-2): every root sweep cell
+/// (form, side, stack, column at path `-`) is witnessed by a compiled case, the sweep's own
+/// ([`sweep`], shard `sweep`) or another family's case of the same form, side, stack, spelling
+/// and subject entry, whose row agrees with `outcome` there, with no `[cell-exception]` or
+/// pending entry naming it ([`witnesses_cell`]). Otherwise [`WITNESSES_FILE`] lists the cell with
+/// its reason, which the cases give ([`unwitnessed_cells`]): the file must equal it, so a new
+/// unwitnessed cell, a stale entry and a changed reason each fail, and a cell with no reason
+/// (`no witness`) fails whatever the file says. `KRS_CELLS_WITNESSES_RECORD=1` rewrites the file.
+/// The generator's cells are the checked-in sweep's root cells, one for one.
+///
+/// Path rows need no witness of their own: S5.0g:R3 and check 4's path step judge them from the
+/// root's answer.
+#[test]
+fn every_root_sweep_cell_is_witnessed_by_a_compiled_case() {
+    let printed = printed_root_cells(&outcome_sweep());
+    let generated = sweep::cells()
+        .into_iter()
+        .map(|cell| cell.key)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        printed.symmetric_difference(&generated).collect::<Vec<_>>(),
+        Vec::<&sweep::Key>::new(),
+        "the generator's root cells are not the sweep's"
+    );
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/class-matrix")
+        .join(WITNESSES_FILE);
+    let missing = unwitnessed_cells();
+    let mut text = String::from(concat!(
+        "# The root sweep cells no compiled case witnesses (measure (a), in the S5.0g fixes review's\n",
+        "# ruling 2 key): `TABLE  SIDE  STACK  COLUMN  REASON`, one line per sweep cell at path `-`\n",
+        "# whose case is red (the compiler departs from `outcome`, under the findings named), excepted\n",
+        "# (its row holds the product's answer, by the principle named), or cannot be compiled (the\n",
+        "# generator's reason). Generated by krs-test-support `--test cells_oracle`\n",
+        "# (`every_root_sweep_cell_is_witnessed_by_a_compiled_case`), which fails where the file\n",
+        "# differs from the cases; rewrite with KRS_CELLS_WITNESSES_RECORD=1 and review the diff.\n",
+    ));
+    for (key, reason) in &missing {
+        let _ = writeln!(text, "{}\t{}\t{}\t{}\t{reason}", key.0, key.1, key.2, key.3);
+    }
+    let mut counts = BTreeMap::<&str, usize>::new();
+    for reason in missing.values() {
+        *counts
+            .entry(reason.split(':').next().unwrap_or(reason))
+            .or_default() += 1;
+    }
+    println!(
+        "{} root cells, {} unwitnessed: {counts:?}",
+        generated.len(),
+        missing.len()
+    );
+    if std::env::var_os("KRS_CELLS_WITNESSES_RECORD").is_some() {
+        std::fs::write(&path, &text).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+    }
+    let failures = missing
+        .iter()
+        .filter(|(_, reason)| reason.starts_with("no witness"))
+        .map(|(key, reason)| format!("{key:?}: {reason}"))
+        .collect::<Vec<_>>();
+    assert!(
+        failures.is_empty(),
+        "{} root cells have a case that witnesses nothing: {:#?}",
+        failures.len(),
+        failures.iter().take(40).collect::<Vec<_>>()
+    );
+    let golden = std::fs::read_to_string(&path).unwrap_or_default();
+    if golden != text {
+        let lines = |text: &str| text.lines().map(str::to_owned).collect::<BTreeSet<_>>();
+        let (golden, text) = (lines(&golden), lines(&text));
+        panic!(
+            "{WITNESSES_FILE} differs from the cases (rewrite with KRS_CELLS_WITNESSES_RECORD=1): \
+             listed, not computed {:#?}; computed, not listed {:#?}",
+            golden.difference(&text).take(20).collect::<Vec<_>>(),
+            text.difference(&golden).take(20).collect::<Vec<_>>()
+        );
+    }
 }
 
 /// A stack the sweep names: one of its main stacks, a children stack, or an initializer
@@ -7071,7 +6060,7 @@ fn record_frames_agree(
     }
 }
 
-/// With `KRS_CELLS_ROWS=FILE`, write each kinds-base case's ID, `outcome` and rule-level class
+/// With `KRS_CELLS_ROWS=FILE`, write each kinds-base and sweep case's ID, `outcome` and rule-level class
 /// to FILE (S5.0g's rows come from `outcome`, and the generated table diff is reviewed).
 #[test]
 fn the_kinds_cases_outcomes_print_on_request() {
@@ -7080,7 +6069,7 @@ fn the_kinds_cases_outcomes_print_on_request() {
     };
     let mut out = String::new();
     for (case, entry) in ENTRIES.iter() {
-        if case.base != Base::Kinds {
+        if !matches!(case.base, Base::Kinds | Base::Sweep) {
             continue;
         }
         let got = entry.outcome();
@@ -7098,4 +6087,16 @@ fn the_kinds_cases_outcomes_print_on_request() {
         );
     }
     std::fs::write(file, out).expect("the rows file is written");
+}
+
+/// With `KRS_CELLS_CASE=GLOB`, print the rendered item of each case the glob selects, for review.
+#[test]
+fn the_cases_items_print_on_request() {
+    let Some(glob) = std::env::var_os("KRS_CELLS_CASE") else {
+        return;
+    };
+    let glob = Glob::parse(&glob.to_string_lossy()).expect("KRS_CELLS_CASE is a glob");
+    for case in CASES.iter().filter(|case| glob.matches(&case.id)) {
+        println!("## {}\n{}", case.id, case.item());
+    }
 }

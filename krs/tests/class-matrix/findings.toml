@@ -64,7 +64,6 @@ owner = "S6"
 kind = "bug"
 what = "a readable or claim item root `Wrap::<KItem>(x)` fixes the head's instance with a strict cast (`X::KItem`), while the printed `cells!` rule writes `X:KItem`: the same set for a variable, two spellings; which one the routes share is S6's question"
 
-
 ["S0-14"]
 owner = "S5"
 kind = "bug"
@@ -102,6 +101,11 @@ owner = "S5"
 kind = "diagnostic"
 what = "a `cells!` wrapper of a layer the cell's stack has nowhere (`KCell(..)` on an optional leaf, `Cell(..)`/`KCell(..)` on a collection) answers with the missing presence or instances, not with `cell-wrapper` (decision (A), P3 b). On the collection the missing layer's advice is refused again; on the optional leaf the product advises `Some(k::configuration::Cell(..))`, which is admitted, so its 8 K8 deviations are the class's, and S5.3 settles `cell-wrapper`'s advice per form without deleting that one; and (S5.0g pattern review P-R5) a `Cell(..)` on the optional leaf whose inside the leaf refuses (`Cell([x, ..])`, `Cell(k::map![..])`) answers with the missing presence and advises `Some(k::configuration::Cell(..))`, which is refused again, where the inside's `bracket-reading` or `map-notation-at-non-map` is the mistake (10 K2 and 10 K8 entries)"
 
+["S5-B1"]
+owner = "S5"
+kind = "bug"
+what = "a readable map read below an entry's head (a group record's Map child `M { mm: { y -> x, .. }, .. }`, or `Some({ z -> y, .. })` on an optional Map leaf) is a Rust parse error (`krs::syntax::rust-syntax`), though the field's value is the child's entry and its braces the Map's mark (P1, P2; S5.0g fixes review F-1); S5.2's"
+
 ["S5-C2"]
 owner = "S5"
 kind = "bug"
@@ -112,6 +116,22 @@ owner = "S5"
 kind = "bug"
 what = "a `cells!` map result without `..` after a subject's anonymous rest silently keeps the rest, where the spelling says the result is the whole map (decision D2, P6)"
 risk = "KRS writes K's `...` frame for the subject's anonymous rest and the result's entries over it, so the rule keeps every other entry of the map: the author's exact `k::map![5 -> old, x -> y]` reads as the whole new content in Rust, and nothing tells them the rest is kept"
+
+["S5-F2"]
+owner = "S5"
+kind = "bug"
+what = "a `cells!` group fragment is read as the reference notation that names every field: in a subject its `..` is refused (`k::fragment![crate::G { a: x, .. }]`, `invalid-record-update`, so a matched result whose subject entry writes it is refused for that entry), and a child's content written bare (`hl: [x, ..]`, `mm: k::map![..]`) is refused (`invalid-state-macro`), though readable `G { a: x, .. }` abbreviates to that fragment (P7, design §2.3 `abbreviate`) and a field's value is its child's entry (P1, P6; F-1); S5.3's"
+
+["S5-I1"]
+owner = "S5"
+kind = "bug"
+what = "instance braces on a plain group (`frame: { G { a: x, b: y } }` in a readable result, a group cell with no instances) are accepted, where they are `instances-on-plain-cell` (P2: braces mark instances; P3b); S5.2's"
+risk = "KRS writes the group's content as if the braces were the record alone (I: the case's K is not recorded while its row refuses it), so the result reads in KRS as an instance set of a cell that has none, and nothing tells the author the braces mean nothing there"
+
+["S5-K1"]
+owner = "S5"
+kind = "bug"
+what = "a result's anonymous `..` that keeps the subject's anonymous rest at a content root is refused outside a readable record's top-level cell (`an anonymous `..` keeps the rest only in a readable record cell`): a `cells!` result (`Cell([x, ..])`, `KCell(x, ..)`) and a readable result below presence or in a group record's child (`Some([..])`, `H { hl: [x, ..], hb: 0 }`), though P6 reads `..` in a result as the subject's unnamed rest kept, at every content root and in every form (design D2); S5.5's"
 
 ["S5-L4"]
 owner = "S5"
@@ -124,6 +144,12 @@ owner = "S5"
 kind = "bug"
 what = "an initializer that also places the program in a second computation cell beside `k` (`prog: k::k![pgm]`) is refused `krs::analysis::main-cell` (\"more than one reads the program\"), though `k` is the computation cell by its name and the other cell holds a copy of the program (P1: a cell's role plays no part); S5.4's"
 
+["S5-O1"]
+owner = "S5"
+kind = "bug"
+what = "a record with a bare `..` that leaves a field open, as an element of a result's list (`stack: [G { a: x, .. }, ..]`), is accepted, where it is `open-record-outside-pattern` (P6: a bare `..` in a result is Rust's default fields, which only a created instance has; S5.0g R4); S5.2's"
+risk = "KRS builds the element with the unnamed field `b` left as an unbound variable or a frame (I: the case's K is not recorded while its row refuses it), so the rule writes a `G` term whose `b` nothing determines, while the Rust spelling reads as defaults"
+
 ["S5-Q1"]
 owner = "S5"
 kind = "bug"
@@ -133,6 +159,12 @@ what = "decision Q1, both halves: a subject entry that constrains nothing on a c
 owner = "S5"
 kind = "feature"
 what = "`job: [x, ..]` on a List collection binds its front instance (decision Q2), which readable refuses as bracket notation"
+
+["S5-R1"]
+owner = "S5"
+kind = "bug"
+what = "a result without `..` at a content root whose subject entry matched it with an anonymous rest is accepted, where it is `rest-mismatch` (P6: K reads keep and Rust reads drop, so the spelling must say which): a readable group record's child (`H { hl: [x], hb: 0 }` over `H { hl: [y, ..], .. }`, also below `Some`) and a `cells!` computation (`KCell(x)` over `KCell(y, ..)`); S5.2's and S5.5's"
+risk = "KRS writes the subject's `...` frame and the result's items over it (as S5-D2 does for a `cells!` map), so the rule keeps the rest of the list or computation, while the exact spelling reads in Rust as the whole new content: nothing tells the author the rest is kept"
 
 ["S5-S1"]
 owner = "S5"

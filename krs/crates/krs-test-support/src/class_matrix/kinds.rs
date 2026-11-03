@@ -27,7 +27,7 @@ use super::{
 
 /// A cell's multiplicity.
 #[derive(Clone, Copy)]
-enum Mult {
+pub(super) enum Mult {
     One,
     Opt,
     Many(Order),
@@ -35,7 +35,7 @@ enum Mult {
 
 /// A cell's content.
 #[derive(Clone)]
-enum Content {
+pub(super) enum Content {
     Comp,
     Leaf(Notation),
     Group(String, Vec<Decl>),
@@ -43,13 +43,13 @@ enum Content {
 
 /// One declared cell.
 #[derive(Clone)]
-struct Decl {
-    name: String,
-    mult: Mult,
-    content: Content,
+pub(super) struct Decl {
+    pub(super) name: String,
+    pub(super) mult: Mult,
+    pub(super) content: Content,
 }
 
-fn one(name: &str, content: Content) -> Decl {
+pub(super) fn one(name: &str, content: Content) -> Decl {
     Decl {
         name: name.to_owned(),
         mult: Mult::One,
@@ -57,7 +57,7 @@ fn one(name: &str, content: Content) -> Decl {
     }
 }
 
-fn opt(name: &str, content: Content) -> Decl {
+pub(super) fn opt(name: &str, content: Content) -> Decl {
     Decl {
         name: name.to_owned(),
         mult: Mult::Opt,
@@ -65,7 +65,7 @@ fn opt(name: &str, content: Content) -> Decl {
     }
 }
 
-fn many(name: &str, order: Order, content: Content) -> Decl {
+pub(super) fn many(name: &str, order: Order, content: Content) -> Decl {
     Decl {
         name: name.to_owned(),
         mult: Mult::Many(order),
@@ -73,11 +73,11 @@ fn many(name: &str, order: Order, content: Content) -> Decl {
     }
 }
 
-fn group(head: &str, children: Vec<Decl>) -> Content {
+pub(super) fn group(head: &str, children: Vec<Decl>) -> Content {
     Content::Group(head.to_owned(), children)
 }
 
-const fn leaf(notation: Notation) -> Content {
+pub(super) const fn leaf(notation: Notation) -> Content {
     Content::Leaf(notation)
 }
 
@@ -197,7 +197,7 @@ static CONFIGURATION: LazyLock<Vec<Decl>> = LazyLock::new(configuration);
 
 /// Whether `decl` is a plain group whose only child is a collection or the second computation:
 /// the base's sentences name it only on the way to that child, so it is no cell of its own.
-fn wrapper(decl: &Decl) -> bool {
+pub(super) fn wrapper(decl: &Decl) -> bool {
     matches!(
         (&decl.mult, &decl.content),
         (Mult::One, Content::Group(head, _)) if head == "Aux" || head.ends_with("ueue")
@@ -220,7 +220,7 @@ fn content_layer(content: &Content) -> Layer {
 }
 
 /// A cell's own layers (P1).
-fn own(decl: &Decl) -> Vec<Layer> {
+pub(super) fn own(decl: &Decl) -> Vec<Layer> {
     let mut layers = Vec::with_capacity(2);
     match decl.mult {
         Mult::One => {}
@@ -234,6 +234,14 @@ fn own(decl: &Decl) -> Vec<Layer> {
 /// The cell `name`, the layers its marked ancestors put above it (`CellKind::path`), and its
 /// parent's head (the `cells!` key's type).
 fn find(name: &str) -> Option<(&'static Decl, Vec<Layer>, Option<&'static str>)> {
+    find_in(&CONFIGURATION, name)
+}
+
+/// The cell `name` of the configuration `tree` ([`find`]).
+pub(super) fn find_in(
+    tree: &'static [Decl],
+    name: &str,
+) -> Option<(&'static Decl, Vec<Layer>, Option<&'static str>)> {
     fn search(
         decls: &'static [Decl],
         name: &str,
@@ -262,7 +270,7 @@ fn find(name: &str) -> Option<(&'static Decl, Vec<Layer>, Option<&'static str>)>
         }
         None
     }
-    search(&CONFIGURATION, name, &mut Vec::new(), None)
+    search(tree, name, &mut Vec::new(), None)
 }
 
 fn decl(name: &str) -> &'static Decl {
@@ -297,7 +305,7 @@ pub fn stack(cell: &str) -> Vec<Layer> {
     own(decl(cell))
 }
 
-fn type_name(decl: &Decl) -> String {
+pub(super) fn type_name(decl: &Decl) -> String {
     let content = match &decl.content {
         Content::Comp => "KSequence".to_owned(),
         Content::Leaf(Notation::Plain) => "Int".to_owned(),
@@ -313,7 +321,7 @@ fn type_name(decl: &Decl) -> String {
     }
 }
 
-fn attribute(decl: &Decl) -> String {
+pub(super) fn attribute(decl: &Decl) -> String {
     let nested = matches!(decl.content, Content::Group(..));
     let mut parts = Vec::new();
     match decl.mult {
@@ -341,7 +349,7 @@ fn attribute(decl: &Decl) -> String {
     }
 }
 
-fn structs(decls: &[Decl], out: &mut String) {
+pub(super) fn structs(decls: &[Decl], out: &mut String) {
     for decl in decls {
         if let Content::Group(head, children) = &decl.content {
             let _ = write!(out, "#[k::cell]\npub struct {head} {{\n");
@@ -362,7 +370,7 @@ fn structs(decls: &[Decl], out: &mut String) {
 
 /// A cell's base value, text and spelling: what the base's initializer writes in it (a
 /// collection's, one instance's template).
-fn default(decl: &Decl, top: bool) -> (String, Spelling) {
+pub(super) fn default(decl: &Decl, top: bool) -> (String, Spelling) {
     let content = match &decl.content {
         Content::Comp if top && decl.name == "k" => {
             ("k::k![pgm]".to_owned(), kmac(vec![var("pgm")]))
@@ -415,7 +423,16 @@ fn kmac(items: Vec<Spelling>) -> Spelling {
 /// The base's initializer fields: each top-level cell's value, with `value` (text) in `cell`'s
 /// place, a collection's or the second computation's written inside its parent.
 fn initializer_fields(cell: Option<(&str, &str)>, item: &mut ItemBuilder) {
-    for decl in CONFIGURATION.iter() {
+    initializer_fields_in(&CONFIGURATION, cell, item);
+}
+
+/// [`initializer_fields`] over the configuration `tree`.
+pub(super) fn initializer_fields_in(
+    tree: &[Decl],
+    cell: Option<(&str, &str)>,
+    item: &mut ItemBuilder,
+) {
+    for decl in tree {
         item.push("            ");
         let replaced = |name: &str| cell.filter(|(at, _)| *at == name).map(|(_, value)| value);
         match &decl.content {
@@ -441,10 +458,10 @@ fn initializer_fields(cell: Option<(&str, &str)>, item: &mut ItemBuilder) {
     }
 }
 
-const HEADER: &str = "impl Machine {\n    #[k::init]\n    pub fn init(#[k::config_var(name = \"PGM\", main)] pgm: Stmt) -> Self {\n        Self {\n";
-const FOOTER: &str = "        }\n    }\n}\n";
+pub(super) const HEADER: &str = "impl Machine {\n    #[k::init]\n    pub fn init(#[k::config_var(name = \"PGM\", main)] pgm: Stmt) -> Self {\n        Self {\n";
+pub(super) const FOOTER: &str = "        }\n    }\n}\n";
 
-const BEFORE_COMMANDS: &str = r#"use k::KResult;
+pub(super) const BEFORE_COMMANDS: &str = r#"use k::KResult;
 use k::builtin::{Int, KSequence, List, Map, Set, list, set};
 
 k::sorts! {
@@ -582,11 +599,11 @@ fn written(text: impl Into<String>, spelling: Spelling) -> Written {
     }
 }
 
-const INT: &str = "k::Term<k::builtin::Int>";
-const ITEM: &str = "k::KItem";
+pub(super) const INT: &str = "k::Term<k::builtin::Int>";
+pub(super) const ITEM: &str = "k::KItem";
 
 /// The type of a binder that is `decl`'s whole content (below presence).
-fn whole(decl: &Decl) -> String {
+pub(super) fn whole(decl: &Decl) -> String {
     match &decl.content {
         Content::Leaf(Notation::Plain) => INT.to_owned(),
         Content::Leaf(Notation::List) => "k::Term<k::builtin::List>".to_owned(),

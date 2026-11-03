@@ -7,6 +7,7 @@
 //!
 //! The shards are ignored tests, one per family group: `readable` (readable records and claims),
 //! `cells`, `runs` (the readable records and `cells!` rules on the run base, which K7 runs), `init`,
+//! `sweep` (one case per root cell of the cells oracle's sweep, `class_matrix::sweep`),
 //! `terms`, `import`, `notation` (the collection notation at the term
 //! positions), and `attrs` (every sentence attribute on every sentence form), each of which also
 //! judges its accepted cases by K3
@@ -1497,6 +1498,12 @@ fn notation() {
 #[ignore = "the full tier builds packages; run it through scripts/krs-class.sh"]
 fn attrs() {
     shard("attrs", &[Family::Attributes]);
+}
+
+#[test]
+#[ignore = "the full tier builds packages; run it through scripts/krs-class.sh"]
+fn sweep() {
+    shard("sweep", &[Family::Sweep]);
 }
 
 #[test]

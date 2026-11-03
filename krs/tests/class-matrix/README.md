@@ -622,7 +622,7 @@ failed item leaves its imports unused (`unused_imports`), which no proc macro ca
 second error, and which `krs check` relays away. Its entry is keyed by the mutation,
 `entry/attribute/cell`.
 
-Run one shard (`readable`, `cells`, `runs`, `init`, `terms`, `import`, `notation`, `attrs`, `k4`, `k5`), and choose the worker count yourself
+Run one shard (`readable`, `cells`, `runs`, `init`, `sweep`, `terms`, `import`, `notation`, `attrs`, `k4`, `k5`), and choose the worker count yourself
 when the default (from the available memory, 3 GiB per worker) does not suit:
 
 ```sh
@@ -648,7 +648,7 @@ tag written `TAG` (for an initializer, its `configuration`), is written by the r
 hand:
 
 ```sh
-scripts/krs-class.sh --record --shard readable --shard cells --shard runs --shard init --shard terms --shard import --shard notation
+scripts/krs-class.sh --record --shard readable --shard cells --shard runs --shard init --shard sweep --shard terms --shard import --shard notation
 ```
 
 It writes `k` for every accepted case that the table does not refuse (the oracle included),

@@ -161,6 +161,11 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // framed `cells!` subject (finding NT-9-1).
             (Family::ReadableRun, 182 + 7 + 5),
             (Family::CellsRun, 182 + 6 + 5 + 8),
+            // The compiled sweep (S5.0g item 3a): the 4,008 root cells of the cells oracle's
+            // sweep, less the 15 no case can be compiled for (`sweep::unbuilt`) and the 434
+            // another family's case already writes in the same form, side, stack, spelling and
+            // subject entry.
+            (Family::Sweep, 4_008 - 15 - 434),
         ])
     );
     for shard in class_matrix::FRONT_SHARDS {
