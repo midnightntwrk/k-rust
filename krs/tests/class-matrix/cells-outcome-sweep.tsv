@@ -8,7 +8,9 @@
 #   an anonymous rest at the content root where it has one, else a binder), `result,
 #   unmatched` (the subject does not match the cell: Q1's overwrite), `init`.
 # path: `-` the cell is named at its record's level (or below plain groups only); `?` below a
-#   `?` ancestor; `*` below a `*` ancestor (S1 (b)). The stack is the cell's own.
+#   `?` ancestor; `*` below a `*` ancestor (S1 (b), the rule forms'; an initializer, a struct
+#   literal of the configuration, names no cell by a path, so its rows are `-` only). The
+#   stack is the cell's own.
 # Bound names: in a result, x, y, z, old (bound by the subject); in a subject, none; in an
 #   initializer, the configuration variable pgm. `G` is the group (children a, b: Int) of
 #   the group stacks and the collections' instances.
@@ -472,12 +474,12 @@ result, matched	-	computation	k::configuration::KCell(y, ..)	pop	pop	cw	cw	arm	s
 result, matched	-	leaf Int	k::configuration::Cell(old)	pop	pop	sort	br	arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
 result, matched	-	leaf List	k::configuration::Cell([y, ..])	pop	pop	rm	sort	arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
 result, matched	-	leaf Cons	k::configuration::Cell([y, ..])	pop	pop	rm	sort	arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, matched	-	leaf Map	k::configuration::Cell(k::map![z -> y, ..])	pop	pop	rm	br	arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+result, matched	-	leaf Map	k::configuration::Cell(k::map![z -> y, ..])	pop	pop	rm	br	sort|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
 result, matched	-	leaf Set	k::configuration::Cell(old)	pop	pop	sort	br	arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
 result, matched	-	group G	k::fragment![crate::G { a: y, .. }]	pop	pop	cw	cw	arm	cw	cw	iop	iop	sort	wop	open-record-outside-pattern	sort	rmc
 result, matched	-	? leaf Int	Some(k::configuration::Cell(old))	sort	ok	owp	owp	arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
 result, matched	-	? leaf List	Some(k::configuration::Cell([y, ..]))	rm	ok	owp	owp	arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-result, matched	-	? leaf Map	Some(k::configuration::Cell(k::map![z -> y, ..]))	rm	ok	owp	owp	arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+result, matched	-	? leaf Map	Some(k::configuration::Cell(k::map![z -> y, ..]))	rm	ok	owp	owp	owp|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
 result, matched	-	? group G	Some(k::fragment![crate::G { a: y, .. }])	cw	ok	cw	cw	arm	cw	cw	iop	iop	owp	wop	owp	owp	owp
 result, matched	-	* List of G	[k::fragment![crate::G { a: y, .. }], ..]	pop	pop	cw	cw	arm	cw	cw	sort	ils	cwi	wop	cwi	cwi	cwi
 result, matched	-	* Set of G	{ k::fragment![crate::G { a: y, .. }], .. }	pop	pop	cw	cw	arm	cw	cw	ils	sort	cwi	wop	cwi	cwi	cwi
@@ -486,12 +488,12 @@ result, matched	?	computation	k::configuration::KCell(y, ..)	pop	pop	cw	cw	arm	o
 result, matched	?	leaf Int	k::configuration::Cell(old)	pop	pop	owp	br	arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
 result, matched	?	leaf List	k::configuration::Cell([y, ..])	pop	pop	owp	owp	arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
 result, matched	?	leaf Cons	k::configuration::Cell([y, ..])	pop	pop	owp	owp	arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, matched	?	leaf Map	k::configuration::Cell(k::map![z -> y, ..])	pop	pop	owp	br	arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+result, matched	?	leaf Map	k::configuration::Cell(k::map![z -> y, ..])	pop	pop	owp	br	owp|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
 result, matched	?	leaf Set	k::configuration::Cell(old)	pop	pop	owp	br	arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
 result, matched	?	group G	k::fragment![crate::G { a: y, .. }]	pop	pop	cw	cw	arm	cw	cw	iop	iop	owp	wop	owp	owp	rmc
 result, matched	?	? leaf Int	Some(k::configuration::Cell(old))	owp	owp	owp	owp	arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
 result, matched	?	? leaf List	Some(k::configuration::Cell([y, ..]))	owp	owp	owp	owp	arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-result, matched	?	? leaf Map	Some(k::configuration::Cell(k::map![z -> y, ..]))	owp	owp	owp	owp	arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+result, matched	?	? leaf Map	Some(k::configuration::Cell(k::map![z -> y, ..]))	owp	owp	owp	owp	owp|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
 result, matched	?	? group G	Some(k::fragment![crate::G { a: y, .. }])	cw	owp	cw	cw	arm	cw	cw	iop	iop	owp	wop	owp	owp	owp
 result, matched	?	* List of G	[k::fragment![crate::G { a: y, .. }], ..]	pop	pop	cw	cw	arm	cw	cw	owp	ils	cwi	wop	cwi	cwi	cwi
 result, matched	?	* Set of G	{ k::fragment![crate::G { a: y, .. }], .. }	pop	pop	cw	cw	arm	cw	cw	ils	owp	cwi	wop	cwi	cwi	cwi
@@ -500,12 +502,12 @@ result, matched	*	computation	k::configuration::KCell(y, ..)	pop	pop	cw	cw	arm	c
 result, matched	*	leaf Int	k::configuration::Cell(old)	pop	pop	cwi	br	arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
 result, matched	*	leaf List	k::configuration::Cell([y, ..])	pop	pop	cwi	cwi	arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
 result, matched	*	leaf Cons	k::configuration::Cell([y, ..])	pop	pop	cwi	cwi	arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-result, matched	*	leaf Map	k::configuration::Cell(k::map![z -> y, ..])	pop	pop	cwi	br	arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+result, matched	*	leaf Map	k::configuration::Cell(k::map![z -> y, ..])	pop	pop	cwi	br	cwi|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
 result, matched	*	leaf Set	k::configuration::Cell(old)	pop	pop	cwi	br	arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
 result, matched	*	group G	k::fragment![crate::G { a: y, .. }]	pop	pop	cw	cw	arm	cw	cw	iop	iop	cwi	wop	cwi	cwi	rmc
 result, matched	*	? leaf Int	Some(k::configuration::Cell(old))	cwi	cwi	owp	owp	arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
 result, matched	*	? leaf List	Some(k::configuration::Cell([y, ..]))	cwi	cwi	owp	owp	arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-result, matched	*	? leaf Map	Some(k::configuration::Cell(k::map![z -> y, ..]))	cwi	cwi	owp	owp	arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+result, matched	*	? leaf Map	Some(k::configuration::Cell(k::map![z -> y, ..]))	cwi	cwi	owp	owp	owp|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
 result, matched	*	? group G	Some(k::fragment![crate::G { a: y, .. }])	cw	cwi	cw	cw	arm	cw	cw	iop	iop	owp	wop	owp	owp	owp
 result, matched	*	* List of G	[k::fragment![crate::G { a: y, .. }], ..]	pop	pop	cw	cw	arm	cw	cw	cwi	ils	cwi	wop	cwi	cwi	cwi
 result, matched	*	* Set of G	{ k::fragment![crate::G { a: y, .. }], .. }	pop	pop	cw	cw	arm	cw	cw	ils	cwi	cwi	wop	cwi	cwi	cwi
@@ -569,34 +571,6 @@ init	-	? group G	-	sort	sort	nii	cw	ir	br	ir	mna	owp	owp	owp	owp	owp
 init	-	* List of G	-	pop	pop	nii	cw	ir	br	ir	mna	sort	sort	rmc	sort	sort
 init	-	* Set of G	-	pop	pop	nii	cw	ir	br	ir	mna	sort	sort	rmc	sort	sort
 init	-	* Map of G	-	pop	pop	nii	cw	ir	br	ir	mna	sort	sort	rmc	sort	sort
-init	?	computation	-	pop	pop	nii	owp	ir	owp	ir	mna	cw	cw	cw	cw	cw
-init	?	leaf Int	-	pop	pop	nii	cw	ir	br	ir	mna	owp	owp	owp	owp	owp
-init	?	leaf List	-	pop	pop	nii	cw	ir	owp	ir	mna	owp	owp	owp	owp	owp
-init	?	leaf Cons	-	pop	pop	nii	cw	ir	owp	ir	mna	owp	owp	owp	owp	owp
-init	?	leaf Map	-	pop	pop	nii	cw	ir	br	ir	owp	owp	owp	owp	owp	owp
-init	?	leaf Set	-	pop	pop	nii	cw	ir	br	ir	mna	owp	owp	owp	owp	owp
-init	?	group G	-	pop	pop	nii	cw	ir	br	ir	mna	owp	owp	rmc	owp	owp
-init	?	? leaf Int	-	owp	owp	nii	cw	ir	br	ir	mna	owp	owp	owp	owp	owp
-init	?	? leaf List	-	owp	owp	nii	cw	ir	owp	ir	mna	owp	owp	owp	owp	owp
-init	?	? leaf Map	-	owp	owp	nii	cw	ir	br	ir	owp	owp	owp	owp	owp	owp
-init	?	? group G	-	owp	owp	nii	cw	ir	br	ir	mna	owp	owp	owp	owp	owp
-init	?	* List of G	-	pop	pop	nii	cw	ir	br	ir	mna	owp	owp	rmc	owp	owp
-init	?	* Set of G	-	pop	pop	nii	cw	ir	br	ir	mna	owp	owp	rmc	owp	owp
-init	?	* Map of G	-	pop	pop	nii	cw	ir	br	ir	mna	owp	owp	rmc	owp	owp
-init	*	computation	-	pop	pop	nii	cwi	ir	cwi	ir	mna	cw	cw	cw	cw	cw
-init	*	leaf Int	-	pop	pop	nii	cw	ir	br	ir	mna	cwi	cwi	cwi	cwi	cwi
-init	*	leaf List	-	pop	pop	nii	cw	ir	cwi	ir	mna	cwi	cwi	cwi	cwi	cwi
-init	*	leaf Cons	-	pop	pop	nii	cw	ir	cwi	ir	mna	cwi	cwi	cwi	cwi	cwi
-init	*	leaf Map	-	pop	pop	nii	cw	ir	br	ir	cwi	cwi	cwi	cwi	cwi	cwi
-init	*	leaf Set	-	pop	pop	nii	cw	ir	br	ir	mna	cwi	cwi	cwi	cwi	cwi
-init	*	group G	-	pop	pop	nii	cw	ir	br	ir	mna	cwi	cwi	rmc	cwi	cwi
-init	*	? leaf Int	-	cwi	cwi	nii	cw	ir	br	ir	mna	owp	owp	owp	owp	owp
-init	*	? leaf List	-	cwi	cwi	nii	cw	ir	owp	ir	mna	owp	owp	owp	owp	owp
-init	*	? leaf Map	-	cwi	cwi	nii	cw	ir	br	ir	owp	owp	owp	owp	owp	owp
-init	*	? group G	-	cwi	cwi	nii	cw	ir	br	ir	mna	owp	owp	owp	owp	owp
-init	*	* List of G	-	pop	pop	nii	cw	ir	br	ir	mna	cwi	cwi	rmc	cwi	cwi
-init	*	* Set of G	-	pop	pop	nii	cw	ir	br	ir	mna	cwi	cwi	rmc	cwi	cwi
-init	*	* Map of G	-	pop	pop	nii	cw	ir	br	ir	mna	cwi	cwi	rmc	cwi	cwi
 #
 ## children: a result's group and instance records, each child at its own content root
 # Each row is a result over its cell; `other` is the subject's entry of the cell (`-`: the

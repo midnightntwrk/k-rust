@@ -791,8 +791,15 @@ const fn refuse(class: &'static str, step: Step, depth: usize) -> Result<(), Ref
 }
 
 impl Judge<'_> {
-    /// Step 1: what the spelling and its side alone refuse.
-    fn form_step(&self, spelling: &Spelling, depth: usize) -> Result<(), Refusal> {
+    /// Step 1: what the spelling and its side alone refuse. `frame` is the subject's spelling at
+    /// the same position of a result (at the entry's own cell, the subject's entry of the cell),
+    /// where the subject has one: it tells whether a subject map frames a `cells!` result's map.
+    fn form_step(
+        &self,
+        spelling: &Spelling,
+        depth: usize,
+        frame: Option<&Spelling>,
+    ) -> Result<(), Refusal> {
         let initializer = self.side == Side::Initializer;
         match spelling {
             Spelling::Wild if matches!(self.side, Side::Result | Side::Initializer) => {
@@ -818,17 +825,26 @@ impl Judge<'_> {
             {
                 return refuse("initializer-remainder", Step::Form, depth);
             }
-            // P6: a term's `..` names no map, except where a `cells!` pattern frames one.
+            // P6: a term's `..` names no map, except where a `cells!` pattern frames one: in a
+            // subject, and in a result whose subject's map at the same place frames its rest,
+            // which the result's `..` then keeps (P6 at the map's content root, M3; P7: readable
+            // `{ k -> v, .. }` reads so). Pairing judges that `..` with the other rests; a
+            // readable `map![..]` is a literal everywhere (readable writes `{ k -> v, .. }`).
             Spelling::MapLit(entries)
                 if entries.rest == Some(Rest::Anon)
-                    && (self.form != Form::Cells || self.side != Side::Subject) =>
+                    && !(self.form == Form::Cells
+                        && (self.side == Side::Subject
+                            || (self.side == Side::Result && frames_map(frame)))) =>
             {
                 return refuse("anonymous-rest-in-map-literal", Step::Form, depth);
             }
             _ => {}
         }
-        for inner in children(spelling) {
-            self.form_step(inner, depth + 1)?;
+        for (inner, frame) in children(spelling)
+            .into_iter()
+            .zip(child_frames(spelling, frame))
+        {
+            self.form_step(inner, depth + 1, frame)?;
         }
         Ok(())
     }
@@ -1348,6 +1364,83 @@ fn open_record(spelling: &Spelling, groups: &[Group]) -> bool {
 }
 
 /// `spelling` below an alias.
+/// What `spelling` writes at its cell's content, below presence, the leaf wrapper and an alias.
+fn content(spelling: &Spelling) -> &Spelling {
+    match spelling {
+        Spelling::Present(inner) | Spelling::Cell(inner) | Spelling::Alias(_, inner) => {
+            content(inner)
+        }
+        other => other,
+    }
+}
+
+/// Whether the subject's spelling `frame` frames a map: its content is a map with an anonymous
+/// rest.
+fn frames_map(frame: Option<&Spelling>) -> bool {
+    matches!(
+        frame.map(content),
+        Some(Spelling::MapLit(entries) | Spelling::MapRead(entries)) if entries.rest == Some(Rest::Anon)
+    )
+}
+
+/// The subject's spelling at each of `spelling`'s [`children`], in their order, where `frame` is
+/// the subject's at `spelling` itself: presence, a wrapper and an alias hold the same content;
+/// a record's field is the subject record's same field (P1); an instance update `..label` is
+/// the subject's instance labelled `label` (R10); anything else has none.
+fn child_frames<'s>(spelling: &Spelling, frame: Option<&'s Spelling>) -> Vec<Option<&'s Spelling>> {
+    let frame = frame.map(content);
+    match spelling {
+        Spelling::Present(_) | Spelling::Absent(_) | Spelling::Cell(_) | Spelling::Alias(..) => {
+            vec![frame]
+        }
+        Spelling::Record(record) | Spelling::Fragment(record) => {
+            let subject = match frame {
+                Some(Spelling::Record(subject) | Spelling::Fragment(subject))
+                    if subject.head == record.head =>
+                {
+                    Some(subject)
+                }
+                _ => None,
+            };
+            record
+                .fields
+                .iter()
+                .map(|(name, _)| {
+                    subject.and_then(|subject| {
+                        subject
+                            .fields
+                            .iter()
+                            .find(|(field, _)| field == name)
+                            .map(|(_, value)| value)
+                    })
+                })
+                .collect()
+        }
+        Spelling::Brackets(seq)
+        | Spelling::Braces(seq)
+        | Spelling::InstList(seq)
+        | Spelling::InstSet(seq) => {
+            let subject_items = frame.and_then(seq_of).map_or(&[][..], |(items, _)| items);
+            seq.items
+                .iter()
+                .map(|item| match unaliased(item) {
+                    Spelling::Record(record) | Spelling::Fragment(record) => {
+                        let RecordRest::Update(label) = &record.rest else {
+                            return None;
+                        };
+                        subject_items.iter().find_map(|subject| match subject {
+                            Spelling::Alias(name, inner) if name == label => Some(&**inner),
+                            _ => None,
+                        })
+                    }
+                    _ => None,
+                })
+                .collect()
+        }
+        _ => vec![None; children(spelling).len()],
+    }
+}
+
 fn unaliased(spelling: &Spelling) -> &Spelling {
     match spelling {
         Spelling::Alias(_, inner) => inner,
@@ -1387,7 +1480,10 @@ pub fn judge(
         context,
         sort: false,
     };
-    judge.form_step(spelling, 0)?;
+    let frame = (side == Side::Result)
+        .then_some(context.other.as_ref())
+        .flatten();
+    judge.form_step(spelling, 0, frame)?;
     judge.judge(stack, spelling, 0)?;
     // S1 (b): below a marked ancestor, the entry is refused for the outermost one, after the
     // cell's own kind (P3's reason): the advice writes the entry inside the ancestor's mark, so

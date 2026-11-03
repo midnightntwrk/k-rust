@@ -1654,6 +1654,17 @@ fn pairs(tuple: &Tuple) -> Vec<(String, usize, String, usize, String)> {
     pairs
 }
 
+/// The paths the sweep prints a form's rows at: every one for a rule or claim form, and none
+/// but the record's level for an initializer, a struct literal of the configuration, which
+/// names no cell by a path (S1 (b) is the rule forms').
+fn sweep_paths<T>(form: Form, paths: &[T]) -> &[T] {
+    if form == Form::Init {
+        &paths[..1]
+    } else {
+        paths
+    }
+}
+
 /// The tuples at which the sweep golden prints `outcome`: its form, side, path and stack by row,
 /// its mark by column. The second computation differs from the first by its name only (P1), so
 /// the computation's rows are its.
@@ -1688,7 +1699,7 @@ fn sweep_tuples() -> BTreeSet<Tuple> {
                 };
                 let mark = mark_name(form, &declared_as(&probe.read(text)));
                 for side in sides {
-                    for (path, _) in &paths {
+                    for (path, _) in sweep_paths(form, &paths) {
                         for name in &names {
                             tuples.insert((
                                 form_name(form),
@@ -2163,6 +2174,170 @@ const fn result_probe<'p>(
         written: false,
         bound: &["x", "y", "z"],
     }
+}
+
+/// A `cells!` result's `k::map![.., ..]` whose subject's map at the same place frames its rest
+/// keeps that rest (P6 at the map's content root, M3), as readable `{ k -> v, .. }` reads (P7):
+/// `outcome` judges it by its kind and pairs its `..` (S5.0g part (b) ruling 1). It is
+/// `anonymous-rest-in-map-literal` only where no subject map frames it: an exact or no subject
+/// map, an overwrite, a created instance, or a readable `map![..]`. The product refuses the
+/// framed case still, the stated M3 limitation, and agrees elsewhere.
+#[test]
+fn a_cells_result_map_with_a_rest_is_judged_where_a_subject_map_frames_it() {
+    let arm = Outcome::Refuse("anonymous-rest-in-map-literal");
+    let map = [Layer::Leaf(Notation::Map)];
+    let optional_map = [Layer::Optional, Layer::Leaf(Notation::Map)];
+    let cell = "k::configuration::Cell(k::map![y -> x, ..])";
+    let framing = "k::configuration::Cell(k::map![z -> y, ..])";
+    let probes = [
+        (
+            result_probe(Form::Cells, &map, cell, Some(framing)),
+            Outcome::After,
+            arm,
+        ),
+        (
+            result_probe(
+                Form::Cells,
+                &map,
+                cell,
+                Some("k::configuration::Cell(k::map![z -> y])"),
+            ),
+            arm,
+            arm,
+        ),
+        (
+            result_probe(Form::Cells, &map, cell, Some("k::configuration::Cell(old)")),
+            arm,
+            arm,
+        ),
+        (result_probe(Form::Cells, &map, cell, None), arm, arm),
+        (
+            result_probe(
+                Form::Cells,
+                &optional_map,
+                cell,
+                Some("Some(k::configuration::Cell(k::map![z -> y, ..]))"),
+            ),
+            Outcome::Refuse("optional-without-presence"),
+            arm,
+        ),
+        (
+            result_probe(
+                Form::Cells,
+                &optional_map,
+                "Some(k::configuration::Cell(k::map![y -> x, ..]))",
+                Some("Some(k::configuration::Cell(k::map![z -> y, ..]))"),
+            ),
+            Outcome::After,
+            arm,
+        ),
+        (
+            result_probe(
+                Form::Cells,
+                &optional_map,
+                "Some(k::configuration::Cell(k::map![y -> x, ..]))",
+                Some("None"),
+            ),
+            arm,
+            arm,
+        ),
+        (
+            result_probe(
+                Form::Readable,
+                &map,
+                "map![y -> x, ..]",
+                Some("{ z -> y, .. }"),
+            ),
+            arm,
+            arm,
+        ),
+    ];
+    oracle_and_product(&probes);
+}
+
+/// The same at a record's child (P1): a group record's field over the subject record's same
+/// field, and an instance update's field over the labelled subject instance's (R10); a created
+/// instance's map has no subject map.
+#[test]
+fn a_cells_result_childs_map_with_a_rest_is_judged_where_the_subjects_child_frames_it() {
+    let arm = Outcome::Refuse("anonymous-rest-in-map-literal");
+    let int = Layer::Leaf(Notation::Plain);
+    let group = [sweep_group(
+        "B",
+        &[("m", Layer::Leaf(Notation::Map)), ("n", int.clone())],
+    )];
+    let keyed = [
+        Layer::Instances(Order::Map),
+        sweep_group("A", &[("id", int), ("m", Layer::Leaf(Notation::Map))]),
+    ];
+    let probes = [
+        (
+            result_probe(
+                Form::Cells,
+                &group,
+                "k::fragment![crate::B { m: k::map![y -> x, ..], n: 0 }]",
+                Some("k::fragment![crate::B { m: k::map![z -> y, ..], .. }]"),
+            ),
+            Outcome::After,
+            arm,
+        ),
+        (
+            result_probe(
+                Form::Cells,
+                &group,
+                "k::fragment![crate::B { m: k::map![y -> x, ..], n: 0 }]",
+                Some("k::fragment![crate::B { n: z, .. }]"),
+            ),
+            arm,
+            arm,
+        ),
+        (
+            Probe {
+                bound: &["x", "y", "z", "me"],
+                ..result_probe(
+                    Form::Cells,
+                    &keyed,
+                    "{ k::fragment![crate::A { m: k::map![y -> x, ..], ..me }], .. }",
+                    Some("{ me @ k::fragment![crate::A { id: z, m: k::map![z -> y, ..] }], .. }"),
+                )
+            },
+            Outcome::After,
+            arm,
+        ),
+        (
+            Probe {
+                bound: &["x", "y", "z", "me"],
+                ..result_probe(
+                    Form::Cells,
+                    &keyed,
+                    "{ k::fragment![crate::A { id: 5, m: k::map![y -> x, ..] }], .. }",
+                    Some("{ me @ k::fragment![crate::A { id: z, m: k::map![z -> y, ..] }], .. }"),
+                )
+            },
+            arm,
+            arm,
+        ),
+    ];
+    oracle_and_product(&probes);
+}
+
+/// Each probe's oracle and product answers against the ones given for each.
+fn oracle_and_product(probes: &[(Probe<'_>, Outcome, Outcome)]) {
+    let mut failures = Vec::new();
+    for (probe, oracle, product) in probes {
+        for (who, got, want) in [
+            ("oracle", probe.oracle(), oracle),
+            ("product", probe.product(), product),
+        ] {
+            if got != *want {
+                failures.push(format!(
+                    "{:?} on {:?}: `{}` over {:?}: the {who} says {got:?}, not {want:?}",
+                    probe.form, probe.stack, probe.text, probe.other
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
 }
 
 /// F1: a result `None` over a `?` cell the subject matches present removes the cell, and with it
@@ -3591,7 +3766,9 @@ fn outcome_sweep() -> String {
         "#   an anonymous rest at the content root where it has one, else a binder), `result,\n",
         "#   unmatched` (the subject does not match the cell: Q1's overwrite), `init`.\n",
         "# path: `-` the cell is named at its record's level (or below plain groups only); `?` below a\n",
-        "#   `?` ancestor; `*` below a `*` ancestor (S1 (b)). The stack is the cell's own.\n",
+        "#   `?` ancestor; `*` below a `*` ancestor (S1 (b), the rule forms'; an initializer, a struct\n",
+        "#   literal of the configuration, names no cell by a path, so its rows are `-` only). The\n",
+        "#   stack is the cell's own.\n",
         "# Bound names: in a result, x, y, z, old (bound by the subject); in a subject, none; in an\n",
         "#   initializer, the configuration variable pgm. `G` is the group (children a, b: Int) of\n",
         "#   the group stacks and the collections' instances.\n",
@@ -3630,7 +3807,7 @@ fn outcome_sweep() -> String {
             ]
         };
         for (side_name, side, written, matched) in sides {
-            for (path_name, path) in &paths {
+            for (path_name, path) in sweep_paths(form, &paths) {
                 for (stack_name, stack) in sweep_stacks() {
                     let other = matched.then(|| sweep_subject(form, &stack));
                     let bound: &[&str] = match side {
@@ -4278,7 +4455,7 @@ fn owned(cells: &[&str]) -> Vec<String> {
 }
 
 /// A main table's patterns: a row group is a side and a stack, its pattern the answers of its
-/// three rows (path `-`, `?`, `*`). The forms given share their columns, so they share patterns,
+/// rows, one per path its table prints (`-`, `?` and `*`; an initializer's `-` only). The forms given share their columns, so they share patterns,
 /// and a member names the forms whose row group it is.
 fn main_patterns(
     tables: &[SweepTable<'_>],
@@ -4308,16 +4485,20 @@ fn main_patterns(
             forms[0]
         );
         let mut groups: Vec<(&str, &str)> = Vec::new();
+        let mut paths: Vec<&str> = Vec::new();
         let mut rows = BTreeMap::new();
         for row in &table.rows {
             let (side, path, stack) = (row[0], row[1], row[2]);
             if !groups.contains(&(side, stack)) {
                 groups.push((side, stack));
             }
+            if !paths.contains(&path) {
+                paths.push(path);
+            }
             rows.insert((side, path, stack), &row[4..]);
         }
         for (side, stack) in groups {
-            let lines = ["-", "?", "*"]
+            let lines = paths
                 .iter()
                 .map(|path| {
                     let row = rows
@@ -4450,7 +4631,7 @@ fn sweep_patterns(sweep: &str, golden: &str) -> String {
         "# A pattern is exact: a table and the answers, cell by cell, of one row group across the\n",
         "# table's columns (the sweep's short names and `|product:` marks).\n",
         "# - readable, claim; cells; init: a row group is a side and a stack, and its pattern is its\n",
-        "#   three rows, path `-`, `?` and `*`, one line each. readable and claim have the same\n",
+        "#   rows, path `-`, `?` and `*` (init: `-` only), one line each. readable and claim have the same\n",
         "#   columns, so they share patterns; a member names its forms. A row's `other` is a\n",
         "#   function of its form, side and stack, so a member determines it.\n",
         "# - children: a row group is one result of the sweep's children section, its pattern the\n",
@@ -4467,8 +4648,8 @@ fn sweep_patterns(sweep: &str, golden: &str) -> String {
         "#   they admit is then refused for the ancestor (S1 (b)): `owp` below `?`, `cwi` below `*`.\n",
         "#   A pairing refusal of the `-` row (rm, uor, atc, Q3's overwrite cir, F3's open record\n",
         "#   over an existing group) comes after the path, so the path class replaces it. The\n",
-        "#   product's departures (E1 `cbi`, the List back instance `ils`, M3 `mrr`) are kind-step\n",
-        "#   answers and show through.\n",
+        "#   product's departures (E1 `cbi`, the List back instance `ils`, M3's readable `mrr` at the\n",
+        "#   kind step, M3's `cells!` `arm` at the form step) come before the path and show through.\n",
     ));
     text.push_str(&reviewed);
     text.push('\n');

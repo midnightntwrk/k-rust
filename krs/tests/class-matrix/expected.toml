@@ -174,7 +174,7 @@ advice = "none"
 
 [class.collection-without-instances]
 code = "krs::analysis::collection-entry"
-doc = "a `*` collection written as one value (a binder, `_`, a literal, a record) instead of an instance list, or an entry naming a cell below a `*` ancestor, where no single cell has the content it names: name the instance with an instance record, `account: { Account { balance: .., .. }, .. }` (S1 b)"
+doc = "a `*` collection written as one value (a binder, `_`, a literal, a record) instead of an instance list, or a rule's or claim's entry naming a cell below a `*` ancestor (S1 b, the rule forms'; an initializer, a struct literal of the configuration, names no cell by a path), where no single cell has the content it names: name the instance with an instance record, `account: { Account { balance: .., .. }, .. }` (S1 b)"
 advice = "none"
 
 [class.continuation-in-readable]
@@ -310,7 +310,7 @@ advice = "init/k/k::k![pgm]"
 
 [class.instance-list-shape]
 code = "krs::analysis::collection-entry"
-doc = "an instance list a List collection does not admit: braced, matching a back instance in place, or changing both ends"
+doc = "an instance list of the wrong shape for its collection's order (P2, P3b): braces on a List collection, or brackets on a Set or Map collection; or one a List collection does not admit: matching a back instance in place, or changing both ends"
 advice = "readable/subject/job/[Job { payload: x, .. }, ..]"
 
 [class.instances-on-plain-cell]
@@ -446,7 +446,7 @@ advice = "none"
 
 [class.optional-without-presence]
 code = "krs::analysis::optional-presence"
-doc = "an optional (`?`) cell written without `Some(..)`/`None` (in an initializer, `Some(..)`/`k::absent!(..)`): a binder, `_`, a literal, a record, a wrapper of the underlying kind or a template; or an entry naming a cell below a `?` ancestor, which would silently require it present: write it inside `Some(G { child: .., .. })` (S1 b)"
+doc = "an optional (`?`) cell written without `Some(..)`/`None` (in an initializer, `Some(..)`/`k::absent!(..)`): a binder, `_`, a literal, a record, a wrapper of the underlying kind or a template; or a rule's or claim's entry naming a cell below a `?` ancestor (S1 b, the rule forms'; an initializer names no cell by a path), which would silently require it present: write it inside `Some(G { child: .., .. })` (S1 b)"
 advice = "cells/result/counter/Some(k::configuration::Cell(x))"
 
 [class.order-on-unordered-sentence]
