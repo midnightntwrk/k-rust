@@ -643,6 +643,12 @@ pub const UNCHECKED: &[Unchecked] = &[
         reason: "the advice writes the case's own items as one sequence; the class's advised case writes `k::k![pgm]`",
     },
     Unchecked {
+        class: "instance-list-shape",
+        forms: &["`abag: \\{ .. \\}`"],
+        shards: &["cells"],
+        reason: "the advice writes the Set collection's own instance braces at a cell named by its path below a `*` ancestor, which the cell's own kind refuses first (S5.0g review R3) and the path then refuses (S1 (b)); the class's advised case writes a List collection's instances",
+    },
+    Unchecked {
         class: "island-at-subject-root",
         forms: OWN_CLAUSE,
         shards: &["terms"],

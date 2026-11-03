@@ -143,6 +143,5 @@ what = "`job: [x, ..]` on a List collection binds its front instance (decision Q
 ["S5-S1"]
 owner = "S5"
 kind = "bug"
-what = "an entry naming a cell below a `?` or `*` ancestor by its path (readable `hpc: x`, a claim's, a `cells!` key such as `crate::Acct::apc`) is admitted, or refused with another code than the ancestor's (`optional-without-presence`, `collection-without-instances`; S1 (b), design §2.3): S5.2's for readable records and claims, S5.3's for `cells!` keys"
+what = "an entry naming a cell below a `?` or `*` ancestor by its path (readable `hpc: x`, a claim's, a `cells!` key such as `crate::Acct::apc`) is admitted, or refused with another code than its class: the cell's own kind first (P3, as at the record's level), then the ancestor's (`optional-without-presence`, `collection-without-instances`; S1 (b), design §2.3): S5.2's for readable records and claims, S5.3's for `cells!` keys"
 risk = "below `*`, KRS reads the named cell as a child of one implicit instance, so the rule silently needs exactly the instance it picks and matches or writes that one; below `?`, it silently requires the optional ancestor to be present (B8's reason). The entry names one cell's content, which no single cell has"
-by_test = { k3 = "S6" }
