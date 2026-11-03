@@ -347,6 +347,11 @@ code = "krs::analysis::main-cell"
 doc = "a cell named `k` that is not the configuration's main cell (the `KSequence` cell that holds the program): K takes the cell named `k` as the computation cell by its name, so the definition would run its cell-free sentences in another cell than its initializer states"
 advice = "init/main-k/k/k::k![pgm]"
 
+[class.map-collection-key]
+code = "krs::analysis::map-collection-key"
+doc = "an instance update (`..me`) of a Map collection that writes the instance's key, its first child, whether the pattern names it or not: an update changes the instance in place and the key is its identity, so another key is another entry of the map (§7); a created instance states its key"
+advice = "none"
+
 [class.map-notation-at-non-map]
 code = "krs::analysis::invalid-term"
 doc = "map notation (`{ k -> v, .. }`, `k::map![..]`) on a cell that is no Map"

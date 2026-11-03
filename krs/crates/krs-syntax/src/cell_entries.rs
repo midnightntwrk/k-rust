@@ -13,7 +13,9 @@
 //! 3. **kind**, against the cell's own layers, outermost first: the outermost layer's mark admits
 //!    the entry and its inside is judged against the next layer; a mark no layer of the stack
 //!    has gives that mark's refusal; a deeper layer's mark, or a value where the outermost layer
-//!    has a mark, gives the missing layer's refusal.
+//!    has a mark, gives the missing layer's refusal. Inside a Map collection's instances, a
+//!    result's instance update (`..me`) that writes the key child is a key change
+//!    ([`GroupKind::key`]).
 //!
 //! [`pair`] then judges the entry with its rule: a result's rest against its subject's, at its
 //! cell's content root and at each child's of the group and instance records it writes, a
@@ -117,6 +119,10 @@ pub enum Refusal {
     /// is the frame write `Cell(k::map![k -> v, ..])` (a stated limitation of the readable
     /// record's top-level route).
     MapReadInResult,
+    /// An instance update (`..me`) of a Map collection that writes the instance's key, its first
+    /// child, whether the pattern names it or not: an update changes the instance in place, and
+    /// the key is its identity, so another key is another entry of the map.
+    MapCollectionKey,
     /// A readable map read at a record's top level whose value is not a fresh binder (a stated
     /// limitation of the readable record's top-level route; inside an instance record the value
     /// is matched, P5).
@@ -153,6 +159,7 @@ impl Refusal {
             Self::OpenRecordOutsidePattern => "open-record-outside-pattern",
             Self::ComputationBackItem => "computation-back-item",
             Self::MapReadInResult => "map-read-in-result",
+            Self::MapCollectionKey => "map-collection-key",
             Self::MapReadValueBinder => "map-read-value-binder",
         }
     }
@@ -461,7 +468,8 @@ impl Admission<'_> {
     }
 
     /// A collection's instances: each item an instance record of the collection's group, or,
-    /// in an ordered collection, a value for its front instance.
+    /// in an ordered collection, a value for its front instance. A result's update of a Map
+    /// collection's instance keeps its key.
     fn instances(
         &mut self,
         order: Order,
@@ -480,9 +488,21 @@ impl Admission<'_> {
             };
             match (item, below.first()) {
                 (
-                    EntrySpelling::Record(_) | EntrySpelling::Fragment(_),
+                    EntrySpelling::Record(record) | EntrySpelling::Fragment(record),
                     Some(Layer::Group(group)),
                 ) => {
+                    // An update changes the instance in place, and a Map instance's key is its
+                    // identity: an update that writes it, named in the pattern or not, changes
+                    // which entry of the map the instance is.
+                    if self.side == EntrySide::Result
+                        && matches!(record.tail, RecordTail::Update(_))
+                        && record.head == group.name
+                        && group
+                            .key(order)
+                            .is_some_and(|key| record.fields.iter().any(|(name, _)| name == key))
+                    {
+                        return Err(Refusal::MapCollectionKey);
+                    }
                     self.group(group, item)?;
                 }
                 // One instance of an ordered collection is its front one.
@@ -1432,6 +1452,87 @@ mod tests {
                 Some("[me @ k::fragment![crate::T { k: [y, ..], .. }], ..]")
             ),
             rm
+        );
+    }
+
+    #[test]
+    fn an_update_of_a_map_collections_instance_keeps_its_key() {
+        let (readable, cells) = (EntryForm::Readable, EntryForm::Cells);
+        let account = |order| {
+            [
+                Layer::Instances(order),
+                Layer::Group(GroupKind {
+                    name: "A".to_owned(),
+                    children: vec![("id".to_owned(), int()), ("bal".to_owned(), int())],
+                }),
+            ]
+        };
+        let map = account(Order::Map);
+        let refused = Err(Refusal::MapCollectionKey);
+        let me = Some("{ me @ A { id: z, .. }, .. }");
+        assert_eq!(
+            result(readable, &map, "{ A { id: 5, ..me }, .. }", me),
+            refused
+        );
+        // Written back as it was matched, the key is still written by the update.
+        assert_eq!(
+            result(readable, &map, "{ A { id: z, ..me }, .. }", me),
+            refused
+        );
+        // Unnamed in the pattern, it is still the key.
+        assert_eq!(
+            result(
+                readable,
+                &map,
+                "{ A { id: 5, ..me }, .. }",
+                Some("{ me @ A { bal: y, .. }, .. }")
+            ),
+            refused
+        );
+        assert_eq!(
+            result(
+                cells,
+                &map,
+                "{ k::fragment![crate::A { id: 5, ..me }], .. }",
+                Some("{ me @ k::fragment![crate::A { id: z, .. }], .. }")
+            ),
+            refused
+        );
+        assert_eq!(Refusal::MapCollectionKey.class(), "map-collection-key");
+        // An unnamed child other than the key is overwritten, and a created instance states
+        // its key.
+        assert_eq!(
+            result(readable, &map, "{ A { bal: 5, ..me }, .. }", me),
+            Ok(None)
+        );
+        assert_eq!(
+            result(
+                readable,
+                &map,
+                "{ A { id: 5, bal: 0 }, .. }",
+                Some("{ .. }")
+            ),
+            Ok(None)
+        );
+        // A Set collection's instance has no key child.
+        assert_eq!(
+            result(
+                readable,
+                &account(Order::Set),
+                "{ A { id: 5, ..me }, .. }",
+                me
+            ),
+            Ok(None)
+        );
+        // A subject's record is no update.
+        assert_eq!(
+            judge(
+                readable,
+                EntrySide::Subject,
+                &map,
+                "{ me @ A { id: z, .. }, .. }"
+            ),
+            Ok(())
         );
     }
 

@@ -21,7 +21,9 @@
 //!    (a) the outermost layer's mark admits the entry and its inside is judged against the next
 //!    layer; (b) a mark of a layer the stack has nowhere gives that mark's class; (c) a deeper
 //!    layer's mark, or a value where the outermost layer has a mark, gives the missing layer's
-//!    class;
+//!    class. Inside a Map collection's instances, a result's instance update (`..me`) that writes
+//!    the key child, its first, is `map-collection-key` (§2.3, §7: an update changes the instance
+//!    in place, and the key is its identity);
 //! 3. **pairing**: rests (P6), absence (P5), Q1's lint and overwrite (a result over a cell the
 //!    subject does not match, [`Context::other`] `None`), Q3, and a bare `..` in a result's group
 //!    record for a group that exists, matched or overwritten (P6: Rust's default fields, which
@@ -347,7 +349,7 @@ pub struct Refusal {
 pub const NO_EFFECT_ENTRY: &str = "no-effect-entry";
 
 /// The classes [`outcome`] answers with.
-pub const ENTRY_CLASSES: [&str; 19] = [
+pub const ENTRY_CLASSES: [&str; 20] = [
     "absence-test-without-creation",
     "alias-outside-pattern",
     "anonymous-rest-in-map-literal",
@@ -358,6 +360,7 @@ pub const ENTRY_CLASSES: [&str; 19] = [
     "initializer-remainder",
     "instance-list-shape",
     "instances-on-plain-cell",
+    "map-collection-key",
     "map-notation-at-non-map",
     "none-in-initializer",
     "open-record-outside-pattern",
@@ -382,7 +385,7 @@ pub const LINT_CLASSES: [&str; 1] = [NO_EFFECT_ENTRY];
 
 /// The code each class of [`ENTRY_CLASSES`], [`RULE_CLASSES`] and [`LINT_CLASSES`] answers with,
 /// which `expected.toml` must declare alike (check 0).
-pub const CODES: [(&str, &str); 24] = [
+pub const CODES: [(&str, &str); 25] = [
     (
         "absence-test-without-creation",
         "krs::analysis::optional-presence",
@@ -410,6 +413,7 @@ pub const CODES: [(&str, &str); 24] = [
     ("instance-list-shape", "krs::analysis::collection-entry"),
     ("instances-on-plain-cell", "krs::analysis::collection-entry"),
     ("main-cell-not-k", "krs::analysis::main-cell"),
+    ("map-collection-key", "krs::analysis::map-collection-key"),
     ("map-notation-at-non-map", "krs::analysis::invalid-term"),
     (NO_EFFECT_ENTRY, "krs::analysis::no-effect-entry"),
     (
@@ -710,6 +714,16 @@ pub fn mentions(spelling: &Spelling, name: &str) -> bool {
     }
 }
 
+/// The child that keys an instance of `group` in a collection ordered by `order`: a Map
+/// collection's instance is keyed by its first child, its declaration's first field (the
+/// instance's identity); a List or Set collection's instance has none.
+fn key(order: Order, group: &Group) -> Option<&str> {
+    match order {
+        Order::Map => group.children.first().map(|(name, _)| name.as_str()),
+        Order::List | Order::Set => None,
+    }
+}
+
 fn child<'g>(group: &'g Group, name: &str) -> Option<&'g Vec<Layer>> {
     group
         .children
@@ -885,7 +899,22 @@ impl Judge<'_> {
                     other => other,
                 };
                 match (base, &rest[0]) {
-                    (Spelling::Record(_) | Spelling::Fragment(_), Layer::Group(group)) => {
+                    (
+                        Spelling::Record(record) | Spelling::Fragment(record),
+                        Layer::Group(group),
+                    ) => {
+                        // §2.3, §7: an update changes the instance in place, and a Map
+                        // instance's key is its identity, so an update that writes the key,
+                        // named in the pattern or not, is a key change.
+                        if self.side == Side::Result
+                            && matches!(record.rest, RecordRest::Update(_))
+                            && record.head == group.name
+                            && key(order, group).is_some_and(|key| {
+                                record.fields.iter().any(|(name, _)| name == key)
+                            })
+                        {
+                            return refuse("map-collection-key", Step::Inside, depth + 1);
+                        }
                         self.group_value(group, base, depth + 2)?;
                     }
                     // Q2: one instance of an ordered collection is a value (its front one).

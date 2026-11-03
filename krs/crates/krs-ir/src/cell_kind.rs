@@ -57,6 +57,18 @@ impl GroupKind {
             .find(|(child, _)| child == name)
             .map(|(_, kind)| kind)
     }
+
+    /// The child that keys an instance of this group in a collection ordered by `order`: a Map
+    /// collection's instance is keyed by its first child, its declaration's first field, which
+    /// is the instance's identity, so an update that changes the instance in place cannot write
+    /// it; a List or Set collection's instance has no key child.
+    #[must_use]
+    pub fn key(&self, order: Order) -> Option<&str> {
+        match order {
+            Order::Map => self.children.first().map(|(name, _)| name.as_str()),
+            Order::List | Order::Set => None,
+        }
+    }
 }
 
 /// One layer of a cell's stack.
@@ -457,6 +469,25 @@ mod tests {
                 }),
             ]
         );
+    }
+
+    #[test]
+    fn a_map_collection_is_keyed_by_its_first_child() {
+        let int = || CellKind {
+            layers: vec![Layer::Leaf(Notation::Plain)],
+        };
+        let account = GroupKind {
+            name: "Account".to_owned(),
+            children: vec![("id".to_owned(), int()), ("balance".to_owned(), int())],
+        };
+        assert_eq!(account.key(Order::Map), Some("id"));
+        assert_eq!(account.key(Order::List), None);
+        assert_eq!(account.key(Order::Set), None);
+        let empty = GroupKind {
+            name: "Empty".to_owned(),
+            children: Vec::new(),
+        };
+        assert_eq!(empty.key(Order::Map), None);
     }
 
     #[test]

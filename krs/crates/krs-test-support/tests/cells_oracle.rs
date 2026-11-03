@@ -2250,6 +2250,80 @@ fn a_group_records_children_pair_their_rests_at_their_own_content_roots() {
     ]);
 }
 
+/// D-2 (S5.0g): an update (`..me`) changes the instance in place, and a Map collection's
+/// instance is keyed by its first child, its identity (design §2.3, §7): an update that writes
+/// the key, named in the pattern or not, is `map-collection-key`. A created instance states its
+/// key, and an update's unnamed non-key child is Q1's overwrite; a Set collection keys none.
+#[test]
+fn an_update_of_a_map_collections_instance_that_writes_its_key_is_refused() {
+    let account = |order| {
+        vec![
+            Layer::Instances(order),
+            Layer::Group(Group {
+                name: "A".to_owned(),
+                children: vec![("id".to_owned(), int()), ("bal".to_owned(), int())],
+            }),
+        ]
+    };
+    let (map, set) = (account(Order::Map), account(Order::Set));
+    let refused = Outcome::Refuse("map-collection-key");
+    let me = Some("{ me @ A { id: z, .. }, .. }");
+    probes_agree(&[
+        (
+            child_probe(Form::Readable, &map, "{ A { id: 5, ..me }, .. }", me),
+            refused,
+        ),
+        (
+            child_probe(Form::Claim, &map, "{ A { id: z, ..me }, .. }", me),
+            refused,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &map,
+                "{ A { id: 5, ..me }, .. }",
+                Some("{ me @ A { bal: y, .. }, .. }"),
+            ),
+            refused,
+        ),
+        (
+            child_probe(
+                Form::Cells,
+                &map,
+                "{ k::fragment![crate::A { id: 5, ..me }], .. }",
+                Some("{ me @ k::fragment![crate::A { id: z, .. }], .. }"),
+            ),
+            refused,
+        ),
+        (
+            child_probe(Form::Readable, &map, "{ A { bal: 5, ..me }, .. }", me),
+            Outcome::After,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &map,
+                "{ A { id: 5, bal: 0 }, .. }",
+                Some("{ .. }"),
+            ),
+            Outcome::After,
+        ),
+        (
+            child_probe(
+                Form::Cells,
+                &map,
+                "{ k::fragment![crate::A { id: 5, bal: 0 }], .. }",
+                Some("{ .. }"),
+            ),
+            Outcome::After,
+        ),
+        (
+            child_probe(Form::Readable, &set, "{ A { id: 5, ..me }, .. }", me),
+            Outcome::After,
+        ),
+    ]);
+}
+
 /// Ruling 3 on F2: `name @ P` names what a pattern matched, so a result holds none, at any depth
 /// (§2.3 step 1), before the path is judged.
 #[test]
