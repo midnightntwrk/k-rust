@@ -407,8 +407,11 @@ fn run_coverage_names_the_equations_a_run_applied_by_item_and_line() {
         assert_eq!(rule["applied"], true, "{rule:#}");
         assert_eq!(rule["applications"], 1, "{rule:#}");
         assert_eq!(rule["committed"], false, "{rule:#}");
-        assert!(
-            rule["label"].as_str().unwrap().contains("krsRule_"),
+        // The default label spells the item's path, and the native route keeps it bare, as K
+        // does for the `label(..)` attribute the emitted K writes it in.
+        assert_eq!(
+            rule["label"],
+            format!("org_krs_cli_exec--{item}"),
             "{rule:#}"
         );
         assert_eq!(rule["origin"]["kind"], "authored", "{rule:#}");

@@ -345,12 +345,12 @@ fn collection_notation_emits_the_k_of_the_calls_it_denotes() {
         rule [drop]:
         <k> drop ( N:Int ) ~> Tail:K => .K ~> Tail:K </k>
         <env> E:Map => E:Map [ N:Int <- undef ] </env>
-        rule listed ( M:Map , S:Set ) => (size(keys_list(M:Map)) +Int size(values(M:Map))) +Int size(Set2List(S:Set)) [label(krsRule_615b3d82a26367d2a7aa05d0)]
-        rule last ( L:List ) => {L:List [ -1 ]}:>Int [label(krsRule_7d21ad45cc2a73edb122c2f5)]
-        rule covered ( M:Map , S:Set , T:Set ) => keys(M:Map) <=Set intersectSet((S:Set |Set T:Set) -Set S:Set, T:Set) [label(krsRule_8be4fdb3e54ee1b9ecb3d4a2)]
-        rule lookup ( M:Map , Key:Int ) => {M:Map [ Key:Int ]}:>Int [label(krsRule_ca9c6cb787329cb196b90848)]
-        rule sizes ( M:Map , L:List , S:Set ) => (size(M:Map) +Int size(L:List)) +Int size(S:Set) [label(krsRule_cc124f9a8f35c9e67f745b2e)]
-        rule letBound ( M:Map , A:Int ) => ( #let N:Map = M:Map #in size(N:Map) ) +Int ( #let B:Int = A:Int #in B:Int +Int B:Int ) [label(krsRule_ece27c839115a2c3e2b7ad22)]
+        rule covered ( M:Map , S:Set , T:Set ) => keys(M:Map) <=Set intersectSet((S:Set |Set T:Set) -Set S:Set, T:Set) [label(org_krs_collections--covered)]
+        rule last ( L:List ) => {L:List [ -1 ]}:>Int [label(org_krs_collections--last)]
+        rule letBound ( M:Map , A:Int ) => ( #let N:Map = M:Map #in size(N:Map) ) +Int ( #let B:Int = A:Int #in B:Int +Int B:Int ) [label(org_krs_collections--let_bound)]
+        rule listed ( M:Map , S:Set ) => (size(keys_list(M:Map)) +Int size(values(M:Map))) +Int size(Set2List(S:Set)) [label(org_krs_collections--listed)]
+        rule lookup ( M:Map , Key:Int ) => {M:Map [ Key:Int ]}:>Int [label(org_krs_collections--lookup)]
+        rule sizes ( M:Map , L:List , S:Set ) => (size(M:Map) +Int size(L:List)) +Int size(S:Set) [label(org_krs_collections--sizes)]
         rule [peek]:
         <k> peek => V:KItem ... </k>
         <env> size(St:List) |-> V:KItem ... </env>
@@ -831,11 +831,11 @@ fn collection_literals_emit_the_k_of_the_calls_they_denote() {
         <env> .Map </env>
         <seen> SetItem(1) |Set SetItem(2) </seen>
         <stack> ListItem(.Map [ 1 <- 2 ]) </stack>
-        rule build ( A:Int , B:Int , M:Map , S:Set ) => M:Map [ A:Int <- 1 ] [ B:Int <- S:Set |Set (SetItem(A:Int) |Set SetItem(3)) ] [label(krsRule_0432a5ea69e36249ca34707c)]
-        rule empties ( A:Int ) => .Map [ A:Int <- .Set ] [ 1 <- SetItem(A:Int) ] [label(krsRule_24827f3ce5331722585d973c)]
-        rule lookup ( M:Map , Key:Int ) => {M:Map [ Key:Int <- 2 ] [ Key:Int ]}:>Int [label(krsRule_ca9c6cb787329cb196b90848)]
         rule [mark]:
         <seen> SetItem(N:Int) => SetItem(N:Int) |Set SetItem(1) </seen>
+        rule build ( A:Int , B:Int , M:Map , S:Set ) => M:Map [ A:Int <- 1 ] [ B:Int <- S:Set |Set (SetItem(A:Int) |Set SetItem(3)) ] [label(org_krs_collections--build)]
+        rule empties ( A:Int ) => .Map [ A:Int <- .Set ] [ 1 <- SetItem(A:Int) ] [label(org_krs_collections--empties)]
+        rule lookup ( M:Map , Key:Int ) => {M:Map [ Key:Int <- 2 ] [ Key:Int ]}:>Int [label(org_krs_collections--lookup)]
         rule [pair]:
         <env> E:Map => E:Map [ A:Int <- 1 ] [ B:Int <- 2 ] </env>
         <seen> S:Set => S:Set |Set (SetItem(A:Int) |Set SetItem(B:Int)) </seen>

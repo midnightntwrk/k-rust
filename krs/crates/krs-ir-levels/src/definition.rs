@@ -298,12 +298,18 @@ const FALLBACK_LABEL_PREFIX: &str = "krsRule_";
 
 impl LabelIdentity {
     /// Builds the reserved fallback label name from its owner hash.
+    ///
+    /// A default rule label spells the item's path (`nat--plus_zero`); the hash is the spelling
+    /// of an identity with no such spelling, such as the equations of a lifted local function.
     #[must_use]
     pub fn fallback_name(hash: &str) -> String {
         format!("{FALLBACK_LABEL_PREFIX}{hash}")
     }
 
     /// Recognizes an emitted label beginning with the reserved fallback prefix.
+    ///
+    /// It recognizes the hash spelling only: a default label that spells its item's path has
+    /// no prefix, so this does not tell a default label from an authored one.
     #[must_use]
     pub fn is_fallback(&self) -> bool {
         self.emitted_name.starts_with(FALLBACK_LABEL_PREFIX)

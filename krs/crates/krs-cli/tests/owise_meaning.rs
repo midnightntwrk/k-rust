@@ -16,7 +16,9 @@ use std::path::{Path, PathBuf};
 use krs_compiler::testing::assert_lowering_contract;
 use krs_ir::SentenceKind;
 use krs_ir_levels::{DefinitionSentence, SemanticTheory};
-use krs_test_support::{fixture_build_env, krs_command, shared_fixture_target, temp_dir};
+use krs_test_support::{
+    default_labels, fixture_build_env, krs_command, shared_fixture_target, temp_dir,
+};
 
 const PREAMBLE: &str = r#"
 use k::builtin::{Bool, Int, KSequence, int};
@@ -192,7 +194,8 @@ fn owise_is_emitted_as_itself_on_both_routes() {
         &["--output", emitted.to_str().unwrap()],
     );
     assert!(success, "{stderr}");
-    let k = fs::read_to_string(emitted.join("definition.k")).unwrap();
+    // A default label spells the item path, which holds the namespace `org_krs_owise`.
+    let k = default_labels(&fs::read_to_string(emitted.join("definition.k")).unwrap());
     let owise = k
         .lines()
         .map(str::trim)
@@ -354,7 +357,7 @@ fn is_not_two(k::term![IsTwo(_)]: Term<Bool>) -> Term<Bool> {
             (SentenceKind::Equation, 210, false),
         ]
     );
-    let k = fs::read_to_string(emitted.join("definition.k")).unwrap();
+    let k = default_labels(&fs::read_to_string(emitted.join("definition.k")).unwrap());
     assert_eq!(k.matches("priority(200)").count(), 2, "{k}");
     assert_eq!(k.matches("priority(210)").count(), 1, "{k}");
     assert_eq!(k.matches("owise").count(), 3, "{k}");

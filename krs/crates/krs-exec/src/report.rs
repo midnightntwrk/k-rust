@@ -357,7 +357,7 @@ impl RuleKind {
 pub struct CoveredRule {
     /// The backend's `UNIQUE_ID`.
     pub rule_id: String,
-    /// K's label, as the definition carries it (`SM83.boundary-fetch`, or KRS's default `krsRule_3d70...`).
+    /// K's label, as the definition carries it (`SM83.boundary-fetch`, or KRS's default `nat--plus_zero`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     /// The KRS item that wrote the sentence, as a Rust path below its crate root

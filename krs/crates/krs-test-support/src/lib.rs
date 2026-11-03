@@ -120,6 +120,30 @@ pub fn assert_rejects_with_message<T, E: std::fmt::Display + std::fmt::Debug>(
     }
 }
 
+/// `text` with every default rule label written `label(krsRule_DIGEST)`: the item path a
+/// default label spells (`label(nat--plus_zero)`, recognized by its `--`) and the hash of an
+/// identity without one (`label(krsRule_<hex>)`), which both name the sentence's source rather
+/// than its meaning. An authored label keeps its spelling.
+#[must_use]
+pub fn default_labels(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(index) = rest.find("label(") {
+        let (before, after) = rest.split_at(index + "label(".len());
+        out.push_str(before);
+        let end = after.find(')').unwrap_or(after.len());
+        let label = &after[..end];
+        out.push_str(if label.starts_with("krsRule_") || label.contains("--") {
+            "krsRule_DIGEST"
+        } else {
+            label
+        });
+        rest = &after[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// A temporary directory removed when its guard is dropped.
 pub use tempfile::TempDir;
 

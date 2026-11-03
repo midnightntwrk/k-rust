@@ -663,10 +663,11 @@ fn normalized(mut value: Json, explicit: bool) -> Json {
                     .get("label")
                     .and_then(|label| label.get("emitted_name"))
                     .and_then(Json::as_str)
-                    .is_some_and(|label| label.starts_with("krsRule_"))
+                    .is_some_and(is_default_label)
                 {
-                    // Definition lowering assigns an internal source-derived
-                    // symbol to some unlabeled sentences. It is not an
+                    // Definition lowering gives an unlabeled term rule a
+                    // default label spelled from its item's path, or a hash
+                    // of an identity with no such spelling. It is not an
                     // authored K label; the Descriptor mapping above retains
                     // and compares every authored label separately.
                     object.remove("label");
@@ -934,12 +935,22 @@ fn completed_expression_body(block: &str, label: &str) -> String {
     body.to_owned()
 }
 
+/// A default rule label: the item path `<namespace>--…--<item>` or the hash `krsRule_<hex>`.
+fn is_default_label(label: &str) -> bool {
+    label.starts_with("krsRule_") || label.contains("--")
+}
+
 fn prior_expression_block<'a>(blocks: &'a [String], body: &str, label: &str) -> &'a str {
-    let prefix = format!("  rule {body} [label(krsRule_");
+    let prefix = format!("  rule {body} [label(");
     let matches = blocks
         .iter()
         .filter(|block| {
-            !block.contains('\n') && block.starts_with(&prefix) && block.ends_with(")]")
+            !block.contains('\n')
+                && block.ends_with(")]")
+                && block
+                    .strip_prefix(&prefix)
+                    .and_then(|rest| rest.strip_suffix(")]"))
+                    .is_some_and(is_default_label)
         })
         .collect::<Vec<_>>();
     assert_eq!(

@@ -970,3 +970,43 @@ fn configuration_variables_print_as_dollar_names_anywhere_in_an_initializer() {
         "$A:Int"
     );
 }
+
+/// Rules are emitted in the natural order of their labels, so a function's branches read in
+/// their order: `x_2` before `x_10`, and the whole label breaks a tie between equal values.
+#[test]
+fn rules_are_ordered_by_the_natural_order_of_their_labels() {
+    let mut labels = [
+        "nat--x_10",
+        "nat--x_2",
+        "nat--x_1",
+        "nat--x_02",
+        "nat--x_2_10",
+        "nat--x_2_9",
+        "nat--x",
+        "nat--y_1",
+        "krsRule_9a",
+        "krsRule_10",
+        "go",
+    ]
+    .map(|label| super::NaturalLabel(label.to_owned()));
+    labels.sort();
+    assert_eq!(
+        labels
+            .iter()
+            .map(|label| label.0.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "go",
+            "krsRule_9a",
+            "krsRule_10",
+            "nat--x",
+            "nat--x_1",
+            "nat--x_02",
+            "nat--x_2",
+            "nat--x_2_9",
+            "nat--x_2_10",
+            "nat--x_10",
+            "nat--y_1",
+        ]
+    );
+}

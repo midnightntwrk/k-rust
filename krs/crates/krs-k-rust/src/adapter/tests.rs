@@ -24,7 +24,9 @@ use krs_ir_levels::{
 
 use super::{
     Adapter, AdapterError,
-    sentence::{claim_modality_attribute, native_claim_counter, native_rule_label},
+    sentence::{
+        claim_modality_attribute, native_claim_counter, native_rule_label, qualified_label,
+    },
     term::TermContext,
 };
 use crate::{
@@ -33,16 +35,62 @@ use crate::{
     test_fixtures::{MODULE, node, semantic_id, smoke_definition, symbol},
 };
 
+/// K qualifies a label by its module exactly when the emitted sentence names it in brackets
+/// (`rule [x]:`, `claim [x]:`, `context [x]:`), so the native label follows the sentence's form,
+/// not the label's spelling: a term rule's default and authored labels are bare, and a context's
+/// is qualified.
 #[test]
-fn native_rule_labels_match_the_source_frontend_namespace_policy() {
-    let label = |name: &str| LabelIdentity::new(LabelId::new("label").unwrap(), name).unwrap();
+fn native_rule_labels_follow_the_emitted_sentence_form() {
     assert_eq!(
-        native_rule_label("SMOKE", &label("foo-to-bar")),
+        qualified_label("SMOKE", "foo-to-bar", true),
         "SMOKE.foo-to-bar"
     );
     assert_eq!(
-        native_rule_label("SMOKE", &label("krsRule_725f2944b8a5a8eaf4b9fc6c")),
-        "krsRule_725f2944b8a5a8eaf4b9fc6c"
+        qualified_label("SMOKE", "smoke--h_zero", false),
+        "smoke--h_zero"
+    );
+    let definition = smoke_definition();
+    let mut adapter = Adapter::new(&definition, true);
+    let x = semantic_id("x");
+    let body = DefinitionTerm::rewrite(
+        node("labels.body"),
+        DefinitionSortRef::int(),
+        DefinitionTerm::variable(node("labels.left"), DefinitionSortRef::int(), x.clone()),
+        DefinitionTerm::variable(node("labels.right"), DefinitionSortRef::int(), x),
+    )
+    .unwrap();
+    let sentence = |kind, name: &str| {
+        RuleSentence::new(
+            node("labels.rule"),
+            LabelIdentity::new(LabelId::new("labels.rule").unwrap(), name).unwrap(),
+            kind,
+            Vec::new(),
+            body.clone(),
+        )
+        .unwrap()
+    };
+    for name in [
+        "org_example_smoke--h_zero",
+        "h-other",
+        "krsRule_725f2944b8a5a8eaf4b9fc6c",
+    ] {
+        for kind in [SentenceKind::Equation, SentenceKind::Transition] {
+            let rule = sentence(kind, name);
+            assert_eq!(native_rule_label("SMOKE", &rule), name);
+            let Sentence::Rule { attributes, .. } = adapter.rule(&rule, MODULE, 0).unwrap() else {
+                panic!("a term rule adapts to a native rule")
+            };
+            assert_eq!(attributes.get_str("label"), Some(name));
+        }
+    }
+    let context = sentence(SentenceKind::Context, "add-rhs");
+    assert_eq!(native_rule_label("SMOKE", &context), "SMOKE.add-rhs");
+    let Sentence::Context { attributes, .. } = adapter.context(&context, MODULE, 0).unwrap() else {
+        panic!("a context adapts to a native context")
+    };
+    assert_eq!(
+        attributes.get_str("label"),
+        Some(format!("{MODULE}.add-rhs").as_str())
     );
 }
 
@@ -1872,9 +1920,10 @@ fn definition_ir_maps_structurally_without_frontend_metadata() {
             _ => None,
         })
         .unwrap();
+    // A term rule's label is a `label(..)` attribute in the emitted K, which K keeps unqualified.
     assert_eq!(
         rule.1.get_str("label"),
-        Some("SMOKE.ORG-EXAMPLE-SMOKE.rules.foo-to-bar")
+        Some("ORG-EXAMPLE-SMOKE.rules.foo-to-bar")
     );
     assert!(matches!(
         rule.0,

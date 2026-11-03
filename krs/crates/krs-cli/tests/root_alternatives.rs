@@ -184,9 +184,9 @@ fn root_alternatives_emit_as_below_the_root_and_run() {
     assert!(success, "{stderr}");
     let k = fs::read_to_string(output.join("definition.k")).unwrap();
     expect_test::expect![[r"
-        rule code ( ( red #Or green ) ) => 10 [label(krsRule_4ece98de534f7cd06929841e)]
-        rule tone ( ( red #Or green ) ) => 11 [label(krsRule_191a607f9091cbf632f97fdd)]
-        rule mix ( ( red #Or green ) , N:Int ) => N:Int [label(krsRule_019352ddef449f4bd3f0e54d)]
+        rule code ( ( red #Or green ) ) => 10 [label(org_krs_root_alternatives--code_warm)]
+        rule tone ( ( red #Or green ) ) => 11 [label(org_krs_root_alternatives--tone_warm)]
+        rule mix ( ( red #Or green ) , N:Int ) => N:Int [label(org_krs_root_alternatives--mix_warm)]
         rule ( red #Or green ) => 1 [label(warm)]"]]
     .assert_eq(
         &[

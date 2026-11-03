@@ -332,8 +332,8 @@ fn a_match_over_a_projection_is_stated_on_the_operand_after_its_test() {
         [
             "requires isInt(A:Arg) andThenBool ( _ :=K A:Arg )",
             "requires isInt(A:Arg) andThenBool (notBool ( 1 :=K A:Arg ))",
-            "requires isInt(A:Arg) andThenBool ( 1 :=K A:Arg )",
             "requires isInt(A:Arg) andThenBool (notBool ( 1 :=K A:Arg ))",
+            "requires isInt(A:Arg) andThenBool ( 1 :=K A:Arg )",
             "requires isInt(A:Arg) andThenBool ( 1 :=K A:Arg )",
             "requires isInt(A:Arg) andThenBool ( #let B:Bool = ( 1 :=K A:Arg ) #in B:Bool )",
             "requires isInt(A:Arg) andThenBool (notBool ( 1 :=K A:Arg ))",
@@ -429,10 +429,10 @@ fn a_match_over_a_projection_in_a_result_or_an_ensures_is_read_by_every_frontend
             "requires true",
             "ensures isInt(A:Arg) andThenBool ( 1 :=K A:Arg )",
             "requires B:Bool",
-            "rule krsLocal_DIGEST ( A:Arg ) => true",
-            "requires isInt(A:Arg) andThenBool ( 1 :=K A:Arg )",
             "rule krsLocal_DIGEST ( A:Arg ) => false",
             "requires isInt(A:Arg) andThenBool (notBool ( 1 :=K A:Arg ))",
+            "rule krsLocal_DIGEST ( A:Arg ) => true",
+            "requires isInt(A:Arg) andThenBool ( 1 :=K A:Arg )",
             "<k> res A:Arg => flag krsLocal_DIGEST ( A:Arg ) ... </k>",
         ]
     "#]].assert_debug_eq(&lines);

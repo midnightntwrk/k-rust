@@ -8,7 +8,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use krs_test_support::{fixture_build_env, krs_command, shared_fixture_target, temp_dir};
+use krs_test_support::{
+    default_labels, fixture_build_env, krs_command, shared_fixture_target, temp_dir,
+};
 
 const PREAMBLE: &str = r#"
 use k::builtin::{Id, Int, KSequence, Map, map};
@@ -599,9 +601,10 @@ fn a_local_function_in_a_key_is_lifted_and_looked_up() {
             line.contains("krsLocal_") || line.contains("SetItem") || line.contains("isInt")
         })
         .map(|line| {
-            line.split(" [label(krsRule_")
+            let line = default_labels(line);
+            line.split(" [label(krsRule_DIGEST)]")
                 .next()
-                .unwrap_or(line)
+                .unwrap_or_default()
                 .to_owned()
         })
         .collect::<Vec<_>>();

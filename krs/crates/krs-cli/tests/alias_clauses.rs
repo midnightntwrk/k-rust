@@ -12,7 +12,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use krs_test_support::{fixture_build_env, krs_command, shared_fixture_target, temp_dir};
+use krs_test_support::{
+    default_labels, fixture_build_env, krs_command, shared_fixture_target, temp_dir,
+};
 
 const PREAMBLE: &str = r#"
 use k::builtin::{Bool, Int, KSequence, List, Set, set};
@@ -707,12 +709,7 @@ fn a_two_way_alias_is_accepted_and_prints_backwards() {
             rules(&k, "rule pairs"),
         ]
         .iter()
-        .map(|rule| {
-            rule.split("krsRule_")
-                .next()
-                .map(|head| format!("{head}krsRule_DIGEST)]"))
-                .unwrap_or_default()
-        })
+        .map(|rule| default_labels(rule))
         .chain(printed)
         .collect::<Vec<_>>()
         .join("\n"),

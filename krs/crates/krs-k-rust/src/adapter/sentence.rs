@@ -734,7 +734,7 @@ impl Adapter<'_> {
             },
         )?;
         let mut attributes = attributes_for_origin(sentence.origin());
-        attributes.insert("label", json!(native_rule_label(module, sentence.label())));
+        attributes.insert("label", json!(native_rule_label(module, sentence)));
         if let Some(result) = sentence.evaluation().and_then(|step| step.result()) {
             attributes.insert(
                 "result",
@@ -836,7 +836,7 @@ impl Adapter<'_> {
             },
         )?;
         let mut attributes = attributes_for_origin(sentence.origin());
-        attributes.insert("label", json!(native_rule_label(module, sentence.label())));
+        attributes.insert("label", json!(native_rule_label(module, sentence)));
         if sentence.anywhere().is_some() {
             attributes.insert("anywhere", json!(""));
         }
@@ -1786,15 +1786,28 @@ fn incomplete_cell(name: &str, content: NativeTerm, open_right: bool) -> NativeT
     )
 }
 
-pub(super) fn native_rule_label(module: &str, label: &krs_ir_levels::LabelIdentity) -> String {
-    let emitted_name = label.emitted_name();
-    // Shared lowering emits this reserved fallback directly as a label
-    // attribute. K therefore leaves it unqualified. Authored/named rules and
-    // claims pass through K's named-sentence path and acquire the module.
-    if label.is_fallback() {
-        emitted_name.to_owned()
+/// The label K gives the sentence that the emitted K text writes for `sentence`.
+///
+/// K qualifies a label by its module exactly when the sentence names it in brackets, as
+/// `rule [x]:`, `claim [x]:`, or `context [x]:`, and keeps it as written in a `label(x)`
+/// attribute. KRS writes a context and a configuration-bodied rule or claim in brackets and a
+/// term or predicate rule with the attribute, whether its label is authored or a default, so the
+/// native label follows that form and both routes name each sentence alike.
+pub(super) fn native_rule_label(module: &str, sentence: &RuleSentence) -> String {
+    let named = sentence.kind() == SentenceKind::Context
+        || matches!(
+            sentence.relational_body(),
+            RuleBodyRef::Configuration { .. }
+        );
+    qualified_label(module, sentence.label().emitted_name(), named)
+}
+
+/// `MODULE.label` for a label written in brackets (`named`), the label itself otherwise.
+pub(super) fn qualified_label(module: &str, label: &str, named: bool) -> String {
+    if named {
+        format!("{module}.{label}")
     } else {
-        format!("{module}.{emitted_name}")
+        label.to_owned()
     }
 }
 

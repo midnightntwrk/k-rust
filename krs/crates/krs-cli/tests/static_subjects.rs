@@ -25,7 +25,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use krs_test_support::{fixture_build_env, krs_command, shared_fixture_target, temp_dir};
+use krs_test_support::{
+    default_labels, fixture_build_env, krs_command, shared_fixture_target, temp_dir,
+};
 
 const PREAMBLE: &str = r#"
 use k::builtin::{Bytes, Int, KSequence, List, Map, Set, set};
@@ -264,8 +266,8 @@ fn refusals<const N: usize>(cases: [(&'static str, &str); N]) -> String {
         .join("\n")
 }
 
-/// The emitted rules of `k` that start with `rule NAME`, one per line, their generated label
-/// digests written `DIGEST`.
+/// The emitted rules of `k` that start with `rule NAME`, one per line, their default labels
+/// written `krsRule_DIGEST`.
 fn rules(k: &str, names: &[&str]) -> String {
     k.lines()
         .map(str::trim)
@@ -274,12 +276,7 @@ fn rules(k: &str, names: &[&str]) -> String {
                 .iter()
                 .any(|name| line.starts_with(&format!("rule {name} ")))
         })
-        .map(|rule| {
-            rule.split("krsRule_")
-                .next()
-                .map(|head| format!("{head}krsRule_DIGEST)]"))
-                .unwrap_or_default()
-        })
+        .map(default_labels)
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -395,14 +392,14 @@ fn a_static_application_below_a_subject_root_is_written_expanded() {
         ],
     );
     expect_test::expect![[r"
-        rule pick ( one ( X:Value ) , box ( 2 ) ) => one ( X:Value ) [label(krsRule_DIGEST)]
+        rule pick ( box ( 1 ) , box ( 3 ) ) => red [label(krsRule_DIGEST)]
         rule pick ( pair ( ( tag ( Y:Int ) #as N:Value ) , ( tag ( Y:Int ) #as N:Value ) ) , box ( 1 ) ) => one ( N:Value ) [label(krsRule_DIGEST)]
-        rule whole ( tag ( 9 ) ) => tag ( 0 ) [label(krsRule_DIGEST)]
+        rule pick ( one ( X:Value ) , box ( 2 ) ) => one ( X:Value ) [label(krsRule_DIGEST)]
         rule pick ( red , box ( 3 ) ) => red [label(krsRule_DIGEST)]
         rule pick ( X:Value , red ) => one ( X:Value ) [label(krsRule_DIGEST)]
-        rule pick ( one ( red ) , tag ( B:Int ) ) => one ( box ( B:Int ) ) [label(krsRule_DIGEST)]
-        rule pick ( box ( 1 ) , box ( 3 ) ) => red [label(krsRule_DIGEST)]
         rule pick ( pair ( box ( Y:Int ) , box ( Y:Int ) ) , box ( 0 ) ) => one ( box ( Y:Int ) ) [label(krsRule_DIGEST)]
+        rule pick ( one ( red ) , tag ( B:Int ) ) => one ( box ( B:Int ) ) [label(krsRule_DIGEST)]
+        rule whole ( tag ( 9 ) ) => tag ( 0 ) [label(krsRule_DIGEST)]
         pick(box(3), nought()) => one(box(3)) ~> .K
         pick(nest(1), tag(4)) => one(box(4)) ~> .K
         pick(twice(box(5)), box(0)) => one(box(5)) ~> .K
@@ -464,9 +461,9 @@ fn whole(k::term![Al::Whole(a)]: Term<Value>) -> Term<Value> {
         ],
     );
     expect_test::expect![[r"
+        rule fl ( 1.5 ) => tag ( 1 ) [label(krsRule_DIGEST)]
         rule pick ( box ( 1 ) , box ( 8 ) ) => red [label(krsRule_DIGEST)]
         rule pick ( tag ( 1 ) , box ( 9 ) ) => red [label(krsRule_DIGEST)]
-        rule fl ( 1.5 ) => tag ( 1 ) [label(krsRule_DIGEST)]
         pick(fl(1.5), box(9)) => red ~> .K
         pick(fl(1.50), box(9)) => red ~> .K
         pick(fl(15e-1), box(9)) => red ~> .K

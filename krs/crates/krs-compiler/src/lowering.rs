@@ -898,7 +898,9 @@ impl NamingPass {
                             rule.id().item_name().replace('_', "-")
                         }
                         RuleBodyRef::Term(_) | RuleBodyRef::Predicate(_) => {
-                            LabelIdentity::fallback_name(&short_hash(&owner))
+                            readable_rule_label(rule.id()).unwrap_or_else(|| {
+                                LabelIdentity::fallback_name(&short_hash(&owner))
+                            })
                         }
                         RuleBodyRef::Configuration { .. } => lower_camel(rule.id().item_name()),
                     },
@@ -3204,6 +3206,65 @@ fn validate_label_name(role: &'static str, value: &str) -> Result<(), LoweringEr
     }
 }
 
+/// The default label of an unlabelled term or predicate rule: the item's path, its components
+/// joined by `--`, `<namespace>--<module>--…--<item>` (`nat--plus_zero`,
+/// `sm83--interrupt--interrupt_vector_3`).
+///
+/// The namespace is written with ASCII uppercase lowered and `-` written `_`, and every other
+/// component is an ASCII Rust identifier, so no component holds a `-`: splitting the label at
+/// `--` gives back the components, and lowering the namespace is inverted by raising it and
+/// writing `_` as `-`, since a namespace holds no lowercase letter and no `_`. So the spelling is
+/// injective on the namespace, the module path, and the item name. The item kind is left out: a
+/// default-labelled item is a fn of its module's value namespace, where Rust allows one item of
+/// a name, and two items that still meet in one label are refused by the label claim, naming
+/// both, never renamed. A hash label, `krsRule_<hex>`, holds no `-`, so the two spellings never
+/// meet.
+///
+/// `None` when the identity has no such spelling: a nonempty disambiguator (the equations of a
+/// lifted local function), the generated production's item name, or a namespace, module, or item
+/// name outside those characters; the label is then the hash of the identity.
+pub(crate) fn readable_rule_label(id: &StableItemId) -> Option<String> {
+    let identifier = |value: &str| {
+        value
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+            && value
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+    };
+    let namespace = id.package().k_namespace();
+    let canonical_namespace = namespace
+        .bytes()
+        .next()
+        .is_some_and(|byte| byte.is_ascii_uppercase())
+        && namespace
+            .bytes()
+            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'-');
+    if !id.disambiguator().is_empty()
+        || id.is_generated_production()
+        || !canonical_namespace
+        || !id
+            .module_path()
+            .iter()
+            .all(|component| identifier(component))
+        || !identifier(id.item_name())
+    {
+        return None;
+    }
+    let mut label = namespace.to_ascii_lowercase().replace('-', "_");
+    for component in id
+        .module_path()
+        .iter()
+        .map(String::as_str)
+        .chain([id.item_name()])
+    {
+        label.push_str("--");
+        label.push_str(component);
+    }
+    Some(label)
+}
+
 pub(crate) fn stable_item_text(id: &StableItemId) -> String {
     let mut text = String::new();
     push_component(&mut text, id.package().k_namespace());
@@ -3403,7 +3464,10 @@ fn lower_camel(value: &str) -> String {
 mod tests {
     use krs_ir::{ExplicitSymbol, ItemKind, StableItemId};
 
-    use super::{CollisionNamespace, LoweringError, claim, stable_symbol_text};
+    use super::{
+        CollisionNamespace, LoweringError, claim, readable_rule_label, short_hash,
+        stable_item_text, stable_symbol_text, validate_label_name,
+    };
     use krs_diagnostic::{Location, ToDiagnostic, codes};
     use std::collections::BTreeMap;
 
@@ -3508,6 +3572,133 @@ mod tests {
                 diagnostic.help.len(),
                 usize::from(namespace == CollisionNamespace::EmittedSymbol)
             );
+        }
+    }
+
+    fn rule_item(
+        namespace: &str,
+        modules: &[&str],
+        name: &str,
+        kind: ItemKind,
+        disambiguator: &str,
+    ) -> StableItemId {
+        StableItemId::new(
+            krs_ir::testing::package(namespace, "fixture"),
+            modules.iter().copied(),
+            name,
+            kind,
+            disambiguator,
+        )
+        .unwrap()
+    }
+
+    /// The identity a readable label spells: the namespace, the module path, and the item name.
+    fn decode(label: &str) -> (String, Vec<String>, String) {
+        let mut components = label.split("--").map(str::to_owned).collect::<Vec<_>>();
+        let item = components.pop().unwrap();
+        let namespace = components.remove(0).to_ascii_uppercase().replace('_', "-");
+        (namespace, components, item)
+    }
+
+    #[test]
+    fn a_default_label_spells_the_item_path() {
+        for (namespace, modules, name, kind, expected) in [
+            (
+                "NAT",
+                &[][..],
+                "plus_zero",
+                ItemKind::Equation,
+                "nat--plus_zero",
+            ),
+            (
+                "SM83-CORE",
+                &["cpu", "alu"][..],
+                "add_carry_1",
+                ItemKind::Equation,
+                "sm83_core--cpu--alu--add_carry_1",
+            ),
+            (
+                "SM83",
+                &["interrupt"][..],
+                "interrupt_vector_3",
+                ItemKind::Equation,
+                "sm83--interrupt--interrupt_vector_3",
+            ),
+            ("NAT", &[][..], "step", ItemKind::Rule, "nat--step"),
+            (
+                "NAT",
+                &[][..],
+                "Shift_2",
+                ItemKind::Simplification,
+                "nat--Shift_2",
+            ),
+        ] {
+            let id = rule_item(namespace, modules, name, kind, "");
+            let label = readable_rule_label(&id).unwrap();
+            assert_eq!(label, expected);
+            validate_label_name("rule label", &label).unwrap();
+        }
+    }
+
+    #[test]
+    fn an_identity_without_a_readable_spelling_keeps_the_hash_label() {
+        for id in [
+            // A non-ASCII item name.
+            rule_item("NAT", &[], "plus_zéro", ItemKind::Equation, ""),
+            // A non-ASCII module.
+            rule_item("NAT", &["módulo"], "plus_zero", ItemKind::Equation, ""),
+            // The equations of a lifted local function.
+            rule_item(
+                "NAT",
+                &[],
+                "__krs_generated_semantic_production",
+                ItemKind::Equation,
+                "",
+            ),
+            rule_item("NAT", &[], "plus_zero", ItemKind::Equation, "local:0a"),
+        ] {
+            assert_eq!(readable_rule_label(&id), None, "{id:?}");
+            let fallback =
+                krs_ir_levels::LabelIdentity::fallback_name(&short_hash(&stable_item_text(&id)));
+            assert!(!fallback.contains('-'), "{fallback}");
+        }
+    }
+
+    #[test]
+    fn distinct_items_get_distinct_default_labels_that_decode_to_them() {
+        let identities = [
+            ("A-B", vec![], "x"),
+            ("A", vec!["b"], "x"),
+            ("A", vec!["b_"], "x"),
+            ("A", vec!["b"], "_x"),
+            ("A", vec![], "b__x"),
+            ("A", vec!["b", "c"], "x"),
+            ("A", vec!["b_c"], "x"),
+            ("A-B-C", vec![], "x"),
+            ("A--B", vec![], "x"),
+            ("A9", vec![], "x"),
+            ("NAT", vec![], "plus_zero"),
+            ("NAT", vec![], "Plus_zero"),
+        ];
+        let mut seen = std::collections::BTreeMap::new();
+        for (namespace, modules, name) in &identities {
+            let id = rule_item(namespace, modules, name, ItemKind::Equation, "");
+            let label = readable_rule_label(&id).unwrap();
+            assert_eq!(
+                decode(&label),
+                (
+                    (*namespace).to_owned(),
+                    modules.iter().map(|module| (*module).to_owned()).collect(),
+                    (*name).to_owned()
+                ),
+                "{label}"
+            );
+            if let Some(previous) = seen.insert(label.clone(), (namespace, modules, name)) {
+                panic!(
+                    "{label} spells both {previous:?} and {:?}",
+                    (namespace, modules, name)
+                );
+            }
         }
     }
 

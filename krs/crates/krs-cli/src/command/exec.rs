@@ -1191,7 +1191,7 @@ mod tests {
         let rule =
             |id: &str, item: Option<&str>, kind, origin, applications, committed| CoveredRule {
                 rule_id: id.to_owned(),
-                label: Some(format!("NAT.krsRule_{id}")),
+                label: Some(format!("nat--{id}")),
                 item: item.map(str::to_owned),
                 kind: Some(kind),
                 origin,
@@ -1258,7 +1258,7 @@ mod tests {
         );
         assert_eq!(
             output,
-            "coverage  matched  NAT.krsRule_r2  (rule)  src/lib.rs:60:1\n\
+            "coverage  matched  nat--r2  (rule)  src/lib.rs:60:1\n\
              coverage  applied ×2  plus_succ  (equation)  src/lib.rs:38:1\n\
              coverage  applied ×1  plus_zero  (equation)  src/lib.rs:31:1\n\
              coverage  committed, applied ×3  step  (rule)  src/lib.rs:50:1\n\

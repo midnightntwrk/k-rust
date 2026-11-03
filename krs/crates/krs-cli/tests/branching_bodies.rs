@@ -6,7 +6,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use krs_test_support::{fixture_build_env, krs_command, shared_fixture_target, temp_dir};
+use krs_test_support::{
+    default_labels, fixture_build_env, krs_command, shared_fixture_target, temp_dir,
+};
 
 /// The declarations both packages share.
 const PRELUDE: &str = r#"
@@ -358,8 +360,8 @@ fn emit(target: &Path, manifest: &Path, package: &str, output: &Path) -> (bool, 
     )
 }
 
-/// The definition's rules, each with its continuation lines, without labels
-/// (which hash each package's identities), in sorted order.
+/// The definition's rules, each with its continuation lines, without default labels
+/// (which spell each package's identities), in sorted order.
 fn rules(definition: &str) -> Vec<String> {
     let mut rules: Vec<String> = Vec::new();
     for line in definition.lines() {
@@ -374,12 +376,7 @@ fn rules(definition: &str) -> Vec<String> {
         }
     }
     for rule in &mut rules {
-        if let Some(start) = rule.find("label(krsRule_") {
-            let end = rule[start..]
-                .find(')')
-                .map_or(rule.len(), |end| start + end + 1);
-            rule.replace_range(start..end, "label(..)");
-        }
+        *rule = default_labels(rule).replace("label(krsRule_DIGEST)", "label(..)");
     }
     rules.sort();
     rules

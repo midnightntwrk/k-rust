@@ -171,10 +171,10 @@ fn a_function_at_the_root_is_accepted() {
     assert!(success, "{stderr}");
     let k = fs::read_to_string(output.join("definition.k")).unwrap();
     expect_test::expect![[r"
-        rule code ( red ) => 10 [label(krsRule_0e1683227f61042e656a9e40)]
-        rule code ( green ) => 11 [label(krsRule_bd44636864a415cfa80aa8d8)]
-        rule code ( blue ) => 20 [simplification, label(krsRule_452d243e7d8f3d1119e4aca1)]
-        rule X:Int +Int 0 => X:Int [simplification, label(krsRule_730cd6830110d52c0e7845d6)]"]]
+        rule code ( red ) => 10 [label(org_krs_subject_roots--code_red)]
+        rule code ( green ) => 11 [label(org_krs_subject_roots--code_green)]
+        rule code ( blue ) => 20 [simplification, label(org_krs_subject_roots--code_blue)]
+        rule X:Int +Int 0 => X:Int [simplification, label(org_krs_subject_roots--add_zero)]"]]
     .assert_eq(
         &[
             rules(&k, "rule code ( red"),

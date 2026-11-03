@@ -184,7 +184,7 @@ fn exact_source_snapshot_and_reordering_are_byte_identical() {
             <k> foo </k>
 
 
-          rule foo => bar [label(krsRule_7ff2bcc3f880afc8861cfcfe)]
+          rule foo => bar [label(krs_foo_bar--rules--foo_to_bar)]
         endmodule
     "#]]
     .assert_eq(emitted.source());

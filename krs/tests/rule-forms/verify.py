@@ -135,6 +135,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import re
 import shutil
 import sys
 import tempfile
@@ -761,7 +762,10 @@ def main() -> int:
         harness.check(NONDET)
         harness.expand(NONDET)
         nondet = harness.emit(NONDET)
-        if "nondet" in nondet.source.read_text(encoding="utf-8"):
+        # A default label spells the item path, `krs_nondet--div`, so the key is looked for
+        # outside the labels.
+        unlabelled = re.sub(r"label\([^)]*\)", "label()", nondet.source.read_text(encoding="utf-8"))
+        if "nondet" in unlabelled:
             raise GateError("the check-only nondet key reached the emitted K")
         harness.compare(nondet, NONDET_PROGRAMS, sort="Exp", search=True)
         print("PASS nondet: toss reaches heads and tails, strictness order reaches 3 and 4, guards separate div")

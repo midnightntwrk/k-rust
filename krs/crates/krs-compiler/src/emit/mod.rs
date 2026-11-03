@@ -3,6 +3,7 @@ mod term;
 mod token;
 
 use std::{
+    cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
     error::Error,
     fmt,
@@ -965,10 +966,66 @@ enum SentenceOrderKey {
     Associativity(String),
     Configuration(String),
     ContextAlias(String),
-    Rule(String),
+    Rule(NaturalLabel),
     Lexical(String),
     Layout(String),
     Raw(String),
+}
+
+/// A rule label in natural order: maximal runs of ASCII digits compare by their value and every
+/// other byte as itself, so `plus_2` precedes `plus_10`, and the whole label breaks a tie
+/// (`x_02` and `x_2`), which makes the order total.
+#[derive(Debug, Eq, PartialEq)]
+struct NaturalLabel(String);
+
+impl Ord for NaturalLabel {
+    fn cmp(&self, other: &Self) -> Ordering {
+        natural_order(&self.0, &other.0).then_with(|| self.0.cmp(&other.0))
+    }
+}
+
+impl PartialOrd for NaturalLabel {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+fn natural_order(left: &str, right: &str) -> Ordering {
+    let digits = |bytes: &[u8]| {
+        bytes
+            .iter()
+            .take_while(|byte| byte.is_ascii_digit())
+            .count()
+    };
+    let zeros = |run: &[u8]| run.iter().take_while(|byte| **byte == b'0').count();
+    let (mut left, mut right) = (left.as_bytes(), right.as_bytes());
+    loop {
+        match (left.first(), right.first()) {
+            (None, None) => return Ordering::Equal,
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (Some(first), Some(second)) if first.is_ascii_digit() && second.is_ascii_digit() => {
+                let (left_run, left_rest) = left.split_at(digits(left));
+                let (right_run, right_rest) = right.split_at(digits(right));
+                let left_value = &left_run[zeros(left_run)..];
+                let right_value = &right_run[zeros(right_run)..];
+                let order = left_value
+                    .len()
+                    .cmp(&right_value.len())
+                    .then_with(|| left_value.cmp(right_value));
+                if order != Ordering::Equal {
+                    return order;
+                }
+                (left, right) = (left_rest, right_rest);
+            }
+            (Some(first), Some(second)) => {
+                if first != second {
+                    return first.cmp(second);
+                }
+                (left, right) = (&left[1..], &right[1..]);
+            }
+        }
+    }
 }
 
 fn sentence_key(sentence: &DefinitionSentence) -> SentenceOrderKey {
@@ -998,7 +1055,7 @@ fn sentence_key(sentence: &DefinitionSentence) -> SentenceOrderKey {
             SentenceOrderKey::ContextAlias(sentence.name().to_owned())
         }
         DefinitionSentence::Rule(sentence) => {
-            SentenceOrderKey::Rule(sentence.label().emitted_name().to_owned())
+            SentenceOrderKey::Rule(NaturalLabel(sentence.label().emitted_name().to_owned()))
         }
         DefinitionSentence::Lexical(sentence) => {
             SentenceOrderKey::Lexical(sentence.name().to_owned())

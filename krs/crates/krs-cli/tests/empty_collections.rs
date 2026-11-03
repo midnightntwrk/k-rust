@@ -258,7 +258,7 @@ fn readable_empty_collections_are_the_reference_units() {
     expect_test::expect![[r#"
         [
             "<k> reset => .K ... </k> <functions> _ => .Map </functions> <stack> _ => .List </stack> <seen> _ => .Set </seen> endmodule",
-            "<k> load ( N:Int ) => N:Int ... </k> <functions> .Map </functions> <stack> .List </stack> <seen> .Set </seen> rule [reset]: <k> reset => .K ... </k> <functions> _ => .Map </functions> <stack> _ => .List </stack> <seen> _ => .Set </seen> endmodule",
+            "<k> load ( N:Int ) => N:Int ... </k> <functions> .Map </functions> <stack> .List </stack> <seen> .Set </seen> rule noFunctions ( _ ) => .Map [label(org_krs_empty--none)] rule noItems ( _ ) => .List [label(org_krs_empty--none_items)] rule [reset]: <k> reset => .K ... </k> <functions> _ => .Map </functions> <stack> _ => .List </stack> <seen> _ => .Set </seen> endmodule",
             "<k> load ( 3 ) => 3 </k> <functions> .Map </functions> <stack> .List </stack> <seen> .Set </seen> endmodule",
         ]
     "#]]

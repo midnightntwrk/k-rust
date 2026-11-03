@@ -7,9 +7,10 @@
 //!   `<k> A ~> T:K </k>`, when `T` occurs nowhere else in the sentence;
 //! - an anonymous frame `...` ≡ a named frame variable that occurs once, at the end of its cell,
 //!   and ≡ the anonymous variable `_` there, which is such a variable;
-//! - a generated sentence label, `label(krsRule_<digest>)`, is `label(krsRule_DIGEST)`, and a
-//!   lifted local function's symbol, `krsLocal_<digest>`, is `krsLocal_DIGEST`: the digest names
-//!   the sentence's source, not its meaning.
+//! - a generated sentence label, the item path `label(<namespace>--…--<item>)` or the digest
+//!   `label(krsRule_<digest>)`, is `label(krsRule_DIGEST)`, and a lifted local function's symbol,
+//!   `krsLocal_<digest>`, is `krsLocal_DIGEST`: both name the sentence's source, not its
+//!   meaning.
 
 use std::collections::BTreeMap;
 
@@ -262,11 +263,62 @@ pub fn normalize(sentence: &str) -> String {
 }
 
 /// `text` with the digest of every generated sentence label, `krsRule_<hex>`, and of every lifted
-/// local function's symbol, `krsLocal_<hex>`, written `DIGEST`.
+/// local function's symbol, `krsLocal_<hex>`, written `DIGEST`, and every item-path label,
+/// `<namespace>--…--<item>`, written `krsRule_DIGEST`.
 fn generated_labels(text: &str) -> String {
-    ["krsRule_", "krsLocal_"]
+    // The digests first: `digests` would read the `D` of a written `krsRule_DIGEST` as a digit.
+    let text = ["krsRule_", "krsLocal_"]
         .into_iter()
-        .fold(text.to_owned(), |text, prefix| digests(&text, prefix))
+        .fold(text.to_owned(), |text, prefix| digests(&text, prefix));
+    item_path_labels(&text)
+}
+
+/// `text` with every item-path label written `krsRule_DIGEST`: a maximal run of label characters
+/// (ASCII letters, digits, `_`, `-`) that is a lowercase namespace and one or more identifiers,
+/// each after `--`. K syntax writes no such run otherwise: its operators are spaced from their
+/// operands, and a variable or a sort starts with an uppercase letter.
+fn item_path_labels(text: &str) -> String {
+    let label_character =
+        |character: char| character.is_ascii_alphanumeric() || "_-".contains(character);
+    let identifier = |part: &str| {
+        part.chars()
+            .next()
+            .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+            && part
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '_')
+    };
+    let item_path = |run: &str| {
+        let mut parts = run.split("--");
+        let namespace = parts.next().unwrap_or_default();
+        namespace
+            .chars()
+            .next()
+            .is_some_and(|first| first.is_ascii_lowercase())
+            && namespace.chars().all(|character| {
+                character.is_ascii_lowercase() || character.is_ascii_digit() || character == '_'
+            })
+            && run.contains("--")
+            && parts.all(identifier)
+    };
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find(label_character) {
+        let (before, from) = rest.split_at(start);
+        out.push_str(before);
+        let end = from
+            .find(|character| !label_character(character))
+            .unwrap_or(from.len());
+        let (run, after) = from.split_at(end);
+        out.push_str(if item_path(run) {
+            "krsRule_DIGEST"
+        } else {
+            run
+        });
+        rest = after;
+    }
+    out.push_str(rest);
+    out
 }
 
 /// `text` with the hex digits after each `prefix` written `DIGEST`.
@@ -330,6 +382,28 @@ mod tests {
             normalize("rule f ( 1 ) => 0 [label(krsRule_0123abcd)]"),
             normalize("rule f ( 1 ) => 0 [label(krsRule_ffff0000)]")
         );
+        assert_eq!(
+            normalize("rule f ( 1 ) => 0 [label(nat--case_x)]"),
+            "rule f ( 1 ) => 0 [label(krsRule_DIGEST)]"
+        );
+        assert_eq!(
+            normalize("rule f ( 1 ) => 0 [label(org_krs_class_9--cases--case_x_2)]"),
+            normalize("rule f ( 1 ) => 0 [label(krsRule_0123abcd)]")
+        );
+        assert_eq!(
+            normalize(
+                "// krs-capability: AnywhereRule nat--case_x\nrule f ( 1 ) => 0 [anywhere, label(nat--case_x)]"
+            ),
+            "// krs-capability: AnywhereRule krsRule_DIGEST\nrule f ( 1 ) => 0 [anywhere, label(krsRule_DIGEST)]"
+        );
+        // An authored label, a K operator, and a variable keep their spelling.
+        for kept in [
+            "rule [case-TAG]:\n<k> a => b ... </k>",
+            "rule f ( X:Int ) => X:Int -Int 1 [label(go-on)]",
+            "rule f ( X:Int ) => --X:Int [label(case_x)]",
+        ] {
+            assert!(!normalize(kept).contains("krsRule_DIGEST"), "{kept}");
+        }
         assert!(normalize("rule [r]:\n<pc> _ </pc>").contains("<pc> _ </pc>"));
     }
 
