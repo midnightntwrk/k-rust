@@ -1129,10 +1129,17 @@ fn the_findings_registry_owns_every_red_by_its_kind() {
             vec!["k7/terms/e: a red of kind k7 under B, a diagnostic finding"],
         ),
         (
+            format!(
+                "{sound}\n[\"terms/j\"]\n{}",
+                entry("C", "accepted, with other K than recorded")
+            ),
+            vec!["C holds an under-refusal or other K than the table's: state its risk"],
+        ),
+        (
             format!("{sound}\n[\"terms/f/refused\"]\n{}", entry("C", "accepted")),
             vec![
                 "terms/f/refused: a red of kind under-refusal under C, a feature finding",
-                "C holds an under-refusal: state its risk",
+                "C holds an under-refusal or other K than the table's: state its risk",
             ],
         ),
     ]);
@@ -1185,7 +1192,7 @@ fn the_findings_registry_sees_a_bug_where_it_hides() {
             through_by_test,
             vec![
                 "A: every entry left is owned through by_test: make NT-30 the finding's owner",
-                "A states a risk but holds no under-refusal: remove the risk",
+                "A states a risk but holds no under-refusal and no other K: remove the risk",
             ],
         ),
         (
@@ -3075,4 +3082,22 @@ fn a_filtered_run_fails_on_a_stale_entry_of_any_prefix() {
             .unjudged(&with_k6, &judged, covers)
             .contains(&("k6/terms/a/x", "k6"))
     );
+}
+
+/// A case whose K2 entry says its K differs from the table's holds the principled K, which record
+/// mode keeps: [`Pending::holds_other_k`] sees the entry under the case's ID and under `full/`,
+/// and no other deviation.
+#[test]
+fn record_mode_keeps_a_principled_k_held_against_the_product() {
+    let pending = Pending::parse(&format!(
+        "[\"terms/a\"]\n{}\n[\"full/terms/b\"]\n{}\n[\"terms/c\"]\n{}",
+        entry("A", krs_test_support::class_matrix::pending::OTHER_K),
+        entry("A", krs_test_support::class_matrix::pending::OTHER_K),
+        entry("A", "accepted"),
+    ))
+    .unwrap_or_else(|errors| panic!("{errors:#?}"));
+    assert!(pending.holds_other_k("terms/a"));
+    assert!(pending.holds_other_k("terms/b"));
+    assert!(!pending.holds_other_k("terms/c"));
+    assert!(!pending.holds_other_k("terms/d"));
 }

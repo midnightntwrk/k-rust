@@ -20,8 +20,9 @@
 //! - `what`: one line saying what is wrong.
 //! - `by_test`: the owner of the finding's entries of one test ([`test_of`]), where another owner
 //!   owns them, or where one test's owner is stated explicitly.
-//! - `risk`: on a finding that holds an under-refusal, and only there, what the K KRS writes for
-//!   the spelling means and how that differs from what the spelling says.
+//! - `risk`: on a finding that holds an under-refusal or a K the product writes other than the
+//!   table's principled K ([`OTHER_K`]), and only there, what the K KRS writes for the spelling
+//!   means and how that differs from what the spelling says.
 //!
 //! **The kind of a red** ([`Red`]) is computed, never stated: a K2 entry's deviation is the
 //! signature of what the case did ([`super::invariants::signature`]), so against the table's
@@ -58,7 +59,8 @@
 //! - a registered finding has no entry left (it is done: remove it), or a `by_test` owner has no
 //!   entry of its test left;
 //! - a red's kind is not one its finding's kind admits;
-//! - a finding holds an under-refusal and states no `risk`, or states one and holds none.
+//! - a finding holds an under-refusal or an [`OTHER_K`] entry and states no `risk`, or states one
+//!   and holds neither.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -66,7 +68,7 @@ use std::fmt;
 use krs_diagnostic::codes::CodeKind;
 use toml_edit::DocumentMut;
 
-use super::pending::{Pending, PendingEntry, UNASSIGNED, test_of};
+use super::pending::{OTHER_K, Pending, PendingEntry, UNASSIGNED, test_of};
 use super::table::Expected;
 
 /// The registry's file name, beside `pending.toml`.
@@ -561,7 +563,7 @@ pub fn audit(
             .or_default()
             .insert(test_of(key));
         let red = red(key, entry);
-        if red.kind == RedKind::UnderRefusal {
+        if red.kind == RedKind::UnderRefusal || entry.deviation == OTHER_K {
             under.insert(entry.finding.as_str());
         }
         if !red.admits(finding.kind) {
@@ -609,11 +611,11 @@ pub fn audit(
         }
         match (finding.risk.is_some(), under.contains(name.as_str())) {
             (false, true) => errors.push(format!(
-                "{name} holds an under-refusal: state its risk, what the K KRS writes means and \
-                 how it differs from what the spelling says"
+                "{name} holds an under-refusal or other K than the table's: state its risk, what \
+                 the K KRS writes means and how it differs from what the spelling says"
             )),
             (true, false) => errors.push(format!(
-                "{name} states a risk but holds no under-refusal: remove the risk"
+                "{name} states a risk but holds no under-refusal and no other K: remove the risk"
             )),
             _ => {}
         }

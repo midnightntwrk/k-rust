@@ -195,7 +195,8 @@ what = "a readable instance record's List child written with brackets (`acc: { A
 ["S5-W1"]
 owner = "S5"
 kind = "bug"
-what = "a subject `Some(_)` on an optional group cell (`ogroup: Some(_)`) lowers to a bare untyped `_` in the rule's configuration, which names no `ogroup` cell, so the rule does not test the cell's presence, though P5 reads `Some` as the cell present (P0: an entry means its K; the principled K is `_:OgroupCell`, recorded by hand: rerecording writes the product's K back, which check 6 refuses). The rule fires whether `ogroup` is present or absent: an author who wrote `Some(_)` to require the cell gets a rule that also applies to configurations without it, and nothing reports it; `Some(x)` and the written `Some(_)` emit the cell's sort and are right. Its reds are other K, not under-refusals, so the registry holds no `risk` for it"
+what = "a subject `Some(_)` on an optional group cell (`ogroup: Some(_)`) lowers to a bare untyped `_` in the rule's configuration, which names no `ogroup` cell, so the rule does not test the cell's presence, though P5 reads `Some` as the cell present (P0: an entry means its K). The principled K, `_:OgroupCell`, is the table's (written by hand; record mode keeps it while the pending entry is `accepted, with other K than recorded`); `Some(x)` and the written `Some(_)` emit the cell's sort and are right"
+risk = "the rule fires whether `ogroup` is present or absent: an author who wrote `Some(_)` to require the cell gets a rule that also applies to configurations without it, and nothing reports it"
 
 ["S5-X1"]
 owner = "S5"
