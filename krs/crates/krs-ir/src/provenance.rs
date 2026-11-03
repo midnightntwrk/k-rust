@@ -184,6 +184,49 @@ impl FrameKind {
     }
 }
 
+/// A node KRS adds to a definition that no authored token denotes: a
+/// function of other syntax, which no edit of authored tokens changes on
+/// its own. A rendering of authored syntax, once or many times (a
+/// `k::bits!` long form, an `else`'s negations, a constant at each use), is
+/// authored and carries no such frame.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum InsertedNode {
+    /// The test of a partial construct a condition evaluates, stated before
+    /// it, every node of the test, and the `andThenBool` that joins it.
+    DefinednessTest,
+    /// A guard of a looked-up Set-collection instance or computed key, its
+    /// fresh name in the pattern, and the conjunctions joining guards.
+    LookupGuard,
+    /// An occurrence of a variable KRS named for no token, or an alias KRS
+    /// adds under such a name: a `k::bits!` binder, the hidden binder of a
+    /// field a record update takes from its base, a lookup's fresh name. A
+    /// rest KRS names for an authored `..` is authored.
+    GeneratedBinder,
+    /// A cell frame the language adds, which no `..` denotes: a block-form
+    /// rule's computation tail or `have` read's map remainder, the stdin
+    /// list's remainder.
+    CellFrame,
+    /// The scaffolding of a function lifted out of a `let` block or a
+    /// `k::matches!`: its production, heads, calls, results and wrappers.
+    LocalFunction,
+}
+
+impl InsertedNode {
+    /// The kind's stable spelling, as serialized.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::DefinednessTest => "definedness_test",
+            Self::LookupGuard => "lookup_guard",
+            Self::GeneratedBinder => "generated_binder",
+            Self::CellFrame => "cell_frame",
+            Self::LocalFunction => "local_function",
+        }
+    }
+}
+
 /// One link in a source-to-generated provenance chain.
 ///
 /// The wire representation explicitly distinguishes locations that have real
@@ -217,9 +260,28 @@ pub enum OriginFrame {
         #[serde(skip_serializing_if = "Option::is_none")]
         label: Option<String>,
     },
+    /// The insertion that produced this node, pushed by the pass that
+    /// inserted it. The node keeps the authored frame it had, so its exact
+    /// authored range is unchanged.
+    Inserted {
+        /// What KRS inserted.
+        kind: InsertedNode,
+        /// The exact authored range of the construct the node serves, when
+        /// that is not the stack's own authored frame: a definedness test
+        /// serves the construct it tests, while its stack is the copied
+        /// operand's.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        anchor: Option<SourceRange>,
+    },
 }
 
 impl OriginFrame {
+    /// Creates the frame of a node KRS inserted.
+    #[must_use]
+    pub const fn inserted(kind: InsertedNode, anchor: Option<SourceRange>) -> Self {
+        Self::Inserted { kind, anchor }
+    }
+
     /// Creates an authored frame for the first position in an origin stack.
     #[must_use]
     pub fn authored(range: SourceRange) -> Self {
@@ -299,6 +361,17 @@ impl OriginStack {
     pub fn frames(&self) -> &[OriginFrame] {
         &self.0
     }
+
+    /// The last inserted frame of the stack, the insertion that produced
+    /// this node, with its anchor; `None` for a node that renders authored
+    /// syntax.
+    #[must_use]
+    pub fn inserted(&self) -> Option<(InsertedNode, Option<&SourceRange>)> {
+        self.0.iter().rev().find_map(|frame| match frame {
+            OriginFrame::Inserted { kind, anchor } => Some((*kind, anchor.as_ref())),
+            _ => None,
+        })
+    }
 }
 
 impl<'de> Deserialize<'de> for OriginStack {
@@ -357,6 +430,98 @@ mod tests {
         transformed.push(OriginFrame::authored(expected));
         assert_eq!(transformed.exact_authored_range(), None);
         assert_eq!(OriginStack(Vec::new()).exact_authored_range(), None);
+    }
+
+    /// An inserted frame is typed, serializes under its own frame type, and
+    /// leaves the node's authored range as it was; the last one names the
+    /// insertion that produced the node.
+    #[test]
+    fn inserted_frames_are_typed_and_keep_the_authored_range() {
+        use super::InsertedNode;
+        let mut origin = crate::testing::authored(3, 8);
+        let authored = origin.exact_authored_range().unwrap();
+        assert_eq!(origin.inserted(), None);
+        let anchor = crate::testing::authored(10, 14)
+            .exact_authored_range()
+            .unwrap();
+        origin.push(OriginFrame::inserted(
+            InsertedNode::DefinednessTest,
+            Some(anchor.clone()),
+        ));
+        assert_eq!(origin.exact_authored_range(), Some(authored));
+        assert_eq!(
+            origin.inserted(),
+            Some((InsertedNode::DefinednessTest, Some(&anchor)))
+        );
+        let frame = serde_json::to_value(&origin.frames()[1]).unwrap();
+        assert_eq!(frame["frame_type"], "inserted");
+        assert_eq!(frame["kind"], "definedness_test");
+        assert!(frame.get("anchor").is_some());
+        origin.push(OriginFrame::Transformation {
+            kind: TransformationOriginKind::DefinitionIr,
+            item: None,
+            label: None,
+        });
+        origin.push(OriginFrame::inserted(InsertedNode::GeneratedBinder, None));
+        assert_eq!(
+            origin.inserted(),
+            Some((InsertedNode::GeneratedBinder, None))
+        );
+        let frame = serde_json::to_value(&origin.frames()[3]).unwrap();
+        assert!(frame.get("anchor").is_none());
+        let text = serde_json::to_string(&origin).unwrap();
+        assert_eq!(serde_json::from_str::<OriginStack>(&text).unwrap(), origin);
+        for kind in [
+            InsertedNode::DefinednessTest,
+            InsertedNode::LookupGuard,
+            InsertedNode::GeneratedBinder,
+            InsertedNode::CellFrame,
+            InsertedNode::LocalFunction,
+        ] {
+            assert_eq!(
+                serde_json::to_value(kind).unwrap(),
+                serde_json::Value::from(kind.as_str())
+            );
+        }
+    }
+
+    /// Descriptor provenance records parser nodes, which exist before any
+    /// pass inserts a node: a table holding an inserted frame is refused,
+    /// built or read.
+    #[test]
+    fn descriptor_provenance_refuses_inserted_frames() {
+        use crate::{
+            DescriptorNodeOrigin, DescriptorProvenance, DescriptorProvenanceError, InsertedNode,
+            ProvenanceKey, ProvenanceRole,
+        };
+        let key = ProvenanceKey::new(ProvenanceRole::RuleDeclaration, 0);
+        let mut origin = crate::testing::authored(3, 8);
+        let authored = DescriptorProvenance::new(
+            key.clone(),
+            vec![DescriptorNodeOrigin {
+                key: key.clone(),
+                origin: origin.clone(),
+            }],
+        )
+        .unwrap();
+        let text = serde_json::to_string(&authored).unwrap();
+        origin.push(OriginFrame::inserted(InsertedNode::CellFrame, None));
+        assert_eq!(
+            DescriptorProvenance::new(
+                key.clone(),
+                vec![DescriptorNodeOrigin {
+                    key: key.clone(),
+                    origin: origin.clone(),
+                }],
+            ),
+            Err(DescriptorProvenanceError::InsertedFrame(key))
+        );
+        let stack = serde_json::to_string(&origin).unwrap();
+        let authored_stack = serde_json::to_string(&crate::testing::authored(3, 8)).unwrap();
+        let inserted = text.replace(&authored_stack, &stack);
+        assert_ne!(inserted, text);
+        let error = serde_json::from_str::<DescriptorProvenance>(&inserted).unwrap_err();
+        assert!(error.to_string().contains("inserted frame"), "{error}");
     }
 
     /// Changing a frame code requires advancing `collector::VERSION`.

@@ -783,6 +783,17 @@ impl Sample for TimingsDocument {
         }]
     }
 }
+impl Sample for InsertedNode {
+    fn samples() -> Vec<Self> {
+        vec![
+            Self::DefinednessTest,
+            Self::LookupGuard,
+            Self::GeneratedBinder,
+            Self::CellFrame,
+            Self::LocalFunction,
+        ]
+    }
+}
 impl Sample for TransformationOriginKind {
     fn samples() -> Vec<Self> {
         vec![Self::GeneratedDescriptor]
@@ -2019,12 +2030,21 @@ impl Sample for OriginFrame {
                     item: sample::<Option<StableItemId>>(),
                     label: sample::<Option<String>>(),
                 },
+                Self::Inserted {
+                    kind: sample::<InsertedNode>(),
+                    anchor: Some(sample::<SourceRange>()),
+                },
+                Self::Inserted {
+                    kind: sample::<InsertedNode>(),
+                    anchor: None,
+                },
             ],
-            2,
+            3,
             "OriginFrame",
             |value| match value {
                 Self::Ranged { .. } => 0,
                 Self::Transformation { .. } => 1,
+                Self::Inserted { .. } => 2,
             },
         )
     }
@@ -2281,6 +2301,12 @@ impl<
                 Self::HaveMap {
                     cell: sample::<I>(),
                     entries: sample::<Vec<ProtocolHeadRuleMapEntry<T>>>(),
+                    rest_key: Some(sample::<ProvenanceKey>()),
+                },
+                Self::HaveMap {
+                    cell: sample::<I>(),
+                    entries: sample::<Vec<ProtocolHeadRuleMapEntry<T>>>(),
+                    rest_key: None,
                 },
                 Self::UpdateMap {
                     cell: sample::<I>(),
@@ -2312,12 +2338,12 @@ impl<
                     result_key: Some(sample::<ProvenanceKey>()),
                     before: ProtocolHeadRuleList {
                         items: vec![sample::<T>()],
-                        rest: ProtocolHeadRuleListRest::Shared,
+                        rest: ProtocolHeadRuleListRest::Shared(None),
                         back: Vec::new(),
                     },
                     after: Some(ProtocolHeadRuleList {
                         items: Vec::new(),
-                        rest: ProtocolHeadRuleListRest::Shared,
+                        rest: ProtocolHeadRuleListRest::Shared(None),
                         back: vec![sample::<T>()],
                     }),
                 },
@@ -2372,11 +2398,19 @@ impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRu
             Self {
                 items: vec![sample::<T>()],
                 exact: false,
+                tail_key: Some(sample::<ProvenanceKey>()),
                 result: Some(sample::<ProtocolHeadRuleResult<T>>()),
+            },
+            Self {
+                items: vec![sample::<T>()],
+                exact: false,
+                tail_key: None,
+                result: None,
             },
             Self {
                 items: Vec::new(),
                 exact: true,
+                tail_key: None,
                 result: None,
             },
         ]
@@ -2403,12 +2437,17 @@ impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRu
 impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRuleListRest<T> {
     fn samples() -> Vec<Self> {
         checked_samples(
-            vec![Self::Exact, Self::Shared, Self::Term(sample::<T>())],
+            vec![
+                Self::Exact,
+                Self::Shared(Some(sample::<ProvenanceKey>())),
+                Self::Shared(None),
+                Self::Term(sample::<T>()),
+            ],
             3,
             "ProtocolHeadRuleListRest",
             |value| match value {
                 Self::Exact => 0,
-                Self::Shared => 1,
+                Self::Shared(..) => 1,
                 Self::Term(..) => 2,
             },
         )

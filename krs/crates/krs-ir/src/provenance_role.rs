@@ -586,6 +586,11 @@ provenance_roles! {
     /// Bare `unobservable` flag of a cell: no use of the definition may
     /// observe its content.
     ConfigurationCellUnobservable => "configuration_cell_unobservable",
+    /// The anonymous `..` of a bracketed cell value in a cell-record rule
+    /// subject: the computation cell's kept tail (`[p, ..]`) or a list
+    /// cell's shared rest (`[a, ..]`). The cell's declared type, which the
+    /// collector reads, decides which, so one role serves both readings.
+    RuleLeftSequenceRest => "rule_left_sequence_rest",
 }
 
 impl Serialize for ProvenanceRole {

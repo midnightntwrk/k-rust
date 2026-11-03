@@ -1743,14 +1743,14 @@ mod tests {
             krs_ir::Sha256Digest::new(krs_ir::lower_hex(&Sha256::digest(b"before Exact after")))
                 .unwrap();
         let origin = testing::authored_in(package(), "src/lib.rs", digest, 7, 12);
-        let entry = json!({"key":"exact.token","node_kind":"term","origin":origin,"generated":{
+        let entry = json!({"key":"exact.token","node_kind":"term","depth":2,"origin":origin,"generated":{
             "artifact": "spec.k", "start_byte": 6, "end_byte": 11,
             "start_line": 1, "start_column": 7, "end_line": 1, "end_column": 12,
         }});
         let write = |entries: Vec<Value>| {
             fs::write(
                 dir.path().join("sources.json"),
-                json!({"schema_version":2,"entries":entries}).to_string(),
+                json!({"schema_version":3,"entries":entries}).to_string(),
             )
             .unwrap();
         };
@@ -2202,6 +2202,7 @@ mod tests {
                     ),
                 )],
                 exact: false,
+                tail_key: None,
                 result: Some(DescriptorHeadRuleResult::Replace(application(
                     result_head,
                     right,

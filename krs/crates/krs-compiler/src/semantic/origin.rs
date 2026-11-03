@@ -1,6 +1,7 @@
 use krs_ir::{
-    Descriptor, DescriptorCellIdentity, NodeOrigin, OriginFrame, ProvenanceKey, SemanticId,
-    SourceMapKey, StableItemId, StableText, TransformationOriginKind, lower_hex,
+    Descriptor, DescriptorCellIdentity, InsertedNode, NodeOrigin, OriginFrame, ProvenanceKey,
+    SemanticId, SourceMapKey, SourceRange, StableItemId, StableText, TransformationOriginKind,
+    lower_hex,
 };
 use krs_syntax::ProvenanceRole;
 use sha2::{Digest, Sha256};
@@ -52,6 +53,67 @@ pub(super) fn semantic_origin(
         }
     })?;
     semantic_origin_from_stack(descriptor, origin, role, Some(&key))
+}
+
+/// [`semantic_origin`] with an inserted frame of `kind` pushed: a node the
+/// language adds at the node `key` names, which no token denotes.
+pub(super) fn inserted_origin(
+    descriptor: &Descriptor,
+    key: ProvenanceKey,
+    role: &str,
+    kind: InsertedNode,
+) -> Result<NodeOrigin, DescriptorLoweringError> {
+    let origin = semantic_origin(descriptor, key, role)?;
+    Ok(marked(&origin, kind, None))
+}
+
+/// `origin` under its key extended by `suffix`, its stack unchanged: a
+/// rendering of the same authored syntax at another place (a constant at a
+/// use, an alias's expansion), which stays authored.
+pub(super) fn rendered_copy(origin: &NodeOrigin, suffix: &str) -> NodeOrigin {
+    NodeOrigin::new(suffixed_key(origin, suffix), origin.origin().clone())
+}
+
+/// `origin` under its key extended by `suffix`, marked as inserted by
+/// `kind`: a node KRS adds from the node it copies. The copy is this
+/// pass's insertion whatever the copied node was, so an insertion the
+/// copied node carries is replaced: a definedness test KRS states over a
+/// local function's negated test is a definedness test, anchored at the
+/// construct it tests, as the same test over the authored condition is.
+pub(super) fn inserted_copy(
+    origin: &NodeOrigin,
+    suffix: &str,
+    kind: InsertedNode,
+    anchor: Option<&SourceRange>,
+) -> NodeOrigin {
+    marked(
+        &NodeOrigin::new(suffixed_key(origin, suffix), origin.origin().clone()),
+        kind,
+        anchor,
+    )
+}
+
+/// `origin` with its stack's inserted frame, if any, replaced by one of
+/// `kind` as the stack's last frame: the node is the insertion of the pass
+/// that marks it.
+fn marked(origin: &NodeOrigin, kind: InsertedNode, anchor: Option<&SourceRange>) -> NodeOrigin {
+    let key = origin.key().clone();
+    let mut frames = origin
+        .origin()
+        .frames()
+        .iter()
+        .filter(|frame| !matches!(frame, OriginFrame::Inserted { .. }))
+        .cloned()
+        .collect::<Vec<_>>();
+    frames.push(OriginFrame::inserted(kind, anchor.cloned()));
+    let stack = krs_ir::OriginStack::try_from_frames(frames)
+        .expect("removing an inserted frame keeps the stack's first, authored frame");
+    NodeOrigin::new(key, stack)
+}
+
+fn suffixed_key(origin: &NodeOrigin, suffix: &str) -> SourceMapKey {
+    SourceMapKey::new(format!("{}{suffix}", origin.key().as_str()))
+        .expect("a source-map key extended by a separator-free suffix is a key")
 }
 
 /// The exact authored range of the node `key` names in `descriptor`, if it has one.

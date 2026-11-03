@@ -735,8 +735,12 @@ impl StructuredTermBuilder<'_> {
                     None => SemanticTerm::list(origin, sort.clone(), ListOperands::Empty),
                 }
             }
-            ProtocolHeadRuleListRest::Shared => SemanticTerm::variable(
-                semantic_origin(descriptor, cell.key.clone(), &format!("list-rest-{side}"))?,
+            ProtocolHeadRuleListRest::Shared(key) => SemanticTerm::variable(
+                semantic_origin(
+                    descriptor,
+                    key.as_ref().unwrap_or(&cell.key).clone(),
+                    &format!("list-rest-{side}"),
+                )?,
                 sort.clone(),
                 self.shared_list_rest(cell, sort)?,
             ),
@@ -791,8 +795,12 @@ impl StructuredTermBuilder<'_> {
         let front = elements(self, &list.items, "")?;
         let rest = match &list.rest {
             ProtocolHeadRuleListRest::Exact => None,
-            ProtocolHeadRuleListRest::Shared => Some(SemanticTerm::variable(
-                semantic_origin(descriptor, cell.key.clone(), &format!("list-rest-{side}"))?,
+            ProtocolHeadRuleListRest::Shared(key) => Some(SemanticTerm::variable(
+                semantic_origin(
+                    descriptor,
+                    key.as_ref().unwrap_or(&cell.key).clone(),
+                    &format!("list-rest-{side}"),
+                )?,
                 BUILTIN_LIST,
                 self.shared_list_rest(cell, &BUILTIN_LIST)?,
             )),

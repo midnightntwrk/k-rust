@@ -1119,6 +1119,29 @@ impl OriginPass {
         });
         Ok(NodeOrigin::new(key, stack))
     }
+
+    /// [`Self::lower`] for a node this pass inserts: the inserted frame goes
+    /// before the Definition IR frame, which stays last because readers take
+    /// the last frame's item as the sentence's.
+    fn lower_inserted(
+        &mut self,
+        semantic: &NodeOrigin,
+        role: &'static str,
+        item: Option<&StableItemId>,
+        discriminator: Option<&str>,
+        kind: krs_ir::InsertedNode,
+    ) -> Result<NodeOrigin, LoweringError> {
+        let mut stack = semantic.origin().clone();
+        if stack.inserted().is_none() {
+            stack.push(OriginFrame::inserted(kind, None));
+        }
+        self.lower(
+            &NodeOrigin::new(semantic.key().clone(), stack),
+            role,
+            item,
+            discriminator,
+        )
+    }
 }
 
 #[expect(
@@ -1888,8 +1911,16 @@ fn lower_stdin_read(
                 krs_ir_levels::ListOperands::Empty,
             ),
         },
+        // The rest of the input stream, which the language keeps and no
+        // token denotes.
         CellContentFrame::ListRemainder {
-            origin: origins.lower(clause.origin(), "stdin-list-remainder", None, None)?,
+            origin: origins.lower_inserted(
+                clause.origin(),
+                "stdin-list-remainder",
+                None,
+                None,
+                krs_ir::InsertedNode::CellFrame,
+            )?,
         },
     ))
 }
@@ -2867,7 +2898,25 @@ fn lower_term(
     names: &NamingPass,
     origins: &mut OriginPass,
 ) -> Result<DefinitionTerm, LoweringError> {
-    let origin = origins.lower(term.origin(), "term", None, None)?;
+    // An occurrence of a name KRS made for no token is inserted, and so is
+    // an alias KRS adds under such a name (a record update's hidden field
+    // over the field's pattern, `( P #as Krs_Update.. )`): its own bytes are
+    // the parentheses, `#as` and the name, all KRS's, while the pattern is
+    // a node of its own. The rest of an authored `..` renders that token,
+    // and a lookup's fresh name is marked with its guard.
+    let origin = match term.kind() {
+        SemanticTermKind::Variable { variable }
+        | SemanticTermKind::As {
+            alias: variable, ..
+        } if variable.is_generated_name() && !variable.is_rest_name() => origins.lower_inserted(
+            term.origin(),
+            "term",
+            None,
+            None,
+            krs_ir::InsertedNode::GeneratedBinder,
+        )?,
+        _ => origins.lower(term.origin(), "term", None, None)?,
+    };
     match term.kind() {
         SemanticTermKind::Variable { variable } => Ok(DefinitionTerm::variable(
             origin,

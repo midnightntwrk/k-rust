@@ -214,7 +214,11 @@ fn expand_head_rule(
     let mut list_befores = Vec::new();
     for (extra, extra_keys) in clause.extras().iter().zip(clause.extra_keys()) {
         match extra {
-            krs_syntax::RuleExtra::HaveMap { cell, entries } => {
+            krs_syntax::RuleExtra::HaveMap {
+                cell,
+                entries,
+                rest,
+            } => {
                 let cell_name = cell.unraw().to_string();
                 let entries = entries
                     .iter()
@@ -231,12 +235,17 @@ fn expand_head_rule(
                         })
                     })
                     .collect::<Result<Vec<_>, ExpandError>>()?;
+                let cell = krs_ir::wire::WireHeadRuleCellReference {
+                    key: ledger.define(extra_keys.cell())?,
+                    name: cell_name,
+                };
+                // A machine-form read's `..` is authored; a `have` read's
+                // remainder is the block form's.
+                let rest_key = rest.map(|_| ledger.define(extra_keys.rest())).transpose()?;
                 have_extras.push(krs_ir::wire::WireHeadRuleExtra::HaveMap {
-                    cell: krs_ir::wire::WireHeadRuleCellReference {
-                        key: ledger.define(extra_keys.cell())?,
-                        name: cell_name,
-                    },
+                    cell,
                     entries,
+                    rest_key,
                 });
             }
             krs_syntax::RuleExtra::RewriteCell {
@@ -283,7 +292,11 @@ fn expand_head_rule(
                 }
                 let rest = match before.rest() {
                     krs_syntax::RuleListRest::Exact => krs_ir::ProtocolHeadRuleListRest::Exact,
-                    krs_syntax::RuleListRest::Shared(_) => krs_ir::ProtocolHeadRuleListRest::Shared,
+                    krs_syntax::RuleListRest::Shared(_) => {
+                        krs_ir::ProtocolHeadRuleListRest::Shared(Some(
+                            ledger.define(extra_keys.rest())?,
+                        ))
+                    }
                     krs_syntax::RuleListRest::Named(rest) => {
                         krs_ir::ProtocolHeadRuleListRest::Term(builder.expand_wire(
                             KeyedTerm::pattern(rest.pattern(), rest.tree()),
@@ -337,9 +350,15 @@ fn expand_head_rule(
         }
         Some(krs_syntax::RuleHeadResult::Erase(_)) => Some(krs_ir::wire::WireHeadRuleResult::Erase),
     };
+    let tail_key = clause
+        .head()
+        .and_then(krs_syntax::RuleHead::tail)
+        .map(|_| ledger.define(clause.tail_key()))
+        .transpose()?;
     let head = clause.head().map(|head| krs_ir::wire::WireHeadRuleHead {
         items,
         exact: head.exact(),
+        tail_key,
         result,
     });
     let mut update_extras = Vec::new();
@@ -445,8 +464,10 @@ fn expand_head_rule(
                             krs_syntax::RuleListRest::Exact => {
                                 krs_ir::ProtocolHeadRuleListRest::Exact
                             }
+                            // The result's `..` names the rest the
+                            // subject's defines.
                             krs_syntax::RuleListRest::Shared(_) => {
-                                krs_ir::ProtocolHeadRuleListRest::Shared
+                                krs_ir::ProtocolHeadRuleListRest::Shared(extra_keys.rest().cloned())
                             }
                             krs_syntax::RuleListRest::Named(rest) => {
                                 krs_ir::ProtocolHeadRuleListRest::Term(builder.expand_wire(

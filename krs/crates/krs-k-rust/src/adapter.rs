@@ -641,7 +641,7 @@ fn attributes_for_origin(origin: &NodeOrigin) -> NativeAttributes {
         .iter()
         .find_map(|frame| match frame {
             OriginFrame::Ranged { range, .. } => Some(range.file.package_relative_path()),
-            OriginFrame::Transformation { .. } => None,
+            OriginFrame::Transformation { .. } | OriginFrame::Inserted { .. } => None,
         })
     {
         attributes.insert(native_definition::SOURCE_ATTRIBUTE, json!(source));

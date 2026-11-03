@@ -125,6 +125,10 @@ pub enum RuleExtra {
         /// The read entries, at least one, in authored order; their keys are
         /// pairwise distinct terms.
         entries: Vec<RuleMapEntry>,
+        /// The range of the `..` a machine-form read writes to keep the
+        /// other entries; absent for a block-form `have`, whose remainder no
+        /// token denotes.
+        rest: Option<TokenRange>,
     },
     /// Simultaneous map update.
     UpdateMap {
@@ -290,6 +294,7 @@ impl From<HaveMapExtra> for RuleExtra {
         Self::HaveMap {
             cell: extra.cell,
             entries: vec![RuleMapEntry::new(extra.key, extra.value)],
+            rest: None,
         }
     }
 }

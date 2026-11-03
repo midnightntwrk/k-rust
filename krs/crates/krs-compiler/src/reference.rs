@@ -214,7 +214,9 @@ fn authored_source_file(descriptor: &Descriptor) -> Option<&SourceFileId> {
                 range,
                 ..
             } => Some(&range.file),
-            OriginFrame::Ranged { .. } | OriginFrame::Transformation { .. } => None,
+            OriginFrame::Ranged { .. }
+            | OriginFrame::Transformation { .. }
+            | OriginFrame::Inserted { .. } => None,
         })
 }
 
@@ -1721,7 +1723,7 @@ fn render_list(
             let empty = render_declared_application(&constructors.empty, package)?;
             quote!(#empty())
         }
-        krs_ir::ProtocolHeadRuleListRest::Shared => {
+        krs_ir::ProtocolHeadRuleListRest::Shared(_) => {
             let rest = shared.ok_or(ReferenceExpansionError::UnresolvedListNotation)?;
             quote!(#rest)
         }
@@ -1751,7 +1753,7 @@ fn render_builtin_list(
     let concat = render_facade_marker(krs_ir::ListOperation::Concat.facade_marker());
     let mut rendered = match &list.rest {
         krs_ir::ProtocolHeadRuleListRest::Exact => None,
-        krs_ir::ProtocolHeadRuleListRest::Shared => {
+        krs_ir::ProtocolHeadRuleListRest::Shared(_) => {
             let rest = shared.ok_or(ReferenceExpansionError::UnresolvedListNotation)?;
             Some(quote!(#rest))
         }
@@ -2494,7 +2496,7 @@ fn render_rule(
                 left_cells.push(left);
                 right_cells.extend(right);
             }
-            ProtocolHeadRuleExtra::HaveMap { cell, entries } => {
+            ProtocolHeadRuleExtra::HaveMap { cell, entries, .. } => {
                 let cell = render_rule_cell_field(&cell.cell, &rule.configuration, package)?;
                 let entries = entries
                     .iter()
@@ -2532,7 +2534,7 @@ fn render_rule(
                 // `list::concat` term its brackets denote; its anonymous
                 // `..` is a parameter both sides name.
                 let Some(list) = cell_cons_list(&cell.cell, bundle) else {
-                    let shared = matches!(before.rest, krs_ir::ProtocolHeadRuleListRest::Shared)
+                    let shared = matches!(before.rest, krs_ir::ProtocolHeadRuleListRest::Shared(_))
                         .then(|| {
                             let rest = fresh_ident("rest", &mut reserved)?;
                             let ty = render_sort_type(
@@ -2560,7 +2562,7 @@ fn render_rule(
                 };
                 // A list cell is the constructor term it denotes (F6); its
                 // anonymous `..` is a parameter both sides name.
-                let shared = matches!(before.rest, krs_ir::ProtocolHeadRuleListRest::Shared)
+                let shared = matches!(before.rest, krs_ir::ProtocolHeadRuleListRest::Shared(_))
                     .then(|| {
                         let rest = fresh_ident("rest", &mut reserved)?;
                         let ty = render_sort_type(

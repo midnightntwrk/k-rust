@@ -1,8 +1,8 @@
 schema = 1
 
 [schemas]
-krs_ir = 73
-collector = 75
+krs_ir = 74
+collector = 76
 kast_json = 4
 
 [cargo]

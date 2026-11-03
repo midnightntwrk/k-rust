@@ -802,6 +802,7 @@ fn registry() -> Registry {
     trace!(PackageSettings: PackageSettings);
     trace!(TimingsDocument: TimingsDocument);
     trace!(TransformationOriginKind: TransformationOriginKind);
+    trace!(InsertedNode: InsertedNode);
     trace!(TypeSlot: TypeSlot);
     trace!(ItemSlot: ItemSlot);
     trace!(TargetSlot: TargetSlot);

@@ -920,7 +920,9 @@ impl DescriptorProvenance {
     /// # Errors
     ///
     /// Returns [`DescriptorProvenanceError`] when the table is empty, repeats
-    /// a parser key, or does not contain `primary_key` exactly once.
+    /// a parser key, does not contain `primary_key` exactly once, or holds an
+    /// inserted frame: descriptor provenance records parser nodes, which
+    /// exist before any pass inserts a node.
     pub fn new(
         primary_key: ProvenanceKey,
         origins: Vec<DescriptorNodeOrigin>,
@@ -932,6 +934,9 @@ impl DescriptorProvenance {
         for node in &origins {
             if !keys.insert(node.key.clone()) {
                 return Err(DescriptorProvenanceError::DuplicateKey(node.key.clone()));
+            }
+            if node.origin.inserted().is_some() {
+                return Err(DescriptorProvenanceError::InsertedFrame(node.key.clone()));
             }
         }
         if !keys.contains(&primary_key) {
@@ -1022,6 +1027,9 @@ pub enum DescriptorProvenanceError {
     DuplicateKey(ProvenanceKey),
     /// The selected primary key was absent from the table.
     MissingPrimary(ProvenanceKey),
+    /// A parser node's origin held an inserted frame, which only a pass
+    /// after the descriptor pushes.
+    InsertedFrame(ProvenanceKey),
 }
 
 impl fmt::Display for DescriptorProvenanceError {
@@ -1037,6 +1045,12 @@ impl fmt::Display for DescriptorProvenanceError {
             Self::MissingPrimary(key) => write!(
                 formatter,
                 "descriptor provenance lacks primary key `{}#{}`",
+                key.role(),
+                key.ordinal()
+            ),
+            Self::InsertedFrame(key) => write!(
+                formatter,
+                "descriptor provenance key `{}#{}` holds an inserted frame; parser nodes are authored",
                 key.role(),
                 key.ordinal()
             ),

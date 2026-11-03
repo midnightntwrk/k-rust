@@ -450,7 +450,7 @@ impl<'a> Binder<'a> {
             SemanticIdKind::Local { name } => {
                 (Origin::Local, unreserved(authored_base(name, occurrences)))
             }
-            SemanticIdKind::Named if variable.as_str().contains(RESERVED_MARKER) => {
+            SemanticIdKind::Named if variable.is_generated_name() => {
                 (Origin::Generated, generated_base(variable.as_str()))
             }
             SemanticIdKind::Named => (

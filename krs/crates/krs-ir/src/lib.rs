@@ -105,8 +105,8 @@ pub use ir::{IrIdentityError, ModuleId, NodeOrigin, SemanticId, SemanticIdKind, 
 pub use list_notation::ListNotation;
 pub use operator::{BuiltinOperator, OperatorDomain, OperatorReading};
 pub use provenance::{
-    OriginFrame, OriginStack, OriginStackError, RangedOriginKind, SourceRange, SourceRangeError,
-    SourceRangeOverflow, TransformationOriginKind,
+    InsertedNode, OriginFrame, OriginStack, OriginStackError, RangedOriginKind, SourceRange,
+    SourceRangeError, SourceRangeOverflow, TransformationOriginKind,
 };
 pub use provenance_role::{ProvenanceRole, RuleRole, RuleSide};
 pub use stable_text::StableText;
@@ -215,7 +215,7 @@ pub struct SchemaVersion(pub u32);
 
 impl SchemaVersion {
     /// The only version this release reads and writes.
-    pub const CURRENT: Self = Self(73);
+    pub const CURRENT: Self = Self(74);
 }
 
 impl Default for SchemaVersion {

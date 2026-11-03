@@ -76,6 +76,20 @@ Each JSON artifact is compact JSON with one trailing newline and no whitespace o
 KRS's serializer writes one encoding for each in-memory value, with object members in the order the value's type fixes; the encoding is not RFC 8785 canonical JSON, so another serializer may write the same value differently.
 `jq .` indents an artifact for reading.
 
+Each `sources.json` entry records its node's depth in the rendered definition: a module is 0, its sentences 1, and each child one more than the node that holds it.
+A configuration renders each cell's declaration and its initial value as one text, so a cell's declaration and its initializer cell, which span the same bytes, take two consecutive depths, the declaration first, and the cell's attributes, value and child cells come below both.
+A configuration variable, rendered at its first use in the initializer, and a context alias's `HERE`, rendered at its hole, are one deeper than the deepest such use.
+So a node whose range strictly holds another's is shallower than it, and nodes rendered at the same range have different depths.
+An entry whose node KRS inserted, which no authored token denotes, carries an `inserted` frame naming what was inserted:
+`definedness_test` for the test of a partial construct a condition evaluates and the `andThenBool` that joins it,
+`lookup_guard` for a looked-up instance's or computed key's fresh name and guard,
+`generated_binder` for a name KRS made for no token and for an alias KRS adds under such a name (a `k::bits!` template's binder, the binder of a field a record update takes from its base),
+`cell_frame` for a frame the language adds (a block-form rule's kept computation, a `have` read's remainder, the input stream's rest),
+and `local_function` for the scaffolding of a lifted `let` block or `k::matches!`.
+A definedness test's frame also carries the authored range of the construct it tests.
+A node that renders authored syntax, once or many times, carries no such frame:
+a `k::bits!` template's tests and field reads, an `else`'s negations, a constant at each use, and every frame the author wrote as `..`, whose authored range is that token.
+
 Use an explicit output directory:
 
 ```sh

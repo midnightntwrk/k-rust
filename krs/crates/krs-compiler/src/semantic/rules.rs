@@ -6,8 +6,8 @@ use krs_ir::{
     DescriptorFixedConfiguration, DescriptorHeadRuleExtra, DescriptorIndex,
     DescriptorRuleCondition, DescriptorRuleLabel, DescriptorRulePriority, DescriptorSimplification,
     DescriptorSortRef, DescriptorSortReference, DescriptorTerm, FixedCellClause,
-    FixedConfigurationRewrite, ItemKind, ProtocolCellContent, ProvenanceKey, SemanticId,
-    StableItemId, StructuredRuleDescriptor,
+    FixedConfigurationRewrite, InsertedNode, ItemKind, ProtocolCellContent, ProvenanceKey,
+    SemanticId, StableItemId, StructuredRuleDescriptor,
 };
 use krs_ir_levels::{
     MapEntry, MapOperands, SemanticCondition, SemanticNondetGroup, SemanticRule, SemanticRuleLabel,
@@ -24,7 +24,7 @@ use super::configuration::{check_stdin_reads, stdin_cells};
 use super::error::DescriptorLoweringError;
 use super::infer::{CollectionUse, StructuredTermBuilder, initial_binding_constraints};
 use super::origin::{
-    generated_semantic_id, key_range, role_key, semantic_cell_id, semantic_origin,
+    generated_semantic_id, inserted_origin, key_range, role_key, semantic_cell_id, semantic_origin,
     semantic_origin_from_primary,
 };
 use super::references::{declared_kind, declared_multiplicity, require_cell_field};
@@ -291,7 +291,7 @@ fn head_rule_typing(
     }
     for extra in &rule.extras {
         match extra {
-            krs_ir::ProtocolHeadRuleExtra::HaveMap { cell, entries } => {
+            krs_ir::ProtocolHeadRuleExtra::HaveMap { cell, entries, .. } => {
                 let ty = selected_cell_type(&walker, cell, declarations)?;
                 for entry in entries {
                     roots.push(Root::MapEntry {
@@ -1390,11 +1390,22 @@ fn lower_head_rule_computation_clause(
             }
         }
     };
+    // The tail is the authored `..` when the head has one, and otherwise
+    // the block form's, which the language adds at the clause.
     let frame = if head.exact {
         CellContentFrame::Exact
     } else {
+        let origin = match &head.tail_key {
+            Some(key) => semantic_origin(descriptor, key.clone(), "rule-k-frame")?,
+            None => inserted_origin(
+                descriptor,
+                rule.pattern_key.clone(),
+                "implicit-k-tail",
+                InsertedNode::CellFrame,
+            )?,
+        };
         CellContentFrame::KSequenceTail {
-            origin: semantic_origin(descriptor, rule.pattern_key.clone(), "implicit-k-tail")?,
+            origin,
             binding: None,
         }
     };
@@ -1758,9 +1769,11 @@ fn lower_head_rule_fixed_extra(
         );
     };
     match extra {
-        krs_ir::ProtocolHeadRuleExtra::HaveMap { cell, entries } => {
-            lower_head_rule_map_read(builder, cell, entries, &kind)
-        }
+        krs_ir::ProtocolHeadRuleExtra::HaveMap {
+            cell,
+            entries,
+            rest_key,
+        } => lower_head_rule_map_read(builder, cell, entries, rest_key.as_ref(), &kind),
         krs_ir::ProtocolHeadRuleExtra::UpdateMap {
             cell,
             base_binding,
@@ -1807,6 +1820,7 @@ fn lower_head_rule_map_read(
     builder: &mut StructuredTermBuilder<'_>,
     cell: &DescriptorCellReference,
     entries: &[krs_ir::DescriptorHeadRuleMapEntry],
+    rest_key: Option<&ProvenanceKey>,
     kind: &CellKind,
 ) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let descriptor = builder.descriptor;
@@ -1859,7 +1873,17 @@ fn lower_head_rule_map_read(
         ),
         CellPost::Preserve,
         CellContentFrame::MapRemainder {
-            origin: semantic_origin(descriptor, cell.key.clone(), "implicit-map-remainder")?,
+            // A machine-form read's remainder is its authored `..`; a
+            // block-form `have` read's is the language's.
+            origin: match rest_key {
+                Some(key) => semantic_origin(descriptor, key.clone(), "rule-map-frame")?,
+                None => inserted_origin(
+                    descriptor,
+                    cell.key.clone(),
+                    "implicit-map-remainder",
+                    InsertedNode::CellFrame,
+                )?,
+            },
             binding: None,
         },
     ))
@@ -2488,8 +2512,15 @@ fn computation_rewrite(
         semantic_cell_id(computation)?,
         before,
         post,
+        // A `#[k::rule] fn` over a term keeps the rest of the computation,
+        // which no token denotes.
         CellContentFrame::KSequenceTail {
-            origin: semantic_origin(descriptor, rule.pattern_key.clone(), "implicit-k-tail")?,
+            origin: inserted_origin(
+                descriptor,
+                rule.pattern_key.clone(),
+                "implicit-k-tail",
+                InsertedNode::CellFrame,
+            )?,
             binding: None,
         },
     );

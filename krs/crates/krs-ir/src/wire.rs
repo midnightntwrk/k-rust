@@ -514,6 +514,7 @@ mod tests {
                 head: Some(super::WireHeadRuleHead {
                     items: vec![term()],
                     exact: false,
+                    tail_key: None,
                     result: Some(super::WireHeadRuleResult::Replace(term())),
                 }),
                 requires: None,

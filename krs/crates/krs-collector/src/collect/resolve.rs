@@ -1468,11 +1468,13 @@ fn head_list(
     head: krs_ir::ProtocolHeadRuleHead<krs_ir::HostTerm>,
     computation: krs_ir::HeadRuleComputationCell,
 ) -> krs_ir::HostHeadRuleExtra {
+    // The head's `..` is the list's shared rest: the subject defines it,
+    // the result names it.
     let rest = || {
         if head.exact {
             krs_ir::ProtocolHeadRuleListRest::Exact
         } else {
-            krs_ir::ProtocolHeadRuleListRest::Shared
+            krs_ir::ProtocolHeadRuleListRest::Shared(head.tail_key.clone())
         }
     };
     let after = head.result.map(|result| krs_ir::ProtocolHeadRuleList {
@@ -1537,9 +1539,10 @@ fn list_head(
     if after.as_ref().is_some_and(|after| !after.back.is_empty()) {
         return Err(back(result_key.unwrap_or(&cell.key)));
     }
-    let exact = match before.rest {
-        krs_ir::ProtocolHeadRuleListRest::Exact => true,
-        krs_ir::ProtocolHeadRuleListRest::Shared => false,
+    // The list's shared rest is the head's kept tail, the same `..`.
+    let (exact, tail_key) = match before.rest {
+        krs_ir::ProtocolHeadRuleListRest::Exact => (true, None),
+        krs_ir::ProtocolHeadRuleListRest::Shared(key) => (false, key),
         krs_ir::ProtocolHeadRuleListRest::Term(_) => return Err(named()),
     };
     let result = match after {
@@ -1565,6 +1568,7 @@ fn list_head(
     Ok(krs_ir::ProtocolHeadRuleHead {
         items: before.items,
         exact,
+        tail_key,
         result,
     })
 }
@@ -2335,12 +2339,14 @@ mod tests {
             head: Some(krs_ir::ProtocolHeadRuleHead {
                 items: vec![unresolved_term("Subject")],
                 exact: false,
+                tail_key: None,
                 result: Some(krs_ir::ProtocolHeadRuleResult::Replace(unresolved_term(
                     "Result",
                 ))),
             }),
             requires: None,
             extras: vec![krs_ir::ProtocolHeadRuleExtra::HaveMap {
+                rest_key: None,
                 cell: krs_ir::HostHeadRuleCellReference {
                     key,
                     name: "missing".to_owned(),
@@ -2873,6 +2879,7 @@ mod tests {
             rule.head = Some(krs_ir::ProtocolHeadRuleHead {
                 items: vec![variable(left, 0)],
                 exact: false,
+                tail_key: None,
                 result: Some(krs_ir::ProtocolHeadRuleResult::Splice(
                     krs_ir::ProtocolHeadRuleSplice {
                         payload_key: Some(key(Role::RuleRightKSequencePayload, 0)),
@@ -2888,7 +2895,7 @@ mod tests {
         } else {
             let list = |items| krs_ir::ProtocolHeadRuleList {
                 items,
-                rest: krs_ir::ProtocolHeadRuleListRest::Shared,
+                rest: krs_ir::ProtocolHeadRuleListRest::Shared(None),
                 back: Vec::new(),
             };
             rule.extras
@@ -3128,6 +3135,7 @@ mod tests {
             head: Some(krs_ir::ProtocolHeadRuleHead {
                 items: vec![job],
                 exact: false,
+                tail_key: None,
                 result: Some(krs_ir::ProtocolHeadRuleResult::Erase),
             }),
             requires: None,

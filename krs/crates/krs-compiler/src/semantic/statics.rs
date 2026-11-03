@@ -41,7 +41,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
     ApplicationRef, GrammarProductionItemKind, NodeOrigin, ProductionAttribute, SemanticId,
-    SemanticIdKind, SentenceKind, SourceMapKey, StableItemId,
+    SemanticIdKind, SentenceKind, StableItemId,
 };
 use krs_ir_levels::{
     IrTermKind, ListOperands, MapOperands, SemanticModule, SemanticRule, SemanticSortRef,
@@ -50,6 +50,7 @@ use krs_ir_levels::{
 
 use super::catalog::semantic_is_subsort;
 use super::error::DescriptorLoweringError;
+use super::origin::rendered_copy;
 use super::overload::sort_name;
 use crate::partition::production_display_name;
 use crate::token_values::{same_token, token_key};
@@ -1169,7 +1170,7 @@ impl<'m> Expansion<'_, 'm, '_> {
     /// `origin` under a fresh source-map key, which no node of the theory has.
     fn fresh(&mut self, origin: &NodeOrigin) -> NodeOrigin {
         *self.copies += 1;
-        suffixed(origin, &format!("~expansion-{}", self.copies))
+        rendered_copy(origin, &format!("~expansion-{}", self.copies))
     }
 
     /// The refusal of the static application of `production` at `site`.
@@ -1304,15 +1305,6 @@ fn same_bindings(
             .all(|((left_name, left), (right_name, right))| {
                 left_name == right_name && same(left, right)
             })
-}
-
-/// `origin` under the source-map key `suffix` extends.
-fn suffixed(origin: &NodeOrigin, suffix: &str) -> NodeOrigin {
-    NodeOrigin::new(
-        SourceMapKey::new(format!("{}{suffix}", origin.key().as_str()))
-            .expect("a source-map key extended by a separator-free suffix is a key"),
-        origin.origin().clone(),
-    )
 }
 
 /// `term` with each child replaced by `map`'s image of it, in [`SemanticTerm::children`]'s order.
@@ -1475,9 +1467,9 @@ fn restate(
         })?;
         rule.restated(
             sibling,
-            subject.map_origins(&mut |origin| suffixed(origin, &suffix)),
+            subject.map_origins(&mut |origin| rendered_copy(origin, &suffix)),
             variables,
-            &mut |origin| suffixed(origin, &suffix),
+            &mut |origin| rendered_copy(origin, &suffix),
         )
     };
     restated.ok_or_else(|| {

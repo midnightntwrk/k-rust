@@ -165,7 +165,7 @@ fn collector_wire_preserves_every_frame_kind_and_rejects_bad_references() {
     let mut stack = origin();
     let range = match &stack.frames()[0] {
         OriginFrame::Ranged { range, .. } => range.clone(),
-        OriginFrame::Transformation { .. } => unreachable!(),
+        OriginFrame::Transformation { .. } | OriginFrame::Inserted { .. } => unreachable!(),
     };
     for kind in [
         RangedOriginKind::MacroInvocation,

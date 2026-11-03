@@ -169,6 +169,10 @@ pub struct RuleHead {
     pub(super) subject: bool,
     pub(super) following: Vec<RuleHeadItem>,
     pub(super) exact: bool,
+    /// The range of the `..` the author wrote to keep the rest of the cell;
+    /// absent for a closed pattern and for a block-form clause, whose kept
+    /// tail no token denotes.
+    pub(super) tail: Option<TokenRange>,
 }
 
 /// One computation-cell item after the first that a readable clause matches.
@@ -320,6 +324,13 @@ impl RuleHead {
     pub const fn exact(&self) -> bool {
         self.exact
     }
+
+    /// The range of the authored `..` that keeps the rest of the cell,
+    /// absent when the pattern is closed or the tail is the block form's.
+    #[must_use]
+    pub const fn tail(&self) -> Option<TokenRange> {
+        self.tail
+    }
 }
 
 impl RuleHeadItem {
@@ -378,6 +389,7 @@ pub(super) struct ClauseKeys {
     splice: Option<ProvenanceKey>,
     extras: Vec<RuleExtraKeys>,
     computation_cell: RuleExtraKeys,
+    tail: Option<ProvenanceKey>,
 }
 
 /// The keys a readable clause gives one cell's names, an extra cell's or the
@@ -387,6 +399,7 @@ pub(super) struct ClauseKeys {
 pub struct RuleExtraKeys {
     cell: Option<ProvenanceKey>,
     result_cell: Option<ProvenanceKey>,
+    rest: Option<ProvenanceKey>,
 }
 
 impl RuleExtraKeys {
@@ -402,6 +415,14 @@ impl RuleExtraKeys {
     #[must_use]
     pub const fn result_cell(&self) -> Option<&ProvenanceKey> {
         self.result_cell.as_ref()
+    }
+
+    /// The key of the `..` the author wrote in the cell's subject: a machine
+    /// map read's remainder or a list cell's shared rest; absent for a cell
+    /// without one.
+    #[must_use]
+    pub const fn rest(&self) -> Option<&ProvenanceKey> {
+        self.rest.as_ref()
     }
 }
 
@@ -722,7 +743,37 @@ impl RuleClause {
         for island in islands {
             self.visit_terms(&mut |nodes, term_keys| island(keys, nodes, term_keys))?;
         }
-        self.allocate_computation_cell_keys(keys)
+        self.allocate_computation_cell_keys(keys)?;
+        self.allocate_rest_keys(keys)
+    }
+
+    /// Keys the `..` tokens the author wrote to keep the rest of a cell: the
+    /// computation cell's tail, then each extra cell's map remainder or list
+    /// rest in clause order. They come after every other node of the clause,
+    /// so that keying them moves no other node's key: a map read's
+    /// remainder shares its role with the remainders of `map!` states.
+    fn allocate_rest_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        if let Some(tail) = self.head.as_ref().and_then(|head| head.tail) {
+            self.keys.tail = Some(keys.key(ProvenanceRole::RuleLeftSequenceRest, tail)?);
+        }
+        for (extra, names) in self.extras.iter().zip(&mut self.keys.extras) {
+            let rest = match extra {
+                RuleExtra::HaveMap {
+                    rest: Some(rest), ..
+                } => Some((ProvenanceRole::RuleLeftMapRemainder, *rest)),
+                RuleExtra::RewriteList { before, .. } => match before.rest {
+                    RuleListRest::Shared(range) => {
+                        Some((ProvenanceRole::RuleLeftSequenceRest, range))
+                    }
+                    RuleListRest::Exact | RuleListRest::Named(_) => None,
+                },
+                _ => None,
+            };
+            if let Some((role, range)) = rest {
+                names.rest = Some(keys.key(role, range)?);
+            }
+        }
+        Ok(())
     }
 
     /// Keys the computation cell's fields, in the subject record and in the
@@ -850,6 +901,13 @@ impl RuleClause {
     #[must_use]
     pub const fn splice_key(&self) -> Option<&ProvenanceKey> {
         self.keys.splice.as_ref()
+    }
+
+    /// The key of the computation cell's authored `..`
+    /// ([`RuleHead::tail`]), absent when the head has none.
+    #[must_use]
+    pub const fn tail_key(&self) -> Option<&ProvenanceKey> {
+        self.keys.tail.as_ref()
     }
 
     /// The keys of each extra cell's names, indexed as [`Self::extras`].
@@ -997,7 +1055,7 @@ fn allocate_extra_keys(
 ) -> Result<RuleExtraKeys, SyntaxError> {
     let mut names = RuleExtraKeys::default();
     match extra {
-        RuleExtra::HaveMap { cell, entries } => {
+        RuleExtra::HaveMap { cell, entries, .. } => {
             names.cell = Some(keys.key(
                 ProvenanceRole::RuleLeftCellsField,
                 TokenRange::for_tokens(cell)?,
@@ -1498,6 +1556,7 @@ impl RuleBlock {
                     subject: true,
                     following: Vec::new(),
                     exact: false,
+                    tail: None,
                 }),
                 head_result: Some(head_result),
                 extras: extras.into_iter().map(RuleExtra::from).collect(),
@@ -1816,6 +1875,22 @@ impl RuleClause {
                 nodes.push_tokens(names.result_cell.as_ref(), result_cell)?;
             }
         }
+        if let Some(tail) = self.head.as_ref().and_then(|head| head.tail) {
+            nodes.push(self.keys.tail.as_ref(), tail);
+        }
+        for (extra, names) in self.extras.iter().zip(&self.keys.extras) {
+            match extra {
+                RuleExtra::HaveMap {
+                    rest: Some(rest), ..
+                } => nodes.push(names.rest.as_ref(), *rest),
+                RuleExtra::RewriteList { before, .. } => {
+                    if let RuleListRest::Shared(range) = before.rest {
+                        nodes.push(names.rest.as_ref(), range);
+                    }
+                }
+                _ => {}
+            }
+        }
         Ok(())
     }
 }
@@ -1829,7 +1904,7 @@ fn keyed_extra_nodes(
     names: &RuleExtraKeys,
 ) -> Result<(), SyntaxError> {
     match extra {
-        RuleExtra::HaveMap { cell, entries } => {
+        RuleExtra::HaveMap { cell, entries, .. } => {
             nodes.push_tokens(names.cell.as_ref(), cell)?;
             for entry in entries {
                 entry.key.keyed_nodes(nodes)?;

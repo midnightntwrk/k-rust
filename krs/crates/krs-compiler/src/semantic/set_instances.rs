@@ -63,8 +63,8 @@
 //! that has no condition to hold them cannot look such a key up: its lowering
 //! receives the guards and refuses them ([`SentenceGuards`]).
 use krs_ir::{
-    ApplicationRef, BuiltinOperation, BuiltinSort, DescriptorTerm, GeneratedOperation, NodeOrigin,
-    ProvenanceKey, SemanticId, SourceMapKey,
+    ApplicationRef, BuiltinOperation, BuiltinSort, DescriptorTerm, GeneratedOperation,
+    InsertedNode, ProvenanceKey, SemanticId,
 };
 use krs_ir_levels::{
     SemanticCondition, SemanticRuleCondition, SemanticSortRef, SemanticTerm, SemanticVariable,
@@ -73,7 +73,7 @@ use krs_ir_levels::{
 use super::error::DescriptorLoweringError;
 use super::function_patterns::{Applied, applied_function};
 use super::infer::StructuredTermBuilder;
-use super::origin::semantic_origin;
+use super::origin::{inserted_copy, inserted_origin};
 
 /// The guards of the computed instances one sentence looks up, and of the
 /// projections in the keys it looks up.
@@ -317,12 +317,22 @@ impl StructuredTermBuilder<'_> {
         let id = SemanticId::new(format!("{}instance{ordinal}", krs_ir::ir::RESERVED_MARKER))?;
         let descriptor = self.descriptor;
         let read = SemanticTerm::variable(
-            semantic_origin(descriptor, key.clone(), "instance-guard-variable")?,
+            inserted_origin(
+                descriptor,
+                key.clone(),
+                "instance-guard-variable",
+                InsertedNode::LookupGuard,
+            )?,
             sort.clone(),
             id.clone(),
         );
         let equation = SemanticTerm::application(
-            semantic_origin(descriptor, key.clone(), "instance-guard")?,
+            inserted_origin(
+                descriptor,
+                key.clone(),
+                "instance-guard",
+                InsertedNode::LookupGuard,
+            )?,
             SemanticSortRef::Builtin(BuiltinSort::Bool),
             ApplicationRef::Builtin(BuiltinOperation::KEqualEq),
             vec![read, value],
@@ -334,7 +344,12 @@ impl StructuredTermBuilder<'_> {
             kind: GuardKind::Value,
         });
         Ok(SemanticTerm::variable(
-            semantic_origin(descriptor, key, "instance-guard-match")?,
+            inserted_origin(
+                descriptor,
+                key,
+                "instance-guard-match",
+                InsertedNode::LookupGuard,
+            )?,
             sort,
             id,
         ))
@@ -370,9 +385,16 @@ impl StructuredTermBuilder<'_> {
             .as_mut()
             .expect("a key's projection is guarded where the sentence gathers guards");
         let suffix = format!("~key-guard-{}", guards.len());
-        let tested = operand.map_origins(&mut |origin| suffixed(origin, &suffix));
+        let tested = operand.map_origins(&mut |origin| {
+            inserted_copy(origin, &suffix, InsertedNode::LookupGuard, None)
+        });
         let defined = SemanticTerm::application(
-            semantic_origin(self.descriptor, key.clone(), "key-projection-guard")?,
+            inserted_origin(
+                self.descriptor,
+                key.clone(),
+                "key-projection-guard",
+                InsertedNode::LookupGuard,
+            )?,
             SemanticSortRef::Builtin(BuiltinSort::Bool),
             ApplicationRef::Generated(GeneratedOperation::SortPredicate(sort)),
             vec![tested],
@@ -401,11 +423,19 @@ impl StructuredTermBuilder<'_> {
     ) -> Result<(), DescriptorLoweringError> {
         let ordinal = self.instance_guards.as_ref().map_or(0, InstanceGuards::len);
         let suffix = format!("~key-test-{ordinal}");
-        let tested = value.map_origins(&mut |origin| suffixed(origin, &suffix));
-        let pattern =
-            self.wildcarded(&pattern.map_origins(&mut |origin| suffixed(origin, &suffix)));
+        let tested = value.map_origins(&mut |origin| {
+            inserted_copy(origin, &suffix, InsertedNode::LookupGuard, None)
+        });
+        let pattern = self.wildcarded(&pattern.map_origins(&mut |origin| {
+            inserted_copy(origin, &suffix, InsertedNode::LookupGuard, None)
+        }));
         let test = SemanticTerm::matches(
-            semantic_origin(self.descriptor, key.clone(), "key-let-test")?,
+            inserted_origin(
+                self.descriptor,
+                key.clone(),
+                "key-let-test",
+                InsertedNode::LookupGuard,
+            )?,
             SemanticSortRef::Builtin(BuiltinSort::Bool),
             tested,
             pattern,
@@ -441,16 +471,6 @@ impl StructuredTermBuilder<'_> {
     }
 }
 
-/// `origin` under the source-map key extended by `suffix`, which no node of
-/// the sentence has.
-fn suffixed(origin: &NodeOrigin, suffix: &str) -> NodeOrigin {
-    NodeOrigin::new(
-        SourceMapKey::new(format!("{}{suffix}", origin.key().as_str()))
-            .expect("a source-map key extended by a separator-free suffix is a key"),
-        origin.origin().clone(),
-    )
-}
-
 /// `requires` with the guards of the sentence's looked-up instances before
 /// it: the guards, then the author's condition, joined by `andThenBool`. The
 /// guards are the lookup, which the author's condition reads the result of,
@@ -470,7 +490,14 @@ pub(super) fn guarded_requires(
     let Some(first) = guards.first() else {
         return Ok(requires);
     };
-    let origin = semantic_origin(descriptor, first.key.clone(), "instance-guard-condition")?;
+    // A condition the author wrote keeps its origin; one KRS writes only
+    // for the guards is inserted with them.
+    let origin = inserted_origin(
+        descriptor,
+        first.key.clone(),
+        "instance-guard-condition",
+        InsertedNode::LookupGuard,
+    )?;
     let (origin, author) = match requires {
         None => (origin, None),
         Some(SemanticCondition::Bool(condition)) => {
@@ -493,7 +520,12 @@ pub(super) fn guarded_requires(
     while let Some((key, conjunct)) = conjuncts.pop() {
         let key = key.expect("only the last conjunct is the author's");
         term = SemanticTerm::application(
-            semantic_origin(descriptor, key, "instance-guard-and")?,
+            inserted_origin(
+                descriptor,
+                key,
+                "instance-guard-and",
+                InsertedNode::LookupGuard,
+            )?,
             bool_sort.clone(),
             ApplicationRef::Builtin(BuiltinOperation::BoolAndThen),
             vec![conjunct, term],

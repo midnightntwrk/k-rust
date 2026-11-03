@@ -680,6 +680,7 @@ mod tests {
             head: Some(krs_ir::ProtocolHeadRuleHead {
                 items: vec![wire_term()],
                 exact: false,
+                tail_key: None,
                 result: Some(ProtocolHeadRuleResult::Erase),
             }),
             requires: None,
@@ -710,6 +711,7 @@ mod tests {
             head: Some(krs_ir::ProtocolHeadRuleHead {
                 items: vec![host_term()],
                 exact: false,
+                tail_key: None,
                 result: Some(ProtocolHeadRuleResult::Erase),
             }),
             requires: None,

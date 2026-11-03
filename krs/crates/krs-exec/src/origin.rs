@@ -110,6 +110,7 @@ pub(crate) fn item(provenance: Option<&EmittedProvenance>) -> Option<String> {
             OriginFrame::Ranged { item, .. } | OriginFrame::Transformation { item, .. } => {
                 item.as_ref()
             }
+            OriginFrame::Inserted { .. } => None,
         })?;
     let mut path = item.module_path().join("::");
     if !path.is_empty() {

@@ -437,6 +437,7 @@ mod tests {
                         name: "head".into(),
                     }],
                     exact: false,
+                    tail_key: None,
                     result: Some(ProtocolHeadRuleResult::Erase),
                 }),
                 requires: None,

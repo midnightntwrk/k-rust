@@ -47,8 +47,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, ExplicitSymbol, GrammarProductionItem,
-    NodeOrigin, ProductionAttribute, ProductionFieldId, RustVisibility, SemanticId, SentenceKind,
-    SourceMapKey,
+    InsertedNode, NodeOrigin, ProductionAttribute, ProductionFieldId, RustVisibility, SemanticId,
+    SentenceKind,
 };
 use krs_ir_levels::{
     IrRuleCondition, IrTermKind, RuleBodyRef, SemanticModule, SemanticProduction, SemanticRule,
@@ -56,6 +56,7 @@ use krs_ir_levels::{
 };
 
 use super::error::DescriptorLoweringError;
+use super::origin::inserted_copy;
 use super::statics::map_children;
 
 /// The modules with every outermost `let` block and `k::matches!` of a static clause or a claim
@@ -472,7 +473,14 @@ impl<'r> Lifter<'r> {
             bool_sort.clone(),
             ApplicationRef::Builtin(BuiltinOperation::BoolNot),
             // A copy of the test under keys of its own: a source-map key names one node.
-            vec![test.map_origins(&mut |origin| suffixed(origin, "~local-function-negated"))],
+            vec![test.map_origins(&mut |origin| {
+                inserted_copy(
+                    origin,
+                    "~local-function-negated",
+                    InsertedNode::LocalFunction,
+                    None,
+                )
+            })],
         );
         let equation =
             |id: &krs_ir::StableItemId, part: &str, value: &str, condition: SemanticTerm| {
@@ -595,8 +603,10 @@ struct LocalFunction {
 }
 
 impl LocalFunction {
+    /// The origin of a node of the function's scaffolding, which KRS
+    /// inserts.
     fn at(&self, suffix: &str) -> NodeOrigin {
-        suffixed(&self.origin, suffix)
+        inserted_copy(&self.origin, suffix, InsertedNode::LocalFunction, None)
     }
 
     /// The function's application to its parameters, `f(X1, .., Xn)`.
@@ -640,7 +650,7 @@ fn production(
     id: &krs_ir::StableItemId,
     parameters: &[SemanticVariable],
 ) -> Result<SemanticProduction, DescriptorLoweringError> {
-    let at = |suffix: &str| suffixed(origin, suffix);
+    let at = |suffix: &str| inserted_copy(origin, suffix, InsertedNode::LocalFunction, None);
     let symbol = format!(
         "krsLocal_{}",
         crate::lowering::short_hash(&crate::lowering::stable_item_text(id))
@@ -744,15 +754,6 @@ fn pattern_names(pattern: &SemanticTerm, bound: &mut BTreeSet<SemanticId>) {
     for child in pattern.children() {
         pattern_names(child, bound);
     }
-}
-
-/// `origin` under the source-map key `suffix` extends.
-fn suffixed(origin: &NodeOrigin, suffix: &str) -> NodeOrigin {
-    NodeOrigin::new(
-        SourceMapKey::new(format!("{}{suffix}", origin.key().as_str()))
-            .expect("a source-map key extended by a separator-free suffix is a key"),
-        origin.origin().clone(),
-    )
 }
 
 #[cfg(test)]

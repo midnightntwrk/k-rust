@@ -586,7 +586,7 @@ impl Patterns<'_> {
                     .try_for_each(|element| self.entries().term(element, None))?;
                 match &before.rest {
                     ProtocolHeadRuleListRest::Term(rest) => self.term(rest, root),
-                    ProtocolHeadRuleListRest::Exact | ProtocolHeadRuleListRest::Shared => Ok(()),
+                    ProtocolHeadRuleListRest::Exact | ProtocolHeadRuleListRest::Shared(_) => Ok(()),
                 }
             }
             ProtocolHeadRuleExtra::HaveMap { .. } | ProtocolHeadRuleExtra::UpdateMap { .. } => {

@@ -123,10 +123,11 @@ mod tests {
 
     fn source_map(key: &SourceMapKey) -> SourceMap {
         serde_json::from_value(serde_json::json!({
-            "schema_version": 2,
+            "schema_version": 3,
             "entries": [{
                 "key": key.as_str(),
                 "node_kind": "module",
+                "depth": 0,
                 "origin": OriginStack::authored(range()),
             }],
         }))

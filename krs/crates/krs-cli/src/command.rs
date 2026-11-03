@@ -2066,10 +2066,11 @@ mod tests {
         let range = SourceRange::new(file, 7, 16).unwrap();
         let key = krs_ir::SourceMapKey::new("definition.item").unwrap();
         let source_map = serde_json::from_value(serde_json::json!({
-            "schema_version": 2,
+            "schema_version": 3,
             "entries": [{
                 "key": key.as_str(),
                 "node_kind": "module",
+                "depth": 0,
                 "origin": krs_ir::OriginStack::authored(range.clone()),
             }],
         }))

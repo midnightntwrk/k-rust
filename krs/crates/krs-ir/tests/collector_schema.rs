@@ -19,7 +19,7 @@ fn collector_origin(id: &StableItemId, populated: bool) -> OriginStack {
     let authored = krs_ir::testing::authored(0, 3);
     let range = match &authored.frames()[0] {
         OriginFrame::Ranged { range, .. } => range.clone(),
-        OriginFrame::Transformation { .. } => unreachable!(),
+        OriginFrame::Transformation { .. } | OriginFrame::Inserted { .. } => unreachable!(),
     };
     let item = populated.then(|| id.clone());
     let label = populated.then(|| "collector schema sample".to_owned());

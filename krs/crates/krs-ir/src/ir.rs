@@ -81,6 +81,7 @@ macro_rules! reserved_encodings {
         const WILDCARD_PREFIX: &str = concat!($marker, "wildcard_");
         const LOCAL_SEPARATOR: &str = concat!($marker, "local_");
         const ANONYMOUS_SEPARATOR: &str = RESERVED_MARKER;
+        const REST_PREFIXES: [&str; 2] = [concat!($marker, "rest_"), concat!($marker, "map_rest_")];
     };
 }
 
@@ -185,6 +186,27 @@ impl SemanticId {
             })
     }
 
+    /// Whether KRS made this name for no authored binder: a plain identity
+    /// holding the reserved marker (a `k::bits!` template's binder, the
+    /// binder of a field a record update takes from its base, a lookup's
+    /// fresh name, the rest of an authored `..`).
+    /// Wildcards, anonymous and local binders spell authored names.
+    #[must_use]
+    pub fn is_generated_name(&self) -> bool {
+        matches!(self.kind(), SemanticIdKind::Named) && self.0.contains(RESERVED_MARKER)
+    }
+
+    /// Whether this is the name KRS gives the rest an authored `..` keeps:
+    /// a list cell's shared rest or a built map's remainder. It renders that
+    /// token, so its occurrences are authored although KRS chose the name.
+    #[must_use]
+    pub fn is_rest_name(&self) -> bool {
+        self.is_generated_name()
+            && REST_PREFIXES
+                .iter()
+                .any(|prefix| self.0.starts_with(prefix))
+    }
+
     /// Returns the identity.
     #[must_use]
     pub fn as_str(&self) -> &str {
@@ -277,6 +299,37 @@ pub fn validated_id(kind: crate::IrIdentityKind, value: String) -> Result<String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Names KRS made for no token are generated; the encodings of
+    /// authored names (wildcards, anonymous and local binders) and plain
+    /// names are not, and the rest of an authored `..` is a rest name.
+    #[test]
+    fn generated_and_rest_names() {
+        let id = |spelling: &str| SemanticId::new(spelling).unwrap();
+        for spelling in [
+            "__krs_bits_0",
+            "__krs_update_x",
+            "__krs_instance0",
+            "__krs_rest_stack",
+            "__krs_map_rest_2",
+        ] {
+            assert!(id(spelling).is_generated_name(), "{spelling}");
+        }
+        for spelling in ["__krs_wildcard_1", "_B__krs_3", "x__krs_local_2", "x", "_x"] {
+            assert!(!id(spelling).is_generated_name(), "{spelling}");
+        }
+        for spelling in ["__krs_rest_stack", "__krs_map_rest_2"] {
+            assert!(id(spelling).is_rest_name(), "{spelling}");
+        }
+        for spelling in [
+            "__krs_bits_0",
+            "__krs_update_x",
+            "__krs_instance0",
+            "rest_x",
+        ] {
+            assert!(!id(spelling).is_rest_name(), "{spelling}");
+        }
+    }
 
     #[test]
     fn authored_semantic_ids_reject_reserved_marker() {

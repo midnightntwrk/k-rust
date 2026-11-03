@@ -14,7 +14,7 @@ use krs_ir_levels::{
 use serde::{Deserialize, Serialize};
 
 /// Version of the compiler-owned symbol/source sidecar encoding.
-const SIDECAR_SCHEMA_VERSION: u32 = 2;
+const SIDECAR_SCHEMA_VERSION: u32 = 3;
 
 fn deserialize_schema_version<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
@@ -400,6 +400,16 @@ impl GeneratedRange {
 pub struct SourceMapEntry {
     key: SourceMapKey,
     node_kind: SourceMapNodeKind,
+    /// The node's nesting in the rendering of the Definition IR: a module 0,
+    /// its sentences 1, and each child one more than the node that holds it,
+    /// except in a configuration, whose cell declarations and initializer
+    /// are rendered as one text (`insert_fixed_configuration`), and for a
+    /// node rendered at a term's occurrence (a configuration variable, a
+    /// context alias's `HERE`), one deeper than that term. Within one
+    /// artifact a node whose generated range strictly holds another's is
+    /// shallower, and nodes of one range have distinct depths, so depth
+    /// orders them and names the deepest owner of each byte.
+    depth: u32,
     origin: OriginStack,
     #[serde(skip_serializing_if = "Option::is_none")]
     generated: Option<GeneratedRange>,
@@ -418,10 +428,24 @@ impl SourceMapEntry {
         self.node_kind
     }
 
+    /// Returns the node's nesting depth in the Definition IR.
+    #[must_use]
+    pub const fn depth(&self) -> u32 {
+        self.depth
+    }
+
     /// Returns authored-to-Definition provenance.
     #[must_use]
     pub const fn origin(&self) -> &OriginStack {
         &self.origin
+    }
+
+    /// The insertion that produced the node, with the authored range of the
+    /// construct it serves when that differs from its own; `None` for a
+    /// node that renders authored syntax.
+    #[must_use]
+    pub fn inserted(&self) -> Option<(krs_ir::InsertedNode, Option<&krs_ir::SourceRange>)> {
+        self.origin.inserted()
     }
 
     /// Returns the generated source range when this node has a direct rendering.
@@ -462,12 +486,13 @@ impl SourceMap {
     pub(crate) fn from_definition(definition: &DefinitionIr) -> Result<Self, SidecarError> {
         let mut entries = BTreeMap::new();
         for module in definition.modules() {
-            insert_origin(&mut entries, module.origin(), SourceMapNodeKind::Module)?;
+            insert_origin(&mut entries, module.origin(), SourceMapNodeKind::Module, 0)?;
             for group in module.production_groups() {
                 insert_origin(
                     &mut entries,
                     group.origin(),
                     SourceMapNodeKind::ProductionGroup,
+                    1,
                 )?;
             }
             for sentence in module.sentences() {
@@ -489,7 +514,7 @@ impl SourceMap {
                     DefinitionSentence::Layout(_) => SourceMapNodeKind::Layout,
                     DefinitionSentence::Raw(_) => SourceMapNodeKind::RawSentence,
                 };
-                insert_origin(&mut entries, sentence.origin(), kind)?;
+                insert_origin(&mut entries, sentence.origin(), kind, 1)?;
                 match sentence {
                     DefinitionSentence::Production(sentence) => {
                         for item in sentence.items() {
@@ -497,6 +522,7 @@ impl SourceMap {
                                 &mut entries,
                                 item.origin(),
                                 SourceMapNodeKind::ProductionItem,
+                                2,
                             )?;
                         }
                         for attribute in sentence.attributes() {
@@ -504,6 +530,7 @@ impl SourceMap {
                                 &mut entries,
                                 attribute.origin(),
                                 SourceMapNodeKind::ProductionAttribute,
+                                2,
                             )?;
                             if let krs_ir_levels::DefinitionProductionAttribute::Strictness {
                                 using,
@@ -517,6 +544,7 @@ impl SourceMap {
                                         &mut entries,
                                         using.origin(),
                                         SourceMapNodeKind::ProductionAttribute,
+                                        3,
                                     )?;
                                 }
                                 for field in fields {
@@ -524,26 +552,29 @@ impl SourceMap {
                                         &mut entries,
                                         field.origin(),
                                         SourceMapNodeKind::ProductionAttribute,
+                                        3,
                                     )?;
                                 }
                                 insert_origin(
                                     &mut entries,
                                     result_sort.origin(),
                                     SourceMapNodeKind::ProductionAttribute,
+                                    3,
                                 )?;
                             }
                         }
                     }
                     DefinitionSentence::Configuration(configuration) => {
-                        insert_fixed_configuration(&mut entries, configuration)?;
+                        insert_fixed_configuration(&mut entries, configuration, 2)?;
                     }
                     DefinitionSentence::Rule(sentence) => {
-                        insert_rule_body(&mut entries, sentence.relational_body())?;
+                        insert_rule_body(&mut entries, sentence.relational_body(), 2)?;
                         if let Some(priority) = sentence.priority() {
                             insert_origin(
                                 &mut entries,
                                 priority.origin(),
                                 SourceMapNodeKind::RulePriority,
+                                2,
                             )?;
                         }
                         if let Some(simplification) = sentence.simplification() {
@@ -551,12 +582,14 @@ impl SourceMap {
                                 &mut entries,
                                 simplification.origin(),
                                 SourceMapNodeKind::Simplification,
+                                2,
                             )?;
                             if let Some(priority) = simplification.priority() {
                                 insert_origin(
                                     &mut entries,
                                     priority.origin(),
                                     SourceMapNodeKind::SimplificationPriority,
+                                    3,
                                 )?;
                             }
                         }
@@ -566,6 +599,7 @@ impl SourceMap {
                                     &mut entries,
                                     origin,
                                     SourceMapNodeKind::MatchRestriction,
+                                    2,
                                 )?;
                             }
                         }
@@ -574,19 +608,22 @@ impl SourceMap {
                                 &mut entries,
                                 context.origin(),
                                 SourceMapNodeKind::FunctionContext,
+                                2,
                             )?;
                             for cell in context.cells().cells() {
                                 insert_origin(
                                     &mut entries,
                                     cell.origin(),
                                     SourceMapNodeKind::CellClause,
+                                    3,
                                 )?;
-                                insert_term(&mut entries, cell.pattern())?;
+                                insert_term(&mut entries, cell.pattern(), 4)?;
                                 if let Some(origin) = cell.frame().origin() {
                                     insert_origin(
                                         &mut entries,
                                         origin,
                                         SourceMapNodeKind::CellFrame,
+                                        4,
                                     )?;
                                 }
                             }
@@ -596,6 +633,7 @@ impl SourceMap {
                                 &mut entries,
                                 condition,
                                 SourceMapNodeKind::RuleCondition,
+                                2,
                             )?;
                         }
                         if let Some(claim) = sentence.claim() {
@@ -603,12 +641,14 @@ impl SourceMap {
                                 &mut entries,
                                 claim.modality_origin(),
                                 SourceMapNodeKind::ClaimModality,
+                                2,
                             )?;
                             if let Some(origin) = claim.circularity_origin() {
                                 insert_origin(
                                     &mut entries,
                                     origin,
                                     SourceMapNodeKind::ClaimCircularity,
+                                    2,
                                 )?;
                             }
                             if let Some(origin) = claim.trusted_origin() {
@@ -616,18 +656,16 @@ impl SourceMap {
                                     &mut entries,
                                     origin,
                                     SourceMapNodeKind::ClaimTrusted,
+                                    2,
                                 )?;
                             }
                             for binder in claim.universals() {
-                                for origin in
-                                    [binder.origin(), binder.name_origin(), binder.sort_origin()]
-                                {
-                                    insert_origin(
-                                        &mut entries,
-                                        origin,
-                                        SourceMapNodeKind::ClaimBinder,
-                                    )?;
-                                }
+                                insert_binder(
+                                    &mut entries,
+                                    binder,
+                                    SourceMapNodeKind::ClaimBinder,
+                                    2,
+                                )?;
                             }
                         }
                         let (binder_kind, ensures_kind) =
@@ -643,25 +681,18 @@ impl SourceMap {
                                 )
                             };
                         for binder in sentence.existentials() {
-                            for origin in
-                                [binder.origin(), binder.name_origin(), binder.sort_origin()]
-                            {
-                                insert_origin(&mut entries, origin, binder_kind)?;
-                            }
+                            insert_binder(&mut entries, binder, binder_kind, 2)?;
                         }
                         for binder in sentence.fresh() {
-                            for origin in
-                                [binder.origin(), binder.name_origin(), binder.sort_origin()]
-                            {
-                                insert_origin(
-                                    &mut entries,
-                                    origin,
-                                    SourceMapNodeKind::RuleFreshBinder,
-                                )?;
-                            }
+                            insert_binder(
+                                &mut entries,
+                                binder,
+                                SourceMapNodeKind::RuleFreshBinder,
+                                2,
+                            )?;
                         }
                         if let Some(ensures) = sentence.ensures() {
-                            insert_condition(&mut entries, ensures, ensures_kind)?;
+                            insert_condition(&mut entries, ensures, ensures_kind, 2)?;
                         }
                     }
                     DefinitionSentence::ContextAlias(sentence) => {
@@ -669,23 +700,35 @@ impl SourceMap {
                             &mut entries,
                             sentence.name_origin(),
                             SourceMapNodeKind::ContextAlias,
+                            2,
                         )?;
-                        insert_origin(
-                            &mut entries,
-                            sentence.here_origin(),
-                            SourceMapNodeKind::ContextAlias,
-                        )?;
+                        let mut holes = Vec::new();
                         for cell in sentence.body().cells() {
                             insert_origin(
                                 &mut entries,
                                 cell.origin(),
                                 SourceMapNodeKind::CellClause,
+                                2,
                             )?;
-                            insert_term(&mut entries, cell.pattern())?;
+                            insert_term(&mut entries, cell.pattern(), 3)?;
+                            variable_occurrences(cell.pattern(), sentence.here(), &mut holes);
                             if let Some(origin) = cell.frame().origin() {
-                                insert_origin(&mut entries, origin, SourceMapNodeKind::CellFrame)?;
+                                insert_origin(
+                                    &mut entries,
+                                    origin,
+                                    SourceMapNodeKind::CellFrame,
+                                    3,
+                                )?;
                             }
                         }
+                        // `HERE` is rendered at the hole's occurrence.
+                        let here = below_deepest(&entries, &holes).unwrap_or(2);
+                        insert_origin(
+                            &mut entries,
+                            sentence.here_origin(),
+                            SourceMapNodeKind::ContextAlias,
+                            here,
+                        )?;
                     }
                     _ => {}
                 }
@@ -775,6 +818,16 @@ impl SourceMap {
                             return Err(SidecarError::AbsolutePath(entry.key.as_str().to_owned()));
                         }
                     }
+                    // An inserted frame's anchor is a source range, checked
+                    // as a ranged frame's is.
+                    OriginFrame::Inserted { anchor, .. } => {
+                        if anchor.as_ref().is_some_and(|range| {
+                            DisplayPath::is_absolute_spelling(range.file.package_relative_path())
+                                || package_has_path_leak(range.file.package())
+                        }) {
+                            return Err(SidecarError::AbsolutePath(entry.key.as_str().to_owned()));
+                        }
+                    }
                 }
             }
             if entry
@@ -858,16 +911,31 @@ fn push_fixed_cell_symbols(
     Ok(())
 }
 
+/// Records a configuration's nodes at their nesting in the configuration's
+/// one rendering; `depth` is that of its root, initializer and top-level
+/// cells. The Definition IR holds the cells' declarations and their
+/// initializer as two parallel trees, which the emitter renders as one
+/// text: a cell's declaration and its initializer cell both span the cell
+/// from `<name` to `</name>`. So the declaration is at the cell's depth,
+/// its initializer cell one deeper, and the cell's attributes, value and
+/// child cells below both. A named root holds the top-level cells. A
+/// configuration variable is rendered at its first occurrence in the
+/// initializer, so it is one deeper than its deepest occurrence, and below
+/// every node that holds the occurrence it shares its bytes with.
 fn insert_fixed_configuration(
     entries: &mut BTreeMap<SourceMapKey, SourceMapEntry>,
     configuration: &FixedConfiguration<DefinitionSortRef, SymbolId, DefinitionTerm>,
+    depth: u32,
 ) -> Result<(), SidecarError> {
-    fn cells(
+    fn cells<'a>(
         entries: &mut BTreeMap<SourceMapKey, SourceMapEntry>,
-        values: &[FixedCell<DefinitionSortRef, SymbolId>],
+        values: &'a [FixedCell<DefinitionSortRef, SymbolId>],
+        depth: u32,
+        depths: &mut BTreeMap<&'a SymbolId, u32>,
     ) -> Result<(), SidecarError> {
         for cell in values {
-            insert_origin(entries, cell.origin(), SourceMapNodeKind::Cell)?;
+            insert_origin(entries, cell.origin(), SourceMapNodeKind::Cell, depth)?;
+            depths.insert(cell.id(), depth);
             for attribute in cell.attributes() {
                 match attribute {
                     CellAttribute::Color { origin, .. }
@@ -877,49 +945,127 @@ fn insert_fixed_configuration(
                     | CellAttribute::Exit { origin }
                     | CellAttribute::Initial { origin }
                     | CellAttribute::Unobservable { origin } => {
-                        insert_origin(entries, origin, SourceMapNodeKind::CellAttribute)?;
+                        insert_origin(
+                            entries,
+                            origin,
+                            SourceMapNodeKind::CellAttribute,
+                            depth + 2,
+                        )?;
                     }
                 }
             }
             if let FixedCellContent::Children { children } = cell.content() {
-                cells(entries, children)?;
+                cells(entries, children, depth + 2, depths)?;
             }
         }
         Ok(())
     }
+    /// `depth` is where an initializer cell whose declaration is missing
+    /// would stand, one below its holder; the emitter refuses that shape.
     fn initializer(
         entries: &mut BTreeMap<SourceMapKey, SourceMapEntry>,
         values: &[FixedInitializerCell<SymbolId, DefinitionTerm>],
+        depth: u32,
+        depths: &BTreeMap<&SymbolId, u32>,
     ) -> Result<(), SidecarError> {
         for cell in values {
-            insert_origin(entries, cell.origin(), SourceMapNodeKind::InitializerCell)?;
+            let depth = depths
+                .get(cell.cell())
+                .map_or(depth, |declared| declared + 1);
+            insert_origin(
+                entries,
+                cell.origin(),
+                SourceMapNodeKind::InitializerCell,
+                depth,
+            )?;
             match cell.content() {
-                FixedInitializerContent::Term { term } => insert_term(entries, term)?,
+                FixedInitializerContent::Term { term } => insert_term(entries, term, depth + 1)?,
                 FixedInitializerContent::Children { children } => {
-                    initializer(entries, children)?;
+                    initializer(entries, children, depth + 1, depths)?;
                 }
             }
         }
         Ok(())
     }
-
-    if let ConfigurationRoot::Named { origin, .. } = configuration.root() {
-        insert_origin(entries, origin, SourceMapNodeKind::ConfigurationRoot)?;
-    }
+    let cell_depth = if let ConfigurationRoot::Named { origin, .. } = configuration.root() {
+        insert_origin(entries, origin, SourceMapNodeKind::ConfigurationRoot, depth)?;
+        depth + 1
+    } else {
+        depth
+    };
+    // Rendered as an empty range after the configuration's text.
     insert_origin(
         entries,
         configuration.initializer_origin(),
         SourceMapNodeKind::Initializer,
+        depth,
+    )?;
+    let mut depths = BTreeMap::new();
+    cells(entries, configuration.cells(), cell_depth, &mut depths)?;
+    initializer(
+        entries,
+        configuration.initializer(),
+        cell_depth + 1,
+        &depths,
     )?;
     for variable in configuration.variables() {
+        let mut found = Vec::new();
+        initializer_occurrences(configuration.initializer(), variable.id(), &mut found);
+        let rendered = below_deepest(entries, &found).unwrap_or(depth);
         insert_origin(
             entries,
             variable.origin(),
             SourceMapNodeKind::ConfigurationVariable,
+            rendered,
         )?;
     }
-    cells(entries, configuration.cells())?;
-    initializer(entries, configuration.initializer())
+    Ok(())
+}
+
+/// Every occurrence of `variable` in the initializer `cells`.
+fn initializer_occurrences<'a>(
+    cells: &'a [FixedInitializerCell<SymbolId, DefinitionTerm>],
+    variable: &krs_ir::SemanticId,
+    found: &mut Vec<&'a DefinitionTerm>,
+) {
+    for cell in cells {
+        match cell.content() {
+            FixedInitializerContent::Term { term } => {
+                variable_occurrences(term, variable, found);
+            }
+            FixedInitializerContent::Children { children } => {
+                initializer_occurrences(children, variable, found);
+            }
+        }
+    }
+}
+
+/// Every occurrence of `variable` in `term`.
+fn variable_occurrences<'a>(
+    term: &'a DefinitionTerm,
+    variable: &krs_ir::SemanticId,
+    found: &mut Vec<&'a DefinitionTerm>,
+) {
+    if matches!(term.kind(), DefinitionTermKind::Variable { variable: name } if name == variable) {
+        found.push(term);
+    }
+    for child in term.children() {
+        variable_occurrences(child, variable, found);
+    }
+}
+
+/// One more than the deepest recorded of `occurrences`: the depth of a
+/// node the emitter renders at one of them, which falls below every node
+/// that holds that occurrence.
+fn below_deepest(
+    entries: &BTreeMap<SourceMapKey, SourceMapEntry>,
+    occurrences: &[&DefinitionTerm],
+) -> Option<u32> {
+    occurrences
+        .iter()
+        .filter_map(|occurrence| entries.get(occurrence.origin().key()))
+        .map(|entry| entry.depth + 1)
+        .max()
 }
 
 /// Records one condition: a Bool condition under `kind` with its term, or
@@ -928,69 +1074,110 @@ fn insert_condition(
     entries: &mut BTreeMap<SourceMapKey, SourceMapEntry>,
     condition: &krs_ir_levels::DefinitionCondition,
     kind: SourceMapNodeKind,
+    depth: u32,
 ) -> Result<(), SidecarError> {
     match condition {
         krs_ir_levels::IrCondition::Bool(condition) => {
-            insert_origin(entries, condition.origin(), kind)?;
-            insert_term(entries, condition.term())
+            insert_origin(entries, condition.origin(), kind, depth)?;
+            insert_term(entries, condition.term(), depth + 1)
         }
-        krs_ir_levels::IrCondition::Predicate(predicate) => insert_predicate(entries, predicate),
+        krs_ir_levels::IrCondition::Predicate(predicate) => {
+            insert_predicate(entries, predicate, depth)
+        }
     }
 }
 
-/// Records a predicate's connectives, `ml::exists` binders, and terms.
+/// Records a predicate's connectives, `ml::exists` binders, and terms, each
+/// one deeper than the connective that holds it.
 fn insert_predicate(
     entries: &mut BTreeMap<SourceMapKey, SourceMapEntry>,
     predicate: &krs_ir_levels::DefinitionMlPredicate,
+    depth: u32,
 ) -> Result<(), SidecarError> {
-    let mut nodes = Vec::new();
-    predicate.visit(&mut |node| nodes.push(node));
-    for node in nodes {
-        insert_origin(entries, node.origin(), SourceMapNodeKind::MlPredicate)?;
-        if let krs_ir_levels::IrMlKind::Exists { binder, .. } = node.kind() {
-            for origin in [binder.origin(), binder.name_origin(), binder.sort_origin()] {
-                insert_origin(entries, origin, SourceMapNodeKind::MlBinder)?;
-            }
+    use krs_ir_levels::IrMlKind;
+    insert_origin(
+        entries,
+        predicate.origin(),
+        SourceMapNodeKind::MlPredicate,
+        depth,
+    )?;
+    match predicate.kind() {
+        IrMlKind::Top | IrMlKind::Bottom => Ok(()),
+        IrMlKind::Not { operand } => insert_predicate(entries, operand, depth + 1),
+        IrMlKind::And { left, right }
+        | IrMlKind::Or { left, right }
+        | IrMlKind::Implies { left, right } => {
+            insert_predicate(entries, left, depth + 1)?;
+            insert_predicate(entries, right, depth + 1)
+        }
+        IrMlKind::Equals { left, right, .. } => {
+            insert_term(entries, left, depth + 1)?;
+            insert_term(entries, right, depth + 1)
+        }
+        IrMlKind::Ceil { term, .. } => insert_term(entries, term, depth + 1),
+        IrMlKind::Exists { binder, body } => {
+            insert_binder(entries, binder, SourceMapNodeKind::MlBinder, depth + 1)?;
+            insert_predicate(entries, body, depth + 1)
         }
     }
-    for term in predicate.terms() {
-        insert_term(entries, term)?;
-    }
-    Ok(())
+}
+
+/// Records a scoped binder at `depth` and its name and sort below it.
+fn insert_binder(
+    entries: &mut BTreeMap<SourceMapKey, SourceMapEntry>,
+    binder: &krs_ir_levels::IrScopedBinder<krs_ir_levels::DefinitionLevel>,
+    kind: SourceMapNodeKind,
+    depth: u32,
+) -> Result<(), SidecarError> {
+    insert_origin(entries, binder.origin(), kind, depth)?;
+    insert_origin(entries, binder.name_origin(), kind, depth + 1)?;
+    insert_origin(entries, binder.sort_origin(), kind, depth + 1)
 }
 
 fn insert_rule_body(
     entries: &mut BTreeMap<SourceMapKey, SourceMapEntry>,
     body: RuleBodyRef<'_, krs_ir_levels::DefinitionLevel>,
+    depth: u32,
 ) -> Result<(), SidecarError> {
     match body {
         RuleBodyRef::Predicate(body) => {
-            insert_origin(entries, body.origin(), SourceMapNodeKind::Term)?;
-            insert_predicate(entries, body.lhs())?;
-            insert_predicate(entries, body.rhs())
+            insert_origin(entries, body.origin(), SourceMapNodeKind::Term, depth)?;
+            insert_predicate(entries, body.lhs(), depth + 1)?;
+            insert_predicate(entries, body.rhs(), depth + 1)
         }
         // A single-body rule (KF-011) maps its authored term once.
         RuleBodyRef::Term(body) => {
             if let Some(local) = body.local_term() {
-                return insert_term(entries, local);
+                return insert_term(entries, local, depth);
             }
-            insert_origin(entries, body.origin(), SourceMapNodeKind::Term)?;
-            insert_term(entries, body.from())?;
-            insert_term(entries, body.to())
+            insert_origin(entries, body.origin(), SourceMapNodeKind::Term, depth)?;
+            insert_term(entries, body.from(), depth + 1)?;
+            insert_term(entries, body.to(), depth + 1)
         }
         RuleBodyRef::Configuration { body, .. } => {
             insert_origin(
                 entries,
                 body.origin(),
                 SourceMapNodeKind::ConfigurationRewrite,
+                depth,
             )?;
             for clause in body.clauses() {
-                insert_origin(entries, clause.origin(), SourceMapNodeKind::CellClause)?;
+                insert_origin(
+                    entries,
+                    clause.origin(),
+                    SourceMapNodeKind::CellClause,
+                    depth + 1,
+                )?;
                 // A collection clause's instances and their children are
                 // nodes too (KF-023).
                 if let krs_ir::ConfigurationClause::Instances(instances) = clause {
                     for instance in instances.instances() {
-                        insert_origin(entries, instance.origin(), SourceMapNodeKind::CellClause)?;
+                        insert_origin(
+                            entries,
+                            instance.origin(),
+                            SourceMapNodeKind::CellClause,
+                            depth + 2,
+                        )?;
                         match instance {
                             krs_ir::InstanceClause::Kept { children, .. } => {
                                 for child in children {
@@ -998,6 +1185,7 @@ fn insert_rule_body(
                                         entries,
                                         child.origin(),
                                         SourceMapNodeKind::CellClause,
+                                        depth + 3,
                                     )?;
                                 }
                             }
@@ -1008,18 +1196,28 @@ fn insert_rule_body(
                                         entries,
                                         child.origin(),
                                         SourceMapNodeKind::CellClause,
+                                        depth + 3,
                                     )?;
                                 }
                             }
                         }
                     }
                 }
+                // A fixed clause's terms and frame are its children; a
+                // collection clause's parts are those of an instance's
+                // mentioned children.
+                let part_depth = if matches!(clause, krs_ir::ConfigurationClause::Instances(_)) {
+                    depth + 4
+                } else {
+                    depth + 2
+                };
                 for part in clause.parts() {
+                    let depth = part_depth;
                     for term in part.terms() {
-                        insert_term(entries, term)?;
+                        insert_term(entries, term, depth)?;
                     }
                     if let Some(origin) = part.frame().and_then(CellContentFrame::origin) {
-                        insert_origin(entries, origin, SourceMapNodeKind::CellFrame)?;
+                        insert_origin(entries, origin, SourceMapNodeKind::CellFrame, depth)?;
                     }
                 }
             }
@@ -1032,10 +1230,12 @@ fn insert_origin(
     entries: &mut BTreeMap<SourceMapKey, SourceMapEntry>,
     origin: &NodeOrigin,
     kind: SourceMapNodeKind,
+    depth: u32,
 ) -> Result<(), SidecarError> {
     let entry = SourceMapEntry {
         key: origin.key().clone(),
         node_kind: kind,
+        depth,
         origin: origin.origin().clone(),
         generated: None,
     };
@@ -1048,22 +1248,23 @@ fn insert_origin(
 fn insert_term(
     entries: &mut BTreeMap<SourceMapKey, SourceMapEntry>,
     term: &DefinitionTerm,
+    depth: u32,
 ) -> Result<(), SidecarError> {
-    insert_origin(entries, term.origin(), SourceMapNodeKind::Term)?;
+    insert_origin(entries, term.origin(), SourceMapNodeKind::Term, depth)?;
     match term.kind() {
         DefinitionTermKind::Map(operands) => {
             for operand in operands.operands() {
-                insert_term(entries, operand)?;
+                insert_term(entries, operand, depth + 1)?;
             }
         }
         DefinitionTermKind::List(operands) => {
             for operand in operands.operands() {
-                insert_term(entries, operand)?;
+                insert_term(entries, operand, depth + 1)?;
             }
         }
         DefinitionTermKind::Set(operands) => {
             for operand in operands.operands() {
-                insert_term(entries, operand)?;
+                insert_term(entries, operand, depth + 1)?;
             }
         }
         DefinitionTermKind::Application { arguments, .. }
@@ -1075,24 +1276,24 @@ fn insert_term(
             ..
         } => {
             for argument in arguments {
-                insert_term(entries, argument)?;
+                insert_term(entries, argument, depth + 1)?;
             }
         }
         DefinitionTermKind::Rewrite { from, to } => {
-            insert_term(entries, from)?;
-            insert_term(entries, to)?;
+            insert_term(entries, from, depth + 1)?;
+            insert_term(entries, to, depth + 1)?;
         }
-        DefinitionTermKind::As { pattern, .. } => insert_term(entries, pattern)?,
+        DefinitionTermKind::As { pattern, .. } => insert_term(entries, pattern, depth + 1)?,
         DefinitionTermKind::Or { alternatives } => {
             for alternative in alternatives {
-                insert_term(entries, alternative)?;
+                insert_term(entries, alternative, depth + 1)?;
             }
         }
         DefinitionTermKind::Matches {
             subject, pattern, ..
         } => {
-            insert_term(entries, subject)?;
-            insert_term(entries, pattern)?;
+            insert_term(entries, subject, depth + 1)?;
+            insert_term(entries, pattern, depth + 1)?;
         }
         DefinitionTermKind::Let {
             pattern,
@@ -1100,9 +1301,9 @@ fn insert_term(
             body,
             ..
         } => {
-            insert_term(entries, pattern)?;
-            insert_term(entries, value)?;
-            insert_term(entries, body)?;
+            insert_term(entries, pattern, depth + 1)?;
+            insert_term(entries, value, depth + 1)?;
+            insert_term(entries, body, depth + 1)?;
         }
         DefinitionTermKind::Variable { .. } | DefinitionTermKind::Token { .. } => {}
     }
@@ -1135,7 +1336,7 @@ mod reader_tests {
 
     #[test]
     fn sidecar_readers_require_the_current_version() {
-        for version in [0, 1, 3] {
+        for version in [0, 1, 2, 4] {
             let input = serde_json::json!({"schema_version": version, "entries": []});
             assert!(serde_json::from_value::<SymbolMap>(input.clone()).is_err());
             assert!(serde_json::from_value::<SourceMap>(input).is_err());

@@ -126,13 +126,19 @@ protocol_shape! {
         /// preserved tail.
         #[serde(default, skip_serializing_if = "core::ops::Not::not")]
         pub exact: bool => [keep],
+        /// The provenance of the `..` the author wrote to keep the rest of
+        /// the cell, `rule_left_sequence_rest`; absent when the pattern is
+        /// closed and when the kept tail is the block form's, which no token
+        /// denotes.
+        #[serde(default = "Option::default", skip_serializing_if = "Option::is_none")]
+        pub tail_key: Option<ProvenanceKey> => [keep],
         /// Replacement, splice, or erasure of the matched items, before the
         /// preserved tail unless `exact`; absent when the result leaves the
         /// cell out, which only reads it.
         #[serde(default = "Option::default", skip_serializing_if = "Option::is_none")]
         pub result: Option<ProtocolHeadRuleResult<T>> => [option nested term_map],
     }
-    map_order: [result, items, exact];
+    map_order: [result, items, exact, tail_key];
 }
 
 /// Host head result.
@@ -169,8 +175,10 @@ protocol_shape! {
         /// No rest: the list ends after the elements (`[a, b]`).
         Exact,
         /// The anonymous `..`: one rest, the same on both sides of the rule,
-        /// as the computation cell's.
-        Shared,
+        /// as the computation cell's. The key is the provenance of the
+        /// subject's `..` token, `rule_left_sequence_rest`, on both sides:
+        /// the subject defines it, the result refers to it.
+        Shared(value: Option<ProvenanceKey> => [keep]),
         /// A named rest: the binder of `rest @ ..` in the pattern, the term
         /// of `..t` in the result.
         Term(value: T => [term_map]),
@@ -202,7 +210,7 @@ impl<T> ProtocolHeadRuleList<T> {
     pub fn terms(&self) -> Vec<&T> {
         let rest = match &self.rest {
             ProtocolHeadRuleListRest::Term(rest) => Some(rest),
-            ProtocolHeadRuleListRest::Exact | ProtocolHeadRuleListRest::Shared => None,
+            ProtocolHeadRuleListRest::Exact | ProtocolHeadRuleListRest::Shared(_) => None,
         };
         self.items.iter().chain(rest).chain(&self.back).collect()
     }
@@ -211,7 +219,7 @@ impl<T> ProtocolHeadRuleList<T> {
     pub fn terms_mut(&mut self) -> Vec<&mut T> {
         let rest = match &mut self.rest {
             ProtocolHeadRuleListRest::Term(rest) => Some(rest),
-            ProtocolHeadRuleListRest::Exact | ProtocolHeadRuleListRest::Shared => None,
+            ProtocolHeadRuleListRest::Exact | ProtocolHeadRuleListRest::Shared(_) => None,
         };
         self.items
             .iter_mut()
@@ -234,6 +242,11 @@ protocol_shape! {
             cell: I => [cell_map],
             /// The matched entries, at least one, in authored order.
             entries: Vec<ProtocolHeadRuleMapEntry<T>> => [vec nested term_map],
+            /// The provenance of the `..` a machine-form read writes to keep
+            /// the other entries, `rule_left_map_remainder`; absent for a
+            /// block-form `have`, whose remainder no token denotes.
+            #[serde(default = "Option::default", skip_serializing_if = "Option::is_none")]
+            rest_key: Option<ProvenanceKey> => [keep],
         },
         /// Simultaneous whole-map replacement by an ordinary update term.
         UpdateMap {
@@ -714,7 +727,7 @@ fn list_extra<T>(
     after: Option<&ProtocolHeadRuleList<T>>,
 ) -> bool {
     let shared =
-        |list: &ProtocolHeadRuleList<T>| matches!(list.rest, ProtocolHeadRuleListRest::Shared);
+        |list: &ProtocolHeadRuleList<T>| matches!(list.rest, ProtocolHeadRuleListRest::Shared(_));
     let back = |list: &ProtocolHeadRuleList<T>| {
         list.back.is_empty() || !matches!(list.rest, ProtocolHeadRuleListRest::Exact)
     };
@@ -1365,6 +1378,9 @@ impl<S: ValidationStage, I: CellKey> ClauseKeys<'_, S, I> {
             for item in &head.items {
                 collect_term_keys(item, ValidationSide::Left, false, keys)?;
             }
+            if let Some(key) = &head.tail_key {
+                keys.define(key, ProvenanceRole::RuleLeftSequenceRest)?;
+            }
             match &head.result {
                 None | Some(ProtocolHeadRuleResult::Erase) => {}
                 Some(ProtocolHeadRuleResult::Replace(term)) => {
@@ -1452,8 +1468,15 @@ fn collect_extra_keys<S: ValidationStage, I: CellKey>(
     let left_cell = ProvenanceRole::RuleLeftCellsField;
     let right_cell = ProvenanceRole::RuleRightCellsField;
     match extra {
-        ProtocolHeadRuleExtra::HaveMap { cell, entries } => {
+        ProtocolHeadRuleExtra::HaveMap {
+            cell,
+            entries,
+            rest_key,
+        } => {
             keys.define(cell.cell_key(), left_cell)?;
+            if let Some(key) = rest_key {
+                keys.define(key, ProvenanceRole::RuleLeftMapRemainder)?;
+            }
             // An entry denotes its key expression and its value binder;
             // a clone's are another entry's.
             for entry in entries {
@@ -1521,6 +1544,16 @@ fn collect_extra_keys<S: ValidationStage, I: CellKey>(
             keys.define(cell.cell_key(), left_cell)?;
             if let Some(result_key) = result_key {
                 keys.define(result_key, right_cell)?;
+            }
+            // The subject's `..` defines the shared rest; the result's
+            // names the same rest.
+            if let ProtocolHeadRuleListRest::Shared(Some(key)) = &before.rest {
+                keys.define(key, ProvenanceRole::RuleLeftSequenceRest)?;
+            }
+            if let Some(ProtocolHeadRuleListRest::Shared(Some(key))) =
+                after.as_ref().map(|after| &after.rest)
+            {
+                keys.refer(key, ProvenanceRole::RuleLeftSequenceRest)?;
             }
             for term in before.terms() {
                 collect_term_keys(term, ValidationSide::Left, cloned_terms, keys)?;
@@ -1623,6 +1656,7 @@ mod tests {
                     name: "x".to_owned(),
                 }],
                 exact: false,
+                tail_key: None,
                 result: Some(ProtocolHeadRuleResult::Splice(
                     super::ProtocolHeadRuleSplice {
                         payload_key: Some(key(ProvenanceRole::RuleRightKSequencePayload, 0)),
@@ -1662,6 +1696,82 @@ mod tests {
         ]
         .map(|role| ProvenanceKey::new(role, 0))
         .to_vec()
+    }
+
+    /// The `..` tokens a clause writes are nodes of its own: the computation
+    /// cell's tail and a list's shared rest under the sequence-rest role, a
+    /// map read's remainder under the map-remainder role. The subject's
+    /// list rest defines its key and the result's refers to it.
+    #[test]
+    fn authored_rest_tokens_are_keyed_nodes() {
+        let key = ProvenanceKey::new;
+        let tail = key(ProvenanceRole::RuleLeftSequenceRest, 0);
+        let list_rest = key(ProvenanceRole::RuleLeftSequenceRest, 1);
+        let map_rest = key(ProvenanceRole::RuleLeftMapRemainder, 0);
+        let mut rule = table_clause();
+        rule.head.as_mut().unwrap().tail_key = Some(tail.clone());
+        let cell = |ordinal| super::HostHeadRuleCellReference {
+            key: key(ProvenanceRole::RuleLeftCellsField, ordinal),
+            name: format!("c{ordinal}"),
+        };
+        let list = |rest| super::ProtocolHeadRuleList {
+            items: Vec::new(),
+            rest,
+            back: Vec::new(),
+        };
+        rule.extras = vec![
+            ProtocolHeadRuleExtra::HaveMap {
+                cell: cell(0),
+                entries: vec![ProtocolHeadRuleMapEntry {
+                    key_key: map_key(),
+                    key: crate::Term::Literal {
+                        key: key(ProvenanceRole::RuleLeftLiteral, 0),
+                        literal: crate::DescriptorLiteral::Int("1".to_owned()),
+                    },
+                    value_key: map_value(),
+                    value_binding: "v".to_owned(),
+                }],
+                rest_key: Some(map_rest.clone()),
+            },
+            ProtocolHeadRuleExtra::RewriteList {
+                cell: cell(1),
+                result_key: Some(key(ProvenanceRole::RuleRightCellsField, 0)),
+                before: list(super::ProtocolHeadRuleListRest::Shared(Some(
+                    list_rest.clone(),
+                ))),
+                after: Some(list(super::ProtocolHeadRuleListRest::Shared(Some(
+                    list_rest.clone(),
+                )))),
+            },
+        ];
+        let mut anchors = table_anchors();
+        anchors.extend([
+            tail.clone(),
+            list_rest.clone(),
+            map_rest.clone(),
+            map_key(),
+            map_value(),
+            key(ProvenanceRole::RuleLeftLiteral, 0),
+            key(ProvenanceRole::RuleLeftCellsField, 0),
+            key(ProvenanceRole::RuleLeftCellsField, 1),
+            key(ProvenanceRole::RuleRightCellsField, 0),
+        ]);
+        assert_eq!(rule.validate_complete_provenance(&anchors), Ok(()));
+        for missing in [&tail, &list_rest, &map_rest] {
+            let without = anchors
+                .iter()
+                .filter(|anchor| *anchor != missing)
+                .cloned()
+                .collect::<Vec<_>>();
+            assert!(
+                rule.validate_complete_provenance(&without).is_err(),
+                "{missing:?}"
+            );
+        }
+        // A tail keyed under another role is refused.
+        let mut wrong = rule.clone();
+        wrong.head.as_mut().unwrap().tail_key = Some(map_rest.clone());
+        assert!(wrong.carried_keys().is_err());
     }
 
     /// A readable clause's keys are its anchors: each key field defines its
@@ -1828,6 +1938,7 @@ mod tests {
                     ProvenanceRole::RuleLeftPath,
                 )],
                 exact: false,
+                tail_key: None,
                 result: Some(ProtocolHeadRuleResult::Replace(variable(
                     ProvenanceRole::RuleRightReference,
                     ProvenanceRole::RuleRightPath,
@@ -2151,6 +2262,7 @@ mod tests {
             refinement: None,
         });
         let read = |names: &[&str]| ProtocolHeadRuleExtra::<u8, u8>::HaveMap {
+            rest_key: None,
             cell: 0,
             entries: names
                 .iter()
@@ -2182,6 +2294,7 @@ mod tests {
         let result_key = ProvenanceKey::new(ProvenanceRole::RuleRightCellsField, 0);
         let mut calls = Vec::new();
         let have = ProtocolHeadRuleExtra::HaveMap {
+            rest_key: None,
             cell: 1,
             entries: vec![ProtocolHeadRuleMapEntry {
                 key_key: map_key(),
@@ -2195,6 +2308,7 @@ mod tests {
         assert_eq!(
             have,
             ProtocolHeadRuleExtra::HaveMap {
+                rest_key: None,
                 cell: 11,
                 entries: vec![ProtocolHeadRuleMapEntry {
                     key_key: map_key(),
@@ -2298,6 +2412,7 @@ mod tests {
             head: Some(ProtocolHeadRuleHead {
                 items: vec![wire_term()],
                 exact: false,
+                tail_key: None,
                 result: Some(ProtocolHeadRuleResult::Splice(splice(vec![wire_term()]))),
             }),
             requires: Some(crate::wire::WireRuleCondition {
@@ -2418,6 +2533,7 @@ mod tests {
             head: Some(ProtocolHeadRuleHead {
                 items: vec![descriptor_term()],
                 exact: false,
+                tail_key: None,
                 result: Some(ProtocolHeadRuleResult::Replace(descriptor_term())),
             }),
             requires: Some(crate::DescriptorRuleCondition {
@@ -2425,6 +2541,7 @@ mod tests {
                 term: descriptor_term(),
             }),
             extras: vec![ProtocolHeadRuleExtra::HaveMap {
+                rest_key: None,
                 cell,
                 entries: vec![ProtocolHeadRuleMapEntry {
                     key_key: map_key(),

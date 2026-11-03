@@ -28,7 +28,7 @@ enum MachinePatternCell {
     /// The computation cell's `[p1, .., pn, ..]` or `[p1, .., pn]`.
     KItems(Box<KPattern>),
     /// `{ k1 -> v1, k2 -> v2, .. }`: one or more entries of a map cell.
-    MapItems(Vec<(Expr, Ident)>),
+    MapItems(Vec<(Expr, Ident)>, TokenRange),
     Term {
         pattern: Box<RulePattern>,
         tree: Box<TermTree>,
@@ -76,12 +76,13 @@ struct ListResult {
     back: Vec<Expr>,
 }
 
-/// A computation-cell pattern: its items, front first, and whether it names
-/// the whole cell (no `..`).
+/// A computation-cell pattern: its items, front first, and the range of the
+/// `..` that keeps the rest of the cell, absent when the pattern names the
+/// whole cell.
 #[derive(Clone)]
 struct KPattern {
     items: Vec<(Pat, NegativeLiteralSpans)>,
-    exact: bool,
+    tail: Option<TokenRange>,
 }
 
 /// What a subject record's optional or collection entry expects of the
@@ -574,7 +575,10 @@ fn parse_machine_pattern_record(
         } else if content.peek(syn::token::Bracket) {
             MachinePatternCell::Bracket(content.parse()?)
         } else if content.peek(syn::token::Brace) {
-            MachinePatternCell::MapItems(parse_machine_map_pattern(&content)?)
+            {
+                let (entries, rest) = parse_machine_map_pattern(&content)?;
+                MachinePatternCell::MapItems(entries, rest)
+            }
         } else {
             let (pattern, signs) = parse_pattern_with_signs(&content)?;
             let (pattern, tree) = readable_cell_pattern(pattern, signs)?;
@@ -602,7 +606,11 @@ fn parse_machine_pattern_record(
 /// Parses a readable map pattern, `{ k1 -> v1, ..., kn -> vn, .. }`: one
 /// or more entries of a map cell, each a key term (or `_`, any key) and a
 /// value binder.
-fn parse_machine_map_pattern(content: ParseStream<'_>) -> Result<Vec<(Expr, Ident)>, ParseError> {
+/// Reads a machine-rule map read `{ k1 -> v1, .., kn -> vn, .. }`: its
+/// entries and the range of its required `..`.
+fn parse_machine_map_pattern(
+    content: ParseStream<'_>,
+) -> Result<(Vec<(Expr, Ident)>, TokenRange), ParseError> {
     let map = content.call(|input| {
         let map;
         braced!(map in input);
@@ -646,7 +654,7 @@ fn parse_machine_map_pattern(content: ParseStream<'_>) -> Result<Vec<(Expr, Iden
             .error("a machine-rule map pattern is `{ key -> value, .. }`")
             .into());
     }
-    map.parse::<Token![..]>()?;
+    let dots = map.parse::<Token![..]>()?;
     if map.peek(Token![,]) {
         map.parse::<Token![,]>()?;
     }
@@ -655,7 +663,7 @@ fn parse_machine_map_pattern(content: ParseStream<'_>) -> Result<Vec<(Expr, Iden
             .error("a machine-rule map pattern is `{ key -> value, .. }`")
             .into());
     }
-    Ok(entries)
+    Ok((entries, TokenRange::for_tokens(&dots)?))
 }
 
 /// The key term of a readable map read: a term, or `_` for any key.
@@ -1159,7 +1167,7 @@ fn bracket_prefix(group: &proc_macro2::Group) -> Result<KPattern, ParseError> {
         let sequence;
         bracketed!(sequence in input);
         let mut items = Vec::new();
-        let mut exact = true;
+        let mut tail: Option<Token![..]> = None;
         while !sequence.is_empty() {
             if sequence.peek(Token![..]) {
                 let dots = sequence.parse::<Token![..]>()?;
@@ -1178,7 +1186,7 @@ fn bracket_prefix(group: &proc_macro2::Group) -> Result<KPattern, ParseError> {
                         "`[..]` matches any computation: leave `k` out of the rule to keep it unchanged, or name the items the rule consumes",
                     ));
                 }
-                exact = false;
+                tail = Some(dots);
                 break;
             }
             let rest = sequence.fork();
@@ -1195,9 +1203,11 @@ fn bracket_prefix(group: &proc_macro2::Group) -> Result<KPattern, ParseError> {
                 sequence.parse::<Token![,]>()?;
             }
         }
-        Ok(KPattern { items, exact })
+        Ok((items, tail))
     };
-    Ok(parser.parse2(TokenStream::from(TokenTree::Group(group.clone())))?)
+    let (items, tail) = parser.parse2(TokenStream::from(TokenTree::Group(group.clone())))?;
+    let tail = tail.map(|dots| TokenRange::for_tokens(&dots)).transpose()?;
+    Ok(KPattern { items, tail })
 }
 
 /// Reads a bracketed result value as the computation cell's
@@ -1658,7 +1668,7 @@ fn assemble_machine_clause(
                     .into());
                 }
             }
-            MachinePatternCell::MapItems(entries) => {
+            MachinePatternCell::MapItems(entries, rest) => {
                 let entries = entries
                     .iter()
                     .map(|(key, value)| (key, wildcards.binder(value)))
@@ -1675,6 +1685,7 @@ fn assemble_machine_clause(
                 }
                 extras.push(RuleExtra::HaveMap {
                     cell: cell.clone(),
+                    rest: Some(*rest),
                     entries: entries
                         .iter()
                         .map(|(key, value)| {
@@ -1871,7 +1882,8 @@ fn assemble_machine_clause(
             let head = RuleHead {
                 subject: has_first,
                 following,
-                exact: pattern.exact,
+                exact: pattern.tail.is_none(),
+                tail: pattern.tail,
             };
             let computation_cell = ComputationCell {
                 cell: computation_cell,
@@ -2070,7 +2082,7 @@ fn computation_result(
         )
         .into());
     };
-    match (pattern.exact, *result_exact) {
+    match (pattern.tail.is_none(), *result_exact) {
         (false, true) => {
             return Err(syn::Error::new(
                 result_cell.span(),

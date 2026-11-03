@@ -202,7 +202,7 @@ fn control_flow_results_and_gradual_map_extras_are_structured() {
     );
     assert!(matches!(
         clause.extras(),
-        [RuleExtra::HaveMap { cell, entries }]
+        [RuleExtra::HaveMap { cell, entries, .. }]
             if cell == "env" && matches!(entries.as_slice(), [entry] if entry.value == "value")
     ));
     let roles = clause
@@ -240,7 +240,7 @@ fn machine_map_patterns_read_several_entries_of_one_cell() {
             .collect::<Vec<_>>(),
         ["a", "b", "x", "y", "z"]
     );
-    let [RuleExtra::HaveMap { cell, entries }] = clause.extras() else {
+    let [RuleExtra::HaveMap { cell, entries, .. }] = clause.extras() else {
         panic!("expected one map read, got {:?}", clause.extras());
     };
     assert_eq!(cell, "regs");
@@ -396,7 +396,7 @@ fn final_machine_records_preserve_cells_bindings_and_configuration_ownership() {
     );
     assert!(matches!(
         block.clauses()[0].extras(),
-        [RuleExtra::HaveMap { cell, entries }]
+        [RuleExtra::HaveMap { cell, entries, .. }]
             if cell == "env" && matches!(entries.as_slice(), [entry] if entry.value == "value")
     ));
     // A cell result is a term written into the cell, whatever its head:
@@ -998,4 +998,79 @@ fn a_keyword_names_no_binder() {
             panic!("{source}: {error:?}");
         }
     }
+}
+
+/// The `..` tokens a machine-form clause writes are authored nodes: each is
+/// keyed at its own token, the computation cell's tail and a list cell's
+/// shared rest under one role (the collector decides which reading a
+/// bracketed value takes), a map read's remainder as a map remainder. A
+/// block-form clause's kept tail and a `have` read's remainder are written
+/// by no token and hold no key.
+#[test]
+fn machine_rest_tokens_are_keyed_at_the_token() {
+    let source = r"
+        for Machine;
+
+        step: {
+            computation: [Step(a), ..],
+            regs: { a -> x, .. },
+            stack: [top, ..],
+        } => {
+            computation: [x, ..],
+            stack: [..],
+        };
+        ";
+    let block = krs_syntax::RuleBlock::parse_source(source).unwrap();
+    let clause = &block.clauses()[0];
+    let anchors = clause.provenance().unwrap();
+    let at = |role: ProvenanceRole| {
+        anchors
+            .iter()
+            .filter(|anchor| anchor.role() == role)
+            .map(|anchor| {
+                let start = anchor.range().start();
+                let end = anchor.range().end();
+                let line = source.lines().nth(start.line - 1).unwrap();
+                assert_eq!(start.line, end.line);
+                line[start.column..end.column].to_owned()
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(at(ProvenanceRole::RuleLeftSequenceRest), ["..", ".."]);
+    assert_eq!(at(ProvenanceRole::RuleLeftMapRemainder), [".."]);
+    assert!(clause.head().unwrap().tail().is_some());
+    assert_eq!(
+        clause.tail_key().map(krs_ir::ProvenanceKey::role),
+        Some(ProvenanceRole::RuleLeftSequenceRest)
+    );
+    let rests = clause
+        .extra_keys()
+        .iter()
+        .filter_map(|names| names.rest().map(krs_ir::ProvenanceKey::role))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rests,
+        [
+            ProvenanceRole::RuleLeftMapRemainder,
+            ProvenanceRole::RuleLeftSequenceRest
+        ]
+    );
+
+    let block = krs_syntax::RuleBlock::parse_source(
+        r"
+        for Expr;
+
+        read: Read(n) => n where have mem[n -> let v];
+        ",
+    )
+    .unwrap();
+    let clause = &block.clauses()[0];
+    assert!(clause.head().unwrap().tail().is_none());
+    assert!(clause.tail_key().is_none());
+    assert!(
+        clause
+            .extra_keys()
+            .iter()
+            .all(|names| names.rest().is_none())
+    );
 }

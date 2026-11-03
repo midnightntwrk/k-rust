@@ -36,8 +36,7 @@ use std::collections::BTreeSet;
 
 use krs_diagnostic::{Diagnostic, Location, Severity, codes};
 use krs_ir::{
-    ApplicationRef, BuiltinOperation, BuiltinSort, NodeOrigin, SemanticId, SemanticIdKind,
-    SourceMapKey,
+    ApplicationRef, BuiltinOperation, BuiltinSort, InsertedNode, SemanticId, SemanticIdKind,
 };
 use krs_ir_levels::definedness::{self, Requirement, Sorts};
 use krs_ir_levels::{
@@ -46,6 +45,7 @@ use krs_ir_levels::{
 };
 
 use super::error::DescriptorLoweringError;
+use super::origin::inserted_copy;
 
 /// `modules` with each rule's condition holding the test of every partial construct it
 /// evaluates before the construct (the module documentation).
@@ -326,14 +326,20 @@ impl Guards<'_, '_> {
             if definedness::reads_any(&requirement, bound) {
                 return Err(self.refusal(at, &requirement));
             }
-            let test = self.test(&requirement);
+            let anchor = term.origin().origin().exact_authored_range();
+            let test = self.test(&requirement, anchor.as_ref());
             tests.push(test);
         }
         Ok(())
     }
 
-    /// The test of `requirement`, under source-map keys of its own.
-    fn test(&mut self, requirement: &Requirement<'_>) -> SemanticTerm {
+    /// The test of `requirement`, under source-map keys of its own, each
+    /// node marked inserted and anchored at the construct it tests.
+    fn test(
+        &mut self,
+        requirement: &Requirement<'_>,
+        anchor: Option<&krs_ir::SourceRange>,
+    ) -> SemanticTerm {
         let ordinal = self.tests;
         self.tests += 1;
         let offset = self.wildcard_offset;
@@ -341,10 +347,22 @@ impl Guards<'_, '_> {
         let wildcards = &mut self.wildcards;
         requirement.test(
             self.sorts,
-            &mut |origin| suffixed(origin, &format!("~defined-{ordinal}")),
+            &mut |origin| {
+                inserted_copy(
+                    origin,
+                    &format!("~defined-{ordinal}"),
+                    InsertedNode::DefinednessTest,
+                    anchor,
+                )
+            },
             &mut |origin| {
                 fresh_nodes += 1;
-                suffixed(origin, &format!("~defined-{ordinal}-{fresh_nodes}"))
+                inserted_copy(
+                    origin,
+                    &format!("~defined-{ordinal}-{fresh_nodes}"),
+                    InsertedNode::DefinednessTest,
+                    anchor,
+                )
             },
             &mut |sort, typed| {
                 let id = definedness::test_name(typed, offset + wildcards.len());
@@ -394,10 +412,21 @@ impl Guards<'_, '_> {
     }
 }
 
-/// `tests andThenBool .. andThenBool term`.
+/// `tests andThenBool .. andThenBool term`. Each `andThenBool` joins a test
+/// KRS states, so it is inserted with the test, anchored as the test is.
 fn conjoin(tests: Vec<SemanticTerm>, term: SemanticTerm) -> SemanticTerm {
     tests.into_iter().rev().fold(term, |conjunct, test| {
-        let origin = suffixed(test.origin(), "~and");
+        let anchor = test
+            .origin()
+            .origin()
+            .inserted()
+            .and_then(|(_, anchor)| anchor.cloned());
+        let origin = inserted_copy(
+            test.origin(),
+            "~and",
+            InsertedNode::DefinednessTest,
+            anchor.as_ref(),
+        );
         SemanticTerm::application(
             origin,
             SemanticSortRef::Builtin(BuiltinSort::Bool),
@@ -417,15 +446,6 @@ fn conjuncts(term: &SemanticTerm) -> Vec<SemanticTerm> {
         }
         None => vec![term.clone()],
     }
-}
-
-/// `origin` under the source-map key extended by `suffix`, which no node of the sentence has.
-fn suffixed(origin: &NodeOrigin, suffix: &str) -> NodeOrigin {
-    NodeOrigin::new(
-        SourceMapKey::new(format!("{}{suffix}", origin.key().as_str()))
-            .expect("a source-map key extended by a separator-free suffix is a key"),
-        origin.origin().clone(),
-    )
 }
 
 #[cfg(test)]

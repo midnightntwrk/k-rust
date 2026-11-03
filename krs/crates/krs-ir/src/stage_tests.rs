@@ -704,6 +704,7 @@ fn head_rule() -> DescriptorHeadRule {
         head: Some(crate::ProtocolHeadRuleHead {
             items: vec![term(3)],
             exact: false,
+            tail_key: None,
             result: Some(crate::DescriptorHeadRuleResult::Replace(term(4))),
         }),
         requires: None,
