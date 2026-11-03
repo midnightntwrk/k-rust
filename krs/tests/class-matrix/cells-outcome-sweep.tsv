@@ -597,3 +597,73 @@ init	*	? group G	-	cwi	cwi	nii	cwi	ir	cwi	ir	cwi	cwi	cwi	cwi	cwi	cwi
 init	*	* List of G	-	cwi	cwi	nii	cwi	ir	cwi	ir	cwi	cwi	cwi	cwi	cwi	cwi
 init	*	* Set of G	-	cwi	cwi	nii	cwi	ir	cwi	ir	cwi	cwi	cwi	cwi	cwi	cwi
 init	*	* Map of G	-	cwi	cwi	nii	cwi	ir	cwi	ir	cwi	cwi	cwi	cwi	cwi	cwi
+#
+## children: a result's group and instance records, each child at its own content root
+# Each row is a result over its cell; `other` is the subject's entry of the cell (`-`: the
+#   subject does not match it). Bound names: x, y, z, me. Groups: H (l: List, b: Int),
+#   T (k: a computation, n: Int), A (id: Int, l: List; a Map collection is keyed by its
+#   first child, id). The `cells!` rows write each record as its fragment.
+form	stack	other	result	outcome
+readable	group H	H { l: [y, ..], .. }	H { l: [x], b: 0 }	sort
+readable	group H	H { l: [y, ..], .. }	H { l: [x, ..], b: 0 }	sort
+readable	group H	H { b: y, .. }	H { l: [x, ..], b: 0 }	sort
+readable	group H	H { b: y, .. }	H { l: [x], b: 0 }	sort
+readable	group H	-	H { l: [x, ..], b: 0 }	sort
+readable	group H	-	H { l: [x], b: 0 }	sort
+readable	? group H	Some(H { l: [y, ..], .. })	Some(H { l: [x], b: 0 })	sort
+readable	? group H	None	Some(H { l: [x, ..], b: 0 })	sort
+readable	? group H	None	Some(H { l: [x], b: 0 })	sort
+readable	* List of T	[me @ T { k: [y, ..], .. }, ..]	[T { k: [x], ..me }, ..]	sort
+readable	* List of T	[me @ T { k: [y, ..], .. }, ..]	[T { k: [x, ..], ..me }, ..]	sort
+readable	* List of T	[me @ T { n: y, .. }, ..]	[T { n: 0, ..me }, ..]	sort
+readable	* List of T	[..]	[T { k: [x], n: 0 }, ..]	sort
+readable	* List of T	[..]	[T { k: [x, ..], n: 0 }, ..]	sort
+readable	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { id: 5, ..me }, .. }	sort
+readable	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { id: z, ..me }, .. }	sort
+readable	* Map of A	{ me @ A { l: [y, ..], .. }, .. }	{ A { id: 5, ..me }, .. }	sort
+readable	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { l: [x], ..me }, .. }	sort
+readable	* Map of A	{ me @ A { id: z, l: [y, ..] }, .. }	{ A { l: [x], ..me }, .. }	sort
+readable	* Map of A	{ me @ A { id: z, l: [y, ..] }, .. }	{ A { l: [x, ..], ..me }, .. }	sort
+readable	* Map of A	{ .. }	{ A { id: 5, l: [x] }, .. }	sort
+claim	group H	H { l: [y, ..], .. }	H { l: [x], b: 0 }	sort
+claim	group H	H { l: [y, ..], .. }	H { l: [x, ..], b: 0 }	sort
+claim	group H	H { b: y, .. }	H { l: [x, ..], b: 0 }	sort
+claim	group H	H { b: y, .. }	H { l: [x], b: 0 }	sort
+claim	group H	-	H { l: [x, ..], b: 0 }	sort
+claim	group H	-	H { l: [x], b: 0 }	sort
+claim	? group H	Some(H { l: [y, ..], .. })	Some(H { l: [x], b: 0 })	sort
+claim	? group H	None	Some(H { l: [x, ..], b: 0 })	sort
+claim	? group H	None	Some(H { l: [x], b: 0 })	sort
+claim	* List of T	[me @ T { k: [y, ..], .. }, ..]	[T { k: [x], ..me }, ..]	sort
+claim	* List of T	[me @ T { k: [y, ..], .. }, ..]	[T { k: [x, ..], ..me }, ..]	sort
+claim	* List of T	[me @ T { n: y, .. }, ..]	[T { n: 0, ..me }, ..]	sort
+claim	* List of T	[..]	[T { k: [x], n: 0 }, ..]	sort
+claim	* List of T	[..]	[T { k: [x, ..], n: 0 }, ..]	sort
+claim	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { id: 5, ..me }, .. }	sort
+claim	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { id: z, ..me }, .. }	sort
+claim	* Map of A	{ me @ A { l: [y, ..], .. }, .. }	{ A { id: 5, ..me }, .. }	sort
+claim	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { l: [x], ..me }, .. }	sort
+claim	* Map of A	{ me @ A { id: z, l: [y, ..] }, .. }	{ A { l: [x], ..me }, .. }	sort
+claim	* Map of A	{ me @ A { id: z, l: [y, ..] }, .. }	{ A { l: [x, ..], ..me }, .. }	sort
+claim	* Map of A	{ .. }	{ A { id: 5, l: [x] }, .. }	sort
+cells	group H	k::fragment![crate::H { l: [y, ..], .. }]	k::fragment![crate::H { l: [x], b: 0 }]	sort
+cells	group H	k::fragment![crate::H { l: [y, ..], .. }]	k::fragment![crate::H { l: [x, ..], b: 0 }]	sort
+cells	group H	k::fragment![crate::H { b: y, .. }]	k::fragment![crate::H { l: [x, ..], b: 0 }]	sort
+cells	group H	k::fragment![crate::H { b: y, .. }]	k::fragment![crate::H { l: [x], b: 0 }]	sort
+cells	group H	-	k::fragment![crate::H { l: [x, ..], b: 0 }]	sort
+cells	group H	-	k::fragment![crate::H { l: [x], b: 0 }]	sort
+cells	? group H	Some(k::fragment![crate::H { l: [y, ..], .. }])	Some(k::fragment![crate::H { l: [x], b: 0 }])	sort
+cells	? group H	None	Some(k::fragment![crate::H { l: [x, ..], b: 0 }])	sort
+cells	? group H	None	Some(k::fragment![crate::H { l: [x], b: 0 }])	sort
+cells	* List of T	[me @ k::fragment![crate::T { k: [y, ..], .. }], ..]	[k::fragment![crate::T { k: [x], ..me }], ..]	sort
+cells	* List of T	[me @ k::fragment![crate::T { k: [y, ..], .. }], ..]	[k::fragment![crate::T { k: [x, ..], ..me }], ..]	sort
+cells	* List of T	[me @ k::fragment![crate::T { n: y, .. }], ..]	[k::fragment![crate::T { n: 0, ..me }], ..]	sort
+cells	* List of T	[..]	[k::fragment![crate::T { k: [x], n: 0 }], ..]	sort
+cells	* List of T	[..]	[k::fragment![crate::T { k: [x, ..], n: 0 }], ..]	sort
+cells	* Map of A	{ me @ k::fragment![crate::A { id: z, .. }], .. }	{ k::fragment![crate::A { id: 5, ..me }], .. }	sort
+cells	* Map of A	{ me @ k::fragment![crate::A { id: z, .. }], .. }	{ k::fragment![crate::A { id: z, ..me }], .. }	sort
+cells	* Map of A	{ me @ k::fragment![crate::A { l: [y, ..], .. }], .. }	{ k::fragment![crate::A { id: 5, ..me }], .. }	sort
+cells	* Map of A	{ me @ k::fragment![crate::A { id: z, .. }], .. }	{ k::fragment![crate::A { l: [x], ..me }], .. }	sort
+cells	* Map of A	{ me @ k::fragment![crate::A { id: z, l: [y, ..] }], .. }	{ k::fragment![crate::A { l: [x], ..me }], .. }	sort
+cells	* Map of A	{ me @ k::fragment![crate::A { id: z, l: [y, ..] }], .. }	{ k::fragment![crate::A { l: [x, ..], ..me }], .. }	sort
+cells	* Map of A	{ .. }	{ k::fragment![crate::A { id: 5, l: [x] }], .. }	sort

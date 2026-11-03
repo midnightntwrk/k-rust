@@ -2347,7 +2347,294 @@ fn outcome_sweep() -> String {
             }
         }
     }
+    children_sweep(&mut out);
     out
+}
+
+/// A group of the children sweep: its name and its children's own layers, in declaration
+/// order (a Map collection's key is its first child).
+fn sweep_group(name: &str, children: &[(&str, Layer)]) -> Layer {
+    Layer::Group(Group {
+        name: name.to_owned(),
+        children: children
+            .iter()
+            .map(|(child, layer)| ((*child).to_owned(), vec![layer.clone()]))
+            .collect(),
+    })
+}
+
+/// The children sweep's stacks, by name.
+fn children_stack(name: &str) -> Vec<Layer> {
+    let list = Layer::Leaf(Notation::List);
+    let int = Layer::Leaf(Notation::Plain);
+    let h = || sweep_group("H", &[("l", list.clone()), ("b", int.clone())]);
+    match name {
+        "group H" => vec![h()],
+        "? group H" => vec![Layer::Optional, h()],
+        "* List of T" => vec![
+            Layer::Instances(Order::List),
+            sweep_group("T", &[("k", Layer::Computation), ("n", int.clone())]),
+        ],
+        "* Map of A" => vec![
+            Layer::Instances(Order::Map),
+            sweep_group("A", &[("id", int.clone()), ("l", list.clone())]),
+        ],
+        other => panic!("no children-sweep stack {other}"),
+    }
+}
+
+/// The children sweep's rows: a stack, the subject's entry of the cell (`-`: the subject does
+/// not match it), and a result, each written in readable (claim alike) and in `cells!`.
+const CHILDREN_SWEEP: [(&str, [&str; 2], [&str; 2]); 21] = [
+    (
+        "group H",
+        [
+            "H { l: [y, ..], .. }",
+            "k::fragment![crate::H { l: [y, ..], .. }]",
+        ],
+        [
+            "H { l: [x], b: 0 }",
+            "k::fragment![crate::H { l: [x], b: 0 }]",
+        ],
+    ),
+    (
+        "group H",
+        [
+            "H { l: [y, ..], .. }",
+            "k::fragment![crate::H { l: [y, ..], .. }]",
+        ],
+        [
+            "H { l: [x, ..], b: 0 }",
+            "k::fragment![crate::H { l: [x, ..], b: 0 }]",
+        ],
+    ),
+    (
+        "group H",
+        ["H { b: y, .. }", "k::fragment![crate::H { b: y, .. }]"],
+        [
+            "H { l: [x, ..], b: 0 }",
+            "k::fragment![crate::H { l: [x, ..], b: 0 }]",
+        ],
+    ),
+    (
+        "group H",
+        ["H { b: y, .. }", "k::fragment![crate::H { b: y, .. }]"],
+        [
+            "H { l: [x], b: 0 }",
+            "k::fragment![crate::H { l: [x], b: 0 }]",
+        ],
+    ),
+    (
+        "group H",
+        ["-", "-"],
+        [
+            "H { l: [x, ..], b: 0 }",
+            "k::fragment![crate::H { l: [x, ..], b: 0 }]",
+        ],
+    ),
+    (
+        "group H",
+        ["-", "-"],
+        [
+            "H { l: [x], b: 0 }",
+            "k::fragment![crate::H { l: [x], b: 0 }]",
+        ],
+    ),
+    (
+        "? group H",
+        [
+            "Some(H { l: [y, ..], .. })",
+            "Some(k::fragment![crate::H { l: [y, ..], .. }])",
+        ],
+        [
+            "Some(H { l: [x], b: 0 })",
+            "Some(k::fragment![crate::H { l: [x], b: 0 }])",
+        ],
+    ),
+    (
+        "? group H",
+        ["None", "None"],
+        [
+            "Some(H { l: [x, ..], b: 0 })",
+            "Some(k::fragment![crate::H { l: [x, ..], b: 0 }])",
+        ],
+    ),
+    (
+        "? group H",
+        ["None", "None"],
+        [
+            "Some(H { l: [x], b: 0 })",
+            "Some(k::fragment![crate::H { l: [x], b: 0 }])",
+        ],
+    ),
+    (
+        "* List of T",
+        [
+            "[me @ T { k: [y, ..], .. }, ..]",
+            "[me @ k::fragment![crate::T { k: [y, ..], .. }], ..]",
+        ],
+        [
+            "[T { k: [x], ..me }, ..]",
+            "[k::fragment![crate::T { k: [x], ..me }], ..]",
+        ],
+    ),
+    (
+        "* List of T",
+        [
+            "[me @ T { k: [y, ..], .. }, ..]",
+            "[me @ k::fragment![crate::T { k: [y, ..], .. }], ..]",
+        ],
+        [
+            "[T { k: [x, ..], ..me }, ..]",
+            "[k::fragment![crate::T { k: [x, ..], ..me }], ..]",
+        ],
+    ),
+    (
+        "* List of T",
+        [
+            "[me @ T { n: y, .. }, ..]",
+            "[me @ k::fragment![crate::T { n: y, .. }], ..]",
+        ],
+        [
+            "[T { n: 0, ..me }, ..]",
+            "[k::fragment![crate::T { n: 0, ..me }], ..]",
+        ],
+    ),
+    (
+        "* List of T",
+        ["[..]", "[..]"],
+        [
+            "[T { k: [x], n: 0 }, ..]",
+            "[k::fragment![crate::T { k: [x], n: 0 }], ..]",
+        ],
+    ),
+    (
+        "* List of T",
+        ["[..]", "[..]"],
+        [
+            "[T { k: [x, ..], n: 0 }, ..]",
+            "[k::fragment![crate::T { k: [x, ..], n: 0 }], ..]",
+        ],
+    ),
+    (
+        "* Map of A",
+        [
+            "{ me @ A { id: z, .. }, .. }",
+            "{ me @ k::fragment![crate::A { id: z, .. }], .. }",
+        ],
+        [
+            "{ A { id: 5, ..me }, .. }",
+            "{ k::fragment![crate::A { id: 5, ..me }], .. }",
+        ],
+    ),
+    (
+        "* Map of A",
+        [
+            "{ me @ A { id: z, .. }, .. }",
+            "{ me @ k::fragment![crate::A { id: z, .. }], .. }",
+        ],
+        [
+            "{ A { id: z, ..me }, .. }",
+            "{ k::fragment![crate::A { id: z, ..me }], .. }",
+        ],
+    ),
+    (
+        "* Map of A",
+        [
+            "{ me @ A { l: [y, ..], .. }, .. }",
+            "{ me @ k::fragment![crate::A { l: [y, ..], .. }], .. }",
+        ],
+        [
+            "{ A { id: 5, ..me }, .. }",
+            "{ k::fragment![crate::A { id: 5, ..me }], .. }",
+        ],
+    ),
+    (
+        "* Map of A",
+        [
+            "{ me @ A { id: z, .. }, .. }",
+            "{ me @ k::fragment![crate::A { id: z, .. }], .. }",
+        ],
+        [
+            "{ A { l: [x], ..me }, .. }",
+            "{ k::fragment![crate::A { l: [x], ..me }], .. }",
+        ],
+    ),
+    (
+        "* Map of A",
+        [
+            "{ me @ A { id: z, l: [y, ..] }, .. }",
+            "{ me @ k::fragment![crate::A { id: z, l: [y, ..] }], .. }",
+        ],
+        [
+            "{ A { l: [x], ..me }, .. }",
+            "{ k::fragment![crate::A { l: [x], ..me }], .. }",
+        ],
+    ),
+    (
+        "* Map of A",
+        [
+            "{ me @ A { id: z, l: [y, ..] }, .. }",
+            "{ me @ k::fragment![crate::A { id: z, l: [y, ..] }], .. }",
+        ],
+        [
+            "{ A { l: [x, ..], ..me }, .. }",
+            "{ k::fragment![crate::A { l: [x, ..], ..me }], .. }",
+        ],
+    ),
+    (
+        "* Map of A",
+        ["{ .. }", "{ .. }"],
+        [
+            "{ A { id: 5, l: [x] }, .. }",
+            "{ k::fragment![crate::A { id: 5, l: [x] }], .. }",
+        ],
+    ),
+];
+
+/// The sweep of a result's children (P1: a group or instance record's children are entries of
+/// their own cells): each child's content root against its own other side (P6, R10), and a
+/// Map collection's key written in an instance update (§7).
+fn children_sweep(out: &mut String) {
+    out.push_str(concat!(
+        "#\n",
+        "## children: a result's group and instance records, each child at its own content root\n",
+        "# Each row is a result over its cell; `other` is the subject's entry of the cell (`-`: the\n",
+        "#   subject does not match it). Bound names: x, y, z, me. Groups: H (l: List, b: Int),\n",
+        "#   T (k: a computation, n: Int), A (id: Int, l: List; a Map collection is keyed by its\n",
+        "#   first child, id). The `cells!` rows write each record as its fragment.\n",
+        "form\tstack\tother\tresult\toutcome\n",
+    ));
+    for form in [Form::Readable, Form::Claim, Form::Cells] {
+        let spelled = usize::from(form == Form::Cells);
+        for (stack_name, other, result) in &CHILDREN_SWEEP {
+            let stack = children_stack(stack_name);
+            let other = (other[spelled] != "-").then_some(other[spelled]);
+            let probe = Probe {
+                form,
+                side: Side::Result,
+                path: &[],
+                stack: &stack,
+                text: result[spelled],
+                other,
+                written: false,
+                bound: &["x", "y", "z", "me"],
+            };
+            let (oracle, product) = (probe.oracle(), probe.product());
+            let _ = write!(
+                out,
+                "{}\t{stack_name}\t{}\t{}\t{}",
+                form_name(form),
+                other.unwrap_or("-"),
+                result[spelled],
+                sweep_name(oracle)
+            );
+            if product != oracle {
+                let _ = write!(out, "|product:{}", sweep_name(product));
+            }
+            out.push('\n');
+        }
+    }
 }
 
 /// The sweep of `outcome` is the checked-in one: a change to the oracle's answers, or to the
