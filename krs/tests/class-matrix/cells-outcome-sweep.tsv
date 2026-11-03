@@ -69,7 +69,7 @@ subject	?	? leaf Int	-	owp	owp	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	owp
 subject	?	? leaf List	-	owp	owp	owp	owp	owp	owp	owp	iop	mna	owp	owp	owp	owp	owp	owp
 subject	?	? leaf Map	-	owp	owp	br	br	br	br	br	iop	owp	owp	owp	owp	owp	owp	owp
 subject	?	? group G	-	owp	owp	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	rmc
-subject	?	* List of G	-	pop	pop	owp	owp	owp	owp|product:ils	owp	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
+subject	?	* List of G	-	pop	pop	owp	owp	owp	owp	owp	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject	?	* Set of G	-	pop	pop	ils	ils	ils	ils	ils	owp	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject	?	* Map of G	-	pop	pop	ils	ils	ils	ils	ils	owp	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject	*	computation	-	pop	pop	cwi	cwi	cwi	cbi	cir	iop	mna	cw	cw	cw	cw	cw	cw
@@ -83,7 +83,7 @@ subject	*	? leaf Int	-	cwi	cwi	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	owp
 subject	*	? leaf List	-	cwi	cwi	owp	owp	owp	owp	owp	iop	mna	owp	owp	owp	owp	owp	owp
 subject	*	? leaf Map	-	cwi	cwi	br	br	br	br	br	iop	owp	owp	owp	owp	owp	owp	owp
 subject	*	? group G	-	cwi	cwi	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	rmc
-subject	*	* List of G	-	pop	pop	cwi	cwi	cwi	cwi|product:ils	cwi	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
+subject	*	* List of G	-	pop	pop	cwi	cwi	cwi	cwi	cwi	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject	*	* Set of G	-	pop	pop	ils	ils	ils	ils	ils	cwi	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject	*	* Map of G	-	pop	pop	ils	ils	ils	ils	ils	cwi	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject, written	-	computation	-	pop	pop	ok	ok	ok	cbi	cir	iop	mna	cw	cw	cw	cw	cw	cw
@@ -97,7 +97,7 @@ subject, written	-	? leaf Int	-	ok	ok	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp
 subject, written	-	? leaf List	-	ok	ok	owp	owp	owp	owp	owp	iop	mna	owp	owp	owp	owp	owp	owp
 subject, written	-	? leaf Map	-	ok	ok	br	br	br	br	br	iop	owp	owp	owp	owp	owp	owp	owp
 subject, written	-	? group G	-	ok	ok	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	rmc
-subject, written	-	* List of G	-	pop	pop	ok	ok	ok	ok|product:ils	ok	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
+subject, written	-	* List of G	-	pop	pop	ok	ok	ok	ok	ok	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject, written	-	* Set of G	-	pop	pop	ils	ils	ils	ils	ils	ok	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject, written	-	* Map of G	-	pop	pop	ils	ils	ils	ils	ils	ok	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject, written	?	computation	-	pop	pop	owp	owp	owp	cbi	cir	iop	mna	cw	cw	cw	cw	cw	cw
@@ -111,7 +111,7 @@ subject, written	?	? leaf Int	-	owp	owp	br	br	br	br	br	iop	mna	owp	owp	owp	owp	o
 subject, written	?	? leaf List	-	owp	owp	owp	owp	owp	owp	owp	iop	mna	owp	owp	owp	owp	owp	owp
 subject, written	?	? leaf Map	-	owp	owp	br	br	br	br	br	iop	owp	owp	owp	owp	owp	owp	owp
 subject, written	?	? group G	-	owp	owp	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	rmc
-subject, written	?	* List of G	-	pop	pop	owp	owp	owp	owp|product:ils	owp	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
+subject, written	?	* List of G	-	pop	pop	owp	owp	owp	owp	owp	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject, written	?	* Set of G	-	pop	pop	ils	ils	ils	ils	ils	owp	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject, written	?	* Map of G	-	pop	pop	ils	ils	ils	ils	ils	owp	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject, written	*	computation	-	pop	pop	cwi	cwi	cwi	cbi	cir	iop	mna	cw	cw	cw	cw	cw	cw
@@ -125,7 +125,7 @@ subject, written	*	? leaf Int	-	cwi	cwi	br	br	br	br	br	iop	mna	owp	owp	owp	owp	o
 subject, written	*	? leaf List	-	cwi	cwi	owp	owp	owp	owp	owp	iop	mna	owp	owp	owp	owp	owp	owp
 subject, written	*	? leaf Map	-	cwi	cwi	br	br	br	br	br	iop	owp	owp	owp	owp	owp	owp	owp
 subject, written	*	? group G	-	cwi	cwi	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	rmc
-subject, written	*	* List of G	-	pop	pop	cwi	cwi	cwi	cwi|product:ils	cwi	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
+subject, written	*	* List of G	-	pop	pop	cwi	cwi	cwi	cwi	cwi	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject, written	*	* Set of G	-	pop	pop	ils	ils	ils	ils	ils	cwi	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject, written	*	* Map of G	-	pop	pop	ils	ils	ils	ils	ils	cwi	mna	cwi	cwi	cwi	cwi	cwi	rmc
 result, matched	-	computation	[y, ..]	pop	pop	sort	rm	ok	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
@@ -153,7 +153,7 @@ result, matched	?	? leaf Int	Some(old)	owp	owp	br	br	br	br	alias-outside-pattern
 result, matched	?	? leaf List	Some([y, ..])	owp	owp	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
 result, matched	?	? leaf Map	Some({ z -> y, .. })	owp	owp	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
 result, matched	?	? group G	Some(G { a: y, .. })	owp	owp	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
-result, matched	?	* List of G	[G { a: y, .. }, ..]	pop	pop	owp	owp	owp	owp|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
+result, matched	?	* List of G	[G { a: y, .. }, ..]	pop	pop	owp	owp	owp	owp	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, matched	?	* Set of G	{ G { a: y, .. }, .. }	pop	pop	ils	ils	ils	ils	alias-outside-pattern	owp	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, matched	?	* Map of G	{ G { a: y, .. }, .. }	pop	pop	ils	ils	ils	ils	alias-outside-pattern	owp	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, matched	*	computation	[y, ..]	pop	pop	cwi	cwi	cwi	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
@@ -167,7 +167,7 @@ result, matched	*	? leaf Int	Some(old)	cwi	cwi	br	br	br	br	alias-outside-pattern
 result, matched	*	? leaf List	Some([y, ..])	cwi	cwi	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
 result, matched	*	? leaf Map	Some({ z -> y, .. })	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
 result, matched	*	? group G	Some(G { a: y, .. })	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
-result, matched	*	* List of G	[G { a: y, .. }, ..]	pop	pop	cwi	cwi	cwi	cwi|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
+result, matched	*	* List of G	[G { a: y, .. }, ..]	pop	pop	cwi	cwi	cwi	cwi	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, matched	*	* Set of G	{ G { a: y, .. }, .. }	pop	pop	ils	ils	ils	ils	alias-outside-pattern	cwi	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, matched	*	* Map of G	{ G { a: y, .. }, .. }	pop	pop	ils	ils	ils	ils	alias-outside-pattern	cwi	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	-	computation	-	pop	pop	cir	cir	cir	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
@@ -181,7 +181,7 @@ result, unmatched	-	? leaf Int	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	m
 result, unmatched	-	? leaf List	-	uor	uor	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
 result, unmatched	-	? leaf Map	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
 result, unmatched	-	? group G	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
-result, unmatched	-	* List of G	-	pop	pop	rm	sort	rm	rm|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
+result, unmatched	-	* List of G	-	pop	pop	rm	sort	rm	rm	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	-	* Set of G	-	pop	pop	ils	ils	ils	ils	alias-outside-pattern	rm	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	-	* Map of G	-	pop	pop	ils	ils	ils	ils	alias-outside-pattern	rm	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	?	computation	-	pop	pop	owp	owp	owp	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
@@ -195,7 +195,7 @@ result, unmatched	?	? leaf Int	-	owp	owp	br	br	br	br	alias-outside-pattern	iop	m
 result, unmatched	?	? leaf List	-	owp	owp	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
 result, unmatched	?	? leaf Map	-	owp	owp	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
 result, unmatched	?	? group G	-	owp	owp	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
-result, unmatched	?	* List of G	-	pop	pop	owp	owp	owp	owp|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
+result, unmatched	?	* List of G	-	pop	pop	owp	owp	owp	owp	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	?	* Set of G	-	pop	pop	ils	ils	ils	ils	alias-outside-pattern	owp	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	?	* Map of G	-	pop	pop	ils	ils	ils	ils	alias-outside-pattern	owp	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	*	computation	-	pop	pop	cwi	cwi	cwi	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
@@ -209,7 +209,7 @@ result, unmatched	*	? leaf Int	-	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	m
 result, unmatched	*	? leaf List	-	cwi	cwi	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
 result, unmatched	*	? leaf Map	-	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
 result, unmatched	*	? group G	-	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
-result, unmatched	*	* List of G	-	pop	pop	cwi	cwi	cwi	cwi|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
+result, unmatched	*	* List of G	-	pop	pop	cwi	cwi	cwi	cwi	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	*	* Set of G	-	pop	pop	ils	ils	ils	ils	alias-outside-pattern	cwi	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	*	* Map of G	-	pop	pop	ils	ils	ils	ils	alias-outside-pattern	cwi	mna	cwi	wop	cwi	cwi	cwi	rmc
 #
@@ -240,7 +240,7 @@ subject	?	? leaf Int	-	owp	owp	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	owp
 subject	?	? leaf List	-	owp	owp	owp	owp	owp	owp	owp	iop	mna	owp	owp	owp	owp	owp	owp
 subject	?	? leaf Map	-	owp	owp	br	br	br	br	br	iop	owp	owp	owp	owp	owp	owp	owp
 subject	?	? group G	-	owp	owp	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	rmc
-subject	?	* List of G	-	pop	pop	owp	owp	owp	owp|product:ils	owp	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
+subject	?	* List of G	-	pop	pop	owp	owp	owp	owp	owp	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject	?	* Set of G	-	pop	pop	ils	ils	ils	ils	ils	owp	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject	?	* Map of G	-	pop	pop	ils	ils	ils	ils	ils	owp	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject	*	computation	-	pop	pop	cwi	cwi	cwi	cbi	cir	iop	mna	cw	cw	cw	cw	cw	cw
@@ -254,7 +254,7 @@ subject	*	? leaf Int	-	cwi	cwi	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	owp
 subject	*	? leaf List	-	cwi	cwi	owp	owp	owp	owp	owp	iop	mna	owp	owp	owp	owp	owp	owp
 subject	*	? leaf Map	-	cwi	cwi	br	br	br	br	br	iop	owp	owp	owp	owp	owp	owp	owp
 subject	*	? group G	-	cwi	cwi	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	rmc
-subject	*	* List of G	-	pop	pop	cwi	cwi	cwi	cwi|product:ils	cwi	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
+subject	*	* List of G	-	pop	pop	cwi	cwi	cwi	cwi	cwi	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject	*	* Set of G	-	pop	pop	ils	ils	ils	ils	ils	cwi	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject	*	* Map of G	-	pop	pop	ils	ils	ils	ils	ils	cwi	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject, written	-	computation	-	pop	pop	ok	ok	ok	cbi	cir	iop	mna	cw	cw	cw	cw	cw	cw
@@ -268,7 +268,7 @@ subject, written	-	? leaf Int	-	ok	ok	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp
 subject, written	-	? leaf List	-	ok	ok	owp	owp	owp	owp	owp	iop	mna	owp	owp	owp	owp	owp	owp
 subject, written	-	? leaf Map	-	ok	ok	br	br	br	br	br	iop	owp	owp	owp	owp	owp	owp	owp
 subject, written	-	? group G	-	ok	ok	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	rmc
-subject, written	-	* List of G	-	pop	pop	ok	ok	ok	ok|product:ils	ok	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
+subject, written	-	* List of G	-	pop	pop	ok	ok	ok	ok	ok	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject, written	-	* Set of G	-	pop	pop	ils	ils	ils	ils	ils	ok	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject, written	-	* Map of G	-	pop	pop	ils	ils	ils	ils	ils	ok	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject, written	?	computation	-	pop	pop	owp	owp	owp	cbi	cir	iop	mna	cw	cw	cw	cw	cw	cw
@@ -282,7 +282,7 @@ subject, written	?	? leaf Int	-	owp	owp	br	br	br	br	br	iop	mna	owp	owp	owp	owp	o
 subject, written	?	? leaf List	-	owp	owp	owp	owp	owp	owp	owp	iop	mna	owp	owp	owp	owp	owp	owp
 subject, written	?	? leaf Map	-	owp	owp	br	br	br	br	br	iop	owp	owp	owp	owp	owp	owp	owp
 subject, written	?	? group G	-	owp	owp	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	rmc
-subject, written	?	* List of G	-	pop	pop	owp	owp	owp	owp|product:ils	owp	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
+subject, written	?	* List of G	-	pop	pop	owp	owp	owp	owp	owp	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject, written	?	* Set of G	-	pop	pop	ils	ils	ils	ils	ils	owp	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject, written	?	* Map of G	-	pop	pop	ils	ils	ils	ils	ils	owp	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject, written	*	computation	-	pop	pop	cwi	cwi	cwi	cbi	cir	iop	mna	cw	cw	cw	cw	cw	cw
@@ -296,7 +296,7 @@ subject, written	*	? leaf Int	-	cwi	cwi	br	br	br	br	br	iop	mna	owp	owp	owp	owp	o
 subject, written	*	? leaf List	-	cwi	cwi	owp	owp	owp	owp	owp	iop	mna	owp	owp	owp	owp	owp	owp
 subject, written	*	? leaf Map	-	cwi	cwi	br	br	br	br	br	iop	owp	owp	owp	owp	owp	owp	owp
 subject, written	*	? group G	-	cwi	cwi	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	rmc
-subject, written	*	* List of G	-	pop	pop	cwi	cwi	cwi	cwi|product:ils	cwi	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
+subject, written	*	* List of G	-	pop	pop	cwi	cwi	cwi	cwi	cwi	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject, written	*	* Set of G	-	pop	pop	ils	ils	ils	ils	ils	cwi	mna	cwi	cwi	cwi	cwi	cwi	rmc
 subject, written	*	* Map of G	-	pop	pop	ils	ils	ils	ils	ils	cwi	mna	cwi	cwi	cwi	cwi	cwi	rmc
 result, matched	-	computation	[y, ..]	pop	pop	sort	rm	ok	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
@@ -324,7 +324,7 @@ result, matched	?	? leaf Int	Some(old)	owp	owp	br	br	br	br	alias-outside-pattern
 result, matched	?	? leaf List	Some([y, ..])	owp	owp	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
 result, matched	?	? leaf Map	Some({ z -> y, .. })	owp	owp	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
 result, matched	?	? group G	Some(G { a: y, .. })	owp	owp	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
-result, matched	?	* List of G	[G { a: y, .. }, ..]	pop	pop	owp	owp	owp	owp|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
+result, matched	?	* List of G	[G { a: y, .. }, ..]	pop	pop	owp	owp	owp	owp	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, matched	?	* Set of G	{ G { a: y, .. }, .. }	pop	pop	ils	ils	ils	ils	alias-outside-pattern	owp	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, matched	?	* Map of G	{ G { a: y, .. }, .. }	pop	pop	ils	ils	ils	ils	alias-outside-pattern	owp	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, matched	*	computation	[y, ..]	pop	pop	cwi	cwi	cwi	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
@@ -338,7 +338,7 @@ result, matched	*	? leaf Int	Some(old)	cwi	cwi	br	br	br	br	alias-outside-pattern
 result, matched	*	? leaf List	Some([y, ..])	cwi	cwi	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
 result, matched	*	? leaf Map	Some({ z -> y, .. })	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
 result, matched	*	? group G	Some(G { a: y, .. })	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
-result, matched	*	* List of G	[G { a: y, .. }, ..]	pop	pop	cwi	cwi	cwi	cwi|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
+result, matched	*	* List of G	[G { a: y, .. }, ..]	pop	pop	cwi	cwi	cwi	cwi	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, matched	*	* Set of G	{ G { a: y, .. }, .. }	pop	pop	ils	ils	ils	ils	alias-outside-pattern	cwi	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, matched	*	* Map of G	{ G { a: y, .. }, .. }	pop	pop	ils	ils	ils	ils	alias-outside-pattern	cwi	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	-	computation	-	pop	pop	cir	cir	cir	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
@@ -352,7 +352,7 @@ result, unmatched	-	? leaf Int	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	m
 result, unmatched	-	? leaf List	-	uor	uor	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
 result, unmatched	-	? leaf Map	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
 result, unmatched	-	? group G	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
-result, unmatched	-	* List of G	-	pop	pop	rm	sort	rm	rm|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
+result, unmatched	-	* List of G	-	pop	pop	rm	sort	rm	rm	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	-	* Set of G	-	pop	pop	ils	ils	ils	ils	alias-outside-pattern	rm	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	-	* Map of G	-	pop	pop	ils	ils	ils	ils	alias-outside-pattern	rm	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	?	computation	-	pop	pop	owp	owp	owp	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
@@ -366,7 +366,7 @@ result, unmatched	?	? leaf Int	-	owp	owp	br	br	br	br	alias-outside-pattern	iop	m
 result, unmatched	?	? leaf List	-	owp	owp	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
 result, unmatched	?	? leaf Map	-	owp	owp	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
 result, unmatched	?	? group G	-	owp	owp	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
-result, unmatched	?	* List of G	-	pop	pop	owp	owp	owp	owp|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
+result, unmatched	?	* List of G	-	pop	pop	owp	owp	owp	owp	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	?	* Set of G	-	pop	pop	ils	ils	ils	ils	alias-outside-pattern	owp	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	?	* Map of G	-	pop	pop	ils	ils	ils	ils	alias-outside-pattern	owp	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	*	computation	-	pop	pop	cwi	cwi	cwi	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
@@ -380,7 +380,7 @@ result, unmatched	*	? leaf Int	-	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	m
 result, unmatched	*	? leaf List	-	cwi	cwi	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
 result, unmatched	*	? leaf Map	-	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
 result, unmatched	*	? group G	-	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
-result, unmatched	*	* List of G	-	pop	pop	cwi	cwi	cwi	cwi|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
+result, unmatched	*	* List of G	-	pop	pop	cwi	cwi	cwi	cwi	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	*	* Set of G	-	pop	pop	ils	ils	ils	ils	alias-outside-pattern	cwi	mna	cwi	wop	cwi	cwi	cwi	rmc
 result, unmatched	*	* Map of G	-	pop	pop	ils	ils	ils	ils	alias-outside-pattern	cwi	mna	cwi	wop	cwi	cwi	cwi	rmc
 #

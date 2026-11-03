@@ -55,8 +55,8 @@ pub enum EntryRest {
 pub enum RestPlace {
     /// After every item, `[x, ..]`.
     Back,
-    /// Before an item, `[.., x]`.
-    Front,
+    /// Before the item at this index: `[.., x]` is `Before(0)`, `[x, .., y]` is `Before(1)`.
+    Before(usize),
 }
 
 /// Items with an optional rest.
@@ -66,6 +66,27 @@ pub struct EntrySeq {
     pub items: Vec<EntrySpelling>,
     /// The rest and its place; `None` for an exact sequence.
     pub rest: Option<(EntryRest, RestPlace)>,
+}
+
+impl EntrySeq {
+    /// The items before the rest: every item where the rest is last or there is none.
+    #[must_use]
+    pub fn front(&self) -> &[EntrySpelling] {
+        &self.items[..self.split()]
+    }
+
+    /// The items after the rest: none where the rest is last or there is none.
+    #[must_use]
+    pub fn back(&self) -> &[EntrySpelling] {
+        &self.items[self.split()..]
+    }
+
+    fn split(&self) -> usize {
+        match self.rest {
+            Some((_, RestPlace::Before(at))) => at,
+            _ => self.items.len(),
+        }
+    }
 }
 
 /// `key -> value` entries with an optional rest.
@@ -381,7 +402,7 @@ impl<'a> EntryReading<'a> {
                     } {
                     RestPlace::Back
                 } else {
-                    RestPlace::Front
+                    RestPlace::Before(items.len())
                 };
                 rest = Some((found, place));
             } else {

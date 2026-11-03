@@ -508,7 +508,7 @@ fn read_as(spelling: &EntrySpelling, texts: bool) -> Spelling {
                 rest_as(rest),
                 match place {
                     RestPlace::Back => RestAt::Back,
-                    RestPlace::Front => RestAt::Front,
+                    RestPlace::Before(_) => RestAt::Front,
                 },
             )
         }),
@@ -577,7 +577,9 @@ fn product_of(spelling: &Spelling) -> EntrySpelling {
                 product_rest(rest),
                 match at {
                     RestAt::Back => RestPlace::Back,
-                    RestAt::Front => RestPlace::Front,
+                    // The oracle states only that an item follows the rest; every other side
+                    // it declares with one writes the rest first (`[.., x]`).
+                    RestAt::Front => RestPlace::Before(0),
                 },
             )
         }),
@@ -5407,10 +5409,11 @@ fn sweep_patterns(sweep: &str, golden: &str) -> String {
         "#   stand; whatever they admit is then refused for the ancestor (design:S1b): `owp` below\n",
         "#   `?`, `cwi` below `*`. A pairing refusal of the `-` row (rm, uor, atc, Q3's overwrite cir,\n",
         "#   S5.0:F3's open record over an existing group, map-collection-key, record-update-base)\n",
-        "#   comes after the path, so the path class replaces it (S5.0g:P-R12). The product's\n",
-        "#   departures (the List back instance `ils`, design:M3's readable `mrr` at the kind step,\n",
-        "#   design:M3's `cells!` `arm` and E3's `ir` at the form step) come before the path and show\n",
-        "#   through.\n",
+        "#   comes after the path, so the path class replaces it (S5.0g:P-R12), as it does the\n",
+        "#   product's List collection limitations at the pairing (both ends, a back instance kept\n",
+        "#   in place: `ils`). The product's other departures (design:M3's readable `mrr` at the\n",
+        "#   kind step, design:M3's `cells!` `arm` and E3's `ir` at the form step) come before the\n",
+        "#   path and show through.\n",
         "#\n",
         "# Citations: every principle line cites the IDs of this registry, and only these (a test\n",
         "#   fails on a line that cites none, an unknown one, or a ruling by a bare number):\n",

@@ -9163,7 +9163,7 @@ finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ item"
 
 ["sweep/claim/written/job/[.., x]"]
-finding = "S0-9"
+finding = "S5-Q2"
 deviation = "krs::analysis::invalid-list-notation @ entry"
 
 ["sweep/claim/written/job/_"]
@@ -11759,7 +11759,7 @@ finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ item"
 
 ["sweep/readable/written/job/[.., x]"]
-finding = "S0-9"
+finding = "S5-Q2"
 deviation = "krs::analysis::invalid-list-notation @ entry"
 
 ["sweep/readable/written/job/_"]

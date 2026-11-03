@@ -274,11 +274,13 @@ impl<'i, 'a> Tree<'i, 'a> {
 fn refused(entry: &Entry<'_>, refusal: Refusal) -> CollectionError {
     let error = CollectionError::new(
         CollectionErrorKind::CellEntry(refusal),
-        format!(
-            "the entry of the cell `{}` is refused: {}",
-            entry.cell.field,
-            refusal.class()
-        ),
+        refusal.reason(&entry.cell.field).unwrap_or_else(|| {
+            format!(
+                "the entry of the cell `{}` is refused: {}",
+                entry.cell.field,
+                refusal.class()
+            )
+        }),
     );
     match &entry.field.range {
         Some(range) => error.with_source_range(range.clone()),

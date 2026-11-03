@@ -182,7 +182,7 @@ what = "decision Q1, both halves: a subject entry that constrains nothing on a c
 ["S5-Q2"]
 owner = "S5"
 kind = "feature"
-what = "`job: [x, ..]` on a List collection binds its front instance (decision Q2), which readable refuses as bracket notation"
+what = "`job: [x, ..]` on a List collection binds its front instance and `job: [.., x]` its back instance (decision Q2), which readable refuses as bracket notation"
 
 ["S5-R1"]
 owner = "S5"

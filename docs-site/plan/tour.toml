@@ -1635,7 +1635,7 @@ coverage = "limitation"
 page = "/reference/boundaries"
 prerequisites = ["repeated-cells"]
 evidence = ["crates/krs-syntax/src/attribute/state.rs", "tests/configuration-cells/verify.py"]
-note = "Cell bags, a collection that shares its parent with other cells, and List rules that change both ends or reorder instances are refused with a diagnostic."
+note = "Cell bags, a collection that shares its parent with other cells, and List rules that change instances at both ends, keep a back instance in place, move instances between the ends or reorder them are refused with a diagnostic."
 
 [[topic]]
 id = "restricted-rust"

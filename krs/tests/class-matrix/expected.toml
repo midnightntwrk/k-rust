@@ -325,7 +325,7 @@ advice = "init/k/k::k![pgm]"
 
 [class.instance-list-shape]
 code = "krs::analysis::collection-entry"
-doc = "an instance list of the wrong shape for its collection's order (P2, P3b): braces on a List collection, or brackets on a Set or Map collection, whatever they hold (value items, rests, instance records: S5.0g pattern review P-R4); a value item in an unordered collection's braces (Q2: its instance is chosen by a written record); or one a List collection does not admit: matching a back instance in place, or changing both ends"
+doc = "an instance list of the wrong shape for its collection's order (P2, P3b): braces on a List collection, or brackets on a Set or Map collection, whatever they hold (value items, rests, instance records: S5.0g pattern review P-R4); a value item in an unordered collection's braces (Q2: its instance is chosen by a written record); or, a stated limitation, a List collection rule the product does not lower: one that changes instances at both ends, or keeps a back instance in place (it creates or removes instances at the back, and reads and updates them at the front)"
 examples = ["readable ; subject ; - ; * List of G ; { G { a: x, .. }, .. } ; -", "readable ; subject ; - ; * Set of G ; [x, ..] ; -", "readable ; subject ; - ; * Set of G ; [..] ; -", "readable ; subject ; - ; * Map of G ; [G { a: x, .. }, ..] ; -", "readable ; subject ; - ; * Set of G ; { x, .. } ; -", "cells ; subject ; - ; * Set of G ; [k::fragment![crate::G { a: x, .. }], ..] ; -"]
 advice = "readable/subject/job/[Job { payload: x, .. }, ..]"
 
@@ -3485,7 +3485,7 @@ class = "initializer-remainder"
 at = "spelling"
 
 [[refuse]]
-match = 'sweep/{claim,readable}/overwrite/{acct,bag,job}/[..\, x]'
+match = 'sweep/{claim,readable}/overwrite/{acct,bag}/[..\, x]'
 class = "instance-list-shape"
 at = "entry"
 
@@ -3685,7 +3685,7 @@ class = "instance-list-shape"
 at = "entry"
 
 [[refuse]]
-match = 'sweep/{claim,readable}/written/{acct,bag,job}/[..\, x]'
+match = 'sweep/{claim,readable}/written/{acct,bag}/[..\, x]'
 class = "instance-list-shape"
 at = "entry"
 
@@ -5025,7 +5025,7 @@ class = "rest-mismatch"
 at = "entry"
 
 [[refuse]]
-match = 'sweep/{claim,readable}/overwrite/stack/[..\, x]'
+match = 'sweep/{claim,readable}/overwrite/{job,stack}/[..\, x]'
 class = "rest-mismatch"
 at = "entry"
 
@@ -12089,6 +12089,8 @@ claim [case-TAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
+[accept."sweep/claim/written/job/[.., x]"]
+
 [accept."sweep/claim/written/job/[..]"]
 
 [accept."sweep/claim/written/job/[Gl { la: x, .. }, ..]"]
@@ -13776,6 +13778,8 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
+[accept."sweep/readable/written/job/[.., x]"]
+
 [accept."sweep/readable/written/job/[..]"]
 
 [accept."sweep/readable/written/job/[Gl { la: x, .. }, ..]"]
@@ -14497,8 +14501,11 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 # case is named through its twin.
 [cell-exception]
 
-[cell-exception.'{claim,readable}/{result,subject}/job/[..\, Job \{ payload: 0\, .. \}]']
-principle = "C-lim: a List collection's back instance is not matched in place (boundaries.mdx:98)"
+[cell-exception.'{claim,readable}/result/job/[..\, Job \{ payload: 0\, .. \}]']
+principle = "C-lim: a List collection rule that changes instances at both ends is not lowered (cell_states.rs lower_instances_clause); split it into two rules. Here the subject matches the front instance and the result creates one at the back; the product creates or removes instances at the back, and reads and updates them at the front"
+
+[cell-exception.'{claim,readable}/subject/job/[..\, Job \{ payload: 0\, .. \}]']
+principle = "C-lim: a List collection's back instance kept in place is not lowered (cell_states.rs lower_instances_clause): here the subject reads it and the result leaves the cell out, so it is kept; the product creates or removes instances at the back, and reads and updates them at the front"
 
 [cell-exception.'{claim,readable}/result/env/\{ y -> x\, .. \}']
 principle = "C-lim: a map read has no result side until M3; P6 reads `{ k -> v, .. }` in a result as the frame write `Cell(k::map![k -> v, ..])`"
@@ -14533,8 +14540,11 @@ principle = "C-lim: a map read has no result side until M3; a group record's fie
 [cell-exception.'sweep/{claim,readable}/{overwrite,result}/{env,omap}/\{ y -> x\, .. \}']
 principle = "C-lim: a map read has no result side until M3; P6 reads `{ k -> v, .. }` in a result as the frame write `Cell(k::map![k -> v, ..])`, judged by kind and pairing (on the `?` Map leaf its advice `Some({ y -> x, .. })` is refused again by that limitation, so the limitation is named first, P-R5)"
 
-[cell-exception.'sweep/{claim,readable}/{overwrite,result,subject,written}/job/[..\, x]']
-principle = "C-lim: a List collection's back instance is not matched in place, though P2 and P6 read `[.., x]` as naming the back instance and Q2 makes that instance a value (S5-principles §2 row 9)"
+[cell-exception.'sweep/{claim,readable}/result/job/[..\, x]']
+principle = "C-lim: a List collection rule that changes instances at both ends is not lowered (cell_states.rs lower_instances_clause); split it into two rules. Here the subject matches the front instance and the result's value `x` creates one at the back (P2, P6; Q2 makes the instance a value); the product creates or removes instances at the back, and reads and updates them at the front"
+
+[cell-exception.'sweep/{claim,readable}/subject/job/[..\, x]']
+principle = "C-lim: a List collection's back instance kept in place is not lowered (cell_states.rs lower_instances_clause): here the subject's value `x` binds the back instance (P2, P6; Q2) and the result leaves the cell out, so it is kept; the product creates or removes instances at the back, and reads and updates them at the front"
 
 [cell-exception.'sweep/init/init/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,seq,set,stack}/k::k![Cmd::Go()\, ..pgm]']
 principle = "E3: a stated exception, a spelling rule applied before P3: an initializer's `k![..]` takes no `..pgm` on any cell, so the product answers `initializer-remainder` at the form, where `outcome`, which leaves E3 out by design, judges the value by the stack (P3b: the computation's mark off the computation)"

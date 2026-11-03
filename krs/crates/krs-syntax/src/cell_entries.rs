@@ -30,7 +30,8 @@
 //! update keeps, a
 //! result's group record with a bare `..` for a group that exists, a result over a cell the
 //! subject does not match (Q1's overwrite, where it means one configuration), an absence test
-//! at the entry's root and at each `?` child of the records it writes, and the lint of a subject entry that constrains nothing.
+//! at the entry's root and at each `?` child of the records it writes, a List collection's ends
+//! (below), and the lint of a subject entry that constrains nothing.
 //!
 //! [`Sentence::judge`] runs the steps over a whole sentence, each over every entry before the
 //! next (the form, then the kind with the path, then the pairing): a later step's question is
@@ -48,17 +49,19 @@
 //! A computation is read from its front in every form (E1), so `..` ends it.
 //!
 //! Where the class matrix states a departure from these principles (`[cell-exception]`), the
-//! departure is written here as the table states it, with its reason: a List collection's back
-//! instance is not matched in place, an initializer's `k::k![..]` splices no configuration
-//! variable's computation (`..pgm`), and a readable record's top-level map read has no result
-//! side and reads its value as a fresh binder.
+//! departure is written here as the table states it, with its reason: a List collection's rule
+//! changes instances at one end only and keeps no back instance in place (the product creates or
+//! removes instances at the back, and reads and updates them at the front: [`list_ends`]), an
+//! initializer's `k::k![..]` splices no configuration variable's computation (`..pgm`), and a
+//! readable record's top-level map read has no result side and reads its value as a fresh
+//! binder.
 
 use krs_ir::cell_kind::{GroupKind, Layer, Notation, Order};
 
 pub use krs_ir::cell_kind::EntryKind;
 
 use crate::cell_entry::{
-    EntryForm, EntryMap, EntryRecord, EntryRest, EntrySeq, EntrySpelling, RecordTail, RestPlace,
+    EntryForm, EntryMap, EntryRecord, EntryRest, EntrySeq, EntrySpelling, RecordTail,
 };
 
 /// What a name the rule binds outside an entry stands for: an update `..base` takes the fields
@@ -107,6 +110,13 @@ pub enum Refusal {
     InstancesOnPlainCell,
     /// Instance notation that is no instance of the collection.
     InstanceListShape,
+    /// A rule whose subject and result together change a List collection's instances at both
+    /// ends, before its rest and after it (a stated limitation: a rule changes one end).
+    ListBothEnds,
+    /// A List collection's back instance kept in place: read and kept (the result leaves the
+    /// cell out) or updated through its label (a stated limitation: the back is created or
+    /// removed, and read and updated at the front).
+    ListBackKept,
     /// Map notation where no layer is a map.
     MapNotationAtNonMap,
     /// A missing or misplaced leaf or computation wrapper.
@@ -180,7 +190,9 @@ impl Refusal {
             Self::PresenceOnPlainCell => "presence-on-plain-cell",
             Self::BracketReading => "bracket-reading",
             Self::InstancesOnPlainCell => "instances-on-plain-cell",
-            Self::InstanceListShape => "instance-list-shape",
+            Self::InstanceListShape | Self::ListBothEnds | Self::ListBackKept => {
+                "instance-list-shape"
+            }
             Self::MapNotationAtNonMap => "map-notation-at-non-map",
             Self::CellWrapper => "cell-wrapper",
             Self::OptionalWithoutPresence | Self::BelowOptionalAncestor => {
@@ -225,6 +237,8 @@ impl Refusal {
             Self::BracketReading | Self::ConsListBackItem => analysis::INVALID_LIST_NOTATION,
             Self::InstancesOnPlainCell
             | Self::InstanceListShape
+            | Self::ListBothEnds
+            | Self::ListBackKept
             | Self::CollectionWithoutInstances
             | Self::BelowCollectionAncestor => analysis::COLLECTION_ENTRY,
             Self::MapNotationAtNonMap => analysis::INVALID_TERM,
@@ -238,6 +252,23 @@ impl Refusal {
             Self::ComputationBackItem => collect::INVALID_CONFIGURATION,
             Self::RecordUpdateBase => analysis::INVALID_RECORD_UPDATE,
             Self::MapCollectionKey => analysis::MAP_COLLECTION_KEY,
+        }
+    }
+}
+
+impl Refusal {
+    /// What the author is told about a refusal of an entry naming `cell` where the class's name
+    /// is not the whole reason: a stated limitation, in the words of the step that lowers it.
+    #[must_use]
+    pub fn reason(self, cell: &str) -> Option<String> {
+        match self {
+            Self::ListBothEnds => Some(format!(
+                "this entry names instances at both ends of the List collection `{cell}`; a KRS rule changes either the front (before `..`) or the back (after it), so split it into two rules"
+            )),
+            Self::ListBackKept => Some(format!(
+                "a back instance of the List collection `{cell}` is matched in place; KRS creates or removes instances at the back, and reads and updates them at the front"
+            )),
+            _ => None,
         }
     }
 }
@@ -614,10 +645,8 @@ impl Admission<'_> {
         spelling: &EntrySpelling,
     ) -> Result<(), Refusal> {
         let seq = sequence(spelling).expect("an instance mark is a sequence");
-        // A List collection's back instance is not matched in place (a stated limitation).
-        if order == Order::List && matches!(seq.rest, Some((_, RestPlace::Front))) {
-            return Err(Refusal::InstanceListShape);
-        }
+        // A List collection's items after its rest are its back instances (P2): which ends a
+        // rule changes is the pairing's ([`list_ends`]).
         for item in &seq.items {
             let item = match item {
                 EntrySpelling::Alias(_, pattern) => pattern,
@@ -657,7 +686,7 @@ impl Admission<'_> {
         }
         // The computation is read from its front, where the next step is, in every form: `..`
         // ends it and no item follows (E1).
-        if matches!(seq.rest, Some((_, RestPlace::Front))) {
+        if !seq.back().is_empty() {
             return Err(Refusal::ComputationBackItem);
         }
         Ok(())
@@ -799,7 +828,7 @@ pub fn admit(
 /// A cons list is built from its front, so its brackets end in their rest: an item after the rest
 /// lowers to no term.
 fn cons_front(notation: Notation, seq: &EntrySeq) -> Result<(), Refusal> {
-    if notation == Notation::Cons && matches!(seq.rest, Some((_, RestPlace::Front))) {
+    if notation == Notation::Cons && !seq.back().is_empty() {
         return Err(Refusal::ConsListBackItem);
     }
     Ok(())
@@ -1190,6 +1219,78 @@ fn fields_uncreated(group: &GroupKind, record: &EntryRecord, result: Option<&Ent
     })
 }
 
+/// Which ends of a List collection an entry's instances name: the front (items before the rest,
+/// or every item where the rest is last or there is none), and the back (items after it).
+fn ends(spelling: &EntrySpelling) -> (bool, bool) {
+    sequence(unaliased(spelling)).map_or((false, false), |seq| {
+        (!seq.front().is_empty(), !seq.back().is_empty())
+    })
+}
+
+/// A List collection's entry (`stack` starts with its instances layer) against its other side
+/// (`other`, the other side's entry of the cell; `None` where that side does not name it, or
+/// where a subject's result writes the cell, `written`, with an entry the caller does not give).
+/// P2 and P6 read each item as the instance at its place, so `outcome` admits every such
+/// pairing; the product lowers a List rewrite in place at one end, so two pairings are a stated
+/// limitation, each refused where the lowering would refuse it:
+///
+/// - the subject and the result together name instances at both ends, before the rest and after
+///   it ([`Refusal::ListBothEnds`]): at the subject where it names both itself, else at the
+///   result, the entry to split;
+/// - a subject's back instance kept in place ([`Refusal::ListBackKept`]): the result leaves the
+///   cell out (a read keeps every instance it names, a single-body rule included), or updates
+///   the instance through its label (`..label` after the result's rest). A back instance the
+///   result writes the cell without is removed, and a result's back record that updates nothing
+///   is created: both are admitted.
+///
+/// Moving an instance between the ends (`..label` before the rest for a back instance) and
+/// reordering are the lowering's own refusals, not judged here.
+fn list_ends(
+    side: EntrySide,
+    stack: &[Layer],
+    spelling: &EntrySpelling,
+    other: Option<&EntrySpelling>,
+    written: bool,
+) -> Result<(), Refusal> {
+    if stack.first() != Some(&Layer::Instances(Order::List)) {
+        return Ok(());
+    }
+    let (front, back) = ends(spelling);
+    let (other_front, other_back) = other.map_or((false, false), ends);
+    let both = (front || other_front) && (back || other_back);
+    match side {
+        EntrySide::Subject if front && back => Err(Refusal::ListBothEnds),
+        // The result names the other end: it is refused there.
+        EntrySide::Subject if both => Ok(()),
+        EntrySide::Subject => {
+            let labels = sequence(unaliased(spelling))
+                .into_iter()
+                .flat_map(EntrySeq::back)
+                .filter_map(|item| match item {
+                    EntrySpelling::Alias(label, _) => Some(label.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            let updated = other
+                .and_then(|other| sequence(unaliased(other)))
+                .into_iter()
+                .flat_map(EntrySeq::back)
+                .any(|item| match unaliased(item) {
+                    EntrySpelling::Record(record) | EntrySpelling::Fragment(record) => {
+                        matches!(&record.tail, RecordTail::Update(label) if labels.contains(&label.as_str()))
+                    }
+                    _ => false,
+                });
+            if back && (!written || updated) {
+                return Err(Refusal::ListBackKept);
+            }
+            Ok(())
+        }
+        EntrySide::Result if both => Err(Refusal::ListBothEnds),
+        _ => Ok(()),
+    }
+}
+
 /// Pairing for an admitted entry with its rule. On a subject, an absence test needs the result
 /// to create the cell, at the entry's root (`written`) and at each `?` child of the group and
 /// instance records it writes (`other`, the result's entry of the same cell, must write the child
@@ -1217,11 +1318,13 @@ fn fields_uncreated(group: &GroupKind, record: &EntryRecord, result: Option<&Ent
 ///   and a root `..` keeps a rest the subject never matched, [`Refusal::RestMismatch`];
 /// - a created cell had no content, so a root `..` keeps nothing, [`Refusal::RestMismatch`].
 ///
+/// A List collection's entry is then judged by the ends its rule changes ([`list_ends`]).
+///
 /// # Errors
 ///
 /// [`Refusal::AbsenceTestWithoutCreation`], [`Refusal::RestMismatch`],
-/// [`Refusal::OpenRecordOutsidePattern`], [`Refusal::UnmatchedOptionalResult`] or
-/// [`Refusal::ContinuationInReadable`].
+/// [`Refusal::OpenRecordOutsidePattern`], [`Refusal::UnmatchedOptionalResult`],
+/// [`Refusal::ContinuationInReadable`], [`Refusal::ListBothEnds`] or [`Refusal::ListBackKept`].
 pub fn pair(
     form: EntryForm,
     side: EntrySide,
@@ -1235,16 +1338,27 @@ pub fn pair(
         EntrySide::Subject if absence_uncreated(stack, spelling, other) => {
             Err(Refusal::AbsenceTestWithoutCreation)
         }
-        EntrySide::Subject if written => Ok(None),
+        EntrySide::Subject if written => {
+            list_ends(side, stack, spelling, other, written)?;
+            Ok(None)
+        }
         EntrySide::Subject => {
             if *spelling == EntrySpelling::Missing {
                 return Err(Refusal::AbsenceTestWithoutCreation);
             }
+            list_ends(side, stack, spelling, other, written)?;
             Ok((matches_all(spelling, stack) && !binds(spelling)).then_some(Lint::NoEffectEntry))
         }
         EntrySide::Result => {
-            let other = other.map_or(Other::Unmatched, Other::Matched);
-            pair_content(form, stack, spelling, other, bound).map(|()| None)
+            pair_content(
+                form,
+                stack,
+                spelling,
+                other.map_or(Other::Unmatched, Other::Matched),
+                bound,
+            )?;
+            list_ends(side, stack, spelling, other, written)?;
+            Ok(None)
         }
         EntrySide::Initializer => Ok(None),
     }
@@ -1335,7 +1449,9 @@ impl<C: PartialEq> Sentence<'_, C> {
     /// 1. the form, of every entry;
     /// 2. the kind, of every entry, and within an entry its own kind before its path (a path
     ///    refusal needs only the declaration, as the cell's own kind does);
-    /// 3. the pairing, of every entry, where the sentence has a result.
+    /// 3. the pairing, of every entry, where the sentence has a result; without one, a
+    ///    single-body rule rewrites its cells in place, so only a List collection's ends are
+    ///    judged, every instance it names being kept ([`list_ends`]).
     ///
     /// The sorts are the compiler's, after. Within a step the first refusal in source order is
     /// the sentence's: one diagnostic, at one entry.
@@ -1368,6 +1484,10 @@ impl<C: PartialEq> Sentence<'_, C> {
         }
         let mut lints = Vec::new();
         if !self.result {
+            for (at, entry, spelling) in entries() {
+                list_ends(entry.side, &entry.kind.own.layers, spelling, None, false)
+                    .map_err(|refusal| (at, refusal))?;
+            }
             return Ok(lints);
         }
         for (at, entry, spelling) in entries() {
@@ -3072,6 +3192,181 @@ mod tests {
                 (r, "c", &optional, "Some(k::configuration::Cell(x))")
             ]),
             Err((1, Refusal::UnmatchedOptionalResult))
+        );
+    }
+
+    /// A sentence over the List collection `job` (instances of `Job { payload }`) and the leaf
+    /// `pc`, judged step by step.
+    fn list_sentence(
+        form: EntryForm,
+        written: &[(EntrySide, &str, &str)],
+    ) -> Result<(), (usize, Refusal)> {
+        let job = super::EntryKind {
+            path: CellKind { layers: vec![] },
+            own: CellKind {
+                layers: vec![
+                    Layer::Instances(Order::List),
+                    Layer::Group(GroupKind {
+                        name: "Job".to_owned(),
+                        children: vec![("payload".to_owned(), int())],
+                    }),
+                ],
+            },
+        };
+        let plain = super::EntryKind {
+            path: CellKind { layers: vec![] },
+            own: int(),
+        };
+        let spellings = written
+            .iter()
+            .map(|(.., text)| read(form, text))
+            .collect::<Vec<_>>();
+        let entries = written
+            .iter()
+            .zip(&spellings)
+            .map(|((side, cell, _), spelling)| SentenceEntry {
+                side: *side,
+                cell: *cell,
+                kind: if *cell == "job" { &job } else { &plain },
+                spelling: Some(spelling),
+            })
+            .collect::<Vec<_>>();
+        Sentence {
+            form,
+            entries: &entries,
+            result: written.iter().any(|(side, ..)| *side == EntrySide::Result),
+            parameters: &["v".to_owned(), "x".to_owned()],
+            groups: &groups(&job.own.layers),
+        }
+        .judge()
+        .map(|_| ())
+    }
+
+    /// A List collection's back instance is created or removed, and never kept in place: the
+    /// subject's and the result's items after the rest are judged together at the pairing, where
+    /// the lowering refuses a kept back instance (at the subject's entry).
+    #[test]
+    fn a_list_collections_back_instance_is_created_or_removed_never_kept_in_place() {
+        let (s, r) = (EntrySide::Subject, EntrySide::Result);
+        let readable = EntryForm::Readable;
+        // Created at the back (`enqueue`), removed from it (`pop`): one end, nothing kept.
+        assert_eq!(
+            list_sentence(
+                readable,
+                &[
+                    (s, "job", "[..]"),
+                    (r, "job", "[.., Job { payload: v, .. }]")
+                ]
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            list_sentence(
+                readable,
+                &[
+                    (s, "job", "[.., last @ Job { payload: p, .. }]"),
+                    (r, "job", "[..]")
+                ]
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            list_sentence(readable, &[(s, "job", "[.., x]"), (r, "job", "[..]")]),
+            Ok(())
+        );
+        // Kept in place: the result leaves the cell out, or updates the instance by its label.
+        assert_eq!(
+            list_sentence(
+                readable,
+                &[(s, "job", "[.., Job { payload: p, .. }]"), (r, "pc", "x")]
+            ),
+            Err((0, Refusal::ListBackKept))
+        );
+        assert_eq!(
+            list_sentence(readable, &[(s, "job", "[.., x]"), (r, "pc", "x")]),
+            Err((0, Refusal::ListBackKept))
+        );
+        assert_eq!(
+            list_sentence(
+                readable,
+                &[
+                    (s, "job", "[.., last @ Job { payload: p, .. }]"),
+                    (r, "job", "[.., Job { payload: 1, ..last }]")
+                ]
+            ),
+            Err((0, Refusal::ListBackKept))
+        );
+        // A single-body rule keeps every instance it names.
+        assert_eq!(
+            list_sentence(readable, &[(s, "job", "[.., Job { payload: p, .. }]")]),
+            Err((0, Refusal::ListBackKept))
+        );
+        assert_eq!(
+            list_sentence(readable, &[(s, "job", "[Job { payload: p, .. }, ..]")]),
+            Ok(())
+        );
+    }
+
+    /// A List collection's rule changes one end: the subject's and the result's items before
+    /// the rest and after it are judged together at the pairing, refused at the entry to split.
+    #[test]
+    fn a_list_collections_rule_changes_one_end() {
+        let (s, r) = (EntrySide::Subject, EntrySide::Result);
+        let readable = EntryForm::Readable;
+        // Both ends: at the subject where it names both, else at the result.
+        assert_eq!(
+            list_sentence(
+                readable,
+                &[
+                    (s, "job", "[Job { payload: p, .. }, ..]"),
+                    (r, "job", "[.., Job { payload: 0, .. }]")
+                ]
+            ),
+            Err((1, Refusal::ListBothEnds))
+        );
+        assert_eq!(
+            list_sentence(
+                readable,
+                &[
+                    (
+                        s,
+                        "job",
+                        "[Job { payload: p, .. }, .., Job { payload: q, .. }]"
+                    ),
+                    (r, "job", "[..]")
+                ]
+            ),
+            Err((0, Refusal::ListBothEnds))
+        );
+        // The `cells!` spellings queue's expansion prints.
+        let cells = EntryForm::Cells;
+        assert_eq!(
+            list_sentence(
+                cells,
+                &[
+                    (s, "job", "[instances0 @ ..]"),
+                    (
+                        r,
+                        "job",
+                        "[..instances0, k::fragment![crate::Job { payload: v, .. }]]"
+                    )
+                ]
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            list_sentence(
+                cells,
+                &[
+                    (
+                        s,
+                        "job",
+                        "[instances0 @ .., last @ k::fragment![crate::Job { payload: p, .. }]]"
+                    ),
+                    (r, "job", "[..instances0]")
+                ]
+            ),
+            Ok(())
         );
     }
 }

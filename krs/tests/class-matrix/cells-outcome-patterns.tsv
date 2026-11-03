@@ -34,10 +34,11 @@
 #   stand; whatever they admit is then refused for the ancestor (design:S1b): `owp` below
 #   `?`, `cwi` below `*`. A pairing refusal of the `-` row (rm, uor, atc, Q3's overwrite cir,
 #   S5.0:F3's open record over an existing group, map-collection-key, record-update-base)
-#   comes after the path, so the path class replaces it (S5.0g:P-R12). The product's
-#   departures (the List back instance `ils`, design:M3's readable `mrr` at the kind step,
-#   design:M3's `cells!` `arm` and E3's `ir` at the form step) come before the path and show
-#   through.
+#   comes after the path, so the path class replaces it (S5.0g:P-R12), as it does the
+#   product's List collection limitations at the pairing (both ends, a back instance kept
+#   in place: `ils`). The product's other departures (design:M3's readable `mrr` at the
+#   kind step, design:M3's `cells!` `arm` and E3's `ir` at the form step) come before the
+#   path and show through.
 #
 # Citations: every principle line cites the IDs of this registry, and only these (a test
 #   fails on a line that cites none, an unknown one, or a ruling by a bare number):
@@ -147,10 +148,10 @@ rc10	*	cwi	cwi	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	rmc
 rc10	member	readable, claim	subject	? group G
 rc10	principle	Subject on `? group G`: Some(x) ok (P3a); None atc (P5); brackets br, braces iop, map notation mna (P3b); x, _, 0, G { a: x, .. } and G { a: x, b: y, .. } owp (P3c: their inside passes against G); G { a: x } rmc (S5.0g:P-R5: the advice Some(G { a: x }) is refused again by L4, so the inside's refusal is named; a kind refusal, it stands under a path). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
 rc11	-	pop	pop	ok	ok	ok+no-effect-entry	ok|product:ils	ok	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
-rc11	?	pop	pop	owp	owp	owp	owp|product:ils	owp	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
-rc11	*	pop	pop	cwi	cwi	cwi	cwi|product:ils	cwi	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
+rc11	?	pop	pop	owp	owp	owp	owp	owp	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
+rc11	*	pop	pop	cwi	cwi	cwi	cwi	cwi	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
 rc11	member	readable, claim	subject	* List of G
-rc11	principle	Subject on a List collection of G: brackets are its instance mark (P2): [x, ..], [x] and [x, r @ ..] ok (P3a; Q2: an ordered collection's value item is its front instance; P6 at the instances' root), [..] ok+no-effect-entry (Q1's lint), [.., x] ok by the principles, the product's ils being the stated limitation of a List collection's back instance (a [cell-exception]); braces ils (P3b: the instance mark of the other order); Some/None pop, map notation mna (P3b); x, _, 0, G { a: x, .. } and G { a: x, b: y, .. } cwi (P3c: a value where the collection has its instances, its inside passing against G); G { a: x } rmc (S5.0g:P-R5: L4 refuses the instance record the advice writes). Paths: S5.0g:R3.
+rc11	principle	Subject on a List collection of G: brackets are its instance mark (P2): [x, ..], [x] and [x, r @ ..] ok (P3a; Q2: an ordered collection's value item is its front instance; P6 at the instances' root), [..] ok+no-effect-entry (Q1's lint), [.., x] ok by the principles (P2: the back instance, Q2: as a value), the product's ils being the stated limitation of a List collection's back instance kept in place, here read with the result leaving the cell out (a [cell-exception]; the product creates or removes instances at the back, and reads and updates them at the front); braces ils (P3b: the instance mark of the other order); Some/None pop, map notation mna (P3b); x, _, 0, G { a: x, .. } and G { a: x, b: y, .. } cwi (P3c: a value where the collection has its instances, its inside passing against G); G { a: x } rmc (S5.0g:P-R5: L4 refuses the instance record the advice writes). Paths: S5.0g:R3.
 rc12	-	pop	pop	ils	ils	ils	ils	ils	ok	mna	cwi	cwi	cwi	cwi	cwi	rmc
 rc12	?	pop	pop	ils	ils	ils	ils	ils	owp	mna	cwi	cwi	cwi	cwi	cwi	rmc
 rc12	*	pop	pop	ils	ils	ils	ils	ils	cwi	mna	cwi	cwi	cwi	cwi	cwi	rmc
@@ -210,11 +211,11 @@ rc22	?	owp	owp	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	rmc
 rc22	*	cwi	cwi	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	rmc
 rc22	member	readable, claim	subject, written	? group G
 rc22	principle	Subject on `? group G`, the result writing it: None ok (P5); Some(x) ok (P3a); brackets br, braces iop, map mna (P3b); x, _, 0 and the open and vacuous records owp (P3c, their inside passing against G); G { a: x } rmc (S5.0g:P-R5: L4 refuses the advice Some(G { a: x }) again). Paths: S5.0g:R3.
-rc23	-	pop	pop	ok	ok	ok	ok|product:ils	ok	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
-rc23	?	pop	pop	owp	owp	owp	owp|product:ils	owp	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
-rc23	*	pop	pop	cwi	cwi	cwi	cwi|product:ils	cwi	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
+rc23	-	pop	pop	ok	ok	ok	ok	ok	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
+rc23	?	pop	pop	owp	owp	owp	owp	owp	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
+rc23	*	pop	pop	cwi	cwi	cwi	cwi	cwi	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
 rc23	member	readable, claim	subject, written	* List of G
-rc23	principle	Subject on a List collection of G, the result writing it: [..] ok without the lint (Q1). [x, ..], [x] and [x, r @ ..] ok (P3a, Q2), [.., x] ok with the product's back-instance ils (a [cell-exception]); braces ils, Some/None pop, map mna (P3b); values and the open and vacuous records cwi (P3c); G { a: x } rmc (S5.0g:P-R5). Paths: S5.0g:R3.
+rc23	principle	Subject on a List collection of G, the result writing it: [..] ok without the lint (Q1). [x, ..], [x] and [x, r @ ..] ok (P3a, Q2), [.., x] ok (P2: the back instance, Q2: as a value, which the result's [..] removes, P6); braces ils, Some/None pop, map mna (P3b); values and the open and vacuous records cwi (P3c); G { a: x } rmc (S5.0g:P-R5). Paths: S5.0g:R3.
 rc24	-	pop	pop	sort	rm	ok	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
 rc24	?	pop	pop	owp	owp	owp	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
 rc24	*	pop	pop	cwi	cwi	cwi	cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
@@ -270,10 +271,10 @@ rc33	*	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
 rc33	member	readable, claim	result, matched	? group G
 rc33	principle	Result over `? group G` matched by `Some(G { a: y, .. })`: Some(x) sort (design:R3: a whole binder of G); None ok (S5.0:F1); brackets br, braces iop, map mna (P3b); x, 0, G { a: x, .. } and G { a: x, b: y, .. } owp (P3c: their inside passes form and kind against G, S5.0g:P-R5; the open record's S5.0:F3 is pairing, met once the advice is written); G { a: x } rmc (S5.0g:P-R5: L4 refuses the advice again); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4). Over a subject `None` the advice Some(G { a: x, .. }) creates the cell and takes its template's fields, admitted (S5.0g:P-R13). Paths: S5.0g:R3.
 rc34	-	pop	pop	sort	rm	ok	sort|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
-rc34	?	pop	pop	owp	owp	owp	owp|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
-rc34	*	pop	pop	cwi	cwi	cwi	cwi|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
+rc34	?	pop	pop	owp	owp	owp	owp	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
+rc34	*	pop	pop	cwi	cwi	cwi	cwi	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
 rc34	member	readable, claim	result, matched	* List of G
-rc34	principle	Result over a List collection of G matched by `[G { a: y, .. }, ..]`: [x, ..] sort (Q2: the front instance as a value; P6: `..` keeps the subject's instances), [..] ok, [x] rm (it drops the subject's `..`), [.., x] sort by the principles, the product's ils being the stated back-instance limitation; braces ils, Some/None pop, map mna (P3b); x, 0, G { a: x, .. } and G { a: x, b: y, .. } cwi (P3c, the inside passing against G); G { a: x } rmc (S5.0g:P-R5); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rc34	principle	Result over a List collection of G matched by `[G { a: y, .. }, ..]`: [x, ..] sort (Q2: the front instance as a value; P6: `..` keeps the subject's instances), [..] ok, [x] rm (it drops the subject's `..`), [.., x] sort by the principles (P2, Q2: a back instance created as a value), the product's ils being the stated limitation of a List collection rule that changes both ends, the subject's front instance and the result's back one (a [cell-exception]); braces ils, Some/None pop, map mna (P3b); x, 0, G { a: x, .. } and G { a: x, b: y, .. } cwi (P3c, the inside passing against G); G { a: x } rmc (S5.0g:P-R5); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
 rc35	-	pop	pop	ils	ils	ils	ils	alias-outside-pattern	sort	mna	cwi	wop	cwi	cwi	cwi	rmc
 rc35	?	pop	pop	ils	ils	ils	ils	alias-outside-pattern	owp	mna	cwi	wop	cwi	cwi	cwi	rmc
 rc35	*	pop	pop	ils	ils	ils	ils	alias-outside-pattern	cwi	mna	cwi	wop	cwi	cwi	cwi	rmc
@@ -320,11 +321,11 @@ rc43	?	owp	owp	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
 rc43	*	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
 rc43	member	readable, claim	result, unmatched	? group G
 rc43	principle	Overwrite of `? group G`: Some(x) and None uor (Q1, P5); brackets br, braces iop, map mna (P3b); x, 0, G { a: x, .. } and G { a: x, b: y, .. } owp (P3c: the inside passes against G; the advice Some(..) then meets Q1's uor, a pairing step, S5.0g:P-R5); G { a: x } rmc (S5.0g:P-R5); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
-rc44	-	pop	pop	rm	sort	rm	rm|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
-rc44	?	pop	pop	owp	owp	owp	owp|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
-rc44	*	pop	pop	cwi	cwi	cwi	cwi|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
+rc44	-	pop	pop	rm	sort	rm	rm	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
+rc44	?	pop	pop	owp	owp	owp	owp	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
+rc44	*	pop	pop	cwi	cwi	cwi	cwi	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
 rc44	member	readable, claim	result, unmatched	* List of G
-rc44	principle	Overwrite of a List collection of G (Q1): [x] sort (the exact overwrite of the collection, its one item the front instance, Q2); [x, ..], [..] and [.., x] rm (P6: a `..` the subject never wrote; [.., x] shows the product's back-instance ils, a kind answer); braces ils, Some/None pop, map mna (P3b); x, 0, G { a: x, .. } and G { a: x, b: y, .. } cwi (P3c); G { a: x } rmc (S5.0g:P-R5); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rc44	principle	Overwrite of a List collection of G (Q1): [x] sort (the exact overwrite of the collection, its one item the front instance, Q2); [x, ..], [..] and [.., x] rm (P6: a `..` the subject never wrote); braces ils, Some/None pop, map mna (P3b); x, 0, G { a: x, .. } and G { a: x, b: y, .. } cwi (P3c); G { a: x } rmc (S5.0g:P-R5); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
 rc45	-	pop	pop	ils	ils	ils	ils	alias-outside-pattern	rm	mna	cwi	wop	cwi	cwi	cwi	rmc
 rc45	?	pop	pop	ils	ils	ils	ils	alias-outside-pattern	owp	mna	cwi	wop	cwi	cwi	cwi	rmc
 rc45	*	pop	pop	ils	ils	ils	ils	alias-outside-pattern	cwi	mna	cwi	wop	cwi	cwi	cwi	rmc
