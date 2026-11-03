@@ -118,6 +118,12 @@ fn unsupported_shapes_are_rejected_with_their_reason() {
             "a: { k: [Run { n }, ..] } => { k: 3 };",
             "the computation cell's result is a bracketed sequence",
         ),
+        // The long form reads as instances too; on the cell named `k` its
+        // error is the computation cell's, as the shorthand's is.
+        (
+            "a: { k: [Run { n: n }, ..] } => { k: 3 };",
+            "the computation cell's result is a bracketed sequence",
+        ),
     ] {
         let message = error(clause);
         assert!(message.contains(reason), "{clause}: {message}");

@@ -339,3 +339,180 @@ fn an_empty_readable_instance_child_is_keyed_at_its_brackets() {
         "[]"
     );
 }
+
+/// Each instance child of an instance list, as `name: spelling` for a term
+/// child and `name: (state)` for any other.
+fn instance_children(state: &StateTerm) -> Vec<String> {
+    let StateTerm::Instances(list) = state else {
+        panic!("expected an instance list");
+    };
+    list.front()
+        .iter()
+        .chain(list.back())
+        .flat_map(krs_syntax::InstanceItem::fields)
+        .map(|field| match field.value() {
+            StateTerm::Term(term) => format!("{}: {}", field.name(), term.spelling()),
+            _ => format!("{}: (state)", field.name()),
+        })
+        .collect()
+}
+
+/// A readable clause's bindings, provenance anchors (role and ordinal), and
+/// the instance children of its state rewrites, both sides.
+type Shape = (
+    Vec<String>,
+    Vec<String>,
+    Vec<(krs_syntax::ProvenanceRole, u32)>,
+);
+
+fn readable_shape(source: &str) -> Shape {
+    let block = krs_syntax::RuleBlock::parse_source(source).unwrap();
+    let clause = &block.clauses()[0];
+    let mut children = Vec::new();
+    for extra in clause.extras() {
+        if let RuleExtra::RewriteState { before, after, .. } = extra {
+            children.extend(instance_children(before));
+            if let Some(after) = after {
+                children.push("=>".to_owned());
+                children.extend(instance_children(after));
+            }
+        }
+    }
+    let anchors = clause
+        .provenance()
+        .unwrap()
+        .into_iter()
+        .map(|anchor| (anchor.role(), anchor.key().ordinal()))
+        .collect();
+    (
+        clause.bindings().iter().map(ToString::to_string).collect(),
+        children,
+        anchors,
+    )
+}
+
+/// An instance child that is only a name is `name: name`, Rust's field-init
+/// shorthand, as at a record's top level: in a pattern instance it binds the
+/// name, in a created instance and in an update it writes the bound
+/// variable. Each shorthand reads as its long entry, keyed alike.
+#[test]
+fn a_shorthand_instance_child_is_the_child_bound_to_its_name() {
+    for (shorthand, long) in [
+        (
+            "for Machine; read: { k: [Go(), ..], account: { Account { id, balance, .. }, .. } } => { k: [balance, ..] };",
+            "for Machine; read: { k: [Go(), ..], account: { Account { id: id, balance: balance, .. }, .. } } => { k: [balance, ..] };",
+        ),
+        (
+            "for Machine; put: { k: [Put(id, balance), ..], account: { .. } } => { k: [..], account: { Account { id, balance }, .. } };",
+            "for Machine; put: { k: [Put(id, balance), ..], account: { .. } } => { k: [..], account: { Account { id: id, balance: balance }, .. } };",
+        ),
+        (
+            "for Machine; bump: { k: [Go(), ..], account: { me @ Account { id, balance, .. }, .. } } => { k: [id, ..], account: { Account { balance: int::add(balance, 1), ..me }, .. } };",
+            "for Machine; bump: { k: [Go(), ..], account: { me @ Account { id: id, balance: balance, .. }, .. } } => { k: [id, ..], account: { Account { balance: int::add(balance, 1), ..me }, .. } };",
+        ),
+        (
+            "for Machine; pop: { k: [Pop(), ..], job: [.., Job { payload, .. }] } => { k: [payload, ..], job: [..] };",
+            "for Machine; pop: { k: [Pop(), ..], job: [.., Job { payload: payload, .. }] } => { k: [payload, ..], job: [..] };",
+        ),
+        (
+            "for Machine; tag: { thread: { me @ Thread { r#type, .. }, .. } } => { thread: { Thread { r#type: int::add(r#type, 1), ..me }, .. } };",
+            "for Machine; tag: { thread: { me @ Thread { r#type: r#type, .. }, .. } } => { thread: { Thread { r#type: int::add(r#type, 1), ..me }, .. } };",
+        ),
+    ] {
+        assert_eq!(
+            readable_shape(shorthand),
+            readable_shape(long),
+            "{shorthand}"
+        );
+    }
+    let (bindings, children, _) = readable_shape(
+        "for Machine; put: { k: [Put(id, balance), ..], account: { .. } } => { k: [..], account: { Account { id, balance }, .. } };",
+    );
+    assert_eq!(bindings, ["id", "balance"]);
+    assert_eq!(children, ["=>", "id: id", "balance: balance"]);
+}
+
+/// `_` is no field name: Rust's shorthand has none, and `_: v` would name no
+/// child, so a lone `_` is refused as a malformed child.
+#[test]
+fn a_lone_wildcard_is_no_shorthand_instance_child() {
+    let error = krs_syntax::RuleBlock::parse_source(
+        "for Machine; read: { thread: { Thread { _, .. }, .. } } => { thread: { .. } };",
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("an instance child is `name: value`, or `name` for `name: name`"),
+        "{error}"
+    );
+}
+
+/// A keyword is no binder and no variable, so it is no shorthand instance
+/// child: readable refuses it as `cells!` does, with the same message (a raw
+/// identifier such as `r#type` is a name, above).
+#[test]
+fn a_keyword_is_no_shorthand_instance_child() {
+    for keyword in [
+        "self", "Self", "true", "false", "crate", "super", "match", "let", "fn", "async",
+    ] {
+        let expected = format!("expected identifier, found keyword `{keyword}`");
+        let readable = krs_syntax::RuleBlock::parse_source(&format!(
+            "for Machine; read: {{ k: [Go(), ..], account: {{ Account {{ {keyword}, .. }}, .. }} }} => {{ k: [..] }};"
+        ))
+        .unwrap_err();
+        assert!(readable.to_string().contains(&expected), "{readable}");
+        let cells = parse_cells_pattern(
+            krs_syntax::parse::tokens_from_source(&format!(
+                "Accounts::account: {{ Account {{ {keyword}, .. }}, rest @ .. }}, state @ .."
+            ))
+            .unwrap(),
+        )
+        .unwrap_err();
+        assert!(cells.to_string().contains(&expected), "{cells}");
+    }
+}
+
+/// A `cells!` instance child that is only a name is `name: name` in a
+/// pattern, a created instance and an update.
+#[test]
+fn a_shorthand_cells_instance_child_is_the_child_bound_to_its_name() {
+    let children = |source: &str, pattern_side: bool| {
+        let parsed = if pattern_side {
+            pattern(source)
+        } else {
+            expression(source)
+        };
+        instance_children(parsed.entries()[0].value())
+    };
+    for (shorthand, long, pattern_side) in [
+        (
+            "Accounts::account: { me @ Account { id, balance, .. }, rest @ .. }, state @ ..",
+            "Accounts::account: { me @ Account { id: id, balance: balance, .. }, rest @ .. }, state @ ..",
+            true,
+        ),
+        (
+            "Accounts::account: { k::fragment![Account { id, balance }], ..rest }, ..state",
+            "Accounts::account: { k::fragment![Account { id: id, balance: balance }], ..rest }, ..state",
+            false,
+        ),
+        (
+            "Accounts::account: { Account { balance, ..me }, ..rest }, ..state",
+            "Accounts::account: { Account { balance: balance, ..me }, ..rest }, ..state",
+            false,
+        ),
+    ] {
+        assert_eq!(
+            children(shorthand, pattern_side),
+            children(long, pattern_side),
+            "{shorthand}"
+        );
+    }
+    assert_eq!(
+        children(
+            "Accounts::account: { k::fragment![Account { id, balance }], ..rest }, ..state",
+            false
+        ),
+        ["id: id", "balance: balance"]
+    );
+}

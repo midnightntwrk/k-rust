@@ -22,7 +22,7 @@ from typing import Any, Callable, Mapping, TypeVar, cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import INSPIRATIONS, ROOT, GateError, entry  # noqa: E402
-from support import krs_gate, lock  # noqa: E402
+from support import k_round_trip, krs_gate, lock  # noqa: E402
 from support.checkouts import verify_checkout  # noqa: E402
 from support.hashing import (  # noqa: E402
     canonical_json,
@@ -108,6 +108,36 @@ def require_exact_summary(
 
     if process.stdout != expected or process.stderr:
         raise GateError(f"{phase} did not report its exact PASS summary: {compact(process)}")
+
+
+def _verify_round_trip(
+    krs: Path, printed: Mapping[str, str], authored: Path, workspace: Path, environment: Mapping[str, str],
+) -> None:
+    """Require the package printed by `krs expand` to emit the authored package's K.
+
+    The printed module files are overlaid on a copy of the package, whose path dependencies are
+    written absolute, and the copy is emitted as the authored package was; the two `.k` emissions
+    must be equal up to `support.k_round_trip`'s normalization.
+    """
+
+    root = workspace / "round-trip"
+    shutil.rmtree(root, ignore_errors=True)
+    copy = root / "copy"
+    shutil.copytree(RUST_MANIFEST.parent, copy, ignore=shutil.ignore_patterns("target"))
+    manifest = copy / "Cargo.toml"
+    manifest.write_text(
+        manifest.read_text(encoding="utf-8").replace('"../../../crates/', f'"{os.fspath(ROOT / "crates")}/'),
+        encoding="utf-8",
+    )
+    for path, text in printed.items():
+        copy.joinpath(path).write_text(text, encoding="utf-8")
+    emitted = root / "printed-emit"
+    Invocation(krs, manifest, PACKAGE, DEFINITION).run(
+        "emit-k", "--backend", "haskell", "--output", emitted, timeout=300, environment=environment,
+    )
+    found = k_round_trip.differences(authored, emitted)
+    if found:
+        raise GateError(f"the printed package {list(printed)} emits other K:\n" + "\n".join(found[:8]))
 
 
 def _verify_replacement_parity(
@@ -250,7 +280,8 @@ class Artifacts:
     @property
     def detail(self) -> str:
         return (
-            "124 descriptors; deterministic reviewed Rust expansion; 100-descriptor replacement parity (imp, static_adjunct); "
+            "124 descriptors; deterministic reviewed Rust expansion; expansion K round trip; "
+            "100-descriptor replacement parity (imp, static_adjunct); "
             "seven repeated CLI/API source artifacts; repeated claim-free LLVM and Haskell native builds; "
             f"sha256={json_sha256(self.hashes)}"
         )
@@ -533,7 +564,8 @@ def phase_artifacts(context: Context, rust_build: RustBuild) -> Artifacts:
 
 
 def emitted_artifacts(context: Context, krs: Path) -> tuple[Path, dict[str, str]]:
-    """IMP.3 up to the native builds: check, expand, emit, the replacement crate, and the API probe.
+    """IMP.3 up to the native builds: check, expand, emit, the expansion's K round trip, the
+    replacement crate, and the API probe.
 
     Return the probe's emission directory and its pinned digests.
     """
@@ -567,6 +599,7 @@ def emitted_artifacts(context: Context, krs: Path) -> tuple[Path, dict[str, str]
         krs_invocation(krs), context.workspace,
         extra=("--backend", "haskell"), environment=env, timeout=300,
     )
+    _verify_round_trip(krs, expands[0], emit_a, context.workspace, env)
     replacement_invocation = Invocation(krs, EXPANDED_MANIFEST, EXPANDED_PACKAGE, DEFINITION)
     replacement_check = replacement_invocation.run("check", timeout=300, environment=env)
     # Every descriptor of a module file the expansion changes; the claims and the simplifications

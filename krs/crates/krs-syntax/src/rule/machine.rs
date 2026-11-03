@@ -231,8 +231,9 @@ fn is_dots(tokens: &TokenStream) -> bool {
 /// Whether a bracketed value whose clause reads neither way reports the
 /// List collection's error: when its pattern reads as one or more instances,
 /// the result is what failed; otherwise it is a computation-cell pattern,
-/// such as `[.., x]`, `[..]`, or `[Run { n }, ..]`, and reports the
-/// k-pattern error.
+/// such as `[.., x]`, `[..]`, or `[Run(n), ..]`, and reports the k-pattern
+/// error. A value that also reads as a head, `[Run { n }, ..]`, reports the
+/// k-pattern error on a cell named `k` ([`read_machine_clause`]).
 fn readable_bracket_is_list(group: &proc_macro2::Group) -> bool {
     parse_readable_instances(group, StateMacroContext::Pattern)
         .is_ok_and(|instances| !instances.front().is_empty() || !instances.back().is_empty())
@@ -393,25 +394,34 @@ fn parse_readable_instance(
             };
             continue;
         }
-        let [TokenTree::Ident(name), TokenTree::Punct(colon), value @ ..] = trees.as_slice() else {
-            return Err(readable_error(
-                item.span(),
-                "an instance child is `name: value`",
-            ));
+        let (name, value) = match trees.as_slice() {
+            // `balance` is `balance: balance`, Rust's field-init shorthand,
+            // as at a record's top level: the value is the child name's own
+            // token, a binder in a pattern and the bound variable in a
+            // result. A keyword is no binder and no variable, so it is
+            // refused here as `cells!` refuses it.
+            [TokenTree::Ident(name)] if name != "_" => {
+                syn::parse2::<Ident>(item.clone()).map_err(crate::SyntaxError::from)?;
+                (name, item.clone())
+            }
+            [TokenTree::Ident(name), TokenTree::Punct(colon), value @ ..]
+                if colon.as_char() == ':' && !value.is_empty() =>
+            {
+                (name, value.iter().cloned().collect::<TokenStream>())
+            }
+            _ => {
+                return Err(readable_error(
+                    item.span(),
+                    "an instance child is `name: value`, or `name` for `name: name`",
+                ));
+            }
         };
-        if colon.as_char() != ':' || value.is_empty() {
-            return Err(readable_error(
-                item.span(),
-                "an instance child is `name: value`",
-            ));
-        }
         if fields.iter().any(|field| field.name() == name) {
             return Err(readable_error(
                 name.span(),
                 "an instance record names each child once",
             ));
         }
-        let value = value.iter().cloned().collect::<TokenStream>();
         fields.push(InstanceField::new(
             name.clone(),
             parse_readable_child(value, context, braced)?,
@@ -1029,10 +1039,15 @@ fn read_machine_clause(
     let Some(cell) = ambiguous.first() else {
         // A value that reads no way reports the error of the reading its
         // shape suggests: instances report the collection's, a cell named
-        // `k` the computation cell's, and any other value the list's.
+        // `k` the computation cell's, and any other value the list's. A
+        // front record such as `[Run { n }, ..]` reads both as a head and as
+        // instances; on a cell named `k` the head is the reading reported.
         let computation = unreadable
             .iter()
-            .find(|(cell, group)| cell.unraw() == "k" && !readable_bracket_is_list(group))
+            .find(|(cell, group)| {
+                cell.unraw() == "k"
+                    && (bracket_prefix(group).is_ok() || !readable_bracket_is_list(group))
+            })
             .map(|(cell, _)| *cell);
         return read(computation, &lists).map(|primary| with_instances(primary, computation));
     };

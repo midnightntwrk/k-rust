@@ -13,7 +13,7 @@ use super::cells_oracle::build::{
 };
 use super::cells_oracle::{
     Context, Entry, EntryCase, Form, Group, Layer, Notation, Order, RecordRest, Rest, RestAt,
-    Sentence, Spelling, Template,
+    Sentence, Spelling, Template, collect_groups,
 };
 use super::{Base, Case, Family, Side};
 
@@ -90,6 +90,10 @@ pub fn declared(construct: &str) -> Option<Spelling> {
         "Some(k::configuration::Cell(x))" => some(cell(x())),
         "k::fragment![crate::Frame { ret: x }]" => {
             frag("Frame", vec![("ret", x())], RecordRest::Exact)
+        }
+        // A bare `..` after the one child (`cells::cases`): the exact record.
+        "k::fragment![crate::Frame { ret: x, .. }]" => {
+            frag("Frame", vec![("ret", x())], RecordRest::Open)
         }
         "[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..]" => {
             Spelling::InstList(seq(
@@ -399,6 +403,39 @@ const BOUND: [&str; 6] = ["x", "y", "old", "instances0", "rest", "tail"];
 /// initializer's field order, the `initial` declaration).
 #[must_use]
 pub fn entry_case(case: &Case) -> Option<EntryCase> {
+    let mut entry = base_entry_case(case)?;
+    entry.context.groups = base_groups(case.base);
+    Some(entry)
+}
+
+/// The groups of `base`'s configuration ([`Context::groups`]), as [`declared_stack`] reads its
+/// cells.
+fn base_groups(base: Base) -> Vec<Group> {
+    if base == Base::Kinds {
+        return super::kinds::groups();
+    }
+    let stacks = if base == Base::Typed {
+        ["leaf", "stmt", "any", "list", "map", "boxed", "opt", "slot"]
+            .map(typed_stack)
+            .to_vec()
+    } else {
+        [
+            "k", "prog", "code", "pc", "stack", "env", "frame", "counter", "job", "bag",
+        ]
+        .map(machine_stack)
+        .to_vec()
+    };
+    let mut groups = Vec::new();
+    for stack in &stacks {
+        collect_groups(stack, &mut groups);
+    }
+    groups
+}
+
+fn base_entry_case(case: &Case) -> Option<EntryCase> {
+    if case.base == Base::Kinds {
+        return Some(super::kinds::entry_case(case));
+    }
     let segments = case.id.split('/').collect::<Vec<_>>();
     match case.family {
         Family::Readable | Family::Claim | Family::ReadableRun if segments[2] == "typed" => {
@@ -505,6 +542,7 @@ fn result_context(other: Spelling) -> Context {
         bound: BOUND.map(str::to_owned).to_vec(),
         other: Some(other),
         written: false,
+        groups: Vec::new(),
     }
 }
 
@@ -629,6 +667,7 @@ fn initializer_case(own: Entry, entries: Vec<Entry>, variables: Vec<(String, boo
             bound: variables.iter().map(|(name, _)| name.clone()).collect(),
             other: None,
             written: false,
+            groups: Vec::new(),
         },
         template: Template {
             sentence: Sentence::Initializer,
@@ -823,6 +862,7 @@ pub fn declares(case: &Case, cell: &str) -> bool {
     match case.base {
         Base::Typed => cell == "k" || typed_stack_of(cell).is_some(),
         Base::MainCell | Base::MainK => matches!(cell, "prog" | "k" | "code"),
+        Base::Kinds => cell == "k" || super::kinds::declares(cell),
         _ => machine_stack_of(cell).is_some(),
     }
 }
@@ -831,7 +871,9 @@ pub fn declares(case: &Case, cell: &str) -> bool {
 /// template (P5).
 #[must_use]
 pub fn declared_stack(case: &Case, cell: &str) -> Vec<Layer> {
-    if case.base == Base::Typed && cell != "k" {
+    if case.base == Base::Kinds {
+        super::kinds::stack(cell)
+    } else if case.base == Base::Typed && cell != "k" {
         typed_stack(cell)
     } else {
         machine_stack(cell)

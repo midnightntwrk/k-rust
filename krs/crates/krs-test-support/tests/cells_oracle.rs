@@ -191,10 +191,7 @@ fn check_1_every_cell_entry_row_agrees_with_the_principles() {
 
 /// The rule-level classes no generated case's row has, so check 1r cannot see `rule_outcome`
 /// miss them (it sees it answer them where no row does), with why; S5.0g generates them.
-const RULE_UNCOVERED: [(&str, &str); 1] = [(
-    "rule-changes-no-cell",
-    "every generated rule writes a cell (its computation's, at least)",
-)];
+const RULE_UNCOVERED: [(&str, &str); 0] = [];
 
 /// Check 1r: where the entry is admitted, the rule-level judgement equals a rule-level row's
 /// class, and is none on an accept; and every rule-level class is some generated case's row, or
@@ -260,6 +257,9 @@ fn exceptions() -> Vec<(Glob, String, String)> {
 struct Configuration {
     root: String,
     declarations: Vec<ConfigurationDeclaration>,
+    /// The sorts of the source's `#[k::cons_list]` constructor enums: a cell of one is a cons
+    /// leaf.
+    cons_lists: Vec<String>,
 }
 
 impl Configuration {
@@ -267,9 +267,15 @@ impl Configuration {
         let file = syn::parse_file(source).ok()?;
         let mut root = None;
         let mut declarations = Vec::new();
+        let mut cons_lists = Vec::new();
         for item in file.items {
-            let syn::Item::Struct(item) = item else {
-                continue;
+            let item = match item {
+                syn::Item::Struct(item) => item,
+                syn::Item::Enum(item) => {
+                    cons_lists.extend(cons_list_sort(&item));
+                    continue;
+                }
+                _ => continue,
             };
             let attribute = |name: &str| {
                 item.attrs.iter().any(|attribute| {
@@ -293,6 +299,7 @@ impl Configuration {
         Some(Self {
             root: root?,
             declarations,
+            cons_lists,
         })
     }
 
@@ -323,11 +330,29 @@ impl Configuration {
         let fields = root
             .cells()
             .iter()
-            .map(|field| ConfigurationCell::new(field, &self.declarations, &[]))
+            .map(|field| ConfigurationCell::new(field, &self.declarations, &self.cons_lists))
             .collect();
         let mut ancestors = Vec::new();
         let field = search(fields, name, &mut ancestors)?;
         Some((ancestors, field))
+    }
+
+    /// The configuration's groups, at any depth, as `CellKind` reads its cells: what the
+    /// product reads a term's record by.
+    fn groups(&self) -> Vec<cell_kind::GroupKind> {
+        let mut groups = Vec::new();
+        let Some(root) = self
+            .declarations
+            .iter()
+            .find(|declaration| *declaration.name() == self.root)
+        else {
+            return groups;
+        };
+        for field in root.cells() {
+            let cell = ConfigurationCell::new(field, &self.declarations, &self.cons_lists);
+            cell_entries::collect_groups(&CellKind::of(&cell).layers, &mut groups);
+        }
+        groups
     }
 
     /// What an entry naming `cell` is judged against: `CellKind::{path, of}`, apart.
@@ -337,6 +362,42 @@ impl Configuration {
             .unwrap_or_else(|| panic!("the configuration declares the cell `{cell}`"));
         CellKind::entry(&ancestors, &field)
     }
+}
+
+/// The sort of a `#[k::cons_list]` constructors enum: its `#[k::constructors(sort = S, ..)]`.
+fn cons_list_sort(item: &syn::ItemEnum) -> Option<String> {
+    let named = |attribute: &syn::Attribute, name: &str| {
+        attribute
+            .path()
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == name)
+    };
+    if !item
+        .attrs
+        .iter()
+        .any(|attribute| named(attribute, "cons_list"))
+    {
+        return None;
+    }
+    let constructors = item
+        .attrs
+        .iter()
+        .find(|attribute| named(attribute, "constructors"))?;
+    let mut sort = None;
+    let _ = constructors.parse_nested_meta(|meta| {
+        if meta.path.is_ident("sort") {
+            sort = Some(meta.value()?.parse::<syn::Path>()?);
+        } else if meta.input.peek(syn::Token![=]) {
+            let _ = meta.value()?.parse::<syn::Expr>()?;
+        }
+        Ok(())
+    });
+    sort.and_then(|path| {
+        path.segments
+            .last()
+            .map(|segment| segment.ident.to_string())
+    })
 }
 
 /// Every cell-entry base's configuration, parsed from the first of its cases whose rendered
@@ -384,10 +445,21 @@ fn oracle_layer(layer: &cell_kind::Layer) -> Layer {
 }
 
 /// The product's spelling as the oracle declares it: the marks and names, a literal's text
-/// dropped.
+/// dropped (the generator declares a literal without it, [`build::lit`]).
 fn declared_as(spelling: &EntrySpelling) -> Spelling {
+    read_as(spelling, false)
+}
+
+/// The product's spelling as a probe gives it to the oracle: its literals' texts kept, so the
+/// oracle can tell two literals apart (R9's key written back).
+fn probed_as(spelling: &EntrySpelling) -> Spelling {
+    read_as(spelling, true)
+}
+
+fn read_as(spelling: &EntrySpelling, texts: bool) -> Spelling {
+    let read = |spelling: &EntrySpelling| read_as(spelling, texts);
     let seq = |seq: &EntrySeq| Seq {
-        items: seq.items.iter().map(declared_as).collect(),
+        items: seq.items.iter().map(read).collect(),
         rest: seq.rest.as_ref().map(|(rest, place)| {
             (
                 rest_as(rest),
@@ -402,7 +474,7 @@ fn declared_as(spelling: &EntrySpelling) -> Spelling {
         entries: map
             .entries
             .iter()
-            .map(|(key, value)| (declared_as(key), declared_as(value)))
+            .map(|(key, value)| (read(key), read(value)))
             .collect(),
         rest: map.rest.as_ref().map(rest_as),
     };
@@ -411,7 +483,7 @@ fn declared_as(spelling: &EntrySpelling) -> Spelling {
         fields: record
             .fields
             .iter()
-            .map(|(name, value)| (name.clone(), declared_as(value)))
+            .map(|(name, value)| (name.clone(), read(value)))
             .collect(),
         rest: match &record.tail {
             RecordTail::Exact => RecordRest::Exact,
@@ -419,14 +491,12 @@ fn declared_as(spelling: &EntrySpelling) -> Spelling {
             RecordTail::Update(base) => RecordRest::Update(base.clone()),
         },
     };
-    let boxed = |inner: &EntrySpelling| Box::new(declared_as(inner));
+    let boxed = |inner: &EntrySpelling| Box::new(read(inner));
     match spelling {
         EntrySpelling::Wild => Spelling::Wild,
         EntrySpelling::Binder(name) => Spelling::Binder(name.clone()),
-        EntrySpelling::Literal(_) => Spelling::Literal,
-        EntrySpelling::Call(arguments) => {
-            Spelling::Call(arguments.iter().map(declared_as).collect())
-        }
+        EntrySpelling::Literal(text) => Spelling::Literal(texts.then(|| text.clone())),
+        EntrySpelling::Call(arguments) => Spelling::Call(arguments.iter().map(read).collect()),
         EntrySpelling::ConfigVar(name) => Spelling::ConfigVar(name.clone()),
         EntrySpelling::Present(inner) => Spelling::Present(boxed(inner)),
         EntrySpelling::Missing => Spelling::Missing,
@@ -494,7 +564,9 @@ fn product_of(spelling: &Spelling) -> EntrySpelling {
     match spelling {
         Spelling::Wild => EntrySpelling::Wild,
         Spelling::Binder(name) => EntrySpelling::Binder(name.clone()),
-        Spelling::Literal => EntrySpelling::Literal("0".to_owned()),
+        Spelling::Literal(text) => {
+            EntrySpelling::Literal(text.clone().unwrap_or_else(|| "0".to_owned()))
+        }
         Spelling::Call(arguments) => {
             EntrySpelling::Call(arguments.iter().map(product_of).collect())
         }
@@ -971,6 +1043,7 @@ fn product_outcome(
     entry: &EntryCase,
     kind: &cell_kind::EntryKind,
     spelling: &EntrySpelling,
+    groups: &[cell_kind::GroupKind],
 ) -> Outcome {
     let (path, stack) = (&kind.path.layers[..], &kind.own.layers[..]);
     let form = match entry.form {
@@ -981,7 +1054,7 @@ fn product_outcome(
     };
     let side = product_side(entry.entry.side);
     let bound = |name: &str| entry.context.bound.iter().any(|bound| bound == name);
-    let admitted = match cell_entries::admit(form, side, path, stack, spelling, &bound) {
+    let admitted = match cell_entries::admit(form, side, path, stack, spelling, &bound, groups) {
         Ok(admitted) => admitted,
         Err(refusal) => return Outcome::Refuse(refusal.class()),
     };
@@ -1018,6 +1091,10 @@ fn product_outcome(
 fn check_2_the_product_admits_as_the_table_says() {
     let exceptions = exceptions();
     let configurations = configurations();
+    let groups = configurations
+        .iter()
+        .map(|(base, configuration)| (*base, configuration.groups()))
+        .collect::<BTreeMap<_, _>>();
     let mut failures = Vec::new();
     let mut kinds = BTreeSet::new();
     let mut counts = BTreeMap::<String, usize>::new();
@@ -1074,7 +1151,7 @@ fn check_2_the_product_admits_as_the_table_says() {
             ));
             continue;
         }
-        let got = product_outcome(entry, &kind, &spelling);
+        let got = product_outcome(entry, &kind, &spelling, &groups[&case.base]);
         let excepted = !naming(&case.id, &exceptions).is_empty();
         let want = match &EXPECTED[&case.id] {
             Expected::Refuse { name, .. } if excepted => Outcome::Refuse(name),
@@ -1156,7 +1233,8 @@ fn check_3_readable_abbreviates_cells() {
         .map(|(case, entry)| {
             (
                 (
-                    entry.entry.side,
+                    case.base,
+                    side_name(entry),
                     entry.entry.cell.clone(),
                     entry.entry.spelling.clone(),
                 ),
@@ -1206,8 +1284,11 @@ fn check_3_readable_abbreviates_cells() {
         if case.family != Family::Readable || !accepted(&case.id) {
             continue;
         }
-        let Some((_, twin)) = twins.iter().find(|((side, cell, spelling), _)| {
-            *side == entry.entry.side && *cell == entry.entry.cell && *spelling == abbreviation
+        let Some((_, twin)) = twins.iter().find(|((base, side, cell, spelling), _)| {
+            *base == case.base
+                && *side == side_name(entry)
+                && *cell == entry.entry.cell
+                && *spelling == abbreviation
         }) else {
             *counts
                 .entry("readable accepted, no generated twin".to_owned())
@@ -1244,8 +1325,22 @@ const LAYER_CLASSES: [&str; 3] = [
     "optional-without-presence",
 ];
 
+/// Why check 4 lets a missing-instances advice on a Set or Map collection be refused again as
+/// `instance-list-shape` (S5.0g, open for the orchestrator): [`advise`] wraps the value in the
+/// collection's braces, a value item, which Q2 refuses in unordered braces (an unordered
+/// instance is chosen by a written record). The advice the design states for such a cell is the
+/// instance record (§2.3's S1 (b) row, `{ Account { child: v, .. }, .. }`), which no wrapping of
+/// a value builds; check 4 first met an unordered collection with S5.0g's kinds base.
+/// Check 4's one exemption (ruled at S5.0g): a value on a Set or Map collection is refused
+/// `collection-without-instances`, and its wrapping in braces is Q2's value item, refused again
+/// as `instance-list-shape`. The advice for such a cell is the instance record (§2.3's S1 (b)
+/// row, `{ G { .. }, .. }`), a template no mechanical wrap of a value builds.
+const UNORDERED_ADVICE: &str = "a value wrapped in unordered braces is Q2's value item; the advice is an instance record, which wrapping cannot build";
+
 /// Check 4 (P3's reason): a refusal for a missing layer at the author's head has an advice, the
-/// spelling with every missing layer added, and the advice is admitted at the head.
+/// spelling with every missing layer added, and the advice is admitted at the head. A refusal
+/// for a marked ancestor (S1 (b)) advises the entry inside the ancestor's mark, so the entry
+/// must be admitted by its own cell's layers (S5.0g review R3).
 ///
 /// That each class's `advice` case is one the oracle admits is not checked here: the table's
 /// resolution refuses an advice that is no accepted case (`AdviceNotAccepted`), check 1 makes
@@ -1254,6 +1349,7 @@ const LAYER_CLASSES: [&str; 3] = [
 #[test]
 fn check_4_the_advice_of_a_missing_layer_is_admitted_at_the_head() {
     let mut failures = Vec::new();
+    let mut unordered_advice = 0;
     let mut counts = BTreeMap::<String, usize>::new();
     for (case, entry) in ENTRIES.iter() {
         let (form, side, path, stack, spelling) = (
@@ -1266,6 +1362,28 @@ fn check_4_the_advice_of_a_missing_layer_is_admitted_at_the_head() {
         let Err(refusal) = judge(form, side, path, stack, spelling, &entry.context) else {
             continue;
         };
+        // S1 (b) (S5.0g review R3): a path refusal's advice writes the author's entry inside
+        // the ancestor's mark, at the ancestor's level, so the entry must be one the cell's own
+        // layers admit there: judged without the path, steps 1 and 2 refuse nothing. Its
+        // pairing is the ancestor entry's, against the ancestor's other side, which the advice
+        // writes anew.
+        if refusal.step == Step::Path {
+            let verdict = match judge(form, side, &[], stack, spelling, &entry.context) {
+                Err(again) if again.step != Step::Pairing => {
+                    failures.push(format!(
+                        "{}: refused as {} for its ancestor, and the advice, the entry inside \
+                         the ancestor's mark, is refused again at the author's head as {}",
+                        case.id, refusal.class, again.class
+                    ));
+                    "path, refused again"
+                }
+                _ => "path, admitted at the head",
+            };
+            *counts
+                .entry(format!("{} {verdict}", refusal.class))
+                .or_default() += 1;
+            continue;
+        }
         if refusal.step != Step::MissingLayer || refusal.depth != 0 {
             continue;
         }
@@ -1282,6 +1400,18 @@ fn check_4_the_advice_of_a_missing_layer_is_admitted_at_the_head() {
         };
         let verdict = match judge(form, side, path, stack, &advised, &entry.context) {
             Ok(_) => "admitted".to_owned(),
+            Err(again)
+                if again.depth == added
+                    && refusal.class == "collection-without-instances"
+                    && again.class == "instance-list-shape"
+                    && matches!(
+                        stack.first(),
+                        Some(Layer::Instances(Order::Set | Order::Map))
+                    ) =>
+            {
+                unordered_advice += 1;
+                "refused again, unordered (UNORDERED_ADVICE)".to_owned()
+            }
             Err(again) if again.depth == added => {
                 failures.push(format!(
                     "{}: refused as {}, and the advice {advised:?} is refused again at the \
@@ -1295,6 +1425,12 @@ fn check_4_the_advice_of_a_missing_layer_is_admitted_at_the_head() {
         *counts
             .entry(format!("{} {verdict}", refusal.class))
             .or_default() += 1;
+    }
+    if unordered_advice == 0 {
+        failures.push(format!(
+            "no advice on an unordered collection is refused again: remove UNORDERED_ADVICE \
+             ({UNORDERED_ADVICE})"
+        ));
     }
     println!("{counts:#?}");
     assert!(failures.is_empty(), "{failures:#?}");
@@ -1378,7 +1514,7 @@ fn mark_name(form: Form, spelling: &Spelling) -> String {
         (Mark::Comp, _) => "comp",
         (Mark::Value, Spelling::Binder(_) | Spelling::Alias(..)) => "value:binder",
         (Mark::Value, Spelling::Wild) => "value:_",
-        (Mark::Value, Spelling::Literal | Spelling::MapLit(_)) => "value:literal",
+        (Mark::Value, Spelling::Literal(_) | Spelling::MapLit(_)) => "value:literal",
         (Mark::Value, Spelling::Record(_)) => "value:record",
         (Mark::Value, Spelling::Fragment(_)) => "value:fragment",
         (Mark::Value, Spelling::Call(_)) => "value:call",
@@ -1397,7 +1533,7 @@ fn stack_name(cell: &str, stack: &[Layer]) -> String {
         Notation::Set => "leaf Set",
     };
     match stack {
-        [Layer::Computation] if cell == "code" => "second computation".to_owned(),
+        [Layer::Computation] if cell.ends_with("code") => "second computation".to_owned(),
         [Layer::Computation] => "computation".to_owned(),
         [Layer::Leaf(notation)] => leaf(notation).to_owned(),
         [Layer::Group(_)] => "group".to_owned(),
@@ -1415,27 +1551,16 @@ fn stack_name(cell: &str, stack: &[Layer]) -> String {
     }
 }
 
-/// The tuples of the domain no generated case covers, which S5.0g adds: `(form, side, path,
-/// stack, mark)`, each part a value or `*` for every value. On the cell's own level (path
-/// `none`): the 8 stacks the fixtures declare no cell of (`*` Set only on the run base's readable
-/// records and `cells!` rules), and on every declared stack `cells!` instance braces and `_` in a
-/// `cells!` result; every result over a cell its subject does not match (Q1's overwrite, R2);
-/// and every entry naming a cell below a `?` or `*` ancestor (S1 (b), R1).
-const UNCOVERED: [(&str, &str, &str, &str, &str); 13] = [
-    ("*", "*", "none", "leaf Cons", "*"),
-    ("*", "*", "none", "leaf Set", "*"),
-    ("*", "*", "none", "? leaf List", "*"),
-    ("*", "*", "none", "? leaf Map", "*"),
-    ("*", "*", "none", "? group", "*"),
-    ("*", "*", "none", "* Map", "*"),
-    ("*", "*", "none", "* Set", "*"),
-    ("*", "*", "none", "second computation", "*"),
-    ("cells", "*", "none", "*", "setinst"),
-    ("cells", "result", "none", "*", "value:_"),
-    ("*", "result-unmatched", "none", "*", "*"),
-    ("*", "*", "below ?", "*", "*"),
-    ("*", "*", "below *", "*", "*"),
-];
+/// The reason of an [`UNCOVERED`] entry whose tuples no case covers because the sweep golden
+/// prints `outcome` at each of them, and its review judges it (the coverage ruling: cases cover
+/// every pair of the domain's dimensions; interactions of more than two are the sweep's).
+const SWEEP: &str = "judged by the reviewed sweep row";
+
+/// The tuples of the domain no generated case covers: `(form, side, path, stack, mark, reason)`,
+/// each part a value or `*` for every value. An entry with the [`SWEEP`] reason leaves its tuples
+/// to the sweep golden, which must print `outcome` at each; check 5 still requires every pair of
+/// the domain's dimensions to be some case's, unless an entry with another reason names it.
+const UNCOVERED: [(&str, &str, &str, &str, &str, &str); 1] = [("*", "*", "*", "*", "*", SWEEP)];
 
 fn form_name(form: Form) -> &'static str {
     match form {
@@ -1464,26 +1589,12 @@ fn path_name(path: &[Layer]) -> &'static str {
     }
 }
 
-/// Check 5: every (form × side × path × stack × mark) tuple of the domain is some generated
-/// case's, or is listed in [`UNCOVERED`]; and every entry of [`UNCOVERED`] lists some tuple no
-/// case covers. A rule form's sides are its subject, its result over a matched cell and over an
-/// unmatched one; an initializer's is its value, which names no cell through a path (a struct
-/// literal names its own fields only).
-#[test]
-fn check_5_the_generated_cases_cover_the_domain() {
-    let mut covered = BTreeSet::new();
-    for (case, entry) in ENTRIES.iter() {
-        let declared = entry_cases::declared_stack(case, &entry.entry.cell);
-        covered.insert((
-            form_name(entry.form),
-            side_name(entry),
-            path_name(&entry.entry.path),
-            stack_name(&entry.entry.cell, &declared),
-            mark_name(entry.form, &entry.entry.spelling),
-        ));
-    }
-    let mut uncovered = Vec::new();
-    let mut domain = 0;
+/// A tuple of check 5's domain: form, side, path, stack and mark.
+type Tuple = (&'static str, &'static str, &'static str, String, String);
+
+/// The domain of check 5, in order.
+fn domain() -> Vec<Tuple> {
+    let mut domain = Vec::new();
     for form in [Form::Readable, Form::Claim, Form::Cells, Form::Init] {
         let (sides, paths): (&[&str], &[&str]) = if form == Form::Init {
             (&["initializer"], &["none"])
@@ -1497,35 +1608,149 @@ fn check_5_the_generated_cases_cover_the_domain() {
             for path in paths {
                 for stack in STACKS {
                     for mark in marks(form) {
-                        domain += 1;
-                        let tuple = (
+                        domain.push((
                             form_name(form),
                             *side,
                             *path,
                             stack.to_owned(),
                             (*mark).to_owned(),
-                        );
-                        if !covered.contains(&tuple) {
-                            uncovered.push(tuple);
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    domain
+}
+
+/// The tuple's value at dimension `at` (0 form, 1 side, 2 path, 3 stack, 4 mark).
+fn part(tuple: &Tuple, at: usize) -> &str {
+    match at {
+        0 => tuple.0,
+        1 => tuple.1,
+        2 => tuple.2,
+        3 => &tuple.3,
+        _ => &tuple.4,
+    }
+}
+
+/// The pairs a tuple holds, as check 5 requires them: for each two of its dimensions, their
+/// values, within the tuple's form (a form's marks are its own, and so are its sides).
+fn pairs(tuple: &Tuple) -> Vec<(String, usize, String, usize, String)> {
+    let mut pairs = Vec::new();
+    for first in 0..5 {
+        for second in first + 1..5 {
+            pairs.push((
+                tuple.0.to_owned(),
+                first,
+                part(tuple, first).to_owned(),
+                second,
+                part(tuple, second).to_owned(),
+            ));
+        }
+    }
+    pairs
+}
+
+/// The tuples at which the sweep golden prints `outcome`: its form, side, path and stack by row,
+/// its mark by column. The second computation differs from the first by its name only (P1), so
+/// the computation's rows are its.
+fn sweep_tuples() -> BTreeSet<Tuple> {
+    let mut tuples = BTreeSet::new();
+    let paths: [(&str, Vec<Layer>); 3] = [
+        ("none", Vec::new()),
+        ("below ?", vec![Layer::Optional]),
+        ("below *", vec![Layer::Instances(Order::List)]),
+    ];
+    for form in [Form::Readable, Form::Claim, Form::Cells, Form::Init] {
+        let sides: &[&str] = if form == Form::Init {
+            &["initializer"]
+        } else {
+            &["subject", "result", "result-unmatched"]
+        };
+        for (_, stack) in sweep_stacks() {
+            let mut names = vec![stack_name("", &stack)];
+            if stack == [Layer::Computation] {
+                names.push("second computation".to_owned());
+            }
+            for text in sweep_spellings(form) {
+                let probe = Probe {
+                    form,
+                    side: Side::Subject,
+                    path: &[],
+                    stack: &stack,
+                    text,
+                    other: None,
+                    written: false,
+                    bound: &[],
+                };
+                let mark = mark_name(form, &declared_as(&probe.read(text)));
+                for side in sides {
+                    for (path, _) in &paths {
+                        for name in &names {
+                            tuples.insert((
+                                form_name(form),
+                                *side,
+                                *path,
+                                name.clone(),
+                                mark.clone(),
+                            ));
                         }
                     }
                 }
             }
         }
     }
-    let lists = |entry: &(&str, &str, &str, &str, &str),
-                 tuple: &(&str, &str, &str, String, String)| {
-        (entry.0 == "*" || entry.0 == tuple.0)
-            && (entry.1 == "*" || entry.1 == tuple.1)
-            && (entry.2 == "*" || entry.2 == tuple.2)
-            && (entry.3 == "*" || entry.3 == tuple.3)
-            && (entry.4 == "*" || entry.4 == tuple.4)
-    };
-    let mut failures = uncovered
+    tuples
+}
+
+/// Check 5: every pair of the domain's dimensions (form, side, path, stack and mark; matched or
+/// unmatched is the side's) is some generated case's, within its form, so each mark of a form
+/// is met on every stack: the coverage ruling. A tuple no case covers is listed in
+/// [`UNCOVERED`]; one listed with the [`SWEEP`] reason must be a tuple the sweep golden prints
+/// `outcome` at, and a missing pair fails unless an entry with another reason names it. Every
+/// entry lists some tuple no case covers. A rule form's sides are its subject, its result over a
+/// matched cell and over an unmatched one; an initializer's is its value, which names no cell
+/// through a path (a struct literal names its own fields only).
+#[test]
+fn check_5_the_generated_cases_cover_the_domain() {
+    let mut covered = BTreeSet::new();
+    for (case, entry) in ENTRIES.iter() {
+        let declared = entry_cases::declared_stack(case, &entry.entry.cell);
+        covered.insert((
+            form_name(entry.form),
+            side_name(entry),
+            path_name(&entry.entry.path),
+            stack_name(&entry.entry.cell, &declared),
+            mark_name(entry.form, &entry.entry.spelling),
+        ));
+    }
+    let domain = domain();
+    let uncovered = domain
         .iter()
-        .filter(|tuple| !UNCOVERED.iter().any(|entry| lists(entry, tuple)))
-        .map(|tuple| format!("uncovered and not listed: {tuple:?}"))
+        .filter(|tuple| !covered.contains(*tuple))
         .collect::<Vec<_>>();
+    let lists = |entry: &(&str, &str, &str, &str, &str, &str), tuple: &Tuple| {
+        (0..5).all(|at| {
+            let value = [entry.0, entry.1, entry.2, entry.3, entry.4][at];
+            value == "*" || value == part(tuple, at)
+        })
+    };
+    let mut failures = Vec::new();
+    let sweep = sweep_tuples();
+    for tuple in &uncovered {
+        let listing = UNCOVERED
+            .iter()
+            .filter(|entry| lists(entry, tuple))
+            .collect::<Vec<_>>();
+        if listing.is_empty() {
+            failures.push(format!("uncovered and not listed: {tuple:?}"));
+        } else if listing.iter().all(|entry| entry.5 == SWEEP) && !sweep.contains(*tuple) {
+            failures.push(format!(
+                "left to the sweep, which prints no outcome at it: {tuple:?}"
+            ));
+        }
+    }
     for entry in &UNCOVERED {
         if !uncovered.iter().any(|tuple| lists(entry, tuple)) {
             failures.push(format!(
@@ -1533,15 +1758,52 @@ fn check_5_the_generated_cases_cover_the_domain() {
             ));
         }
     }
+    let have = covered.iter().flat_map(pairs).collect::<BTreeSet<_>>();
+    let names = |pair: &(String, usize, String, usize, String),
+                 entry: &(&str, &str, &str, &str, &str, &str)| {
+        let values = [entry.0, entry.1, entry.2, entry.3, entry.4];
+        (values[0] == "*" || values[0] == pair.0)
+            && (values[pair.1] == "*" || values[pair.1] == pair.2)
+            && (values[pair.3] == "*" || values[pair.3] == pair.4)
+    };
+    let dimension = ["form", "side", "path", "stack", "mark"];
+    let mut missing = 0;
+    let mut excused = BTreeSet::new();
+    for pair in domain.iter().flat_map(pairs).collect::<BTreeSet<_>>() {
+        if have.contains(&pair) {
+            continue;
+        }
+        missing += 1;
+        let by = UNCOVERED
+            .iter()
+            .position(|entry| entry.5 != SWEEP && names(&pair, entry));
+        if let Some(by) = by {
+            excused.insert(by);
+        } else {
+            failures.push(format!(
+                "{}: no case has {} {:?} with {} {:?}",
+                pair.0, dimension[pair.1], pair.2, dimension[pair.3], pair.4
+            ));
+        }
+    }
+    for (at, entry) in UNCOVERED.iter().enumerate() {
+        if entry.5 != SWEEP && !excused.contains(&at) {
+            failures.push(format!(
+                "UNCOVERED {entry:?} names no missing pair: give it the sweep reason"
+            ));
+        }
+    }
     println!(
-        "domain {domain}, covered {}, uncovered {}",
-        domain - uncovered.len(),
+        "domain {}, covered {}, uncovered {}, pairs missing {missing}",
+        domain.len(),
+        domain.len() - uncovered.len(),
         uncovered.len()
     );
     assert!(
         failures.is_empty(),
-        "{} failures: {failures:#?}",
-        failures.len()
+        "{} failures: {:#?}",
+        failures.len(),
+        failures.iter().take(60).collect::<Vec<_>>()
     );
 }
 
@@ -1624,9 +1886,20 @@ impl Probe<'_> {
     fn context(&self) -> class_matrix::cells_oracle::Context {
         class_matrix::cells_oracle::Context {
             bound: self.bound.iter().map(|name| (*name).to_owned()).collect(),
-            other: self.other.map(|text| declared_as(&self.read(text))),
+            other: self.other.map(|text| probed_as(&self.read(text))),
             written: self.written,
+            groups: self.groups(),
         }
+    }
+
+    /// The groups of the probe's configuration: those of its path and stack, and `G` (a, b:
+    /// Int), the group a term's record names.
+    fn groups(&self) -> Vec<Group> {
+        let mut groups = Vec::new();
+        for layers in [self.path, self.stack, &[group_g()][..]] {
+            class_matrix::cells_oracle::collect_groups(layers, &mut groups);
+        }
+        groups
     }
 
     /// The oracle's outcome.
@@ -1644,7 +1917,7 @@ impl Probe<'_> {
             self.side,
             self.path,
             stack,
-            &declared_as(&self.read(self.text)),
+            &probed_as(&self.read(self.text)),
             &self.context(),
         )
     }
@@ -1657,10 +1930,19 @@ impl Probe<'_> {
         let stack = self.stack.iter().map(product_layer).collect::<Vec<_>>();
         let spelling = self.read(self.text);
         let bound = |name: &str| self.bound.contains(&name);
-        let admitted = match cell_entries::admit(form, side, &path, &stack, &spelling, &bound) {
-            Ok(admitted) => admitted,
-            Err(refusal) => return Outcome::Refuse(refusal.class()),
-        };
+        let groups = self
+            .groups()
+            .iter()
+            .map(|group| match product_layer(&Layer::Group(group.clone())) {
+                cell_kind::Layer::Group(group) => group,
+                other => unreachable!("a group's layer is {other:?}"),
+            })
+            .collect::<Vec<_>>();
+        let admitted =
+            match cell_entries::admit(form, side, &path, &stack, &spelling, &bound, &groups) {
+                Ok(admitted) => admitted,
+                Err(refusal) => return Outcome::Refuse(refusal.class()),
+            };
         let pair_stack = match (side, stack.split_first()) {
             (EntrySide::Initializer, Some((cell_kind::Layer::Instances(_), template))) => template,
             _ => &stack[..],
@@ -1715,22 +1997,24 @@ fn the_oracle_and_the_product_refuse_the_reviews_probes() {
     };
     let (subject, result) = (Side::Subject, Side::Result);
     let probes = [
-        // R1: an ancestor's mark spelled in the entry.
+        // R1: an ancestor's mark spelled in the entry admits nothing. It is no mark of the
+        // cell's own layers, which refuse it first (S5.0g review R3, P3's reason: the path's
+        // advice, the entry inside the ancestor's mark, would be refused again).
         (
             probe(Form::Readable, subject, &optional, &int, "Some(x)", None),
-            "optional-without-presence",
+            "presence-on-plain-cell",
         ),
         (
             probe(Form::Readable, subject, &map, &int, "{ .. }", None),
-            "collection-without-instances",
+            "instances-on-plain-cell",
         ),
         (
             probe(Form::Readable, subject, &list, &int, "[x, ..]", None),
-            "collection-without-instances",
+            "bracket-reading",
         ),
         (
             probe(Form::Cells, subject, &list, &int, "[x, ..]", None),
-            "collection-without-instances",
+            "instances-on-plain-cell",
         ),
         // R2: a result over a cell the subject does not match.
         (
@@ -1781,6 +2065,67 @@ fn the_oracle_and_the_product_refuse_the_reviews_probes() {
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// S5.0g review R3 (P3's reason): the cell's own kind is judged before its path (S1 (b)), since
+/// the path's advice writes the entry inside the ancestor's mark: a spelling the cell's own
+/// layers admit is refused for its ancestor, and one they refuse, by (b) or (c), is refused by
+/// them.
+#[test]
+fn a_cell_below_a_marked_ancestor_is_judged_on_its_own_layers_first() {
+    let optional = [Layer::Optional];
+    let map = [Layer::Instances(Order::Map)];
+    let list = [Layer::Instances(Order::List)];
+    let int = int();
+    let jobs = [Layer::Instances(Order::List), group_g()];
+    let probe = |form, path, stack, text| Probe {
+        form,
+        side: Side::Subject,
+        path,
+        stack,
+        text,
+        other: None,
+        written: false,
+        bound: &[],
+    };
+    probes_agree(&[
+        // A spelling the cell's own layers admit is refused for its ancestor (S1 (b)).
+        (
+            probe(Form::Readable, &optional, &int, "x"),
+            Outcome::Refuse("optional-without-presence"),
+        ),
+        (
+            probe(Form::Readable, &map, &int, "x"),
+            Outcome::Refuse("collection-without-instances"),
+        ),
+        (
+            probe(
+                Form::Readable,
+                &list,
+                &[Layer::Optional, Layer::Leaf(Notation::Plain)],
+                "Some(x)",
+            ),
+            Outcome::Refuse("collection-without-instances"),
+        ),
+        (
+            probe(Form::Cells, &optional, &int, "k::configuration::Cell(x)"),
+            Outcome::Refuse("optional-without-presence"),
+        ),
+        // The cell's own P3 (c) comes first too: a value on its own `?` layer below a `*`.
+        (
+            probe(
+                Form::Readable,
+                &list,
+                &[Layer::Optional, Layer::Leaf(Notation::Plain)],
+                "x",
+            ),
+            Outcome::Refuse("optional-without-presence"),
+        ),
+        (
+            probe(Form::Readable, &optional, &jobs, "x"),
+            Outcome::Refuse("collection-without-instances"),
+        ),
+    ]);
 }
 
 /// Each probe's outcome, from the oracle and from the product alike, against `want`.
@@ -1923,6 +2268,154 @@ fn a_named_rest_in_a_result_is_refused_at_the_form() {
     ]);
 }
 
+/// R4 under the vacuous-rest ruling (P6, P0): a bare `..` in a built record is Rust's default
+/// fields, so it is refused exactly where it leaves a declared field unnamed; here the record of
+/// a group that exists, and a child's record inside it. A `..` after every field defaults none:
+/// Rust and K read the same exact record.
+#[test]
+fn a_bare_rest_in_a_built_record_is_refused_where_it_leaves_a_field_open() {
+    let open = Outcome::Refuse("open-record-outside-pattern");
+    let group = [group_g()];
+    let w = children_stack("group W");
+    let frame = [sweep_group(
+        "Frame",
+        &[("ret", Layer::Leaf(Notation::Plain))],
+    )];
+    probes_agree(&[
+        // The record of a group that exists: open on `G { a, b }` without `b`, exact with it.
+        (
+            result_probe(
+                Form::Readable,
+                &group,
+                "G { a: x, .. }",
+                Some("G { a: y, .. }"),
+            ),
+            open,
+        ),
+        (
+            result_probe(
+                Form::Readable,
+                &group,
+                "G { a: x, b: y, .. }",
+                Some("G { a: y, .. }"),
+            ),
+            Outcome::After,
+        ),
+        (
+            result_probe(Form::Claim, &group, "G { a: x, b: y, .. }", None),
+            Outcome::After,
+        ),
+        (
+            result_probe(
+                Form::Cells,
+                &group,
+                "k::fragment![crate::G { a: x, b: y, .. }]",
+                Some("k::fragment![crate::G { a: y, .. }]"),
+            ),
+            Outcome::After,
+        ),
+        (
+            result_probe(
+                Form::Cells,
+                &frame,
+                "k::fragment![crate::Frame { ret: x, .. }]",
+                Some("k::fragment![crate::Frame { ret: y, .. }]"),
+            ),
+            Outcome::After,
+        ),
+        // A child's record inside a record.
+        (
+            result_probe(Form::Readable, &w, "W { g: G { a: x, .. }, n: 0 }", None),
+            open,
+        ),
+        (
+            result_probe(
+                Form::Readable,
+                &w,
+                "W { g: G { a: x, b: y, .. }, n: 0 }",
+                None,
+            ),
+            Outcome::After,
+        ),
+    ]);
+}
+
+/// R4 under the vacuous-rest ruling, on a term: a record a result's value writes at a leaf, or
+/// where the missing layer's advice puts it, is refused where its bare `..` leaves a field open,
+/// and judged as the value it is otherwise (P6, P0, P3's reason). A record whose head names no
+/// group of the configuration has no fields it is known to name, so its `..` is open.
+#[test]
+fn a_bare_rest_in_a_term_is_refused_where_it_leaves_a_field_open() {
+    let open = Outcome::Refuse("open-record-outside-pattern");
+    let set = [Layer::Leaf(Notation::Set)];
+    let code = [Layer::Computation];
+    let optional_list = [Layer::Optional, Layer::Leaf(Notation::List)];
+    probes_agree(&[
+        (
+            result_probe(Form::Readable, &set, "G { a: x, .. }", Some("old")),
+            open,
+        ),
+        (
+            result_probe(Form::Readable, &set, "G { a: x, b: y, .. }", Some("old")),
+            Outcome::After,
+        ),
+        (
+            result_probe(Form::Readable, &code, "G { a: x, .. }", Some("[y, ..]")),
+            open,
+        ),
+        (
+            result_probe(
+                Form::Readable,
+                &code,
+                "G { a: x, b: y, .. }",
+                Some("[y, ..]"),
+            ),
+            Outcome::Refuse("cell-wrapper"),
+        ),
+        (
+            result_probe(
+                Form::Readable,
+                &optional_list,
+                "G { a: x, .. }",
+                Some("Some([y, ..])"),
+            ),
+            open,
+        ),
+        (
+            result_probe(
+                Form::Readable,
+                &optional_list,
+                "G { a: x, b: y, .. }",
+                Some("Some([y, ..])"),
+            ),
+            Outcome::Refuse("optional-without-presence"),
+        ),
+        (
+            result_probe(
+                Form::Cells,
+                &set,
+                "k::configuration::Cell(k::fragment![crate::G { a: x, b: y, .. }])",
+                Some("k::configuration::Cell(old)"),
+            ),
+            Outcome::After,
+        ),
+        (
+            result_probe(
+                Form::Cells,
+                &set,
+                "k::configuration::Cell(k::fragment![crate::G { a: x, .. }])",
+                Some("k::configuration::Cell(old)"),
+            ),
+            open,
+        ),
+        // A head no group names.
+        (
+            result_probe(Form::Readable, &set, "Q { a: x, .. }", Some("old")),
+            open,
+        ),
+    ]);
+}
+
 /// F3: a bare `..` in a result is Rust's default fields, which only a created instance has (its
 /// template, P6): refused on a group the subject matches, admitted on an instance record.
 #[test]
@@ -2017,6 +2510,828 @@ fn a_result_group_record_with_a_bare_rest_is_refused_over_an_overwritten_group()
         ),
         (
             result_probe(Form::Readable, &set, "{ G { a: x, .. } }", None),
+            Outcome::After,
+        ),
+    ]);
+}
+
+/// D-3 (S5.0g): `k::fragment![crate::G { a: x, .. }]` is the record readable `G { a: x, .. }`
+/// abbreviates (P7), so its bare `..` in a result is Rust's default fields too, which a group that
+/// exists, matched or overwritten, does not have (P6, ruling 1); a `?` cell created over a
+/// subject `None` and a created instance have their template's.
+#[test]
+fn a_result_group_fragment_with_a_bare_rest_is_refused_over_an_existing_group() {
+    let refused = Outcome::Refuse("open-record-outside-pattern");
+    let group = [group_g()];
+    let optional = [Layer::Optional, group_g()];
+    let list = [Layer::Instances(Order::List), group_g()];
+    let open = "k::fragment![crate::G { a: x, .. }]";
+    let open_present = "Some(k::fragment![crate::G { a: x, .. }])";
+    probes_agree(&[
+        (
+            result_probe(
+                Form::Cells,
+                &group,
+                open,
+                Some("k::fragment![crate::G { a: y, .. }]"),
+            ),
+            refused,
+        ),
+        (result_probe(Form::Cells, &group, open, None), refused),
+        (
+            result_probe(
+                Form::Cells,
+                &optional,
+                open_present,
+                Some("Some(k::fragment![crate::G { a: y, .. }])"),
+            ),
+            refused,
+        ),
+        (
+            result_probe(Form::Cells, &optional, open_present, Some("None")),
+            Outcome::After,
+        ),
+        (
+            result_probe(
+                Form::Cells,
+                &group,
+                "k::fragment![crate::G { a: x, b: 0 }]",
+                None,
+            ),
+            Outcome::After,
+        ),
+        (
+            result_probe(
+                Form::Cells,
+                &list,
+                "[k::fragment![crate::G { a: x, .. }], ..]",
+                Some("[k::fragment![crate::G { a: y, .. }], ..]"),
+            ),
+            Outcome::After,
+        ),
+    ]);
+}
+
+/// D-4 (L4, P6, P7): a `cells!` fragment of the position's group without `..` names every child,
+/// as the readable record it abbreviates does: records follow Rust, in a pattern and in a built
+/// term alike, at a group's position and as a collection's instance.
+#[test]
+fn a_group_fragment_without_a_rest_names_every_child() {
+    let missing = Outcome::Refuse("record-missing-children");
+    let group = [group_g()];
+    let list = [Layer::Instances(Order::List), group_g()];
+    let set = [Layer::Instances(Order::Set), group_g()];
+    let probe = |side, stack, text, other| Probe {
+        form: Form::Cells,
+        side,
+        path: &[],
+        stack,
+        text,
+        other,
+        written: false,
+        bound: &["x", "y", "z"],
+    };
+    let (subject, result) = (Side::Subject, Side::Result);
+    let exact = "k::fragment![crate::G { a: x }]";
+    probes_agree(&[
+        (probe(subject, &group, exact, None), missing),
+        (probe(result, &group, exact, None), missing),
+        (
+            probe(
+                result,
+                &group,
+                exact,
+                Some("k::fragment![crate::G { a: y, .. }]"),
+            ),
+            missing,
+        ),
+        (
+            probe(
+                subject,
+                &list,
+                "[k::fragment![crate::G { a: x }], ..]",
+                None,
+            ),
+            missing,
+        ),
+        (
+            probe(
+                subject,
+                &set,
+                "{ k::fragment![crate::G { a: x }], .. }",
+                None,
+            ),
+            missing,
+        ),
+        (
+            probe(subject, &group, "k::fragment![crate::G { a: x, .. }]", None),
+            Outcome::After,
+        ),
+        (
+            probe(
+                result,
+                &group,
+                "k::fragment![crate::G { a: x, b: y }]",
+                None,
+            ),
+            Outcome::After,
+        ),
+        (
+            probe(
+                subject,
+                &list,
+                "[k::fragment![crate::G { a: x, b: y }], ..]",
+                None,
+            ),
+            Outcome::After,
+        ),
+    ]);
+}
+
+/// D-5 (P5): an initializer's value for a `*` cell is one instance's template at every depth, so a
+/// collection child of a template record, or of a plain group's record, takes its own instance's
+/// template; brackets there are no instance list.
+#[test]
+fn an_initializers_collection_child_takes_its_instance_template() {
+    let probe = |stack, text| Probe {
+        form: Form::Init,
+        side: Side::Initializer,
+        path: &[],
+        stack,
+        text,
+        other: None,
+        written: false,
+        bound: &["pgm"],
+    };
+    let (map, group) = (
+        nested_collection_stack("* Map of Q"),
+        nested_collection_stack("group P"),
+    );
+    probes_agree(&[
+        (probe(&map, "Q { id: 0, js: J { p: 0 } }"), Outcome::After),
+        (probe(&group, "P { js: J { p: 0 } }"), Outcome::After),
+        (
+            probe(&map, "Q { id: 0, js: [J { p: 0 }] }"),
+            Outcome::Refuse("bracket-reading"),
+        ),
+        (
+            probe(&group, "P { js: Some(J { p: 0 }) }"),
+            Outcome::Refuse("presence-on-plain-cell"),
+        ),
+    ]);
+}
+
+/// D-1's thread collection, `* List of T { k: KSequence, n: Int }`, and group
+/// `H { l: List, b: Int }`, each with a child whose content has a root (P6).
+fn d1_stacks() -> (Vec<Layer>, Layer) {
+    let int = Layer::Leaf(Notation::Plain);
+    let threads = vec![
+        Layer::Instances(Order::List),
+        Layer::Group(Group {
+            name: "T".to_owned(),
+            children: vec![
+                ("k".to_owned(), vec![Layer::Computation]),
+                ("n".to_owned(), vec![int.clone()]),
+            ],
+        }),
+    ];
+    let h = Layer::Group(Group {
+        name: "H".to_owned(),
+        children: vec![
+            ("l".to_owned(), vec![Layer::Leaf(Notation::List)]),
+            ("b".to_owned(), vec![int]),
+        ],
+    });
+    (threads, h)
+}
+
+/// A result probe of D-1 and D-2, binding `x`, `y`, `z` and `me`.
+const fn child_probe<'p>(
+    form: Form,
+    stack: &'p [Layer],
+    text: &'p str,
+    other: Option<&'p str>,
+) -> Probe<'p> {
+    Probe {
+        form,
+        side: Side::Result,
+        path: &[],
+        stack,
+        text,
+        other,
+        written: false,
+        bound: &["x", "y", "z", "me"],
+    }
+}
+
+/// D-1 (S5.0g): a group or instance record's children are entries of their own cells (P1), and
+/// rests pair at each content root (P6). In an instance update a child's other side is the same
+/// child of the subject instance the update labels (R10), an unmatched child where that instance
+/// does not name it (Q1, Q3); a created instance's child has none (R2). The first two are the
+/// S5.0g stop's instance probes.
+#[test]
+fn an_instance_records_children_pair_their_rests_at_their_own_content_roots() {
+    let (threads, _) = d1_stacks();
+    let rm = Outcome::Refuse("rest-mismatch");
+    let me = Some("[me @ T { k: [y, ..], .. }, ..]");
+    let me_cells = Some("[me @ k::fragment![crate::T { k: [y, ..], .. }], ..]");
+    let probe = |form, text, other| child_probe(form, &threads, text, other);
+    probes_agree(&[
+        (probe(Form::Readable, "[T { k: [x], ..me }, ..]", me), rm),
+        (
+            probe(Form::Readable, "[T { k: [x, ..], n: 1 }, ..]", Some("[..]")),
+            rm,
+        ),
+        // The update that keeps the rest, and a created instance's exact computation.
+        (
+            probe(Form::Readable, "[T { k: [x, ..], ..me }, ..]", me),
+            Outcome::After,
+        ),
+        (
+            probe(Form::Readable, "[T { k: [x], n: 1 }, ..]", Some("[..]")),
+            Outcome::After,
+        ),
+        // Their `cells!` forms.
+        (
+            probe(
+                Form::Cells,
+                "[k::fragment![crate::T { k: [x], ..me }], ..]",
+                me_cells,
+            ),
+            rm,
+        ),
+        (
+            probe(
+                Form::Cells,
+                "[k::fragment![crate::T { k: [x, ..], ..me }], ..]",
+                me_cells,
+            ),
+            Outcome::After,
+        ),
+        // A child the labelled instance does not name is overwritten (Q1): a readable rule does
+        // not drop a continuation it did not match (Q3); `cells!` may.
+        (
+            probe(
+                Form::Readable,
+                "[T { k: [x], ..me }, ..]",
+                Some("[me @ T { n: y, .. }, ..]"),
+            ),
+            Outcome::Refuse("continuation-in-readable"),
+        ),
+        (
+            probe(
+                Form::Cells,
+                "[k::fragment![crate::T { k: [x], ..me }], ..]",
+                Some("[me @ k::fragment![crate::T { n: y, .. }], ..]"),
+            ),
+            Outcome::After,
+        ),
+    ]);
+}
+
+/// D-1 (S5.0g), for groups: a matched group's child pairs with the subject record's same child,
+/// one the subject does not name is overwritten (Q1), and an overwritten group's child is
+/// unmatched; a `?` cell created over a subject `None` creates its group's children (R2). The
+/// first two are the S5.0g stop's group probes.
+#[test]
+fn a_group_records_children_pair_their_rests_at_their_own_content_roots() {
+    let (_, h) = d1_stacks();
+    let group = [h.clone()];
+    let optional = [Layer::Optional, h];
+    let rm = Outcome::Refuse("rest-mismatch");
+    let subject = Some("H { l: [y, ..], .. }");
+    probes_agree(&[
+        (
+            child_probe(Form::Readable, &group, "H { l: [x], b: 1 }", subject),
+            rm,
+        ),
+        (
+            child_probe(Form::Readable, &group, "H { l: [x, ..], b: 1 }", None),
+            rm,
+        ),
+        (
+            child_probe(Form::Readable, &group, "H { l: [x, ..], b: 1 }", subject),
+            Outcome::After,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &group,
+                "H { l: [x], b: 1 }",
+                Some("H { b: y, .. }"),
+            ),
+            Outcome::After,
+        ),
+        (
+            child_probe(
+                Form::Cells,
+                &group,
+                "k::fragment![crate::H { l: [x], b: 1 }]",
+                Some("k::fragment![crate::H { l: [y, ..], .. }]"),
+            ),
+            rm,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &optional,
+                "Some(H { l: [x, ..], b: 1 })",
+                Some("None"),
+            ),
+            rm,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &optional,
+                "Some(H { l: [x], b: 1 })",
+                Some("Some(H { l: [y, ..], .. })"),
+            ),
+            rm,
+        ),
+    ]);
+}
+
+/// R1 (S5.0g review): an overwritten group's children are unmatched, not created (Q1): a
+/// readable rule does not drop the computation child's continuation it never matched (Q3), the
+/// `?` child's presence is unknown (P5), and the group child exists, so a bare `..` on it is
+/// Rust's default fields (P6). An update whose label no subject instance has changes an
+/// instance the subject does not show, whose children are unmatched alike.
+#[test]
+fn an_overwritten_records_children_are_unmatched_not_created() {
+    let (threads, _) = d1_stacks();
+    let int = || vec![Layer::Leaf(Notation::Plain)];
+    let group = |name: &str, children: Vec<(&str, Vec<Layer>)>| {
+        [Layer::Group(Group {
+            name: name.to_owned(),
+            children: children
+                .into_iter()
+                .map(|(child, stack)| (child.to_owned(), stack))
+                .collect(),
+        })]
+    };
+    let c = group("C", vec![("c", vec![Layer::Computation]), ("n", int())]);
+    let o = group(
+        "O",
+        vec![
+            ("o", vec![Layer::Optional, Layer::Leaf(Notation::Plain)]),
+            ("n", int()),
+        ],
+    );
+    let w = group("W", vec![("g", vec![group_g()]), ("n", int())]);
+    let uor = Outcome::Refuse("unmatched-optional-result");
+    let open = Outcome::Refuse("open-record-outside-pattern");
+    probes_agree(&[
+        (
+            child_probe(Form::Readable, &c, "C { c: [x], n: 0 }", None),
+            Outcome::Refuse("continuation-in-readable"),
+        ),
+        (
+            child_probe(Form::Readable, &o, "O { o: Some(1), n: 0 }", None),
+            uor,
+        ),
+        (
+            child_probe(Form::Readable, &o, "O { o: None, n: 0 }", None),
+            uor,
+        ),
+        (
+            child_probe(
+                Form::Cells,
+                &o,
+                "k::fragment![crate::O { o: Some(1), n: 0 }]",
+                None,
+            ),
+            uor,
+        ),
+        (
+            child_probe(Form::Readable, &w, "W { g: G { a: x, .. }, n: 0 }", None),
+            open,
+        ),
+        (
+            child_probe(
+                Form::Cells,
+                &w,
+                "k::fragment![crate::W { g: G { a: x, .. }, n: 0 }]",
+                None,
+            ),
+            open,
+        ),
+        // A matched record that does not name `g`: `g` exists and is overwritten.
+        (
+            child_probe(
+                Form::Readable,
+                &w,
+                "W { g: G { a: x, .. }, n: 0 }",
+                Some("W { n: y, .. }"),
+            ),
+            open,
+        ),
+        (
+            child_probe(Form::Readable, &w, "W { g: G { a: x, b: y }, n: 0 }", None),
+            Outcome::After,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &threads,
+                "[T { k: [x, ..], ..me }, ..]",
+                Some("[..]"),
+            ),
+            Outcome::Refuse("continuation-in-readable"),
+        ),
+    ]);
+}
+
+/// D-2 (S5.0g), narrowed by ruling 2 (P0): an update (`..me`) changes the instance in place, and
+/// a Map collection's instance is keyed by its first child, its identity (design §2.3, §7). An
+/// update that writes the key as the binder its subject matched it with means the same instance,
+/// admitted; any other key value (a literal, another name, a computed value), or a key the
+/// labelled instance does not name, is `map-collection-key`. An update's unnamed non-key child
+/// is Q1's overwrite; a Set collection keys none.
+/// R9 (S5.0g review, P0): an update writing a Map collection's key as the same literal its
+/// subject matched it with writes provably the matched key, so the instance's identity is
+/// unchanged; another literal, or the literal another instance matched, is another key.
+#[test]
+fn an_update_writing_the_literal_its_subject_matched_keeps_the_key() {
+    let map = vec![
+        Layer::Instances(Order::Map),
+        Layer::Group(Group {
+            name: "A".to_owned(),
+            children: vec![("id".to_owned(), int()), ("bal".to_owned(), int())],
+        }),
+    ];
+    let refused = Outcome::Refuse("map-collection-key");
+    probes_agree(&[
+        (
+            child_probe(
+                Form::Readable,
+                &map,
+                "{ A { id: 5, ..me }, .. }",
+                Some("{ me @ A { id: 5, .. }, .. }"),
+            ),
+            Outcome::After,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &map,
+                "{ A { id: 5, ..me }, .. }",
+                Some("{ me @ A { id: k @ 5, .. }, .. }"),
+            ),
+            Outcome::After,
+        ),
+        (
+            child_probe(
+                Form::Cells,
+                &map,
+                "{ k::fragment![crate::A { id: 5, ..me }], .. }",
+                Some("{ me @ k::fragment![crate::A { id: 5, .. }], .. }"),
+            ),
+            Outcome::After,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &map,
+                "{ A { id: 6, ..me }, .. }",
+                Some("{ me @ A { id: 5, .. }, .. }"),
+            ),
+            refused,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &map,
+                "{ A { id: 5, ..me }, .. }",
+                Some("{ me @ A { id: z, .. }, other @ A { id: 5, .. }, .. }"),
+            ),
+            refused,
+        ),
+    ]);
+}
+
+#[test]
+fn an_update_of_a_map_collections_instance_that_writes_its_key_is_refused() {
+    let account = |order| {
+        vec![
+            Layer::Instances(order),
+            Layer::Group(Group {
+                name: "A".to_owned(),
+                children: vec![("id".to_owned(), int()), ("bal".to_owned(), int())],
+            }),
+        ]
+    };
+    let (map, set) = (account(Order::Map), account(Order::Set));
+    let refused = Outcome::Refuse("map-collection-key");
+    let me = Some("{ me @ A { id: z, .. }, .. }");
+    probes_agree(&[
+        (
+            child_probe(Form::Readable, &map, "{ A { id: 5, ..me }, .. }", me),
+            refused,
+        ),
+        (
+            child_probe(Form::Claim, &map, "{ A { id: z, ..me }, .. }", me),
+            Outcome::After,
+        ),
+        (
+            child_probe(
+                Form::Cells,
+                &map,
+                "{ k::fragment![crate::A { id: z, ..me }], .. }",
+                Some("{ me @ k::fragment![crate::A { id: z, .. }], .. }"),
+            ),
+            Outcome::After,
+        ),
+        (
+            child_probe(Form::Readable, &map, "{ A { id: y, ..me }, .. }", me),
+            refused,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &map,
+                "{ A { id: k::builtin::int::add(z, 1), ..me }, .. }",
+                me,
+            ),
+            refused,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &map,
+                "{ A { id: z, ..me }, .. }",
+                Some("{ me @ A { id: y, .. }, other @ A { id: z, .. }, .. }"),
+            ),
+            refused,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &map,
+                "{ A { id: 5, ..me }, .. }",
+                Some("{ me @ A { bal: y, .. }, .. }"),
+            ),
+            refused,
+        ),
+        (
+            child_probe(
+                Form::Cells,
+                &map,
+                "{ k::fragment![crate::A { id: 5, ..me }], .. }",
+                Some("{ me @ k::fragment![crate::A { id: z, .. }], .. }"),
+            ),
+            refused,
+        ),
+        (
+            child_probe(Form::Readable, &map, "{ A { bal: 5, ..me }, .. }", me),
+            Outcome::After,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &map,
+                "{ A { id: 5, bal: 0 }, .. }",
+                Some("{ .. }"),
+            ),
+            Outcome::After,
+        ),
+        (
+            child_probe(
+                Form::Cells,
+                &map,
+                "{ k::fragment![crate::A { id: 5, bal: 0 }], .. }",
+                Some("{ .. }"),
+            ),
+            Outcome::After,
+        ),
+        (
+            child_probe(Form::Readable, &set, "{ A { id: 5, ..me }, .. }", me),
+            Outcome::After,
+        ),
+    ]);
+}
+
+/// `group-and-descendant` (design §2.3, an unchanged class, extended to instances): P1 makes an
+/// entry denote the content of one cell, so a rule or claim whose entries name a cell and a cell
+/// below it, on either side, names that cell twice. The compiler refuses it today with
+/// `krs::analysis::group-and-descendant` (`semantic/rules.rs` `check_group_descendants`, the
+/// `configuration-cells` fixture `group-and-leaf`); the oracle answers it at step 5, first.
+/// R6 (S5.0g review): an initializer's program in a computation cell other than `k` while a
+/// `k` computation exists is `main-cell-not-k` when no `k` cell holds the program, whatever the
+/// order of the entries; the program in `k` and in a second computation (S5-M1's rows, P0, P1)
+/// is no such refusal in either order.
+#[test]
+fn the_main_cell_rule_reads_the_entries_as_a_set() {
+    use class_matrix::cells_oracle::build::seq;
+    use class_matrix::cells_oracle::{Entry, Sentence};
+    let kmac = |items| Spelling::KMacro(seq(items, None));
+    let entry = |cell: &str, spelling| Entry {
+        cell: cell.to_owned(),
+        side: Side::Initializer,
+        path: Vec::new(),
+        stack: vec![Layer::Computation],
+        spelling,
+    };
+    let pgm = || kmac(vec![Spelling::ConfigVar("pgm".to_owned())]);
+    let empty = || kmac(Vec::new());
+    let init = |entries| Template {
+        sentence: Sentence::Initializer,
+        entries,
+        guard: false,
+        variables: vec![("pgm".to_owned(), true)],
+    };
+    let admitted = Outcome::Admit { lint: None };
+    let judged = |template: &Template, own: &Entry| rule_outcome(template, own, admitted);
+    let (k_pgm, prog_pgm) = (entry("k", pgm()), entry("prog", pgm()));
+    let (k_empty, prog_empty) = (entry("k", empty()), entry("prog", empty()));
+    // The program in `prog` alone, `k` empty: refused, with either entry first.
+    assert_eq!(
+        judged(&init(vec![k_empty.clone()]), &prog_pgm),
+        Some("main-cell-not-k")
+    );
+    assert_eq!(
+        judged(&init(vec![prog_pgm.clone()]), &k_empty),
+        Some("main-cell-not-k")
+    );
+    // The program in `k` and in `prog`: `k` holds it, in either order.
+    assert_eq!(judged(&init(vec![k_pgm.clone()]), &prog_pgm), None);
+    assert_eq!(judged(&init(vec![prog_pgm.clone()]), &k_pgm), None);
+    // The program in `k` alone.
+    assert_eq!(judged(&init(vec![prog_empty.clone()]), &k_pgm), None);
+    assert_eq!(judged(&init(vec![k_pgm]), &prog_empty), None);
+}
+
+#[test]
+fn a_rule_naming_a_group_and_a_cell_below_it_is_refused_on_the_whole_rule() {
+    use class_matrix::cells_oracle::build::{bind, lit, open, seq};
+    use class_matrix::cells_oracle::{Entry, Sentence};
+    let entry = |cell: &str, side, stack: Vec<Layer>, spelling| Entry {
+        cell: cell.to_owned(),
+        side,
+        path: Vec::new(),
+        stack,
+        spelling,
+    };
+    let frame = |children: Vec<(&str, Vec<Layer>)>| {
+        Layer::Group(Group {
+            name: "Frame".to_owned(),
+            children: children
+                .into_iter()
+                .map(|(name, stack)| (name.to_owned(), stack))
+                .collect(),
+        })
+    };
+    let flat = frame(vec![("pc", int()), ("gas", int())]);
+    let k = entry(
+        "k",
+        Side::Subject,
+        vec![Layer::Computation],
+        Spelling::Brackets(seq(vec![bind("x")], open())),
+    );
+    let pc = |side| entry("pc", side, int(), bind("p"));
+    let whole = |side, stack: &Layer| entry("frame", side, vec![stack.clone()], bind("f"));
+    let next = entry(
+        "pc",
+        Side::Result,
+        int(),
+        Spelling::Call(vec![bind("p"), lit()]),
+    );
+    let rule = |sentence, entries| Template {
+        sentence,
+        entries,
+        guard: false,
+        variables: Vec::new(),
+    };
+    let admitted = Outcome::Admit { lint: None };
+    let descendant = Some("group-and-descendant");
+    // The fixture's `peek`: `frame: f, pc: p` => `pc: p + 1`.
+    let peek = rule(
+        Sentence::Rule,
+        vec![k.clone(), whole(Side::Subject, &flat), next.clone()],
+    );
+    assert_eq!(
+        rule_outcome(&peek, &pc(Side::Subject), admitted),
+        descendant
+    );
+    // The group and the cell below it on the result side only, and in a claim.
+    let written = rule(Sentence::Rule, vec![k.clone(), whole(Side::Result, &flat)]);
+    assert_eq!(rule_outcome(&written, &next, admitted), descendant);
+    let claim = rule(
+        Sentence::Claim,
+        vec![k.clone(), whole(Side::Subject, &flat)],
+    );
+    assert_eq!(
+        rule_outcome(&claim, &pc(Side::Subject), admitted),
+        descendant
+    );
+    // A cell at any depth below, through a nested group or a collection's instances.
+    let nested = frame(vec![(
+        "inner",
+        vec![Layer::Group(Group {
+            name: "Inner".to_owned(),
+            children: vec![("pc".to_owned(), int())],
+        })],
+    )]);
+    let deep = rule(
+        Sentence::Rule,
+        vec![k.clone(), whole(Side::Subject, &nested), next.clone()],
+    );
+    assert_eq!(
+        rule_outcome(&deep, &pc(Side::Subject), admitted),
+        descendant
+    );
+    let jobs = entry(
+        "jobs",
+        Side::Subject,
+        vec![Layer::Instances(Order::List), frame(vec![("pc", int())])],
+        Spelling::Brackets(seq(Vec::new(), open())),
+    );
+    let collection = rule(Sentence::Rule, vec![k.clone(), jobs, next.clone()]);
+    assert_eq!(
+        rule_outcome(&collection, &pc(Side::Subject), admitted),
+        descendant
+    );
+    // The cell alone, or a group that holds no such cell, is no overlap.
+    let alone = rule(Sentence::Rule, vec![k.clone(), next.clone()]);
+    assert_eq!(rule_outcome(&alone, &pc(Side::Subject), admitted), None);
+    let other = frame(vec![("ret", int())]);
+    let apart = rule(Sentence::Rule, vec![k, whole(Side::Subject, &other), next]);
+    assert_eq!(rule_outcome(&apart, &pc(Side::Subject), admitted), None);
+    // A refused entry has no rule-level row.
+    assert_eq!(
+        rule_outcome(&peek, &pc(Side::Subject), Outcome::Refuse("cell-wrapper")),
+        None
+    );
+}
+
+/// Key ruling 3 (P5, §7): a Map collection's instance is keyed by its first child, its identity,
+/// written at creation and never changed by an update. A created instance that does not write it
+/// (a bare `..` takes the template's fields, which state no identity) is `map-collection-key`; a
+/// Set or List collection has no key, and an update that leaves the key out keeps it.
+#[test]
+fn a_created_map_collection_instance_that_does_not_write_its_key_is_refused() {
+    let account = |order| {
+        vec![
+            Layer::Instances(order),
+            Layer::Group(Group {
+                name: "A".to_owned(),
+                children: vec![("id".to_owned(), int()), ("bal".to_owned(), int())],
+            }),
+        ]
+    };
+    let (map, set, list) = (
+        account(Order::Map),
+        account(Order::Set),
+        account(Order::List),
+    );
+    let refused = Outcome::Refuse("map-collection-key");
+    let any = Some("{ .. }");
+    probes_agree(&[
+        (
+            child_probe(Form::Readable, &map, "{ A { bal: 0, .. }, .. }", any),
+            refused,
+        ),
+        (
+            child_probe(Form::Claim, &map, "{ A { bal: 0, .. }, .. }", any),
+            refused,
+        ),
+        (
+            child_probe(
+                Form::Cells,
+                &map,
+                "{ k::fragment![crate::A { bal: 0, .. }], .. }",
+                any,
+            ),
+            refused,
+        ),
+        (
+            child_probe(Form::Readable, &map, "{ A { bal: 0, .. } }", None),
+            refused,
+        ),
+        (
+            child_probe(Form::Readable, &map, "{ A { id: 5, .. }, .. }", any),
+            Outcome::After,
+        ),
+        (
+            child_probe(Form::Readable, &set, "{ A { bal: 0, .. }, .. }", any),
+            Outcome::After,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &list,
+                "[A { bal: 0, .. }, ..]",
+                Some("[..]"),
+            ),
+            Outcome::After,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &map,
+                "{ A { bal: 0, ..me }, .. }",
+                Some("{ me @ A { id: z, .. }, .. }"),
+            ),
             Outcome::After,
         ),
     ]);
@@ -2220,6 +3535,7 @@ const fn sweep_spellings(form: Form) -> &'static [&'static str] {
             "_",
             "0",
             "G { a: x, .. }",
+            "G { a: x, b: y, .. }",
             "G { a: x }",
         ],
         Form::Cells => &[
@@ -2235,6 +3551,8 @@ const fn sweep_spellings(form: Form) -> &'static [&'static str] {
             "x",
             "_",
             "k::fragment![crate::G { a: x, .. }]",
+            "k::fragment![crate::G { a: x, b: y, .. }]",
+            "k::fragment![crate::G { a: x }]",
         ],
         Form::Init => &[
             "Some(0)",
@@ -2347,7 +3665,508 @@ fn outcome_sweep() -> String {
             }
         }
     }
+    children_sweep(&mut out);
     out
+}
+
+/// A group of the children sweep: its name and its children's own layers, in declaration
+/// order (a Map collection's key is its first child).
+fn sweep_group(name: &str, children: &[(&str, Layer)]) -> Layer {
+    Layer::Group(Group {
+        name: name.to_owned(),
+        children: children
+            .iter()
+            .map(|(child, layer)| ((*child).to_owned(), vec![layer.clone()]))
+            .collect(),
+    })
+}
+
+/// The children sweep's stacks, by name.
+fn children_stack(name: &str) -> Vec<Layer> {
+    let list = Layer::Leaf(Notation::List);
+    let int = Layer::Leaf(Notation::Plain);
+    let h = || sweep_group("H", &[("l", list.clone()), ("b", int.clone())]);
+    match name {
+        "group H" => vec![h()],
+        "? group H" => vec![Layer::Optional, h()],
+        "* List of T" => vec![
+            Layer::Instances(Order::List),
+            sweep_group("T", &[("k", Layer::Computation), ("n", int.clone())]),
+        ],
+        "* Map of A" => vec![
+            Layer::Instances(Order::Map),
+            sweep_group("A", &[("id", int.clone()), ("l", list.clone())]),
+        ],
+        "group C" => vec![sweep_group(
+            "C",
+            &[("c", Layer::Computation), ("n", int.clone())],
+        )],
+        "group O" => vec![Layer::Group(Group {
+            name: "O".to_owned(),
+            children: vec![
+                ("o".to_owned(), vec![Layer::Optional, int.clone()]),
+                ("n".to_owned(), vec![int.clone()]),
+            ],
+        })],
+        "group W" => vec![sweep_group("W", &[("g", group_g()), ("n", int.clone())])],
+        other => panic!("no children-sweep stack {other}"),
+    }
+}
+
+/// The children sweep's rows: a stack, the subject's entry of the cell (`-`: the subject does
+/// not match it), and a result, each written in readable (claim alike) and in `cells!`.
+const CHILDREN_SWEEP: [(&str, [&str; 2], [&str; 2]); 36] = [
+    (
+        "group H",
+        [
+            "H { l: [y, ..], .. }",
+            "k::fragment![crate::H { l: [y, ..], .. }]",
+        ],
+        [
+            "H { l: [x], b: 0 }",
+            "k::fragment![crate::H { l: [x], b: 0 }]",
+        ],
+    ),
+    (
+        "group H",
+        [
+            "H { l: [y, ..], .. }",
+            "k::fragment![crate::H { l: [y, ..], .. }]",
+        ],
+        [
+            "H { l: [x, ..], b: 0 }",
+            "k::fragment![crate::H { l: [x, ..], b: 0 }]",
+        ],
+    ),
+    (
+        "group H",
+        ["H { b: y, .. }", "k::fragment![crate::H { b: y, .. }]"],
+        [
+            "H { l: [x, ..], b: 0 }",
+            "k::fragment![crate::H { l: [x, ..], b: 0 }]",
+        ],
+    ),
+    (
+        "group H",
+        ["H { b: y, .. }", "k::fragment![crate::H { b: y, .. }]"],
+        [
+            "H { l: [x], b: 0 }",
+            "k::fragment![crate::H { l: [x], b: 0 }]",
+        ],
+    ),
+    (
+        "group H",
+        ["-", "-"],
+        [
+            "H { l: [x, ..], b: 0 }",
+            "k::fragment![crate::H { l: [x, ..], b: 0 }]",
+        ],
+    ),
+    (
+        "group H",
+        ["-", "-"],
+        [
+            "H { l: [x], b: 0 }",
+            "k::fragment![crate::H { l: [x], b: 0 }]",
+        ],
+    ),
+    (
+        "? group H",
+        [
+            "Some(H { l: [y, ..], .. })",
+            "Some(k::fragment![crate::H { l: [y, ..], .. }])",
+        ],
+        [
+            "Some(H { l: [x], b: 0 })",
+            "Some(k::fragment![crate::H { l: [x], b: 0 }])",
+        ],
+    ),
+    (
+        "? group H",
+        ["None", "None"],
+        [
+            "Some(H { l: [x, ..], b: 0 })",
+            "Some(k::fragment![crate::H { l: [x, ..], b: 0 }])",
+        ],
+    ),
+    (
+        "? group H",
+        ["None", "None"],
+        [
+            "Some(H { l: [x], b: 0 })",
+            "Some(k::fragment![crate::H { l: [x], b: 0 }])",
+        ],
+    ),
+    (
+        "* List of T",
+        [
+            "[me @ T { k: [y, ..], .. }, ..]",
+            "[me @ k::fragment![crate::T { k: [y, ..], .. }], ..]",
+        ],
+        [
+            "[T { k: [x], ..me }, ..]",
+            "[k::fragment![crate::T { k: [x], ..me }], ..]",
+        ],
+    ),
+    (
+        "* List of T",
+        [
+            "[me @ T { k: [y, ..], .. }, ..]",
+            "[me @ k::fragment![crate::T { k: [y, ..], .. }], ..]",
+        ],
+        [
+            "[T { k: [x, ..], ..me }, ..]",
+            "[k::fragment![crate::T { k: [x, ..], ..me }], ..]",
+        ],
+    ),
+    (
+        "* List of T",
+        [
+            "[me @ T { n: y, .. }, ..]",
+            "[me @ k::fragment![crate::T { n: y, .. }], ..]",
+        ],
+        [
+            "[T { n: 0, ..me }, ..]",
+            "[k::fragment![crate::T { n: 0, ..me }], ..]",
+        ],
+    ),
+    (
+        "* List of T",
+        ["[..]", "[..]"],
+        [
+            "[T { k: [x], n: 0 }, ..]",
+            "[k::fragment![crate::T { k: [x], n: 0 }], ..]",
+        ],
+    ),
+    (
+        "* List of T",
+        ["[..]", "[..]"],
+        [
+            "[T { k: [x, ..], n: 0 }, ..]",
+            "[k::fragment![crate::T { k: [x, ..], n: 0 }], ..]",
+        ],
+    ),
+    (
+        "* Map of A",
+        [
+            "{ me @ A { id: z, .. }, .. }",
+            "{ me @ k::fragment![crate::A { id: z, .. }], .. }",
+        ],
+        [
+            "{ A { id: 5, ..me }, .. }",
+            "{ k::fragment![crate::A { id: 5, ..me }], .. }",
+        ],
+    ),
+    (
+        "* Map of A",
+        [
+            "{ me @ A { id: z, .. }, .. }",
+            "{ me @ k::fragment![crate::A { id: z, .. }], .. }",
+        ],
+        [
+            "{ A { id: z, ..me }, .. }",
+            "{ k::fragment![crate::A { id: z, ..me }], .. }",
+        ],
+    ),
+    (
+        "* Map of A",
+        [
+            "{ me @ A { l: [y, ..], .. }, .. }",
+            "{ me @ k::fragment![crate::A { l: [y, ..], .. }], .. }",
+        ],
+        [
+            "{ A { id: 5, ..me }, .. }",
+            "{ k::fragment![crate::A { id: 5, ..me }], .. }",
+        ],
+    ),
+    (
+        "* Map of A",
+        [
+            "{ me @ A { id: z, .. }, .. }",
+            "{ me @ k::fragment![crate::A { id: z, .. }], .. }",
+        ],
+        [
+            "{ A { l: [x], ..me }, .. }",
+            "{ k::fragment![crate::A { l: [x], ..me }], .. }",
+        ],
+    ),
+    (
+        "* Map of A",
+        [
+            "{ me @ A { id: z, l: [y, ..] }, .. }",
+            "{ me @ k::fragment![crate::A { id: z, l: [y, ..] }], .. }",
+        ],
+        [
+            "{ A { l: [x], ..me }, .. }",
+            "{ k::fragment![crate::A { l: [x], ..me }], .. }",
+        ],
+    ),
+    (
+        "* Map of A",
+        [
+            "{ me @ A { id: z, l: [y, ..] }, .. }",
+            "{ me @ k::fragment![crate::A { id: z, l: [y, ..] }], .. }",
+        ],
+        [
+            "{ A { l: [x, ..], ..me }, .. }",
+            "{ k::fragment![crate::A { l: [x, ..], ..me }], .. }",
+        ],
+    ),
+    (
+        "* Map of A",
+        ["{ .. }", "{ .. }"],
+        [
+            "{ A { id: 5, l: [x] }, .. }",
+            "{ k::fragment![crate::A { id: 5, l: [x] }], .. }",
+        ],
+    ),
+    (
+        "* Map of A",
+        [
+            "{ me @ A { id: z, .. }, .. }",
+            "{ me @ k::fragment![crate::A { id: z, .. }], .. }",
+        ],
+        [
+            "{ A { id: y, ..me }, .. }",
+            "{ k::fragment![crate::A { id: y, ..me }], .. }",
+        ],
+    ),
+    (
+        "* Map of A",
+        ["{ .. }", "{ .. }"],
+        [
+            "{ A { l: [x], .. }, .. }",
+            "{ k::fragment![crate::A { l: [x], .. }], .. }",
+        ],
+    ),
+    (
+        "* Map of A",
+        ["{ .. }", "{ .. }"],
+        [
+            "{ A { id: 5, .. }, .. }",
+            "{ k::fragment![crate::A { id: 5, .. }], .. }",
+        ],
+    ),
+    (
+        "* List of T",
+        ["[..]", "[..]"],
+        [
+            "[T { n: 0, .. }, ..]",
+            "[k::fragment![crate::T { n: 0, .. }], ..]",
+        ],
+    ),
+    // R1 (S5.0g review): an overwritten group's children are unmatched, not created (Q1): its
+    // computation child (Q3), its `?` child (P5) and its group child (P6) each pair as an
+    // overwrite.
+    (
+        "group C",
+        ["-", "-"],
+        [
+            "C { c: [x], n: 0 }",
+            "k::fragment![crate::C { c: [x], n: 0 }]",
+        ],
+    ),
+    (
+        "group O",
+        ["-", "-"],
+        [
+            "O { o: Some(1), n: 0 }",
+            "k::fragment![crate::O { o: Some(1), n: 0 }]",
+        ],
+    ),
+    (
+        "group O",
+        ["-", "-"],
+        [
+            "O { o: None, n: 0 }",
+            "k::fragment![crate::O { o: None, n: 0 }]",
+        ],
+    ),
+    (
+        "group W",
+        ["-", "-"],
+        [
+            "W { g: G { a: x, .. }, n: 0 }",
+            "k::fragment![crate::W { g: G { a: x, .. }, n: 0 }]",
+        ],
+    ),
+    (
+        "group W",
+        ["-", "-"],
+        [
+            "W { g: G { a: x, b: y }, n: 0 }",
+            "k::fragment![crate::W { g: G { a: x, b: y }, n: 0 }]",
+        ],
+    ),
+    // A bare `..` that names every child leaves no field open: the exact record (P6, P0).
+    (
+        "group W",
+        ["-", "-"],
+        [
+            "W { g: G { a: x, b: y, .. }, n: 0 }",
+            "k::fragment![crate::W { g: G { a: x, b: y, .. }, n: 0 }]",
+        ],
+    ),
+    // R1: an update whose label no subject instance has changes an instance the subject does
+    // not show, so its children are unmatched too.
+    (
+        "* List of T",
+        ["[..]", "[..]"],
+        [
+            "[T { k: [x, ..], ..me }, ..]",
+            "[k::fragment![crate::T { k: [x, ..], ..me }], ..]",
+        ],
+    ),
+    (
+        "* List of T",
+        ["[..]", "[..]"],
+        [
+            "[T { k: [x], ..me }, ..]",
+            "[k::fragment![crate::T { k: [x], ..me }], ..]",
+        ],
+    ),
+    (
+        "* Map of A",
+        ["{ .. }", "{ .. }"],
+        [
+            "{ A { l: [x, ..], ..me }, .. }",
+            "{ k::fragment![crate::A { l: [x, ..], ..me }], .. }",
+        ],
+    ),
+    // R9 (P0): an update writing the key as the same literal its subject matched keeps it.
+    (
+        "* Map of A",
+        [
+            "{ me @ A { id: 5, .. }, .. }",
+            "{ me @ k::fragment![crate::A { id: 5, .. }], .. }",
+        ],
+        [
+            "{ A { id: 5, ..me }, .. }",
+            "{ k::fragment![crate::A { id: 5, ..me }], .. }",
+        ],
+    ),
+    (
+        "* Map of A",
+        [
+            "{ me @ A { id: 5, .. }, .. }",
+            "{ me @ k::fragment![crate::A { id: 5, .. }], .. }",
+        ],
+        [
+            "{ A { id: 6, ..me }, .. }",
+            "{ k::fragment![crate::A { id: 6, ..me }], .. }",
+        ],
+    ),
+];
+
+/// The sweep of a result's children (P1: a group or instance record's children are entries of
+/// their own cells): each child's content root against its own other side (P6, R10), and a
+/// Map collection's key written in an instance update (§7).
+fn children_sweep(out: &mut String) {
+    out.push_str(concat!(
+        "#\n",
+        "## children: a result's group and instance records, each child at its own content root\n",
+        "# Each row is a result over its cell; `other` is the subject's entry of the cell (`-`: the\n",
+        "#   subject does not match it). Bound names: x, y, z, me. Groups: H (l: List, b: Int),\n",
+        "#   T (k: a computation, n: Int), A (id: Int, l: List; a Map collection is keyed by its\n",
+        "#   first child, id), C (c: a computation, n: Int), O (o: ? Int, n: Int), W (g: G, n: Int).\n",
+        "#   The `cells!` rows write each record as its fragment.\n",
+        "form\tstack\tother\tresult\toutcome\n",
+    ));
+    for form in [Form::Readable, Form::Claim, Form::Cells] {
+        let spelled = usize::from(form == Form::Cells);
+        for (stack_name, other, result) in &CHILDREN_SWEEP {
+            let stack = children_stack(stack_name);
+            let other = (other[spelled] != "-").then_some(other[spelled]);
+            let probe = Probe {
+                form,
+                side: Side::Result,
+                path: &[],
+                stack: &stack,
+                text: result[spelled],
+                other,
+                written: false,
+                bound: &["x", "y", "z", "me"],
+            };
+            let (oracle, product) = (probe.oracle(), probe.product());
+            let _ = write!(
+                out,
+                "{}\t{stack_name}\t{}\t{}\t{}",
+                form_name(form),
+                other.unwrap_or("-"),
+                result[spelled],
+                sweep_name(oracle)
+            );
+            if product != oracle {
+                let _ = write!(out, "|product:{}", sweep_name(product));
+            }
+            out.push('\n');
+        }
+    }
+    initializer_children_sweep(out);
+}
+
+/// D-5's stacks: a Map collection of `Q { id: Int, js: * List of J { p: Int } }`, and a plain
+/// group `P { js: * List of J }`, each with a collection child.
+fn nested_collection_stack(name: &str) -> Vec<Layer> {
+    let int = Layer::Leaf(Notation::Plain);
+    let js = vec![
+        Layer::Instances(Order::List),
+        sweep_group("J", &[("p", int.clone())]),
+    ];
+    let group = |head: &str, mut children: Vec<(String, Vec<Layer>)>| {
+        children.push(("js".to_owned(), js.clone()));
+        Layer::Group(Group {
+            name: head.to_owned(),
+            children,
+        })
+    };
+    match name {
+        "* Map of Q" => vec![
+            Layer::Instances(Order::Map),
+            group("Q", vec![("id".to_owned(), vec![int.clone()])]),
+        ],
+        "group P" => vec![group("P", Vec::new())],
+        other => panic!("no nested-collection stack {other}"),
+    }
+}
+
+/// The initializer rows of the children sweep (D-5, P5): a template record whose child is a
+/// collection, valued by that collection's own instance template, or otherwise.
+const INITIALIZER_CHILDREN_SWEEP: [(&str, &str); 6] = [
+    ("* Map of Q", "Q { id: 0, js: J { p: 0 } }"),
+    ("* Map of Q", "Q { id: 0, js: [J { p: 0 }] }"),
+    ("* Map of Q", "Q { id: 0, js: 0 }"),
+    ("group P", "P { js: J { p: 0 } }"),
+    ("group P", "P { js: Some(J { p: 0 }) }"),
+    ("group P", "P { js: 0 }"),
+];
+
+fn initializer_children_sweep(out: &mut String) {
+    out.push_str(concat!(
+        "#\n",
+        "## children, init: a template record with a collection child (P5 at every depth)\n",
+        "# Groups: Q (id: Int, js: * List of J), P (js: * List of J), J (p: Int). Bound: pgm.\n",
+        "form\tstack\tother\tvalue\toutcome\n",
+    ));
+    for (stack_name, text) in INITIALIZER_CHILDREN_SWEEP {
+        let stack = nested_collection_stack(stack_name);
+        let probe = Probe {
+            form: Form::Init,
+            side: Side::Initializer,
+            path: &[],
+            stack: &stack,
+            text,
+            other: None,
+            written: false,
+            bound: &["pgm"],
+        };
+        let (oracle, product) = (probe.oracle(), probe.product());
+        let _ = write!(out, "init\t{stack_name}\t-\t{text}\t{}", sweep_name(oracle));
+        if product != oracle {
+            let _ = write!(out, "|product:{}", sweep_name(product));
+        }
+        out.push('\n');
+    }
 }
 
 /// The sweep of `outcome` is the checked-in one: a change to the oracle's answers, or to the
@@ -2547,7 +4366,9 @@ fn frame_agrees(
 }
 
 /// Check 6 (P6 in the recorded K, independent of classes): every accepted cell-entry case with
-/// recorded K keeps a frame in its K exactly where its entry's content roots keep the rest. The
+/// recorded K keeps a frame in its K exactly where its entry's content roots keep the rest, and
+/// exactly where its records and instance sequences keep the fields and instances they do not
+/// name ([`record_frames_agree`], S5.0g review R8). The
 /// K is the product's, recorded by `--record`; this judges it against the principle, so a
 /// lowering that keeps a rest an exact entry does not write (S5-D2's) or drops one a `..` keeps
 /// fails here, whatever the row's class.
@@ -2567,6 +4388,7 @@ fn check_6_the_recorded_k_keeps_a_frame_exactly_where_p6_says() {
         // The case's own sentence (or configuration) is the K text's first paragraph; the base's
         // sentences follow it.
         let k = k.trim_start().split("\n\n").next().unwrap_or_default();
+        record_frames_agree(case, entry, k, &mut failures, &mut counts);
         let mut roots = Vec::new();
         content_roots(
             &entry.entry.cell,
@@ -2615,4 +4437,290 @@ fn check_6_the_recorded_k_keeps_a_frame_exactly_where_p6_says() {
     }
     println!("{counts:#?}");
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// A record-level frame an entry writes (P6, records follow Rust): a group or instance record's
+/// cell, whose K content keeps a top-level `...` exactly where the record keeps the rest, and an
+/// instance sequence's collection, whose K keeps the other instances exactly where it writes a
+/// rest.
+#[derive(Debug)]
+enum RecordFrame {
+    /// A record of the group the cell holds (the cell's own group, or one instance's).
+    Record { cell: String, keeps: bool },
+    /// The instances of a collection, of which `records` are records.
+    Instances {
+        cell: String,
+        keeps: bool,
+        records: usize,
+    },
+}
+
+/// Every record frame an entry's spelling writes, below presence and through the children of
+/// the records it writes. On a subject a record's `..` (or `..base`) matches the fields it does
+/// not name; on a result an update `..label` keeps them and a created instance's `..` takes its
+/// template's, K's `...` alike, while a bare `..` after every child keeps none (the exact
+/// record); an initializer's value is complete, so it writes none.
+fn record_frames(
+    cell: &str,
+    side: Side,
+    stack: &[Layer],
+    spelling: &Spelling,
+    out: &mut Vec<RecordFrame>,
+) {
+    let spelling = match spelling {
+        Spelling::Alias(_, inner) => inner,
+        other => other,
+    };
+    let keeps = |rest: bool| rest && side != Side::Initializer;
+    // A built record whose bare `..` follows every child keeps nothing: the `..` leaves no
+    // field for Rust's defaults, and the record is the exact one (P6, P0).
+    let record_keeps = |group: &Group, record: &Record| {
+        let vacuous = side == Side::Result
+            && record.rest == RecordRest::Open
+            && record.fields.len() == group.children.len();
+        !vacuous && keeps(record.rest != RecordRest::Exact)
+    };
+    let record = |group: &Group, item: &Spelling| match item {
+        Spelling::Alias(_, inner) => match &**inner {
+            Spelling::Record(record) | Spelling::Fragment(record) if record.head == group.name => {
+                Some(record.clone())
+            }
+            _ => None,
+        },
+        Spelling::Record(record) | Spelling::Fragment(record) if record.head == group.name => {
+            Some(record.clone())
+        }
+        _ => None,
+    };
+    let fields = |group: &Group, record: &Record, out: &mut Vec<RecordFrame>| {
+        for (name, value) in &record.fields {
+            if let Some((_, child)) = group.children.iter().find(|(child, _)| child == name) {
+                record_frames(name, side, child, value, out);
+            }
+        }
+    };
+    match (stack, spelling) {
+        ([Layer::Optional, rest @ ..], Spelling::Present(inner) | Spelling::Absent(inner)) => {
+            record_frames(cell, side, rest, inner, out);
+        }
+        ([Layer::Group(group), ..], _) => {
+            if let Some(found) = record(group, spelling) {
+                out.push(RecordFrame::Record {
+                    cell: cell.to_owned(),
+                    keeps: record_keeps(group, &found),
+                });
+                fields(group, &found, out);
+            }
+        }
+        (
+            [Layer::Instances(_), Layer::Group(group), ..],
+            Spelling::Brackets(seq)
+            | Spelling::Braces(seq)
+            | Spelling::InstList(seq)
+            | Spelling::InstSet(seq),
+        ) => {
+            let mut records = 0;
+            for item in &seq.items {
+                if let Some(found) = record(group, item) {
+                    records += 1;
+                    out.push(RecordFrame::Record {
+                        cell: cell.to_owned(),
+                        keeps: record_keeps(group, &found),
+                    });
+                    fields(group, &found, out);
+                }
+            }
+            out.push(RecordFrame::Instances {
+                cell: cell.to_owned(),
+                keeps: keeps(seq.rest.is_some()),
+                records,
+            });
+        }
+        _ => {}
+    }
+}
+
+/// Whether a K cell content has `...` at its own top level, outside every cell nested in it.
+fn top_level_frame(content: &str) -> bool {
+    let mut depth = 0_usize;
+    let mut top = String::new();
+    let mut rest = content;
+    while let Some(at) = rest.find('<') {
+        let (before, tag) = rest.split_at(at);
+        if depth == 0 {
+            top.push_str(before);
+            top.push(' ');
+        }
+        let closing = tag.starts_with("</");
+        let opening = tag[1..].starts_with(|c: char| c.is_ascii_alphabetic());
+        let Some(end) = tag.find('>').filter(|_| closing || opening) else {
+            if depth == 0 {
+                top.push('<');
+            }
+            rest = &tag[1..];
+            continue;
+        };
+        if closing {
+            depth = depth.saturating_sub(1);
+        } else {
+            depth += 1;
+        }
+        rest = &tag[end + 1..];
+    }
+    if depth == 0 {
+        top.push_str(rest);
+    }
+    top.split(|c: char| c.is_whitespace() || matches!(c, '(' | ')'))
+        .any(|token| token == "...")
+}
+
+/// The cell that holds the first `<cell>` of a K text, if the text writes it.
+fn container<'k>(k: &'k str, cell: &str) -> Option<&'k str> {
+    let open = format!("<{cell}");
+    let at = k
+        .match_indices(&open)
+        .find(|(at, _)| k[at + open.len()..].starts_with(['>', ' ']))?
+        .0;
+    let mut stack = Vec::new();
+    let mut rest = &k[..at];
+    while let Some(start) = rest.find('<') {
+        let tag = &rest[start + 1..];
+        let Some(end) = tag.find(['>', ' ']) else {
+            break;
+        };
+        match tag.strip_prefix('/') {
+            Some(name) => {
+                let name = &name[..name.find('>').unwrap_or(name.len())];
+                if stack.last() == Some(&name) {
+                    stack.pop();
+                }
+            }
+            None if tag.starts_with(|c: char| c.is_ascii_alphabetic()) => stack.push(&tag[..end]),
+            None => {}
+        }
+        rest = &tag[end..];
+    }
+    stack.last().copied()
+}
+
+/// Check 6's record half (S5.0g review R8): `failures` gains every record frame of `entry`
+/// whose recorded K keeps a frame where P6 says none or none where it says one; `counts` the
+/// judged and the unjudged (a cell the K writes more often than the entry, such as a result's
+/// instance beside the subject's, or a collection with no instance record to find it by).
+fn record_frames_agree(
+    case: &Case,
+    entry: &EntryCase,
+    k: &str,
+    failures: &mut Vec<String>,
+    counts: &mut BTreeMap<&'static str, usize>,
+) {
+    let mut frames = Vec::new();
+    record_frames(
+        &entry.entry.cell,
+        entry.entry.side,
+        &entry.entry.stack,
+        &entry.entry.spelling,
+        &mut frames,
+    );
+    let mut records = BTreeMap::<&str, Vec<bool>>::new();
+    for frame in &frames {
+        match frame {
+            RecordFrame::Record { cell, keeps } => {
+                records.entry(cell.as_str()).or_default().push(*keeps);
+            }
+            RecordFrame::Instances {
+                cell,
+                keeps,
+                records,
+            } => {
+                if *records == 0 {
+                    *counts
+                        .entry("instance frames unjudged (no record)")
+                        .or_default() += 1;
+                    continue;
+                }
+                *counts.entry("instance frames judged").or_default() += 1;
+                let holds_frame = match container(k, cell) {
+                    Some(holder) => k_cells(k, holder)
+                        .first()
+                        .is_some_and(|content| top_level_frame(content)),
+                    // Unwritten, the collection's other instances are framed by K's
+                    // configuration abstraction.
+                    None => true,
+                };
+                if holds_frame != *keeps {
+                    failures.push(format!(
+                        "{}: the instances of `{cell}` {} the other instances in K, where P6 says \
+                         the instance sequence {}",
+                        case.id,
+                        if holds_frame { "frame" } else { "do not frame" },
+                        if *keeps {
+                            "keeps them"
+                        } else {
+                            "names every instance"
+                        }
+                    ));
+                }
+            }
+        }
+    }
+    for (cell, wanted) in records {
+        let contents = k_cells(k, cell);
+        if contents.len() != wanted.len() {
+            *counts
+                .entry("record frames unjudged (K writes the cell more often)")
+                .or_default() += wanted.len();
+            continue;
+        }
+        for (keeps, content) in wanted.into_iter().zip(contents) {
+            *counts.entry("record frames judged").or_default() += 1;
+            let has_frame = top_level_frame(content);
+            if has_frame != keeps {
+                failures.push(format!(
+                    "{}: `<{cell}> {content} </{cell}>` has {} at its top level, where P6 says \
+                     the record {}",
+                    case.id,
+                    if has_frame {
+                        "a frame `...`"
+                    } else {
+                        "no frame"
+                    },
+                    if keeps {
+                        "keeps the fields it does not name"
+                    } else {
+                        "names every field"
+                    }
+                ));
+            }
+        }
+    }
+}
+
+/// With `KRS_CELLS_ROWS=FILE`, write each kinds-base case's ID, `outcome` and rule-level class
+/// to FILE (S5.0g's rows come from `outcome`, and the generated table diff is reviewed).
+#[test]
+fn the_kinds_cases_outcomes_print_on_request() {
+    let Some(file) = std::env::var_os("KRS_CELLS_ROWS") else {
+        return;
+    };
+    let mut out = String::new();
+    for (case, entry) in ENTRIES.iter() {
+        if case.base != Base::Kinds {
+            continue;
+        }
+        let got = entry.outcome();
+        let rule = if got.admits() {
+            entry.rule_outcome(got)
+        } else {
+            None
+        };
+        let _ = writeln!(
+            out,
+            "{}\t{}\t{}",
+            case.id,
+            sweep_name(got),
+            rule.unwrap_or("-")
+        );
+    }
+    std::fs::write(file, out).expect("the rows file is written");
 }

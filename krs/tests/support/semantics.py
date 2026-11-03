@@ -30,7 +30,7 @@ import sys
 import tempfile
 from typing import Any, Callable, Mapping, Sequence
 
-from support import ROOT, GateError, behavior as behavior_module, krs_gate, lsp
+from support import ROOT, GateError, behavior as behavior_module, k_round_trip, krs_gate, lsp
 from support.checkouts import verify_checkout
 from support.hashing import exact_directory, json_sha256, sha256_file, sha256_text
 from support.kdefinition import emitted_claims, emitted_files
@@ -243,8 +243,9 @@ def artifact_gate(
     Records the warnings of `krs check`, the expansion and emitted-artifact
     digests, requires a cached replay to equal the first fresh emission,
     requires the independently compiled expansion to emit the same syntax,
-    configuration, and sentence identities, and returns the first emission
-    directory.
+    configuration, and sentence identities, and the K the authored port emits
+    up to `support.k_round_trip`'s normalization (the expansion round trip),
+    and returns the first emission directory.
     """
 
     invocation = Invocation(krs, port.manifest, port.package, "main")
@@ -298,6 +299,9 @@ def artifact_gate(
         expanded_shape = session.ir_query(expanded_output, {"kind": "definition_shape"})
         if readable_shape != expanded_shape:
             raise GateError("independently compiled expansion changed the typed definition shape")
+    round_trip = k_round_trip.differences(emit_a, expanded_output)
+    if round_trip:
+        raise GateError("independently compiled expansion emits other K:\n" + "\n".join(round_trip[:8]))
     return emit_a
 
 

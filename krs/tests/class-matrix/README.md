@@ -285,7 +285,7 @@ the descriptors of the base and its own. A case is judged by
   keeps claims in the fixture gates); a context alias acts only through a production strict in
   it, which neither the base nor a case declares; a `#[k::function(internal)]` shorthand and a
   constant have no program syntax and no base sentence can name the case's: these have no driver.
-  Nor have the readable, claim and `cells!` families on the machine and typed bases, whose cells
+  Nor have the readable, claim and `cells!` families on the machine, typed and kinds bases, whose cells
   start at fixed values and which have no driver commands; the run families run the readable
   records and the `cells!` rules instead (claims stay a prover's).
   `cargo test -p krs-test-support --test k7` lists the spellings without a witness, a value or a

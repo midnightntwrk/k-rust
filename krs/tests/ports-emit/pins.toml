@@ -45,14 +45,14 @@ source_map_sha256 = "a808d91b775d05f7d0570c38cc06a2eb12f6a31f140e8b35d0f3aa39275
 [macro_output.kevm]
 
 [macro_output.kevm."semantics/kevm/src/lib.rs"]
-text_sha256 = "bcab9b3b95c5be09e5948bc37915b715bfe0fc7cf4800f71f3c749746f6be381"
-source_map_sha256 = "b3fa3e173ac3f93eb761d279ce11761c9428786e4f2d15e9e0dca0cf26ded703"
+text_sha256 = "aa4ae843adffc57c270872f741d8d12ce93e1067b0b92fd2d2343825b9ba78e5"
+source_map_sha256 = "6b62a5417e5f24e9be69f5f22c5fd98c2d05c8c22713be3a0de98ca57f783199"
 
 [macro_output.kmir]
 
 [macro_output.kmir."semantics/kmir/src/lib.rs"]
-text_sha256 = "cacdea6cdfe21172e088283a595733ad05601e7b184ba36af7cffff7373557ee"
-source_map_sha256 = "b5fbac64995c3aba75184bd0f8d6a49053143c9f93f1839d74235090ebe91ecb"
+text_sha256 = "ba5ece61f6ee07d769026859c001e7cfdb3d674414cb448b289138e233005331"
+source_map_sha256 = "f6fd0626413c8f483ad198484535e1a11494c690a2734fbf4d7e4d6dd35f7cab"
 
 [macro_output.kwasm]
 

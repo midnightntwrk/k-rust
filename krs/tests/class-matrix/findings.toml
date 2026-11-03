@@ -102,18 +102,40 @@ owner = "S5"
 kind = "diagnostic"
 what = "a `cells!` wrapper of a layer the cell's stack has nowhere (`KCell(..)` on an optional leaf, `Cell(..)`/`KCell(..)` on a collection) answers with the missing presence or instances, not with `cell-wrapper` (decision (A), P3 b). On the collection the missing layer's advice is refused again; on the optional leaf the product advises `Some(k::configuration::Cell(..))`, which is admitted, so its 8 K8 deviations are the class's, and S5.3 settles `cell-wrapper`'s advice per form without deleting that one"
 
+["S5-C2"]
+owner = "S5"
+kind = "bug"
+what = "a second computation cell (`code: [x, ..]` below a plain group) is refused bracket notation as `invalid-list-notation` (\"the cell `code` holds `K`, which is not a list\"), though brackets are a computation's mark wherever it is declared (P1: a cell's name and role play no part; P2); S5.2's"
+
 ["S5-D2"]
 owner = "S5"
 kind = "bug"
 what = "a `cells!` map result without `..` after a subject's anonymous rest silently keeps the rest, where the spelling says the result is the whole map (decision D2, P6)"
 risk = "KRS writes K's `...` frame for the subject's anonymous rest and the result's entries over it, so the rule keeps every other entry of the map: the author's exact `k::map![5 -> old, x -> y]` reads as the whole new content in Rust, and nothing tells them the rest is kept"
 
+["S5-L4"]
+owner = "S5"
+kind = "bug"
+what = "a readable subject record that names some of its group's children and writes no `..` (`frame: G { a: x }` on `G { a, b }`) is accepted (L4: `record-missing-children`; P6, records follow Rust: without `..` a record names every field); S5.2's"
+risk = "KRS leaves the unnamed child `b` unconstrained, as `G { a: x, .. }` says: the rule matches whatever `b` holds, while the record without `..` reads in Rust as naming every field, so the missing `b` is a mistake nobody is told about"
+
+["S5-M1"]
+owner = "S5"
+kind = "bug"
+what = "an initializer that also places the program in a second computation cell beside `k` (`prog: k::k![pgm]`) is refused `krs::analysis::main-cell` (\"more than one reads the program\"), though `k` is the computation cell by its name and the other cell holds a copy of the program (P1: a cell's role plays no part); S5.4's"
+
 ["S5-Q1"]
 owner = "S5"
-kind = "feature"
-what = "a subject entry that constrains nothing on a cell the result leaves out (`_`, `[..]`, `Cell(_)`) is a lint, not a refusal (decision Q1): readable refuses it, `cells!` accepts it without the warning"
+kind = "bug"
+what = "decision Q1, both halves: a subject entry that constrains nothing on a cell the result leaves out (`_`, `[..]`, `Cell(_)`) is a lint, not a refusal: readable refuses it, `cells!` accepts it without the warning; and a result over a cell the subject does not match is the overwrite, which readable refuses (\"a machine-rule result cannot introduce an unmatched cell\") and `cells!` refuses under the internal `krs::analysis::unsupported-shape` (\"the result selects a fixed cell absent from the subject\"), so the class the table states is never reached. An internal code an author reaches is a KRS bug, hence `bug`"
 
 ["S5-Q2"]
 owner = "S5"
 kind = "feature"
 what = "`job: [x, ..]` on a List collection binds its front instance (decision Q2), which readable refuses as bracket notation"
+
+["S5-S1"]
+owner = "S5"
+kind = "bug"
+what = "an entry naming a cell below a `?` or `*` ancestor by its path (readable `hpc: x`, a claim's, a `cells!` key such as `crate::Acct::apc`) is admitted, or refused with another code than its class: the cell's own kind first (P3, as at the record's level), then the ancestor's (`optional-without-presence`, `collection-without-instances`; S1 (b), design §2.3): S5.2's for readable records and claims, S5.3's for `cells!` keys"
+risk = "below `*`, KRS reads the named cell as a child of one implicit instance, so the rule silently needs exactly the instance it picks and matches or writes that one; below `?`, it silently requires the optional ancestor to be present (B8's reason). The entry names one cell's content, which no single cell has"

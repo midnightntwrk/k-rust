@@ -599,8 +599,8 @@ const OWN_CLAUSE_REASON: &str = "the advice is the case's own sentence rewritten
 /// The forms that narrow a variable to its cell's sort, as a binder's type or as a projection:
 /// the variables and sorts the cases' cells give them.
 const NARROWED: &[&str] = &[
-    r"`{x,pgm,any}: {Bool,Int,List,Map,Stmt,Value}`",
-    r"`k::project!({Bool,Int,List,Map,Stmt,Value}\, {x,pgm,any})`",
+    r"`{x,pgm,any}: {Bool,Int,Ints,List,Map,Set,Stmt,Value}`",
+    r"`k::project!({Bool,Int,Ints,List,Map,Set,Stmt,Value}\, {x,pgm,any})`",
 ];
 
 /// The reviewed unchecked advice of every case shard, by class ([`Unchecked`]). A case shard with
@@ -641,6 +641,12 @@ pub const UNCHECKED: &[Unchecked] = &[
         forms: &["`k::k![Cmd::Go(), pgm]`"],
         shards: &["init"],
         reason: "the advice writes the case's own items as one sequence; the class's advised case writes `k::k![pgm]`",
+    },
+    Unchecked {
+        class: "instance-list-shape",
+        forms: &["`abag: \\{ .. \\}`"],
+        shards: &["cells"],
+        reason: "the advice writes the Set collection's own instance braces at a cell named by its path below a `*` ancestor, which the cell's own kind refuses first (S5.0g review R3) and the path then refuses (S1 (b)); the class's advised case writes a List collection's instances",
     },
     Unchecked {
         class: "island-at-subject-root",

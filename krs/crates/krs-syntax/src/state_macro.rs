@@ -2009,8 +2009,8 @@ fn parse_instance_item(
     })
 }
 
-/// Parses the braced body of an instance record: `child: value` entries and a
-/// final rest.
+/// Parses the braced body of an instance record: `child: value` entries, or
+/// the shorthand `child` for `child: child`, and a final rest.
 fn parse_instance_record(
     body: &proc_macro2::Group,
     context: StateMacroContext,
@@ -2057,8 +2057,15 @@ fn parse_instance_record(
                         name.span(),
                     ));
                 }
-                input.parse::<Token![:]>().map_err(SyntaxError::from)?;
                 let mut tokens = TokenStream::new();
+                if input.is_empty() || input.peek(Token![,]) {
+                    // `balance` is `balance: balance`, Rust's field-init
+                    // shorthand: the value is the child name's own token, a
+                    // binder in a pattern and the bound variable in a result.
+                    tokens.extend([TokenTree::Ident(name.clone())]);
+                } else {
+                    input.parse::<Token![:]>().map_err(SyntaxError::from)?;
+                }
                 while !input.is_empty() && !input.peek(Token![,]) {
                     tokens.extend([input.parse::<TokenTree>().map_err(SyntaxError::from)?]);
                 }
