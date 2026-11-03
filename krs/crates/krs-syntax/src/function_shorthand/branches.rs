@@ -578,6 +578,21 @@ fn walk_match(
         let mut arm_path = path.clone();
         arm_path.top_level = false;
         arm_path.name = match &arm.label {
+            Some(label)
+                if super::branch_positions(
+                    &lowering.function.unraw().to_string(),
+                    &label.unraw().to_string(),
+                )
+                .is_some() =>
+            {
+                return Err(shorthand_error(
+                    &format!(
+                        "`{}` is the name this function's branches take by position; a label names its equation apart from the positions, so give it another name",
+                        label.unraw()
+                    ),
+                    label.span(),
+                ));
+            }
             Some(label) => Name {
                 base: label.unraw().to_string(),
                 span: label.span(),
@@ -1476,6 +1491,14 @@ mod tests {
             (
                 "fn F(x: k::Term<Int>) -> k::Term<Int> { match x { #[k::label(a)] 0 => 1, #[k::label(a)] _ => 2 } }",
                 "two branches are named `a`",
+            ),
+            (
+                "fn F(x: k::Term<Int>) -> k::Term<Int> { match x { 0 => 1, #[k::label(f_9)] _ => 2 } }",
+                "`f_9` is the name this function's branches take by position",
+            ),
+            (
+                "fn F(x: k::Term<Int>) -> k::Term<Int> { match x { 0 => 1, #[k::label(f)] _ => 2 } }",
+                "`f` is the name this function's branches take by position",
             ),
             (
                 "fn F(x: k::Term<Int>) -> k::Term<Int> { match x { #[cfg(test)] 0 => 1, _ => 2 } }",

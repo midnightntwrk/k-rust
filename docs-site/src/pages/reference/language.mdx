@@ -814,6 +814,7 @@ An arm that overlaps an earlier one with the same result is not reported, since 
 Each equation is named after the function and its branch's position, from 1, and a branch inside a branch appends its own: `signed_less_2` for the second arm, `nested_2_1` for the first branch of the second arm's `match`.
 Adding a branch at the end keeps every other name.
 `#[k::label(name)]` on an arm, which Rust allows on a match arm, names its equation instead, and the branches inside it take `name_1`, `name_2`; give an arm a label wherever its identity matters, such as a proof hint, because reordering arms renumbers the others.
+A label must not spell a name the function's branches take by position, the function's equation name alone or followed by `_<n>` parts (`interrupt_vector_9`), and KRS refuses one that does: an equation's name then tells whether it is a position or a label, and adding branches never makes a position collide with a label.
 An equation's default K label spells its name in the function's module, `<namespace>--<module>--…--<name>` (see [labels](#concrete-symbolic-and-smt-lemmas)): the third branch of `InterruptVector` in `src/interrupt.rs` of the namespace `SM83` is `sm83--interrupt--interrupt_vector_3`, and the first branch inside `#[k::label(vblank)]` is `sm83--interrupt--vblank_1`, so a renumbered branch is also relabelled.
 `krs expand` prints each branch as its `#[k::equation]` fn.
 

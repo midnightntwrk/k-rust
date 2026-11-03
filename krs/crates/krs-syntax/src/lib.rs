@@ -72,7 +72,7 @@ pub use enum_constructor::{
 };
 pub use error::{SyntaxError, SyntaxErrorKind};
 pub use function_shorthand::{
-    FunctionShorthand, ShorthandEquation, ShorthandItem, equation_name,
+    FunctionShorthand, ShorthandEquation, ShorthandItem, branch_positions, equation_name,
     take_label as take_shorthand_label,
 };
 pub use grammar::{

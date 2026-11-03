@@ -521,6 +521,30 @@ pub fn equation_name(function: &str) -> String {
     name
 }
 
+/// The branch positions the equation name `name` of the function `function` spells, outermost
+/// first: none for the function's own [`equation_name`], `[2, 1]` for `signed_less_2_1` of
+/// `SignedLess`, and `None` for a name that is no position of the function, such as an arm's
+/// label.
+///
+/// A position is a positive decimal without leading zero, as a branching body numbers its
+/// branches, and a `#[k::label]` that spells one is refused, so a name read here is a position
+/// and every other name is a label.
+#[must_use]
+pub fn branch_positions<'a>(function: &str, name: &'a str) -> Option<Vec<&'a str>> {
+    let rest = name.strip_prefix(&equation_name(function))?;
+    if rest.is_empty() {
+        return Some(Vec::new());
+    }
+    let parts = rest.strip_prefix('_')?.split('_').collect::<Vec<_>>();
+    parts
+        .iter()
+        .all(|part| {
+            part.bytes().all(|byte| byte.is_ascii_digit())
+                && part.bytes().next().is_some_and(|byte| byte != b'0')
+        })
+        .then_some(parts)
+}
+
 fn equation_ident(name: &Ident) -> Result<Ident, SyntaxError> {
     let text = equation_name(&name.unraw().to_string());
     if syn::parse_str::<Ident>(&text).is_ok() {
@@ -710,6 +734,25 @@ mod tests {
             "krs::syntax::invalid-argument-value",
             "{error}"
         );
+    }
+
+    #[test]
+    fn branch_positions_read_only_the_names_positions_give() {
+        assert_eq!(branch_positions("Byte", "byte"), Some(Vec::new()));
+        assert_eq!(
+            branch_positions("InterruptVector", "interrupt_vector_3"),
+            Some(vec!["3"])
+        );
+        assert_eq!(
+            branch_positions("SignedLess", "signed_less_2_1"),
+            Some(vec!["2", "1"])
+        );
+        assert_eq!(branch_positions("HLValue", "hl_value_10"), Some(vec!["10"]));
+        for label in [
+            "vblank", "vblank_1", "byte_x", "byte_", "byte_1_", "byte_0", "byte_01", "bytes",
+        ] {
+            assert_eq!(branch_positions("Byte", label), None, "{label}");
+        }
     }
 
     #[test]
