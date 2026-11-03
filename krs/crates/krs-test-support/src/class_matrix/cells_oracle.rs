@@ -30,9 +30,9 @@
 //!    entry of its own cell), against the child's own other side: the subject record's same
 //!    child, the same child of the subject instance an update `..me` labels (R10), an unmatched
 //!    child where the subject does not name it, and none for a created instance's or `?`
-//!    cell's child. A Map collection's instance keeps its key, its first child: an update writes
-//!    it, if at all, as the binder its subject matched it with (`map-collection-key`; §2.3, §7,
-//!    P0).
+//!    cell's child. A Map collection's instance is keyed by its first child: a created instance
+//!    writes it (P5), and an update writes it, if at all, as the binder its subject matched it
+//!    with (P0); otherwise `map-collection-key` (§2.3, §7).
 //!
 //! It answers [`Outcome::After`] where steps 1–3 admit and a value position holds a term whose
 //! sort the lattice must check (step 4, the compiler's). [`rule_outcome`] answers step 5, the
@@ -1066,7 +1066,7 @@ impl Judge<'_> {
                 for item in seq_of(spelling).map_or(&[][..], |(items, _)| items) {
                     if let Some(record) = record_of(item, group) {
                         let other = other.instance(record);
-                        if !keeps_key(*order, group, record, other) {
+                        if !keyed(*order, group, record, other) {
                             return refuse("map-collection-key", Step::Pairing, 0);
                         }
                         self.pair_fields(group, record, other)?;
@@ -1162,12 +1162,14 @@ fn record_of<'s>(spelling: &'s Spelling, group: &Group) -> Option<&'s Record> {
 }
 
 /// Whether a result's instance record of `group`, in a collection ordered by `order`, with
-/// `other` its other side ([`Other::instance`]), keeps the instance's key (§2.3, §7). A Map
-/// collection's instance is keyed by its first child, its identity, and an update (`..me`)
-/// changes the instance in place: it writes the key, if at all, as the binder its subject
-/// matched the key with, which means the same instance (P0); any other key value, or a key
-/// the labelled instance does not name, is a key change.
-fn keeps_key(order: Order, group: &Group, record: &Record, other: Other<'_>) -> bool {
+/// `other` its other side ([`Other::instance`]), keys its instance as its collection does
+/// (§2.3, §7). A Map collection's instance is keyed by its first child, its identity: written at
+/// creation and never changed by an update. A created instance writes it (P5: a bare `..` gives
+/// the template's fields, and the template states no identity). An update (`..me`) changes the
+/// instance in place: it writes the key, if at all, as the binder its subject matched the key
+/// with, which means the same instance (P0); any other key value, or a key the labelled
+/// instance does not name, is a key change. A List or Set collection has no key.
+fn keyed(order: Order, group: &Group, record: &Record, other: Other<'_>) -> bool {
     fn named<'r>(record: &'r Record, key: &str) -> Option<&'r Spelling> {
         record
             .fields
@@ -1190,7 +1192,8 @@ fn keeps_key(order: Order, group: &Group, record: &Record, other: Other<'_>) -> 
                     if written == bound
             )
         }
-        _ => true,
+        (RecordRest::Update(_), None) => true,
+        (RecordRest::Exact | RecordRest::Open, written) => written.is_some(),
     }
 }
 

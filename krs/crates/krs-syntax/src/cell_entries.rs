@@ -17,7 +17,8 @@
 //!
 //! [`pair`] then judges the entry with its rule: a result's rest against its subject's, at its
 //! cell's content root and at each child's of the group and instance records it writes, a Map
-//! collection's instance key ([`GroupKind::key`]), which an update keeps, a
+//! collection's instance key ([`GroupKind::key`]), which a created instance writes and an
+//! update keeps, a
 //! result's group record with a bare `..` for a group that exists, a result over a cell the
 //! subject does not match (Q1's overwrite, where it means one configuration), an absence test,
 //! and the lint of a subject entry that constrains nothing.
@@ -118,11 +119,13 @@ pub enum Refusal {
     /// is the frame write `Cell(k::map![k -> v, ..])` (a stated limitation of the readable
     /// record's top-level route).
     MapReadInResult,
-    /// An instance update (`..me`) of a Map collection that writes the instance's key, its first
-    /// child, as anything but the binder the subject matched the key with (a literal, another
-    /// name, a computed value, or a key the labelled instance does not name): an update changes
-    /// the instance in place, and the key is its identity, so another key is another entry of
-    /// the map. Written as the subject's own key binder, the key is unchanged.
+    /// A Map collection's instance that does not keep its key, its first child, which is its
+    /// identity: a created instance that does not write it (a bare `..` takes the template's
+    /// fields, which state no identity), or an instance update (`..me`) that writes it as
+    /// anything but the binder the subject matched the key with (a literal, another name, a
+    /// computed value, or a key the labelled instance does not name), since an update changes
+    /// the instance in place and another key is another entry of the map. Written as the
+    /// subject's own key binder, the key is unchanged.
     MapCollectionKey,
     /// A readable map read at a record's top level whose value is not a fresh binder (a stated
     /// limitation of the readable record's top-level route; inside an instance record the value
@@ -752,11 +755,13 @@ impl Other<'_> {
 }
 
 /// Whether a result's instance record of `group`, in a collection ordered by `order`, with
-/// `other` its other side, keeps the instance's key ([`GroupKind::key`]): an update changes the
-/// instance in place, so it writes a Map instance's key, if at all, as the binder the subject
+/// `other` its other side, keys its instance as its collection does ([`GroupKind::key`]): a Map
+/// instance's key is its identity, written at creation and never changed. A created instance
+/// writes it, since a bare `..` takes only template fields, which state no identity. An update
+/// changes the instance in place, so it writes the key, if at all, as the binder the subject
 /// matched the key with, which is the same instance; any other key value, or a key the labelled
 /// instance does not name, is a key change.
-fn keeps_key(order: Order, group: &GroupKind, record: &EntryRecord, other: Other<'_>) -> bool {
+fn keyed(order: Order, group: &GroupKind, record: &EntryRecord, other: Other<'_>) -> bool {
     fn named<'r>(record: &'r EntryRecord, key: &str) -> Option<&'r EntrySpelling> {
         record
             .fields
@@ -780,7 +785,8 @@ fn keeps_key(order: Order, group: &GroupKind, record: &EntryRecord, other: Other
                 ) if written == bound
             )
         }
-        _ => true,
+        (RecordTail::Update(_), None) => true,
+        (RecordTail::Exact | RecordTail::Open, written) => written.is_some(),
     }
 }
 
@@ -853,7 +859,7 @@ fn pair_records(
             .filter_map(|item| record_of(item, group))
             .try_for_each(|record| {
                 let other = other.instance(record);
-                if !keeps_key(*order, group, record, other) {
+                if !keyed(*order, group, record, other) {
                     return Err(Refusal::MapCollectionKey);
                 }
                 fields(group, record, other)
@@ -1579,6 +1585,79 @@ mod tests {
                 "{ me @ A { id: z, .. }, .. }"
             ),
             Ok(())
+        );
+    }
+
+    #[test]
+    fn a_created_map_collection_instance_writes_its_key() {
+        let (readable, cells) = (EntryForm::Readable, EntryForm::Cells);
+        let account = |order| {
+            [
+                Layer::Instances(order),
+                Layer::Group(GroupKind {
+                    name: "A".to_owned(),
+                    children: vec![("id".to_owned(), int()), ("bal".to_owned(), int())],
+                }),
+            ]
+        };
+        let map = account(Order::Map);
+        let any = Some("{ .. }");
+        let refused = Err(Refusal::MapCollectionKey);
+        // A bare `..` takes the template's fields, which state no identity.
+        assert_eq!(
+            result(readable, &map, "{ A { bal: 0, .. }, .. }", any),
+            refused
+        );
+        assert_eq!(
+            result(
+                cells,
+                &map,
+                "{ k::fragment![crate::A { bal: 0, .. }], .. }",
+                any
+            ),
+            refused
+        );
+        // Over a cell the subject does not match, an exact instance set creates its instances.
+        assert_eq!(
+            result(readable, &map, "{ A { bal: 0, .. } }", None),
+            refused
+        );
+        assert_eq!(
+            result(readable, &map, "{ A { id: 5, .. }, .. }", any),
+            Ok(None)
+        );
+        assert_eq!(
+            result(readable, &map, "{ A { id: 5, bal: 0 }, .. }", any),
+            Ok(None)
+        );
+        // A Set or List collection has no key.
+        assert_eq!(
+            result(
+                readable,
+                &account(Order::Set),
+                "{ A { bal: 0, .. }, .. }",
+                any
+            ),
+            Ok(None)
+        );
+        assert_eq!(
+            result(
+                readable,
+                &account(Order::List),
+                "[A { bal: 0, .. }, ..]",
+                Some("[..]")
+            ),
+            Ok(None)
+        );
+        // An update that leaves the key out keeps it.
+        assert_eq!(
+            result(
+                readable,
+                &map,
+                "{ A { bal: 0, ..me }, .. }",
+                Some("{ me @ A { id: z, .. }, .. }")
+            ),
+            Ok(None)
         );
     }
 

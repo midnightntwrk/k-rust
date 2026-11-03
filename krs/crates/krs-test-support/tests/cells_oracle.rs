@@ -2472,6 +2472,79 @@ fn a_rule_naming_a_group_and_a_cell_below_it_is_refused_on_the_whole_rule() {
     );
 }
 
+/// Key ruling 3 (P5, §7): a Map collection's instance is keyed by its first child, its identity,
+/// written at creation and never changed by an update. A created instance that does not write it
+/// (a bare `..` takes the template's fields, which state no identity) is `map-collection-key`; a
+/// Set or List collection has no key, and an update that leaves the key out keeps it.
+#[test]
+fn a_created_map_collection_instance_that_does_not_write_its_key_is_refused() {
+    let account = |order| {
+        vec![
+            Layer::Instances(order),
+            Layer::Group(Group {
+                name: "A".to_owned(),
+                children: vec![("id".to_owned(), int()), ("bal".to_owned(), int())],
+            }),
+        ]
+    };
+    let (map, set, list) = (
+        account(Order::Map),
+        account(Order::Set),
+        account(Order::List),
+    );
+    let refused = Outcome::Refuse("map-collection-key");
+    let any = Some("{ .. }");
+    probes_agree(&[
+        (
+            child_probe(Form::Readable, &map, "{ A { bal: 0, .. }, .. }", any),
+            refused,
+        ),
+        (
+            child_probe(Form::Claim, &map, "{ A { bal: 0, .. }, .. }", any),
+            refused,
+        ),
+        (
+            child_probe(
+                Form::Cells,
+                &map,
+                "{ k::fragment![crate::A { bal: 0, .. }], .. }",
+                any,
+            ),
+            refused,
+        ),
+        (
+            child_probe(Form::Readable, &map, "{ A { bal: 0, .. } }", None),
+            refused,
+        ),
+        (
+            child_probe(Form::Readable, &map, "{ A { id: 5, .. }, .. }", any),
+            Outcome::After,
+        ),
+        (
+            child_probe(Form::Readable, &set, "{ A { bal: 0, .. }, .. }", any),
+            Outcome::After,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &list,
+                "[A { bal: 0, .. }, ..]",
+                Some("[..]"),
+            ),
+            Outcome::After,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &map,
+                "{ A { bal: 0, ..me }, .. }",
+                Some("{ me @ A { id: z, .. }, .. }"),
+            ),
+            Outcome::After,
+        ),
+    ]);
+}
+
 /// Ruling 3 on F2: `name @ P` names what a pattern matched, so a result holds none, at any depth
 /// (§2.3 step 1), before the path is judged.
 #[test]
