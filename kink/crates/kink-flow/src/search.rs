@@ -98,7 +98,7 @@
 use crate::{
     admit::{AdmittedSpec, InputSession, admit_spec_with},
     cli::{CommandSpelling, FrontEnd, Verb},
-    digest::{execution_digest, hint_key_of, mutation_identity, outcome_context, spec_digest},
+    digest::{hint_key_of, mutation_identity, outcome_context, spec_digest},
     hints::{HintEntry, Hints},
     manifest::{Budget, FlowManifest},
     memo::{self, Facts, MemoUse},
@@ -113,7 +113,7 @@ use crate::{
     },
     results::{
         BaselineRunner, ProgramRow, RESULT_SCHEMA_VERSION, ResultClass, cache_directory, kebab,
-        millis, rerun_timeout_record, run_digest, runner_refusal, update_results,
+        millis, run_digest, runner_refusal, update_results,
     },
 };
 use k_rust::definition::AttributeKey;
@@ -147,18 +147,21 @@ pub const REPORT_FILE: &str = "report.json";
 pub const INVALID_MUTATION: &str = "invalid-mutation";
 
 /// Why tier 1 is off for a build of `profile`, or `None` when it may be used (re-pin decision 5,
-/// finding B-09). Under the Z3 profile a solver query can time out (k-rust's per-query timeout),
-/// and k-rust reports no per-run signal that one did, so a Z3 result is not a function of the
-/// inputs a key names and the Execute promise does not cover it: tier 1 then neither reads nor
-/// writes. The profile is the build's (`SolverProfile::BUILD`, kink-native's `z3` feature), so it
-/// follows workspace feature unification: a kink-flow linked with a Z3 kink-native has it off.
+/// finding B-09). Under the Z3 profile a solver query can time out (k-rust's per-query timeout).
+/// k-rust counts a run's undecided answers (`smtUnknowns`), but kink's own solver queries outside
+/// a run (leaf feasibility, the observation decider) carry no such count, so a Z3 result is not a
+/// function of the inputs a key names and the Execute promise does not cover it: tier 1 then
+/// neither reads nor writes, and neither do the result cache, the memos and the pattern cache. The
+/// profile is the build's (`SolverProfile::BUILD`, kink-native's `z3` feature), so it follows
+/// workspace feature unification: a kink-flow linked with a Z3 kink-native has it off.
 pub const fn tier1_refusal(profile: SolverProfile) -> Option<&'static str> {
     match profile {
         SolverProfile::NoZ3 => None,
         SolverProfile::Z3 => Some(
-            "tier 1 is disabled under the z3 profile: a solver query can time out and k-rust \
-             reports no per-run signal that one did, so no outcome is cached or read; every \
-             mutation runs live",
+            "tier 1 is disabled under the z3 profile: a solver query can time out, and although \
+             k-rust counts a run's undecided answers, kink's own solver queries outside a run \
+             (leaf feasibility, the observation decider) carry no such count, so no outcome is \
+             cached or read; every mutation runs live",
         ),
     }
 }
@@ -1740,33 +1743,12 @@ pub fn run_front(
             return refused(&record, &census_mismatch);
         }
     };
-    let mut update = update_results(&spec, manifest, &mut inputs, &runner, &cache, verify);
+    // A stored result is never a timeout, so no cached row needs a re-run here: a
+    // program whose baseline timed out was run live by this command's results update.
+    let update = update_results(&spec, manifest, &mut inputs, &runner, &cache, verify);
     // Once per command: the definition exclusion every document this run writes names.
     let exclusion = runner.definition_exclusion();
     let hints = Hints::read(&cache);
-    if !verify {
-        // F-05 review 1 minor 1 (README 7.5.7): a timeout record is host-dependent, so a
-        // program a hint names is re-run once when its record says timeout. A record this
-        // command just computed is already this command's live run, which the baseline session
-        // would return again (F-12): only a record read from the cache is re-run.
-        let named = hints
-            .program_digests()
-            .into_iter()
-            .map(str::to_owned)
-            .collect::<BTreeSet<_>>();
-        for (index, program) in manifest.programs.iter().enumerate() {
-            let row = &update.rows[index];
-            if row.class() == Some(ResultClass::Timeout.as_str())
-                && row.row["cached"] == true
-                && row
-                    .digest
-                    .is_some_and(|digest| named.contains(&digest.to_string()))
-            {
-                update.rows[index] =
-                    rerun_timeout_record(&spec, manifest, &mut inputs, &runner, &cache, program);
-            }
-        }
-    }
     let mut ok = update.ok();
     let (tier1, tier1_reason) = match (
         tier1_refusal(SolverProfile::BUILD),
@@ -1776,12 +1758,7 @@ pub fn run_front(
         (None, Ok(build)) => (
             Some(OutcomeStore::new(
                 &cache,
-                outcome_context(
-                    build,
-                    execution_digest(manifest, &spec.loaded),
-                    manifest.budget,
-                    &spec.result,
-                ),
+                outcome_context(build, update.execution, manifest.budget, &spec.result),
             )),
             None,
         ),
@@ -2002,6 +1979,7 @@ pub fn run_front(
                 data: spec.data.value(),
                 exclusion: exclusion.clone(),
                 result: spec.result.value(),
+                execution: update.execution.value(),
             },
         ));
         match store.write_json(&report_path, &document) {
@@ -2042,6 +2020,7 @@ pub fn run_front(
             data: spec.data.value(),
             exclusion,
             result: spec.result.value(),
+            execution: update.execution.value(),
         },
     ));
     // The stored report is the document the command prints: write it unless the last write
@@ -2308,6 +2287,9 @@ struct Accounting<'m> {
     /// (`crate::observed::ResultProjection::value`), so that every survivor is reported with the
     /// cells it was compared on.
     result: Value,
+    /// The execution digest `{kind, digest}` that keyed the result cache and tier 1
+    /// (`digest::execution_digest`), so a reader can see why a store hit or missed.
+    execution: Value,
 }
 
 impl Accounting<'_> {
@@ -2320,6 +2302,7 @@ impl Accounting<'_> {
         data: Value::Null,
         exclusion: Value::Null,
         result: Value::Null,
+        execution: Value::Null,
     };
 }
 
@@ -2367,6 +2350,7 @@ fn document(
             "reason": refusal.map(|r| &r.reason),
             "detail": refusal.map(|r| &r.detail),
             "digest": digest.map(|d| d.to_string()),
+            "execution_digest": accounting.execution,
             "files": record
                 .files
                 .iter()

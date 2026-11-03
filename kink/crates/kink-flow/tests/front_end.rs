@@ -632,10 +632,11 @@ fn next_steps_name_the_front_end_command() {
 /// of corpus order; `wall_ms` is outside the key, so every record stays in use.
 fn reverse_costs(dir: &Path, results: &Value) {
     let programs = results["programs"].as_array().unwrap();
-    let records = dir
-        .join(".kink-flow")
-        .join("results")
-        .join(results["spec"]["digest"].as_str().unwrap());
+    let records = dir.join(".kink-flow").join("results").join(
+        results["spec"]["execution_digest"]["digest"]
+            .as_str()
+            .unwrap(),
+    );
     let mut rewritten = 0;
     for (index, program) in programs.iter().enumerate() {
         let path = records.join(format!("{}.json", program["digest"].as_str().unwrap()));

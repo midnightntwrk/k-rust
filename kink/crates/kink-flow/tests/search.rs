@@ -5,6 +5,8 @@
 //! result records. Since F-14 the killer cache is tier 2 of the outcome cache (`hints.json`,
 //! keyed by the hint key); a test that pins the warm cost of a killer deletes tier 1
 //! (`outcomes/`) first, so that the hint, not a cached outcome, decides the calls.
+// Under Z3 the result cache is off, and the tests of its records are compiled out.
+#![cfg_attr(feature = "z3", allow(dead_code, unused_imports))]
 
 mod flow_support;
 
@@ -176,8 +178,14 @@ fn pairs(items: &[(&str, &str)]) -> Vec<(String, String)> {
         .collect()
 }
 
-fn spec_digest(document: &Value) -> Sha256Digest {
-    Sha256Digest::parse(document["spec"]["digest"].as_str().unwrap()).unwrap()
+/// The execution digest a document names, which names the result cache's directory.
+fn execution_digest(document: &Value) -> Sha256Digest {
+    Sha256Digest::parse(
+        document["spec"]["execution_digest"]["digest"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap()
 }
 
 fn program_digest(document: &Value, id: &str) -> String {
@@ -265,7 +273,7 @@ fn set_killer(manifest: &Path, _document: &Value, id: &str, program: &str, progr
 fn record_path(manifest: &Path, document: &Value, program: &str) -> PathBuf {
     cache_of(manifest)
         .join("results")
-        .join(spec_digest(document).to_string())
+        .join(execution_digest(document).to_string())
         .join(format!("{}.json", program_digest(document, program)))
 }
 
@@ -1227,6 +1235,9 @@ note = "requires and right-hand side"
         );
     }
 
+    // Portable only: the drift check compares a stored result record, and the result cache is
+    // off under Z3 by design (`results::RESULT_CACHE_Z3`).
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_baseline_mismatch_stops_the_run_without_a_verdict() {

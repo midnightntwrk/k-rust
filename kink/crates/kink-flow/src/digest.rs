@@ -1,9 +1,12 @@
 //! The digests that key kink-flow's caches.
 //!
-//! The specification and program digests key the result cache (flow README 5.3). F-14 adds the
-//! keys of the outcome cache (README 7.5): the execution digest, the tier-1 context, the
-//! position-free mutation identity and the killer-hint key. kink's build identity, which both
-//! caches and the run document hold, is kink-campaign's `identity::kink_build` (packet
+//! The execution digest ([`execution_digest`]: the loaded definition without positions) and the
+//! program digest key the result cache (flow README 5.3), tier 1 and the pattern cache. The
+//! specification digest ([`spec_digest`]: every source byte) keys the resolution and census
+//! memos, whose values cite lines, texts and sources, and names the specification in every
+//! document. F-14 adds the other keys of the outcome cache (README 7.5): the tier-1 context, the
+//! position-free mutation identity and the killer-hint key. kink's build identity, which every
+//! cache and the run document hold, is kink-campaign's `identity::kink_build` (packet
 //! CACHE-ID-fix-1).
 //!
 //! Every digest is `payload_digest(domain, canonical JSON)` (kink-patch), so it depends on
@@ -11,13 +14,14 @@
 //! none: renaming a program keeps its cached result and outcomes.
 
 use crate::{
-    admit::CaseInputs,
+    admit::{AdmittedSpec, CaseInputs},
     manifest::{Budget, FlowManifest, Program},
     mutation::{EditAction, EditedRule, Mutation, ResolvedMutation},
     observed::ResultProjection,
-    results::result_key,
+    results::budget_value,
 };
-use kink_corpus::{LoadedSource, SourceFile};
+use k_rust::definition::{Attributes, Definition, FlatModule};
+use kink_corpus::SourceFile;
 use kink_native::{K_RUST_REVISION, execution::SolverProfile};
 use kink_patch::{
     Baseline, Edit, POSITION_KEYS, Patch, SentenceFingerprint, Sha256Digest, canonical_json,
@@ -133,9 +137,11 @@ pub fn program_digest(program: &Program, inputs: &CaseInputs) -> Sha256Digest {
     )
 }
 
-/// The kind of [`execution_digest`] until k-rust's KINK-14 `execution_digest()` exists: the
-/// exact specification digest of README 5.3.
-pub const EXECUTION_DIGEST_KIND: &str = SPEC_DOMAIN;
+/// Domain of the execution digest: the loaded definition without positions ([`execution_digest`]).
+pub const EXECUTION_DOMAIN: &str = "kink-flow/execution/v1";
+/// The kind of an execution digest that exists ([`execution_digest`]); its fallback's kind is
+/// [`SPEC_DOMAIN`].
+pub const EXECUTION_DIGEST_KIND: &str = EXECUTION_DOMAIN;
 /// The `outcome_schema` of every tier-1 context: what an outcome record means (flow README
 /// 7.5.3).
 pub const OUTCOME_SCHEMA_VERSION: &str = "kink-flow/outcome/v1";
@@ -164,33 +170,202 @@ impl ExecutionDigest {
     }
 }
 
-/// The execution digest of the loaded specification, the tier-1 key's specification
-/// component (flow README 7.5.3). Every tier-1 caller goes through this function.
+/// The SHA-256 of the KAST JSON (k-rust `definition::json::to_string`) of `definition`, whose
+/// attribute lists the caller has already stripped of [`POSITION_KEYS`]; `None` when it does not
+/// encode.
+fn wrapper_sha256(definition: &Definition) -> Option<String> {
+    k_rust::definition::json::to_string(definition)
+        .ok()
+        .map(|text| sha256(text.as_bytes()).to_string())
+}
+
+/// `attributes` without [`POSITION_KEYS`].
+fn without_positions(attributes: &Attributes) -> Attributes {
+    let mut attributes = attributes.clone();
+    for key in POSITION_KEYS {
+        attributes.remove(key.as_str());
+    }
+    attributes
+}
+
+/// The position-free reading of a loaded definition: `{main_module, attributes, modules}`, where
+/// `attributes` is the SHA-256 of the definition's attribute list without [`POSITION_KEYS`] and
+/// each module, in definition order, is `{header, sentences}`: `header` the SHA-256 of the module
+/// with no sentences (its name, imports and attributes without [`POSITION_KEYS`]), each held in an
+/// otherwise empty definition as kink-patch's `fingerprint_payload` holds a sentence, and
+/// `sentences`, in module order, each `{fingerprint, located, builtin_source}`: its kink-patch
+/// [`SentenceFingerprint`] (the reading tier 1's mutation identity uses), whether it has a
+/// `location`, and its `source` verbatim when that starts with one of `builtin_prefixes`, else
+/// null. Order is kept: execution reads it (strategy, equations of one priority, leaf order, what
+/// a work bound reaches). `None` when a sentence has no fingerprint (a context alias) or an
+/// attribute list does not encode.
+pub fn definition_value(definition: &Definition, builtin_prefixes: &[String]) -> Option<Value> {
+    let attributes = wrapper_sha256(&Definition {
+        main_module: String::new(),
+        modules: Vec::new(),
+        attributes: without_positions(&definition.attributes),
+    })?;
+    let modules = definition
+        .modules
+        .iter()
+        .map(|module| {
+            let header = wrapper_sha256(&Definition {
+                main_module: String::new(),
+                modules: vec![FlatModule {
+                    name: module.name.clone(),
+                    imports: module.imports.clone(),
+                    local_sentences: Vec::new(),
+                    attributes: without_positions(&module.attributes),
+                }],
+                attributes: Attributes::default(),
+            })?;
+            let sentences = module
+                .local_sentences
+                .iter()
+                .map(|sentence| {
+                    let attributes = sentence.attributes();
+                    let builtin_source = attributes.source().filter(|source| {
+                        builtin_prefixes
+                            .iter()
+                            .any(|prefix| source.starts_with(prefix.as_str()))
+                    });
+                    Some(json!({
+                        "fingerprint": SentenceFingerprint::of(sentence).ok()?.to_string(),
+                        "located": attributes.location().is_some(),
+                        "builtin_source": builtin_source,
+                    }))
+                })
+                .collect::<Option<Vec<_>>>()?;
+            Some(json!({"header": header, "sentences": sentences}))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(json!({
+        "main_module": definition.main_module,
+        "attributes": attributes,
+        "modules": modules,
+    }))
+}
+
+/// The builtin source prefixes the execution payload reads a sentence's `source` against: the
+/// union of k-rust's default compile options' (kink-patch's reading, `authored_sentences`) and
+/// the specification's compile's (kink-native's), sorted, so that each reading of a sentence's
+/// origin is a function of the payload whichever list it uses.
+fn builtin_prefixes(spec: &AdmittedSpec) -> Vec<String> {
+    let mut prefixes = k_rust::kompile::CompileOptions::default().builtin_source_prefixes;
+    prefixes.extend(
+        spec.compiled
+            .compile_options()
+            .builtin_source_prefixes
+            .iter()
+            .cloned(),
+    );
+    prefixes.sort();
+    prefixes.dedup();
+    prefixes
+}
+
+/// The payload of the execution digest of the admitted `spec`: `{k_rust_revision, profile,
+/// main_module, syntax_module, definition}`, plus `assumed` when `[spec] assume_joined` is not
+/// empty and `result_cells` (sorted) when the manifest has `[result]`; `None` when
+/// [`definition_value`] is `None`.
 ///
-/// Today it is the exact specification digest ([`spec_digest`], kind
-/// [`EXECUTION_DIGEST_KIND`]): every source byte, so any edit of the specification, a comment
-/// included, misses tier 1, and tier 2 then makes the re-proof one call per killed mutation.
-/// When k-rust's KINK-14 `execution_digest()` lands, swapping it in is a change of this one
-/// function, under the preconditions of README 7.5.4: equal digests of two baselines must give
-/// equal executions after the same position-free sentence replacement or deletion (a
-/// congruence: the digest may drop positions, comments and non-semantic order only, never a
-/// rule merely because the baseline does not fire it), and the digest must cover the syntax
-/// definition the programs are parsed with, because the program digest hashes program text.
-pub fn execution_digest(manifest: &FlowManifest, loaded: &LoadedSource) -> ExecutionDigest {
-    ExecutionDigest {
-        kind: EXECUTION_DIGEST_KIND,
-        digest: spec_digest(manifest, &loaded.files),
+/// - `syntax_module` is the module the loader resolved, which programs are parsed in.
+/// - `definition` is [`definition_value`] of the loaded baseline, which also holds every
+///   `unobservable` declaration (an attribute, inside a fingerprint) and the syntax definition
+///   program text is parsed with.
+/// - `assumed` is the sorted identities (kink-native `NamedFinding::identity`: kind, the
+///   equations' `UNIQUE_ID`s, the overlap's position in the term) of the baseline's findings an
+///   `assume_joined` name assumes. The names are not members, since they hold source positions;
+///   a name that matches no finding refuses the specification at admission, before any store is
+///   read.
+/// - `result_cells` is the specification digest's member, with its presence rule.
+///
+/// The entry, the include directories, the Markdown selector and the file list are not members:
+/// they decide which definition is loaded, and the loaded definition is the member.
+pub fn execution_payload(manifest: &FlowManifest, spec: &AdmittedSpec) -> Option<Value> {
+    let definition = definition_value(spec.loaded.baseline.definition(), &builtin_prefixes(spec))?;
+    let mut payload = json!({
+        "k_rust_revision": K_RUST_REVISION,
+        "profile": SolverProfile::BUILD.name(),
+        "main_module": manifest.spec.main_module,
+        "syntax_module": spec.loaded.syntax_module(),
+        "definition": definition,
+    });
+    if !manifest.spec.assume_joined.is_empty() {
+        let mut assumed = spec
+            .data
+            .findings()
+            .into_iter()
+            .filter(|finding| finding.assumed)
+            .map(|finding| finding.identity)
+            .collect::<Vec<_>>();
+        assumed.sort();
+        payload["assumed"] = json!(assumed);
+    }
+    if let Some(result) = &manifest.result {
+        let mut cells = result.cells.clone();
+        cells.sort();
+        payload["result_cells"] = json!(cells);
+    }
+    Some(payload)
+}
+
+/// The execution digest of the admitted specification (flow README 5.3 and 7.5.3): what a
+/// baseline or mutant run, and every judgement kink makes of it, depends on. It keys the result
+/// cache, tier 1 and the pattern cache; it is computed once per command (`results::update_results`)
+/// and passed to everything else that needs it.
+///
+/// It is `payload_digest(EXECUTION_DOMAIN, canonical JSON of execution_payload)`, kind
+/// [`EXECUTION_DOMAIN`]; when there is no payload, the exact specification digest, kind
+/// [`SPEC_DOMAIN`], which only costs misses.
+///
+/// **Why a store may answer under it.** A stored value stands for a recomputation when its key
+/// names every input it depends on. With this digest "the same inputs" means the same loaded
+/// definition up to positions instead of the same bytes, which rests on three premises:
+///
+/// - P1 (k-rust, compile): for one build compiling is deterministic, and positions and source
+///   names reach `definition.kore` only through its `Source` and `Location` attributes. So two
+///   loaded definitions equal up to [`POSITION_KEYS`] compile to KORE definitions equal up to
+///   those attributes, the baseline's and, since a mutant is the baseline with sentences replaced
+///   or deleted, every mutant's.
+/// - P2 (k-rust, execution digest): KORE definitions equal up to `Source` and `Location` give
+///   equal results outside k-rust's Execute exclusions (which no stored value comes from:
+///   `results::HostDependence`), except in texts that cite a position.
+/// - P3 (kink): kink's judgement reads a sentence's origin only as two facts, whether it is
+///   located and whether its source is builtin (with one exact builtin file name, kink-patch's
+///   cell-frame reading), both members here. Every other read of a position in kink is
+///   presentation (rule rows, which documents render from the current load), a memo value or
+///   mutation resolution, none of which is keyed by this digest. A new read of a position in a
+///   judgement breaks this premise.
+///
+/// The digest is a congruence for tier 1, as README 7.5.4 requires: a mutation's identity
+/// addresses a sentence by fingerprint and occurrence and requires a replacement to keep the
+/// addressed sentence's position attributes, so two baselines with one digest give, after one
+/// position-free replacement or deletion, mutants equal up to [`POSITION_KEYS`], and P1-P3 apply
+/// to them. k-rust's own KORE execution digest is not such a congruence (compiling maps several
+/// definitions to one KORE definition), and it cannot see K-level content that is not emitted to
+/// KORE, such as which cells are `unobservable`. A failed premise shows as a `--verify`
+/// mismatch, never silently: `results --verify` and `run --verify` re-derive every stored value
+/// from the current bytes.
+pub fn execution_digest(manifest: &FlowManifest, spec: &AdmittedSpec) -> ExecutionDigest {
+    match execution_payload(manifest, spec) {
+        Some(payload) => ExecutionDigest {
+            kind: EXECUTION_DIGEST_KIND,
+            digest: payload_digest(EXECUTION_DOMAIN, canonical_json(&payload).as_bytes()),
+        },
+        None => ExecutionDigest {
+            kind: SPEC_DOMAIN,
+            digest: spec_digest(manifest, &spec.loaded.files),
+        },
     }
 }
 
 /// The tier-1 context (flow README 7.5.3, "The key"): every component of the key except the
 /// mutation and the program, shared by every mutation of one command. `result` is what the
 /// programs' second slot compares: the context names the slots, and the cells left out when
-/// there are any. Today's execution digest is the specification digest, which already holds the
-/// source bytes (and so every `unobservable` declaration) and `[result] cells`; the cells are in
-/// the context for an execution digest read from the compiled KORE (k-rust's
-/// `execution_digest()`, README 7.5.4), which the attribute does not reach, so that an outcome
-/// never answers for another projection there either.
+/// there are any. The execution digest already holds every `unobservable` declaration and
+/// `[result] cells`; the cells left out are named here too, so that the context says on its face
+/// which projection an outcome was decided for.
 pub fn outcome_context(
     kink_build: Sha256Digest,
     execution: ExecutionDigest,
@@ -201,8 +376,7 @@ pub fn outcome_context(
     // work budget, which bounds only mutant runs (re-pin L1-1; absent without one, so a
     // context without a work budget is unchanged).
     let work_factor = budget.work_factor;
-    let mut budget =
-        result_key(execution.digest, execution.digest, budget, Some(kink_build))["budget"].clone();
+    let mut budget = budget_value(budget);
     if let Some(factor) = work_factor {
         budget["work"] = json!({"factor": factor, "floor": crate::manifest::WORK_FLOOR});
     }

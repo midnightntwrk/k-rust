@@ -255,6 +255,7 @@ const fn options(max_work: Option<u64>, one_sided: OneSided) -> RunOptions {
             Some(floor) => WorkBudget::Calibrated { factor: 0, floor },
         },
         one_sided,
+        baseline_max_work: None,
     }
 }
 

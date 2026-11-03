@@ -115,9 +115,13 @@ each run under `systemd-run --user --scope -p MemoryMax=24G -p MemorySwapMax=0` 
 | cold run, fresh cache | 216.5 s | 12.7 GiB | 21, over 126 programs | killed 20, survived 1 (`add-commuted`); the killers above; 39 outcomes cached |
 | warm re-run, no change | 4.9 s | 0.11 GiB | 0 | 20 killed from the cache, `add-commuted` from its 6 cached agreements |
 | one program added (`added`: `x = 1 + 2; y = x / 2;`) | 5.7 s | 0.10 GiB | 1, over `added` alone | its baseline, then `add-commuted` on it; the killed mutations untouched |
-| comment-only edit of `imp.k` (a line appended) | 69.7 s | 0.40 GiB | 21: one per killed mutation over its last killer, and `add-commuted` over the 6 comparable programs | every baseline again; the specification digest changed, so no cached outcome applies (until k-rust's KINK-14 execution digest) |
+| comment-only edit of `imp.k` (a line appended) | not measured with this build (see below) | not measured | 0 | every result and every outcome from the cache: the execution digest, which keys both, ignores comments and positions; all 21 mutations from the outcome cache, no baseline run; only resolution and admission are paid again |
 | real edit of the unary minus rule (`0 -Int I1` becomes `0 -Int I1 +Int 0`) | 94.7 s | 10.8 GiB | 21: 19 over the last killer alone; `neg-drops-sign` (its rule's text changed, so its hint no longer applies) and `add-commuted` over the 6 comparable programs | statuses and killers equal to a cold run of the edited copy (227.8 s) |
 | `run --verify` after the cold run | 209.5 s | 14.5 GiB | 21, over 126 programs | every one of the 39 cached outcomes re-proved; no mismatch |
+
+The comment-only row was measured again once the result cache and tier 1 were keyed by the execution digest (the loaded definition without positions), with the optimized development build rather than the release build of the other rows, at host load 30-60: there the cold run took 25.2 s and the run after the comment 11.2 s, with the cold run's statuses and killers.
+These two figures compare with each other only, not with the rows above.
+Before that key, the same edit cost 69.7 s with the release build of the table, against its 216.5 s cold run: every baseline again and one call per killed mutation over its last killer, since the specification digest, which covered every byte, changed.
 
 Since flow F-12 each program's baseline runs at most once per command:
 the result update and every campaign call of a command share one in-memory baseline session,
@@ -137,7 +141,7 @@ The cold run's peak memory comes from the mutants that loop until `time_ms` (6.8
 
 A rebuilt `kink-flow` starts a new outcome context (the cache key includes the executable's digest),
 so the first run after a rebuild re-proves each killed mutation with one call over its last killer,
-as after the comment-only edit above, but without running the baselines again (their results are still current).
+and runs every baseline again, since the result key names the build too.
 
 ## Cheaper killers first (flow F-13)
 

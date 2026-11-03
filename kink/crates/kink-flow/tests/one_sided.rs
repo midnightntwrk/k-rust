@@ -171,6 +171,7 @@ const fn options(work: WorkBudget) -> CampaignOptions {
             result_modality: ResultModality::StateSet,
             work,
             one_sided: OneSided::NoCrashClassifier,
+            baseline_max_work: None,
         },
         compile_workers: 1,
     }

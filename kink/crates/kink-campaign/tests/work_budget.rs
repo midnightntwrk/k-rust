@@ -187,6 +187,7 @@ const fn calibrated(factor: u64, floor: u64) -> RunOptions {
         result_modality: ResultModality::StateSet,
         work: WorkBudget::Calibrated { factor, floor },
         one_sided: OneSided::Off,
+        baseline_max_work: None,
     }
 }
 
@@ -317,6 +318,7 @@ mod kink_tier {
                 result_modality: ResultModality::PathSet,
                 work: WorkBudget::Unbounded,
                 one_sided: OneSided::Off,
+                baseline_max_work: None,
             };
             for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
                 for options in [

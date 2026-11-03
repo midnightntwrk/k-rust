@@ -194,13 +194,17 @@ mod kink_tier {
             fresh["baseline_runs"],
             json!({"live": 4, "reused": 0, "diagnostic": 0})
         );
+        // Under Z3 the result cache is off (`results::RESULT_CACHE_Z3`): the second command runs
+        // every program live again.
         let cached = results_with(&manifest, false);
-        assert_eq!(cached["summary"]["computed"], 0);
+        let live = if cfg!(feature = "z3") { 4 } else { 0 };
+        assert_eq!(cached["summary"]["computed"], live);
         assert_eq!(
             cached["baseline_runs"],
-            json!({"live": 0, "reused": 0, "diagnostic": 0})
+            json!({"live": live, "reused": 0, "diagnostic": 0})
         );
-        // A fresh session per command: `--verify` runs every program live, none is reused.
+        // A fresh session per command: `--verify` runs every program live, none is reused. Under
+        // Z3 no record is stored, so there is nothing to compare a run with.
         let verified = results_with(&manifest, true);
         assert_eq!(verified["summary"]["mismatches"], 0);
         assert_eq!(
@@ -212,7 +216,11 @@ mod kink_tier {
                 .as_array()
                 .unwrap()
                 .iter()
-                .all(|p| p["verify"] == "match")
+                .all(|p| if cfg!(feature = "z3") {
+                    p["verify"].is_null()
+                } else {
+                    p["verify"] == "match"
+                })
         );
     }
 
@@ -267,6 +275,10 @@ mod kink_tier {
         assert_eq!(verdicts(&verified), calc_verdicts());
         let calls = call_programs(&verified);
         assert_eq!(baseline_runs(&verified), (4, calls.len() as u64));
+        // The drift check compares a stored result record; under Z3 the result cache is off.
+        if cfg!(feature = "z3") {
+            return;
+        }
 
         // A hand-edited record: the program's record is cached, so the first call that runs it
         // runs its baseline live in this command, and the drift check compares that run with the
@@ -287,7 +299,7 @@ mod kink_tier {
             .unwrap()
             .join(CACHE_DIRECTORY)
             .join("results")
-            .join(cold["spec"]["digest"].as_str().unwrap())
+            .join(cold["spec"]["execution_digest"]["digest"].as_str().unwrap())
             .join(format!("{}.json", digest("add")));
         let mut value: Value = serde_json::from_str(&fs::read_to_string(&record).unwrap()).unwrap();
         value["run_sha256"] = json!("0".repeat(64));

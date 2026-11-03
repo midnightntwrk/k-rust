@@ -91,8 +91,14 @@ use std::{path::Path, sync::OnceLock};
 /// term is a terminal value, so a baseline that was `unknown` for that reason may be `comparable`,
 /// a side may be a value and a pattern side decided where they were `unknown`. v9 (CF-16): a
 /// comparable record holds `ends`, each end's computation head and class, outside the key and the
-/// run digest; what counts as comparable is unchanged.
-pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v9";
+/// run digest; what counts as comparable is unchanged. v10 (CF-42, CF-43): the key names
+/// kink-flow's execution digest (the loaded definition without positions) in place of the
+/// specification digest, and its budget names no `time_ms` and names `baseline_max_work` when it is
+/// set; a record's coverage entries are `{module, index, label}`, without file and lines, and the
+/// record names its writer's specification digest outside the key; and no `timeout`, `error` or
+/// host-dependent `unknown` record is written or read, so a v9 record, which may be one, is never
+/// honoured.
+pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v10";
 
 /// One component of [`KINK_IDENTITY`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -224,7 +230,7 @@ pub struct Outside {
 
 /// Every versioned constant outside [`KINK_IDENTITY`]. Each reason names the path that checks
 /// the constant, or says why nothing has to.
-pub const OUTSIDE_IDENTITY: [Outside; 35] = [
+pub const OUTSIDE_IDENTITY: [Outside; 36] = [
     Outside {
         krate: "kink-patch",
         constant: "TEST_MANIFEST_DOMAIN",
@@ -279,15 +285,26 @@ pub const OUTSIDE_IDENTITY: [Outside; 35] = [
         krate: "kink-flow",
         constant: "SPEC_DOMAIN",
         reason: "the domain of the specification digest: every kink-flow command recomputes it \
-                 from the sources it loads (digest.rs spec_digest), and it enters the result key, \
-                 which also holds `kink_build`, and the tier-1 execution digest",
+                 from the sources it loads (digest.rs spec_digest); it keys the resolution and \
+                 census memos, whose keys also hold `kink_build`, names each document's \
+                 `spec.digest`, and is the execution digest's fallback, a member of keys that \
+                 hold `kink_build`",
+    },
+    Outside {
+        krate: "kink-flow",
+        constant: "EXECUTION_DOMAIN",
+        reason: "the domain of the execution digest (the loaded definition without positions): \
+                 every command recomputes it from the admitted specification (digest.rs \
+                 execution_digest), and it enters the result key, the tier-1 context and the \
+                 pattern key, each of which also holds `kink_build`",
     },
     Outside {
         krate: "kink-flow",
         constant: "EXECUTION_DIGEST_KIND",
-        reason: "the kind of the tier-1 execution digest (today SPEC_DOMAIN itself): it is a member \
-                 of the tier-1 context, which also holds `kink_build`, and every command \
-                 recomputes the context (digest.rs outcome_context)",
+        reason: "the kind of an execution digest that exists (EXECUTION_DOMAIN itself; SPEC_DOMAIN \
+                 on the fallback): it is a member of the result key, the tier-1 context and the \
+                 pattern key, each of which also holds `kink_build`, and every command recomputes \
+                 them",
     },
     Outside {
         krate: "kink-flow",
@@ -299,9 +316,9 @@ pub const OUTSIDE_IDENTITY: [Outside; 35] = [
     Outside {
         krate: "kink-flow",
         constant: "RUN_DOMAIN",
-        reason: "the domain of a result record's `run_sha256`: `results --verify` and the timeout \
-                 refresh recompute it from a new run (results.rs verify_record), and a record is \
-                 read only under a key that holds `kink_build`",
+        reason: "the domain of a result record's `run_sha256`: `results --verify` recomputes it \
+                 from a new run (results.rs verify_record), and a record is read only under a key \
+                 that holds `kink_build`",
     },
     Outside {
         krate: "kink-flow",

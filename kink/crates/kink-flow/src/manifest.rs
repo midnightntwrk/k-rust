@@ -124,8 +124,16 @@ pub struct Budget {
     /// states the program's baseline run visited, plus [`WORK_FLOOR`] (re-pin lane 1, L1-1).
     /// Absent: no work budget (a mutant's run is bounded by `time_ms` and `max_depth` only). A
     /// work-bound run is never complete, so its program is `unknown` for that mutant, never a
-    /// kill; the budget never applies to a baseline run.
+    /// kill; the budget never applies to a baseline run, which [`Budget::baseline_max_work`]
+    /// bounds instead.
     pub work_factor: Option<u64>,
+    /// `baseline_max_work`: the most states one baseline result run of a program may visit
+    /// across all its paths (k-rust `max_work`). A bound only stops a run, deterministically: a
+    /// run it does not stop is the run without it, and a run it stops is class `unknown`, which,
+    /// unlike a timeout, is a function of the result key and is cached with the bound in the key.
+    /// Absent (the default): baselines are bounded by `time_ms` and `max_depth` only, so no class
+    /// a corpus has without it changes.
+    pub baseline_max_work: Option<u64>,
 }
 
 impl Default for Budget {
@@ -134,6 +142,7 @@ impl Default for Budget {
             time_ms: DEFAULT_TIME_MS,
             max_depth: DEFAULT_MAX_DEPTH,
             work_factor: None,
+            baseline_max_work: None,
         }
     }
 }
@@ -549,13 +558,21 @@ fn assume_joined(spec: &Table) -> Result<Vec<String>, ManifestError> {
 
 fn budget(value: &Value) -> Result<Budget, ManifestError> {
     let budget = table(value, "budget")?;
-    known_keys(budget, "budget", &["time_ms", "max_depth", "work_factor"])?;
+    known_keys(
+        budget,
+        "budget",
+        &["time_ms", "max_depth", "work_factor", "baseline_max_work"],
+    )?;
     Ok(Budget {
         time_ms: positive(budget, "budget", "time_ms", DEFAULT_TIME_MS)?,
         max_depth: positive(budget, "budget", "max_depth", DEFAULT_MAX_DEPTH)?,
         work_factor: budget
             .contains_key("work_factor")
             .then(|| positive(budget, "budget", "work_factor", 1))
+            .transpose()?,
+        baseline_max_work: budget
+            .contains_key("baseline_max_work")
+            .then(|| positive(budget, "budget", "baseline_max_work", 1))
             .transpose()?,
     })
 }

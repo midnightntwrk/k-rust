@@ -102,6 +102,16 @@ fn edit(path: &Path, from: &str, to: &str) {
     fs::write(path, text.replacen(from, to, 1)).unwrap();
 }
 
+/// Replace each `(from, to)` once in the file at `path`.
+fn edit_lines(path: &Path, pairs: &[(&str, &str)]) {
+    let mut text = fs::read_to_string(path).unwrap();
+    for (from, to) in pairs {
+        assert_eq!(text.matches(from).count(), 1, "{from}");
+        text = text.replace(from, to);
+    }
+    fs::write(path, text).unwrap();
+}
+
 fn append(path: &Path, text: &str) {
     let mut contents = fs::read_to_string(path).unwrap();
     contents.push_str(text);
@@ -379,7 +389,11 @@ fn set_hint(manifest: &Path, key: &str, mutation: &str, program: &str, digest: &
 fn result_record_path(manifest: &Path, document: &Value, program: &str) -> PathBuf {
     cache_of(manifest)
         .join("results")
-        .join(document["spec"]["digest"].as_str().unwrap())
+        .join(
+            document["spec"]["execution_digest"]["digest"]
+                .as_str()
+                .unwrap(),
+        )
         .join(format!("{}.json", program_digest(document, program)))
 }
 
@@ -1043,6 +1057,9 @@ misunderstanding = "a test mutation"
         }
     }
 
+    // Portable only: the drift check compares a stored result record, and the result cache is
+    // off under Z3 by design (`results::RESULT_CACHE_Z3`).
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_program_id_with_a_colon_and_the_count_mismatch_have_their_reasons() {
@@ -1601,26 +1618,58 @@ misunderstanding = "a test mutation"
         warm_and_forged("loop", "FLOW-search.toml", "MUTATIONS.toml");
     }
 
+    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
-    fn a_comment_only_edit_reproves_each_kill_with_its_hint() {
-        // (g): any edit of the specification misses tier 1 (the execution digest is the exact
-        // specification digest until KINK-14); each killed mutation is one call over its hint.
+    fn a_comment_or_layout_edit_keeps_every_result_and_outcome() {
+        // (g): the result cache and tier 1 are keyed by the execution digest, the loaded
+        // definition without positions, so neither a comment at the end nor a comment and blank
+        // lines at the top (every line shifts) misses: the specification digest changes, the
+        // execution digest does not, no baseline runs, and every mutation the cold run cached is
+        // decided from tier 1 with no call, with the cold run's statuses and killers.
         let (dir, cold) = calc_after_cold("comment");
         let manifest = dir.join("FLOW.toml");
         let mutations = dir.join("MUTATIONS.toml");
-        append(&dir.join("calc.k"), "// a comment at the end\n");
-        let (edited, ok) = search(&manifest, &mutations, &[]);
-        assert!(ok, "{edited:#}");
-        assert_eq!(statuses(&edited), statuses(&cold));
-        assert_ne!(edited["spec"]["digest"], cold["spec"]["digest"]);
-        assert_eq!(edited["outcome_cache"]["mutations_from_cache"], 0);
-        for (id, status, killer) in statuses(&edited) {
-            if status == "killed" {
-                let killer = killer.unwrap();
-                assert_eq!(mutation(&edited, &id)["killer_source"], "hint", "{id}");
-                assert_eq!(calls(&edited, &id), vec![vec![killer]], "{id}");
-            }
+        let calc = dir.join("calc.k");
+        let mut previous = cold["spec"]["digest"].clone();
+        for (name, edit) in [
+            ("comment at the end", "end"),
+            ("comment and blank lines at the top", "top"),
+        ] {
+            let text = fs::read_to_string(&calc).unwrap();
+            let text = match edit {
+                "end" => format!("{text}// a comment at the end\n"),
+                _ => {
+                    // Every line moves down by three, so the mutations addressed by line are
+                    // updated as their author would update them; no other input changes.
+                    edit_lines(
+                        &mutations,
+                        &[("line = 23", "line = 26"), ("line = 21", "line = 24")],
+                    );
+                    format!("// a comment at the top\n\n\n{text}")
+                }
+            };
+            fs::write(&calc, text).unwrap();
+            warm_after_no_change(&manifest, &mutations, &cold, name);
+            let (edited, ok) = search(&manifest, &mutations, &[]);
+            assert!(ok, "{edited:#}");
+            assert_ne!(edited["spec"]["digest"], previous, "{name}");
+            assert_eq!(
+                edited["spec"]["execution_digest"], cold["spec"]["execution_digest"],
+                "{name}"
+            );
+            assert!(
+                edited["programs"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|program| program["cached"] == true),
+                "{name}: {edited:#}"
+            );
+            assert_eq!(edited["baseline_runs"]["live"], 0, "{name}");
+            assert_eq!(statuses(&edited), statuses(&cold), "{name}");
+            previous = edited["spec"]["digest"].clone();
         }
     }
 
@@ -1882,8 +1931,8 @@ misunderstanding = "a test mutation"
     #[test]
     #[ignore = "kink"]
     fn a_change_of_an_input_misses_tier_1() {
-        // (c): a budget change is another context; a program text change misses for that
-        // program only.
+        // (c): a change of a bound in the key is another context (`time_ms` is in no key: no
+        // cached outcome depends on it); a program text change misses for that program only.
         let (dir, cold) = calc_after_cold("inputs");
         let manifest = dir.join("FLOW.toml");
         let mutations = dir.join("MUTATIONS.toml");
@@ -1891,7 +1940,7 @@ misunderstanding = "a test mutation"
         edit(
             &manifest,
             "syntax_module = \"CALC-SYNTAX\"\n",
-            "syntax_module = \"CALC-SYNTAX\"\n\n[budget]\ntime_ms = 20000\n",
+            "syntax_module = \"CALC-SYNTAX\"\n\n[budget]\nmax_depth = 200000\n",
         );
         let (budget, ok) = search(&manifest, &mutations, &only);
         assert!(ok, "{budget:#}");
@@ -2133,10 +2182,11 @@ misunderstanding = "a test mutation"
     #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
-    fn a_timeout_record_named_by_a_hint_is_rerun_once() {
-        // (i) F-05 review 1 minor 1: add's record says timeout (as a run under host load could
-        // have left it). A hint names add, so `run` re-runs add's baseline once: it is
-        // comparable, the record is replaced, and the hint's program kills again.
+    fn a_stored_timeout_record_is_never_honoured() {
+        // (i): add's record says timeout (as a build that cached timeouts, or a hand edit, could
+        // have left it). A timeout depends on the host's load, so no record of it is read: add's
+        // baseline runs again, comparable, the record is replaced, and the hint's program kills
+        // again.
         let (dir, cold) = calc_after_cold("rerun");
         let manifest = dir.join("FLOW.toml");
         let mutations = dir.join("MUTATIONS.toml");
@@ -2158,7 +2208,7 @@ misunderstanding = "a test mutation"
             .iter()
             .find(|p| p["id"] == "add")
             .unwrap();
-        assert_eq!(add["rerun"], "timeout");
+        assert!(add.get("rerun").is_none(), "{add:#}");
         assert_eq!(add["class"], "comparable");
         assert_eq!(add["cached"], false);
         // The replaced record is the original up to the re-run's measured wall time (F-16 review
@@ -2170,7 +2220,7 @@ misunderstanding = "a test mutation"
         assert_eq!(mutation(&rerun, "add-becomes-sub")["killer_source"], "hint");
         assert_eq!(calls(&rerun, "add-becomes-sub"), vec![strings(&["add"])]);
 
-        // A program with another non-comparable class is not re-run: its killed record and its
+        // A stored unknown is honoured, so the program is not run again: its killed record and its
         // hint are reported as unusable, never silently dropped, and the search goes on.
         let mut unknown = original.clone();
         unknown["class"] = json!("unknown");

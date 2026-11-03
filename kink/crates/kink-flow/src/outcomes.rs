@@ -4,8 +4,10 @@
 //! The trust premise (README 7.5.1, approved by Sebastien on 2026-10-15): with identical
 //! inputs, a cached proved Distinguish stands without being re-run in this command. It rests on
 //! k-rust's compile and execution determinism (KINK-06), on the key naming every input of the
-//! outcome, and on the integrity of the cache directory. `kink-flow run --verify` re-proves
-//! every cached outcome and reports a disagreement as an error.
+//! outcome, and on the integrity of the cache directory. Identical inputs are an identical loaded
+//! definition up to positions (the context's execution digest, `digest::execution_digest`, whose
+//! doc states the premises that reading rests on), not identical bytes. `kink-flow run --verify`
+//! re-proves every cached outcome and reports a disagreement as an error.
 //!
 //! Only outcomes computed from complete evidence are cached: a compared test with some
 //! `distinguish` slot (outcome `killed`) or with every slot `agree` (outcome `agree`). A

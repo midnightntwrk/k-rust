@@ -1,6 +1,6 @@
 //! The result cache (flow README 5.3): one record per program's baseline run, keyed by the
 //! result schema version, kink's build identity and semantics identity (kink-campaign
-//! `identity`), the specification digest, the program digest and the budget.
+//! `identity`), the execution digest, the program digest and the budget's bounds.
 //!
 //! Each program runs as its own zero-mutant campaign through `kink_campaign::run_campaign_multi`
 //! (the way kink-corpus admission's `baseline_only` does), with the specification's two oracles
@@ -27,15 +27,30 @@
 //! an unknown or failed run and supplies the cause, the final states and the coverage for the
 //! reader. The diagnostic run never makes a program comparable.
 //!
-//! The cache is plain JSON under `<cache>/results/<spec digest>/<program digest>.json`. A record
-//! is used only when its key equals the current key; any other record, or one that does not
+//! The cache is plain JSON under `<cache>/results/<execution digest>/<program digest>.json`. A
+//! record is used only when its key equals the current key; any other record, or one that does not
 //! parse, is recomputed and replaced. A record names its writer's build, so a record another
 //! build wrote is recomputed (packet CACHE-ID-fix-1); when the executable cannot be read, no
 //! record is read or written. Deleting the cache is always safe.
+//!
+//! **What is stored.** A store may hold a value only under a key that names every input the
+//! value depends on, and only when the value is a function of those inputs on every host. The
+//! key ([`result_key`]) names the execution digest (`digest::execution_digest`: the loaded
+//! definition without positions, so a comment or layout edit keeps every record), the program
+//! digest, the bounds a stored class depends on ([`budget_value`]: not `time_ms`), kink's build
+//! and its semantics identity. Of the classes, only `comparable` and `unknown` are written, and
+//! of `unknown` only one whose cause is not a host event ([`HostDependence`]): a `timeout`
+//! depends on the host's load, an `error` can come from the host (a refused stack segment, a
+//! solver that could not be created) and kink cannot tell when, and a stack stop or an allowance
+//! refusal is a fact of the host. Such a program's row says why it was not cached
+//! (`not_cached`), and the next command runs it again; a stored record of such a class is never
+//! read. Under the Z3 profile the cache is off: a solver query is bounded by the clock, so no
+//! baseline class is a function of its key. A baseline bounded by `[budget] baseline_max_work`
+//! that the bound stops is `unknown`, a function of the key, which names the bound.
 
 use crate::{
     admit::{AdmittedSpec, CaseInputs, InputSession, admit_spec},
-    digest::{program_digest, spec_digest},
+    digest::{ExecutionDigest, execution_digest, program_digest, spec_digest},
     evidence::EndReader,
     manifest::{Budget, FlowManifest, Program},
 };
@@ -62,7 +77,10 @@ use kink_native::{
     coverage::{RuleAuthors, TestCoverage, coverage_domain, non_executable_ids},
     data::{DataFacts, data_ends},
     exclusion::{DefinitionExclusions, Exclusion},
-    execution::{AdaptedLeaf, ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile},
+    execution::{
+        AdaptedExecution, AdaptedLeaf, ExecutionAdapter, ExecutionBudget, HaltClass, ResultRun,
+        SolverProfile,
+    },
     feasibility::{LeafFeasibility, TestInitialState},
     step_events::{EntryRole, NonValue, NonValueStep, ObservationDecider},
 };
@@ -167,12 +185,13 @@ pub fn execution_budget(budget: Budget) -> ExecutionBudget {
 /// `identity::kink_build`, the running executable's digest, which guards every piece of verdict
 /// code, versioned or not; packet CACHE-ID-fix-1), kink's semantics identity `kink` (the k-rust
 /// revision, the definition exclusions, the execution request, ...; packet CACHE-ID, re-pin
-/// R0-tail review 1 minor), specification digest, program digest and budget. A record written by
-/// another build, or by one before CACHE-ID-fix-1 (whose key has no `kink_build`), misses and is
-/// recomputed. `kink_build` is `None` when the executable cannot be read; such a key is never
-/// read or written ([`update_results`]).
+/// R0-tail review 1 minor), the execution digest `{kind, digest}` (`digest::execution_digest`),
+/// the program digest and the budget ([`budget_value`]). A record written by another build, or
+/// by one before CACHE-ID-fix-1 (whose key has no `kink_build`), misses and is recomputed.
+/// `kink_build` is `None` when the executable cannot be read; such a key is never read or
+/// written ([`update_results`]).
 pub fn result_key(
-    spec: Sha256Digest,
+    execution: ExecutionDigest,
     program: Sha256Digest,
     budget: Budget,
     kink_build: Option<Sha256Digest>,
@@ -181,15 +200,162 @@ pub fn result_key(
         "schema_version": RESULT_SCHEMA_VERSION,
         "kink_build": kink_build.map(|build| build.to_string()),
         "kink": kink_campaign::kink_identity(),
-        "spec": spec.to_string(),
+        "execution": execution.value(),
         "program": program.to_string(),
-        "budget": {
-            "time_ms": budget.time_ms,
-            "max_depth": budget.max_depth,
-            "max_simplification_iterations": SIMPLIFICATION_ITERATIONS,
-            "max_breadth": null,
-        },
+        "budget": budget_value(budget),
     })
+}
+
+/// The bounds of a program run that a stored class depends on, `{max_depth,
+/// max_simplification_iterations, max_breadth}` and `baseline_max_work` when it is set: each
+/// stops a run deterministically, so a stored `unknown` depends on it. `time_ms` is not a member:
+/// no stored class depends on it, since a run the watchdog stopped is never stored and a run it
+/// did not stop is the uncancelled request, whose result does not depend on the bound. The
+/// result key, the tier-1 context (`digest::outcome_context`) and the pattern key
+/// (`query::answer_key`) all take this object, so the three name the same bounds.
+pub fn budget_value(budget: Budget) -> Value {
+    let mut value = json!({
+        "max_depth": budget.max_depth,
+        "max_simplification_iterations": SIMPLIFICATION_ITERATIONS,
+        "max_breadth": null,
+    });
+    if let Some(max_work) = budget.baseline_max_work {
+        value["baseline_max_work"] = json!(max_work);
+    }
+    value
+}
+
+/// Why a baseline result is not a function of its key: such a result is never written, and a
+/// stored record of its class is never read ([`program_row`], [`read_record`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HostDependence {
+    /// The watchdog stopped a run at the budget's `time_ms`.
+    Time,
+    /// A run or the runner failed: an adapter, backend or runner failure can come from the host
+    /// (a refused stack segment, a solver that could not be created), and kink cannot tell.
+    Failure,
+    /// The run is excluded for a reason of the host ([`host_exclusion`]).
+    Exclusion(Exclusion),
+}
+
+impl HostDependence {
+    /// The row's `not_cached`: the class, why it depends on the host, and what follows.
+    fn reason(self, class: ResultClass, time_ms: u128) -> String {
+        let why = match self {
+            Self::Time => format!(
+                "the watchdog stopped the run at time_ms = {time_ms}; a timeout depends on the \
+                 host's load"
+            ),
+            Self::Failure => "a run or runner failure can come from the host (a refused stack \
+                              segment, a solver that could not be created), and kink cannot tell \
+                              when"
+                .to_owned(),
+            Self::Exclusion(exclusion) => format!(
+                "the run is excluded ({}), a fact of the host rather than of the definition and \
+                 the program",
+                exclusion.name()
+            ),
+        };
+        format!(
+            "{}: {why}, so the next command runs this program again",
+            class.as_str()
+        )
+    }
+}
+
+/// Whether an exclusion is a fact of the host rather than of the definition and the program: a
+/// stop for lack of native stack (the host's threads) and a refusal for the process's memory
+/// allowance. Exhaustive, so that a new exclusion is classified when it is added.
+pub const fn host_exclusion(exclusion: Exclusion) -> bool {
+    match exclusion {
+        Exclusion::StackStop | Exclusion::LoadStackStop | Exclusion::AllowanceRefusal => true,
+        Exclusion::ContradictedClaim
+        | Exclusion::ImplementationChosenHook
+        | Exclusion::ShortCircuitReading
+        | Exclusion::EqualsCondition
+        | Exclusion::ImplementationChosenValue
+        | Exclusion::UnsupportedHook => false,
+    }
+}
+
+/// Whether a program's result of class `class` depends on the host, given the exclusion its
+/// cause names, how this command's live run of its baseline ended (`live_stop`; `None`: no
+/// baseline ran, as for a validation refusal before execution) and the host exclusion the
+/// diagnostic run that supplied the result met itself (`diagnostic`, [`diagnostic_host_exclusion`]:
+/// that run loads and runs on a backend of its own, so it can stop for lack of stack where the
+/// live run did not). A `timeout` depends on the clock; an `error` on
+/// whatever failed; an `unknown` on a host exclusion of either run, or on a live run that the
+/// watchdog stopped or that failed naming no exclusion (the diagnostic run then supplied the
+/// class); any other `unknown` is a deterministic bound, an exclusion of the definition or the
+/// program, or a validation refusal, and `comparable` is the uncancelled request's result.
+pub fn host_dependence(
+    class: ResultClass,
+    exclusion: Option<Exclusion>,
+    live_stop: Option<RunStop>,
+    diagnostic: Option<Exclusion>,
+) -> Option<HostDependence> {
+    match class {
+        ResultClass::Comparable | ResultClass::Refused => None,
+        ResultClass::Timeout => Some(HostDependence::Time),
+        ResultClass::Error => Some(HostDependence::Failure),
+        ResultClass::Unknown => match (exclusion, live_stop) {
+            (Some(exclusion), _) if host_exclusion(exclusion) => {
+                Some(HostDependence::Exclusion(exclusion))
+            }
+            (_, Some(RunStop::Time)) => Some(HostDependence::Time),
+            (None, Some(RunStop::Failed)) => Some(HostDependence::Failure),
+            _ => diagnostic
+                .filter(|&exclusion| host_exclusion(exclusion))
+                .map(HostDependence::Exclusion),
+        },
+    }
+}
+
+/// Whether the campaign's refusal of a baseline is the `unknown` of a run that
+/// `[budget] baseline_max_work` (`bound`) stopped, read from this command's live run with no
+/// diagnostic run: an oracle refusal (`kind`) that names no exclusion, of a run that ended in a
+/// `work-bound` leaf. Any other refusal of such a run goes to the diagnostic run: one that names
+/// an exclusion, to name it (possibly one of the host), and an error side or an invalid baseline,
+/// which is an `error` and never cached.
+pub fn work_bound_refusal(
+    kind: CampaignFailureKind,
+    exclusion: Option<Exclusion>,
+    bound: Option<u64>,
+    work_bound_leaf: bool,
+) -> bool {
+    kind == CampaignFailureKind::BaselineOracleFailed
+        && exclusion.is_none()
+        && bound.is_some()
+        && work_bound_leaf
+}
+
+/// The host exclusion the diagnostic run of a baseline met itself, whatever exclusion the
+/// campaign named: a stop for lack of native stack while its backend loaded the definition
+/// (`load-stack-stop`) or while it ran (`stack-stop`), or an allowance hook left unevaluated
+/// (`allowance-refusal`). The record's cause, final configuration and coverage come from that
+/// run, so such a result is not a function of its key even when the live run met none.
+pub fn diagnostic_host_exclusion(
+    backend: &mut Backend,
+    execution: &AdaptedExecution,
+) -> Option<Exclusion> {
+    let load_stack_stops = backend.select_definition(None).ok().map(|definition| {
+        definition.discharge_counts().stack_stops
+            + definition.value_claims().counts().condition_stack_stops
+    });
+    if load_stack_stops.is_some_and(|stops| stops > 0) {
+        Some(Exclusion::LoadStackStop)
+    } else if execution.stack_stops() > 0 {
+        Some(Exclusion::StackStop)
+    } else if !execution.facts().allowance_refusals.is_empty()
+        || execution
+            .leaves()
+            .iter()
+            .any(kink_native::exclusion::allowance_refusal)
+    {
+        Some(Exclusion::AllowanceRefusal)
+    } else {
+        None
+    }
 }
 
 /// The digest of a baseline row's `run` part, which depends neither on the program id nor on
@@ -227,6 +393,9 @@ pub struct ProgramResult {
     /// k-rust's count of the baseline run's undecided solver answers (`smtUnknowns`; decision
     /// D-7 (a1): reported, never an exclusion); 0 without a run or without Z3.
     pub smt_unknowns: usize,
+    /// Why the result is not a function of its key ([`host_dependence`]); `None` when it is.
+    /// Outside the record: a result with a host dependence is never written.
+    pub host: Option<HostDependence>,
 }
 
 impl ProgramResult {
@@ -241,6 +410,7 @@ impl ProgramResult {
             wall_ms: None,
             specification_diagnostics: json!([]),
             smt_unknowns: 0,
+            host: None,
         }
     }
 
@@ -260,6 +430,8 @@ pub struct BaselineRunner<'a> {
     module: String,
     generations: Vec<CandidateGeneration<'a>>,
     budget: ExecutionBudget,
+    /// `[budget] baseline_max_work`: the work bound of every baseline result run of the command.
+    baseline_max_work: Option<u64>,
     authors: RuleAuthors,
     /// The command's session (every call uses the all-normal classifier; the session re-applies
     /// a call's classifier on every reused baseline run, flow F-16).
@@ -293,6 +465,7 @@ impl<'a> BaselineRunner<'a> {
             module: k_rust::kast::identifier::encode(&manifest.spec.main_module),
             generations: vec![generation],
             budget: execution_budget(manifest.budget),
+            baseline_max_work: manifest.budget.baseline_max_work,
             authors: RuleAuthors::of(&spec.compiled),
             session: RefCell::new(
                 BaselineSession::new(&spec.validator)
@@ -354,6 +527,11 @@ impl<'a> BaselineRunner<'a> {
             })
     }
 
+    /// The budget's `time_ms`, as causes say it.
+    pub fn time_ms(&self) -> u128 {
+        self.budget.time.as_millis()
+    }
+
     /// The compiled ids of each authored rule of the specification a run can observe (a rule
     /// that compiles to a rewrite rule).
     pub fn observable_rules(&self) -> &[BTreeSet<String>] {
@@ -363,13 +541,19 @@ impl<'a> BaselineRunner<'a> {
 
     /// One campaign call of this command over `tests` (their oracles as given): the
     /// specification's validator and module, the all-normal classifier, the manifest's budget,
-    /// no step observation, and every baseline run through the command's session.
+    /// no step observation, and every baseline run through the command's session. Every baseline
+    /// result run of the call is bounded by `[budget] baseline_max_work`, whatever `options` say,
+    /// so every baseline of a command has one bound and the results update and the kill search
+    /// share the session's runs.
     pub fn call(
         &self,
         tests: &[TestCase],
         generations: &[CandidateGeneration<'_>],
         options: &CampaignOptions,
     ) -> Result<CampaignRun, CampaignFailure> {
+        let mut options = options.clone();
+        options.run.baseline_max_work = self.baseline_max_work;
+        let options = &options;
         let campaign = Campaign {
             validator: &self.spec.validator,
             module: &self.module,
@@ -413,6 +597,7 @@ impl<'a> BaselineRunner<'a> {
         let result = self.call(std::slice::from_ref(&test), &self.generations, &options);
         let recording = self.last_call();
         let live = recording.baseline_of(&test.id);
+        let live_stop = live.map(|live| live.run.census.stop);
         let wall_ms = live.map(|live| millis(live.run.wall));
         let mut result = match result {
             Ok(run) => {
@@ -426,6 +611,7 @@ impl<'a> BaselineRunner<'a> {
                         &test,
                         CampaignFailureKind::BaselineOracleFailed,
                         kind.exclusion(),
+                        live_stop,
                         &format!(
                             "the campaign runner gave the baseline run no sides: {}",
                             kind.exclusion().map_or("a failed run", |e| e.name())
@@ -450,6 +636,7 @@ impl<'a> BaselineRunner<'a> {
                         &evidence.notes.contradicted_claims,
                     ),
                     smt_unknowns: evidence.notes.smt_unknowns,
+                    host: None,
                 }
             }
             // No second full-length run (flow F-13, README 6.4): when this command's live run
@@ -462,6 +649,7 @@ impl<'a> BaselineRunner<'a> {
                     class: ResultClass::Timeout,
                     cause: Some(timeout_cause(
                         self.budget.time.as_millis(),
+                        self.baseline_max_work,
                         &live.run.census,
                         self.observable_rules(),
                     )),
@@ -472,12 +660,49 @@ impl<'a> BaselineRunner<'a> {
                     wall_ms: None,
                     specification_diagnostics: json!([]),
                     smt_unknowns: 0,
+                    host: Some(HostDependence::Time),
+                }
+            }
+            // A baseline that `[budget] baseline_max_work` stopped: the bound stops a run
+            // deterministically, so the class is `unknown`, a function of the key, which names
+            // the bound; the class and the cause come from this command's live run, with no
+            // diagnostic run ([`work_bound_refusal`]).
+            Err(failure)
+                if work_bound_refusal(
+                    failure.kind(),
+                    failure.exclusion(),
+                    self.baseline_max_work,
+                    live.is_some_and(|live| {
+                        live.run.census.leaves.contains_key(&HaltClass::WorkBound)
+                    }),
+                ) =>
+            {
+                let (bound, live) = (
+                    self.baseline_max_work.expect("checked"),
+                    live.expect("checked"),
+                );
+                ProgramResult {
+                    class: ResultClass::Unknown,
+                    cause: Some(work_bound_cause(
+                        bound,
+                        &live.run.census,
+                        self.observable_rules(),
+                    )),
+                    baseline: None,
+                    final_configuration: None,
+                    ends: None,
+                    coverage: live.coverage.clone(),
+                    wall_ms: None,
+                    specification_diagnostics: json!([]),
+                    smt_unknowns: 0,
+                    host: None,
                 }
             }
             Err(failure) => self.diagnose(
                 &test,
                 failure.kind(),
                 failure.exclusion(),
+                live_stop,
                 &format!("the campaign runner refused the baseline run ({failure})"),
             ),
         };
@@ -496,6 +721,7 @@ impl<'a> BaselineRunner<'a> {
             wall_ms: None,
             specification_diagnostics: json!([]),
             smt_unknowns: 0,
+            host: Some(HostDependence::Failure),
         }
     }
 
@@ -506,12 +732,16 @@ impl<'a> BaselineRunner<'a> {
     /// shape (re-pin adoption A-1b): an excluded run's leaves can all be clean. An exclusion that
     /// holds for every run of the program, the definition's or its initial configuration's, is
     /// said as `check` says it ([`crate::exclusion::program_detail`]); any other as
-    /// [`exclusion_hint`] says it.
+    /// [`exclusion_hint`] says it. The diagnostic run is the campaign's request: the same budget
+    /// and `[budget] baseline_max_work`. `live_stop` is how this command's live run of the
+    /// baseline ended (`None` when none ran), which with the class and the exclusion says whether
+    /// the result depends on the host ([`host_dependence`]).
     fn diagnose(
         &self,
         test: &TestCase,
         kind: CampaignFailureKind,
         exclusion: Option<Exclusion>,
+        live_stop: Option<RunStop>,
         refused: &str,
     ) -> ProgramResult {
         self.diagnostic.set(self.diagnostic.get() + 1);
@@ -534,7 +764,15 @@ impl<'a> BaselineRunner<'a> {
             Err(e) => return self.error(format!("{refused}; no diagnostic run: {e}")),
         };
         let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
-        let execution = match adapter.execute(&mut backend, &test.initial_state, self.budget) {
+        let execution = match adapter.execute_result(
+            &mut backend,
+            &test.initial_state,
+            self.budget,
+            ResultRun {
+                max_work: self.baseline_max_work,
+                ..ResultRun::default()
+            },
+        ) {
             Ok(execution) => execution,
             Err(e) => return self.error(format!("{refused}; the diagnostic run failed: {e:?}")),
         };
@@ -559,6 +797,7 @@ impl<'a> BaselineRunner<'a> {
                 wall_ms: None,
                 specification_diagnostics: json!([]),
                 smt_unknowns: 0,
+                host: Some(HostDependence::Time),
             };
         }
         let leaves = execution.leaves();
@@ -587,6 +826,11 @@ impl<'a> BaselineRunner<'a> {
                 }
                 _ => exclusion_hint(exclusion, !execution.facts().contradicted_claims.is_empty()),
             }
+        } else if let Some(bound) = self
+            .baseline_max_work
+            .filter(|_| leaves.iter().any(|leaf| leaf.halt == HaltClass::WorkBound))
+        {
+            format!("the run reached baseline_max_work = {bound}")
         } else if leaves.iter().any(|leaf| leaf.halt == HaltClass::DepthBound) {
             format!(
                 "the run reached max_depth = {}",
@@ -634,6 +878,12 @@ impl<'a> BaselineRunner<'a> {
                 &execution.facts().contradicted_claims,
             ),
             smt_unknowns: execution.facts().smt_unknowns,
+            host: host_dependence(
+                class,
+                exclusion,
+                live_stop,
+                diagnostic_host_exclusion(&mut backend, &execution),
+            ),
         }
     }
 
@@ -913,12 +1163,50 @@ pub fn millis(duration: Duration) -> u64 {
 /// observe (`observable`: each rule's compiled ids) the returned leaves had applied. The rule
 /// count comes from the census, not from the record's coverage, which lists nothing for a
 /// timed-out run (kink-native `TestCoverage`); it is a hint, read from the leaves k-rust
-/// returned after the cancel.
+/// returned after the cancel. It ends with [`TIMEOUT_NOT_CACHED`] and, without a
+/// `[budget] baseline_max_work`, [`TIMEOUT_BOUND_BY_WORK`].
 pub fn timeout_cause(
     time_ms: u128,
+    baseline_max_work: Option<u64>,
     census: &kink_campaign::LeafCensus,
     observable: &[BTreeSet<String>],
 ) -> String {
+    format!(
+        "the run did not finish within time_ms = {time_ms}; when the bound fired {}{}{}",
+        census_hint(census, observable),
+        TIMEOUT_NOT_CACHED,
+        if baseline_max_work.is_none() {
+            TIMEOUT_BOUND_BY_WORK
+        } else {
+            ""
+        }
+    )
+}
+
+/// The clause a timeout's cause continues with: a timeout is never cached.
+pub const TIMEOUT_NOT_CACHED: &str = "; a timeout depends on the host's load and is not cached: \
+     the next command runs this program again";
+/// The clause a timeout's cause ends with when the manifest bounds no baseline by work.
+pub const TIMEOUT_BOUND_BY_WORK: &str =
+    "; set [budget] baseline_max_work to bound the run by work instead";
+
+/// The cause of a baseline that `[budget] baseline_max_work` stopped: the bound, the leaf
+/// census of the run and how many of the rules a run can observe its leaves had applied, as
+/// [`timeout_cause`] says them.
+pub fn work_bound_cause(
+    bound: u64,
+    census: &kink_campaign::LeafCensus,
+    observable: &[BTreeSet<String>],
+) -> String {
+    format!(
+        "the run reached baseline_max_work = {bound}; {}",
+        census_hint(census, observable)
+    )
+}
+
+/// A census as a cause says it: [`crate::report::census_clause`], and how many of the rules a run
+/// can observe (`observable`: each rule's compiled ids) the returned leaves had applied.
+fn census_hint(census: &kink_campaign::LeafCensus, observable: &[BTreeSet<String>]) -> String {
     let reached = if census.total() > 0 {
         let count = observable
             .iter()
@@ -931,10 +1219,7 @@ pub fn timeout_cause(
     } else {
         String::new()
     };
-    format!(
-        "the run did not finish within time_ms = {time_ms}; when the bound fired {}{reached}",
-        crate::report::census_clause(census)
-    )
+    format!("{}{reached}", crate::report::census_clause(census))
 }
 
 /// The compiled ids of each authored rule of the specification with an id in the coverage domain
@@ -1005,6 +1290,19 @@ pub fn sentence_value(spec: &AdmittedSpec, at: &SentenceRef) -> Value {
     })
 }
 
+/// A sentence as a record's coverage stores it: `{module, index, label}`. The label is content
+/// (part of the sentence's fingerprint); file and lines are not stored, since a record answers
+/// under an execution digest that ignores positions, and documents render them from the current
+/// load ([`sentence_value`]).
+fn stored_sentence(spec: &AdmittedSpec, at: &SentenceRef) -> Value {
+    let sentence = spec.loaded.baseline.sentence(at);
+    json!({
+        "module": at.module,
+        "index": at.index,
+        "label": sentence.and_then(|s| s.attributes().string(AttributeKey::Label)),
+    })
+}
+
 /// A record's coverage (kink-native `TestCoverage`, coverage v2 since re-pin L2-1): `sentences`
 /// are the baseline sentences the run reached (k-rust `matched`), `applied_sentences` those it
 /// applied (`applied`: a step built a successor or found the step undefined, which orders a run's
@@ -1015,7 +1313,7 @@ fn coverage_value(spec: &AdmittedSpec, coverage: &TestCoverage) -> Value {
     let sentences = |sentences: &BTreeSet<SentenceRef>| {
         sentences
             .iter()
-            .map(|at| sentence_value(spec, at))
+            .map(|at| stored_sentence(spec, at))
             .collect::<Vec<_>>()
     };
     json!({
@@ -1026,11 +1324,20 @@ fn coverage_value(spec: &AdmittedSpec, coverage: &TestCoverage) -> Value {
     })
 }
 
-/// The result record of one program (never for a refused program).
-pub fn record_value(spec: &AdmittedSpec, key: &Value, id: &str, result: &ProgramResult) -> Value {
+/// The result record of one program (never for a refused program). `spec_digest` is the
+/// writer's exact specification digest, outside the key, for diagnosis only: a reader can tell
+/// that a record was written under other bytes.
+pub fn record_value(
+    spec: &AdmittedSpec,
+    key: &Value,
+    spec_digest: Sha256Digest,
+    id: &str,
+    result: &ProgramResult,
+) -> Value {
     json!({
         "schema": RECORD_SCHEMA,
         "key": key,
+        "spec_digest": spec_digest.to_string(),
         "program_id": id,
         "class": result.class.as_str(),
         "cause": result.cause,
@@ -1046,14 +1353,18 @@ pub fn record_value(spec: &AdmittedSpec, key: &Value, id: &str, result: &Program
 }
 
 /// A stored record: `None` when the file is absent; `Some(None)` when it exists but does not
-/// parse or has another schema or key (it is then recomputed, never used).
+/// parse, has another schema or key, or holds a class this build never writes (anything but
+/// `comparable` and `unknown`: a file another writer left, or a hand edit); it is then
+/// recomputed, never used. A stored `unknown` is honoured: the writer stores one only when it
+/// does not depend on the host, and the cache directory's integrity is the cache's premise.
 fn read_record(path: &Path, key: &Value) -> Option<Option<Value>> {
     let text = fs::read_to_string(path).ok()?;
-    Some(
-        kink_patch::parse_json(&text)
-            .ok()
-            .filter(|record| record["schema"] == RECORD_SCHEMA && record["key"] == *key),
-    )
+    Some(kink_patch::parse_json(&text).ok().filter(|record| {
+        record["schema"] == RECORD_SCHEMA
+            && record["key"] == *key
+            && (record["class"] == ResultClass::Comparable.as_str()
+                || record["class"] == ResultClass::Unknown.as_str())
+    }))
 }
 
 /// How `--verify` compares a stored record with a new run of its program: every difference,
@@ -1135,7 +1446,12 @@ impl ProgramRow {
 /// The result cache brought up to date for one admitted specification (`results` without
 /// the document): one row per manifest program, in manifest order.
 pub struct ResultsUpdate {
+    /// The exact specification digest, which keys the memos and names the specification in every
+    /// document.
     pub spec_digest: Sha256Digest,
+    /// The execution digest, computed once per command, which keys the result cache, tier 1 and
+    /// the pattern cache (`digest::execution_digest`).
+    pub execution: ExecutionDigest,
     pub rows: Vec<ProgramRow>,
     pub mismatches: Vec<Value>,
 }
@@ -1175,8 +1491,9 @@ pub fn update_results(
     verify: bool,
 ) -> ResultsUpdate {
     let spec_digest = spec_digest(manifest, &spec.loaded.files);
+    let execution = execution_digest(manifest, spec);
     let store = Store::new(cache);
-    let directory = cache.join("results").join(spec_digest.to_string());
+    let directory = cache.join("results").join(execution.digest.to_string());
     let build = kink_campaign::kink_build().ok();
     let mut mismatches = Vec::new();
     let rows = manifest
@@ -1190,12 +1507,13 @@ pub fn update_results(
                 runner,
                 &ProgramContext {
                     spec_digest,
+                    execution,
                     build,
+                    store: result_store(),
                     directory: &directory,
                     cache,
-                    store: &store,
+                    writer: &store,
                     verify,
-                    refresh: false,
                 },
                 program,
                 &mut mismatches,
@@ -1204,9 +1522,32 @@ pub fn update_results(
         .collect::<Vec<_>>();
     ResultsUpdate {
         spec_digest,
+        execution,
         rows,
         mismatches,
     }
+}
+
+/// Why the result cache is off under the Z3 profile.
+pub const RESULT_CACHE_Z3: &str = "the result cache is off under the z3 profile: a solver query is \
+     bounded by the clock, so no baseline class is a function of its key; every program runs live";
+/// Why the result cache is off when kink's build identity is unknown (packet CACHE-ID-fix-1).
+pub const RESULT_CACHE_NO_BUILD: &str = "kink's build identity is unknown (the executable cannot \
+     be read): the result cache is neither read nor written";
+
+/// kink's build identity when the result cache is on, else why it is off: under the Z3 profile
+/// ([`RESULT_CACHE_Z3`]) and when the executable cannot be read ([`RESULT_CACHE_NO_BUILD`]).
+pub fn result_store() -> Result<Sha256Digest, &'static str> {
+    if matches!(SolverProfile::BUILD, SolverProfile::Z3) {
+        return Err(RESULT_CACHE_Z3);
+    }
+    kink_campaign::kink_build().map_err(|_| RESULT_CACHE_NO_BUILD)
+}
+
+/// The results document's `result_cache`: `{enabled, reason}`.
+pub fn result_cache_value() -> Value {
+    let store = result_store();
+    json!({"enabled": store.is_ok(), "reason": store.err()})
 }
 
 /// `kink-flow results`: the results document and whether the command found no corpus or
@@ -1267,6 +1608,8 @@ pub fn results(manifest: &FlowManifest, options: &ResultsOptions) -> (Value, boo
         update.mismatches,
         runner.baseline_runs(),
     );
+    document["spec"]["execution_digest"] = update.execution.value();
+    document["result_cache"] = result_cache_value();
     document["data"] = spec.data.value();
     document["result"] = spec.result.value();
     document["spec"]["exclusion"] = runner.definition_exclusion();
@@ -1295,54 +1638,19 @@ pub fn results(manifest: &FlowManifest, options: &ResultsOptions) -> (Value, boo
 }
 
 struct ProgramContext<'a> {
+    /// The writer's exact specification digest, which a record names outside its key.
     spec_digest: Sha256Digest,
-    /// kink's build identity; `None` when the executable cannot be read, and then no record is
-    /// read or written (packet CACHE-ID-fix-1).
+    /// The execution digest, which keys the records.
+    execution: ExecutionDigest,
+    /// kink's build identity, the key's `kink_build`; `None` when the executable cannot be read.
     build: Option<Sha256Digest>,
+    /// kink's build identity when the result cache is on, else why it is off ([`result_store`]):
+    /// no record is then read or written.
+    store: Result<Sha256Digest, &'static str>,
     directory: &'a Path,
     cache: &'a Path,
-    store: &'a Store,
+    writer: &'a Store,
     verify: bool,
-    /// Re-run a program that has a current record, and replace the record only when the class
-    /// or the run digest changed (F-14: [`rerun_timeout_record`]).
-    refresh: bool,
-}
-
-/// Re-run once, through the same path as `results`, the baseline of a program whose current
-/// record is class `timeout` (flow F-14, README 7.5.7, F-05 review 1 minor 1). A timeout is
-/// host-dependent, so it is not final for a program that a killer hint names. The record is
-/// replaced only when the class or the run digest changes; comparability still comes only from
-/// the zero-mutant campaign admitting the baseline. The row says `"rerun": "timeout"`.
-pub fn rerun_timeout_record(
-    spec: &AdmittedSpec,
-    manifest: &FlowManifest,
-    inputs: &mut InputSession<'_>,
-    runner: &BaselineRunner<'_>,
-    cache: &Path,
-    program: &Program,
-) -> ProgramRow {
-    let spec_digest = spec_digest(manifest, &spec.loaded.files);
-    let store = Store::new(cache);
-    let directory = cache.join("results").join(spec_digest.to_string());
-    let mut row = program_row(
-        spec,
-        manifest,
-        inputs,
-        runner,
-        &ProgramContext {
-            spec_digest,
-            build: kink_campaign::kink_build().ok(),
-            directory: &directory,
-            cache,
-            store: &store,
-            verify: false,
-            refresh: true,
-        },
-        program,
-        &mut Vec::new(),
-    );
-    row.row["rerun"] = json!("timeout");
-    row
 }
 
 fn program_row(
@@ -1403,14 +1711,16 @@ fn program_row(
         Err(refusal) => return refused(None, refusal),
     };
     let digest = program_digest(program, &case);
-    let key = result_key(context.spec_digest, digest, manifest.budget, context.build);
+    let key = result_key(context.execution, digest, manifest.budget, context.build);
     let path = context.directory.join(format!("{digest}.json"));
-    // Without a build identity no record is honoured (packet CACHE-ID-fix-1).
+    // Without a build identity, or under the Z3 profile, no record is honoured (packet
+    // CACHE-ID-fix-1).
     let stored = context
-        .build
+        .store
+        .ok()
         .and_then(|_| read_record(&path, &key))
         .flatten();
-    if let (Some(record), false, false) = (&stored, context.verify, context.refresh) {
+    if let (Some(record), false) = (&stored, context.verify) {
         return ProgramRow {
             row: with_wall(
                 row(
@@ -1435,34 +1745,7 @@ fn program_row(
         Err(refusal) => return refused(Some(digest), refusal),
     };
     let result = runner.run(test.clone());
-    let unchanged = |record: &Value| {
-        record["class"] == result.class.as_str()
-            && record["run_sha256"].as_str()
-                == result.run_sha256().map(|d| d.to_string()).as_deref()
-    };
-    if let (Some(record), true) = (&stored, context.refresh)
-        && unchanged(record)
-    {
-        return ProgramRow {
-            row: with_wall(
-                row(
-                    Some(digest),
-                    record["class"].as_str().unwrap_or("error"),
-                    &record["cause"],
-                    true,
-                    Value::Null,
-                ),
-                record,
-            ),
-            failed: record["class"] == ResultClass::Error.as_str(),
-            record: stored,
-            live: None,
-            digest: Some(digest),
-            inputs: Some(case),
-            test: Some(test),
-        };
-    }
-    if let (Some(record), false) = (stored, context.refresh) {
+    if let Some(record) = stored {
         let differences = verify_record(&record, &result);
         let relative = path
             .strip_prefix(context.cache)
@@ -1490,13 +1773,19 @@ fn program_row(
             ),
             failed: record["class"] == ResultClass::Error.as_str(),
             record: Some(record),
-            live: Some(record_value(spec, &key, &program.id, &result)),
+            live: Some(record_value(
+                spec,
+                &key,
+                context.spec_digest,
+                &program.id,
+                &result,
+            )),
             digest: Some(digest),
             inputs: Some(case),
             test: Some(test),
         };
     }
-    let record = record_value(spec, &key, &program.id, &result);
+    let record = record_value(spec, &key, context.spec_digest, &program.id, &result);
     let mut row = with_wall(
         row(
             Some(digest),
@@ -1507,13 +1796,16 @@ fn program_row(
         ),
         &record,
     );
+    // A record is written only when the store is on and the result is a function of its key;
+    // an error row still fails the command, cached or not.
     let mut failed = result.class == ResultClass::Error;
     if context.build.is_none() {
-        row["cache_error"] = json!(
-            "kink's build identity is unknown (the executable cannot be read): the result cache \
-             is neither read nor written"
-        );
-    } else if let Err(e) = context.store.write_json(&path, &record) {
+        row["cache_error"] = json!(RESULT_CACHE_NO_BUILD);
+    } else if context.store.is_err() {
+        // The document's `result_cache` says why the store is off.
+    } else if let Some(host) = result.host {
+        row["not_cached"] = json!(host.reason(result.class, runner.time_ms()));
+    } else if let Err(e) = context.writer.write_json(&path, &record) {
         row["cache_error"] = json!(format!("cannot write the result record: {e}"));
         failed = true;
     }
@@ -1616,20 +1908,21 @@ pub fn no_coverage_signal(spec: &AdmittedSpec) -> BTreeMap<SentenceRef, &'static
 
 /// The current result record of `program`, whose inputs are `inputs`, read from the cache `cache`
 /// without running anything: the record `results` would use, or `None` when there is none (no
-/// file, another key, or no build identity, under which no record is honoured).
+/// file, another key, a class never written, or the store off, [`result_store`]). `execution` is
+/// the execution digest of the admitted specification (`digest::execution_digest`).
 pub fn current_record(
     manifest: &FlowManifest,
-    spec_digest: Sha256Digest,
+    execution: ExecutionDigest,
     program: &Program,
     inputs: &CaseInputs,
     cache: &Path,
 ) -> Option<Value> {
-    let build = kink_campaign::kink_build().ok()?;
+    let build = result_store().ok()?;
     let digest = program_digest(program, inputs);
-    let key = result_key(spec_digest, digest, manifest.budget, Some(build));
+    let key = result_key(execution, digest, manifest.budget, Some(build));
     let path = cache
         .join("results")
-        .join(spec_digest.to_string())
+        .join(execution.digest.to_string())
         .join(format!("{digest}.json"));
     read_record(&path, &key).flatten()
 }
@@ -1664,10 +1957,11 @@ fn document(
         // second slot compares (null when the specification is refused), and where that slot is
         // `cells` a program's `final_configuration` and `ends` are the projected ends, each
         // uncompared cell's content `\top` of its sort. The result schema version stays: a
-        // record holds projected ends only under a key whose specification digest holds the
-        // source bytes (so the `unobservable` declarations) and `[result] cells`, and every key
-        // read or written names `kink_build`, so no record of a build before the compared cells
-        // is ever read.
+        // record holds projected ends only under a key whose execution digest holds the
+        // `unobservable` declarations and `[result] cells`, and every key read or written names
+        // `kink_build`, so no record of a build before the compared cells is ever read. Added to
+        // 5 without a new version, since they are additive and no command reads a `results`
+        // document back: `spec.execution_digest` and `result_cache`, and a row's `not_cached`.
         // 4 since CF-16: a program's row carries `ends`, each end's `{head, class}` (its
         // computation head printed as K text, and the exit-stop class), null unless comparable.
         // 3 since KINK-R4: a rewrite rule's `fired_by` lists only programs some path of whose
@@ -1721,4 +2015,130 @@ pub fn data_marked(mut rows: Vec<Value>, data: &kink_native::data::DataFacts) ->
         }
     }
     rows
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const EXCLUSIONS: [Exclusion; 9] = [
+        Exclusion::StackStop,
+        Exclusion::LoadStackStop,
+        Exclusion::ContradictedClaim,
+        Exclusion::ImplementationChosenHook,
+        Exclusion::ShortCircuitReading,
+        Exclusion::AllowanceRefusal,
+        Exclusion::EqualsCondition,
+        Exclusion::ImplementationChosenValue,
+        Exclusion::UnsupportedHook,
+    ];
+
+    #[test]
+    fn the_host_exclusions_are_the_stack_stops_and_the_allowance_refusal() {
+        let host = EXCLUSIONS
+            .into_iter()
+            .filter(|&exclusion| host_exclusion(exclusion))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            host,
+            [
+                Exclusion::StackStop,
+                Exclusion::LoadStackStop,
+                Exclusion::AllowanceRefusal
+            ]
+        );
+    }
+
+    /// Every arm of [`host_dependence`]: a stored class is one no run of it depended on the host
+    /// for, the diagnostic run's own host exclusions included.
+    #[test]
+    fn a_result_depends_on_the_host_through_either_run() {
+        use HostDependence::{Exclusion as Host, Failure, Time};
+        use ResultClass::{Comparable, Error, Refused, Timeout, Unknown};
+        let finished = Some(RunStop::Finished);
+        let claim = Some(Exclusion::ContradictedClaim);
+        let stack = Some(Exclusion::StackStop);
+        let cases = [
+            (Comparable, None, finished, None, None),
+            (Refused, None, None, None, None),
+            (Timeout, None, Some(RunStop::Time), None, Some(Time)),
+            (Error, None, finished, None, Some(Failure)),
+            (Error, claim, finished, stack, Some(Failure)),
+            // The live run's own facts.
+            (
+                Unknown,
+                stack,
+                finished,
+                None,
+                Some(Host(Exclusion::StackStop)),
+            ),
+            (Unknown, claim, Some(RunStop::Time), None, Some(Time)),
+            (Unknown, None, Some(RunStop::Failed), None, Some(Failure)),
+            (Unknown, claim, Some(RunStop::Failed), None, None),
+            // A deterministic unknown, from either run.
+            (Unknown, claim, finished, claim, None),
+            (Unknown, None, finished, None, None),
+            (Unknown, None, None, None, None),
+            // The diagnostic run met a host exclusion the live run did not.
+            (
+                Unknown,
+                None,
+                finished,
+                stack,
+                Some(Host(Exclusion::StackStop)),
+            ),
+            (
+                Unknown,
+                claim,
+                finished,
+                stack,
+                Some(Host(Exclusion::StackStop)),
+            ),
+            (
+                Unknown,
+                None,
+                None,
+                Some(Exclusion::AllowanceRefusal),
+                Some(Host(Exclusion::AllowanceRefusal)),
+            ),
+            (
+                Unknown,
+                None,
+                finished,
+                Some(Exclusion::LoadStackStop),
+                Some(Host(Exclusion::LoadStackStop)),
+            ),
+        ];
+        for (class, exclusion, live_stop, diagnostic, expected) in cases {
+            assert_eq!(
+                host_dependence(class, exclusion, live_stop, diagnostic),
+                expected,
+                "{class:?} {exclusion:?} {live_stop:?} {diagnostic:?}"
+            );
+        }
+    }
+
+    /// Only an oracle refusal naming no exclusion of a run the work bound stopped is read as a
+    /// cached `unknown` without a diagnostic run; an error side of such a run is an `error`.
+    #[test]
+    fn only_an_oracle_refusal_of_a_work_bound_run_is_a_work_bound_unknown() {
+        use CampaignFailureKind::{BaselineError, BaselineInvalid, BaselineOracleFailed};
+        let bound = Some(20_000);
+        assert!(work_bound_refusal(BaselineOracleFailed, None, bound, true));
+        assert!(!work_bound_refusal(BaselineError, None, bound, true));
+        assert!(!work_bound_refusal(BaselineInvalid, None, bound, true));
+        assert!(!work_bound_refusal(
+            BaselineOracleFailed,
+            Some(Exclusion::StackStop),
+            bound,
+            true
+        ));
+        assert!(!work_bound_refusal(BaselineOracleFailed, None, None, true));
+        assert!(!work_bound_refusal(
+            BaselineOracleFailed,
+            None,
+            bound,
+            false
+        ));
+    }
 }

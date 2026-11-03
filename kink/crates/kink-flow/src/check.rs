@@ -24,7 +24,11 @@
 //!   results (reached, k-rust `matched`, for an edit of the rule's `requires`; applied otherwise:
 //!   the witness rule of `run`'s program order). Given only when every program has a current
 //!   result record and every comparable program's coverage is complete; otherwise the document's
-//!   `coverage` says why there is no such warning.
+//!   `coverage` says why there is no such warning. A program whose result is never cached (a
+//!   timeout, an error, an `unknown` the host caused, or every program under the Z3 profile,
+//!   where the result cache is off) has no record, so while the corpus holds one the warning is
+//!   not given: which programs are comparable is then a fact of the host's run, not of the
+//!   cached results.
 //! - `no-coverage-signal`: an edited rule k-rust's coverage cannot record, so no program can be
 //!   shown to reach it.
 //!
@@ -40,13 +44,13 @@
 use crate::{
     admit::{AdmittedSpec, InputSession},
     cli::{CommandSpelling, Verb},
-    digest::spec_digest,
+    digest::execution_digest,
     manifest::FlowManifest,
     mutation::{
         InvalidMutation, Mutation, MutationList, ResolvedMutation, addressed_rule, resolve,
     },
     report::rules_value,
-    results::{ResultClass, current_record, no_coverage_signal},
+    results::{ResultClass, current_record, no_coverage_signal, result_store},
 };
 use kink_corpus::LoadedSource;
 use kink_patch::SentenceRef;
@@ -227,8 +231,12 @@ impl MutationCheck {
 /// anything ([`corpus_coverage`]).
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CorpusCoverage {
-    /// The programs with no current result record (never run under this specification and
-    /// build, or refused before a record could be made).
+    /// Why the result cache is off (`results::result_store`), when it is: no program then has a
+    /// record.
+    pub cache_off: Option<&'static str>,
+    /// The programs with no current result record: never run under this specification and
+    /// build, refused before a record could be made, or with a result that is never cached (a
+    /// timeout, an error, an `unknown` the host caused), which every command computes again.
     pub without_record: Vec<String>,
     /// The comparable programs whose recorded coverage is incomplete (their run stopped before
     /// it explored everything, so it may use rules it does not list).
@@ -253,10 +261,19 @@ impl CorpusCoverage {
     pub fn value(&self, spelling: &dyn CommandSpelling) -> Value {
         let detail = if self.decides() {
             Value::Null
+        } else if let Some(reason) = self.cache_off {
+            json!(format!(
+                "no unreached-rule warning is given: it needs a current result record of every \
+                 program, and {reason}"
+            ))
         } else {
             json!(format!(
                 "no unreached-rule warning is given: it needs a current result record of every \
-                 program (run `{}`) and complete coverage of every comparable program",
+                 program and complete coverage of every comparable program. A program without a \
+                 record has not run under this specification (run `{}`), or its result is never \
+                 cached (a timeout, an error, or an unknown the host caused; its row in `results` \
+                 says `not_cached`): bound baselines by work with [budget] baseline_max_work, so \
+                 that a run that does not finish is a cached unknown, and fix an error",
                 spelling.command(Verb::Results)
             ))
         };
@@ -277,8 +294,9 @@ pub fn corpus_coverage(
     inputs: &InputSession<'_>,
     cache: &Path,
 ) -> CorpusCoverage {
-    let digest = spec_digest(manifest, &spec.loaded.files);
+    let execution = execution_digest(manifest, spec);
     let mut coverage = CorpusCoverage {
+        cache_off: result_store().err(),
         no_signal: no_coverage_signal(spec),
         ..CorpusCoverage::default()
     };
@@ -286,7 +304,7 @@ pub fn corpus_coverage(
         let record = inputs
             .read(program)
             .ok()
-            .and_then(|case| current_record(manifest, digest, program, &case, cache));
+            .and_then(|case| current_record(manifest, execution, program, &case, cache));
         let Some(record) = record else {
             coverage.without_record.push(program.id.clone());
             continue;

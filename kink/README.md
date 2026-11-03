@@ -549,16 +549,20 @@ Every other row also carries:
 
 `.kink-flow/` (or `--cache DIR`) holds plain JSON; deleting it, or any file in it, is always safe:
 
-- `results/<spec digest>/<program digest>.json`: one program's cached result (class, cause, baseline evidence, final configuration, rule coverage, and `wall_ms`, which orders the search and is part of no key);
+- `results/<execution digest>/<program digest>.json`: one program's cached result (class, cause, baseline evidence, final configuration, rule coverage, and `wall_ms`, which orders the search and is part of no key);
+  only `comparable` and `unknown` results are cached, and of `unknown` only those whose cause is not a host event: a timeout, an error, a stack stop or an allowance refusal depends on the host, so every command runs that program again (`[budget] baseline_max_work` bounds a baseline by work instead, a cached `unknown`); under the Z3 profile nothing is cached;
 - `outcomes/<context digest>/<mutation identity>.json`: one mutation's proved outcomes (`killed` or `agree`) per program, with an integrity digest per record;
-  the context is kink's build, the k-rust revision, the solver profile, the specification digest, the budget and the oracles;
+  the context is kink's build, the k-rust revision, the solver profile, the execution digest, the budget's bounds and the oracles;
   a timeout, an unknown or an error is never cached;
 - `hints.json`: each killed mutation's last killing program, keyed by the mutation's edits and its rules' text (no positions), a scheduling hint only (deleting it with `outcomes/` re-runs the searches cheapest killer first);
 - `report.json`: the last run's report;
-- `patterns/<spec digest>/<pattern digest>/<program digest>.json`: one cached pattern answer (`hit` with its witness, or `no`); `run` never reads it.
+- `patterns/<execution digest>/<pattern digest>/<program digest>.json`: one cached pattern answer (`hit` with its witness, or `no`); `run` never reads it;
+- `memo/`: the warm path's memos of mutation resolution and of the declaration census, keyed by the specification digest, since they cite lines and file text.
 
-The specification digest covers every source file the specification loads, so editing the specification reruns every program and every mutation, each killed one first with its hint;
-the program digest covers a program's text, start sort and variables, so editing a program reruns only that program.
+The result cache, tier 1 and the pattern cache are keyed by the execution digest, the loaded definition without positions: a comment, a blank line or any other layout edit (a rustdoc comment KRS emits as a K comment included) keeps every stored result and every cached outcome (a mutation addressed by `line` follows its line, so a shifted line moves it to another sentence or to none), while editing a rule, an attribute, the order of rules, a module, an `unobservable` declaration or `[result] cells` reruns every program and every mutation, each killed one first with its hint.
+The specification digest, every byte of every source file, names the specification in the documents and keys the memos.
+The program digest covers a program's text, start sort and variables, so editing a program reruns only that program.
+`time_ms` is in no key: no stored value depends on it, so raising it to get past timeouts keeps every result and outcome.
 Rebuilding kink starts a new outcome context. The `killers/` directory of earlier versions is no longer read and can be deleted.
 
 ### A larger example: IMP

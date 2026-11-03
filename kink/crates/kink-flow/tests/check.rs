@@ -1819,7 +1819,8 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
     }
 
     /// With every program's result cached, `check` warns of an edited rule no comparable
-    /// program witnesses; `run` exits 1 when a selected mutation is invalid.
+    /// program witnesses; `run` exits 1 when a selected mutation is invalid. Under Z3 the result
+    /// cache is off, so no program has a record and the warning is never given.
     #[test]
     #[ignore = "kink"]
     fn check_warns_of_an_unwitnessed_rule_and_run_exits_one_on_an_invalid_mutation() {
@@ -1857,18 +1858,23 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
         assert_eq!(status, EXIT_OK, "{document:#}");
         let (document, status) = check_list(&manifest, &list, None);
         assert_eq!(status, EXIT_CORPUS, "{document:#}");
-        assert_eq!(document["coverage"]["decides"], true, "{document:#}");
-        assert_eq!(
-            row(&document, "add-becomes-sub")["warnings"],
-            serde_json::json!([])
-        );
-        let unreached = &row(&document, "mul-becomes-add")["warnings"];
-        assert_eq!(reasons(unreached), ["unreached-rule"], "{document:#}");
-        assert_eq!(unreached[0]["rule"]["module"], "CALC");
-        // Another cache holds no record: the warning is not given.
-        let other = scratch("check-unreached-other-cache");
-        let (document, _) = check_list(&manifest, &list, Some(&other));
-        assert_eq!(document["coverage"]["decides"], false);
+        if cfg!(feature = "z3") {
+            assert_eq!(document["coverage"]["decides"], false, "{document:#}");
+            assert_eq!(
+                document["coverage"]["detail"],
+                format!(
+                    "no unreached-rule warning is given: it needs a current result record of \
+                     every program, and {}",
+                    kink_flow::results::RESULT_CACHE_Z3
+                )
+            );
+            assert_eq!(
+                row(&document, "mul-becomes-add")["warnings"],
+                serde_json::json!([])
+            );
+        } else {
+            unreached_rule_from_the_cached_results(&dir, &manifest, &list, &document);
+        }
 
         let (document, status) = run(&manifest, &list, &RunOptions::default());
         assert_eq!(status, EXIT_CORPUS, "{document:#}");
@@ -1882,6 +1888,136 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
             },
         );
         assert_eq!(status, EXIT_OK, "{document:#}");
+    }
+
+    /// The check document of the test above once every program's result is cached: the coverage
+    /// decides and gives the warning, a layout edit keeps it, and another cache gives none.
+    fn unreached_rule_from_the_cached_results(
+        dir: &Path,
+        manifest: &Path,
+        list: &Path,
+        document: &Value,
+    ) {
+        assert_eq!(document["coverage"]["decides"], true, "{document:#}");
+        assert_eq!(
+            row(document, "add-becomes-sub")["warnings"],
+            serde_json::json!([])
+        );
+        let unreached = &row(document, "mul-becomes-add")["warnings"];
+        assert_eq!(reasons(unreached), ["unreached-rule"], "{document:#}");
+        assert_eq!(unreached[0]["rule"]["module"], "CALC");
+        // A comment and blank lines at the top of the specification keep every record: coverage
+        // still decides, from the same records, and gives the same warning.
+        let calc = dir.join("calc.k");
+        let text = fs::read_to_string(&calc).unwrap();
+        fs::write(&calc, format!("// a comment at the top\n\n{text}")).unwrap();
+        let (commented, status) = check_list(manifest, list, None);
+        assert_eq!(status, EXIT_CORPUS, "{commented:#}");
+        assert_eq!(commented["coverage"], document["coverage"], "{commented:#}");
+        assert_eq!(
+            reasons(&row(&commented, "mul-becomes-add")["warnings"]),
+            ["unreached-rule"]
+        );
+        // Another cache holds no record: the warning is not given.
+        let other = scratch("check-unreached-other-cache");
+        let (document, _) = check_list(manifest, list, Some(&other));
+        assert_eq!(document["coverage"]["decides"], false);
+    }
+
+    /// A timeout is never cached, so a corpus with a program that times out has no record of it
+    /// and `check` gives no unreached-rule warning, however often `results` runs; its detail says
+    /// why and names the remedy. Bounded by `[budget] baseline_max_work` instead, the program is a
+    /// cached `unknown`, which is not comparable, and the coverage decides from the comparable
+    /// programs' records.
+    // Portable only: under Z3 the result cache is off, which the test above covers.
+    #[cfg(not(feature = "z3"))]
+    #[test]
+    #[ignore = "kink"]
+    fn a_timeout_keeps_check_from_deciding_coverage_until_it_is_bounded_by_work() {
+        use kink_flow::{cli::results, results::ResultsOptions};
+        let dir = scratch("check-timeout");
+        for name in ["loop.k", "FLOW-timeout.toml"] {
+            fs::copy(flow("loop").join(name), dir.join(name)).unwrap();
+        }
+        fs::create_dir_all(dir.join("programs")).unwrap();
+        for name in ["spin.loop", "countdown.loop"] {
+            fs::copy(
+                flow("loop").join("programs").join(name),
+                dir.join("programs").join(name),
+            )
+            .unwrap();
+        }
+        let list = dir.join("MUTATIONS.toml");
+        write(
+            &list,
+            &one_edit(
+                "unused-adds-one",
+                "  rule = \"unused\"\n  find = \"=> I\"\n  replace = \"=> I +Int 1\"",
+            ),
+        );
+        let classes = |document: &Value| {
+            document["programs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|p| (p["id"].as_str().unwrap().to_owned(), p["class"].clone()))
+                .collect::<Vec<_>>()
+        };
+        let timeout = dir.join("FLOW-timeout.toml");
+        for _ in 0..2 {
+            let (document, status) = results(&timeout, &ResultsOptions::default());
+            assert_eq!(status, EXIT_OK, "{document:#}");
+            assert_eq!(
+                classes(&document),
+                [
+                    ("spin".to_owned(), serde_json::json!("timeout")),
+                    ("countdown".to_owned(), serde_json::json!("comparable")),
+                ]
+            );
+            let (checked, status) = check_list(&timeout, &list, None);
+            assert_eq!(status, EXIT_OK, "{checked:#}");
+            assert_eq!(checked["coverage"]["decides"], false, "{checked:#}");
+            assert_eq!(
+                checked["coverage"]["without_record"],
+                serde_json::json!(["spin"])
+            );
+            let detail = checked["coverage"]["detail"].as_str().unwrap();
+            assert!(
+                detail.contains("its result is never cached")
+                    && detail.contains("[budget] baseline_max_work"),
+                "{detail}"
+            );
+            assert_eq!(
+                row(&checked, "unused-adds-one")["warnings"],
+                serde_json::json!([])
+            );
+        }
+
+        let work = dir.join("FLOW-work.toml");
+        write(
+            &work,
+            &fs::read_to_string(&timeout).unwrap().replace(
+                "time_ms = 500\n",
+                "time_ms = 600000\nbaseline_max_work = 20000\n",
+            ),
+        );
+        let (document, status) = results(&work, &ResultsOptions::default());
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(
+            classes(&document),
+            [
+                ("spin".to_owned(), serde_json::json!("unknown")),
+                ("countdown".to_owned(), serde_json::json!("comparable")),
+            ]
+        );
+        let (checked, status) = check_list(&work, &list, None);
+        assert_eq!(status, EXIT_OK, "{checked:#}");
+        assert_eq!(checked["coverage"]["decides"], true, "{checked:#}");
+        assert_eq!(
+            reasons(&row(&checked, "unused-adds-one")["warnings"]),
+            ["unreached-rule"],
+            "{checked:#}"
+        );
     }
 
     #[test]

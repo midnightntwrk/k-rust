@@ -1,4 +1,6 @@
 //! Digests, the result cache and `kink-flow results` (flow F-03 deliverables 1-6).
+// Under Z3 the result cache is off, and the tests of its records are compiled out.
+#![cfg_attr(feature = "z3", allow(dead_code, unused_imports))]
 
 use kink_campaign::{
     Campaign, CampaignOptions, CampaignReport, ScheduleMode, TestCase, run_campaign_multi,
@@ -9,10 +11,13 @@ use kink_flow::{
     CaseInputs, FlowManifest, Program, SpecSection, admit,
     admit::{admit_spec, corpus_source},
     cli::{EXIT_CORPUS, EXIT_OK, EXIT_USAGE, results},
-    digest::{program_digest, spec_digest, spec_payload},
+    digest::{
+        ExecutionDigest, definition_value, execution_digest, execution_payload, program_digest,
+        spec_digest, spec_payload,
+    },
     results::{
         BaselineRunner, CACHE_DIRECTORY, RESULT_SCHEMA_VERSION, ResultClass, ResultsOptions,
-        execution_budget, fixed_oracles, run_digest,
+        TIMEOUT_BOUND_BY_WORK, TIMEOUT_NOT_CACHED, execution_budget, fixed_oracles, run_digest,
     },
 };
 use kink_native::{K_RUST_REVISION, execution::SolverProfile};
@@ -126,6 +131,14 @@ fn spec_hex(document: &Value) -> String {
     document["spec"]["digest"].as_str().unwrap().to_owned()
 }
 
+/// The execution digest a document names, which names the result cache's directory.
+fn execution_hex(document: &Value) -> String {
+    document["spec"]["execution_digest"]["digest"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
 /// The record of program `id` in the document's cache.
 fn record_path(manifest: &Path, document: &Value, id: &str) -> PathBuf {
     let digest = program_digests(document)
@@ -138,12 +151,25 @@ fn record_path(manifest: &Path, document: &Value, id: &str) -> PathBuf {
         .unwrap()
         .join(CACHE_DIRECTORY)
         .join("results")
-        .join(spec_hex(document))
+        .join(execution_hex(document))
         .join(format!("{digest}.json"))
 }
 
 fn read_json(path: &Path) -> Value {
     serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap()
+}
+
+/// The stored record of program `id`, or `None` under the Z3 profile, where the result cache is
+/// off (`results::RESULT_CACHE_Z3`) and no record is written. A test that reads a record for what
+/// the run computed asserts the rest of its claims under both profiles.
+fn stored_record(manifest: &Path, document: &Value, id: &str) -> Option<Value> {
+    let path = record_path(manifest, document, id);
+    if cfg!(feature = "z3") {
+        assert!(!path.exists(), "{}", path.display());
+        None
+    } else {
+        Some(read_json(&path))
+    }
 }
 
 fn manifest_spec_digest(manifest: &FlowManifest) -> String {
@@ -461,17 +487,18 @@ mod kink_tier {
         let (document, status) = run(&manifest, false);
         assert_eq!(status, EXIT_OK, "{document:#}");
         assert_eq!(rows(&document), expect(&[("store", "comparable", false)]));
-        let record = read_json(&record_path(&manifest, &document, "store"));
-        assert_eq!(record["class"], "comparable");
-        assert!(
-            !record["baseline"].is_null() && !record["run_sha256"].is_null(),
-            "{record:#}"
-        );
-        let finals = record["final_configuration"].as_array().unwrap();
-        assert_eq!(finals.len(), 1);
-        let text = finals[0].as_str().unwrap();
-        assert!(text.contains("\\dv{SortBytes{}}(\"a\")"), "{text}");
         assert_eq!(document["rules"][0]["reached_by"], json!(["store"]));
+        if let Some(record) = stored_record(&manifest, &document, "store") {
+            assert_eq!(record["class"], "comparable");
+            assert!(
+                !record["baseline"].is_null() && !record["run_sha256"].is_null(),
+                "{record:#}"
+            );
+            let finals = record["final_configuration"].as_array().unwrap();
+            assert_eq!(finals.len(), 1);
+            let text = finals[0].as_str().unwrap();
+            assert!(text.contains("\\dv{SortBytes{}}(\"a\")"), "{text}");
+        }
     }
 
     /// fz26 KRUST-ANYWHERE-HEAD: on SIMPLE (TRIAL2's stream-free copy,
@@ -686,19 +713,23 @@ text = 'h(opaque(1), 2)'
             .cloned()
             .unwrap();
         assert_eq!(half["fired_by"], json!(["zero", "five"]), "{half:#}");
-        let record = read_json(&record_path(&dir.join("FLOW.toml"), &document, "zero"));
-        let holds = |key: &str, label: &str| {
-            record["coverage"][key]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|sentence| sentence["label"] == label)
-        };
-        assert!(holds("applied_sentences", "PICK.bad"), "{record:#}");
-        assert!(!holds("fired_sentences", "PICK.bad"), "{record:#}");
-        assert!(holds("fired_sentences", "PICK.good"), "{record:#}");
+        if let Some(record) = stored_record(&dir.join("FLOW.toml"), &document, "zero") {
+            let holds = |key: &str, label: &str| {
+                record["coverage"][key]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|sentence| sentence["label"] == label)
+            };
+            assert!(holds("applied_sentences", "PICK.bad"), "{record:#}");
+            assert!(!holds("fired_sentences", "PICK.bad"), "{record:#}");
+            assert!(holds("fired_sentences", "PICK.good"), "{record:#}");
+        }
     }
 
+    // Portable only: it tests the result cache, which is off under Z3 by design
+    // (`results::RESULT_CACHE_Z3`; `the_z3_profile_stores_no_result`).
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn editing_one_program_recomputes_exactly_that_one() {
@@ -731,6 +762,9 @@ text = 'h(opaque(1), 2)'
         assert_ne!(read_json(&new)["run_sha256"], read_json(&old)["run_sha256"]);
     }
 
+    // Portable only: it tests the result cache, which is off under Z3 by design
+    // (`results::RESULT_CACHE_Z3`; `the_z3_profile_stores_no_result`).
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_fresh_cache_fills_every_program_and_a_second_run_computes_nothing() {
@@ -754,7 +788,19 @@ text = 'h(opaque(1), 2)'
                 assert_eq!(record["class"], "comparable");
                 assert_eq!(record["program_id"], *id);
                 assert_eq!(record["key"]["schema_version"], RESULT_SCHEMA_VERSION);
-                assert_eq!(record["key"]["spec"], first["spec"]["digest"]);
+                assert_eq!(
+                    record["key"]["execution"],
+                    first["spec"]["execution_digest"]
+                );
+                assert_eq!(record["spec_digest"], first["spec"]["digest"]);
+                assert_eq!(
+                    first["spec"]["execution_digest"]["kind"],
+                    kink_flow::digest::EXECUTION_DOMAIN
+                );
+                assert_eq!(
+                    first["result_cache"],
+                    json!({"enabled": true, "reason": null})
+                );
                 assert_eq!(
                     record["run_sha256"],
                     run_digest(&record["baseline"]).unwrap().to_string()
@@ -951,15 +997,68 @@ text = 'h(opaque(1), 2)'
         }
     }
 
+    /// A comment or layout edit of the specification keeps every record: the result cache is
+    /// keyed by the execution digest (the loaded definition without positions), which the edit
+    /// keeps, while the specification digest, which names the bytes, changes; the rule rows show
+    /// the shifted lines, read from the current load. An edit of a rule recomputes every program
+    /// under a new execution directory.
+    // Portable only: it tests the result cache, which is off under Z3 by design
+    // (`results::RESULT_CACHE_Z3`; `the_z3_profile_stores_no_result`).
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
-    fn editing_the_spec_recomputes_every_program_under_a_new_spec_directory() {
+    fn a_layout_edit_keeps_every_record_and_a_rule_edit_recomputes_every_program() {
         let manifest = fixture("calc", "edit-spec").join("FLOW.toml");
+        let calc = manifest.parent().unwrap().join("calc.k");
         let (first, _) = run(&manifest, false);
-        append(&manifest.parent().unwrap().join("calc.k"), "// edited\n");
+        append(&calc, "// edited\n");
+        let text = fs::read_to_string(&calc).unwrap();
+        fs::write(&calc, format!("// a comment at the top\n\n\n{text}")).unwrap();
+        let (layout, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_OK, "{layout:#}");
+        assert_ne!(spec_hex(&first), spec_hex(&layout));
+        assert_eq!(
+            layout["spec"]["execution_digest"],
+            first["spec"]["execution_digest"]
+        );
+        assert!(
+            rows(&layout)
+                .iter()
+                .all(|(_, class, cached)| class == "comparable" && *cached),
+            "{layout:#}"
+        );
+        assert_eq!(layout["summary"]["computed"], 0);
+        let line = |document: &Value| {
+            document["rules"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|rule| rule["label"].as_str().is_some_and(|l| l.ends_with("add")))
+                .unwrap_or_else(|| panic!("no rule add in {document:#}"))["start_line"]
+                .as_u64()
+                .unwrap()
+        };
+        assert_eq!(line(&layout), line(&first) + 3);
+        assert_eq!(
+            layout["rules"].as_array().unwrap().len(),
+            first["rules"].as_array().unwrap().len()
+        );
+        // A record names the bytes it was written under, outside its key.
+        assert_eq!(
+            read_json(&record_path(&manifest, &layout, "add"))["spec_digest"],
+            first["spec"]["digest"]
+        );
+
+        fs::write(
+            &calc,
+            fs::read_to_string(&calc)
+                .unwrap()
+                .replace("I1 -Int I2", "I2 -Int I1"),
+        )
+        .unwrap();
         let (second, status) = run(&manifest, false);
         assert_eq!(status, EXIT_OK);
-        assert_ne!(spec_hex(&first), spec_hex(&second));
+        assert_ne!(execution_hex(&first), execution_hex(&second));
         assert_eq!(program_digests(&first), program_digests(&second));
         assert!(
             rows(&second)
@@ -976,11 +1075,14 @@ text = 'h(opaque(1), 2)'
             .map(|e| e.unwrap().file_name().into_string().unwrap())
             .collect::<Vec<_>>();
         directories.sort();
-        let mut expected = vec![spec_hex(&first), spec_hex(&second)];
+        let mut expected = vec![execution_hex(&first), execution_hex(&second)];
         expected.sort();
         assert_eq!(directories, expected);
     }
 
+    // Portable only: it tests the result cache, which is off under Z3 by design
+    // (`results::RESULT_CACHE_Z3`; `the_z3_profile_stores_no_result`).
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_record_is_used_only_under_its_own_key() {
@@ -1012,17 +1114,32 @@ text = 'h(opaque(1), 2)'
             RESULT_SCHEMA_VERSION
         );
         assert_eq!(read_json(&nested)["program_id"], "nested");
-        // Another budget: every program is recomputed under the new key.
+        // Another time bound: no stored class depends on it (a timeout is never stored), so the
+        // key names no `time_ms` and every record stays in use.
         let text = fs::read_to_string(&manifest).unwrap();
         fs::write(&manifest, format!("{text}\n[budget]\ntime_ms = 20000\n")).unwrap();
         let (third, status) = run(&manifest, false);
         assert_eq!(status, EXIT_OK);
-        assert!(rows(&third).iter().all(|(_, _, cached)| !cached));
+        assert!(rows(&third).iter().all(|(_, _, cached)| *cached));
         assert_eq!(spec_hex(&third), spec_hex(&first));
         assert_eq!(program_digests(&third), program_digests(&first));
-        assert_eq!(read_json(&add)["key"]["budget"]["time_ms"], 20000);
-        let (fourth, _) = run(&manifest, false);
-        assert!(rows(&fourth).iter().all(|(_, _, cached)| *cached));
+        assert_eq!(
+            read_json(&add)["key"]["budget"],
+            json!({"max_depth": 100_000, "max_simplification_iterations": 10_000,
+                   "max_breadth": null})
+        );
+        // Another depth bound: every program is recomputed under the new key.
+        fs::write(
+            &manifest,
+            format!("{text}\n[budget]\ntime_ms = 20000\nmax_depth = 200000\n"),
+        )
+        .unwrap();
+        let (fourth, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_OK);
+        assert!(rows(&fourth).iter().all(|(_, _, cached)| !cached));
+        assert_eq!(read_json(&add)["key"]["budget"]["max_depth"], 200_000);
+        let (fifth, _) = run(&manifest, false);
+        assert!(rows(&fifth).iter().all(|(_, _, cached)| *cached));
     }
 
     /// kink27 R3-UNDEF-BRIDGE fix round 1 (review should-fix 1, finding C-10): an undefined step
@@ -1073,8 +1190,9 @@ module MU
 
         let (manifest, trusted) = flow("undefined-map-trusted", "");
         assert_eq!(rows(&trusted), expect(&[("one", "comparable", false)]));
-        let record = read_json(&record_path(&manifest, &trusted, "one"));
-        assert_eq!(record["final_configuration"], json!([]), "{record:#}");
+        if let Some(record) = stored_record(&manifest, &trusted, "one") {
+            assert_eq!(record["final_configuration"], json!([]), "{record:#}");
+        }
 
         let (_, distrusted) = flow(
             "undefined-map-distrusted",
@@ -1141,8 +1259,9 @@ endmodule
         let (document, status) = run(&manifest, false);
         assert_eq!(status, EXIT_OK, "{document:#}");
         // At this k-rust pin the run stops `indeterminate` at depth 1, so the row is `unknown`.
-        if document["programs"][0]["class"] == "comparable" {
-            let record = read_json(&record_path(&manifest, &document, "one"));
+        if document["programs"][0]["class"] == "comparable"
+            && let Some(record) = stored_record(&manifest, &document, "one")
+        {
             assert_ne!(record["final_configuration"], json!([]), "{record:#}");
         }
         let (searched, status) = kink_flow::cli::run(
@@ -1164,51 +1283,54 @@ endmodule
         assert_eq!(status, EXIT_OK, "{document:#}");
         assert_eq!(rows(&document), expect(&[("store", "comparable", false)]));
         assert!(document["programs"][0]["cause"].is_null());
-        let path = record_path(&manifest, &document, "store");
-        let mut record = read_json(&path);
-        assert_eq!(record["class"], "comparable");
-        assert!(record["baseline"].is_object() && record["run_sha256"].is_string());
-        let finals = record["final_configuration"].as_array().unwrap();
-        assert_eq!(finals.len(), 1);
-        let text = finals[0].as_str().unwrap();
-        assert!(
-            text.contains("Lbl'UndsPipe'-'-GT-Unds'") && text.contains("\\dv{SortInt{}}(\"2\")"),
-            "{text}"
-        );
-        // Re-pin L2-1 (coverage v2): the run also reaches the prelude's map equations, so the rule
-        // is one of the reached sentences rather than the only one.
-        let reached = |key: &str| {
-            record["coverage"][key]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|sentence| sentence["label"] == "MAP-STORE.store")
-        };
-        assert!(
-            reached("sentences") && reached("applied_sentences") && reached("fired_sentences"),
-            "{record:#}"
-        );
         assert_eq!(document["rules"][0]["status"], "covered");
         assert_eq!(document["rules"][0]["reached_by"], json!(["store"]));
-
-        // U1: a v1 record is recomputed, never trusted under the v2 value rule.
-        // Re-pin R0b: v4, because the exclusions change what counts as comparable. Re-pin adoption
-        // A-1: v5, because a record holds the baseline run's specification diagnostics and undecided
-        // solver answers, and k-rust's run-level lists exclude a baseline run. KINK-R4: v6,
-        // because a record's coverage holds the fired sentences `fired_by` lists. kink27 R1-UNDEF: v7,
-        // because an undefined step's pre-step configuration is no final configuration of a record.
-        // kink27 R3-UNDEF-BRIDGE: v8. CF-16: v9, because a comparable record holds its ends'
-        // summaries.
-        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v9");
-        record["key"]["schema_version"] = json!("kink-flow/result/v1");
-        fs::write(&path, record.to_string()).unwrap();
-        let (recomputed, status) = run(&manifest, false);
-        assert_eq!(status, EXIT_OK);
-        assert_eq!(rows(&recomputed), expect(&[("store", "comparable", false)]));
-        assert_eq!(
-            read_json(&path)["key"]["schema_version"],
-            RESULT_SCHEMA_VERSION
-        );
+        let path = record_path(&manifest, &document, "store");
+        if let Some(mut record) = stored_record(&manifest, &document, "store") {
+            assert_eq!(record["class"], "comparable");
+            assert!(record["baseline"].is_object() && record["run_sha256"].is_string());
+            let finals = record["final_configuration"].as_array().unwrap();
+            assert_eq!(finals.len(), 1);
+            let text = finals[0].as_str().unwrap();
+            assert!(
+                text.contains("Lbl'UndsPipe'-'-GT-Unds'")
+                    && text.contains("\\dv{SortInt{}}(\"2\")"),
+                "{text}"
+            );
+            // Re-pin L2-1 (coverage v2): the run also reaches the prelude's map equations, so the
+            // rule is one of the reached sentences rather than the only one.
+            let reached = |key: &str| {
+                record["coverage"][key]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|sentence| sentence["label"] == "MAP-STORE.store")
+            };
+            assert!(
+                reached("sentences") && reached("applied_sentences") && reached("fired_sentences"),
+                "{record:#}"
+            );
+            // U1: a v1 record is recomputed, never trusted under the v2 value rule.
+            // Re-pin R0b: v4, because the exclusions change what counts as comparable. Re-pin
+            // adoption A-1: v5, because a record holds the baseline run's specification diagnostics
+            // and undecided solver answers, and k-rust's run-level lists exclude a baseline run.
+            // KINK-R4: v6, because a record's coverage holds the fired sentences `fired_by` lists.
+            // kink27 R1-UNDEF: v7, because an undefined step's pre-step configuration is no final
+            // configuration of a record. kink27 R3-UNDEF-BRIDGE: v8. CF-16: v9, because a
+            // comparable record holds its ends' summaries. v10, because the key names the execution
+            // digest and the bounds a stored class depends on, and no host-dependent class is
+            // stored.
+            assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v10");
+            record["key"]["schema_version"] = json!("kink-flow/result/v1");
+            fs::write(&path, record.to_string()).unwrap();
+            let (recomputed, status) = run(&manifest, false);
+            assert_eq!(status, EXIT_OK);
+            assert_eq!(rows(&recomputed), expect(&[("store", "comparable", false)]));
+            assert_eq!(
+                read_json(&path)["key"]["schema_version"],
+                RESULT_SCHEMA_VERSION
+            );
+        }
 
         let (searched, status) = kink_flow::cli::run(
             &manifest,
@@ -1239,6 +1361,9 @@ endmodule
     /// record claims `unknown`, and the row is the live `comparable`. Re-pin L1-2-land: so is one
     /// whose key lacks the one-sided rule's component (`one_sided`, as at 830c18e) or names another
     /// version of it.
+    // Portable only: it tests the result cache, which is off under Z3 by design
+    // (`results::RESULT_CACHE_Z3`; `the_z3_profile_stores_no_result`).
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_record_written_under_another_identity_is_recomputed() {
@@ -1331,7 +1456,14 @@ endmodule
         assert_eq!(output.status.code(), Some(i32::from(EXIT_OK)));
         let document: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(document["summary"]["comparable"], 4);
-        assert!(cache.join("results").join(spec_hex(&document)).is_dir());
+        // Under Z3 the result cache is off, so nothing is written (`results::RESULT_CACHE_Z3`).
+        assert_eq!(
+            cache
+                .join("results")
+                .join(execution_hex(&document))
+                .is_dir(),
+            !cfg!(feature = "z3")
+        );
         assert!(!dir.join(CACHE_DIRECTORY).exists());
         let output = Command::new(binary)
             .args(["results", manifest.to_str().unwrap(), "--verify", "--cache"])
@@ -1340,7 +1472,11 @@ endmodule
             .unwrap();
         assert_eq!(output.status.code(), Some(i32::from(EXIT_OK)));
         let document: Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert!(rows(&document).iter().all(|(_, _, cached)| *cached));
+        assert!(
+            rows(&document)
+                .iter()
+                .all(|(_, _, cached)| *cached != cfg!(feature = "z3"))
+        );
 
         // A refused program is a corpus error; the others still get results.
         let output = Command::new(binary)
@@ -1406,6 +1542,9 @@ endmodule
         }
     }
 
+    // Portable only: it tests the result cache, which is off under Z3 by design
+    // (`results::RESULT_CACHE_Z3`; `the_z3_profile_stores_no_result`).
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn verify_passes_on_an_untouched_cache_and_fails_after_a_hand_edited_record() {
@@ -1456,7 +1595,7 @@ endmodule
             && m["record"]
                 == format!(
                     "results/{}/{}",
-                    spec_hex(&first),
+                    execution_hex(&first),
                     path.file_name().unwrap().to_str().unwrap()
                 )));
         assert!(
@@ -1503,6 +1642,9 @@ endmodule
     /// build, or under none (the key of a build before CACHE-ID-fix-1), and the row is the live
     /// `comparable`. Then two real builds: the `kink-flow` binary and this test binary write the
     /// same cache in turn, and each recomputes every record the other wrote.
+    // Portable only: it tests the result cache, which is off under Z3 by design
+    // (`results::RESULT_CACHE_Z3`; `the_z3_profile_stores_no_result`).
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_record_written_by_another_build_is_recomputed() {
@@ -1589,5 +1731,400 @@ endmodule
         assert_eq!(rows(&by_library), all(false));
         assert_eq!(rows(&run(&manifest, false).0), all(true));
         assert_eq!(rows(&results_by_binary()), all(false));
+    }
+
+    /// A baseline that times out is not a program's class: its record is never written, its row
+    /// says why (`not_cached`), and the next command runs it again, while a comparable program is
+    /// cached. Bounded by `[budget] baseline_max_work` instead, the same program is `unknown`, a
+    /// function of the key, which names the bound: its record is written and read back, with no
+    /// diagnostic run. A bound that does not stop a run is the run without it (countdown's run
+    /// digest is the one it has without a bound), and another bound recomputes every program.
+    // Portable only: it tests the result cache, which is off under Z3 by design
+    // (`results::RESULT_CACHE_Z3`; `the_z3_profile_stores_no_result`).
+    #[cfg(not(feature = "z3"))]
+    #[test]
+    #[ignore = "kink"]
+    fn a_timeout_is_rerun_by_the_next_command_and_a_work_bound_is_cached_with_its_bound() {
+        let dir = fixture("loop", "timeout-work");
+        let timeout = dir.join("FLOW-timeout.toml");
+        let (first, status) = run(&timeout, false);
+        assert_eq!(status, EXIT_OK, "{first:#}");
+        assert_eq!(
+            rows(&first),
+            expect(&[
+                ("spin", "timeout", false),
+                ("countdown", "comparable", false)
+            ])
+        );
+        let (second, status) = run(&timeout, false);
+        assert_eq!(status, EXIT_OK, "{second:#}");
+        assert_eq!(
+            rows(&second),
+            expect(&[
+                ("spin", "timeout", false),
+                ("countdown", "comparable", true)
+            ])
+        );
+        assert_eq!(
+            second["baseline_runs"],
+            json!({"live": 1, "reused": 0, "diagnostic": 0})
+        );
+        for document in [&first, &second] {
+            let spin = &document["programs"][0];
+            assert_eq!(
+                spin["not_cached"],
+                "timeout: the watchdog stopped the run at time_ms = 500; a timeout depends on the \
+                 host's load, so the next command runs this program again",
+                "{spin:#}"
+            );
+            let cause = spin["cause"].as_str().unwrap();
+            assert!(
+                cause.ends_with(&format!("{TIMEOUT_NOT_CACHED}{TIMEOUT_BOUND_BY_WORK}")),
+                "{cause}"
+            );
+            assert!(document["programs"][1].get("not_cached").is_none());
+        }
+        assert!(!record_path(&timeout, &first, "spin").exists());
+        let countdown = read_json(&record_path(&timeout, &first, "countdown"));
+        assert_eq!(countdown["class"], "comparable");
+        assert!(countdown["key"]["budget"].get("time_ms").is_none());
+
+        // FLOW-timeout.toml bounded by work, with a time bound far longer than either run. It is
+        // written here, not kept beside the fixture: every manifest there is a case of the
+        // modality differential, which bounds runs by the manifest's time and depth only.
+        let work = dir.join("FLOW-work.toml");
+        fs::write(
+            &work,
+            fs::read_to_string(&timeout).unwrap().replace(
+                "time_ms = 500\n",
+                "time_ms = 600000\nbaseline_max_work = 20000\n",
+            ),
+        )
+        .unwrap();
+        let (bounded, status) = run(&work, false);
+        assert_eq!(status, EXIT_OK, "{bounded:#}");
+        assert_eq!(
+            rows(&bounded),
+            expect(&[
+                ("spin", "unknown", false),
+                ("countdown", "comparable", false)
+            ])
+        );
+        assert_eq!(execution_hex(&bounded), execution_hex(&first));
+        let spin = &bounded["programs"][0];
+        let cause = spin["cause"].as_str().unwrap();
+        assert!(
+            cause.starts_with("the run reached baseline_max_work = 20000; k-rust returned "),
+            "{cause}"
+        );
+        assert!(spin.get("not_cached").is_none(), "{spin:#}");
+        assert_eq!(bounded["baseline_runs"]["diagnostic"], 0);
+        let record = read_json(&record_path(&work, &bounded, "spin"));
+        assert_eq!(record["class"], "unknown");
+        assert_eq!(record["key"]["budget"]["baseline_max_work"], 20000);
+        let bounded_countdown = read_json(&record_path(&work, &bounded, "countdown"));
+        assert_eq!(
+            bounded_countdown["key"]["budget"]["baseline_max_work"],
+            20000
+        );
+        assert_eq!(bounded_countdown["run_sha256"], countdown["run_sha256"]);
+        let (again, status) = run(&work, false);
+        assert_eq!(status, EXIT_OK, "{again:#}");
+        assert_eq!(
+            rows(&again),
+            expect(&[("spin", "unknown", true), ("countdown", "comparable", true)])
+        );
+        assert_eq!(
+            again["baseline_runs"],
+            json!({"live": 0, "reused": 0, "diagnostic": 0})
+        );
+        assert_eq!(again["programs"][0]["cause"], spin["cause"]);
+        fs::write(
+            &work,
+            fs::read_to_string(&work)
+                .unwrap()
+                .replace("baseline_max_work = 20000", "baseline_max_work = 30000"),
+        )
+        .unwrap();
+        let (other, status) = run(&work, false);
+        assert_eq!(status, EXIT_OK, "{other:#}");
+        assert_eq!(
+            rows(&other),
+            expect(&[
+                ("spin", "unknown", false),
+                ("countdown", "comparable", false)
+            ])
+        );
+        assert!(
+            other["programs"][0]["cause"]
+                .as_str()
+                .unwrap()
+                .starts_with("the run reached baseline_max_work = 30000; ")
+        );
+    }
+
+    /// The admitted specification of `manifest`'s digests: the specification digest, the
+    /// execution digest and k-rust's KORE execution digest of the compiled definition.
+    fn admitted_digests(manifest: &FlowManifest) -> (String, ExecutionDigest, String) {
+        let (record, admitted) = admit_spec(manifest);
+        let (spec, _) = admitted.unwrap_or_else(|| panic!("{}", record.text()));
+        let kore = spec
+            .compiled
+            .artifacts()
+            .execution_digest()
+            .unwrap()
+            .to_string();
+        (
+            spec_digest(manifest, &spec.loaded.files).to_string(),
+            execution_digest(manifest, &spec),
+            kore,
+        )
+    }
+
+    const MEANING_K: &str = "module T-SYNTAX
+  imports INT-SYNTAX
+  syntax Exp ::= Int | f(Exp) [symbol(f)] | g(Exp) [symbol(g)]
+endmodule
+
+module T-SYNTAX2
+  imports T-SYNTAX
+endmodule
+
+module T
+  imports T-SYNTAX
+  imports INT
+  configuration <k> $PGM:Exp </k>
+  rule [f]: f(I:Int) => I +Int 1
+  rule [g]: g(I:Int) => I *Int 2
+endmodule
+
+module T2
+  imports T
+endmodule
+";
+
+    const MEANING_FLOW: &str = "[spec]\nentry = \"t.k\"\nmain_module = \"T\"\n\
+                                syntax_module = \"T-SYNTAX\"\n\n\
+                                [[program]]\nid = \"one\"\ntext = \"f(1)\"\n";
+
+    /// The execution digest names what an execution and kink's judgement of it depend on, and
+    /// nothing a layout edit changes: a comment, blank lines and indentation keep it, while a
+    /// rule's right-hand side, a rule's attribute or label, the order of two rules, the main
+    /// module and the syntax module each change it; an equivalent include list keeps it. On the
+    /// compared cells, an `unobservable` declaration changes it while k-rust's KORE execution
+    /// digest of the compiled definition stays equal, which is why the key is read at the K
+    /// level: the declaration is not emitted to KORE, yet it decides which cells a comparison
+    /// reads.
+    #[test]
+    #[ignore = "kink"]
+    fn execution_digest_names_meaning() {
+        let dir = scratch("execution-digest-meaning");
+        fs::create_dir_all(dir.join("extra")).unwrap();
+        let digests = |k: &str, flow: &str| {
+            write(&dir.join("t.k"), k);
+            admitted_digests(&FlowManifest::decode(flow, &dir).unwrap())
+        };
+        let (base_spec, base, _) = digests(MEANING_K, MEANING_FLOW);
+        assert_eq!(base.kind, kink_flow::digest::EXECUTION_DOMAIN);
+        let layout = format!(
+            "// a comment at the top\n\n\n{}\n// and one at the end\n",
+            MEANING_K.replace("  rule [g]:", "      rule   [g]:")
+        );
+        let (layout_spec, same, _) = digests(&layout, MEANING_FLOW);
+        assert_ne!(layout_spec, base_spec);
+        assert_eq!(same, base, "a layout edit changed the execution digest");
+        let include =
+            MEANING_FLOW.replace("[spec]\n", "[spec]\ninclude_dirs = [\".\", \"extra\"]\n");
+        let (include_spec, same, _) = digests(MEANING_K, &include);
+        assert_ne!(include_spec, base_spec);
+        assert_eq!(
+            same, base,
+            "an equivalent include list changed the execution digest"
+        );
+        for (what, k, flow) in [
+            (
+                "a right-hand side",
+                MEANING_K.replace("I +Int 1", "I +Int 2"),
+                MEANING_FLOW.to_owned(),
+            ),
+            (
+                "an attribute",
+                MEANING_K.replace("I *Int 2\n", "I *Int 2 [owise]\n"),
+                MEANING_FLOW.to_owned(),
+            ),
+            (
+                "a label",
+                MEANING_K.replace("rule [g]:", "rule [h]:"),
+                MEANING_FLOW.to_owned(),
+            ),
+            (
+                "the order of two rules",
+                MEANING_K.replace(
+                    "  rule [f]: f(I:Int) => I +Int 1\n  rule [g]: g(I:Int) => I *Int 2\n",
+                    "  rule [g]: g(I:Int) => I *Int 2\n  rule [f]: f(I:Int) => I +Int 1\n",
+                ),
+                MEANING_FLOW.to_owned(),
+            ),
+            (
+                "the main module",
+                MEANING_K.to_owned(),
+                MEANING_FLOW.replace("main_module = \"T\"", "main_module = \"T2\""),
+            ),
+            (
+                "the syntax module",
+                MEANING_K.to_owned(),
+                MEANING_FLOW.replace(
+                    "syntax_module = \"T-SYNTAX\"",
+                    "syntax_module = \"T-SYNTAX2\"",
+                ),
+            ),
+        ] {
+            assert!(k != MEANING_K || flow != MEANING_FLOW, "{what}: no edit");
+            let (_, other, _) = digests(&k, &flow);
+            assert_eq!(other.kind, kink_flow::digest::EXECUTION_DOMAIN, "{what}");
+            assert_ne!(other, base, "the execution digest does not name {what}");
+        }
+        // The compared cells: the same definition with and without `unobservable` on <scratch>.
+        let unobservable = flow("unobservable");
+        let (_, declared, declared_kore) =
+            admitted_digests(&FlowManifest::read(&unobservable.join("FLOW.toml")).unwrap());
+        let (_, plain, plain_kore) =
+            admitted_digests(&FlowManifest::read(&unobservable.join("FLOW-plain.toml")).unwrap());
+        assert_eq!(declared_kore, plain_kore);
+        assert_ne!(declared, plain);
+    }
+
+    /// The execution payload is what `digest::execution_payload` documents, built here member by
+    /// member from its inputs; a definition with a sentence that has no fingerprint (a context
+    /// alias) falls back to the exact specification digest, kind `kink-flow/spec/v1`, and still
+    /// caches every program.
+    #[test]
+    #[ignore = "kink"]
+    fn the_execution_payload_is_built_from_its_inputs_and_falls_back_to_the_bytes() {
+        let manifest = FlowManifest::read(&flow("calc").join("FLOW.toml")).unwrap();
+        let (record, admitted) = admit_spec(&manifest);
+        let (spec, _) = admitted.unwrap_or_else(|| panic!("{}", record.text()));
+        let mut prefixes = k_rust::kompile::CompileOptions::default().builtin_source_prefixes;
+        prefixes.extend(
+            spec.compiled
+                .compile_options()
+                .builtin_source_prefixes
+                .clone(),
+        );
+        prefixes.sort();
+        prefixes.dedup();
+        let definition = spec.loaded.baseline.definition();
+        let value = definition_value(definition, &prefixes).unwrap();
+        assert_eq!(value["main_module"], definition.main_module);
+        let modules = value["modules"].as_array().unwrap();
+        assert_eq!(modules.len(), definition.modules.len());
+        for (module, stored) in definition.modules.iter().zip(modules) {
+            let sentences = stored["sentences"].as_array().unwrap();
+            assert_eq!(
+                sentences.len(),
+                module.local_sentences.len(),
+                "{}",
+                module.name
+            );
+            for (sentence, stored) in module.local_sentences.iter().zip(sentences) {
+                let attributes = sentence.attributes();
+                assert_eq!(
+                    stored,
+                    &json!({
+                        "fingerprint": kink_patch::SentenceFingerprint::of(sentence)
+                            .unwrap()
+                            .to_string(),
+                        "located": attributes.location().is_some(),
+                        "builtin_source": attributes.source().filter(|source| {
+                            prefixes.iter().any(|p| source.starts_with(p.as_str()))
+                        }),
+                    })
+                );
+            }
+        }
+        // Some sentences of a loaded definition are builtin, some authored.
+        let sources = modules
+            .iter()
+            .flat_map(|module| module["sentences"].as_array().unwrap())
+            .map(|sentence| sentence["builtin_source"].is_string())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(sources, [false, true].into());
+        assert_eq!(
+            execution_payload(&manifest, &spec).unwrap(),
+            json!({
+                "k_rust_revision": K_RUST_REVISION,
+                "profile": SolverProfile::BUILD.name(),
+                "main_module": "CALC",
+                "syntax_module": "CALC-SYNTAX",
+                "definition": value,
+            })
+        );
+        let digest = execution_digest(&manifest, &spec);
+        assert_eq!(
+            digest.digest,
+            kink_patch::payload_digest(
+                kink_flow::digest::EXECUTION_DOMAIN,
+                kink_patch::canonical_json(&execution_payload(&manifest, &spec).unwrap())
+                    .as_bytes()
+            )
+        );
+
+        // A context alias has no fingerprint: the digest is the exact specification digest.
+        let manifest = fixture("calc", "context-alias").join("FLOW.toml");
+        let calc = manifest.parent().unwrap().join("calc.k");
+        fs::write(
+            &calc,
+            fs::read_to_string(&calc).unwrap().replace(
+                "  rule I1:Int - I2:Int => I1 -Int I2\n",
+                "  rule I1:Int - I2:Int => I1 -Int I2\n  context alias [c]: <k> HERE ... </k>\n",
+            ),
+        )
+        .unwrap();
+        let (first, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_OK, "{first:#}");
+        assert_eq!(
+            first["spec"]["execution_digest"],
+            json!({"kind": "kink-flow/spec/v1", "digest": first["spec"]["digest"]})
+        );
+        // The fallback only costs misses: the second command reads every record (under Z3 the
+        // result cache is off, so it computes every program again).
+        let (second, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_OK, "{second:#}");
+        assert!(
+            rows(&second)
+                .iter()
+                .all(|(_, class, cached)| class == "comparable" && *cached != cfg!(feature = "z3"))
+        );
+    }
+
+    /// Under the Z3 profile the result cache is off: a solver query is bounded by the clock, so
+    /// no baseline class is a function of its key. No record is written, the document says why,
+    /// and a second command computes every program again.
+    #[cfg(feature = "z3")]
+    #[test]
+    #[ignore = "kink"]
+    fn the_z3_profile_stores_no_result() {
+        let manifest = fixture("calc", "z3-off").join("FLOW.toml");
+        let (first, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_OK, "{first:#}");
+        assert_eq!(
+            first["result_cache"],
+            json!({"enabled": false, "reason": kink_flow::results::RESULT_CACHE_Z3})
+        );
+        assert!(
+            !manifest
+                .parent()
+                .unwrap()
+                .join(CACHE_DIRECTORY)
+                .join("results")
+                .exists()
+        );
+        let (second, _) = run(&manifest, false);
+        assert!(
+            rows(&second)
+                .iter()
+                .all(|(_, class, cached)| class == "comparable" && !cached)
+        );
+        assert_eq!(second["summary"]["computed"], 4);
     }
 }

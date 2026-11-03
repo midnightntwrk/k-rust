@@ -819,7 +819,11 @@ fn result_record(dir: &Path, document: &Value, program: &str) -> PathBuf {
         .to_owned();
     dir.join(CACHE_DIRECTORY)
         .join("results")
-        .join(document["spec"]["digest"].as_str().unwrap())
+        .join(
+            document["spec"]["execution_digest"]["digest"]
+                .as_str()
+                .unwrap(),
+        )
         .join(format!("{digest}.json"))
 }
 
@@ -887,7 +891,7 @@ pattern = "<k> lookup(_) ~> _ </k>"
     }
 
     /// Flow F-18: answers feed no verdict store. A query writes result records and pattern records
-    /// only: no outcome, hint, memo or run document.
+    /// only (none under Z3): no outcome, hint, memo or run document.
     #[test]
     #[ignore = "kink"]
     fn a_query_writes_no_verdict_store() {
@@ -895,12 +899,14 @@ pattern = "<k> lookup(_) ~> _ </k>"
         let (_, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
         assert_eq!(status, EXIT_OK);
         let names = fs::read_dir(dir.join(CACHE_DIRECTORY))
-            .unwrap()
+            .into_iter()
+            .flatten()
             .map(|entry| entry.unwrap().file_name().into_string().unwrap())
             .collect::<BTreeSet<_>>();
-        // Under Z3 no pattern record either: the pattern cache is off by design, as tier 1 is.
+        // Under Z3 no record at all: the pattern cache and the result cache are off by design, as
+        // tier 1 is.
         let expected = if cfg!(feature = "z3") {
-            BTreeSet::from(["results".to_owned()])
+            BTreeSet::new()
         } else {
             BTreeSet::from(["patterns".to_owned(), "results".to_owned()])
         };
@@ -1596,7 +1602,11 @@ programs = ["add"]
             &fs::read_to_string(
                 dir.join(CACHE_DIRECTORY)
                     .join("results")
-                    .join(first["spec"]["digest"].as_str().unwrap())
+                    .join(
+                        first["spec"]["execution_digest"]["digest"]
+                            .as_str()
+                            .unwrap(),
+                    )
                     .join(format!("{program}.json")),
             )
             .unwrap(),
@@ -1645,8 +1655,10 @@ programs = ["add"]
     }
 
     /// Flow F-18 deliverable 4: a second command answers from the cache with no search; editing a
-    /// program recomputes its rows only, and editing the specification or the budget recomputes
-    /// every row.
+    /// program recomputes its rows only, a comment or layout edit of the specification keeps every
+    /// cached answer (the key names the execution digest, the loaded definition without
+    /// positions), and editing a rule of the specification or the budget's bounds recomputes
+    /// every row; the time bound is not one of them.
     // Portable only: tests the pattern cache, off under Z3 by design as tier 1 is.
     #[cfg(not(feature = "z3"))]
     #[test]
@@ -1691,16 +1703,37 @@ programs = ["add"]
         assert_eq!(row(&edited, "result-three", "add")["answer"], "no");
         assert_eq!(row(&edited, "result-three", "add")["claim"], "refuted");
 
-        // A specification edit, a comment included: every row is recomputed.
-        let mut spec = fs::read_to_string(dir.join("calc.k")).unwrap();
-        spec.push_str("// an edit\n");
-        fs::write(dir.join("calc.k"), spec).unwrap();
+        // A comment and blank lines: every cached answer stands.
+        let spec = fs::read_to_string(dir.join("calc.k")).unwrap();
+        fs::write(
+            dir.join("calc.k"),
+            format!("// a comment at the top\n\n{spec}// and one at the end\n"),
+        )
+        .unwrap();
+        let (commented, _) = plain(&manifest, &patterns);
+        assert_ne!(commented["spec"]["digest"], edited["spec"]["digest"]);
+        assert_eq!(
+            commented["spec"]["execution_digest"],
+            edited["spec"]["execution_digest"]
+        );
+        assert!(cached(&commented).iter().all(|c| *c), "{commented:#}");
+        assert_eq!(answers(&commented), answers(&edited));
+
+        // A rule edit: every row is recomputed.
+        let spec = fs::read_to_string(dir.join("calc.k")).unwrap();
+        fs::write(dir.join("calc.k"), spec.replace("I1 -Int I2", "I2 -Int I1")).unwrap();
         let (respec, _) = plain(&manifest, &patterns);
         assert!(cached(&respec).iter().all(|c| !c));
 
-        // A budget change: every row is recomputed.
+        // A time bound: every cached answer stands.
         let mut text = fs::read_to_string(&manifest).unwrap();
-        text.push_str("\n[budget]\nmax_depth = 1000\n");
+        text.push_str("\n[budget]\ntime_ms = 20000\n");
+        fs::write(&manifest, &text).unwrap();
+        let (retimed, _) = plain(&manifest, &patterns);
+        assert!(cached(&retimed).iter().all(|c| *c), "{retimed:#}");
+
+        // A depth bound: every row is recomputed.
+        text.push_str("max_depth = 1000\n");
         fs::write(&manifest, text).unwrap();
         let (rebudget, _) = plain(&manifest, &patterns);
         assert!(cached(&rebudget).iter().all(|c| !c));
@@ -1709,8 +1742,9 @@ programs = ["add"]
 
     /// F-18 review 1, minor: a cached `no` is used only while the program's current result record is
     /// comparable with the baseline run digest the `no` was given against. A result record with
-    /// another run digest, or of class timeout, under the same key makes the command search again
-    /// (a timeout then gives unknown); a cached hit does not depend on the baseline.
+    /// another run digest, or of class unknown, under the same key makes the command search again
+    /// (an unknown then gives unknown), and a stored timeout is never read, so the program runs
+    /// again; a cached hit does not depend on the baseline.
     // Portable only: tests the pattern cache, off under Z3 by design as tier 1 is.
     #[cfg(not(feature = "z3"))]
     #[test]
@@ -1737,11 +1771,31 @@ programs = ["add"]
         );
         assert_eq!(row(&digest, "result-three", "add")["cached"], true);
 
-        // A timeout under the same key: the no is not used, and the live answer is unknown.
+        // A stored timeout is never read (a timeout depends on the host's load): the program is
+        // recomputed, comparable, and the no stands.
         fs::write(&path, serde_json::to_string(&original).unwrap()).unwrap();
         let (again, _) = plain(&manifest, &patterns);
         assert_eq!(row(&again, "result-four", "add")["answer"], "no");
         forge(&path, "class", json!("timeout"));
+        let (timeout, _) = plain(&manifest, &patterns);
+        let add = timeout["programs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["id"] == "add")
+            .unwrap();
+        assert_eq!(
+            (add["class"].clone(), add["cached"].clone()),
+            (json!("comparable"), json!(false))
+        );
+        let no = row(&timeout, "result-four", "add");
+        assert_eq!(
+            (no["cached"].clone(), no["answer"].clone()),
+            (json!(true), json!("no")),
+            "{no:#}"
+        );
+        // An unknown under the same key: the no is not used, and the live answer is unknown.
+        forge(&path, "class", json!("unknown"));
         let (timeout, _) = plain(&manifest, &patterns);
         let unknown = row(&timeout, "result-four", "add");
         assert_eq!(unknown["cached"], false, "{unknown:#}");
@@ -1750,7 +1804,7 @@ programs = ["add"]
             unknown["cause"]
                 .as_str()
                 .unwrap()
-                .contains("and it is timeout")
+                .contains("and it is unknown")
         );
         let hit = row(&timeout, "result-three", "add");
         assert_eq!(

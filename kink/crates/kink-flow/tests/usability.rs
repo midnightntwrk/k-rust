@@ -240,6 +240,13 @@ fn final_configurations_are_capped_at_4000_characters() {
 fn assert_census_cause(cause: &str, prefix: &str, rules: Option<(usize, usize)>) {
     assert!(cause.starts_with(prefix), "{cause}");
     let rest = &cause[prefix.len()..];
+    // A baseline's timeout cause ends with why it is not cached (and how to bound it by work).
+    let rest = rest
+        .strip_suffix(kink_flow::results::TIMEOUT_BOUND_BY_WORK)
+        .unwrap_or(rest);
+    let rest = rest
+        .strip_suffix(kink_flow::results::TIMEOUT_NOT_CACHED)
+        .unwrap_or(rest);
     if rest.starts_with("k-rust returned no leaves") {
         return;
     }
@@ -259,9 +266,11 @@ fn assert_census_cause(cause: &str, prefix: &str, rules: Option<(usize, usize)>)
 /// order. `wall_ms` is outside the key, so every record stays in use.
 fn reverse_costs(manifest: &Path, document: &Value) {
     let programs = document["programs"].as_array().unwrap();
-    let directory = cache_of(manifest)
-        .join("results")
-        .join(document["spec"]["digest"].as_str().unwrap());
+    let directory = cache_of(manifest).join("results").join(
+        document["spec"]["execution_digest"]["digest"]
+            .as_str()
+            .unwrap(),
+    );
     for (index, program) in programs.iter().enumerate() {
         let Some(digest) = program["digest"].as_str() else {
             continue;
@@ -343,14 +352,16 @@ fn statuses_do_not_depend_on_the_order(
     let _ = fs::remove_file(hints_path(&cache));
     let _ = fs::remove_file(cache.join(REPORT_FILE));
     let reversed = search(&flow, &list, ProgramOrder::Cost);
+    // Under Z3 the result cache is off (`results::RESULT_CACHE_Z3`): there is no record to forge,
+    // and every program runs live again.
+    let programs = reversed["programs"].as_array().unwrap();
     assert_eq!(
-        reversed["programs"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|p| p["cached"] == false)
-            .count(),
-        0,
+        programs.iter().filter(|p| p["cached"] == false).count(),
+        if cfg!(feature = "z3") {
+            programs.len()
+        } else {
+            0
+        },
         "the forged wall_ms keeps every record in use"
     );
 
@@ -465,15 +476,18 @@ mod kink_tier {
         );
         // The forged costs did reorder the search: inside each tier the survivor ran its programs
         // in reverse corpus order (corpus order: add, nested, sub, inline; add, nested and inline
-        // reach the add rule).
+        // reach the add rule). Under Z3 the result cache is off, so there is no record whose cost
+        // to forge and the cost order is the one this command measured.
         assert_eq!(
             mutation(&by_corpus, "add-swaps-operands")["calls"],
             json!([{"programs": ["add", "nested", "inline", "sub"], "status": "survived"}])
         );
-        assert_eq!(
-            mutation(&reversed, "add-swaps-operands")["calls"],
-            json!([{"programs": ["inline", "nested", "add", "sub"], "status": "survived"}])
-        );
+        if !cfg!(feature = "z3") {
+            assert_eq!(
+                mutation(&reversed, "add-swaps-operands")["calls"],
+                json!([{"programs": ["inline", "nested", "add", "sub"], "status": "survived"}])
+            );
+        }
         assert_eq!(reversed["order"], "cost");
     }
 
@@ -525,20 +539,37 @@ mod kink_tier {
             document["baseline_runs"],
             json!({"live": 2, "reused": 0, "diagnostic": 0})
         );
-        // A session record never makes a program comparable: the record is a timeout record.
-        let record = read_json(
-            &cache_of(&manifest)
-                .join("results")
-                .join(document["spec"]["digest"].as_str().unwrap())
-                .join(format!("{}.json", spin["digest"].as_str().unwrap())),
+        // A session record never makes a program comparable, and a timeout is no record: it
+        // depends on the host's load, so it is never written and the next command runs it again.
+        let directory = cache_of(&manifest).join("results").join(
+            document["spec"]["execution_digest"]["digest"]
+                .as_str()
+                .unwrap(),
         );
-        assert_eq!(record["class"], "timeout");
-        assert!(record["baseline"].is_null() && record["run_sha256"].is_null());
-        assert_eq!(record["cause"], spin["cause"]);
+        assert!(
+            !directory
+                .join(format!("{}.json", spin["digest"].as_str().unwrap()))
+                .exists()
+        );
+        // Under Z3 the result cache is off (`results::RESULT_CACHE_Z3`): the document says so
+        // once, no row says `not_cached`, and nothing is recorded or reused.
+        let z3 = cfg!(feature = "z3");
+        assert_eq!(document["result_cache"]["enabled"], !z3);
+        assert_eq!(
+            spin["not_cached"]
+                .as_str()
+                .is_some_and(|reason| reason.starts_with("timeout: ")),
+            !z3,
+            "{spin:#}"
+        );
+        let record = directory.join(format!(
+            "{}.json",
+            document["programs"][1]["digest"].as_str().unwrap()
+        ));
         // Test-gate TG-F: the assertions of tests/results.rs
         // `a_non_terminating_program_is_class_timeout`, which ran the same command on the same
-        // files. Neither program is from the cache; the record keeps no final configuration and
-        // names the manifest's budget; a timeout is a result too: the next run reuses it.
+        // files. Neither program is from the cache; countdown's record names the bounds a stored
+        // class depends on (not `time_ms`); the next run reuses it and runs spin again.
         let classes = |document: &Value| {
             document["programs"]
                 .as_array()
@@ -560,10 +591,21 @@ mod kink_tier {
             ]
         };
         assert_eq!(classes(&document), expected(false));
-        assert!(record["final_configuration"].is_null());
-        assert_eq!(record["key"]["budget"]["time_ms"], 500);
-        assert_eq!(record["key"]["budget"]["max_depth"], 1_000_000_000_u64);
-        assert_eq!(classes(&results_document(&manifest, None)), expected(true));
+        if z3 {
+            assert!(!record.exists());
+        } else {
+            let record = read_json(&record);
+            assert_eq!(record["class"], "comparable");
+            assert!(record["key"]["budget"].get("time_ms").is_none());
+            assert_eq!(record["key"]["budget"]["max_depth"], 1_000_000_000_u64);
+        }
+        assert_eq!(
+            classes(&results_document(&manifest, None)),
+            vec![
+                ("spin".to_owned(), "timeout".to_owned(), false),
+                ("countdown".to_owned(), "comparable".to_owned(), !z3),
+            ]
+        );
 
         // An unknown baseline keeps its diagnostic run. Since kink27 R5-BYTES-ENDS a Bytes-keyed
         // map is comparable, so the unknown baseline is an overloaded list holding `opaque(1)`, a

@@ -19,6 +19,8 @@
 //! - A tier-1 store that says `killed` (as a run before this ticket wrote it) decides nothing.
 //! - `check` fails on each, with and without `--mutations`, naming each finding with what to do
 //!   by its verdict, while its program stays `ok`; with every finding named it passes.
+// Under Z3 the result cache is off, and the tests of its records are compiled out.
+#![cfg_attr(feature = "z3", allow(dead_code, unused_imports))]
 
 mod flow_support;
 
@@ -437,9 +439,82 @@ mod kink_tier {
         });
     }
 
+    /// The result key names which findings are assumed, not how they are named: a name holds
+    /// source positions, so a line inserted above the named equations refuses the specification
+    /// (the name names no finding any more), and with the name updated to the new positions the
+    /// execution digest is the original's and every record is reused. Without the premise the
+    /// digest differs, since the premise decides which ends are data.
+    // Portable only: it tests the result cache, which is off under Z3 by design
+    // (`results::RESULT_CACHE_Z3`).
+    #[cfg(not(feature = "z3"))]
+    #[test]
+    #[ignore = "kink"]
+    fn the_key_names_what_is_assumed_not_how_it_is_named() {
+        on_stack(|| {
+            let dir = repro(
+                "r3-plainq",
+                "renamed",
+                Some(&["spec.k:7:3,spec.k:8:3@root"]),
+            );
+            let manifest_path = dir.join("FLOW.toml");
+            let manifest = FlowManifest::read(&manifest_path).unwrap();
+            let (first, ok) = results(&manifest, &ResultsOptions::default());
+            assert!(ok, "{first:#}");
+            assert_eq!(first["programs"][0]["cached"], false);
+            let spec = dir.join("spec.k");
+            let text = fs::read_to_string(&spec).unwrap();
+            fs::write(
+                &spec,
+                format!("// a line above the named equations\n{text}"),
+            )
+            .unwrap();
+            let (moved, ok) = results(&manifest, &ResultsOptions::default());
+            assert!(!ok);
+            assert_eq!(moved["spec"]["stage"], "assume-joined", "{moved:#}");
+            assert_eq!(moved["spec"]["reason"], "name-refused");
+            let flow = fs::read_to_string(&manifest_path).unwrap();
+            fs::write(
+                &manifest_path,
+                flow.replace("spec.k:7:3,spec.k:8:3@root", "spec.k:8:3,spec.k:9:3@root"),
+            )
+            .unwrap();
+            let manifest = FlowManifest::read(&manifest_path).unwrap();
+            let (renamed, ok) = results(&manifest, &ResultsOptions::default());
+            assert!(ok, "{renamed:#}");
+            assert_ne!(renamed["spec"]["digest"], first["spec"]["digest"]);
+            assert_eq!(
+                renamed["spec"]["execution_digest"],
+                first["spec"]["execution_digest"]
+            );
+            assert_eq!(renamed["programs"][0]["cached"], true, "{renamed:#}");
+            assert_eq!(
+                renamed["programs"][0]["class"],
+                first["programs"][0]["class"]
+            );
+            // Without the premise, another key.
+            fs::write(
+                &manifest_path,
+                flow.replace("assume_joined = [\"spec.k:7:3,spec.k:8:3@root\"]\n", ""),
+            )
+            .unwrap();
+            let manifest = FlowManifest::read(&manifest_path).unwrap();
+            assert!(manifest.spec.assume_joined.is_empty());
+            let (bare, ok) = results(&manifest, &ResultsOptions::default());
+            assert!(ok, "{bare:#}");
+            assert_ne!(
+                bare["spec"]["execution_digest"],
+                first["spec"]["execution_digest"]
+            );
+            assert_eq!(bare["programs"][0]["cached"], false);
+        });
+    }
+
     /// R2-B1's warm cache: a tier-1 record that says `killed`, under exactly the current context
     /// (as a run before this ticket, with the same build, wrote it), decides nothing on a
     /// baseline with findings left. Fail at base: the record decided `killed` with no call.
+    // Portable only: under Z3 tier 1 is off, so a forged record is never read, and the result
+    // cache that names the baseline run digest is off too.
+    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_cached_kill_decides_nothing_on_a_baseline_with_findings() {
@@ -462,7 +537,7 @@ mod kink_tier {
                 &cache,
                 outcome_context(
                     build,
-                    execution_digest(&manifest, &spec.loaded),
+                    execution_digest(&manifest, &spec),
                     manifest.budget,
                     &spec.result,
                 ),

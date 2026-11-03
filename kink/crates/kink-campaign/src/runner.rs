@@ -16,11 +16,13 @@
 //!   path set, and its `contradictedClaims` list holds absorbed arrivals' records, which the
 //!   exclusions read. A test with a pattern oracle runs as a stepped path set on both sides.
 //!   A run the time bound cancelled is `Failed(TimeLimit)` (k-rust answers a cancellation with an
-//!   error and publishes no leaf), a mutant's run its work budget stopped ([`WorkBudget`]) ends in
-//!   a `work-bound` leaf, and every other incomplete run is `Unknown`, including a backend
-//!   diagnostic. A work-bound mutant side is `Unknown` too, but its slot can still distinguish
-//!   one-sidedly from a clean, ground, stuck leaf outside the baseline's complete set (re-pin
-//!   L1-2, decision 6; [`OneSided`], off by default).
+//!   error and publishes no leaf), a mutant's run its work budget stopped ([`WorkBudget`]), and a
+//!   baseline's result run [`RunOptions::baseline_max_work`] stopped, end in a `work-bound` leaf,
+//!   and every other incomplete run is `Unknown`, including a backend diagnostic. A baseline's
+//!   `work-bound` side is `Unknown`, so admission refuses the campaign (`BaselineOracleFailed`). A
+//!   work-bound mutant side is `Unknown` too, but its slot can still distinguish one-sidedly from a
+//!   clean, ground, stuck leaf outside the baseline's complete set (re-pin L1-2, decision 6;
+//!   [`OneSided`], off by default).
 //! - A single crash terminal is a `SemanticCrash` side carrying its terminal term; a
 //!   crash among several terminals is `Unknown`. This counts terminal leaves, not distinct
 //!   configurations: a path set with two paths to one crash configuration is `Unknown`, and the
@@ -438,11 +440,20 @@ pub struct RunOptions {
     pub work: WorkBudget,
     /// Whether a work-bound mutant run can kill one-sidedly ([`OneSided`]; re-pin L1-2).
     pub one_sided: OneSided,
+    /// The `max_work` of every baseline result run of the call (k-rust: the most states a run may
+    /// visit across all its paths), never of a stepped run, for [`WorkBudget`]'s reason. A bound
+    /// only stops a run: a baseline run it does not stop is the run without it, and one it stops
+    /// ends in a `work-bound` leaf, whose side is `Unknown`. `None` (the default): baselines are
+    /// bounded by the campaign's [`ExecutionBudget`] only.
+    pub baseline_max_work: Option<u64>,
 }
 
 impl RunOptions {
     /// Every option as a JSON object, `{result_modality, work, one_sided}`: `work` is null
-    /// without a work budget, else `{factor, floor}`; `one_sided` is [`OneSided::name`]. A store
+    /// without a work budget, else `{factor, floor}`; `one_sided` is [`OneSided::name`]; and
+    /// `baseline_max_work` only when it is set, so the value of every option set without it, a
+    /// kink-corpus index entry's included, is the value it had before the option existed, and
+    /// absence means exactly `None`. A store
     /// that records the options its runs were made with (kink-corpus index entries, `run_options`)
     /// records this value (re-pin L1-2-land; CACHE-ID review 2 minor 1). Every field is
     /// destructured, without `..`, and every nested option is matched exhaustively, so a new
@@ -454,16 +465,21 @@ impl RunOptions {
             result_modality,
             work,
             one_sided,
+            baseline_max_work,
         } = *self;
         let work = match work {
             WorkBudget::Unbounded => Value::Null,
             WorkBudget::Calibrated { factor, floor } => json!({"factor": factor, "floor": floor}),
         };
-        json!({
+        let mut value = json!({
             "result_modality": result_modality.name(),
             "work": work,
             "one_sided": one_sided.name(),
-        })
+        });
+        if let Some(max_work) = baseline_max_work {
+            value["baseline_max_work"] = json!(max_work);
+        }
+        value
     }
 }
 
@@ -552,8 +568,9 @@ impl OneSided {
 /// the same request shape (re-pin lane 1, L1-1; k-rust answers section 4.6). A budget only stops a
 /// run: a run it does not stop is the unbounded run (k-rust KINK-16 criterion 2), and a run it
 /// stops ends in a `work-bound` leaf, which makes the side incomplete, so every slot of that test
-/// is `Unknown`, unless it distinguishes one-sidedly ([`OneSided`], re-pin L1-2). It never
-/// applies to a baseline run, and never to a stepped run (a pattern test's observed path set): a
+/// is `Unknown`, unless it distinguishes one-sidedly ([`OneSided`], re-pin L1-2). A baseline's
+/// result runs take [`RunOptions::baseline_max_work`] instead, and no work budget ever applies to
+/// a stepped run (a pattern test's observed path set): a
 /// bounded stepped run would expose the paths it finished where the unbounded run timed out, and
 /// a pattern slot can take a witness from them, which would move a `Timeout` toward `Killed`.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -746,6 +763,9 @@ struct BaselineKey {
     profile: SolverProfile,
     /// The modality of the result run (`Runtime::execute`; re-pin L1-1).
     modality: ResultModality,
+    /// The result run's work bound (`Runtime::execute`; [`RunOptions::baseline_max_work`]), so a
+    /// session never answers a request with a run made under another bound.
+    max_work: Option<u64>,
 }
 
 /// A stored live baseline run, under its key.
@@ -1157,7 +1177,7 @@ impl<'v> BaselineSession<'v> {
         memoise: bool,
     ) -> (TestEvidence, RunCache) {
         if !memoise {
-            let (evidence, cache) = runtime.run(campaign, test);
+            let (evidence, cache) = runtime.run_bounded(campaign, test, runtime.baseline_max_work);
             self.record_baseline(&cache, false);
             return (evidence, cache);
         }
@@ -1169,6 +1189,7 @@ impl<'v> BaselineSession<'v> {
             budget: campaign.budget,
             profile: SolverProfile::BUILD,
             modality: runtime.modality,
+            max_work: runtime.baseline_max_work,
         };
         if let Some(stored) = self.runs.iter().find(|stored| stored.key == key) {
             let (evidence, cache) = match &stored.run {
@@ -1195,7 +1216,7 @@ impl<'v> BaselineSession<'v> {
             self.record_baseline(&cache, true);
             return (evidence, cache);
         }
-        let (evidence, executed) = runtime.run_keeping(campaign, test, None);
+        let (evidence, executed) = runtime.run_keeping(campaign, test, runtime.baseline_max_work);
         let cache = executed.cache.clone();
         self.record_baseline(&cache, false);
         self.live += 1;
@@ -1290,6 +1311,7 @@ pub fn run_campaign_multi_with(
         .map_err(|_| admission_failure(BaselineAdmission::Error))?;
     runtime.coverage = Some(RuleAuthors::of(&baseline));
     runtime.modality = options.run.result_modality;
+    runtime.baseline_max_work = options.run.baseline_max_work;
     // The baseline's full critical-pair check, once per session (fz26 KINK-BASELINE-FINDINGS):
     // a name the author gives that the baseline refuses refuses a call with a mutant. Every call
     // reads it for the ends of the baseline's runs (KINK-OVERLOAD-VALUE: an overload application
@@ -2779,6 +2801,10 @@ struct Runtime {
     /// Whether the side's runs collect one-sided evidence ([`RunOptions::one_sided`]; a mutant's
     /// only).
     one_sided: OneSided,
+    /// The `max_work` of the side's result runs a [`BaselineSession`] makes
+    /// ([`RunOptions::baseline_max_work`]; the baseline's only, a mutant's runs take
+    /// [`WorkBudget`]).
+    baseline_max_work: Option<u64>,
     /// What the side's definition contributes to the exclusions of each of its runs, read from
     /// its compiled KORE and from the definition its backend selected for the default module
     /// (the only module a request names), on the thread that runs it (re-pin R0b).
@@ -2885,6 +2911,7 @@ impl Runtime {
             coverage: None,
             modality: ResultModality::default(),
             one_sided: OneSided::Off,
+            baseline_max_work: None,
             exclusions,
             data: None,
             functions,
@@ -2900,6 +2927,9 @@ impl Runtime {
         self.facts.clone().expect("filled above")
     }
 
+    /// [`Runtime::run_bounded`] without a work budget (tests only: every campaign run names its
+    /// bound).
+    #[cfg(test)]
     fn run(&mut self, campaign: &Campaign<'_>, test: &TestCase) -> (TestEvidence, RunCache) {
         self.run_bounded(campaign, test, None)
     }
@@ -3999,6 +4029,7 @@ mod tests {
                             budget: campaign.budget,
                             profile: SolverProfile::BUILD,
                             modality: ResultModality::default(),
+                            max_work: None,
                         },
                         run: StoredRun::Executed {
                             executed: Box::new(executed),
@@ -4244,6 +4275,7 @@ mod tests {
                             budget: campaign.budget,
                             profile: SolverProfile::BUILD,
                             modality: ResultModality::default(),
+                            max_work: None,
                         },
                         run: StoredRun::Executed {
                             executed: Box::new(executed),
@@ -4305,6 +4337,7 @@ mod tests {
                 floor: 10_000,
             },
             one_sided: OneSided::NoCrashClassifier,
+            baseline_max_work: None,
         };
         assert_eq!(
             options.value(),
@@ -4312,6 +4345,20 @@ mod tests {
                 "result_modality": "path-set",
                 "work": {"factor": 4, "floor": 10_000},
                 "one_sided": "no-crash-classifier",
+            })
+        );
+        // A baseline work bound is a member only when it is set.
+        assert_eq!(
+            RunOptions {
+                baseline_max_work: Some(20_000),
+                ..options
+            }
+            .value(),
+            json!({
+                "result_modality": "path-set",
+                "work": {"factor": 4, "floor": 10_000},
+                "one_sided": "no-crash-classifier",
+                "baseline_max_work": 20_000,
             })
         );
         for changed in [
@@ -4325,6 +4372,10 @@ mod tests {
             },
             RunOptions {
                 one_sided: OneSided::Off,
+                ..options
+            },
+            RunOptions {
+                baseline_max_work: Some(1),
                 ..options
             },
         ] {
@@ -6098,6 +6149,68 @@ mod tests {
                         second.judge(campaign, test, executed).run,
                         SideRun::Sides { ref sides } if matches!(sides.as_slice(), [OracleSide::Normal(_)])
                     ));
+                },
+            );
+        }
+
+        /// A session never answers a baseline request with a run made under another baseline
+        /// work bound ([`RunOptions::baseline_max_work`]): two requests that differ only in the
+        /// bound are two live runs, and each is reused only for its own bound. A bound of one
+        /// state stops the run in a `work-bound` leaf, whose side is `Unknown`.
+        #[test]
+        #[ignore = "kink"]
+        fn a_baseline_run_is_reused_only_under_its_own_work_bound() {
+            let z = || input_test_support::app("Lblz", vec![]);
+            let program = input_test_support::app(
+                "Lblcounter",
+                vec![z(), input_test_support::app("Lbls", vec![z()])],
+            );
+            with_one_test(
+                "counter.k",
+                "COUNTER",
+                program,
+                "SortCounter",
+                |validator, compiled, campaign| {
+                    let test = &campaign.tests[0];
+                    let mut session = BaselineSession::new(validator);
+                    let mut runtime =
+                        Runtime::prepare(campaign, compiled).unwrap_or_else(|_| panic!());
+                    let (unbounded, _) = session.baseline_run(&mut runtime, campaign, test, true);
+                    let normal = |run: &SideRun| {
+                        matches!(run, SideRun::Sides { sides }
+                            if matches!(sides.as_slice(), [OracleSide::Normal(_)]))
+                    };
+                    assert!(normal(&unbounded.run), "{:?}", unbounded.run);
+                    runtime.baseline_max_work = Some(1);
+                    let (bounded, cache) = session.baseline_run(&mut runtime, campaign, test, true);
+                    assert_eq!((session.live_runs(), session.reused_runs()), (2, 0));
+                    assert_eq!(
+                        bounded.run,
+                        SideRun::Sides {
+                            sides: vec![OracleSide::Unknown]
+                        }
+                    );
+                    assert!(
+                        cache.recording.as_ref().is_some_and(|run| run
+                            .census
+                            .leaves
+                            .contains_key(&HaltClass::WorkBound)),
+                        "{:?}",
+                        cache.recording
+                    );
+                    let (again, _) = session.baseline_run(&mut runtime, campaign, test, true);
+                    assert_eq!(again.run, bounded.run);
+                    runtime.baseline_max_work = None;
+                    let (again, _) = session.baseline_run(&mut runtime, campaign, test, true);
+                    assert_eq!(again.run, unbounded.run);
+                    assert_eq!(
+                        (
+                            session.live_runs(),
+                            session.reused_runs(),
+                            session.stored_runs()
+                        ),
+                        (2, 2, 2)
+                    );
                 },
             );
         }

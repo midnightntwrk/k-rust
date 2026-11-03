@@ -51,6 +51,7 @@ assume_joined = ["spec.k:7:3,spec.k:8:3@root"]   # optional; findings named as p
 time_ms = 10000
 max_depth = 100000
 work_factor = 4               # optional; no work budget when absent
+baseline_max_work = 200000    # optional; baselines bounded by time and depth only when absent
 
 [result]                      # optional
 cells = ["k", "regs"]         # compare only these cells; default: every observable cell
@@ -103,7 +104,8 @@ Defaults:
 | `spec.assume_joined` | none | The findings of the definition's full critical-pair check you accept as premises (fz26 KINK-BASELINE-FINDINGS; root README, "What a kill trusts"), each by the name `results` prints in `data.findings` (k-rust-backend `data_term::names`: k-rust-fuzz's `definition-findings` name, byte for byte). A name must name exactly one finding, and not a decided one, or the specification is refused (stage `assume-joined`, reason `name-refused`). With a finding left unnamed, no end of the definition is data: every mutation is `unknown` (`baseline-findings`), no comparable program can kill, and no query `no` is given. The list is in the specification digest (when not empty) and every document prints it (`data.assume_joined`). |
 | `budget.time_ms` | `10000` | Wall-clock bound of one program run; must be positive. |
 | `budget.max_depth` | `100000` | Rewrite-depth bound of one program run; must be positive. A run is never unbounded. |
-| `budget.work_factor` | absent | The work budget of a mutant's run of a program: at most `work_factor * W + 10000` states visited (k-rust `max_work`), where `W` is the states the program's baseline run visited; must be positive. A mutant that runs past it is `unknown` on that program, long before `time_ms` would stop it, unless the part it ran already holds a final configuration the baseline's program never ends in: then the program kills it one-sidedly (re-pin L1-2, decision 6; the root README, "What a kill trusts"). Absent: no work budget. It never bounds a baseline run. |
+| `budget.work_factor` | absent | The work budget of a mutant's run of a program: at most `work_factor * W + 10000` states visited (k-rust `max_work`), where `W` is the states the program's baseline run visited; must be positive. A mutant that runs past it is `unknown` on that program, long before `time_ms` would stop it, unless the part it ran already holds a final configuration the baseline's program never ends in: then the program kills it one-sidedly (re-pin L1-2, decision 6; the root README, "What a kill trusts"). Absent: no work budget. It never bounds a baseline run; `budget.baseline_max_work` does. |
+| `budget.baseline_max_work` | absent | The most states one baseline run of a program may visit across all its paths (k-rust `max_work`); must be positive. A bound only stops a run: a baseline it does not stop is the run without it (same row, same `run_sha256`, same work `W` for `work_factor`), and one it stops is `unknown`, with the bound in its cause. Unlike a `timeout`, which depends on the host's load, such an `unknown` is a function of the result key, which names the bound, so it is cached. Absent: baselines are bounded by `time_ms` and `max_depth` only, and a program that never ends is a `timeout` in every command. It has no default because any value turns some baseline that completes today into `unknown`; the right value depends on the corpus's programs. |
 | `program.start_sort` | the sort of `$PGM` | |
 | `program.variables` | none | Every configuration variable other than `$PGM` must be given, here or under `inputs`; streams default to empty (`$IO` to `"off"`, `$STDIN` to `""`). A variable's text is read as krs-exec reads it (k-rust `variable_reading_modules`): with the syntax module's grammar first wherever that module has the variable's sort, then with the main module's, so one text denotes one term in both tools. krun's `-c`, and so a `fuzz` campaign, reads it with the main module's grammar alone; `fuzz` refuses a template that the two readings read differently (`variable-reading-differs`, below). On a definition with stream cells a program may not bind `$IO` (refused at `inputs`, reason `stream-mode`): with IO off the stream cells hold the text printed and the input not yet read, so a final configuration states the program's output. |
 | `program.inputs` | none | Typed inputs, read only by a front end's decoder (above). |
@@ -254,6 +256,7 @@ The document is the check document above, with:
   `rules` are the edited rules, as in the run document: `{module, index, file, label, start_line, end_line, edits, before, after}` (null when the mutation does not resolve).
   Each refusal and warning is `{reason, edit, rule, detail, next}`: `edit` the index of the edit at fault (or null), `rule` the baseline sentence `{module, index}` it is about (or null), and `next` one sentence saying what to do.
 - `coverage`: `{decides, without_record, incomplete, detail}`, what the cached results (`results`, read from `--cache DIR` or `.kink-flow/`, never written) say about which rules the corpus uses: `decides` is true when every program has a current result record and every comparable program's coverage is complete; `without_record` and `incomplete` name the programs that keep it false.
+A program whose result is never cached (a timeout, an error, an `unknown` the host caused, and every program under the Z3 profile, where the result cache is off) has no record, so it keeps `decides` false however often `results` runs: which programs are comparable is then a fact of the host's run, not of the cached results, and `detail` names the remedy (`budget.baseline_max_work` makes a run that does not finish a cached `unknown`).
 
 A refusal is a reason of the table below (`MUTATIONS.toml`) with its next step: a stale anchor (`unknown-label`, `find-not-found`, `line-outside-rules`, `source-changed`), overlapping edits (`overlapping-edits`), a sentence that is not a rule (`non-rule-sentence`), an edit that changes nothing (`no-change`), and the others.
 A refused mutation is one `run` reports as `invalid-mutation`.
@@ -282,19 +285,20 @@ A program's class is
 | Class | Meaning | What to do |
 | --- | --- | --- |
 | `comparable` | The run ended and its final configuration is a value kink compares. | Nothing: this program can kill mutants. |
-| `timeout` | The run did not end within `budget.time_ms`; `cause` gives what k-rust returned when the bound fired (see below). | Make the program terminate, or raise the budget. |
-| `unknown` | The run ended without a comparable value (for example a collection holding a `Float`, `budget.max_depth` reached, an undecided step), or the run is excluded (`cause` then names the exclusion, such as `contradicted-claim`); `cause` says which. | Write a program whose final configuration kink can compare; for a `contradicted-claim` exclusion fix the claim the row's `specification_diagnostics` names, not the program. |
+| `timeout` | The run did not end within `budget.time_ms`; `cause` gives what k-rust returned when the bound fired (see below). A timeout depends on the host's load, so it is never cached: every command runs the program again. | Make the program terminate, raise `time_ms`, or set `budget.baseline_max_work` to bound the run by work, which gives a cached `unknown` instead. |
+| `unknown` | The run ended without a comparable value (for example a collection holding a `Float`, `budget.max_depth` or `budget.baseline_max_work` reached, an undecided step), or the run is excluded (`cause` then names the exclusion, such as `contradicted-claim`); `cause` says which. | Write a program whose final configuration kink can compare; for a `contradicted-claim` exclusion fix the claim the row's `specification_diagnostics` names, not the program. |
 | `refused` | The program was not read, parsed or assembled; `cause` is the refusal. | Fix the program. |
 | `error` | The run or the runner failed. | Report it. |
 
 Only comparable programs can kill a mutant; the others are reported and never count as covering a rule.
 
 The cache is `.kink-flow/` next to `FLOW.toml` (or `--cache DIR`); deleting it is always safe.
-One JSON record per program, `results/<spec digest>/<program digest>.json`, holds its key
-(result schema version `kink-flow/result/v9`, kink's build identity `kink_build`, kink's semantics identity `kink`, the two digests and the budget), class and cause,
+One JSON record per program, `results/<execution digest>/<program digest>.json`, holds its key
+(result schema version `kink-flow/result/v10`, kink's build identity `kink_build`, kink's semantics identity `kink`, the execution digest `execution: {kind, digest}`, the program digest and the budget), class and cause,
+the writer's specification digest `spec_digest` (outside the key: it only tells a reader that a record was written under other bytes),
 the baseline row exactly as the campaign report encodes it with the digest of its `run` part
 (`run_sha256`, comparable programs only), the final configurations as KORE text (an undefined step's pre-step configuration is none, so a run whose every path takes an undefined step lists none, and its baseline row's exit stop holds no class for it; since v7, kink27 R1-UNDEF), the rule
-coverage, `wall_ms`, the wall time of the program's live baseline run (outside the key and
+coverage (each sentence `{module, index, label}`: documents render file and lines from the current load), `wall_ms`, the wall time of the program's live baseline run (outside the key and
 the run digest; it orders the kill search, see `run`), and, since v5 (re-pin adoption A-1),
 `specification_diagnostics`, the baseline run's contradicted-claim records (see `run`), and
 `smt_unknowns`, its count of undecided solver answers (both outside the key and the run digest),
@@ -304,15 +308,31 @@ The computation cell is the first cell, from the top, whose production has the `
 Its `class` is the class the exit-stop slot projects it to, `normal` for every end under the flow's classifier.
 `kink_build` is the SHA-256 of the executable that wrote the record (kink-campaign `identity::kink_build`, packet CACHE-ID-fix-1), so a record another build wrote, or one without `kink_build`, is recomputed: the code that decides a result class mostly has no version constant, and only the build tells that it changed.
 When the executable cannot be read, no record is read or written, and each row says so (`cache_error`).
+
+A record may be stored only under a key that names every input its value depends on, and only when the value is a function of those inputs on every host.
+So only `comparable` and `unknown` records are written, and of `unknown` only one whose cause is not a host event.
+A `timeout` depends on the host's load; an `error` can come from the host (a refused stack segment, a solver that could not be created), and kink cannot tell when; a run excluded for a stack stop, a load stack stop or an allowance refusal is excluded for a fact of the host; and an `unknown` whose live run the watchdog stopped, or that failed without naming an exclusion, took its class from a second run, as did one that second run excluded for a fact of the host.
+None of these is written: the row says why (`not_cached`, for example `timeout: the watchdog stopped the run at time_ms = 500; a timeout depends on the host's load, so the next command runs this program again`), the command's exit status is unchanged (an `error` row still fails it), and a stored record of such a class, one another writer left or a hand edit, is never read.
+An `unknown` whose live run failed but whose campaign named an exclusion of the definition or the program is written: that exclusion, which the second run reached without a host exclusion, decides its class, not the failure.
+Under the Z3 profile the result cache is off: a solver query is bounded by the clock, so no baseline class is a function of its key, and every program runs live in every command.
+The document says whether the cache is on (`result_cache: {enabled, reason}`).
+
+The execution digest (kind `kink-flow/execution/v1`, `digest::execution_digest`) is the digest of the loaded definition without positions: each module's header (name, imports, attributes) and each sentence, in definition order, by its position-free fingerprint (kink-patch's, which tier 1's mutation identity uses) with the two origin facts kink's judgement reads (whether it is located, and its source when that is builtin); with the k-rust revision, the solver profile, the main module, the syntax module the loader resolved, the identities (not the names, which hold positions) of the findings `[spec] assume_joined` assumes, and `[result] cells`.
+So a comment, a blank line, a rustdoc comment KRS emits as a K comment, or any other layout edit keeps every record, and editing a rule, an attribute, the order of two rules or an `unobservable` declaration misses.
+A definition with a sentence that has no fingerprint (a context alias) falls back to the specification digest (kind `kink-flow/spec/v1`), which only costs misses.
 The specification digest covers the k-rust revision, the solver profile, how the
-specification is loaded and every source file the load reads; the program digest covers the
+specification is loaded and every source file the load reads, every byte; it names the specification in every document (`spec.digest`, beside `spec.execution_digest`) and keys the memos.
+The program digest covers the
 program's bytes (when it has a program text), start sort, variables and typed inputs, never its id.
 A typed input enters by what it denotes: the variable's K name and the SHA-256 of the KAST JSON of
 the term the decoder gave (`{name, kast_sha256}`), so editing a value in a file an input reads reruns
 the program and reformatting the file does not; a program with no typed inputs has the digest it
-had before typed inputs existed. A record is used only when its key is
-the current key, so editing a program reruns that program, and editing the specification,
-the budget or kink's result schema reruns everything. So does a kink build with another semantics
+had before typed inputs existed.
+The budget in the key is the bounds a stored class depends on, `{max_depth, max_simplification_iterations, max_breadth}` and `baseline_max_work` when it is set: each stops a run deterministically.
+`time_ms` is not in it: a run the watchdog stopped is never stored, and a run it did not stop is the uncancelled request, whose result does not depend on the bound, so raising `time_ms` to get past timeouts keeps every record.
+A record is used only when its key is
+the current key, so editing a program reruns that program, and editing the meaning of the specification,
+a bound in the key or kink's result schema reruns everything. So does a kink build with another semantics
 identity (packet CACHE-ID): the identity (kink-campaign `identity`) names every kink algorithm a
 program's class can depend on (the definition exclusions, the execution request, ...), and a
 record written by a build before CACHE-ID has no `kink` in its key, so it is recomputed.
@@ -330,8 +350,9 @@ run's leaf census. k-rust answers a cancelled run with an error and returns no l
 `cancelled_result: error`), so the census reads `the run did not finish within time_ms = 500; when
 the bound fired k-rust returned no leaves, so neither the paths nor the depth reached are known`; a
 census with leaves, depths and applied rules is given for runs that ended otherwise (a depth bound,
-a work bound, an undecided end). No second run is
-made. For any other refusal (an `unknown` or `error` run) one diagnostic run of the initial state
+a work bound, an undecided end). The cause ends with `a timeout depends on the host's load and is not cached: the next command runs this program again`, and, without `budget.baseline_max_work`, `set [budget] baseline_max_work to bound the run by work instead`.
+Likewise when the live run reached `budget.baseline_max_work` and the campaign named no exclusion: the class is `unknown` and the cause is `the run reached baseline_max_work = N; ` with the run's leaf census. No second run is
+made in either case. For any other refusal (an `unknown` or `error` run) one diagnostic run of the initial state, the campaign's request (the same budget and `baseline_max_work`),
 supplies the class, the cause, the final states and the coverage (`diagnostic` counts them). When
 the campaign named the exclusion of the baseline run, the cause says that exclusion and why it
 holds, never a guess from the shape of the leaves (an excluded run's leaves can all be values); for
@@ -366,6 +387,7 @@ rule `{module, index, label, file, start_line, end_line, status, reached_by, fir
 compiles to no axiom, or it is a `non-executable`, macro, alias or `smt-lemma` rule; `reason` says which), the
 mismatches, a summary, `baseline_runs` (`results --verify` runs every program live:
 `live` is the number of programs, `reused` 0) and `untargeted_rules`.
+`spec.execution_digest` (`{kind, digest}`, the result cache's key, beside `spec.digest`), `result_cache: {enabled, reason}` and a row's `not_cached` were added to version 5 without a new version, since they are additive.
 
 A rule's coverage is k-rust's run coverage of each comparable program's baseline run (kink-native
 `coverage`, `kink/coverage/v2` since re-pin L2-1, v3 since L2-1-tail), rewrite rules and equations alike: `reached_by` lists the
@@ -527,9 +549,7 @@ is there a program of the corpus whose result the mutation changes?
 
 1. The result cache is brought up to date first (`results` without `--verify`).
    Only `comparable` programs can kill; the others are never run.
-   A program whose cached record (one read from the cache, not computed by this command) is class `timeout` and that a killer hint names
-   is run once more (a timeout depends on the host's load):
-   its record is replaced only when the class or the run digest changes, and the row says `"rerun": "timeout"`.
+   No stored record is a `timeout` (a timeout depends on the host's load and is never cached), so a program whose baseline timed out was run live by this update.
 2. The mutation is resolved into one patch (see `MUTATIONS.toml`); an `invalid-mutation` stops there.
    A mutation whose edit only weakens the specification is `unkillable` and stops there too (README.md, trust section), unless a program is in O (step 3) and the baseline has a finding `[spec] assume_joined` leaves unnamed: then it is `unknown` with reason `baseline-findings`, as every such mutation is, since the weakening argument reads the baseline's normal forms as a model of the specification, which such a finding puts in doubt, and fixing the specification comes first.
 3. The programs are ordered (O): those whose cached coverage witnesses an edited rule's edit (rewrite rule or equation) first, then the rest.
@@ -600,10 +620,22 @@ Where a run's wall time goes (release build, `--order corpus`, 4 compile workers
 | Kill search | per live call: the mutant's compile (compiled ahead on the workers), its backend, the consistency check and every program run | every mutation | nothing, or the mutations tier 1 does not decide |
 
 On `examples/imp` (21 mutations, 7 programs) a warm run took 3.8-7.2 s before L1-4 (median 5.1 s over 7 interleaved rounds), 70-75 % of it resolution and 20-25 % admission, and takes 0.4-1.9 s since (median 0.5 s), nearly all of it the admission's load and compile. A cold run saves about 1.5 s, the 7 baseline compiles of its program inputs, which is within run-to-run noise on a shared host (medians 18.0 s before and 16.3 s since over the same 7 rounds). The 16 flow lists warm take 30-40 s before L1-4 and 10-14 s since; cold, the 49 program-input compiles they no longer make cost about 12 s of 47.3-93.3 s (the sum of the 16 lists' walls, over every cold run of main and of L1-4 with memos; single runs on a loaded host), again of the order of the host's noise (L1-4 and L1-4-fix-1 handoffs and both L1-4 reviews). A mutation the LLM adds, or one whose programs changed, costs its own resolution and calls only: a cold mutation still pays one full load.
+A comment or layout edit of the specification (a rustdoc comment KRS emits as a K comment included) keeps the execution digest, so every stored result record and every cached outcome stays in use, and resolution is paid again, since the resolution memo is keyed by the bytes.
+What was never cached is computed again, as by every command: a program whose result is never stored (a timeout, an error, an `unknown` the host caused), and a mutation tier 1 does not decide (one with an `unknown` or `timeout` outcome on some program), whose call runs the baselines of its programs live.
+A mutation addressed by `line` follows its line, not its rule: when a layout edit shifts that line, the mutation resolves to another sentence or to none, and its cached outcome is not the one used; addressed by `rule`, it keeps it.
+A program whose baseline times out costs up to `time_ms` in every command, since a timeout is never cached; `budget.baseline_max_work` turns it into a cached `unknown`.
 
 **Trust.** With identical inputs, a cached proved difference stands without being re-run in this command.
 This rests on k-rust's compile and execution determinism, on the key naming every input the outcome depends on,
 and on the integrity of the cache directory: whoever can write `.kink-flow/` can forge a kill, as whoever can write the kink build can.
+Identical inputs are an identical loaded definition up to positions (the execution digest), not identical bytes, which rests on three premises (`digest::execution_digest`).
+P1, k-rust's compile: for one build compiling is deterministic, and positions and source names reach `definition.kore` only through its `Source` and `Location` attributes, so two loaded definitions equal up to positions compile, for the baseline and for every mutant, to KORE definitions equal up to those attributes.
+P2, k-rust's execution digest: KORE definitions equal up to `Source` and `Location` give equal results outside the Execute exclusions, except in texts that cite a position.
+P3, kink: kink's judgement reads a sentence's origin only as whether it is located and whether its source is builtin (kink-patch's authored sentences, its conjunction and cell-frame readings, the definition-level census of kink-native, kink-campaign and kink-flow), both in the digest; every other read of a position (the rule rows and coverage a document renders, the census memo's findings, mutation resolution, a refused string spelling's file in a cause) is presentation, a memo value or resolution, none of which the execution digest keys.
+A new read of a position in a judgement would break P3, and a layout edit could then be a wrong hit.
+Tier 1 also needs a congruence: a mutation's identity addresses a sentence by fingerprint and occurrence and requires a replacement to keep its position attributes, so two baselines with one execution digest give, after one such replacement or deletion, mutants equal up to positions, and P1-P3 apply to them; k-rust's own KORE execution digest is not such a congruence (compiling maps several definitions to one KORE definition), and it does not see the `unobservable` attribute, which decides which cells are compared.
+A failed premise shows as a `--verify` mismatch, never silently: `results --verify` and `run --verify` re-derive every stored value from the current bytes.
+A stored `comparable` is the result of the uncancelled request, which every host that completes it computes; a host that cannot complete it would compute a `timeout` live, so the stored record answers what the specification computes, written where the host allowed it, in the direction of the memos' host premise (**Memos**), and is never a false kill.
 Each record carries a digest that detects corruption and a record moved under another key, not forgery.
 `run --verify` re-proves: it updates the results with `--verify`, decides nothing from tier 1 or the memos and uses no hint,
 runs every program of O on each mutation, then each program that has a cached outcome and that run skipped, alone,
@@ -678,7 +710,7 @@ Besides `results/` and `report.json` (the last run's document, also written when
   `difference` is a `killed` record's kill evidence (below, "Kill evidence"), null on an `agree` record: outside the key, which names every input it is a function of, and inside `record_sha256` (domain `kink-flow/outcome-record/v2`), so a record whose evidence was altered is ignored; no status is read from it.
   A version 1 file, which has no evidence, is not current: its records are ignored and recomputed.
   `removed_claims` is the row's (below), for the reader only: it is read back by nothing and is in no digest.
-  The context is `{outcome_schema: "kink-flow/outcome/v1", kink_build, kink, profile, execution_digest: {kind, digest}, budget, oracles, classifier, schedule}` (with `work_factor` set, `budget` also holds `work: {factor, floor}`; `oracles` names the slots, and where the second is `cells` the context also holds `not_compared`, the cells left out, since the `unobservable` attribute is not in the compiled KORE an execution digest may be read from):
+  The context is `{outcome_schema: "kink-flow/outcome/v1", kink_build, kink, profile, execution_digest: {kind, digest}, budget, oracles, classifier, schedule}` (with `work_factor` set, `budget` also holds `work: {factor, floor}`; `oracles` names the slots, and where the second is `cells` the context also holds `not_compared`, the cells left out, so that the context says on its face which projection an outcome was decided for):
   `kink` is kink's semantics identity (kink-campaign `identity`, packet CACHE-ID), `{k_rust_revision, fingerprint, canonical_patch, compiled_kore, patch_admission, claim_removal, mutant_consistency, mutant_effect, weakening, data_facts, terminal_value, definition_exclusion, execution_request, result_schema, coverage, one_sided}`, the version of every kink algorithm an outcome can depend on. Among them:
   `claim_removal` is kink-patch's `CLAIM_REMOVAL_VERSION`, since the mutant every record ran on depends on the claim-removal algorithm (v2 since re-pin R0c-fix-3: the reach follows the overload and unit axioms; v3 since R0c-fix-4: a rule with configuration context is an equation of its head);
   `mutant_consistency` is kink-native's `MUTANT_CONSISTENCY_VERSION`, since a mutant runs (and a record exists) only when its equations are shown consistent (v2 since R0c-fix-4: the check's guard reads the equation and skipped-pair counts; v3 since k-rust FZ-CONFLUENCE: k-rust pairs the equations at evaluated hooks with the hooks' written meanings and refutes more overlaps; v4 since fz26 phase 8: k-rust refutes still more overlaps and splits residuals, joins pairs over sorts with no normal form through the witness equations it adopts, whose adoption can flip between a baseline and its mutant, and the gate reads the mutant's full check from its per-definition facts, `data_facts` below, with their completeness guard);
@@ -688,7 +720,8 @@ Besides `results/` and `report.json` (the last run's document, also written when
   `terminal_value` is kink-native's `TERMINAL_VALUE_VERSION`, since which ends a slot compares depends on it (v1 since fz26 KINK-OVERLOAD-VALUE: an instance-normal overload application is admitted where k-rust's `is_data` holds, and every compared end is judged under both definitions; v2 since fz26 KRUST-ANYWHERE-HEAD: k-rust's data heads also take an `anywhere` head with plain equations declared total or `value-production`, such as SIMPLE's `_[_]`, and drop an overload head declared neither; v3 since kink27 R5-BYTES-ENDS: a `Bytes` domain value, its payload in its sort's stored form, has a trusted injective codec, so an end holding one is compared);
   `definition_exclusion`, `patch_admission` and `execution_request` name the definition exclusions (re-pin R0-tail; v2 since re-pin adoption A-1, which reads k-rust's run-level lists; v3 since fz26 KS-PIN-SCDEF and KINK-CENSUS-RUNLIST: a short-circuit operator is flagged only when a term its skipped operand may leave undefined is not one another operand must evaluate, and the definition-level census reads only the open hooks k-rust evaluates without a record, the others being judged per run through `unsupportedHooks`; v4 since kink27 R3-CENSUS-RUNLEVEL: k-rust's classes leave the census and the initial-state check, a run that reads one being excluded by its `implementationChosenValues` list; each only narrows what is excluded), the rule that no typing error refuses a patch (L2-2-fix-1) and the execution request with its state-set modality and work budget (L1-1);
   `kink_build` is the SHA-256 of the running `kink-flow` executable, so any rebuild (debug or release) starts a new context;
-  `execution_digest` is today the specification digest (kind `kink-flow/spec/v1`), so any edit of the specification, a comment included, starts a new context.
+  `execution_digest` is the result cache's (kind `kink-flow/execution/v1`, the loaded definition without positions, "Results" above; kind `kink-flow/spec/v1`, the specification digest, on its fallback), so a comment or layout edit keeps the context and editing the meaning of the specification starts a new one;
+  `budget` is the result key's, the bounds a stored class depends on (no `time_ms`: a cached outcome is decided from complete evidence, which no clock stopped).
   The mutation identity hashes each edit's kind, module, the addressed rule's fingerprint, its occurrence among equal fingerprints of the module,
   and the replacement's fingerprint: positions excluded, so it is the same after an edit that only moves the rule.
   `baseline_run_sha256` is the program's result `run_sha256` when the outcome was proved, and `mutant_run_sha256` the same digest of the mutant's evidence.
@@ -701,12 +734,12 @@ Besides `results/` and `report.json` (the last run's document, also written when
   The hint key hashes the mutation's edits as written (without `line`) and the K text of each addressed rule before the edit,
   so a hint survives edits elsewhere in the specification and is lost when the addressed rule's text changes.
   A hint is a scheduling hint only: it changes which killer is found first and the cost, never a status.
-- `memo/resolutions/<spec digest>/<sha256 of the mutation's edits>.json` and `memo/census/<spec digest>.json`, the warm path's memos (re-pin L1-4, **Memos** above):
+- `memo/resolutions/<spec digest>/<sha256 of the mutation's edits>.json` and `memo/census/<spec digest>.json`, the warm path's memos (re-pin L1-4, **Memos** above), keyed by the exact specification digest, not the execution digest, since their values cite file names, lines, rule texts and census sources and locations:
   `{schema: "kink-flow-memo", key, value, record_sha256}`, where `key` is `{version: "kink-flow/resolution-memo/v2", kink_build, kink, spec, mutation}` (`mutation`: the edits, each `{file, rule, line, find, replace, delete}`) or `{version: "kink-flow/census-memo/v1", kink_build, kink, spec}`,
   `value` the facts `{digest, rules, identity, typing_diagnostics, removed_claims, weakening}` (v2 since kink27 R5-WEAKENING added `weakening`) or the census (kink-native `DeclarationCensus::value`), and `record_sha256` the digest of `{key, value}` under the version.
   A record is used only when its key is exactly the current one and its digest recomputes under that key; the path only finds it.
 
-- `patterns/<spec digest>/<pattern digest>/<program digest>.json`, the cached answers of `query` (flow F-18, "Checking a pattern" below). `run` neither reads nor writes them.
+- `patterns/<execution digest>/<pattern digest>/<program digest>.json`, the cached answers of `query` (flow F-18, "Checking a pattern" below). `run` neither reads nor writes them.
 
 Every file is written atomically; deleting any of them, or the whole directory, is always safe.
 The `killers/` directory of F-05 is no longer read or written and can be deleted.
@@ -726,8 +759,8 @@ Version 3 (F-13) names the oracle slots of an executed entry, versions 4 to 6 ad
 
 | Field | Meaning |
 | --- | --- |
-| `spec` | `{outcome, stage, reason, detail, digest, files, exclusion}`: the specification's admission and its digest, and its definition exclusion with its causes (`exclusion`, since version 13; as in the check document, null when there is none). |
-| `programs` | The `results` rows `{id, digest, class, cause, cached, verify, wall_ms, specification_diagnostics, smt_unknowns, ends}` (`ends`, each end's computation head and class, since version 12), plus `rerun` for a timeout record run again. `specification_diagnostics` (the baseline run's contradicted-claim records, above) and `smt_unknowns` (its undecided solver answers, reported only) come from the result record (absent on a `refused` row, which has none). |
+| `spec` | `{outcome, stage, reason, detail, digest, execution_digest, files, exclusion}`: the specification's admission and its digest, the execution digest that keyed the result cache and tier 1 (`{kind, digest}`, null when the specification is refused; added to version 14 without a new version, since it is additive), and its definition exclusion with its causes (`exclusion`, since version 13; as in the check document, null when there is none). |
+| `programs` | The `results` rows `{id, digest, class, cause, cached, verify, wall_ms, specification_diagnostics, smt_unknowns, ends}` (`ends`, each end's computation head and class, since version 12), plus `not_cached` for a result that depends on the host and was not written (no `rerun` any more: no stored record is a timeout). `specification_diagnostics` (the baseline run's contradicted-claim records, above) and `smt_unknowns` (its undecided solver answers, reported only) come from the result record (absent on a `refused` row, which has none). |
 | `unusable_programs` | Every program whose class is not `comparable`, once: `{id, class, cause}`. These programs are never run on a mutant. |
 | `mutations` | One row per selected mutation, in the list's order (below). |
 | `counts` | The number of mutations per status (all nine statuses). |
@@ -932,13 +965,13 @@ The admission of the specification (about 1 s per command on IMP) costs more tha
 
 ### The cache, `--verify` and trust
 
-Only a `hit` and a `no` are cached, one record per (pattern, program), `patterns/<spec digest>/<pattern digest>/<program digest>.json` in the cache directory:
+Only a `hit` and a `no` are cached, one record per (pattern, program), `patterns/<execution digest>/<pattern digest>/<program digest>.json` in the cache directory:
 `{schema: "kink-flow-pattern", key, pattern_id, program_id, answer, witness, baseline_run_sha256, record_sha256}`.
-The key is `{schema_version: "kink-flow/pattern-answer/v5", lowering: "kink-flow/pattern-lowering/v1", k_rust_revision, kink_build, kink, spec, program, pattern, budget, modality}`:
-the specification digest (every source file, a comment included), the program digest (its text, start sort and variables), the pattern digest (its compiled KORE target, not its id or its text's layout), the budget as the result key holds it, the search's modality, kink's build (any rebuild misses) and its semantics identity.
+The key is `{schema_version: "kink-flow/pattern-answer/v5", lowering: "kink-flow/pattern-lowering/v1", k_rust_revision, kink_build, kink, execution, program, pattern, budget, modality}`:
+the execution digest (`{kind, digest}`, the result cache's: the loaded definition without positions, so a comment or layout edit keeps every answer), the program digest (its text, start sort and variables), the pattern digest (its compiled KORE target, not its id or its text's layout), the budget as the result key holds it, the search's modality, kink's build (any rebuild misses) and its semantics identity.
 A record is used only when its key is exactly the current one and its `record_sha256` recomputes; a cached `no` also only while the program's current result is `comparable` with the baseline run digest the `no` was given against.
 A used record is judged again with the current command's facts (the definition's exclusions on this command's load, the initial configuration's, the baseline class, the profile), so it never answers more than a live search would.
-Editing the specification, the program, the budget or the pattern, or rebuilding kink, recomputes the answer; an `unknown` is recomputed every time.
+Editing the meaning of the specification, the program, a bound of the budget (not `time_ms`: a stored answer is a hit or the `no` of a complete exploration, neither of which the clock decided) or the pattern, or rebuilding kink, recomputes the answer; an `unknown` is recomputed every time.
 
 A cached answer stands without a search. It rests on the integrity of the cache directory (whoever can write it can forge an answer, as for every kink cache) and on the key naming every input; not on k-rust's determinism: a `hit` and a `no` are facts about the definition and the program, which a later search can fail to re-derive (an unknown) but cannot contradict.
 `--verify` searches every selected (pattern, program) live, compares each with the stored record a command without `--verify` would use, lists every difference in `mismatches` (`{pattern, program, record, cached, live}`; the row's `verify` is `match` or `mismatch`), writes no pattern record, and exits 1 on a difference; it also updates the results with `--verify` (which writes a result record for a program that has none).

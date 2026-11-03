@@ -2639,8 +2639,9 @@ fn equation_parts(pattern: &Pattern) -> Option<(&str, Option<&Pattern>, &Pattern
 }
 
 /// Whether `leaf` reports an allowance hook left unevaluated, on the leaf, a candidate or the
-/// remainder.
-fn allowance_refusal(leaf: &AdaptedLeaf) -> bool {
+/// remainder ([`Exclusion::AllowanceRefusal`]).
+#[must_use]
+pub fn allowance_refusal(leaf: &AdaptedLeaf) -> bool {
     leaf.diagnostics
         .iter()
         .chain(leaf.candidate_diagnostics.iter().flatten())

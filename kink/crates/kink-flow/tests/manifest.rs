@@ -41,6 +41,7 @@ fn a_minimal_manifest_takes_every_default() {
             time_ms: 10_000,
             max_depth: 100_000,
             work_factor: None,
+            baseline_max_work: None,
         }
     );
     assert_eq!((DEFAULT_TIME_MS, DEFAULT_MAX_DEPTH), (10_000, 100_000));
@@ -77,6 +78,7 @@ md_selector = "k | concrete"
 time_ms = 250
 max_depth = 7
 work_factor = 3
+baseline_max_work = 20000
 
 [[program]]
 id = "from-file"
@@ -100,6 +102,7 @@ text = "1 + 2"
             time_ms: 250,
             max_depth: 7,
             work_factor: Some(3),
+            baseline_max_work: Some(20_000),
         }
     );
     // Re-pin L1-1: `work_factor` calibrates the mutants' work budget from each program's
@@ -353,6 +356,11 @@ fn required_keys_types_and_bounds_are_checked() {
         &format!("{SPEC}[budget]\nwork_factor = 1.5\n"),
         "budget.work_factor",
         "expected an integer",
+    );
+    assert_error(
+        &format!("{SPEC}[budget]\nbaseline_max_work = 0\n"),
+        "budget.baseline_max_work",
+        "must be positive",
     );
     assert_error(
         &format!("{SPEC}[[program]]\nid = \"v\"\ntext = \"1\"\nvariables = {{ N = 42 }}\n"),

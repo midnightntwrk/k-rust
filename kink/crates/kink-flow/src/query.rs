@@ -7,20 +7,23 @@
 //! `search_pattern` per (pattern, program), unless a cached answer stands.
 //!
 //! **The cache** holds only `hit` and a final `no`, one record per (pattern, program):
-//! `patterns/<spec digest>/<pattern digest>/<program digest>.json` in the cache directory, written
-//! atomically, `{schema: "kink-flow-pattern", key, pattern_id, program_id, answer, witness,
+//! `patterns/<execution digest>/<pattern digest>/<program digest>.json` in the cache directory,
+//! written atomically, `{schema: "kink-flow-pattern", key, pattern_id, program_id, answer, witness,
 //! baseline_run_sha256, record_sha256}`. The key ([`answer_key`]) names every input an answer
 //! depends on: the record's schema, the lowering version, the k-rust revision, kink's build
 //! (`kink_build`, the executable's SHA-256, so any rebuild starts a new key: packet CACHE-ID-fix-1)
-//! and its semantics identity (`kink`), the specification digest (every source file, the load
-//! options, the k-rust revision and the profile), the program digest (its bytes, start sort and
-//! variables), the pattern's digest (its KORE target and generated variables), the budget, and the
-//! search's modality (search type all, state set, at most one result). A record is used only when
-//! its key is exactly the current one and its `record_sha256` recomputes; a `no` also only while
-//! the program's current result record is comparable with the baseline run digest the `no` was
-//! given against. A used record's answer is judged again with the current command's facts (the
-//! definition exclusions of this command's load, the initial state's exclusion, the baseline
-//! class, the profile), so a record never answers more than a live search would.
+//! and its semantics identity (`kink`), the execution digest (`digest::execution_digest`: the
+//! loaded definition without positions, the k-rust revision and the profile, so a comment or layout
+//! edit keeps every answer), the program digest (its bytes, start sort and variables), the
+//! pattern's digest (its KORE target and generated variables), the budget's bounds
+//! (`results::budget_value`, without `time_ms`: a stored answer is a hit or the `no` of a complete
+//! exploration, neither of which the clock decided), and the search's modality (search type all,
+//! state set, at most one result). A record is used only when its key is exactly the current one
+//! and its `record_sha256` recomputes; a `no` also only while the program's current result record
+//! is comparable with the baseline run digest the `no` was given against. A used record's answer is
+//! judged again with the current command's facts (the definition exclusions of this command's load,
+//! the initial state's exclusion, the baseline class, the profile), so a record never answers more
+//! than a live search would.
 //!
 //! **Trust.** A cached answer stands without a search in this command. It rests on the integrity
 //! of the cache directory (whoever can write it can forge an answer, as for every kink cache) and
@@ -38,14 +41,14 @@
 
 use crate::{
     admit::admit_spec,
-    digest::spec_digest,
+    digest::ExecutionDigest,
     manifest::{FlowManifest, ManifestError},
     pattern::{
         Answer, Facts, INVALID_PATTERN, LOWERING_VERSION, LoweredPattern, Lowering, PatternList,
         SearchOutcome, Searcher, judge, search_modality,
     },
     results::{
-        BaselineRunner, ProgramRow, ResultsUpdate, cache_directory, result_key, runner_refusal,
+        BaselineRunner, ProgramRow, ResultsUpdate, budget_value, cache_directory, runner_refusal,
         update_results,
     },
     search::tier1_refusal,
@@ -97,7 +100,7 @@ pub struct QueryOptions {
 /// The key of a cached answer (module docs).
 pub fn answer_key(
     build: Sha256Digest,
-    spec: Sha256Digest,
+    execution: ExecutionDigest,
     program: Sha256Digest,
     pattern: Sha256Digest,
     budget: crate::manifest::Budget,
@@ -108,26 +111,26 @@ pub fn answer_key(
         "k_rust_revision": K_RUST_REVISION,
         "kink_build": build.to_string(),
         "kink": kink_campaign::kink_identity(),
-        "spec": spec.to_string(),
+        "execution": execution.value(),
         "program": program.to_string(),
         "pattern": pattern.to_string(),
         // The result key's budget object, so both keys name the same bounds.
-        "budget": result_key(spec, program, budget, Some(build))["budget"],
+        "budget": budget_value(budget),
         "modality": search_modality(),
     })
 }
 
-/// Where the record of (`pattern`, `program`) is kept under the specification digest `spec`. The
-/// key decides what a record may be used for; the path only finds it.
+/// Where the record of (`pattern`, `program`) is kept under the execution digest `execution`.
+/// The key decides what a record may be used for; the path only finds it.
 pub fn answer_path(
     cache: &Path,
-    spec: Sha256Digest,
+    execution: Sha256Digest,
     pattern: Sha256Digest,
     program: Sha256Digest,
 ) -> PathBuf {
     cache
         .join(PATTERN_DIRECTORY)
-        .join(spec.to_string())
+        .join(execution.to_string())
         .join(pattern.to_string())
         .join(format!("{program}.json"))
 }
@@ -272,7 +275,8 @@ pub(crate) fn query_with(
     let refusal = cache_refusal(build);
     let cache_build = build.filter(|_| refusal.is_none());
     let store = Store::new(&cache);
-    let spec_digest = spec_digest(manifest, &spec.loaded.files);
+    let spec_digest = update.spec_digest;
+    let execution = update.execution;
     let mut mismatches = update.mismatches.clone();
     let mut accounting = json!({"from_cache": 0, "records_written": 0});
     let mut patterns = Vec::new();
@@ -326,7 +330,7 @@ pub(crate) fn query_with(
                 cache: &cache,
                 store: &store,
                 build: cache_build,
-                spec: spec_digest,
+                execution,
                 verify: options.verify,
                 exclusions: &exclusions,
             };
@@ -369,6 +373,7 @@ pub(crate) fn query_with(
         pattern_cache,
         runner.baseline_runs(),
     );
+    document["spec"]["execution_digest"] = execution.value();
     document["data"] = spec.data.value();
     (document, ok)
 }
@@ -380,7 +385,8 @@ struct Context<'a> {
     store: &'a Store,
     /// kink's build when the cache is on.
     build: Option<Sha256Digest>,
-    spec: Sha256Digest,
+    /// The execution digest, which keys the answers.
+    execution: ExecutionDigest,
     verify: bool,
     /// The definition exclusions of the searcher's load.
     exclusions: &'a kink_native::exclusion::DefinitionExclusions,
@@ -450,12 +456,17 @@ fn ask(
         (
             answer_key(
                 build,
-                context.spec,
+                context.execution,
                 digest,
                 lowered.digest,
                 context.manifest.budget,
             ),
-            answer_path(context.cache, context.spec, lowered.digest, digest),
+            answer_path(
+                context.cache,
+                context.execution.digest,
+                lowered.digest,
+                digest,
+            ),
         )
     });
     let stored = keyed
@@ -605,6 +616,7 @@ fn document(
             "reason": refusal.map(|r| &r.reason),
             "detail": refusal.map(|r| &r.detail),
             "digest": digest.map(|d| d.to_string()),
+            "execution_digest": null,
             "files": record
                 .files
                 .iter()

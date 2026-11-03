@@ -11,6 +11,12 @@
 //! adds no premise to the ones the uncached path rests on. Then a hit returns exactly what
 //! recomputation returns.
 //!
+//! Both memos are keyed by the exact specification digest, not by the execution digest that keys
+//! the result cache, tier 1 and the pattern cache (`digest::execution_digest`, the loaded
+//! definition without positions): their values cite positions and file text (a resolution's file
+//! names, lines and rule texts; a census finding's source and location), and resolution reads
+//! the files' bytes, so a comment or layout edit changes them.
+//!
 //! **The resolution memo** holds, per mutation, the facts of its resolution that a row decided by
 //! tier 1 reads: the patch digest, the edited rules (texts, lines, labels, whether the
 //! `requires` changed), the tier-1 mutation identity, the edited rules' typing diagnostics and
@@ -25,8 +31,8 @@
 //!   the entry, main and syntax modules, the Markdown selector, the include directories and
 //!   every source file the load read, by name and SHA-256. Resolution reads the specification
 //!   only through them: the admitted load (`loaded`: its baseline, file list and selector, a
-//!   function of these by k-rust's load determinism, the premise the result cache and tier 1's
-//!   execution digest already rest on), each touched file's bytes, checked against the
+//!   function of these by k-rust's load determinism, a premise every kill rests on), each
+//!   touched file's bytes, checked against the
 //!   recorded SHA-256 (`View::read`, else `source-changed`), and the edited load, which reads the
 //!   same files under the same options with the edited views in place of the edited files
 //!   (`load_source_with_overlay` with `admit::corpus_source`). Before any record is read, every
