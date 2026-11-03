@@ -62,6 +62,7 @@ use std::{
     borrow::Cow,
     cell::Cell,
     collections::{BTreeMap, BTreeSet},
+    fmt,
     sync::Arc,
 };
 
@@ -462,6 +463,45 @@ pub struct ComputedRuleAttributes {
     /// left-hand side matches a subject does not depend on any literal's element, so a proof
     /// route decides a failed match before it stops the attempt. Set with `open_literals`.
     pub open_literal_in_lhs: bool,
+    /// The variables the left-hand side names as a conjunct of an `And` (term aliases), once a
+    /// step has read them (`rewrite::apply`): a function of `lhs` alone.
+    pub lhs_alias_variables: LhsAliasCell,
+}
+
+/// A rule's left-hand-side alias variables once they have been collected: derived data, so it
+/// takes no part in the rule's equality, and a clone of the rule starts without it, since a
+/// clone may be changed (renamed apart) before it is used.
+#[derive(Default)]
+pub struct LhsAliasCell(std::sync::OnceLock<BTreeSet<Variable>>);
+
+impl LhsAliasCell {
+    /// The collected set, collecting it with `collect` on the first call.
+    pub(crate) fn get_or_init(
+        &self,
+        collect: impl FnOnce() -> BTreeSet<Variable>,
+    ) -> &BTreeSet<Variable> {
+        self.0.get_or_init(collect)
+    }
+}
+
+impl Clone for LhsAliasCell {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl PartialEq for LhsAliasCell {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for LhsAliasCell {}
+
+impl fmt::Debug for LhsAliasCell {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("LhsAliasCell")
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -4621,6 +4661,7 @@ where
             association_open: computed.association_open,
             open_literals: Arc::clone(&computed.open_literals),
             open_literal_in_lhs: computed.open_literal_in_lhs,
+            lhs_alias_variables: LhsAliasCell::default(),
         },
         existentials: rename_set(&rule.existentials),
     };

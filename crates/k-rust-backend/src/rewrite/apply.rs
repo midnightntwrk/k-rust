@@ -2350,7 +2350,10 @@ fn apply_rhs_alternative(
             ));
         }
     }
-    let alias_variables = term_alias_variables(&rule.lhs);
+    let alias_variables = rule
+        .computed_attributes
+        .lhs_alias_variables
+        .get_or_init(|| term_alias_variables(&rule.lhs));
     let rule_substitution = substitution
         .iter()
         .filter(|(variable, _)| !alias_variables.contains(*variable))
