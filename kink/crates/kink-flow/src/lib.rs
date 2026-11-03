@@ -28,6 +28,17 @@
 //! configuration variable by name, with no program text on a definition without `$PGM`, and
 //! from typed inputs a front end's [`InputDecoder`] reads; it refuses a case whose initial
 //! configuration has no value on the baseline ([`admit`]).
+//!
+//! CF-40 makes the manifest, the command layer and the reports a library both front ends use,
+//! kink-flow's own command line and the krs front end (`krs kink <verb>`): one manifest schema
+//! whose `[spec]` declares a K specification or a KRS package's emitted K ([`ManifestFile`],
+//! [`SpecDecl`]), bound to the specification a command runs on ([`ManifestFile::bind`]); one
+//! parser of every verb's options ([`FlowCommand::parse`]) and one way to run it
+//! ([`dispatch`]), with what a front end adds ([`FrontEnd`]: how next steps spell its commands,
+//! the mutations it refused before the engine, an annotation of the document); a visitor over
+//! every rule a document names ([`visit_rules`]); and the deterministic rendering of a results or
+//! run document ([`verdicts()`]). The engine does not change: a KRS corpus runs as a K corpus
+//! over the K its front end emitted.
 
 pub mod admit;
 pub mod check;
@@ -41,6 +52,7 @@ pub mod hints;
 pub mod manifest;
 pub mod memo;
 pub mod mutation;
+pub mod names;
 pub mod observed;
 pub mod outcomes;
 pub mod pattern;
@@ -48,6 +60,7 @@ pub mod query;
 pub mod report;
 pub mod results;
 pub mod search;
+pub mod verdicts;
 
 pub use admit::{
     AdmittedSpec, CaseInputs, FlowAdmission, InputDecoder, InputFiles, InputSession,
@@ -56,15 +69,22 @@ pub use admit::{
 pub use check::{
     CorpusCoverage, Finding, MutationCheck, MutationCheckRow, check_mutations, corpus_coverage,
 };
+pub use cli::{
+    CommandFiles, CommandSpelling, FlowCommand, FrontEnd, KinkFlowSpelling, OutputFormat, Verb,
+    dispatch, on_stack,
+};
 pub use manifest::{
-    Budget, Decoder, FlowManifest, ManifestError, Program, ResultSection, SpecSection,
+    Budget, Decoder, FlowManifest, KrsSpec, ManifestError, ManifestFile, Program, ResultSection,
+    SpecDecl, SpecSection,
 };
 pub use mutation::{
     EditAction, EditSpec, EditedRule, InvalidMutation, InvalidReason, LabelMatch, Mutation,
     MutationList, ResolvedEdit, ResolvedMutation, RuleText, addressed_rule, label_match, resolve,
     rule_texts,
 };
+pub use names::{RuleRef, visit_rules};
 pub use observed::{ResultProjection, ResultRefusal, result_projection};
+pub use verdicts::verdicts;
 
 /// The k-rust revision every kink-flow document names as `k_rust_revision`, and `--version`
 /// prints: k-rust's build identity (`k_rust::build_identity`, its version and a digest of its

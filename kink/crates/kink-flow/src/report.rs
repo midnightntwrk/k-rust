@@ -67,8 +67,9 @@
 
 use crate::outcomes::slot_name;
 use crate::{
+    cli::{CommandSpelling, Verb},
     manifest::{Budget, FlowManifest},
-    mutation::{EditedRule, RuleText},
+    mutation::{EditedRule, InvalidReason, RuleText},
     results::{ResultClass, cache_directory, kebab, non_value_text},
     search::REPORT_FILE,
 };
@@ -249,7 +250,42 @@ pub fn rules_value(rules: &[EditedRule]) -> Value {
     Value::Array(rules.iter().map(rule_value).collect())
 }
 
-/// What a status asks of the LLM; `None` for `killed`. `reason` refines `error`.
+/// What a status asks of the LLM, its next steps spelled by `spelling`; `None` for `killed`.
+/// `reason` refines `error`. Under kink-flow's own spelling it is [`action`].
+pub fn action_spelled(
+    status: &str,
+    reason: Option<&str>,
+    spelling: &dyn CommandSpelling,
+) -> Option<String> {
+    match status {
+        "error" if reason == Some("outcome-conflict") => Some(format!(
+            "check the outcome cache: a cached agreement says the mutant ran, a live call says it \
+             did not; run `{} --verify`",
+            spelling.command(Verb::Run)
+        )),
+        "error" if reason.is_some_and(is_corpus_error) => Some(format!(
+            "fix the corpus: a cached result no longer describes its program's baseline run; \
+             run `{} --verify`",
+            spelling.command(Verb::Results)
+        )),
+        _ => action(status, reason).map(str::to_owned),
+    }
+}
+
+/// What the row of a mutation a front end refused asks of its author
+/// ([`InvalidReason::External`]): the front end's next step; `None` for every reason of
+/// kink-flow's own, whose action is the status's ([`action`]).
+pub fn refused_action(reason: InvalidReason) -> Option<String> {
+    match reason {
+        InvalidReason::External { next, .. } => {
+            Some(format!("fix the mutation: {next} (reason, edit, detail)"))
+        }
+        _ => None,
+    }
+}
+
+/// What a status asks of the LLM, as `kink-flow` spells its commands
+/// ([`action_spelled`]); `None` for `killed`. `reason` refines `error`.
 pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
     Some(match status {
         "killed" => return None,
@@ -824,8 +860,17 @@ pub struct ReportOptions {
 /// `kink-flow report`: the stored run document, exactly as `run` last wrote it, or a
 /// `kink-flow-report` document saying why there is none; and whether there was one.
 pub fn report(manifest: &FlowManifest, options: &ReportOptions) -> (Value, bool) {
+    report_spelled(manifest, options, &crate::cli::KinkFlowSpelling)
+}
+
+/// [`report`], the next steps of a missing or unreadable report spelled by `spelling`.
+pub fn report_spelled(
+    manifest: &FlowManifest,
+    options: &ReportOptions,
+    spelling: &dyn CommandSpelling,
+) -> (Value, bool) {
     let path = cache_directory(manifest, options.cache.as_deref()).join(REPORT_FILE);
-    match read_report(&path) {
+    match read_report(&path, spelling) {
         Ok(document) => (document, true),
         Err((outcome, detail)) => (
             json!({
@@ -843,13 +888,20 @@ pub fn report(manifest: &FlowManifest, options: &ReportOptions) -> (Value, bool)
 }
 
 /// The stored run document, or `(outcome, detail)` with outcome `missing` or `unreadable`.
-fn read_report(path: &Path) -> Result<Value, (&'static str, String)> {
+fn read_report(
+    path: &Path,
+    spelling: &dyn CommandSpelling,
+) -> Result<Value, (&'static str, String)> {
     let text = fs::read_to_string(path).map_err(|e| {
         (
             "missing",
-            format!("no run report ({e}): run `kink-flow run FLOW.toml MUTATIONS.toml` first"),
+            format!(
+                "no run report ({e}): run `{}` first",
+                spelling.command(Verb::Run)
+            ),
         )
     })?;
+    let again = spelling.verb(Verb::Run);
     let document = kink_patch::parse_json(&text).map_err(|e| match e {
         kink_patch::JsonError::Syntax(_) => ("unreadable", format!("the report is not JSON: {e}")),
         // Re-pin L1-3-tail: kink's depth limit or the host's refused stack, not a malformed file.
@@ -860,7 +912,7 @@ fn read_report(path: &Path) -> Result<Value, (&'static str, String)> {
             "unreadable",
             format!(
                 "the report has schema {} version {}, not {RUN_SCHEMA} version {RUN_VERSION}: \
-                 run `kink-flow run` again",
+                 run `{again}` again",
                 document["schema"], document["version"]
             ),
         ));
@@ -877,7 +929,7 @@ fn read_report(path: &Path) -> Result<Value, (&'static str, String)> {
             "unreadable",
             format!(
                 "the report is not this build's ({reason}), so its statuses may rest on verdict \
-                 code this build no longer runs: run `kink-flow run` again"
+                 code this build no longer runs: run `{again}` again"
             ),
         ));
     }
@@ -886,8 +938,8 @@ fn read_report(path: &Path) -> Result<Value, (&'static str, String)> {
             "unreadable",
             format!(
                 "the report was written under another kink identity (`{key}` is missing or \
-                 differs), so its statuses may rest on algorithms this build no longer runs: run `kink-flow run` \
-                 again"
+                 differs), so its statuses may rest on algorithms this build no longer runs: run \
+                 `{again}` again"
             ),
         ));
     }

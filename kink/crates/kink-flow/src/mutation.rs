@@ -462,11 +462,21 @@ pub enum InvalidReason {
     /// ([`Self::status`]); the same mutation is judged where the host grants the stack (re-pin
     /// L1-3-tail, review L1-3-fix-2-1 D1).
     HostStackRefused,
+    /// A front end refused the mutation before kink-flow resolved it, by a check only the front
+    /// end can make (the krs front end: an edit of a node KRS generated, a mutant KRS's own
+    /// analysis refuses). `name` is the front end's kebab-case reason and `next` what the author
+    /// does next. kink-flow never constructs it; [`Self::ALL`] and [`Self::parse`] list kink-flow's
+    /// own reasons only.
+    External {
+        name: &'static str,
+        next: &'static str,
+    },
 }
 
 impl InvalidReason {
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::External { name, .. } => name,
             Self::UnknownFile => "unknown-file",
             Self::FileRequired => "file-required",
             Self::UnknownLabel => "unknown-label",
@@ -494,7 +504,7 @@ impl InvalidReason {
         }
     }
 
-    /// Every reason, in declaration order.
+    /// Every reason kink-flow gives, in declaration order (not [`Self::External`], a front end's).
     pub const ALL: [Self; 24] = [
         Self::UnknownFile,
         Self::FileRequired,
@@ -530,6 +540,7 @@ impl InvalidReason {
     /// What the author of the mutation does next: one sentence, for `check` and every refusal.
     pub const fn next_step(self) -> &'static str {
         match self {
+            Self::External { next, .. } => next,
             Self::UnknownFile => {
                 "name a source file of the specification in `file` (the detail lists them), or \
                  leave `file` out and address the rule by `rule`"
@@ -606,7 +617,8 @@ impl InvalidReason {
     }
 
     /// The status of the row of a mutation refused for this reason: `error` for the host's
-    /// refusal ([`Self::HostStackRefused`]), `invalid-mutation` for every other reason.
+    /// refusal ([`Self::HostStackRefused`]), `invalid-mutation` for every other reason, a front
+    /// end's included.
     pub const fn status(self) -> &'static str {
         match self {
             Self::HostStackRefused => "error",

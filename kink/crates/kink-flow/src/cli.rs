@@ -1,4 +1,5 @@
-//! The `kink-flow` command line. Every command prints one JSON document on stdout.
+//! The `kink-flow` command line. Every command prints one JSON document on stdout, or with
+//! `--output verdicts` (`results` and `run`) its deterministic rendering ([`crate::verdicts`]).
 //!
 //! Exit status: [`EXIT_OK`] when the command did its job and found nothing wrong with the
 //! corpus, [`EXIT_CORPUS`] when the manifest, the specification, a program or a mutation is
@@ -9,14 +10,24 @@
 //!
 //! A mutation list (`MUTATIONS` below) is a `MUTATIONS.toml` file or a mutations directory of
 //! `<topic>.toml` files ([`MutationList::read`]).
+//!
+//! The command layer is a library both front ends use: kink-flow's own command line, and the krs
+//! front end, which binds a KRS corpus's manifest to the K it emits
+//! ([`crate::manifest::ManifestFile::bind`]). [`FlowCommand::parse`] reads a verb's options
+//! exactly as `kink-flow <verb>` does, the corpus's files given by the front end
+//! ([`CommandFiles`]: kink-flow's operands, or the front end's layout); [`dispatch`] runs the
+//! command on the large stack kink's definitions need. A [`FrontEnd`] adds how next steps spell
+//! the front end's commands ([`CommandSpelling`]), the mutations it refused before the engine
+//! ([`FrontEnd::refused`]), and an annotation of the document ([`FrontEnd::annotate`]). kink-flow
+//! itself runs every command with [`FrontEnd::default`].
 
 use crate::{
     admit::{FlowAdmission, admit, admit_spec},
-    check::{CorpusCoverage, MutationCheck, check_mutations, corpus_coverage},
+    check::{CorpusCoverage, Finding, MutationCheck, check_mutations, corpus_coverage},
     fuzz::{FuzzJob, FuzzOptions, TemplateList},
     manifest::{FlowManifest, ManifestError},
     memo::MemoUse,
-    mutation::MutationList,
+    mutation::{InvalidMutation, MutationList},
     pattern::PatternList,
     query::{QueryOptions, pattern_list_refused},
     report::{ReportOptions, render},
@@ -27,6 +38,7 @@ use kink_corpus::cli::DEFINITION_STACK_BYTES;
 use kink_native::execution::SolverProfile;
 use serde_json::{Value, json};
 use std::{
+    collections::BTreeMap,
     ffi::OsString,
     io::Write,
     path::{Path, PathBuf},
@@ -39,9 +51,10 @@ pub const EXIT_USAGE: u8 = 2;
 pub const USAGE: &str = "usage: kink-flow --version | kink-flow check FLOW.toml [--mutations \
                          MUTATIONS] [--cache DIR] | kink-flow \
                          results FLOW.toml [--verify] [--mutations MUTATIONS] [--cache DIR] \
-                         | kink-flow run \
+                         [--output json|verdicts] | kink-flow run \
                          FLOW.toml MUTATIONS [--only ID]... [--verify] [--order cost|corpus] \
-                         [--compile-workers N] [--no-memo] [--cache DIR] | kink-flow report \
+                         [--compile-workers N] [--no-memo] [--cache DIR] [--output \
+                         json|verdicts] | kink-flow report \
                          FLOW.toml [--cache DIR] | kink-flow query FLOW.toml PATTERNS.toml \
                          [--only ID]... [--verify] [--cache DIR] | kink-flow fuzz FLOW.toml \
                          TEMPLATES.toml --template ID (--kill MUTATION --mutations MUTATIONS \
@@ -53,192 +66,90 @@ pub const USAGE: &str = "usage: kink-flow --version | kink-flow check FLOW.toml 
 
 /// Run one command; returns the process exit status.
 pub fn execute(args: Vec<OsString>) -> u8 {
-    let args = args
+    let Ok(args) = args
         .into_iter()
         .map(|arg| arg.into_string())
-        .collect::<Result<Vec<_>, _>>();
-    let (document, status) = match args.as_deref() {
-        // The builds a document's identity names, as `krust-fuzz --version` prints its own.
-        Ok([flag]) if flag == "--version" => {
-            println!(
-                "kink-flow {} (k-rust {})",
-                env!("CARGO_PKG_VERSION"),
-                crate::k_rust_revision()
-            );
-            return EXIT_OK;
-        }
-        Ok([command, manifest, rest @ ..]) if command == "check" => {
-            let manifest = PathBuf::from(manifest);
-            if !manifest.is_file() {
-                return usage(&format!("{} is not a file", manifest.display()));
+        .collect::<Result<Vec<_>, _>>()
+    else {
+        return usage(USAGE);
+    };
+    // The builds a document's identity names, as `krust-fuzz --version` prints its own.
+    if let [flag] = args.as_slice()
+        && flag == "--version"
+    {
+        println!(
+            "kink-flow {} (k-rust {})",
+            env!("CARGO_PKG_VERSION"),
+            crate::k_rust_revision()
+        );
+        return EXIT_OK;
+    }
+    let Some((verb, manifest, files, options)) = operands(&args) else {
+        return usage(USAGE);
+    };
+    if !manifest.is_file() {
+        return usage(&format!("{} is not a file", manifest.display()));
+    }
+    let command = match FlowCommand::parse(verb.as_str(), files, options) {
+        Ok(command) => command,
+        Err(message) => return usage(&message),
+    };
+    let output = command.output();
+    let (document, status) = match FlowManifest::read(&manifest) {
+        Err(error) => (verb.manifest_refused(&error), EXIT_CORPUS),
+        Ok(manifest) => match dispatch(manifest, command, FrontEnd::default()) {
+            Ok(result) => result,
+            Err(panicked) => {
+                eprintln!("kink-flow: {panicked}");
+                return EXIT_CORPUS;
             }
-            let options = match check_options(rest) {
-                Ok(options) => options,
-                Err(message) => return usage(&message),
-            };
-            if let Some(list) = options.mutations.as_ref().filter(|list| !list.exists()) {
-                return usage(&format!("{} is not a file or directory", list.display()));
-            }
-            match on_stack(move || check_with(&manifest, &options)) {
-                Some(result) => result,
-                None => {
-                    eprintln!("kink-flow: the admission thread panicked");
-                    return EXIT_CORPUS;
+        },
+    };
+    let text = match output {
+        OutputFormat::Json => format!("{}\n", render(&document)),
+        OutputFormat::Verdicts => match crate::verdicts::verdicts(&document) {
+            Ok(text) => {
+                // The rendering names a refusal or a stop by its reason; its text goes to stderr.
+                for detail in crate::verdicts::refusal_details(&document) {
+                    eprintln!("kink-flow: {detail}");
                 }
+                text
             }
-        }
-        Ok([command, manifest, rest @ ..]) if command == "results" => {
-            let manifest = PathBuf::from(manifest);
-            if !manifest.is_file() {
-                return usage(&format!("{} is not a file", manifest.display()));
+            Err(message) => {
+                eprintln!("kink-flow: {message}");
+                return EXIT_CORPUS;
             }
-            let options = match results_options(rest) {
-                Ok(options) => options,
-                Err(message) => return usage(&message),
-            };
-            if let Some(list) = options.mutations.as_ref().filter(|list| !list.exists()) {
-                return usage(&format!("{} is not a file or directory", list.display()));
-            }
-            match on_stack(move || results(&manifest, &options)) {
-                Some(result) => result,
-                None => {
-                    eprintln!("kink-flow: the results thread panicked");
-                    return EXIT_CORPUS;
-                }
-            }
-        }
-        Ok([command, manifest, mutations, rest @ ..]) if command == "run" => {
-            let manifest = PathBuf::from(manifest);
-            let mutations = PathBuf::from(mutations);
-            if !manifest.is_file() {
-                return usage(&format!("{} is not a file", manifest.display()));
-            }
-            if !mutations.exists() {
-                return usage(&format!(
-                    "{} is not a file or directory",
-                    mutations.display()
-                ));
-            }
-            let (options, mode) = match run_options(rest) {
-                Ok(options) => options,
-                Err(message) => return usage(&message),
-            };
-            if let Ok(list) = MutationList::read(&mutations)
-                && let Some(id) = options
-                    .only
-                    .iter()
-                    .find(|id| !list.mutations.iter().any(|m| &m.id == *id))
-            {
-                return usage(&format!("--only {id}: no mutation has this id"));
-            }
-            match on_stack(move || run_mode(&manifest, &mutations, &options, mode)) {
-                Some(result) => result,
-                None => {
-                    eprintln!("kink-flow: the run thread panicked");
-                    return EXIT_CORPUS;
-                }
-            }
-        }
-        Ok([command, manifest, patterns, rest @ ..]) if command == "query" => {
-            let manifest = PathBuf::from(manifest);
-            let patterns = PathBuf::from(patterns);
-            for file in [&manifest, &patterns] {
-                if !file.is_file() {
-                    return usage(&format!("{} is not a file", file.display()));
-                }
-            }
-            let options = match query_options(rest) {
-                Ok(options) => options,
-                Err(message) => return usage(&message),
-            };
-            if let Ok(list) = PatternList::read(&patterns)
-                && let Some(id) = options
-                    .only
-                    .iter()
-                    .find(|id| !list.patterns.iter().any(|p| &p.id == *id))
-            {
-                return usage(&format!("--only {id}: no pattern has this id"));
-            }
-            match on_stack(move || query(&manifest, &patterns, &options)) {
-                Some(result) => result,
-                None => {
-                    eprintln!("kink-flow: the query thread panicked");
-                    return EXIT_CORPUS;
-                }
-            }
-        }
-        Ok([command, manifest, templates, rest @ ..]) if command == "fuzz" => {
-            let manifest = PathBuf::from(manifest);
-            let templates = PathBuf::from(templates);
-            for file in [&manifest, &templates] {
-                if !file.is_file() {
-                    return usage(&format!("{} is not a file", file.display()));
-                }
-            }
-            let request = match fuzz_options(rest) {
-                Ok(request) => request,
-                Err(message) => return usage(&message),
-            };
-            match &request.job {
-                FuzzJobRequest::Kill {
-                    mutations: list, ..
-                } if !list.exists() => {
-                    return usage(&format!("{} is not a file or directory", list.display()));
-                }
-                FuzzJobRequest::Pattern { patterns: file, .. } if !file.is_file() => {
-                    return usage(&format!("{} is not a file", file.display()));
-                }
-                _ => {}
-            }
-            if let Ok(list) = TemplateList::read(&templates)
-                && list.get(&request.template).is_none()
-            {
-                return usage(&format!(
-                    "--template {}: no template has this id",
-                    request.template
-                ));
-            }
-            if let FuzzJobRequest::Kill {
-                mutation,
-                mutations,
-            } = &request.job
-                && let Ok(list) = MutationList::read(mutations)
-                && !list.mutations.iter().any(|m| &m.id == mutation)
-            {
-                return usage(&format!("--kill {mutation}: no mutation has this id"));
-            }
-            if let FuzzJobRequest::Pattern { id, patterns } = &request.job
-                && let Ok(list) = PatternList::read(patterns)
-                && !list.patterns.iter().any(|p| &p.id == id)
-            {
-                return usage(&format!("--pattern {id}: no pattern has this id"));
-            }
-            match on_stack(move || fuzz(&manifest, &templates, &request)) {
-                Some(result) => result,
-                None => {
-                    eprintln!("kink-flow: the fuzz thread panicked");
-                    return EXIT_CORPUS;
-                }
-            }
-        }
-        Ok([command, manifest, rest @ ..]) if command == "report" => {
-            let manifest = PathBuf::from(manifest);
-            if !manifest.is_file() {
-                return usage(&format!("{} is not a file", manifest.display()));
-            }
-            let options = match report_options(rest) {
-                Ok(options) => options,
-                Err(message) => return usage(&message),
-            };
-            report(&manifest, &options)
-        }
-        _ => return usage(USAGE),
+        },
     };
     let mut stdout = std::io::stdout().lock();
-    if writeln!(stdout, "{}", render(&document)).is_err() {
+    if stdout.write_all(text.as_bytes()).is_err() {
         return EXIT_CORPUS;
     }
     status
+}
+
+/// A `kink-flow` command line's verb, manifest, operand files and options: `run`, `query` and
+/// `fuzz` take one more operand (the mutation list, the patterns, the templates).
+fn operands(args: &[String]) -> Option<(Verb, PathBuf, CommandFiles, &[String])> {
+    let [command, manifest, rest @ ..] = args else {
+        return None;
+    };
+    let verb = Verb::parse(command)?;
+    let mut files = CommandFiles::default();
+    let rest = match verb {
+        Verb::Run | Verb::Query | Verb::Fuzz => {
+            let (file, rest) = rest.split_first()?;
+            let file = Some(PathBuf::from(file));
+            match verb {
+                Verb::Run => files.mutations = file,
+                Verb::Query => files.patterns = file,
+                _ => files.templates = file,
+            }
+            rest
+        }
+        Verb::Check | Verb::Results | Verb::Report => rest,
+    };
+    Some((verb, PathBuf::from(manifest), files, rest))
 }
 
 fn usage(message: &str) -> u8 {
@@ -249,15 +160,537 @@ fn usage(message: &str) -> u8 {
     EXIT_USAGE
 }
 
-/// Run `body` on a thread with kink-corpus's definition stack allowance.
-fn on_stack<T: Send + 'static>(body: impl FnOnce() -> T + Send + 'static) -> Option<T> {
-    std::thread::Builder::new()
-        .name("kink-flow".into())
-        .stack_size(DEFINITION_STACK_BYTES)
-        .spawn(body)
-        .ok()?
-        .join()
-        .ok()
+/// Run `body` on a thread with kink-corpus's definition stack allowance, and wait for it; `None`
+/// when the thread cannot be started or `body` panics. `body` may borrow from the caller.
+pub fn on_stack<T: Send>(body: impl FnOnce() -> T + Send) -> Option<T> {
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .name("kink-flow".into())
+            .stack_size(DEFINITION_STACK_BYTES)
+            .spawn_scoped(scope, body)
+            .ok()?
+            .join()
+            .ok()
+    })
+}
+
+/// A kink-flow verb, as both front ends spell it.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum Verb {
+    Check,
+    Results,
+    Run,
+    Report,
+    Query,
+    Fuzz,
+}
+
+impl Verb {
+    /// Every verb, in the order the usage lists them.
+    pub const ALL: [Self; 6] = [
+        Self::Check,
+        Self::Results,
+        Self::Run,
+        Self::Report,
+        Self::Query,
+        Self::Fuzz,
+    ];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Check => "check",
+            Self::Results => "results",
+            Self::Run => "run",
+            Self::Report => "report",
+            Self::Query => "query",
+            Self::Fuzz => "fuzz",
+        }
+    }
+
+    /// The verb spelled `name`.
+    pub fn parse(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|verb| verb.as_str() == name)
+    }
+
+    /// The operands `kink-flow <verb>` takes before its options.
+    pub const fn operands(self) -> &'static str {
+        match self {
+            Self::Check | Self::Results | Self::Report => "FLOW.toml",
+            Self::Run => "FLOW.toml MUTATIONS.toml",
+            Self::Query => "FLOW.toml PATTERNS.toml",
+            Self::Fuzz => "FLOW.toml TEMPLATES.toml",
+        }
+    }
+
+    /// The document of this verb for a manifest that does not decode: the specification refused
+    /// at stage `manifest` with the error, under the verb's schema (`fuzz`: its input refusal).
+    pub fn manifest_refused(self, error: &ManifestError) -> Value {
+        let schema = match self {
+            Self::Check => return manifest_refused(error),
+            Self::Fuzz => return crate::fuzz::input_refused("FLOW.toml", error),
+            Self::Results => "kink-flow-results",
+            Self::Run => crate::report::RUN_SCHEMA,
+            Self::Report => crate::report::MISSING_SCHEMA,
+            Self::Query => crate::query::QUERY_SCHEMA,
+        };
+        let mut document = manifest_refused(error);
+        document["schema"] = json!(schema);
+        document
+    }
+
+    /// What the thread that runs the verb is named in a panic's message.
+    const fn task(self) -> &'static str {
+        match self {
+            Self::Check => "admission",
+            Self::Results => "results",
+            Self::Run => "run",
+            Self::Report => "report",
+            Self::Query => "query",
+            Self::Fuzz => "fuzz",
+        }
+    }
+}
+
+/// How a front end spells its commands in the next steps documents give ("run `kink-flow results
+/// --verify`", "run `krs kink results --verify`"). A front end implements it with whatever
+/// selects the corpus it runs on (a package path, a definition facet), so that a next step
+/// reproduces the step for that corpus; kink-flow's own is [`KinkFlowSpelling`]. The texts a
+/// document appends, such as ` --verify` or ` --only ID`, are the verb's own options, so both
+/// methods end where the verb's options may start.
+pub trait CommandSpelling: Sync {
+    /// The command that runs `verb` on this corpus, its operands and selection included
+    /// (`kink-flow run FLOW.toml MUTATIONS.toml`; `krs kink run --definition main`).
+    fn command(&self, verb: Verb) -> String;
+
+    /// The command that runs `verb`, as a text that names it in passing gives it (`kink-flow
+    /// run`); the front end's selection is part of it as of [`Self::command`]. By default
+    /// [`Self::command`].
+    fn verb(&self, verb: Verb) -> String {
+        self.command(verb)
+    }
+}
+
+/// kink-flow's own spelling: `kink-flow <verb>` with the verb's operands ([`Verb::operands`]),
+/// and without them where a text names the verb in passing.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct KinkFlowSpelling;
+
+impl CommandSpelling for KinkFlowSpelling {
+    fn command(&self, verb: Verb) -> String {
+        format!("{} {}", self.verb(verb), verb.operands())
+    }
+
+    fn verb(&self, verb: Verb) -> String {
+        format!("kink-flow {}", verb.as_str())
+    }
+}
+
+/// What a command prints.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum OutputFormat {
+    /// The JSON document.
+    #[default]
+    Json,
+    /// The deterministic rendering of a `results` or `run` document ([`crate::verdicts`]).
+    Verdicts,
+}
+
+/// The files a verb reads besides the manifest, as the front end finds them: kink-flow's
+/// operands (`run`'s mutation list, `query`'s patterns, `fuzz`'s templates), or a front end's
+/// layout. A verb's own flag (`--mutations`, `--patterns`) takes precedence over a file given
+/// here.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct CommandFiles {
+    pub mutations: Option<PathBuf>,
+    pub patterns: Option<PathBuf>,
+    pub templates: Option<PathBuf>,
+}
+
+/// One parsed command ([`FlowCommand::parse`]).
+#[derive(Clone, Debug)]
+pub enum FlowCommand {
+    Check(CheckOptions),
+    Results {
+        options: ResultsOptions,
+        output: OutputFormat,
+    },
+    Run {
+        mutations: PathBuf,
+        options: RunOptions,
+        mode: RunMode,
+        output: OutputFormat,
+    },
+    Report(ReportOptions),
+    Query {
+        patterns: PathBuf,
+        options: QueryOptions,
+    },
+    Fuzz {
+        templates: PathBuf,
+        request: FuzzRequest,
+    },
+}
+
+impl FlowCommand {
+    /// Parse `verb`'s `options` exactly as `kink-flow <verb>` does, with the files `files` gives:
+    /// each file must exist, and each id `--only`, `--kill`, `--pattern` and `--template` names
+    /// must be one of its list when the list decodes (a list that does not decode is the
+    /// command's refusal, not a usage error). The error is the usage message.
+    pub fn parse(verb: &str, files: CommandFiles, options: &[String]) -> Result<Self, String> {
+        let verb = Verb::parse(verb).ok_or_else(|| format!("unknown command {verb:?}"))?;
+        let not_found = |path: &Path| format!("{} is not a file or directory", path.display());
+        let not_file = |path: &Path| format!("{} is not a file", path.display());
+        match verb {
+            Verb::Check => {
+                let mut options = check_options(options)?;
+                options.mutations = options.mutations.or(files.mutations);
+                if let Some(list) = options.mutations.as_ref().filter(|list| !list.exists()) {
+                    return Err(not_found(list));
+                }
+                Ok(Self::Check(options))
+            }
+            Verb::Results => {
+                let (mut options, output) = results_options(options)?;
+                options.mutations = options.mutations.or(files.mutations);
+                if let Some(list) = options.mutations.as_ref().filter(|list| !list.exists()) {
+                    return Err(not_found(list));
+                }
+                Ok(Self::Results { options, output })
+            }
+            Verb::Run => {
+                let mutations = files.mutations.ok_or("run needs a mutation list")?;
+                if !mutations.exists() {
+                    return Err(not_found(&mutations));
+                }
+                let (options, mode, output) = run_options(options)?;
+                if let Ok(list) = MutationList::read(&mutations)
+                    && let Some(id) = options
+                        .only
+                        .iter()
+                        .find(|id| !list.mutations.iter().any(|m| &m.id == *id))
+                {
+                    return Err(format!("--only {id}: no mutation has this id"));
+                }
+                Ok(Self::Run {
+                    mutations,
+                    options,
+                    mode,
+                    output,
+                })
+            }
+            Verb::Report => Ok(Self::Report(report_options(options)?)),
+            Verb::Query => {
+                let patterns = files.patterns.ok_or("query needs a pattern list")?;
+                if !patterns.is_file() {
+                    return Err(not_file(&patterns));
+                }
+                let options = query_options(options)?;
+                if let Ok(list) = PatternList::read(&patterns)
+                    && let Some(id) = options
+                        .only
+                        .iter()
+                        .find(|id| !list.patterns.iter().any(|p| &p.id == *id))
+                {
+                    return Err(format!("--only {id}: no pattern has this id"));
+                }
+                Ok(Self::Query { patterns, options })
+            }
+            Verb::Fuzz => {
+                let templates = files
+                    .templates
+                    .clone()
+                    .ok_or("fuzz needs a template list")?;
+                if !templates.is_file() {
+                    return Err(not_file(&templates));
+                }
+                let request = fuzz_options(options, &files)?;
+                match &request.job {
+                    FuzzJobRequest::Kill {
+                        mutations: list, ..
+                    } if !list.exists() => return Err(not_found(list)),
+                    FuzzJobRequest::Pattern { patterns: file, .. } if !file.is_file() => {
+                        return Err(not_file(file));
+                    }
+                    _ => {}
+                }
+                if let Ok(list) = TemplateList::read(&templates)
+                    && list.get(&request.template).is_none()
+                {
+                    return Err(format!(
+                        "--template {}: no template has this id",
+                        request.template
+                    ));
+                }
+                if let FuzzJobRequest::Kill {
+                    mutation,
+                    mutations,
+                } = &request.job
+                    && let Ok(list) = MutationList::read(mutations)
+                    && !list.mutations.iter().any(|m| &m.id == mutation)
+                {
+                    return Err(format!("--kill {mutation}: no mutation has this id"));
+                }
+                if let FuzzJobRequest::Pattern { id, patterns } = &request.job
+                    && let Ok(list) = PatternList::read(patterns)
+                    && !list.patterns.iter().any(|p| &p.id == id)
+                {
+                    return Err(format!("--pattern {id}: no pattern has this id"));
+                }
+                Ok(Self::Fuzz { templates, request })
+            }
+        }
+    }
+
+    /// The command's verb.
+    #[must_use]
+    pub const fn verb(&self) -> Verb {
+        match self {
+            Self::Check(_) => Verb::Check,
+            Self::Results { .. } => Verb::Results,
+            Self::Run { .. } => Verb::Run,
+            Self::Report(_) => Verb::Report,
+            Self::Query { .. } => Verb::Query,
+            Self::Fuzz { .. } => Verb::Fuzz,
+        }
+    }
+
+    /// What the command prints: `--output` of `results` and `run`, the JSON document otherwise.
+    #[must_use]
+    pub const fn output(&self) -> OutputFormat {
+        match self {
+            Self::Results { output, .. } | Self::Run { output, .. } => *output,
+            _ => OutputFormat::Json,
+        }
+    }
+}
+
+/// What a front end adds to a command ([`dispatch`]).
+pub struct FrontEnd<'a> {
+    /// How next steps spell the front end's commands.
+    pub spelling: &'a dyn CommandSpelling,
+    /// The mutations the front end refused before kink-flow resolved them, by id, each with the
+    /// refusal its row shows (reason [`crate::InvalidReason::External`] for a check of the front
+    /// end's own). `run` gives each the row of a mutation that does not resolve and runs nothing
+    /// for it; `check --mutations` adds the refusal to its row; a `fuzz` kill job of one is
+    /// refused. An id that is not in the list is ignored.
+    pub refused: BTreeMap<String, InvalidMutation>,
+    /// Applied to the document before it is returned, and, for `run`, before each write of the
+    /// report, so that `report` prints what `run` printed. It must be idempotent: `report`
+    /// applies it again to the document `run` stored.
+    pub annotate: Option<&'a (dyn Fn(&mut Value) + Sync)>,
+}
+
+impl Default for FrontEnd<'_> {
+    /// kink-flow's own: its spelling, nothing refused, no annotation.
+    fn default() -> Self {
+        Self {
+            spelling: &KinkFlowSpelling,
+            refused: BTreeMap::new(),
+            annotate: None,
+        }
+    }
+}
+
+impl std::fmt::Debug for FrontEnd<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FrontEnd")
+            .field("spelling", &self.spelling.command(Verb::Run))
+            .field("refused", &self.refused)
+            .field("annotate", &self.annotate.map(|_| ".."))
+            .finish()
+    }
+}
+
+impl FrontEnd<'_> {
+    fn annotated(&self, mut document: Value) -> Value {
+        if let Some(annotate) = self.annotate {
+            annotate(&mut document);
+        }
+        document
+    }
+
+    /// Add each refused mutation's refusal to its row of `checked`.
+    fn refuse(&self, checked: &mut CorpusMutationCheck) {
+        let Some(mutations) = checked.mutations.as_mut() else {
+            return;
+        };
+        for row in &mut mutations.rows {
+            if let Some(refusal) = self.refused.get(&row.id) {
+                row.findings.push(Finding::refused(
+                    refusal.reason.as_str(),
+                    refusal.edit,
+                    None,
+                    refusal.detail.clone(),
+                    Some(refusal.reason.next_step().to_owned()),
+                ));
+            }
+        }
+    }
+}
+
+/// Run `command` on `manifest` on the large stack kink's definitions need ([`on_stack`];
+/// `report`, which loads no definition, on the calling thread): the document and the exit status,
+/// or the message of the command's thread panicking.
+pub fn dispatch(
+    manifest: FlowManifest,
+    command: FlowCommand,
+    front: FrontEnd<'_>,
+) -> Result<(Value, u8), String> {
+    let verb = command.verb();
+    if verb == Verb::Report {
+        return Ok(run_command(&manifest, &command, &front));
+    }
+    on_stack(|| run_command(&manifest, &command, &front))
+        .ok_or_else(|| format!("the {} thread panicked", verb.task()))
+}
+
+/// Run `command` on `manifest` on the calling thread, which must have the stack kink's
+/// definitions need ([`dispatch`] provides it): the document and the exit status of
+/// `kink-flow <verb>`.
+pub fn run_command(
+    manifest: &FlowManifest,
+    command: &FlowCommand,
+    front: &FrontEnd<'_>,
+) -> (Value, u8) {
+    let exit = |ok: bool| if ok { EXIT_OK } else { EXIT_CORPUS };
+    let (document, status) = match command {
+        FlowCommand::Check(options) => match &options.mutations {
+            None => check_admission(manifest),
+            Some(path) => {
+                let mut checked = check_corpus_mutations(
+                    manifest,
+                    MutationList::read(path),
+                    options.cache.as_deref(),
+                );
+                front.refuse(&mut checked);
+                check_mutations_document(&checked, front.spelling)
+            }
+        },
+        FlowCommand::Results { options, .. } => {
+            let (document, ok) = crate::results::results(manifest, options);
+            (document, exit(ok))
+        }
+        FlowCommand::Run {
+            mutations,
+            options,
+            mode,
+            ..
+        } => {
+            // `run_front` annotates every document it writes and returns.
+            return match MutationList::read(mutations) {
+                Err(error) => (
+                    front.annotated(mutation_list_refused(&error.to_string())),
+                    EXIT_CORPUS,
+                ),
+                Ok(list) => {
+                    let (document, ok) =
+                        crate::search::run_front(manifest, &list, options, *mode, front);
+                    let status = exit(ok && invalid_mutations(&document) == 0);
+                    (document, status)
+                }
+            };
+        }
+        FlowCommand::Report(options) => {
+            let (document, ok) = crate::report::report_spelled(manifest, options, front.spelling);
+            (document, exit(ok))
+        }
+        FlowCommand::Query { patterns, options } => match PatternList::read(patterns) {
+            Err(error) => (pattern_list_refused(&error), EXIT_CORPUS),
+            Ok(list) => {
+                let (document, ok) = crate::query::query(manifest, &list, options);
+                (document, exit(ok))
+            }
+        },
+        FlowCommand::Fuzz { templates, request } => {
+            fuzz_command(manifest, templates, request, front)
+        }
+    };
+    (front.annotated(document), status)
+}
+
+/// `fuzz` on a decoded manifest.
+fn fuzz_command(
+    manifest: &FlowManifest,
+    templates: &Path,
+    request: &FuzzRequest,
+    front: &FrontEnd<'_>,
+) -> (Value, u8) {
+    let templates = match TemplateList::read(templates) {
+        Ok(templates) => templates,
+        Err(error) => {
+            return (
+                crate::fuzz::input_refused("TEMPLATES.toml", &error),
+                EXIT_CORPUS,
+            );
+        }
+    };
+    let (document, ok) = match &request.job {
+        FuzzJobRequest::Kill {
+            mutation,
+            mutations,
+        } => {
+            let list = match MutationList::read(mutations) {
+                Ok(list) => list,
+                Err(error) => {
+                    return (
+                        crate::fuzz::input_refused("MUTATIONS.toml", &error),
+                        EXIT_CORPUS,
+                    );
+                }
+            };
+            crate::fuzz::fuzz_front(
+                manifest,
+                &templates,
+                &request.template,
+                FuzzJob::Kill {
+                    list: &list,
+                    mutation,
+                },
+                &request.options,
+                front,
+            )
+        }
+        FuzzJobRequest::Reach { rule, fired } => crate::fuzz::fuzz_front(
+            manifest,
+            &templates,
+            &request.template,
+            FuzzJob::Reach {
+                rule,
+                fired: *fired,
+            },
+            &request.options,
+            front,
+        ),
+        FuzzJobRequest::Pattern { id, patterns } => {
+            let list = match PatternList::read(patterns) {
+                Ok(list) => list,
+                Err(error) => {
+                    return (
+                        crate::fuzz::input_refused("PATTERNS.toml", &error),
+                        EXIT_CORPUS,
+                    );
+                }
+            };
+            crate::fuzz::fuzz_front(
+                manifest,
+                &templates,
+                &request.template,
+                FuzzJob::Pattern { list: &list, id },
+                &request.options,
+                front,
+            )
+        }
+    };
+    (document, if ok { EXIT_OK } else { EXIT_CORPUS })
+}
+
+/// [`run_command`] of `command` on the manifest at `path`, as kink-flow runs it, on the calling
+/// thread; a manifest that does not decode gives the verb's refusal ([`Verb::manifest_refused`]).
+fn on_manifest(path: &Path, command: &FlowCommand) -> (Value, u8) {
+    match FlowManifest::read(path) {
+        Err(error) => (command.verb().manifest_refused(&error), EXIT_CORPUS),
+        Ok(manifest) => run_command(&manifest, command, &FrontEnd::default()),
+    }
 }
 
 /// Options of `kink-flow check`.
@@ -289,11 +722,22 @@ fn check_options(args: &[String]) -> Result<CheckOptions, String> {
     Ok(options)
 }
 
-fn results_options(args: &[String]) -> Result<ResultsOptions, String> {
+fn output_format(value: Option<&String>) -> Result<OutputFormat, String> {
+    let value = value.ok_or("--output needs json or verdicts")?;
+    match value.as_str() {
+        "json" => Ok(OutputFormat::Json),
+        "verdicts" => Ok(OutputFormat::Verdicts),
+        _ => Err(format!("--output {value:?}: expected json or verdicts")),
+    }
+}
+
+fn results_options(args: &[String]) -> Result<(ResultsOptions, OutputFormat), String> {
     let mut options = ResultsOptions::default();
+    let mut output = None;
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            "--output" if output.is_none() => output = Some(output_format(args.next())?),
             "--verify" if !options.verify => options.verify = true,
             "--cache" if options.cache.is_none() => {
                 let directory = args.next().ok_or("--cache needs a directory")?;
@@ -306,16 +750,18 @@ fn results_options(args: &[String]) -> Result<ResultsOptions, String> {
             _ => return Err(format!("unexpected argument {arg:?}")),
         }
     }
-    Ok(options)
+    Ok((options, output.unwrap_or_default()))
 }
 
-fn run_options(args: &[String]) -> Result<(RunOptions, RunMode), String> {
+fn run_options(args: &[String]) -> Result<(RunOptions, RunMode, OutputFormat), String> {
     let mut options = RunOptions::default();
     let mut mode = RunMode::Search;
     let mut order = None;
+    let mut output = None;
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            "--output" if output.is_none() => output = Some(output_format(args.next())?),
             "--verify" if mode == RunMode::Search => mode = RunMode::Verify,
             "--order" if order.is_none() => {
                 let value = args.next().ok_or("--order needs cost or corpus")?;
@@ -352,7 +798,7 @@ fn run_options(args: &[String]) -> Result<(RunOptions, RunMode), String> {
             _ => return Err(format!("unexpected argument {arg:?}")),
         }
     }
-    Ok((options, mode))
+    Ok((options, mode, output.unwrap_or_default()))
 }
 
 fn query_options(args: &[String]) -> Result<QueryOptions, String> {
@@ -406,7 +852,9 @@ fn number(flag: &str, value: Option<&String>) -> Result<u64, String> {
         .map_err(|_| format!("{flag} {value:?}: expected a nonnegative integer"))
 }
 
-fn fuzz_options(args: &[String]) -> Result<FuzzRequest, String> {
+/// `kink-flow fuzz`'s options; a job's list is `--mutations` or `--patterns`, else the front
+/// end's `files`.
+fn fuzz_options(args: &[String], files: &CommandFiles) -> Result<FuzzRequest, String> {
     let mut options = FuzzOptions::default();
     let (mut template, mut mutation, mut mutations) = (None, None, None);
     let (mut reach, mut pattern, mut patterns, mut fired) = (None, None, None, false);
@@ -495,7 +943,9 @@ fn fuzz_options(args: &[String]) -> Result<FuzzRequest, String> {
             if fired || patterns.is_some() {
                 return Err("--fired and --patterns belong to --reach and --pattern".into());
             }
-            let mutations = mutations.ok_or("--kill needs --mutations MUTATIONS.toml")?;
+            let mutations = mutations
+                .or_else(|| files.mutations.clone())
+                .ok_or("--kill needs --mutations MUTATIONS.toml")?;
             FuzzJobRequest::Kill {
                 mutation,
                 mutations,
@@ -518,7 +968,9 @@ fn fuzz_options(args: &[String]) -> Result<FuzzRequest, String> {
                         .into(),
                 );
             }
-            let patterns = patterns.ok_or("--pattern needs --patterns PATTERNS.toml")?;
+            let patterns = patterns
+                .or_else(|| files.patterns.clone())
+                .ok_or("--pattern needs --patterns PATTERNS.toml")?;
             FuzzJobRequest::Pattern { id, patterns }
         }
         (None, None, None) => {
@@ -548,85 +1000,6 @@ fn fuzz_options(args: &[String]) -> Result<FuzzRequest, String> {
     })
 }
 
-/// `kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID (--kill MUTATION --mutations
-/// MUTATIONS.toml | --reach RULE [--fired] | --pattern ID --patterns PATTERNS.toml) [options]
-/// [--no-confirm] [--no-filter]`: the fuzz document ([`crate::fuzz`]) and the exit
-/// status: [`EXIT_OK`] when the job reached a verdict (`stopped` is `null`, `budget`,
-/// `client-refused`, `unconfirmed`, `assembly-mismatch`, `equivalent`, `rejected-out` or
-/// `time-limit`); [`EXIT_CORPUS`] when an input, the template or the mutation is refused
-/// (`refused`), the campaign is `not-comparable`, or it `aborted` (the README's and the guide's
-/// table).
-pub fn fuzz(manifest: &Path, templates: &Path, request: &FuzzRequest) -> (Value, u8) {
-    let manifest = match FlowManifest::read(manifest) {
-        Ok(manifest) => manifest,
-        Err(error) => return (crate::fuzz::input_refused("FLOW.toml", &error), EXIT_CORPUS),
-    };
-    let templates = match TemplateList::read(templates) {
-        Ok(templates) => templates,
-        Err(error) => {
-            return (
-                crate::fuzz::input_refused("TEMPLATES.toml", &error),
-                EXIT_CORPUS,
-            );
-        }
-    };
-    let (document, ok) = match &request.job {
-        FuzzJobRequest::Kill {
-            mutation,
-            mutations,
-        } => {
-            let list = match MutationList::read(mutations) {
-                Ok(list) => list,
-                Err(error) => {
-                    return (
-                        crate::fuzz::input_refused("MUTATIONS.toml", &error),
-                        EXIT_CORPUS,
-                    );
-                }
-            };
-            crate::fuzz::fuzz_job(
-                &manifest,
-                &templates,
-                &request.template,
-                FuzzJob::Kill {
-                    list: &list,
-                    mutation,
-                },
-                &request.options,
-            )
-        }
-        FuzzJobRequest::Reach { rule, fired } => crate::fuzz::fuzz_job(
-            &manifest,
-            &templates,
-            &request.template,
-            FuzzJob::Reach {
-                rule,
-                fired: *fired,
-            },
-            &request.options,
-        ),
-        FuzzJobRequest::Pattern { id, patterns } => {
-            let list = match PatternList::read(patterns) {
-                Ok(list) => list,
-                Err(error) => {
-                    return (
-                        crate::fuzz::input_refused("PATTERNS.toml", &error),
-                        EXIT_CORPUS,
-                    );
-                }
-            };
-            crate::fuzz::fuzz_job(
-                &manifest,
-                &templates,
-                &request.template,
-                FuzzJob::Pattern { list: &list, id },
-                &request.options,
-            )
-        }
-    };
-    (document, if ok { EXIT_OK } else { EXIT_CORPUS })
-}
-
 fn report_options(args: &[String]) -> Result<ReportOptions, String> {
     let mut options = ReportOptions::default();
     let mut args = args.iter();
@@ -642,6 +1015,24 @@ fn report_options(args: &[String]) -> Result<ReportOptions, String> {
     Ok(options)
 }
 
+/// `kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID (--kill MUTATION --mutations
+/// MUTATIONS.toml | --reach RULE [--fired] | --pattern ID --patterns PATTERNS.toml) [options]
+/// [--no-confirm] [--no-filter]`: the fuzz document ([`crate::fuzz`]) and the exit
+/// status: [`EXIT_OK`] when the job reached a verdict (`stopped` is `null`, `budget`,
+/// `client-refused`, `unconfirmed`, `assembly-mismatch`, `equivalent`, `rejected-out` or
+/// `time-limit`); [`EXIT_CORPUS`] when an input, the template or the mutation is refused
+/// (`refused`), the campaign is `not-comparable`, or it `aborted` (the README's and the guide's
+/// table).
+pub fn fuzz(manifest: &Path, templates: &Path, request: &FuzzRequest) -> (Value, u8) {
+    on_manifest(
+        manifest,
+        &FlowCommand::Fuzz {
+            templates: templates.to_path_buf(),
+            request: request.clone(),
+        },
+    )
+}
+
 /// `kink-flow query FLOW.toml PATTERNS.toml [--only ID]... [--verify] [--cache DIR]`: the query
 /// document (flow F-18, [`crate::query`]) and the exit status: [`EXIT_OK`] when every selected
 /// (pattern, program) got its answer (`hit`, `no`, `unknown` or `invalid-pattern`; a refuted claim
@@ -649,20 +1040,13 @@ fn report_options(args: &[String]) -> Result<ReportOptions, String> {
 /// is refused, a search failed, an answer's record could not be written, or `--verify` found a
 /// stored answer that differs from a live one.
 pub fn query(manifest: &Path, patterns: &Path, options: &QueryOptions) -> (Value, u8) {
-    let manifest = match FlowManifest::read(manifest) {
-        Ok(manifest) => manifest,
-        Err(error) => {
-            let mut document = manifest_refused(&error);
-            document["schema"] = json!(crate::query::QUERY_SCHEMA);
-            return (document, EXIT_CORPUS);
-        }
-    };
-    let list = match PatternList::read(patterns) {
-        Ok(list) => list,
-        Err(error) => return (pattern_list_refused(&error), EXIT_CORPUS),
-    };
-    let (document, ok) = crate::query::query(&manifest, &list, options);
-    (document, if ok { EXIT_OK } else { EXIT_CORPUS })
+    on_manifest(
+        manifest,
+        &FlowCommand::Query {
+            patterns: patterns.to_path_buf(),
+            options: options.clone(),
+        },
+    )
 }
 
 /// `kink-flow report FLOW.toml [--cache DIR]`: the run document the last `run` wrote, as `run`
@@ -670,17 +1054,7 @@ pub fn query(manifest: &Path, patterns: &Path, options: &QueryOptions) -> (Value
 /// (`missing`, `unreadable`) and [`EXIT_CORPUS`], which is also the status when the manifest
 /// does not decode.
 pub fn report(manifest: &Path, options: &ReportOptions) -> (Value, u8) {
-    match FlowManifest::read(manifest) {
-        Err(error) => {
-            let mut document = manifest_refused(&error);
-            document["schema"] = json!(crate::report::MISSING_SCHEMA);
-            (document, EXIT_CORPUS)
-        }
-        Ok(manifest) => {
-            let (document, ok) = crate::report::report(&manifest, options);
-            (document, if ok { EXIT_OK } else { EXIT_CORPUS })
-        }
-    }
+    on_manifest(manifest, &FlowCommand::Report(options.clone()))
 }
 
 /// `kink-flow run FLOW.toml MUTATIONS [--only ID]... [--verify] [--cache DIR]`: the run
@@ -703,31 +1077,21 @@ pub fn run_mode(
     options: &RunOptions,
     mode: RunMode,
 ) -> (Value, u8) {
-    let manifest = match FlowManifest::read(manifest) {
-        Ok(manifest) => manifest,
-        Err(error) => {
-            let mut document = manifest_refused(&error);
-            document["schema"] = json!("kink-flow-run");
-            return (document, EXIT_CORPUS);
-        }
-    };
-    let list = match MutationList::read(mutations) {
-        Ok(list) => list,
-        Err(error) => return (mutation_list_refused(&error.to_string()), EXIT_CORPUS),
-    };
-    let (document, ok) = crate::search::run_with(&manifest, &list, options, mode);
-    let status = if ok && invalid_mutations(&document) == 0 {
-        EXIT_OK
-    } else {
-        EXIT_CORPUS
-    };
-    (document, status)
+    on_manifest(
+        manifest,
+        &FlowCommand::Run {
+            mutations: mutations.to_path_buf(),
+            options: options.clone(),
+            mode,
+            output: OutputFormat::Json,
+        },
+    )
 }
 
 /// The number of a run document's rows whose mutation its author must fix before it is judged:
-/// status `invalid-mutation` (it does not resolve) or `invalid` (its mutant does not compile, or
-/// may have no model: `inconsistent-mutant`). Every other status is a verdict about the corpus or
-/// a fault of the tool or the host, not of the mutation.
+/// status `invalid-mutation` (it does not resolve, or a front end refused it) or `invalid` (its
+/// mutant does not compile, or may have no model: `inconsistent-mutant`). Every other status is a
+/// verdict about the corpus or a fault of the tool or the host, not of the mutation.
 pub fn invalid_mutations(document: &Value) -> u64 {
     [crate::search::INVALID_MUTATION, "invalid"]
         .iter()
@@ -740,17 +1104,13 @@ pub fn invalid_mutations(document: &Value) -> u64 {
 /// refused, a run failed, a record could not be written or `--verify` found a mismatch.
 /// A timeout or unknown program is not an error: it is reported, and it cannot kill.
 pub fn results(manifest: &Path, options: &ResultsOptions) -> (Value, u8) {
-    match FlowManifest::read(manifest) {
-        Err(error) => {
-            let mut document = manifest_refused(&error);
-            document["schema"] = json!("kink-flow-results");
-            (document, EXIT_CORPUS)
-        }
-        Ok(manifest) => {
-            let (document, ok) = crate::results::results(&manifest, options);
-            (document, if ok { EXIT_OK } else { EXIT_CORPUS })
-        }
-    }
+    on_manifest(
+        manifest,
+        &FlowCommand::Results {
+            options: options.clone(),
+            output: OutputFormat::Json,
+        },
+    )
 }
 
 /// `kink-flow check FLOW.toml`: the check document and the exit status.
@@ -763,19 +1123,7 @@ pub fn check(manifest: &Path) -> (Value, u8) {
 /// specification and no program runs ([`crate::check`]): [`check_corpus_mutations`] then
 /// [`check_mutations_document`], with nothing added between them.
 pub fn check_with(manifest: &Path, options: &CheckOptions) -> (Value, u8) {
-    let Some(path) = &options.mutations else {
-        return check_admission(manifest);
-    };
-    let manifest = match FlowManifest::read(manifest) {
-        Ok(manifest) => manifest,
-        Err(error) => return (manifest_refused(&error), EXIT_CORPUS),
-    };
-    let checked = check_corpus_mutations(
-        &manifest,
-        MutationList::read(path),
-        options.cache.as_deref(),
-    );
-    check_mutations_document(&checked)
+    on_manifest(manifest, &FlowCommand::Check(options.clone()))
 }
 
 /// `check --mutations` before it is rendered: the admission of the specification and the
@@ -845,8 +1193,12 @@ pub fn check_corpus_mutations(
 /// ([`check_document`]) with `mutation_list`, `mutations` and `coverage`, and [`EXIT_OK`] when
 /// no fact known before any mutant runs makes a verdict impossible
 /// ([`FlowAdmission::verdicts_possible`]), the list decodes and no mutation is refused (by
-/// resolution or by a finding with `refusal: true`), else [`EXIT_CORPUS`].
-pub fn check_mutations_document(checked: &CorpusMutationCheck) -> (Value, u8) {
+/// resolution or by a finding with `refusal: true`), else [`EXIT_CORPUS`]. Next steps are spelled
+/// by `spelling`.
+pub fn check_mutations_document(
+    checked: &CorpusMutationCheck,
+    spelling: &dyn CommandSpelling,
+) -> (Value, u8) {
     let mut document = check_document(&checked.admission);
     match &checked.list {
         Err(error) => {
@@ -859,7 +1211,7 @@ pub fn check_mutations_document(checked: &CorpusMutationCheck) -> (Value, u8) {
                 document["mutations"] = mutations.value();
             }
             if let Some(coverage) = &checked.coverage {
-                document["coverage"] = coverage.value();
+                document["coverage"] = coverage.value(spelling);
             }
         }
     }
@@ -879,19 +1231,14 @@ pub fn check_mutations_document(checked: &CorpusMutationCheck) -> (Value, u8) {
 /// `kink-flow check FLOW.toml` without a mutation list: admission alone, and [`EXIT_OK`] exactly
 /// when no fact known before any mutant runs makes a verdict impossible
 /// ([`FlowAdmission::verdicts_possible`]).
-fn check_admission(manifest: &Path) -> (Value, u8) {
-    match FlowManifest::read(manifest) {
-        Err(error) => (manifest_refused(&error), EXIT_CORPUS),
-        Ok(manifest) => {
-            let admission = admit(&manifest);
-            let status = if admission.verdicts_possible() {
-                EXIT_OK
-            } else {
-                EXIT_CORPUS
-            };
-            (check_document(&admission), status)
-        }
-    }
+fn check_admission(manifest: &FlowManifest) -> (Value, u8) {
+    let admission = admit(manifest);
+    let status = if admission.verdicts_possible() {
+        EXIT_OK
+    } else {
+        EXIT_CORPUS
+    };
+    (check_document(&admission), status)
 }
 
 /// The version of the check document: 2 adds `mutation_list`, `mutations` and `coverage` (null
@@ -958,7 +1305,7 @@ pub fn check_document(admission: &FlowAdmission) -> Value {
         .filter(|spec| spec.exclusions.static_exclusion().is_some())
         .map_or(Value::Null, |spec| {
             crate::exclusion::definition_exclusion(
-                &spec.exclusions,
+                spec,
                 &crate::evidence::EndReader::of(&spec.compiled),
             )
         });

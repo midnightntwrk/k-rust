@@ -963,6 +963,9 @@ fn every_reason_is_produced_or_listed_as_defensive() {
             | EditedLoadFailed | StructureChanged | LabelChanged | NoChange | PatchRejected
             | SourceViewMismatch | MarkdownEnvelope | SpanChanged | EditedRuleTooDeep
             | HostStackRefused => {}
+            // A front end's reason (CF-40): kink-flow never constructs it, so no test here
+            // produces it and `ALL` does not list it.
+            External { .. } => {}
         }
     }
 }

@@ -39,6 +39,7 @@
 
 use crate::{
     admit::{AdmittedSpec, InputSession},
+    cli::{CommandSpelling, Verb},
     digest::spec_digest,
     manifest::FlowManifest,
     mutation::{
@@ -49,7 +50,7 @@ use crate::{
 };
 use kink_corpus::LoadedSource;
 use kink_patch::SentenceRef;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::Path,
@@ -91,6 +92,20 @@ impl Finding {
         }
     }
 
+    /// A refusal: a front end's check that refuses the mutation, as a resolution failure does.
+    pub fn refused(
+        reason: &str,
+        edit: Option<usize>,
+        at: Option<SentenceRef>,
+        detail: String,
+        next: Option<String>,
+    ) -> Self {
+        Self {
+            refusal: true,
+            ..Self::warning(reason, edit, at, detail, next)
+        }
+    }
+
     fn value(&self) -> Value {
         json!({
             "reason": self.reason,
@@ -111,6 +126,9 @@ pub struct MutationCheckRow {
     pub resolution: Result<ResolvedMutation, InvalidMutation>,
     /// kink-flow's warnings, then those a front end adds.
     pub findings: Vec<Finding>,
+    /// A front end's own keys of the row (the krs front end's `krs`), rendered after kink-flow's
+    /// keys; a key kink-flow's row already has is not rendered. Empty for kink-flow.
+    pub extra: Map<String, Value>,
 }
 
 impl MutationCheckRow {
@@ -120,9 +138,10 @@ impl MutationCheckRow {
     }
 
     /// The row of the check document: `{id, misunderstanding, outcome, digest, rules, refusals,
-    /// warnings}`. `outcome` is `ok`, `refused`, or `error` for a resolution the host refused
-    /// (`host-stack-refused`, not a fault of the mutation); `rules` is null when the mutation does
-    /// not resolve; each refusal and warning is `{reason, edit, rule, detail, next}`.
+    /// warnings}`, then the keys of [`Self::extra`]. `outcome` is `ok`, `refused`, or `error` for a
+    /// resolution the host refused (`host-stack-refused`, not a fault of the mutation); `rules` is
+    /// null when the mutation does not resolve; each refusal and warning is `{reason, edit, rule,
+    /// detail, next}`.
     pub fn value(&self) -> Value {
         let mut refusals = Vec::new();
         let (outcome, digest, rules) = match &self.resolution {
@@ -161,7 +180,7 @@ impl MutationCheckRow {
         } else {
             outcome
         };
-        json!({
+        let mut row = json!({
             "id": self.id,
             "misunderstanding": self.misunderstanding,
             "outcome": outcome,
@@ -174,7 +193,15 @@ impl MutationCheckRow {
                 .filter(|finding| !finding.refusal)
                 .map(Finding::value)
                 .collect::<Vec<_>>(),
-        })
+        });
+        if let Value::Object(row) = &mut row {
+            for (key, value) in &self.extra {
+                if !row.contains_key(key) {
+                    row.insert(key.clone(), value.clone());
+                }
+            }
+        }
+        row
     }
 }
 
@@ -221,16 +248,17 @@ impl CorpusCoverage {
         self.without_record.is_empty() && self.incomplete.is_empty()
     }
 
-    /// The check document's `coverage`: `{decides, without_record, incomplete, detail}`.
-    pub fn value(&self) -> Value {
+    /// The check document's `coverage`: `{decides, without_record, incomplete, detail}`, its
+    /// next step spelled by `spelling`.
+    pub fn value(&self, spelling: &dyn CommandSpelling) -> Value {
         let detail = if self.decides() {
             Value::Null
         } else {
-            json!(
+            json!(format!(
                 "no unreached-rule warning is given: it needs a current result record of every \
-                 program (run `kink-flow results FLOW.toml`) and complete coverage of every \
-                 comparable program"
-            )
+                 program (run `{}`) and complete coverage of every comparable program",
+                spelling.command(Verb::Results)
+            ))
         };
         json!({
             "decides": self.decides(),
@@ -308,6 +336,7 @@ pub fn check_mutations(
                     misunderstanding: mutation.misunderstanding.clone(),
                     resolution,
                     findings,
+                    extra: Map::new(),
                 }
             })
             .collect(),

@@ -4,6 +4,13 @@
 //! a program with both `file` and `text`, a `start_sort` without a program text, or a path that
 //! leaves the manifest's directory is an error naming the key or the program id, so that a typo
 //! is never silently ignored.
+//!
+//! One schema serves both front ends. `[spec]` declares the specification in one of two ways
+//! ([`SpecDecl`]): a K specification (`entry`, `main_module`, ...), which kink-flow loads as
+//! written, or a KRS package's emitted K (`krs = { definition = "main" }`), which the krs front
+//! end binds to the K it emitted for the package it selects. [`ManifestFile`] is the decoded file
+//! before that binding; [`ManifestFile::bind`] gives the [`FlowManifest`] every command runs on,
+//! so every other key decodes once, for both front ends.
 
 use crate::admit::InputDecoder;
 use kink_corpus::ProgramSource;
@@ -173,7 +180,8 @@ pub struct ManifestError {
 }
 
 impl ManifestError {
-    pub(crate) fn new(key: impl Into<String>, message: impl Into<String>) -> Self {
+    /// An error naming `key` (empty for an error of the whole file).
+    pub fn new(key: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             key: key.into(),
             message: message.into(),
@@ -193,7 +201,48 @@ impl fmt::Display for ManifestError {
 
 impl std::error::Error for ManifestError {}
 
-impl FlowManifest {
+/// A decoded `FLOW.toml` before its specification is bound ([`Self::bind`]). Every path is
+/// relative to [`Self::directory`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct ManifestFile {
+    /// The directory holding the manifest; the root that every path stays inside.
+    pub directory: PathBuf,
+    pub spec: SpecDecl,
+    pub budget: Budget,
+    pub programs: Vec<Program>,
+    /// `[result]`, as [`FlowManifest::result`].
+    pub result: Option<ResultSection>,
+}
+
+/// How a manifest's `[spec]` declares its specification.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SpecDecl {
+    /// `[spec] entry = ...`: a K specification, loaded as declared.
+    K(SpecSection),
+    /// `[spec] krs = { definition = ... }`: the K a KRS package emits, which the krs front end
+    /// binds.
+    Krs(KrsSpec),
+}
+
+/// `[spec] krs = { definition = "..." }` with the keys a KRS corpus may give beside it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KrsSpec {
+    /// The definition facet of the package the corpus is for (`krs --definition`).
+    pub definition: String,
+    /// `assume_joined`, as [`SpecSection::assume_joined`]: sorted, without repeats.
+    pub assume_joined: Vec<String>,
+}
+
+/// The keys of `[spec]` that say how K is loaded, which a KRS declaration leaves to its front end.
+const K_SPEC_KEYS: [&str; 5] = [
+    "entry",
+    "main_module",
+    "syntax_module",
+    "include_dirs",
+    "md_selector",
+];
+
+impl ManifestFile {
     /// Read and decode the manifest at `path`; its directory becomes the root.
     pub fn read(path: &Path) -> Result<Self, ManifestError> {
         let text = fs::read_to_string(path)
@@ -240,8 +289,78 @@ impl FlowManifest {
             budget,
             programs,
             result,
+        })
+    }
+
+    /// The manifest with its specification bound. A KRS declaration takes `spec`, the K its front
+    /// end emitted for the package (`spec`'s `assume_joined` is replaced by the declaration's: the
+    /// front end says how the K is loaded, the corpus's author which findings are premises), and
+    /// is refused without one. A K declaration is the specification, so `spec` must be absent.
+    /// Every other key is carried over as decoded.
+    pub fn bind(self, spec: Option<SpecSection>) -> Result<FlowManifest, ManifestError> {
+        let spec = match (self.spec, spec) {
+            (SpecDecl::K(declared), None) => declared,
+            (SpecDecl::K(_), Some(_)) => {
+                return Err(ManifestError::new(
+                    "spec.entry",
+                    "a K corpus: its [spec] declares the specification, so no front end binds \
+                     another; run `kink-flow <command>` on FLOW.toml",
+                ));
+            }
+            (SpecDecl::Krs(_), None) => {
+                return Err(ManifestError::new(
+                    "spec.krs",
+                    "a KRS corpus: run `krs kink <command>` in the package",
+                ));
+            }
+            (SpecDecl::Krs(declared), Some(bound)) => {
+                bound_spec(&bound)?;
+                SpecSection {
+                    assume_joined: declared.assume_joined,
+                    ..bound
+                }
+            }
+        };
+        Ok(FlowManifest {
+            directory: self.directory,
+            spec,
+            budget: self.budget,
+            programs: self.programs,
+            result: self.result,
             input_decoder: Decoder::default(),
         })
+    }
+}
+
+/// A front end's specification meets the invariants a decoded one has: a nonempty main module,
+/// and an entry and include directories that stay inside the manifest's directory.
+fn bound_spec(spec: &SpecSection) -> Result<(), ManifestError> {
+    relative_path(&Value::String(spec.entry.clone()), "spec.entry")?;
+    for (i, dir) in spec.include_dirs.iter().enumerate() {
+        relative_path(
+            &Value::String(dir.clone()),
+            &format!("spec.include_dirs[{i}]"),
+        )?;
+    }
+    string(&Value::String(spec.main_module.clone()), "spec.main_module")?;
+    if let Some(module) = &spec.syntax_module {
+        string(&Value::String(module.clone()), "spec.syntax_module")?;
+    }
+    Ok(())
+}
+
+impl FlowManifest {
+    /// Read and decode the manifest at `path`; its directory becomes the root. A KRS corpus
+    /// (`[spec] krs`) is the error ``spec.krs: a KRS corpus: run `krs kink <command>` in the
+    /// package`` ([`ManifestFile::bind`]).
+    pub fn read(path: &Path) -> Result<Self, ManifestError> {
+        ManifestFile::read(path)?.bind(None)
+    }
+
+    /// Decode manifest `text` whose paths are relative to `directory`
+    /// ([`ManifestFile::decode`], then [`ManifestFile::bind`] with no specification).
+    pub fn decode(text: &str, directory: &Path) -> Result<Self, ManifestError> {
+        ManifestFile::decode(text, directory)?.bind(None)
     }
 
     /// This manifest with `decoder` reading its programs' typed inputs: a front end that knows
@@ -339,7 +458,7 @@ fn positive(table: &Table, prefix: &str, name: &str, default: u64) -> Result<u64
     }
 }
 
-fn spec(value: &Value) -> Result<SpecSection, ManifestError> {
+fn spec(value: &Value) -> Result<SpecDecl, ManifestError> {
     let spec = table(value, "spec")?;
     known_keys(
         spec,
@@ -351,8 +470,23 @@ fn spec(value: &Value) -> Result<SpecSection, ManifestError> {
             "include_dirs",
             "md_selector",
             "assume_joined",
+            "krs",
         ],
     )?;
+    if let Some(krs) = spec.get("krs") {
+        if let Some(key) = K_SPEC_KEYS.iter().find(|key| spec.contains_key(**key)) {
+            return Err(ManifestError::new(
+                join("spec", key),
+                "not allowed with spec.krs: the krs front end supplies it",
+            ));
+        }
+        let krs = table(krs, "spec.krs")?;
+        known_keys(krs, "spec.krs", &["definition"])?;
+        return Ok(SpecDecl::Krs(KrsSpec {
+            definition: required_string(krs, "spec.krs", "definition")?,
+            assume_joined: assume_joined(spec)?,
+        }));
+    }
     let entry = relative_path(
         spec.get("entry").ok_or_else(|| missing("spec.entry"))?,
         "spec.entry",
@@ -374,6 +508,20 @@ fn spec(value: &Value) -> Result<SpecSection, ManifestError> {
             ));
         }
     };
+    let assume_joined = assume_joined(spec)?;
+    Ok(SpecDecl::K(SpecSection {
+        entry,
+        main_module: required_string(spec, "spec", "main_module")?,
+        syntax_module: optional_string(spec, "spec", "syntax_module")?,
+        include_dirs,
+        md_selector: optional_string(spec, "spec", "md_selector")?
+            .unwrap_or_else(|| DEFAULT_MD_SELECTOR.to_owned()),
+        assume_joined,
+    }))
+}
+
+/// `[spec] assume_joined`: sorted, without repeats.
+fn assume_joined(spec: &Table) -> Result<Vec<String>, ManifestError> {
     let mut assume_joined = match spec.get("assume_joined") {
         None => Vec::new(),
         Some(Value::Array(names)) => names
@@ -396,15 +544,7 @@ fn spec(value: &Value) -> Result<SpecSection, ManifestError> {
     };
     assume_joined.sort();
     assume_joined.dedup();
-    Ok(SpecSection {
-        entry,
-        main_module: required_string(spec, "spec", "main_module")?,
-        syntax_module: optional_string(spec, "spec", "syntax_module")?,
-        include_dirs,
-        md_selector: optional_string(spec, "spec", "md_selector")?
-            .unwrap_or_else(|| DEFAULT_MD_SELECTOR.to_owned()),
-        assume_joined,
-    })
+    Ok(assume_joined)
 }
 
 fn budget(value: &Value) -> Result<Budget, ManifestError> {

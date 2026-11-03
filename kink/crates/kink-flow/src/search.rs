@@ -97,6 +97,7 @@
 
 use crate::{
     admit::{AdmittedSpec, InputSession, admit_spec_with},
+    cli::{CommandSpelling, FrontEnd, Verb},
     digest::{execution_digest, hint_key_of, mutation_identity, outcome_context, spec_digest},
     hints::{HintEntry, Hints},
     manifest::{Budget, FlowManifest},
@@ -106,9 +107,9 @@ use crate::{
     },
     outcomes::{CachedOutcome, OutcomeRecord, OutcomeStore, cacheable, slot_name},
     report::{
-        RUN_SCHEMA, RUN_VERSION, action, claims_value, executed_cause, rules_value, slots_value,
-        specification_diagnostics_value, survivors, typing_diagnostics_value, untargeted_rules,
-        unusable_programs,
+        RUN_SCHEMA, RUN_VERSION, action, action_spelled, claims_value, executed_cause,
+        refused_action, rules_value, slots_value, specification_diagnostics_value, survivors,
+        typing_diagnostics_value, untargeted_rules, unusable_programs,
     },
     results::{
         BaselineRunner, ProgramRow, RESULT_SCHEMA_VERSION, ResultClass, cache_directory, kebab,
@@ -402,6 +403,8 @@ struct Search<'a, 's> {
     /// The baseline's claim support, for each row's `removed_claims` (the runner builds every
     /// mutant with the same function, re-pin R0c-fix-2).
     support: ClaimSupport,
+    /// How next steps spell the front end's commands.
+    spelling: &'a dyn CommandSpelling,
 }
 
 impl Search<'_, '_> {
@@ -478,9 +481,9 @@ impl Search<'_, '_> {
                 reason: "campaign-refused".into(),
                 detail: format!(
                     "the campaign runner refused the call over {:?}: {failure}; the cached \
-                         results no longer describe the baseline runs: run `kink-flow results \
-                         --verify`",
-                    self.ids(order)
+                         results no longer describe the baseline runs: run `{} --verify`",
+                    self.ids(order),
+                    self.spelling.verb(Verb::Results)
                 ),
             })?;
         // The drift check (README 5.4): every program's baseline row of this call must have
@@ -524,7 +527,11 @@ impl Search<'_, '_> {
                 .collect::<Vec<_>>();
             return Err(CorpusError {
                 reason,
-                detail: format!("{}; run `kink-flow results --verify`", details.join("; ")),
+                detail: format!(
+                    "{}; run `{} --verify`",
+                    details.join("; "),
+                    self.spelling.verb(Verb::Results)
+                ),
             });
         }
         if run.mutants.len() != 1 {
@@ -1189,13 +1196,13 @@ impl Search<'_, '_> {
                     detail: format!(
                         "the cached agreements of {:?} and the live call over {:?} do not form \
                          one plan ({failure}): a cached outcome says the mutant ran, the live \
-                         call says it did not; run `kink-flow run FLOW.toml MUTATIONS.toml \
-                         --verify`",
+                         call says it did not; run `{} --verify`",
                         agree
                             .iter()
                             .map(|(c, _)| self.candidates[*c].id)
                             .collect::<Vec<_>>(),
-                        self.ids(last_order)
+                        self.ids(last_order),
+                        self.spelling.command(Verb::Run)
                     ),
                 };
                 return Some(self.corpus_error(row, error, &calls, executed));
@@ -1632,6 +1639,28 @@ pub fn run_with(
     options: &RunOptions,
     mode: RunMode,
 ) -> (Value, bool) {
+    run_front(manifest, list, options, mode, &FrontEnd::default())
+}
+
+/// [`run_with`] for a front end ([`FrontEnd`]): next steps take its spelling; a mutation it
+/// refused ([`FrontEnd::refused`]) gets the row of a mutation that does not resolve, with the
+/// front end's reason, and is not resolved, looked up in a memo, compiled or run, so no outcome
+/// record, hint or memo record is written for it; and the document is annotated
+/// ([`FrontEnd::annotate`]) before every write of the report and before it is returned, so that
+/// `report` prints what `run` printed.
+pub fn run_front(
+    manifest: &FlowManifest,
+    list: &MutationList,
+    options: &RunOptions,
+    mode: RunMode,
+    front: &FrontEnd<'_>,
+) -> (Value, bool) {
+    let annotated = |mut document: Value| {
+        if let Some(annotate) = front.annotate {
+            annotate(&mut document);
+        }
+        document
+    };
     let cache = cache_directory(manifest, options.cache.as_deref());
     let store = Store::new(&cache);
     let report_path = cache.join(REPORT_FILE);
@@ -1641,7 +1670,7 @@ pub fn run_with(
     // census that admits what the live one refuses, is reported whether or not the live census
     // admits the specification; otherwise there is none.
     let refused = |record: &AdmissionRecord, mismatches: &[Value]| {
-        let document = document(
+        let document = annotated(document(
             record,
             None,
             &[],
@@ -1651,7 +1680,7 @@ pub fn run_with(
                 mismatches,
                 ..Accounting::NONE
             },
-        );
+        ));
         let _ = store.write_json(&report_path, &document);
         (document, false)
     };
@@ -1791,6 +1820,7 @@ pub fn run_with(
         mismatches: Vec::new(),
         order: options.order,
         support: ClaimSupport::new(spec.validator.baseline()),
+        spelling: front.spelling,
     };
     let outcome_cache = |search: &Search<'_, '_>| {
         json!({
@@ -1825,6 +1855,9 @@ pub fn run_with(
         .iter()
         .enumerate()
         .map(|(index, mutation)| {
+            if let Some(refusal) = front.refused.get(&mutation.id) {
+                return Resolution::Live(Err(refusal.clone()));
+            }
             let memo = consult.map(|build| {
                 (
                     memo::resolution_key(update.spec_digest, build, mutation),
@@ -1928,6 +1961,17 @@ pub fn run_with(
             search.mismatches.push(mismatch);
             row = resolution_mismatch(row);
         }
+        row["action"] = json!(
+            front
+                .refused
+                .get(&mutation.id)
+                .and_then(|refusal| refused_action(refusal.reason))
+                .or_else(|| action_spelled(
+                    row["status"].as_str().unwrap_or_default(),
+                    row["reason"].as_str(),
+                    front.spelling,
+                ))
+        );
         if corpus_error {
             stopped = Some(json!({"mutation": mutation.id, "reason": row["reason"]}));
             ok = false;
@@ -1943,7 +1987,7 @@ pub fn run_with(
             ok = false;
         }
         rows.push(row);
-        let document = document(
+        let document = annotated(document(
             &record,
             Some(update.spec_digest),
             &program_rows,
@@ -1959,7 +2003,7 @@ pub fn run_with(
                 exclusion: exclusion.clone(),
                 result: spec.result.value(),
             },
-        );
+        ));
         match store.write_json(&report_path, &document) {
             Ok(()) => written = Some(document),
             Err(e) => {
@@ -1983,7 +2027,7 @@ pub fn run_with(
     if !search.mismatches.is_empty() {
         ok = false;
     }
-    let document = document(
+    let document = annotated(document(
         &record,
         Some(update.spec_digest),
         &program_rows,
@@ -1999,7 +2043,7 @@ pub fn run_with(
             exclusion,
             result: spec.result.value(),
         },
-    );
+    ));
     // The stored report is the document the command prints: write it unless the last write
     // already stored exactly this document (no mutation was selected, or a write failed).
     if written.as_ref() != Some(&document) && store.write_json(&report_path, &document).is_err() {

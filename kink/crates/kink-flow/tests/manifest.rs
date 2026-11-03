@@ -3,7 +3,8 @@
 
 use kink_corpus::ProgramSource;
 use kink_flow::manifest::{
-    Budget, DEFAULT_MAX_DEPTH, DEFAULT_TIME_MS, FlowManifest, ManifestError, Program,
+    Budget, DEFAULT_MAX_DEPTH, DEFAULT_TIME_MS, FlowManifest, KrsSpec, ManifestError, ManifestFile,
+    Program, SpecDecl, SpecSection,
 };
 use std::path::{Path, PathBuf};
 
@@ -398,4 +399,156 @@ fn result_cells_errors_name_the_key() {
         "unknown key",
     );
     assert_error(&format!("result = 1\n{SPEC}"), "result", "expected a table");
+}
+
+// ---------------------------------------------------------------------------------------
+// CF-40: one schema, two specification declarations.
+
+const KRS_SPEC: &str =
+    "[spec]\nkrs = { definition = \"main\" }\nassume_joined = [\"b\", \"a\", \"b\"]\n";
+
+fn decode_file(text: &str) -> Result<ManifestFile, ManifestError> {
+    ManifestFile::decode(text, Path::new("corpus"))
+}
+
+#[track_caller]
+fn assert_file_error(text: &str, key: &str, message: &str) {
+    let error = decode_file(text).expect_err("the manifest must be refused");
+    assert_eq!(error.key, key, "{error}");
+    assert!(error.message.contains(message), "{error}");
+}
+
+/// The specification a front end binds: the K a package emits (CF-14a's shape).
+fn emitted() -> SpecSection {
+    SpecSection {
+        entry: "definition.k".into(),
+        main_module: "PLUS".into(),
+        syntax_module: None,
+        include_dirs: vec![".".into()],
+        md_selector: "k".into(),
+        assume_joined: Vec::new(),
+    }
+}
+
+#[test]
+fn a_krs_spec_decodes_to_its_declaration() {
+    let text = format!("{KRS_SPEC}[budget]\ntime_ms = 7\n[[program]]\nid = \"t1\"\ntext = \"1\"\n");
+    let file = decode_file(&text).unwrap();
+    assert_eq!(
+        file.spec,
+        SpecDecl::Krs(KrsSpec {
+            definition: "main".into(),
+            assume_joined: vec!["a".into(), "b".into()],
+        })
+    );
+    assert_eq!(file.directory, PathBuf::from("corpus"));
+    assert_eq!(file.budget.time_ms, 7);
+    assert_eq!(file.programs.len(), 1);
+    // A K declaration decodes as before.
+    assert!(matches!(decode_file(SPEC).unwrap().spec, SpecDecl::K(_)));
+}
+
+#[test]
+fn a_krs_spec_refuses_every_key_its_front_end_supplies() {
+    for key in [
+        "entry",
+        "main_module",
+        "syntax_module",
+        "include_dirs",
+        "md_selector",
+    ] {
+        let value = if key == "include_dirs" {
+            "[\".\"]"
+        } else {
+            "\"x\""
+        };
+        assert_file_error(
+            &format!("{KRS_SPEC}{key} = {value}\n"),
+            &format!("spec.{key}"),
+            "not allowed with spec.krs: the krs front end supplies it",
+        );
+    }
+    assert_file_error(
+        "[spec]\nkrs = { definition = \"main\", package = \"p\" }\n",
+        "spec.krs.package",
+        "unknown key",
+    );
+    assert_file_error("[spec]\nkrs = {}\n", "spec.krs.definition", "missing");
+    assert_file_error(
+        "[spec]\nkrs = { definition = \"\" }\n",
+        "spec.krs.definition",
+        "must not be empty",
+    );
+    assert_file_error("[spec]\nkrs = \"main\"\n", "spec.krs", "expected a table");
+}
+
+#[test]
+fn each_front_end_refuses_the_other_declaration() {
+    // kink-flow's reading of a KRS corpus names the command to use.
+    let error = error(KRS_SPEC);
+    assert_eq!(error.key, "spec.krs", "{error}");
+    assert!(error.message.contains("krs kink"), "{error}");
+    // A K corpus is the specification it declares: no front end binds another.
+    let error = decode_file(SPEC)
+        .unwrap()
+        .bind(Some(emitted()))
+        .unwrap_err();
+    assert_eq!(error.key, "spec.entry", "{error}");
+    assert!(error.message.contains("kink-flow"), "{error}");
+}
+
+#[test]
+fn binding_a_krs_spec_is_decoding_the_spec_written_out() {
+    let programs = "[budget]\ntime_ms = 7\nwork_factor = 2\n\n[result]\ncells = [\"k\"]\n\n\
+                    [[program]]\nid = \"t1\"\nfile = \"cases/t1.nat\"\n";
+    let bound = decode_file(&format!("{KRS_SPEC}{programs}"))
+        .unwrap()
+        .bind(Some(emitted()))
+        .unwrap();
+    let written = decode(&format!(
+        "[spec]\nentry = \"definition.k\"\nmain_module = \"PLUS\"\ninclude_dirs = [\".\"]\n\
+         md_selector = \"k\"\nassume_joined = [\"a\", \"b\"]\n{programs}"
+    ))
+    .unwrap();
+    assert_eq!(bound, written);
+    // The declaration's premises are the corpus's, whatever the front end passes.
+    let mut other = emitted();
+    other.assume_joined = vec!["z".into()];
+    let bound = decode_file(KRS_SPEC).unwrap().bind(Some(other)).unwrap();
+    assert_eq!(bound.spec.assume_joined, ["a", "b"]);
+}
+
+#[test]
+fn a_bound_spec_stays_inside_the_manifest_directory() {
+    let mut outside = emitted();
+    outside.entry = "../definition.k".into();
+    let error = decode_file(KRS_SPEC)
+        .unwrap()
+        .bind(Some(outside))
+        .unwrap_err();
+    assert_eq!(error.key, "spec.entry", "{error}");
+    let mut include = emitted();
+    include.include_dirs = vec!["/abs".into()];
+    let error = decode_file(KRS_SPEC)
+        .unwrap()
+        .bind(Some(include))
+        .unwrap_err();
+    assert_eq!(error.key, "spec.include_dirs[0]", "{error}");
+    let mut module = emitted();
+    module.main_module = String::new();
+    let error = decode_file(KRS_SPEC)
+        .unwrap()
+        .bind(Some(module))
+        .unwrap_err();
+    assert_eq!(error.key, "spec.main_module", "{error}");
+}
+
+#[test]
+fn a_manifest_error_names_its_key() {
+    // `ManifestError::new` is public, so a front end reports its own errors by key.
+    let error = ManifestError::new("spec.krs.definition", "differs from --definition");
+    assert_eq!(
+        error.to_string(),
+        "spec.krs.definition: differs from --definition"
+    );
 }

@@ -224,7 +224,7 @@ pub struct Outside {
 
 /// Every versioned constant outside [`KINK_IDENTITY`]. Each reason names the path that checks
 /// the constant, or says why nothing has to.
-pub const OUTSIDE_IDENTITY: [Outside; 34] = [
+pub const OUTSIDE_IDENTITY: [Outside; 35] = [
     Outside {
         krate: "kink-patch",
         constant: "TEST_MANIFEST_DOMAIN",
@@ -452,6 +452,13 @@ pub const OUTSIDE_IDENTITY: [Outside; 34] = [
         constant: "CHECK_VERSION",
         reason: "the check document's format: no command reads a check document back; check \
                  decides no status, since `run` proves each mutation it reports (cli.rs)",
+    },
+    Outside {
+        krate: "kink-flow",
+        constant: "VERDICTS_VERSION",
+        reason: "the format of the verdicts rendering of a results or run document \
+                 (`--output verdicts`, verdicts.rs): no command reads it back, and it is printed \
+                 from a document after every status is decided",
     },
     Outside {
         krate: "kink-corpus",

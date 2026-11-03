@@ -84,9 +84,10 @@
 use crate::fuzz_filter::{FilterJob, FilterSide, KinkJudgement};
 use crate::{
     admit::{AdmittedSpec, CaseInputs, InputSession, ProgramInputs, admit_spec},
+    cli::{CommandSpelling, FrontEnd, Verb},
     digest::{program_digest, spec_digest},
     manifest::{FlowManifest, ManifestError, Program},
-    mutation::{MutationList, RuleText, resolve, rule_texts},
+    mutation::{InvalidReason, MutationList, RuleText, resolve, rule_texts},
     pattern::{INVALID_PATTERN, Lowering, PatternList, Searcher},
     report::claims_value,
     results::kebab,
@@ -1167,6 +1168,7 @@ fn push_warning(document: &mut Value, warning: Value) {
 /// template and the mutation: the template program's class (found by its program digest), the
 /// mutation's status and its `reaching` programs, each suggested as a template; and the
 /// warnings these facts give. Nothing is run or written.
+#[allow(clippy::too_many_arguments)]
 fn last_run(
     manifest: &FlowManifest,
     spec: &AdmittedSpec,
@@ -1174,13 +1176,15 @@ fn last_run(
     template: &Template,
     instance: &Instance,
     mutation: &str,
+    spelling: &dyn CommandSpelling,
     warnings: &mut Vec<Value>,
 ) -> Value {
-    let (document, found) = crate::report::report(
+    let (document, found) = crate::report::report_spelled(
         manifest,
         &crate::report::ReportOptions {
             cache: options.cache.clone(),
         },
+        spelling,
     );
     if !found {
         return json!({
@@ -1192,8 +1196,11 @@ fn last_run(
     if document["spec"]["digest"] != json!(current) {
         warnings.push(warning(
             "stale-run-document",
-            "the last run document is of another specification (its digest differs): run \
-             `kink-flow run` again for the template's class and the mutation's reaching programs",
+            format!(
+                "the last run document is of another specification (its digest differs): run \
+                 `{}` again for the template's class and the mutation's reaching programs",
+                spelling.verb(Verb::Run)
+            ),
         ));
         return json!({"found": true, "current": false});
     }
@@ -1251,7 +1258,8 @@ fn last_run(
         // kink27 R5-WEAKENING: no program can kill it, so no template helps.
         warnings.push(warning(
             "unkillable",
-            crate::report::action(status, entry["reason"].as_str()).unwrap_or_default(),
+            crate::report::action_spelled(status, entry["reason"].as_str(), spelling)
+                .unwrap_or_default(),
         ));
     } else if status == "killed" {
         warnings.push(warning(
@@ -1357,7 +1365,6 @@ pub fn kill(
 }
 
 /// The document of one job ([`kill`] for the kill job) and whether the job was done.
-#[allow(clippy::too_many_lines)]
 pub fn fuzz_job(
     manifest: &FlowManifest,
     templates: &TemplateList,
@@ -1365,6 +1372,29 @@ pub fn fuzz_job(
     job: FuzzJob<'_>,
     options: &FuzzOptions,
 ) -> (Value, bool) {
+    fuzz_front(
+        manifest,
+        templates,
+        template,
+        job,
+        options,
+        &FrontEnd::default(),
+    )
+}
+
+/// [`fuzz_job`] for a front end ([`FrontEnd`]): next steps take its spelling, and a kill job of
+/// a mutation it refused ([`FrontEnd::refused`]) is refused as one of a mutation that does not
+/// resolve, with the front end's reason.
+#[allow(clippy::too_many_lines)]
+pub fn fuzz_front(
+    manifest: &FlowManifest,
+    templates: &TemplateList,
+    template: &str,
+    job: FuzzJob<'_>,
+    options: &FuzzOptions,
+    front: &FrontEnd<'_>,
+) -> (Value, bool) {
+    let spelling = front.spelling;
     let mut document = document();
     document["job"] = json!({
         "kind": job.kind(),
@@ -1437,8 +1467,10 @@ pub fn fuzz_job(
         );
         document["spec"] = refusal.value();
         document["stopped"] = json!("refused");
-        document["action"] =
-            json!("fix the specification: `kink-flow check` gives the same refusal");
+        document["action"] = json!(format!(
+            "fix the specification: `{}` gives the same refusal",
+            spelling.verb(Verb::Check)
+        ));
         return (document, false);
     };
     document["spec"] = json!({
@@ -1488,6 +1520,7 @@ pub fn fuzz_job(
             template,
             &instance,
             mutation,
+            spelling,
             &mut warnings,
         );
     }
@@ -1549,7 +1582,11 @@ pub fn fuzz_job(
     let mutant = match mutation_entry {
         None => None,
         Some(mutation_entry) => {
-            let resolved = match resolve(manifest, &spec.loaded, mutation_entry) {
+            let resolution = match front.refused.get(&mutation_entry.id) {
+                Some(refusal) => Err(refusal.clone()),
+                None => resolve(manifest, &spec.loaded, mutation_entry),
+            };
+            let resolved = match resolution {
                 Ok(resolved) => resolved,
                 Err(invalid) => {
                     document["job"]["status"] = json!(invalid.reason.status());
@@ -1557,11 +1594,21 @@ pub fn fuzz_job(
                     document["job"]["detail"] = json!(invalid.to_string());
                     let refusal =
                         Refusal::new("mutation", invalid.reason.as_str(), invalid.to_string());
+                    // A front end's refusal names its own next step; the job carries the
+                    // reason and the detail, so the action names neither again.
+                    let action = match invalid.reason {
+                        InvalidReason::External { next, .. } => {
+                            format!("fix the mutation: {next}")
+                        }
+                        _ => "fix the mutation: it does not resolve".to_owned(),
+                    };
                     return refuse(
                         document,
                         refusal,
-                        "fix the mutation: it does not resolve (kink-flow run gives the same \
-                         status)",
+                        &format!(
+                            "{action} ({} gives the same status)",
+                            spelling.verb(Verb::Run)
+                        ),
                     );
                 }
             };
@@ -1604,8 +1651,10 @@ pub fn fuzz_job(
                     return refuse(
                         document,
                         Refusal::new("mutant", reason, detail),
-                        "no mutant to fuzz: kink refuses this mutation the same way in \
-                         `kink-flow run`",
+                        &format!(
+                            "no mutant to fuzz: kink refuses this mutation the same way in `{}`",
+                            spelling.verb(Verb::Run)
+                        ),
                     );
                 }
             }
@@ -1652,20 +1701,25 @@ pub fn fuzz_job(
                     "the {role}'s definition has kink's definition exclusion {}: {detail}",
                     exclusion.name()
                 );
+                let run = spelling.verb(Verb::Run);
                 let action = if role == "baseline" {
-                    "kink excludes every run on this specification, so every program's result is \
-                     unknown and no witness could be confirmed (`kink-flow run` gives each \
-                     mutation status error, no-comparable-program, and each program the exclusion \
-                     as its cause): fix the specification"
+                    format!(
+                        "kink excludes every run on this specification, so every program's \
+                         result is unknown and no witness could be confirmed (`{run}` gives each \
+                         mutation status error, no-comparable-program, and each program the \
+                         exclusion as its cause): fix the specification"
+                    )
                 } else {
-                    "kink reports this mutation unknown with this reason (every test of the \
-                     mutant is excluded), so no program can kill it: choose another mutation \
-                     (`kink-flow run` gives the same reason)"
+                    format!(
+                        "kink reports this mutation unknown with this reason (every test of the \
+                         mutant is excluded), so no program can kill it: choose another mutation \
+                         (`{run}` gives the same reason)"
+                    )
                 };
                 return refuse(
                     document,
                     Refusal::new("exclusions", exclusion.name(), detail),
-                    action,
+                    &action,
                 );
             }
             Err(error) => {
@@ -1935,7 +1989,8 @@ pub fn fuzz_job(
                 }
             }
             let mut judgement =
-                KinkJudgement::new(job_kind, baseline, mutant_side, manifest.budget.work());
+                KinkJudgement::new(job_kind, baseline, mutant_side, manifest.budget.work())
+                    .with_spelling(spelling);
             // Every candidate keeps the template's text outside its holes, so a state exclusion
             // of the template's input is one of every candidate whose holes do not replace the
             // excluded application. A hole whose span text holds that application could remove
@@ -1957,9 +2012,12 @@ pub fn fuzz_job(
                              campaign does not look for"
                         ),
                     ),
-                    "choose a template whose input applies no implementation-chosen hook and no \
-                     function whose value depends on the short-circuit reading (kink-flow run gives \
-                     such a program the exclusion as its cause)",
+                    &format!(
+                        "choose a template whose input applies no implementation-chosen hook and \
+                         no function whose value depends on the short-circuit reading ({} gives \
+                         such a program the exclusion as its cause)",
+                        spelling.verb(Verb::Run)
+                    ),
                 );
             }
             filter = Some(judgement);
@@ -2199,19 +2257,21 @@ pub fn fuzz_job(
             } else {
                 let mut action = match job {
                     FuzzJob::Kill { mutation, .. } => format!(
-                        "{append}, then run `kink-flow run FLOW.toml MUTATIONS.toml --only \
-                         {mutation}`: kink's own run decides whether it kills, and writes the \
-                         hint when it does"
+                        "{append}, then run `{} --only {mutation}`: kink's own run decides \
+                         whether it kills, and writes the hint when it does",
+                        spelling.command(Verb::Run)
                     ),
                     FuzzJob::Reach { fired, .. } => format!(
-                        "{append}, then run `kink-flow results FLOW.toml`: the rule's {} lists \
-                         the program once kink's own run of it is comparable",
+                        "{append}, then run `{}`: the rule's {} lists the program once kink's \
+                         own run of it is comparable",
+                        spelling.command(Verb::Results),
                         if fired { "fired_by" } else { "reached_by" }
                     ),
                     FuzzJob::Pattern { id: pattern, .. } => format!(
                         "{append}, add {id:?} to the `programs` of pattern {pattern:?} in \
-                         PATTERNS.toml, then run `kink-flow query FLOW.toml PATTERNS.toml --only \
-                         {pattern}`: kink's own search confirms the claim"
+                         PATTERNS.toml, then run `{} --only {pattern}`: kink's own search \
+                         confirms the claim",
+                        spelling.command(Verb::Query)
                     ),
                 };
                 action.push_str(". This command did not confirm it (--no-confirm)");

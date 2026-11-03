@@ -18,8 +18,12 @@
 //! compiled sentence or symbol declaration carries: the file as the load named it, and the span
 //! `start_line:start_column-end_line:end_column`.
 
-use crate::evidence::{EndReader, HEAD_CAP, VALUE_CAP};
+use crate::{
+    admit::AdmittedSpec,
+    evidence::{EndReader, HEAD_CAP, VALUE_CAP},
+};
 use k_rust::{kast::identifier::label_or_name, kore::ast::Pattern};
+use kink_native::coverage::{Authorship, RuleAuthors};
 use kink_native::exclusion::{
     CauseLink, CausePart, DefinitionExclusions, Exclusion, OperatorLink, ReadingDependence,
     SentenceLink, ShortCircuitCause, ShortCircuitEffect, SymbolLink,
@@ -68,22 +72,32 @@ impl ExclusionScope {
 /// - `equals-condition`: `{sentence}` per sentence;
 /// - `load-stack-stop`: none (`detail` gives the count).
 ///
-/// A sentence is `{name, module, label, id, source, location}` (`id` its compiled `UNIQUE_ID`),
-/// a symbol `{id, module, label, hook, source, location}` (`id` its KORE name), a location
+/// A sentence is `{name, module, label, id, source, location, authors}` (`id` its compiled
+/// `UNIQUE_ID`, `module` its KORE module), where `authors` lists the baseline sentences it was
+/// compiled from (kink-native `RuleAuthors`), each named as every document names a rule
+/// (`crate::results::sentence_value`: `{module, index, label, file, start_line, end_line}`, the
+/// object [`crate::names::visit_rules`] visits), empty for a sentence that no baseline sentence
+/// wrote (one a compiler pass generated) or with no compiled id; a symbol `{id, module, label, hook, source, location}` (`id` its KORE name), a location
 /// `{start_line, start_column, end_line, end_column}`, and a part `{part: "condition", leaf}` or
 /// `{part: "right-side"}`. A term (`leaf`, `operand`, `term`) is printed
 /// `{text, rendering, truncated}` (and `note`), as kill evidence prints a value.
 #[must_use]
-pub fn definition_exclusion(facts: &DefinitionExclusions, reader: &EndReader) -> Value {
+pub fn definition_exclusion(spec: &AdmittedSpec, reader: &EndReader) -> Value {
+    let facts = &spec.exclusions;
     let Some(exclusion) = facts.static_exclusion() else {
         return Value::Null;
     };
-    let sentence = |name: &str| sentence_named(facts, name);
+    let authors = RuleAuthors::of(&spec.compiled);
+    let links = Links {
+        spec,
+        authors: &authors,
+    };
+    let sentence = |name: &str| links.named(facts, name);
     let causes = match exclusion {
         Exclusion::ShortCircuitReading => facts
             .short_circuit_causes
             .iter()
-            .map(|cause| cause_value(cause, reader))
+            .map(|cause| cause_value(cause, &links, reader))
             .collect(),
         Exclusion::ImplementationChosenHook => facts
             .implementation_chosen
@@ -227,13 +241,41 @@ fn listed(items: impl IntoIterator<Item = String>) -> String {
     }
 }
 
-/// The sentence a list of `facts` names `name`, as data; `{name}` alone when the facts hold no
-/// link for it.
-fn sentence_named(facts: &DefinitionExclusions, name: &str) -> Value {
-    facts
-        .sentences
-        .get(name)
-        .map_or_else(|| json!({"name": name}), sentence_value)
+/// How the data names a compiled sentence: with the baseline sentences it was compiled from.
+struct Links<'s> {
+    spec: &'s AdmittedSpec,
+    authors: &'s RuleAuthors,
+}
+
+impl Links<'_> {
+    /// The sentence a list of `facts` names `name`, as data; `{name}` alone when the facts hold
+    /// no link for it.
+    fn named(&self, facts: &DefinitionExclusions, name: &str) -> Value {
+        facts
+            .sentences
+            .get(name)
+            .map_or_else(|| json!({"name": name}), |link| self.sentence(link))
+    }
+
+    /// A compiled sentence as data ([`definition_exclusion`]).
+    fn sentence(&self, link: &SentenceLink) -> Value {
+        let authors = match link.id.as_deref().and_then(|id| self.authors.get(id)) {
+            Some(Authorship::Sentences(sentences)) => sentences
+                .iter()
+                .map(|at| crate::results::sentence_value(self.spec, at))
+                .collect(),
+            Some(Authorship::Unmapped(_)) | None => Vec::new(),
+        };
+        json!({
+            "name": link.name,
+            "module": link.module,
+            "label": link.label,
+            "id": link.id,
+            "source": link.source,
+            "location": location_value(link.location),
+            "authors": authors,
+        })
+    }
 }
 
 /// The sentence a list of `facts` names `name`, as text: its label (or name) and position.
@@ -252,17 +294,6 @@ fn location_value(location: Option<k_rust::definition::ast::Location>) -> Value 
             "end_line": l.end_line,
             "end_column": l.end_column,
         })
-    })
-}
-
-fn sentence_value(link: &SentenceLink) -> Value {
-    json!({
-        "name": link.name,
-        "module": link.module,
-        "label": link.label,
-        "id": link.id,
-        "source": link.source,
-        "location": location_value(link.location),
     })
 }
 
@@ -390,7 +421,7 @@ fn operator_value(link: &OperatorLink, reader: &EndReader) -> Value {
 }
 
 /// One cause chain as data ([`definition_exclusion`]).
-fn cause_value(cause: &ShortCircuitCause, reader: &EndReader) -> Value {
+fn cause_value(cause: &ShortCircuitCause, names: &Links<'_>, reader: &EndReader) -> Value {
     let links = cause
         .links
         .iter()
@@ -404,14 +435,14 @@ fn cause_value(cause: &ShortCircuitCause, reader: &EndReader) -> Value {
                 "link": "function",
                 "function": symbol_value(function),
                 "dependence": dependence_name(*dependence),
-                "equation": sentence_value(equation),
+                "equation": names.sentence(equation),
                 "part": part_value(part, reader),
             }),
             CauseLink::Operator(operator) => operator_value(operator, reader),
         })
         .collect::<Vec<_>>();
     json!({
-        "rule": sentence_value(&cause.rule),
+        "rule": names.sentence(&cause.rule),
         "effect": effect_name(cause.effect),
         "part": part_value(&cause.part, reader),
         "links": links,

@@ -325,7 +325,7 @@ impl<'a> BaselineRunner<'a> {
         if self.spec.exclusions.static_exclusion().is_none() {
             return Value::Null;
         }
-        crate::exclusion::definition_exclusion(&self.spec.exclusions, self.end_reader())
+        crate::exclusion::definition_exclusion(self.spec, self.end_reader())
     }
 
     /// Why every run of `test` on the baseline is excluded before it runs, read as admission

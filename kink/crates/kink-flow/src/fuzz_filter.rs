@@ -108,6 +108,7 @@ use kink_native::{
 use kink_pattern::SymbolSorts;
 use std::collections::BTreeSet;
 
+use crate::cli::{CommandSpelling, Verb};
 use crate::results::non_value_text;
 
 /// The version of the filter's composition: which deciders it applies to which leaves, in which
@@ -383,10 +384,14 @@ const VALUE_REMEDY: &str = "kink compares only ends whose every node has a defin
                             or hole range whose runs end on such values (an ASCII String hole \
                             needs `choices`, or the repair the filter tries)";
 
-/// The remedy of a refusal by an exclusion.
-const EXCLUSION_REMEDY: &str = "kink excludes such a run from every comparison (kink-flow run \
-                                gives the program the exclusion as its cause); choose a template \
-                                whose runs avoid it";
+/// The remedy of a refusal by an exclusion, naming the run command as `spelling` spells it.
+fn exclusion_remedy(spelling: &dyn CommandSpelling) -> String {
+    format!(
+        "kink excludes such a run from every comparison ({} gives the program the exclusion as \
+         its cause); choose a template whose runs avoid it",
+        spelling.verb(Verb::Run)
+    )
+}
 
 /// The remedy of a refusal by the work budget.
 const WORK_REMEDY: &str = "kink's run of the mutant stops at its work budget before it shows that \
@@ -404,6 +409,8 @@ pub struct KinkJudgement {
     mutant: Option<FilterSide>,
     work: WorkBudget,
     id: String,
+    /// The remedy of a refusal by an exclusion ([`Self::with_spelling`]).
+    exclusion_remedy: String,
 }
 
 impl KinkJudgement {
@@ -440,7 +447,16 @@ impl KinkJudgement {
             mutant,
             work,
             id,
+            exclusion_remedy: exclusion_remedy(&crate::cli::KinkFlowSpelling),
         }
+    }
+
+    /// This filter with its remedies naming the commands as `spelling` spells them (kink-flow's
+    /// own by default).
+    #[must_use]
+    pub fn with_spelling(mut self, spelling: &dyn CommandSpelling) -> Self {
+        self.exclusion_remedy = exclusion_remedy(spelling);
+        self
     }
 
     /// The baseline side.
@@ -469,6 +485,7 @@ impl KinkJudgement {
     /// them; the first is the case's verdict, and a repair is tried only when every one is
     /// repairable.
     fn refusals(&mut self, case: &WitnessCase) -> Vec<Refused> {
+        let remedy = self.exclusion_remedy.clone();
         let mut refusals = Vec::new();
         let Some(Ok(initial)) = case
             .sides
@@ -490,7 +507,7 @@ impl KinkJudgement {
                         "the initial configuration has kink's exclusion {exclusion} on the \
                          {role}'s definition"
                     ),
-                    EXCLUSION_REMEDY,
+                    &remedy,
                 )),
                 Guarded::TooDeep => refusals.push(Refused::too_deep(role)),
                 Guarded::Done(None) | Guarded::Unreached => {}
@@ -505,6 +522,7 @@ impl KinkJudgement {
             &case.sides[0],
             &mut self.baseline,
             &initial,
+            &remedy,
             &mut refusals,
         );
         let pair = match (kill, self.mutant.as_mut(), case.sides.get(1)) {
@@ -514,7 +532,14 @@ impl KinkJudgement {
         let Some((mutant, mutant_case)) = pair else {
             return refusals;
         };
-        let mutant_values = judge_side("mutant", mutant_case, mutant, &initial, &mut refusals);
+        let mutant_values = judge_side(
+            "mutant",
+            mutant_case,
+            mutant,
+            &initial,
+            &remedy,
+            &mut refusals,
+        );
         // 4. Each side's values under the other side's definition.
         if let Some(values) = &baseline {
             cross(
@@ -574,9 +599,10 @@ fn judge_side(
     side: &WitnessSide,
     facts: &mut FilterSide,
     initial: &Pattern,
+    remedy: &str,
     refusals: &mut Vec<Refused>,
 ) -> Option<Vec<Pattern>> {
-    undefined_steps(role, side, facts.exclusions(), refusals);
+    undefined_steps(role, side, facts.exclusions(), remedy, refusals);
     let ends = ends(side, &facts.sorts);
     let terms: Vec<Pattern> = ends.iter().map(|(_, term)| term.clone()).collect();
     let judged = match facts.values(initial, &terms) {
@@ -637,6 +663,7 @@ fn undefined_steps(
     role: &str,
     side: &WitnessSide,
     exclusions: &DefinitionExclusions,
+    remedy: &str,
     refusals: &mut Vec<Refused>,
 ) {
     let steps = side
@@ -656,7 +683,7 @@ fn undefined_steps(
                          preserves-definedness: the run contradicts the claim, so kink takes no \
                          evidence from it"
                     ),
-                    EXCLUSION_REMEDY,
+                    remedy,
                 ),
                 other => Refused::new(
                     if other == Exclusion::ShortCircuitReading {
@@ -669,7 +696,7 @@ fn undefined_steps(
                          result depends on whether a short-circuit operator skips an undefined \
                          operand"
                     ),
-                    EXCLUSION_REMEDY,
+                    remedy,
                 ),
             });
         }

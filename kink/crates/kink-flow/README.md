@@ -19,7 +19,8 @@ the `fuzz` command: hole values of a template program that kill a mutation, reac
 the mutations directory, anchors by a suffix of a label's components and the required `misunderstanding` (CF-13; `MUTATIONS.toml` below),
 the resolve-only check of a mutation list, `check --mutations` (CF-18; "Checking mutations" below),
 the definition exclusions read at admission, each named with its causes by one formatter for every command, with `check` failing when a fact known before any mutant runs makes a verdict impossible (CF-02; "When `check` fails" below),
-and the compared cells: the specification's unobservable cells left out of every comparison, a manifest's narrowing, and every document naming the cells compared ("Which cells are compared" below).
+the compared cells: the specification's unobservable cells left out of every comparison, a manifest's narrowing, and every document naming the cells compared ("Which cells are compared" below),
+and the library for both front ends, kink-flow's command line and the krs front end (`krs kink <verb>`, not yet built): one manifest schema with a K or a KRS `[spec]`, one command layer, and the deterministic `--output verdicts` rendering (CF-40; "Front ends" and "Verdicts" below).
 
 ## Building
 
@@ -60,6 +61,18 @@ file = "programs/add.calc"    # or: text = "1 + 2"; neither on a definition with
 start_sort = "Exp"            # optional; only with file or text
 variables = { N = "42" }      # optional; configuration variable $N = 42
 ```
+
+A KRS corpus declares its specification as the K a KRS package emits, which the krs front end (`krs kink <verb>`, not yet built) binds:
+
+```toml
+[spec]
+krs = { definition = "main" }  # the package's definition facet (krs --definition)
+assume_joined = []             # optional, as above
+```
+
+With `krs`, `[spec]` takes no other key but `assume_joined`: `entry`, `main_module`, `syntax_module`, `include_dirs` and `md_selector` are each the error `spec.<key>: not allowed with spec.krs: the krs front end supplies it`, and `krs` takes exactly the key `definition`.
+Every other table is the same for both kinds of corpus.
+kink-flow refuses a KRS corpus (``spec.krs: a KRS corpus: run `krs kink <command>` in the package``, stage `manifest`); the krs front end is to refuse a K corpus.
 
 Every path is relative to the manifest's directory and must stay inside it.
 Unknown keys, values of the wrong type, duplicate or empty program ids,
@@ -196,7 +209,7 @@ For `short-circuit-reading`, each cause is one rule's chain `{rule, effect, part
 `part` is where in the rule the first link sits (`{part: "condition", leaf}` or `{part: "right-side"}`);
 and `links` go from the rule to the operator, each `{link: "function", function, dependence, equation, part}`, a function applied there with the equation (and the part of it) through which it depends on the reading (`dependence` `valued` or `undefined`),
 or `{link: "operator", operator, position, operand, term, term_symbol}`, the short-circuit operator, the position of the operand a backend may skip, the operand, and the application in it that may be undefined.
-A sentence is `{name, module, label, id, source, location}` (`id` its compiled `UNIQUE_ID`), a symbol `{id, module, label, hook, source, location}` (`id` its KORE name), and a term (`leaf`, `operand`, `term`) is printed as kill evidence prints a value (`{text, rendering, truncated}`, below under "Kill evidence").
+A sentence is `{name, module, label, id, source, location, authors}` (`id` its compiled `UNIQUE_ID`, `module` its KORE module), where `authors` lists the baseline sentences it was compiled from, each named as `results` names a rule (`{module, index, label, file, start_line, end_line}`), and is empty for a sentence a compiler pass generated; a symbol `{id, module, label, hook, source, location}` (`id` its KORE name), and a term (`leaf`, `operand`, `term`) is printed as kill evidence prints a value (`{text, rendering, truncated}`, below under "Kill evidence").
 For `implementation-chosen-hook` a cause is `{sentence, symbol, hook}`, for `equals-condition` `{sentence}`; a `load-stack-stop` has none (`detail` gives the count).
 `results` and `run` print the definition exclusion with the same formatter (kink-flow `exclusion`), and `fuzz` its `detail`.
 
@@ -256,7 +269,7 @@ Warnings refuse nothing:
 
 `kink-flow --version` prints `kink-flow VERSION (k-rust REVISION)`, where `REVISION` is k-rust's build identity (`k_rust::build_identity`: its version and a digest of its sources, such as `0.8.0+src.<hex>`), the value every document's `k_rust_revision` names (GUIDE-USABILITY 5, KINK-R4: within each document's version, since the field's shape did not change; before, every document but `fuzz`'s named the version alone), and exits 0.
 
-## `kink-flow results FLOW.toml [--verify] [--mutations MUTATIONS] [--cache DIR]`
+## `kink-flow results FLOW.toml [--verify] [--mutations MUTATIONS] [--cache DIR] [--output json|verdicts]`
 
 Runs every program whose result is not cached yet and reports, per program, whether it can
 kill a mutant, and, per rule of the specification, which programs reach it.
@@ -507,7 +520,7 @@ a reason and a detail; it is never compiled. `check --mutations` gives each reas
 | `host-stack-refused` (status `error`) | The host refused the native stack that encoding the mutation's patch needs: the system would not map a stack segment of the size the patch's depth needs (an address-space limit such as `ulimit -v`, or memory it will not commit). It is the host's limit, neither a fault of the mutation nor a verdict, so the row is `error`, not `invalid-mutation`; rerun where the host grants the stack. Only a deep patch needs a segment: the segment is sized from the patch's own document depth (re-pin L1-3-tail; at L1-3-fix-2 every patch more than 48 term levels deep took a segment sized for `MAX_JSON_DEPTH`, 768 MB in release, and a refusal was reported as `patch-rejected`). |
 | `no-usable-span`, `patch-rejected` | Defensive: a rule's offsets and location name different text of its K view, or kink-patch refused the patch for a reason other than typing (a stale pin, a patch that does not resolve); not expected on rules k-rust loaded. No typing error refuses a mutation (re-pin L2-2-fix-1): a mutant is valid when it compiles, so compilation decides, and kink-patch records the edited rules' errors in compilation's typing view (`SentenceTyper::for_compilation` with `typing_in`) as the row's `typing_diagnostics`. k-rust documents that view's errors as errors compilation stops at, but at 501f18b9 it refuses shapes compilation accepts: a local function with a variable in a cell with children (`CellCompletion`), and a rule `a(X) => b(X)` whose sorts `A` and `B` have a second common supersort in the main module (a non-unique least upper bound). At the pin 8f8ad57c5 that view types the second shape (k-rust KINK-21/1), so its rows carry no typing diagnostic; the first remains. |
 
-## `kink-flow run FLOW.toml MUTATIONS [--only ID]... [--verify] [--order cost|corpus] [--compile-workers N] [--no-memo] [--cache DIR]`
+## `kink-flow run FLOW.toml MUTATIONS [--only ID]... [--verify] [--order cost|corpus] [--compile-workers N] [--no-memo] [--cache DIR] [--output json|verdicts]`
 
 Runs the kill search: for each mutation of the list (in file order; with `--only`, only the named ones),
 is there a program of the corpus whose result the mutation changes?
@@ -788,6 +801,42 @@ the mutant's definition ...`; for a pattern slot, a binding not definition-indep
 decisions read not definition-independent under the other side's; a state value without ends to judge is said so), and the first node of
 the end, in pre-order, that fails its own test there, as a refused baseline's cause names it (see `results`); no leaf census follows it.
 
+## Verdicts: `--output verdicts`
+
+`results` and `run` print, with `--output verdicts`, a TOML rendering of their document instead of the JSON, with the same exit status.
+It holds what the specification, the corpus and the budget decide and nothing that depends on the host, the build, the cache or the order the work was done in,
+so an unchanged corpus renders the same bytes on a cold and on a warm cache and under either `--order`.
+It is meant as the format of recorded outputs and of a corpus's optional committed `verdicts.lock`, which no command writes or checks yet, so that a moved verdict shows in review.
+
+```toml
+schema = "kink-flow-verdicts"
+version = 1
+document = "results"          # or "run"
+
+[spec]
+outcome = "admitted"          # a refused specification adds its stage and reason, and nothing below
+
+[[case]]                      # results: each program, in manifest order
+id = "add"
+class = "comparable"
+fired = ["add"]               # the rules whose fired_by lists the program
+matched = ["add"]             # the rules whose reached_by lists it (k-rust matched)
+
+[[mutation]]                  # run: each mutation it judged, in list order
+id = "add-becomes-sub"
+status = "killed"
+```
+
+A run document of a mutation list that does not decode has no `[spec]` but `[mutation_list]` with `outcome = "refused"`;
+a run that a corpus error stopped ends with `[stopped]`, the mutation and the reason (the mutations after it have no status).
+A refusal's or a stop's text is not part of the rendering, since it explains a refusal rather than records a verdict: `kink-flow` prints it on stderr (`kink_flow::verdicts::refusal_details`).
+
+A rule is named by its KRS item when a front end annotated it (`krs.item`), else by its label, else by `file:line`; the names of a case are ordered by module name, then by position in the module.
+A mutation's killer and a status's reason are left out: under the first-kill search the killer is the first killing program the search reached, which depends on the order (`--order cost` reads wall times) and on the outcomes the cache holds,
+and the reason of `unknown` is the first exclusion in run order.
+A status does not depend on either in the no-Z3 profile while no `budget.time_ms` bound fires ("Cost model"); a `timeout` depends on the host by its nature.
+The killers become part of the rendering, under a new version, once a run proves every killer of a mutation rather than the first.
+
 ## `kink-flow report FLOW.toml [--cache DIR]`
 
 Prints the stored run document again, byte for byte as `run` printed it.
@@ -995,3 +1044,18 @@ Exit status: 0 when the job reached a verdict (`stopped` is `null`, `budget`, `d
 
 Version 3 of the document (fz26 FZ-COMPARABLE-B) adds `job.filter`, the `stopped` value `client-refused`, the warning `client-refused` and the refusal `initial-state-excluded`, and embeds fuzz reports that carry the witness filter's fields; version 2 had none of them.
 Version 4 (fz26 round 4, FZ-REPLAY-WHOLE) embeds k-rust-fuzz reports of version 10: their identity records the k-rust-fuzz build (`fuzz-revision`) and the parser's diagnostic work limit, their totals the first case outside the determinism contract, the holes' finite domain, the cases in which the mutant may not terminate and the last case that reached a new rule, and every source location they name is relative to the main module's file; it adds the `stopped` value `domain-exhausted` and the warning `witness-not-terminating`. `tests/formats.rs` ties the version to the document's keys and enumerated values and to the report version it embeds.
+
+## Front ends
+
+kink-flow's manifest, command layer and documents are a library (`kink_flow`) for two front ends: kink-flow's own command line over a K specification, and the krs front end (`krs kink <verb>`, not yet built), which is to build a KRS package, write the K it emits next to the corpus and run kink-flow's commands over that K.
+Both decode `FLOW.toml` with `ManifestFile::decode` and run the engine unchanged, so a KRS corpus has the K corpus's admission, kill definition, caches, documents and statuses.
+
+- `ManifestFile` is a decoded `FLOW.toml` whose `[spec]` is a `SpecDecl`: `K` (as written) or `Krs`.
+  `ManifestFile::bind` gives the `FlowManifest` every command runs on; a front end binds a KRS declaration to the `SpecSection` of the K it emitted (the declaration's `assume_joined` is kept), and a K declaration binds to itself.
+- `FlowCommand::parse(verb, files, options)` reads a verb's options exactly as `kink-flow <verb>` does, the corpus's files given by the front end (`CommandFiles`: kink-flow's operands, or the front end's layout), and `dispatch(manifest, command, front)` runs it on the large stack kink's definitions need.
+- `FrontEnd` is what a front end adds: `spelling`, how next steps spell its commands, with whatever selects its corpus (the trait `CommandSpelling`; kink-flow's own is `KinkFlowSpelling`); `refused`, the mutations its own checks refused, each with an `InvalidReason::External { name, next }`; and `annotate`, applied to every document before it is printed and, for `run`, before each write of the report.
+  A refused mutation's `run` row has status `invalid-mutation`, the front end's reason, detail and next step (`action`), and nothing is resolved, compiled or run for it, so no outcome record, hint or memo record is written; `check --mutations` adds the refusal to its row, and a `fuzz` kill job of it is refused.
+- `check_corpus_mutations` and `check_mutations_document` let a front end add its findings (`Finding::refused` for a refusal) and its own row keys (`MutationCheckRow::extra`, rendered after kink-flow's keys) between the check and its document.
+- `visit_rules` visits every object of a document that names a sentence of the baseline (a `module` and an `index`; in `spec.exclusion`, the `authors` of each compiled sentence), with the sentence and its label, so a front end can add its own names to every rule a document names.
+  A rule named only by a compiled id or as text (a specification diagnostic's `rule_id`, a query witness path's `rules`) names no baseline sentence and is not visited.
+- `verdicts` is the rendering above.
