@@ -224,7 +224,7 @@ pub struct Outside {
 
 /// Every versioned constant outside [`KINK_IDENTITY`]. Each reason names the path that checks
 /// the constant, or says why nothing has to.
-pub const OUTSIDE_IDENTITY: [Outside; 32] = [
+pub const OUTSIDE_IDENTITY: [Outside; 34] = [
     Outside {
         krate: "kink-patch",
         constant: "TEST_MANIFEST_DOMAIN",
@@ -446,6 +446,20 @@ pub const OUTSIDE_IDENTITY: [Outside; 32] = [
         krate: "kink-flow",
         constant: "QUERY_VERSION",
         reason: "the query document's format (flow F-18): no command reads a query document back",
+    },
+    Outside {
+        krate: "kink-flow",
+        constant: "CHECK_VERSION",
+        reason: "the check document's format: no command reads a check document back; check \
+                 decides no status, since `run` proves each mutation it reports (cli.rs)",
+    },
+    Outside {
+        krate: "kink-corpus",
+        constant: "MANIFEST_VERSION",
+        reason: "the corpus manifest's format: every reader requires this version and refuses \
+                 any other (manifest.rs from_canonical_json), so a manifest is never read under \
+                 another format; what a manifest declares enters the campaign through its own \
+                 digest (CORPUS_MANIFEST_DOMAIN)",
     },
 ];
 
