@@ -1117,18 +1117,26 @@ impl TranslationState {
         match term.kind() {
             // A term-level `\and` denotes the intersection of its operands' values, `\bottom` where
             // they differ, not their Boolean conjunction: `true /\ false` is `\bottom`, not
-            // `false`. A Boolean one is therefore an unrelated constant, as any term without a
-            // translation. Every atom over it is read under its domain (`atom_with_domains`), an
-            // opaque `\ceil` here, so the constant is read only where the intersection is defined,
-            // where a model of the definition gives it the intersection's value: faithful in every
-            // polarity, `\not(c = true) /\ \not(c = false)` holding where the domain does not.
-            // A request or condition with such an atom states that domain beside it, the equality
-            // of the operands (`definedness::and_side`, GAP K30).
+            // `false`. Without a set variable it is therefore a partial operation of its
+            // operands: defined exactly where both are defined and equal, its domain plan
+            // (`functional::domain_plan`, `definedness::and_side`), and there its value is their
+            // common element, which its first conjunct denotes (`Term::first_conjunct`). Every
+            // atom over it is read under that domain (`atom_with_domains`), so the first
+            // conjunct's value is read only where it is the conjunction's, as a partial hook's
+            // total operation is: faithful in every polarity, and exact where the operands'
+            // readings and domains are (GAP K35). A conjunction with a set variable, which may
+            // denote several elements, stays an opaque constant gated by its opaque `\ceil`.
+            // A request or condition with such an atom states that domain beside it, the
+            // equality of the operands (`definedness::and_side`, GAP K30).
             TermKind::And(left, right)
                 if left.sort().is_builtin(BuiltinSort::Bool)
                     && right.sort().is_builtin(BuiltinSort::Bool) =>
             {
-                Ok(self.abstract_term(term, Exactness::Approximate))
+                if crate::definedness::holds_set_variable(term) {
+                    Ok(self.abstract_term(term, Exactness::Approximate))
+                } else {
+                    self.translate_term(term.first_conjunct())
+                }
             }
             TermKind::And(..) => Err(TranslationError::NonBooleanAnd(term.clone())),
             TermKind::Application {
@@ -1278,6 +1286,14 @@ impl TranslationState {
 
     /// A memoized DAG walk using the same local functionality predicate as matching, and
     /// the existing definition's transitive effect closure. No contextual facts are cached.
+    ///
+    /// A term-level `\and` is eligible too where its operands are, which matching's predicate
+    /// does not admit because a conjunction is no term to bind a variable to: an operand that
+    /// is eligible holds no set variable and denotes at most one element, so the intersection
+    /// does too, the operands' common element where both are defined and equal (GAP K35). Its
+    /// domain is then a plan (`functional::domain_plan`), and an application over it is read as
+    /// one over any other operand, under the conjunction's domain, since every application is
+    /// strict.
     fn eligible_operand(&mut self, term: &Term) -> bool {
         let Some(policy) = self.congruence.clone() else {
             return false;
@@ -1287,7 +1303,8 @@ impl TranslationState {
             if self.eligible_operands.contains_key(&term) {
                 continue;
             }
-            let local = crate::rewrite::functional_pattern_node(&term)
+            let local = (crate::rewrite::functional_pattern_node(&term)
+                || matches!(term.kind(), TermKind::And(..)))
                 && match term.kind() {
                     TermKind::Application { symbol, .. } => {
                         !symbol.attributes.binder
@@ -4539,7 +4556,10 @@ mod tests {
 
     /// A term-level `\and` is the intersection of its operands, `\bottom` where they differ, so a
     /// Boolean one is not their conjunction: `\equals(true /\ false, false)` is false in K, while
-    /// `(= (and true false) false)` holds. It translates as an unrelated constant.
+    /// `(= (and true false) false)` holds. Its value is its first conjunct's, read only under
+    /// its domain (GAP K35), here an opaque atom, since without the definition's policy there is
+    /// no domain plan: no SMT `and` of the operands is written, and the second operand is not
+    /// read at all.
     #[test]
     fn a_boolean_term_conjunction_is_not_translated_as_a_conjunction() {
         let boolean = Sort::simple("SortBool");
@@ -4550,15 +4570,9 @@ mod tests {
         );
         let mut state = TranslationState::new();
         let translated = state.translate_predicate(&predicate).unwrap().to_string();
-        // The constant is the conjunction's only mapped term: neither operand is translated, so
-        // no SMT `and` of them is written. (Since GAP K15 the atom carries the conjunction's
-        // domain, `(and D (= c false))`, an SMT `and` of the domain and the equality.)
-        assert_eq!(state.mappings.len(), 1, "{translated}");
-        assert!(
-            !state.mappings.contains_key(&operand("B1"))
-                && !state.mappings.contains_key(&operand("B2")),
-            "{translated}"
-        );
+        assert_eq!(translated, "(and SMT-2 (= SMT-1 false))");
+        assert_eq!(state.mappings.get(&operand("B1")), Some(&"SMT-1".into()));
+        assert!(!state.mappings.contains_key(&operand("B2")), "{translated}");
         assert_eq!(state.exactness(), Exactness::Approximate);
     }
 

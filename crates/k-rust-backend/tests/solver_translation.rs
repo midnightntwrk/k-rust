@@ -68,6 +68,8 @@ struct Stats {
     /// Of `models_checked`, those of cases that mention `pf` or `g`, and those that mention `sel`.
     open_models_checked: Cell<usize>,
     summary_models_checked: Cell<usize>,
+    /// Of `models_checked`, those of cases that hold a term-level `\and` (GAP K35).
+    conjunction_models_checked: Cell<usize>,
     /// `Contingent` where every domain valuation of the known predicates makes the checked one
     /// true (or every one makes it false): a completeness gap on the domain, never a failure.
     contingent_but_decided_on_domain: Cell<usize>,
@@ -84,7 +86,7 @@ impl fmt::Display for Stats {
             f,
             "check_predicates: {} Valid, {} Refuted, {} InconsistentGroundTruth, {} Contingent \
              ({} of them decided on the domain), {} Unknown, {} errors; is_sat: {} Unsat, {} Sat, \
-             {} Unknown, {} errors; {} decided model queries, {} models checked ({} over pf or g, {} over sel); {} cases with no domain valuation of known",
+             {} Unknown, {} errors; {} decided model queries, {} models checked ({} over pf or g, {} over sel, {} over \\and); {} cases with no domain valuation of known",
             self.valid.get(),
             self.refuted.get(),
             self.inconsistent.get(),
@@ -100,6 +102,7 @@ impl fmt::Display for Stats {
             self.models_checked.get(),
             self.open_models_checked.get(),
             self.summary_models_checked.get(),
+            self.conjunction_models_checked.get(),
             self.vacuous.get(),
         )
     }
@@ -300,6 +303,9 @@ fn check_case(
             }
             if free.summary {
                 bump(&stats.summary_models_checked);
+            }
+            if free.conjunction {
+                bump(&stats.conjunction_models_checked);
             }
             let (env, bound, bool) = model_env(backend, &model);
             let mut rest = free.clone();

@@ -281,6 +281,9 @@ pub struct Free {
     pub open: bool,
     /// The case mentions `sel`, which the solver reads through its summary.
     pub summary: bool,
+    /// The case holds a term-level `\and` (GAP K30), which the solver reads by its domain plan
+    /// (GAP K35).
+    pub conjunction: bool,
 }
 
 impl IntT {
@@ -295,7 +298,12 @@ impl IntT {
                 free.open = true;
                 a.free(free);
             }
-            Self::Add(a, b) | Self::Div(a, b) | Self::Pow(a, b) | Self::And(a, b) => {
+            Self::Add(a, b) | Self::Div(a, b) | Self::Pow(a, b) => {
+                a.free(free);
+                b.free(free);
+            }
+            Self::And(a, b) => {
+                free.conjunction = true;
                 a.free(free);
                 b.free(free);
             }
@@ -338,7 +346,12 @@ impl BoolT {
                 a.free(free);
                 b.free(free);
             }
-            Self::Or(a, b) | Self::And(a, b) => {
+            Self::Or(a, b) => {
+                a.free(free);
+                b.free(free);
+            }
+            Self::And(a, b) => {
+                free.conjunction = true;
                 a.free(free);
                 b.free(free);
             }
@@ -407,6 +420,8 @@ impl Pred {
                 free.bool |= inner.bool;
                 free.map |= inner.map;
                 free.open |= inner.open;
+                free.summary |= inner.summary;
+                free.conjunction |= inner.conjunction;
             }
         }
     }

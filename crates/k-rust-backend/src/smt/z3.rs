@@ -3422,6 +3422,69 @@ mod tests {
         );
     }
 
+    /// GAP K35: a term-level `\and` denotes the common value of its sides where both denote it,
+    /// and nothing elsewhere, so the solver reads it as a partial operation: defined exactly
+    /// where `D(l) ∧ D(r) ∧ l = r`, with the value of `l` there. `eqb(B ∧ true, true)` then holds
+    /// exactly where `B` is `true`, and its negation exactly where `B` is `false` (the
+    /// conjunction is `\bottom` there), so "¬atom ⇒ B = false" is valid; the domain is a closed
+    /// formula, so the query is exact and its model a K valuation.
+    #[test]
+    fn a_boolean_term_conjunction_is_defined_where_its_sides_are_equal() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol eqb{}(SortBool{}, SortBool{}) : SortBool{} [function{}(), total{}(), smt-hook{}("=")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = Z3Solver::new(&definition).unwrap();
+        let boolean =
+            |value: &str| crate::term::Term::raw_domain_value(Sort::simple("SortBool"), value);
+        let b = Variable::new("B", Sort::simple("SortBool"));
+        let atom = Predicate::Term(term(
+            &definition,
+            r#"eqb{}(\and{SortBool{}}(B:SortBool{}, \dv{SortBool{}}("true")), \dv{SortBool{}}("true"))"#,
+        ));
+        let not = |predicate: &Predicate| Predicate::Not(std::sync::Arc::new(predicate.clone()));
+        let is =
+            |value: &str| Predicate::Equals(crate::term::Term::variable(b.clone()), boolean(value));
+        let s = Substitution::new();
+        for (known, checked, expected) in [
+            (not(&atom), is("false"), Validity::Valid),
+            (atom.clone(), is("true"), Validity::Valid),
+            (is("true"), atom.clone(), Validity::Valid),
+            (is("false"), not(&atom), Validity::Valid),
+            (is("false"), atom.clone(), Validity::Refuted),
+        ] {
+            assert_eq!(
+                solver.check_predicates(
+                    std::slice::from_ref(&known),
+                    &s,
+                    std::slice::from_ref(&checked)
+                ),
+                Ok(Ok(expected)),
+                "{known:?} => {checked:?}"
+            );
+        }
+        for (query, value) in [(not(&atom), "false"), (atom.clone(), "true")] {
+            assert_eq!(
+                solver.get_model(&ModelQuery::for_solver_tests(
+                    std::slice::from_ref(&query),
+                    &s
+                )),
+                Ok(Ok(ModelResult::Sat(Substitution::from([(
+                    b.clone(),
+                    boolean(value)
+                )])))),
+                "{query:?}"
+            );
+        }
+    }
+
     /// GAP K23: a node is named in a scope outside a binder only when the binder binds none of
     /// its variables. In `\exists Y. (half(X) = Y /\ \forall X. half(X) = Y)` the inner
     /// `half(X)` reads the `X` the `\forall` binds, not the free `X` of the first conjunct, so

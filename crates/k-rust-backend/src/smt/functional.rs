@@ -14,6 +14,7 @@ use crate::{
     rule::Predicate,
     term::{FunctionType, SymbolType, Term, TermKind},
 };
+use k_rust_kore::names::BuiltinSort;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct SharedDomains {
@@ -689,6 +690,24 @@ pub(super) fn domain_plan(
                 }
                 TermKind::List { .. } if definition.list_operations(&term.sort()).is_some() => {
                     Some(Vec::new())
+                }
+                // A term-level `\and` denotes the intersection of its sides. Each side without a
+                // set variable denotes one element or none, so the intersection is one element,
+                // the sides' common one, exactly where both are defined and equal, and empty
+                // elsewhere: the plan is that equality (`definedness::and_side`, the equality of
+                // the sides' first conjuncts, which denote the sides' elements there), with the
+                // sides' domains below. With a set variable it is the conjunction's own `\ceil`,
+                // read as opaque. The value read under the plan is the first conjunct's
+                // (`TranslationState::translate_term_node_plain`) (GAP K35).
+                TermKind::And(left, right)
+                    if left.sort().is_builtin(BuiltinSort::Bool)
+                        && right.sort().is_builtin(BuiltinSort::Bool) =>
+                {
+                    Some(
+                        crate::definedness::and_side(term, left, right)
+                            .into_iter()
+                            .collect(),
+                    )
                 }
                 TermKind::Application { .. }
                 | TermKind::Map { .. }

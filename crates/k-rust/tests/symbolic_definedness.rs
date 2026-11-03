@@ -1305,10 +1305,12 @@ endmodule
 
     /// GAP K30: `B /\ true ==Bool true` holds exactly where `B` is `true`, where the intersection
     /// is `true`; elsewhere the intersection is `\bottom` and the atom is false. A request with
-    /// it is admitted, and `implies` decides it as `B = true` both ways, and shows its negation
-    /// where `B = false`. That the negation implies `B = false` is not shown (the solver reads the
-    /// intersection and its definedness as opaque, and the stated obligation `B = true` lies
-    /// inside the negation), but it is never refuted.
+    /// it is admitted, and `implies` decides it as `B = true` both ways, and its negation as
+    /// `B = false` both ways: since GAP K35 the solver reads the intersection as defined exactly
+    /// where `B = true` (its sides' equality) with `B`'s value there, so the negation, which
+    /// holds exactly where the intersection is undefined, implies `B = false` (before, the
+    /// solver read the intersection and its definedness as opaque, and that query was
+    /// `unknown`).
     #[test]
     fn a_request_atom_over_a_boolean_term_conjunction_is_decided_by_its_definedness() {
         let mut backend = backend();
@@ -1335,15 +1337,11 @@ endmodule
             ("the atom implies B = true", atom.clone(), is("true")),
             ("B = true implies the atom", is("true"), atom.clone()),
             ("B = false implies its negation", is("false"), not(&atom)),
+            ("its negation implies B = false", not(&atom), is("false")),
         ] {
             let status = implies(&antecedent, &consequent);
             assert_eq!(status.as_deref().ok(), Some("valid"), "{case}: {status:?}");
         }
-        let status = implies(&not(&atom), &is("false"));
-        assert!(
-            status.as_deref().is_ok_and(|status| status != "invalid"),
-            "{status:?}"
-        );
         let status = implies(&is("false"), &atom);
         assert_ne!(status.as_deref().ok(), Some("valid"), "{status:?}");
     }
