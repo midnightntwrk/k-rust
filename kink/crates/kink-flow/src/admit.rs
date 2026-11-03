@@ -506,12 +506,14 @@ impl<'a> InputSession<'a> {
 
     /// Why every run on the baseline from `initial` (an admitted program's initial
     /// configuration) is excluded, before it runs: the specification's definition exclusion
-    /// first, then the exclusion of `initial` on the input backend's definition (kink-native
-    /// `DefinitionExclusions::state_exclusion`), as the campaign runner reads both for a
-    /// baseline run, on the same compiled definition.
+    /// first, then the exclusion of `initial` on the input backend's definition, both as a route
+    /// without k-rust's run lists reads them (kink-native `DefinitionExclusions::static_exclusion`
+    /// and `static_state_exclusion`), on the compiled definition the campaign runner reads. The
+    /// runner judges a run of a definition the short-circuit analysis flags by the run's own list
+    /// instead, so this refuses such a program where the runner might judge it.
     pub fn exclusion(&mut self, initial: &k_rust::kore::ast::Pattern) -> Option<ProgramExclusion> {
         let exclusions = &self.spec.exclusions;
-        if let Some(exclusion) = exclusions.definition_exclusion() {
+        if let Some(exclusion) = exclusions.static_exclusion() {
             return Some(ProgramExclusion {
                 exclusion,
                 scope: ExclusionScope::Definition,
@@ -521,7 +523,7 @@ impl<'a> InputSession<'a> {
         // the exclusions were read from.
         let definition = self.backend.select_definition(None).ok()?;
         exclusions
-            .state_exclusion_memoized(&definition, initial, &mut self.ceil_memo)
+            .static_state_exclusion_memoized(&definition, initial, &mut self.ceil_memo)
             .map(|exclusion| ProgramExclusion {
                 exclusion,
                 scope: ExclusionScope::InitialState,

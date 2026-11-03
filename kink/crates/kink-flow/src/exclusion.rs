@@ -75,7 +75,7 @@ impl ExclusionScope {
 /// `{text, rendering, truncated}` (and `note`), as kill evidence prints a value.
 #[must_use]
 pub fn definition_exclusion(facts: &DefinitionExclusions, reader: &EndReader) -> Value {
-    let Some(exclusion) = facts.definition_exclusion() else {
+    let Some(exclusion) = facts.static_exclusion() else {
         return Value::Null;
     };
     let sentence = |name: &str| sentence_named(facts, name);

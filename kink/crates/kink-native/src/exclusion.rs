@@ -93,41 +93,85 @@
 //!   ([`Exclusion::ImplementationChosenValue`]), so the census reads only the
 //!   `String2Bytes`/`Bytes2String` pair and [`UNDOCUMENTED_EVALUATED_HOOKS`], the open hooks
 //!   k-rust evaluates with no run-level record of the value it chooses.
-//! - [`Exclusion::ShortCircuitReading`]: the run's result can depend on whether `andBool`,
-//!   `orBool`, `impliesBool`, `#if`, `andThenBool` or `orElseBool` skip an operand that may be
-//!   undefined
-//!   (re-pin decision 1 applied to domains.md lines 1115-1117 and 2314-2317; R0c review 1 minor):
-//!   k-rust evaluates every operand (an application is strict in all its arguments, k-rust
-//!   `deferred.rs`), so such a step is undefined where a short-circuiting backend gives a value.
-//!   A `Trivial` leaf of a rewrite rule whose right-hand side applies one makes the run
-//!   excluded; a rule whose condition depends on one, or whose right-hand side applies a
-//!   function whose condition does, gives no leaf signal (the rule is just not applied), so the
-//!   definition is excluded ([`DefinitionExclusions::short_circuit_conditions`]). Since re-pin
-//!   R0c-fix-2 a rule whose right-hand side applies one over an operand that may be undefined
-//!   excludes the definition too ([`DefinitionExclusions::short_circuit_results`]): its
-//!   undefined candidate beside a defined same-priority sibling leaves no leaf. "May be
-//!   undefined" is read on the definition the side runs, a mutant's after the claims its edit
-//!   leaves unbacked are removed (a function whose `total` was removed is partial there). Since
-//!   KINK-SC-DEFINED (fz26) a skippable operand counts only where one of its possibly undefined
-//!   applications (of a partial or reading-dependent function) is evaluated by no operand that
-//!   runs whenever it is skipped: where it is, both readings are undefined together (the
-//!   must/may rule of `ShortCircuitAnalysis::direct`, which reads no guard's truth; a recursive
-//!   function's own calls are read under premise A1, termination). It clears the prelude's
-//!   `findChar` and so the stdin stream rules over it. Since CF-01 a condition's
-//!   matching-logic connectives are walked into down to their `\equals(C, true)` leaves, and a
-//!   leaf whose `C` is a tree of `andThenBool` and `andBool` over reading-independent atoms has
-//!   the same truth value in both readings, as has every connective over such leaves (the
-//!   predicate-truth argument at `ShortCircuitAnalysis::condition_side`, with its scope): an
-//!   `owise` equation, whose guard negates its competitors' conditions under `\not`, `\or` and
-//!   `\exists`, no longer depends on the reading through such a condition. And a partial
-//!   application that owes nothing beyond its arguments under the definition's ceil theory
-//!   (`bitRangeInt(X, 4, 4)`, `X /Int 16`) is no possibly undefined term of a skipped operand
-//!   (`ShortCircuitAnalysis::owes_nothing`). Each rule that excludes the definition this way
-//!   carries its cause ([`DefinitionExclusions::short_circuit_causes`]): the rule and the leaf
-//!   of its condition or its right-hand side, each function it applies with the equation and
-//!   leaf through which that function depends on the reading, and the operator and the
+//! - [`Exclusion::ShortCircuitReading`]: the run read the definedness of an operand that a
+//!   short-circuiting backend may skip, and the static analysis does not show that the reading
+//!   leaves the run's outcome alone (re-pin decision 1 applied to domains.md lines 1115-1117 and
+//!   2314-2317; R0c review 1 minor). k-rust's meaning of `andBool`, `orBool`, `impliesBool`,
+//!   `#if`, `andThenBool` and `orElseBool` is strict (an application is undefined wherever an
+//!   operand is, k-rust `deferred.rs`); the reading kink admits beside it evaluates the deciding
+//!   left operand and, once that operand decides the value, skips the operand after it (the
+//!   right operand of the Boolean operators, the branch a decided `#if` does not select), so
+//!   where such an operand is undefined, a step through the application is undefined in k-rust
+//!   and has a value in a short-circuiting backend. The left operand is never skipped: a
+//!   `[simplification]` such as `_ andBool false => false` binds an element variable, which
+//!   matches only a defined value, so it licenses no skip of an undefined left operand
+//!   ([`SHORT_CIRCUIT_HOOKS`]).
+//!
+//!   Since CF-03 a run is judged by k-rust's `shortCircuitReadings` list
+//!   ([`RunFacts::short_circuit_readings`]): every distinct place where the run, or the load of its
+//!   definition, used the strict definedness of such an operand and did not find it defined,
+//!   whatever became of the work (k-rust `docs/compatibility.md`, "Short-circuit readings"). For
+//!   a run that completes with no entry, k-rust states that the short-circuiting reading gives the
+//!   run the same states, leaves and lists, so an empty list is the same run in both readings and
+//!   the run is judged; an entry is no evidence that the readings differ (an entry can name a
+//!   place where they agree, such as a positive conjunct of a condition). The static analysis
+//!   below stays, as a clearance in two tiers and for the routes that judge without a run list:
+//!   - If it flags no rewrite rule ([`DefinitionExclusions::short_circuit_flagged`]), no run of
+//!     the definition depends on the reading through its rules, the list is not read, and a
+//!     test's initial state is read statically as before ([`DefinitionExclusions::state_exclusion`]):
+//!     the analysis does not cover what the initial state applies, and the list cannot tell the
+//!     initial state's normalization from a step's remainder, both work of no rule, the latter
+//!     the place of the over-reports the clearance exists to ignore.
+//!   - Otherwise a run is excluded exactly when its list holds an entry that counts
+//!     ([`DefinitionExclusions::counting_short_circuit_readings`]), or when the backend that
+//!     recorded it lists none (its `short_circuit_readings` capability is off, so an empty list
+//!     is no list). An entry counts when the load observed it (a load entry is on every run's
+//!     list, and a conclusion of the load can rest on the strict reading), when no rule's work
+//!     used it (the initial state's normalization, a remainder, a leaf's constraints), or when the
+//!     rule whose work used it is flagged. An entry under a rule the analysis does not flag does
+//!     not count, on a ground run only: the analysis shows that rule's applicability and
+//!     successor the same in both readings for the same matched values, and on a run from a
+//!     state without free variables, of a definition whose rules introduce none
+//!     ([`DefinitionExclusions::existential_rules`]), every state is ground and its function
+//!     applications are evaluated where they are built, under the rule that built them (k-rust
+//!     attributes a memo's reuse to the rule it serves); on any other run a symbolic term built by
+//!     a flagged rule can be evaluated later under another rule's path condition, so every entry
+//!     counts there. The leaf check of a flagged rule's undefined step
+//!     ([`DefinitionExclusions::short_circuit_step`]) is subsumed: such a leaf's undefinedness
+//!     comes from an operand the reading skips only if the leaf's rule noted the entry.
+//!
+//!   The analysis flags a rewrite rule whose condition depends on the reading, or whose
+//!   right-hand side applies a function whose condition does (whether the rule applies at all
+//!   can differ, [`DefinitionExclusions::short_circuit_conditions`]), and one whose right-hand
+//!   side applies a short-circuit operator over an operand that may be undefined (since re-pin
+//!   R0c-fix-2, [`DefinitionExclusions::short_circuit_results`]). "May be undefined" is read on
+//!   the definition the side runs, a mutant's after the claims its edit leaves unbacked are
+//!   removed (a function whose `total` was removed is partial there). Since KINK-SC-DEFINED (fz26)
+//!   a skippable operand counts only where one of its possibly undefined applications (of a
+//!   partial or reading-dependent function) is evaluated by no operand that runs whenever it is
+//!   skipped: where it is, both readings are undefined together (the must/may rule of
+//!   `ShortCircuitAnalysis::direct`, which reads no guard's truth; a recursive function's own
+//!   calls are read under premise A1, termination). It clears the prelude's `findChar` and so the
+//!   stdin stream rules over it. Since CF-01 a condition's matching-logic connectives are walked
+//!   into down to their `\equals(C, true)` leaves, and a leaf whose `C` is a tree of
+//!   `andThenBool` and `andBool` over reading-independent atoms has the same truth value in both
+//!   readings, as has every connective over such leaves (the predicate-truth argument at
+//!   `ShortCircuitAnalysis::condition_side`, with its scope): an `owise` equation, whose guard
+//!   negates its competitors' conditions under `\not`, `\or` and `\exists`, no longer depends on
+//!   the reading through such a condition. And a partial application that owes nothing beyond its
+//!   arguments under the definition's ceil theory (`bitRangeInt(X, 4, 4)`, `X /Int 16`) is no
+//!   possibly undefined term of a skipped operand (`ShortCircuitAnalysis::owes_nothing`). Each
+//!   flagged rule carries its cause ([`DefinitionExclusions::short_circuit_causes`]): the rule and
+//!   the leaf of its condition or its right-hand side, each function it applies with the equation
+//!   and leaf through which that function depends on the reading, and the operator and the
 //!   possibly undefined operand where the dependence originates, each sentence and symbol with
-//!   its module, label, source position and compiled id.
+//!   its module, label, source position and compiled id. A route that judges without k-rust's
+//!   run lists (kink-flow's fuzz witness filter, which may only refuse candidates) reads the
+//!   analysis as before CF-03: a flagged definition excludes every result
+//!   ([`DefinitionExclusions::static_exclusion`]), a test's initial state that applies a
+//!   reading-dependent function is excluded ([`DefinitionExclusions::static_state_exclusion`]),
+//!   and so is an undefined step of a flagged rule
+//!   ([`DefinitionExclusions::undefined_step_exclusions`]).
 //! - [`Exclusion::AllowanceRefusal`]: a leaf reports a hook left unevaluated whose refusal reads
 //!   the process's memory allowance (Execute promise exclusion, findings A-07, B-02, B-07): the
 //!   result is a function of the host, not of the inputs a key names. Since re-pin adoption A-1
@@ -159,7 +203,7 @@
 
 use std::collections::BTreeSet;
 
-use k_rust::backend::BackendDiagnosticOutput;
+use k_rust::backend::{BackendDiagnosticOutput, ObservedInOutput, ShortCircuitReadingOutput};
 use k_rust::definition::ast::Location;
 use k_rust::kore::{
     ast::{Attributes, Definition, Pattern, Sentence},
@@ -199,8 +243,13 @@ use crate::execution::{AdaptedExecution, AdaptedLeaf, HaltClass, RunFacts};
 /// `\forall`, beside `\and` and `\implies`) are walked into down to their `\equals(C, true)`
 /// leaves, so an `owise` guard over an `andThenBool`/`andBool` condition no longer excludes,
 /// and a partial application that owes nothing under the definition's ceil theory no longer
-/// counts as possibly undefined. Both only narrow what is excluded.
-pub const DEFINITION_EXCLUSION_VERSION: &str = "kink-native/definition-exclusion/v5";
+/// counts as possibly undefined. Both only narrow what is excluded. v6 (CF-03): the short-circuit
+/// reading is judged per run by k-rust's `shortCircuitReadings` list where the analysis flags a
+/// rule, and is no longer an exclusion of the definition; only the operand after the deciding
+/// left one is skippable (a Boolean operator's left operand no longer is). Both narrow what is
+/// excluded; a run of a flagged definition is excluded only by an entry that counts, or when its
+/// backend lists none.
+pub const DEFINITION_EXCLUSION_VERSION: &str = "kink-native/definition-exclusion/v6";
 
 /// The hooks for which k-rust 8f8ad57c5 says it may compute a value the definition leaves open,
 /// the hooks for which its classifier `chosen_value` (`k-rust-backend/src/builtin.rs`;
@@ -824,26 +873,69 @@ pub fn census_hook(hook: &str) -> bool {
         && !K_RUST_IMPLEMENTATION_CHOSEN_HOOKS.contains(&hook)
 }
 
-/// The hooks of the operators whose operands a backend may or may not skip (domains.md
-/// 1115-1117: `andBool` and `orBool` "may be short-circuited in concrete backends", and
-/// `impliesBool` is `notBool P orBool Q`, 1110-1111; 2314-2317: `#if` "does not short-circuit
-/// on symbolic backends"; 1115 calls `andThenBool` and `orElseBool` short-circuiting, but k-rust
-/// reads their skipped operand's definedness too, so a step through one over an undefined
-/// operand is undefined in k-rust where the text gives a value): re-pin decision 1 applied to the
-/// short-circuit reading ([`Exclusion::ShortCircuitReading`]). Each with the argument positions a
-/// backend may skip: both operands of a Boolean operator (a `[simplification]` such as
-/// `_ andBool false => false` skips the left one), the branches of `#if`. The short-circuit
-/// analysis needs every operator here to evaluate at least one of its skippable positions, and
-/// every other position whenever it skips one (KINK-SC-DEFINED; the kink-native test
-/// `every_short_circuit_operator_evaluates_a_skippable_operand_and_every_other_one` checks it
-/// from each operator's meaning and fails on an operator it has none for).
-pub const SHORT_CIRCUIT_HOOKS: &[(&str, &[usize])] = &[
-    ("BOOL.and", &[0, 1]),
-    ("BOOL.or", &[0, 1]),
-    ("BOOL.implies", &[0, 1]),
-    ("BOOL.andThen", &[0, 1]),
-    ("BOOL.orElse", &[0, 1]),
-    ("KEQUAL.ite", &[1, 2]),
+/// An operator whose operands a backend may or may not skip ([`SHORT_CIRCUIT_HOOKS`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ShortCircuitOperator {
+    /// The operator's hook.
+    pub hook: &'static str,
+    /// The argument positions a short-circuiting reading may skip: the operands after the
+    /// deciding operand, which is position 0 and which every reading evaluates.
+    pub skippable: &'static [usize],
+    /// Whether some value of the deciding operand decides the application alone, so that a
+    /// short-circuiting reading may skip every skippable operand at once: the Boolean operators
+    /// (`false andBool _`, `true orBool _`, `false impliesBool _`), not `#if`, which evaluates the
+    /// branch its condition selects.
+    pub decides_alone: bool,
+}
+
+/// The operators whose operands a backend may or may not skip (domains.md 1115-1117: `andBool`
+/// and `orBool` "may be short-circuited in concrete backends", and `impliesBool` is `notBool P
+/// orBool Q`, 1110-1111; 2314-2317: `#if` "does not short-circuit on symbolic backends"; 1115
+/// calls `andThenBool` and `orElseBool` short-circuiting, but k-rust reads their skipped
+/// operand's definedness too, so a step through one over an undefined operand is undefined in
+/// k-rust where the text gives a value): re-pin decision 1 applied to the short-circuit reading
+/// ([`Exclusion::ShortCircuitReading`]). Each with the argument positions a backend may skip:
+/// the right operand of a Boolean operator and the branches of `#if`, the operands after the
+/// deciding left one. Since CF-03 the left operand of a Boolean operator is not skippable: a
+/// short-circuiting reading evaluates the deciding operand and may skip what follows it once that
+/// operand decides, and a `[simplification]` such as `_ andBool false => false` binds an element
+/// variable, which matches only a defined value, so it licenses no skip of an undefined left
+/// operand (k-rust lists only these readings, `shortCircuitReadings`). The short-circuit analysis
+/// needs every operator here to evaluate every position that is not skippable, and, unless the
+/// deciding operand can decide alone, at least one skippable position (KINK-SC-DEFINED; the
+/// kink-native test `every_short_circuit_operator_evaluates_a_skippable_operand_and_every_other_one`
+/// checks it from each operator's meaning and fails on an operator it has none for).
+pub const SHORT_CIRCUIT_HOOKS: &[ShortCircuitOperator] = &[
+    ShortCircuitOperator {
+        hook: "BOOL.and",
+        skippable: &[1],
+        decides_alone: true,
+    },
+    ShortCircuitOperator {
+        hook: "BOOL.or",
+        skippable: &[1],
+        decides_alone: true,
+    },
+    ShortCircuitOperator {
+        hook: "BOOL.implies",
+        skippable: &[1],
+        decides_alone: true,
+    },
+    ShortCircuitOperator {
+        hook: "BOOL.andThen",
+        skippable: &[1],
+        decides_alone: true,
+    },
+    ShortCircuitOperator {
+        hook: "BOOL.orElse",
+        skippable: &[1],
+        decides_alone: true,
+    },
+    ShortCircuitOperator {
+        hook: "KEQUAL.ite",
+        skippable: &[1, 2],
+        decides_alone: false,
+    },
 ];
 
 /// The conjunctions whose operands, at the top of the Bool term `C` of a condition's leaf
@@ -1103,6 +1195,11 @@ pub struct DefinitionExclusions {
     /// [`ShortCircuitEffect::Applicability`]) and of [`Self::short_circuit_results`] (as
     /// [`ShortCircuitEffect::Result`]): one per rule and effect.
     pub short_circuit_causes: Vec<ShortCircuitCause>,
+    /// The `UNIQUE_ID`s of the loaded rewrite rules whose right-hand side binds an existential
+    /// variable: a step of one from a ground state reaches a state with a free variable, so a run
+    /// of this definition is ground only if none is (the per-rule clearance of
+    /// [`Self::counting_short_circuit_readings`]).
+    pub existential_rules: BTreeSet<String>,
     /// The rewrite rules and equations (each as its id, label or position) whose condition holds
     /// an `\equals` between two terms, a K `{ A #Equals B }`, other than the Bool reading
     /// `\equals(C, true)` of a K condition ([`Exclusion::EqualsCondition`]).
@@ -1251,6 +1348,14 @@ impl DefinitionExclusions {
                 ));
             }
         }
+        let existential_rules = definition
+            .rewrite_theory()
+            .values()
+            .flat_map(|priorities| priorities.values())
+            .flatten()
+            .filter(|rule| !rule.rule.existentials.is_empty())
+            .map(|rule| rule.rule.attributes.unique_id.clone())
+            .collect();
         let mut short_circuit = ShortCircuitAnalysis::of(definition);
         short_circuit.close_over(kore);
         let declarations = SymbolDeclarations::of(kore);
@@ -1342,6 +1447,7 @@ impl DefinitionExclusions {
                 .cloned()
                 .collect(),
             short_circuit_causes: short_circuit_causes.into_iter().collect(),
+            existential_rules,
             equals_conditions: equals_conditions.into_iter().collect(),
             sentences,
         }
@@ -1386,8 +1492,9 @@ impl DefinitionExclusions {
 
     /// The facts of two loads of one definition taken together, each exclusion holding when it
     /// holds on either load (re-pin R0c): the load stack stops are added, and the census
-    /// references, the role-rooted axioms, the `preserves-definedness` ids and the short-circuit
-    /// rules, conditions, symbols and causes are united, as are the sentences named (`self`'s
+    /// references, the role-rooted axioms, the `preserves-definedness` ids, the short-circuit
+    /// rules, conditions, symbols and causes and the existential rules are united, as are the
+    /// sentences named (`self`'s
     /// link where both name a sentence). A run produced on one load and judged on another is judged under this (a baseline run a
     /// session reuses, kink-campaign `BaselineSession`).
     #[must_use]
@@ -1425,6 +1532,11 @@ impl DefinitionExclusions {
                 .cloned()
                 .collect(),
             short_circuit_causes: union(&self.short_circuit_causes, &other.short_circuit_causes),
+            existential_rules: self
+                .existential_rules
+                .union(&other.existential_rules)
+                .cloned()
+                .collect(),
             equals_conditions: union(&self.equals_conditions, &other.equals_conditions),
             sentences: other
                 .sentences
@@ -1435,24 +1547,110 @@ impl DefinitionExclusions {
         }
     }
 
-    /// The exclusion every run on this definition has, if any: a load stack stop first, then an
-    /// implementation-chosen hook, then a rule whose condition, value or result depends on the
-    /// short-circuit reading, then a condition that equates two terms.
+    /// The exclusion every run on this definition has, whatever its lists, if any: a load stack
+    /// stop first, then an implementation-chosen hook, then a condition that equates two terms.
+    /// Since CF-03 the short-circuit reading is none: a run of a flagged definition is judged by
+    /// its own list ([`Self::run_exclusion`]); a route that judges without the list reads
+    /// [`Self::static_exclusion`].
     #[must_use]
     pub fn definition_exclusion(&self) -> Option<Exclusion> {
         if self.load_stack_stops > 0 {
             Some(Exclusion::LoadStackStop)
         } else if !self.implementation_chosen.is_empty() {
             Some(Exclusion::ImplementationChosenHook)
-        } else if !self.short_circuit_conditions.is_empty()
-            || !self.short_circuit_results.is_empty()
-        {
+        } else if !self.equals_conditions.is_empty() {
+            Some(Exclusion::EqualsCondition)
+        } else {
+            None
+        }
+    }
+
+    /// The exclusion every result on this definition has for a route that judges it without
+    /// k-rust's run lists, if any: [`Self::definition_exclusion`] in its order, with the
+    /// short-circuit reading after an implementation-chosen hook when the analysis flags a rule
+    /// ([`Self::short_circuit_flagged`]), as every run was excluded before CF-03.
+    #[must_use]
+    pub fn static_exclusion(&self) -> Option<Exclusion> {
+        if self.load_stack_stops > 0 {
+            Some(Exclusion::LoadStackStop)
+        } else if !self.implementation_chosen.is_empty() {
+            Some(Exclusion::ImplementationChosenHook)
+        } else if self.short_circuit_flagged() {
             Some(Exclusion::ShortCircuitReading)
         } else if !self.equals_conditions.is_empty() {
             Some(Exclusion::EqualsCondition)
         } else {
             None
         }
+    }
+
+    /// Whether the short-circuit analysis flags a rewrite rule of this definition
+    /// ([`Self::short_circuit_conditions`], [`Self::short_circuit_results`],
+    /// [`Self::short_circuit_rules`]): only then does a run's `shortCircuitReadings` list decide
+    /// anything (the module documentation's first tier).
+    #[must_use]
+    pub fn short_circuit_flagged(&self) -> bool {
+        !self.short_circuit_conditions.is_empty()
+            || !self.short_circuit_results.is_empty()
+            || !self.short_circuit_rules.is_empty()
+    }
+
+    /// The entries of `facts`' `shortCircuitReadings` list that count against the run on this
+    /// definition (the module documentation's second tier), in the list's order: none when the
+    /// analysis flags no rule ([`Self::short_circuit_flagged`]); else each entry the load
+    /// observed, each of no rule's work, and each of a flagged rule's work, and on a run that is
+    /// not ground ([`RunFacts::ground`], or a definition with [`Self::existential_rules`]) every
+    /// entry. A rule is named as k-rust names it, by its `UNIQUE_ID`, else its label; an entry
+    /// under a rule named so counts when a flagged rule has that name, and every entry counts
+    /// when a flagged rule has neither (k-rust then gives it a name no sentence carries).
+    #[must_use]
+    pub fn counting_short_circuit_readings<'f>(
+        &self,
+        facts: &'f RunFacts,
+    ) -> Vec<&'f ShortCircuitReadingOutput> {
+        if !self.short_circuit_flagged() {
+            return Vec::new();
+        }
+        let ground = facts.ground && self.existential_rules.is_empty();
+        let flagged = |name: &str| {
+            self.short_circuit_rules.contains(name)
+                || self
+                    .short_circuit_conditions
+                    .iter()
+                    .any(|rule| rule == name)
+                || self.short_circuit_results.iter().any(|rule| rule == name)
+        };
+        let unnamed = self
+            .short_circuit_conditions
+            .iter()
+            .chain(&self.short_circuit_results)
+            .any(|name| {
+                self.sentences
+                    .get(name)
+                    .is_some_and(|link| link.id.is_none() && link.label.is_none())
+            });
+        facts
+            .short_circuit_readings
+            .iter()
+            .flatten()
+            .filter(|reading| {
+                reading.observed_in == ObservedInOutput::Load
+                    || !ground
+                    || unnamed
+                    || reading.rewrite_rule_id.as_deref().is_none_or(flagged)
+            })
+            .collect()
+    }
+
+    /// Whether the run whose facts are `facts` is excluded by the short-circuit reading on this
+    /// definition: the analysis flags a rule ([`Self::short_circuit_flagged`]), and the run's
+    /// list holds an entry that counts ([`Self::counting_short_circuit_readings`]) or the backend
+    /// that recorded it lists none ([`RunFacts::short_circuit_readings`] is `None`).
+    #[must_use]
+    pub fn short_circuit_excludes(&self, facts: &RunFacts) -> bool {
+        self.short_circuit_flagged()
+            && (facts.short_circuit_readings.is_none()
+                || !self.counting_short_circuit_readings(facts).is_empty())
     }
 
     /// Whether a collection term of this definition can be a terminal value: no axiom is rooted
@@ -1465,10 +1663,12 @@ impl DefinitionExclusions {
     /// The exclusion of `execution`, a run on this definition, if any (see the module
     /// documentation), in this order: the definition's own; a stack stop; a contradicted claim (a
     /// leaf's, [`Self::contradicts_a_claim`], or any record on the run's list); a value the
-    /// definition leaves open on the run's list; an undefined step of a rule whose result depends
-    /// on the short-circuit reading; an allowance refusal (on a leaf or on the run's list); and an
-    /// unsupported hook on the run's list (re-pin adoption A-1 added the lists). A timed-out run is
-    /// a timeout before it is anything else, and is not asked.
+    /// definition leaves open on the run's list; a short-circuit reading that counts on the run's
+    /// list, on a definition whose analysis flags a rule ([`Self::short_circuit_excludes`]; CF-03,
+    /// which replaced the leaf check [`Self::short_circuit_step`] it subsumes); an allowance
+    /// refusal (on a leaf or on the run's list); and an unsupported hook on the run's list (re-pin
+    /// adoption A-1 added the lists). A timed-out run is a timeout before it is anything else, and
+    /// is not asked. The run's initial state is judged on its own ([`Self::state_exclusion`]).
     #[must_use]
     pub fn run_exclusion(&self, execution: &AdaptedExecution) -> Option<Exclusion> {
         if let Some(exclusion) = self.definition_exclusion() {
@@ -1485,7 +1685,7 @@ impl DefinitionExclusions {
         if !facts.implementation_chosen_values.is_empty() {
             return Some(Exclusion::ImplementationChosenValue);
         }
-        if leaves.iter().any(|leaf| self.short_circuit_step(leaf)) {
+        if self.short_circuit_excludes(facts) {
             return Some(Exclusion::ShortCircuitReading);
         }
         if leaves.iter().any(allowance_refusal) || !facts.allowance_refusals.is_empty() {
@@ -1526,11 +1726,14 @@ impl DefinitionExclusions {
     }
 
     /// The exclusions an undefined step (a `Trivial` leaf) of the rule with unique id `rule_id`
-    /// gives its run on this definition, in [`Self::run_exclusion`]'s order: a contradicted claim
-    /// when the rule carries `preserves-definedness`, then the short-circuit reading when its
-    /// result depends on it. The one reading of an undefined step's rule, shared by
-    /// [`Self::contradicts_a_claim`], [`Self::short_circuit_step`] and clients that judge a
-    /// leaf known by its rule id (kink-flow's witness filter, fz26 FZ-COMPARABLE-B).
+    /// gives a result on this definition judged without k-rust's run lists, in
+    /// [`Self::run_exclusion`]'s order: a contradicted claim when the rule carries
+    /// `preserves-definedness`, then the short-circuit reading when its result depends on it. The
+    /// one reading of an undefined step's rule, shared by [`Self::contradicts_a_claim`],
+    /// [`Self::short_circuit_step`] and clients that judge a leaf known by its rule id
+    /// (kink-flow's witness filter, fz26 FZ-COMPARABLE-B). A run is judged by its list instead
+    /// for the short-circuit reading (CF-03), so [`Self::run_exclusion`] reads only the
+    /// contradicted claim here.
     #[must_use]
     pub fn undefined_step_exclusions(&self, rule_id: &str) -> Vec<Exclusion> {
         let mut exclusions = Vec::new();
@@ -1545,7 +1748,10 @@ impl DefinitionExclusions {
 
     /// Whether `leaf` is an undefined step of a rewrite rule whose right-hand side applies a
     /// short-circuit operator over an operand that may be undefined (directly or through a
-    /// function): k-rust reads the step as undefined, a short-circuiting backend may not.
+    /// function): k-rust reads the step as undefined, a short-circuiting backend may not. For a
+    /// route that judges a leaf without k-rust's run lists; a run is judged by its list
+    /// ([`Self::short_circuit_excludes`]), on which such a step's skipped undefined operand is an
+    /// entry of the step's rule.
     #[must_use]
     pub fn short_circuit_step(&self, leaf: &AdaptedLeaf) -> bool {
         leaf.halt == HaltClass::Trivial
@@ -1555,10 +1761,15 @@ impl DefinitionExclusions {
             })
     }
 
-    /// The exclusion of `state`, a test's initial state on `definition` (the definition these
-    /// facts were read from), if any: it applies an implementation-chosen hook
-    /// ([`state_references_implementation_chosen`]), or a function or operator whose value
-    /// depends on the short-circuit reading ([`Self::state_depends_on_short_circuit`]).
+    /// The exclusion of `state`, the initial state of a run on `definition` (the definition these
+    /// facts were read from) that is judged with its lists ([`Self::run_exclusion`]), if any: it
+    /// applies an implementation-chosen hook ([`state_references_implementation_chosen`]), or, on
+    /// a definition whose analysis flags no rule ([`Self::short_circuit_flagged`]), a function or
+    /// operator whose value depends on the short-circuit reading
+    /// ([`Self::state_depends_on_short_circuit`]). On a flagged definition the run's list judges
+    /// the initial state's normalization (work of no rule, whose entries always count), so the
+    /// state is not read for the reading; on a definition the analysis clears, the list is not
+    /// read and the state is.
     #[must_use]
     pub fn state_exclusion(
         &self,
@@ -1570,10 +1781,41 @@ impl DefinitionExclusions {
 
     /// [`Self::state_exclusion`] with the ceil-theory judgements of `memo`, which must have been
     /// filled only on `definition`; the judgements it makes are added to `memo`. A caller that
-    /// judges many states on one definition (kink-flow's fuzz filter) keeps one memo for it, so
-    /// each application is internalized and its ceil simplified once.
+    /// judges many states on one definition keeps one memo for it, so each application is
+    /// internalized and its ceil simplified once.
     #[must_use]
     pub fn state_exclusion_memoized(
+        &self,
+        definition: &BackendDefinition,
+        state: &Pattern,
+        memo: &mut CeilMemo,
+    ) -> Option<Exclusion> {
+        state_references_implementation_chosen(definition, state)
+            .then_some(Exclusion::ImplementationChosenHook)
+            .or_else(|| {
+                (!self.short_circuit_flagged()
+                    && self.state_depends_on_short_circuit_memoized(definition, state, memo))
+                .then_some(Exclusion::ShortCircuitReading)
+            })
+    }
+
+    /// The exclusion of `state`, a test's initial state on `definition`, for a route that judges
+    /// its result without k-rust's run lists (kink-flow's fuzz witness filter), if any: it applies
+    /// an implementation-chosen hook, or a function or operator whose value depends on the
+    /// short-circuit reading, whatever the analysis flags.
+    #[must_use]
+    pub fn static_state_exclusion(
+        &self,
+        definition: &BackendDefinition,
+        state: &Pattern,
+    ) -> Option<Exclusion> {
+        self.static_state_exclusion_memoized(definition, state, &mut CeilMemo::default())
+    }
+
+    /// [`Self::static_state_exclusion`] with the ceil-theory judgements of `memo`, as
+    /// [`Self::state_exclusion_memoized`] keeps them.
+    #[must_use]
+    pub fn static_state_exclusion_memoized(
         &self,
         definition: &BackendDefinition,
         state: &Pattern,
@@ -1619,7 +1861,8 @@ impl DefinitionExclusions {
 
 /// The ceil-theory judgements of the short-circuit analysis on one loaded definition
 /// (`ShortCircuitAnalysis::owes_nothing` of each application judged so far), kept across
-/// [`DefinitionExclusions::state_exclusion_memoized`] calls on that definition. A judgement
+/// [`DefinitionExclusions::state_exclusion_memoized`] and
+/// [`DefinitionExclusions::static_state_exclusion_memoized`] calls on that definition. A judgement
 /// depends only on the application and the definition, so a memo is valid for exactly the
 /// definition it was filled on.
 #[derive(Debug, Default)]
@@ -1637,8 +1880,8 @@ struct ShortCircuitAnalysis<'d> {
     definition: &'d BackendDefinition,
     /// [`Self::owes_nothing`] of each application asked so far.
     owes_nothing: std::cell::RefCell<std::collections::BTreeMap<Pattern, bool>>,
-    /// Each short-circuit operator symbol with the argument positions a backend may skip.
-    operators: std::collections::BTreeMap<String, &'static [usize]>,
+    /// Each short-circuit operator symbol with its operator ([`SHORT_CIRCUIT_HOOKS`]).
+    operators: std::collections::BTreeMap<String, &'static ShortCircuitOperator>,
     /// The conjunction operator symbols ([`CONJUNCTION_HOOKS`]).
     conjunctions: BTreeSet<String>,
     /// The function symbols not declared `total`: an application of one may be undefined.
@@ -1743,8 +1986,11 @@ impl<'d> ShortCircuitAnalysis<'d> {
         for symbol in definition.symbols().values() {
             let name = symbol.name.to_string();
             if let Some(hook) = symbol.attributes.hook.as_deref() {
-                if let Some((_, positions)) = SHORT_CIRCUIT_HOOKS.iter().find(|(h, _)| *h == hook) {
-                    operators.insert(name.clone(), *positions);
+                if let Some(operator) = SHORT_CIRCUIT_HOOKS
+                    .iter()
+                    .find(|operator| operator.hook == hook)
+                {
+                    operators.insert(name.clone(), operator);
                 }
                 if CONJUNCTION_HOOKS.contains(&hook) {
                     conjunctions.insert(name.clone());
@@ -2000,11 +2246,14 @@ impl<'d> ShortCircuitAnalysis<'d> {
 
     /// `Must(pattern)`: applications of partial functions that do not depend on the reading
     /// which every evaluation of `pattern` evaluates, under every order a short-circuit operator
-    /// may take. A short-circuit operator contributes its other operands' `Must` and the
-    /// intersection of its skippable operands' (it evaluates at least one skippable operand, and
-    /// every other operand whenever it skips one: `SHORT_CIRCUIT_HOOKS`, pinned by the test
-    /// `every_short_circuit_operator_evaluates_a_skippable_operand_and_every_other_one`); any
-    /// other application its arguments' `Must` and, for such a partial function, itself. An
+    /// may take. A short-circuit operator contributes its other operands' `Must` (it evaluates
+    /// every operand that is not skippable) and, unless its deciding operand can decide alone
+    /// (`ShortCircuitOperator::decides_alone`, the Boolean operators, which may skip their one
+    /// skippable operand), the intersection of its skippable operands' (`#if` evaluates the
+    /// branch its condition selects): `SHORT_CIRCUIT_HOOKS`, pinned by the test
+    /// `every_short_circuit_operator_evaluates_a_skippable_operand_and_every_other_one`. Any
+    /// other application contributes its arguments' `Must` and, for such a partial function,
+    /// itself. An
     /// application of a reading-dependent function is left out, so each term of `Must` is
     /// undefined in one reading exactly where it is in the other (for its arguments, see
     /// [`Self::direct`]). It is an under-approximation: a pattern that is no application
@@ -2014,11 +2263,11 @@ impl<'d> ShortCircuitAnalysis<'d> {
             return BTreeSet::new();
         };
         let mut out = BTreeSet::new();
-        if let Some(positions) = self.operators.get(symbol.name.as_str()) {
+        if let Some(operator) = self.operators.get(symbol.name.as_str()) {
             let mut skippable: Option<BTreeSet<Pattern>> = None;
             for (index, argument) in arguments.iter().enumerate() {
                 let evaluated = self.must(argument);
-                if positions.contains(&index) {
+                if operator.skippable.contains(&index) {
                     skippable = Some(match skippable {
                         None => evaluated,
                         Some(common) => common.intersection(&evaluated).cloned().collect(),
@@ -2027,7 +2276,9 @@ impl<'d> ShortCircuitAnalysis<'d> {
                     out.extend(evaluated);
                 }
             }
-            out.extend(skippable.unwrap_or_default());
+            if !operator.decides_alone {
+                out.extend(skippable.unwrap_or_default());
+            }
             return out;
         }
         for argument in arguments {
@@ -2070,9 +2321,9 @@ impl<'d> ShortCircuitAnalysis<'d> {
         walk::for_each_post_order(pattern, |node| {
             if found.is_none()
                 && let Pattern::Application { symbol, arguments } = node
-                && let Some(positions) = self.operators.get(symbol.name.as_str())
+                && let Some(operator) = self.operators.get(symbol.name.as_str())
             {
-                found = positions.iter().find_map(|position| {
+                found = operator.skippable.iter().find_map(|position| {
                     let skipped = arguments.get(*position)?;
                     let mut evaluated = BTreeSet::new();
                     for (index, other) in arguments.iter().enumerate() {

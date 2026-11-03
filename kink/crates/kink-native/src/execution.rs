@@ -17,8 +17,9 @@
 //! indeterminate leaf its structured cause; the execution records the definition facts the
 //! bridge needs to use them ([`crate::feasibility`]).
 //! Every run also carries k-rust's run-level facts ([`RunFacts`], re-pin adoption A-1): the lists
-//! of open values read, contradicted claims, allowance refusals and unsupported hooks, and the
-//! count of undecided solver answers, which the exclusions read ([`crate::exclusion`]).
+//! of open values read, contradicted claims, allowance refusals, unsupported hooks and
+//! short-circuit readings, and the count of undecided solver answers, which the exclusions read
+//! ([`crate::exclusion`]), with what the adapter knows of the recording ([`RecordedRun`]).
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -37,8 +38,8 @@ use k_rust::backend::{
     ChosenValueOutput, ContradictedClaimOutput, ContradictedTotalOutput, EffectOutput,
     ExecuteRequest, ExecutionLeaf, ExecutionResult, ExecutionStrategy, HaltReasonOutput,
     ObservationEventOutput, ObservedInOutput, ObservedRequest, ResultModalityOutput,
-    RunCoverageOutput, SearchFailureOutput, TraceEntry, TransitionClassOutput, TransitionIdOutput,
-    UnevaluatedHookOutput,
+    RunCoverageOutput, SearchFailureOutput, ShortCircuitReadingOutput, TraceEntry,
+    TransitionClassOutput, TransitionIdOutput, UnevaluatedHookOutput,
 };
 use k_rust::kore::{ast::Pattern, codec};
 use k_rust_backend::stop::{CancellationToken, StopCause};
@@ -324,17 +325,61 @@ pub struct RunFacts {
     /// Every other application the run or its load left unevaluated as an unsupported hook
     /// (`unsupportedHooks`), whatever became of the work that met it.
     pub unsupported_hooks: Vec<UnevaluatedHookOutput>,
+    /// Every distinct place where the run, or the load of its definition, used the strict
+    /// definedness of an operand that a short-circuiting reading skips and did not find it
+    /// defined (`shortCircuitReadings`, k-rust `docs/compatibility.md`, "Short-circuit
+    /// readings"): each is a reading of the operand after the deciding one of `#if`,
+    /// `andThenBool`, `orElseBool`, `andBool`, `orBool` or `impliesBool`, with the rewrite rule
+    /// whose work used it. `None` when the backend that recorded the run does not list them
+    /// (its `short_circuit_readings` capability is off): the result's absent field is then no
+    /// list, and a run that listed nothing cannot be told from one that was never asked
+    /// ([`RecordedRun`]).
+    pub short_circuit_readings: Option<Vec<ShortCircuitReadingOutput>>,
+    /// Whether the run started from a state without free variables ([`RecordedRun::ground`]).
+    pub ground: bool,
+}
+
+/// What kink knows of how a run was recorded, beside what its result says: the facts
+/// [`RunFacts`] takes from the recording, not from the result. The adapter knows both for every
+/// run it makes; a client that adapts a result it holds ([`ExecutionAdapter::adapt_result`])
+/// states them.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RecordedRun {
+    /// The `short_circuit_readings` capability of the backend that recorded the result
+    /// (`BackendCapabilities::short_circuit_readings`): whether its result lists the run's
+    /// short-circuit readings. The list's wire field is omitted when empty, so a result recorded
+    /// without the capability reads back as an empty list; only the capability tells a run that
+    /// listed nothing from one whose backend never listed anything.
+    pub short_circuit_readings: bool,
+    /// Whether the run's initial state has no free variables.
+    pub ground: bool,
+}
+
+impl RecordedRun {
+    /// A run `backend` makes from `state`.
+    #[must_use]
+    pub fn of(backend: &Backend, state: &Pattern) -> Self {
+        Self {
+            short_circuit_readings: backend.capabilities().short_circuit_readings,
+            ground: state.free_variables().is_empty(),
+        }
+    }
 }
 
 impl RunFacts {
-    /// The facts of `result`, taken out of it.
-    fn take(result: &mut ExecutionResult) -> Self {
+    /// The facts of `result`, taken out of it, as `recorded` was recorded.
+    fn take(result: &mut ExecutionResult, recorded: RecordedRun) -> Self {
+        let short_circuit_readings = std::mem::take(&mut result.short_circuit_readings);
         Self {
             smt_unknowns: result.smt_unknowns,
             implementation_chosen_values: std::mem::take(&mut result.implementation_chosen_values),
             contradicted_claims: std::mem::take(&mut result.contradicted_claims),
             allowance_refusals: std::mem::take(&mut result.allowance_refusals),
             unsupported_hooks: std::mem::take(&mut result.unsupported_hooks),
+            short_circuit_readings: recorded
+                .short_circuit_readings
+                .then_some(short_circuit_readings),
+            ground: recorded.ground,
         }
     }
 
@@ -542,8 +587,8 @@ impl AdaptedExecution {
     }
 
     /// k-rust's run-level facts (re-pin adoption A-1): its lists of open values read,
-    /// contradicted claims, allowance refusals and unsupported hooks, and its count of undecided
-    /// solver answers; empty for a timed-out run.
+    /// contradicted claims, allowance refusals, unsupported hooks and short-circuit readings, and
+    /// its count of undecided solver answers; empty for a timed-out run.
     #[must_use]
     pub const fn facts(&self) -> &RunFacts {
         &self.facts
@@ -744,6 +789,7 @@ impl ExecutionAdapter {
         inhabitation: &Inhabitation,
         rewrites: &BTreeSet<String>,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
+        let recorded = RecordedRun::of(backend, state);
         let (result, timed_out) =
             execute_with_watchdog(backend, state.clone(), budget, run, Backend::execute)?;
         let feasibility = if timed_out {
@@ -766,6 +812,7 @@ impl ExecutionAdapter {
             run.max_work,
             feasibility,
             rewrites,
+            recorded,
         )
     }
 
@@ -796,6 +843,7 @@ impl ExecutionAdapter {
             Ok(ids) => ids,
             Err(failure) => return Ok(Err(failure)),
         };
+        let recorded = RecordedRun::of(backend, state);
         let (result, timed_out) =
             execute_with_watchdog(backend, encoded, budget, STEPPED, |backend, request| {
                 backend.execute_observed(ObservedRequest {
@@ -810,7 +858,15 @@ impl ExecutionAdapter {
                 leaf.observations.clear();
             }
             return Ok(Ok(SteppedExecution {
-                adapted: Self::adapt(result, true, &budget, None, feasibility, &rewrites)?,
+                adapted: Self::adapt(
+                    result,
+                    true,
+                    &budget,
+                    None,
+                    feasibility,
+                    &rewrites,
+                    recorded,
+                )?,
                 states: Vec::new(),
             }));
         }
@@ -837,7 +893,15 @@ impl ExecutionAdapter {
         for leaf in &mut result.leaves {
             leaf.observations.clear();
         }
-        let adapted = Self::adapt(result, false, &budget, None, feasibility, &rewrites)?;
+        let adapted = Self::adapt(
+            result,
+            false,
+            &budget,
+            None,
+            feasibility,
+            &rewrites,
+            recorded,
+        )?;
         Ok(Ok(SteppedExecution { adapted, states }))
     }
 
@@ -851,6 +915,7 @@ impl ExecutionAdapter {
         self.check_profile(backend)?;
         let rewrites = with_definition(backend, |definition| Ok(rewrite_unique_ids(definition)))?;
         let encoded = state.clone();
+        let recorded = RecordedRun::of(backend, state);
         let (result, timed_out) =
             execute_with_watchdog(backend, encoded, budget, STEPPED, Backend::execute)?;
         let mut result = result;
@@ -858,7 +923,7 @@ impl ExecutionAdapter {
         let facts = if timed_out {
             RunFacts::default()
         } else {
-            RunFacts::take(&mut result)
+            RunFacts::take(&mut result, recorded)
         };
         let leaves = result
             .leaves
@@ -908,6 +973,7 @@ impl ExecutionAdapter {
         max_work: Option<u64>,
         feasibility: Vec<LeafFeasibility>,
         rewrites: &BTreeSet<String>,
+        recorded: RecordedRun,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         let modality = match result.modality {
             ResultModalityOutput::PathSet => ResultModality::PathSet,
@@ -918,7 +984,7 @@ impl ExecutionAdapter {
         let facts = if timed_out {
             RunFacts::default()
         } else {
-            RunFacts::take(&mut result)
+            RunFacts::take(&mut result, recorded)
         };
         let leaves = result
             .leaves
@@ -971,16 +1037,19 @@ impl ExecutionAdapter {
     /// The adapted execution of a raw backend `result`, exactly as [`Self::execute`] adapts the
     /// result of its run: every halt is checked against `budget`'s request (without a work
     /// budget), and `feasibility` gives each leaf's state feasibility in leaf order. Coverage, if
-    /// the result carries any, has no rewrite rules named (`applied_rewrites` is empty). For
-    /// tests and tools that hold a result k-rust returned; a value built here is no more
-    /// evidence than the result it is built from.
+    /// the result carries any, has no rewrite rules named (`applied_rewrites` is empty).
+    /// `recorded` says how the result was recorded: the capability of the backend that returned
+    /// it and whether its initial state was ground, which the result does not carry. For tests
+    /// and tools that hold a result k-rust returned; a value built here is no more evidence than
+    /// the result it is built from.
     pub fn adapt_result(
         result: ExecutionResult,
         timed_out: bool,
         budget: &ExecutionBudget,
         feasibility: Vec<LeafFeasibility>,
+        recorded: RecordedRun,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
-        Self::adapt_bounded_result(result, timed_out, budget, None, feasibility)
+        Self::adapt_bounded_result(result, timed_out, budget, None, feasibility, recorded)
     }
 
     /// [`Self::adapt_result`] of a result whose request set `max_work`, so a `work-bound` leaf is
@@ -992,6 +1061,7 @@ impl ExecutionAdapter {
         budget: &ExecutionBudget,
         max_work: Option<u64>,
         feasibility: Vec<LeafFeasibility>,
+        recorded: RecordedRun,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         Self::adapt(
             result,
@@ -1000,6 +1070,7 @@ impl ExecutionAdapter {
             max_work,
             feasibility,
             &BTreeSet::new(),
+            recorded,
         )
     }
 }
@@ -1534,7 +1605,11 @@ mod tests {
                 cancelled_leaf,
                 true,
                 &budget,
-                vec![LeafFeasibility::Unknown]
+                vec![LeafFeasibility::Unknown],
+                RecordedRun {
+                    short_circuit_readings: true,
+                    ground: true,
+                },
             ),
             Err(ExecutionAdapterFailure::ContractViolation(
                 HaltClass::Cancelled
@@ -1681,6 +1756,10 @@ mod tests {
                             None,
                             feasibility.clone(),
                             &BTreeSet::new(),
+                            RecordedRun {
+                                short_circuit_readings: true,
+                                ground: true,
+                            },
                         ),
                         Err(ExecutionAdapterFailure::ContractViolation(
                             HaltClass::WorkBound
@@ -1694,6 +1773,10 @@ mod tests {
                         Some(1),
                         feasibility.clone(),
                         &BTreeSet::new(),
+                        RecordedRun {
+                            short_circuit_readings: true,
+                            ground: true,
+                        },
                     )
                     .expect("a work budget admits its leaf");
                     assert_eq!(

@@ -951,7 +951,7 @@ fn side_exclusion(
     module: &str,
 ) -> Result<(ValidatedLoad, Option<(Exclusion, String)>), String> {
     let load = DefinitionExclusions::load_validated(side, module)?;
-    let excluded = load.exclusions.definition_exclusion().map(|exclusion| {
+    let excluded = load.exclusions.static_exclusion().map(|exclusion| {
         // What makes it hold, as every kink-flow document says it (`crate::exclusion`).
         let detail = crate::exclusion::detail(
             &load.exclusions,

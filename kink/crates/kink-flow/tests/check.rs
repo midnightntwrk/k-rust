@@ -913,7 +913,7 @@ fn a_definition_exclusion_names_its_cause_chain_and_fails_check() {
             .as_ref()
             .unwrap()
             .exclusions
-            .definition_exclusion(),
+            .static_exclusion(),
         Some(kink_native::exclusion::Exclusion::ShortCircuitReading)
     );
     assert_eq!(status, EXIT_CORPUS, "{document:#}");

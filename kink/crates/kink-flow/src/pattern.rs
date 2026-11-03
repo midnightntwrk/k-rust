@@ -661,7 +661,7 @@ pub fn judge(outcome: &SearchOutcome, facts: &Facts<'_>) -> Answer {
         SearchOutcome::Incomplete(cause) => Answer::unknown(cause.clone()),
         SearchOutcome::Complete => {
             let would = "the exploration completed with no match, but a no is not given";
-            if let Some(exclusion) = exclusions.definition_exclusion() {
+            if let Some(exclusion) = exclusions.static_exclusion() {
                 return Answer::unknown(exclusion_cause(exclusion, would));
             }
             // fz26 KINK-BASELINE-FINDINGS: matching is syntactic, while a pair that does not join
@@ -782,7 +782,8 @@ impl Searcher {
 
     /// The exclusion of a program's initial state on that definition, if any.
     pub fn state_exclusion(&self, initial: &Pattern) -> Option<Exclusion> {
-        self.exclusions.state_exclusion(&self.definition, initial)
+        self.exclusions
+            .static_state_exclusion(&self.definition, initial)
     }
 
     /// One search (module docs) and its wall time.

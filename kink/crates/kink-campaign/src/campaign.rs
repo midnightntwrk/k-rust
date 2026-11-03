@@ -161,9 +161,11 @@ pub enum ExecutionFailureKind {
     /// chooses where the definition leaves it open (re-pin decision 1,
     /// [`kink_native::exclusion::Exclusion::ImplementationChosenHook`]).
     ImplementationChosenHook,
-    /// The run's result depends on whether a short-circuit operator skips an operand that may
-    /// be undefined, which the definition leaves to the backend (re-pin decision 1,
-    /// [`kink_native::exclusion::Exclusion::ShortCircuitReading`]).
+    /// The run read the definedness of an operand a short-circuiting backend may skip, on k-rust's
+    /// `shortCircuitReadings` list of the run, at a place the static analysis does not clear, so
+    /// its result can depend on a reading the definition leaves to the backend (re-pin decision 1,
+    /// CF-03, [`kink_native::exclusion::Exclusion::ShortCircuitReading`]; the run's notes name the
+    /// entries); or, judged without that list, the definition's analysis flags a rule.
     ShortCircuitReading,
     /// A leaf, or the run's `allowanceRefusals` list (re-pin adoption A-1), reports a hook refused
     /// for the process's memory allowance, a host property

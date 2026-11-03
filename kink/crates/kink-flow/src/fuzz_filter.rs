@@ -245,7 +245,7 @@ impl FilterSide {
             .with_solver_over(None, &[initial], |definition, _| {
                 Ok::<_, BackendError>(
                     exclusions
-                        .state_exclusion_memoized(definition, initial, memo)
+                        .static_state_exclusion_memoized(definition, initial, memo)
                         .map(Exclusion::name),
                 )
             });

@@ -1416,8 +1416,10 @@ fn a_short_circuit_step_over_an_undefined_operand_is_excluded() {
         // Re-pin R0c-fix-2 deliverable 6: any such rule excludes the whole definition too (an
         // undefined candidate beside a defined same-priority sibling leaves no leaf). Before:
         // no definition exclusion.
+        // CF-03: what the analysis flags, read by routes without a run list; before,
+        // `definition_exclusion`, which a run of a flagged definition no longer has.
         assert_eq!(
-            exclusions.definition_exclusion(),
+            exclusions.static_exclusion(),
             Some(Exclusion::ShortCircuitReading)
         );
         let catalog = backend(&side, &module).rule_catalog(None).unwrap();
@@ -1445,11 +1447,16 @@ fn a_short_circuit_step_over_an_undefined_operand_is_excluded() {
                 .collect::<BTreeSet<_>>(),
             exclusions.short_circuit_rules
         );
-        // The leaf check stays: a Trivial leaf of a flagged rule names its rule.
+        // Facts without the definition's result list keep the rules flagged by id
+        // (`short_circuit_rules`). Before CF-03 the leaf check excluded each undefined step here:
+        // a Trivial leaf of a flagged rule names its rule. Since CF-03 the leaf check is no
+        // longer read for a run; the run's `shortCircuitReadings` list, which holds the flagged
+        // rule's undefined reading, excludes the same runs.
         let leaf_only = DefinitionExclusions {
             short_circuit_results: Vec::new(),
             ..exclusions.clone()
         };
+        let mut moved = Vec::new();
         for label in flagged {
             let symbol = format!("Lbl{label}");
             let undefined = run(&side, &module, support::app(&symbol, vec![support::int(0)]));
@@ -1465,17 +1472,164 @@ fn a_short_circuit_step_over_an_undefined_operand_is_excluded() {
             );
             let defined = run(&side, &module, support::app(&symbol, vec![support::int(1)]));
             assert_eq!(leaf_only.run_exclusion(&defined), None, "{label}(1)");
-            assert_eq!(
-                exclusions.run_exclusion(&defined),
-                Some(Exclusion::ShortCircuitReading),
-                "{label}(1)"
-            );
+            moved.push((label, defined));
         }
         for label in ["rqa", "ctl", "gd"] {
             let symbol = format!("Lbl{label}");
             let execution = run(&side, &module, support::app(&symbol, vec![support::int(0)]));
             assert_eq!(leaf_only.run_exclusion(&execution), None, "{label}(0)");
         }
+        // Re-pin CF-03 (reviewed by Sebastien, 2026-11-04): unknown to judged. On 1 the skipped
+        // `10 /Int 1 >Int 0` is defined, so each run's `shortCircuitReadings` list is empty and
+        // the short-circuiting reading gives the same run
+        // (`a_flagged_definition_judges_each_run_by_its_short_circuit_readings`). Before: excluded
+        // by the definition-wide exclusion, which a run of a flagged definition no longer has.
+        for (label, defined) in &moved {
+            assert_eq!(exclusions.run_exclusion(defined), None, "{label}(1)");
+        }
+    });
+}
+
+/// CF-03: on `scrhs.k`, whose analysis flags `go`, `fn`, `at`, `oe`, `cond` and `imp`, every run
+/// is judged by k-rust's `shortCircuitReadings` list, and the definition is no longer excluded as
+/// a whole (the analysis still flags it for routes without the list). On 0 each flagged rule's
+/// successor reads the strict definedness of `10 /Int 0 >Int 0`, the operand after a deciding
+/// `false`, `true` or `#if true`; k-rust lists it `undefined` under that rule, and the run is
+/// `short-circuit-reading` with the step named. On 1 the operand is defined, the list is empty,
+/// and the run is judged: the short-circuiting reading gives the same run. `rqa`'s condition
+/// `false andBool 10 /Int I >Int 0` is a positive conjunct, unflagged: on 0 its attempt lists the
+/// reading under `rqa`, which on a ground run counts not (the analysis shows `rqa` applies in the
+/// same cases in both readings); from a symbolic `I` it counts, since a symbolic run can evaluate
+/// a term a flagged rule built under a later rule's path condition. An initial state that applies
+/// `f` is normalized by no rule's work, whose entry counts; the static state check is left to
+/// routes without a run. On `scmlat.k`, which the analysis clears, `gp(-1, 0)` lists the reading of
+/// its `owise` guard's discarded `-1 /Int 0 ==Int 0` and is judged: the list is not read there.
+#[test]
+fn a_flagged_definition_judges_each_run_by_its_short_circuit_readings() {
+    use k_rust::backend::ReadingOutcomeOutput;
+    on_a_big_stack(|| {
+        let (side, module) = fixture("r0c", "scrhs");
+        let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        assert!(exclusions.short_circuit_flagged());
+        assert!(exclusions.existential_rules.is_empty());
+        assert_eq!(exclusions.definition_exclusion(), None);
+        assert_eq!(
+            exclusions.static_exclusion(),
+            Some(Exclusion::ShortCircuitReading)
+        );
+        for label in ["go", "fn", "at", "oe", "cond", "imp"] {
+            let symbol = format!("Lbl{label}");
+            let undefined = run(&side, &module, support::app(&symbol, vec![support::int(0)]));
+            assert!(undefined.facts().ground, "{label}(0)");
+            let counting = exclusions.counting_short_circuit_readings(undefined.facts());
+            assert!(!counting.is_empty(), "{label}(0): {:?}", undefined.facts());
+            for entry in counting {
+                assert_eq!(
+                    (entry.rewrite_rule_label.as_deref(), entry.outcome),
+                    (
+                        Some(format!("SCRHS.{label}").as_str()),
+                        ReadingOutcomeOutput::Undefined
+                    ),
+                    "{label}(0): {entry:?}"
+                );
+            }
+            assert_eq!(
+                exclusions.run_exclusion(&undefined),
+                Some(Exclusion::ShortCircuitReading),
+                "{label}(0)"
+            );
+            let defined = run(&side, &module, support::app(&symbol, vec![support::int(1)]));
+            assert_eq!(
+                defined.facts().short_circuit_readings,
+                Some(Vec::new()),
+                "{label}(1)"
+            );
+            assert_eq!(exclusions.run_exclusion(&defined), None, "{label}(1)");
+        }
+        let conjunct = run(
+            &side,
+            &module,
+            support::app("Lblrqa", vec![support::int(0)]),
+        );
+        let listed = conjunct.facts().short_circuit_readings.clone().unwrap();
+        assert!(
+            !listed.is_empty()
+                && listed
+                    .iter()
+                    .all(|entry| entry.rewrite_rule_label.as_deref() == Some("SCRHS.rqa")),
+            "{listed:?}"
+        );
+        assert!(
+            exclusions
+                .counting_short_circuit_readings(conjunct.facts())
+                .is_empty()
+        );
+        assert_eq!(exclusions.run_exclusion(&conjunct), None);
+        let symbolic = run(
+            &side,
+            &module,
+            support::app("Lblrqa", vec![support::var("VarI", "SortInt")]),
+        );
+        assert!(!symbolic.facts().ground);
+        assert!(
+            !exclusions
+                .counting_short_circuit_readings(symbolic.facts())
+                .is_empty(),
+            "{:?}",
+            symbolic.facts()
+        );
+        assert_eq!(
+            exclusions.run_exclusion(&symbolic),
+            Some(Exclusion::ShortCircuitReading)
+        );
+        for label in ["ctl", "gd"] {
+            let symbol = format!("Lbl{label}");
+            let execution = run(&side, &module, support::app(&symbol, vec![support::int(0)]));
+            assert_eq!(exclusions.run_exclusion(&execution), None, "{label}(0)");
+        }
+        let program = support::app("Lblres", vec![support::app("Lblf", vec![support::int(0)])]);
+        let initial = run(&side, &module, program.clone());
+        let counting = exclusions.counting_short_circuit_readings(initial.facts());
+        assert!(
+            !counting.is_empty() && counting.iter().all(|entry| entry.rewrite_rule_id.is_none()),
+            "{:?}",
+            initial.facts()
+        );
+        assert_eq!(
+            exclusions.run_exclusion(&initial),
+            Some(Exclusion::ShortCircuitReading)
+        );
+        let mut loaded = backend(&side, &module);
+        let definition = loaded.select_definition(None).unwrap();
+        let state = support::initial_state(program, "SortProg");
+        assert_eq!(exclusions.state_exclusion(&definition, &state), None);
+        assert_eq!(
+            exclusions.static_state_exclusion(&definition, &state),
+            Some(Exclusion::ShortCircuitReading)
+        );
+        let (side, module) = fixture("r0c", "scmlat");
+        let cleared = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        assert!(!cleared.short_circuit_flagged());
+        let guarded = run(
+            &side,
+            &module,
+            support::app("Lblgp", vec![support::int(-1), support::int(0)]),
+        );
+        assert!(
+            guarded
+                .facts()
+                .short_circuit_readings
+                .as_ref()
+                .is_some_and(|listed| !listed.is_empty()),
+            "{:?}",
+            guarded.facts()
+        );
+        assert!(
+            cleared
+                .counting_short_circuit_readings(guarded.facts())
+                .is_empty()
+        );
+        assert_eq!(cleared.run_exclusion(&guarded), None);
     });
 }
 
@@ -1490,8 +1644,10 @@ fn a_condition_that_depends_on_the_short_circuit_reading_excludes_the_definition
     on_a_big_stack(|| {
         let (side, module) = fixture("r0c", "screq");
         let exclusions = DefinitionExclusions::of_validated(&side, &module).unwrap();
+        // CF-03: what the analysis flags, read by routes without a run list; before,
+        // `definition_exclusion`, which a run of a flagged definition no longer has.
         assert_eq!(
-            exclusions.definition_exclusion(),
+            exclusions.static_exclusion(),
             Some(Exclusion::ShortCircuitReading)
         );
         let catalog = backend(&side, &module).rule_catalog(None).unwrap();
@@ -1786,8 +1942,10 @@ fn a_connective_over_an_or_else_leaf_with_an_undefined_skippable_operand_is_excl
                 .collect::<BTreeSet<_>>(),
             rule_ids(&side, &module, &rules),
         );
+        // CF-03: what the analysis flags, read by routes without a run list; before,
+        // `definition_exclusion`, which a run of a flagged definition no longer has.
         assert_eq!(
-            exclusions.definition_exclusion(),
+            exclusions.static_exclusion(),
             Some(Exclusion::ShortCircuitReading)
         );
         let first = CONNECTIVES
@@ -1832,16 +1990,20 @@ fn a_skipped_division_below_not_or_or_else_stays_excluded() {
                 .collect::<BTreeSet<_>>(),
             rule_ids(&side, &module, &rules),
         );
+        // CF-03: what the analysis flags, read by routes without a run list; before,
+        // `definition_exclusion`, which a run of a flagged definition no longer has.
         assert_eq!(
-            exclusions.definition_exclusion(),
+            exclusions.static_exclusion(),
             Some(Exclusion::ShortCircuitReading)
         );
         let owise = exclusions_after(&side, &module, |kore| {
             drop_axioms(kore, &["SCCTL.nb1", "SCCTL.ob1", "SCCTL.oe1"]);
         });
         assert_eq!(owise.short_circuit_symbols, functions, "owise: {owise:?}");
+        // CF-03: what the analysis flags, read by routes without a run list; before,
+        // `definition_exclusion`, which a run of a flagged definition no longer has.
         assert_eq!(
-            owise.definition_exclusion(),
+            owise.static_exclusion(),
             Some(Exclusion::ShortCircuitReading)
         );
     });
@@ -2033,8 +2195,10 @@ fn a_definition_exclusion_names_rule_function_equation_operator_and_operand() {
             (&full, "SCFETCH.decode-inc"),
             (&owise, "SCFETCH.decode-unknown"),
         ] {
+            // CF-03: what the analysis flags, read by routes without a run list; before,
+            // `definition_exclusion`, which a run of a flagged definition no longer has.
             assert_eq!(
-                exclusions.definition_exclusion(),
+                exclusions.static_exclusion(),
                 Some(Exclusion::ShortCircuitReading)
             );
             assert_eq!(
@@ -2277,8 +2441,10 @@ fn a_skipped_operand_no_other_operand_evaluates_stays_flagged() {
             exclusions.short_circuit_symbols.contains("Lblf"),
             "{exclusions:?}"
         );
+        // CF-03: what the analysis flags, read by routes without a run list; before,
+        // `definition_exclusion`, which a run of a flagged definition no longer has.
         assert_eq!(
-            exclusions.definition_exclusion(),
+            exclusions.static_exclusion(),
             Some(Exclusion::ShortCircuitReading)
         );
         let (side, module) = fixture("r0c", "scpdc");
@@ -2315,16 +2481,23 @@ fn a_skipped_operand_no_other_operand_evaluates_stays_flagged() {
 }
 
 /// KINK-SC-DEFINED: the short-circuit analysis takes the terms every evaluation of an operator
-/// evaluates as its non-skippable operands' plus those common to all its skippable ones. That
-/// under-approximates every evaluation only if each operator of `SHORT_CIRCUIT_HOOKS` evaluates
-/// at least one of its skippable positions, and every other position whenever one is skipped.
-/// Checked here from each operator's meaning, read on `Bool` (an instance of `#if`'s sort):
+/// evaluates as its non-skippable operands' plus, unless its deciding operand can decide alone,
+/// those common to all its skippable ones. That under-approximates every evaluation only if each
+/// operator of `SHORT_CIRCUIT_HOOKS` evaluates every position that is not skippable, and, where
+/// it is not marked `decides_alone`, at least one skippable position. Checked here from each
+/// operator's meaning, read on `Bool` (an instance of `#if`'s sort):
 /// - its arity is that of the prelude production with its hook, and its skippable positions are
 ///   distinct positions of it;
-/// - for every value of its other positions, its result is no constant of the skippable ones, so
-///   no evaluation can give it without reading one of them;
-/// - its other positions are `#if`'s condition alone, which both prelude rules of `#if` read
-///   (`requires C`, `requires notBool C`), so every evaluation evaluates it.
+/// - its one other position is the deciding operand, position 0 (CF-03: the reading kink admits
+///   evaluates the deciding left operand and skips only what follows it, so no Boolean operator's
+///   left operand is skippable), which every evaluation evaluates: by that reading for the
+///   Boolean operators, and for `#if` because both prelude rules read its condition
+///   (`requires C`, `requires notBool C`);
+/// - `decides_alone` holds exactly where some value of the deciding operand makes the result a
+///   constant of the skippable ones (`false andBool _`), so that a reading may skip them all;
+///   where it does not hold, no evaluation can give the result without reading one of them;
+/// - and for some value of the deciding operand the result is no such constant, so the
+///   skippable operands are operands.
 #[test]
 fn every_short_circuit_operator_evaluates_a_skippable_operand_and_every_other_one() {
     type Meaning = fn(&[bool]) -> bool;
@@ -2361,7 +2534,8 @@ fn every_short_circuit_operator_evaluates_a_skippable_operand_and_every_other_on
             .filter(|word| word.starts_with(|c: char| c.is_ascii_uppercase()))
             .count()
     };
-    for (hook, skippable) in SHORT_CIRCUIT_HOOKS {
+    for operator in SHORT_CIRCUIT_HOOKS {
+        let (hook, skippable) = (&operator.hook, operator.skippable);
         let n = arity(hook);
         let positions = skippable.iter().copied().collect::<BTreeSet<_>>();
         assert!(
@@ -2374,6 +2548,12 @@ fn every_short_circuit_operator_evaluates_a_skippable_operand_and_every_other_on
         let others = (0..n)
             .filter(|p| !positions.contains(p))
             .collect::<Vec<_>>();
+        assert_eq!(
+            others,
+            [0],
+            "{hook}: the deciding operand alone is not skippable"
+        );
+        let mut constant = BTreeSet::new();
         for fixed in 0..1u32 << others.len() {
             let results = (0..1u32 << positions.len())
                 .map(|free| {
@@ -2387,22 +2567,24 @@ fn every_short_circuit_operator_evaluates_a_skippable_operand_and_every_other_on
                     meaning(&values)
                 })
                 .collect::<BTreeSet<_>>();
-            assert_eq!(
-                results.len(),
-                2,
-                "{hook}: constant in its skippable positions at {fixed:b}"
-            );
+            constant.insert(results.len() == 1);
         }
+        assert_eq!(
+            constant.contains(&true),
+            operator.decides_alone,
+            "{hook}: whether the deciding operand decides alone"
+        );
+        assert!(
+            constant.contains(&false),
+            "{hook}: constant in its skippable positions at every value of the deciding one"
+        );
         if *hook == "KEQUAL.ite" {
-            assert_eq!(others, [0], "{hook}");
             for rule in [
                 "rule #if C:Bool #then B1::K #else _ #fi => B1 requires C\n",
                 "rule #if C:Bool #then _ #else B2::K #fi => B2 requires notBool C\n",
             ] {
                 assert!(domains.contains(rule), "domains.md: {rule}");
             }
-        } else {
-            assert!(others.is_empty(), "{hook}: {others:?}");
         }
     }
 }
@@ -2908,7 +3090,8 @@ mod kink_tier {
     /// sibling `sibb`. On `sib(1)` k-rust drops `siba`'s undefined candidate and the run is one
     /// complete Stuck leaf `other()` with no undefined-step leaf to read, where a short-circuiting
     /// backend also reaches `res(false)`: the leaf check misses it, and the definition-level rule
-    /// excludes it. Before R0c-fix-2 the run was evidence.
+    /// excluded it. Before R0c-fix-2 the run was evidence. Since CF-03 the run's own
+    /// `shortCircuitReadings` list names `siba`'s reading of the dropped candidate and excludes it.
     #[test]
     #[ignore = "kink"]
     fn a_short_circuit_candidate_beside_a_sibling_excludes_the_definition() {
@@ -2932,8 +3115,10 @@ mod kink_tier {
                 )),
                 [("BOOL.and".to_owned(), "INT.tdiv".to_owned())]
             );
+            // CF-03: what the analysis flags, read by routes without a run list; before,
+            // `definition_exclusion`, which a run of a flagged definition no longer has.
             assert_eq!(
-                exclusions.definition_exclusion(),
+                exclusions.static_exclusion(),
                 Some(Exclusion::ShortCircuitReading)
             );
             let execution = run(
@@ -2949,9 +3134,29 @@ mod kink_tier {
                 short_circuit_results: Vec::new(),
                 ..exclusions.clone()
             };
-            assert_eq!(leaf_only.run_exclusion(&execution), None);
+            // CF-03: a run is judged by its `shortCircuitReadings` list, which holds what no leaf
+            // shows: the dropped candidate's reading of `10 /Int 0 >Int 0` after `false andBool`,
+            // under `siba`, which stays flagged by its id in the facts without the definition's
+            // result list.
+            let counting = leaf_only.counting_short_circuit_readings(execution.facts());
+            assert!(
+                !counting.is_empty()
+                    && counting
+                        .iter()
+                        .all(|entry| entry.rewrite_rule_label.as_deref() == Some("SCSIB.siba")),
+                "{:?}",
+                execution.facts()
+            );
             assert_eq!(
                 exclusions.run_exclusion(&execution),
+                Some(Exclusion::ShortCircuitReading)
+            );
+            // Re-pin CF-03 (reviewed by Sebastien, 2026-11-04): judged to `short-circuit-reading`
+            // for the facts without the definition's result list. The leaf check is no longer read
+            // for a run; the run's list holds `siba`'s reading of the dropped candidate, on which
+            // the run's result depends, where the leaf check alone saw nothing. Before: None.
+            assert_eq!(
+                leaf_only.run_exclusion(&execution),
                 Some(Exclusion::ShortCircuitReading)
             );
         });

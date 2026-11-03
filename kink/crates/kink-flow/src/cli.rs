@@ -949,7 +949,7 @@ pub fn check_document(admission: &FlowAdmission) -> Value {
     let exclusion = admission
         .spec
         .as_ref()
-        .filter(|spec| spec.exclusions.definition_exclusion().is_some())
+        .filter(|spec| spec.exclusions.static_exclusion().is_some())
         .map_or(Value::Null, |spec| {
             crate::exclusion::definition_exclusion(
                 &spec.exclusions,

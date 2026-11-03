@@ -3,7 +3,8 @@
 //! contradicted claims, allowance refusals and unsupported hooks, and the count of undecided
 //! solver answers), and each non-empty list excludes the run, fail-closed, where no leaf shows
 //! what the list holds. The fixtures are `testdata/k/a1/*.k`; the k-rust passages the rules rest
-//! on are pinned by digest.
+//! on are pinned by digest. Since CF-03 the facts also carry the `shortCircuitReadings` list as
+//! the run's backend recorded it, and whether the run started from a ground state.
 
 #[path = "../../../testdata/k/support.rs"]
 mod support;
@@ -24,7 +25,7 @@ use kink_native::exclusion::{
 };
 use kink_native::execution::{
     AdaptedExecution, AdaptedLeaf, ExecutionAdapter, ExecutionBudget, HaltClass, ResultModality,
-    ResultRun, SolverProfile,
+    ResultRun, RunFacts, SolverProfile,
 };
 use kink_native::{NativeValidator, ValidatedDefinition};
 
@@ -379,6 +380,182 @@ fn the_passages_a1_rests_on_are_pinned() {
     passage::assert_pinned(&backend.join("../.."), &A1_PASSAGES);
 }
 
+/// The k-rust passages CF-03's judgement of a run by its `shortCircuitReadings` list rests on
+/// (kink-native `exclusion`, `Exclusion::ShortCircuitReading`): that the readings k-rust lists are
+/// those that evaluate the deciding left operand, how an entry names the rule whose work used the
+/// definedness (the per-rule clearance reads it), that a memo's reuse and a carried term are
+/// attributed to the work they serve or that built them, and the guarantee of an empty list.
+const CF03_PASSAGES: [passage::Passage; 4] = [
+    passage::Passage {
+        file: "docs/compatibility.md",
+        anchor: "### Short-circuit readings",
+        opening: "A reading that evaluates the right operand first",
+        lines: 1,
+        digest: "d6283bc6c04188189a1806c4c2d27217e7edd1fc0af3f151c3312d03993b2456",
+    },
+    passage::Passage {
+        file: "docs/compatibility.md",
+        anchor: "### Short-circuit readings",
+        opening: "- `rewriteRuleId`, `rewriteRuleLabel`, `rewriteRuleOrigin`:",
+        lines: 1,
+        digest: "38b0d7aaf2d5490bbf25b9ceb926159311bd246a9c104c85b2cfb49d00f0bc75",
+    },
+    passage::Passage {
+        file: "docs/compatibility.md",
+        anchor: "### Short-circuit readings",
+        opening: "An evaluation a memo serves lists its entries again",
+        lines: 3,
+        digest: "9e438a62173c6e27b36c358e8e86afe02a65732a5db292bc2101595293ee87d9",
+    },
+    passage::Passage {
+        file: "docs/compatibility.md",
+        anchor: "### Short-circuit readings",
+        opening: "The guarantee: for a run that completes",
+        lines: 1,
+        digest: "8ea0b9d2fe7f0dbd7489ac0e0429b9b2794c919c9d7f9a6e76a5544833d794eb",
+    },
+];
+
+/// A re-pin that moves one of these passages fails here, and CF-03's judgement is read again
+/// against the new text.
+#[test]
+fn the_passages_the_short_circuit_judgement_rests_on_are_pinned() {
+    let manifest: toml::Value =
+        toml::from_str(&std::fs::read_to_string(root().join("../Cargo.toml")).unwrap()).unwrap();
+    let backend = root().join("..").join(
+        manifest["workspace"]["dependencies"]["k-rust-backend"]["path"]
+            .as_str()
+            .expect("k-rust-backend is a path dependency"),
+    );
+    passage::assert_pinned(&backend.join("../.."), &CF03_PASSAGES);
+}
+
+/// CF-03: every adapted run carries k-rust's `shortCircuitReadings` list, as its backend recorded
+/// it: a result run, a path-set run, a stepped run and the unobserved run of the stepped request
+/// of `go(0)` on `r0c/scrhs.k` each list the `undefined` reading of `10 /Int 0 >Int 0` after
+/// `false andBool` under `go`, and say the run started from a ground state; from a symbolic state
+/// the run is not ground. A result adapted as recorded by a backend without the capability has no
+/// list, whatever its field holds, and one with it has the field's.
+#[test]
+fn the_run_facts_carry_the_short_circuit_readings_as_recorded() {
+    use k_rust::backend::{ReadingOutcomeOutput, ResultModalityOutput, ShortCircuitReadingOutput};
+    use kink_native::execution::RecordedRun;
+    on_a_big_stack(|| {
+        let loaded = support::load_path(&Path::new(support::DIR).join("r0c/scrhs.k"), "SCRHS");
+        let side = NativeValidator::bind(loaded, CompileOptions::default())
+            .compile_baseline()
+            .unwrap();
+        let module = k_rust::kast::identifier::encode("SCRHS");
+        let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
+        let initial = state(call("go", 0));
+        let mut go = backend(&side, &module);
+        assert!(go.capabilities().short_circuit_readings);
+        assert_eq!(
+            RecordedRun::of(&go, &initial),
+            RecordedRun {
+                short_circuit_readings: true,
+                ground: true,
+            }
+        );
+        let state_set = adapter.execute(&mut go, &initial, budget()).unwrap();
+        let path_set = adapter
+            .execute_result(
+                &mut backend(&side, &module),
+                &initial,
+                budget(),
+                ResultRun {
+                    modality: ResultModality::PathSet,
+                    max_work: None,
+                },
+            )
+            .unwrap();
+        let stepped = adapter
+            .execute_steps(&mut backend(&side, &module), &initial, budget())
+            .unwrap()
+            .expect("the run is observable");
+        let unobserved = adapter
+            .execute_unobserved(&mut backend(&side, &module), &initial, budget())
+            .unwrap();
+        for (name, facts) in [
+            ("state set", state_set.facts()),
+            ("path set", path_set.facts()),
+            ("stepped", stepped.adapted.facts()),
+            ("unobserved", &unobserved.facts),
+        ] {
+            assert!(facts.ground, "{name}");
+            let listed = facts.short_circuit_readings.as_ref().expect("a list");
+            assert!(!listed.is_empty(), "{name}");
+            for entry in listed {
+                assert_eq!(
+                    (
+                        entry.operator.as_deref(),
+                        entry.outcome,
+                        entry.rewrite_rule_label.as_deref(),
+                        entry.observed_in,
+                    ),
+                    (
+                        Some("BOOL.and"),
+                        ReadingOutcomeOutput::Undefined,
+                        Some("SCRHS.go"),
+                        ObservedInOutput::Run
+                    ),
+                    "{name}: {entry:?}"
+                );
+            }
+        }
+        let symbolic = adapter
+            .execute(
+                &mut backend(&side, &module),
+                &state(support::app("Lblgo", vec![support::var("VarI", "SortInt")])),
+                budget(),
+            )
+            .unwrap();
+        assert!(!symbolic.facts().ground);
+        let entry = ShortCircuitReadingOutput {
+            operator: Some("BOOL.and".into()),
+            outcome: ReadingOutcomeOutput::Undefined,
+            head: None,
+            operand: serde_json::Value::Null,
+            rewrite_rule_id: None,
+            rewrite_rule_label: None,
+            rewrite_rule_origin: None,
+            observed_in: ObservedInOutput::Run,
+        };
+        let result = || k_rust::backend::ExecutionResult {
+            modality: ResultModalityOutput::StateSet,
+            leaves: Vec::new(),
+            effects: Vec::new(),
+            discarded: Vec::new(),
+            coverage: None,
+            work: 0,
+            expanded: 0,
+            stack_stops: 0,
+            smt_unknowns: 0,
+            implementation_chosen_values: Vec::new(),
+            contradicted_claims: Vec::new(),
+            allowance_refusals: Vec::new(),
+            unsupported_hooks: Vec::new(),
+            short_circuit_readings: vec![entry.clone()],
+            state_matches: None,
+        };
+        for (capability, expected) in [(true, Some(vec![entry.clone()])), (false, None)] {
+            let adapted = ExecutionAdapter::adapt_result(
+                result(),
+                false,
+                &budget(),
+                Vec::new(),
+                RecordedRun {
+                    short_circuit_readings: capability,
+                    ground: false,
+                },
+            )
+            .unwrap();
+            assert_eq!(adapted.facts().short_circuit_readings, expected);
+            assert!(!adapted.facts().ground);
+        }
+    });
+}
+
 mod kink_tier {
     use super::*;
 
@@ -668,8 +845,17 @@ mod kink_tier {
                     "{list}"
                 );
             }
+            // A clean run lists nothing; its backend records the short-circuit readings (an empty
+            // list, not no list), and the call starts from a ground state.
             let control = run(&side, &module, call("run", 1));
-            assert_eq!(control.facts(), &Default::default());
+            assert_eq!(
+                control.facts(),
+                &RunFacts {
+                    short_circuit_readings: Some(Vec::new()),
+                    ground: true,
+                    ..RunFacts::default()
+                }
+            );
             assert_eq!(exclusions.run_exclusion(&control), None);
         });
     }

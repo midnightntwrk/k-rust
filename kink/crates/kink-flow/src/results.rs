@@ -310,7 +310,7 @@ impl<'a> BaselineRunner<'a> {
     /// The specification's definition exclusion as a document's `spec.exclusion` prints it
     /// ([`crate::exclusion::definition_exclusion`]; null when there is none).
     pub fn definition_exclusion(&self) -> Value {
-        if self.spec.exclusions.definition_exclusion().is_none() {
+        if self.spec.exclusions.static_exclusion().is_none() {
             return Value::Null;
         }
         crate::exclusion::definition_exclusion(&self.spec.exclusions, self.end_reader())
@@ -327,7 +327,7 @@ impl<'a> BaselineRunner<'a> {
     ) -> Option<crate::admit::ProgramExclusion> {
         use crate::exclusion::ExclusionScope;
         let exclusions = &self.spec.exclusions;
-        if let Some(exclusion) = exclusions.definition_exclusion() {
+        if let Some(exclusion) = exclusions.static_exclusion() {
             return Some(crate::admit::ProgramExclusion {
                 exclusion,
                 scope: ExclusionScope::Definition,
@@ -335,7 +335,7 @@ impl<'a> BaselineRunner<'a> {
         }
         let definition = backend.select_definition(None).ok()?;
         exclusions
-            .state_exclusion(&definition, &test.initial_state)
+            .static_state_exclusion(&definition, &test.initial_state)
             .map(|exclusion| crate::admit::ProgramExclusion {
                 exclusion,
                 scope: ExclusionScope::InitialState,

@@ -349,9 +349,10 @@ pub struct TestEvidence {
 }
 
 /// What one run reports besides its sides (re-pin adoption A-1): its contradicted-claim records
-/// as specification diagnostics, its count of undecided solver answers, and whether a leaf of it
-/// contradicts a claim. Empty for a run that failed or timed out, and for a run reused from a
-/// baseline session on a load with a definition-level exclusion.
+/// as specification diagnostics, the entries of its short-circuit readings that count against it
+/// (the steps that exclude it as `short-circuit-reading`), its count of undecided solver answers,
+/// and whether a leaf of it contradicts a claim. Empty for a run that failed or timed out, and
+/// for a run reused from a baseline session on a load with a definition-level exclusion.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct RunNotes {
     /// k-rust's `contradictedClaims` list of the run, the records of its definition's load
@@ -359,6 +360,13 @@ pub struct RunNotes {
     /// application (when `ground`), which the author can act on. Any record excludes the run
     /// (`contradicted-claim`, kink-native `exclusion`); a reader reports them.
     pub contradicted_claims: Vec<k_rust::backend::ContradictedClaimOutput>,
+    /// The entries of k-rust's `shortCircuitReadings` list of the run that count against it on
+    /// the judging definition (kink-native
+    /// `DefinitionExclusions::counting_short_circuit_readings`): each names the rewrite rule whose
+    /// work read the definedness of an operand a short-circuiting backend may skip, the operator,
+    /// whether k-rust found the operand undefined or left it undecided, and the operand. Any entry
+    /// excludes the run (`short-circuit-reading`); a reader reports them as the step that did.
+    pub short_circuit_readings: Vec<k_rust::backend::ShortCircuitReadingOutput>,
     /// k-rust's count of the undecided solver answers the run's decisions took (`smtUnknowns`;
     /// always 0 without Z3). Reported only (decision D-7 (a1)): never an exclusion.
     pub smt_unknowns: usize,
@@ -762,8 +770,11 @@ enum StoredRun {
         load: Box<DefinitionExclusions>,
     },
     /// A run whose producing load was excluded ([`DefinitionExclusions::definition_exclusion`]:
-    /// a load stack stop, an implementation-chosen hook): the execution is not kept, so it can
-    /// never be judged again on another load. A hit is that exclusion, as the live run was; the
+    /// a load stack stop, an implementation-chosen hook, a condition equating two terms): the
+    /// execution is not kept, so it can never be judged again on another load. A load the
+    /// short-circuit analysis flags is not excluded (CF-03): its runs are kept and each reuse
+    /// judges the stored run's own `shortCircuitReadings` list under the combined facts, as the
+    /// live run was judged. A hit is that exclusion, as the live run was; the
     /// run cache (coverage and recording, never evidence) is kept for the call's recording.
     Excluded {
         exclusion: Exclusion,
@@ -3059,6 +3070,11 @@ impl Runtime {
         let notes = match &executed.execution {
             Ok(execution) if !execution.timed_out() => RunNotes {
                 contradicted_claims: execution.facts().contradicted_claims.clone(),
+                short_circuit_readings: exclusions
+                    .counting_short_circuit_readings(execution.facts())
+                    .into_iter()
+                    .cloned()
+                    .collect(),
                 smt_unknowns: execution.facts().smt_unknowns,
                 leaf_contradiction: exclusions.contradiction_on_a_leaf(execution),
                 across: Vec::new(),
@@ -3759,6 +3775,7 @@ mod input_test_support;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kink_native::execution::RecordedRun;
 
     /// Re-pin R0b deliverables 1, 2, 7 and 9: `judge` gives an excluded run no side for any
     /// slot (`SideRun::Failed` with the exclusion), on a live run and on a run a baseline session
@@ -3885,6 +3902,10 @@ mod tests {
                             false,
                             &campaign.budget,
                             feasibility,
+                            RecordedRun {
+                                short_circuit_readings: true,
+                                ground: true,
+                            },
                         )
                         .unwrap()),
                         pattern_failure: OracleSide::Unknown,
@@ -4014,6 +4035,255 @@ mod tests {
                     runtime.judge(&campaign, test, &clean).run,
                     SideRun::Failed(ExecutionFailureKind::ImplementationChosenHook)
                 );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    /// CF-03: on a definition whose short-circuit analysis flags a rule, a run is judged by its
+    /// own `shortCircuitReadings` list, live and as a stored baseline reused on the call's
+    /// runtime. The counter definition reads no short-circuit operand; its facts are marked as if
+    /// the analysis had flagged the rule `flagged`. A run whose list holds no entry is judged; one
+    /// whose list holds an entry that counts (the load's, of no rule's work, of a flagged rule's
+    /// work, or of any rule's work on a run that is not ground or on a definition whose rules
+    /// introduce a variable) is `short-circuit-reading`, its notes naming each counting entry; an
+    /// entry of an unflagged rule's work on a ground run counts not; a run its backend recorded
+    /// without the capability is excluded, its empty list being no list. On facts the analysis
+    /// clears, no list is read.
+    #[test]
+    fn a_flagged_definition_judges_each_run_by_its_short_circuit_readings() {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                use k_rust::backend::{ObservedInOutput, ReadingOutcomeOutput, ShortCircuitReadingOutput};
+                use kink_native::feasibility::LeafFeasibility;
+                let validator = NativeValidator::bind(
+                    input_test_support::load_path(
+                        &std::path::Path::new(input_test_support::DIR).join("counter.k"),
+                        "COUNTER",
+                    ),
+                    k_rust::kompile::CompileOptions::default(),
+                );
+                let compiled = validator.compile_baseline().unwrap();
+                let classify: &dyn Fn(&Pattern) -> ExecutionTerminalKind =
+                    &|_| ExecutionTerminalKind::Normal;
+                let z = || input_test_support::app("Lblz", vec![]);
+                let tests = [TestCase {
+                    id: "t".into(),
+                    initial_state: input_test_support::initial_state(
+                        input_test_support::app(
+                            "Lblcounter",
+                            vec![z(), input_test_support::app("Lbls", vec![z()])],
+                        ),
+                        "SortCounter",
+                    ),
+                    oracles: vec![
+                        OracleDeclaration::new(
+                            CrashPolicy::Reject,
+                            Projection::State(StateProjection::WholeTerm),
+                        )
+                        .unwrap(),
+                    ],
+                }];
+                let campaign = Campaign {
+                    validator: &validator,
+                    module: "COUNTER",
+                    observation: &[],
+                    classify,
+                    tests: &tests,
+                    budget: ExecutionBudget {
+                        time: std::time::Duration::from_secs(30),
+                        max_depth: None,
+                        max_simplification_iterations: 1000,
+                        max_breadth: None,
+                    },
+                };
+                let test = &tests[0];
+                let mut runtime = Runtime::prepare(&campaign, &compiled)
+                    .unwrap_or_else(|_| panic!("baseline runtime"));
+                assert!(!runtime.exclusions.short_circuit_flagged());
+                let cleared = runtime.exclusions.clone();
+                runtime.exclusions.short_circuit_results = vec!["flagged".into()];
+                runtime.exclusions.short_circuit_rules = std::iter::once("flagged".into()).collect();
+                assert!(runtime.exclusions.short_circuit_flagged());
+                assert_eq!(runtime.exclusions.definition_exclusion(), None);
+                assert_eq!(
+                    runtime.exclusions.static_exclusion(),
+                    Some(Exclusion::ShortCircuitReading)
+                );
+                let judged = |side: &SideRun| matches!(side, SideRun::Sides { sides } if matches!(sides.as_slice(), [OracleSide::Normal(_)]));
+                let excluded = SideRun::Failed(ExecutionFailureKind::ShortCircuitReading);
+                // The live run lists nothing: it is judged, and its notes name no entry.
+                let clean = runtime.execute(&campaign, test, None);
+                let Ok(clean_execution) = &clean.execution else {
+                    panic!("the counter runs")
+                };
+                assert_eq!(clean_execution.facts().short_circuit_readings, Some(Vec::new()));
+                assert!(clean_execution.facts().ground);
+                let live = runtime.judge(&campaign, test, &clean);
+                assert!(judged(&live.run), "{:?}", live.run);
+                assert!(live.notes.short_circuit_readings.is_empty());
+                let raw = || k_rust::backend::ExecutionResult {
+                    modality: k_rust::backend::ResultModalityOutput::PathSet,
+                    leaves: clean_execution
+                        .leaves()
+                        .iter()
+                        .map(|leaf| k_rust::backend::ExecutionLeaf {
+                            state: leaf.branch.state.clone(),
+                            diagnostics: Vec::new(),
+                            candidates: None,
+                            remainder: None,
+                            depth: leaf.branch.depth,
+                            reason: k_rust::backend::HaltReasonOutput::Stuck,
+                            rule_id: None,
+                            rule_label: None,
+                            contradicted_total: None,
+                            cause: None,
+                            detail: None,
+                            trace: leaf.branch.trace.clone(),
+                            branch: leaf.branch.identity.clone(),
+                            effects: Vec::new(),
+                            observations: Vec::new(),
+                        })
+                        .collect(),
+                    effects: Vec::new(),
+                    discarded: Vec::new(),
+                    coverage: None,
+                    work: 0,
+                    expanded: 0,
+                    stack_stops: 0,
+                    smt_unknowns: 0,
+                    implementation_chosen_values: Vec::new(),
+                    contradicted_claims: Vec::new(),
+                    allowance_refusals: Vec::new(),
+                    unsupported_hooks: Vec::new(),
+                    short_circuit_readings: Vec::new(),
+                    state_matches: None,
+                };
+                let reading = |rule: Option<&str>, observed_in| ShortCircuitReadingOutput {
+                    operator: Some("BOOL.andThen".into()),
+                    outcome: ReadingOutcomeOutput::Undefined,
+                    head: Some("Lbl'Unds'divInt'Unds'".into()),
+                    operand: serde_json::Value::Null,
+                    rewrite_rule_id: rule.map(str::to_owned),
+                    rewrite_rule_label: rule.map(|rule| format!("COUNTER.{rule}")),
+                    rewrite_rule_origin: None,
+                    observed_in,
+                };
+                let listing = |readings: Vec<ShortCircuitReadingOutput>| {
+                    let mut result = raw();
+                    result.short_circuit_readings = readings;
+                    result
+                };
+                let executed = |result: k_rust::backend::ExecutionResult, recorded: RecordedRun| {
+                    let feasibility = vec![LeafFeasibility::Syntactic; result.leaves.len()];
+                    Executed {
+                        execution: Ok(ExecutionAdapter::adapt_result(
+                            result,
+                            false,
+                            &campaign.budget,
+                            feasibility,
+                            recorded,
+                        )
+                        .unwrap()),
+                        pattern_failure: OracleSide::Unknown,
+                        cache: RunCache::default(),
+                    }
+                };
+                let ground = RecordedRun {
+                    short_circuit_readings: true,
+                    ground: true,
+                };
+                let symbolic = RecordedRun {
+                    ground: false,
+                    ..ground
+                };
+                let unlisted = RecordedRun {
+                    short_circuit_readings: false,
+                    ..ground
+                };
+                let flagged = reading(Some("flagged"), ObservedInOutput::Run);
+                let unflagged = reading(Some("other"), ObservedInOutput::Run);
+                let of_no_rule = reading(None, ObservedInOutput::Run);
+                let at_load = reading(Some("other"), ObservedInOutput::Load);
+                // (result, recording, judged, the counting entries).
+                let cases = [
+                    (raw(), ground, true, Vec::new()),
+                    (raw(), unlisted, false, Vec::new()),
+                    (listing(vec![flagged.clone()]), ground, false, vec![flagged.clone()]),
+                    (listing(vec![unflagged.clone()]), ground, true, Vec::new()),
+                    (listing(vec![unflagged.clone()]), symbolic, false, vec![unflagged.clone()]),
+                    (listing(vec![of_no_rule.clone()]), ground, false, vec![of_no_rule.clone()]),
+                    (listing(vec![at_load.clone()]), ground, false, vec![at_load.clone()]),
+                    (
+                        listing(vec![unflagged.clone(), flagged.clone()]),
+                        ground,
+                        false,
+                        vec![flagged.clone()],
+                    ),
+                ];
+                for (index, (result, recorded, expected, counting)) in cases.into_iter().enumerate() {
+                    let executed = executed(result, recorded);
+                    let evidence = runtime.judge(&campaign, test, &executed);
+                    if expected {
+                        assert!(judged(&evidence.run), "case {index}: {:?}", evidence.run);
+                    } else {
+                        assert_eq!(evidence.run, excluded, "case {index}");
+                    }
+                    assert_eq!(evidence.notes.short_circuit_readings, counting, "case {index}");
+                    // A stored baseline run is judged again by its own list on the call's
+                    // runtime, as the live run was.
+                    let mut session = BaselineSession::new(&validator);
+                    session.runs.push(StoredBaseline {
+                        key: BaselineKey {
+                            test_id: test.id.clone(),
+                            initial_state: test.initial_state.clone(),
+                            oracles: test.oracles.clone(),
+                            module: "COUNTER".into(),
+                            budget: campaign.budget,
+                            profile: SolverProfile::BUILD,
+                            modality: ResultModality::default(),
+                        },
+                        run: StoredRun::Executed {
+                            executed: Box::new(executed),
+                            load: Box::default(),
+                        },
+                    });
+                    let (reused, _) = session.baseline_run(&mut runtime, &campaign, test, true);
+                    assert_eq!(session.reused_runs(), 1, "case {index}");
+                    assert_eq!(reused.run, evidence.run, "case {index}");
+                    assert_eq!(reused.notes, evidence.notes, "case {index}");
+                }
+                // A definition whose rules introduce a variable has no ground run: an entry of an
+                // unflagged rule's work counts there.
+                runtime.exclusions.existential_rules = std::iter::once("fresh".into()).collect();
+                let evidence = runtime.judge(
+                    &campaign,
+                    test,
+                    &executed(listing(vec![unflagged.clone()]), ground),
+                );
+                assert_eq!(evidence.run, excluded);
+                assert_eq!(evidence.notes.short_circuit_readings, [unflagged.clone()]);
+                // The live run on the flagged facts is stored, not excluded with its load: a
+                // reuse judges it again.
+                let mut session = BaselineSession::new(&validator);
+                let (first, _) = session.baseline_run(&mut runtime, &campaign, test, true);
+                let (second, _) = session.baseline_run(&mut runtime, &campaign, test, true);
+                assert_eq!(session.reused_runs(), 1);
+                assert!(judged(&first.run) && judged(&second.run), "{first:?} {second:?}");
+                assert!(matches!(session.runs[0].run, StoredRun::Executed { .. }));
+                // Facts the analysis clears read no list: a non-empty one, or none at all, is
+                // judged.
+                runtime.exclusions = cleared;
+                for (result, recorded) in [
+                    (listing(vec![of_no_rule.clone(), at_load.clone()]), symbolic),
+                    (raw(), unlisted),
+                ] {
+                    let evidence = runtime.judge(&campaign, test, &executed(result, recorded));
+                    assert!(judged(&evidence.run), "{:?}", evidence.run);
+                    assert!(evidence.notes.short_circuit_readings.is_empty());
+                }
             })
             .unwrap()
             .join()
@@ -4166,6 +4436,10 @@ mod tests {
                         &campaign.budget,
                         max_work,
                         feasibility.clone(),
+                        RecordedRun {
+                            short_circuit_readings: true,
+                            ground: true,
+                        },
                     )
                     .unwrap()),
                     pattern_failure: OracleSide::Unknown,
