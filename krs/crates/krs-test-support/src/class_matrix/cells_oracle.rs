@@ -1427,10 +1427,14 @@ impl Other<'_> {
 /// of its own cell, so the test needs the result's same child to be present (`Some(..)`): the
 /// same record of a group, the same `?` cell's content, or, in a collection, the result's
 /// update `..label` of the instance the subject labels `label` (an unlabelled subject instance
-/// is rewritten by no result record). At the entry's own root, [`Judge::pair`]'s
-/// `written` decides.
+/// is rewritten by no result record). At the entry's own root, a `None` the result writes the
+/// cell over is created only by a result `Some(..)`: a result `None` creates nothing (P5, as
+/// at a child); where the result does not write the cell, [`Judge::pair`]'s `written` decides.
 fn absence_uncreated(stack: &[Layer], subject: &Spelling, result: Option<&Spelling>) -> bool {
     match (stack, unaliased(subject)) {
+        ([Layer::Optional, ..], Spelling::Missing) => {
+            result.is_some_and(|result| !matches!(unaliased(result), Spelling::Present(_)))
+        }
         ([Layer::Optional, below @ ..], Spelling::Present(inner)) => {
             let result = result.and_then(|result| match unaliased(result) {
                 Spelling::Present(inner) => Some(&**inner),

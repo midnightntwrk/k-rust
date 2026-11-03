@@ -7077,3 +7077,34 @@ fn a_base_is_a_record_of_its_constructor_and_a_child_absence_test_needs_creation
         ),
     ]);
 }
+
+/// P5 at a cell's own root as at a child (S5.3 part 3): a subject `None` the result writes over
+/// with `None` creates nothing, so the absence test has no creation; only a result `Some(..)`
+/// creates the cell. No generated case has the shape.
+#[test]
+fn a_root_absence_test_needs_the_result_to_create_the_cell() {
+    let absent = Outcome::Refuse("absence-test-without-creation");
+    let admitted = Outcome::Admit { lint: None };
+    let optional = [Layer::Optional, Layer::Leaf(Notation::Plain)];
+    let root = |form, text, other| Probe {
+        form,
+        side: Side::Subject,
+        path: &[],
+        stack: &optional,
+        text,
+        other: Some(other),
+        written: true,
+        bound: &[],
+        records: &[],
+        elsewhere: false,
+    };
+    probes_agree(&[
+        (root(Form::Readable, "None", "None"), absent),
+        (root(Form::Cells, "None", "None"), absent),
+        (root(Form::Readable, "None", "Some(1)"), admitted),
+        (
+            root(Form::Cells, "None", "Some(k::configuration::Cell(1))"),
+            admitted,
+        ),
+    ]);
+}

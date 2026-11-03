@@ -1163,6 +1163,11 @@ fn absence_uncreated(
     result: Option<&EntrySpelling>,
 ) -> bool {
     match (stack, unaliased(subject)) {
+        // P5 at the entry's own root as at a child: a `None` the result writes the cell over
+        // creates it only as `Some(..)`, so a result `None` leaves the absence test without the
+        // creation K tests absence by.
+        ([Layer::Optional, ..], EntrySpelling::Missing) => result
+            .is_some_and(|result| !matches!(unaliased(result), EntrySpelling::Present(_))),
         ([Layer::Optional, below @ ..], EntrySpelling::Present(inner)) => {
             let result = result.and_then(|result| match unaliased(result) {
                 EntrySpelling::Present(inner) => Some(&**inner),
@@ -2565,6 +2570,11 @@ mod tests {
             ),
             absent
         );
+        // At the cell's own root as at a child: a result `None` over a subject `None` creates
+        // nothing.
+        let root = [Layer::Optional, Layer::Leaf(Notation::Plain)];
+        assert_eq!(subject(&root, "None", Some("None")), absent);
+        assert_eq!(subject(&root, "None", Some("Some(1)")), Ok(None));
     }
     #[test]
     fn an_update_of_a_map_collections_instance_keeps_its_key() {
