@@ -142,8 +142,7 @@ fn compiled() -> &'static (DefinitionIr, CompiledStage) {
         fixture_build_env(&mut process, target.path());
         let output = process
             .current_dir(manifest.parent().unwrap())
-            .arg("emit-k")
-            .args(["--manifest-path"])
+            .args(["emit-k", "--ir", "--manifest-path"])
             .arg(&manifest)
             .args(["--package", PACKAGE, "--definition", "main", "--output"])
             .arg(&emitted)

@@ -102,8 +102,7 @@ fn compiled() -> &'static (DefinitionIr, CompiledStage) {
         fixture_build_env(&mut process, target.path());
         let output = process
             .current_dir(&project)
-            .arg("emit-k")
-            .args(["--manifest-path"])
+            .args(["emit-k", "--ir", "--manifest-path"])
             .arg(project.join("Cargo.toml"))
             .args(["--package", PACKAGE, "--definition", "main", "--output"])
             .arg(&emitted)

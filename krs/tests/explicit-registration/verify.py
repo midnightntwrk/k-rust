@@ -253,7 +253,7 @@ def emit_bundle(
 ) -> bytes | None:
     process = run(
         Invocation(binary, copy / "Cargo.toml", PACKAGE, DEFINITION).argv(
-            "emit-k", "--registration", registration, "--output", output
+            "emit-k", "--ir", "--registration", registration, "--output", output
         ),
         environment=environment,
         timeout=1200,
@@ -395,7 +395,7 @@ def verify_fixture_difference(
 
     run(
         Invocation(binary, FIXTURE / "Cargo.toml", PACKAGE, DEFINITION).argv(
-            "emit-k", "--output", workspace / "fixture-out"
+            "emit-k", "--ir", "--output", workspace / "fixture-out"
         ),
         environment=environment,
         timeout=1200,

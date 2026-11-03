@@ -191,8 +191,8 @@ def main() -> int:
         workspace = Path(temporary)
         first = workspace / "first"
         second = workspace / "second"
-        run(cli_command(binary, "emit-k", "--output", first), environment=environment)
-        run(cli_command(binary, "emit-k", "--output", second), environment=environment)
+        run(cli_command(binary, "emit-k", "--ir", "--output", first), environment=environment)
+        run(cli_command(binary, "emit-k", "--ir", "--output", second), environment=environment)
         first_artifacts = verify_artifacts(first, gate, environment)
         second_artifacts = verify_artifacts(second, gate, environment)
         if first_artifacts != second_artifacts:

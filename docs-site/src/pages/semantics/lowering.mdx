@@ -61,13 +61,16 @@ Each variable in emitted K takes its authored binder name in K's capitalized for
 
 `krs emit-k` writes an owned artifact directory containing:
 
-- `descriptor-bundle.json`, the collected host declarations;
-- `semantic-ir.json`, the resolved symbolic theory;
-- `definition-ir.json`, the backend-neutral definition;
 - `definition.k`, emitted K source for the semantics;
 - `spec.k`, the definition's claims, when it has any;
 - `symbols.json`, stable-to-emitted identity mappings; and
 - `sources.json`, generated ranges traced through authored macro and transformation frames.
+
+With `--ir` it also writes the three levels above the K:
+
+- `descriptor-bundle.json`, the collected host declarations;
+- `semantic-ir.json`, the resolved symbolic theory; and
+- `definition-ir.json`, the backend-neutral definition.
 
 Each JSON artifact is compact JSON with one trailing newline and no whitespace outside strings.
 KRS's serializer writes one encoding for each in-memory value, with object members in the order the value's type fixes; the encoding is not RFC 8785 canonical JSON, so another serializer may write the same value differently.
@@ -80,6 +83,7 @@ krs emit-k \
   --manifest-path tests/tour-imp/Cargo.toml \
   --package krs-tour-imp \
   --definition main \
+  --ir \
   --output /tmp/krs-imp-emitted
 ```
 

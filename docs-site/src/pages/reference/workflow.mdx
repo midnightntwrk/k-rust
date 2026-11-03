@@ -43,7 +43,7 @@ A line comment inside a delimited group keeps its place and breaks the group; an
 Only a doc comment, a literal, or another token longer than the line leaves a line of a KRS body over the width.
 
 `check` resolves Cargo metadata and selected facets, builds and runs the generated collector, validates descriptors, performs semantic analysis, and then judges the definition as every later command that needs no K toolchain would: it emits the K `emit-k` writes, with its symbol and source maps and their checks, and for each native route it consults the route's capability table and runs k-rust's preparation, definition checks, and compilation exactly as `build` does.
-It does not render the JSON artifacts `emit-k` writes beside the K (the descriptor bundle, the semantic and Definition IR, and the two maps), because rendering cannot refuse what emission accepts: the encoder fails only on a map key that is not a string or on a value whose serialization fails, and these types hold neither.
+It does not render the JSON artifacts `emit-k` writes beside the K (the two maps, and with `--ir` the descriptor bundle and the Semantic and Definition IR), because rendering cannot refuse what emission accepts: the encoder fails only on a map key that is not a string or on a value whose serialization fails, and these types hold neither.
 On the `native-rust` route, which `build --backend haskell`, `run`, `search`, and `prove` share, it also loads the compiled definition as the run commands do, including each spec module's proof definition.
 It reports the same errors and warnings those commands report, but writes no artifacts.
 A passing `check` therefore means that `emit-k`, `build` on either backend, and the run commands accept the definition; what remains are refusals of one invocation, such as a program that does not parse, `search` on a definition with `stream` cells, or `prove --spec-module` naming no spec module.
@@ -87,9 +87,17 @@ krs expand --package my-semantics --definition main --output target/krs-expanded
 
 `--output` takes an absent or empty directory and writes only the files the expansion changes, each at its path relative to the package, such as `target/krs-expanded/src/rules.rs`, and stdout lists those paths, one per line.
 The printed package is the authored one with exactly those files replaced: copy the package (a relative `path` dependency must still reach its package from the copy), copy the directory over it, and `krs check` and `krs emit-k` judge the printed source as they judge yours.
-`emit-k` writes the generated K definition and sidecars, including stable symbol and source attribution data.
+`emit-k` writes the generated K definition with the two maps that carry it back to your source: `symbols.json`, from stable identities to emitted K names, and `sources.json`, from generated ranges to authored ones.
 Claims go to a separate `spec.k` beside `definition.k`, the layout `kompile` and `kprove` expect.
 These outputs are audit artifacts, not a second source file to edit.
+
+```console
+krs emit-k --package my-semantics --definition main --ir --output target/krs-k
+```
+
+`--ir` also writes KRS's three internal levels, `descriptor-bundle.json`, `semantic-ir.json`, and `definition-ir.json`, for a tool that reads them, such as a harness that compiles `definition-ir.json` in process.
+They are KRS's own representations, versioned together and read back only at the same schema version, so the default leaves them out.
+An emission writes only its own selection: it removes from the output directory any `emit-k` artifact an earlier emission left there, such as the IRs of an earlier `--ir` run or a `spec.k` the definition no longer needs.
 
 The lowering page names the descriptor, semantic, definition, K, symbol, source, and KORE boundaries in detail.
 When a generated K range has an exact source-map entry, diagnostics should point back to the hash-checked authored bytes rather than expose a generated collector path.
@@ -106,8 +114,9 @@ krs build \
 
 `build` continues through K frontend and selected backend compilation.
 The LLVM backend executes but does not prove, so an LLVM build omits the definition's claims and says how many it omitted.
-Successful `check`, `emit-k`, and `build` commands reuse a previous result when the command options, collector executable, and files read by the collector are unchanged.
+Successful `check`, `emit-k`, and `build` commands reuse a previous result when the command options (for `emit-k`, `--ir` among them), collector executable, and files read by the collector are unchanged.
 A reused command returns the same stdout and restores any missing or modified output files.
+Each command keeps one previous result, so alternating `emit-k` with and without `--ir` replaces it each time, and neither is reused after the other has run.
 Pass `--no-reuse`, or set `KRS_NO_REUSE=1`, to run the collector and later stages again.
 
 ## Run, search, and prove

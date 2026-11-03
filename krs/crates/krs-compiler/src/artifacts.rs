@@ -19,19 +19,28 @@ pub const ARTIFACT_MARKER_FILE: &str = ".krs-artifacts";
 /// Exact contents required for a directory to be owned by KRS.
 pub const ARTIFACT_MARKER: &str = "KRS artifact directory schema 1; safe to update.\n";
 
-/// Returns the exact source artifact filenames in lexical order.
-/// `has_claims` controls whether the claims-only source must be emitted.
+/// The artifacts `emit-k` writes only on request (`--ir`): KRS's three internal levels, in lexical
+/// order. The default set is the K and the two maps that carry it back to the authored source.
+pub const IR_ARTIFACTS: [&str; 3] = [
+    DEFINITION_IR_ARTIFACT,
+    DESCRIPTOR_ARTIFACT,
+    SEMANTIC_ARTIFACT,
+];
+
+/// Returns the exact artifact filenames of an `emit-k` output directory in lexical order.
+/// `has_claims` controls whether the claims-only source must be emitted, and `ir` whether the
+/// directory holds [`IR_ARTIFACTS`] (`emit-k --ir`).
 #[must_use]
-pub fn emitted_artifact_names(has_claims: bool) -> Vec<&'static str> {
+pub fn emitted_artifact_names(has_claims: bool, ir: bool) -> Vec<&'static str> {
     let mut names = vec![
         ARTIFACT_MARKER_FILE,
-        DEFINITION_IR_ARTIFACT,
         DEFINITION_ARTIFACT,
-        DESCRIPTOR_ARTIFACT,
-        SEMANTIC_ARTIFACT,
         SOURCES_ARTIFACT,
         SYMBOLS_ARTIFACT,
     ];
+    if ir {
+        names.extend(IR_ARTIFACTS);
+    }
     if has_claims {
         names.push(SPEC_ARTIFACT);
     }

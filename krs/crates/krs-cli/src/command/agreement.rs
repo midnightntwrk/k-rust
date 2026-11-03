@@ -93,9 +93,11 @@ pub(super) fn verify(
             path: std::env::temp_dir(),
             source,
         })?;
+    // With the IRs: the check claims every `emit-k` invocation, so the one that renders the most.
     let emitted = emit(
         prepared,
         &scratch.path().join("emit-k"),
+        true,
         &mut Measurement::disabled(),
     );
     let mut verdicts = vec![("krs emit-k".to_owned(), emitted.map(drop), false)];

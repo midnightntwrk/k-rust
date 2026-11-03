@@ -56,7 +56,7 @@ def move_evidence(krs: Path) -> dict[str, object]:
         for name in FIXTURE_PACKAGES:
             output = temporary / f"{name}-llvm"
             run(Invocation(krs, HERE / name / "Cargo.toml", FIXTURE_PACKAGES[name], "main").argv(
-                "emit-k", "--backend", "llvm", "--output", output,
+                "emit-k", "--backend", "llvm", "--ir", "--output", output,
             ), environment=PROBE_TARGET, timeout=180)
             rows, public_rows, symbols, sidecar = krs_gate.ir_queries(gate, output, [
                 {"kind": "descriptor_details"},
@@ -73,7 +73,7 @@ def move_evidence(krs: Path) -> dict[str, object]:
                 raise GateError("stable-name projection needs exactly two public symbols and source keys")
         output = temporary / "baseline-haskell"
         run(Invocation(krs, HERE / "baseline/Cargo.toml", FIXTURE_PACKAGES["baseline"], "main").argv(
-            "emit-k", "--backend", "haskell", "--output", output,
+            "emit-k", "--backend", "haskell", "--ir", "--output", output,
         ), environment=PROBE_TARGET, timeout=180)
         baseline_haskell = krs_gate.ir_query(gate, output, {"kind": "symbols"})
 

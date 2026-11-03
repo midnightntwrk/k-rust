@@ -282,14 +282,14 @@ def artifact_gate(
         timeout=900,
     )
 
-    emit_a, emit_b = fresh_deterministic_emissions(invocation, workspace, environment=environment)
+    emit_a, emit_b = fresh_deterministic_emissions(invocation, workspace, extra=("--ir",), environment=environment)
     for name, digest in exact_directory(emit_a, emit_b, emitted_files(emit_a, gate, environment=environment)).items():
         pins.expect(("artifact_sha256", name), digest)
 
     expanded_output = workspace / "expanded-emit"
     run(
         Invocation(krs, expanded / "Cargo.toml", port.package, "main").argv(
-            "emit-k", "--output", expanded_output
+            "emit-k", "--ir", "--output", expanded_output
         ),
         environment=expanded_env,
         timeout=900,

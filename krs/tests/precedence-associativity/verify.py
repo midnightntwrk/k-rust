@@ -78,7 +78,7 @@ def main() -> int:
         emitted = workspace / "emitted"
         invocation = Invocation(binary, MANIFEST, PACKAGE, "main")
         invocation.run("check", environment=environment)
-        invocation.run("emit-k", "--output", emitted, environment=environment)
+        invocation.run("emit-k", "--ir", "--output", emitted, environment=environment)
 
         check_native_parses(invocation, environment)
 

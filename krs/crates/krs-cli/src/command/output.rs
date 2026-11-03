@@ -1,5 +1,5 @@
 use super::CommandError;
-use krs_compiler::{ARTIFACT_MARKER, ARTIFACT_MARKER_FILE};
+use krs_compiler::{ARTIFACT_MARKER, ARTIFACT_MARKER_FILE, emitted_artifact_names};
 use std::fs;
 use std::path::Path;
 
@@ -43,4 +43,27 @@ pub(super) fn write_output_if_different(
 pub(super) fn write_output(directory: &Path, name: &str, bytes: &[u8]) -> Result<(), CommandError> {
     let path = directory.join(name);
     fs::write(&path, bytes).map_err(|source| CommandError::Io { path, source })
+}
+
+/// Removes from the KRS-owned `directory` every `emit-k` artifact not in `written`: an artifact
+/// an earlier emission wrote and this one does not describes another emission, so leaving it
+/// beside this emission's K would present it as this definition's. Only `emit-k`'s own names
+/// are touched; an absent one is already as wanted.
+pub(super) fn remove_other_emitted<'a>(
+    directory: &Path,
+    written: impl IntoIterator<Item = &'a str>,
+) -> Result<(), CommandError> {
+    let written = written.into_iter().collect::<Vec<_>>();
+    for name in emitted_artifact_names(true, true) {
+        if name == ARTIFACT_MARKER_FILE || written.contains(&name) {
+            continue;
+        }
+        let path = directory.join(name);
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(source) => return Err(CommandError::Io { path, source }),
+        }
+    }
+    Ok(())
 }

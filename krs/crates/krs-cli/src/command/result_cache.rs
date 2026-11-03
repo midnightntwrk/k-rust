@@ -1,4 +1,4 @@
-use super::output::{prepare_output, write_output_if_different};
+use super::output::{prepare_output, remove_other_emitted, write_output_if_different};
 use super::{CommandError, CommandOutcome, CommandRequest, Counters, OutputArtifact};
 use crate::{Backend, FacetSelector, KrsCfg, RegistrationMode};
 use krs_compiler::ARTIFACT_MARKER_FILE;
@@ -7,12 +7,15 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::io::{BufWriter, Write};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-const SCHEMA: u32 = 5;
+/// 6: the request key names `emit-k`'s artifact selection (`ir`). Writing the record without
+/// first assembling it in memory leaves its format unchanged.
+const SCHEMA: u32 = 6;
 
 #[derive(Serialize)]
 struct CacheRequest<'a> {
@@ -32,6 +35,11 @@ struct CacheRequest<'a> {
     /// judged by it, so it is not restored where the judgement is asked for.
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     judged: Vec<&'static str>,
+    /// `emit-k`'s artifact selection: whether the three IRs are written (`--ir`). An outcome
+    /// stored without them cannot restore them, and one stored with them would restore files
+    /// the request did not ask for, so each selection is a request of its own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ir: Option<bool>,
 }
 
 pub(super) struct ResultCache {
@@ -141,8 +149,11 @@ impl ResultCache {
         }
         if let Some(directory) = request.command.output() {
             prepare_output(directory)?;
-            for (name, contents) in files {
-                write_output_if_different(directory, &name, contents)?;
+            for (name, contents) in &files {
+                write_output_if_different(directory, name, contents)?;
+            }
+            if let super::Command::EmitK { .. } = request.command {
+                remove_other_emitted(directory, files.iter().map(|(name, _)| name.as_str()))?;
             }
         } else if !files.is_empty() {
             return Ok(None);
@@ -175,7 +186,6 @@ impl ResultCache {
         let Some(collector) = executable(&self.collector, false) else {
             return;
         };
-        let mut body = outcome.stdout.clone();
         let mut files = Vec::new();
         let mut names = BTreeSet::new();
         for (name, bytes) in artifacts {
@@ -187,7 +197,6 @@ impl ResultCache {
                 len: bytes.len(),
                 sha256: sha256(bytes),
             });
-            body.extend_from_slice(bytes);
         }
         let image = Image {
             schema: SCHEMA,
@@ -205,14 +214,25 @@ impl ResultCache {
         let Ok(header) = serde_json::to_vec(&image) else {
             return;
         };
-        let mut bytes = Vec::with_capacity(8 + header.len() + body.len());
-        bytes.extend_from_slice(&(header.len() as u64).to_le_bytes());
-        bytes.extend_from_slice(&header);
-        bytes.extend_from_slice(&body);
         let temporary = self
             .path
             .with_extension(format!("tmp-{}", std::process::id()));
-        if fs::write(&temporary, bytes).is_ok() {
+        // The record is written piece by piece from the outcome and the artifacts it copies,
+        // so storing it holds no second copy of them.
+        let written = fs::File::create(&temporary).and_then(|file| {
+            let mut writer = BufWriter::new(file);
+            writer.write_all(&(header.len() as u64).to_le_bytes())?;
+            writer.write_all(&header)?;
+            writer.write_all(&outcome.stdout)?;
+            for (_, bytes) in artifacts {
+                writer.write_all(bytes)?;
+            }
+            writer
+                .into_inner()
+                .map_err(std::io::IntoInnerError::into_error)?;
+            Ok(())
+        });
+        if written.is_ok() {
             let _ = fs::rename(&temporary, &self.path);
         }
         let _ = fs::remove_file(temporary);
@@ -262,6 +282,10 @@ fn request_key(request: &CommandRequest) -> String {
             .filter_map(|(judgement, enabled)| enabled.then_some(judgement))
             .collect(),
             _ => Vec::new(),
+        },
+        ir: match command {
+            super::Command::EmitK { ir, .. } => Some(*ir),
+            _ => None,
         },
     };
     serde_json::to_string(&key).expect("cache request serialization cannot fail")

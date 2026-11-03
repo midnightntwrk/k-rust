@@ -12,7 +12,7 @@ The editor starts from the checked fixture source, byte for byte.
 Change it, press **Compile**, and KRS produces the definition's DescriptorBundle: the canonical, versioned record of every sort, constructor, configuration, and rule that the collector found.
 The collector sends compact canonical JSON with one trailing newline to the worker, which hashes those exact bytes.
 For the unedited source, those bytes are identical to the native collector's stdout.
-`krs emit-k` writes the same bundle as its `descriptor-bundle.json` artifact, also compact canonical JSON with one trailing newline, with every source file and item written out where the collector's bytes refer to them by index; `jq .` indents it for reading.
+`krs emit-k --ir` writes the same bundle as its `descriptor-bundle.json` artifact, also compact canonical JSON with one trailing newline, with every source file and item written out where the collector's bytes refer to them by index; `jq .` indents it for reading.
 
 <BrowserLesson />
 

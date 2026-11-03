@@ -107,12 +107,13 @@ def main() -> None:
         second = Path(second_name)
         configured_first = Path(configured_first_name)
         configured_second = Path(configured_second_name)
-        run(command(binary, "emit-k", "--output", first), environment=env)
-        run(command(binary, "emit-k", "--output", second), environment=env)
+        run(command(binary, "emit-k", "--ir", "--output", first), environment=env)
+        run(command(binary, "emit-k", "--ir", "--output", second), environment=env)
         run(
             command(
                 binary,
                 "emit-k",
+                "--ir",
                 "--cfg",
                 "tour_mode=extended",
                 "--output",
@@ -124,6 +125,7 @@ def main() -> None:
             command(
                 binary,
                 "emit-k",
+                "--ir",
                 "--cfg",
                 "tour_mode=extended",
                 "--output",

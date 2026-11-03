@@ -327,7 +327,7 @@ fn is_not_two(k::term![IsTwo(_)]: Term<Bool>) -> Term<Bool> {
         target.path(),
         &manifest,
         "emit-k",
-        &["--output", emitted.to_str().unwrap()],
+        &["--ir", "--output", emitted.to_str().unwrap()],
     );
     assert!(success, "{stderr}");
     let theory: SemanticTheory =

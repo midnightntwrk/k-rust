@@ -34,7 +34,13 @@ fn authored_fixtures_satisfy_ir_and_lowering_contracts() {
         let temporary = temp_dir();
         let manifest = materialize_fixture_with(temporary.path(), source, metadata);
         let emitted = temporary.path().join(format!("emitted-{name}"));
-        let result = command(target.path(), &manifest, "emit-k", Some(&emitted), &[]);
+        let result = command(
+            target.path(),
+            &manifest,
+            "emit-k",
+            Some(&emitted),
+            &["--ir"],
+        );
         assert_success(&result);
 
         let bundle: DescriptorBundle =
@@ -143,58 +149,12 @@ fn commands_share_the_production_collection_and_definition_pipeline() {
 
     assert_check_measurement(temporary.path(), target.path(), &manifest, &check.stdout);
 
-    let emit_timings = temporary.path().join("emit-timings.json");
-    let emit = command(
+    assert_emission_selection(
+        temporary.path(),
         target.path(),
         &manifest,
-        "emit-k",
-        Some(&emitted),
-        &["--no-reuse", "--timings", emit_timings.to_str().unwrap()],
-    );
-    assert_success(&emit);
-    assert_eq!(
-        emit.stdout,
-        b"emitted descriptor-bundle.json, semantic-ir.json, definition-ir.json, definition.k, symbols.json, sources.json\n"
-    );
-    assert_emit_spans(&read_json(&emit_timings));
-    let descriptor_bundle = fs::read_to_string(emitted.join("descriptor-bundle.json")).unwrap();
-    assert_ne!(descriptor_bundle, expanded);
-    let descriptor: serde_json::Value = serde_json::from_str(&descriptor_bundle).unwrap();
-    assert_eq!(
-        descriptor["protocol_version"],
-        krs_ir::SchemaVersion::CURRENT.0
-    );
-    assert!(descriptor_bundle.contains("\"item_name\":\"Machine\""));
-    for name in ["semantic-ir.json", "definition-ir.json"] {
-        let document: serde_json::Value =
-            serde_json::from_slice(&fs::read(emitted.join(name)).unwrap()).unwrap();
-        assert_eq!(document["schema_version"], krs_ir::SchemaVersion::CURRENT.0);
-    }
-    assert!(
-        fs::read_to_string(emitted.join("definition.k"))
-            .unwrap()
-            .contains("rule foo => bar")
-    );
-    assert!(emitted.join("symbols.json").is_file());
-    assert!(emitted.join("sources.json").is_file());
-    assert!(emitted.join(".krs-artifacts").is_file());
-    assert_eq!(
-        fs::read_dir(&emitted)
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name())
-            .collect::<std::collections::BTreeSet<_>>(),
-        [
-            ".krs-artifacts",
-            "definition-ir.json",
-            "definition.k",
-            "descriptor-bundle.json",
-            "semantic-ir.json",
-            "sources.json",
-            "symbols.json",
-        ]
-        .map(Into::into)
-        .into_iter()
-        .collect()
+        &emitted,
+        &expanded,
     );
 
     let unsafe_output = temporary.path().join("user-owned");
@@ -227,6 +187,125 @@ fn commands_share_the_production_collection_and_definition_pipeline() {
     assert!(native.join(".krs-artifacts").is_file());
 }
 
+/// `emit-k` writes the K and its two maps; `--ir` adds the three IRs and changes nothing else; an
+/// emission without `--ir` removes the IRs an earlier one left, which describe that emission and
+/// not this one.
+fn assert_emission_selection(
+    temporary: &Path,
+    target: &Path,
+    manifest: &Path,
+    emitted: &Path,
+    expanded: &str,
+) {
+    let listing = |directory: &Path| {
+        fs::read_dir(directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    let default_set = [
+        ".krs-artifacts",
+        "definition.k",
+        "sources.json",
+        "symbols.json",
+    ]
+    .map(str::to_owned)
+    .into_iter()
+    .collect::<std::collections::BTreeSet<_>>();
+    let emit_timings = temporary.join("emit-timings.json");
+    let emit = command(
+        target,
+        manifest,
+        "emit-k",
+        Some(emitted),
+        &["--no-reuse", "--timings", emit_timings.to_str().unwrap()],
+    );
+    assert_success(&emit);
+    assert_eq!(
+        emit.stdout,
+        b"emitted definition.k, symbols.json, sources.json\n"
+    );
+    assert_emit_spans(&read_json(&emit_timings));
+    assert_eq!(listing(emitted), default_set);
+    let default_files = ["definition.k", "symbols.json", "sources.json"]
+        .map(|name| fs::read(emitted.join(name)).unwrap());
+
+    // `--ir` adds the three IRs and changes nothing else the default writes.
+    let emit = command(
+        target,
+        manifest,
+        "emit-k",
+        Some(emitted),
+        &["--no-reuse", "--ir"],
+    );
+    assert_success(&emit);
+    assert_eq!(
+        emit.stdout,
+        b"emitted descriptor-bundle.json, semantic-ir.json, definition-ir.json, definition.k, symbols.json, sources.json\n"
+    );
+    for (name, default) in ["definition.k", "symbols.json", "sources.json"]
+        .iter()
+        .zip(&default_files)
+    {
+        assert_eq!(&fs::read(emitted.join(name)).unwrap(), default, "{name}");
+    }
+    let descriptor_bundle = fs::read_to_string(emitted.join("descriptor-bundle.json")).unwrap();
+    assert_ne!(descriptor_bundle, expanded);
+    let descriptor: serde_json::Value = serde_json::from_str(&descriptor_bundle).unwrap();
+    assert_eq!(
+        descriptor["protocol_version"],
+        krs_ir::SchemaVersion::CURRENT.0
+    );
+    assert!(descriptor_bundle.contains("\"item_name\":\"Machine\""));
+    for name in ["semantic-ir.json", "definition-ir.json"] {
+        let document: serde_json::Value =
+            serde_json::from_slice(&fs::read(emitted.join(name)).unwrap()).unwrap();
+        assert_eq!(document["schema_version"], krs_ir::SchemaVersion::CURRENT.0);
+    }
+    assert!(
+        fs::read_to_string(emitted.join("definition.k"))
+            .unwrap()
+            .contains("rule foo => bar")
+    );
+    assert_eq!(
+        listing(emitted),
+        default_set
+            .iter()
+            .cloned()
+            .chain(krs_compiler::IR_ARTIFACTS.map(str::to_owned))
+            .collect()
+    );
+
+    // An emission without `--ir` removes the IRs an earlier one left, which describe that
+    // emission and not this one.
+    let emit = command(target, manifest, "emit-k", Some(emitted), &["--no-reuse"]);
+    assert_success(&emit);
+    assert_eq!(listing(emitted), default_set);
+}
+
+/// An emission removes the `spec.k` an earlier emission into the same directory left, when its
+/// own definition has no claims: that `spec.k` states the earlier definition's claims.
+#[test]
+fn an_emission_without_claims_removes_an_earlier_spec() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let emitted = emit_dollar_ids(target.path(), temporary.path());
+    assert!(emitted.join("spec.k").is_file());
+    let manifest = materialize_fixture(temporary.path(), FOO_BAR);
+    let emit = command(target.path(), &manifest, "emit-k", Some(&emitted), &[]);
+    assert_success(&emit);
+    assert_eq!(
+        emit.stdout,
+        b"emitted definition.k, symbols.json, sources.json\n"
+    );
+    assert!(!emitted.join("spec.k").exists());
+    assert!(
+        fs::read_to_string(emitted.join("definition.k"))
+            .unwrap()
+            .contains("rule foo => bar")
+    );
+}
+
 /// The subsorts of `Obj` that `source`, the foo-bar fixture with `Obj`'s
 /// parents replaced, emits: each parent's name, with the authored text and
 /// start byte of the origin that locates it.
@@ -236,7 +315,13 @@ fn obj_subsorts(source: &str) -> Vec<(String, String, usize)> {
     assert_ne!(source, FOO_BAR);
     let manifest = materialize_fixture(temporary.path(), source);
     let emitted = temporary.path().join("emitted");
-    let emit = command(target.path(), &manifest, "emit-k", Some(&emitted), &[]);
+    let emit = command(
+        target.path(),
+        &manifest,
+        "emit-k",
+        Some(&emitted),
+        &["--ir"],
+    );
     assert_success(&emit);
     let theory: SemanticTheory =
         serde_json::from_slice(&fs::read(emitted.join("semantic-ir.json")).unwrap()).unwrap();

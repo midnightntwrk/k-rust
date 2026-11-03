@@ -278,7 +278,7 @@ fn hit_skips_collector_and_restores_only_changed_outputs() {
         ["krs-result-emit-k.bin".to_owned()].into()
     );
 
-    let unchanged = second_directory.join("semantic-ir.json");
+    let unchanged = second_directory.join("sources.json");
     let old_time = UNIX_EPOCH + Duration::from_secs(12_345);
     File::options()
         .write(true)
@@ -295,6 +295,66 @@ fn hit_skips_collector_and_restores_only_changed_outputs() {
     assert_eq!(
         fs::metadata(unchanged).unwrap().modified().unwrap(),
         old_time
+    );
+}
+
+/// The IRs are written only on request (`--ir`), so the artifact selection is part of the
+/// request: a record stored without the IRs cannot restore them and is not restored for a request
+/// asking for them, nor one stored with them for a request without; a restored emission, like a
+/// computed one, removes the IRs an earlier emission left in its directory.
+#[test]
+fn a_record_restores_only_the_artifact_selection_it_was_stored_for() {
+    let fixture = Fixture::new(FOO_BAR);
+    let names = |directory: &Path| {
+        artifact_bytes(directory)
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect::<Vec<_>>()
+    };
+    let default_names = [
+        ".krs-artifacts",
+        "definition.k",
+        "sources.json",
+        "symbols.json",
+    ];
+    let ir_names = [
+        ".krs-artifacts",
+        "definition-ir.json",
+        "definition.k",
+        "descriptor-bundle.json",
+        "semantic-ir.json",
+        "sources.json",
+        "symbols.json",
+    ];
+
+    let plain = fixture.root.path().join("plain");
+    let stored = fixture.run("emit-k", "llvm", Some(&plain), &[], false);
+    stored.assert_reused(0);
+    assert_eq!(names(&plain), default_names);
+
+    let with_ir = fixture.root.path().join("with-ir");
+    fixture
+        .run("emit-k", "llvm", Some(&with_ir), &["--ir"], false)
+        .assert_reused(0);
+    assert_eq!(names(&with_ir), ir_names);
+    let restored_ir = fixture.root.path().join("restored-ir");
+    fixture
+        .run("emit-k", "llvm", Some(&restored_ir), &["--ir"], false)
+        .assert_reused(1);
+    assert_eq!(artifact_bytes(&restored_ir), artifact_bytes(&with_ir));
+
+    // The record now holds the IRs; a request without them is not restored from it.
+    fixture
+        .run("emit-k", "llvm", Some(&with_ir), &[], false)
+        .assert_reused(0);
+    assert_eq!(names(&with_ir), default_names);
+    let restored = fixture.run("emit-k", "llvm", Some(&restored_ir), &[], false);
+    restored.assert_reused(1);
+    assert_eq!(restored.output.stdout, stored.output.stdout);
+    assert_eq!(artifact_bytes(&restored_ir), artifact_bytes(&plain));
+    assert_eq!(
+        fixture.cache_file_names(),
+        ["krs-result-emit-k.bin".to_owned()].into()
     );
 }
 

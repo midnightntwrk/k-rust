@@ -25,7 +25,7 @@ fn emitted_bundle(
     let mut process = krs_command!();
     fixture_build_env(&mut process, target);
     let emitted = process
-        .args(["emit-k", "--manifest-path"])
+        .args(["emit-k", "--ir", "--manifest-path"])
         .arg(manifest)
         .args(["--package", package, "--definition", "main", "--output"])
         .arg(output)

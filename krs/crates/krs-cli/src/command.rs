@@ -40,7 +40,7 @@ use collector::{
     rustc_host_target,
 };
 use counters::{count_bundle, count_definition};
-use output::{prepare_output, write_output};
+use output::{prepare_output, remove_other_emitted, write_output};
 use result_cache::ResultCache;
 use stage_cache::StageCache;
 
@@ -105,10 +105,14 @@ pub enum Command {
         /// Directory to write each changed module file into, at its package-relative path.
         output: Option<PathBuf>,
     },
-    /// Emit the canonical source projection and shared sidecars.
+    /// Emit the canonical K with the symbol and source maps that carry it back to the authored
+    /// source, and with `ir` also KRS's three internal levels.
     EmitK {
         /// Artifact directory to populate.
         output: PathBuf,
+        /// Also write the descriptor bundle, the Semantic IR and the Definition IR (`--ir`,
+        /// [`krs_compiler::IR_ARTIFACTS`]).
+        ir: bool,
     },
     /// Compile Definition IR with a native backend dialect into an artifact directory.
     Build {
@@ -180,7 +184,7 @@ impl Command {
     #[must_use]
     pub fn output(&self) -> Option<&Path> {
         match self {
-            Self::EmitK { output } | Self::Build { output, .. } => Some(output),
+            Self::EmitK { output, .. } | Self::Build { output, .. } => Some(output),
             Self::Check { .. }
             | Self::Expand { .. }
             | Self::Parse(_)
@@ -396,7 +400,7 @@ fn execute_with_sources(
                 expand(&prepared, &plan, output.as_deref())
             })
             .map(CommandExecution::without_artifacts),
-        Command::EmitK { output } => emit(&prepared, output, measurement),
+        Command::EmitK { output, ir } => emit(&prepared, output, *ir, measurement),
         Command::Build { backend, output } => build(&prepared, *backend, output, measurement),
         Command::Parse(_) | Command::Run(_) | Command::Search(_) | Command::Prove(_) => {
             exec_command(
@@ -1146,9 +1150,10 @@ fn emit_definition(
     })
 }
 
-/// The artifacts `emit-k` writes, in `emit-k`'s order: the canonical JSON of
-/// the descriptor bundle, the semantic theory, the Definition IR and
-/// `emitted`'s maps, and `emitted`'s K.
+/// The artifacts `emit-k` writes, in `emit-k`'s order: with `ir`, the canonical
+/// JSON of the descriptor bundle, the semantic theory and the Definition IR;
+/// then `emitted`'s K and the canonical JSON of its maps. An IR that is not
+/// asked for is not serialized.
 ///
 /// Rendering cannot refuse a definition whose emission succeeded: `serde_json`
 /// fails only on a map key that is not a string or a serializer that fails, and
@@ -1162,20 +1167,34 @@ fn emit_definition(
 fn render_emitted(
     prepared: &PreparedDefinition,
     emitted: &EmittedK,
+    ir: bool,
     measurement: &mut Measurement,
 ) -> Result<Vec<(&'static str, Vec<u8>)>, CommandError> {
     measurement.timings.try_span("emit_k.render", |_| {
-        let descriptor_bundle = prepared.bundle.to_canonical_json()?;
-        let semantic_ir = prepared.semantic.to_canonical_json()?;
-        let definition_ir = prepared.lowered.definition().to_canonical_json()?;
+        let mut artifacts = Vec::new();
+        if ir {
+            artifacts.extend([
+                (
+                    DESCRIPTOR_ARTIFACT,
+                    prepared.bundle.to_canonical_json()?.into_bytes(),
+                ),
+                (
+                    SEMANTIC_ARTIFACT,
+                    prepared.semantic.to_canonical_json()?.into_bytes(),
+                ),
+                (
+                    DEFINITION_IR_ARTIFACT,
+                    prepared
+                        .lowered
+                        .definition()
+                        .to_canonical_json()?
+                        .into_bytes(),
+                ),
+            ]);
+        }
         let symbols = emitted.symbol_map().to_canonical_json()?;
         let sources = emitted.source_map().to_canonical_json()?;
-        let mut artifacts = vec![
-            (DESCRIPTOR_ARTIFACT, descriptor_bundle.into_bytes()),
-            (SEMANTIC_ARTIFACT, semantic_ir.into_bytes()),
-            (DEFINITION_IR_ARTIFACT, definition_ir.into_bytes()),
-            (DEFINITION_ARTIFACT, emitted.source().as_bytes().to_vec()),
-        ];
+        artifacts.push((DEFINITION_ARTIFACT, emitted.source().as_bytes().to_vec()));
         if let Some(spec) = emitted.spec() {
             artifacts.push((SPEC_ARTIFACT, spec.source().as_bytes().to_vec()));
         }
@@ -1187,13 +1206,18 @@ fn render_emitted(
     })
 }
 
+/// `emit-k`: writes the artifacts [`render_emitted`] renders into `output`, and removes from
+/// it every other `emit-k` artifact an earlier emission left there (an IR this emission was
+/// not asked for, a `spec.k` the definition no longer has), so that the directory holds this
+/// emission and nothing older beside it.
 fn emit(
     prepared: &PreparedDefinition,
     output: &Path,
+    ir: bool,
     measurement: &mut Measurement,
 ) -> Result<CommandExecution, CommandError> {
     let emitted = emit_definition(prepared, measurement)?;
-    let rendered = render_emitted(prepared, &emitted, measurement)?;
+    let rendered = render_emitted(prepared, &emitted, ir, measurement)?;
     let stdout = emission_stdout(&rendered);
     let mut artifacts = rendered
         .into_iter()
@@ -1205,7 +1229,7 @@ fn emit(
         for (name, bytes) in &artifacts {
             write_output(output, name, bytes)?;
         }
-        Ok::<_, CommandError>(())
+        remove_other_emitted(output, artifacts.iter().map(|(name, _)| name.as_str()))
     })?;
     for (name, bytes) in &artifacts {
         measurement
@@ -1913,6 +1937,14 @@ mod tests {
 
     #[test]
     fn emission_stdout_preserves_artifact_names_and_claims_spelling() {
+        assert_eq!(
+            emission_stdout::<&[u8]>(&[
+                (DEFINITION_ARTIFACT, b""),
+                (SYMBOLS_ARTIFACT, b""),
+                (SOURCES_ARTIFACT, b""),
+            ]),
+            b"emitted definition.k, symbols.json, sources.json\n"
+        );
         let mut artifacts: Vec<(&str, &[u8])> = vec![
             (DESCRIPTOR_ARTIFACT, b""),
             (SEMANTIC_ARTIFACT, b""),

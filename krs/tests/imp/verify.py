@@ -597,7 +597,7 @@ def emitted_artifacts(context: Context, krs: Path) -> tuple[Path, dict[str, str]
 
     emit_a, emit_b = fresh_deterministic_emissions(
         krs_invocation(krs), context.workspace,
-        extra=("--backend", "haskell"), environment=env, timeout=300,
+        extra=("--backend", "haskell", "--ir"), environment=env, timeout=300,
     )
     _verify_round_trip(krs, expands[0], emit_a, context.workspace, env)
     replacement_invocation = Invocation(krs, EXPANDED_MANIFEST, EXPANDED_PACKAGE, DEFINITION)
@@ -608,7 +608,7 @@ def emitted_artifacts(context: Context, krs: Path) -> tuple[Path, dict[str, str]
         raise GateError(f"replacement KRS check summary differs: {compact(replacement_check)}")
     replacement = context.workspace / "expanded-replacement"
     replacement_invocation.run(
-        "emit-k", "--backend", "haskell", "--output", replacement,
+        "emit-k", "--backend", "haskell", "--ir", "--output", replacement,
         timeout=300, environment=env,
     )
     for module_path, expected_path in REPLACEMENT_PARITY.items():

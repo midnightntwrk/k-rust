@@ -122,8 +122,8 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="krs-tour-imp-a-") as first_name, tempfile.TemporaryDirectory(prefix="krs-tour-imp-b-") as second_name:
         first = Path(first_name)
         second = Path(second_name)
-        run(cli(binary, "emit-k", "--output", first), environment=env)
-        run(cli(binary, "emit-k", "--output", second), environment=env)
+        run(cli(binary, "emit-k", "--ir", "--output", first), environment=env)
+        run(cli(binary, "emit-k", "--ir", "--output", second), environment=env)
         first_artifacts = artifact_bytes(first)
         if first_artifacts != artifact_bytes(second):
             raise GateError("emitted IMP artifacts are nondeterministic")

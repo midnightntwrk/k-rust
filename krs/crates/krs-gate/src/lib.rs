@@ -67,7 +67,7 @@
 //! It calls [`krs_expand::whole_file::expand_file`] as `registration.table` does, with that module path, and digests what the macros hand rustc.
 //! Its result contains `text_sha256`, the SHA-256 of the generated text; `source_map_sha256`, the SHA-256 of the compact JSON of the generated text's source map (its version, file labels, every invocation's kind, call site, replaced range and parent, and every segment's generated range, class, authored range, owner and respanned range); and the `invocations` and `segments` counts.
 //! A file the expander refuses (for example one that defines descriptors in an inline module, which the crate-root registration table cannot name) is an observation, not an error: the result then contains instead `refusal_sha256`, the SHA-256 of the compact JSON of every diagnostic's code, message, class, authored range and invocation, and the `diagnostics` count.
-//! `ir.query` requires `artifacts` (an `emit-k` output directory) and a closed `query` object with `kind` and the parameters documented below.
+//! `ir.query` requires `artifacts` (an `emit-k` output directory) and a closed `query` object with `kind` and the parameters documented below; a query that reads the descriptor bundle, the Semantic IR, or the Definition IR needs a directory written by `emit-k --ir`.
 //! It operates independently of a loaded definition and reads only the artifacts required by the selected query.
 //! Descriptor, Semantic IR, and Definition IR inputs use [`krs_ir::json::from_slice`] with [`krs_ir::DescriptorBundle`], [`krs_ir_levels::SemanticTheory`], and [`krs_ir_levels::DefinitionIr`].
 //! Symbol and source inputs use the version-checked [`krs_compiler::SymbolMap`] and [`krs_compiler::SourceMap`] readers.
@@ -78,7 +78,7 @@
 //! A string is absolute when [`krs_ir::DisplayPath::is_absolute_spelling`] returns true or it starts with `/`; missing artifacts are skipped and malformed JSON is an error.
 //! This lexical hygiene query does not interpret modeled artifact data.
 //! `kind: "files"` returns `{expected,actual,owned,has_claims}`.
-//! `expected` is the lexical file set from [`krs_compiler::emitted_artifact_names`], including `spec.k` exactly when Definition IR contains claims.
+//! It reads Definition IR, so it applies to an `emit-k --ir` directory: `expected` is the lexical file set of such a directory from [`krs_compiler::emitted_artifact_names`], including `spec.k` exactly when Definition IR contains claims.
 //! `actual` lists directory entries in lexical order and `owned` requires the exact compiler-owned marker bytes.
 //! `kind: "modules"` returns `{main_module,rows}`; each row contains `name` and the exact authored and compiler-inferred emitted `imports`.
 //! `kind: "semantic_modules"` reads only Semantic IR and returns `{rows}` with `name`, `production_count`, `rule_count`, and `has_configuration`.

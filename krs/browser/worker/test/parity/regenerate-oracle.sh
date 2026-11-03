@@ -83,7 +83,7 @@ emit() { # NAME EXPORT
   local started=$SECONDS
   in_export "$export" env LD_LIBRARY_PATH="$Z3" CARGO_TARGET_DIR="$OUT/target-$name" CARGO_BUILD_JOBS=4 \
     "$KRS_BIN" emit-k --manifest-path "$REPO/tests/tour-minimal/Cargo.toml" \
-    --package krs-tour-minimal --definition main --output "$OUT/$name" \
+    --package krs-tour-minimal --definition main --ir --output "$OUT/$name" \
     >"$OUT/$name.stdout" 2>"$OUT/$name.stderr"
   local collector
   collector=$(find "$OUT/target-$name" -type f -path '*/debug/krs-generated-collector-*' -perm -u+x -print -quit)
@@ -146,7 +146,7 @@ lines = [
     "schema = 1",
     f"krs_revision = {q(rev)}",
     f"krs_bin_sha256 = {q(sha(krs_bin))}",
-    "recipe = \"krs emit-k --manifest-path tests/tour-minimal/Cargo.toml --package krs-tour-minimal --definition main (git export of krs_revision mounted over the checkout path)\"",
+    "recipe = \"krs emit-k --manifest-path tests/tour-minimal/Cargo.toml --package krs-tour-minimal --definition main --ir (git export of krs_revision mounted over the checkout path)\"",
     "",
     "[validity]",
     f"crates_tree = {q(tree('crates'))}",

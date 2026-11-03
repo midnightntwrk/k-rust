@@ -191,7 +191,7 @@ def positive_run(
         results.add(f"{workspace.name}_expand", "FAIL", str(error))
         return None
 
-    emit = cli_command(binary, "emit-k", manifest, target, output=emitted)
+    emit = cli_command(binary, "emit-k", manifest, target, output=emitted, extra=("--ir",))
     expected_emit = b"emitted descriptor-bundle.json, semantic-ir.json, definition-ir.json, definition.k, symbols.json, sources.json\n"
     try:
         if emit.returncode != 0 or emit.stdout != expected_emit:
@@ -582,6 +582,7 @@ def dollar_id_claims(
     emitted = workspace / "emitted"
     emit = cli_command(
         binary, "emit-k", manifest, tool_target(), package=DOLLAR_IDS_PACKAGE, output=emitted,
+        extra=("--ir",),
     )
     if emit.returncode != 0 or not (emitted / "spec.k").is_file():
         results.add("dollar_id_claims", "FAIL", f"emit-k did not write spec.k: {compact(emit)}")

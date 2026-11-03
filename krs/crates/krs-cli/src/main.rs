@@ -37,7 +37,8 @@ Commands:
                             write nothing
   expand                    Print the selected Rust reference surface: the one changed module
                             file on stdout, or with --output each changed file at its path
-  emit-k                    Emit canonical K and shared artifacts
+  emit-k                    Emit canonical K with its symbol and source maps (definition.k,
+                            spec.k when there are claims, symbols.json, sources.json)
   build                     Compile native backend artifacts
   parse                     Parse a program with the definition's grammar (kast)
   run                       Run a program on one path (krun)
@@ -79,6 +80,8 @@ Options:
   --profile standard|strict  Raw K profile for every package (default: each package's `profile`)
   --no-reuse                 Run the collector and compiler even on an unchanged input
   --partition                With check, print each package's program-syntax partition
+  --ir                       With emit-k, also write descriptor-bundle.json, semantic-ir.json,
+                             and definition-ir.json
   --stdin                    Format stdin with facade alias k and write the result to stdout
   --edition YEAR             Rust edition for --stdin (default: 2024)
   --check                    Report files that are not canonically formatted
@@ -291,6 +294,7 @@ struct RunOptions {
     message_format: Option<MessageFormat>,
     measure: MeasureOptions,
     partition: bool,
+    ir: bool,
     profile: Option<krs_ir::RawKProfile>,
 }
 
@@ -362,6 +366,7 @@ fn parse_run(parser: &mut lexopt::Parser, kind: CommandKind) -> Result<ParseResu
             Short('h') | Long("help") => return Ok(ParseResult::Help),
             Long("no-reuse") => options.no_reuse = true,
             Long("partition") if kind == CommandKind::Check => options.partition = true,
+            Long("ir") if kind == CommandKind::EmitK => options.ir = true,
             Long("profile") => {
                 let value = option_value(parser, "profile")?;
                 let selected = krs_ir::RawKProfile::from_metadata(&value).ok_or_else(|| {
@@ -730,6 +735,7 @@ fn finish_run(kind: CommandKind, options: RunOptions) -> Result<ParseResult, Usa
         message_format,
         measure,
         partition,
+        ir,
         profile,
     } = options;
     if package.is_some() && package_id.is_some() {
@@ -769,6 +775,7 @@ fn finish_run(kind: CommandKind, options: RunOptions) -> Result<ParseResult, Usa
         CommandKind::Expand => Command::Expand { output },
         CommandKind::EmitK => Command::EmitK {
             output: output.ok_or_else(|| usage("missing --output"))?,
+            ir,
         },
         CommandKind::Build => Command::Build {
             backend: backend.unwrap_or(Backend::Llvm),
@@ -1130,13 +1137,38 @@ mod tests {
         assert_eq!(
             request.command,
             Command::EmitK {
-                output: "out".into()
+                output: "out".into(),
+                ir: false,
             }
         );
         assert_eq!(request.dependencies.len(), 2);
         assert_eq!(request.cfg.len(), 2);
         assert_eq!(request.cfg[0].value, None);
         assert!(request.no_reuse);
+        let (request, _) = run(&[
+            "emit-k",
+            "--package",
+            "imp",
+            "--definition",
+            "main",
+            "--output",
+            "out",
+            "--ir",
+        ]);
+        assert_eq!(
+            request.command,
+            Command::EmitK {
+                output: "out".into(),
+                ir: true,
+            }
+        );
+        for command in ["check", "build"] {
+            let mut args = vec![command, "--package", "imp", "--definition", "main", "--ir"];
+            if command == "build" {
+                args.extend(["--output", "out"]);
+            }
+            assert!(parse_args(&args).is_err(), "{command} accepted --ir");
+        }
 
         let (request, _) = run(&[
             "check",

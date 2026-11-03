@@ -1383,6 +1383,7 @@ impl<'w> Worker<'w> {
         let request = CommandRequest {
             command: Command::EmitK {
                 output: directory.join("emitted"),
+                ir: false,
             },
             manifest_path: manifest,
             root: FacetSelector {

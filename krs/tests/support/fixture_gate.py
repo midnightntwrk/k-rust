@@ -329,7 +329,7 @@ class FixtureGate:
         """Emit canonical K, pin every `.k` artifact, and return the artifacts."""
 
         directory = self.workspace / "emitted" / fixture.package
-        self._krs(fixture, "emit-k", "--output", directory)
+        self._krs(fixture, "emit-k", "--ir", "--output", directory)
         for artifact in sorted(directory.glob("*.k")):
             self.pins.expect(("emitted", fixture.package, artifact.name), sha256_file(artifact))
         modules = krs_gate.ir_query(self.gate, directory, {"kind": "modules"}, environment=self.environment)
@@ -338,7 +338,7 @@ class FixtureGate:
     def emit_unpinned(self, fixture: Fixture, directory: Path) -> Path:
         """Emit canonical K into `directory` without pinning it, for byte comparisons with `emit`."""
 
-        self._krs(fixture, "emit-k", "--output", directory)
+        self._krs(fixture, "emit-k", "--ir", "--output", directory)
         return directory
 
     def diagnostic(self, name: str, fixture: Fixture, *extra: str) -> str:
