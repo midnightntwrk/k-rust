@@ -60,8 +60,8 @@ impl GroupKind {
 
     /// The child that keys an instance of this group in a collection ordered by `order`: a Map
     /// collection's instance is keyed by its first child, its declaration's first field, which
-    /// is the instance's identity, so an update that changes the instance in place cannot write
-    /// it; a List or Set collection's instance has no key child.
+    /// is the instance's identity: a created instance writes it, and an update, which changes
+    /// the instance in place, keeps it; a List or Set collection's instance has no key child.
     #[must_use]
     pub fn key(&self, order: Order) -> Option<&str> {
         match order {

@@ -355,7 +355,7 @@ advice = "init/main-k/k/k::k![pgm]"
 
 [class.map-collection-key]
 code = "krs::analysis::map-collection-key"
-doc = "an instance update (`..me`) of a Map collection that writes the instance's key, its first child, whether the pattern names it or not: an update changes the instance in place and the key is its identity, so another key is another entry of the map (§7); a created instance states its key"
+doc = "an instance update (`..me`) of a Map collection that writes the instance's key, its first child, as anything but the binder the subject matched the key with (a literal, another name, a computed value, or a key the labelled instance does not name): an update changes the instance in place and the key is its identity, so another key is another entry of the map (§7); written as the subject's own key binder it is unchanged (P0)"
 advice = "none"
 
 [class.map-notation-at-non-map]

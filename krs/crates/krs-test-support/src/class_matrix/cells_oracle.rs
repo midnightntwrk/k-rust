@@ -21,9 +21,7 @@
 //!    (a) the outermost layer's mark admits the entry and its inside is judged against the next
 //!    layer; (b) a mark of a layer the stack has nowhere gives that mark's class; (c) a deeper
 //!    layer's mark, or a value where the outermost layer has a mark, gives the missing layer's
-//!    class. Inside a Map collection's instances, a result's instance update (`..me`) that writes
-//!    the key child, its first, is `map-collection-key` (§2.3, §7: an update changes the instance
-//!    in place, and the key is its identity);
+//!    class;
 //! 3. **pairing**: rests (P6), absence (P5), Q1's lint and overwrite (a result over a cell the
 //!    subject does not match, [`Context::other`] `None`), Q3, and a bare `..` in a result's group
 //!    record for a group that exists, matched or overwritten (P6: Rust's default fields, which
@@ -32,7 +30,9 @@
 //!    entry of its own cell), against the child's own other side: the subject record's same
 //!    child, the same child of the subject instance an update `..me` labels (R10), an unmatched
 //!    child where the subject does not name it, and none for a created instance's or `?`
-//!    cell's child.
+//!    cell's child. A Map collection's instance keeps its key, its first child: an update writes
+//!    it, if at all, as the binder its subject matched it with (`map-collection-key`; §2.3, §7,
+//!    P0).
 //!
 //! It answers [`Outcome::After`] where steps 1–3 admit and a value position holds a term whose
 //! sort the lattice must check (step 4, the compiler's). [`rule_outcome`] answers step 5, the
@@ -904,22 +904,7 @@ impl Judge<'_> {
                     other => other,
                 };
                 match (base, &rest[0]) {
-                    (
-                        Spelling::Record(record) | Spelling::Fragment(record),
-                        Layer::Group(group),
-                    ) => {
-                        // §2.3, §7: an update changes the instance in place, and a Map
-                        // instance's key is its identity, so an update that writes the key,
-                        // named in the pattern or not, is a key change.
-                        if self.side == Side::Result
-                            && matches!(record.rest, RecordRest::Update(_))
-                            && record.head == group.name
-                            && key(order, group).is_some_and(|key| {
-                                record.fields.iter().any(|(name, _)| name == key)
-                            })
-                        {
-                            return refuse("map-collection-key", Step::Inside, depth + 1);
-                        }
+                    (Spelling::Record(_) | Spelling::Fragment(_), Layer::Group(group)) => {
                         self.group_value(group, base, depth + 2)?;
                     }
                     // Q2: one instance of an ordered collection is a value (its front one).
@@ -1077,10 +1062,14 @@ impl Judge<'_> {
                 }
                 self.pair_fields(group, record, other)
             }
-            ([Layer::Instances(_), Layer::Group(group), ..], _) => {
+            ([Layer::Instances(order), Layer::Group(group), ..], _) => {
                 for item in seq_of(spelling).map_or(&[][..], |(items, _)| items) {
                     if let Some(record) = record_of(item, group) {
-                        self.pair_fields(group, record, other.instance(record))?;
+                        let other = other.instance(record);
+                        if !keeps_key(*order, group, record, other) {
+                            return refuse("map-collection-key", Step::Pairing, 0);
+                        }
+                        self.pair_fields(group, record, other)?;
                     }
                 }
                 Ok(())
@@ -1169,6 +1158,39 @@ fn record_of<'s>(spelling: &'s Spelling, group: &Group) -> Option<&'s Record> {
             Some(record)
         }
         _ => None,
+    }
+}
+
+/// Whether a result's instance record of `group`, in a collection ordered by `order`, with
+/// `other` its other side ([`Other::instance`]), keeps the instance's key (§2.3, §7). A Map
+/// collection's instance is keyed by its first child, its identity, and an update (`..me`)
+/// changes the instance in place: it writes the key, if at all, as the binder its subject
+/// matched the key with, which means the same instance (P0); any other key value, or a key
+/// the labelled instance does not name, is a key change.
+fn keeps_key(order: Order, group: &Group, record: &Record, other: Other<'_>) -> bool {
+    fn named<'r>(record: &'r Record, key: &str) -> Option<&'r Spelling> {
+        record
+            .fields
+            .iter()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| value)
+    }
+    let Some(key) = key(order, group) else {
+        return true;
+    };
+    match (&record.rest, named(record, key)) {
+        (RecordRest::Update(_), Some(value)) => {
+            let Other::Matched(subject) = other else {
+                return false;
+            };
+            let matched = record_of(subject, group).and_then(|record| named(record, key));
+            matches!(
+                (value, matched),
+                (Spelling::Binder(written), Some(Spelling::Binder(bound) | Spelling::Alias(bound, _)))
+                    if written == bound
+            )
+        }
+        _ => true,
     }
 }
 

@@ -2257,10 +2257,12 @@ fn a_group_records_children_pair_their_rests_at_their_own_content_roots() {
     ]);
 }
 
-/// D-2 (S5.0g): an update (`..me`) changes the instance in place, and a Map collection's
-/// instance is keyed by its first child, its identity (design §2.3, §7): an update that writes
-/// the key, named in the pattern or not, is `map-collection-key`. A created instance states its
-/// key, and an update's unnamed non-key child is Q1's overwrite; a Set collection keys none.
+/// D-2 (S5.0g), narrowed by ruling 2 (P0): an update (`..me`) changes the instance in place, and
+/// a Map collection's instance is keyed by its first child, its identity (design §2.3, §7). An
+/// update that writes the key as the binder its subject matched it with means the same instance,
+/// admitted; any other key value (a literal, another name, a computed value), or a key the
+/// labelled instance does not name, is `map-collection-key`. An update's unnamed non-key child
+/// is Q1's overwrite; a Set collection keys none.
 #[test]
 fn an_update_of_a_map_collections_instance_that_writes_its_key_is_refused() {
     let account = |order| {
@@ -2282,6 +2284,37 @@ fn an_update_of_a_map_collections_instance_that_writes_its_key_is_refused() {
         ),
         (
             child_probe(Form::Claim, &map, "{ A { id: z, ..me }, .. }", me),
+            Outcome::After,
+        ),
+        (
+            child_probe(
+                Form::Cells,
+                &map,
+                "{ k::fragment![crate::A { id: z, ..me }], .. }",
+                Some("{ me @ k::fragment![crate::A { id: z, .. }], .. }"),
+            ),
+            Outcome::After,
+        ),
+        (
+            child_probe(Form::Readable, &map, "{ A { id: y, ..me }, .. }", me),
+            refused,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &map,
+                "{ A { id: k::builtin::int::add(z, 1), ..me }, .. }",
+                me,
+            ),
+            refused,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &map,
+                "{ A { id: z, ..me }, .. }",
+                Some("{ me @ A { id: y, .. }, other @ A { id: z, .. }, .. }"),
+            ),
             refused,
         ),
         (

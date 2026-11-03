@@ -13,12 +13,11 @@
 //! 3. **kind**, against the cell's own layers, outermost first: the outermost layer's mark admits
 //!    the entry and its inside is judged against the next layer; a mark no layer of the stack
 //!    has gives that mark's refusal; a deeper layer's mark, or a value where the outermost layer
-//!    has a mark, gives the missing layer's refusal. Inside a Map collection's instances, a
-//!    result's instance update (`..me`) that writes the key child is a key change
-//!    ([`GroupKind::key`]).
+//!    has a mark, gives the missing layer's refusal.
 //!
 //! [`pair`] then judges the entry with its rule: a result's rest against its subject's, at its
-//! cell's content root and at each child's of the group and instance records it writes, a
+//! cell's content root and at each child's of the group and instance records it writes, a Map
+//! collection's instance key ([`GroupKind::key`]), which an update keeps, a
 //! result's group record with a bare `..` for a group that exists, a result over a cell the
 //! subject does not match (Q1's overwrite, where it means one configuration), an absence test,
 //! and the lint of a subject entry that constrains nothing.
@@ -120,8 +119,10 @@ pub enum Refusal {
     /// record's top-level route).
     MapReadInResult,
     /// An instance update (`..me`) of a Map collection that writes the instance's key, its first
-    /// child, whether the pattern names it or not: an update changes the instance in place, and
-    /// the key is its identity, so another key is another entry of the map.
+    /// child, as anything but the binder the subject matched the key with (a literal, another
+    /// name, a computed value, or a key the labelled instance does not name): an update changes
+    /// the instance in place, and the key is its identity, so another key is another entry of
+    /// the map. Written as the subject's own key binder, the key is unchanged.
     MapCollectionKey,
     /// A readable map read at a record's top level whose value is not a fresh binder (a stated
     /// limitation of the readable record's top-level route; inside an instance record the value
@@ -468,8 +469,7 @@ impl Admission<'_> {
     }
 
     /// A collection's instances: each item an instance record of the collection's group, or,
-    /// in an ordered collection, a value for its front instance. A result's update of a Map
-    /// collection's instance keeps its key.
+    /// in an ordered collection, a value for its front instance.
     fn instances(
         &mut self,
         order: Order,
@@ -488,21 +488,9 @@ impl Admission<'_> {
             };
             match (item, below.first()) {
                 (
-                    EntrySpelling::Record(record) | EntrySpelling::Fragment(record),
+                    EntrySpelling::Record(_) | EntrySpelling::Fragment(_),
                     Some(Layer::Group(group)),
                 ) => {
-                    // An update changes the instance in place, and a Map instance's key is its
-                    // identity: an update that writes it, named in the pattern or not, changes
-                    // which entry of the map the instance is.
-                    if self.side == EntrySide::Result
-                        && matches!(record.tail, RecordTail::Update(_))
-                        && record.head == group.name
-                        && group
-                            .key(order)
-                            .is_some_and(|key| record.fields.iter().any(|(name, _)| name == key))
-                    {
-                        return Err(Refusal::MapCollectionKey);
-                    }
                     self.group(group, item)?;
                 }
                 // One instance of an ordered collection is its front one.
@@ -763,6 +751,39 @@ impl Other<'_> {
     }
 }
 
+/// Whether a result's instance record of `group`, in a collection ordered by `order`, with
+/// `other` its other side, keeps the instance's key ([`GroupKind::key`]): an update changes the
+/// instance in place, so it writes a Map instance's key, if at all, as the binder the subject
+/// matched the key with, which is the same instance; any other key value, or a key the labelled
+/// instance does not name, is a key change.
+fn keeps_key(order: Order, group: &GroupKind, record: &EntryRecord, other: Other<'_>) -> bool {
+    fn named<'r>(record: &'r EntryRecord, key: &str) -> Option<&'r EntrySpelling> {
+        record
+            .fields
+            .iter()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| value)
+    }
+    let Some(key) = group.key(order) else {
+        return true;
+    };
+    match (&record.tail, named(record, key)) {
+        (RecordTail::Update(_), Some(value)) => {
+            let Other::Matched(subject) = other else {
+                return false;
+            };
+            matches!(
+                (value, record_of(subject, group).and_then(|record| named(record, key))),
+                (
+                    EntrySpelling::Binder(written),
+                    Some(EntrySpelling::Binder(bound) | EntrySpelling::Alias(bound, _)),
+                ) if written == bound
+            )
+        }
+        _ => true,
+    }
+}
+
 /// A result's content against its other side, at the entry's cell or at a child's: its rest,
 /// then each child of the group and instance records it writes, against the child's own.
 fn pair_content(
@@ -826,11 +847,17 @@ fn pair_records(
             }
             fields(group, record, other)
         }
-        ([Layer::Instances(_), Layer::Group(group), ..], _) => sequence(spelling)
+        ([Layer::Instances(order), Layer::Group(group), ..], _) => sequence(spelling)
             .map_or(&[][..], |seq| &seq.items[..])
             .iter()
             .filter_map(|item| record_of(item, group))
-            .try_for_each(|record| fields(group, record, other.instance(record))),
+            .try_for_each(|record| {
+                let other = other.instance(record);
+                if !keeps_key(*order, group, record, other) {
+                    return Err(Refusal::MapCollectionKey);
+                }
+                fields(group, record, other)
+            }),
         _ => Ok(()),
     }
 }
@@ -1474,9 +1501,28 @@ mod tests {
             result(readable, &map, "{ A { id: 5, ..me }, .. }", me),
             refused
         );
-        // Written back as it was matched, the key is still written by the update.
+        // Written back as the binder the subject matched it with, the key is unchanged; another
+        // name or a computed value is another key.
         assert_eq!(
             result(readable, &map, "{ A { id: z, ..me }, .. }", me),
+            Ok(None)
+        );
+        assert_eq!(
+            result(readable, &map, "{ A { id: y, ..me }, .. }", me),
+            refused
+        );
+        assert_eq!(
+            result(readable, &map, "{ A { id: int::add(z, 1), ..me }, .. }", me),
+            refused
+        );
+        // Another instance's key binder is not this instance's.
+        assert_eq!(
+            result(
+                readable,
+                &map,
+                "{ A { id: z, ..me }, .. }",
+                Some("{ me @ A { id: y, .. }, other @ A { id: z, .. }, .. }")
+            ),
             refused
         );
         // Unnamed in the pattern, it is still the key.
