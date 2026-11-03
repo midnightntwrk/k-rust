@@ -94,13 +94,14 @@ fn the_case_count_per_family_is_pinned_and_capped() {
         BTreeMap::from([
             // 7 kinds × 13 spellings × 2 sides, 8 typed cells × 4 contents × 2 sides, the kinds
             // base's 15 stacks × 9 marks (S5.0g), and its listed cases: a group named with its
-            // child, the 2-child group record written whole on each side, `Some(_)` in a result,
-            // and (readable only) a rule that writes no cell.
-            (Family::Readable, 182 + 64 + 15 * 9 + 5),
-            (Family::Claim, 182 + 64 + 15 * 9 + 4),
+            // child, the 2-child group record written whole and naming one child on each side,
+            // `Some(_)` in a result, and (readable only) a rule that writes no cell.
+            (Family::Readable, 182 + 64 + 15 * 9 + 7),
+            (Family::Claim, 182 + 64 + 15 * 9 + 6),
             // 7 kinds × (13 subject + 13 result spellings), the kinds base's 15 stacks × 9
-            // marks, and S5-F1's result fragment with a bare `..`.
-            (Family::Cells, 182 + 15 * 9 + 1),
+            // marks, S5-F1's result fragment with a bare `..`, and the 2-child group's fragment
+            // naming one child on each side.
+            (Family::Cells, 182 + 15 * 9 + 1 + 2),
             // 7 kinds × 19 values, the computation cell's remainder, 3 field orders and the
             // nested group's, the optional cell declared `initial` written present, the 4 main-cell
             // shapes × 3 forms of a sentence that names no cell, 8 typed cells × 4 contents, and

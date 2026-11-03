@@ -1728,6 +1728,16 @@ class = "group-and-descendant"
 at = "item"
 
 [[refuse]]
+match = '{claim,readable}/{result,subject}/kinds/frame/G \{ a: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/{result,subject}/kinds/frame/k::fragment![crate::G \{ a: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
 match = '{claim,readable}/result/kinds/counter/Some(_)'
 class = "wildcard-outside-pattern"
 at = "spelling"

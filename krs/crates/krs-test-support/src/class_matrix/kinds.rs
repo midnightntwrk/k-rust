@@ -1178,7 +1178,7 @@ fn generate() -> Vec<Generated> {
 /// (`rule-changes-no-cell`), a rule naming a group and a cell below it (`group-and-descendant`),
 /// L4's 2-child group record written whole, `Some(_)` in a result, and S5-F1's `cells!` result
 /// fragment with a bare `..` over a matched group. L4's record naming one of the two children
-/// waits on the S5.0g stop D-4 (`outcome` admits its `cells!` fragment).
+/// is written in both forms, readable `G { a: x }` and its `cells!` fragment (D-4).
 fn listed() -> Vec<Generated> {
     let frame = decl("frame");
     let g = |fields: Vec<(&str, Spelling)>, text: &str, rest| {
@@ -1203,6 +1203,12 @@ fn listed() -> Vec<Generated> {
                     RecordRest::Exact,
                 ),
             ));
+            out.push(readable_case(
+                family,
+                side,
+                "frame",
+                &g(vec![("a", bind("x"))], "G { a: x }", RecordRest::Exact),
+            ));
         }
         out.push(readable_case(
             family,
@@ -1222,6 +1228,25 @@ fn listed() -> Vec<Generated> {
         "frame",
         &cells_mark("value:fragment", frame, RuleSide::Result),
     ));
+    for side in [RuleSide::Subject, RuleSide::Result] {
+        out.push(cells_case(
+            side,
+            "frame",
+            &Written {
+                text: "k::fragment![crate::G { a: x }]".to_owned(),
+                spelling: Spelling::Fragment(record(
+                    "G",
+                    vec![("a", bind("x"))],
+                    RecordRest::Exact,
+                )),
+                binders: if side == RuleSide::Subject {
+                    vec![("x", INT.to_owned())]
+                } else {
+                    Vec::new()
+                },
+            },
+        ));
+    }
     out
 }
 
