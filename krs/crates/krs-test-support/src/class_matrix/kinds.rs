@@ -21,6 +21,8 @@ use super::cells_oracle::{
     Context, Entry, EntryCase, Form, Group, Layer, Notation, Order, RecordRest, Sentence, Spelling,
     Template, collect_groups,
 };
+use super::k7::{Ground, K7, Removed, Run, SkipKind, Status};
+use super::machine;
 use super::{
     Base, BaseText, Case, CaseSpec, Command, Family, ItemBuilder, OwnReason, Packaging, Side,
 };
@@ -1080,16 +1082,7 @@ fn init_case(cell_name: &str, mark: &Written) -> Generated {
     item.push(HEADER);
     initializer_fields(Some((cell_name, &mark.text)), &mut item);
     item.push(FOOTER);
-    let mut case = spec.finish(Packaging::Own(OwnReason::Initializer), &item);
-    // An initializer needs no driver: K7 reads it before any step. What this base lacks is the
-    // plan, the value each cell's initializer denotes written as K7's grounds (the machine base's
-    // `machine_start`). Until S5.0g part (b) writes it, the case says so instead of borrowing the
-    // rule families' reason.
-    case.k7 = super::k7::K7::skip(
-        super::k7::SkipKind::Form,
-        "the kinds base's initializer cases have no K7 plan yet: the values its cells' \
-         initializers denote are not written as K7 grounds (S5.0g part (b))",
-    );
+    let case = spec.finish(Packaging::Own(OwnReason::Initializer), &item);
     let init_stack = |name: &str| {
         let mut stack = stack(name);
         if matches!(stack.first(), Some(Layer::Instances(_))) {
@@ -1115,7 +1108,7 @@ fn init_case(cell_name: &str, mark: &Written) -> Generated {
             spelling: default(field, top).1,
         });
     }
-    Generated {
+    let mut generated = Generated {
         case,
         entry: EntryCase {
             form: Form::Init,
@@ -1128,6 +1121,7 @@ fn init_case(cell_name: &str, mark: &Written) -> Generated {
             },
             context: Context {
                 bound: vec!["pgm".to_owned()],
+                records: Vec::new(),
                 other: None,
                 written: false,
                 groups: Vec::new(),
@@ -1139,7 +1133,169 @@ fn init_case(cell_name: &str, mark: &Written) -> Generated {
                 variables: vec![("pgm".to_owned(), true)],
             },
         },
+    };
+    // An initializer needs no driver: K7 reads it before any step, so its plan is the value
+    // each cell's initializer denotes, written as K7's grounds.
+    let entry_outcome = generated.entry.outcome();
+    let refused = !entry_outcome.admits() || generated.entry.rule_outcome(entry_outcome).is_some();
+    let (plan, removed) = init_plan(cell_name, &mark.text, refused);
+    generated.case.k7 = plan;
+    if let Some(removed) = removed {
+        generated.case.removed = removed;
     }
+    generated
+}
+
+/// What the kinds base's cells hold when an initializer case's run starts, by K7 path: every
+/// cell the base's own initializer writes, with the value it denotes and the program `go` in
+/// `k`. Each optional cell is written `k::absent!(..)`, so it starts absent (decision NT-12-6);
+/// an optional group's absence (`ogroup`, `opt`) is not read, since K7's reader reads a cell by
+/// a leaf's path, and a present one is read at its child (`ogroup.oa`);
+/// each collection's initializer writes one instance's template, so it starts with no instance
+/// (K7's reader reads a Map collection's instances as a set, by their children's values).
+fn kinds_cells() -> Vec<(&'static str, Ground)> {
+    let go = || Ground::ctor("Cmd::Go", Vec::new());
+    vec![
+        ("k", Ground::Seq(vec![go()])),
+        ("prog", Ground::Seq(Vec::new())),
+        ("aux.code", Ground::Seq(Vec::new())),
+        ("pc", Ground::Int(0)),
+        ("stack", Ground::List(Vec::new())),
+        ("seq", Ground::ctor("IntList::IntsEmpty", Vec::new())),
+        ("env", Ground::map(Vec::new())),
+        ("set", Ground::Set(Vec::new())),
+        ("frame.a", Ground::Int(0)),
+        ("frame.b", Ground::Int(0)),
+        ("counter", Ground::Absent),
+        ("olist", Ground::Absent),
+        ("omap", Ground::Absent),
+        ("queue.job[payload]", Ground::List(Vec::new())),
+        ("shelf.bag{key}", Ground::Set(Vec::new())),
+        ("bank.account{id}", Ground::Set(Vec::new())),
+    ]
+}
+
+/// The K7 path of the kinds base's top-level cell `cell` an initializer case writes.
+fn kinds_path(cell: &str) -> &'static str {
+    match cell {
+        "code" => "aux.code",
+        "job" => "queue.job[payload]",
+        "bag" => "shelf.bag{key}",
+        "account" => "bank.account{id}",
+        // A group's children are read below its path.
+        "frame" => "frame",
+        "ogroup" => "ogroup",
+        other => kinds_cells()
+            .into_iter()
+            .map(|(path, _)| path)
+            .find(|path| *path == other)
+            .unwrap_or_else(|| panic!("no kinds cell path `{other}`")),
+    }
+}
+
+/// What `value` gives the kinds base's cell `cell` when the run starts with the program `go`,
+/// by K7 path, or `None` where the generator states nothing (the cell is then unread). A
+/// computation holds `pgm` (`go`) or `0` as its one item; a List leaf's `[0]` is that list; the
+/// cons leaf's `[0]` is `0 : .Ints`; an optional cell's `Some(v)` holds `v` (the group's, at its
+/// child) and its `k::absent!(..)` is absent; a group's exact record holds its fields.
+fn kinds_value(cell: &str, value: &str) -> Option<Vec<(&'static str, Ground)>> {
+    let go = || Ground::ctor("Cmd::Go", Vec::new());
+    let path = kinds_path(cell);
+    let one = |ground| Some(vec![(path, ground)]);
+    match (cell, value) {
+        ("prog" | "code", "k::k![pgm]" | "pgm" | "[pgm]") => one(Ground::Seq(vec![go()])),
+        ("prog" | "code", "k::k![0]" | "0" | "[0]") => one(Ground::Seq(vec![Ground::Int(0)])),
+        ("pc", "0") | ("counter", "Some(0)") => one(Ground::Int(0)),
+        ("stack", "[0]") => one(Ground::List(vec![Ground::Int(0)])),
+        ("seq", "[0]") => one(Ground::ctor(
+            "IntList::IntsCons",
+            vec![
+                Ground::Int(0),
+                Ground::ctor("IntList::IntsEmpty", Vec::new()),
+            ],
+        )),
+        ("env", "k::map![0 -> 1]") => one(Ground::map(vec![(Ground::Int(0), Ground::Int(1))])),
+        ("frame", "G { a: 0, b: 0 }") => Some(vec![
+            ("frame.a", Ground::Int(0)),
+            ("frame.b", Ground::Int(0)),
+        ]),
+        ("olist", "Some(list::empty())") => one(Ground::List(Vec::new())),
+        ("omap", "Some(k::map![])") => one(Ground::map(Vec::new())),
+        ("ogroup", "Some(O { oa: 0 })") => Some(vec![("ogroup.oa", Ground::Int(0))]),
+        ("counter" | "olist" | "omap", _) if value.starts_with("k::absent!(") => {
+            one(Ground::Absent)
+        }
+        // An absent optional group is not read ([`kinds_cells`]): the base's reading stands.
+        ("ogroup", _) if value.starts_with("k::absent!(") => Some(Vec::new()),
+        _ => None,
+    }
+}
+
+/// Why a kinds collection's initializer case reads nothing of its spelling.
+pub(super) const KINDS_TEMPLATE_UNREAD: &str = "a collection's initializer writes one instance's template, and the collection starts with no instance: the kinds base has no driver command that creates one, so no run reads the template";
+
+/// K7's plan for the kinds base's initializer case of `cell` written `value`, and what its
+/// dependency check states where the run without it is the same: a value `outcome` refuses is
+/// refused at K2 and has no run; otherwise the run starts with `go`, takes no step, and the
+/// cells hold the base's values ([`kinds_cells`]) with the case's in place of its cell's, the
+/// cell left unread (liveness) where the generator states no value. A collection's case reads
+/// none of its template ([`KINDS_TEMPLATE_UNREAD`]).
+fn init_plan(cell: &str, value: &str, refused: bool) -> (K7, Option<Removed>) {
+    if refused {
+        return (K7::skip(SkipKind::Value, machine::REFUSED_AT_K2), None);
+    }
+    let base = || {
+        K7::Run(Run {
+            program: "go".to_owned(),
+            variables: Vec::new(),
+            depth: 0,
+            steps: 0,
+            cells: kinds_cells()
+                .into_iter()
+                .map(|(path, ground)| (path.to_owned(), ground))
+                .collect(),
+            status: Status::Value,
+            forward_only: Vec::new(),
+            applies: true,
+        })
+    };
+    let path = kinds_path(cell);
+    let collection = matches!(cell, "job" | "bag" | "account");
+    let K7::Run(mut run) = base() else {
+        unreachable!("the base plan is a run");
+    };
+    // The cell's base reading, and any reading below it, gives way to the case's.
+    let owned = |at: &str| at == path || at.starts_with(&format!("{path}."));
+    if collection {
+        // The collection starts with no instance whatever its template: the run reads the
+        // base's cells, the collection empty, as the base's own initializer states them.
+        run.status = Status::Liveness;
+        return (
+            K7::Run(run),
+            Some(Removed::Unchanged(machine::TEMPLATE_UNCHANGED)),
+        );
+    }
+    run.cells.retain(|(at, _)| !owned(at));
+    match kinds_value(cell, value) {
+        Some(readings) => run.cells.extend(
+            readings
+                .into_iter()
+                .map(|(at, ground)| (at.to_owned(), ground)),
+        ),
+        None => run.status = Status::Liveness,
+    }
+    let at_base = kinds_cells();
+    let same = run.status == Status::Value
+        && run.cells.len() == at_base.len()
+        && at_base.iter().all(|(path, ground)| {
+            run.cells
+                .iter()
+                .any(|(at, read)| at == path && read == ground)
+        });
+    (
+        K7::Run(run),
+        same.then_some(Removed::Unchanged(machine::BASE_VALUE)),
+    )
 }
 
 /// The marks of each form, in check 5's order (`tests/cells_oracle.rs` `marks`).

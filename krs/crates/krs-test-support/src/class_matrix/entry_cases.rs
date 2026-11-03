@@ -543,9 +543,12 @@ fn readable_record(case: &Case, cell: &str) -> EntryCase {
     }
 }
 
+/// A result's context over `other`, the subject's entry of its cell: what the subject's aliases
+/// bind are its records.
 fn result_context(other: Spelling) -> Context {
     Context {
         bound: BOUND.map(str::to_owned).to_vec(),
+        records: super::sweep::records_by(&other),
         other: Some(other),
         written: false,
         groups: Vec::new(),
@@ -671,6 +674,7 @@ fn initializer_case(own: Entry, entries: Vec<Entry>, variables: Vec<(String, boo
         entry: own,
         context: Context {
             bound: variables.iter().map(|(name, _)| name.clone()).collect(),
+            records: Vec::new(),
             other: None,
             written: false,
             groups: Vec::new(),

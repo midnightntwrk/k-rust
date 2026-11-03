@@ -16,7 +16,7 @@ use super::super::cells_oracle::build::{bind, call, named, open, seq, splice};
 use super::super::cells_oracle::{
     Context, EntryCase, Form, Sentence as TemplateSentence, Spelling, Template,
 };
-use super::super::sweep::{binder_types, bound_by, read, untexted};
+use super::super::sweep::{binder_types, bound_by, read, records_by, untexted};
 use super::super::{Base, CaseSpec, Command, Family, ItemBuilder, Packaging, Side};
 use super::{Generated, INT, entry, groups, key, stack};
 
@@ -38,8 +38,13 @@ pub(super) struct Group {
     pub(super) cases: &'static [(Side, &'static str)],
     /// The `cells!` parameters after the command's arguments, in the order their binders first
     /// occur (as `cells!` requires), where their positions do not give them: a binder inside a
-    /// list element or a map, whose position is a term's, and an alias of a list element, a term
-    /// binder that is no instance label. Empty: each binder typed by its position.
+    /// list element or a map, whose position is a term's; an alias inside a term (of a List
+    /// leaf's element, of a nested collection's instance in a fragment field), a term binder
+    /// that is no instance label (only a cell collection's own instance alias is one); and a
+    /// named rest inside a term (`rest @ ..` in a List leaf's brackets), a term binder that is no
+    /// frame (only a cell collection's, a computation's and a map cell's own rests are). These are
+    /// the product's rule-signature rules (`krs_syntax::cells_pattern_term_binders`). Empty: each
+    /// binder typed by its position.
     pub(super) typed: &'static [(&'static str, &'static str)],
 }
 
@@ -246,82 +251,182 @@ pub(super) const GROUPS: &[Group] = &[
         cases: &[(RS, "frame"), (RS, "pc")],
         typed: &[],
     },
-    // G1 and F-7 (readable and claims; `cells!` owed: its parameters for an alias of a list element are
-    // not found yet, item 3b's remaining plan): an instance updated from a record the sentence matches in another cell (a List
-    // leaf's element), with a `?`, group, computation (exact and with a rest) and Map child (the
-    // base bound to a non-record is item 3b's stop, not generated: `outcome` admits it).
+    // G1 and F-7: an instance updated from a record of its constructor the sentence matches in
+    // another cell (a List leaf's element), with a `?`, group, computation (exact and with a
+    // rest) and Map child; and the base bound to a non-record (`g1-f`, `record-update-base`:
+    // S5.0g item 3b ruling 1).
     Group {
         tag: "g1-a",
         arguments: &["x"],
         subject: &[
-            ("stack", ["[me @ Acct { id: z, .. }, ..]", ""]),
-            ("account", ["{ .. }", ""]),
+            (
+                "stack",
+                [
+                    "[me @ Acct { id: z, .. }, ..]",
+                    "k::configuration::Cell([me @ k::fragment![crate::Acct { id: z, .. }], rest @ ..])",
+                ],
+            ),
+            ("account", ["{ .. }", "{ instances0 @ .. }"]),
         ],
         result: &[
-            ("stack", ["[..]", ""]),
-            ("account", ["{ Acct { acounter: Some(x), ..me }, .. }", ""]),
+            ("stack", ["[..]", "k::configuration::Cell(rest)"]),
+            (
+                "account",
+                [
+                    "{ Acct { acounter: Some(x), ..me }, .. }",
+                    "{ k::fragment![crate::Acct { acounter: Some(x), ..me }], ..instances0 }",
+                ],
+            ),
         ],
         cases: &[(RS, "account"), (S, "stack")],
-        typed: &[("me", "crate::Acct"), ("z", INT)],
+        typed: &[
+            ("me", "crate::Acct"),
+            ("z", INT),
+            ("rest", "k::Term<k::builtin::List>"),
+        ],
     },
     Group {
         tag: "g1-b",
         arguments: &["x"],
         subject: &[
-            ("stack", ["[me @ Acct { id: z, .. }, ..]", ""]),
-            ("account", ["{ .. }", ""]),
+            (
+                "stack",
+                [
+                    "[me @ Acct { id: z, .. }, ..]",
+                    "k::configuration::Cell([me @ k::fragment![crate::Acct { id: z, .. }], rest @ ..])",
+                ],
+            ),
+            ("account", ["{ .. }", "{ instances0 @ .. }"]),
         ],
         result: &[
-            ("stack", ["[..]", ""]),
+            ("stack", ["[..]", "k::configuration::Cell(rest)"]),
             (
                 "account",
-                ["{ Acct { aframe: Ag { aa: x }, ..me }, .. }", ""],
+                [
+                    "{ Acct { aframe: Ag { aa: x }, ..me }, .. }",
+                    "{ k::fragment![crate::Acct { aframe: Ag { aa: x }, ..me }], ..instances0 }",
+                ],
             ),
         ],
         cases: &[(RS, "account")],
-        typed: &[("me", "crate::Acct"), ("z", INT)],
+        typed: &[
+            ("me", "crate::Acct"),
+            ("z", INT),
+            ("rest", "k::Term<k::builtin::List>"),
+        ],
     },
     Group {
         tag: "g1-c",
         arguments: &["x"],
         subject: &[
-            ("stack", ["[me @ Acct { id: z, .. }, ..]", ""]),
-            ("account", ["{ .. }", ""]),
+            (
+                "stack",
+                [
+                    "[me @ Acct { id: z, .. }, ..]",
+                    "k::configuration::Cell([me @ k::fragment![crate::Acct { id: z, .. }], rest @ ..])",
+                ],
+            ),
+            ("account", ["{ .. }", "{ instances0 @ .. }"]),
         ],
         result: &[
-            ("stack", ["[..]", ""]),
-            ("account", ["{ Acct { aprog: [x], ..me }, .. }", ""]),
+            ("stack", ["[..]", "k::configuration::Cell(rest)"]),
+            (
+                "account",
+                [
+                    "{ Acct { aprog: [x], ..me }, .. }",
+                    "{ k::fragment![crate::Acct { aprog: [x], ..me }], ..instances0 }",
+                ],
+            ),
         ],
         cases: &[(RS, "account")],
-        typed: &[("me", "crate::Acct"), ("z", INT)],
+        typed: &[
+            ("me", "crate::Acct"),
+            ("z", INT),
+            ("rest", "k::Term<k::builtin::List>"),
+        ],
     },
     Group {
         tag: "g1-d",
         arguments: &["x"],
         subject: &[
-            ("stack", ["[me @ Acct { id: z, .. }, ..]", ""]),
-            ("account", ["{ .. }", ""]),
+            (
+                "stack",
+                [
+                    "[me @ Acct { id: z, .. }, ..]",
+                    "k::configuration::Cell([me @ k::fragment![crate::Acct { id: z, .. }], rest @ ..])",
+                ],
+            ),
+            ("account", ["{ .. }", "{ instances0 @ .. }"]),
         ],
         result: &[
-            ("stack", ["[..]", ""]),
-            ("account", ["{ Acct { aprog: [x, ..], ..me }, .. }", ""]),
+            ("stack", ["[..]", "k::configuration::Cell(rest)"]),
+            (
+                "account",
+                [
+                    "{ Acct { aprog: [x, ..], ..me }, .. }",
+                    "{ k::fragment![crate::Acct { aprog: [x, ..], ..me }], ..instances0 }",
+                ],
+            ),
         ],
         cases: &[(RS, "account")],
-        typed: &[("me", "crate::Acct"), ("z", INT)],
+        typed: &[
+            ("me", "crate::Acct"),
+            ("z", INT),
+            ("rest", "k::Term<k::builtin::List>"),
+        ],
     },
     Group {
         tag: "g1-e",
         arguments: &["x"],
         subject: &[
-            ("stack", ["[me @ Acct { id: z, .. }, ..]", ""]),
-            ("account", ["{ .. }", ""]),
+            (
+                "stack",
+                [
+                    "[me @ Acct { id: z, .. }, ..]",
+                    "k::configuration::Cell([me @ k::fragment![crate::Acct { id: z, .. }], rest @ ..])",
+                ],
+            ),
+            ("account", ["{ .. }", "{ instances0 @ .. }"]),
         ],
         result: &[
-            ("stack", ["[..]", ""]),
-            ("account", ["{ Acct { aenv: { x -> 1 }, ..me }, .. }", ""]),
+            ("stack", ["[..]", "k::configuration::Cell(rest)"]),
+            (
+                "account",
+                [
+                    "{ Acct { aenv: { x -> 1 }, ..me }, .. }",
+                    "{ k::fragment![crate::Acct { aenv: k::map![x -> 1], ..me }], ..instances0 }",
+                ],
+            ),
         ],
         cases: &[(RS, "account")],
-        typed: &[("me", "crate::Acct"), ("z", INT)],
+        typed: &[
+            ("me", "crate::Acct"),
+            ("z", INT),
+            ("rest", "k::Term<k::builtin::List>"),
+        ],
+    },
+    Group {
+        tag: "g1-f",
+        arguments: &["x"],
+        subject: &[
+            (
+                "stack",
+                ["[me, ..]", "k::configuration::Cell([me, rest @ ..])"],
+            ),
+            ("account", ["{ .. }", "{ instances0 @ .. }"]),
+        ],
+        result: &[
+            ("stack", ["[..]", "k::configuration::Cell(rest)"]),
+            (
+                "account",
+                [
+                    "{ Acct { acounter: Some(x), ..me }, .. }",
+                    "{ k::fragment![crate::Acct { acounter: Some(x), ..me }], ..instances0 }",
+                ],
+            ),
+        ],
+        cases: &[(RS, "account")],
+        typed: &[("me", "k::KItem"), ("rest", "k::Term<k::builtin::List>")],
     },
     // G1: KEVM's restore shape, a group saved in a List leaf's element written back over the
     // group's cell.
@@ -329,18 +434,35 @@ pub(super) const GROUPS: &[Group] = &[
         tag: "g1-restore",
         arguments: &["x"],
         subject: &[
-            ("stack", ["[saved @ G { a: z, .. }, ..]", ""]),
-            ("frame", ["_", ""]),
+            (
+                "stack",
+                [
+                    "[saved @ G { a: z, .. }, ..]",
+                    "k::configuration::Cell([saved @ k::fragment![crate::G { a: z, .. }], rest @ ..])",
+                ],
+            ),
+            ("frame", ["_", "_"]),
         ],
         result: &[
-            ("stack", ["[..]", ""]),
-            ("frame", ["G { a: x, ..saved }", ""]),
+            ("stack", ["[..]", "k::configuration::Cell(rest)"]),
+            (
+                "frame",
+                [
+                    "G { a: x, ..saved }",
+                    "k::fragment![crate::G { a: x, ..saved }]",
+                ],
+            ),
         ],
         cases: &[(RS, "frame"), (S, "stack")],
-        typed: &[("saved", "crate::G"), ("z", INT)],
+        typed: &[
+            ("saved", "crate::G"),
+            ("z", INT),
+            ("rest", "k::Term<k::builtin::List>"),
+        ],
     },
-    // G3: an instance record naming a `?` child and a `*` child (its `None` subject child is
-    // item 3b's stop, not generated: `outcome` admits it where P5 refuses it).
+    // G3: an instance record naming a `?` child and a `*` child, and a subject `None` on its `?`
+    // child the result does not create (`g3-b`, `absence-test-without-creation`: P5 at every
+    // depth, S5.0g item 3b ruling 2).
     Group {
         tag: "g3-a",
         arguments: &[],
@@ -354,6 +476,20 @@ pub(super) const GROUPS: &[Group] = &[
         result: &[],
         cases: &[(S, "account")],
         typed: &[("z", INT), ("y", INT)],
+    },
+    Group {
+        tag: "g3-b",
+        arguments: &[],
+        subject: &[(
+            "account",
+            [
+                "{ Acct { id: z, acounter: None, .. }, .. }",
+                "{ k::fragment![crate::Acct { id: z, acounter: None, .. }], .. }",
+            ],
+        )],
+        result: &[],
+        cases: &[(S, "account")],
+        typed: &[("z", INT)],
     },
     Group {
         tag: "g3-c",
@@ -432,18 +568,23 @@ pub(super) const GROUPS: &[Group] = &[
             "account",
             [
                 "{ me @ Acct { id: z, aqueue: Aqueue { ajob: [j @ Ajob { apay: y }, ..] }, .. }, .. }",
-                "",
+                "{ me @ k::fragment![crate::Acct { id: z, aqueue: Aqueue { ajob: [j @ Ajob { apay: y }, jobs @ ..] }, .. }], instances0 @ .. }",
             ],
         )],
         result: &[(
             "account",
             [
                 "{ Acct { aqueue: Aqueue { ajob: [Ajob { apay: x, ..j }, ..] }, ..me }, .. }",
-                "",
+                "{ k::fragment![crate::Acct { aqueue: Aqueue { ajob: [Ajob { apay: x, ..j }, ..jobs] }, ..me }], ..instances0 }",
             ],
         )],
         cases: &[(RS, "account")],
-        typed: &[("z", INT), ("j", "crate::Ajob"), ("y", INT)],
+        typed: &[
+            ("z", INT),
+            ("j", "crate::Ajob"),
+            ("y", INT),
+            ("jobs", "k::KItem"),
+        ],
     },
     Group {
         tag: "g4-d",
@@ -466,9 +607,9 @@ pub(super) const GROUPS: &[Group] = &[
         typed: &[("z", INT), ("v", "k::KItem"), ("y", "k::KItem")],
     },
     // G5: entries across cells: a named rest moved to another cell, `group-and-descendant` beside
-    // a path entry, a subject `None` on a `?` ancestor with a path entry below it (a label used by
-    // another collection is item 3b's stop, not generated: `outcome` admits an update whose base
-    // is a record of another constructor).
+    // a path entry, a subject `None` on a `?` ancestor with a path entry below it, and a label
+    // used by another collection (`g5-b`: an update whose base is a record of another
+    // constructor, `record-update-base`, S5.0g item 3b ruling 1).
     Group {
         tag: "g5-a",
         arguments: &[],
@@ -487,7 +628,34 @@ pub(super) const GROUPS: &[Group] = &[
             ),
         ],
         cases: &[(RS, "olist")],
-        typed: &[("x", "k::KItem"), ("old", "k::Term<k::builtin::List>")],
+        typed: &[
+            ("x", "k::KItem"),
+            ("r", "k::Term<k::builtin::List>"),
+            ("old", "k::Term<k::builtin::List>"),
+        ],
+    },
+    Group {
+        tag: "g5-b",
+        arguments: &[],
+        subject: &[
+            (
+                "job",
+                [
+                    "[me @ Job { payload: z }, ..]",
+                    "[me @ k::fragment![crate::Job { payload: z }], ..]",
+                ],
+            ),
+            ("bag", ["{ .. }", "{ instances0 @ .. }"]),
+        ],
+        result: &[(
+            "bag",
+            [
+                "{ Obj { key: 1, ..me }, .. }",
+                "{ k::fragment![crate::Obj { key: 1, ..me }], ..instances0 }",
+            ],
+        )],
+        cases: &[(RS, "bag")],
+        typed: &[],
     },
     Group {
         tag: "g5-c",
@@ -520,7 +688,10 @@ pub(super) const GROUPS: &[Group] = &[
 ];
 
 /// The case of `group` whose own entry is `own`, in `family`, if the form writes the sentence.
-#[expect(clippy::too_many_lines, reason = "one sentence per form, as `sweep::build`")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one sentence per form, as `sweep::build`"
+)]
 fn case(group: &Group, family: Family, own: (Side, &str)) -> Option<Generated> {
     let (form, at) = match family {
         Family::Readable => (Form::Readable, 0),
@@ -580,8 +751,8 @@ fn case(group: &Group, family: Family, own: (Side, &str)) -> Option<Generated> {
         }
     }
     // The context: the names bound outside the entry (the command's arguments, every other
-    // subject entry's), the subject's entry of a result's cell, whether the result writes a
-    // subject's cell.
+    // subject entry's) and what each binds where it is a record, the subject's entry of a
+    // result's cell, the result's entry of a subject's cell and whether the result writes it.
     let mut bound = group
         .arguments
         .iter()
@@ -590,21 +761,25 @@ fn case(group: &Group, family: Family, own: (Side, &str)) -> Option<Generated> {
     if cells {
         bound.insert("tail".to_owned());
     }
+    let mut records = Vec::new();
     for (cell, text) in &subject {
         if !is_own(Side::Subject, cell) {
             bound.extend(bound_by(&read(text)));
+            records.extend(records_by(&read(text)));
         }
     }
+    let other_side = if own.0 == Side::Result {
+        &subject
+    } else {
+        &result
+    };
     let context = Context {
         bound: bound.into_iter().collect(),
-        other: (own.0 == Side::Result)
-            .then(|| {
-                subject
-                    .iter()
-                    .find(|(cell, _)| *cell == own.1)
-                    .map(|(_, text)| read(text))
-            })
-            .flatten(),
+        records,
+        other: other_side
+            .iter()
+            .find(|(cell, _)| *cell == own.1)
+            .map(|(_, text)| read(text)),
         written: own.0 == Side::Subject && result.iter().any(|(cell, _)| *cell == own.1),
         groups: groups(),
     };

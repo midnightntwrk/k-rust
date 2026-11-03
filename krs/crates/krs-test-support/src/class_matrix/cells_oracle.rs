@@ -286,9 +286,16 @@ pub struct Template {
 pub struct Context {
     /// Names the rule binds outside the entry (a result's binders are bound).
     pub bound: Vec<String>,
+    /// What the names of [`Self::bound`] bind, where it is a record: each name an alias binds to
+    /// a record (`me @ Acct { .. }`, or its fragment), with the record's head constructor. A
+    /// bound name not listed binds no record: a list element, a leaf value, a map value (P6: an
+    /// update `..me` takes the fields of a record of its own constructor).
+    pub records: Vec<(String, String)>,
     /// For a result, the subject's entry of the same cell: whether the subject matches the cell
     /// at all, and if so what it spells. `None` on a result is an unmatched cell, which the
-    /// result overwrites (Q1); unread on another side.
+    /// result overwrites (Q1). For a subject, the result's entry of the same cell, where the
+    /// result writes it and the case states it (`None`: no result entry is known), which says
+    /// whether the result creates a `?` child the subject tests absent (P5).
     pub other: Option<Spelling>,
     /// For a subject entry, whether the result writes the cell.
     pub written: bool,
@@ -1197,6 +1204,12 @@ impl Judge<'_> {
     fn pair(&self, stack: &[Layer], spelling: &Spelling) -> Result<Option<&'static str>, Refusal> {
         match self.side {
             Side::Subject => {
+                // P5 at every depth (P1: a record's child is an entry of its own cell, S5.0g
+                // item 3b ruling 2): a `?` child the subject tests absent needs the result to
+                // create it.
+                if absence_uncreated(stack, spelling, self.context.other.as_ref()) {
+                    refuse("absence-test-without-creation", Step::Pairing, 0)?;
+                }
                 if self.context.written {
                     return Ok(None);
                 }
@@ -1303,7 +1316,7 @@ impl Judge<'_> {
             ([Layer::Instances(order), Layer::Group(group), ..], _) => {
                 for item in seq_of(spelling).map_or(&[][..], |(items, _)| items) {
                     if let Some(record) = record_of(item, group) {
-                        let Some(other) = other.instance(record, &self.context.bound) else {
+                        let Some(other) = other.instance(record, self.context) else {
                             return refuse("record-update-base", Step::Pairing, 0);
                         };
                         if !keyed(*order, group, record, other) {
@@ -1372,11 +1385,14 @@ impl Other<'_> {
     /// `self`, `None` where it has none (P0, S5.0g pattern review P-R3). An update `..label`
     /// changes in place the subject's instance labelled `label` (R10), which the update matched:
     /// K rewrites in place only an instance the left side matched. Where no subject instance has
-    /// the label, the update is no in-place rewrite: if the sentence binds `label` elsewhere (a
-    /// value matched in another cell), the record is a new term with that value's fields, a
-    /// created instance; if it binds it nowhere, the update has no base (`record-update-base`),
-    /// `None`. Any other instance record creates an instance (P6: its `..` is its template's).
-    fn instance(self, record: &Record, bound: &[String]) -> Option<Self> {
+    /// the label, the update is no in-place rewrite: if the sentence binds `label` elsewhere to a
+    /// record of the update's own constructor (a record matched in another cell), the record is
+    /// a new term with that record's fields, a created instance. If it binds `label` nowhere, or
+    /// to no record (a list element, a leaf value), or to a record of another constructor, the
+    /// update has no base (`record-update-base`), `None`: `..base` takes the fields of a value
+    /// of the record's own type (P6, as Rust's update syntax; S5.0g item 3b ruling 1). Any other
+    /// instance record creates an instance (P6: its `..` is its template's).
+    fn instance(self, record: &Record, context: &Context) -> Option<Self> {
         let RecordRest::Update(label) = &record.rest else {
             return Some(Self::Created);
         };
@@ -1389,8 +1405,78 @@ impl Other<'_> {
             }),
             Self::Unmatched | Self::Created => None,
         };
-        shown.or_else(|| bound.contains(label).then_some(Self::Created))
+        shown.or_else(|| {
+            context
+                .records
+                .iter()
+                .any(|(name, head)| name == label && *head == record.head)
+                .then_some(Self::Created)
+        })
     }
+}
+
+/// P5 at every depth (P1, S5.0g item 3b ruling 2): whether `subject`, a subject's content on
+/// `stack`, tests a `?` child absent (`None`, inside a group or instance record it writes) that
+/// `result`, the result's content of the same place (`None`: the result does not write it),
+/// does not create. K tests absence only by creating the cell, and a record's child is an entry
+/// of its own cell, so the test needs the result's same child to be present (`Some(..)`): the
+/// same record of a group, the same `?` cell's content, or, in a collection, the result's
+/// update `..label` of the instance the subject labels `label` (an unlabelled subject instance
+/// is rewritten by no result record). At the entry's own root, [`Judge::pair`]'s
+/// `written` decides.
+fn absence_uncreated(stack: &[Layer], subject: &Spelling, result: Option<&Spelling>) -> bool {
+    match (stack, unaliased(subject)) {
+        ([Layer::Optional, below @ ..], Spelling::Present(inner)) => {
+            let result = result.and_then(|result| match unaliased(result) {
+                Spelling::Present(inner) => Some(&**inner),
+                _ => None,
+            });
+            absence_uncreated(below, inner, result)
+        }
+        ([Layer::Group(group), ..], _) => record_of(subject, group).is_some_and(|record| {
+            fields_uncreated(group, record, result.and_then(|result| record_of(result, group)))
+        }),
+        ([Layer::Instances(_), Layer::Group(group), ..], inner) => {
+            seq_of(inner).is_some_and(|(items, _)| {
+                items.iter().any(|item| {
+                    let Some(record) = record_of(item, group) else {
+                        return false;
+                    };
+                    let updated = match item {
+                        Spelling::Alias(label, _) => result
+                            .and_then(|result| seq_of(unaliased(result)))
+                            .and_then(|(items, _)| {
+                                items.iter().filter_map(|item| record_of(item, group)).find(
+                                    |record| {
+                                        matches!(&record.rest, RecordRest::Update(base) if base == label)
+                                    },
+                                )
+                            }),
+                        _ => None,
+                    };
+                    fields_uncreated(group, record, updated)
+                })
+            })
+        }
+        _ => false,
+    }
+}
+
+/// [`absence_uncreated`] over each child `record`, a subject's record of `group`, names, with
+/// `result` the result's record of the same place.
+fn fields_uncreated(group: &Group, record: &Record, result: Option<&Record>) -> bool {
+    record.fields.iter().any(|(name, value)| {
+        let Some(stack) = child(group, name) else {
+            return false;
+        };
+        let written = result
+            .and_then(|result| result.fields.iter().find(|(field, _)| field == name))
+            .map(|(_, value)| value);
+        if stack.first() == Some(&Layer::Optional) && *unaliased(value) == Spelling::Missing {
+            return !matches!(written.map(unaliased), Some(Spelling::Present(_)));
+        }
+        absence_uncreated(stack, value, written)
+    })
 }
 
 /// P2 with P0 (S5.0g pattern review P-R1): a cons list is a constructor term built from its

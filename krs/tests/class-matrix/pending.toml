@@ -5327,9 +5327,45 @@ deviation = "krs::analysis::unsupported-shape @ item"
 finding = "S5-S1"
 deviation = "krs::analysis::unsupported-shape @ item"
 
+["cells/g1-a/kinds/account/{ k::fragment![crate::Acct { acounter: Some(x), ..me }], ..instances0 }"]
+finding = "S5-G1"
+deviation = "krs::analysis::invalid-record-update @ item"
+
+["cells/g1-a/kinds/stack/k::configuration::Cell([me @ k::fragment![crate::Acct { id: z, .. }], rest @ ..])"]
+finding = "S5-G1"
+deviation = "krs::analysis::invalid-record-update @ spelling"
+
+["cells/g1-b/kinds/account/{ k::fragment![crate::Acct { aframe: Ag { aa: x }, ..me }], ..instances0 }"]
+finding = "S5-G1"
+deviation = "krs::analysis::invalid-record-update @ item"
+
+["cells/g1-c/kinds/account/{ k::fragment![crate::Acct { aprog: [x], ..me }], ..instances0 }"]
+finding = "S5-G1"
+deviation = "krs::analysis::invalid-record-update @ item"
+
+["cells/g1-e/kinds/account/{ k::fragment![crate::Acct { aenv: k::map![x -> 1], ..me }], ..instances0 }"]
+finding = "S5-G1"
+deviation = "krs::analysis::invalid-record-update @ item"
+
+["cells/g1-f/kinds/account/{ k::fragment![crate::Acct { acounter: Some(x), ..me }], ..instances0 }"]
+finding = "S5-G3"
+deviation = "krs::expand::not-a-declaration @ spelling"
+
+["cells/g1-restore/kinds/frame/k::fragment![crate::G { a: x, ..saved }]"]
+finding = "S5-G1"
+deviation = "krs::analysis::invalid-record-update @ item"
+
+["cells/g1-restore/kinds/stack/k::configuration::Cell([saved @ k::fragment![crate::G { a: z, .. }], rest @ ..])"]
+finding = "S5-G1"
+deviation = "krs::analysis::invalid-record-update @ spelling"
+
 ["cells/g3-a/kinds/account/{ k::fragment![crate::Acct { id: z, acounter: Some(y), .. }], .. }"]
 finding = "S5-G3"
 deviation = "krs::expand::not-a-declaration @ spelling"
+
+["cells/g3-b/kinds/account/{ k::fragment![crate::Acct { id: z, acounter: None, .. }], .. }"]
+finding = "S5-G3"
+deviation = "krs::syntax::unsupported-rule-signature @ item"
 
 ["cells/g3-c/kinds/account/{ k::fragment![crate::Acct { acounter: Some(x), ..me }], ..instances0 }"]
 finding = "S5-G3"
@@ -5339,9 +5375,17 @@ deviation = "krs::expand::not-a-declaration @ item; krs::expand::not-a-declarati
 finding = "S5-G3"
 deviation = "krs::analysis::invalid-term @ spelling"
 
+["cells/g4-c/kinds/account/{ k::fragment![crate::Acct { aqueue: Aqueue { ajob: [Ajob { apay: x, ..j }, ..jobs] }, ..me }], ..instances0 }"]
+finding = "S5-G3"
+deviation = "krs::analysis::invalid-record-update @ spelling"
+
 ["cells/g5-a/kinds/olist/Some(k::configuration::Cell([..r]))"]
 finding = "S5-N1"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["cells/g5-b/kinds/bag/{ k::fragment![crate::Obj { key: 1, ..me }], ..instances0 }"]
+finding = "S5-G1"
+deviation = "krs::analysis::unknown-instance-label @ spelling"
 
 ["cells/g5-c/kinds/hstack/k::configuration::Cell([z, ..])"]
 finding = "S5-F2"
@@ -5439,9 +5483,17 @@ deviation = "krs::analysis::unknown-instance-label @ spelling"
 finding = "S5-B1"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
+["claim/g1-f/kinds/account/{ Acct { acounter: Some(x), ..me }, .. }"]
+finding = "S5-G3"
+deviation = "krs::expand::not-a-declaration @ spelling"
+
 ["claim/g3-a/kinds/account/{ Acct { id: z, acounter: Some(y), .. }, .. }"]
 finding = "S5-G3"
 deviation = "krs::expand::not-a-declaration @ spelling"
+
+["claim/g3-b/kinds/account/{ Acct { id: z, acounter: None, .. }, .. }"]
+finding = "S5-G3"
+deviation = "E0308 @ spelling"
 
 ["claim/g3-c/kinds/account/{ Acct { acounter: Some(x), ..me }, .. }"]
 finding = "S5-G3"
@@ -5462,6 +5514,10 @@ deviation = "krs::syntax::invalid-expression-notation @ spelling"
 ["claim/g5-a/kinds/olist/Some([..r])"]
 finding = "S5-N1"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["claim/g5-b/kinds/bag/{ Obj { key: 1, ..me }, .. }"]
+finding = "S5-G1"
+deviation = "krs::analysis::unknown-instance-label @ spelling"
 
 ["claim/g5-c/kinds/hstack/[z, ..]"]
 finding = "S5-S1"
@@ -5503,13 +5559,21 @@ deviation = "accepted"
 finding = "S5-S1"
 deviation = "accepted"
 
+["full/init/kinds/frame/f @ G { a: 0, b: 0 }"]
+finding = "S0-9"
+deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::rust-syntax @ spelling"
+
+["full/init/kinds/stack/[0, r @ ..]"]
+finding = "S0-9"
+deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::rust-expansion::uncoded-error @ spelling; krs::syntax::rust-syntax @ spelling"
+
 ["init/kinds/env/k::map![0 -> 1, r @ ..]"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-expression-notation @ spelling"
 
 ["init/kinds/frame/f @ G { a: 0, b: 0 }"]
 finding = "S0-9"
-deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::rust-syntax @ spelling"
+deviation = "krs::expand::parse @ spelling"
 
 ["init/kinds/prog/k::k![Cmd::Go(), r @ ..]"]
 finding = "S0-9"
@@ -5517,7 +5581,15 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["init/kinds/stack/[0, r @ ..]"]
 finding = "S0-9"
-deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::rust-expansion::uncoded-error @ spelling; krs::syntax::rust-syntax @ spelling"
+deviation = "krs::expand::parse @ spelling"
+
+["k3/readable/g1-restore/kinds/frame/G { a: x, ..saved }"]
+finding = "S5-G1"
+deviation = "other K than cells/g1-restore/kinds/frame/k::fragment![crate::G { a: x, ..saved }]"
+
+["k3/readable/g1-restore/kinds/stack/[saved @ G { a: z, .. }, ..]"]
+finding = "S5-G1"
+deviation = "other K than cells/g1-restore/kinds/stack/k::configuration::Cell([saved @ k::fragment![crate::G { a: z, .. }], rest @ ..])"
 
 ["k3/readable/lint/kinds/frame/G { .. }"]
 finding = "S5-F2"
@@ -5579,9 +5651,17 @@ deviation = "krs::analysis::unknown-instance-label @ spelling"
 finding = "S5-B1"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
+["readable/g1-f/kinds/account/{ Acct { acounter: Some(x), ..me }, .. }"]
+finding = "S5-G3"
+deviation = "krs::expand::not-a-declaration @ spelling"
+
 ["readable/g3-a/kinds/account/{ Acct { id: z, acounter: Some(y), .. }, .. }"]
 finding = "S5-G3"
 deviation = "krs::expand::not-a-declaration @ spelling"
+
+["readable/g3-b/kinds/account/{ Acct { id: z, acounter: None, .. }, .. }"]
+finding = "S5-G3"
+deviation = "E0308 @ spelling"
 
 ["readable/g3-c/kinds/account/{ Acct { acounter: Some(x), ..me }, .. }"]
 finding = "S5-G3"
@@ -5602,6 +5682,10 @@ deviation = "krs::syntax::invalid-expression-notation @ spelling"
 ["readable/g5-a/kinds/olist/Some([..r])"]
 finding = "S5-N1"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
+
+["readable/g5-b/kinds/bag/{ Obj { key: 1, ..me }, .. }"]
+finding = "S5-G1"
+deviation = "krs::analysis::unknown-instance-label @ spelling"
 
 ["readable/g5-c/kinds/hstack/[z, ..]"]
 finding = "S5-S1"

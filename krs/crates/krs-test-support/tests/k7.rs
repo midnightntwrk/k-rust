@@ -182,6 +182,7 @@ fn every_initializer_case_that_reads_nothing_of_its_spelling_says_why() {
 
 const UNREAD: &[&str] = &[
     "a collection's initializer writes one instance's template, and the collection starts with no instance: no driver command of the machine or the typed base creates one, so no run reads the template: job/0 | job/Frame { ret: 0 } | job/Job { payload: 0 } | job/None | job/Some(0) | job/[0] | job/[] | job/[pgm] | job/k::absent!(0) | job/k::builtin::map::empty() | job/k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), pgm, 1), 0, 2) | job/k::k![0] | job/k::k![] | job/k::k![pgm] | job/k::map![0 -> 1] | job/k::map![] | job/k::map![pgm -> 1, 0 -> 2] | job/list::empty() | job/pgm | typed/slot/1 | typed/slot/Cmd::Go() | typed/slot/Val::Unit() | typed/slot/any",
+    "a collection's initializer writes one instance's template, and the collection starts with no instance: the kinds base has no driver command that creates one, so no run reads the template: kinds/account/0 | kinds/account/Acct { id: 0, aprog: k::k![], acode: k::k![], apc: 0, astack: list::empty(), aseq: IntList::IntsEmpty(), aenv: k::map![], aset: set::empty(), aframe: Ag { aa: 0 }, acounter: k::absent!(0), aolist: k::absent!(list::empty()), aomap: k::absent!(k::map![]), aogroup: k::absent!(Ao { aoa: 0 }), aqueue: Aqueue { ajob: Ajob { apay: 0 } }, ashelf: Ashelf { abag: Aobj { akey: 0 } }, abank: Abank { aacct: Aacct { aid: 0 } } } | kinds/account/Cmd::Go() | kinds/account/pgm | kinds/bag/0 | kinds/bag/Cmd::Go() | kinds/bag/Obj { key: 0 } | kinds/bag/pgm | kinds/job/0 | kinds/job/Cmd::Go() | kinds/job/Job { payload: 0 } | kinds/job/pgm",
 ];
 
 const STATUSES: &[&str] = &[
@@ -194,15 +195,14 @@ const STATUSES: &[&str] = &[
     "3559 no driver: the compiled sweep's cases witness the compiler's verdict on each root sweep cell; the sweep base has no driver commands to set its cells up",
     "186 no driver: the function is internal: it has no program syntax, and no base sentence can name the case's function",
     "3 no driver: the function the case declares for the solver has no driver command",
-    "154 no driver: the kinds base's initializer cases have no K7 plan yet: the values its cells' initializers denote are not written as K7 grounds (S5.0g part (b))",
-    "1206 no driver: the readable, claim and `cells!` families read cells the machine, typed and kinds bases start at fixed values, and those bases have no driver commands to set them up (a claim needs a prover besides)",
+    "1224 no driver: the readable, claim and `cells!` families read cells the machine, typed and kinds bases start at fixed values, and those bases have no driver commands to set them up (a claim needs a prover besides)",
     "4 no driver: the sentence cannot take both attributes, and is refused",
     "160 no driver: the simplification holds under the condition false only, which no input satisfies, so its twin has nothing to evaluate",
     "7 no value: a cell's value, which the generator's ground terms do not write",
     "113 no value: a matching-logic predicate, which only a prover reads",
     "175 no value: a pattern, which names or tests a term and builds none",
     "35 no value: an anonymous variable, which names no value",
-    "21 no value: refused at K2, so no definition is emitted to run",
+    "124 no value: refused at K2, so no definition is emitted to run",
     "5 no value: the condition's stated value, \"s\", is no Bool",
     "5 no value: the condition's stated value, $x, is no Bool",
     "5 no value: the condition's stated value, -1, is no Bool",
@@ -244,10 +244,10 @@ const STATUSES: &[&str] = &[
     "3 no witness: the program would hold a value the generator does not state",
     "1203 runs a counter-witness",
     "2131 runs at another input",
-    "1630 runs, liveness",
+    "1664 runs, liveness",
     "245 runs, undefined",
     "266 runs, undefined result",
-    "2773 runs, value",
+    "2790 runs, value",
 ];
 
 /// Every spelling that reads `x` states the values of `x` besides 1 its cases run at, or why it

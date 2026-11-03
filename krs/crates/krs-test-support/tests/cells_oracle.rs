@@ -13,7 +13,7 @@ use std::path::Path;
 use std::sync::LazyLock;
 
 use krs_ir::cell_kind::{self, CellKind};
-use krs_syntax::cell_entries::{self, EntrySide};
+use krs_syntax::cell_entries::{self, Bound, EntrySide};
 use krs_syntax::cell_entry::{
     EntryForm, EntryMap, EntryReading, EntryRecord, EntryRest, EntrySeq, EntrySpelling, RecordTail,
     RestPlace,
@@ -890,6 +890,19 @@ fn rendered_sentence(case: &Case, entry: &EntryCase) -> Result<Rendered, String>
     Ok(sentence)
 }
 
+/// The bases the updates of `spelling` name (`..me`), in first-occurrence order.
+fn update_bases(spelling: &Spelling, out: &mut Vec<String>) {
+    if let Spelling::Record(record) | Spelling::Fragment(record) = spelling
+        && let RecordRest::Update(base) = &record.rest
+        && !out.contains(base)
+    {
+        out.push(base.clone());
+    }
+    for inner in class_matrix::cells_oracle::children(spelling) {
+        update_bases(inner, out);
+    }
+}
+
 /// The names a spelling binds: its binders, its aliases' names and its named rests.
 fn names(spelling: &Spelling, out: &mut BTreeSet<String>) {
     match spelling {
@@ -977,8 +990,19 @@ fn template_agreement(
                 on(Side::Subject)
             ));
         }
+        Side::Subject
+            if entry.context.other.is_some()
+                && entry.context.other.as_ref().map(untexted) != on(Side::Result) =>
+        {
+            return Err(format!(
+                "the template's result entry of `{cell}` is {:?}, the rendered sentence's {:?}",
+                entry.context.other,
+                on(Side::Result)
+            ));
+        }
         _ => {}
     }
+    bases_agree(entry, &others)?;
     if matches!(entry.form, Form::Readable | Form::Claim) {
         let mut bound = rendered.parameters.clone();
         for (_, on, value) in &others {
@@ -997,6 +1021,37 @@ fn template_agreement(
                     bound.contains(&name)
                 ));
             }
+        }
+    }
+    Ok(())
+}
+
+/// What each base an update of the entry names binds (S5.0g item 3b ruling 1): the record the
+/// template says, and the one an alias of the rendered sentence's other subject entries binds
+/// it to, agree.
+fn bases_agree(entry: &EntryCase, others: &[(String, Side, EntrySpelling)]) -> Result<(), String> {
+    let mut rendered_records = Vec::new();
+    for (_, on, value) in others {
+        if *on == Side::Subject {
+            rendered_records.extend(sweep::records_by(&declared_as(value)));
+        }
+    }
+    let mut bases = Vec::new();
+    update_bases(&entry.entry.spelling, &mut bases);
+    for base in bases {
+        let head = |records: &[(String, String)]| {
+            records
+                .iter()
+                .find(|(name, _)| *name == base)
+                .map(|(_, head)| head.clone())
+        };
+        if head(&entry.context.records) != head(&rendered_records) {
+            return Err(format!(
+                "the template says the sentence binds the base `{base}` to a record of {:?}, the \
+                 rendered sentence to one of {:?}",
+                head(&entry.context.records),
+                head(&rendered_records)
+            ));
         }
     }
     Ok(())
@@ -1045,6 +1100,18 @@ fn template_stacks_and_sentence(
     Ok(())
 }
 
+/// What the product reads `name` as binding, from the oracle's context: `None` where the sentence
+/// binds it nowhere outside the entry.
+fn product_bound(context: &class_matrix::cells_oracle::Context, name: &str) -> Option<Bound> {
+    context.bound.iter().any(|bound| bound == name).then(|| {
+        context
+            .records
+            .iter()
+            .find(|(bound, _)| bound == name)
+            .map_or(Bound::Value, |(_, head)| Bound::Record(head.clone()))
+    })
+}
+
 const fn product_side(side: Side) -> EntrySide {
     match side {
         Side::Subject => EntrySide::Subject,
@@ -1068,7 +1135,7 @@ fn product_outcome(
         Form::Init => EntryForm::Initializer,
     };
     let side = product_side(entry.entry.side);
-    let bound = |name: &str| entry.context.bound.iter().any(|bound| bound == name);
+    let bound = |name: &str| product_bound(&entry.context, name);
     let admitted = match cell_entries::admit(form, side, path, stack, spelling, &bound, groups) {
         Ok(admitted) => admitted,
         Err(refusal) => return Outcome::Refuse(refusal.class()),
@@ -1700,6 +1767,8 @@ fn sweep_tuples() -> BTreeSet<Tuple> {
                     other: None,
                     written: false,
                     bound: &[],
+                    records: &[],
+                    elsewhere: false,
                 };
                 let mark = mark_name(form, &declared_as(&probe.read(text)));
                 for side in sides {
@@ -1878,11 +1947,17 @@ struct Probe<'p> {
     stack: &'p [Layer],
     text: &'p str,
     /// For a result, the subject's entry of the cell, `None` where the subject does not match
-    /// it; for a subject, unread.
+    /// it; for a subject, the result's entry of the cell, where the probe states one.
     other: Option<&'p str>,
     /// For a subject, whether the result writes the cell.
     written: bool,
     bound: &'p [&'p str],
+    /// The bound names an alias binds to a record, with the record's head constructor.
+    records: &'p [(&'p str, &'p str)],
+    /// Whether each bound name an update `..name` names binds, besides, a record of that
+    /// update's own constructor matched elsewhere (the children sweep's reading of `me`,
+    /// [`sweep::update_records`]).
+    elsewhere: bool,
 }
 
 impl Probe<'_> {
@@ -1905,9 +1980,28 @@ impl Probe<'_> {
             .unwrap_or_else(|error| panic!("`{text}` reads: {error}"))
     }
 
+    /// The names the probe binds to a record, with their heads: its `records`, then, with
+    /// `elsewhere`, its updates' bases.
+    fn records(&self) -> Vec<(String, String)> {
+        let mut records = self
+            .records
+            .iter()
+            .map(|(name, head)| ((*name).to_owned(), (*head).to_owned()))
+            .collect::<Vec<_>>();
+        if self.elsewhere {
+            for found in sweep::update_records(self.bound, &probed_as(&self.read(self.text))) {
+                if !records.iter().any(|(known, _)| *known == found.0) {
+                    records.push(found);
+                }
+            }
+        }
+        records
+    }
+
     fn context(&self) -> class_matrix::cells_oracle::Context {
         class_matrix::cells_oracle::Context {
             bound: self.bound.iter().map(|name| (*name).to_owned()).collect(),
+            records: self.records(),
             other: self.other.map(|text| probed_as(&self.read(text))),
             written: self.written,
             groups: self.groups(),
@@ -1951,7 +2045,15 @@ impl Probe<'_> {
         let path = self.path.iter().map(product_layer).collect::<Vec<_>>();
         let stack = self.stack.iter().map(product_layer).collect::<Vec<_>>();
         let spelling = self.read(self.text);
-        let bound = |name: &str| self.bound.contains(&name);
+        let records = self.records();
+        let bound = |name: &str| {
+            self.bound.contains(&name).then(|| {
+                records
+                    .iter()
+                    .find(|(bound, _)| bound == name)
+                    .map_or(Bound::Value, |(_, head)| Bound::Record(head.clone()))
+            })
+        };
         let groups = self
             .groups()
             .iter()
@@ -2009,6 +2111,8 @@ fn the_oracle_and_the_product_refuse_the_reviews_probes() {
         other,
         written: false,
         bound: &["x", "y"],
+        records: &[],
+        elsewhere: false,
     };
     let (subject, result) = (Side::Subject, Side::Result);
     let probes = [
@@ -2102,6 +2206,8 @@ fn a_cell_below_a_marked_ancestor_is_judged_on_its_own_layers_first() {
         other: None,
         written: false,
         bound: &[],
+        records: &[],
+        elsewhere: false,
     };
     probes_agree(&[
         // A spelling the cell's own layers admit is refused for its ancestor (S1 (b)).
@@ -2175,6 +2281,8 @@ const fn result_probe<'p>(
         other,
         written: false,
         bound: &["x", "y", "z"],
+        records: &[],
+        elsewhere: false,
     }
 }
 
@@ -2337,6 +2445,8 @@ fn a_cells_result_map_with_a_rest_at_a_records_child_is_judged_by_pairing() {
         (
             Probe {
                 bound: &["x", "y", "z", "me"],
+                records: &[],
+                elsewhere: false,
                 ..result_probe(
                     Form::Cells,
                     &keyed,
@@ -2421,6 +2531,8 @@ fn a_cons_lists_back_item_is_refused_inside_its_mark() {
         other: None,
         written: false,
         bound: &[],
+        records: &[],
+        elsewhere: false,
     };
     probes_agree(&[
         (subject(Form::Readable, &[], &cons, "[.., x]"), back),
@@ -2467,6 +2579,8 @@ fn brackets_on_an_unordered_collection_are_its_instance_mark_of_the_wrong_order(
         other: None,
         written: false,
         bound: &[],
+        records: &[],
+        elsewhere: false,
     };
     let int = int();
     probes_agree(&[
@@ -2495,6 +2609,8 @@ fn a_missing_layer_is_named_only_where_its_inside_passes() {
         other: None,
         written: false,
         bound: &[],
+        records: &[],
+        elsewhere: false,
     };
     probes_agree(&[
         (
@@ -2992,6 +3108,8 @@ fn a_group_fragment_without_a_rest_names_every_child() {
         other,
         written: false,
         bound: &["x", "y", "z"],
+        records: &[],
+        elsewhere: false,
     };
     let (subject, result) = (Side::Subject, Side::Result);
     let exact = "k::fragment![crate::G { a: x }]";
@@ -3064,6 +3182,8 @@ fn an_initializers_collection_child_takes_its_instance_template() {
         other: None,
         written: false,
         bound: &["pgm"],
+        records: &[],
+        elsewhere: false,
     };
     let (map, group) = (
         nested_collection_stack("* Map of Q"),
@@ -3123,6 +3243,8 @@ const fn child_probe<'p>(
         other,
         written: false,
         bound: &["x", "y", "z", "me"],
+        records: &[],
+        elsewhere: true,
     }
 }
 
@@ -3356,6 +3478,8 @@ fn an_update_whose_label_the_subject_does_not_show_is_created_or_has_no_base() {
     let elsewhere = |form, stack, text| child_probe(form, stack, text, Some("[..]"));
     let nowhere = |form, stack, text, other| Probe {
         bound: &["x", "y", "z"],
+        records: &[],
+        elsewhere: false,
         ..child_probe(form, stack, text, Some(other))
     };
     let rm = Outcome::Refuse("rest-mismatch");
@@ -3958,6 +4082,8 @@ fn an_alias_or_a_named_rest_in_an_initializer_is_refused_at_the_form() {
         other: None,
         written: false,
         bound: &["pgm"],
+        records: &[],
+        elsewhere: false,
     };
     let list = [Layer::Leaf(Notation::List)];
     let map = [Layer::Leaf(Notation::Map)];
@@ -4092,6 +4218,8 @@ fn outcome_sweep() -> String {
                             other: other.as_deref(),
                             written: *written,
                             bound,
+                            records: &[],
+                            elsewhere: false,
                         };
                         let (oracle, product) = (probe.oracle(), probe.product());
                         out.push('\t');
@@ -4144,6 +4272,8 @@ fn fragment_child_sweep(out: &mut String) {
                 other,
                 written: false,
                 bound,
+                records: &[],
+                elsewhere: false,
             };
             let (oracle, product) = (probe.oracle(), probe.product());
             let _ = write!(
@@ -4208,6 +4338,8 @@ fn children_rows(out: &mut String, rows: &[(&str, [&str; 2], [&str; 2])], bound:
                 other,
                 written: false,
                 bound,
+                records: &[],
+                elsewhere: true,
             };
             let (oracle, product) = (probe.oracle(), probe.product());
             let _ = write!(
@@ -4245,6 +4377,8 @@ fn initializer_children_sweep(out: &mut String) {
             other: None,
             written: false,
             bound: &["pgm"],
+            records: &[],
+            elsewhere: false,
         };
         let (oracle, product) = (probe.oracle(), probe.product());
         let _ = write!(out, "init\t{stack_name}\t-\t{text}\t{}", sweep_name(oracle));
@@ -5382,6 +5516,8 @@ fn sweep_answer(cell: &sweep::Cell) -> Outcome {
         other: cell.other.as_deref(),
         written: cell.written,
         bound: cell.bound,
+        records: &[],
+        elsewhere: false,
     }
     .oracle()
 }
@@ -5648,6 +5784,8 @@ fn every_cell_entry_class_doc_example_gives_its_class() {
                 other: (other != "-").then_some(other),
                 written,
                 bound,
+                records: &[],
+                elsewhere: false,
             };
             let want = if LINT_CLASSES.contains(class) {
                 Outcome::Admit { lint: Some(class) }
@@ -6589,4 +6727,102 @@ fn the_cases_items_print_on_request() {
     for case in CASES.iter().filter(|case| glob.matches(&case.id)) {
         println!("## {}\n{}", case.id, case.item());
     }
+}
+
+/// S5.0g item 3b ruling 1 (P6): `..base` updates a record, so its base is a record of the
+/// update's own constructor matched by the sentence. Where the subject shows no instance
+/// labelled `me`, a base the sentence binds elsewhere to a record of the update's constructor
+/// creates an instance; one bound to no record (a list element, a leaf value) or to another
+/// constructor's record has none (`record-update-base`). Ruling 2 (P5 with P1): a subject's
+/// `None` on a `?` child of a group or instance record tests the child absent, which K does
+/// only by creating it, so the result's same child must be present, at every depth.
+#[test]
+fn a_base_is_a_record_of_its_constructor_and_a_child_absence_test_needs_creation() {
+    let threads = children_stack("* List of T");
+    let group = children_stack("group O");
+    let Layer::Group(o) = &group[0] else {
+        unreachable!("`group O` is a group");
+    };
+    let accounts = [Layer::Instances(Order::Map), Layer::Group(o.clone())];
+    let update = |form, text, records| Probe {
+        form,
+        side: Side::Result,
+        path: &[],
+        stack: &threads,
+        text,
+        other: Some("[..]"),
+        written: false,
+        bound: &["x", "me"],
+        records,
+        elsewhere: false,
+    };
+    let subject = |stack, text, other| Probe {
+        form: Form::Readable,
+        side: Side::Subject,
+        path: &[],
+        stack,
+        text,
+        other,
+        written: other.is_some(),
+        bound: &[],
+        records: &[],
+        elsewhere: false,
+    };
+    let admitted = Outcome::Admit { lint: None };
+    let base = Outcome::Refuse("record-update-base");
+    let absent = Outcome::Refuse("absence-test-without-creation");
+    let readable = "[T { k: [x], ..me }, ..]";
+    let cells = "[k::fragment![crate::T { k: [x], ..me }], ..]";
+    probes_agree(&[
+        (
+            update(Form::Readable, readable, &[("me", "T")]),
+            Outcome::After,
+        ),
+        (update(Form::Cells, cells, &[("me", "T")]), Outcome::After),
+        (update(Form::Readable, readable, &[]), base),
+        (update(Form::Cells, cells, &[]), base),
+        (update(Form::Readable, readable, &[("me", "Job")]), base),
+        (update(Form::Cells, cells, &[("me", "Job")]), base),
+        (subject(&group, "O { o: None, n: x }", None), absent),
+        (
+            subject(&group, "O { o: None, n: x }", Some("O { o: None, n: x }")),
+            absent,
+        ),
+        (
+            subject(
+                &group,
+                "O { o: None, n: x }",
+                Some("O { o: Some(1), n: x }"),
+            ),
+            admitted,
+        ),
+        (
+            subject(&accounts, "{ O { n: x, o: None }, .. }", None),
+            absent,
+        ),
+        (
+            subject(
+                &accounts,
+                "{ O { n: x, o: None }, .. }",
+                Some("{ O { n: x, o: Some(1) }, .. }"),
+            ),
+            absent,
+        ),
+        (
+            subject(
+                &accounts,
+                "{ me @ O { n: x, o: None }, .. }",
+                Some("{ O { o: Some(1), ..me }, .. }"),
+            ),
+            admitted,
+        ),
+        (
+            subject(
+                &accounts,
+                "{ me @ O { n: x, o: None }, .. }",
+                Some("{ O { n: 1, ..me }, .. }"),
+            ),
+            absent,
+        ),
+    ]);
 }

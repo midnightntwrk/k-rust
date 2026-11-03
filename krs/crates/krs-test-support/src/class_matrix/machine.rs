@@ -897,7 +897,7 @@ fn cell_value(kind: CellKind, value: &str) -> Case {
 
 /// Why a collection's initializer case changes no run without it: its run reads the base's
 /// other cells only ([`TEMPLATE_UNREAD`]), which the base's own initializer writes alike.
-const TEMPLATE_UNCHANGED: &str = "a collection's initializer writes one instance's template, which no run creates, so the run reads the base's other cells, as the base's own initializer states them";
+pub(super) const TEMPLATE_UNCHANGED: &str = "a collection's initializer writes one instance's template, which no run creates, so the run reads the base's other cells, as the base's own initializer states them";
 
 /// Whether two plans run the same program to the same cells (whatever each checks of them).
 fn same_cells(plan: &K7, base: &K7) -> bool {
@@ -925,7 +925,7 @@ const WRITTEN_OVER: &str = "the program's rule writes the cell the case's initia
 /// Why an initializer case whose plan states its base's configuration changes no run without
 /// it: the case writes the base's value of its cell (in its own spelling, or the base's), so the
 /// run on the base's own initializer is the same, and only the case's initializer stands in it.
-const BASE_VALUE: &str = "the case's initializer writes its base's value of the cell, so the run on the base's own initializer states the same configuration";
+pub(super) const BASE_VALUE: &str = "the case's initializer writes its base's value of the cell, so the run on the base's own initializer states the same configuration";
 
 /// Why an initializer case's run reads nothing of its spelling, for each case K7 runs as
 /// liveness only for that reason ([`super::initializer_unread`]).

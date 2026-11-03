@@ -24,13 +24,13 @@
 //!
 //! [`pair`] then judges the entry with its rule: a result's rest against its subject's, at its
 //! cell's content root and at each child's of the group and instance records it writes (an
-//! update whose label no subject instance has creating its instance from a value bound
-//! elsewhere, or having no base), a Map
+//! update whose label no subject instance has creating its instance from a record of its own
+//! constructor bound elsewhere, or having no base), a Map
 //! collection's instance key ([`GroupKind::key`]), which a created instance writes and an
 //! update keeps, a
 //! result's group record with a bare `..` for a group that exists, a result over a cell the
-//! subject does not match (Q1's overwrite, where it means one configuration), an absence test,
-//! and the lint of a subject entry that constrains nothing.
+//! subject does not match (Q1's overwrite, where it means one configuration), an absence test
+//! at the entry's root and at each `?` child of the records it writes, and the lint of a subject entry that constrains nothing.
 //!
 //! An admitted entry whose value positions hold a term whose sort the lattice must check is
 //! [`Admitted::sorted`]; the compiler judges that sort.
@@ -56,6 +56,18 @@ pub use krs_ir::cell_kind::EntryKind;
 use crate::cell_entry::{
     EntryForm, EntryMap, EntryRecord, EntryRest, EntrySeq, EntrySpelling, RecordTail, RestPlace,
 };
+
+/// What a name the rule binds outside an entry stands for: an update `..base` takes the fields
+/// of a record of its own constructor, so whether the name binds a record, and of which
+/// constructor, decides whether it can be a base.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Bound {
+    /// A record whose head constructor is this struct path's last segment: an alias
+    /// `name @ Head { .. }` (or of its fragment).
+    Record(String),
+    /// Any other value: a list element, a leaf value, a map value.
+    Value,
+}
 
 /// The side an entry stands on.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -369,7 +381,7 @@ fn inner(spelling: &EntrySpelling) -> Vec<&EntrySpelling> {
 struct Admission<'b> {
     form: EntryForm,
     side: EntrySide,
-    bound: &'b dyn Fn(&str) -> bool,
+    bound: &'b dyn Fn(&str) -> Option<Bound>,
     groups: &'b [GroupKind],
     sorted: bool,
     /// Whether the entry being judged is inside a collection's instance record.
@@ -646,7 +658,7 @@ impl Admission<'_> {
         match spelling {
             EntrySpelling::Wild => {}
             EntrySpelling::Binder(name) => {
-                self.sorted |= self.form == EntryForm::Cells || (self.bound)(name);
+                self.sorted |= self.form == EntryForm::Cells || (self.bound)(name).is_some();
             }
             EntrySpelling::Alias(_, pattern) => return self.value(pattern),
             _ => self.sorted = true,
@@ -706,7 +718,8 @@ impl Admission<'_> {
 /// Steps 1 to 3 for one entry: its form, its kind against `stack`, the cell's own layers,
 /// outermost first, then its path (`path`, the layers of the cell's `?` and `*` ancestors,
 /// outermost first). An initializer's value of a `*` cell is one instance's template, judged below the
-/// instances layer. `bound` tells the names the rule binds outside the entry; `groups` are the
+/// instances layer. `bound` tells what each name the rule binds outside the entry binds (`None`:
+/// the rule binds it nowhere there); `groups` are the
 /// configuration's groups, whose children are the fields of a record a term writes by the
 /// group's name.
 ///
@@ -719,7 +732,7 @@ pub fn admit(
     path: &[Layer],
     stack: &[Layer],
     spelling: &EntrySpelling,
-    bound: &dyn Fn(&str) -> bool,
+    bound: &dyn Fn(&str) -> Option<Bound>,
     groups: &[GroupKind],
 ) -> Result<Admitted, Refusal> {
     let mut admission = Admission {
@@ -915,11 +928,13 @@ impl Other<'_> {
     /// The other side of an instance record a result writes in a collection whose other side is
     /// `self`, `None` where the record has none. An update `..label` changes in place the
     /// subject's instance labelled `label`: only an instance the subject matches is rewritten in
-    /// place. An update whose label no subject instance has builds a new instance from the value
-    /// the sentence binds `label` to elsewhere, a created instance, and has no base where the
-    /// sentence binds it nowhere (`None`). Any other instance record creates an instance, whose
-    /// `..` is its template's.
-    fn instance(self, record: &EntryRecord, bound: &dyn Fn(&str) -> bool) -> Option<Self> {
+    /// place. An update whose label no subject instance has builds a new instance from the record
+    /// the sentence binds `label` to elsewhere, a created instance, where that record is of the
+    /// update's own constructor: `..base` takes the fields of a value of the record's own type.
+    /// It has no base (`None`) where the sentence binds `label` nowhere, to no record, or to a
+    /// record of another constructor. Any other instance record creates an instance, whose `..`
+    /// is its template's.
+    fn instance(self, record: &EntryRecord, bound: &dyn Fn(&str) -> Option<Bound>) -> Option<Self> {
         let RecordTail::Update(label) = &record.tail else {
             return Some(Self::Created);
         };
@@ -934,7 +949,9 @@ impl Other<'_> {
             }),
             Self::Unmatched | Self::Created => None,
         };
-        shown.or_else(|| bound(label).then_some(Self::Created))
+        shown.or_else(|| {
+            (bound(label) == Some(Bound::Record(record.head.clone()))).then_some(Self::Created)
+        })
     }
 }
 
@@ -989,7 +1006,7 @@ fn pair_content(
     stack: &[Layer],
     spelling: &EntrySpelling,
     other: Other<'_>,
-    bound: &dyn Fn(&str) -> bool,
+    bound: &dyn Fn(&str) -> Option<Bound>,
 ) -> Result<(), Refusal> {
     let anonymous = |root: Root<'_>| root == Root::Rest(&EntryRest::Anonymous);
     match other {
@@ -1025,7 +1042,7 @@ fn pair_records(
     stack: &[Layer],
     spelling: &EntrySpelling,
     other: Other<'_>,
-    bound: &dyn Fn(&str) -> bool,
+    bound: &dyn Fn(&str) -> Option<Bound>,
 ) -> Result<(), Refusal> {
     let fields = |group: &GroupKind, record: &EntryRecord, other: Other<'_>| {
         record.fields.iter().try_for_each(|(name, value)| {
@@ -1064,9 +1081,80 @@ fn pair_records(
     }
 }
 
+/// Whether `subject`, a subject's content on `stack`, tests a `?` child absent (`None`, inside a
+/// group or instance record it writes) that `result`, the result's content of the same place
+/// (`None`: the result does not write it), does not create. K tests absence only by creating
+/// the cell, and a record's child is an entry of its own cell, so the result's same child must
+/// be present: the same group's record, the same `?` cell's content, or, in a collection, the
+/// result's update `..label` of the instance the subject labels `label`.
+fn absence_uncreated(
+    stack: &[Layer],
+    subject: &EntrySpelling,
+    result: Option<&EntrySpelling>,
+) -> bool {
+    match (stack, unaliased(subject)) {
+        ([Layer::Optional, below @ ..], EntrySpelling::Present(inner)) => {
+            let result = result.and_then(|result| match unaliased(result) {
+                EntrySpelling::Present(inner) => Some(&**inner),
+                _ => None,
+            });
+            absence_uncreated(below, inner, result)
+        }
+        ([Layer::Group(group), ..], _) => record_of(subject, group).is_some_and(|record| {
+            fields_uncreated(group, record, result.and_then(|result| record_of(result, group)))
+        }),
+        ([Layer::Instances(_), Layer::Group(group), ..], inner) => {
+            sequence(inner).is_some_and(|seq| {
+                seq.items.iter().any(|item| {
+                    let Some(record) = record_of(item, group) else {
+                        return false;
+                    };
+                    let updated = match item {
+                        EntrySpelling::Alias(label, _) => result
+                            .and_then(|result| sequence(unaliased(result)))
+                            .and_then(|seq| {
+                                seq.items
+                                    .iter()
+                                    .filter_map(|item| record_of(item, group))
+                                    .find(|record| {
+                                        matches!(&record.tail, RecordTail::Update(base) if base == label)
+                                    })
+                            }),
+                        _ => None,
+                    };
+                    fields_uncreated(group, record, updated)
+                })
+            })
+        }
+        _ => false,
+    }
+}
+
+/// [`absence_uncreated`] over each child a subject's `record` of `group` names, with `result`
+/// the result's record of the same place.
+fn fields_uncreated(group: &GroupKind, record: &EntryRecord, result: Option<&EntryRecord>) -> bool {
+    record.fields.iter().any(|(name, value)| {
+        let Some(kind) = group.child(name) else {
+            return false;
+        };
+        let written = result
+            .and_then(|result| result.fields.iter().find(|(field, _)| field == name))
+            .map(|(_, value)| value);
+        if kind.layers.first() == Some(&Layer::Optional)
+            && *unaliased(value) == EntrySpelling::Missing
+        {
+            return !matches!(written.map(unaliased), Some(EntrySpelling::Present(_)));
+        }
+        absence_uncreated(&kind.layers, value, written)
+    })
+}
+
 /// Pairing for an admitted entry with its rule. On a subject, an absence test needs the result
-/// to create the cell, and an entry that constrains nothing on a cell the result leaves out
-/// (`written` false) owes [`Lint::NoEffectEntry`]. On a result, `other` is the subject's entry
+/// to create the cell, at the entry's root (`written`) and at each `?` child of the group and
+/// instance records it writes (`other`, the result's entry of the same cell, must write the child
+/// present), and an entry that constrains nothing on a cell the result leaves out
+/// (`written` false) owes [`Lint::NoEffectEntry`]. On a subject, `other` is the result's entry
+/// of the same cell, `None` where the result does not write it. On a result, `other` is the subject's entry
 /// of the same cell, `None` where the subject does not match the cell, and the result is
 /// paired at every content root it writes: the cell's own, and each child's of the group and
 /// instance records it writes, a child being an entry of its own cell. A child's other side is
@@ -1100,9 +1188,12 @@ pub fn pair(
     spelling: &EntrySpelling,
     other: Option<&EntrySpelling>,
     written: bool,
-    bound: &dyn Fn(&str) -> bool,
+    bound: &dyn Fn(&str) -> Option<Bound>,
 ) -> Result<Option<Lint>, Refusal> {
     match side {
+        EntrySide::Subject if absence_uncreated(stack, spelling, other) => {
+            Err(Refusal::AbsenceTestWithoutCreation)
+        }
         EntrySide::Subject if written => Ok(None),
         EntrySide::Subject => {
             if *spelling == EntrySpelling::Missing {
@@ -1122,8 +1213,8 @@ pub fn pair(
 mod tests {
     use krs_ir::cell_kind::{CellKind, GroupKind, Layer, Notation, Order};
 
-    use super::{EntrySide, Lint, Refusal, admit, collect_groups, pair};
-    use crate::cell_entry::{EntryForm, EntryReading, EntrySpelling};
+    use super::{Bound, EntrySide, Lint, Refusal, admit, collect_groups, inner, pair};
+    use crate::cell_entry::{EntryForm, EntryReading, EntrySpelling, RecordTail};
 
     /// The groups a test's configuration declares: those of the stack, and `Frame`.
     fn groups(stack: &[Layer]) -> Vec<GroupKind> {
@@ -1139,6 +1230,19 @@ mod tests {
             .expect("the entry reads")
     }
 
+    /// The bases `spelling`'s updates name, each with its update's head: the reading of a base
+    /// the subject does not show as a record of the update's own constructor matched elsewhere.
+    fn update_bases(spelling: &EntrySpelling, out: &mut Vec<(String, String)>) {
+        if let EntrySpelling::Record(record) | EntrySpelling::Fragment(record) = spelling
+            && let RecordTail::Update(base) = &record.tail
+        {
+            out.push((base.clone(), record.head.clone()));
+        }
+        for one in inner(spelling) {
+            update_bases(one, out);
+        }
+    }
+
     fn judge(form: EntryForm, side: EntrySide, stack: &[Layer], text: &str) -> Result<(), Refusal> {
         admit(
             form,
@@ -1146,7 +1250,7 @@ mod tests {
             &[],
             stack,
             &read(form, text),
-            &|_| false,
+            &|_| None,
             &groups(stack),
         )
         .map(|_| ())
@@ -1165,7 +1269,7 @@ mod tests {
             path,
             stack,
             &read(form, text),
-            &|_| false,
+            &|_| None,
             &groups(stack),
         )
         .map(|_| ())
@@ -1180,13 +1284,23 @@ mod tests {
         subject: Option<&str>,
     ) -> Result<Option<Lint>, Refusal> {
         let spelling = read(form, text);
+        let mut bases = Vec::new();
+        update_bases(&spelling, &mut bases);
+        let bound = |name: &str| {
+            Some(
+                bases
+                    .iter()
+                    .find(|(base, _)| base == name)
+                    .map_or(Bound::Value, |(_, head)| Bound::Record(head.clone())),
+            )
+        };
         admit(
             form,
             EntrySide::Result,
             &[],
             stack,
             &spelling,
-            &|_| true,
+            &bound,
             &groups(stack),
         )?;
         let subject = subject.map(|text| read(form, text));
@@ -1197,7 +1311,7 @@ mod tests {
             &spelling,
             subject.as_ref(),
             false,
-            &|_| true,
+            &bound,
         )
     }
 
@@ -1991,9 +2105,105 @@ mod tests {
                 &spelling,
                 Some(&subject),
                 false,
-                &|name| name != "me",
+                &|name| (name != "me").then_some(Bound::Value),
             ),
             Err(Refusal::RecordUpdateBase)
+        );
+        // `..me` takes the fields of a record of the update's own constructor: a base bound
+        // elsewhere to no record (a list element), or to a record of another constructor, is
+        // none.
+        for bound in [Bound::Value, Bound::Record("Job".to_owned())] {
+            assert_eq!(
+                pair(
+                    readable,
+                    EntrySide::Result,
+                    &threads,
+                    &spelling,
+                    Some(&subject),
+                    false,
+                    &|_| Some(bound.clone()),
+                ),
+                Err(Refusal::RecordUpdateBase)
+            );
+        }
+        assert_eq!(
+            pair(
+                readable,
+                EntrySide::Result,
+                &threads,
+                &spelling,
+                Some(&subject),
+                false,
+                &|_| Some(Bound::Record("T".to_owned())),
+            ),
+            Ok(None)
+        );
+    }
+
+    /// A subject's `None` on a `?` child of a group or instance record tests the child absent,
+    /// which K does only by creating it: the result's same child must be present.
+    #[test]
+    fn a_child_absence_test_needs_the_result_to_create_the_child() {
+        let readable = EntryForm::Readable;
+        let optional = CellKind {
+            layers: vec![Layer::Optional, Layer::Leaf(Notation::Plain)],
+        };
+        let group = GroupKind {
+            name: "O".to_owned(),
+            children: vec![("o".to_owned(), optional), ("n".to_owned(), int())],
+        };
+        let accounts = [Layer::Instances(Order::Map), Layer::Group(group.clone())];
+        let one = [Layer::Group(group)];
+        let subject = |stack: &[Layer], text: &str, result: Option<&str>| {
+            let result = result.map(|text| read(readable, text));
+            pair(
+                readable,
+                EntrySide::Subject,
+                stack,
+                &read(readable, text),
+                result.as_ref(),
+                result.is_some(),
+                &|_| None,
+            )
+        };
+        let absent = Err(Refusal::AbsenceTestWithoutCreation);
+        assert_eq!(subject(&one, "O { o: None, n: x }", None), absent);
+        assert_eq!(
+            subject(&one, "O { o: None, n: x }", Some("O { o: None, n: x }")),
+            absent
+        );
+        assert_eq!(
+            subject(&one, "O { o: None, n: x }", Some("O { o: Some(1), n: x }")),
+            Ok(None)
+        );
+        assert_eq!(
+            subject(&accounts, "{ O { n: x, o: None }, .. }", None),
+            absent
+        );
+        // An unlabelled instance is rewritten by no result record.
+        assert_eq!(
+            subject(
+                &accounts,
+                "{ O { n: x, o: None }, .. }",
+                Some("{ O { n: x, o: Some(1) }, .. }")
+            ),
+            absent
+        );
+        assert_eq!(
+            subject(
+                &accounts,
+                "{ me @ O { n: x, o: None }, .. }",
+                Some("{ O { o: Some(1), ..me }, .. }")
+            ),
+            Ok(None)
+        );
+        assert_eq!(
+            subject(
+                &accounts,
+                "{ me @ O { n: x, o: None }, .. }",
+                Some("{ O { n: 1, ..me }, .. }")
+            ),
+            absent
         );
     }
     #[test]
@@ -2266,7 +2476,7 @@ mod tests {
         let reading = EntryReading::new(init, &variables);
         let admitted = |stack: &[Layer], text: &str| {
             let spelling = reading.value(text.parse().expect("lexes")).expect("reads");
-            admit(init, side, &[], stack, &spelling, &|_| false, &[]).map(|_| ())
+            admit(init, side, &[], stack, &spelling, &|_| None, &[]).map(|_| ())
         };
         let list = [Layer::Leaf(Notation::List)];
         assert_eq!(admitted(&list, "[0, r @ ..]"), refused);
@@ -2306,7 +2516,7 @@ mod tests {
                 &[],
                 &[Layer::Computation],
                 &spliced,
-                &|_| false,
+                &|_| None,
                 &[]
             )
             .map(|_| ()),
@@ -2322,7 +2532,7 @@ mod tests {
                 &[],
                 &[Layer::Computation],
                 &open,
-                &|_| false,
+                &|_| None,
                 &[]
             )
             .map(|_| ()),
@@ -2395,7 +2605,7 @@ mod tests {
                 &read(EntryForm::Readable, text),
                 None,
                 written,
-                &|_| false,
+                &|_| None,
             )
         };
         assert_eq!(lint("Frame { .. }", false), Ok(Some(Lint::NoEffectEntry)));

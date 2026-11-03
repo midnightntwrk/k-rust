@@ -1843,6 +1843,49 @@ pub(super) fn bound_by(spelling: &Spelling) -> BTreeSet<String> {
     out
 }
 
+/// The names `spelling`'s aliases bind to a record, each with the record's head constructor
+/// (`me @ Acct { .. }` or its fragment: `me`, `Acct`), in first-occurrence order.
+#[must_use]
+pub fn records_by(spelling: &Spelling) -> Vec<(String, String)> {
+    fn walk(spelling: &Spelling, out: &mut Vec<(String, String)>) {
+        if let Spelling::Alias(name, inner) = spelling
+            && let Spelling::Record(record) | Spelling::Fragment(record) = &**inner
+            && !out.iter().any(|(known, _)| known == name)
+        {
+            out.push((name.clone(), record.head.clone()));
+        }
+        for inner in super::cells_oracle::children(spelling) {
+            walk(inner, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(spelling, &mut out);
+    out
+}
+
+/// The children sweep's reading of a base its subject does not show (`CHILDREN_BOUND`'s `me`):
+/// each name of `bound` an update `..name` in `spelling` names binds a record of that update's
+/// own constructor, matched elsewhere in the sentence (S5.0g item 3b ruling 1: `..base` takes
+/// the fields of a record of its own constructor), in first-occurrence order.
+#[must_use]
+pub fn update_records(bound: &[&str], spelling: &Spelling) -> Vec<(String, String)> {
+    fn walk(bound: &[&str], spelling: &Spelling, out: &mut Vec<(String, String)>) {
+        if let Spelling::Record(record) | Spelling::Fragment(record) = spelling
+            && let RecordRest::Update(base) = &record.rest
+            && bound.contains(&base.as_str())
+            && !out.iter().any(|(known, _)| known == base)
+        {
+            out.push((base.clone(), record.head.clone()));
+        }
+        for inner in super::cells_oracle::children(spelling) {
+            walk(bound, inner, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(bound, spelling, &mut out);
+    out
+}
+
 /// The Rust type of a `cells!` binder at a position whose content is `stack` (the layers below
 /// the position), or `KItem` where the entry is not of the stack's kind there.
 fn position_type(stack: &[Layer]) -> String {
@@ -2021,8 +2064,18 @@ pub(super) fn build(cell: &Cell) -> Built {
     }
     let (decl, path, _) = find(name);
     let stack = kinds::own(decl);
+    // What the names bound outside the entry bind: the subject's entry of the cell's aliases,
+    // and, for the children sweep's `me` its subject does not show, a record of its update's
+    // constructor (a case of that reading is `ME_ELSEWHERE`, unbuilt).
+    let mut records = other_spelling.as_ref().map(records_by).unwrap_or_default();
+    for found in update_records(cell.bound, &spelling) {
+        if !records.iter().any(|(known, _)| *known == found.0) {
+            records.push(found);
+        }
+    }
     let context = Context {
         bound: cell.bound.iter().map(|name| (*name).to_owned()).collect(),
+        records,
         other: other_spelling.clone(),
         written: cell.written,
         groups: groups(),
@@ -2033,6 +2086,7 @@ pub(super) fn build(cell: &Cell) -> Built {
             let result = read(cell.form, &text);
             let context = Context {
                 bound: held.iter().cloned().collect(),
+                records: records_by(&spelling),
                 other,
                 written: false,
                 groups: groups(),

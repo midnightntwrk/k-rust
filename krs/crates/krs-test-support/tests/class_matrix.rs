@@ -8,7 +8,9 @@ use std::path::Path;
 
 use krs_diagnostic::codes::CodeKind;
 use krs_expand::whole_file::{self, ExpandDiagnostic, FileExpansion, FileRequest, Selection};
-use krs_test_support::class_matrix::advice::{UNCHECKED, Unchecked, listed_forms, unchecked_drift};
+use krs_test_support::class_matrix::advice::{
+    Corpus, UNCHECKED, Unchecked, listed_forms, unchecked_drift,
+};
 use krs_test_support::class_matrix::attributes::Written;
 use krs_test_support::class_matrix::findings::{
     FINDINGS_FILE, FindingKind, Findings, Owner, Red, RedKind, Summary, audit,
@@ -19,7 +21,7 @@ use krs_test_support::class_matrix::invariants::{
 };
 use krs_test_support::class_matrix::oracle::{Class, Outcome, Refusal, Stage, admits};
 use krs_test_support::class_matrix::pending::{
-    Judgement, Observation, Pending, UNASSIGNED, case_of,
+    FULL, Judgement, Observation, Pending, UNASSIGNED, case_of,
 };
 use krs_test_support::class_matrix::positions::{
     Construct, Entry, Form, Kind, Notation, Opening, Position, Slot as Part,
@@ -96,14 +98,14 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // base's 15 stacks × 9 marks (S5.0g), and its listed cases: a group named with its
             // child, the 2-child group record written whole and naming one child on each side,
             // `Some(_)` in a result, and (readable only) a rule that writes no cell; and item
-            // 3b's groups (`kinds::groups`), 39 entries in each readable form.
-            (Family::Readable, 182 + 64 + 15 * 9 + 7 + 39),
-            (Family::Claim, 182 + 64 + 15 * 9 + 6 + 39),
+            // 3b's groups (`kinds::groups`), 42 entries in each readable form.
+            (Family::Readable, 182 + 64 + 15 * 9 + 7 + 42),
+            (Family::Claim, 182 + 64 + 15 * 9 + 6 + 42),
             // 7 kinds × (13 subject + 13 result spellings), the kinds base's 15 stacks × 9
             // marks, S5-F1's result fragment with a bare `..` (and its machine-base twin on the
             // one-child group), the 2-child group's fragment naming one child on each side, and
-            // item 3b's groups (32 entries: 2 lints are `cells!`-only, 9 G1 and G4 entries are readable-only until their parameters are found).
-            (Family::Cells, 182 + 15 * 9 + 2 + 2 + 32),
+            // item 3b's groups (44 entries: 2 lints are `cells!`-only).
+            (Family::Cells, 182 + 15 * 9 + 2 + 2 + 44),
             // 7 kinds × 19 values, the computation cell's remainder, 3 field orders and the
             // nested group's, the optional cell declared `initial` written present, the 4 main-cell
             // shapes × 3 forms of a sentence that names no cell, 8 typed cells × 4 contents, and
@@ -3107,3 +3109,140 @@ fn record_mode_keeps_a_principled_k_held_against_the_product() {
     assert!(!pending.holds_other_k("terms/c"));
     assert!(!pending.holds_other_k("terms/d"));
 }
+
+/// The concrete forms an [`Unchecked`] entry's glob over one listed form stands for, as K8 would
+/// look them up in its writer corpus: the glob's alternatives (`{a,b}`) expanded, its escapes
+/// (`\,`) read, its `*` read as K8's elision (`..`, any text), the backticks and a leading `drop`
+/// taken away.
+fn unchecked_forms(glob: &str) -> Vec<String> {
+    fn expand(chars: &[char]) -> Vec<String> {
+        let mut out = vec![String::new()];
+        let mut at = 0;
+        while at < chars.len() {
+            match chars[at] {
+                '\\' if at + 1 < chars.len() => {
+                    for one in &mut out {
+                        one.push(chars[at + 1]);
+                    }
+                    at += 2;
+                }
+                '*' => {
+                    for one in &mut out {
+                        one.push_str("..");
+                    }
+                    at += 1;
+                }
+                '{' => {
+                    // The alternatives up to the matching brace, split at top-level commas.
+                    let (mut depth, mut end, mut starts) = (0, at, vec![at + 1]);
+                    while end < chars.len() {
+                        match chars[end] {
+                            '\\' => end += 1,
+                            '{' => depth += 1,
+                            '}' => {
+                                depth -= 1;
+                                if depth == 0 {
+                                    break;
+                                }
+                            }
+                            ',' if depth == 1 => starts.push(end + 1),
+                            _ => {}
+                        }
+                        end += 1;
+                    }
+                    let mut alternatives = Vec::new();
+                    for (index, start) in starts.iter().enumerate() {
+                        let stop = starts.get(index + 1).map_or(end, |next| next - 1);
+                        alternatives.extend(expand(&chars[*start..stop]));
+                    }
+                    out = out
+                        .iter()
+                        .flat_map(|one| alternatives.iter().map(move |alt| format!("{one}{alt}")))
+                        .collect();
+                    at = end + 1;
+                }
+                other => {
+                    for one in &mut out {
+                        one.push(other);
+                    }
+                    at += 1;
+                }
+            }
+        }
+        out
+    }
+    let chars = glob.chars().collect::<Vec<_>>();
+    expand(&chars)
+        .into_iter()
+        .map(|form| {
+            let form = form.strip_prefix("drop ").unwrap_or(&form);
+            form.trim_matches('`').to_owned()
+        })
+        .collect()
+}
+
+/// K8's writer corpus reaches every shard (S5.0g item 3a): a reviewed [`UNCHECKED`] entry states
+/// that no generated case writes its forms, and a case the table accepts and KRS accepts as the
+/// table says (no pending K2 entry, under its ID or `full/`) is a writer K8 finds
+/// ([`Corpus::writer`]), which turns the reviewed advice into a checked one in every shard that
+/// meets it. So no such case may write a form an entry lists; this test finds one without
+/// compiling anything. A glob's alternatives (`{x,pgm,any}: {..}`) stand for more forms than
+/// any one refusal advises: the combinations other families write today are
+/// [`WRITTEN_ALTERNATIVES`], which the shards' K8 finds no refusal advising.
+#[test]
+fn no_case_krs_accepts_as_the_table_says_writes_a_form_an_unchecked_entry_reviews() {
+    let table = Table::parse_with_term_accepts(
+        &read_class_matrix("expected.toml"),
+        &read_class_matrix(TERM_ACCEPTS_FILE),
+    )
+    .unwrap_or_else(|errors| panic!("expected.toml: {errors:#?}"));
+    let pending = Pending::parse(&read_class_matrix("pending.toml"))
+        .unwrap_or_else(|errors| panic!("pending.toml: {errors:#?}"));
+    let cases = class_matrix::cases();
+    let resolution = table.resolve_cases(&cases, registry_kind);
+    let corpus = Corpus::new(
+        cases
+            .iter()
+            .filter(|case| matches!(resolution.expected.get(&case.id), Some(Expected::Accept(_))))
+            .filter(|case| {
+                !pending.entries.contains_key(&case.id)
+                    && !pending.entries.contains_key(&format!("{FULL}{}", case.id))
+            })
+            .map(|case| (case.id.clone(), case.own_source())),
+    );
+    let mut written = Vec::new();
+    let mut alternatives = BTreeSet::new();
+    for entry in UNCHECKED {
+        for glob in entry.forms {
+            for form in unchecked_forms(glob) {
+                if let Some(writer) = corpus.writer(&form) {
+                    if glob.contains('{') && WRITTEN_ALTERNATIVES.contains(&form.as_str()) {
+                        alternatives.insert(form);
+                        continue;
+                    }
+                    written.push(format!(
+                        "{}: `{form}` (from `{glob}`) is written by {writer}, which the table \
+                         and KRS accept: K8 now checks this advice in {:?}",
+                        entry.class, entry.shards
+                    ));
+                }
+            }
+        }
+    }
+    assert!(written.is_empty(), "{written:#?}");
+    let stale = WRITTEN_ALTERNATIVES
+        .iter()
+        .filter(|form| !alternatives.contains(**form))
+        .collect::<Vec<_>>();
+    assert!(
+        stale.is_empty(),
+        "no accepted case writes these any more: remove them from WRITTEN_ALTERNATIVES: {stale:?}"
+    );
+}
+
+/// The combinations of an [`UNCHECKED`] glob's alternatives that accepted cases of other
+/// families write (`import/desugar/subject-typed/*`, `import/init/*`,
+/// `terms/alias/result-root/k::project!(Int, x)`): the narrowing refusals the entries review
+/// advise other combinations (a binder's own sort), so K8 finds no writer for theirs. A new
+/// combination here is a decision: check that no refusal advises it.
+const WRITTEN_ALTERNATIVES: &[&str] = &["x: Int", "pgm: Stmt", "k::project!(Int, x)"];

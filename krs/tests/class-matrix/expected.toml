@@ -5342,6 +5342,16 @@ at = "spelling"
 # (`class_matrix::kinds::groups`; tests/cells_oracle.rs `the_kinds_cases_outcomes_print_on_request`): the
 # listed groups the compiled sweep does not reach at its root, and the multi-entry gaps G1, G3, G4, G5.
 [[refuse]]
+match = '{claim,readable}/g3-b/kinds/account/\{ Acct \{ id: z\, acounter: None\, .. \}\, .. \}'
+class = "absence-test-without-creation"
+at = "entry"
+
+[[refuse]]
+match = 'cells/g3-b/kinds/account/\{ k::fragment![crate::Acct \{ id: z\, acounter: None\, .. \}]\, .. \}'
+class = "absence-test-without-creation"
+at = "entry"
+
+[[refuse]]
 match = '{cells,claim,readable}/g5-d/kinds/opt/None'
 class = "absence-test-without-creation"
 at = "entry"
@@ -5522,7 +5532,32 @@ class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
+match = '{claim,readable}/g1-f/kinds/account/\{ Acct \{ acounter: Some(x)\, ..me \}\, .. \}'
+class = "record-update-base"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/g1-f/kinds/account/\{ k::fragment![crate::Acct \{ acounter: Some(x)\, ..me \}]\, ..instances0 \}'
+class = "record-update-base"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/g5-b/kinds/bag/\{ Obj \{ key: 1\, ..me \}\, .. \}'
+class = "record-update-base"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/g5-b/kinds/bag/\{ k::fragment![crate::Obj \{ key: 1\, ..me \}]\, ..instances0 \}'
+class = "record-update-base"
+at = "spelling"
+
+[[refuse]]
 match = '{claim,readable}/g1-d/kinds/account/\{ Acct \{ aprog: [x\, ..]\, ..me \}\, .. \}'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'cells/g1-d/kinds/account/\{ k::fragment![crate::Acct \{ aprog: [x\, ..]\, ..me \}]\, ..instances0 \}'
 class = "rest-mismatch"
 at = "entry"
 
@@ -13971,6 +14006,20 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 # S5.0g item 3b: the kinds base's groups (accepts, K written by `--record`).
+[accept."cells/g1-a/kinds/account/{ k::fragment![crate::Acct { acounter: Some(x), ..me }], ..instances0 }"]
+
+[accept."cells/g1-a/kinds/stack/k::configuration::Cell([me @ k::fragment![crate::Acct { id: z, .. }], rest @ ..])"]
+
+[accept."cells/g1-b/kinds/account/{ k::fragment![crate::Acct { aframe: Ag { aa: x }, ..me }], ..instances0 }"]
+
+[accept."cells/g1-c/kinds/account/{ k::fragment![crate::Acct { aprog: [x], ..me }], ..instances0 }"]
+
+[accept."cells/g1-e/kinds/account/{ k::fragment![crate::Acct { aenv: k::map![x -> 1], ..me }], ..instances0 }"]
+
+[accept."cells/g1-restore/kinds/frame/k::fragment![crate::G { a: x, ..saved }]"]
+
+[accept."cells/g1-restore/kinds/stack/k::configuration::Cell([saved @ k::fragment![crate::G { a: z, .. }], rest @ ..])"]
+
 [accept."cells/g3-a/kinds/account/{ k::fragment![crate::Acct { id: z, acounter: Some(y), .. }], .. }"]
 
 [accept."cells/g3-c/kinds/account/{ k::fragment![crate::Acct { acounter: Some(x), ..me }], ..instances0 }"]
@@ -14002,6 +14051,8 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
+
+[accept."cells/g4-c/kinds/account/{ k::fragment![crate::Acct { aqueue: Aqueue { ajob: [Ajob { apay: x, ..j }, ..jobs] }, ..me }], ..instances0 }"]
 
 [accept."cells/g5-a/kinds/olist/Some(k::configuration::Cell([..r]))"]
 
@@ -14226,16 +14277,22 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."readable/g1-a/kinds/account/{ Acct { acounter: Some(x), ..me }, .. }"]
+same_k_as = ["cells/g1-a/kinds/account/{ k::fragment![crate::Acct { acounter: Some(x), ..me }], ..instances0 }"]
 
 [accept."readable/g1-a/kinds/stack/[me @ Acct { id: z, .. }, ..]"]
+same_k_as = ["cells/g1-a/kinds/stack/k::configuration::Cell([me @ k::fragment![crate::Acct { id: z, .. }], rest @ ..])"]
 
 [accept."readable/g1-b/kinds/account/{ Acct { aframe: Ag { aa: x }, ..me }, .. }"]
+same_k_as = ["cells/g1-b/kinds/account/{ k::fragment![crate::Acct { aframe: Ag { aa: x }, ..me }], ..instances0 }"]
 
 [accept."readable/g1-c/kinds/account/{ Acct { aprog: [x], ..me }, .. }"]
+same_k_as = ["cells/g1-c/kinds/account/{ k::fragment![crate::Acct { aprog: [x], ..me }], ..instances0 }"]
 
 [accept."readable/g1-e/kinds/account/{ Acct { aenv: { x -> 1 }, ..me }, .. }"]
+same_k_as = ["cells/g1-e/kinds/account/{ k::fragment![crate::Acct { aenv: k::map![x -> 1], ..me }], ..instances0 }"]
 
 [accept."readable/g1-restore/kinds/frame/G { a: x, ..saved }"]
+same_k_as = ["cells/g1-restore/kinds/frame/k::fragment![crate::G { a: x, ..saved }]"]
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:Int ) => .K ... </k>
@@ -14246,6 +14303,7 @@ syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
 [accept."readable/g1-restore/kinds/stack/[saved @ G { a: z, .. }, ..]"]
+same_k_as = ["cells/g1-restore/kinds/stack/k::configuration::Cell([saved @ k::fragment![crate::G { a: z, .. }], rest @ ..])"]
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:Int ) => .K ... </k>
@@ -14293,6 +14351,7 @@ syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
 [accept."readable/g4-c/kinds/account/{ Acct { aqueue: Aqueue { ajob: [Ajob { apay: x, ..j }, ..] }, ..me }, .. }"]
+same_k_as = ["cells/g4-c/kinds/account/{ k::fragment![crate::Acct { aqueue: Aqueue { ajob: [Ajob { apay: x, ..j }, ..jobs] }, ..me }], ..instances0 }"]
 
 [accept."readable/g4-d/kinds/account/{ Acct { aenv: { v -> x, .. }, ..me }, .. }"]
 

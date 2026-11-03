@@ -619,6 +619,12 @@ pub const UNCHECKED: &[Unchecked] = &[
         reason: "the advice is a rewrite at the placeholders `p`, `e` and `P`, which no case spells; the class's advised case writes the pattern in a `let` of its own",
     },
     Unchecked {
+        class: "alias-outside-pattern",
+        forms: &["`key -> value`"],
+        shards: &["init"],
+        reason: "the advice is the map entry's own notation at the placeholders `key` and `value`, which no case spells, for a named rest `r @ ..` in an initializer's `k::map![..]` (S5.0g item 3b's listed initializers); the class's advised case writes a pattern in `k::matches!(x, Cmd::Hold(_))`",
+    },
+    Unchecked {
         class: "configuration-variable-sort",
         forms: NARROWED,
         shards: &["terms"],

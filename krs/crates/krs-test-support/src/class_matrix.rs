@@ -965,9 +965,18 @@ pub fn run_counterless(case: &Case) -> Option<&'static str> {
 /// family: a collection's template, of the machine base's `job` or the typed base's `slot`.
 #[must_use]
 pub fn initializer_unread(case: &Case) -> Option<&'static str> {
-    (case.family == Family::Init
-        && (case.kind == Some(CellKind::Collection) || case.id.starts_with("init/typed/slot/")))
-    .then_some(machine::TEMPLATE_UNREAD)
+    if case.family != Family::Init {
+        return None;
+    }
+    if case.kind == Some(CellKind::Collection) || case.id.starts_with("init/typed/slot/") {
+        return Some(machine::TEMPLATE_UNREAD);
+    }
+    // A kinds collection's case that runs (a value `outcome` refuses has no run).
+    (matches!(case.k7, k7::K7::Run(_))
+        && ["init/kinds/job/", "init/kinds/bag/", "init/kinds/account/"]
+            .iter()
+            .any(|prefix| case.id.starts_with(prefix)))
+    .then_some(kinds::KINDS_TEMPLATE_UNREAD)
 }
 
 /// The collections a run family's subject case reads (`Obj { key: 1, m: map![1 -> 2] }` reads the
