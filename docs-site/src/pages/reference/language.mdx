@@ -198,7 +198,7 @@ Rust has no spread in an array expression, so `[e1, ..rest]` in a result, where 
 A bracket holds one rest, in patterns and results (`krs::syntax::invalid-list-notation` for a second): a pattern with fixed elements at both ends and one rest matches a list in at most one way, since the list's length fixes the rest's, but with two rests the elements between them could sit at several places, so the pattern would match some lists in several ways without saying which.
 The same holds for an explicit pattern: `list::concat(left, list::concat(list::item(v), right))`, K's `Left ListItem(V) Right`, is rejected in a rule, equation, or simplification (`krs::analysis::ambiguous-list-pattern`).
 Results keep the same rule for symmetry; join two lists with `list::concat(xs, ys)`, which says so.
-`[..]`, which matches any list, is rejected (write `_`), and so are `[rest @ ..]` and `[..rest]`, which are `rest`.
+`[..]`, which matches any list, is rejected (write `_`), and so are `[rest @ ..]` and `[..rest]`, which are `rest`, wherever a term is written; a `cells!` result's leaf content is the cell's content root instead, where `..rest` puts the named rest back, so `Cell([..rest])` is the cell's list `rest`, as `Cell(rest)` is.
 A cons list is matched and built from its front, so its back is no constructor pattern: `[.., x]`, `[x, .., y]`, and a result `[..rest, x]` at a cons-list sort are `krs::analysis::invalid-list-notation`.
 The builtin `List` has no such constructor, and its front and back are symmetric under concatenation, so a suffix is as primitive as a prefix.
 

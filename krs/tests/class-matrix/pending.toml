@@ -4703,10 +4703,6 @@ deviation = "krs::analysis::invalid-term @ spelling"
 finding = "S5-G3"
 deviation = "krs::analysis::invalid-record-update @ spelling"
 
-["cells/g5-a/kinds/olist/Some(k::configuration::Cell([..r]))"]
-finding = "S5-N1"
-deviation = "krs::syntax::invalid-list-notation @ spelling"
-
 ["cells/g5-c/kinds/hstack/k::configuration::Cell([z, ..])"]
 finding = "S5-F2"
 deviation = "krs::analysis::invalid-record-update @ item"
@@ -4882,10 +4878,6 @@ deviation = "other K than cells/g1-restore/kinds/stack/k::configuration::Cell([s
 ["k3/readable/lint/kinds/frame/G { .. }"]
 finding = "S5-F2"
 deviation = "other K than cells/lint/kinds/frame/k::fragment![crate::G { .. }]"
-
-["k8/cells/g5-a/kinds/olist/Some(k::configuration::Cell([..r]))"]
-finding = "S5-N1"
-deviation = "refused where the table accepts, advising `rest`"
 
 ["k8/claim/g5-a/kinds/olist/Some([..r])"]
 finding = "S5-N1"

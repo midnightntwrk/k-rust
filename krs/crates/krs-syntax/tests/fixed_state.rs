@@ -1285,6 +1285,30 @@ fn whole_nested_cell_entries_are_binders_wildcards_or_fragments() {
     }
 }
 
+/// A leaf's content is a content root, where `..r` puts the named rest back (P6): a result's
+/// `Cell([..r])` is the list `r`, as `Cell(r)` is. Below the root the brackets are a term's,
+/// which hold no element.
+#[test]
+fn a_result_leaf_s_named_rest_alone_is_the_rest() {
+    for source in ["stack: Cell([..r])", "olist: Some(Cell([..r]))"] {
+        assert!(
+            krs_syntax::parse_cells_expression(
+                krs_syntax::parse::tokens_from_source(source).unwrap(),
+            )
+            .is_ok(),
+            "{source}"
+        );
+    }
+    let below = krs_syntax::parse_cells_expression(
+        krs_syntax::parse::tokens_from_source("stack: Cell(list::concat([..r], s))").unwrap(),
+    )
+    .unwrap_err();
+    assert!(matches!(
+        below.kind(),
+        SyntaxErrorKind::InvalidListNotation { .. }
+    ));
+}
+
 #[test]
 fn qualified_state_macros_in_leaf_cells_read_as_the_unqualified_ones() {
     for (qualified, unqualified) in [

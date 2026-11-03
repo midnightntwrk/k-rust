@@ -14118,6 +14118,14 @@ syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 [accept."cells/g4-c/kinds/account/{ k::fragment![crate::Acct { aqueue: Aqueue { ajob: [Ajob { apay: x, ..j }, ..jobs] }, ..me }], ..instances0 }"]
 
 [accept."cells/g5-a/kinds/olist/Some(k::configuration::Cell([..r]))"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(V0:KItem) V1:List => ListItem(V0:KItem) </stack>
+<olist> V2:List => V1:List </olist>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."cells/g6-context-alias/kinds/pc/k::configuration::Cell(x)"]
 k = """

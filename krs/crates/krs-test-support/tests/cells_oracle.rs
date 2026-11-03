@@ -6484,11 +6484,14 @@ fn presence_frame(entry: &EntryCase, subject: &str, result: &str) -> Option<Stri
 /// sides of a rewrite inside it, a kept rest variable (b), or on the subject a `_` at the
 /// content's top level (c).
 /// A subject's `..` or `name @ ..` matches the unwritten rest, so its side has a frame; an exact
-/// subject has none. A result's `..` keeps the subject's rest, `..name` puts a rest back, an
-/// exact result keeps none. An initializer's value is complete.
+/// subject has none. A result's `..` keeps the subject's rest, and `..name` keeps it only where
+/// `name` is that rest (`own_rest`, [`puts_own_rest_back`]); any other `..name` moves a list in,
+/// which replaces the content exactly, as an exact result does. An initializer's value is
+/// complete.
 fn frame_agrees(
     side: Side,
     root: &class_matrix::cells_oracle::Root,
+    own_rest: impl Fn(&str) -> bool,
     content: &str,
     (subject, result): (&str, &str),
     sentence: &str,
@@ -6506,7 +6509,8 @@ fn frame_agrees(
     };
     let keeps = match (side, root) {
         (Side::Subject, Root::Rest(Rest::Anon | Rest::Named(_)))
-        | (Side::Result, Root::Rest(Rest::Anon | Rest::Splice(_))) => true,
+        | (Side::Result, Root::Rest(Rest::Anon)) => true,
+        (Side::Result, Root::Rest(Rest::Splice(name))) => own_rest(name),
         (Side::Initializer, _) | (_, Root::Rest(_) | Root::Exact) => false,
         // A whole binder that nothing reads matches every content, which K writes `...` alone;
         // otherwise a whole binder or a value writes no rest, and frames nothing.
@@ -6524,6 +6528,27 @@ fn frame_agrees(
         (false, true) => Err("a frame".to_owned()),
         _ => Ok(()),
     }
+}
+
+/// P6 for a result's `..name` at `cell`'s content root: whether it puts back this cell's own
+/// rest, the one `subject` (the subject's entry of the result's top cell, read by its `stack`)
+/// names `name @ ..` at the same content root. Only then does the result keep the cell's rest,
+/// and its K a frame there. A `..name` that names any other binding, another cell's rest
+/// included, moves that list in: the cell's content is then replaced exactly.
+fn puts_own_rest_back(
+    cell: &str,
+    (top, stack): (&str, &[Layer]),
+    subject: Option<&Spelling>,
+    name: &str,
+) -> bool {
+    use class_matrix::cells_oracle::{Root, root};
+    let mut roots = Vec::new();
+    if let Some(subject) = subject {
+        content_roots(top, stack, subject, &mut roots);
+    }
+    roots
+        .iter()
+        .any(|(at, spelling)| at == cell && root(spelling) == Root::Rest(Rest::Named(name.into())))
 }
 
 /// Check 6 (P6 in the recorded K, independent of classes): every accepted cell-entry case with
@@ -6620,9 +6645,12 @@ fn check_6_the_recorded_k_keeps_a_frame_exactly_where_p6_says() {
                 } else {
                     1
                 };
+                let top = (entry.entry.cell.as_str(), &entry.entry.stack[..]);
+                let subject_of = entry.context.other.as_ref();
                 if let Err(found) = frame_agrees(
                     entry.entry.side,
                     &root(spelling),
+                    |name| puts_own_rest_back(cell, top, subject_of, name),
                     content,
                     (subject, result),
                     k,
@@ -6646,6 +6674,94 @@ fn check_6_the_recorded_k_keeps_a_frame_exactly_where_p6_says() {
     }
     println!("{counts:#?}");
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// Check 6's reading of a result's `..name` (S5-N1, P6), on both shapes: the cell's own rest put
+/// back keeps the rest, so its K needs a frame; another cell's rest moved in replaces the
+/// content exactly, so its K has none, and `...` there is refused.
+#[test]
+fn a_result_splice_keeps_the_rest_only_where_it_names_the_cells_own() {
+    use class_matrix::cells_oracle::root;
+    let optional = [Layer::Optional, Layer::Leaf(Notation::List)];
+    let read = |text: &str| {
+        probed_as(
+            &Probe {
+                form: Form::Cells,
+                side: Side::Result,
+                path: &[],
+                stack: &optional,
+                text,
+                other: None,
+                written: false,
+                bound: &[],
+                records: &[],
+                elsewhere: false,
+            }
+            .read(text),
+        )
+    };
+    let result = read("Some(k::configuration::Cell([..r]))");
+    let own = read("Some(k::configuration::Cell([x, r @ ..]))");
+    let moved = read("Some(k::configuration::Cell(old))");
+    let top = ("olist", &optional[..]);
+    assert!(puts_own_rest_back("olist", top, Some(&own), "r"));
+    assert!(!puts_own_rest_back("olist", top, Some(&moved), "r"));
+    assert!(!puts_own_rest_back("olist", top, None, "r"));
+    assert!(!puts_own_rest_back("olist", top, Some(&own), "s"));
+    assert!(!puts_own_rest_back("stack", top, Some(&own), "r"));
+    let judge = |subject: Option<&Spelling>, content: &str, sides: (&str, &str), k: &str| {
+        frame_agrees(
+            Side::Result,
+            &root(&result),
+            |name: &str| puts_own_rest_back("olist", top, subject, name),
+            content,
+            sides,
+            k,
+            2,
+        )
+    };
+    // The own rest: `<olist> ListItem(V0) V1:List => V1:List </olist>` keeps `V1`; without it,
+    // the K has no frame.
+    let kept = "<olist> ListItem(V0) V1:List => V1:List </olist>";
+    assert_eq!(
+        judge(
+            Some(&own),
+            "ListItem(V0) V1:List => V1:List",
+            ("ListItem(V0) V1:List", "V1:List"),
+            kept
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        judge(
+            Some(&own),
+            "ListItem(V0) V1:List => .List",
+            ("ListItem(V0) V1:List", ".List"),
+            "<olist> ListItem(V0) V1:List => .List </olist>"
+        ),
+        Err("no frame".to_owned())
+    );
+    // Another cell's rest: `<olist> V2:List => V1:List </olist>` is exact; `...` is a frame.
+    let moved_k = "<stack> ListItem(V0) V1:List => ListItem(V0) </stack> \
+                   <olist> V2:List => V1:List </olist>";
+    assert_eq!(
+        judge(
+            Some(&moved),
+            "V2:List => V1:List",
+            ("V2:List", "V1:List"),
+            moved_k
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        judge(
+            Some(&moved),
+            "V2:List => V1:List ...",
+            ("V2:List", "V1:List ..."),
+            &moved_k.replace("V1:List </olist>", "V1:List ... </olist>")
+        ),
+        Err("a frame".to_owned())
+    );
 }
 
 /// A record-level frame an entry writes (P6, records follow Rust): a group or instance record's

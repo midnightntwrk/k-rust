@@ -1798,7 +1798,13 @@ fn parse_entry_value(
         "KCell" => {
             StateTerm::KSequence(parse_k_sequence(value_tokens, context, Some(parentheses))?)
         }
-        "Cell" => parse_state_term(crate::parse::strip_trailing_comma(value_tokens), context)?,
+        "Cell" => {
+            let leaf = crate::parse::strip_trailing_comma(value_tokens);
+            match named_rest_alone(&leaf, context) {
+                Some(rest) => StateTerm::Term(state_term_tokens(rest, context)?),
+                None => parse_state_term(leaf, context)?,
+            }
+        }
         _ => {
             return Err(state_error(
                 "cells",
@@ -2236,6 +2242,30 @@ fn pattern_only_entry(tokens: &TokenStream) -> Option<SyntaxError> {
                 tokens.span(),
             )
         })
+}
+
+/// The name of a result's `[..name]` written as a leaf's whole content, `Cell([..name])`. A
+/// leaf's content is a content root, where `..name` puts the named rest back (P6), so brackets
+/// holding nothing else are the list `name` is: `Cell(name)`. Below the root, `[..name]` is a
+/// term's notation, which has no element and is refused there.
+fn named_rest_alone(tokens: &TokenStream, context: StateMacroContext) -> Option<TokenStream> {
+    if context != StateMacroContext::Expression {
+        return None;
+    }
+    let mut trees = tokens.clone().into_iter();
+    let (Some(TokenTree::Group(group)), None) = (trees.next(), trees.next()) else {
+        return None;
+    };
+    if group.delimiter() != Delimiter::Bracket {
+        return None;
+    }
+    let rest = |input: ParseStream<'_>| -> syn::Result<Ident> {
+        input.parse::<Token![..]>()?;
+        input.parse::<Ident>()
+    };
+    syn::parse::Parser::parse2(rest, group.stream())
+        .ok()
+        .map(|name| quote!(#name))
 }
 
 /// Parses a leaf cell's content. `k!` and `map!` are read by their last
