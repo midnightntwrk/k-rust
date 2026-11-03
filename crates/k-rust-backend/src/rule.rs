@@ -124,7 +124,8 @@ pub enum Predicate {
     /// (folding by pure builtin hooks on literals, ceil equations whose instantiated condition
     /// those hooks decide or whose instance over hook arithmetic is stated in its place, the key
     /// condition of a collection of literal keys, one equation step selected by matching alone,
-    /// a known fact, and the solver, which reads it as the same opaque atom as `\ceil(t)`).
+    /// a known fact, and the solver, which reads it as it reads `\ceil(t)`: by the domain plan
+    /// of `t`, a term-level `\and`'s included).
     Defined(Term),
 }
 
