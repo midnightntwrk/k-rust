@@ -18,6 +18,10 @@
 # a cons list sort and a List collection, 21 sorts), 20 after `f11646bf6` (NT-3 review, the
 # collection and mixed-key positions, 25 sorts); recorded at 20 by NT-11 (k4 had been red since).
 
+["cells/result/kinds/code/k::fragment![crate::G { a: x, .. }]"]
+finding = "S0-9"
+deviation = "krs::analysis::cell-wrapper @ entry"
+
 ["cells/result/kinds/hacct/k::configuration::KCell(x)"]
 finding = "S5-S1"
 deviation = "krs::analysis::optional-presence @ entry"
@@ -34,9 +38,29 @@ deviation = "krs::analysis::optional-presence @ entry"
 finding = "S5-S1"
 deviation = "krs::analysis::optional-presence @ entry"
 
+["cells/result/kinds/olist/k::fragment![crate::G { a: x, .. }]"]
+finding = "S0-9"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["cells/result/kinds/set/k::fragment![crate::G { a: x, .. }]"]
+finding = "S0-9"
+deviation = "krs::analysis::cell-wrapper @ entry"
+
+["cells/result/kinds/stack/k::fragment![crate::G { a: x, .. }]"]
+finding = "S0-9"
+deviation = "krs::analysis::cell-wrapper @ entry"
+
 ["cells/subject/kinds/aacct/k::configuration::Cell(x)"]
 finding = "S5-S1"
 deviation = "krs::analysis::collection-entry @ entry"
+
+["claim/result/kinds/set/G { a: x, .. }"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["claim/result/kinds/stack/G { a: x, .. }"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ spelling"
 
 ["k8/cells/result/kinds/hacct/k::configuration::KCell(x)"]
 finding = "S0-9"
@@ -53,6 +77,10 @@ deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configu
 ["k8/cells/result/kinds/hogroup/k::configuration::KCell(x)"]
 finding = "S0-9"
 deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/cells/result/kinds/olist/k::fragment![crate::G { a: x, .. }]"]
+finding = "S0-9"
+deviation = "open-record-outside-pattern advises none, and its refusal advises `Some(..)`"
 
 ["lattice/class-imported/coverage~k-rust-disambiguation/s-kitem"]
 finding = "S0-8"
@@ -635,6 +663,14 @@ deviation = "krs::syntax::rust-syntax @ entry"
 ["readable/result/k/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
+
+["readable/result/kinds/set/G { a: x, .. }"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ spelling"
+
+["readable/result/kinds/stack/G { a: x, .. }"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ spelling"
 
 ["readable/result/pc/[.., Job { payload: 0, .. }]"]
 finding = "S0-9"
@@ -3478,7 +3514,7 @@ deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configu
 finding = "S5-A"
 deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
 
-# S5.0g: the kinds base (`class_matrix::kinds`) and S5-F1's machine-base twin, recorded from filtered runs
+# S5.0g: the kinds base (`class_matrix::kinds`), recorded from filtered runs
 # of the readable, cells and init shards. Owners as ruled: a path-named cell below `?`/`*`, admitted or
 # refused with another code, S5-S1 (its K3, S6's); the overwrite and the subject lint, S5-Q1; the second
 # computation's brackets, S5-C2; own-level wrong codes S0-9 (cells! wrappers S5-A, `job: [x, ..]` S5-Q2,
@@ -4001,7 +4037,7 @@ deviation = "presence-on-plain-cell advises none, and its refusal advises `rest 
 
 ["k8/claim/result/kinds/code/G { a: x, .. }"]
 finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `rest @ ..`"
+deviation = "open-record-outside-pattern advises none, and its refusal advises `rest @ ..`"
 
 ["k8/claim/result/kinds/code/x"]
 finding = "S0-9"
@@ -4017,7 +4053,7 @@ deviation = "presence-on-plain-cell advises none, and its refusal advises `rest 
 
 ["k8/readable/result/kinds/code/G { a: x, .. }"]
 finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `rest @ ..`"
+deviation = "open-record-outside-pattern advises none, and its refusal advises `rest @ ..`"
 
 ["k8/readable/result/kinds/code/x"]
 finding = "S0-9"
@@ -4102,10 +4138,6 @@ deviation = "krs::analysis::invalid-list-notation @ item"
 ["readable/result/kinds/code/[x, ..]"]
 finding = "S5-C2"
 deviation = "krs::analysis::invalid-list-notation @ item"
-
-["cells/result/frame/k::fragment![crate::Frame { ret: x, .. }]"]
-finding = "S5-F1"
-deviation = "accepted"
 
 ["init/kinds/code/k::k![pgm]"]
 finding = "S5-M1"

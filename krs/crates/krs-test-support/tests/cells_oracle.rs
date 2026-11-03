@@ -337,6 +337,24 @@ impl Configuration {
         Some((ancestors, field))
     }
 
+    /// The configuration's groups, at any depth, as `CellKind` reads its cells: what the
+    /// product reads a term's record by.
+    fn groups(&self) -> Vec<cell_kind::GroupKind> {
+        let mut groups = Vec::new();
+        let Some(root) = self
+            .declarations
+            .iter()
+            .find(|declaration| *declaration.name() == self.root)
+        else {
+            return groups;
+        };
+        for field in root.cells() {
+            let cell = ConfigurationCell::new(field, &self.declarations, &self.cons_lists);
+            cell_entries::collect_groups(&CellKind::of(&cell).layers, &mut groups);
+        }
+        groups
+    }
+
     /// What an entry naming `cell` is judged against: `CellKind::{path, of}`, apart.
     fn kind(&self, cell: &str) -> cell_kind::EntryKind {
         let (ancestors, field) = self
@@ -1025,6 +1043,7 @@ fn product_outcome(
     entry: &EntryCase,
     kind: &cell_kind::EntryKind,
     spelling: &EntrySpelling,
+    groups: &[cell_kind::GroupKind],
 ) -> Outcome {
     let (path, stack) = (&kind.path.layers[..], &kind.own.layers[..]);
     let form = match entry.form {
@@ -1035,7 +1054,7 @@ fn product_outcome(
     };
     let side = product_side(entry.entry.side);
     let bound = |name: &str| entry.context.bound.iter().any(|bound| bound == name);
-    let admitted = match cell_entries::admit(form, side, path, stack, spelling, &bound) {
+    let admitted = match cell_entries::admit(form, side, path, stack, spelling, &bound, groups) {
         Ok(admitted) => admitted,
         Err(refusal) => return Outcome::Refuse(refusal.class()),
     };
@@ -1072,6 +1091,10 @@ fn product_outcome(
 fn check_2_the_product_admits_as_the_table_says() {
     let exceptions = exceptions();
     let configurations = configurations();
+    let groups = configurations
+        .iter()
+        .map(|(base, configuration)| (*base, configuration.groups()))
+        .collect::<BTreeMap<_, _>>();
     let mut failures = Vec::new();
     let mut kinds = BTreeSet::new();
     let mut counts = BTreeMap::<String, usize>::new();
@@ -1128,7 +1151,7 @@ fn check_2_the_product_admits_as_the_table_says() {
             ));
             continue;
         }
-        let got = product_outcome(entry, &kind, &spelling);
+        let got = product_outcome(entry, &kind, &spelling, &groups[&case.base]);
         let excepted = !naming(&case.id, &exceptions).is_empty();
         let want = match &EXPECTED[&case.id] {
             Expected::Refuse { name, .. } if excepted => Outcome::Refuse(name),
@@ -1865,7 +1888,18 @@ impl Probe<'_> {
             bound: self.bound.iter().map(|name| (*name).to_owned()).collect(),
             other: self.other.map(|text| probed_as(&self.read(text))),
             written: self.written,
+            groups: self.groups(),
         }
+    }
+
+    /// The groups of the probe's configuration: those of its path and stack, and `G` (a, b:
+    /// Int), the group a term's record names.
+    fn groups(&self) -> Vec<Group> {
+        let mut groups = Vec::new();
+        for layers in [self.path, self.stack, &[group_g()][..]] {
+            class_matrix::cells_oracle::collect_groups(layers, &mut groups);
+        }
+        groups
     }
 
     /// The oracle's outcome.
@@ -1896,10 +1930,19 @@ impl Probe<'_> {
         let stack = self.stack.iter().map(product_layer).collect::<Vec<_>>();
         let spelling = self.read(self.text);
         let bound = |name: &str| self.bound.contains(&name);
-        let admitted = match cell_entries::admit(form, side, &path, &stack, &spelling, &bound) {
-            Ok(admitted) => admitted,
-            Err(refusal) => return Outcome::Refuse(refusal.class()),
-        };
+        let groups = self
+            .groups()
+            .iter()
+            .map(|group| match product_layer(&Layer::Group(group.clone())) {
+                cell_kind::Layer::Group(group) => group,
+                other => unreachable!("a group's layer is {other:?}"),
+            })
+            .collect::<Vec<_>>();
+        let admitted =
+            match cell_entries::admit(form, side, &path, &stack, &spelling, &bound, &groups) {
+                Ok(admitted) => admitted,
+                Err(refusal) => return Outcome::Refuse(refusal.class()),
+            };
         let pair_stack = match (side, stack.split_first()) {
             (EntrySide::Initializer, Some((cell_kind::Layer::Instances(_), template))) => template,
             _ => &stack[..],
@@ -2222,6 +2265,154 @@ fn a_named_rest_in_a_result_is_refused_at_the_form() {
             refused,
         ),
         (below, refused),
+    ]);
+}
+
+/// R4 under the vacuous-rest ruling (P6, P0): a bare `..` in a built record is Rust's default
+/// fields, so it is refused exactly where it leaves a declared field unnamed; here the record of
+/// a group that exists, and a child's record inside it. A `..` after every field defaults none:
+/// Rust and K read the same exact record.
+#[test]
+fn a_bare_rest_in_a_built_record_is_refused_where_it_leaves_a_field_open() {
+    let open = Outcome::Refuse("open-record-outside-pattern");
+    let group = [group_g()];
+    let w = children_stack("group W");
+    let frame = [sweep_group(
+        "Frame",
+        &[("ret", Layer::Leaf(Notation::Plain))],
+    )];
+    probes_agree(&[
+        // The record of a group that exists: open on `G { a, b }` without `b`, exact with it.
+        (
+            result_probe(
+                Form::Readable,
+                &group,
+                "G { a: x, .. }",
+                Some("G { a: y, .. }"),
+            ),
+            open,
+        ),
+        (
+            result_probe(
+                Form::Readable,
+                &group,
+                "G { a: x, b: y, .. }",
+                Some("G { a: y, .. }"),
+            ),
+            Outcome::After,
+        ),
+        (
+            result_probe(Form::Claim, &group, "G { a: x, b: y, .. }", None),
+            Outcome::After,
+        ),
+        (
+            result_probe(
+                Form::Cells,
+                &group,
+                "k::fragment![crate::G { a: x, b: y, .. }]",
+                Some("k::fragment![crate::G { a: y, .. }]"),
+            ),
+            Outcome::After,
+        ),
+        (
+            result_probe(
+                Form::Cells,
+                &frame,
+                "k::fragment![crate::Frame { ret: x, .. }]",
+                Some("k::fragment![crate::Frame { ret: y, .. }]"),
+            ),
+            Outcome::After,
+        ),
+        // A child's record inside a record.
+        (
+            result_probe(Form::Readable, &w, "W { g: G { a: x, .. }, n: 0 }", None),
+            open,
+        ),
+        (
+            result_probe(
+                Form::Readable,
+                &w,
+                "W { g: G { a: x, b: y, .. }, n: 0 }",
+                None,
+            ),
+            Outcome::After,
+        ),
+    ]);
+}
+
+/// R4 under the vacuous-rest ruling, on a term: a record a result's value writes at a leaf, or
+/// where the missing layer's advice puts it, is refused where its bare `..` leaves a field open,
+/// and judged as the value it is otherwise (P6, P0, P3's reason). A record whose head names no
+/// group of the configuration has no fields it is known to name, so its `..` is open.
+#[test]
+fn a_bare_rest_in_a_term_is_refused_where_it_leaves_a_field_open() {
+    let open = Outcome::Refuse("open-record-outside-pattern");
+    let set = [Layer::Leaf(Notation::Set)];
+    let code = [Layer::Computation];
+    let optional_list = [Layer::Optional, Layer::Leaf(Notation::List)];
+    probes_agree(&[
+        (
+            result_probe(Form::Readable, &set, "G { a: x, .. }", Some("old")),
+            open,
+        ),
+        (
+            result_probe(Form::Readable, &set, "G { a: x, b: y, .. }", Some("old")),
+            Outcome::After,
+        ),
+        (
+            result_probe(Form::Readable, &code, "G { a: x, .. }", Some("[y, ..]")),
+            open,
+        ),
+        (
+            result_probe(
+                Form::Readable,
+                &code,
+                "G { a: x, b: y, .. }",
+                Some("[y, ..]"),
+            ),
+            Outcome::Refuse("cell-wrapper"),
+        ),
+        (
+            result_probe(
+                Form::Readable,
+                &optional_list,
+                "G { a: x, .. }",
+                Some("Some([y, ..])"),
+            ),
+            open,
+        ),
+        (
+            result_probe(
+                Form::Readable,
+                &optional_list,
+                "G { a: x, b: y, .. }",
+                Some("Some([y, ..])"),
+            ),
+            Outcome::Refuse("optional-without-presence"),
+        ),
+        (
+            result_probe(
+                Form::Cells,
+                &set,
+                "k::configuration::Cell(k::fragment![crate::G { a: x, b: y, .. }])",
+                Some("k::configuration::Cell(old)"),
+            ),
+            Outcome::After,
+        ),
+        (
+            result_probe(
+                Form::Cells,
+                &set,
+                "k::configuration::Cell(k::fragment![crate::G { a: x, .. }])",
+                Some("k::configuration::Cell(old)"),
+            ),
+            open,
+        ),
+        // A head no group names.
+        (
+            result_probe(Form::Readable, &set, "Q { a: x, .. }", Some("old")),
+            open,
+        ),
     ]);
 }
 
@@ -3344,6 +3535,7 @@ const fn sweep_spellings(form: Form) -> &'static [&'static str] {
             "_",
             "0",
             "G { a: x, .. }",
+            "G { a: x, b: y, .. }",
             "G { a: x }",
         ],
         Form::Cells => &[
@@ -3359,6 +3551,7 @@ const fn sweep_spellings(form: Form) -> &'static [&'static str] {
             "x",
             "_",
             "k::fragment![crate::G { a: x, .. }]",
+            "k::fragment![crate::G { a: x, b: y, .. }]",
             "k::fragment![crate::G { a: x }]",
         ],
         Form::Init => &[
@@ -3522,7 +3715,7 @@ fn children_stack(name: &str) -> Vec<Layer> {
 
 /// The children sweep's rows: a stack, the subject's entry of the cell (`-`: the subject does
 /// not match it), and a result, each written in readable (claim alike) and in `cells!`.
-const CHILDREN_SWEEP: [(&str, [&str; 2], [&str; 2]); 35] = [
+const CHILDREN_SWEEP: [(&str, [&str; 2], [&str; 2]); 36] = [
     (
         "group H",
         [
@@ -3803,6 +3996,15 @@ const CHILDREN_SWEEP: [(&str, [&str; 2], [&str; 2]); 35] = [
         [
             "W { g: G { a: x, b: y }, n: 0 }",
             "k::fragment![crate::W { g: G { a: x, b: y }, n: 0 }]",
+        ],
+    ),
+    // A bare `..` that names every child leaves no field open: the exact record (P6, P0).
+    (
+        "group W",
+        ["-", "-"],
+        [
+            "W { g: G { a: x, b: y, .. }, n: 0 }",
+            "k::fragment![crate::W { g: G { a: x, b: y, .. }, n: 0 }]",
         ],
     ),
     // R1: an update whose label no subject instance has changes an instance the subject does
@@ -4243,8 +4445,10 @@ fn check_6_the_recorded_k_keeps_a_frame_exactly_where_p6_says() {
 /// rest.
 #[derive(Debug)]
 enum RecordFrame {
-    /// A record of the group the cell holds (the cell's own group, or one instance's).
-    Record { cell: String, keeps: bool },
+    /// A record of the group the cell holds (the cell's own group, or one instance's); `keeps`
+    /// is `None` where its `..` follows every child, which leaves no field to keep, so K's
+    /// frame there is empty whether written or not.
+    Record { cell: String, keeps: Option<bool> },
     /// The instances of a collection, of which `records` are records.
     Instances {
         cell: String,
@@ -4269,6 +4473,10 @@ fn record_frames(
         other => other,
     };
     let keeps = |rest: bool| rest && side != Side::Initializer;
+    let record_keeps = |group: &Group, record: &Record| {
+        (record.rest == RecordRest::Exact || record.fields.len() != group.children.len())
+            .then(|| keeps(record.rest != RecordRest::Exact))
+    };
     let record = |group: &Group, item: &Spelling| match item {
         Spelling::Alias(_, inner) => match &**inner {
             Spelling::Record(record) | Spelling::Fragment(record) if record.head == group.name => {
@@ -4296,7 +4504,7 @@ fn record_frames(
             if let Some(found) = record(group, spelling) {
                 out.push(RecordFrame::Record {
                     cell: cell.to_owned(),
-                    keeps: keeps(found.rest != RecordRest::Exact),
+                    keeps: record_keeps(group, &found),
                 });
                 fields(group, &found, out);
             }
@@ -4314,7 +4522,7 @@ fn record_frames(
                     records += 1;
                     out.push(RecordFrame::Record {
                         cell: cell.to_owned(),
-                        keeps: keeps(found.rest != RecordRest::Exact),
+                        keeps: record_keeps(group, &found),
                     });
                     fields(group, &found, out);
                 }
@@ -4411,7 +4619,7 @@ fn record_frames_agree(
         &entry.entry.spelling,
         &mut frames,
     );
-    let mut records = BTreeMap::<&str, Vec<bool>>::new();
+    let mut records = BTreeMap::<&str, Vec<Option<bool>>>::new();
     for frame in &frames {
         match frame {
             RecordFrame::Record { cell, keeps } => {
@@ -4462,6 +4670,12 @@ fn record_frames_agree(
             continue;
         }
         for (keeps, content) in wanted.into_iter().zip(contents) {
+            let Some(keeps) = keeps else {
+                *counts
+                    .entry("record frames unjudged (a `..` after every child keeps nothing)")
+                    .or_default() += 1;
+                continue;
+            };
             *counts.entry("record frames judged").or_default() += 1;
             let has_frame = top_level_frame(content);
             if has_frame != keeps {

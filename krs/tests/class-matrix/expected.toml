@@ -1202,22 +1202,12 @@ class = "cell-wrapper"
 at = "entry"
 
 [[refuse]]
-match = '{claim,readable}/overwrite/kinds/hprog/G \{ a: x\, .. \}'
-class = "cell-wrapper"
-at = "entry"
-
-[[refuse]]
 match = 'cells/overwrite/kinds/{hbag,hframe,hprog}/k::configuration::Cell(x)'
 class = "cell-wrapper"
 at = "entry"
 
 [[refuse]]
 match = 'cells/overwrite/kinds/{ajob,aolist,aset,astack}/k::configuration::KCell(x)'
-class = "cell-wrapper"
-at = "entry"
-
-[[refuse]]
-match = 'cells/overwrite/kinds/{hprog,hseq}/k::fragment![crate::G \{ a: x\, .. \}]'
 class = "cell-wrapper"
 at = "entry"
 
@@ -1237,11 +1227,6 @@ class = "cell-wrapper"
 at = "entry"
 
 [[refuse]]
-match = '{claim,readable}/result/kinds/code/G \{ a: x\, .. \}'
-class = "cell-wrapper"
-at = "entry"
-
-[[refuse]]
 match = 'cells/result/kinds/hogroup/Some(k::configuration::Cell(x))'
 class = "cell-wrapper"
 at = "entry"
@@ -1253,11 +1238,6 @@ at = "entry"
 
 [[refuse]]
 match = 'cells/result/kinds/{hacct,hcounter,henv,hogroup,hpc}/k::configuration::KCell(x)'
-class = "cell-wrapper"
-at = "entry"
-
-[[refuse]]
-match = 'cells/result/kinds/{code,set,stack}/k::fragment![crate::G \{ a: x\, .. \}]'
 class = "cell-wrapper"
 at = "entry"
 
@@ -1452,11 +1432,6 @@ class = "content-sort"
 at = "spelling"
 
 [[refuse]]
-match = '{claim,readable}/result/kinds/{set,stack}/G \{ a: x\, .. \}'
-class = "content-sort"
-at = "spelling"
-
-[[refuse]]
 match = 'cells/overwrite/kinds/account/[k::fragment![crate::Acct \{ id: x\, .. \}]\, ..]'
 class = "instance-list-shape"
 at = "entry"
@@ -1572,6 +1547,26 @@ class = "none-in-initializer"
 at = "spelling"
 
 [[refuse]]
+match = '{claim,readable}/overwrite/kinds/{homap,hprog,hseq}/G \{ a: x\, .. \}'
+class = "open-record-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/overwrite/kinds/{homap,hprog,hseq}/k::fragment![crate::G \{ a: x\, .. \}]'
+class = "open-record-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/result/kinds/{code,olist,set,stack}/G \{ a: x\, .. \}'
+class = "open-record-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/result/kinds/{code,olist,set,stack}/k::fragment![crate::G \{ a: x\, .. \}]'
+class = "open-record-outside-pattern"
+at = "spelling"
+
+[[refuse]]
 match = 'init/kinds/{counter,ogroup,olist,omap}/0'
 class = "optional-without-presence"
 at = "entry"
@@ -1612,11 +1607,6 @@ class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = '{claim,readable}/overwrite/kinds/{homap,hseq}/G \{ a: x\, .. \}'
-class = "optional-without-presence"
-at = "entry"
-
-[[refuse]]
 match = '{claim,readable}/overwrite/kinds/hframe/Hg \{ ha: x\, .. \}'
 class = "optional-without-presence"
 at = "entry"
@@ -1628,11 +1618,6 @@ at = "entry"
 
 [[refuse]]
 match = 'cells/overwrite/kinds/{homap,hseq}/k::configuration::Cell(x)'
-class = "optional-without-presence"
-at = "entry"
-
-[[refuse]]
-match = 'cells/overwrite/kinds/homap/k::fragment![crate::G \{ a: x\, .. \}]'
 class = "optional-without-presence"
 at = "entry"
 
@@ -1662,11 +1647,6 @@ class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = '{claim,readable}/result/kinds/olist/G \{ a: x\, .. \}'
-class = "optional-without-presence"
-at = "entry"
-
-[[refuse]]
 match = 'cells/result/kinds/hcounter/Some(k::configuration::Cell(x))'
 class = "optional-without-presence"
 at = "entry"
@@ -1683,11 +1663,6 @@ at = "entry"
 
 [[refuse]]
 match = 'cells/result/kinds/olist/k::configuration::Cell(x)'
-class = "optional-without-presence"
-at = "entry"
-
-[[refuse]]
-match = 'cells/result/kinds/olist/k::fragment![crate::G \{ a: x\, .. \}]'
 class = "optional-without-presence"
 at = "entry"
 
@@ -1863,7 +1838,7 @@ at = "spelling"
 
 # S5.0g: the cases the ticket lists beside the kinds array (`class_matrix::kinds` `listed`)
 [[refuse]]
-match = '{cells/result/kinds/frame/k::fragment![crate::G \{ a: x\, .. \}],cells/result/frame/k::fragment![crate::Frame \{ ret: x\, .. \}]}'
+match = 'cells/result/kinds/frame/k::fragment![crate::G \{ a: x\, .. \}]'
 class = "open-record-outside-pattern"
 at = "spelling"
 
@@ -2348,6 +2323,16 @@ syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%
 """
 
 [accept."cells/result/frame/k::fragment![crate::Frame { ret: x }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(V2:FrameCell => <frame> <ret> V0:Int </ret> </frame>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells/result/frame/k::fragment![crate::Frame { ret: x, .. }]"]
+same_k_as = ["cells/result/frame/k::fragment![crate::Frame { ret: x }]"]
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:Int , V1:Int ) => .K ... </k>

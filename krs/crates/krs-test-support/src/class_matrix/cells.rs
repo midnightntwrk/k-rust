@@ -225,8 +225,8 @@ fn old(kind: CellKind, construct: &str) -> (&'static str, Vec<(&'static str, &'s
 /// - The computation cell's result: `k: KCell(C(x, y))`, the whole cell, and the result is
 ///   `k: S`.
 ///
-/// And S5-F1's machine-base twin: a result fragment of the one-child group with a bare `..`
-/// over the matched group (S5.0g).
+/// And a result fragment of the one-child group with a bare `..` after its one child, over the
+/// matched group: the `..` leaves no field open, so it is the exact record (S5.0g, P6, P0).
 pub(super) fn cases(cases: &mut Vec<Case>) {
     family(cases, Family::Cells, Base::Machine);
     let at = Placement {

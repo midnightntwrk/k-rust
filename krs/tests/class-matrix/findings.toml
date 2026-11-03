@@ -113,12 +113,6 @@ kind = "bug"
 what = "a `cells!` map result without `..` after a subject's anonymous rest silently keeps the rest, where the spelling says the result is the whole map (decision D2, P6)"
 risk = "KRS writes K's `...` frame for the subject's anonymous rest and the result's entries over it, so the rule keeps every other entry of the map: the author's exact `k::map![5 -> old, x -> y]` reads as the whole new content in Rust, and nothing tells them the rest is kept"
 
-["S5-F1"]
-owner = "S5"
-kind = "bug"
-what = "a `cells!` result fragment of a matched group with a bare `..` that names every child (`k::fragment![crate::Frame { ret: x, .. }]` on the one-child `Frame`) is accepted, its `..` dropped (P6, ruling 1: a bare `..` in a result is Rust's default fields, which only a created instance has; P7); S5.3's"
-risk = "KRS ignores the bare `..` and writes the exact fragment, `<frame> <ret> X </ret> </frame>`: the spelling says \"the defaults for the fields not named\", which a matched group does not have, and nothing tells the author that the `..` meant nothing"
-
 ["S5-L4"]
 owner = "S5"
 kind = "bug"

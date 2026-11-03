@@ -281,6 +281,9 @@ pub struct Context {
     pub other: Option<Spelling>,
     /// For a subject entry, whether the result writes the cell.
     pub written: bool,
+    /// The configuration's groups ([`collect_groups`]): a record a term writes by a group's
+    /// name has that group's children as its fields (P6).
+    pub groups: Vec<Group>,
 }
 
 /// A cell-entry case as the oracle reads it.
@@ -681,7 +684,7 @@ pub fn total(spelling: &Spelling, stack: &[Layer]) -> bool {
             if group.name != record.head {
                 return false;
             }
-            if record.rest == RecordRest::Exact && record.fields.len() != group.children.len() {
+            if record.rest == RecordRest::Exact && !names_every_field(record, group) {
                 return false;
             }
             record.fields.iter().all(|(name, value)| {
@@ -742,10 +745,37 @@ fn child<'g>(group: &'g Group, name: &str) -> Option<&'g Vec<Layer>> {
 /// L4 (P6: records follow Rust): a record of `group` at a configuration position, or the
 /// fragment it abbreviates (P7), names every child, or writes `..`.
 fn names_every_child(record: &Record, group: &Group, depth: usize) -> Result<(), Refusal> {
-    if record.rest == RecordRest::Exact && record.fields.len() != group.children.len() {
+    if record.rest == RecordRest::Exact && !names_every_field(record, group) {
         return refuse("record-missing-children", Step::Inside, depth);
     }
     Ok(())
+}
+
+/// Whether `record`, a record of `group`, names each of the group's children.
+fn names_every_field(record: &Record, group: &Group) -> bool {
+    record.fields.len() == group.children.len()
+}
+
+/// Whether `record`, a record of `group`, writes a bare `..` that leaves a child unnamed (P6:
+/// a bare `..` in a built record is Rust's default fields). A `..` after every child defaults
+/// none: Rust and K then read the same exact record, so P0 refuses nothing.
+fn leaves_open(record: &Record, group: &Group) -> bool {
+    record.rest == RecordRest::Open && !names_every_field(record, group)
+}
+
+/// Adds to `groups` each group `layers` hold, at any depth (a group's children's included),
+/// once by name: a configuration's groups, as [`Context::groups`] holds them.
+pub fn collect_groups(layers: &[Layer], groups: &mut Vec<Group>) {
+    for layer in layers {
+        if let Layer::Group(group) = layer {
+            if !groups.iter().any(|known| known.name == group.name) {
+                groups.push(group.clone());
+            }
+            for (_, child) in &group.children {
+                collect_groups(child, groups);
+            }
+        }
+    }
 }
 
 /// One entry's judgement: what refused it, and whether a value's sort is the lattice's.
@@ -809,8 +839,7 @@ impl Judge<'_> {
             return self.judge(stack, inner, depth + 1);
         }
         let Some(outer) = stack.first() else {
-            self.value(spelling);
-            return Ok(());
+            return self.value(spelling, depth);
         };
         // P5: an initializer's value for a `*` cell, at any depth (a collection child of a
         // template included), is one instance's template.
@@ -831,18 +860,27 @@ impl Judge<'_> {
             return refuse(mark_elsewhere(mark, stack), Step::MarkElsewhere, depth);
         }
         if has_mark(self.form, outer) {
+            // P3's reason: the missing layers' advice puts the value where it is a term; a term
+            // whose bare `..` leaves a field open is refused there again, so its own mistake
+            // is named first.
+            if self.side == Side::Result
+                && open_record(spelling, &self.context.groups)
+                && lands_as_term(stack, spelling)
+            {
+                return refuse("open-record-outside-pattern", Step::Inside, depth);
+            }
             return refuse(missing(outer), Step::MissingLayer, depth);
         }
         if let Layer::Group(group) = outer {
             return self.group_value(group, spelling, depth);
         }
-        self.value(spelling);
-        Ok(())
+        self.value(spelling, depth)
     }
 
     /// A value at a group's position: a record of the group names its children's entries (P1);
     /// a fragment of the group is a term the lattice judges, which names the children as the
-    /// record it abbreviates does (P7); any other value is a term.
+    /// record it abbreviates does (P7), its own `..` and its children's records paired as the
+    /// record's are; any other value is a term.
     fn group_value(
         &mut self,
         group: &Group,
@@ -852,13 +890,11 @@ impl Judge<'_> {
         let record = match spelling {
             Spelling::Record(record) if record.head == group.name => record,
             Spelling::Fragment(record) if record.head == group.name => {
-                self.value(spelling);
+                self.sort = true;
+                self.fragment_terms(group, record, depth)?;
                 return names_every_child(record, group, depth);
             }
-            _ => {
-                self.value(spelling);
-                return Ok(());
-            }
+            _ => return self.value(spelling, depth),
         };
         for (name, value) in &record.fields {
             let stack = child(group, name).unwrap_or_else(|| {
@@ -892,7 +928,7 @@ impl Judge<'_> {
                             return refuse("bracket-reading", Step::Inside, depth + 1);
                         }
                         for item in &seq.items {
-                            self.value(item);
+                            self.value(item, depth + 2)?;
                         }
                     }
                     (Mark::Map, Spelling::MapLit(entries)) => {
@@ -900,11 +936,11 @@ impl Judge<'_> {
                             return refuse("map-notation-at-non-map", Step::Inside, depth + 1);
                         }
                         for (key, value) in &entries.entries {
-                            self.value(key);
-                            self.value(value);
+                            self.value(key, depth + 2)?;
+                            self.value(value, depth + 2)?;
                         }
                     }
-                    _ => self.value(inner),
+                    _ => self.value(inner, depth + 1)?,
                 }
                 return Ok(());
             }
@@ -924,7 +960,7 @@ impl Judge<'_> {
                         self.group_value(group, base, depth + 2)?;
                     }
                     // Q2: one instance of an ordered collection is a value (its front one).
-                    _ if order == Order::List => self.value(base),
+                    _ if order == Order::List => self.value(base, depth + 1)?,
                     // Q2: an unordered collection's instance is chosen by a written record.
                     _ => return refuse("instance-list-shape", Step::Inside, depth + 1),
                 }
@@ -934,14 +970,14 @@ impl Judge<'_> {
         match spelling {
             Spelling::MapRead(entries) | Spelling::MapLit(entries) => {
                 for (key, value) in &entries.entries {
-                    self.value(key);
-                    self.value(value);
+                    self.value(key, depth + 1)?;
+                    self.value(value, depth + 1)?;
                 }
             }
             _ => {
                 if let Some((items, seq_rest)) = seq_of(spelling) {
                     for item in items {
-                        self.value(item);
+                        self.value(item, depth + 1)?;
                     }
                     // Q3: a readable rule never drops or captures the continuation.
                     if stack[0] == Layer::Computation
@@ -958,8 +994,12 @@ impl Judge<'_> {
 
     /// A value at a value position: a fresh readable binder and `_` take the position's sort;
     /// everything else, a bound binder and every `cells!` binder (whose parameter is typed)
-    /// included, is the lattice's (step 4).
-    fn value(&mut self, spelling: &Spelling) {
+    /// included, is the lattice's (step 4). In a result, a value is a built term, and a record
+    /// in it whose bare `..` leaves a field open is refused: Rust's default fields, which only
+    /// a created instance has (its template), and a term's record is no instance (P6). A `..`
+    /// after every field defaults none (P0). That is the record's shape, known from the
+    /// declaration, so it comes before the sort (P4).
+    fn value(&mut self, spelling: &Spelling, depth: usize) -> Result<(), Refusal> {
         match spelling {
             Spelling::Wild => {}
             Spelling::Binder(name) => {
@@ -967,8 +1007,63 @@ impl Judge<'_> {
                     self.sort = true;
                 }
             }
-            Spelling::Alias(_, inner) => self.value(inner),
+            Spelling::Alias(_, inner) => return self.value(inner, depth + 1),
             _ => self.sort = true,
+        }
+        if self.side == Side::Result && open_record(spelling, &self.context.groups) {
+            return refuse("open-record-outside-pattern", Step::Inside, depth);
+        }
+        Ok(())
+    }
+
+    /// The terms inside a result's fragment of `group`, whose children are terms the lattice
+    /// judges (P7): a child's own group record (or fragment), a `?` child's `Some(..)` and a
+    /// collection child's instance records are its cell's records, whose `..` pairing judges;
+    /// every other value is a term ([`Self::value`]'s open record).
+    fn fragment_terms(&self, group: &Group, record: &Record, depth: usize) -> Result<(), Refusal> {
+        if self.side != Side::Result {
+            return Ok(());
+        }
+        for (name, value) in &record.fields {
+            if let Some(stack) = child(group, name) {
+                self.cell_terms(stack, value, depth + 1)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn cell_terms(
+        &self,
+        stack: &[Layer],
+        spelling: &Spelling,
+        depth: usize,
+    ) -> Result<(), Refusal> {
+        let spelling = unaliased(spelling);
+        match (stack, spelling) {
+            ([Layer::Group(group), ..], _) if record_of(spelling, group).is_some() => {
+                let record = record_of(spelling, group).expect("a record of the group");
+                self.fragment_terms(group, record, depth)
+            }
+            ([Layer::Optional, below @ ..], Spelling::Present(inner)) => {
+                self.cell_terms(below, inner, depth + 1)
+            }
+            ([Layer::Instances(_), Layer::Group(group), ..], _) if seq_of(spelling).is_some() => {
+                let (items, _) = seq_of(spelling).expect("an instance sequence");
+                for item in items {
+                    match record_of(item, group) {
+                        Some(record) => self.fragment_terms(group, record, depth + 1)?,
+                        None if open_record(item, &self.context.groups) => {
+                            return refuse("open-record-outside-pattern", Step::Inside, depth + 1);
+                        }
+                        None => {}
+                    }
+                }
+                Ok(())
+            }
+            _ if open_record(spelling, &self.context.groups) => {
+                refuse("open-record-outside-pattern", Step::Inside, depth)
+            }
+            _ => Ok(()),
         }
     }
 
@@ -1070,10 +1165,11 @@ impl Judge<'_> {
                 };
                 // P6: a bare `..` in a result is Rust's default fields, which only a created
                 // instance has (its template); a group that exists, matched or overwritten,
-                // has none. A fragment of the group is its record (P7: readable
-                // `G { a: x, .. }` abbreviates `k::fragment![crate::G { a: x, .. }]`), as Q1's
-                // lint reads it ([`total`]).
-                if record.rest == RecordRest::Open && other != Other::Created {
+                // has none. A `..` after every child defaults none: the exact record (P0). A
+                // fragment of the group is its record (P7: readable `G { a: x, .. }`
+                // abbreviates `k::fragment![crate::G { a: x, .. }]`), as Q1's lint reads it
+                // ([`total`]).
+                if leaves_open(record, group) && other != Other::Created {
                     return refuse("open-record-outside-pattern", Step::Pairing, 0);
                 }
                 self.pair_fields(group, record, other)
@@ -1218,6 +1314,37 @@ fn keyed(order: Order, group: &Group, record: &Record, other: Other<'_>) -> bool
         (RecordRest::Update(_), None) => true,
         (RecordRest::Exact | RecordRest::Open, written) => written.is_some(),
     }
+}
+
+/// Whether a value on `stack` lands, once the layers its head lacks are added, at a term's
+/// position rather than as a record of a group the stack has (a group cell's, or an instance).
+fn lands_as_term(stack: &[Layer], spelling: &Spelling) -> bool {
+    match stack {
+        [Layer::Optional, below @ ..] => lands_as_term(below, spelling),
+        [Layer::Instances(_), Layer::Group(group), ..] | [Layer::Group(group), ..] => {
+            record_of(spelling, group).is_none()
+        }
+        _ => true,
+    }
+}
+
+/// Whether `spelling`, a term, holds a record (itself included) whose bare `..` leaves a field
+/// open ([`leaves_open`]). A record's fields are those of the group of `groups` its head names;
+/// a head that names none has no fields the record is known to name, so its `..` is open.
+fn open_record(spelling: &Spelling, groups: &[Group]) -> bool {
+    let open = match spelling {
+        Spelling::Record(record) | Spelling::Fragment(record) => {
+            record.rest == RecordRest::Open
+                && groups
+                    .iter()
+                    .find(|group| group.name == record.head)
+                    .is_none_or(|group| leaves_open(record, group))
+        }
+        _ => false,
+    };
+    open || children(spelling)
+        .into_iter()
+        .any(|one| open_record(one, groups))
 }
 
 /// `spelling` below an alias.

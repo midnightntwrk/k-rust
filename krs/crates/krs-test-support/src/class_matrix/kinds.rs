@@ -19,7 +19,7 @@ use super::cells_oracle::build::{
 };
 use super::cells_oracle::{
     Context, Entry, EntryCase, Form, Group, Layer, Notation, Order, RecordRest, Sentence, Spelling,
-    Template,
+    Template, collect_groups,
 };
 use super::{
     Base, BaseText, Case, CaseSpec, Command, Family, ItemBuilder, OwnReason, Packaging, Side,
@@ -275,6 +275,16 @@ fn decl(name: &str) -> &'static Decl {
 #[must_use]
 pub fn declares(cell: &str) -> bool {
     find(cell).is_some_and(|(decl, ..)| !wrapper(decl))
+}
+
+/// The kinds base's groups, at any depth ([`super::cells_oracle::Context::groups`]).
+#[must_use]
+pub fn groups() -> Vec<Group> {
+    let mut groups = Vec::new();
+    for decl in CONFIGURATION.iter() {
+        collect_groups(&own(decl), &mut groups);
+    }
+    groups
 }
 
 /// The kinds base's cell `cell`'s own layers.
@@ -1092,6 +1102,7 @@ fn init_case(cell_name: &str, mark: &Written) -> Generated {
                 bound: vec!["pgm".to_owned()],
                 other: None,
                 written: false,
+                groups: Vec::new(),
             },
             template: Template {
                 sentence: Sentence::Initializer,
@@ -1176,8 +1187,8 @@ fn generate() -> Vec<Generated> {
 
 /// The cases the ticket lists beside the array: a rule that writes no cell
 /// (`rule-changes-no-cell`), a rule naming a group and a cell below it (`group-and-descendant`),
-/// L4's 2-child group record written whole, `Some(_)` in a result, and S5-F1's `cells!` result
-/// fragment with a bare `..` over a matched group. L4's record naming one of the two children
+/// L4's 2-child group record written whole, `Some(_)` in a result, and a `cells!` result
+/// fragment whose bare `..` leaves `b` open over a matched group. L4's record naming one of the two children
 /// is written in both forms, readable `G { a: x }` and its `cells!` fragment (D-4).
 fn listed() -> Vec<Generated> {
     let frame = decl("frame");

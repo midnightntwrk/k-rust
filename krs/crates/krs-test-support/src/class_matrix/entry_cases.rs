@@ -13,7 +13,7 @@ use super::cells_oracle::build::{
 };
 use super::cells_oracle::{
     Context, Entry, EntryCase, Form, Group, Layer, Notation, Order, RecordRest, Rest, RestAt,
-    Sentence, Spelling, Template,
+    Sentence, Spelling, Template, collect_groups,
 };
 use super::{Base, Case, Family, Side};
 
@@ -91,7 +91,7 @@ pub fn declared(construct: &str) -> Option<Spelling> {
         "k::fragment![crate::Frame { ret: x }]" => {
             frag("Frame", vec![("ret", x())], RecordRest::Exact)
         }
-        // S5-F1's machine-base twin (`cells::cases`).
+        // A bare `..` after the one child (`cells::cases`): the exact record.
         "k::fragment![crate::Frame { ret: x, .. }]" => {
             frag("Frame", vec![("ret", x())], RecordRest::Open)
         }
@@ -403,6 +403,36 @@ const BOUND: [&str; 6] = ["x", "y", "old", "instances0", "rest", "tail"];
 /// initializer's field order, the `initial` declaration).
 #[must_use]
 pub fn entry_case(case: &Case) -> Option<EntryCase> {
+    let mut entry = base_entry_case(case)?;
+    entry.context.groups = base_groups(case.base);
+    Some(entry)
+}
+
+/// The groups of `base`'s configuration ([`Context::groups`]), as [`declared_stack`] reads its
+/// cells.
+fn base_groups(base: Base) -> Vec<Group> {
+    if base == Base::Kinds {
+        return super::kinds::groups();
+    }
+    let stacks = if base == Base::Typed {
+        ["leaf", "stmt", "any", "list", "map", "boxed", "opt", "slot"]
+            .map(typed_stack)
+            .to_vec()
+    } else {
+        [
+            "k", "prog", "code", "pc", "stack", "env", "frame", "counter", "job", "bag",
+        ]
+        .map(machine_stack)
+        .to_vec()
+    };
+    let mut groups = Vec::new();
+    for stack in &stacks {
+        collect_groups(stack, &mut groups);
+    }
+    groups
+}
+
+fn base_entry_case(case: &Case) -> Option<EntryCase> {
     if case.base == Base::Kinds {
         return Some(super::kinds::entry_case(case));
     }
@@ -512,6 +542,7 @@ fn result_context(other: Spelling) -> Context {
         bound: BOUND.map(str::to_owned).to_vec(),
         other: Some(other),
         written: false,
+        groups: Vec::new(),
     }
 }
 
@@ -636,6 +667,7 @@ fn initializer_case(own: Entry, entries: Vec<Entry>, variables: Vec<(String, boo
             bound: variables.iter().map(|(name, _)| name.clone()).collect(),
             other: None,
             written: false,
+            groups: Vec::new(),
         },
         template: Template {
             sentence: Sentence::Initializer,

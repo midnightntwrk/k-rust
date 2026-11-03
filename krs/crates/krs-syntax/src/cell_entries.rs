@@ -110,9 +110,10 @@ pub enum Refusal {
     AbsenceTestWithoutCreation,
     /// A result rest that is not its subject's.
     RestMismatch,
-    /// A result's group record with a bare `..` for a group that exists, matched or overwritten:
-    /// a bare `..` in a result is Rust's default fields, which only a created instance has (its
-    /// template).
+    /// A result's record whose bare `..` leaves a child unnamed, of a group that exists (matched
+    /// or overwritten) or in a built term: a bare `..` in a result is Rust's default fields,
+    /// which only a created instance has (its template). A `..` after every child defaults
+    /// none, and the record is the exact one.
     OpenRecordOutsidePattern,
     /// A readable computation's rest before an item: the computation is matched from its
     /// front (the class matrix's E1).
@@ -306,10 +307,22 @@ fn map_entries(spelling: &EntrySpelling) -> Option<&EntryMap> {
 /// A record of `group` at a configuration position, or the fragment it abbreviates, names
 /// every child, or writes `..`: records follow Rust.
 fn names_every_child(record: &EntryRecord, group: &GroupKind) -> Result<(), Refusal> {
-    if matches!(record.tail, RecordTail::Exact) && record.fields.len() != group.children.len() {
+    if matches!(record.tail, RecordTail::Exact) && !names_every_field(record, group) {
         return Err(Refusal::RecordMissingChildren);
     }
     Ok(())
+}
+
+/// Whether `record`, a record of `group`, names each of the group's children.
+fn names_every_field(record: &EntryRecord, group: &GroupKind) -> bool {
+    record.fields.len() == group.children.len()
+}
+
+/// Whether `record`, a record of `group`, writes a bare `..` that leaves a child unnamed. A
+/// bare `..` in a built record is Rust's default fields; where the record names every child
+/// it defaults none, and Rust and K read the same exact record.
+fn leaves_open(record: &EntryRecord, group: &GroupKind) -> bool {
+    record.tail == RecordTail::Open && !names_every_field(record, group)
 }
 
 /// The spellings directly inside `spelling`.
@@ -338,6 +351,7 @@ struct Admission<'b> {
     form: EntryForm,
     side: EntrySide,
     bound: &'b dyn Fn(&str) -> bool,
+    groups: &'b [GroupKind],
     sorted: bool,
 }
 
@@ -403,8 +417,7 @@ impl Admission<'_> {
             return self.kind(stack, pattern, head);
         }
         let Some((outer, below)) = stack.split_first() else {
-            self.value(spelling);
-            return Ok(());
+            return self.value(spelling);
         };
         // An initializer's value for a collection, at any depth, is one instance's template.
         if self.side == EntrySide::Initializer && matches!(outer, Layer::Instances(_)) {
@@ -413,13 +426,21 @@ impl Admission<'_> {
         let mark = mark(self.form, spelling);
         if mark == Mark::Value {
             if marked(self.form, outer) {
+                // Adding the missing layers puts the value where it is a term; a term whose bare
+                // `..` leaves a field open is refused there again, so its own mistake is named
+                // first.
+                if self.side == EntrySide::Result
+                    && open_record(spelling, self.groups)
+                    && lands_as_term(stack, spelling)
+                {
+                    return Err(Refusal::OpenRecordOutsidePattern);
+                }
                 return Err(missing(outer));
             }
             if let Layer::Group(group) = outer {
                 return self.group(group, spelling);
             }
-            self.value(spelling);
-            return Ok(());
+            return self.value(spelling);
         }
         if !reads(self.form, outer, mark) {
             return Err(if below.iter().any(|layer| reads(self.form, layer, mark)) {
@@ -448,21 +469,14 @@ impl Admission<'_> {
                 {
                     return Err(Refusal::MapReadValueBinder);
                 }
-                self.entries(map);
-                Ok(())
+                self.entries(map)
             }
-            (_, EntrySpelling::MapLiteral(map)) => {
-                self.entries(map);
-                Ok(())
-            }
+            (_, EntrySpelling::MapLiteral(map)) => self.entries(map),
             (Layer::Computation, _) => self.computation(spelling),
-            _ => {
-                sequence(spelling)
-                    .into_iter()
-                    .flat_map(|seq| &seq.items)
-                    .for_each(|item| self.value(item));
-                Ok(())
-            }
+            _ => sequence(spelling)
+                .into_iter()
+                .flat_map(|seq| &seq.items)
+                .try_for_each(|item| self.value(item)),
         }
     }
 
@@ -473,17 +487,16 @@ impl Admission<'_> {
                 if !matches!(notation, Notation::List | Notation::Cons) {
                     return Err(Refusal::BracketReading);
                 }
-                seq.items.iter().for_each(|item| self.value(item));
+                seq.items.iter().try_for_each(|item| self.value(item))
             }
             EntrySpelling::MapLiteral(map) => {
                 if notation != Notation::Map {
                     return Err(Refusal::MapNotationAtNonMap);
                 }
-                self.entries(map);
+                self.entries(map)
             }
             other => self.value(other),
         }
-        Ok(())
     }
 
     /// A collection's instances: each item an instance record of the collection's group, or,
@@ -512,7 +525,7 @@ impl Admission<'_> {
                     self.group(group, item)?;
                 }
                 // One instance of an ordered collection is its front one.
-                _ if order == Order::List => self.value(item),
+                _ if order == Order::List => self.value(item)?,
                 // An unordered collection's instance is chosen by a written record.
                 _ => return Err(Refusal::InstanceListShape),
             }
@@ -523,7 +536,7 @@ impl Admission<'_> {
     /// Brackets, `KCell(..)` or `k::k![..]` on a computation.
     fn computation(&mut self, spelling: &EntrySpelling) -> Result<(), Refusal> {
         let seq = sequence(spelling).expect("a computation's mark is a sequence");
-        seq.items.iter().for_each(|item| self.value(item));
+        seq.items.iter().try_for_each(|item| self.value(item))?;
         if self.form.is_readable() {
             match &seq.rest {
                 // A readable rule never drops or captures the continuation.
@@ -540,18 +553,17 @@ impl Admission<'_> {
 
     /// A value at a group's position: a record of the group names its children's entries;
     /// a fragment of the group is a term, which names the children as the record it
-    /// abbreviates does; any other value is a term.
+    /// abbreviates does, its own `..` and its children's records paired as the record's are;
+    /// any other value is a term.
     fn group(&mut self, group: &GroupKind, spelling: &EntrySpelling) -> Result<(), Refusal> {
         let record = match spelling {
             EntrySpelling::Record(record) if record.head == group.name => record,
             EntrySpelling::Fragment(record) if record.head == group.name => {
-                self.value(spelling);
+                self.sorted = true;
+                self.fragment_terms(group, record)?;
                 return names_every_child(record, group);
             }
-            _ => {
-                self.value(spelling);
-                return Ok(());
-            }
+            _ => return self.value(spelling),
         };
         for (name, value) in &record.fields {
             let child = group.child(name).map_or(&[][..], |kind| &kind.layers[..]);
@@ -560,22 +572,74 @@ impl Admission<'_> {
         names_every_child(record, group)
     }
 
-    fn entries(&mut self, map: &EntryMap) {
-        for (key, value) in &map.entries {
-            self.value(key);
-            self.value(value);
-        }
+    fn entries(&mut self, map: &EntryMap) -> Result<(), Refusal> {
+        map.entries.iter().try_for_each(|(key, value)| {
+            self.value(key)?;
+            self.value(value)
+        })
     }
 
-    /// A value position: `_` and a fresh readable name take the position's sort.
-    fn value(&mut self, spelling: &EntrySpelling) {
+    /// A value position: `_` and a fresh readable name take the position's sort. In a result
+    /// the value is a built term, and a record in it whose bare `..` leaves a field open is
+    /// refused: a bare `..` in a result is Rust's default fields, which only a created instance
+    /// has, and a term's record is no instance. A `..` after every field defaults none.
+    fn value(&mut self, spelling: &EntrySpelling) -> Result<(), Refusal> {
         match spelling {
             EntrySpelling::Wild => {}
             EntrySpelling::Binder(name) => {
                 self.sorted |= self.form == EntryForm::Cells || (self.bound)(name);
             }
-            EntrySpelling::Alias(_, pattern) => self.value(pattern),
+            EntrySpelling::Alias(_, pattern) => return self.value(pattern),
             _ => self.sorted = true,
+        }
+        if self.side == EntrySide::Result && open_record(spelling, self.groups) {
+            return Err(Refusal::OpenRecordOutsidePattern);
+        }
+        Ok(())
+    }
+
+    /// The terms inside a result's fragment of `group`: a child's own group record (or
+    /// fragment), a `?` child's `Some(..)` and a collection child's instance records are its
+    /// cell's records, whose `..` pairing judges; every other value is a term, which takes no
+    /// bare `..` that leaves a field open ([`Self::value`]).
+    fn fragment_terms(&self, group: &GroupKind, record: &EntryRecord) -> Result<(), Refusal> {
+        if self.side != EntrySide::Result {
+            return Ok(());
+        }
+        record.fields.iter().try_for_each(|(name, value)| {
+            group
+                .child(name)
+                .map_or(Ok(()), |kind| self.cell_terms(&kind.layers, value))
+        })
+    }
+
+    fn cell_terms(&self, stack: &[Layer], spelling: &EntrySpelling) -> Result<(), Refusal> {
+        let spelling = unaliased(spelling);
+        let term = |spelling: &EntrySpelling| {
+            if open_record(spelling, self.groups) {
+                Err(Refusal::OpenRecordOutsidePattern)
+            } else {
+                Ok(())
+            }
+        };
+        match (stack, spelling) {
+            ([Layer::Group(group), ..], _) => record_of(spelling, group).map_or_else(
+                || term(spelling),
+                |record| self.fragment_terms(group, record),
+            ),
+            ([Layer::Optional, below @ ..], EntrySpelling::Present(content)) => {
+                self.cell_terms(below, content)
+            }
+            ([Layer::Instances(_), Layer::Group(group), ..], _) => sequence(spelling).map_or_else(
+                || term(spelling),
+                |seq| {
+                    seq.items.iter().try_for_each(|item| {
+                        record_of(item, group)
+                            .map_or_else(|| term(item), |record| self.fragment_terms(group, record))
+                    })
+                },
+            ),
+            _ => term(spelling),
         }
     }
 }
@@ -583,7 +647,9 @@ impl Admission<'_> {
 /// Steps 1 to 3 for one entry: its form, its kind against `stack`, the cell's own layers,
 /// outermost first, then its path (`path`, the layers of the cell's `?` and `*` ancestors,
 /// outermost first). An initializer's value of a `*` cell is one instance's template, judged below the
-/// instances layer. `bound` tells the names the rule binds outside the entry.
+/// instances layer. `bound` tells the names the rule binds outside the entry; `groups` are the
+/// configuration's groups, whose children are the fields of a record a term writes by the
+/// group's name.
 ///
 /// # Errors
 ///
@@ -595,11 +661,13 @@ pub fn admit(
     stack: &[Layer],
     spelling: &EntrySpelling,
     bound: &dyn Fn(&str) -> bool,
+    groups: &[GroupKind],
 ) -> Result<Admitted, Refusal> {
     let mut admission = Admission {
         form,
         side,
         bound,
+        groups,
         sorted: false,
     };
     admission.form(spelling)?;
@@ -612,6 +680,21 @@ pub fn admit(
     Ok(Admitted {
         sorted: admission.sorted,
     })
+}
+
+/// Adds to `groups` each group `layers` hold, at any depth (a group's children's included),
+/// once by name: the groups [`admit`] reads a term's record by.
+pub fn collect_groups(layers: &[Layer], groups: &mut Vec<GroupKind>) {
+    for layer in layers {
+        if let Layer::Group(group) = layer {
+            if !groups.iter().any(|known| known.name == group.name) {
+                groups.push(group.clone());
+            }
+            for (_, child) in &group.children {
+                collect_groups(&child.layers, groups);
+            }
+        }
+    }
 }
 
 /// The rest of an entry's content root, below presence, the leaf wrapper and an alias.
@@ -645,7 +728,7 @@ fn matches_all(spelling: &EntrySpelling, stack: &[Layer]) -> bool {
                 return false;
             };
             group.name == record.head
-                && (record.tail != RecordTail::Exact || record.fields.len() == group.children.len())
+                && (record.tail != RecordTail::Exact || names_every_field(record, group))
                 && record.fields.iter().all(|(name, value)| {
                     group
                         .child(name)
@@ -692,6 +775,37 @@ enum Other<'s> {
     /// The result creates the cell, with the instance or the `?` cell that holds it: it had no
     /// content before.
     Created,
+}
+
+/// Whether a value on `stack` lands, once the layers its head lacks are added, at a term's
+/// position rather than as a record of a group the stack has (a group cell's, or an instance).
+fn lands_as_term(stack: &[Layer], spelling: &EntrySpelling) -> bool {
+    match stack {
+        [Layer::Optional, below @ ..] => lands_as_term(below, spelling),
+        [Layer::Instances(_), Layer::Group(group), ..] | [Layer::Group(group), ..] => {
+            record_of(spelling, group).is_none()
+        }
+        _ => true,
+    }
+}
+
+/// Whether `spelling`, a term, holds a record (itself included) whose bare `..` leaves a field
+/// open ([`leaves_open`]). A record's fields are those of the group of `groups` its head names;
+/// a head that names none has no fields the record is known to name, so its `..` is open.
+fn open_record(spelling: &EntrySpelling, groups: &[GroupKind]) -> bool {
+    let open = match spelling {
+        EntrySpelling::Record(record) | EntrySpelling::Fragment(record) => {
+            record.tail == RecordTail::Open
+                && groups
+                    .iter()
+                    .find(|group| group.name == record.head)
+                    .is_none_or(|group| leaves_open(record, group))
+        }
+        _ => false,
+    };
+    open || inner(spelling)
+        .into_iter()
+        .any(|one| open_record(one, groups))
 }
 
 /// `spelling` below an alias.
@@ -866,7 +980,7 @@ fn pair_records(
             let Some(record) = record_of(spelling, group) else {
                 return Ok(());
             };
-            if record.tail == RecordTail::Open && other != Other::Created {
+            if leaves_open(record, group) && other != Other::Created {
                 return Err(Refusal::OpenRecordOutsidePattern);
             }
             fields(group, record, other)
@@ -896,10 +1010,11 @@ fn pair_records(
 /// subject instance `me` labels; none where the subject's record does not name the child, and
 /// none to keep for a created instance's or `?` cell's child. At each:
 ///
-/// - a group record with a bare `..` for a group that exists (matched or overwritten, the
-///   cell's own or one inside a `?` cell the subject matches present) is
+/// - a group record whose bare `..` leaves a child unnamed, for a group that exists (matched or
+///   overwritten, the cell's own or one inside a `?` cell the subject matches present), is
 ///   [`Refusal::OpenRecordOutsidePattern`], since a bare `..` in a result is Rust's default
-///   fields, which only a created instance has; the group's fragment is the same record;
+///   fields, which only a created instance has; the group's fragment is the same record; a
+///   `..` after every child defaults none, so the record is the exact one;
 /// - over a matched cell, `None` removes the cell with all its content, so it pairs no rest;
 ///   and its rest is its subject's: a subject's `..` is kept by a result `..` only;
 /// - over an unmatched cell, the result is an overwrite, which means one configuration only
@@ -942,8 +1057,16 @@ pub fn pair(
 mod tests {
     use krs_ir::cell_kind::{CellKind, GroupKind, Layer, Notation, Order};
 
-    use super::{EntrySide, Lint, Refusal, admit, pair};
+    use super::{EntrySide, Lint, Refusal, admit, collect_groups, pair};
     use crate::cell_entry::{EntryForm, EntryReading, EntrySpelling};
+
+    /// The groups a test's configuration declares: those of the stack, and `Frame`.
+    fn groups(stack: &[Layer]) -> Vec<GroupKind> {
+        let mut groups = Vec::new();
+        collect_groups(stack, &mut groups);
+        collect_groups(&[frame()], &mut groups);
+        groups
+    }
 
     fn read(form: EntryForm, text: &str) -> EntrySpelling {
         EntryReading::new(form, &[])
@@ -952,7 +1075,16 @@ mod tests {
     }
 
     fn judge(form: EntryForm, side: EntrySide, stack: &[Layer], text: &str) -> Result<(), Refusal> {
-        admit(form, side, &[], stack, &read(form, text), &|_| false).map(|_| ())
+        admit(
+            form,
+            side,
+            &[],
+            stack,
+            &read(form, text),
+            &|_| false,
+            &groups(stack),
+        )
+        .map(|_| ())
     }
 
     fn below(
@@ -962,7 +1094,16 @@ mod tests {
         stack: &[Layer],
         text: &str,
     ) -> Result<(), Refusal> {
-        admit(form, side, path, stack, &read(form, text), &|_| false).map(|_| ())
+        admit(
+            form,
+            side,
+            path,
+            stack,
+            &read(form, text),
+            &|_| false,
+            &groups(stack),
+        )
+        .map(|_| ())
     }
 
     /// An admitted result entry paired with its subject's entry `subject` (`None`: the subject
@@ -974,7 +1115,15 @@ mod tests {
         subject: Option<&str>,
     ) -> Result<Option<Lint>, Refusal> {
         let spelling = read(form, text);
-        admit(form, EntrySide::Result, &[], stack, &spelling, &|_| true)?;
+        admit(
+            form,
+            EntrySide::Result,
+            &[],
+            stack,
+            &spelling,
+            &|_| true,
+            &groups(stack),
+        )?;
         let subject = subject.map(|text| read(form, text));
         pair(
             form,
@@ -1359,6 +1508,57 @@ mod tests {
             judge(readable, EntrySide::Result, &list, "[x, ..r]"),
             Ok(())
         );
+    }
+
+    #[test]
+    fn a_bare_rest_in_a_built_record_is_refused_where_it_leaves_a_field_open() {
+        let readable = EntryForm::Readable;
+        let open = Err(Refusal::OpenRecordOutsidePattern);
+        let set = [Layer::Leaf(Notation::Set)];
+        let job = [Layer::Group(GroupKind {
+            name: "Job".to_owned(),
+            children: vec![("payload".to_owned(), int())],
+        })];
+        // The record of a group that exists.
+        let over = Some("Frame { ret: y, .. }");
+        assert_eq!(
+            result(readable, &[frame()], "Frame { ret: x, .. }", over),
+            open
+        );
+        assert_eq!(
+            result(readable, &[frame()], "Frame { ret: x, aux: y, .. }", over),
+            Ok(None)
+        );
+        assert_eq!(
+            result(
+                EntryForm::Cells,
+                &[frame()],
+                "k::fragment![crate::Frame { ret: x, aux: y, .. }]",
+                Some("k::fragment![crate::Frame { ret: y, .. }]"),
+            ),
+            Ok(None)
+        );
+        assert_eq!(
+            result(readable, &job, "Job { payload: x, .. }", None),
+            Ok(None)
+        );
+        // A term, on a leaf and where the missing layer's advice makes it one.
+        assert_eq!(
+            result(readable, &set, "Frame { ret: x, .. }", Some("old")),
+            open
+        );
+        assert_eq!(
+            result(readable, &set, "Frame { ret: x, aux: y, .. }", Some("old")),
+            Ok(None)
+        );
+        let code = [Layer::Computation];
+        assert_eq!(result(readable, &code, "Frame { ret: x, .. }", None), open);
+        assert_eq!(
+            result(readable, &code, "Frame { ret: x, aux: y, .. }", None),
+            Err(Refusal::CellWrapper)
+        );
+        // A head no group names.
+        assert_eq!(result(readable, &set, "Q { a: x, .. }", Some("old")), open);
     }
 
     #[test]
@@ -1976,7 +2176,7 @@ mod tests {
         let reading = EntryReading::new(init, &variables);
         let admitted = |stack: &[Layer], text: &str| {
             let spelling = reading.value(text.parse().expect("lexes")).expect("reads");
-            admit(init, side, &[], stack, &spelling, &|_| false).map(|_| ())
+            admit(init, side, &[], stack, &spelling, &|_| false, &[]).map(|_| ())
         };
         let list = [Layer::Leaf(Notation::List)];
         assert_eq!(admitted(&list, "[0, r @ ..]"), refused);
@@ -2010,14 +2210,32 @@ mod tests {
             .value("k::k![Cmd::Go(), ..pgm]".parse().expect("lexes"))
             .expect("reads");
         assert_eq!(
-            admit(init, side, &[], &[Layer::Computation], &spliced, &|_| false).map(|_| ()),
+            admit(
+                init,
+                side,
+                &[],
+                &[Layer::Computation],
+                &spliced,
+                &|_| false,
+                &[]
+            )
+            .map(|_| ()),
             Err(Refusal::InitializerRemainder)
         );
         let open = reading
             .value("k::k![Cmd::Go(), ..]".parse().expect("lexes"))
             .expect("reads");
         assert_eq!(
-            admit(init, side, &[], &[Layer::Computation], &open, &|_| false).map(|_| ()),
+            admit(
+                init,
+                side,
+                &[],
+                &[Layer::Computation],
+                &open,
+                &|_| false,
+                &[]
+            )
+            .map(|_| ()),
             Err(Refusal::InitializerRemainder)
         );
     }
