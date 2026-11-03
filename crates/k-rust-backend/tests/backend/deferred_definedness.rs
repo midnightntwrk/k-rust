@@ -1,8 +1,9 @@
 //! The definedness of an operand that `#if`, `andThenBool` or `orElseBool` never evaluates is a
-//! deferred atom (`Predicate::Defined`), decided only by steps that apply no definition
-//! equation: folding by builtin hooks on literals, a ceil equation whose condition that folding
+//! deferred atom (`Predicate::Defined`), decided only by bounded steps that evaluate no part of
+//! it: folding by builtin hooks on literals, a ceil equation whose condition that folding
 //! decides, the key condition of a collection of literal keys, and one equation step selected
-//! by matching alone. The tests decide atoms through the predicate simplifier, which is the
+//! by matching alone, whose instance's atoms are decided in turn within a step budget. The
+//! tests decide atoms through the predicate simplifier, which is the
 //! only place that decides them, and read its work counters: no equation attempt and no round
 //! of term simplification.
 
@@ -22,7 +23,8 @@ use std::sync::Arc;
 
 use crate::support::{internal_term, unstopped::simplify_predicate_with_solver};
 
-/// `loopi() = loopi() +Int 1`, `f(X) = X +Int 1`, `two(X) = once(X)` and `once(X) = X`; the
+/// `loopi() = loopi() +Int 1`, `f(X) = X +Int 1`, `two(X) = once(X)`, `once(X) = X`,
+/// `up(X) = up(X +Int 1)` and `fan(X) = fan(X +Int 1) +Int fan(X +Int 2)`; the
 /// partial hooked `lookup` (`MAP.lookup`) without an equation; the partial hooked `tdiv` with the
 /// ceil equation `⌈tdiv(I1, I2)⌉ = (I2 =/=Int 0)`; over `Nat`,
 /// `h(g(z)) = z` above `h(_) = \bottom [owise]`, with `g(s(X)) = z`, and `p(z) = z` above
@@ -58,6 +60,8 @@ fn definition() -> BackendDefinition {
             symbol f{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]
             symbol two{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]
             symbol once{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]
+            symbol up{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]
+            symbol fan{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]
             sort SortNat{{}} []
             symbol z{{}}() : SortNat{{}} [constructor{{}}(), functional{{}}()]
             symbol s{{}}(SortNat{{}}) : SortNat{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
@@ -75,6 +79,8 @@ fn definition() -> BackendDefinition {
             {nullary}
             axiom{{R}} \implies{{R}}(\and{{R}}(\top{{R}}(), \top{{R}}()), \equals{{SortInt{{}}, R}}(imp{{}}(), \and{{SortInt{{}}}}(\dv{{SortInt{{}}}}("1"), \top{{SortInt{{}}}}()))) [label{{}}("imp")]
             axiom{{R}} \implies{{R}}(\and{{R}}(\top{{R}}(), \top{{R}}()), \equals{{SortInt{{}}, R}}(one{{}}(), \and{{SortInt{{}}}}(\dv{{SortInt{{}}}}("1"), \top{{SortInt{{}}}}()))) [label{{}}("one")]
+            {}
+            {}
             {}
             {}
             {}
@@ -127,6 +133,20 @@ fn definition() -> BackendDefinition {
             r#"label{}("h-owise"), owise{}()"#
         ),
         equation("p", "SortNat{}", "z{}()", "z{}()", r#"label{}("p")"#),
+        equation(
+            "up",
+            "SortInt{}",
+            "VarX:SortInt{}",
+            r#"up{}(plus{}(VarX:SortInt{}, \dv{SortInt{}}("1")))"#,
+            r#"label{}("up")"#
+        ),
+        equation(
+            "fan",
+            "SortInt{}",
+            "VarX:SortInt{}",
+            r#"plus{}(fan{}(plus{}(VarX:SortInt{}, \dv{SortInt{}}("1"))), fan{}(plus{}(VarX:SortInt{}, \dv{SortInt{}}("2"))))"#,
+            r#"label{}("fan")"#
+        ),
         equation(
             "p",
             "SortNat{}",
@@ -186,16 +206,33 @@ fn deciding_a_deferred_atom_applies_no_definition_equation() {
 #[test]
 fn one_equation_step_whose_instance_is_defined_establishes_a_deferred_atom() {
     // `f(-1) = -1 +Int 1` is an instance of an axiom whose right-hand side is defined, so
-    // `f(-1)` is; `two(-1) = once(-1)` leaves `once(-1)`, which only another step would show
-    // defined, so `two(-1)` stays open. Neither is evaluated.
+    // `f(-1)` is; `two(-1) = once(-1)` states `two(-1)`'s definedness by `once(-1)`'s, which a
+    // second step shows defined. Neither is evaluated.
     let definition = definition();
     let (decided, evaluated) = decide(&definition, r#"f{}(\dv{SortInt{}}("-1"))"#);
     assert_eq!(decided, Predicate::True);
     assert!(!evaluated);
-    let subject = r#"two{}(\dv{SortInt{}}("-1"))"#;
-    let (decided, evaluated) = decide(&definition, subject);
-    assert_eq!(decided, defined(&definition, subject));
+    let (decided, evaluated) = decide(&definition, r#"two{}(\dv{SortInt{}}("-1"))"#);
+    assert_eq!(decided, Predicate::True);
     assert!(!evaluated);
+}
+
+#[test]
+fn the_steps_one_deferred_atom_leads_to_share_one_budget() {
+    // `loopi() = loopi() +Int 1` states `loopi()`'s definedness by its own, which decides
+    // nothing. `up(X) = up(X +Int 1)` and `fan(X) = fan(X +Int 1) +Int fan(X +Int 2)` lead to
+    // steps without end, the second to twice as many at each level: the steps share one budget,
+    // so each atom is given up within it and stays open as it was, and nothing is evaluated.
+    let definition = definition();
+    for subject in [
+        LOOPI,
+        r#"up{}(\dv{SortInt{}}("0"))"#,
+        r#"fan{}(\dv{SortInt{}}("0"))"#,
+    ] {
+        let (decided, evaluated) = decide(&definition, subject);
+        assert_eq!(decided, defined(&definition, subject), "{subject}");
+        assert!(!evaluated, "{subject}");
+    }
 }
 
 #[test]
@@ -384,10 +421,12 @@ fn a_resumed_state_reads_a_ceil_as_the_deferred_atoms_of_its_subject() {
 
 #[test]
 fn a_resumed_ceil_stays_open_where_an_ordinary_one_is_evaluated() {
-    // The cost of reading a resumed `\ceil` as deferred: `\ceil(two(3))` stays open in the
-    // resumed state, where the ordinary `\ceil` is decided by evaluating `two(3)` to `3`.
+    // The cost of reading a resumed `\ceil` as deferred: `\ceil(1 /Int two(3))` stays open in
+    // the resumed state, since the steps of a deferred atom take no value of `two(3)` (that is
+    // a second step on the first one's result), where the ordinary `\ceil` is decided by
+    // evaluating `two(3)` to `3`.
     let definition = definition();
-    let two = r#"two{}(\dv{SortInt{}}("3"))"#;
+    let two = r#"tdiv{}(\dv{SortInt{}}("1"), two{}(\dv{SortInt{}}("3")))"#;
     let (_, constraints, _) = run(
         &definition,
         r#"hold{}(\dv{SortInt{}}("0"))"#,

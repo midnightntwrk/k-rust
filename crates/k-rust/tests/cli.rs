@@ -6310,12 +6310,12 @@ fn a_discarded_hook_over_a_ground_collection_is_decided_by_the_hook() {
         );
     }
 
-    // A user function applied to the collection is not a hook: no equation of `pick` is applied
-    // (its argument is no literal, so it takes no one-step value either), and the obligation
-    // stays open although evaluating `pick(1 |-> 2)` would show it undefined.
-    let output = bounded_krun(&hooks, "Exp", "viaFun()", &["-w", "all"]);
-    let picked = r#"Lblpick{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1")), inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("2"))))"#;
-    assert_value_under(&output, seven, &[&ceil_of("SortInt", picked)]);
+    // A user function applied to the collection is not a hook, but its one equation applies
+    // there, and the same steps decide the obligations of its instance: `pick(1 |-> 2)` is
+    // `{(1 |-> 2)[5]}:>Int`, whose lookup the hook shows undefined, so the conditional is
+    // `\bottom` too.
+    let output = bounded_krun(&hooks, "Exp", "viaFun()", &[]);
+    assert_undefined_step(&output, 1);
 
     // A hook over a map that is a variable has no value to give: the obligation stays open.
     let pattern = top_with("inj{SortExp{}, SortKItem{}}(LbllookSym{}(VarM:SortMap{}))");

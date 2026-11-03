@@ -18,7 +18,8 @@
 //! literal arguments whose right-hand side those hooks fold to a literal; ceil equations whose
 //! instantiated condition that folding decides, or whose instance is stated in the atom's place
 //! over hook arithmetic; the key condition of a collection of literal keys; one equation step
-//! selected by matching alone) and by a known fact or the solver. The solver reads `\ceil(t)`
+//! selected by matching alone, whose instance's atoms are then decided in the atom's place) and
+//! by a known fact or the solver. The solver reads `\ceil(t)`
 //! through its domain reading (`smt::functional`): the stated condition of the ceil equation of
 //! each partial head, never simplified (`definedness::with_stated_ceil_conditions`), the domains
 //! of the strict children, and the finite summaries of pure, non-recursive functions
@@ -27,8 +28,11 @@
 //! `\ceil(t)` is an opaque atom. Preparing the query applies no equation of the definition, to
 //! `t` or to the definition's own terms. Each of these steps is bounded by
 //! the size of the atom's subject, by one selection scan per application, or by the summary
-//! limits, and none repeats on its own result, so deciding an atom terminates whatever the
-//! definition's equations do.
+//! limits. Only the equation step leads to further steps: its instance's atoms may hold an
+//! application the definition's equations reach again (a recursive function), and the predicate
+//! simplifier decides them in turn within one step budget shared by every atom the first one
+//! leads to (`crate::simplify`, `StepChain`); a spent budget gives the whole chain up and keeps
+//! the first atom open. So deciding an atom terminates whatever the definition's equations do.
 //!
 //! An operand whose definedness depends on an impure application (a console read, or a function
 //! whose equations perform an effect) cannot be decided without performing it, and a constraint
@@ -1216,12 +1220,17 @@ pub(crate) enum DeferredDecision {
     Refuted,
     /// `t` folded to another term: these atoms state its definedness instead.
     Replaced(Vec<Predicate>),
+    /// `t` is the instance of the one equation step [`single_step`] selects for it, and these
+    /// atoms, never empty, state the instance's definedness. They may hold an application the
+    /// definition's equations reach again, so the predicate simplifier decides them within a
+    /// step budget, and keeps `Defined(t)` open when it is spent.
+    Stepped(Vec<Predicate>),
     /// Undecided: the atom stays.
     Open,
 }
 
 /// Decide `Defined(t)` by bounded steps, which take at most one equation instance per application
-/// and never evaluate its result, in order:
+/// and never evaluate its result here, in order:
 /// - D1, fold `t` by pure builtin hooks on ground constructor-like arguments, a ground function
 ///   application on literal arguments also taking the value of its one equation step when hooks
 ///   fold that step's right-hand side to a literal ([`fold_with_values`]): an undefined hook
@@ -1234,7 +1243,9 @@ pub(crate) enum DeferredDecision {
 /// - D2, an unconditional ceil equation of `t`'s root, used when hooks decide every conjunct of
 ///   its instantiated condition, or, when `t`'s arguments and what is left of the condition are
 ///   hook arithmetic over variables and literals, stated in the atom's place (D2');
-/// - D4, one function equation step selected by matching alone ([`single_step`]).
+/// - D4, one function equation step selected by matching alone ([`single_step`]), whose
+///   instance's atoms the predicate simplifier decides in the atom's place, within its step
+///   budget ([`DeferredDecision::Stepped`]).
 ///
 /// Known facts (D6) and the solver (D7) are read by the predicate simplifier and the solver
 /// around this decision.
@@ -1503,9 +1514,12 @@ fn function_below_root(term: &Term) -> bool {
 /// matching alone, without evaluating its right-hand side.
 ///
 /// The step is an instance of an equation `term = r`, an axiom: an instantiated right-hand side
-/// `\bottom` refutes the atom, and one whose [`deferred_obligations`] are empty establishes it
-/// (the definedness of the arguments the instance binds is stated by the atom's siblings). The
-/// selection is stricter than the evaluator's:
+/// `\bottom` refutes the atom, one whose [`deferred_obligations`] are empty establishes it (the
+/// definedness of the arguments the instance binds is stated by the atom's siblings), and
+/// otherwise those obligations state the atom's definedness ([`DeferredDecision::Stepped`]):
+/// `term` and the instance are one element wherever either is defined, since the equation is the
+/// only one that applies to `term` and its `requires` holds. An instance whose obligations state
+/// `Defined(term)` again decides nothing. The selection is stricter than the evaluator's:
 /// - function-theory equations only; simplification lemmas are neither competitors nor
 ///   selected;
 /// - every higher-priority group is refuted by a failed match of every equation in it, and the
@@ -1531,7 +1545,11 @@ fn single_step(definition: &BackendDefinition, term: &Term) -> Stoppable<Option<
             let instantiated = substitute(rhs, &substitution);
             match deferred_obligations(definition, &instantiated) {
                 Ok(atoms) if atoms.is_empty() => Some(DeferredDecision::Established),
-                Ok(_) | Err(_) => None,
+                Ok(atoms) if atoms.contains(&Predicate::Defined(term.clone())) => None,
+                Ok(atoms) => Some(DeferredDecision::Stepped(atoms)),
+                // The instance's definedness depends on an impure application: the step decides
+                // nothing, and the atom stays open as it would without it.
+                Err(_) => None,
             }
         }
         _ => None,

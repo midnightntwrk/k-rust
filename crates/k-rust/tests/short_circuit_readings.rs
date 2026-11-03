@@ -47,7 +47,10 @@ const MODALITIES: [ResultModalityOutput; 2] = [
 ///   `sp`, `sq`, `s2`: the undefined operand is the left one, or both are.
 /// - `tp`: `andThenBool` whose deciding left operand is undefined.
 /// - `dp`: `dispatches`' shape, `Ime andThenBool interruptRequested(M)`, through two partial
-///   functions and two map lookups whose keys are present, which takes two equation steps.
+///   functions and two map lookups whose keys are present, which takes two equation steps;
+///   `dm`: the same with a key missing.
+/// - `rc`: a discarded `cnt(N)`, a recursion through `down` that takes `2 N + 1` equation steps
+///   to show defined.
 /// - `w`: a rule whose candidate is undefined only through a discarded operand, with a defined
 ///   same-priority sibling; `eh`: an equation whose condition is undefined only through a
 ///   discarded operand, so that its `owise` sibling applies.
@@ -66,19 +69,24 @@ module MAIN
                | sa(Bool, Int) | so(Bool, Int) | si(Bool, Int)
                | sp(Bool, Int) | sq(Bool, Int) | s2(Int)
                | tp(Bool, Int)
-               | dp(Bool)
+               | dp(Bool) | dm(Bool) | rc(Bool, Int)
                | w(Bool, Int) | eh(Bool, Int)
                | rp(String) | rn(Bool, Int)
   syntax Int ::= f(Int) [function]
                | g(Int) [function]
                | h(Bool, Int) [function]
                | requested(Int, Int) [function]
+               | cnt(Int) [function]
+               | down(Bool, Int) [function]
   syntax Bool ::= interruptRequested(Map) [function]
   configuration <k> $PGM:Pgm </k>
   rule f(N) => N +Int 1
   rule g(N) => f(N)
   rule requested(A, B) => A &Int B
   rule interruptRequested(M) => requested({M[65535]}:>Int, {M[65295]}:>Int) =/=Int 0
+  rule cnt(N) => down(N <=Int 0, N)
+  rule down(true, _) => 0
+  rule down(false, N) => cnt(N -Int 1)
   rule [h1]: h(B, D) => 1 requires notBool (B andThenBool (1 /Int D >Int 0))
   rule [h2]: h(_, _) => 2 [owise]
   rule [ite]: ite(B, D) => val(#if B #then 1 #else 1 /Int D #fi)
@@ -94,6 +102,8 @@ module MAIN
   rule [s2]: s2(D) => bv((1 /Int D >Int 0) andBool (1 /Int D >Int 0))
   rule [tp]: tp(B, D) => bv((1 /Int D >Int 0) andThenBool B)
   rule [dp]: dp(Ime) => bv(Ime andThenBool interruptRequested(65535 |-> 1 65295 |-> 1))
+  rule [dm]: dm(Ime) => bv(Ime andThenBool interruptRequested(65535 |-> 1))
+  rule [rc]: rc(B, N) => val(#if B #then 1 #else cnt(N) #fi)
   rule [w1]: w(B, D) => val(#if B #then 1 #else 1 /Int D #fi)
   rule [w2]: w(_, _) => done
   rule [eh]: eh(B, D) => val(h(B, D))
@@ -319,20 +329,41 @@ fn a_defined_discarded_operand_lists_nothing() {
 }
 
 /// The discarded `interruptRequested(M)` of `dispatches`' shape is defined (both keys are
-/// present and both functions have a value there), but showing it takes two equation steps
-/// (`interruptRequested`, then `requested`), beyond the bounded steps that decide a deferred
-/// atom, whose bounds are what makes deciding an atom terminate: the reading is `undecided`.
+/// present and both functions have a value there), and showing it takes two equation steps
+/// (`interruptRequested`, then `requested`): an equation step states its instance's definedness
+/// in the atom's place, and those atoms are decided in turn, so nothing is listed. With a key
+/// missing, the chain finds `requested`'s argument undefined, and the reading is `undefined`,
+/// under the rule and again where the step's remainder decides it.
 #[test]
-fn a_two_step_chain_through_partial_functions_stays_undecided() {
-    let (kore, initials) = compile(READINGS, &["dp(false)"]);
+fn a_two_step_chain_through_partial_functions_is_decided() {
+    assert_listed(&[("dp(false)", vec![])]);
+    let (kore, initials) = compile(READINGS, &["dm(false)"]);
     for (name, result) in runs(&kore, &initials[0]) {
-        assert_undecided_under(&result, "dp", &name);
+        let listed = entries(&result);
         assert!(
-            heads(&result).iter().all(|head| head
-                .as_deref()
-                .is_some_and(|head| head.starts_with("LblinterruptRequested"))),
+            listed.contains(&entry(None, "undefined", Some("dm"))),
             "{name}: {result:#}"
         );
+        assert!(
+            listed.iter().all(|listed| *listed
+                == entry(None, "undefined", Some("dm"))
+                || *listed == entry(None, "undefined", None)),
+            "{name}: {result:#}"
+        );
+    }
+}
+
+/// The steps one deferred atom leads to share one budget: a recursion that shows the discarded
+/// `cnt(N)` defined in a few steps lists nothing, and one deeper than the budget is given up and
+/// listed `undecided`, although `cnt(200)` is `0`; the run ends either way.
+#[test]
+fn a_chain_beyond_the_step_budget_is_listed_undecided() {
+    let (kore, initials) = compile(READINGS, &["rc(true, 3)", "rc(true, 200)"]);
+    for (name, result) in runs(&kore, &initials[0]) {
+        assert_eq!(entries(&result), [], "{name}: {result:#}");
+    }
+    for (name, result) in runs(&kore, &initials[1]) {
+        assert_undecided_under(&result, "rc", &name);
     }
 }
 

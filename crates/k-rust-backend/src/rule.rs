@@ -120,11 +120,12 @@ pub enum Predicate {
     /// a list drop's domain that no evaluation outside an execution decides, by the list
     /// observation catalog (`observation::lists::domain`); it is never passed to `ceil_term` or
     /// to the term simplifier, and no definition equation is applied to any part
-    /// of `t` beyond one bounded step; only the predicate simplifier decides it, by these steps
+    /// of `t` but by these bounded steps; only the predicate simplifier decides it, by them
     /// (folding by pure builtin hooks on literals, ceil equations whose instantiated condition
     /// those hooks decide or whose instance over hook arithmetic is stated in its place, the key
     /// condition of a collection of literal keys, one equation step selected by matching alone,
-    /// a known fact, and the solver, which reads it as it reads `\ceil(t)`: by the domain plan
+    /// whose instance's atoms are decided in turn within a step budget, a known fact, and the
+    /// solver, which reads it as it reads `\ceil(t)`: by the domain plan
     /// of `t`, a term-level `\and`'s included).
     Defined(Term),
 }

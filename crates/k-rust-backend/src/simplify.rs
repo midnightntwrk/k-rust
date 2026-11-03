@@ -4423,6 +4423,119 @@ fn defined_arm(
                 solver,
             )
         }
+        Ok(DeferredDecision::Stepped(atoms)) => {
+            let conjunction = Predicate::And(atoms.into());
+            let decide = |remaining: &mut usize| {
+                if *remaining == 0 || !StepChain::take() {
+                    return Err(SimplificationError::PredicateIterationLimit {
+                        limit,
+                        predicate: conjunction.clone(),
+                    }
+                    .into());
+                }
+                *remaining -= 1;
+                simplify_predicate_with_budget(
+                    definition,
+                    &conjunction,
+                    assumptions,
+                    limit,
+                    remaining,
+                    active_conditions,
+                    solver,
+                )
+            };
+            if StepChain::is_open() {
+                // A link of an open chain: a spent budget gives the whole chain up.
+                return decide(remaining);
+            }
+            let chain = StepChain::open(limit);
+            let mut chain_remaining = *remaining;
+            let decided = decide(&mut chain_remaining);
+            drop(chain);
+            match decided {
+                Ok(decided) => {
+                    *remaining = chain_remaining;
+                    Ok(decided)
+                }
+                Err(Unwind::Fail(failure))
+                    if matches!(
+                        *failure,
+                        SimplificationError::PredicateIterationLimit { .. }
+                            | SimplificationError::IterationLimit { .. }
+                    ) =>
+                {
+                    // The chain spent its budget: the atom stays as it was, open.
+                    *remaining = remaining.saturating_sub(1);
+                    crate::path_facts::note_short_circuit_reading(
+                        None,
+                        ReadingOutcome::Undecided,
+                        term,
+                    );
+                    Ok(predicate.clone())
+                }
+                Err(unwind) => Err(unwind),
+            }
+        }
+    }
+}
+
+/// The chain of equation steps that decides one deferred atom ([`DeferredDecision::Stepped`]),
+/// open while the first atom of the chain is decided.
+///
+/// An equation step states an atom's definedness by its instance's atoms, which may hold an
+/// application the definition's equations reach again: a recursive function, or several
+/// applications each leading to more (`fib(N -Int 1) +Int fib(N -Int 2)`). So the steps of one
+/// chain share one budget, whatever the conjunctions they pass through (each conjunct of which
+/// simplifies under a copy of its conjunction's iteration budget): at most
+/// [`StepChain::LIMIT`] steps, and no more than the predicate simplifier's iteration budget. A
+/// step past the budget fails the chain with the predicate budget's exhaustion, which the arm
+/// that opened the chain answers by keeping its atom open, as it was before the chain: the
+/// definedness the chain did not decide within its budget is undecided, which is sound, since
+/// an open atom is a condition kept on the work. The bound holds in every evaluation mode,
+/// [`SimplificationOptions::unbounded`] included: a deferred operand is one the evaluator must
+/// not evaluate, since it may diverge (recursion guarded by the conditional that discards it),
+/// so deciding its definedness must end whatever the caller's budget.
+struct StepChain {
+    previous: Option<usize>,
+}
+
+thread_local! {
+    /// The steps left to the open chain ([`StepChain`]), `None` when no chain is open.
+    static STEP_CHAIN: Cell<Option<usize>> = const { Cell::new(None) };
+}
+
+impl StepChain {
+    /// Most equation steps one chain takes.
+    const LIMIT: usize = DEFAULT_MAX_SIMPLIFICATION_ITERATIONS;
+
+    /// Open a chain of at most `min(limit, LIMIT)` steps, `limit` being the predicate
+    /// simplifier's iteration budget.
+    fn open(limit: usize) -> Self {
+        Self {
+            previous: STEP_CHAIN.replace(Some(limit.min(Self::LIMIT))),
+        }
+    }
+
+    fn is_open() -> bool {
+        STEP_CHAIN.get().is_some()
+    }
+
+    /// Take one step from the open chain's budget; `false` when it is spent.
+    fn take() -> bool {
+        match STEP_CHAIN.get() {
+            Some(0) => false,
+            Some(left) => {
+                STEP_CHAIN.set(Some(left - 1));
+                true
+            }
+            None => unreachable!("a step is taken only inside an open chain"),
+        }
+    }
+}
+
+impl Drop for StepChain {
+    fn drop(&mut self) {
+        STEP_CHAIN.set(self.previous);
     }
 }
 
