@@ -7,7 +7,6 @@ use std::{
     time::Duration,
 };
 
-#[cfg(feature = "z3")]
 use k_rust_backend::substitution::substitute;
 use k_rust_backend::{
     builtin::{BuiltinEffect, UnsupportedHookReason},
