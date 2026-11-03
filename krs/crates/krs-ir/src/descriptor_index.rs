@@ -1,6 +1,6 @@
 //! Borrowed descriptor lookup with typed payload access.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
 
@@ -56,6 +56,9 @@ impl Error for LookupError {}
 pub struct DescriptorIndex<'a> {
     by_id: BTreeMap<&'a StableItemId, &'a Descriptor>,
     source_order: Vec<&'a Descriptor>,
+    /// The declared sorts some production makes a cons list
+    /// ([`crate::cell_kind::cons_list_sort`]).
+    cons_lists: BTreeSet<&'a StableItemId>,
 }
 
 macro_rules! typed_accessor {
@@ -117,10 +120,29 @@ impl<'a> DescriptorIndex<'a> {
             .iter()
             .map(|descriptor| (descriptor.id(), *descriptor))
             .collect();
+        let cons_lists = source_order
+            .iter()
+            .filter_map(|descriptor| match descriptor.payload() {
+                DescriptorPayload::Grammar(grammar) => crate::cell_kind::cons_list_sort(grammar),
+                _ => None,
+            })
+            .filter_map(|sort| match &sort.sort {
+                crate::DescriptorSortRef::Declared(id) => Some(id),
+                _ => None,
+            })
+            .collect();
         Self {
             by_id,
             source_order,
+            cons_lists,
         }
+    }
+
+    /// Whether the declared sort `sort` is a cons list: some production of the indexed
+    /// descriptors is its cons constructor.
+    #[must_use]
+    pub fn is_cons_list(&self, sort: &StableItemId) -> bool {
+        self.cons_lists.contains(sort)
     }
 
     /// Returns a descriptor with the requested identity.

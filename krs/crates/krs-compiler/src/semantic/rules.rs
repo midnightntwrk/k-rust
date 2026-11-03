@@ -27,7 +27,8 @@ use super::origin::{
     generated_semantic_id, key_range, role_key, semantic_cell_id, semantic_origin,
     semantic_origin_from_primary,
 };
-use super::references::require_cell_field;
+use super::references::{declared_kind, require_cell_field};
+use krs_ir::cell_kind::{CellKind, Multiplicity, Notation, Order};
 
 /// The framework `KItem` sort, which every descriptor bundle carries (both
 /// facade entry points always include the framework descriptors), so a
@@ -1013,15 +1014,16 @@ fn head_rule_configuration<'a>(
         return Ok(configuration);
     };
     let computation = require_cell_field(&computation.cell, declarations)?;
-    let ProtocolCellContent::Leaf { wrapper, sort, .. } = &computation.content else {
+    // A `KCell` holds the builtin `KSequence` (descriptor validation), so the computation
+    // content is `KCell<KSequence>`.
+    let kind = declared_kind(computation, declarations);
+    if kind.group().is_some() {
         return Err(DescriptorLoweringError::unsupported_shape(
             "head-anchored rule",
             "resolved computation cell is not a fixed leaf",
         ));
-    };
-    if *wrapper != krs_ir::CellWrapper::KCell
-        || sort.sort != DescriptorSortRef::Builtin(BuiltinSort::KSequence)
-    {
+    }
+    if !kind.is_computation() {
         return Err(DescriptorLoweringError::unsupported_shape(
             "head-anchored rule",
             "resolved computation cell is not KCell<KSequence>",
@@ -1466,10 +1468,8 @@ fn infer_readable_state(
             };
             // A pattern looks a Set collection up by an instance, read as a key is.
             let looked_up = subject
-                && field.cell_type.as_ref().is_some_and(|cell_type| {
-                    krs_ir::CellCollectionType::from(cell_type.value)
-                        == krs_ir::CellCollectionType::Set
-                })
+                && declared_kind(field, declarations).multiplicity()
+                    == Multiplicity::Many(Order::Set)
                 && super::function_patterns::matches_evaluated_sentence(
                     builder.descriptor.payload(),
                 );
@@ -1720,7 +1720,10 @@ fn lower_head_rule_fixed_extra(
 ) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let cell_reference = head_rule_extra_cell(extra);
     let declared = require_cell_field(&cell_reference.cell, declarations)?;
-    let ProtocolCellContent::Leaf { wrapper, sort, .. } = &declared.content else {
+    let kind = declared_kind(declared, declarations);
+    let (false, ProtocolCellContent::Leaf { sort, .. }) =
+        (kind.group().is_some(), &declared.content)
+    else {
         let (
             ProtocolCellContent::Nested { declaration },
             krs_ir::ProtocolHeadRuleExtra::RewriteCell {
@@ -1757,13 +1760,13 @@ fn lower_head_rule_fixed_extra(
     };
     match extra {
         krs_ir::ProtocolHeadRuleExtra::HaveMap { cell, entries } => {
-            lower_head_rule_map_read(builder, cell, entries, *wrapper, sort)
+            lower_head_rule_map_read(builder, cell, entries, &kind)
         }
         krs_ir::ProtocolHeadRuleExtra::UpdateMap {
             cell,
             base_binding,
             update,
-        } => lower_head_rule_collection_write(builder, cell, base_binding, update, *wrapper, sort),
+        } => lower_head_rule_collection_write(builder, cell, base_binding, update, &kind, sort),
         krs_ir::ProtocolHeadRuleExtra::RewriteCell {
             cell,
             result_key,
@@ -1775,7 +1778,7 @@ fn lower_head_rule_fixed_extra(
             result_key.as_ref(),
             before,
             after.as_ref(),
-            *wrapper,
+            &kind,
             sort,
         ),
         krs_ir::ProtocolHeadRuleExtra::RewriteList {
@@ -1805,13 +1808,10 @@ fn lower_head_rule_map_read(
     builder: &mut StructuredTermBuilder<'_>,
     cell: &DescriptorCellReference,
     entries: &[krs_ir::DescriptorHeadRuleMapEntry],
-    wrapper: krs_ir::CellWrapper,
-    sort: &DescriptorSortReference,
+    kind: &CellKind,
 ) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let descriptor = builder.descriptor;
-    if wrapper != krs_ir::CellWrapper::Cell
-        || sort.sort != DescriptorSortRef::Builtin(BuiltinSort::Map)
-    {
+    if kind.leaf() != Some(Notation::Map) {
         return Err(DescriptorLoweringError::invalid_term(
             descriptor.id(),
             format!(
@@ -1871,16 +1871,11 @@ fn lower_head_rule_collection_write(
     cell: &DescriptorCellReference,
     base_binding: &str,
     update: &DescriptorTerm,
-    wrapper: krs_ir::CellWrapper,
+    kind: &CellKind,
     sort: &DescriptorSortReference,
 ) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let descriptor = builder.descriptor;
-    if wrapper != krs_ir::CellWrapper::Cell
-        || !matches!(
-            sort.sort,
-            DescriptorSortRef::Builtin(BuiltinSort::Map | BuiltinSort::List)
-        )
-    {
+    if !matches!(kind.leaf(), Some(Notation::Map | Notation::List)) {
         return Err(DescriptorLoweringError::unsupported_shape(
             "head-anchored rule extra",
             format!(
@@ -1919,11 +1914,11 @@ fn lower_head_rule_cell_rewrite(
     result_key: Option<&ProvenanceKey>,
     before: &DescriptorTerm,
     after: Option<&DescriptorTerm>,
-    wrapper: krs_ir::CellWrapper,
+    kind: &CellKind,
     sort: &DescriptorSortReference,
 ) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let descriptor = builder.descriptor;
-    if wrapper != krs_ir::CellWrapper::Cell {
+    if let Some(wrapper @ krs_ir::CellWrapper::KCell) = super::cell_states::content_wrapper(kind) {
         return Err(DescriptorLoweringError::cell_wrapper(
             Some(&cell.cell.field),
             Some(wrapper),

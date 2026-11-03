@@ -2,12 +2,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use krs_diagnostic::codes;
 use krs_ir::{
-    BuiltinSort, CellAttribute, CellMultiplicity, CellStream, CellWrapper, ConfigurationRoot,
-    Descriptor, DescriptorCellDeclaration, DescriptorCellField, DescriptorFixedConfiguration,
-    DescriptorIndex, DescriptorInitializerCell, DescriptorInitializerStateTerm, DescriptorTerm,
-    FixedCell, FixedConfiguration, FixedConfigurationVariable, FixedInitializerCell,
-    FixedInitializerContent, NodeOrigin, ProtocolCellContent, ProtocolInitializerCellContent,
-    ProtocolInitializerStateTerm, ProtocolMapBody, SemanticId, SourceRange, StableItemId,
+    BuiltinSort, CellAttribute, CellMultiplicity, CellStream, ConfigurationRoot, Descriptor,
+    DescriptorCellDeclaration, DescriptorCellField, DescriptorFixedConfiguration, DescriptorIndex,
+    DescriptorInitializerCell, DescriptorInitializerStateTerm, DescriptorTerm, FixedCell,
+    FixedConfiguration, FixedConfigurationVariable, FixedInitializerCell, FixedInitializerContent,
+    NodeOrigin, ProtocolCellContent, ProtocolInitializerCellContent, ProtocolInitializerStateTerm,
+    ProtocolMapBody, SemanticId, SourceRange, StableItemId,
 };
 use krs_ir_levels::{
     IrTermKind, ListOperands, MapEntry, MapOperands, SemanticConfiguration, SemanticSortRef,
@@ -20,7 +20,8 @@ use super::collection_types::{CollectionTyping, Root, SortType, Walker};
 use super::error::{DescriptorLoweringError, ImplicitPresentCell};
 use super::infer::{CollectionUse, StructuredTermBuilder, initial_binding_constraints};
 use super::origin::{generated_semantic_id, key_range, semantic_cell_id, semantic_origin};
-use super::references::require_cell_field;
+use super::references::{declared_kind, require_cell_field};
+use krs_ir::cell_kind::{CellKind, Multiplicity};
 
 pub(super) fn lower_fixed_configuration_descriptor(
     descriptor: &Descriptor,
@@ -320,10 +321,8 @@ fn add_present_optional_cells(
 ) -> Result<(), DescriptorLoweringError> {
     for cell in cells {
         let declared = require_cell_field(&cell.field.cell, declarations)?;
-        let optional = declared
-            .multiplicity
-            .as_ref()
-            .is_some_and(|multiplicity| multiplicity.value == "?");
+        let optional =
+            declared_kind(declared, declarations).multiplicity() == Multiplicity::Optional;
         match (&cell.absent, optional) {
             (Some(absent), false) => {
                 return Err(super::cell_states::collection_error(
@@ -382,16 +381,15 @@ impl ConsoleCells {
             krs_ir::DescriptorCellDeclarationReference,
         >,
         repeated: Option<&str>,
+        kind: &CellKind,
     ) -> Result<(), DescriptorLoweringError> {
-        let (sort, wrapper) = match content {
-            ProtocolCellContent::Leaf { sort, wrapper, .. } => {
-                (Some(semantic_sort_ref(&sort.sort)), Some(*wrapper))
-            }
-            ProtocolCellContent::Nested { .. } => (None, None),
+        let sort = match content {
+            ProtocolCellContent::Leaf { sort, .. } => Some(semantic_sort_ref(&sort.sort)),
+            ProtocolCellContent::Nested { .. } => None,
         };
         match attribute {
             CellAttribute::Stream { origin, value } => {
-                if wrapper == Some(CellWrapper::KCell) {
+                if kind.is_computation() {
                     return Err(console_error(
                         format!(
                             "the computation cell `{name}` cannot be a stream cell; declare the stream in a separate List cell"
@@ -437,7 +435,7 @@ impl ConsoleCells {
                 );
             }
             CellAttribute::Exit { origin } => {
-                if wrapper == Some(CellWrapper::KCell) {
+                if kind.is_computation() {
                     return Err(console_error(
                         format!(
                             "the computation cell `{name}` cannot be the exit cell; declare the exit status in a separate Int cell"
@@ -524,6 +522,7 @@ fn cell_attributes(
     descriptor: &Descriptor,
     declaration: &DescriptorCellDeclaration,
     field: &DescriptorCellField,
+    kind: &CellKind,
     name: &str,
     present: Option<&NodeOrigin>,
 ) -> Result<Vec<CellAttribute>, DescriptorLoweringError> {
@@ -575,10 +574,7 @@ fn cell_attributes(
             "cell-exit",
         )?));
     }
-    let optional = field
-        .multiplicity
-        .as_ref()
-        .is_some_and(|multiplicity| multiplicity.value == "?");
+    let optional = kind.multiplicity() == Multiplicity::Optional;
     if let Some(initial) = &field.initial {
         // An optional cell's initializer says whether it starts present, so the flag would
         // repeat it or contradict it.
@@ -619,14 +615,16 @@ fn lower_cell_declaration(
             .emitted_name
             .as_ref()
             .map_or_else(|| field.rust_field.clone(), |name| name.value.clone());
+        let kind = declared_kind(field, declarations);
         let attributes = cell_attributes(
             descriptor,
             declaration,
             field,
+            &kind,
             &name,
             scope.present.get(&id),
         )?;
-        let repeated = if field.multiplicity.is_some() {
+        let repeated = if kind.multiplicity() != Multiplicity::One {
             Some(name.clone())
         } else {
             scope.repeated.clone()
@@ -638,6 +636,7 @@ fn lower_cell_declaration(
                 &id,
                 &field.content,
                 repeated.as_deref(),
+                &kind,
             )?;
         }
         let origin = semantic_origin(

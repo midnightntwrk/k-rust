@@ -20,7 +20,8 @@ use super::built_maps::{MapBase, writes_over_whole_map};
 use super::catalog::semantic_sort_ref;
 use super::error::DescriptorLoweringError;
 use super::origin::{semantic_cell_id, semantic_origin};
-use super::references::require_cell_field;
+use super::references::{declared_kind, require_cell_field};
+use krs_ir::cell_kind::{CellKind, Layer, Multiplicity};
 
 /// A rule cell state as transported.
 pub(super) type DescriptorState = ProtocolRuleStateTerm<DescriptorTerm>;
@@ -90,6 +91,16 @@ pub(super) fn bare_optional(name: &str) -> String {
     )
 }
 
+/// The wrapper an entry writes around a cell of `kind`'s content: a computation's `KCell(..)`,
+/// a leaf's `Cell(..)`; none for a group, which is written as a record.
+pub(super) fn content_wrapper(kind: &CellKind) -> Option<krs_ir::CellWrapper> {
+    match kind.content() {
+        Some(Layer::Computation) => Some(krs_ir::CellWrapper::KCell),
+        Some(Layer::Leaf(_)) => Some(krs_ir::CellWrapper::Cell),
+        Some(Layer::Group(_) | Layer::Optional | Layer::Instances(_)) | None => None,
+    }
+}
+
 /// The wrapper of a leaf cell of `sort`: the computation cell's `KCell(..)`, a leaf's `Cell(..)`.
 pub(super) fn leaf_wrapper(sort: &SemanticSortRef) -> krs_ir::CellWrapper {
     if *sort == SemanticSortRef::k_sequence() {
@@ -104,14 +115,14 @@ pub(super) fn leaf_wrapper(sort: &SemanticSortRef) -> krs_ir::CellWrapper {
 /// declaration is the mistake, so the error names `cell`, the entry, whichever side it is on.
 pub(super) fn check_state_kind(
     descriptor: &Descriptor,
-    declared: &DescriptorCellField,
+    kind: &CellKind,
     cell: &DescriptorCellReference,
     state: &DescriptorState,
 ) -> Result<(), DescriptorLoweringError> {
     let name = &cell.cell.field;
-    match (state, multiplicity(declared)) {
+    match (state, kind.multiplicity()) {
         (ProtocolRuleStateTerm::Present { .. } | ProtocolRuleStateTerm::Absent, multiplicity)
-            if multiplicity != Some("?") =>
+            if multiplicity != Multiplicity::Optional =>
         {
             Err(collection_error(
                 descriptor,
@@ -122,7 +133,9 @@ pub(super) fn check_state_kind(
                 ),
             ))
         }
-        (ProtocolRuleStateTerm::Instances(_), multiplicity) if multiplicity != Some("*") => {
+        (ProtocolRuleStateTerm::Instances(_), multiplicity)
+            if !matches!(multiplicity, Multiplicity::Many(_)) =>
+        {
             Err(collection_error(
                 descriptor,
                 codes::analysis::COLLECTION_ENTRY,
@@ -144,14 +157,6 @@ pub(super) fn is_cell_state(state: &DescriptorState) -> bool {
             | ProtocolRuleStateTerm::Absent
             | ProtocolRuleStateTerm::Instances(_)
     )
-}
-
-/// The multiplicity spelling of a declared cell.
-fn multiplicity(field: &DescriptorCellField) -> Option<&str> {
-    field
-        .multiplicity
-        .as_ref()
-        .map(|multiplicity| multiplicity.value.as_str())
 }
 
 /// The clause kind and term sort of a declared child or optional cell.
@@ -309,7 +314,7 @@ pub(super) fn lower_optional_clause(
     let presence_error = |key: &ProvenanceKey, reason: String| {
         collection_error(&descriptor, codes::analysis::OPTIONAL_PRESENCE, key, reason)
     };
-    if multiplicity(declared) != Some("?") {
+    if declared_kind(declared, declarations).multiplicity() != Multiplicity::Optional {
         return Err(presence_error(
             &cell.key,
             format!(
@@ -439,8 +444,11 @@ pub(super) fn lower_instances_clause(
     let entry_error = |key: &ProvenanceKey, reason: String| {
         collection_error(&descriptor, codes::analysis::COLLECTION_ENTRY, key, reason)
     };
-    let (ProtocolCellContent::Nested { declaration }, Some("*")) =
-        (&declared.content, multiplicity(declared))
+    // A collection's instances are groups: the kind's instances layer holds a group, and the
+    // content names its declaration.
+    let kind = declared_kind(declared, declarations);
+    let (Multiplicity::Many(order), Some(_), ProtocolCellContent::Nested { declaration }) =
+        (kind.multiplicity(), kind.group(), &declared.content)
     else {
         return Err(entry_error(
             &cell.key,
@@ -449,16 +457,7 @@ pub(super) fn lower_instances_clause(
             ),
         ));
     };
-    let collection = declared
-        .cell_type
-        .as_ref()
-        .map(|cell_type| CellCollectionType::from(cell_type.value))
-        .ok_or_else(|| {
-            entry_error(
-                &cell.key,
-                format!("the collection `{name}` has no cell_type"),
-            )
-        })?;
+    let collection = CellCollectionType::from(order);
     let list = collection == CellCollectionType::List;
     for (instances, key) in [
         (Some(before), &cell.key),
@@ -749,7 +748,7 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
                 ),
             ));
         };
-        if declared.multiplicity.is_some() {
+        if declared_kind(declared, self.declarations).multiplicity() != Multiplicity::One {
             return Err(collection_error(
                 self.descriptor,
                 codes::analysis::COLLECTION_ENTRY,
@@ -1096,15 +1095,15 @@ fn present_optional_cell<'t>(
     declarations: &DescriptorIndex<'_>,
 ) -> Result<Option<&'t str>, DescriptorLoweringError> {
     let declared = require_cell_field(&template.field.cell, declarations)?;
-    match multiplicity(declared) {
-        Some("?") => {
+    match declared_kind(declared, declarations).multiplicity() {
+        Multiplicity::Optional => {
             return Ok(template
                 .absent
                 .is_none()
                 .then_some(template.field.cell.field.as_str()));
         }
-        Some(_) => return Ok(None),
-        None => {}
+        Multiplicity::Many(_) => return Ok(None),
+        Multiplicity::One => {}
     }
     if let ProtocolInitializerCellContent::Nested { children, .. } = &template.content {
         for child in children {

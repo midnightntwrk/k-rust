@@ -392,6 +392,15 @@ fn validate_rule_cells_references(
     Ok(())
 }
 
+/// The declared kind of `field`: [`krs_ir::cell_kind::CellKind::of`] over the collected
+/// declaration, the one reading of what a cell is that every lowering decision asks.
+pub(super) fn declared_kind(
+    field: &DescriptorCellField,
+    declarations: &DescriptorIndex<'_>,
+) -> krs_ir::cell_kind::CellKind {
+    krs_ir::cell_kind::DescriptorCell::new(field, declarations).kind()
+}
+
 pub(super) fn require_cell_field<'a>(
     identity: &DescriptorCellIdentity,
     declarations: &'a DescriptorIndex<'_>,

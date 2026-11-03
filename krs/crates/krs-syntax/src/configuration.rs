@@ -860,7 +860,10 @@ fn unsupported_field(reason: &'static str, span: proc_macro2::Span) -> SyntaxErr
 /// This reads the source alone: a nested group's declaration is the parsed
 /// `#[k::cell]` struct whose name is the declaration path's last segment, and
 /// a leaf's notation is its sort's (the builtin `List`, `Map` and `Set` by
-/// their names, a cons list where `cons_lists` names its sort). Rust's name
+/// their names, a cons list where `cons_lists` names its sort). The
+/// computation is a `KCell`'s content, as the collected view reads it
+/// ([`krs_ir::cell_kind::DescriptorCell`]): an explicit `Cell<KSequence>` is a
+/// leaf of sort `K`. Rust's name
 /// resolution is not consulted; the collector's resolved field is the other
 /// view of the same declaration.
 #[derive(Clone, Copy, Debug)]
@@ -956,7 +959,6 @@ impl krs_ir::cell_kind::CellView for ConfigurationCell<'_> {
                     "List" => Notation::List,
                     "Map" => Notation::Map,
                     "Set" => Notation::Set,
-                    "KSequence" => return Content::Computation,
                     _ if self.cons_lists.contains(&name) => Notation::Cons,
                     _ => Notation::Plain,
                 })

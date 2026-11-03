@@ -66,9 +66,9 @@ use std::collections::BTreeMap;
 use krs_ir::{
     BuiltinOperation, CellCollectionType, Descriptor, DescriptorApplicationRef,
     DescriptorCellIdentity, DescriptorHeadRuleExtra, DescriptorIndex, DescriptorPayload,
-    DescriptorTerm, ProtocolCellContent, ProtocolHeadRuleExtra, ProtocolHeadRuleListRest,
-    ProtocolRuleInstances, ProtocolRuleMapBody, ProtocolRuleStateTerm, ProvenanceKey, SentenceKind,
-    SetOperation, StableItemId, TermArgumentRef, TermMapOperation,
+    DescriptorTerm, ProtocolHeadRuleExtra, ProtocolHeadRuleListRest, ProtocolRuleInstances,
+    ProtocolRuleMapBody, ProtocolRuleStateTerm, ProvenanceKey, SentenceKind, SetOperation,
+    StableItemId, TermArgumentRef, TermMapOperation,
 };
 
 use super::catalog::ProductionSignature;
@@ -703,10 +703,13 @@ fn collection_type(
     cell: &DescriptorCellIdentity,
 ) -> Option<CellCollectionType> {
     let declared = super::references::require_cell_field(cell, declarations).ok()?;
-    let ProtocolCellContent::Nested { .. } = &declared.content else {
+    let kind = super::references::declared_kind(declared, declarations);
+    let (krs_ir::cell_kind::Multiplicity::Many(order), Some(_)) =
+        (kind.multiplicity(), kind.group())
+    else {
         return None;
     };
-    Some(CellCollectionType::from(declared.cell_type.as_ref()?.value))
+    Some(CellCollectionType::from(order))
 }
 
 /// What `application` applies: a declared function, a builtin operation that

@@ -431,7 +431,7 @@ fn resolution_tables(
         .collect::<HashMap<_, _>>();
     let declarations = declared_type_table(pending, builtins)?;
     let cell_fields = declared_cell_field_table(pending)?;
-    let mut head_targets = resolve_head_rule_targets(pending, &cell_fields)?;
+    let mut head_targets = resolve_head_rule_targets(pending, &cell_fields, builtins)?;
     locate_main_cell_refusals(&mut head_targets, pending, contexts);
     Ok(ResolutionTables {
         context_aliases,

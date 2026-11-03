@@ -174,6 +174,220 @@ impl CellKind {
     }
 }
 
+impl CellKind {
+    /// The cell's own multiplicity, read from its outermost layer.
+    #[must_use]
+    pub fn multiplicity(&self) -> Multiplicity {
+        match self.layers.first() {
+            Some(Layer::Optional) => Multiplicity::Optional,
+            Some(Layer::Instances(order)) => Multiplicity::Many(*order),
+            _ => Multiplicity::One,
+        }
+    }
+
+    /// The cell's content layer, its innermost: a computation, a leaf, or a group.
+    #[must_use]
+    pub fn content(&self) -> Option<&Layer> {
+        self.layers.last()
+    }
+
+    /// Whether the cell's content is a computation.
+    #[must_use]
+    pub fn is_computation(&self) -> bool {
+        matches!(self.content(), Some(Layer::Computation))
+    }
+
+    /// The notation of the cell's content, when its content is a leaf.
+    #[must_use]
+    pub fn leaf(&self) -> Option<Notation> {
+        match self.content() {
+            Some(Layer::Leaf(notation)) => Some(*notation),
+            _ => None,
+        }
+    }
+
+    /// The cell's group, when its content is one.
+    #[must_use]
+    pub fn group(&self) -> Option<&GroupKind> {
+        match self.content() {
+            Some(Layer::Group(group)) => Some(group),
+            _ => None,
+        }
+    }
+}
+
+/// The sort a production makes a cons list: the result sort of the cons production of a
+/// `#[k::syntax_list]` enum or of a `#[k::cons_list]` constructors enum. A cell whose leaf has
+/// that sort holds a cons list ([`Notation::Cons`]).
+#[must_use]
+pub fn cons_list_sort<S: crate::stage::Stage>(
+    grammar: &crate::StageGrammarDescriptor<S>,
+) -> Option<&S::Sort> {
+    let crate::StageGrammarDescriptor::Production(production) = grammar else {
+        return None;
+    };
+    production
+        .attributes
+        .iter()
+        .any(|attribute| {
+            matches!(
+                attribute,
+                crate::TransportProductionAttribute::ListCons { .. }
+                    | crate::TransportProductionAttribute::ConsList { .. }
+            )
+        })
+        .then_some(&production.result_sort)
+}
+
+impl From<Order> for crate::CellCollectionType {
+    fn from(order: Order) -> Self {
+        match order {
+            Order::List => Self::List,
+            Order::Set => Self::Set,
+            Order::Map => Self::Map,
+        }
+    }
+}
+
+/// The notation a leaf of the builtin sort `sort` has; [`Notation::Plain`] for the others.
+/// `KSequence` is not a leaf's notation: the computation is the content of a `KCell`.
+#[must_use]
+pub const fn builtin_notation(sort: crate::BuiltinSort) -> Notation {
+    match sort {
+        crate::BuiltinSort::List => Notation::List,
+        crate::BuiltinSort::Map => Notation::Map,
+        crate::BuiltinSort::Set => Notation::Set,
+        _ => Notation::Plain,
+    }
+}
+
+/// The multiplicity a declared field's `multiplicity` and `cell_type` give: `"?"` is presence,
+/// `"*"` instances in the `cell_type`'s order. Descriptor validation pairs `cell_type` with
+/// `"*"` (`validate_cell_metadata`); an unvalidated `"*"` without one reads as a Set, as the
+/// parsed view reads it.
+#[must_use]
+pub fn declared_multiplicity(
+    multiplicity: Option<&str>,
+    cell_type: Option<crate::CellCollectionType>,
+) -> Multiplicity {
+    match (multiplicity, cell_type) {
+        (Some("?"), _) => Multiplicity::Optional,
+        (Some("*"), cell_type) => Multiplicity::Many(match cell_type {
+            Some(crate::CellCollectionType::List) => Order::List,
+            Some(crate::CellCollectionType::Map) => Order::Map,
+            Some(crate::CellCollectionType::Set) | None => Order::Set,
+        }),
+        _ => Multiplicity::One,
+    }
+}
+
+/// A collected (descriptor) cell field read as a [`CellView`]: the collector's resolved
+/// declaration, as every compile-path reader after collection sees it. A nested group's
+/// declaration is looked up in the index; a leaf's notation is its resolved sort's (the builtin
+/// `List`, `Map` and `Set`, or a declared cons list). The computation is the content of a
+/// `KCell`: a `Cell<KSequence>` is a leaf of sort `K`, which a `Cell(..)` entry reads as one term.
+///
+/// A nested declaration that is missing, or that is one of the cell's own ancestors (a cycle,
+/// which lowering refuses), reads as a group with no children.
+#[derive(Clone, Debug)]
+pub struct DescriptorCell<'i, 'a> {
+    field: &'a crate::DescriptorCellField,
+    index: &'i crate::DescriptorIndex<'a>,
+    /// The nested declarations from the outermost field down to this one's owner.
+    ancestors: Vec<&'a crate::StableItemId>,
+}
+
+impl<'i, 'a> DescriptorCell<'i, 'a> {
+    /// The view of `field`, whose nested declarations `index` holds.
+    #[must_use]
+    pub const fn new(
+        field: &'a crate::DescriptorCellField,
+        index: &'i crate::DescriptorIndex<'a>,
+    ) -> Self {
+        Self {
+            field,
+            index,
+            ancestors: Vec::new(),
+        }
+    }
+
+    /// The field.
+    #[must_use]
+    pub const fn field(&self) -> &'a crate::DescriptorCellField {
+        self.field
+    }
+
+    /// The cell's own layers ([`CellKind::of`]).
+    #[must_use]
+    pub fn kind(&self) -> CellKind {
+        CellKind::of(self)
+    }
+}
+
+impl CellView for DescriptorCell<'_, '_> {
+    fn name(&self) -> String {
+        // An entry names a field by its identifier without `r#`, as Rust names a field.
+        let field = &self.field.rust_field;
+        field.strip_prefix("r#").unwrap_or(field).to_owned()
+    }
+
+    fn multiplicity(&self) -> Multiplicity {
+        declared_multiplicity(
+            self.field
+                .multiplicity
+                .as_ref()
+                .map(|multiplicity| multiplicity.value.as_str()),
+            self.field
+                .cell_type
+                .as_ref()
+                .map(|cell_type| cell_type.value.into()),
+        )
+    }
+
+    fn content(&self) -> Content<Self> {
+        match &self.field.content {
+            crate::ProtocolCellContent::Leaf {
+                wrapper: crate::CellWrapper::KCell,
+                ..
+            } => Content::Computation,
+            crate::ProtocolCellContent::Leaf { sort, .. } => Content::Leaf(match &sort.sort {
+                crate::DescriptorSortRef::Builtin(builtin) => builtin_notation(*builtin),
+                crate::DescriptorSortRef::Declared(id) if self.index.is_cons_list(id) => {
+                    Notation::Cons
+                }
+                _ => Notation::Plain,
+            }),
+            crate::ProtocolCellContent::Nested { declaration } => {
+                let id = &declaration.declaration;
+                let children = if self.ancestors.contains(&id) {
+                    Vec::new()
+                } else {
+                    self.index.cell(id).map_or_else(
+                        |_| Vec::new(),
+                        |nested| {
+                            let mut ancestors = self.ancestors.clone();
+                            ancestors.push(id);
+                            nested
+                                .fields
+                                .iter()
+                                .map(|field| Self {
+                                    field,
+                                    index: self.index,
+                                    ancestors: ancestors.clone(),
+                                })
+                                .collect()
+                        },
+                    )
+                };
+                Content::Group {
+                    name: id.item_name().to_owned(),
+                    children,
+                }
+            }
+        }
+    }
+}
+
 /// What an entry naming a cell is judged against: the layers of its marked ancestors and the
 /// cell's own layers, kept apart (S1 (b)).
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]

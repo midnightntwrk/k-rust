@@ -3,6 +3,7 @@
 use std::any::TypeId;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
+use krs_ir::cell_kind::{CellKind, CellView, Content, Layer, Multiplicity, Notation};
 use krs_ir::{
     DescriptorApplicationRef, DescriptorApplicationReference, DescriptorPayload, DescriptorSortRef,
     DescriptorSortReference, DescriptorStage, HostApplicationIdentity, HostBuiltinRegistry,
@@ -144,11 +145,10 @@ struct HeadRuleCellTarget {
     names: Vec<String>,
     /// The cell's K name: its emitted name, else its Rust field's.
     k_name: String,
-    /// The leaf wrapper; absent for a fixed nested (group) cell, which a
-    /// readable record names as a whole (KF-016).
-    wrapper: Option<krs_ir::CellWrapper>,
-    /// Whether the cell is a `multiplicity = "*"` collection (KF-023).
-    collection: bool,
+    /// The cell's own layers, read from its declaration
+    /// ([`krs_ir::cell_kind::CellKind::of`] over [`HostCell`]): presence or instances (KF-023),
+    /// then a computation, a leaf, or a group, which a readable record names as a whole (KF-016).
+    kind: CellKind,
     /// The `#[k::cell]` struct of a nested (group) cell, by its resolved
     /// type: a record in the entry that names the cell stands for the
     /// running configuration's cell of that group (U5).
@@ -156,11 +156,12 @@ struct HeadRuleCellTarget {
 }
 
 fn head_rule_cell_target(
-    field: &krs_ir::HostCellField,
+    field: &HostCell<'_>,
     cell_fields: &HashMap<HostCellKey, krs_ir::DescriptorCellIdentity>,
-    wrapper: Option<krs_ir::CellWrapper>,
     group: Option<TypeId>,
 ) -> Result<HeadRuleCellTarget, CollectionError> {
+    let kind = CellKind::of(field);
+    let field = field.field;
     let identity = cell_fields
         .get(&field.reference.cell.resolve())
         .cloned()
@@ -193,13 +194,177 @@ fn head_rule_cell_target(
         identity,
         names,
         k_name,
-        wrapper,
-        collection: field
-            .multiplicity
-            .as_ref()
-            .is_some_and(|multiplicity| multiplicity.value == "*"),
+        kind,
         group,
     })
+}
+
+impl HeadRuleCellTarget {
+    /// Whether the cell is a `multiplicity = "*"` collection (KF-023).
+    fn is_collection(&self) -> bool {
+        matches!(self.kind.multiplicity(), Multiplicity::Many(_))
+    }
+
+    /// The wrapper of a cell that is no collection: a computation's `KCell`, a leaf's `Cell`;
+    /// none for a group or a collection.
+    fn leaf_wrapper(&self) -> Option<krs_ir::CellWrapper> {
+        if self.is_collection() {
+            return None;
+        }
+        match self.kind.content() {
+            Some(Layer::Computation) => Some(krs_ir::CellWrapper::KCell),
+            Some(Layer::Leaf(_)) => Some(krs_ir::CellWrapper::Cell),
+            _ => None,
+        }
+    }
+}
+
+/// What a [`HostCell`] reads beside its field: the nested declarations by their resolved type,
+/// and which sorts have notation of their own.
+pub(super) struct HostCellDeclarations<'a> {
+    /// Each nested `#[k::cell]` struct by its resolved type, with its descriptor identity.
+    nested: HashMap<TypeId, (&'a StableItemId, &'a krs_ir::HostCellDeclaration)>,
+    builtins: Option<&'a HostBuiltinRegistry>,
+    /// The resolved types of the declared sorts some production makes a cons list.
+    cons_lists: HashSet<TypeId>,
+}
+
+impl<'a> HostCellDeclarations<'a> {
+    pub(super) fn new(
+        pending: &'a [PendingDescriptor],
+        builtins: Option<&'a HostBuiltinRegistry>,
+    ) -> Self {
+        let nested = pending
+            .iter()
+            .filter_map(|descriptor| {
+                let HostDescriptorPayload::Cell(declaration) = &descriptor.host.payload else {
+                    return None;
+                };
+                let Some(krs_ir::HostDeclarationIdentity::Nominal(key)) =
+                    descriptor.host.declared_type
+                else {
+                    return None;
+                };
+                Some((key.resolve(), (&descriptor.id, declaration.as_ref())))
+            })
+            .collect();
+        let cons_lists = pending
+            .iter()
+            .filter_map(|descriptor| match &descriptor.host.payload {
+                HostDescriptorPayload::Grammar(grammar) => {
+                    krs_ir::cell_kind::cons_list_sort(grammar)
+                }
+                _ => None,
+            })
+            .map(|sort| sort.target.key.resolve())
+            .collect();
+        Self {
+            nested,
+            builtins,
+            cons_lists,
+        }
+    }
+
+    /// The view of `field`.
+    pub(super) const fn cell(&'a self, field: &'a krs_ir::HostCellField) -> HostCell<'a> {
+        HostCell {
+            field,
+            declarations: self,
+            ancestors: Vec::new(),
+        }
+    }
+}
+
+/// A host cell field read as a [`CellView`]: the collector's declaration of the cell, resolved
+/// by Rust types before the descriptors are. A nested group's declaration is the collected
+/// `#[k::cell]` struct of its resolved type; a leaf's notation is its sort's (the builtin
+/// `List`, `Map` and `Set` by their registered markers, or a declared cons list); the
+/// computation is a `KCell`'s content, as [`krs_ir::cell_kind::DescriptorCell`] reads the same
+/// field once collected. A missing nested declaration, or one of the cell's own ancestors (a
+/// cycle, which collection refuses), reads as a group with no children.
+#[derive(Clone)]
+pub(super) struct HostCell<'a> {
+    field: &'a krs_ir::HostCellField,
+    declarations: &'a HostCellDeclarations<'a>,
+    ancestors: Vec<TypeId>,
+}
+
+impl CellView for HostCell<'_> {
+    fn name(&self) -> String {
+        let field = &self.field.rust_field;
+        field.strip_prefix("r#").unwrap_or(field).to_owned()
+    }
+
+    fn multiplicity(&self) -> Multiplicity {
+        krs_ir::cell_kind::declared_multiplicity(
+            self.field
+                .multiplicity
+                .as_ref()
+                .map(|multiplicity| multiplicity.value.as_str()),
+            self.field
+                .cell_type
+                .as_ref()
+                .map(|cell_type| cell_type.value.into()),
+        )
+    }
+
+    fn content(&self) -> Content<Self> {
+        match &self.field.content {
+            krs_ir::ProtocolCellContent::Leaf {
+                wrapper: krs_ir::CellWrapper::KCell,
+                ..
+            } => Content::Computation,
+            krs_ir::ProtocolCellContent::Leaf { sort, .. } => {
+                let target = sort.target.key.resolve();
+                Content::Leaf(
+                    match self
+                        .declarations
+                        .builtins
+                        .and_then(|builtins| builtins.resolve_sort(target))
+                    {
+                        Some(builtin) => krs_ir::cell_kind::builtin_notation(builtin),
+                        None if self.declarations.cons_lists.contains(&target) => Notation::Cons,
+                        None => Notation::Plain,
+                    },
+                )
+            }
+            krs_ir::ProtocolCellContent::Nested { declaration } => {
+                let key = declaration.declaration.key.resolve();
+                let nested = self.declarations.nested.get(&key);
+                let children = match nested {
+                    Some((_, nested)) if !self.ancestors.contains(&key) => {
+                        let mut ancestors = self.ancestors.clone();
+                        ancestors.push(key);
+                        nested
+                            .fields
+                            .iter()
+                            .map(|field| Self {
+                                field,
+                                declarations: self.declarations,
+                                ancestors: ancestors.clone(),
+                            })
+                            .collect()
+                    }
+                    _ => Vec::new(),
+                };
+                Content::Group {
+                    name: nested.map_or_else(
+                        || {
+                            declaration
+                                .declaration
+                                .authored_path
+                                .rsplit("::")
+                                .next()
+                                .unwrap_or_default()
+                                .to_owned()
+                        },
+                        |(id, _)| id.item_name().to_owned(),
+                    ),
+                    children,
+                }
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -253,6 +418,7 @@ impl HeadRuleTarget {
 fn collect_head_rule_cells(
     declaration: &krs_ir::HostCellDeclaration,
     declarations: &HashMap<TypeId, &krs_ir::HostCellDeclaration>,
+    views: &HostCellDeclarations<'_>,
     cell_fields: &HashMap<HostCellKey, krs_ir::DescriptorCellIdentity>,
     visiting: &mut HashSet<TypeId>,
     cells: &mut Vec<HeadRuleCellTarget>,
@@ -260,11 +426,10 @@ fn collect_head_rule_cells(
 ) -> Result<(), CollectionError> {
     for field in &declaration.fields {
         match &field.content {
-            krs_ir::ProtocolCellContent::Leaf { wrapper, .. } => {
+            krs_ir::ProtocolCellContent::Leaf { .. } => {
                 cells.push(head_rule_cell_target(
-                    field,
+                    &views.cell(field),
                     cell_fields,
-                    Some(*wrapper),
                     None,
                 )?);
             }
@@ -273,7 +438,11 @@ fn collect_head_rule_cells(
                 // readable record entry; the leaves below a collection stay
                 // reachable as its implicit single instance (KF-023).
                 let key = declaration.declaration.key.resolve();
-                cells.push(head_rule_cell_target(field, cell_fields, None, Some(key))?);
+                cells.push(head_rule_cell_target(
+                    &views.cell(field),
+                    cell_fields,
+                    Some(key),
+                )?);
                 if !visiting.insert(key) {
                     return Err(CollectionError::new(
                         CollectionErrorKind::InvalidConfiguration,
@@ -299,7 +468,10 @@ fn collect_head_rule_cells(
                         fixed: nested
                             .fields
                             .iter()
-                            .filter(|child| child.multiplicity.is_none())
+                            .filter(|child| {
+                                let kind = CellKind::of(&views.cell(child));
+                                kind.multiplicity() == Multiplicity::One && kind.group().is_some()
+                            })
                             .filter_map(|child| match &child.content {
                                 krs_ir::ProtocolCellContent::Nested { declaration } => Some((
                                     child.rust_field.clone(),
@@ -313,6 +485,7 @@ fn collect_head_rule_cells(
                 collect_head_rule_cells(
                     nested,
                     declarations,
+                    views,
                     cell_fields,
                     visiting,
                     cells,
@@ -328,6 +501,7 @@ fn collect_head_rule_cells(
 pub(super) fn resolve_head_rule_targets(
     pending: &[PendingDescriptor],
     cell_fields: &HashMap<HostCellKey, krs_ir::DescriptorCellIdentity>,
+    builtins: Option<&HostBuiltinRegistry>,
 ) -> Result<Vec<HeadRuleTarget>, CollectionError> {
     if !pending
         .iter()
@@ -357,6 +531,7 @@ pub(super) fn resolve_head_rule_targets(
             Some((key.resolve(), declaration.as_ref()))
         })
         .collect::<HashMap<_, _>>();
+    let views = HostCellDeclarations::new(pending, builtins);
     let targets = configurations
         .into_iter()
         .map(|(descriptor, configuration)| {
@@ -365,6 +540,7 @@ pub(super) fn resolve_head_rule_targets(
             collect_head_rule_cells(
                 &configuration.declaration,
                 &cell_declarations,
+                &views,
                 cell_fields,
                 &mut HashSet::new(),
                 &mut cells,
@@ -503,9 +679,7 @@ fn resolve_head_rule_target<'a>(
         let computations = target
             .cells
             .iter()
-            .filter(|cell| {
-                cell.wrapper == Some(krs_ir::CellWrapper::KCell) && cell.names.contains(&named.name)
-            })
+            .filter(|cell| cell.kind.is_computation() && cell.names.contains(&named.name))
             .collect::<Vec<_>>();
         match computations.as_slice() {
             [computation] => *computation,
@@ -1065,7 +1239,7 @@ fn readable_bracket_reading(
         .filter(|candidate| candidate.names.iter().any(|name| name == &cell.name))
         .collect::<Vec<_>>();
     if let [candidate] = named.as_slice()
-        && candidate.collection
+        && candidate.is_collection()
     {
         if rule
             .computation_cell
@@ -1118,7 +1292,7 @@ fn readable_list_reading(
             .filter(|cell| cell.names.iter().any(|candidate| candidate == name))
             .collect::<Vec<_>>();
         match named.as_slice() {
-            [cell] if !cell.collection => cell.wrapper,
+            [cell] => cell.leaf_wrapper(),
             _ => None,
         }
     };
@@ -2124,8 +2298,9 @@ mod tests {
                 identity,
                 names: vec!["k".to_owned()],
                 k_name: "k".to_owned(),
-                wrapper: Some(krs_ir::CellWrapper::KCell),
-                collection: false,
+                kind: CellKind {
+                    layers: vec![Layer::Computation],
+                },
                 group: None,
             }],
             group_children: HashMap::new(),
@@ -2674,8 +2849,20 @@ mod tests {
             },
             names: vec![name.to_owned()],
             k_name: name.to_owned(),
-            wrapper,
-            collection,
+            kind: CellKind {
+                layers: collection
+                    .then_some(Layer::Instances(krs_ir::cell_kind::Order::List))
+                    .into_iter()
+                    .chain([match wrapper {
+                        Some(krs_ir::CellWrapper::KCell) => Layer::Computation,
+                        Some(krs_ir::CellWrapper::Cell) => Layer::Leaf(Notation::Plain),
+                        None => Layer::Group(krs_ir::cell_kind::GroupKind {
+                            name: name.to_owned(),
+                            children: Vec::new(),
+                        }),
+                    }])
+                    .collect(),
+            },
             group: None,
         }
     }
@@ -2695,7 +2882,7 @@ mod tests {
         let main = krs_ir::select_main_cell(
             cells
                 .iter()
-                .filter(|cell| cell.wrapper == Some(krs_ir::CellWrapper::KCell))
+                .filter(|cell| cell.kind.is_computation())
                 .map(|cell| (cell.identity.clone(), false)),
         );
         let targets = [HeadRuleTarget {

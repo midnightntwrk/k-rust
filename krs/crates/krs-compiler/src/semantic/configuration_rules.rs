@@ -16,6 +16,7 @@ use krs_syntax::ProvenanceRole;
 
 use super::built_maps::{BuiltMap, MapBase, writes_over_whole_map};
 use super::catalog::{ProductionSignature, common_sequence_item_sort, semantic_sort_ref};
+use super::cell_states::content_wrapper;
 use super::collection_types::{CollectionTyping, Root, Walker};
 use super::configuration::{check_stdin_reads, stdin_cells};
 use super::error::DescriptorLoweringError;
@@ -30,6 +31,7 @@ use super::rules::{
     check_group_descendants, framework_k_item_sort, lower_nondet_group, lower_rule_label,
     lower_rule_priority, omitted_leaf_cells, require_fixed_configuration,
 };
+use krs_ir::cell_kind::Multiplicity;
 
 /// Stable rule cell as transported for configuration rules and context aliases.
 type DescriptorRuleCell = ProtocolRuleCell<DescriptorCellReference, DescriptorTerm>;
@@ -883,13 +885,11 @@ fn lower_configuration_state_clause(
     // An entry whose state belongs to another kind of cell than the declared one is the
     // mistake, on whichever side it is written: `pc: Cell(x) => None` on a plain cell names the
     // result.
+    let kind = super::references::declared_kind(declared, terms.declarations);
     for cell in std::iter::once(subject).chain(result) {
-        super::cell_states::check_state_kind(descriptor, declared, &cell.field, &cell.value)?;
+        super::cell_states::check_state_kind(descriptor, &kind, &cell.field, &cell.value)?;
     }
-    let expected_wrapper = match &declared.content {
-        ProtocolCellContent::Leaf { wrapper, .. } => Some(*wrapper),
-        ProtocolCellContent::Nested { .. } => None,
-    };
+    let expected_wrapper = content_wrapper(&kind);
     for cell in std::iter::once(subject).chain(result) {
         let wrapper_valid = match &cell.value {
             ProtocolRuleStateTerm::Present { .. } => cell.wrapper == expected_wrapper,
@@ -1069,12 +1069,9 @@ fn lower_configuration_rule_clause(
     let name = &subject.field.cell.field;
     // Neither entry is `Some`/`None` or an instance list, so on an optional cell or a collection,
     // whose entries are written that way, the subject's spelling is that cell's mistake.
-    match declared
-        .multiplicity
-        .as_ref()
-        .map(|multiplicity| multiplicity.value.as_str())
-    {
-        Some("?") => {
+    let kind = super::references::declared_kind(declared, terms.declarations);
+    match kind.multiplicity() {
+        Multiplicity::Optional => {
             return Err(super::cell_states::collection_error(
                 descriptor,
                 krs_diagnostic::codes::analysis::OPTIONAL_PRESENCE,
@@ -1082,7 +1079,7 @@ fn lower_configuration_rule_clause(
                 super::cell_states::bare_optional(name),
             ));
         }
-        Some(_) => {
+        Multiplicity::Many(_) => {
             return Err(super::cell_states::collection_error(
                 descriptor,
                 krs_diagnostic::codes::analysis::COLLECTION_ENTRY,
@@ -1092,9 +1089,11 @@ fn lower_configuration_rule_clause(
                 ),
             ));
         }
-        None => {}
+        Multiplicity::One => {}
     }
-    let ProtocolCellContent::Leaf { wrapper, sort, .. } = &declared.content else {
+    let (Some(wrapper), ProtocolCellContent::Leaf { sort, .. }) =
+        (content_wrapper(&kind), &declared.content)
+    else {
         let ProtocolCellContent::Nested { declaration } = &declared.content else {
             unreachable!("a fixed cell is a leaf or nested");
         };
@@ -1109,10 +1108,10 @@ fn lower_configuration_rule_clause(
     };
     // Each check names the entry that disagrees with the declaration, the subject first.
     let entries = || std::iter::once(subject).chain(result);
-    if let Some(entry) = entries().find(|entry| entry.wrapper != Some(*wrapper)) {
+    if let Some(entry) = entries().find(|entry| entry.wrapper != Some(wrapper)) {
         return Err(DescriptorLoweringError::cell_wrapper(
             Some(name),
-            Some(*wrapper),
+            Some(wrapper),
             entry_range(descriptor, entry),
         ));
     }

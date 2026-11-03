@@ -1629,10 +1629,16 @@ fn is_optional_cell(
         };
         declaration.fields.iter().any(|field| {
             field.rust_field == cell.field
-                && field
-                    .multiplicity
-                    .as_ref()
-                    .is_some_and(|multiplicity| multiplicity.value == "?")
+                && krs_ir::cell_kind::declared_multiplicity(
+                    field
+                        .multiplicity
+                        .as_ref()
+                        .map(|multiplicity| multiplicity.value.as_str()),
+                    field
+                        .cell_type
+                        .as_ref()
+                        .map(|cell_type| cell_type.value.into()),
+                ) == krs_ir::cell_kind::Multiplicity::Optional
         })
     })
 }
