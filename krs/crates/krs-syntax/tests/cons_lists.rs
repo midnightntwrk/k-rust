@@ -312,6 +312,9 @@ fn elements_that_read_as_instances_carry_the_instances_beside_them() {
     for source in [
         "pop: { k: [Pop(), ..], job: [.., Job { payload: p }] } => { k: [p, ..], job: [..] };",
         "drop: { k: [Drop(), ..], job: [first @ Job { payload: p }, ..] } => { k: [p, ..], job: [..] };",
+        // A shorthand child is `payload: payload`, so it reads both ways as
+        // the long child does; the cell's declared type picks one.
+        "pop: { k: [Pop(), ..], job: [.., Job { payload, .. }] } => { k: [payload, ..], job: [..] };",
     ] {
         let clause = read(source);
         assert_eq!(clause.computation_cell().unwrap(), "k", "{source}");
@@ -323,13 +326,6 @@ fn elements_that_read_as_instances_carry_the_instances_beside_them() {
         );
         clause.provenance().unwrap();
     }
-    // Instances whose children are not all `name: value` read only as
-    // instances or only as elements.
-    let clause = read(
-        "pop: { k: [Pop(), ..], job: [.., Job { payload, .. }] } => { k: [payload, ..], job: [..] };",
-    );
-    assert_eq!(lists(&clause).len(), 1);
-    assert!(clause.bracket_alternative().is_none());
 }
 
 #[test]

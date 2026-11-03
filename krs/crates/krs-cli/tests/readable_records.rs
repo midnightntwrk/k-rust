@@ -1,7 +1,8 @@
-//! Readable-record notation end to end: the cell shorthand `{ pc, gas }`.
-//! Each notation is checked against the long form it stands for, through
-//! `krs emit-k` and `krs expand`, which run the macro and the collector's
-//! reparse on the same source.
+//! Readable-record notation end to end: the cell shorthand `{ pc, gas }`, and
+//! the instance child shorthand `Account { balance, .. }`. Each notation is
+//! checked against the long form it stands for, through `krs emit-k` and
+//! `krs expand`, which run the macro and the collector's reparse on the same
+//! source.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -82,9 +83,14 @@ fn krs_path() -> String {
 /// `source`. Every package shares one K namespace, so two spellings of one
 /// definition emit the same K.
 fn package(root: &Path, name: &str, source: &str) -> PathBuf {
+    package_over(root, name, PREAMBLE, source)
+}
+
+/// [`package`] over another preamble.
+fn package_over(root: &Path, name: &str, preamble: &str, source: &str) -> PathBuf {
     let directory = root.join(name);
     fs::create_dir_all(directory.join("src")).unwrap();
-    fs::write(directory.join("src/lib.rs"), format!("{PREAMBLE}{source}")).unwrap();
+    fs::write(directory.join("src/lib.rs"), format!("{preamble}{source}")).unwrap();
     fs::write(
         directory.join("Cargo.toml"),
         format!(
@@ -215,6 +221,210 @@ fn an_unbound_shorthand_result_fails_as_the_long_entry() {
     };
     let shorthand = package(temporary.path(), "unbound-shorthand", &rule("gas"));
     let long = package(temporary.path(), "unbound-long", &rule("gas: gas"));
+    let errors = check_errors(target.path(), &shorthand);
+    assert!(!errors.is_empty());
+    assert_eq!(errors, check_errors(target.path(), &long));
+}
+
+/// A configuration with a Map collection of accounts, keyed by `id`, below
+/// the plain group `accounts`.
+const ACCOUNTS: &str = r#"
+use k::builtin::{Int, KSequence, int};
+use k::KResult;
+
+k::sorts! {
+    Exp;
+    Value: Exp + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+#[k::precedence((Read, Open, Pay, Reset, Audit))]
+pub enum Cmd {
+    #[k::syntax("read {id}")]
+    Read { id: Int },
+    #[k::syntax("open {id} {balance}")]
+    Open { id: Int, balance: Int },
+    #[k::syntax("pay {id} {amount}")]
+    Pay { id: Int, amount: Int },
+    #[k::syntax("reset {id} {balance}")]
+    Reset { id: Int, balance: Int },
+    #[k::syntax("audit {id}")]
+    Audit { id: Int },
+}
+
+#[k::cell]
+pub struct Account {
+    #[k::cell(name = "acctID")]
+    pub id: Int,
+    #[k::cell]
+    pub balance: Int,
+    #[k::cell]
+    pub nonce: Int,
+}
+
+#[k::cell]
+pub struct Accounts {
+    #[k::cell(multiplicity = "*", cell_type = "Map", initial, nested)]
+    pub account: Account,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell(nested)]
+    pub accounts: Accounts,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self {
+            k: k::k![pgm],
+            accounts: Accounts { account: Account { id: 0, balance: 0, nonce: 0 } },
+        }
+    }
+}
+"#;
+
+const INSTANCE_SHORTHAND: &str = r#"
+k::rules! {
+    for Machine;
+    use Cmd::*;
+
+    #[k::requires(want == id)]
+    read: { k: [Read { id: want }, ..], account: { Account { id, balance, .. }, .. } } => { k: [balance, ..] };
+    open: { k: [Open { id, balance }, ..], account: { .. } } => { k: [..], account: { Account { id, balance, nonce: 0 }, .. } };
+    #[k::requires(want == id)]
+    pay: { k: [Pay { id: want, amount }, ..], account: { me @ Account { id, balance, nonce, .. }, .. } } => { k: [..], account: { Account { balance: int::add(balance, amount), nonce: int::add(nonce, 1), ..me }, .. } };
+    reset: { k: [Reset { id, balance }, ..], account: { Account { .. }, .. } } => { k: [..], account: { Account { id, balance, nonce: 0 }, .. } };
+}
+
+#[k::rule(label = "audit")]
+#[k::requires(want == id)]
+fn audit(
+    want: k::Term<Int>,
+    id: k::Term<Int>,
+    nonce: k::Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(Cmd::Audit(want), tail @ ..),
+        Accounts::account: { me @ k::fragment![crate::Account { id, nonce, .. }], instances0 @ .. },
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(nonce, ..tail),
+        Accounts::account: { k::fragment![crate::Account { nonce, ..me }], ..instances0 },
+        ..state
+    }
+}
+"#;
+
+const INSTANCE_LONG: &str = r#"
+k::rules! {
+    for Machine;
+    use Cmd::*;
+
+    #[k::requires(want == id)]
+    read: { k: [Read { id: want }, ..], account: { Account { id: id, balance: balance, .. }, .. } } => { k: [balance, ..] };
+    open: { k: [Open { id, balance }, ..], account: { .. } } => { k: [..], account: { Account { id: id, balance: balance, nonce: 0 }, .. } };
+    #[k::requires(want == id)]
+    pay: { k: [Pay { id: want, amount }, ..], account: { me @ Account { id: id, balance: balance, nonce: nonce, .. }, .. } } => { k: [..], account: { Account { balance: int::add(balance, amount), nonce: int::add(nonce, 1), ..me }, .. } };
+    reset: { k: [Reset { id, balance }, ..], account: { Account { .. }, .. } } => { k: [..], account: { Account { id: id, balance: balance, nonce: 0 }, .. } };
+}
+
+#[k::rule(label = "audit")]
+#[k::requires(want == id)]
+fn audit(
+    want: k::Term<Int>,
+    id: k::Term<Int>,
+    nonce: k::Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(Cmd::Audit(want), tail @ ..),
+        Accounts::account: { me @ k::fragment![crate::Account { id: id, nonce: nonce, .. }], instances0 @ .. },
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(nonce, ..tail),
+        Accounts::account: { k::fragment![crate::Account { nonce: nonce, ..me }], ..instances0 },
+        ..state
+    }
+}
+"#;
+
+/// An instance child that is only a name is `name: name`, in a readable
+/// pattern instance (a binder), a created instance and an update (the bound
+/// variable), a removed-and-created instance, and a `cells!` rule's
+/// instances: both spellings emit the same K, and the readable rules expand
+/// to the same reference rules, which write the long children.
+#[test]
+fn a_shorthand_instance_child_is_the_child_bound_to_its_name() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let shorthand = package_over(
+        temporary.path(),
+        "instance-shorthand",
+        ACCOUNTS,
+        INSTANCE_SHORTHAND,
+    );
+    let long = package_over(temporary.path(), "instance-long", ACCOUNTS, INSTANCE_LONG);
+    let shorthand_k = emitted_k(target.path(), &shorthand);
+    assert_eq!(shorthand_k, emitted_k(target.path(), &long));
+    let words = shorthand_k.split_whitespace().collect::<Vec<_>>().join(" ");
+    for written in [
+        // The created instance writes the bound variables.
+        "(.Bag => <account> <acctID> Id:Int </acctID> <balance> Balance:Int </balance> <nonce> 0 </nonce> </account>)",
+        // The update writes through the shorthand's binders.
+        "<balance> Balance:Int => Balance:Int +Int Amount:Int </balance> <nonce> Nonce:Int => Nonce:Int +Int 1 </nonce>",
+    ] {
+        assert!(words.contains(written), "{written}\n{shorthand_k}");
+    }
+    // `krs expand` prints a readable instance's long children, and copies a
+    // `cells!` rule fn as written: the readable rules expand alike.
+    let readable = |expansion: String| {
+        let end = expansion.find("#[k::rule(label = \"audit\")]").unwrap();
+        expansion[..end].to_owned()
+    };
+    let shorthand_expansion = readable(expanded(target.path(), &shorthand));
+    assert_eq!(
+        shorthand_expansion,
+        readable(expanded(target.path(), &long))
+    );
+    let words = shorthand_expansion
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        words.contains("crate ::Account { id : id, balance : balance, nonce : 0 }"),
+        "{shorthand_expansion}"
+    );
+}
+
+/// A shorthand result child whose name the subject does not bind fails as
+/// the long child does.
+#[test]
+fn an_unbound_shorthand_instance_child_fails_as_the_long_child() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let rule = |child: &str| {
+        format!(
+            "k::rules! {{\n    for Machine;\n    use Cmd::*;\n    open: {{ k: [Open {{ id, balance: b }}, ..], account: {{ .. }} }} => {{ k: [..], account: {{ Account {{ id, {child}, nonce: 0 }}, .. }} }};\n}}\n"
+        )
+    };
+    let shorthand = package_over(
+        temporary.path(),
+        "unbound-instance-shorthand",
+        ACCOUNTS,
+        &rule("balance"),
+    );
+    let long = package_over(
+        temporary.path(),
+        "unbound-instance-long",
+        ACCOUNTS,
+        &rule("balance: balance"),
+    );
     let errors = check_errors(target.path(), &shorthand);
     assert!(!errors.is_empty());
     assert_eq!(errors, check_errors(target.path(), &long));
