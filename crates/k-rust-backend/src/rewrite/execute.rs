@@ -59,9 +59,8 @@
 //! `Counter::ExecutionStatesMerged`. Not breadth-first: `enqueue_execution_states` pushes
 //! successors to the front, so children are visited before siblings.
 
-// The phase methods return `Phase<T>` (below), whose `Err` is the finished `ExecutionLeaf`
-// itself: one leaf per state, moved once into `leaves`.
-#![allow(clippy::result_large_err)]
+// The phase methods return `Phase<T>` (below), whose `Err` is the finished `ExecutionLeaf`,
+// boxed: one leaf per state, moved once into `leaves`.
 
 use std::collections::{BTreeSet, VecDeque};
 use std::sync::Arc;
@@ -255,7 +254,11 @@ fn execute_counted(
 }
 
 /// A phase either hands the state on or ends it as a leaf.
-type Phase<T> = Result<T, ExecutionLeaf>;
+///
+/// The leaf is boxed: a state ends as a leaf once, but every phase result, a leaf or not, is
+/// moved through the collection scopes around the phases (`crate::path_facts::observed_by`,
+/// `collect_with_diagnostics`, ...), and an unboxed leaf made each of them hundreds of bytes.
+type Phase<T> = Result<T, Box<ExecutionLeaf>>;
 
 /// What enqueueing the successors of one state did to the worklist.
 enum Expansion {
@@ -538,7 +541,7 @@ impl<'a> Execution<'a> {
                             false
                         }
                     };
-                    self.leaves.push(leaf);
+                    self.leaves.push(*leaf);
                     if ends_execution {
                         break;
                     }
@@ -660,10 +663,10 @@ impl<'a> Execution<'a> {
     fn expand(&mut self, state: ExecutionState) -> Phase<Vec<ExecutionState>> {
         let state = self.check_interrupted(state)?;
         if let Some(symbol) = state.pattern.macro_or_alias_symbol() {
-            return Err(state.leaf(
+            return Err(Box::new(state.leaf(
                 HaltReason::Indeterminate(IndeterminateReason::SurvivingMacroOrAlias { symbol }),
                 &self.observation_log,
-            ));
+            )));
         }
         // A successor whose normalization shows its step undefined everywhere another candidate
         // of the step is defined vanishes: those instances are on the other candidates' paths.
@@ -733,7 +736,7 @@ impl<'a> Execution<'a> {
                     state.diagnostics.extend(&owned_step_facts);
                 }
                 return Err(interrupted_with(
-                    self.stopped_leaf(state, stop),
+                    Box::new(self.stopped_leaf(state, stop)),
                     &[&step_diagnostics, &owned_step_facts],
                 ));
             }
@@ -767,7 +770,11 @@ impl<'a> Execution<'a> {
             | RewriteResult::Simplification { .. } => {
                 state.diagnostics.extend(&step_diagnostics);
                 state.diagnostics.extend(&owned_step_facts);
-                Err(self.halt_leaf(state, rewritten, deferred_initial_vacuity))
+                Err(Box::new(self.halt_leaf(
+                    state,
+                    rewritten,
+                    deferred_initial_vacuity,
+                )))
             }
             RewriteResult::Finished(applied) => {
                 let (expanded, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
@@ -907,7 +914,7 @@ impl<'a> Execution<'a> {
     fn check_interrupted(&self, state: ExecutionState) -> Phase<ExecutionState> {
         match stop::check() {
             Ok(()) => Ok(state),
-            Err(stop) => Err(self.stopped_leaf(state, stop)),
+            Err(Box::new(stop)) => Err(self.stopped_leaf(state, stop)),
         }
     }
 
@@ -961,7 +968,7 @@ impl<'a> Execution<'a> {
         state.diagnostics.extend(&diagnostics);
         let simplified_constraints = match simplified_constraints {
             Ok(simplified_constraints) => simplified_constraints,
-            Err(stop) => return Err(self.stopped_leaf(state, stop)),
+            Err(Box::new(stop)) => return Err(self.stopped_leaf(state, stop)),
         };
         let mut state = self.check_interrupted(state)?;
         match simplified_constraints {
@@ -975,7 +982,9 @@ impl<'a> Execution<'a> {
                 normalize_pattern_substitution(&mut state.pattern, self.definition.sort_graph());
             }
             Err(error) => {
-                return Err(state.leaf(HaltReason::Simplification(error), &self.observation_log));
+                return Err(Box::new(
+                    state.leaf(HaltReason::Simplification(error), &self.observation_log),
+                ));
             }
         }
         if predicates_truth(&state.pattern.constraints) == Truth::False {
@@ -1027,7 +1036,7 @@ impl<'a> Execution<'a> {
                         .report_undefined_successor(state, undefined)
                         .map(|()| None);
                 }
-                return Err(state.leaf(halt_reason, &self.observation_log));
+                return Err(Box::new(state.leaf(halt_reason, &self.observation_log)));
             }
         }
         Ok(Some((state, deferred_initial_vacuity)))
@@ -1104,7 +1113,7 @@ impl<'a> Execution<'a> {
         state.diagnostics.extend(&diagnostics);
         let simplified = match simplified {
             Ok(simplified) => simplified,
-            Err(stop) => return Err(self.stopped_leaf(state, stop)),
+            Err(Box::new(stop)) => return Err(self.stopped_leaf(state, stop)),
         };
         let mut state = self.check_interrupted(state)?;
         let (undefined_term, contradicted_total, found_bottom) = match simplified {
@@ -1142,7 +1151,9 @@ impl<'a> Execution<'a> {
                 (undefined_term, contradicted_total, found_bottom)
             }
             Err(error) => {
-                return Err(state.leaf(HaltReason::Simplification(error), &self.observation_log));
+                return Err(Box::new(
+                    state.leaf(HaltReason::Simplification(error), &self.observation_log),
+                ));
             }
         };
         if state.is_initial_input {
@@ -1155,7 +1166,7 @@ impl<'a> Execution<'a> {
                     state.trace.last_rewrite(),
                     contradicted_total,
                 );
-                return Err(state.leaf(halt_reason, &self.observation_log));
+                return Err(Box::new(state.leaf(halt_reason, &self.observation_log)));
             }
             if !vacuity_deferred {
                 // The initial configuration is the caller's pattern `t ∧ φ`, which denotes
@@ -1186,10 +1197,10 @@ impl<'a> Execution<'a> {
                             state.trace.last_rewrite(),
                             None,
                         );
-                        return Err(state.leaf(halt_reason, &self.observation_log));
+                        return Err(Box::new(state.leaf(halt_reason, &self.observation_log)));
                     }
                     Ok(FactsVerdict::NotRefuted(_)) => {}
-                    Err(stop) => return Err(self.stopped_leaf(state, stop)),
+                    Err(Box::new(stop)) => return Err(self.stopped_leaf(state, stop)),
                 }
                 if !self.options.assume_initial_defined {
                     state = self.restrict_to_defined_instances(state)?;
@@ -1236,7 +1247,7 @@ impl<'a> Execution<'a> {
                 self.match_state(&state);
             }
             let pattern = state.pattern.clone();
-            return Err(externalise_leaf(
+            return Err(Box::new(externalise_leaf(
                 self.definition,
                 state,
                 pattern,
@@ -1245,7 +1256,7 @@ impl<'a> Execution<'a> {
                 self.solver,
                 &mut self.observation_log,
                 self.observation,
-            ));
+            )));
         }
         // Normalized: an undefined step of the step that produced it would have shown above.
         state.producer = None;
@@ -1282,7 +1293,7 @@ impl<'a> Execution<'a> {
                     state.trace.last_rewrite(),
                     None,
                 );
-                Err(state.leaf(halt_reason, &self.observation_log))
+                Err(Box::new(state.leaf(halt_reason, &self.observation_log)))
             }
             Ok(InitialDefinedness::Where(definedness)) => {
                 if !definedness.is_empty() {
@@ -1295,10 +1306,10 @@ impl<'a> Execution<'a> {
                 }
                 Ok(state)
             }
-            Ok(InitialDefinedness::Unsupported(error)) => {
-                Err(state.leaf(HaltReason::Simplification(error), &self.observation_log))
-            }
-            Err(stop) => Err(self.stopped_leaf(state, stop)),
+            Ok(InitialDefinedness::Unsupported(error)) => Err(Box::new(
+                state.leaf(HaltReason::Simplification(error), &self.observation_log),
+            )),
+            Err(Box::new(stop)) => Err(self.stopped_leaf(state, stop)),
         }
     }
 
@@ -1454,14 +1465,14 @@ impl<'a> Execution<'a> {
                     // and observations.
                     state.diagnostics.extend(&applied.diagnostics);
                     state.observation = candidate_observation;
-                    return Err(state.leaf_with_pattern(
+                    return Err(Box::new(state.leaf_with_pattern(
                         applied.pattern,
                         HaltReason::Simplification(error),
                         &self.observation_log,
-                    ));
+                    )));
                 }
                 // The proposed successor is not normalised: the state is the leaf.
-                Err(stop) => return Err(self.stopped_leaf(state, stop)),
+                Err(Box::new(stop)) => return Err(self.stopped_leaf(state, stop)),
             };
             let mut state = self.check_interrupted(state)?;
             if predicates_truth(&applied.pattern.constraints) == Truth::False {
@@ -1482,7 +1493,7 @@ impl<'a> Execution<'a> {
                     &mut state.diagnostics,
                 ) {
                     Ok(halt_reason) => halt_reason,
-                    Err(stop) => return Err(self.stopped_leaf(state, stop)),
+                    Err(Box::new(stop)) => return Err(self.stopped_leaf(state, stop)),
                 };
                 // Reported as the successor would be: at its depth, on its observation head.
                 let successor = ExecutionState {
@@ -1499,7 +1510,12 @@ impl<'a> Execution<'a> {
             // The step's undefined step stands for some instances of this state: the leaf stands
             // for the others, the candidate's own.
             excluded.exclude_from(&mut state.pattern);
-            return Err(self.cut_point_leaf(state, rule, applied, candidate_observation));
+            return Err(Box::new(self.cut_point_leaf(
+                state,
+                rule,
+                applied,
+                candidate_observation,
+            )));
         }
         let terminal_rule = selected_stop_rule(&applied, &self.options.terminal_rules);
         let producer = Producer::of(&state, &applied);
@@ -1539,9 +1555,11 @@ impl<'a> Execution<'a> {
                 }
                 Ok(Err(error)) => {
                     let next = self.check_interrupted(next)?;
-                    return Err(next.leaf(HaltReason::Simplification(error), &self.observation_log));
+                    return Err(Box::new(
+                        next.leaf(HaltReason::Simplification(error), &self.observation_log),
+                    ));
                 }
-                Err(stop) => return Err(self.stopped_leaf(next, stop)),
+                Err(Box::new(stop)) => return Err(self.stopped_leaf(next, stop)),
             };
             let mut next = self.check_interrupted(next)?;
             if predicates_truth(&next.pattern.constraints) == Truth::False {
@@ -1559,7 +1577,7 @@ impl<'a> Execution<'a> {
                     &mut next.diagnostics,
                 ) {
                     Ok(halt_reason) => halt_reason,
-                    Err(stop) => return Err(self.stopped_leaf(next, stop)),
+                    Err(Box::new(stop)) => return Err(self.stopped_leaf(next, stop)),
                 };
                 return self
                     .report_undefined_successor(next, halt_reason)
@@ -1568,7 +1586,9 @@ impl<'a> Execution<'a> {
             // The successor is normalized and defined: committed and reached.
             Self::note_committed(&next);
             self.match_state(&next);
-            return Err(next.leaf(HaltReason::TerminalRule { rule }, &self.observation_log));
+            return Err(Box::new(
+                next.leaf(HaltReason::TerminalRule { rule }, &self.observation_log),
+            ));
         }
         Ok(vec![next])
     }
@@ -1619,7 +1639,7 @@ impl<'a> Execution<'a> {
             match self.entry_part(index, entry, depth) {
                 Ok(Some(part)) => parts.push(part),
                 Ok(None) => {}
-                Err(stop) => return Err(self.stopped_leaf(state, stop)),
+                Err(Box::new(stop)) => return Err(self.stopped_leaf(state, stop)),
             }
         }
         let offset = trivial.len();
@@ -1642,7 +1662,7 @@ impl<'a> Execution<'a> {
             // one's successor takes that normalization instead of repeating it.
             let defined = match self.normalize_candidates(&state, branches, offset, &mut parts) {
                 Ok(defined) => defined,
-                Err(stop) => return Err(self.stopped_leaf(state, stop)),
+                Err(Box::new(stop)) => return Err(self.stopped_leaf(state, stop)),
             };
             let parent = state.clone();
             return self.conclude_step(
@@ -1692,19 +1712,19 @@ impl<'a> Execution<'a> {
                 }
                 Ok(Err(error)) => {
                     let state = self.check_interrupted(state)?;
-                    return Err(state.leaf_with_pattern(
+                    return Err(Box::new(state.leaf_with_pattern(
                         original,
                         HaltReason::Simplification(error),
                         &self.observation_log,
-                    ));
+                    )));
                 }
-                Err(stop) => return Err(self.stopped_leaf(state, stop)),
+                Err(Box::new(stop)) => return Err(self.stopped_leaf(state, stop)),
             };
             if predicates_truth(&original.constraints) == Truth::False {
                 // The configuration has no instance, which the step exposed.
                 let constraint = super::false_constraint(&original);
                 let empty = ExecutionState { depth, ..state };
-                return Err(self.empty_leaf(empty, original, constraint));
+                return Err(Box::new(self.empty_leaf(empty, original, constraint)));
             }
             // A branch point is reported as a single leaf for the parent state. When
             // any successor fails to simplify, the failure is likewise recorded at the
@@ -1788,7 +1808,7 @@ impl<'a> Execution<'a> {
                                 obligation: super::false_constraint(&applied.pattern),
                                 contradicted_total: None,
                             },
-                            Err(stop) => return Err(self.stopped_leaf(state, stop)),
+                            Err(Box::new(stop)) => return Err(self.stopped_leaf(state, stop)),
                         };
                         self.roll_back(
                             &applied.unique_id,
@@ -1816,16 +1836,16 @@ impl<'a> Execution<'a> {
                         break;
                     }
                     // A candidate is not normalised: the state is the leaf.
-                    Err(stop) => return Err(self.stopped_leaf(state, stop)),
+                    Err(Box::new(stop)) => return Err(self.stopped_leaf(state, stop)),
                 }
             }
             if let Some(error) = failed_branch {
                 let state = self.check_interrupted(state)?;
-                return Err(state.leaf_with_pattern(
+                return Err(Box::new(state.leaf_with_pattern(
                     original,
                     HaltReason::Simplification(error),
                     &self.observation_log,
-                ));
+                )));
             }
             let branches = simplified_branches;
             let mut remainder_observation_head = None;
@@ -1861,14 +1881,14 @@ impl<'a> Execution<'a> {
                     Ok(Err(error)) => {
                         state.diagnostics.extend(&candidate.diagnostics);
                         let state = self.check_interrupted(state)?;
-                        return Err(state.leaf_with_pattern(
+                        return Err(Box::new(state.leaf_with_pattern(
                             original,
                             HaltReason::Simplification(error),
                             &self.observation_log,
-                        ));
+                        )));
                     }
                     // The remainder is not normalised: the state is the leaf.
-                    Err(stop) => return Err(self.stopped_leaf(state, stop)),
+                    Err(Box::new(stop)) => return Err(self.stopped_leaf(state, stop)),
                 };
                 if predicates_truth(&candidate.pattern.constraints) == Truth::False {
                     remainder = None;
@@ -2056,17 +2076,19 @@ impl<'a> Execution<'a> {
                 Ok(UndefinedStep::NoInstance) => {
                     let constraint = super::false_constraint(&original);
                     let empty = ExecutionState { depth, ..state };
-                    return Err(self.empty_leaf(empty, original, constraint));
+                    return Err(Box::new(self.empty_leaf(empty, original, constraint)));
                 }
-                Err(stop) => return Err(self.stopped_leaf(state, stop)),
+                Err(Box::new(stop)) => return Err(self.stopped_leaf(state, stop)),
             }
         }
         match survivors {
             Survivors::Normalized(mut defined) => match (defined.len(), remainder.is_some()) {
                 (0, false) if undefined => Ok(Vec::new()),
-                (0, false) => {
-                    Err(state.leaf_with_pattern(original, HaltReason::Stuck, &self.observation_log))
-                }
+                (0, false) => Err(Box::new(state.leaf_with_pattern(
+                    original,
+                    HaltReason::Stuck,
+                    &self.observation_log,
+                ))),
                 (1, false) => {
                     let applied = defined.pop().expect("one defined candidate");
                     self.finished(state, applied, &excluded)
@@ -2077,11 +2099,11 @@ impl<'a> Execution<'a> {
                 match (branches.len(), remainder.is_some()) {
                     // Every instance of the state is on the undefined step's leaf.
                     (0, false) if undefined => Ok(Vec::new()),
-                    (0, false) => Err(state.leaf_with_pattern(
+                    (0, false) => Err(Box::new(state.leaf_with_pattern(
                         original,
                         HaltReason::Stuck,
                         &self.observation_log,
-                    )),
+                    ))),
                     (1, false) => {
                         // The only surviving candidate is the unique successor of this state,
                         // as a `Finished` step's application is: the stop rules apply to it
@@ -2095,7 +2117,12 @@ impl<'a> Execution<'a> {
                             // leaf stands for the others, the candidate's own.
                             excluded.exclude_from(&mut state.pattern);
                             commit_proposed_effects(&mut state, &applied);
-                            return Err(self.cut_point_leaf(state, rule, applied, observation));
+                            return Err(Box::new(self.cut_point_leaf(
+                                state,
+                                rule,
+                                applied,
+                                observation,
+                            )));
                         }
                         let terminal_rule =
                             selected_stop_rule(&applied, &self.options.terminal_rules);
@@ -2104,9 +2131,9 @@ impl<'a> Execution<'a> {
                             // Normalized within the step and not bottom: committed and reached.
                             Self::note_committed(&next);
                             self.match_state(&next);
-                            return Err(
-                                next.leaf(HaltReason::TerminalRule { rule }, &self.observation_log)
-                            );
+                            return Err(Box::new(
+                                next.leaf(HaltReason::TerminalRule { rule }, &self.observation_log),
+                            ));
                         }
                         Ok(vec![next])
                     }
@@ -2139,14 +2166,14 @@ impl<'a> Execution<'a> {
                         // undefined.
                         let mut original = original;
                         excluded.exclude_from(&mut original);
-                        Err(state.leaf_with_pattern(
+                        Err(Box::new(state.leaf_with_pattern(
                             original,
                             HaltReason::Branch {
                                 branches,
                                 remainder,
                             },
                             &self.observation_log,
-                        ))
+                        )))
                     }
                 }
             }
@@ -2206,22 +2233,22 @@ impl<'a> Execution<'a> {
         halt_reason: HaltReason,
     ) -> Phase<()> {
         let Some(producer) = state.producer.take() else {
-            return Err(state.leaf(halt_reason, &self.observation_log));
+            return Err(Box::new(state.leaf(halt_reason, &self.observation_log)));
         };
         match self.successor_step(state.diagnostics.clone(), &producer, halt_reason) {
             Ok(UndefinedStep::Leaves(leaves, _)) => {
                 let mut leaves = leaves.into_iter();
                 let first = leaves.next().expect("a reported step has a leaf");
                 self.leaves.extend(leaves);
-                Err(first)
+                Err(Box::new(first))
             }
             Ok(UndefinedStep::Covered) => Ok(()),
             Ok(UndefinedStep::NoInstance) => {
                 let pattern = state.pattern.clone();
                 let constraint = super::false_constraint(&pattern);
-                Err(self.empty_leaf(state, pattern, constraint))
+                Err(Box::new(self.empty_leaf(state, pattern, constraint)))
             }
-            Err(stop) => Err(self.stopped_leaf(state, stop)),
+            Err(Box::new(stop)) => Err(self.stopped_leaf(state, stop)),
         }
     }
 
@@ -2537,7 +2564,10 @@ impl<'a> Execution<'a> {
 /// carries the work its state's expansion did before the stop (`lists`, in emission order),
 /// which was on that path although the candidates it was building are not reported. Any other
 /// leaf is returned as is, its diagnostics already attributed.
-fn interrupted_with(mut leaf: ExecutionLeaf, lists: &[&[BackendDiagnostic]]) -> ExecutionLeaf {
+fn interrupted_with(
+    mut leaf: Box<ExecutionLeaf>,
+    lists: &[&[BackendDiagnostic]],
+) -> Box<ExecutionLeaf> {
     if let HaltReason::Stopped(_) = &leaf.halt_reason {
         for diagnostics in lists {
             extend_distinct(&mut leaf.diagnostics, diagnostics);
