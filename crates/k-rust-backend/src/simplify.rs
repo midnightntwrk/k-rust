@@ -3680,28 +3680,29 @@ fn simplify_predicate_on_stack(
         Some(false) => return Ok(Predicate::False),
         None => {}
     }
-    let simplify_term = |term: &Term| {
-        let mut term_remaining = *remaining;
-        simplify_with_budget(
-            definition,
-            term,
-            &assumptions.terms,
-            SimplificationOptions {
-                max_iterations: limit,
-                budget: BudgetPolicy::Fail,
-            },
-            &mut term_remaining,
-            active_conditions,
-            solver,
-            None,
-        )
-    };
     // Each arm ends the simplification out of line, the predicate theories included, so that
-    // this frame holds only what is live across the simplification of an equality's sides.
+    // this frame holds only what is live across the simplification of an equality's sides or a
+    // ceil's operand.
     match predicate {
         Predicate::Equals(left, right) => {
-            let simplified_left = simplify_term(left)?;
-            let simplified_right = simplify_term(right)?;
+            let simplified_left = predicate_operand(
+                definition,
+                left,
+                assumptions,
+                limit,
+                *remaining,
+                active_conditions,
+                solver,
+            )?;
+            let simplified_right = predicate_operand(
+                definition,
+                right,
+                assumptions,
+                limit,
+                *remaining,
+                active_conditions,
+                solver,
+            )?;
             equality_of_sides(
                 definition,
                 predicate,
@@ -3715,6 +3716,58 @@ fn simplify_predicate_on_stack(
                 solver,
             )
         }
+        Predicate::Ceil(term) => {
+            if let Some(done) = ceil_of_term_conjunctions(
+                definition,
+                term,
+                assumptions,
+                limit,
+                remaining,
+                active_conditions,
+                solver,
+            ) {
+                return done;
+            }
+            let simplified = predicate_operand(
+                definition,
+                term,
+                assumptions,
+                limit,
+                *remaining,
+                active_conditions,
+                solver,
+            );
+            ceil_of_operand(
+                definition,
+                predicate,
+                simplified,
+                assumptions,
+                limit,
+                remaining,
+                active_conditions,
+                solver,
+            )
+        }
+        Predicate::Not(inner) => negation(
+            definition,
+            predicate,
+            inner,
+            assumptions,
+            limit,
+            remaining,
+            active_conditions,
+            solver,
+        ),
+        Predicate::Or(inner) => disjunction(
+            definition,
+            predicate,
+            inner,
+            assumptions,
+            limit,
+            remaining,
+            active_conditions,
+            solver,
+        ),
         predicate => other_predicate(
             definition,
             predicate,
@@ -3727,7 +3780,118 @@ fn simplify_predicate_on_stack(
     }
 }
 
-/// [`simplify_predicate_on_stack`] of a predicate other than an equality.
+/// The negation arm of [`simplify_predicate_on_stack`]: `predicate` is `\not` of `inner`,
+/// simplified under its own copy of `remaining`. Out of line, as [`equality_of_sides`] is, and
+/// apart from [`other_predicate`]: only this frame is part of a recursion through a negated
+/// predicate (`tests::recursion_stack`).
+#[allow(clippy::too_many_arguments)]
+#[inline(never)]
+fn negation(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    inner: &Predicate,
+    assumptions: &PredicateAssumptions<'_>,
+    limit: usize,
+    remaining: &mut usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<Predicate> {
+    let mut inner_remaining = *remaining;
+    let inner = simplify_predicate_with_budget(
+        definition,
+        inner,
+        assumptions,
+        limit,
+        &mut inner_remaining,
+        active_conditions,
+        solver,
+    )?;
+    predicate_theories(
+        definition,
+        predicate,
+        Predicate::Not(Arc::new(inner)),
+        assumptions,
+        limit,
+        remaining,
+        active_conditions,
+        solver,
+    )
+}
+
+/// The disjunction arm of [`simplify_predicate_on_stack`]: `predicate` is `\or` of `inner`, each
+/// simplified under its own copy of `remaining`. Out of line, as [`negation`] is: only this frame
+/// is part of a recursion through a disjunct (`tests::recursion_stack`).
+#[allow(clippy::too_many_arguments)]
+#[inline(never)]
+fn disjunction(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    inner: &[Predicate],
+    assumptions: &PredicateAssumptions<'_>,
+    limit: usize,
+    remaining: &mut usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<Predicate> {
+    let inner = inner
+        .iter()
+        .map(|predicate| {
+            let mut predicate_remaining = *remaining;
+            simplify_predicate_with_budget(
+                definition,
+                predicate,
+                assumptions,
+                limit,
+                &mut predicate_remaining,
+                active_conditions,
+                solver,
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    predicate_theories(
+        definition,
+        predicate,
+        Predicate::Or(inner.into()),
+        assumptions,
+        limit,
+        remaining,
+        active_conditions,
+        solver,
+    )
+}
+
+/// The simplification of `term`, an operand of a predicate's atom, under the predicate's
+/// assumptions: its own copy of `remaining` as the term budget, which fails when spent, and no
+/// execution's evaluation. Inlined, so that it adds no frame to a recursion through a predicate's
+/// operand (`tests::recursion_stack`).
+#[inline(always)]
+fn predicate_operand(
+    definition: &BackendDefinition,
+    term: &Term,
+    assumptions: &PredicateAssumptions<'_>,
+    limit: usize,
+    remaining: usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<Simplification> {
+    let mut term_remaining = remaining;
+    simplify_with_budget(
+        definition,
+        term,
+        &assumptions.terms,
+        SimplificationOptions {
+            max_iterations: limit,
+            budget: BudgetPolicy::Fail,
+        },
+        &mut term_remaining,
+        active_conditions,
+        solver,
+        None,
+    )
+}
+
+/// [`simplify_predicate_on_stack`] of a predicate other than an equality, a `\ceil`, a negation
+/// or a disjunction.
 #[allow(clippy::too_many_arguments)]
 #[inline(never)]
 fn other_predicate(
@@ -3740,45 +3904,28 @@ fn other_predicate(
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<Predicate> {
     let simplify_term = |term: &Term| {
-        let mut term_remaining = *remaining;
-        simplify_with_budget(
+        predicate_operand(
             definition,
             term,
-            &assumptions.terms,
-            SimplificationOptions {
-                max_iterations: limit,
-                budget: BudgetPolicy::Fail,
-            },
-            &mut term_remaining,
+            assumptions,
+            limit,
+            *remaining,
             active_conditions,
             solver,
-            None,
         )
     };
     let simplified = match predicate {
         Predicate::True => Predicate::True,
         Predicate::False => Predicate::False,
-        Predicate::Equals(..) => unreachable!("the caller simplifies an equality"),
+        Predicate::Equals(..) | Predicate::Ceil(..) | Predicate::Not(_) | Predicate::Or(_) => {
+            unreachable!("the caller simplifies an equality, a ceil, a negation and a disjunction")
+        }
         Predicate::Term(term) => {
             let simplified = simplify_term(term)?.into_parts();
             with_simplification_constraints(
                 simplified.conditions.into_predicates(),
                 Predicate::Term(simplified.term),
             )
-        }
-        Predicate::Ceil(term) => {
-            match ceil_arm(
-                definition,
-                term,
-                assumptions,
-                limit,
-                remaining,
-                active_conditions,
-                solver,
-            )? {
-                AtomStep::Done(predicate) => return Ok(predicate),
-                AtomStep::Simplified(predicate) => predicate,
-            }
         }
         // A deferred atom is decided only by the steps of `crate::deferred` (and by the known
         // facts and the solver): its subject is never given to the term simplifier, and no
@@ -3826,18 +3973,6 @@ fn other_predicate(
                 AtomStep::Simplified(predicate) => predicate,
             }
         }
-        Predicate::Not(inner) => {
-            let mut inner_remaining = *remaining;
-            Predicate::Not(Arc::new(simplify_predicate_with_budget(
-                definition,
-                inner,
-                assumptions,
-                limit,
-                &mut inner_remaining,
-                active_conditions,
-                solver,
-            )?))
-        }
         Predicate::And(inner) => {
             let mut inner_remaining = *remaining;
             let inner = simplify_conjunction_with_budget(
@@ -3851,24 +3986,6 @@ fn other_predicate(
                 assumptions.settled,
             )?;
             Predicate::And(inner.into())
-        }
-        Predicate::Or(inner) => {
-            let inner = inner
-                .iter()
-                .map(|predicate| {
-                    let mut predicate_remaining = *remaining;
-                    simplify_predicate_with_budget(
-                        definition,
-                        predicate,
-                        assumptions,
-                        limit,
-                        &mut predicate_remaining,
-                        active_conditions,
-                        solver,
-                    )
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            Predicate::Or(inner.into())
         }
         Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
             let mut left_remaining = *remaining;
@@ -4080,9 +4197,14 @@ fn equality_of_sides(
     )
 }
 
-/// The `\ceil` arm of [`simplify_predicate_on_stack`] ([`equality_of_sides`]).
+/// The `\ceil` arm of [`simplify_predicate_on_stack`] on `\ceil(term)` before its operand is
+/// simplified: the predicate's simplification when `term` holds a term-level conjunction, else
+/// `None`. Out of line, as [`ceil_of_operand`] and [`equality_of_sides`] are: a recursion through
+/// a `\ceil` atom of an equation's `requires` passes through the simplification of the operand
+/// once per level, so only what is live across it is part of every frame of it
+/// (`tests::recursion_stack`).
 #[inline(never)]
-fn ceil_arm(
+fn ceil_of_term_conjunctions(
     definition: &BackendDefinition,
     term: &Term,
     assumptions: &PredicateAssumptions<'_>,
@@ -4090,23 +4212,7 @@ fn ceil_arm(
     remaining: &mut usize,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> SimplifyResult<AtomStep> {
-    let simplify_term = |term: &Term| {
-        let mut term_remaining = *remaining;
-        simplify_with_budget(
-            definition,
-            term,
-            &assumptions.terms,
-            SimplificationOptions {
-                max_iterations: limit,
-                budget: BudgetPolicy::Fail,
-            },
-            &mut term_remaining,
-            active_conditions,
-            solver,
-            None,
-        )
-    };
+) -> Option<SimplifyResult<Predicate>> {
     // `ceil_term` states only the operands' definedness of a term-level conjunction,
     // which is not all of it (`term_is_provably_defined`): the conjunctions are read
     // first, as equalities of their operands (`without_term_conjunctions`). They are
@@ -4121,14 +4227,14 @@ fn ceil_arm(
         constraints.extend(equalities);
         let conjunction = Predicate::And(constraints.into());
         if *remaining == 0 {
-            return Err(SimplificationError::PredicateIterationLimit {
+            return Some(Err(SimplificationError::PredicateIterationLimit {
                 limit,
                 predicate: conjunction,
             }
-            .into());
+            .into()));
         }
         *remaining -= 1;
-        return simplify_predicate_with_budget(
+        return Some(simplify_predicate_with_budget(
             definition,
             &conjunction,
             assumptions,
@@ -4136,19 +4242,34 @@ fn ceil_arm(
             remaining,
             active_conditions,
             solver,
-        )
-        .map(AtomStep::Done);
+        ));
     }
-    let simplified = simplify_term(term)?.into_parts();
+    None
+}
+
+/// The `\ceil` arm of [`simplify_predicate_on_stack`] on `predicate`, a `\ceil`, once its operand
+/// was simplified to `simplified`, to the end of the predicate's simplification
+/// ([`ceil_of_term_conjunctions`]). The operand's failure or stop is returned here, so that the
+/// recursive frame holds no slot of its own for the simplified operand.
+#[allow(clippy::too_many_arguments)]
+#[inline(never)]
+fn ceil_of_operand(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    simplified: SimplifyResult<Simplification>,
+    assumptions: &PredicateAssumptions<'_>,
+    limit: usize,
+    remaining: &mut usize,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> SimplifyResult<Predicate> {
+    let simplified = simplified?.into_parts();
     let unchanged = Predicate::Ceil(simplified.term.clone());
     // A conjunction the simplification of the operand builds is read the same way.
     if contains_term_conjunction(&simplified.term) {
         let mut constraints = simplified.conditions.into_predicates();
         let Some((plain, equalities)) = without_term_conjunctions(&simplified.term) else {
-            return Ok(AtomStep::Done(with_simplification_constraints(
-                constraints,
-                unchanged,
-            )));
+            return Ok(with_simplification_constraints(constraints, unchanged));
         };
         constraints.push(Predicate::Ceil(plain));
         constraints.extend(equalities);
@@ -4169,8 +4290,7 @@ fn ceil_arm(
             remaining,
             active_conditions,
             solver,
-        )
-        .map(AtomStep::Done);
+        );
     }
     let mut expanded =
         ceil_term(definition, &simplified.term).map_err(SimplificationError::from)?;
@@ -4178,57 +4298,64 @@ fn ceil_arm(
     // add child ceils already supplied by the surrounding conjunction, nor those the
     // assumptions already state ([`expansion_obligations`]).
     if expansion_obligations(definition, &mut expanded, &unchanged, assumptions)? {
-        return Ok(AtomStep::Done(with_simplification_constraints(
+        return Ok(with_simplification_constraints(
             simplified.conditions.into_predicates(),
             Predicate::True,
-        )));
+        ));
     }
-    Ok(AtomStep::Simplified(
-        if expanded.as_slice() == [unchanged.clone()] {
-            // A listing only an execution evaluates (`crate::evaluation`) is defined exactly
-            // when its collection is: a closed map with distinct constructor-like keys is
-            // defined when its values are, and then has a listing. The collection's own
-            // obligations are the other members of its `ceil_term`, here none or assumed. An
-            // `outside-domain` application of a partial symbol is not known to be
-            // defined (`ChosenValue::defined`). A hook whose text gives every argument of
-            // its sorts a value is defined wherever its arguments are, at a partial symbol
-            // too (`builtin::defined_on_every_argument`).
-            let defined = defined_where_its_arguments_are(definition, &simplified.term)?;
-            with_simplification_constraints(
-                simplified.conditions.into_predicates(),
-                if defined { Predicate::True } else { unchanged },
-            )
-        } else {
-            // The expansion supplies the definedness of the subterms as sibling conjuncts,
-            // and a conditional ceil equation on the parent is decided under them only by
-            // a further pass over the conjunction. Take that pass here, so that an entry
-            // without a surrounding conjunction fixed point reaches the equation too.
-            let mut constraints = simplified.conditions.into_predicates();
-            constraints.extend(expanded);
-            let conjunction = Predicate::And(constraints.into());
-            if *remaining == 0 {
-                return Err(SimplificationError::PredicateIterationLimit {
-                    limit,
-                    predicate: conjunction,
-                }
-                .into());
-            }
-            *remaining -= 1;
-            // The pass keeps the atom as it is once the atom is alone beside the known
-            // predicates: this simplification of it is the one in progress
-            // (`simplify_conjunction_with_budget`).
-            return simplify_predicate_with_budget(
-                definition,
-                &conjunction,
-                &assumptions.settling_at(&unchanged),
+    let atom = if expanded.as_slice() == [unchanged.clone()] {
+        // A listing only an execution evaluates (`crate::evaluation`) is defined exactly
+        // when its collection is: a closed map with distinct constructor-like keys is
+        // defined when its values are, and then has a listing. The collection's own
+        // obligations are the other members of its `ceil_term`, here none or assumed. An
+        // `outside-domain` application of a partial symbol is not known to be
+        // defined (`ChosenValue::defined`). A hook whose text gives every argument of
+        // its sorts a value is defined wherever its arguments are, at a partial symbol
+        // too (`builtin::defined_on_every_argument`).
+        let defined = defined_where_its_arguments_are(definition, &simplified.term)?;
+        with_simplification_constraints(
+            simplified.conditions.into_predicates(),
+            if defined { Predicate::True } else { unchanged },
+        )
+    } else {
+        // The expansion supplies the definedness of the subterms as sibling conjuncts,
+        // and a conditional ceil equation on the parent is decided under them only by
+        // a further pass over the conjunction. Take that pass here, so that an entry
+        // without a surrounding conjunction fixed point reaches the equation too.
+        let mut constraints = simplified.conditions.into_predicates();
+        constraints.extend(expanded);
+        let conjunction = Predicate::And(constraints.into());
+        if *remaining == 0 {
+            return Err(SimplificationError::PredicateIterationLimit {
                 limit,
-                remaining,
-                active_conditions,
-                solver,
-            )
-            .map(AtomStep::Done);
-        },
-    ))
+                predicate: conjunction,
+            }
+            .into());
+        }
+        *remaining -= 1;
+        // The pass keeps the atom as it is once the atom is alone beside the known
+        // predicates: this simplification of it is the one in progress
+        // (`simplify_conjunction_with_budget`).
+        return simplify_predicate_with_budget(
+            definition,
+            &conjunction,
+            &assumptions.settling_at(&unchanged),
+            limit,
+            remaining,
+            active_conditions,
+            solver,
+        );
+    };
+    predicate_theories(
+        definition,
+        predicate,
+        atom,
+        assumptions,
+        limit,
+        remaining,
+        active_conditions,
+        solver,
+    )
 }
 
 /// The deferred-atom arm of [`simplify_predicate_on_stack`] ([`equality_of_sides`]): a deferred
@@ -4290,19 +4417,14 @@ fn absence_arm(
     solver: &dyn SmtSolver,
 ) -> SimplifyResult<AtomStep> {
     let simplify_term = |term: &Term| {
-        let mut term_remaining = *remaining;
-        simplify_with_budget(
+        predicate_operand(
             definition,
             term,
-            &assumptions.terms,
-            SimplificationOptions {
-                max_iterations: limit,
-                budget: BudgetPolicy::Fail,
-            },
-            &mut term_remaining,
+            assumptions,
+            limit,
+            *remaining,
             active_conditions,
             solver,
-            None,
         )
     };
     // The absence is the definedness of its joined collection, whose value, if any, is
@@ -10246,8 +10368,8 @@ fn apply_equation(
             solver,
         );
     }
-    scan_instances(instances, |instance| match instance {
-        Instance::SetAside(_) | Instance::Conditional(_) => set_aside_instance(
+    scan_instances(instances, |instance| match SetAsideInstance::of(instance) {
+        Ok(instance) => set_aside_instance(
             definition,
             &rule,
             term,
@@ -10258,7 +10380,7 @@ fn apply_equation(
             solver,
             set_aside,
         ),
-        instance => instance.attempt(|substitution| {
+        Err(instance) => instance.attempt(|substitution| {
             apply_equation_instance(
                 definition,
                 &rule,
@@ -10362,6 +10484,26 @@ fn instances_to_scan<'r>(
     Ok(ControlFlow::Continue((rule, instances, set_aside)))
 }
 
+/// An [`Instance`] whose `requires` the function scan decides where a lower function group
+/// follows ([`set_aside_instance`]).
+enum SetAsideInstance {
+    /// [`Instance::SetAside`].
+    SetAside(Substitution),
+    /// [`Instance::Conditional`].
+    Conditional(Substitution),
+}
+
+impl SetAsideInstance {
+    /// `instance` as a set-aside or conditional instance, or `instance` itself when it is neither.
+    fn of(instance: Instance) -> Result<Self, Instance> {
+        match instance {
+            Instance::SetAside(substitution) => Ok(Self::SetAside(substitution)),
+            Instance::Conditional(substitution) => Ok(Self::Conditional(substitution)),
+            instance => Err(instance),
+        }
+    }
+}
+
 /// A set-aside or conditional `instance` of [`apply_equation`]'s equation `rule`
 /// ([`instances_to_scan`]).
 #[allow(clippy::too_many_arguments)]
@@ -10370,7 +10512,7 @@ fn set_aside_instance(
     definition: &BackendDefinition,
     rule: &RewriteRule,
     term: &Term,
-    instance: Instance,
+    instance: SetAsideInstance,
     known_predicates: &[Predicate],
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
@@ -10378,9 +10520,8 @@ fn set_aside_instance(
     set_aside: SetAsideRequires,
 ) -> SimplifyResult<EquationAttempt<Box<Simplification>, MatchFailed>> {
     let (substitution, equalities) = match instance {
-        Instance::SetAside(substitution) => (substitution, Vec::new()),
-        Instance::Conditional(substitution) => subject_equalities(rule, substitution),
-        _ => unreachable!("only a set-aside or conditional instance is decided here"),
+        SetAsideInstance::SetAside(substitution) => (substitution, Vec::new()),
+        SetAsideInstance::Conditional(substitution) => subject_equalities(rule, substitution),
     };
     // Only where a lower function group follows can the decision change the outcome
     // (`SetAsideRequires`); elsewhere the instance is read as `Unused` undecided.

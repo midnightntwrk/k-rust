@@ -4,7 +4,8 @@
 //! holds, with no segment beyond it (`stop::with_segment_budget(0, ..)`), bounds the frames of one
 //! level. `ok(X, N) = true requires ok(X, N -Int 1)` recurses through its equation's `requires`
 //! instead: each level is a decision of a condition, whose predicate simplifier enters the next
-//! level.
+//! level; `okCeil`, `okNot` and `okOr` do the same through a `\ceil`, a `\not` and an `\or` of
+//! the `requires` ([`Requires`]).
 
 use k_rust_kore::{
     kore::parser::{parse_definition, parse_pattern},
@@ -37,6 +38,15 @@ const DEFINITION: &str = r#"[] module MAIN
     axiom{R} \implies{R}(\and{R}(\equals{SortBool{}, R}(gtInt{}(VarN:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("true")), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \and{R}(\in{SortInt{}, R}(X1:SortInt{}, VarN:SortInt{}), \top{R}()))), \equals{SortInt{}, R}(chain{}(X0:SortInt{}, X1:SortInt{}), \and{SortInt{}}(addInt{}(chain{}(VarX:SortInt{}, subInt{}(VarN:SortInt{}, \dv{SortInt{}}("1"))), \dv{SortInt{}}("1")), \top{SortInt{}}()))) []
     axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \and{R}(\in{SortInt{}, R}(X1:SortInt{}, \dv{SortInt{}}("0")), \top{R}()))), \equals{SortBool{}, R}(ok{}(X0:SortInt{}, X1:SortInt{}), \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}()))) [priority{}("40")]
     axiom{R} \implies{R}(\and{R}(\equals{SortBool{}, R}(ok{}(VarX:SortInt{}, subInt{}(VarN:SortInt{}, \dv{SortInt{}}("1"))), \dv{SortBool{}}("true")), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \and{R}(\in{SortInt{}, R}(X1:SortInt{}, VarN:SortInt{}), \top{R}()))), \equals{SortBool{}, R}(ok{}(X0:SortInt{}, X1:SortInt{}), \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}()))) []
+    symbol okCeil{}(SortInt{}, SortInt{}) : SortBool{} [function{}()]
+    symbol okNot{}(SortInt{}, SortInt{}) : SortBool{} [function{}(), total{}()]
+    symbol okOr{}(SortInt{}, SortInt{}) : SortBool{} [function{}(), total{}()]
+    axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \and{R}(\in{SortInt{}, R}(X1:SortInt{}, \dv{SortInt{}}("0")), \top{R}()))), \equals{SortBool{}, R}(okCeil{}(X0:SortInt{}, X1:SortInt{}), \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}()))) [priority{}("40")]
+    axiom{R} \implies{R}(\and{R}(\ceil{SortBool{}, R}(okCeil{}(VarX:SortInt{}, subInt{}(VarN:SortInt{}, \dv{SortInt{}}("1")))), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \and{R}(\in{SortInt{}, R}(X1:SortInt{}, VarN:SortInt{}), \top{R}()))), \equals{SortBool{}, R}(okCeil{}(X0:SortInt{}, X1:SortInt{}), \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}()))) []
+    axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \and{R}(\in{SortInt{}, R}(X1:SortInt{}, \dv{SortInt{}}("0")), \top{R}()))), \equals{SortBool{}, R}(okNot{}(X0:SortInt{}, X1:SortInt{}), \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}()))) [priority{}("40")]
+    axiom{R} \implies{R}(\and{R}(\not{R}(\equals{SortBool{}, R}(okNot{}(VarX:SortInt{}, subInt{}(VarN:SortInt{}, \dv{SortInt{}}("1"))), \dv{SortBool{}}("false"))), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \and{R}(\in{SortInt{}, R}(X1:SortInt{}, VarN:SortInt{}), \top{R}()))), \equals{SortBool{}, R}(okNot{}(X0:SortInt{}, X1:SortInt{}), \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}()))) []
+    axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \and{R}(\in{SortInt{}, R}(X1:SortInt{}, \dv{SortInt{}}("0")), \top{R}()))), \equals{SortBool{}, R}(okOr{}(X0:SortInt{}, X1:SortInt{}), \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}()))) [priority{}("40")]
+    axiom{R} \implies{R}(\and{R}(\or{R}(\equals{SortBool{}, R}(okOr{}(VarX:SortInt{}, subInt{}(VarN:SortInt{}, \dv{SortInt{}}("1"))), \dv{SortBool{}}("true")), \equals{SortInt{}, R}(VarN:SortInt{}, \dv{SortInt{}}("0"))), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarX:SortInt{}), \and{R}(\in{SortInt{}, R}(X1:SortInt{}, VarN:SortInt{}), \top{R}()))), \equals{SortBool{}, R}(okOr{}(X0:SortInt{}, X1:SortInt{}), \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}()))) []
 endmodule []"#;
 
 const STACK: usize = 8 << 20;
@@ -63,10 +73,35 @@ enum Chain {
     /// `ok(X, levels)` inside a proof's record: every level decides its equation's `requires`,
     /// `ok(X, N -Int 1)`, a non-ground application that the decision's predicate simplifier
     /// enters under the condition being decided, and routes through the record with that
-    /// condition active (GAP K17 part e); each misses, so every level is recorded.
-    Condition,
+    /// condition active (GAP K17 part e); each misses, so every level is recorded. The
+    /// application is the operand of the `requires`' atom of the given shape.
+    Condition(Requires),
     /// `ok(X, levels)` with no proof's record open: the condition chain's own unrouted figure.
-    UnroutedCondition,
+    UnroutedCondition(Requires),
+}
+
+/// The atom of a [`Chain::Condition`] level's `requires` whose operand is the next level.
+#[derive(Clone, Copy)]
+enum Requires {
+    /// `ok(X, N -Int 1) = true`.
+    Equals,
+    /// `\ceil(okCeil(X, N -Int 1))`, of a partial `okCeil`.
+    Ceil,
+    /// `\not(okNot(X, N -Int 1) = false)`.
+    Not,
+    /// `okOr(X, N -Int 1) = true \/ N = 0`.
+    Or,
+}
+
+impl Requires {
+    fn symbol(self) -> &'static str {
+        match self {
+            Requires::Equals => "ok",
+            Requires::Ceil => "okCeil",
+            Requires::Not => "okNot",
+            Requires::Or => "okOr",
+        }
+    }
 }
 
 /// Whether the evaluation of `chain` at `levels` levels evaluates to `levels` on a thread of
@@ -77,13 +112,16 @@ fn evaluates(definition: &BackendDefinition, chain: Chain, levels: usize) -> boo
         Chain::Symbolic | Chain::Routed => {
             format!(r#"chain{{}}(X:SortInt{{}}, \dv{{SortInt{{}}}}("{levels}"))"#)
         }
-        Chain::Condition | Chain::UnroutedCondition => {
-            format!(r#"ok{{}}(X:SortInt{{}}, \dv{{SortInt{{}}}}("{levels}"))"#)
-        }
+        Chain::Condition(requires) | Chain::UnroutedCondition(requires) => format!(
+            r#"{}{{}}(X:SortInt{{}}, \dv{{SortInt{{}}}}("{levels}"))"#,
+            requires.symbol()
+        ),
     };
     let subject = term(definition, &source);
     let expected = match chain {
-        Chain::Condition | Chain::UnroutedCondition => r#"\dv{SortBool{}}("true")"#.to_owned(),
+        Chain::Condition(_) | Chain::UnroutedCondition(_) => {
+            r#"\dv{SortBool{}}("true")"#.to_owned()
+        }
         Chain::Ground | Chain::Symbolic | Chain::Routed => {
             format!(r#"\dv{{SortInt{{}}}}("{levels}")"#)
         }
@@ -93,7 +131,7 @@ fn evaluates(definition: &BackendDefinition, chain: Chain, levels: usize) -> boo
     // that lineage has left, so a deep chain needs an unbounded one.
     let options = match chain {
         Chain::Ground => SimplificationOptions::default(),
-        Chain::Symbolic | Chain::Routed | Chain::Condition | Chain::UnroutedCondition => {
+        Chain::Symbolic | Chain::Routed | Chain::Condition(_) | Chain::UnroutedCondition(_) => {
             SimplificationOptions::unbounded()
         }
     };
@@ -113,8 +151,8 @@ fn evaluates(definition: &BackendDefinition, chain: Chain, levels: usize) -> boo
             .stack_size(STACK)
             .spawn_scoped(scope, || {
                 with_segment_budget(0, || match chain {
-                    Chain::Ground | Chain::Symbolic | Chain::UnroutedCondition => run(),
-                    Chain::Routed | Chain::Condition => {
+                    Chain::Ground | Chain::Symbolic | Chain::UnroutedCondition(_) => run(),
+                    Chain::Routed | Chain::Condition(_) => {
                         let _apart = ApartScope::enter();
                         let _record = normal_forms::scope();
                         let before = measure::snapshot();
@@ -154,12 +192,14 @@ const OPTIMIZED: bool = cfg!(any(
 
 /// The most stack one level of a recursion through an equation's `requires` may take in an
 /// optimized build ([`Chain::Condition`]): a level is a decision, with the predicate simplifier's
-/// frames and a routed term level inside it. About 6.2 KiB are taken at opt-level 1 with debug
-/// assertions on x86_64, 0.2 KiB of which the routing adds (`deepest`: 6,302 bytes routed, 6,078
-/// unrouted), where 18.8 KiB were taken while the work of each frame on that path besides the
-/// recursive call (the builtin step, the record of a verdict, the predicate theories, the
+/// frames and a routed term level inside it. At opt-level 1 with debug assertions on x86_64
+/// (`deepest`), a level through an equality or a `\ceil` atom takes about 6.3 KiB, 0.2 KiB of
+/// which the routing adds (6,418 bytes routed, 6,190 unrouted), and one through a `\not` about
+/// 7.1 KiB (7,313), where 18.8 KiB were taken while the work of each frame on that path besides
+/// the recursive call (the builtin step, the record of a verdict, the predicate theories, the
 /// combination of several instances, ...) was part of the frame, and while a failure, a stop and
-/// an applied equation's result were carried up the frames unboxed.
+/// an applied equation's result were carried up the frames unboxed. A level through an `\or`
+/// takes 7.9 KiB (8,081), too close to the bound to be held to it.
 const STACK_PER_DECISION_LEVEL: usize = 8 * 1024;
 
 fn takes_at_most_its_bound_of_stack_per_level(chain: Chain) {
@@ -173,7 +213,7 @@ fn takes_at_most_its_bound_of_stack_per_level(chain: Chain) {
     if OPTIMIZED {
         let levels = STACK
             / match chain {
-                Chain::Condition | Chain::UnroutedCondition => STACK_PER_DECISION_LEVEL,
+                Chain::Condition(_) | Chain::UnroutedCondition(_) => STACK_PER_DECISION_LEVEL,
                 Chain::Ground | Chain::Symbolic | Chain::Routed => STACK_PER_LEVEL,
             };
         assert!(
@@ -202,7 +242,21 @@ fn a_nested_evaluation_routed_through_a_proofs_record_takes_at_most_its_bound_of
 #[test]
 fn a_recursion_through_a_requires_routed_through_a_proofs_record_takes_at_most_its_bound_of_stack_per_level()
  {
-    takes_at_most_its_bound_of_stack_per_level(Chain::Condition);
+    takes_at_most_its_bound_of_stack_per_level(Chain::Condition(Requires::Equals));
+}
+
+/// The same bound holds where the next level is the operand of a `\ceil` atom of the `requires`:
+/// the work of the ceil's arm before and after the simplification of its operand is out of line.
+#[test]
+fn a_recursion_through_a_ceil_in_a_requires_takes_at_most_its_bound_of_stack_per_level() {
+    takes_at_most_its_bound_of_stack_per_level(Chain::Condition(Requires::Ceil));
+}
+
+/// The same bound holds where the next level is under a `\not` of the `requires`: the negation's
+/// arm is its own frame, apart from the other connectives' and atoms'.
+#[test]
+fn a_recursion_through_a_negation_in_a_requires_takes_at_most_its_bound_of_stack_per_level() {
+    takes_at_most_its_bound_of_stack_per_level(Chain::Condition(Requires::Not));
 }
 
 /// The deepest evaluation of `chain` that fits, and the stack per level it implies (a probe, run
@@ -217,8 +271,18 @@ fn deepest() {
         ("ground", Chain::Ground),
         ("symbolic", Chain::Symbolic),
         ("routed", Chain::Routed),
-        ("condition", Chain::Condition),
-        ("unrouted condition", Chain::UnroutedCondition),
+        ("condition", Chain::Condition(Requires::Equals)),
+        (
+            "unrouted condition",
+            Chain::UnroutedCondition(Requires::Equals),
+        ),
+        ("ceil condition", Chain::Condition(Requires::Ceil)),
+        (
+            "unrouted ceil condition",
+            Chain::UnroutedCondition(Requires::Ceil),
+        ),
+        ("not condition", Chain::Condition(Requires::Not)),
+        ("or condition", Chain::Condition(Requires::Or)),
     ] {
         let (mut fits, mut fails) = (1, 1 << 16);
         while fails - fits > 1 {
