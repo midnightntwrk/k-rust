@@ -2802,7 +2802,7 @@ fn children_stack(name: &str) -> Vec<Layer> {
 
 /// The children sweep's rows: a stack, the subject's entry of the cell (`-`: the subject does
 /// not match it), and a result, each written in readable (claim alike) and in `cells!`.
-const CHILDREN_SWEEP: [(&str, [&str; 2], [&str; 2]); 21] = [
+const CHILDREN_SWEEP: [(&str, [&str; 2], [&str; 2]); 25] = [
     (
         "group H",
         [
@@ -3005,6 +3005,41 @@ const CHILDREN_SWEEP: [(&str, [&str; 2], [&str; 2]); 21] = [
         [
             "{ A { id: 5, l: [x] }, .. }",
             "{ k::fragment![crate::A { id: 5, l: [x] }], .. }",
+        ],
+    ),
+    (
+        "* Map of A",
+        [
+            "{ me @ A { id: z, .. }, .. }",
+            "{ me @ k::fragment![crate::A { id: z, .. }], .. }",
+        ],
+        [
+            "{ A { id: y, ..me }, .. }",
+            "{ k::fragment![crate::A { id: y, ..me }], .. }",
+        ],
+    ),
+    (
+        "* Map of A",
+        ["{ .. }", "{ .. }"],
+        [
+            "{ A { l: [x], .. }, .. }",
+            "{ k::fragment![crate::A { l: [x], .. }], .. }",
+        ],
+    ),
+    (
+        "* Map of A",
+        ["{ .. }", "{ .. }"],
+        [
+            "{ A { id: 5, .. }, .. }",
+            "{ k::fragment![crate::A { id: 5, .. }], .. }",
+        ],
+    ),
+    (
+        "* List of T",
+        ["[..]", "[..]"],
+        [
+            "[T { n: 0, .. }, ..]",
+            "[k::fragment![crate::T { n: 0, .. }], ..]",
         ],
     ),
 ];
