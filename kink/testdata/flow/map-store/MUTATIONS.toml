@@ -1,23 +1,27 @@
 [[mutation]]
 id = "value-plus-one"
+misunderstanding = "a store writes one more than its value"
   [[mutation.edit]]
   rule = "store"
   find = "M[K <- V]"
   replace = "M[K <- V +Int 1]"
 [[mutation]]
 id = "key-value-swap"
+misunderstanding = "a store swaps its key and its value"
   [[mutation.edit]]
   rule = "store"
   find = "M[K <- V]"
   replace = "M[V <- K]"
 [[mutation]]
 id = "update-as-concat"
+misunderstanding = "a store adds a binding beside the old one instead of updating it"
   [[mutation.edit]]
   rule = "store"
   find = "M[K <- V]"
   replace = "M (K |-> V)"
 [[mutation]]
 id = "update-dropped"
+misunderstanding = "a store writes nothing"
   [[mutation.edit]]
   rule = "store"
   find = "M[K <- V]"

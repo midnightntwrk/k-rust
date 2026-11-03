@@ -1,9 +1,9 @@
-//! The mutation list an LLM writes (`MUTATIONS.toml`, flow README section 5.5) and its
-//! resolution into one pinned [`Patch`] per mutation.
+//! The mutation list an LLM writes (one `MUTATIONS.toml`, or a directory of `<topic>.toml` files;
+//! kink-flow README, "`MUTATIONS.toml`") and its resolution into one pinned [`Patch`] per mutation.
 //!
 //! A mutation is one or more text edits, each addressed to one authored rule of the
-//! specification: by its label, by a line inside it, or by the unique occurrence of its
-//! `find` text in the file. Every text an edit addresses, searches or shows is in the file's
+//! specification: by its label (the whole label, or a unique suffix of its components), by a line
+//! inside it, or by the unique occurrence of its `find` text in the file. Every text an edit addresses, searches or shows is in the file's
 //! **K view** (flow README 6.1): the text k-rust parsed, which is the file itself for a `.k`
 //! source and the extraction of the selected fences for a `.md` source (prose and fence lines
 //! reduced to whitespace, so lines and columns are the file's). kink-flow never edits the
@@ -62,7 +62,8 @@ use toml::{Table, Value};
 /// The operator name of every flow mutation's candidate generation.
 pub const MUTATION_OPERATOR: &str = "kink-flow/mutation/v1";
 
-/// A decoded `MUTATIONS.toml`.
+/// A decoded mutation list: one `MUTATIONS.toml`, or every `<topic>.toml` of a mutations
+/// directory ([`MutationList::read`]).
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct MutationList {
     pub mutations: Vec<Mutation>,
@@ -71,9 +72,14 @@ pub struct MutationList {
 /// One `[[mutation]]`: its edits are applied together or not at all.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Mutation {
+    /// The id as written in a single list; in a mutations directory, qualified by the file's
+    /// stem (`add-carry/ge` for the mutation `ge` of `add-carry.toml`).
     pub id: String,
-    /// Free text for the reader; it enters no digest.
-    pub note: Option<String>,
+    /// The plausible misunderstanding of the specification the mutation writes, in prose (key
+    /// `misunderstanding`, or its alias `note`): required, since a mutation is meant to be a
+    /// mistake an author could make, and a reviewer judges it and a survivor's next program by
+    /// what it says. It enters no digest and no key.
+    pub misunderstanding: String,
     pub edits: Vec<EditSpec>,
 }
 
@@ -83,7 +89,9 @@ pub struct EditSpec {
     /// The source file, relative to the manifest's directory; optional when the
     /// specification reads one file or when `rule` names the rule.
     pub file: Option<String>,
-    /// A rule label, module-qualified (`CALC.add`) or bare (`add`) when that is unique.
+    /// A rule label: the stored label or its module-qualified form (`CALC.add`, or the bare
+    /// `add`), or a suffix of its components (`plus_zero` for `nat--plus_zero`); it must name
+    /// exactly one label in either way ([`label_match`]).
     pub rule: Option<String>,
     /// A line (1-based) inside the rule.
     pub line: Option<u32>,
@@ -100,16 +108,73 @@ pub enum EditAction {
 }
 
 impl MutationList {
-    /// Read and decode the mutation list at `path`.
+    /// Read and decode the mutation list at `path`: a file is one list whose ids are as written;
+    /// a directory is a mutations directory ([`Self::read_directory`]).
     pub fn read(path: &Path) -> Result<Self, ManifestError> {
+        if path.is_dir() {
+            return Self::read_directory(path);
+        }
         let text = fs::read_to_string(path)
             .map_err(|e| ManifestError::new("", format!("cannot read the mutation list: {e}")))?;
         Self::decode(&text)
     }
 
-    /// Decode a mutation list. Unknown keys, values of the wrong type, duplicate or empty
-    /// ids, a mutation without edits and an edit that is not exactly one of find/replace or
-    /// `delete = true` are errors naming the key.
+    /// Read a mutations directory: every regular file directly in it whose name ends in `.toml`
+    /// and does not start with `.`, in byte order of the file names, each holding one or more
+    /// `[[mutation]]`. A mutation's id is qualified by its file's stem (`add-carry/ge` for `ge` in
+    /// `add-carry.toml`): a stem holds no `/`, so two files never give one id. Other entries
+    /// (subdirectories, notes, editor files) are not read. An error names the file.
+    pub fn read_directory(directory: &Path) -> Result<Self, ManifestError> {
+        let unreadable = |e: std::io::Error| {
+            ManifestError::new(
+                "",
+                format!(
+                    "cannot read the mutations directory {}: {e}",
+                    directory.display()
+                ),
+            )
+        };
+        let mut files = Vec::new();
+        for entry in fs::read_dir(directory).map_err(unreadable)? {
+            let entry = entry.map_err(unreadable)?;
+            let Ok(name) = entry.file_name().into_string() else {
+                continue;
+            };
+            let Some(stem) = name.strip_suffix(".toml") else {
+                continue;
+            };
+            if stem.is_empty() || name.starts_with('.') || !entry.path().is_file() {
+                continue;
+            }
+            files.push((name.clone(), stem.to_owned()));
+        }
+        files.sort();
+        let mut mutations = Vec::new();
+        for (name, stem) in files {
+            let in_file = |error: ManifestError| {
+                ManifestError::new(
+                    if error.key.is_empty() {
+                        name.clone()
+                    } else {
+                        format!("{name}: {}", error.key)
+                    },
+                    error.message,
+                )
+            };
+            let text = fs::read_to_string(directory.join(&name))
+                .map_err(|e| in_file(ManifestError::new("", format!("cannot read it: {e}"))))?;
+            let list = Self::decode(&text).map_err(in_file)?;
+            mutations.extend(list.mutations.into_iter().map(|mut mutation| {
+                mutation.id = format!("{stem}/{}", mutation.id);
+                mutation
+            }));
+        }
+        Ok(Self { mutations })
+    }
+
+    /// Decode one mutation list. Unknown keys, values of the wrong type, duplicate or empty
+    /// ids, a mutation without edits or without its misunderstanding, and an edit that is not
+    /// exactly one of find/replace or `delete = true` are errors naming the key.
     pub fn decode(text: &str) -> Result<Self, ManifestError> {
         let top: Table = toml::from_str(text)
             .map_err(|e| ManifestError::new("", format!("invalid TOML: {e}")))?;
@@ -191,12 +256,7 @@ fn mutation(index: usize, value: &Value) -> Result<Mutation, ManifestError> {
         &join(&position, "id"),
     )?;
     let key = mutation_key(&id);
-    known_keys(entry, &key, &["id", "note", "edit"])?;
-    let note = match entry.get("note") {
-        None => None,
-        Some(Value::String(note)) => Some(note.clone()),
-        Some(_) => return Err(ManifestError::new(join(&key, "note"), "expected a string")),
-    };
+    known_keys(entry, &key, &["id", "misunderstanding", "note", "edit"])?;
     let edits = match entry.get("edit") {
         Some(Value::Array(edits)) if !edits.is_empty() => edits
             .iter()
@@ -216,7 +276,28 @@ fn mutation(index: usize, value: &Value) -> Result<Mutation, ManifestError> {
             ));
         }
     };
-    Ok(Mutation { id, note, edits })
+    let misunderstanding = match (entry.get("misunderstanding"), entry.get("note")) {
+        (Some(text), None) => non_empty(text, &join(&key, "misunderstanding"))?,
+        (None, Some(text)) => non_empty(text, &join(&key, "note"))?,
+        (Some(_), Some(_)) => {
+            return Err(ManifestError::new(
+                join(&key, "note"),
+                "`note` is an alias of `misunderstanding`; give one of them",
+            ));
+        }
+        (None, None) => {
+            return Err(ManifestError::new(
+                join(&key, "misunderstanding"),
+                "missing required key: say in prose which plausible misunderstanding of the \
+                 specification this mutation writes (`note` is accepted as its alias)",
+            ));
+        }
+    };
+    Ok(Mutation {
+        id,
+        misunderstanding,
+        edits,
+    })
 }
 
 fn edit_spec(key: &str, value: &Value) -> Result<EditSpec, ManifestError> {
@@ -310,9 +391,10 @@ pub enum InvalidReason {
     UnknownFile,
     /// The specification reads several files and the edit names neither a file nor a rule.
     FileRequired,
-    /// No authored sentence has the label.
+    /// No authored sentence's label is the anchor or ends with it as whole components.
     UnknownLabel,
-    /// The bare label names several rules; qualify it with the module.
+    /// The anchor names several labels (exactly or as a suffix of their components); the
+    /// detail gives each one's module-qualified label, its fullest anchor.
     AmbiguousLabel,
     /// No authored sentence covers the line.
     LineOutsideRules,
@@ -412,6 +494,117 @@ impl InvalidReason {
         }
     }
 
+    /// Every reason, in declaration order.
+    pub const ALL: [Self; 24] = [
+        Self::UnknownFile,
+        Self::FileRequired,
+        Self::UnknownLabel,
+        Self::AmbiguousLabel,
+        Self::LineOutsideRules,
+        Self::LineAmbiguous,
+        Self::AddressMismatch,
+        Self::NonRuleSentence,
+        Self::NoUsableSpan,
+        Self::FindNotFound,
+        Self::FindAmbiguous,
+        Self::EditOutsideRule,
+        Self::OverlappingEdits,
+        Self::SourceChanged,
+        Self::SourceViewMismatch,
+        Self::MarkdownEnvelope,
+        Self::EditedLoadFailed,
+        Self::StructureChanged,
+        Self::LabelChanged,
+        Self::SpanChanged,
+        Self::NoChange,
+        Self::PatchRejected,
+        Self::EditedRuleTooDeep,
+        Self::HostStackRefused,
+    ];
+
+    /// The reason whose [`Self::as_str`] is `name`.
+    pub fn parse(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|reason| reason.as_str() == name)
+    }
+
+    /// What the author of the mutation does next: one sentence, for `check` and every refusal.
+    pub const fn next_step(self) -> &'static str {
+        match self {
+            Self::UnknownFile => {
+                "name a source file of the specification in `file` (the detail lists them), or \
+                 leave `file` out and address the rule by `rule`"
+            }
+            Self::FileRequired => "add `file`, or address the rule by `rule = <label>`",
+            Self::UnknownLabel => {
+                "the rule was renamed or removed, or the anchor is misspelt: find the rule's \
+                 current label in the K (the detail lists near labels) and rewrite `rule`, or \
+                 drop the mutation if the rule is gone"
+            }
+            Self::AmbiguousLabel => {
+                "write more of the label so that it names one rule: more of its components, or \
+                 the whole label qualified by its module (MODULE.label, given in the detail)"
+            }
+            Self::LineOutsideRules | Self::LineAmbiguous => {
+                "address the rule by `rule = <label>` instead of `line`: a line moves whenever \
+                 anything above it changes"
+            }
+            Self::AddressMismatch => {
+                "make `rule`, `line` and `file` name one rule, or keep `rule` alone"
+            }
+            Self::NonRuleSentence => {
+                "address a rule: only rules are editable, not syntax declarations, \
+                 configurations or other sentences"
+            }
+            Self::FindNotFound => {
+                "the rule's text changed or `find` is misspelt: copy `find` from the rule's \
+                 current K text, or drop the mutation if what it changed is gone"
+            }
+            Self::FindAmbiguous => "make `find` longer, so that it occurs once in the rule",
+            Self::EditOutsideRule => {
+                "address the rule that holds the text by `rule`, or change `find` to text inside \
+                 the addressed rule"
+            }
+            Self::OverlappingEdits => {
+                "merge the overlapping edits into one edit or make their `find` texts disjoint; \
+                 a deleted rule takes no other edit"
+            }
+            Self::SourceChanged => {
+                "rerun the command: a source file changed after the specification was loaded"
+            }
+            Self::SourceViewMismatch => {
+                "rerun with the md_selector the specification was loaded with; report it if it \
+                 persists"
+            }
+            Self::MarkdownEnvelope => "do not write or touch a Markdown fence line in an edit",
+            Self::EditedLoadFailed => {
+                "fix the replacement so that the edited rule parses and sorts (the detail is \
+                 k-rust's message)"
+            }
+            Self::StructureChanged => {
+                "edit only the addressed rule: the replacement must stay one rule sentence and \
+                 change nothing outside it"
+            }
+            Self::LabelChanged => {
+                "keep the rule's label: a mutation changes what a rule does, not its name"
+            }
+            Self::SpanChanged => {
+                "keep the replacement inside the rule: do not end it in a comment or write past \
+                 the rule's end"
+            }
+            Self::NoChange => {
+                "change what the rule says, or drop the edit: as written it changes nothing"
+            }
+            Self::NoUsableSpan | Self::PatchRejected => "report it: this is a defect of kink",
+            Self::EditedRuleTooDeep => {
+                "target another rule, or replace the deep part of the rule by a shallow one (the \
+                 detail gives the depths)"
+            }
+            Self::HostStackRefused => {
+                "rerun where the host grants more address space; the mutation is not at fault"
+            }
+        }
+    }
+
     /// The status of the row of a mutation refused for this reason: `error` for the host's
     /// refusal ([`Self::HostStackRefused`]), `invalid-mutation` for every other reason.
     pub const fn status(self) -> &'static str {
@@ -453,6 +646,9 @@ pub struct ResolvedMutation {
     pub digest: Sha256Digest,
     /// The addressed rules, in sentence order.
     pub rules: Vec<EditedRule>,
+    /// Every edit as it was applied, in the mutation's edit order: what each edit rewrites,
+    /// one by one, where [`Self::rules`] gives each rule's text with all of its edits applied.
+    pub edits: Vec<ResolvedEdit>,
     /// The edited K view of every edited source file, by its logical name: for a `.k` file its
     /// edited text, for a `.md` file its edited K view (never Markdown).
     pub edited_views: BTreeMap<String, String>,
@@ -460,6 +656,25 @@ pub struct ResolvedMutation {
     pub edited_sources: BTreeMap<String, String>,
     /// What the edited load read in place of each edited file (see [`Self::overlay`]).
     overlay: BTreeMap<String, String>,
+}
+
+/// One edit of a mutation as resolution applied it to the K view of its file.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResolvedEdit {
+    /// The index of the edit in the mutation (`edit[i]`).
+    pub edit: usize,
+    /// The baseline rule the edit is addressed to.
+    pub at: SentenceRef,
+    /// The rule's source file, by its logical name.
+    pub file: String,
+    /// The bytes of the file's baseline K view the edit rewrites: the occurrence of `find`, or
+    /// the rule's whole span for a deletion.
+    pub range: Range<usize>,
+    /// The text written in place of [`Self::range`]; `None` for a deletion, which writes nothing.
+    pub replacement: Option<String>,
+    /// Where the replacement lies in the edited K view ([`ResolvedMutation::edited_views`]);
+    /// empty, at the place of the removed rule, for a deletion.
+    pub edited_range: Range<usize>,
 }
 
 /// One rule a mutation edits or deletes.
@@ -705,7 +920,16 @@ struct Views<'a> {
     views: BTreeMap<String, View>,
 }
 
-impl Views<'_> {
+impl<'a> Views<'a> {
+    fn new(manifest: &FlowManifest, loaded: &'a LoadedSource) -> Self {
+        Views {
+            directory: manifest.directory.clone(),
+            md_selector: manifest.spec.md_selector.clone(),
+            loaded,
+            views: BTreeMap::new(),
+        }
+    }
+
     fn names(&self) -> impl Iterator<Item = &str> {
         self.loaded.files.iter().map(|f| f.name.as_str())
     }
@@ -717,6 +941,50 @@ impl Views<'_> {
         }
         Ok(&self.views[name])
     }
+}
+
+/// The authored sentences of the baseline of `loaded`, each with its source file.
+fn authored_sentences(loaded: &LoadedSource) -> Vec<Authored<'_>> {
+    let file_names = loaded
+        .files
+        .iter()
+        .map(|f| f.name.as_str())
+        .collect::<BTreeSet<_>>();
+    loaded
+        .baseline
+        .authored_sentences()
+        .map(|(at, sentence)| {
+            let file = sentence
+                .attributes()
+                .source()
+                .and_then(|source| file_names.get(source).copied());
+            Authored {
+                at,
+                sentence,
+                file,
+                location: sentence.attributes().location(),
+            }
+        })
+        .collect()
+}
+
+/// The rule `edit` alone is addressed to, as resolution's first step addresses it, with its
+/// label: `None` when the edit addresses no single rule. It lets `check` name the rule of an
+/// edit whose mutation is refused for another reason.
+pub fn addressed_rule(
+    manifest: &FlowManifest,
+    loaded: &LoadedSource,
+    edit: &EditSpec,
+) -> Option<(SentenceRef, Option<String>)> {
+    let authored = authored_sentences(loaded);
+    let mut views = Views::new(manifest, loaded);
+    let at = address(0, edit, &authored, &mut views).ok()?.at;
+    let label = authored
+        .iter()
+        .find(|a| a.at == at)
+        .and_then(Authored::label)
+        .map(str::to_owned);
+    Some((at, label))
 }
 
 /// A file name normalised lexically as the resolver names sources (`a/./b/../c.k` is
@@ -893,32 +1161,8 @@ pub fn resolve(
     mutation: &Mutation,
 ) -> Result<ResolvedMutation, InvalidMutation> {
     let baseline = &loaded.baseline;
-    let mut views = Views {
-        directory: manifest.directory.clone(),
-        md_selector: manifest.spec.md_selector.clone(),
-        loaded,
-        views: BTreeMap::new(),
-    };
-    let file_names = loaded
-        .files
-        .iter()
-        .map(|f| f.name.as_str())
-        .collect::<BTreeSet<_>>();
-    let authored = baseline
-        .authored_sentences()
-        .map(|(at, sentence)| {
-            let file = sentence
-                .attributes()
-                .source()
-                .and_then(|source| file_names.get(source).copied());
-            Authored {
-                at,
-                sentence,
-                file,
-                location: sentence.attributes().location(),
-            }
-        })
-        .collect::<Vec<_>>();
+    let mut views = Views::new(manifest, loaded);
+    let authored = authored_sentences(loaded);
     let from_view = |(reason, detail)| InvalidMutation {
         edit: None,
         reason,
@@ -928,7 +1172,24 @@ pub fn resolve(
     // Step 1: address every edit in the K views.
     let mut text_edits = Vec::new();
     for (index, edit) in mutation.edits.iter().enumerate() {
-        text_edits.push(address(index, edit, &authored, &mut views)?);
+        let text_edit = address(index, edit, &authored, &mut views)?;
+        if let EditAction::Replace { find, replace } = &edit.action
+            && find == replace
+        {
+            let rule = authored
+                .iter()
+                .find(|a| a.at == text_edit.at)
+                .expect("an addressed rule is authored");
+            return Err(InvalidMutation {
+                edit: Some(index),
+                reason: InvalidReason::NoChange,
+                detail: format!(
+                    "the edit replaces {find:?} in {} by the same text, so it changes nothing",
+                    rule.describe()
+                ),
+            });
+        }
+        text_edits.push(text_edit);
     }
 
     // Edits of one rule must not overlap; a deleted rule takes no other edit.
@@ -971,6 +1232,7 @@ pub fn resolve(
     }
     let mut edited_files = BTreeMap::<String, EditedFile>::new();
     let mut overlay = BTreeMap::<String, String>::new();
+    let mut resolved_edits = Vec::with_capacity(text_edits.len());
     for (file, mut edits) in by_file {
         let view = views.view(file).map_err(from_view)?;
         edits.sort_by_key(|e| (e.range.start, e.range.end));
@@ -992,6 +1254,14 @@ pub fn resolve(
             let replacement = edit.replacement.as_deref().unwrap_or("");
             edited_view.push_str(replacement);
             written.push((edit.edit, start..edited_view.len()));
+            resolved_edits.push(ResolvedEdit {
+                edit: edit.edit,
+                at: edit.at.clone(),
+                file: file.to_owned(),
+                range: edit.range.clone(),
+                replacement: edit.replacement.clone(),
+                edited_range: start..edited_view.len(),
+            });
             shifts.push((edit.range.clone(), length_change(&edit.range, replacement)));
             cursor = edit.range.end;
         }
@@ -1175,6 +1445,7 @@ pub fn resolve(
         },
         other => rejected(other.to_string()),
     })?;
+    resolved_edits.sort_by_key(|e| e.edit);
     let edited_views = edited_files
         .into_iter()
         .map(|(name, file)| (name, file.edited_view))
@@ -1184,6 +1455,7 @@ pub fn resolve(
         patch,
         digest,
         rules,
+        edits: resolved_edits,
         edited_sources: edited_views.clone(),
         edited_views,
         overlay,
@@ -1604,6 +1876,77 @@ fn check_span_shifts(
     Ok(())
 }
 
+/// How an anchor names a stored label ([`label_match`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LabelMatch {
+    /// The anchor is the label: the stored label itself, or its module-qualified form.
+    Exact,
+    /// The anchor is a suffix of the label made of whole components.
+    Suffix,
+}
+
+/// Whether the anchor `rule = anchor` names the label `stored` of a sentence of module `module`.
+///
+/// K stores `rule [x]:` as `MODULE.x` and `[label(x)]` as the bare `x`, and `x` and `MODULE.x`
+/// name both forms in module `MODULE` (exact). Otherwise the anchor names the label when it is a
+/// suffix of whole components of the label's module-qualified form, components being separated
+/// by `.` (K's module qualification) or `--` (the separator of KRS's labels), so that `plus_zero`
+/// names `nat--plus_zero` and `NAT.nat--plus_zero` but `zero` does not. The `MODULE.x` form
+/// matches only a stored bare label (no `.`), so `MODULE.MODULE.x` does not name `MODULE.x`.
+/// A resolution takes the exact and the suffix matches together and refuses anything but exactly
+/// one, so no rule's label takes precedence over another's.
+pub fn label_match(stored: &str, module: &str, anchor: &str) -> Option<LabelMatch> {
+    if stored == anchor
+        || stored == format!("{module}.{anchor}")
+        || (!stored.contains('.') && anchor.strip_prefix(&format!("{module}.")) == Some(stored))
+    {
+        return Some(LabelMatch::Exact);
+    }
+    let qualified = qualified_label(stored, module);
+    (!anchor.is_empty()
+        && (qualified.ends_with(&format!("--{anchor}"))
+            || qualified.ends_with(&format!(".{anchor}"))))
+    .then_some(LabelMatch::Suffix)
+}
+
+/// The module-qualified form of the label `stored` of a sentence of module `module`: K's
+/// `rule [x]:` label as stored (`MODULE.x`), a bare `[label(x)]` qualified (`MODULE.x`).
+fn qualified_label(stored: &str, module: &str) -> String {
+    if stored.contains('.') {
+        stored.to_owned()
+    } else {
+        format!("{module}.{stored}")
+    }
+}
+
+/// The labels an unknown anchor may have meant, for its refusal: those that contain the anchor's
+/// last component, at most five, in byte order (`""` when none).
+fn near_labels(authored: &[Authored<'_>], anchor: &str) -> String {
+    let last = anchor
+        .rsplit(['.', '-'])
+        .find(|part| !part.is_empty())
+        .unwrap_or(anchor);
+    let near = authored
+        .iter()
+        .filter(|a| a.is_rule())
+        .filter_map(Authored::label)
+        .filter(|label| label.contains(last))
+        .collect::<BTreeSet<_>>();
+    if near.is_empty() {
+        return String::new();
+    }
+    let shown = near.iter().take(5).copied().collect::<Vec<_>>().join(", ");
+    let more = near.len().saturating_sub(5);
+    format!(
+        " (labels containing {last:?}: {shown}{})",
+        if more > 0 {
+            format!(" and {more} more")
+        } else {
+            String::new()
+        }
+    )
+}
+
 /// The edits addressed to one rule.
 struct Addressed {
     edits: Vec<usize>,
@@ -1644,26 +1987,27 @@ fn address(
     let by_label = match &edit.rule {
         None => None,
         Some(label) => {
-            // A label is stored as `MODULE.x` for `rule [x]:` and as the bare `x` for
-            // `[label(x)]`; `x` and `MODULE.x` address both forms in module MODULE. The
-            // `MODULE.x` arm matches only a stored bare label (no '.'), so `MODULE.MODULE.x`
-            // does not address the rule stored as `MODULE.x` (F-10 review 1 m1).
+            // Exact and suffix matches are one candidate set, and the anchor must name exactly
+            // one rule. An exact match does not take precedence: a stored anchor is replayed
+            // after every edit of the specification, and a precedence would move a suffix anchor
+            // silently onto a rule that comes to have the anchor as its whole label, where this
+            // refuses it. The module-qualified label is the fullest anchor of a rule.
             let matches = authored
                 .iter()
                 .filter(|a| {
-                    a.label().is_some_and(|l| {
-                        l == label
-                            || l == format!("{}.{label}", a.at.module)
-                            || (!l.contains('.')
-                                && label.strip_prefix(&format!("{}.", a.at.module)) == Some(l))
-                    })
+                    a.label()
+                        .is_some_and(|l| label_match(l, &a.at.module, label).is_some())
                 })
                 .collect::<Vec<_>>();
             match matches.as_slice() {
                 [] => {
                     return Err(invalid(
                         InvalidReason::UnknownLabel,
-                        format!("no rule is labelled {label:?}"),
+                        format!(
+                            "no rule is labelled {label:?}, and no label ends with it as a whole \
+                             component{}",
+                            near_labels(authored, label)
+                        ),
                     ));
                 }
                 [one] if !one.is_rule() => {
@@ -1677,10 +2021,16 @@ fn address(
                     return Err(invalid(
                         InvalidReason::AmbiguousLabel,
                         format!(
-                            "{label:?} names {}; qualify it with the module",
+                            "{label:?} names several labels, as the label itself or as a suffix \
+                             of its components: {}; write more of the label, such as the \
+                             module-qualified label given for each",
                             several
                                 .iter()
-                                .map(|a| a.describe())
+                                .map(|a| format!(
+                                    "{} as {:?}",
+                                    a.describe(),
+                                    qualified_label(a.label().unwrap_or_default(), &a.at.module)
+                                ))
                                 .collect::<Vec<_>>()
                                 .join(", ")
                         ),

@@ -34,8 +34,11 @@ The default build is the Z3 profile ("Gate", below), under which the outcome and
    `kink-flow results` runs each new or changed program once on the specification,
    caches its final configuration, and lists the rules no comparable program reaches (`uncovered`).
    Write programs until no rule in scope is uncovered ("What coverage covers", below).
-3. **Mutation list.** Write `MUTATIONS.toml`: edits of rules that are likely to expose bugs,
-   either single edits (one `+Int` becomes `-Int`) or correlated edits (several rules changed together as one mutation).
+3. **Mutation list.** Write `MUTATIONS.toml` (or one `<topic>.toml` per topic in a mutations directory): edits of rules that are likely to expose bugs,
+   either single edits (one `+Int` becomes `-Int`) or correlated edits (several rules changed together as one mutation),
+   each with the plausible misunderstanding of the specification it writes (`misunderstanding`).
+   `kink-flow check FLOW.toml --mutations MUTATIONS.toml` resolves every mutation without compiling or running anything: it shows each edited rule before and after, and refuses a mutation that does not resolve (a stale anchor, overlapping edits, an edit of a sentence that is not a rule) with what to do next.
+   A mutant kink does not compile is found only by `run` (status `invalid`).
    `kink-flow results FLOW.toml --mutations MUTATIONS.toml` (and every run report) lists the rules no mutation targets yet (`untargeted_rules`, with each rule's K text and how to address it).
 4. **Kill search with an outcome cache.** `kink-flow run` checks, for each mutation, whether some program's final configuration changes.
    It reports the survivors: mutations no program kills.
@@ -192,18 +195,19 @@ Out of scope, each for its reason:
 ### Commands
 
 Every command prints one JSON document on stdout.
-The exit status is 0 when the command did its job (survivors, timeouts and invalid mutations included),
-1 when the manifest, the mutation list, the specification or a program is refused, a cache file cannot be written, or a corpus error stops a run,
+The exit status is 0 when the command did its job (survivors and timeouts included),
+1 when the manifest, the mutation list, the specification, a program or a mutation is refused (`check --mutations`; `run` on an `invalid-mutation` or `invalid` mutation), a cache file cannot be written, or a corpus error stops a run,
 and 2 on a usage error (message on stderr).
+A mutation list (`MUTATIONS` below) is a `MUTATIONS.toml` or a directory of `<topic>.toml` files whose ids are qualified by the file's stem ([kink-flow's README](crates/kink-flow/README.md#a-mutations-directory)).
 
 | Command | Does |
 | --- | --- |
-| `kink-flow check FLOW.toml` | Loads and admits the specification and parses every program; reports each refusal with its stage and reason. |
-| `kink-flow results FLOW.toml [--verify] [--mutations MUTATIONS.toml]` | Fills the result cache for new or changed programs; lists every program's class, cause and baseline wall time (`wall_ms`) and every rule's coverage; `--verify` reruns every program and compares it with its cached result; `--mutations` also lists the rules no mutation of that list targets. |
-| `kink-flow run FLOW.toml MUTATIONS.toml [--only ID]... [--verify] [--order cost\|corpus] [--compile-workers N] [--no-memo]` | Updates the result cache, resolves each mutation, runs the kill search, updates the outcome cache and the killer hints, and writes the report. The search tries the programs whose coverage witnesses an edited rule's edit first (they reached the rule, for an edit of its `requires`; they fired it, for any other edit), each group cheapest first (`--order corpus`: in `FLOW.toml`'s order); the order changes which killer is found first and the cost, never a status. `--verify` decides nothing from the outcome cache: it re-proves every cached outcome, reports each that differs (`mismatches`, exit 1) and writes no outcome and no hint. `--compile-workers N` compiles up to N mutants ahead of their turn (4 by default; 1 compiles each in its own call); it changes nothing but wall time and memory. A warm run reads the memos of what did not change (re-pin L1-4: each mutation's resolution facts, used only for a mutation tier 1 decides with no call, and the specification's declaration census, under keys that name every input, `kink_build` and `kink`); `--no-memo` reads and writes none, `--verify` re-derives and compares them. |
+| `kink-flow check FLOW.toml [--mutations MUTATIONS]` | Loads and admits the specification and parses every program; reports each refusal with its stage and reason. With `--mutations`, also resolves every mutation against the current specification and runs nothing: each edited rule's before and after, label, file and lines; each refusal with its reason and next step (a stale anchor, overlapping edits, a non-rule sentence, an edit that changes nothing); warnings for `line` and `find`-only anchors and for edited rules no comparable program witnesses in the cached results. It compiles no mutant, so a mutant that does not compile is `invalid` only in `run`. Run it after every edit of the mutations or the specification. |
+| `kink-flow results FLOW.toml [--verify] [--mutations MUTATIONS]` | Fills the result cache for new or changed programs; lists every program's class, cause and baseline wall time (`wall_ms`) and every rule's coverage; `--verify` reruns every program and compares it with its cached result; `--mutations` also lists the rules no mutation of that list targets. |
+| `kink-flow run FLOW.toml MUTATIONS [--only ID]... [--verify] [--order cost\|corpus] [--compile-workers N] [--no-memo]` | Updates the result cache, resolves each mutation, runs the kill search, updates the outcome cache and the killer hints, and writes the report. The search tries the programs whose coverage witnesses an edited rule's edit first (they reached the rule, for an edit of its `requires`; they fired it, for any other edit), each group cheapest first (`--order corpus`: in `FLOW.toml`'s order); the order changes which killer is found first and the cost, never a status. `--verify` decides nothing from the outcome cache: it re-proves every cached outcome, reports each that differs (`mismatches`, exit 1) and writes no outcome and no hint. `--compile-workers N` compiles up to N mutants ahead of their turn (4 by default; 1 compiles each in its own call); it changes nothing but wall time and memory. A warm run reads the memos of what did not change (re-pin L1-4: each mutation's resolution facts, used only for a mutation tier 1 decides with no call, and the specification's declaration census, under keys that name every input, `kink_build` and `kink`); `--no-memo` reads and writes none, `--verify` re-derives and compares them. |
 | `kink-flow report FLOW.toml` | Prints the last run's report again, byte for byte. |
 | `kink-flow query FLOW.toml PATTERNS.toml [--only ID]... [--verify]` | Updates the result cache and answers each pattern on each program it claims (or on every program): `hit`, `no`, `unknown`, `invalid-pattern` or `error`, with the witness of a hit, refuted claims flagged; caches the definitive answers; `--verify` re-derives every answer and compares. |
-| `kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID (--kill MUTATION --mutations MUTATIONS.toml \| --reach RULE [--fired] \| --pattern ID --patterns PATTERNS.toml) [--cases N \| --work W] [--seed S] [--max-work N] [--time-limit-ms T] [--assume-joined NAME]... [--one-path] [--no-confirm] [--no-filter]` | Looks for hole values of a template that kill the mutation (or reach the rule, or hit the pattern), on kink's own sides, has kink confirm the witness, and prints the program as a `[[program]]` fragment with its premises; writes nothing. Exit 1 also when the job is refused up front (a mutation `run` refuses, a definition exclusion, a mutant that assembles the template otherwise, unnamed findings). |
+| `kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID (--kill MUTATION --mutations MUTATIONS \| --reach RULE [--fired] \| --pattern ID --patterns PATTERNS.toml) [--cases N \| --work W] [--seed S] [--max-work N] [--time-limit-ms T] [--assume-joined NAME]... [--one-path] [--no-confirm] [--no-filter]` | Looks for hole values of a template that kill the mutation (or reach the rule, or hit the pattern), on kink's own sides, has kink confirm the witness, and prints the program as a `[[program]]` fragment with its premises; writes nothing. Exit 1 also when the job is refused up front (a mutation `run` refuses, a definition exclusion, a mutant that assembles the template otherwise, unnamed findings). |
 
 `results`, `run`, `report`, `query` and `fuzz` take `--cache DIR` (`fuzz` only reads the last run document there); the default cache is `.kink-flow/` next to `FLOW.toml`.
 
@@ -324,8 +328,9 @@ A program whose class is not `comparable` cannot kill a mutant; `cause` says why
 `refused` (it did not parse) or `error`.
 
 Now the mutations, `MUTATIONS.toml`.
-Each edit is addressed to one rule: by its label (`rule`, bare or `MODULE.label`), by any line inside it (`line`),
-or by text that occurs exactly once in the file (`find` alone).
+Each mutation says which misunderstanding of the specification it writes (`misunderstanding`, required).
+Each edit is addressed to one rule: by its label (`rule`, bare, `MODULE.label`, or a unique suffix of the label's components), by any line inside it (`line`),
+or by text that occurs exactly once in the file (`find` alone); only the label names the rule itself, so `kink-flow check FLOW.toml --mutations MUTATIONS.toml` warns of the other two.
 `find` must occur exactly once in the addressed rule and is replaced by `replace`; `delete = true` removes the rule.
 Several edits in one mutation are applied together or not at all:
 
@@ -333,7 +338,7 @@ Several edits in one mutation are applied together or not at all:
 ```toml
 [[mutation]]
 id = "add-becomes-sub"
-note = "addition evaluates as subtraction"
+misunderstanding = "addition evaluates as subtraction"
 
   [[mutation.edit]]
   rule = "add"
@@ -342,7 +347,7 @@ note = "addition evaluates as subtraction"
 
 [[mutation]]
 id = "mul-becomes-add"
-note = "multiplication evaluates as addition"
+misunderstanding = "multiplication evaluates as addition"
 
   [[mutation.edit]]
   find = "I1 *Int I2"
@@ -350,7 +355,7 @@ note = "multiplication evaluates as addition"
 
 [[mutation]]
 id = "no-sub"
-note = "the subtraction rule is deleted"
+misunderstanding = "the subtraction rule is deleted"
 
   [[mutation.edit]]
   line = 23
@@ -358,7 +363,7 @@ note = "the subtraction rule is deleted"
 
 [[mutation]]
 id = "add-and-mul-swapped"
-note = "correlated: + multiplies and * adds"
+misunderstanding = "correlated: + multiplies and * adds"
 
   [[mutation.edit]]
   rule = "CALC.add"

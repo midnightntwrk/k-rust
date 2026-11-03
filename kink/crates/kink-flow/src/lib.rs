@@ -18,9 +18,12 @@
 //! `fuzz` command: a k-rust-fuzz campaign on kink's own sides that looks for hole values of a
 //! template that kill a mutation, printed as a `[[program]]` fragment ([`fuzz`]). CF-16 adds the
 //! kill evidence: the first differing cell path of a kill's ends, both values as K text, and each
-//! end's computation head and class ([`evidence`]).
+//! end's computation head and class ([`evidence`]). CF-18 adds the resolve-only check of a
+//! mutation list, `check --mutations` ([`check`]), and CF-13 the mutations directory and anchors
+//! by a suffix of a label's components ([`mutation`]).
 
 pub mod admit;
+pub mod check;
 pub mod cli;
 pub mod digest;
 pub mod evidence;
@@ -40,10 +43,14 @@ pub mod search;
 pub use admit::{
     AdmittedSpec, FlowAdmission, InputSession, ProgramAdmission, ProgramInputs, admit, admit_spec,
 };
+pub use check::{
+    CorpusCoverage, Finding, MutationCheck, MutationCheckRow, check_mutations, corpus_coverage,
+};
 pub use manifest::{Budget, FlowManifest, ManifestError, Program, SpecSection};
 pub use mutation::{
-    EditAction, EditSpec, EditedRule, InvalidMutation, InvalidReason, Mutation, MutationList,
-    ResolvedMutation, RuleText, resolve, rule_texts,
+    EditAction, EditSpec, EditedRule, InvalidMutation, InvalidReason, LabelMatch, Mutation,
+    MutationList, ResolvedEdit, ResolvedMutation, RuleText, addressed_rule, label_match, resolve,
+    rule_texts,
 };
 
 /// The k-rust revision every kink-flow document names as `k_rust_revision`, and `--version`

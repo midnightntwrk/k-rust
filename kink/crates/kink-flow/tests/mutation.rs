@@ -6,8 +6,9 @@ use kink_flow::{
     FlowManifest,
     admit::corpus_source,
     mutation::{
-        EditAction, EditSpec, InvalidMutation, InvalidReason, MUTATION_OPERATOR, Mutation,
-        MutationList, ResolvedMutation, location_span, resolve, sentence_span,
+        EditAction, EditSpec, InvalidMutation, InvalidReason, LabelMatch, MUTATION_OPERATOR,
+        Mutation, MutationList, ResolvedMutation, label_match, location_span, resolve,
+        sentence_span,
     },
 };
 use kink_native::{NativeValidator, ValidatedDefinition};
@@ -67,7 +68,10 @@ impl Spec {
     /// Resolve the one mutation of `edits` (the `[[mutation.edit]]` tables of a mutation
     /// with id `m`).
     fn resolve_edits(&self, edits: &str) -> Result<ResolvedMutation, InvalidMutation> {
-        let list = MutationList::decode(&format!("[[mutation]]\nid = \"m\"\n{edits}")).unwrap();
+        let list = MutationList::decode(&format!(
+            "[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\n{edits}"
+        ))
+        .unwrap();
         self.resolve(&list.mutations[0])
     }
 
@@ -122,23 +126,23 @@ fn decoding_rejects_unknown_keys_and_malformed_edits() {
     let cases: Vec<(String, &str, &str)> = vec![
         ("colour = 1\n".into(), "colour", "unknown key"),
         (
-            format!("[[mutation]]\nid = \"m\"\nwhy = \"x\"\n{edit}"),
+            format!("[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\nwhy = \"x\"\n{edit}"),
             "mutation \"m\".why",
             "unknown key",
         ),
         (
-            "[[mutation]]\nid = \"m\"\n[[mutation.edit]]\nrule = \"add\"\nfind = \"a\"\nreplace = \"b\"\nlabel = \"x\"\n"
+            "[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\n[[mutation.edit]]\nrule = \"add\"\nfind = \"a\"\nreplace = \"b\"\nlabel = \"x\"\n"
                 .into(),
             "mutation \"m\".edit[0].label",
             "unknown key",
         ),
         (
-            format!("[[mutation]]\nid = \"m\"\n{edit}[[mutation]]\nid = \"m\"\n{edit}"),
+            format!("[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\n{edit}[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\n{edit}"),
             "mutation \"m\"",
             "duplicate mutation id",
         ),
         (
-            format!("[[mutation]]\nid = \"\"\n{edit}"),
+            format!("[[mutation]]\nid = \"\"\nmisunderstanding = \"a test mutation\"\n{edit}"),
             "mutation[0].id",
             "must not be empty",
         ),
@@ -148,68 +152,68 @@ fn decoding_rejects_unknown_keys_and_malformed_edits() {
             "missing required key",
         ),
         (
-            "[[mutation]]\nid = \"m\"\n".into(),
+            "[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\n".into(),
             "mutation \"m\"",
             "needs at least one [[mutation.edit]]",
         ),
         (
-            "[[mutation]]\nid = \"m\"\nedit = []\n".into(),
+            "[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\nedit = []\n".into(),
             "mutation \"m\"",
             "needs at least one [[mutation.edit]]",
         ),
         (
-            "[[mutation]]\nid = \"m\"\n[[mutation.edit]]\nrule = \"add\"\nfind = \"\"\nreplace = \"b\"\n"
+            "[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\n[[mutation.edit]]\nrule = \"add\"\nfind = \"\"\nreplace = \"b\"\n"
                 .into(),
             "mutation \"m\".edit[0].find",
             "must not be empty",
         ),
         (
-            "[[mutation]]\nid = \"m\"\n[[mutation.edit]]\nrule = \"add\"\nfind = \"a\"\n".into(),
+            "[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\n[[mutation.edit]]\nrule = \"add\"\nfind = \"a\"\n".into(),
             "mutation \"m\".edit[0].replace",
             "find needs replace",
         ),
         (
-            "[[mutation]]\nid = \"m\"\n[[mutation.edit]]\nrule = \"add\"\nreplace = \"a\"\n"
+            "[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\n[[mutation.edit]]\nrule = \"add\"\nreplace = \"a\"\n"
                 .into(),
             "mutation \"m\".edit[0].find",
             "replace needs find",
         ),
         (
-            "[[mutation]]\nid = \"m\"\n[[mutation.edit]]\nrule = \"add\"\n".into(),
+            "[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\n[[mutation.edit]]\nrule = \"add\"\n".into(),
             "mutation \"m\".edit[0]",
             "give find and replace, or delete = true",
         ),
         (
-            "[[mutation]]\nid = \"m\"\n[[mutation.edit]]\nrule = \"add\"\ndelete = false\n".into(),
+            "[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\n[[mutation.edit]]\nrule = \"add\"\ndelete = false\n".into(),
             "mutation \"m\".edit[0].delete",
             "must be true",
         ),
         (
-            "[[mutation]]\nid = \"m\"\n[[mutation.edit]]\nrule = \"add\"\ndelete = true\nfind = \"a\"\nreplace = \"b\"\n"
+            "[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\n[[mutation.edit]]\nrule = \"add\"\ndelete = true\nfind = \"a\"\nreplace = \"b\"\n"
                 .into(),
             "mutation \"m\".edit[0]",
             "not both",
         ),
         (
-            "[[mutation]]\nid = \"m\"\n[[mutation.edit]]\nfile = \"calc.k\"\ndelete = true\n"
+            "[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\n[[mutation.edit]]\nfile = \"calc.k\"\ndelete = true\n"
                 .into(),
             "mutation \"m\".edit[0]",
             "needs rule or line",
         ),
         (
-            "[[mutation]]\nid = \"m\"\n[[mutation.edit]]\nline = 0\nfind = \"a\"\nreplace = \"b\"\n"
+            "[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\n[[mutation.edit]]\nline = 0\nfind = \"a\"\nreplace = \"b\"\n"
                 .into(),
             "mutation \"m\".edit[0].line",
             "must be positive",
         ),
         (
-            "[[mutation]]\nid = \"m\"\n[[mutation.edit]]\nline = \"3\"\nfind = \"a\"\nreplace = \"b\"\n"
+            "[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\n[[mutation.edit]]\nline = \"3\"\nfind = \"a\"\nreplace = \"b\"\n"
                 .into(),
             "mutation \"m\".edit[0].line",
             "expected an integer",
         ),
         (
-            "[[mutation]]\nid = \"m\"\n[[mutation.edit]]\nrule = \"\"\nfind = \"a\"\nreplace = \"b\"\n"
+            "[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\n[[mutation.edit]]\nrule = \"\"\nfind = \"a\"\nreplace = \"b\"\n"
                 .into(),
             "mutation \"m\".edit[0].rule",
             "must not be empty",
@@ -246,8 +250,8 @@ fn decoding_reads_every_field() {
     );
     let swaps = &list.mutations[4];
     assert_eq!(
-        swaps.note.as_deref(),
-        Some("two edits in one rule: I1 +Int I2 becomes I2 +Int I1")
+        swaps.misunderstanding,
+        "two edits in one rule: I1 +Int I2 becomes I2 +Int I1"
     );
     assert_eq!(
         swaps.edits,
@@ -276,7 +280,7 @@ fn decoding_reads_every_field() {
     assert_eq!(MutationList::decode("").unwrap(), MutationList::default());
     // An empty replacement is a valid edit (it removes the found text).
     let list = MutationList::decode(
-        "[[mutation]]\nid = \"m\"\n[[mutation.edit]]\nline = 3\nfind = \"a\"\nreplace = \"\"\n",
+        "[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\n[[mutation.edit]]\nline = 3\nfind = \"a\"\nreplace = \"\"\n",
     )
     .unwrap();
     assert_eq!(
@@ -719,7 +723,8 @@ fn every_invalid_mutation_reason_on_calc() {
         .unwrap_err();
     assert_eq!(
         invalid.to_string(),
-        "edit[0]: unknown-label: no rule is labelled \"div\""
+        "edit[0]: unknown-label: no rule is labelled \"div\", and no label ends with it as a \
+         whole component"
     );
     // A file named another way that normalises to the source is the source.
     let ok = spec
@@ -935,6 +940,20 @@ fn every_reason_is_produced_or_listed_as_defensive() {
         assert_eq!(reason.status(), "invalid-mutation", "{}", reason.as_str());
     }
     assert_eq!(InvalidReason::HostStackRefused.status(), "error");
+    // CF-18: `ALL` lists every reason once, each parses back from its name and has a next step.
+    assert_eq!(
+        InvalidReason::ALL
+            .iter()
+            .map(|r| r.as_str())
+            .collect::<BTreeSet<_>>(),
+        all
+    );
+    assert_eq!(InvalidReason::ALL.len(), all.len());
+    for reason in InvalidReason::ALL {
+        assert_eq!(InvalidReason::parse(reason.as_str()), Some(reason));
+        assert!(!reason.next_step().is_empty(), "{}", reason.as_str());
+    }
+    assert_eq!(InvalidReason::parse("no-such-reason"), None);
     // An exhaustive match: a new reason fails to compile here until it is listed.
     for reason in produced.iter().chain(&DEFENSIVE).chain(&HOST) {
         match reason {
@@ -1437,4 +1456,292 @@ fn a_conjunction_label_heading_a_user_rule_is_no_conjunction() {
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------------------
+// CF-13: the misunderstanding, the mutations directory, anchors by a suffix of a label's
+// components, and an edit that changes nothing.
+
+#[test]
+fn a_mutation_states_its_misunderstanding() {
+    let edit = "[[mutation.edit]]\nrule = \"add\"\nfind = \"a\"\nreplace = \"b\"\n";
+    let decode =
+        |head: &str| MutationList::decode(&format!("[[mutation]]\nid = \"m\"\n{head}{edit}"));
+    for head in [
+        "misunderstanding = \"addition subtracts\"\n",
+        "note = \"addition subtracts\"\n",
+    ] {
+        assert_eq!(
+            decode(head).unwrap().mutations[0].misunderstanding,
+            "addition subtracts",
+            "{head:?}"
+        );
+    }
+    for (head, key, message) in [
+        (
+            "",
+            "mutation \"m\".misunderstanding",
+            "missing required key",
+        ),
+        (
+            "misunderstanding = \"\"\n",
+            "mutation \"m\".misunderstanding",
+            "must not be empty",
+        ),
+        ("note = 3\n", "mutation \"m\".note", "expected a string"),
+        (
+            "misunderstanding = \"a\"\nnote = \"b\"\n",
+            "mutation \"m\".note",
+            "alias",
+        ),
+    ] {
+        let error = decode(head).unwrap_err();
+        assert_eq!(error.key, key, "{head:?}");
+        assert!(error.message.contains(message), "{head:?}: {error}");
+    }
+}
+
+fn add_mutation(id: &str, replace: &str) -> String {
+    format!(
+        "[[mutation]]\nid = \"{id}\"\nmisunderstanding = \"addition is {replace}\"\n\
+         [[mutation.edit]]\nrule = \"add\"\nfind = \"I1 +Int I2\"\nreplace = \"{replace}\"\n"
+    )
+}
+
+#[test]
+fn a_mutations_directory_qualifies_each_id_by_its_file() {
+    let dir = scratch("mutations-directory");
+    write(&dir.join("add.toml"), &add_mutation("sub", "I1 -Int I2"));
+    write(
+        &dir.join("add-carry.toml"),
+        &format!(
+            "{}{}",
+            add_mutation("sub", "I1 -Int I2"),
+            add_mutation("ge", "I1 *Int I2")
+        ),
+    );
+    // Not lists: other files, hidden files and subdirectories are not read.
+    write(&dir.join("README.md"), "notes [");
+    write(&dir.join(".draft.toml"), "not TOML [");
+    write(&dir.join("old/inner.toml"), "not TOML [");
+    let list = MutationList::read(&dir).unwrap();
+    assert_eq!(
+        list.mutations
+            .iter()
+            .map(|m| m.id.as_str())
+            .collect::<Vec<_>>(),
+        ["add-carry/sub", "add-carry/ge", "add/sub"]
+    );
+    // A qualified mutation is the mutation as written: the id names the row only.
+    let spec = Spec::fixture("calc");
+    let single = MutationList::read(&dir.join("add.toml")).unwrap();
+    assert_eq!(single.mutations[0].id, "sub");
+    assert_eq!(
+        spec.resolve(&list.mutations[2]).unwrap().digest,
+        spec.resolve(&single.mutations[0]).unwrap().digest
+    );
+    // An error names the file.
+    write(&dir.join("broken.toml"), "[[mutation]]\nid = \"m\"\n");
+    let error = MutationList::read(&dir).unwrap_err();
+    assert_eq!(error.key, "broken.toml: mutation \"m\"", "{error}");
+    write(&dir.join("broken.toml"), "[[mutation]\n");
+    let error = MutationList::read(&dir).unwrap_err();
+    assert_eq!(error.key, "broken.toml", "{error}");
+    // An empty directory is an empty list.
+    let empty = scratch("mutations-directory-empty");
+    assert_eq!(MutationList::read(&empty).unwrap(), MutationList::default());
+}
+
+#[test]
+fn a_label_matches_exactly_or_by_a_suffix_of_whole_components() {
+    use LabelMatch::{Exact, Suffix};
+    for (stored, anchor, expected) in [
+        ("NAT.x", "x", Some(Exact)),
+        ("NAT.x", "NAT.x", Some(Exact)),
+        ("x", "NAT.x", Some(Exact)),
+        ("x", "x", Some(Exact)),
+        ("NAT.x", "NAT.NAT.x", None),
+        ("nat--plus_zero", "plus_zero", Some(Suffix)),
+        ("nat--mul--plus_zero", "mul--plus_zero", Some(Suffix)),
+        ("NAT.nat--plus_zero", "plus_zero", Some(Suffix)),
+        ("A.B.x", "B.x", Some(Suffix)),
+        ("nat--plus_zero", "zero", None),
+        ("nat--plus_zero", "us_zero", None),
+        ("nat--plus_zero", "", None),
+        ("call-taken", "taken", None),
+    ] {
+        assert_eq!(
+            label_match(stored, "NAT", anchor),
+            expected,
+            "{stored} {anchor}"
+        );
+    }
+}
+
+/// A specification labelled as KRS labels its sentences (`<namespace>--<module>--<item>`), beside
+/// K's own label forms.
+fn suffix_spec(test: &str) -> Spec {
+    let dir = scratch(test);
+    write(
+        &dir.join("nat.k"),
+        r#"module NAT-SYNTAX
+  syntax Nat ::= "z" [symbol(z)]
+               | s(Nat) [symbol(s)]
+  syntax Nat ::= plus(Nat, Nat) [function, symbol(plus)]
+               | mul(Nat, Nat) [function, symbol(mul)]
+               | ident(Nat) [function, symbol(ident)]
+endmodule
+
+module NAT
+  imports NAT-SYNTAX
+  configuration <k> $PGM:Nat </k>
+  rule plus(z, N) => N [label(nat--plus_zero)]
+  rule plus(s(M), N) => s(plus(M, N)) [label(nat--plus_succ)]
+  rule mul(z, _) => z [label(nat--mul--plus_zero)]
+  rule mul(s(M), N) => plus(N, mul(M, N)) [label(plus_succ)]
+  rule [ident]: ident(N) => N
+endmodule
+"#,
+    );
+    write(
+        &dir.join("FLOW.toml"),
+        "[spec]\nentry = \"nat.k\"\nmain_module = \"NAT\"\nsyntax_module = \"NAT-SYNTAX\"\n",
+    );
+    Spec::at(&dir.join("FLOW.toml"))
+}
+
+#[test]
+fn an_anchor_names_a_rule_by_its_label_or_a_unique_suffix_of_its_components() {
+    let spec = suffix_spec("suffix-anchors");
+    let label_of = |anchor: &str, find: &str, replace: &str| {
+        let resolved = spec
+            .resolve_edits(&format!(
+                "[[mutation.edit]]\nrule = \"{anchor}\"\nfind = \"{find}\"\nreplace = \"{replace}\"\n"
+            ))
+            .unwrap_or_else(|e| panic!("{anchor}: {e}"));
+        resolved.rules[0].label.clone().unwrap()
+    };
+    // The whole label, and a unique suffix of its components.
+    assert_eq!(label_of("nat--plus_zero", "=> N", "=> z"), "nat--plus_zero");
+    assert_eq!(
+        label_of("mul--plus_zero", "=> z", "=> s(z)"),
+        "nat--mul--plus_zero"
+    );
+    assert_eq!(
+        label_of("NAT.nat--plus_zero", "=> N", "=> z"),
+        "nat--plus_zero"
+    );
+    // An exact label does not win over a suffix of another: `plus_succ` is the mul rule's own
+    // label and `nat--plus_succ` ends with it, so the anchor is refused, with each rule's
+    // module-qualified label, and that label names the rule.
+    let shadowed = expect_invalid(
+        spec.resolve_edits(
+            "[[mutation.edit]]\nrule = \"plus_succ\"\nfind = \"plus(N,\"\nreplace = \"plus(M,\"\n",
+        ),
+        Some(0),
+        InvalidReason::AmbiguousLabel,
+    );
+    assert!(
+        shadowed.detail.contains("\"NAT.plus_succ\"")
+            && shadowed.detail.contains("\"NAT.nat--plus_succ\""),
+        "{shadowed}"
+    );
+    assert_eq!(label_of("NAT.plus_succ", "plus(N,", "plus(M,"), "plus_succ");
+    assert_eq!(
+        label_of("NAT.nat--plus_succ", "s(plus(M, N))", "plus(M, N)"),
+        "nat--plus_succ"
+    );
+    assert_eq!(label_of("ident", "=> N", "=> z"), "NAT.ident");
+    // A suffix that two labels end with is ambiguous, naming both.
+    let ambiguous = expect_invalid(
+        spec.resolve_edits(
+            "[[mutation.edit]]\nrule = \"plus_zero\"\nfind = \"z\"\nreplace = \"s(z)\"\n",
+        ),
+        Some(0),
+        InvalidReason::AmbiguousLabel,
+    );
+    assert!(
+        ambiguous.detail.contains("nat--plus_zero")
+            && ambiguous.detail.contains("nat--mul--plus_zero"),
+        "{ambiguous}"
+    );
+    // Part of a component is no suffix; the refusal lists the labels that contain it.
+    let unknown = expect_invalid(
+        spec.resolve_edits(
+            "[[mutation.edit]]\nrule = \"succ\"\nfind = \"z\"\nreplace = \"s(z)\"\n",
+        ),
+        Some(0),
+        InvalidReason::UnknownLabel,
+    );
+    assert!(
+        unknown.detail.contains("nat--plus_succ") && unknown.detail.contains("plus_succ"),
+        "{unknown}"
+    );
+}
+
+/// A resolved mutation gives each edit's own range of the K view and its replacement, beside the
+/// rule-level before and after that merge the edits of one rule.
+#[test]
+fn a_resolved_mutation_gives_each_edits_range_and_replacement() {
+    let spec = Spec::fixture("calc");
+    let view = fs::read_to_string(flow("calc").join("calc.k")).unwrap();
+    let resolved = spec
+        .resolve_edits(
+            "[[mutation.edit]]\nrule = \"add\"\nfind = \"+Int I2\"\nreplace = \"-Int I2\"\n\
+             [[mutation.edit]]\nrule = \"add\"\nfind = \"I1:Int +\"\nreplace = \"I1:Int  +\"\n\
+             [[mutation.edit]]\nrule = \"mul\"\ndelete = true\n",
+        )
+        .unwrap();
+    // The two edits of `add` are one rule with both applied ...
+    assert_eq!(resolved.rules.len(), 2);
+    assert_eq!(
+        resolved.rules[0].edits.iter().collect::<BTreeSet<_>>(),
+        [0, 1].iter().collect()
+    );
+    // ... and two edits, each with its own range and replacement, in edit order.
+    let edits = &resolved.edits;
+    assert_eq!(edits.iter().map(|e| e.edit).collect::<Vec<_>>(), [0, 1, 2]);
+    let edited = &resolved.edited_views["calc.k"];
+    for (edit, find, replacement) in [
+        (&edits[0], "+Int I2", Some("-Int I2")),
+        (&edits[1], "I1:Int +", Some("I1:Int  +")),
+    ] {
+        assert_eq!(edit.at, resolved.rules[0].at);
+        assert_eq!(edit.file, "calc.k");
+        assert_eq!(&view[edit.range.clone()], find);
+        assert_eq!(edit.replacement.as_deref(), replacement);
+        assert_eq!(Some(&edited[edit.edited_range.clone()]), replacement);
+    }
+    // Edit 1 precedes edit 0 in the rule and lengthens the text by one byte, so edit 0's
+    // replacement lies one byte later in the edited view than its range in the baseline view.
+    assert!(edits[1].range.start < edits[0].range.start);
+    assert_eq!(edits[0].edited_range.start, edits[0].range.start + 1);
+    // A deletion rewrites the rule's whole span and writes nothing.
+    let delete = &edits[2];
+    assert_eq!(delete.at, resolved.rules[1].at);
+    assert_eq!(&view[delete.range.clone()], resolved.rules[1].before);
+    assert_eq!(delete.replacement, None);
+    assert!(delete.edited_range.is_empty());
+}
+
+#[test]
+fn an_edit_that_writes_the_text_it_finds_changes_nothing() {
+    let spec = Spec::fixture("calc");
+    let invalid = expect_invalid(
+        spec.resolve_edits(
+            "[[mutation.edit]]\nrule = \"add\"\nfind = \"I1 +Int I2\"\nreplace = \"I1 +Int I2\"\n",
+        ),
+        Some(0),
+        InvalidReason::NoChange,
+    );
+    assert!(invalid.detail.contains("changes nothing"), "{invalid}");
+    // With another edit that does change the rule, the no-op edit is still refused by index.
+    expect_invalid(
+        spec.resolve_edits(
+            "[[mutation.edit]]\nrule = \"add\"\nfind = \"=> I1\"\nreplace = \"=> I2\"\n\
+             [[mutation.edit]]\nrule = \"add\"\nfind = \"+Int\"\nreplace = \"+Int\"\n",
+        ),
+        Some(1),
+        InvalidReason::NoChange,
+    );
 }

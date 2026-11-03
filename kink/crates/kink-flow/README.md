@@ -15,7 +15,9 @@ the outcome cache: proved outcomes kept across commands, killer hints that survi
 one baseline run per program per command (flow F-12),
 report usability: named oracle slots, timings, leaf censuses in the causes of stopped runs, cheaper killers first, and the rules no mutation targets (flow F-13),
 per-input pattern checks with the `query` command (flow F-18; "Checking a pattern" below),
-and the `fuzz` command: hole values of a template program that kill a mutation, reach a rule or hit a pattern, found by k-rust-fuzz on kink's own sides (fz26 P7-KINKFLOW T3a and T5; "Killing a survivor with `fuzz`" below).
+the `fuzz` command: hole values of a template program that kill a mutation, reach a rule or hit a pattern, found by k-rust-fuzz on kink's own sides (fz26 P7-KINKFLOW T3a and T5; "Killing a survivor with `fuzz`" below),
+the mutations directory, anchors by a suffix of a label's components and the required `misunderstanding` (CF-13; `MUTATIONS.toml` below),
+and the resolve-only check of a mutation list, `check --mutations` (CF-18; "Checking mutations" below).
 
 ## Building
 
@@ -75,7 +77,7 @@ Defaults:
 The tool supplies everything else: the k-rust revision is the build's (every output's `k_rust_revision` is k-rust's build identity, `k_rust::build_identity`: the version of the in-repo k-rust kink is built with and a digest of its sources; the semantics identity and the cache keys name the version, `kink_native::K_RUST_REVISION`, beside the executable's digest),
 and the below-floor conformance cases (kink-corpus `BELOW_FLOOR`) are refused for the entry and for every file the load reads.
 
-## `kink-flow check FLOW.toml`
+## `kink-flow check FLOW.toml [--mutations MUTATIONS] [--cache DIR]`
 
 Admits the specification through kink-corpus's admission stages, with the same stage names and refusal reasons:
 `manifest` (this crate: the manifest does not decode), `exclusion`, `load`, `semantic-input`, `compile`,
@@ -92,17 +94,56 @@ A refused specification skips the programs; a refused program never stops the ot
 It prints one JSON document:
 
 ```json
-{"schema": "kink-flow-check", "version": 1, "k_rust_revision": "...", "profile": "no-z3",
+{"schema": "kink-flow-check", "version": 2, "k_rust_revision": "...", "profile": "no-z3",
  "spec": {"outcome": "admitted", "stage": null, "reason": null, "detail": null,
           "files": [{"name": "calc.k", "sha256": "..."}]},
- "programs": [{"id": "add", "outcome": "ok", "stage": null, "reason": null, "detail": null}]}
+ "programs": [{"id": "add", "outcome": "ok", "stage": null, "reason": null, "detail": null}],
+ "mutation_list": null, "mutations": null, "coverage": null}
 ```
 
-Exit status: 0 when the specification is admitted and every program is ok;
-1 when the manifest, the specification or a program is refused; 2 on a usage error (message on stderr).
+Version 2 (CF-18) adds `mutation_list`, `mutations` and `coverage`, which are null without `--mutations`.
+
+Exit status: 0 when the specification is admitted, every program is ok and, with `--mutations`, the list decodes and no mutation is refused (warnings do not count);
+1 when the manifest, the specification, a program, the mutation list or a mutation is refused; 2 on a usage error (message on stderr).
+
+### Checking mutations
+
+`check FLOW.toml --mutations MUTATIONS` resolves every mutation of the list against the current specification, exactly as `run` resolves it, and runs no program: no mutant is compiled and nothing is written.
+It is the compile step of an author's loop: run it after every edit of the list or of the specification, before `run`.
+`MUTATIONS` is a `MUTATIONS.toml` or a mutations directory (`MUTATIONS.toml` below).
+The check compiles no mutant, so `ok` means that the mutation resolves, not that `run` will judge it:
+a mutant that kink does not compile (a replacement with an unbound variable, say) or whose equations may have no model (`inconsistent-mutant`) is found only by `run`, which gives it the status `invalid` and exits 1.
+
+The command is library code in two steps, so that a front end can add findings of its own between them and print the document `kink-flow check` prints:
+`kink_flow::cli::check_corpus_mutations` admits the specification and the programs, reads the cached coverage and checks every mutation, returning all of it as data (each mutation's resolution and findings: `kink_flow::check::MutationCheck`);
+`kink_flow::cli::check_mutations_document` renders the document and decides the exit status.
+A finding a front end adds with `refusal: true` refuses its mutation as a resolution failure does.
+A resolved mutation gives each edit as it was applied (`ResolvedMutation::edits`: the edit's byte range in the file's K view, its replacement, and where the replacement lies in the edited view), beside each edited rule's before and after, which merge the edits of one rule.
+
+The document is the check document above, with:
+
+- `mutation_list`: `{outcome: "ok" | "refused", detail}`; a list that does not decode is refused with the key at fault, and `mutations` is then null.
+- `mutations`: one row per mutation, in list order, `{id, misunderstanding, outcome, digest, rules, refusals, warnings}`.
+  `outcome` is `ok`, `refused`, or `error` for a resolution the host refused (`host-stack-refused`, which is not the mutation's fault).
+  `rules` are the edited rules, as in the run document: `{module, index, file, label, start_line, end_line, edits, before, after}` (null when the mutation does not resolve).
+  Each refusal and warning is `{reason, edit, rule, detail, next}`: `edit` the index of the edit at fault (or null), `rule` the baseline sentence `{module, index}` it is about (or null), and `next` one sentence saying what to do.
+- `coverage`: `{decides, without_record, incomplete, detail}`, what the cached results (`results`, read from `--cache DIR` or `.kink-flow/`, never written) say about which rules the corpus uses: `decides` is true when every program has a current result record and every comparable program's coverage is complete; `without_record` and `incomplete` name the programs that keep it false.
+
+A refusal is a reason of the table below (`MUTATIONS.toml`) with its next step: a stale anchor (`unknown-label`, `find-not-found`, `line-outside-rules`, `source-changed`), overlapping edits (`overlapping-edits`), a sentence that is not a rule (`non-rule-sentence`), an edit that changes nothing (`no-change`), and the others.
+A refused mutation is one `run` reports as `invalid-mutation`.
+
+Warnings refuse nothing:
+
+| Warning | Meaning |
+| --- | --- |
+| `line-anchor` | The edit addresses its rule by `line`. A line moves whenever anything above it changes; the edit then fails, or lands on whichever rule holds that line and the text. `next` names the rule's label to address it by, when it has one. |
+| `text-anchor` | The edit addresses its rule by its `find` text alone. After an edit of the specification the text can occur once in another rule, and the edit then lands there. `next` as for `line-anchor`. |
+| `unreached-rule` | No comparable program witnesses this rule's edit in the cached results: none reached the rule (k-rust `matched`) for an edit of its `requires`, none applied it (`applied`) for any other edit, which is `run`'s witness rule (step 3). It is given per edited rule: a mutation that edits several rules may still be killed by a program that witnesses another of them, and an edit (such as a widened left-hand side) can make a program that never used the rule use the mutant's. Given only when `coverage.decides`. |
+| `no-coverage-signal` | k-rust's coverage cannot record the rule (a macro, alias, `smt-lemma` or non-executable rule, as in `results`), so no program can be shown to reach it. |
+
 `kink-flow --version` prints `kink-flow VERSION (k-rust REVISION)`, where `REVISION` is k-rust's build identity (`k_rust::build_identity`: its version and a digest of its sources, such as `0.8.0+src.<hex>`), the value every document's `k_rust_revision` names (GUIDE-USABILITY 5, KINK-R4: within each document's version, since the field's shape did not change; before, every document but `fuzz`'s named the version alone), and exits 0.
 
-## `kink-flow results FLOW.toml [--verify] [--mutations MUTATIONS.toml] [--cache DIR]`
+## `kink-flow results FLOW.toml [--verify] [--mutations MUTATIONS] [--cache DIR]`
 
 Runs every program whose result is not cached yet and reports, per program, whether it can
 kill a mutant, and, per rule of the specification, which programs reach it.
@@ -227,16 +268,16 @@ not be written or `--verify` found a mismatch; 2 on a usage error.
 ## `MUTATIONS.toml`
 
 A mutation is one or more text edits of the specification's rules, applied together or not at all
-(several edits make a correlated mutation):
+(several edits make a correlated mutation), and the plausible misunderstanding of the specification it writes:
 
 ```toml
 [[mutation]]
 id = "add-becomes-sub"
-note = "addition evaluates as subtraction"   # optional, free text
+misunderstanding = "addition evaluates as subtraction"   # required prose; `note` is its alias
 
   [[mutation.edit]]
   file = "calc.k"            # optional when the spec reads one file, or when rule is given
-  rule = "add"               # optional: a rule label, bare ("add") or module-qualified ("CALC.add")
+  rule = "add"               # optional: a rule label ("add", "CALC.add"), or a unique suffix of its components
   line = 21                  # optional: any line inside the rule
   find = "I1 +Int I2"        # exact text, exactly once in the addressed rule
   replace = "I1 -Int I2"
@@ -249,10 +290,34 @@ note = "addition evaluates as subtraction"   # optional, free text
 An edit has `find` and `replace` (`find` non-empty, `replace` may be empty), or `delete = true` (which needs `rule` or `line`).
 With neither `rule` nor `line`, `find` must occur exactly once in the file, inside one rule.
 A label is `MODULE.x` or the bare `x` for both of K's label forms: k-rust stores `rule [x]:` as `MODULE.x`
-and `[label(x)]` as the bare `x`, and either input addresses either form in module `MODULE`
-(a label that matches several rules is `ambiguous-label`).
-Unknown keys, values of the wrong type, duplicate or empty ids and a mutation without edits are errors naming the key.
+and `[label(x)]` as the bare `x`, and either input addresses either form in module `MODULE`.
+The anchor also addresses a label it is a suffix of, in whole components, components being separated by `.` or `--` (the separator of KRS's labels):
+`plus_zero` addresses `nat--plus_zero` (and `NAT.nat--plus_zero`), `mul--plus_zero` addresses `nat--mul--plus_zero`, and `zero` addresses neither.
+The anchor must address exactly one label, whether as the label itself or as a suffix of it: no label takes precedence over another.
+A mutation is stored and replayed after every edit of the specification, so a precedence would move an anchor silently: `plus_succ` addressing `nat--plus_succ` would move to a rule that later comes to be labelled `plus_succ`; instead the anchor is refused there, as a stale anchor is.
+(`krs prove --claim` lets the whole label win, which suits a filter typed once.)
+An anchor that several labels match is `ambiguous-label`, naming each with its module-qualified label (`NAT.plus_succ`, `NAT.nat--plus_succ`), the fullest anchor a label has; one that matches none is `unknown-label`, naming the labels that contain its last component.
+
+`misunderstanding` says, in prose, which mistake an author could make that the mutation writes down: a mutation is meant to be one, a reviewer judges it by what it says, and the next program for a survivor follows from it.
+It is required (`note`, its former name, is accepted as an alias; giving both is an error), and it enters no digest, key or hint; the run document's row keeps it under `note`.
+Unknown keys, values of the wrong type, duplicate or empty ids, a mutation without edits and one without its misunderstanding are errors naming the key.
 `testdata/flow/calc/MUTATIONS.toml`, `testdata/flow/register/MUTATIONS.toml` and `testdata/flow/markdown/MUTATIONS.toml` are complete examples.
+
+### A mutations directory
+
+Every command that reads a mutation list (`check --mutations`, `results --mutations`, `run`, `fuzz --mutations`) takes a file or a directory.
+A directory, such as a KRS package's `kink/mutations/`, holds one `<topic>.toml` per topic, each with one or more `[[mutation]]` in the format above:
+
+```text
+kink/mutations/add-carry.toml    [[mutation]] id = "ge" ...   -> mutation add-carry/ge
+kink/mutations/add-carry.toml    [[mutation]] id = "gt" ...   -> mutation add-carry/gt
+kink/mutations/sub-borrow.toml   [[mutation]] id = "lt" ...   -> mutation sub-borrow/lt
+```
+
+Every regular file directly in the directory whose name ends in `.toml` and does not start with `.` is read, in byte order of the names; subdirectories and other files are not.
+A mutation's id is qualified by its file's stem, `<stem>/<id>`, so that ids are unique across files (a stem holds no `/`) and agents adding mutations to separate files never conflict; `--only` and `--kill` take the qualified id.
+An error names the file (`add-carry.toml: mutation "ge".edit[0]: ...`).
+The id only names the row: a mutation resolves, is cached and is hinted the same under either id.
 
 ### Markdown sources: the K view
 
@@ -292,14 +357,14 @@ equation of a function the source reading does not redefine makes the mutation `
 value `{head, equation}`; re-pin R0-tail).
 
 A mutation that fails any check is `invalid-mutation`, with the offending edit (`edit[i]`) when one is at fault,
-a reason and a detail; it is never compiled. Reasons:
+a reason and a detail; it is never compiled. `check --mutations` gives each reason's next step (`InvalidReason::next_step`). Reasons:
 
 | Reason | Meaning |
 | --- | --- |
 | `unknown-file` | `file` is not a source file of the specification. |
 | `file-required` | The specification reads several files and the edit names neither `file` nor `rule`. |
-| `unknown-label` | No rule has the label. |
-| `ambiguous-label` | The bare label names rules of several modules; write `MODULE.label`. |
+| `unknown-label` | No rule has the label, and no label ends with it as whole components: the rule was renamed or removed (a stale anchor), or the anchor is misspelt. |
+| `ambiguous-label` | The anchor names several rules, as their label or as a suffix of their labels' components; write more of the label: more of its components, or the module-qualified label the detail gives for each. |
 | `line-outside-rules` | No sentence covers the line. |
 | `line-ambiguous` | Several rules share the line; address one by `rule`. |
 | `address-mismatch` | `rule`, `line` and `file` name different rules. |
@@ -315,12 +380,12 @@ a reason and a detail; it is never compiled. Reasons:
 | `structure-changed` | The edit changed something besides its rule: a sentence split, merged, added, removed, changed kind or changed elsewhere. |
 | `span-changed` | In an edited file a sentence does not start (or, unless it is the replaced rule, end) where the edits move it: the edit's text reaches past its rule: a replacement that ends in a comment, or one that comments out a neighbouring rule and writes a copy of it. |
 | `label-changed` | The edit changes the rule's label. |
-| `no-change` | The edited rule equals the original up to formatting. |
+| `no-change` | The edited rule equals the original up to formatting, or an edit's `replace` is its `find`: the edit changes nothing. |
 | `edited-rule-too-deep` | An edited rule is too deep for kink: its patch's document would nest deeper than kink-patch `MAX_JSON_DEPTH` (two JSON levels per term level: terms about 300,000 levels deep in a release build, 64,000 in the unoptimized test build), so the mutation has no encoding and no identity. This is kink's limit, not a fault of the mutation. A patch holds each edited rule whole, so the detail gives the rule's depth as a whole and the specification's rule's: when the specification's rule alone is already past the limit, it says that no mutation that keeps the rule's deep part can be judged in this build (target other rules, or replace the deep part by a shallow one; re-pin L1-4); otherwise a mutation that keeps the whole rule within about half the limit in term levels is judged (re-pin L1-3-tail). Below the limit a rule's depth decides nothing: its typing and its patch's encoding run on a stack sized from that depth, on any thread (re-pin L1-3-fix-2; before, a rule about 230,000 terms deep aborted the whole run in typing). |
 | `host-stack-refused` (status `error`) | The host refused the native stack that encoding the mutation's patch needs: the system would not map a stack segment of the size the patch's depth needs (an address-space limit such as `ulimit -v`, or memory it will not commit). It is the host's limit, neither a fault of the mutation nor a verdict, so the row is `error`, not `invalid-mutation`; rerun where the host grants the stack. Only a deep patch needs a segment: the segment is sized from the patch's own document depth (re-pin L1-3-tail; at L1-3-fix-2 every patch more than 48 term levels deep took a segment sized for `MAX_JSON_DEPTH`, 768 MB in release, and a refusal was reported as `patch-rejected`). |
 | `no-usable-span`, `patch-rejected` | Defensive: a rule's offsets and location name different text of its K view, or kink-patch refused the patch for a reason other than typing (a stale pin, a patch that does not resolve); not expected on rules k-rust loaded. No typing error refuses a mutation (re-pin L2-2-fix-1): a mutant is valid when it compiles, so compilation decides, and kink-patch records the edited rules' errors in compilation's typing view (`SentenceTyper::for_compilation` with `typing_in`) as the row's `typing_diagnostics`. k-rust documents that view's errors as errors compilation stops at, but at 501f18b9 it refuses shapes compilation accepts: a local function with a variable in a cell with children (`CellCompletion`), and a rule `a(X) => b(X)` whose sorts `A` and `B` have a second common supersort in the main module (a non-unique least upper bound). At the pin 8f8ad57c5 that view types the second shape (k-rust KINK-21/1), so its rows carry no typing diagnostic; the first remains. |
 
-## `kink-flow run FLOW.toml MUTATIONS.toml [--only ID]... [--verify] [--order cost|corpus] [--compile-workers N] [--no-memo] [--cache DIR]`
+## `kink-flow run FLOW.toml MUTATIONS [--only ID]... [--verify] [--order cost|corpus] [--compile-workers N] [--no-memo] [--cache DIR]`
 
 Runs the kill search: for each mutation of the list (in file order; with `--only`, only the named ones),
 is there a program of the corpus whose result the mutation changes?
@@ -381,7 +446,7 @@ On `examples/imp`, cold, mutant compiles are about 28 % of the run's wall time; 
 **Memos (re-pin L1-4).** A run does once, or not at all, what is a function of inputs that did not change (kink-flow `memo`):
 - The specification's baseline compiles once per command: program inputs are assembled with the admission's compile (kink-corpus `assemble_input_with`), where each program bound a fresh validator and compiled the baseline again (49 of the 81 baseline compiles of the flow lists cold).
 - The specification's input grammar (kink-corpus `InputGrammar`: the program grammar with its macro-expansion definition, the declared variables, the start sort, whether the definition has stream cells) and one configuration assembler are built once per command, on the first program it assembles, and serve every later program (`InputSession`, R5-INPUT-COST); before, each program rebuilt them, about three whole-definition resolutions and two parser constructions per program, and its derived views once per configuration value. Each is a function of the specification alone and the assembler is cleared before each program, so every initial configuration and refusal is the one a fresh assembly gives (`tests/check.rs` `programs_share_one_input_grammar`, kink-corpus `tests/input.rs` `one_assembler_assembles_what_assemble_input_does`). A session is opened with its specification (`ProgramInputs::session(&spec)`), and the inputs accept only the specification admitted beside them, so no program is assembled with another specification's grammar.
-- The resolution memo, `memo/resolutions/<spec digest>/<entry digest>.json`, holds per mutation the facts of its resolution a row decided by tier 1 reads: the patch digest, the edited rules (texts, lines, label, whether the `requires` changed), the tier-1 mutation identity, the typing diagnostics and the claims the edit leaves unbacked. A mutation whose record has exactly the current key and that tier 1 decides with no call (a valid `killed` record, or a valid `agree` for every program of O, or no comparable program) is not resolved: its row is built from the facts by the code that builds it from a live resolution. Every other mutation is resolved live and its facts are written, so every mutation that compiles or runs anything was resolved in this command; the record holds no patch (the patch's canonical JSON does not carry k-rust's term metadata, so a decoded patch would not be the one resolution builds). The key names every input resolution reads: the specification digest (the k-rust revision, the profile, how the specification is loaded and every source file's name and SHA-256: resolution reads the admitted load, each touched file's bytes checked against that SHA-256, and an edited load of the same files under the same options), the mutation's edits in order with every field (`file`, `rule`, `line`, `find`/`replace` or `delete`; the id only names the row and the note is never read), `kink_build` and `kink`. Records are read only while every source file still has the SHA-256 the admission recorded. A typing diagnostic that says a rule was not typed (a refused stack segment) depends on the host, so facts that carry one are never written.
+- The resolution memo, `memo/resolutions/<spec digest>/<entry digest>.json`, holds per mutation the facts of its resolution a row decided by tier 1 reads: the patch digest, the edited rules (texts, lines, label, whether the `requires` changed), the tier-1 mutation identity, the typing diagnostics and the claims the edit leaves unbacked. A mutation whose record has exactly the current key and that tier 1 decides with no call (a valid `killed` record, or a valid `agree` for every program of O, or no comparable program) is not resolved: its row is built from the facts by the code that builds it from a live resolution. Every other mutation is resolved live and its facts are written, so every mutation that compiles or runs anything was resolved in this command; the record holds no patch (the patch's canonical JSON does not carry k-rust's term metadata, so a decoded patch would not be the one resolution builds). The key names every input resolution reads: the specification digest (the k-rust revision, the profile, how the specification is loaded and every source file's name and SHA-256: resolution reads the admitted load, each touched file's bytes checked against that SHA-256, and an edited load of the same files under the same options), the mutation's edits in order with every field (`file`, `rule`, `line`, `find`/`replace` or `delete`; the id only names the row and the misunderstanding is never read), `kink_build` and `kink`. Records are read only while every source file still has the SHA-256 the admission recorded. A typing diagnostic that says a rule was not typed (a refused stack segment) depends on the host, so facts that carry one are never written.
 - The census memo, `memo/census/<spec digest>.json`, holds the declaration census of the admission (the VI-T13 gate), a function of the compiled baseline and of kink's build (its reference: the builtin files, the pinned `krypto.md`, and the hooks k-rust implements), keyed on the specification digest, `kink_build` and `kink`.
 
 The premises are those the result cache and tier 1 already rest on: k-rust's load and compile are deterministic (the same files under the same options give the same definition, C-12), and the key names every input (`tests/memo.rs` pins each field of a mutation's edits: a key differs when any one field differs, it decodes back to the edits, and two mutations that differ in one field never share a record; it builds both keys member by member, the version, kink's build and semantics identity, the specification digest and the edits, and requires them equal to `memo`'s, and `tests/results.rs` requires the specification digest to change with each `[spec]` field, so a key that drops an input fails a test; re-pin L1-4-tail). Before any resolution record is read, every source file must still have the SHA-256 the admission recorded, so a file changed between the admission and resolution reads no record (`tests/memo.rs` changes one there). One premise is new, the host premise: a record exists only because resolution succeeded on the host that wrote it, and success can depend on the host (the native stack segment of the patch's encoding, which live gives `host-stack-refused`; the heap and address space of the edited load, which live aborts the process when exhausted; and the native stack segment each edited rule is typed on, which a host can refuse while it grants the encoding's, and which live gives a typing diagnostic saying the rule was not typed, with the row's status unchanged). The key does not name the host's capacity: a memo hit returns the tier-1-decided row that a host which could resolve the mutation computed for the same mutant identity, where live resolution on a smaller host would end `host-stack-refused`, abort, or give the same row with a typing diagnostic saying the rule was not typed where the memo gives the writer's typing diagnostics (re-pin L1-4-tail). That cannot make a false kill or hide a survivor (the mutant is judged where the host grants the stack, as this README recommends for `host-stack-refused`, and typing diagnostics decide nothing), but before L1-4 every resolution was recomputed in every command. So run documents with and without memos are equal on hosts that grant the stack and heap resolution needs. The memos are off where tier 1 is (the Z3 profile, an unreadable executable) and with `--no-memo`. `run --verify` decides nothing from a memo: it resolves every mutation and runs the census live, compares each record that has the current key, reports one that differs (the row's status `error`, reason `resolution-mismatch`, and an entry `{mutation, program: null, cached: {resolution}, live: {resolution}}` in `mismatches`, also for a mutation `--only` does not select or that a corpus error left unsearched, which has no row; a census, `{mutation: null, program: null, cached: {census}, live: {census}}`, also when the live census refuses the specification, so a stored census that admits a specification the live census refuses is reported in the refused document) and writes no memo. A memo never enters the run document, an outcome record or a hint: on such a host a run with and without memos writes the same ones (`tests/memo.rs`, cold and warm, with every status and a Markdown source; each key input changed, a forged record under the current key used and reported by `--verify`, in both directions for the census). A memo that cannot be written only means a later recomputation, so it is not reported.
@@ -510,9 +575,10 @@ Besides `results/` and `report.json` (the last run's document, also written when
 Every file is written atomically; deleting any of them, or the whole directory, is always safe.
 The `killers/` directory of F-05 is no longer read or written and can be deleted.
 
-Exit status: 0 when every selected mutation got its status (survivors, timeouts and invalid mutations included);
-1 when the manifest, the mutation list, the specification or a program is refused, a run failed, a cache file could not be written,
+Exit status: 0 when every selected mutation got its status (survivors and timeouts included) and none is invalid;
+1 when the manifest, the mutation list, the specification or a program is refused, a selected mutation is `invalid-mutation` or `invalid` (its author must fix it before it is judged: it does not resolve, or its mutant does not compile or may have no model), a run failed, a cache file could not be written,
 no program is comparable, a corpus error stopped the run, or `--verify` found a mismatch; 2 on a usage error (including an `--only` id that names no mutation, or `--verify` given twice).
+The document is the same either way: the exit status is how a script or an agent's loop notices an invalid mutation, and `check --mutations` finds the unresolved ones without running anything.
 
 ## The report: the run document
 

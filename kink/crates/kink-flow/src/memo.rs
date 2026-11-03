@@ -244,11 +244,12 @@ impl Facts {
 }
 
 /// Every input of a mutation that resolution reads (module docs): its edits in order, each with
-/// every field. The id only names the row, and the note is free text resolution never reads.
+/// every field. The id only names the row, and the misunderstanding is prose resolution never
+/// reads.
 pub fn mutation_entry(mutation: &Mutation) -> Value {
     let Mutation {
         id: _,
-        note: _,
+        misunderstanding: _,
         edits,
     } = mutation;
     Value::Array(

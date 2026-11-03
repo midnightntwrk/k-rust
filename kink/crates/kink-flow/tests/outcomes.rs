@@ -736,7 +736,7 @@ fn a_doubly_qualified_label_is_unknown() {
     let loaded = load_source(&corpus_source(&flow)).unwrap();
     let resolve_label = |label: &str| {
         let list = MutationList::decode(&format!(
-            "[[mutation]]\nid = \"m\"\n[[mutation.edit]]\nrule = \"{label}\"\nfind = \"+Int 1\"\nreplace = \"+Int 3\"\n"
+            "[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\n[[mutation.edit]]\nrule = \"{label}\"\nfind = \"+Int 1\"\nreplace = \"+Int 3\"\n"
         ))
         .unwrap();
         resolve(&flow, &loaded, &list.mutations[0])
@@ -750,7 +750,7 @@ fn a_doubly_qualified_label_is_unknown() {
     // The [label(dec)] rule is still addressed by LIT.dec, not by LIT.LIT.dec.
     let dec = |label: &str| {
         let list = MutationList::decode(&format!(
-            "[[mutation]]\nid = \"m\"\n[[mutation.edit]]\nrule = \"{label}\"\ndelete = true\n"
+            "[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\n[[mutation.edit]]\nrule = \"{label}\"\ndelete = true\n"
         ))
         .unwrap();
         resolve(&flow, &loaded, &list.mutations[0]).map(|r| r.digest)
@@ -1000,6 +1000,7 @@ endmodule
             dir.join("MUTATIONS.toml"),
             r#"[[mutation]]
 id = "denominator"
+misunderstanding = "a test mutation"
   [[mutation.edit]]
   rule = "tdeq"
   find = "I +Int 1"
@@ -1312,6 +1313,7 @@ endmodule
 ";
         let mutations = r#"[[mutation]]
 id = "denominator"
+misunderstanding = "a test mutation"
   [[mutation.edit]]
   rule = "tdiv"
   find = "I +Int 1"
@@ -1422,18 +1424,21 @@ id = "denominator"
             &mutations,
             r#"[[mutation]]
 id = "choice-agrees"
+misunderstanding = "a test mutation"
   [[mutation.edit]]
   rule = "store"
   find = "M[K <- V]"
   replace = "M[K <- choice(M (V |-> K))]"
 [[mutation]]
 id = "choice-differs"
+misunderstanding = "a test mutation"
   [[mutation.edit]]
   rule = "store"
   find = "M[K <- V]"
   replace = "M[K <- choice(M (K |-> V))]"
 [[mutation]]
 id = "choice-of-two"
+misunderstanding = "a test mutation"
   [[mutation.edit]]
   rule = "store"
   find = "M[K <- V]"

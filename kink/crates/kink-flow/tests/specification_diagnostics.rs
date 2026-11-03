@@ -64,6 +64,7 @@ text = "ok 1"
 const MUTATIONS: &str = r#"
 [[mutation]]
 id = "ok-through-td"
+misunderstanding = "a test mutation"
 
   [[mutation.edit]]
   rule = "ok"

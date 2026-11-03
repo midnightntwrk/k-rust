@@ -63,7 +63,10 @@ impl Spec {
     }
 
     fn resolve_edits(&self, edits: &str) -> Result<ResolvedMutation, InvalidMutation> {
-        let list = MutationList::decode(&format!("[[mutation]]\nid = \"m\"\n{edits}")).unwrap();
+        let list = MutationList::decode(&format!(
+            "[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\n{edits}"
+        ))
+        .unwrap();
         resolve(&self.manifest, &self.loaded, &list.mutations[0])
     }
 
@@ -677,7 +680,7 @@ fn a_ghost_fence_that_changes_a_sentence_is_a_source_view_mismatch() {
             refused.1
         );
         let list = MutationList::decode(
-            "[[mutation]]\nid = \"m\"\n[[mutation.edit]]\nrule = \"b\"\nfind = \"=> 3\"\nreplace = \"=> 4\"\n",
+            "[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\n[[mutation.edit]]\nrule = \"b\"\nfind = \"=> 3\"\nreplace = \"=> 4\"\n",
         )
         .unwrap();
         let invalid = expect_invalid(

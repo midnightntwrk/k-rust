@@ -1,17 +1,20 @@
 [[mutation]]
 id = "plus-as-minus"
+misunderstanding = "addition evaluates as subtraction"
   [[mutation.edit]]
   rule = "plus"
   find = "I1 +Int I2"
   replace = "I1 -Int I2"
 [[mutation]]
 id = "decl-guard-dropped"
+misunderstanding = "a declaration may redeclare a variable that is already bound"
   [[mutation.edit]]
   rule = "decl"
   find = "requires notBool (X in keys(Rho))"
   replace = "requires true"
 [[mutation]]
 id = "decl-initial-value"
+misunderstanding = "a declared variable starts at one, not zero"
   [[mutation.edit]]
   rule = "decl"
   find = "X |-> 0"

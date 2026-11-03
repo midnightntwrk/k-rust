@@ -350,7 +350,7 @@ fn inline_flow(
     let mut list = String::new();
     for (id, rule, find, replace) in mutations {
         list.push_str(&format!(
-            "[[mutation]]\nid = \"{id}\"\n\n  [[mutation.edit]]\n  rule = \"{rule}\"\n  \
+            "[[mutation]]\nid = \"{id}\"\nmisunderstanding = \"a test mutation\"\n\n  [[mutation.edit]]\n  rule = \"{rule}\"\n  \
              find = \"{find}\"\n  replace = \"{replace}\"\n\n"
         ));
     }
@@ -403,7 +403,11 @@ mod kink_tier {
         assert!(!dir.join(CACHE_DIRECTORY).exists());
 
         let bad = dir.join("BAD.toml");
-        fs::write(&bad, "[[mutation]]\nid = \"m\"\nlabel = \"x\"\n").unwrap();
+        fs::write(
+            &bad,
+            "[[mutation]]\nid = \"m\"\nmisunderstanding = \"a test mutation\"\nlabel = \"x\"\n",
+        )
+        .unwrap();
         for (args, code) in [
             (vec!["run"], EXIT_USAGE),
             (vec!["run", "FLOW.toml"], EXIT_USAGE),
@@ -583,9 +587,9 @@ note = "requires and right-hand side"
         .unwrap();
         fs::write(
             dir.join("MUTATIONS.toml"),
-            "[[mutation]]\nid = \"second-steps\"\n\n  [[mutation.edit]]\n  rule = \"twice\"\n  \
+            "[[mutation]]\nid = \"second-steps\"\nmisunderstanding = \"a test mutation\"\n\n  [[mutation.edit]]\n  rule = \"twice\"\n  \
              find = \"~> done(X)\"\n  replace = \"~> step(X)\"\n\n\
-             [[mutation]]\nid = \"first-zero\"\n\n  [[mutation.edit]]\n  rule = \"first\"\n  \
+             [[mutation]]\nid = \"first-zero\"\nmisunderstanding = \"a test mutation\"\n\n  [[mutation.edit]]\n  rule = \"first\"\n  \
              find = \"done(X)\"\n  replace = \"done(0)\"\n",
         )
         .unwrap();

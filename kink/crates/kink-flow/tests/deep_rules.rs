@@ -20,9 +20,9 @@ use std::{fs, path::PathBuf};
 const FLOW: &str = "[spec]\nentry = \"deep.k\"\nmain_module = \"DEEP\"\nsyntax_module = \
                     \"DEEP-SYNTAX\"\n\n[[program]]\nid = \"add\"\nfile = \"programs/add.deep\"\n";
 
-const MUTATIONS: &str = "[[mutation]]\nid = \"add-becomes-sub\"\n  [[mutation.edit]]\n  rule = \
+const MUTATIONS: &str = "[[mutation]]\nid = \"add-becomes-sub\"\nmisunderstanding = \"a test mutation\"\n  [[mutation.edit]]\n  rule = \
                          \"add\"\n  find = \"I1 +Int I2\"\n  replace = \"I1 -Int I2\"\n\n\
-                         [[mutation]]\nid = \"big-guard\"\n  [[mutation.edit]]\n  rule = \
+                         [[mutation]]\nid = \"big-guard\"\nmisunderstanding = \"a test mutation\"\n  [[mutation.edit]]\n  rule = \
                          \"big\"\n  find = \"I >Int 100\"\n  replace = \"I >Int 200\"\n";
 
 fn specification(depth: usize) -> String {
@@ -147,9 +147,9 @@ fn a_rule_too_deep_for_kink_is_refused_by_name_and_the_other_rows_stand(rounds: 
     on_big_stack(move || {
         let depth = kink_patch::MAX_JSON_DEPTH / 2;
         let mutations = format!(
-            "[[mutation]]\nid = \"add-becomes-sub\"\n  [[mutation.edit]]\n  rule = \"add\"\n  \
+            "[[mutation]]\nid = \"add-becomes-sub\"\nmisunderstanding = \"a test mutation\"\n  [[mutation.edit]]\n  rule = \"add\"\n  \
              find = \"I1 +Int I2\"\n  replace = \"I1 -Int I2\"\n\n[[mutation]]\nid = \
-             \"big-deep\"\n  [[mutation.edit]]\n  rule = \"big\"\n  find = \"deep(z)\"\n  \
+             \"big-deep\"\nmisunderstanding = \"a test mutation\"\n  [[mutation.edit]]\n  rule = \"big\"\n  find = \"deep(z)\"\n  \
              replace = \"deep({}z{})\"\n",
             "s(".repeat(depth),
             ")".repeat(depth)

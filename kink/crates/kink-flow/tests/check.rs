@@ -3,7 +3,8 @@
 use kink_flow::{
     FlowManifest,
     admit::{FlowAdmission, admit},
-    cli::{EXIT_CORPUS, EXIT_OK, EXIT_USAGE, check},
+    cli::{CheckOptions, EXIT_CORPUS, EXIT_OK, EXIT_USAGE, check, check_with},
+    mutation::InvalidReason,
 };
 use kink_patch::sha256;
 use serde_json::Value;
@@ -81,7 +82,10 @@ fn calc_is_admitted_with_every_program_ok_and_the_document_is_exact() {
     assert_eq!(
         keys(&document),
         [
+            "coverage",
             "k_rust_revision",
+            "mutation_list",
+            "mutations",
             "profile",
             "programs",
             "schema",
@@ -90,7 +94,11 @@ fn calc_is_admitted_with_every_program_ok_and_the_document_is_exact() {
         ]
     );
     assert_eq!(document["schema"], "kink-flow-check");
-    assert_eq!(document["version"], 1);
+    assert_eq!(document["version"], 2);
+    // Without --mutations no list is checked.
+    for key in ["mutation_list", "mutations", "coverage"] {
+        assert!(document[key].is_null(), "{key}");
+    }
     // GUIDE-USABILITY 5 (KINK-R4 fix round): k-rust's build identity, its version and a digest
     // of its sources, not the version alone.
     assert_eq!(document["k_rust_revision"], k_rust::build_identity());
@@ -530,8 +538,319 @@ fn the_version_flag_names_the_builds() {
     );
 }
 
+// ---------------------------------------------------------------------------------------
+// CF-18: `check --mutations`, the resolve-only check of a mutation list.
+
+/// A copy of calc whose corpus is the one program `1 + 2` (it applies `add`, never `mul`).
+fn calc_copy(name: &str) -> PathBuf {
+    let dir = scratch(name);
+    write(&dir.join("calc.k"), CALC_K);
+    write(
+        &dir.join("FLOW.toml"),
+        "[spec]\nentry = \"calc.k\"\nmain_module = \"CALC\"\nsyntax_module = \"CALC-SYNTAX\"\n\n\
+         [[program]]\nid = \"add\"\ntext = \"1 + 2\"\n",
+    );
+    dir
+}
+
+fn one_edit(id: &str, edit: &str) -> String {
+    format!(
+        "[[mutation]]\nid = \"{id}\"\nmisunderstanding = \"{id}\"\n\n  [[mutation.edit]]\n{edit}\n"
+    )
+}
+
+fn check_list(manifest: &Path, mutations: &Path, cache: Option<&Path>) -> (Value, u8) {
+    check_with(
+        manifest,
+        &CheckOptions {
+            mutations: Some(mutations.to_owned()),
+            cache: cache.map(Path::to_path_buf),
+        },
+    )
+}
+
+#[track_caller]
+fn row<'d>(document: &'d Value, id: &str) -> &'d Value {
+    document["mutations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == id)
+        .unwrap_or_else(|| panic!("{id}: {document:#}"))
+}
+
+#[track_caller]
+fn reasons(findings: &Value) -> Vec<&str> {
+    findings
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|finding| finding["reason"].as_str().unwrap())
+        .collect()
+}
+
+const ARITH: &str = "  rule = \"add\"\n  find = \"I1 +Int I2\"\n  replace = \"I1 -Int I2\"";
+
+#[test]
+fn check_resolves_every_mutation_and_runs_no_program() {
+    let dir = calc_copy("check-mutations");
+    let manifest = dir.join("FLOW.toml");
+    let mutations = dir.join("mutations");
+    write(
+        &mutations.join("arith.toml"),
+        &[
+            one_edit("add-becomes-sub", ARITH),
+            one_edit(
+                "sub-by-line",
+                "  line = 23\n  find = \"I1 -Int I2\"\n  replace = \"I2 -Int I1\"",
+            ),
+            one_edit(
+                "mul-by-text",
+                "  find = \"I1 *Int I2\"\n  replace = \"I1 +Int I2\"",
+            ),
+        ]
+        .concat(),
+    );
+    write(
+        &mutations.join("stale.toml"),
+        &[
+            one_edit(
+                "renamed",
+                "  rule = \"div\"\n  find = \"/Int\"\n  replace = \"*Int\"",
+            ),
+            one_edit(
+                "no-op",
+                "  rule = \"add\"\n  find = \"I1 +Int I2\"\n  replace = \"I1 +Int I2\"",
+            ),
+            format!(
+                "{}  [[mutation.edit]]\n  rule = \"add\"\n  find = \"+Int I2\"\n  replace = \"-Int I2\"\n",
+                one_edit(
+                    "overlapping",
+                    "  rule = \"add\"\n  find = \"I1 +Int\"\n  replace = \"I2 +Int\"",
+                )
+            ),
+            one_edit(
+                "syntax",
+                "  line = 9\n  find = \"*\"\n  replace = \"x\"",
+            ),
+            one_edit(
+                "no-op-by-line",
+                "  line = 21\n  find = \"I1 +Int I2\"\n  replace = \"I1 +Int I2\"",
+            ),
+        ]
+        .concat(),
+    );
+    let (document, status) = check_list(&manifest, &mutations, None);
+    assert_eq!(status, EXIT_CORPUS, "{document:#}");
+    assert_eq!(document["version"], 2);
+    assert_eq!(document["spec"]["outcome"], "admitted");
+    assert_eq!(document["mutation_list"]["outcome"], "ok");
+    // Nothing ran and nothing was written: no cache, so no unreached-rule warning.
+    assert!(!dir.join(".kink-flow").exists());
+    assert_eq!(document["coverage"]["decides"], false);
+    assert_eq!(
+        document["coverage"]["without_record"],
+        serde_json::json!(["add"])
+    );
+    assert_eq!(
+        document["mutations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| (
+                row["id"].as_str().unwrap(),
+                row["outcome"].as_str().unwrap()
+            ))
+            .collect::<Vec<_>>(),
+        [
+            ("arith/add-becomes-sub", "ok"),
+            ("arith/sub-by-line", "ok"),
+            ("arith/mul-by-text", "ok"),
+            ("stale/renamed", "refused"),
+            ("stale/no-op", "refused"),
+            ("stale/overlapping", "refused"),
+            ("stale/syntax", "refused"),
+            ("stale/no-op-by-line", "refused"),
+        ]
+    );
+
+    // A resolving mutation: each edited rule's before and after, label, file and lines.
+    let ok = row(&document, "arith/add-becomes-sub");
+    assert_eq!(ok["misunderstanding"], "add-becomes-sub");
+    assert!(ok["digest"].is_string());
+    let rule = &ok["rules"][0];
+    assert_eq!(
+        (&rule["label"], &rule["file"], &rule["start_line"]),
+        (
+            &Value::from("CALC.add"),
+            &Value::from("calc.k"),
+            &Value::from(21)
+        )
+    );
+    assert_eq!(rule["before"], "rule [add]: I1:Int + I2:Int => I1 +Int I2");
+    assert_eq!(rule["after"], "rule [add]: I1:Int + I2:Int => I1 -Int I2");
+    assert_eq!(ok["refusals"], serde_json::json!([]));
+    assert_eq!(ok["warnings"], serde_json::json!([]));
+
+    // Anchors that do not name the rule are warned about, with the label to use when it has one.
+    let by_line = row(&document, "arith/sub-by-line");
+    assert_eq!(reasons(&by_line["warnings"]), ["line-anchor"]);
+    assert!(
+        by_line["warnings"][0]["next"]
+            .as_str()
+            .unwrap()
+            .contains("give the rule a label")
+    );
+    let by_text = row(&document, "arith/mul-by-text");
+    assert_eq!(reasons(&by_text["warnings"]), ["text-anchor"]);
+    assert_eq!(
+        by_text["warnings"][0]["next"],
+        "address the rule by its label: rule = \"CALC.mul\""
+    );
+
+    // Refusals carry the reason, the edit and the next step.
+    for (id, reason, edit) in [
+        ("stale/renamed", InvalidReason::UnknownLabel, 0),
+        ("stale/no-op", InvalidReason::NoChange, 0),
+        ("stale/overlapping", InvalidReason::OverlappingEdits, 1),
+        ("stale/syntax", InvalidReason::NonRuleSentence, 0),
+        ("stale/no-op-by-line", InvalidReason::NoChange, 0),
+    ] {
+        let refused = row(&document, id);
+        assert_eq!(reasons(&refused["refusals"]), [reason.as_str()], "{id}");
+        assert_eq!(refused["refusals"][0]["edit"], edit, "{id}");
+        assert_eq!(refused["refusals"][0]["next"], reason.next_step(), "{id}");
+        assert!(
+            refused["rules"].is_null() && refused["digest"].is_null(),
+            "{id}"
+        );
+    }
+
+    // The anchor warning of a refused mutation names the rule its edit is addressed to.
+    let refused_by_line = row(&document, "stale/no-op-by-line");
+    assert_eq!(reasons(&refused_by_line["warnings"]), ["line-anchor"]);
+    assert_eq!(
+        refused_by_line["warnings"][0]["next"],
+        "address the rule by its label: rule = \"CALC.add\""
+    );
+    assert_eq!(refused_by_line["warnings"][0]["rule"]["module"], "CALC");
+
+    // A list with no refusal passes, warnings and all; a single file keeps its ids as written.
+    let (document, status) = check_list(&manifest, &mutations.join("arith.toml"), None);
+    assert_eq!(status, EXIT_OK, "{document:#}");
+    assert_eq!(row(&document, "add-becomes-sub")["outcome"], "ok");
+
+    // A list that does not decode is refused, with the specification still admitted.
+    write(&dir.join("BAD.toml"), "[[mutation]]\nid = \"m\"\n");
+    let (document, status) = check_list(&manifest, &dir.join("BAD.toml"), None);
+    assert_eq!(status, EXIT_CORPUS);
+    assert_eq!(document["mutation_list"]["outcome"], "refused");
+    assert!(document["mutations"].is_null());
+}
+
+#[test]
+fn the_binary_checks_a_mutations_directory() {
+    let dir = calc_copy("check-binary");
+    let manifest = dir.join("FLOW.toml");
+    write(
+        &dir.join("mutations/arith.toml"),
+        &one_edit("add-becomes-sub", ARITH),
+    );
+    let (code, stdout, stderr) = binary(&[
+        "check".as_ref(),
+        manifest.as_os_str(),
+        "--mutations".as_ref(),
+        dir.join("mutations").as_os_str(),
+    ]);
+    assert_eq!(code, Some(EXIT_OK.into()), "{stderr}");
+    let document: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(row(&document, "arith/add-becomes-sub")["outcome"], "ok");
+    for args in [
+        vec![
+            "check".as_ref(),
+            manifest.as_os_str(),
+            "--mutations".as_ref(),
+        ],
+        vec![
+            "check".as_ref(),
+            manifest.as_os_str(),
+            "--mutations".as_ref(),
+            dir.join("missing").as_os_str(),
+        ],
+    ] {
+        let (code, _, stderr) = binary(&args);
+        assert_eq!(code, Some(EXIT_USAGE.into()), "{args:?}: {stderr}");
+    }
+}
+
 mod kink_tier {
     use super::*;
+
+    /// With every program's result cached, `check` warns of an edited rule no comparable
+    /// program witnesses; `run` exits 1 when a selected mutation is invalid.
+    #[test]
+    #[ignore = "kink"]
+    fn check_warns_of_an_unwitnessed_rule_and_run_exits_one_on_an_invalid_mutation() {
+        use kink_flow::{
+            cli::{results, run},
+            results::ResultsOptions,
+            search::RunOptions,
+        };
+        let dir = calc_copy("check-unreached");
+        let manifest = dir.join("FLOW.toml");
+        let list = dir.join("MUTATIONS.toml");
+        write(
+            &list,
+            &[
+                one_edit("add-becomes-sub", ARITH),
+                one_edit(
+                    "mul-becomes-add",
+                    "  rule = \"mul\"\n  find = \"I1 *Int I2\"\n  replace = \"I1 +Int I2\"",
+                ),
+                one_edit(
+                    "renamed",
+                    "  rule = \"div\"\n  find = \"/Int\"\n  replace = \"*Int\"",
+                ),
+            ]
+            .concat(),
+        );
+        let (document, _) = check_list(&manifest, &list, None);
+        assert_eq!(document["coverage"]["decides"], false, "{document:#}");
+        assert_eq!(
+            row(&document, "mul-becomes-add")["warnings"],
+            serde_json::json!([])
+        );
+
+        let (document, status) = results(&manifest, &ResultsOptions::default());
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        let (document, status) = check_list(&manifest, &list, None);
+        assert_eq!(status, EXIT_CORPUS, "{document:#}");
+        assert_eq!(document["coverage"]["decides"], true, "{document:#}");
+        assert_eq!(
+            row(&document, "add-becomes-sub")["warnings"],
+            serde_json::json!([])
+        );
+        let unreached = &row(&document, "mul-becomes-add")["warnings"];
+        assert_eq!(reasons(unreached), ["unreached-rule"], "{document:#}");
+        assert_eq!(unreached[0]["rule"]["module"], "CALC");
+        // Another cache holds no record: the warning is not given.
+        let other = scratch("check-unreached-other-cache");
+        let (document, _) = check_list(&manifest, &list, Some(&other));
+        assert_eq!(document["coverage"]["decides"], false);
+
+        let (document, status) = run(&manifest, &list, &RunOptions::default());
+        assert_eq!(status, EXIT_CORPUS, "{document:#}");
+        assert_eq!(document["counts"]["invalid-mutation"], 1, "{document:#}");
+        let (document, status) = run(
+            &manifest,
+            &list,
+            &RunOptions {
+                only: vec!["add-becomes-sub".into(), "mul-becomes-add".into()],
+                ..RunOptions::default()
+            },
+        );
+        assert_eq!(status, EXIT_OK, "{document:#}");
+    }
 
     #[test]
     #[ignore = "kink"]

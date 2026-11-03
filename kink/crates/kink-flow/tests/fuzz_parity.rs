@@ -389,7 +389,7 @@ endmodule
     /// `f(X)` steps to `g(X)`: the mutant adds the end `done(N +Int 1)`, and its run never
     /// completes (a state set merges the configurations reached at one depth, so `spin`'s cycle
     /// is not cut short).
-    const ONE_SIDED_MUTATIONS: &str = "[[mutation]]\nid = \"f-to-g\"\n[[mutation.edit]]\nrule = \
+    const ONE_SIDED_MUTATIONS: &str = "[[mutation]]\nid = \"f-to-g\"\nmisunderstanding = \"a test mutation\"\n[[mutation.edit]]\nrule = \
                                        \"OSA.f-done\"\nfind = \"done(X)\"\nreplace = \"g(X)\"\n";
 
     /// (a) The fuzz kills by an added end, which needs the baseline's complete set of ends and a
@@ -987,9 +987,9 @@ endmodule
 
     /// `log-one` writes `1` to `<log>`: it ends undefined too, at another pre-step configuration.
     /// `out-defined` writes `N` to `<out>`: its step is defined, and every run ends cleanly.
-    const UNDEFINED_MUTATIONS: &str = "[[mutation]]\nid = \"log-one\"\n[[mutation.edit]]\nrule = \
+    const UNDEFINED_MUTATIONS: &str = "[[mutation]]\nid = \"log-one\"\nmisunderstanding = \"a test mutation\"\n[[mutation.edit]]\nrule = \
                                        \"UE.go\"\nfind = \"_ => 0\"\nreplace = \"_ => \
-                                       1\"\n\n[[mutation]]\nid = \"out-defined\"\n\
+                                       1\"\n\n[[mutation]]\nid = \"out-defined\"\nmisunderstanding = \"a test mutation\"\n\
                                        [[mutation.edit]]\nrule = \"UE.step\"\nfind = \"N /Int \
                                        0\"\nreplace = \"N\"\n";
 
@@ -1143,10 +1143,10 @@ endmodule
     /// differs from the baseline only by the undefined path it removes. `edge-undefined` makes
     /// `edge(N)`'s step undefined: `split(N)` loses the end `done(N +Int 1)` beside its end
     /// `done(N)`.
-    const UNDEFINED_PATH_MUTATIONS: &str = "[[mutation]]\nid = \"pb-defined\"\n\
+    const UNDEFINED_PATH_MUTATIONS: &str = "[[mutation]]\nid = \"pb-defined\"\nmisunderstanding = \"a test mutation\"\n\
                                             [[mutation.edit]]\nrule = \"UP.bdone\"\nfind = \"N \
                                             /Int 0\"\nreplace = \"0\"\n\n[[mutation]]\nid = \
-                                            \"edge-undefined\"\n[[mutation.edit]]\nrule = \
+                                            \"edge-undefined\"\nmisunderstanding = \"a test mutation\"\n[[mutation.edit]]\nrule = \
                                             \"UP.edge\"\nfind = \"N +Int 1\"\nreplace = \"N \
                                             /Int 0\"\n";
 
@@ -1252,7 +1252,7 @@ endmodule
 ";
 
     /// `out-defined` writes `N` to `<out>`: the step is defined, and every run ends cleanly.
-    const UNDEFINED_EXISTS_MUTATIONS: &str = "[[mutation]]\nid = \"out-defined\"\n\
+    const UNDEFINED_EXISTS_MUTATIONS: &str = "[[mutation]]\nid = \"out-defined\"\nmisunderstanding = \"a test mutation\"\n\
                                               [[mutation.edit]]\nrule = \"UX.step\"\nfind = \
                                               \"N /Int 0\"\nreplace = \"N\"\n";
 

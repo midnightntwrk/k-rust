@@ -3,6 +3,7 @@
 
 [[mutation]]
 id = "first-twin"
+misunderstanding = "the first of the twin rules adds two"
 
   [[mutation.edit]]
   line = 16
@@ -11,6 +12,7 @@ id = "first-twin"
 
 [[mutation]]
 id = "second-twin"
+misunderstanding = "the second of the twin rules adds two"
 
   [[mutation.edit]]
   line = 17

@@ -182,7 +182,7 @@ mod kink_tier {
             .unwrap();
             fs::write(
                 dir.join("MUTATIONS.toml"),
-                "[[mutation]]\nid = \"first-zero\"\n\n  [[mutation.edit]]\n  rule = \"first\"\n  \
+                "[[mutation]]\nid = \"first-zero\"\nmisunderstanding = \"a test mutation\"\n\n  [[mutation.edit]]\n  rule = \"first\"\n  \
                  find = \"done(X)\"\n  replace = \"done(0)\"\n",
             )
             .unwrap();

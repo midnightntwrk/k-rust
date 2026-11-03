@@ -1,52 +1,61 @@
 [[mutation]]
 id = "putTwo-order"
+misunderstanding = "the two writes of putTwo happen in the other order"
   [[mutation.edit]]
   rule = "putTwo"
   find = "M [ K1 <- V1 ] [ K2 <- V2 ]"
   replace = "M [ K2 <- V2 ] [ K1 <- V1 ]"
 [[mutation]]
 id = "putTwo-values-swapped"
+misunderstanding = "putTwo writes each value under the other key"
   [[mutation.edit]]
   rule = "putTwo"
   find = "M [ K1 <- V1 ] [ K2 <- V2 ]"
   replace = "M [ K1 <- V2 ] [ K2 <- V1 ]"
 [[mutation]]
 id = "union-as-concat"
+misunderstanding = "adding to a set concatenates instead of taking the union"
   [[mutation.edit]]
   rule = "addSet"
   find = "S |Set SetItem(I)"
   replace = "S SetItem(I)"
 [[mutation]]
 id = "append-as-prepend"
+misunderstanding = "logging a value puts it first instead of last"
   [[mutation.edit]]
   rule = "logList"
   find = "L ListItem(I)"
   replace = "ListItem(I) L"
 [[mutation]]
 id = "f0-deleted"
+misunderstanding = "f has no equation at zero"
   [[mutation.edit]]
   rule = "f0"
   delete = true
 [[mutation]]
 id = "f0-value"
+misunderstanding = "f at zero is five"
   [[mutation.edit]]
   rule = "f0"
   find = "f(0) => 0"
   replace = "f(0) => 5"
 [[mutation]]
 id = "bytes-key-doubled"
+misunderstanding = "a bytes key encodes the string twice"
   [[mutation.edit]]
   rule = "bytesKey"
   find = "encodeBytes(\"UTF-8\", S)"
   replace = "encodeBytes(\"UTF-8\", S +String S)"
 [[mutation]]
 id = "nest-value"
+misunderstanding = "a nested list holds its element once, not twice"
   [[mutation.edit]]
   rule = "nest"
   find = "ListItem(I) ListItem(I)"
   replace = "ListItem(I)"
 [[mutation]]
 id = "clear-noop"
+misunderstanding = "clearing a map leaves it as it was"
   [[mutation.edit]]
   rule = "clear"
   find = "_ => .Map"

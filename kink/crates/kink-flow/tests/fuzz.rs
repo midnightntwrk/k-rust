@@ -270,7 +270,7 @@ endmodule
 ";
 const NA_FLOW: &str = "[spec]\nentry = \"na.k\"\nmain_module = \"NA\"\nsyntax_module = \
                        \"NA-SYNTAX\"\n\n[[program]]\nid = \"one\"\ntext = \"go(1)\"\n";
-const NA_MUTATIONS: &str = "[[mutation]]\nid = \"plus-one\"\n[[mutation.edit]]\nline = 11\nfind = \
+const NA_MUTATIONS: &str = "[[mutation]]\nid = \"plus-one\"\nmisunderstanding = \"a test mutation\"\n[[mutation.edit]]\nline = 11\nfind = \
                             \"Int2String(I)\"\nreplace = \"Int2String(I +Int 1)\"\n";
 const NA_TEMPLATES: &str = "[[template]]\nid = \"one-holes\"\nprogram = \"one\"\n\
                             [[template.hole]]\nname = \"I\"\nsort = \"Int\"\nfind = \"go(1)\"\n\
@@ -876,7 +876,7 @@ mod kink_tier {
             "[spec]\nentry = \"ledger.k\"\nmain_module = \"LEDGER\"\nsyntax_module = \
              \"LEDGER-SYNTAX\"\n\n[[program]]\nid = \"settle\"\ntext = \"settle\"\nvariables = { TX = \
              \"transfer(30, 1)\" }\n",
-            "[[mutation]]\nid = \"fee-dropped\"\n  [[mutation.edit]]\n  rule = \"LEDGER.settle\"\n  \
+            "[[mutation]]\nid = \"fee-dropped\"\nmisunderstanding = \"a test mutation\"\n  [[mutation.edit]]\n  rule = \"LEDGER.settle\"\n  \
              find = \"Balance -Int Amount -Int Fee\"\n  replace = \"Balance -Int Amount\"\n",
         );
         let templates = "[[template]]\nid = \"tx\"\nprogram = \"settle\"\n[[template.hole]]\nname = \
@@ -924,7 +924,7 @@ mod kink_tier {
     #[ignore = "kink"]
     fn a_definition_exclusion_refuses_the_job_with_kinks_reason() {
         let keys = "ListItem(lengthBytes(String2Bytes(Int2String(I))))";
-        let count_edit = "[[mutation]]\nid = \"count-plus-one\"\n  [[mutation.edit]]\n  rule = \
+        let count_edit = "[[mutation]]\nid = \"count-plus-one\"\nmisunderstanding = \"a test mutation\"\n  [[mutation.edit]]\n  rule = \
                           \"IMPLCHOSEN.count\"\n  find = \"ListItem(I)\"\n  replace = \"ListItem(I \
                           +Int 1)\"\n";
         let baseline = scratch_flow(
@@ -935,7 +935,7 @@ mod kink_tier {
             count_edit,
         );
         let start_edit = format!(
-            "[[mutation]]\nid = \"start-lists-keys\"\n  [[mutation.edit]]\n  rule = \
+            "[[mutation]]\nid = \"start-lists-keys\"\nmisunderstanding = \"a test mutation\"\n  [[mutation.edit]]\n  rule = \
              \"IMPLCHOSEN.start\"\n  find = \"ListItem(I) ListItem(I)\"\n  replace = \"{keys}\"\n"
         );
         let mutant = scratch_flow(
@@ -1029,8 +1029,8 @@ mod kink_tier {
             MACRO_SPEC,
             "[spec]\nentry = \"mac.k\"\nmain_module = \"MAC\"\nsyntax_module = \
              \"MAC-SYNTAX\"\n\n[[program]]\nid = \"ten\"\ntext = \"ten + 1\"\n",
-            "[[mutation]]\nid = \"ten-is-eleven\"\n  [[mutation.edit]]\n  rule = \"MAC.ten\"\n  find \
-             = \"10\"\n  replace = \"11\"\n\n[[mutation]]\nid = \"plus-becomes-minus\"\n  \
+            "[[mutation]]\nid = \"ten-is-eleven\"\nmisunderstanding = \"a test mutation\"\n  [[mutation.edit]]\n  rule = \"MAC.ten\"\n  find \
+             = \"10\"\n  replace = \"11\"\n\n[[mutation]]\nid = \"plus-becomes-minus\"\nmisunderstanding = \"a test mutation\"\n  \
              [[mutation.edit]]\n  rule = \"MAC.plus\"\n  find = \"I1 +Int I2\"\n  replace = \"I1 -Int \
              I2\"\n",
         );
@@ -1338,7 +1338,7 @@ module NA
   rule <k> go(I) => .K </k> <out> _ => Int2String(I) </out> requires I =/=Int 0
 endmodule
 ";
-        let mutations = "[[mutation]]\nid = \"both\"\n[[mutation.edit]]\nline = 11\nfind = \
+        let mutations = "[[mutation]]\nid = \"both\"\nmisunderstanding = \"a test mutation\"\n[[mutation.edit]]\nline = 11\nfind = \
                          \"\\\"\u{e9}\\\"\"\nreplace = \"\\\"\u{e8}\\\"\"\n[[mutation.edit]]\nline = \
                          12\nfind = \"Int2String(I)\"\nreplace = \"Int2String(I +Int 1)\"\n";
         let flow_toml = NA_FLOW.replace("go(1)", "go(2)");
@@ -1411,7 +1411,7 @@ module NA
   rule <k> go(I) => .K </k> <out> _ => \"\u{e9}\" +String Int2String(I) </out>
 endmodule
 ";
-        let mutations = "[[mutation]]\nid = \"accent\"\n[[mutation.edit]]\nline = 11\nfind = \
+        let mutations = "[[mutation]]\nid = \"accent\"\nmisunderstanding = \"a test mutation\"\n[[mutation.edit]]\nline = 11\nfind = \
                          \"\\\"\u{e9}\\\"\"\nreplace = \"\\\"\u{e8}\\\"\"\n";
         let flow_toml = NA_FLOW.replace("go(1)", "go(2)");
         let templates = NA_TEMPLATES
@@ -2129,6 +2129,7 @@ const STR_FLOW: &str = "[spec]\nentry = \"str.k\"\nmain_module = \"STR\"\nsyntax
 const STR_MUTATIONS: &str = r##"
 [[mutation]]
 id = "concat-drops-long-left"
+misunderstanding = "a test mutation"
   [[mutation.edit]]
   rule = "STR.cat"
   find = "S1 +String S2"
@@ -2136,6 +2137,7 @@ id = "concat-drops-long-left"
 
 [[mutation]]
 id = "tag-shifts"
+misunderstanding = "a test mutation"
   [[mutation.edit]]
   rule = "STR.tag"
   find = "Int2String(N)"
@@ -2143,6 +2145,7 @@ id = "tag-shifts"
 
 [[mutation]]
 id = "pick-shifts"
+misunderstanding = "a test mutation"
   [[mutation.edit]]
   rule = "STR.pick"
   find = "#then \"é\" #else Int2String(N)"

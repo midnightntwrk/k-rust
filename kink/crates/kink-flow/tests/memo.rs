@@ -357,7 +357,7 @@ mod kink_tier {
         .unwrap();
         fs::write(
             dir.join("MUTATIONS.toml"),
-            "[[mutation]]\nid = \"range-seven\"\n  [[mutation.edit]]\n  rule = \"range\"\n  find = \
+            "[[mutation]]\nid = \"range-seven\"\nmisunderstanding = \"a test mutation\"\n  [[mutation.edit]]\n  rule = \"range\"\n  find = \
              \"done(7)\"\n  replace = \"done(8)\"\n",
         )
         .unwrap();
@@ -963,7 +963,9 @@ const SURVIVOR: &str = "add-commutes";
 
 /// One mutation entry of a mutation list, from its fields as TOML values (`None`: absent).
 fn entry(id: &str, fields: &[(&str, Option<String>)]) -> String {
-    let mut text = format!("[[mutation]]\nid = \"{id}\"\n  [[mutation.edit]]\n");
+    let mut text = format!(
+        "[[mutation]]\nid = \"{id}\"\nmisunderstanding = \"a test mutation\"\n  [[mutation.edit]]\n"
+    );
     for (name, value) in fields {
         if let Some(value) = value {
             text.push_str(&format!("  {name} = {value}\n"));
@@ -1059,7 +1061,10 @@ fn the_resolution_key_pins_every_field_of_the_edits() {
     for mutation in &list.mutations {
         let key = memo::resolution_key(spec, build, mutation);
         let edits = key["mutation"].as_array().unwrap();
-        let mut text = format!("[[mutation]]\nid = \"{}\"\n", mutation.id);
+        let mut text = format!(
+            "[[mutation]]\nid = \"{}\"\nmisunderstanding = \"a test mutation\"\n",
+            mutation.id
+        );
         for edit in edits {
             let fields = edit.as_object().unwrap();
             assert_eq!(

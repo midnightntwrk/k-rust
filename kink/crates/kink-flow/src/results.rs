@@ -1498,19 +1498,16 @@ fn rules(spec: &AdmittedSpec, manifest: &FlowManifest, rows: &[ProgramRow]) -> V
             }
         }
     }
-    let domain = coverage_domain(&spec.compiled);
-    let non_executable = non_executable_ids(&spec.compiled);
-    let authors = RuleAuthors::of(&spec.compiled);
+    let no_signal = no_coverage_signal(spec);
     let mut groups: [Vec<Value>; 3] = Default::default();
     for (at, sentence) in spec.loaded.baseline.authored_sentences() {
         if !matches!(sentence, Sentence::Rule { .. }) {
             continue;
         }
-        let ids = authors.ids_of(&at).collect::<Vec<_>>();
         let mut value = sentence_value(spec, &at);
         let key = (at.module.clone(), u64::from(at.index));
         let programs = reached.get(&key).cloned().unwrap_or_default();
-        let (group, status) = if !ids.iter().any(|id| domain.contains(*id)) {
+        let (group, status) = if no_signal.contains_key(&at) {
             (2, NO_COVERAGE_SIGNAL)
         } else if programs.is_empty() {
             (0, "uncovered")
@@ -1520,18 +1517,59 @@ fn rules(spec: &AdmittedSpec, manifest: &FlowManifest, rows: &[ProgramRow]) -> V
         value["status"] = json!(status);
         value["reached_by"] = json!(programs);
         value["fired_by"] = json!(fired.get(&key).cloned().unwrap_or_default());
-        if status == NO_COVERAGE_SIGNAL {
-            value["reason"] = json!(if ids.is_empty() {
+        if let Some(reason) = no_signal.get(&at) {
+            value["reason"] = json!(reason);
+        }
+        groups[group].push(value);
+    }
+    groups.into_iter().flatten().collect()
+}
+
+/// The authored rules none of whose compiled ids k-rust's run coverage can name (status
+/// `no-coverage-signal`), each with the reason: no program can be shown to reach them.
+pub fn no_coverage_signal(spec: &AdmittedSpec) -> BTreeMap<SentenceRef, &'static str> {
+    let domain = coverage_domain(&spec.compiled);
+    let non_executable = non_executable_ids(&spec.compiled);
+    let authors = RuleAuthors::of(&spec.compiled);
+    spec.loaded
+        .baseline
+        .authored_sentences()
+        .filter(|(_, sentence)| matches!(sentence, Sentence::Rule { .. }))
+        .filter_map(|(at, _)| {
+            let ids = authors.ids_of(&at).collect::<Vec<_>>();
+            if ids.iter().any(|id| domain.contains(*id)) {
+                return None;
+            }
+            let reason = if ids.is_empty() {
                 "compiles to no rule"
             } else if ids.iter().all(|id| non_executable.contains(*id)) {
                 "a non-executable rule: k-rust never runs it, so no program can reach it"
             } else {
                 "a macro, alias or smt-lemma rule: k-rust's run coverage has no recording site for it"
-            });
-        }
-        groups[group].push(value);
-    }
-    groups.into_iter().flatten().collect()
+            };
+            Some((at, reason))
+        })
+        .collect()
+}
+
+/// The current result record of `program`, whose text is `text`, read from the cache `cache`
+/// without running anything: the record `results` would use, or `None` when there is none (no
+/// file, another key, or no build identity, under which no record is honoured).
+pub fn current_record(
+    manifest: &FlowManifest,
+    spec_digest: Sha256Digest,
+    program: &Program,
+    text: &str,
+    cache: &Path,
+) -> Option<Value> {
+    let build = kink_campaign::kink_build().ok()?;
+    let digest = program_digest(program, text);
+    let key = result_key(spec_digest, digest, manifest.budget, Some(build));
+    let path = cache
+        .join("results")
+        .join(spec_digest.to_string())
+        .join(format!("{digest}.json"));
+    read_record(&path, &key).flatten()
 }
 
 /// The status of a rule none of whose compiled ids k-rust's run coverage can name: never

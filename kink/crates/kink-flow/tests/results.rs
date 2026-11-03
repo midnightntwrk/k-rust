@@ -1113,7 +1113,7 @@ endmodule
         let mutations = dir.join("MUTATIONS.toml");
         write(
             &mutations,
-            "[[mutation]]\nid = \"bad-defined\"\n[[mutation.edit]]\nrule = \"UR.bad\"\n\
+            "[[mutation]]\nid = \"bad-defined\"\nmisunderstanding = \"a test mutation\"\n[[mutation.edit]]\nrule = \"UR.bad\"\n\
              find = \"N /Int 0\"\nreplace = \"N\"\n",
         );
         let (document, status) = run(&manifest, false);

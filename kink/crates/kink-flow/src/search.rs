@@ -811,7 +811,8 @@ impl Search<'_, '_> {
     ) -> (Value, bool) {
         let mut row = Map::new();
         row.insert("id".into(), json!(mutation.id));
-        row.insert("note".into(), json!(mutation.note));
+        // The row's `note` is the mutation's misunderstanding (its key keeps the run schema).
+        row.insert("note".into(), json!(mutation.misunderstanding));
         let resolved = match resolution {
             Ok(resolved) => resolved,
             Err(e) => return (invalid(row, e.clone(), Value::Null), false),
@@ -940,7 +941,8 @@ impl Search<'_, '_> {
         }
         let mut row = Map::new();
         row.insert("id".into(), json!(mutation.id));
-        row.insert("note".into(), json!(mutation.note));
+        // The row's `note` is the mutation's misunderstanding (its key keeps the run schema).
+        row.insert("note".into(), json!(mutation.misunderstanding));
         row.insert("digest".into(), json!(facts.digest.to_string()));
         row.insert("rules".into(), rules_value(&facts.rules));
         self.search_facts(mutation, row, facts, None)

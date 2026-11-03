@@ -1,11 +1,13 @@
 [[mutation]]
 id = "binding-dropped"
+misunderstanding = "a declaration binds nothing"
   [[mutation.edit]]
   rule = "declaration"
   find = "Rho => Rho [ X <- V ]"
   replace = "Rho => Rho"
 [[mutation]]
 id = "update-as-concat"
+misunderstanding = "a declaration adds a binding beside the old one instead of updating it"
   [[mutation.edit]]
   rule = "declaration"
   find = "Rho => Rho [ X <- V ]"

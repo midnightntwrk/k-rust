@@ -1,11 +1,15 @@
 //! The `kink-flow` command line. Every command prints one JSON document on stdout.
 //!
 //! Exit status: [`EXIT_OK`] when the command did its job and found nothing wrong with the
-//! corpus, [`EXIT_CORPUS`] when the manifest, the specification or a program is refused
-//! (the document says which and why), and [`EXIT_USAGE`] on a usage error (stderr).
+//! corpus, [`EXIT_CORPUS`] when the manifest, the specification, a program or a mutation is
+//! refused (the document says which and why), and [`EXIT_USAGE`] on a usage error (stderr).
+//!
+//! A mutation list (`MUTATIONS` below) is a `MUTATIONS.toml` file or a mutations directory of
+//! `<topic>.toml` files ([`MutationList::read`]).
 
 use crate::{
-    admit::{FlowAdmission, admit},
+    admit::{FlowAdmission, ProgramAdmission, admit, admit_spec},
+    check::{CorpusCoverage, MutationCheck, check_mutations, corpus_coverage},
     fuzz::{FuzzJob, FuzzOptions, TemplateList},
     manifest::{FlowManifest, ManifestError},
     memo::MemoUse,
@@ -13,7 +17,7 @@ use crate::{
     pattern::PatternList,
     query::{QueryOptions, pattern_list_refused},
     report::{ReportOptions, render},
-    results::ResultsOptions,
+    results::{ResultsOptions, cache_directory},
     search::{ProgramOrder, RunMode, RunOptions, mutation_list_refused},
 };
 use kink_corpus::cli::DEFINITION_STACK_BYTES;
@@ -29,18 +33,20 @@ pub const EXIT_OK: u8 = 0;
 pub const EXIT_CORPUS: u8 = 1;
 pub const EXIT_USAGE: u8 = 2;
 
-pub const USAGE: &str = "usage: kink-flow --version | kink-flow check FLOW.toml | kink-flow \
-                         results FLOW.toml [--verify] [--mutations MUTATIONS.toml] [--cache DIR] \
+pub const USAGE: &str = "usage: kink-flow --version | kink-flow check FLOW.toml [--mutations \
+                         MUTATIONS] [--cache DIR] | kink-flow \
+                         results FLOW.toml [--verify] [--mutations MUTATIONS] [--cache DIR] \
                          | kink-flow run \
-                         FLOW.toml MUTATIONS.toml [--only ID]... [--verify] [--order cost|corpus] \
+                         FLOW.toml MUTATIONS [--only ID]... [--verify] [--order cost|corpus] \
                          [--compile-workers N] [--no-memo] [--cache DIR] | kink-flow report \
                          FLOW.toml [--cache DIR] | kink-flow query FLOW.toml PATTERNS.toml \
                          [--only ID]... [--verify] [--cache DIR] | kink-flow fuzz FLOW.toml \
-                         TEMPLATES.toml --template ID (--kill MUTATION --mutations MUTATIONS.toml \
+                         TEMPLATES.toml --template ID (--kill MUTATION --mutations MUTATIONS \
                          | --reach RULE [--fired] | --pattern ID --patterns PATTERNS.toml) \
                          [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] \
                          [--assume-joined NAME]... [--one-path] [--cache DIR] [--no-confirm] \
-                         [--no-filter]";
+                         [--no-filter]; MUTATIONS is a MUTATIONS.toml or a directory of \
+                         <topic>.toml files";
 
 /// Run one command; returns the process exit status.
 pub fn execute(args: Vec<OsString>) -> u8 {
@@ -58,12 +64,19 @@ pub fn execute(args: Vec<OsString>) -> u8 {
             );
             return EXIT_OK;
         }
-        Ok([command, manifest]) if command == "check" => {
+        Ok([command, manifest, rest @ ..]) if command == "check" => {
             let manifest = PathBuf::from(manifest);
             if !manifest.is_file() {
                 return usage(&format!("{} is not a file", manifest.display()));
             }
-            match on_stack(move || check(&manifest)) {
+            let options = match check_options(rest) {
+                Ok(options) => options,
+                Err(message) => return usage(&message),
+            };
+            if let Some(list) = options.mutations.as_ref().filter(|list| !list.exists()) {
+                return usage(&format!("{} is not a file or directory", list.display()));
+            }
+            match on_stack(move || check_with(&manifest, &options)) {
                 Some(result) => result,
                 None => {
                     eprintln!("kink-flow: the admission thread panicked");
@@ -80,8 +93,8 @@ pub fn execute(args: Vec<OsString>) -> u8 {
                 Ok(options) => options,
                 Err(message) => return usage(&message),
             };
-            if let Some(list) = options.mutations.as_ref().filter(|list| !list.is_file()) {
-                return usage(&format!("{} is not a file", list.display()));
+            if let Some(list) = options.mutations.as_ref().filter(|list| !list.exists()) {
+                return usage(&format!("{} is not a file or directory", list.display()));
             }
             match on_stack(move || results(&manifest, &options)) {
                 Some(result) => result,
@@ -94,10 +107,14 @@ pub fn execute(args: Vec<OsString>) -> u8 {
         Ok([command, manifest, mutations, rest @ ..]) if command == "run" => {
             let manifest = PathBuf::from(manifest);
             let mutations = PathBuf::from(mutations);
-            for file in [&manifest, &mutations] {
-                if !file.is_file() {
-                    return usage(&format!("{} is not a file", file.display()));
-                }
+            if !manifest.is_file() {
+                return usage(&format!("{} is not a file", manifest.display()));
+            }
+            if !mutations.exists() {
+                return usage(&format!(
+                    "{} is not a file or directory",
+                    mutations.display()
+                ));
             }
             let (options, mode) = match run_options(rest) {
                 Ok(options) => options,
@@ -161,11 +178,11 @@ pub fn execute(args: Vec<OsString>) -> u8 {
             };
             match &request.job {
                 FuzzJobRequest::Kill {
-                    mutations: file, ..
+                    mutations: list, ..
+                } if !list.exists() => {
+                    return usage(&format!("{} is not a file or directory", list.display()));
                 }
-                | FuzzJobRequest::Pattern { patterns: file, .. }
-                    if !file.is_file() =>
-                {
+                FuzzJobRequest::Pattern { patterns: file, .. } if !file.is_file() => {
                     return usage(&format!("{} is not a file", file.display()));
                 }
                 _ => {}
@@ -240,6 +257,35 @@ fn on_stack<T: Send + 'static>(body: impl FnOnce() -> T + Send + 'static) -> Opt
         .ok()
 }
 
+/// Options of `kink-flow check`.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct CheckOptions {
+    /// A mutation list to resolve against the specification ([`crate::check`]).
+    pub mutations: Option<PathBuf>,
+    /// The cache directory whose result records decide `unreached-rule`; default
+    /// `<directory of FLOW.toml>/.kink-flow`. Nothing is written to it.
+    pub cache: Option<PathBuf>,
+}
+
+fn check_options(args: &[String]) -> Result<CheckOptions, String> {
+    let mut options = CheckOptions::default();
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--mutations" if options.mutations.is_none() => {
+                let list = args.next().ok_or("--mutations needs a file or directory")?;
+                options.mutations = Some(PathBuf::from(list));
+            }
+            "--cache" if options.cache.is_none() => {
+                let directory = args.next().ok_or("--cache needs a directory")?;
+                options.cache = Some(PathBuf::from(directory));
+            }
+            _ => return Err(format!("unexpected argument {arg:?}")),
+        }
+    }
+    Ok(options)
+}
+
 fn results_options(args: &[String]) -> Result<ResultsOptions, String> {
     let mut options = ResultsOptions::default();
     let mut args = args.iter();
@@ -251,7 +297,7 @@ fn results_options(args: &[String]) -> Result<ResultsOptions, String> {
                 options.cache = Some(PathBuf::from(directory));
             }
             "--mutations" if options.mutations.is_none() => {
-                let list = args.next().ok_or("--mutations needs a file")?;
+                let list = args.next().ok_or("--mutations needs a file or directory")?;
                 options.mutations = Some(PathBuf::from(list));
             }
             _ => return Err(format!("unexpected argument {arg:?}")),
@@ -374,7 +420,7 @@ fn fuzz_options(args: &[String]) -> Result<FuzzRequest, String> {
             }
             "--mutations" if mutations.is_none() => {
                 mutations = Some(PathBuf::from(
-                    args.next().ok_or("--mutations needs a file")?,
+                    args.next().ok_or("--mutations needs a file or directory")?,
                 ));
             }
             "--reach" if reach.is_none() => {
@@ -634,10 +680,11 @@ pub fn report(manifest: &Path, options: &ReportOptions) -> (Value, u8) {
     }
 }
 
-/// `kink-flow run FLOW.toml MUTATIONS.toml [--only ID]... [--verify] [--cache DIR]`: the run
+/// `kink-flow run FLOW.toml MUTATIONS [--only ID]... [--verify] [--cache DIR]`: the run
 /// document (README 5.6, 7.5) and the exit status: [`EXIT_OK`] when every selected mutation got
-/// its status (survivors, timeouts and invalid mutations included); [`EXIT_CORPUS`] when the
-/// manifest, the mutation list, the specification or a program is refused, a run failed, a
+/// its status (survivors and timeouts included) and none is invalid; [`EXIT_CORPUS`] when the
+/// manifest, the mutation list, the specification or a program is refused, a selected mutation
+/// is invalid (`invalid-mutation` or `invalid`: [`invalid_mutations`]), a run failed, a
 /// cache file could not be written, no program is comparable, a baseline run no longer matches
 /// its cached result (the run then stops), or `--verify` found a cached outcome that differs
 /// from a live run.
@@ -666,7 +713,23 @@ pub fn run_mode(
         Err(error) => return (mutation_list_refused(&error.to_string()), EXIT_CORPUS),
     };
     let (document, ok) = crate::search::run_with(&manifest, &list, options, mode);
-    (document, if ok { EXIT_OK } else { EXIT_CORPUS })
+    let status = if ok && invalid_mutations(&document) == 0 {
+        EXIT_OK
+    } else {
+        EXIT_CORPUS
+    };
+    (document, status)
+}
+
+/// The number of a run document's rows whose mutation its author must fix before it is judged:
+/// status `invalid-mutation` (it does not resolve) or `invalid` (its mutant does not compile, or
+/// may have no model: `inconsistent-mutant`). Every other status is a verdict about the corpus or
+/// a fault of the tool or the host, not of the mutation.
+pub fn invalid_mutations(document: &Value) -> u64 {
+    [crate::search::INVALID_MUTATION, "invalid"]
+        .iter()
+        .map(|status| document["counts"][*status].as_u64().unwrap_or(0))
+        .sum()
 }
 
 /// `kink-flow results FLOW.toml [--verify] [--cache DIR]`: the results document (README 5.3)
@@ -689,6 +752,133 @@ pub fn results(manifest: &Path, options: &ResultsOptions) -> (Value, u8) {
 
 /// `kink-flow check FLOW.toml`: the check document and the exit status.
 pub fn check(manifest: &Path) -> (Value, u8) {
+    check_with(manifest, &CheckOptions::default())
+}
+
+/// `kink-flow check FLOW.toml [--mutations MUTATIONS] [--cache DIR]`: the check document and the
+/// exit status. With a mutation list, every mutation is also resolved against the admitted
+/// specification and no program runs ([`crate::check`]): [`check_corpus_mutations`] then
+/// [`check_mutations_document`], with nothing added between them.
+pub fn check_with(manifest: &Path, options: &CheckOptions) -> (Value, u8) {
+    let Some(path) = &options.mutations else {
+        return check_admission(manifest);
+    };
+    let manifest = match FlowManifest::read(manifest) {
+        Ok(manifest) => manifest,
+        Err(error) => return (manifest_refused(&error), EXIT_CORPUS),
+    };
+    let checked = check_corpus_mutations(
+        &manifest,
+        MutationList::read(path),
+        options.cache.as_deref(),
+    );
+    check_mutations_document(&checked)
+}
+
+/// `check --mutations` before it is rendered: the admission of the specification and the
+/// programs, the mutation list, and, when the specification is admitted and the list decodes, the
+/// check of every mutation ([`MutationCheck`]) and the coverage that decided `unreached-rule`.
+/// A front end adds its own findings to [`Self::mutations`] (the admitted specification is
+/// `admission.spec`) and renders with [`check_mutations_document`].
+#[derive(Debug)]
+pub struct CorpusMutationCheck {
+    pub admission: FlowAdmission,
+    /// The decoded list, or why it does not decode.
+    pub list: Result<MutationList, ManifestError>,
+    /// `None` when the specification is refused or the list does not decode.
+    pub mutations: Option<MutationCheck>,
+    /// `None` when the specification is refused.
+    pub coverage: Option<CorpusCoverage>,
+}
+
+/// Admit `manifest`'s specification and programs, read the cached coverage (from `cache`, default
+/// `.kink-flow/` next to `FLOW.toml`; nothing is written) and check every mutation of `list`;
+/// nothing is compiled or run.
+pub fn check_corpus_mutations(
+    manifest: &FlowManifest,
+    list: Result<MutationList, ManifestError>,
+    cache: Option<&Path>,
+) -> CorpusMutationCheck {
+    let (record, admitted) = admit_spec(manifest);
+    let Some((spec, mut inputs)) = admitted else {
+        return CorpusMutationCheck {
+            admission: FlowAdmission {
+                record,
+                spec: None,
+                programs: Vec::new(),
+            },
+            list,
+            mutations: None,
+            coverage: None,
+        };
+    };
+    let (programs, coverage) = {
+        let mut session = inputs.session(&spec);
+        let programs = manifest
+            .programs
+            .iter()
+            .map(|program| ProgramAdmission {
+                id: program.id.clone(),
+                outcome: session
+                    .text(program)
+                    .and_then(|text| session.test_case(program, text)),
+            })
+            .collect::<Vec<_>>();
+        let cache = cache_directory(manifest, cache);
+        (programs, corpus_coverage(&spec, manifest, &session, &cache))
+    };
+    let mutations = list
+        .as_ref()
+        .ok()
+        .map(|list| check_mutations(manifest, &spec.loaded, list, Some(&coverage)));
+    CorpusMutationCheck {
+        admission: FlowAdmission {
+            record,
+            spec: Some(spec),
+            programs,
+        },
+        list,
+        mutations,
+        coverage: Some(coverage),
+    }
+}
+
+/// The document of `check --mutations` and its exit status: the check document
+/// ([`check_document`]) with `mutation_list`, `mutations` and `coverage`, and [`EXIT_OK`] when the
+/// specification and every program are admitted, the list decodes and no mutation is refused
+/// (by resolution or by a finding with `refusal: true`), else [`EXIT_CORPUS`].
+pub fn check_mutations_document(checked: &CorpusMutationCheck) -> (Value, u8) {
+    let mut document = check_document(&checked.admission);
+    match &checked.list {
+        Err(error) => {
+            document["mutation_list"] = json!({"outcome": "refused", "detail": error.to_string()});
+        }
+        Ok(_) if checked.admission.spec.is_none() => {}
+        Ok(_) => {
+            document["mutation_list"] = json!({"outcome": "ok", "detail": null});
+            if let Some(mutations) = &checked.mutations {
+                document["mutations"] = mutations.value();
+            }
+            if let Some(coverage) = &checked.coverage {
+                document["coverage"] = coverage.value();
+            }
+        }
+    }
+    let refused = checked.list.is_err()
+        || checked
+            .mutations
+            .as_ref()
+            .is_some_and(MutationCheck::refused);
+    let status = if checked.admission.all_admitted() && !refused {
+        EXIT_OK
+    } else {
+        EXIT_CORPUS
+    };
+    (document, status)
+}
+
+/// `kink-flow check FLOW.toml` without a mutation list: admission alone.
+fn check_admission(manifest: &Path) -> (Value, u8) {
     match FlowManifest::read(manifest) {
         Err(error) => (manifest_refused(&error), EXIT_CORPUS),
         Ok(manifest) => {
@@ -703,14 +893,21 @@ pub fn check(manifest: &Path) -> (Value, u8) {
     }
 }
 
+/// The version of the check document: 2 adds `mutation_list`, `mutations` and `coverage` (null
+/// without `--mutations`).
+pub const CHECK_VERSION: u64 = 2;
+
 fn header(spec: Value, programs: Vec<Value>) -> Value {
     json!({
         "schema": "kink-flow-check",
-        "version": 1,
+        "version": CHECK_VERSION,
         "k_rust_revision": crate::k_rust_revision(),
         "profile": SolverProfile::BUILD.name(),
         "spec": spec,
         "programs": programs,
+        "mutation_list": null,
+        "mutations": null,
+        "coverage": null,
     })
 }
 

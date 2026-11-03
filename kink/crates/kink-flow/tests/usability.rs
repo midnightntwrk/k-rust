@@ -990,7 +990,7 @@ text = 'h(opaque(1), 2)'
         let invalid = dir.join("INVALID.toml");
         fs::write(
             &invalid,
-            "[[mutation]]\nid = \"nowhere\"\n\n  [[mutation.edit]]\n  rule = \"spin\"\n  \
+            "[[mutation]]\nid = \"nowhere\"\nmisunderstanding = \"a test mutation\"\n\n  [[mutation.edit]]\n  rule = \"spin\"\n  \
              find = \"no such text\"\n  replace = \"x\"\n",
         )
         .unwrap();
