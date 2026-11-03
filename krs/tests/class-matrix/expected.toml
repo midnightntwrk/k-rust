@@ -59,6 +59,7 @@
 [class.absence-test-without-creation]
 code = "krs::analysis::optional-presence"
 doc = "a subject tests an optional cell's absence (`None`) and the result does not create it: K tests absence only by creating the cell"
+examples = ["readable ; subject ; - ; ? leaf Int ; None ; -", "cells ; subject ; - ; ? group G ; None ; -"]
 advice = "none"
 
 [class.always-enabled-rule]
@@ -89,6 +90,7 @@ advice = "terms/rule/guard/let-pattern/Cmd::Hold(x)"
 [class.alias-outside-pattern]
 code = "krs::syntax::invalid-pattern-as"
 doc = "`name @ pattern` (K's `#as`) outside a left-hand side, or in a subject the sentence keeps as it is: a single-body rule's outside its rewrites, and a context's or a context alias's around its hole, which heating matches and cooling puts back, a built term where `#as` cannot stand; a context names the term bare and tests its shape in its guard, and a context alias, which states no guard, writes the pattern alone (NT-28)"
+examples = ["readable ; result ; - ; leaf Int ; y @ x ; old", "readable ; result ; - ; leaf List ; [x, r @ ..] ; [y, ..]", "init ; init ; - ; leaf Int ; x @ 0 ; -"]
 advice = ["terms/context/guard/k::matches!(x, Cmd::Hold(_))"]
 
 # A compiler class no generated case makes: the term families place their constructs below a
@@ -129,7 +131,8 @@ advice = "none"
 
 [class.anonymous-rest-in-map-literal]
 code = "krs::syntax::invalid-expression-notation"
-doc = "an anonymous `..` in a `map![..]` that is a literal (anywhere in a readable record, and where a `cells!` result builds a map that no subject map frames): a literal's entries are written over the map its rest names, and `..` names none (NT-19)"
+doc = "an anonymous `..` in a `map![..]` that is a literal, not lexically a content root (P6): anywhere in a readable record, which writes a map's root as `{ k -> v, .. }`, and in a `cells!` result where the map is not the direct argument of `Cell(..)` (a fragment's child, a term): a literal's entries are written over the map its rest names, and `..` names none (NT-19). A `cells!` result's `Cell(k::map![.., ..])` is the leaf's content root, judged by its kind and pairing (S5.0g pattern review P-R2)"
+examples = ["readable ; subject ; - ; leaf Map ; map![y -> x, ..] ; -", "cells ; result ; - ; leaf Map ; k::map![y -> x, ..] ; k::configuration::Cell(k::map![z -> y, ..])"]
 advice = "readable-run/subject/bag/{ Obj { key: 1, m: { 1 -> 2, .. } }, .. }"
 
 [class.anywhere-outside-term-rule]
@@ -149,12 +152,14 @@ advice = "cells/subject/pc/k::configuration::Cell(x)"
 
 [class.bracket-reading]
 code = "krs::analysis::invalid-list-notation"
-doc = "brackets on a cell they denote nothing in: no list, computation or List collection, or elements that are none of its items, elements or instances"
+doc = "brackets on a cell they denote nothing in: one with no layer brackets mark (no computation, list leaf or List collection) and no instance layer (on a Set or Map collection brackets are the instance mark of the wrong order, `instance-list-shape`), or an initializer's template, whose instance layer is not written (P5); or elements that are none of its items, elements or instances"
+examples = ["readable ; subject ; - ; leaf Int ; [x, ..] ; -", "readable ; subject ; - ; group G ; [x] ; -", "cells ; subject ; - ; leaf Map ; k::configuration::Cell([x, ..]) ; -", "init ; init ; - ; * Set of G ; [0] ; -"]
 advice = "none"
 
 [class.cell-wrapper]
 code = "krs::analysis::cell-wrapper"
 doc = "an entry whose wrapper is not its cell's: `KCell(..)`/`k::k![..]`/brackets for the computation cell, `Cell(..)` for a leaf, none for a group, used on another kind of cell, an optional cell or a collection included, where no layer has that wrapper; or a value where the computation's or a `cells!` leaf's wrapper is missing"
+examples = ["readable ; subject ; - ; computation ; x ; -", "cells ; subject ; - ; leaf Int ; x ; -", "cells ; subject ; - ; leaf Int ; k::configuration::KCell(x, ..) ; -", "cells ; subject ; - ; * List of G ; k::configuration::Cell(x) ; -", "cells ; subject ; - ; ? leaf Int ; k::configuration::KCell(x, ..) ; -", "init ; init ; - ; computation ; 0 ; -"]
 advice = "none"
 
 [class.claim-only-term]
@@ -175,17 +180,25 @@ advice = "none"
 [class.collection-without-instances]
 code = "krs::analysis::collection-entry"
 doc = "a `*` collection written as one value (a binder, `_`, a literal, a record) instead of an instance list, or a rule's or claim's entry naming a cell below a `*` ancestor (S1 b, the rule forms'; an initializer, a struct literal of the configuration, names no cell by a path), where no single cell has the content it names: name the instance with an instance record, `account: { Account { balance: .., .. }, .. }` (S1 b)"
+examples = ["readable ; subject ; - ; * List of G ; x ; -", "readable ; subject ; - ; * Set of G ; _ ; -", "readable ; subject ; - ; * Map of G ; 0 ; -", "readable ; subject ; - ; * List of G ; G { a: x, .. } ; -", "readable ; subject ; * ; leaf Int ; x ; -", "cells ; result ; * ; leaf Int ; k::configuration::Cell(x) ; k::configuration::Cell(old)"]
 advice = "none"
 
 [class.continuation-in-readable]
 code = "krs::syntax::continuation-in-readable"
 proposed = true
 doc = "a readable entry that captures or drops the computation's continuation (a named rest, `k: [x, rest @ ..]`, or a splice): a readable rule never does (Q3); `cells!` writes it with `KCell(.., rest @ ..)`"
+examples = ["readable ; subject ; - ; computation ; [x, r @ ..] ; -", "readable ; result ; - ; computation ; [x, ..r] ; [y, r @ ..]", "readable ; result ; - ; computation ; [x] ; -"]
 advice = "none"
 
 [class.computation-back-item]
 code = "krs::collect::invalid-configuration"
 doc = "an item after the rest of the computation cell, which is matched from its front"
+advice = "none"
+
+[class.cons-list-back-item]
+code = "krs::analysis::invalid-list-notation"
+doc = "an item after a cons list's rest (`[.., x]`, `[x, .., y]`, a result's `[..rest, x]`) on a cell whose sort is a cons list, in any form: a cons list is a constructor term built from its front, `x : rest`, so its back is no constructor pattern and, with no append declared, builds no term (P0, P2); the leaf mark's own shape, so it is refused before pairing and stands under a path"
+examples = ["readable ; subject ; - ; leaf Cons ; [.., x] ; -", "readable ; subject ; - ; leaf Cons ; [x, .., y] ; -", "readable ; result ; - ; leaf Cons ; [..r, x] ; [y, r @ ..]", "readable ; result ; - ; leaf Cons ; [.., x] ; -", "readable ; subject ; ? ; leaf Cons ; [.., x] ; -", "cells ; subject ; - ; leaf Cons ; k::configuration::Cell([.., x]) ; -"]
 advice = "none"
 
 [class.collection-in-static-subject]
@@ -305,17 +318,20 @@ advice = "none"
 
 [class.initializer-remainder]
 code = "krs::syntax::unsupported-initializer-body"
-doc = "a remainder (`..v`) in an initializer's `k!` or `map!`, which lists its items and takes no remainder"
+doc = "an anonymous rest (`..`) in an initializer's value, `k::k![x, ..]` or `[0, ..]`: its value is complete (P5); and, a stated exception (E3), a configuration variable spliced into its `k::k![..]` (`k::k![x, ..pgm]`): an item-sorted variable is an item, which `k::k![x, pgm]` writes. A map base, `k::map![k -> v, ..env]`, is an update and stays (P5)"
+examples = ["init ; init ; - ; computation ; k::k![Cmd::Go(), ..] ; -", "init ; init ; - ; leaf List ; [0, ..] ; -"]
 advice = "init/k/k::k![pgm]"
 
 [class.instance-list-shape]
 code = "krs::analysis::collection-entry"
-doc = "an instance list of the wrong shape for its collection's order (P2, P3b): braces on a List collection, or brackets on a Set or Map collection; or one a List collection does not admit: matching a back instance in place, or changing both ends"
+doc = "an instance list of the wrong shape for its collection's order (P2, P3b): braces on a List collection, or brackets on a Set or Map collection, whatever they hold (value items, rests, instance records: S5.0g pattern review P-R4); a value item in an unordered collection's braces (Q2: its instance is chosen by a written record); or one a List collection does not admit: matching a back instance in place, or changing both ends"
+examples = ["readable ; subject ; - ; * List of G ; { G { a: x, .. }, .. } ; -", "readable ; subject ; - ; * Set of G ; [x, ..] ; -", "readable ; subject ; - ; * Set of G ; [..] ; -", "readable ; subject ; - ; * Map of G ; [G { a: x, .. }, ..] ; -", "readable ; subject ; - ; * Set of G ; { x, .. } ; -", "cells ; subject ; - ; * Set of G ; [k::fragment![crate::G { a: x, .. }], ..] ; -"]
 advice = "readable/subject/job/[Job { payload: x, .. }, ..]"
 
 [class.instances-on-plain-cell]
 code = "krs::analysis::collection-entry"
 doc = "an instance list (`{ .. }`, `[.., Job { .. }]` read as instances) on a cell that is no `*` collection"
+examples = ["readable ; subject ; - ; leaf Int ; { G { a: x, .. }, .. } ; -", "readable ; subject ; - ; leaf Set ; { G { a: x, .. }, .. } ; -", "cells ; subject ; - ; group G ; [k::fragment![crate::G { a: x, .. }], ..] ; -"]
 advice = "none"
 
 [class.island-at-subject-root]
@@ -356,11 +372,13 @@ advice = "init/main-k/k/k::k![pgm]"
 [class.map-collection-key]
 code = "krs::analysis::map-collection-key"
 doc = "a Map collection's instance that does not keep its key, its first child, which is its identity, written at creation and never changed by an update (§7): a created instance that does not write it (a bare `..` takes the template's fields, which state no identity, P5), or an instance update (`..me`) that writes it as anything but what is provably the key the subject matched (another literal, another name, a computed value, or a key the labelled instance does not name); written as the subject's own key binder, or as the same literal it matched, it is unchanged (P0)"
+examples = ["readable ; result ; - ; * Map of G ; { G { b: x, .. }, .. } ; { G { a: y, .. }, .. }", "readable ; result ; - ; * Map of A ; { A { id: 5, ..me }, .. } ; { me @ A { id: z, .. }, .. }"]
 advice = "none"
 
 [class.map-notation-at-non-map]
 code = "krs::analysis::invalid-term"
 doc = "map notation (`{ k -> v, .. }`, `k::map![..]`) on a cell that is no Map"
+examples = ["readable ; subject ; - ; leaf Int ; { y -> x, .. } ; -", "cells ; subject ; - ; leaf List ; k::configuration::Cell(k::map![y -> x, ..]) ; -", "init ; init ; - ; leaf Int ; k::map![0 -> 1] ; -"]
 advice = "none"
 
 [class.map-read-in-result]
@@ -412,6 +430,7 @@ advice = "none"
 code = "krs::analysis::no-effect-entry"
 proposed = true
 doc = "a lint, never a refusal (Q1): a subject entry that matches every content its cell allows and binds nothing (`_`, `[..]`, `Cell(_)`, a group record whose children do), on a cell the result leaves out, so the rule is the same without it"
+examples = ["readable ; subject ; - ; leaf Int ; _ ; -", "readable ; subject ; - ; leaf List ; [..] ; -", "readable ; subject ; - ; group G ; G { .. } ; -", "cells ; subject ; - ; leaf Int ; k::configuration::Cell(_) ; -"]
 advice = "none"
 
 [class.nondet-on-function]
@@ -422,6 +441,7 @@ advice = "none"
 [class.none-in-initializer]
 code = "krs::syntax::unsupported-initializer-body"
 doc = "`None` as an initial value: K needs a template for every cell, so an optional cell that starts absent is written `k::absent!(template)` (decision NT-12-6)"
+examples = ["init ; init ; - ; ? leaf Int ; None ; -"]
 advice = "init/counter/k::absent!(0)"
 
 [class.notation-in-pattern]
@@ -442,11 +462,13 @@ advice = "terms/desugar/subject/Cmd::Pair { a: x, .. }"
 [class.open-record-outside-pattern]
 code = "krs::syntax::invalid-record-update"
 doc = "an open record (`Ctor { f: e, .. }`) in a built term or a condition, which has no value for the fields `..` leaves open: only a pattern leaves fields unconstrained"
+examples = ["readable ; result ; - ; leaf List ; [G { a: x, .. }, ..] ; [y, ..]", "readable ; result ; - ; group G ; G { a: x, .. } ; G { a: y, .. }", "readable ; result ; - ; ? leaf Int ; Some(G { .. }) ; Some(old)"]
 advice = "none"
 
 [class.optional-without-presence]
 code = "krs::analysis::optional-presence"
 doc = "an optional (`?`) cell written without `Some(..)`/`None` (in an initializer, `Some(..)`/`k::absent!(..)`): a binder, `_`, a literal, a record, a wrapper of the underlying kind or a template; or a rule's or claim's entry naming a cell below a `?` ancestor (S1 b, the rule forms'; an initializer names no cell by a path), which would silently require it present: write it inside `Some(G { child: .., .. })` (S1 b)"
+examples = ["readable ; subject ; - ; ? leaf Int ; x ; -", "readable ; subject ; - ; ? group G ; G { a: x, .. } ; -", "cells ; subject ; - ; ? leaf Int ; k::configuration::Cell(x) ; -", "init ; init ; - ; ? leaf Int ; 0 ; -", "readable ; subject ; ? ; leaf Int ; x ; -"]
 advice = "cells/result/counter/Some(k::configuration::Cell(x))"
 
 [class.order-on-unordered-sentence]
@@ -462,6 +484,7 @@ advice = "none"
 [class.presence-on-plain-cell]
 code = "krs::analysis::optional-presence"
 doc = "`Some(..)`/`None` (in an initializer, `Some(..)`/`k::absent!(..)`) on a cell that is not `multiplicity = \"?\"`"
+examples = ["readable ; subject ; - ; leaf Int ; Some(x) ; -", "cells ; subject ; - ; * List of G ; None ; -", "init ; init ; - ; leaf Int ; k::absent!(0) ; -"]
 advice = "none"
 
 [class.priority-range]
@@ -478,6 +501,7 @@ advice = "init/counter/Some(0)"
 code = "krs::analysis::record-missing-children"
 proposed = true
 doc = "a group record at a configuration position that names some of its children and no `..`: write `..` to leave the others unconstrained (L4)"
+examples = ["readable ; subject ; - ; group G ; G { a: x } ; -", "cells ; subject ; - ; group G ; k::fragment![crate::G { a: x }] ; -", "init ; init ; - ; group G ; G { a: 0 } ; -"]
 advice = "none"
 
 [class.record-remainder-in-cells-term]
@@ -492,7 +516,8 @@ advice = "terms/init/variable-item/Cmd::Pair { a: x, ..x }"
 
 [class.record-update-base]
 code = "krs::analysis::invalid-record-update"
-doc = "a record update (`Ctor { f: e, ..t }`) whose base is no alias `t @ Ctor { .. }` of one record of its constructor matched by the sentence; a value the sentence computes is destructured with a `let` instead, except in a claim, which holds no `let`"
+doc = "a record update (`Ctor { f: e, ..t }`) whose base is no alias `t @ Ctor { .. }` of one record of its constructor matched by the sentence, an instance update `{ T { f: e, ..me }, .. }` whose label `me` the sentence matches nowhere included (S5.0g pattern review P-R3); a value the sentence computes is destructured with a `let` instead, except in a claim, which holds no `let`"
+examples = ["readable ; result ; - ; * List of T ; [T { k: [x], ..me }, ..] ; [..]"]
 advice = ["terms/{form}/result/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }", "terms/local-rule/subject/rewrite-right/{ let Cmd::Pair { a: _, b } = x; Cmd::Pair { a: 1, b } }"]
 
 [class.record-update-in-pattern]
@@ -508,6 +533,7 @@ advice = "attrs/{form}/recursive production"
 [class.rest-mismatch]
 code = "krs::syntax::invalid-list-notation"
 doc = "a `..` rest on one side of a cell only: a result rest the subject's entry did not match, or a subject rest the result drops"
+examples = ["readable ; result ; - ; leaf List ; [x] ; [y, ..]", "readable ; result ; - ; leaf List ; [x, ..] ; [y]", "readable ; result ; - ; leaf List ; [x, ..] ; -"]
 advice = ["readable/result/job/[..]", "claim/result/job/[..]"]
 
 [class.rest-in-alias-subject]
@@ -625,6 +651,7 @@ advice = "none"
 [class.unmatched-optional-result]
 code = "krs::analysis::optional-presence"
 doc = "a result writing an optional (`?`) cell the subject does not match, whose presence the rule does not know (Q1, P5): match it with `Some(..)` or `None`"
+examples = ["readable ; result ; - ; ? leaf Int ; Some(x) ; -"]
 advice = "none"
 
 [class.unused-configuration-variable]
@@ -645,6 +672,7 @@ advice = "terms/desugar/subject/_"
 [class.wildcard-outside-pattern]
 code = "krs::syntax::unsupported-term-expression"
 doc = "`_` in a result, a condition or an initializer"
+examples = ["readable ; result ; - ; leaf Int ; _ ; old", "readable ; result ; - ; ? leaf Int ; Some(_) ; Some(old)", "init ; init ; - ; leaf Int ; _ ; -"]
 advice = "none"
 
 # absence-test-without-creation
@@ -685,12 +713,12 @@ at = "entry"
 
 # bracket-reading
 [[refuse]]
-match = 'cells/result/{env,pc}/k::configuration::Cell([x\, y])'
+match = 'cells/result/{counter,env,pc}/k::configuration::Cell([x\, y])'
 class = "bracket-reading"
 at = "spelling"
 
 [[refuse]]
-match = 'cells/subject/{env,pc}/k::configuration::Cell([x\, ..])'
+match = 'cells/subject/{counter,env,pc}/k::configuration::Cell([x\, ..])'
 class = "bracket-reading"
 at = "spelling"
 
@@ -920,12 +948,12 @@ at = "entry"
 
 # map-notation-at-non-map
 [[refuse]]
-match = 'cells/result/{pc,stack}/{k::configuration::Cell(k::map![x -> y]),k::configuration::Cell(k::map![x -> 1\, y -> 2])}'
+match = 'cells/result/{counter,pc,stack}/{k::configuration::Cell(k::map![x -> y]),k::configuration::Cell(k::map![x -> 1\, y -> 2])}'
 class = "map-notation-at-non-map"
 at = "spelling"
 
 [[refuse]]
-match = 'cells/subject/{pc,stack}/k::configuration::Cell(k::map![y -> x\, ..])'
+match = 'cells/subject/{counter,pc,stack}/k::configuration::Cell(k::map![y -> x\, ..])'
 class = "map-notation-at-non-map"
 at = "spelling"
 
@@ -973,12 +1001,12 @@ at = "spelling"
 
 # optional-without-presence
 [[refuse]]
-match = 'cells/result/counter/{k::configuration::Cell(0),k::configuration::Cell([x\, y]),k::configuration::Cell(k::map![x -> y]),k::configuration::Cell(k::map![x -> 1\, y -> 2]),k::configuration::Cell(k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, x\, 1)\, y\, 2)),k::configuration::Cell(x),k::fragment![crate::Frame \{ ret: x \}],x}'
+match = 'cells/result/counter/{k::configuration::Cell(0),k::configuration::Cell(k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty()\, x\, 1)\, y\, 2)),k::configuration::Cell(x),k::fragment![crate::Frame \{ ret: x \}],x}'
 class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = 'cells/subject/counter/{_,k::configuration::Cell(0),k::configuration::Cell([x\, ..]),k::configuration::Cell(_),k::configuration::Cell(k::map![y -> x\, ..]),k::configuration::Cell(x),k::fragment![crate::Frame \{ ret: x \}],x}'
+match = 'cells/subject/counter/{_,k::configuration::Cell(0),k::configuration::Cell(_),k::configuration::Cell(x),k::fragment![crate::Frame \{ ret: x \}],x}'
 class = "optional-without-presence"
 at = "entry"
 
@@ -1162,7 +1190,7 @@ class = "bracket-reading"
 at = "spelling"
 
 [[refuse]]
-match = '{claim,readable}/overwrite/kinds/{hbag,hframe,homap}/[x\, ..]'
+match = '{claim,readable}/overwrite/kinds/{hframe,homap}/[x\, ..]'
 class = "bracket-reading"
 at = "spelling"
 
@@ -1172,7 +1200,7 @@ class = "bracket-reading"
 at = "spelling"
 
 [[refuse]]
-match = '{claim,readable}/subject/kinds/{aacct,acounter,aenv,aogroup,apc}/[x\, ..]'
+match = '{claim,readable}/subject/kinds/{acounter,aenv,aogroup,apc}/[x\, ..]'
 class = "bracket-reading"
 at = "spelling"
 
@@ -1452,6 +1480,16 @@ class = "instance-list-shape"
 at = "entry"
 
 [[refuse]]
+match = '{claim,readable}/overwrite/kinds/hbag/[x\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/subject/kinds/aacct/[x\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
 match = 'cells/overwrite/kinds/{counter,env,pc}/[k::fragment![crate::G \{ a: x\, .. \}]\, ..]'
 class = "instances-on-plain-cell"
 at = "entry"
@@ -1683,8 +1721,8 @@ at = "entry"
 
 [[refuse]]
 match = '{claim,readable}/result/kinds/aomap/\{ y -> x\, .. \}'
-class = "optional-without-presence"
-at = "entry"
+class = "map-read-in-result"
+at = "spelling"
 
 [[refuse]]
 match = '{claim,readable}/subject/kinds/{holist,hset,hstack}/0'
@@ -7391,6 +7429,9 @@ principle = "C-lim: a map read has no result side until M3; P6 reads `{ k -> v, 
 
 [cell-exception.'{claim,readable}/overwrite/kinds/env/\{ y -> x\, .. \}']
 principle = "C-lim: a map read has no result side until M3; P6 reads `{ k -> v, .. }` in a result over an unmatched map as the frame write `Cell(k::map![k -> v, ..])` with a rest the subject never wrote (`rest-mismatch`)"
+
+[cell-exception.'{claim,readable}/result/kinds/aomap/\{ y -> x\, .. \}']
+principle = "C-lim: a map read has no result side until M3; on a `?` Map leaf it lacks `Some(..)` (optional-without-presence by P3c), and its advice `Some({ y -> x, .. })` is refused again by that limitation, so the limitation is named first (P3's reason at every depth, S5.0g pattern review P-R5)"
 
 [cell-exception.'init/k/k::k![Cmd::Go()\, ..pgm]']
 principle = "E3"

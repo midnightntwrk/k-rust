@@ -13,11 +13,16 @@
 //!
 //! 1. **form**: what the spelling and its side alone refuse (`_`, `name @ P` and a named rest
 //!    `name @ ..` in a result or an initializer, `None` or an anonymous rest in an initializer, an
-//!    anonymous rest in a map literal outside a `cells!` pattern);
+//!    anonymous rest in a map literal that is lexically no content root: outside a `cells!`
+//!    pattern, other than the direct argument of a `cells!` result's `Cell(..)`);
 //! 2. **kind**: P3 against the cell's own layers, outermost first: (a) the outermost layer's mark
 //!    admits the entry and its inside is judged against the next layer; (b) a mark of a layer the
 //!    stack has nowhere gives that mark's class; (c) a deeper layer's mark, or a value where the
-//!    outermost layer has a mark, gives the missing layer's class; then the path (S1 (b)): an
+//!    outermost layer has a mark, gives the missing layer's class, but only where the entry's
+//!    inside passes form and kind against the deeper layers, and otherwise the inside's own
+//!    refusal (P3's reason at every depth, S5.0g pattern review P-R5); a cons list's back item is
+//!    refused inside the leaf's mark (P2, P-R1), and brackets on a Set or Map collection are its
+//!    instance mark of the wrong order (P-R4); then the path (S1 (b)): an
 //!    entry naming a cell below a `?` or `*` ancestor is refused for the outermost such ancestor,
 //!    whatever it spells, since the ancestor's presence and the instance meant are written at the
 //!    ancestor's level, never in the entry (a mark in the entry is the cell's own, P2). The
@@ -31,7 +36,9 @@
 //!    entry of its own cell), against the child's own other side: the subject record's same
 //!    child, the same child of the subject instance an update `..me` labels (R10), an unmatched
 //!    child where the subject does not name it, and none for a created instance's or `?`
-//!    cell's child. A Map collection's instance is keyed by its first child: a created instance
+//!    cell's child. An update whose label no subject instance has creates an instance where the
+//!    sentence binds the label elsewhere, and has no base (`record-update-base`) where it binds
+//!    it nowhere (P0, P-R3). A Map collection's instance is keyed by its first child: a created instance
 //!    writes it (P5), and an update writes it, if at all, as the binder its subject matched it
 //!    with (P0); otherwise `map-collection-key` (§2.3, §7).
 //!
@@ -354,13 +361,14 @@ pub struct Refusal {
 pub const NO_EFFECT_ENTRY: &str = "no-effect-entry";
 
 /// The classes [`outcome`] answers with.
-pub const ENTRY_CLASSES: [&str; 20] = [
+pub const ENTRY_CLASSES: [&str; 22] = [
     "absence-test-without-creation",
     "alias-outside-pattern",
     "anonymous-rest-in-map-literal",
     "bracket-reading",
     "cell-wrapper",
     "collection-without-instances",
+    "cons-list-back-item",
     "continuation-in-readable",
     "initializer-remainder",
     "instance-list-shape",
@@ -372,6 +380,7 @@ pub const ENTRY_CLASSES: [&str; 20] = [
     "optional-without-presence",
     "presence-on-plain-cell",
     "record-missing-children",
+    "record-update-base",
     "rest-mismatch",
     "unmatched-optional-result",
     "wildcard-outside-pattern",
@@ -391,7 +400,7 @@ pub const LINT_CLASSES: [&str; 1] = [NO_EFFECT_ENTRY];
 
 /// The code each class of [`ENTRY_CLASSES`], [`RULE_CLASSES`] and [`LINT_CLASSES`] answers with,
 /// which `expected.toml` must declare alike (check 0).
-pub const CODES: [(&str, &str); 26] = [
+pub const CODES: [(&str, &str); 28] = [
     (
         "absence-test-without-creation",
         "krs::analysis::optional-presence",
@@ -407,6 +416,10 @@ pub const CODES: [(&str, &str); 26] = [
     (
         "collection-without-instances",
         "krs::analysis::collection-entry",
+    ),
+    (
+        "cons-list-back-item",
+        "krs::analysis::invalid-list-notation",
     ),
     (
         "continuation-in-readable",
@@ -443,6 +456,7 @@ pub const CODES: [(&str, &str); 26] = [
         "record-missing-children",
         "krs::analysis::record-missing-children",
     ),
+    ("record-update-base", "krs::analysis::invalid-record-update"),
     ("rest-mismatch", "krs::syntax::invalid-list-notation"),
     (
         "rule-changes-no-cell",
@@ -569,6 +583,16 @@ pub const fn missing(layer: &Layer) -> &'static str {
 fn mark_elsewhere(mark: Mark, stack: &[Layer]) -> &'static str {
     match mark {
         Mark::Presence => "presence-on-plain-cell",
+        // P2, P3b: brackets are a List collection's instance mark, so on a cell whose instance
+        // layer is a Set or a Map they are its instance mark of the wrong order (S5.0g pattern
+        // review P-R4), whatever they hold; on a cell with no instance layer they denote nothing.
+        Mark::Seq
+            if stack
+                .iter()
+                .any(|layer| matches!(layer, Layer::Instances(_))) =>
+        {
+            "instance-list-shape"
+        }
         Mark::Seq => "bracket-reading",
         Mark::SetInst | Mark::ListInst => {
             if stack
@@ -791,15 +815,9 @@ const fn refuse(class: &'static str, step: Step, depth: usize) -> Result<(), Ref
 }
 
 impl Judge<'_> {
-    /// Step 1: what the spelling and its side alone refuse. `frame` is the subject's spelling at
-    /// the same position of a result (at the entry's own cell, the subject's entry of the cell),
-    /// where the subject has one: it tells whether a subject map frames a `cells!` result's map.
-    fn form_step(
-        &self,
-        spelling: &Spelling,
-        depth: usize,
-        frame: Option<&Spelling>,
-    ) -> Result<(), Refusal> {
+    /// Step 1: what the spelling and its side alone refuse, read lexically (P4): `in_cell` tells
+    /// that `spelling` is the direct argument of a `Cell(..)`, a leaf's content root (P6).
+    fn form_step(&self, spelling: &Spelling, depth: usize, in_cell: bool) -> Result<(), Refusal> {
         let initializer = self.side == Side::Initializer;
         match spelling {
             Spelling::Wild if matches!(self.side, Side::Result | Side::Initializer) => {
@@ -825,26 +843,26 @@ impl Judge<'_> {
             {
                 return refuse("initializer-remainder", Step::Form, depth);
             }
-            // P6: a term's `..` names no map, except where a `cells!` pattern frames one: in a
-            // subject, and in a result whose subject's map at the same place frames its rest,
-            // which the result's `..` then keeps (P6 at the map's content root, M3; P7: readable
-            // `{ k -> v, .. }` reads so). Pairing judges that `..` with the other rests; a
-            // readable `map![..]` is a literal everywhere (readable writes `{ k -> v, .. }`).
+            // P6: `..` is K's `...` at a content root only; below a root, notation is a term's,
+            // and a term's `..` names no map. A `cells!` map literal is lexically a content root
+            // where it is the direct argument of `Cell(..)` (a leaf's root, P6), in a subject
+            // (where every map a pattern writes is matched) and in a result alike: whether its
+            // `..` keeps a rest is pairing's (P4: it needs the declaration and the other side;
+            // S5.0g pattern review P-R2). A readable `map![..]` is a literal everywhere: readable
+            // writes a map's root as `{ k -> v, .. }` (P2).
             Spelling::MapLit(entries)
                 if entries.rest == Some(Rest::Anon)
                     && !(self.form == Form::Cells
                         && (self.side == Side::Subject
-                            || (self.side == Side::Result && frames_map(frame)))) =>
+                            || (self.side == Side::Result && in_cell))) =>
             {
                 return refuse("anonymous-rest-in-map-literal", Step::Form, depth);
             }
             _ => {}
         }
-        for (inner, frame) in children(spelling)
-            .into_iter()
-            .zip(child_frames(spelling, frame))
-        {
-            self.form_step(inner, depth + 1, frame)?;
+        let cell = matches!(spelling, Spelling::Cell(_));
+        for inner in children(spelling) {
+            self.form_step(inner, depth + 1, cell)?;
         }
         Ok(())
     }
@@ -871,26 +889,37 @@ impl Judge<'_> {
                 .iter()
                 .any(|layer| admits(self.form, layer, mark))
             {
-                return refuse(missing(outer), Step::MissingLayer, depth);
+                return self.missing_layer(stack, spelling, depth);
             }
             return refuse(mark_elsewhere(mark, stack), Step::MarkElsewhere, depth);
         }
         if has_mark(self.form, outer) {
-            // P3's reason: the missing layers' advice puts the value where it is a term; a term
-            // whose bare `..` leaves a field open is refused there again, so its own mistake
-            // is named first.
-            if self.side == Side::Result
-                && open_record(spelling, &self.context.groups)
-                && lands_as_term(stack, spelling)
-            {
-                return refuse("open-record-outside-pattern", Step::Inside, depth);
-            }
-            return refuse(missing(outer), Step::MissingLayer, depth);
+            return self.missing_layer(stack, spelling, depth);
         }
         if let Layer::Group(group) = outer {
             return self.group_value(group, spelling, depth);
         }
         self.value(spelling, depth)
+    }
+
+    /// P3 (c), with P3's reason at every depth (S5.0g pattern review P-R5): `stack`'s outermost
+    /// layer is missing from the entry, which is refused for it only where its inside passes
+    /// form and kind against the deeper layers, `stack[1..]`, every other layer the advice must
+    /// add included; otherwise the advice would be refused again there, so the inside's own
+    /// refusal is named. An inside missing only further layers passes: the advice adds them
+    /// too.
+    fn missing_layer(
+        &mut self,
+        stack: &[Layer],
+        spelling: &Spelling,
+        depth: usize,
+    ) -> Result<(), Refusal> {
+        match self.judge(&stack[1..], spelling, depth) {
+            Err(inside) if !(inside.step == Step::MissingLayer && inside.depth == depth) => {
+                Err(inside)
+            }
+            _ => refuse(missing(&stack[0]), Step::MissingLayer, depth),
+        }
     }
 
     /// A value at a group's position: a record of the group names its children's entries (P1);
@@ -943,6 +972,7 @@ impl Judge<'_> {
                         if !matches!(notation, Notation::List | Notation::Cons) {
                             return refuse("bracket-reading", Step::Inside, depth + 1);
                         }
+                        cons_front(notation, seq, depth + 1)?;
                         for item in &seq.items {
                             self.value(item, depth + 2)?;
                         }
@@ -991,6 +1021,9 @@ impl Judge<'_> {
                 }
             }
             _ => {
+                if let (Layer::Leaf(notation), Spelling::Brackets(seq)) = (&stack[0], spelling) {
+                    cons_front(*notation, seq, depth)?;
+                }
                 if let Some((items, seq_rest)) = seq_of(spelling) {
                     for item in items {
                         self.value(item, depth + 1)?;
@@ -1193,7 +1226,9 @@ impl Judge<'_> {
             ([Layer::Instances(order), Layer::Group(group), ..], _) => {
                 for item in seq_of(spelling).map_or(&[][..], |(items, _)| items) {
                     if let Some(record) = record_of(item, group) {
-                        let other = other.instance(record);
+                        let Some(other) = other.instance(record, &self.context.bound) else {
+                            return refuse("record-update-base", Step::Pairing, 0);
+                        };
                         if !keyed(*order, group, record, other) {
                             return refuse("map-collection-key", Step::Pairing, 0);
                         }
@@ -1257,26 +1292,41 @@ impl Other<'_> {
     }
 
     /// The other side of an instance record a result writes in a collection whose other side is
-    /// `self`: an update `..label` changes in place the subject's instance labelled `label`
-    /// (R10), which the update matched, or an instance the subject does not show where no
-    /// instance has the label; any other instance record creates an instance (P6: its `..` is
-    /// its template's).
-    fn instance(self, record: &Record) -> Self {
+    /// `self`, `None` where it has none (P0, S5.0g pattern review P-R3). An update `..label`
+    /// changes in place the subject's instance labelled `label` (R10), which the update matched:
+    /// K rewrites in place only an instance the left side matched. Where no subject instance has
+    /// the label, the update is no in-place rewrite: if the sentence binds `label` elsewhere (a
+    /// value matched in another cell), the record is a new term with that value's fields, a
+    /// created instance; if it binds it nowhere, the update has no base (`record-update-base`),
+    /// `None`. Any other instance record creates an instance (P6: its `..` is its template's).
+    fn instance(self, record: &Record, bound: &[String]) -> Option<Self> {
         let RecordRest::Update(label) = &record.rest else {
-            return Self::Created;
+            return Some(Self::Created);
         };
-        let Self::Matched(subject) = self else {
-            return Self::Unmatched;
-        };
-        seq_of(unaliased(subject))
-            .and_then(|(items, _)| {
+        let shown = match self {
+            Self::Matched(subject) => seq_of(unaliased(subject)).and_then(|(items, _)| {
                 items.iter().find_map(|item| match item {
                     Spelling::Alias(name, inner) if name == label => Some(Self::Matched(inner)),
                     _ => None,
                 })
-            })
-            .unwrap_or(Self::Unmatched)
+            }),
+            Self::Unmatched | Self::Created => None,
+        };
+        shown.or_else(|| bound.contains(label).then_some(Self::Created))
     }
+}
+
+/// P2 with P0 (S5.0g pattern review P-R1): a cons list is a constructor term built from its
+/// front, `x : rest`, so its brackets end in their rest. An item after the rest (`[.., x]`,
+/// `[x, .., y]`, a result's `[..rest, x]`) is no constructor pattern and, with no append
+/// declared, builds no term: it lowers to no K, on either side. It is the leaf mark's own shape,
+/// known from the declaration, so it is a kind refusal inside the mark (it stands under a path,
+/// and comes before pairing).
+fn cons_front(notation: Notation, seq: &Seq, depth: usize) -> Result<(), Refusal> {
+    if notation == Notation::Cons && matches!(seq.rest, Some((_, RestAt::Front))) {
+        return refuse("cons-list-back-item", Step::Inside, depth);
+    }
+    Ok(())
 }
 
 /// The record of `group` that `spelling` writes, below an alias: a record, or its fragment.
@@ -1311,8 +1361,10 @@ fn keyed(order: Order, group: &Group, record: &Record, other: Other<'_>) -> bool
     };
     match (&record.rest, named(record, key)) {
         (RecordRest::Update(_), Some(value)) => {
+            // A created instance (an update of a value matched elsewhere) writes its key, as
+            // any created instance does (P5).
             let Other::Matched(subject) = other else {
-                return false;
+                return other == Other::Created;
             };
             let matched = record_of(subject, group).and_then(|record| named(record, key));
             match (value, matched) {
@@ -1329,18 +1381,6 @@ fn keyed(order: Order, group: &Group, record: &Record, other: Other<'_>) -> bool
         }
         (RecordRest::Update(_), None) => true,
         (RecordRest::Exact | RecordRest::Open, written) => written.is_some(),
-    }
-}
-
-/// Whether a value on `stack` lands, once the layers its head lacks are added, at a term's
-/// position rather than as a record of a group the stack has (a group cell's, or an instance).
-fn lands_as_term(stack: &[Layer], spelling: &Spelling) -> bool {
-    match stack {
-        [Layer::Optional, below @ ..] => lands_as_term(below, spelling),
-        [Layer::Instances(_), Layer::Group(group), ..] | [Layer::Group(group), ..] => {
-            record_of(spelling, group).is_none()
-        }
-        _ => true,
     }
 }
 
@@ -1364,83 +1404,6 @@ fn open_record(spelling: &Spelling, groups: &[Group]) -> bool {
 }
 
 /// `spelling` below an alias.
-/// What `spelling` writes at its cell's content, below presence, the leaf wrapper and an alias.
-fn content(spelling: &Spelling) -> &Spelling {
-    match spelling {
-        Spelling::Present(inner) | Spelling::Cell(inner) | Spelling::Alias(_, inner) => {
-            content(inner)
-        }
-        other => other,
-    }
-}
-
-/// Whether the subject's spelling `frame` frames a map: its content is a map with an anonymous
-/// rest.
-fn frames_map(frame: Option<&Spelling>) -> bool {
-    matches!(
-        frame.map(content),
-        Some(Spelling::MapLit(entries) | Spelling::MapRead(entries)) if entries.rest == Some(Rest::Anon)
-    )
-}
-
-/// The subject's spelling at each of `spelling`'s [`children`], in their order, where `frame` is
-/// the subject's at `spelling` itself: presence, a wrapper and an alias hold the same content;
-/// a record's field is the subject record's same field (P1); an instance update `..label` is
-/// the subject's instance labelled `label` (R10); anything else has none.
-fn child_frames<'s>(spelling: &Spelling, frame: Option<&'s Spelling>) -> Vec<Option<&'s Spelling>> {
-    let frame = frame.map(content);
-    match spelling {
-        Spelling::Present(_) | Spelling::Absent(_) | Spelling::Cell(_) | Spelling::Alias(..) => {
-            vec![frame]
-        }
-        Spelling::Record(record) | Spelling::Fragment(record) => {
-            let subject = match frame {
-                Some(Spelling::Record(subject) | Spelling::Fragment(subject))
-                    if subject.head == record.head =>
-                {
-                    Some(subject)
-                }
-                _ => None,
-            };
-            record
-                .fields
-                .iter()
-                .map(|(name, _)| {
-                    subject.and_then(|subject| {
-                        subject
-                            .fields
-                            .iter()
-                            .find(|(field, _)| field == name)
-                            .map(|(_, value)| value)
-                    })
-                })
-                .collect()
-        }
-        Spelling::Brackets(seq)
-        | Spelling::Braces(seq)
-        | Spelling::InstList(seq)
-        | Spelling::InstSet(seq) => {
-            let subject_items = frame.and_then(seq_of).map_or(&[][..], |(items, _)| items);
-            seq.items
-                .iter()
-                .map(|item| match unaliased(item) {
-                    Spelling::Record(record) | Spelling::Fragment(record) => {
-                        let RecordRest::Update(label) = &record.rest else {
-                            return None;
-                        };
-                        subject_items.iter().find_map(|subject| match subject {
-                            Spelling::Alias(name, inner) if name == label => Some(&**inner),
-                            _ => None,
-                        })
-                    }
-                    _ => None,
-                })
-                .collect()
-        }
-        _ => vec![None; children(spelling).len()],
-    }
-}
-
 fn unaliased(spelling: &Spelling) -> &Spelling {
     match spelling {
         Spelling::Alias(_, inner) => inner,
@@ -1480,10 +1443,7 @@ pub fn judge(
         context,
         sort: false,
     };
-    let frame = (side == Side::Result)
-        .then_some(context.other.as_ref())
-        .flatten();
-    judge.form_step(spelling, 0, frame)?;
+    judge.form_step(spelling, 0, false)?;
     judge.judge(stack, spelling, 0)?;
     // S1 (b): below a marked ancestor, the entry is refused for the outermost one, after the
     // cell's own kind (P3's reason): the advice writes the entry inside the ancestor's mark, so

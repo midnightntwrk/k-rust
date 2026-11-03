@@ -3514,6 +3514,89 @@ deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configu
 finding = "S5-A"
 deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
 
+# S5.0g pattern review P-R5 (P3's reason at every depth): a `cells!` `Cell(..)` on the optional
+# `counter` whose inside its Int leaf refuses (brackets, map notation) is that inside's mistake;
+# the compiler answers with the missing presence and advises `Some(Cell(..))`, refused again.
+["cells/result/counter/k::configuration::Cell([x, y])"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["cells/result/counter/k::configuration::Cell(k::map![x -> 1, y -> 2])"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["cells/result/counter/k::configuration::Cell(k::map![x -> y])"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["cells/subject/counter/k::configuration::Cell([x, ..])"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["cells/subject/counter/k::configuration::Cell(k::map![y -> x, ..])"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["k8/cells/result/counter/k::configuration::Cell([x, y])"]
+finding = "S5-A"
+deviation = "bracket-reading advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/cells/result/counter/k::configuration::Cell(k::map![x -> 1, y -> 2])"]
+finding = "S5-A"
+deviation = "map-notation-at-non-map advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/cells/result/counter/k::configuration::Cell(k::map![x -> y])"]
+finding = "S5-A"
+deviation = "map-notation-at-non-map advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/cells/subject/counter/k::configuration::Cell([x, ..])"]
+finding = "S5-A"
+deviation = "bracket-reading advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/cells/subject/counter/k::configuration::Cell(k::map![y -> x, ..])"]
+finding = "S5-A"
+deviation = "map-notation-at-non-map advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["cells-run/result/counter/k::configuration::Cell([x, y])"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["cells-run/result/counter/k::configuration::Cell(k::map![x -> 1, y -> 2])"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["cells-run/result/counter/k::configuration::Cell(k::map![x -> y])"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["cells-run/subject/counter/k::configuration::Cell([x, ..])"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["cells-run/subject/counter/k::configuration::Cell(k::map![y -> x, ..])"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["k8/cells-run/result/counter/k::configuration::Cell([x, y])"]
+finding = "S5-A"
+deviation = "bracket-reading advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/cells-run/result/counter/k::configuration::Cell(k::map![x -> 1, y -> 2])"]
+finding = "S5-A"
+deviation = "map-notation-at-non-map advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/cells-run/result/counter/k::configuration::Cell(k::map![x -> y])"]
+finding = "S5-A"
+deviation = "map-notation-at-non-map advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/cells-run/subject/counter/k::configuration::Cell([x, ..])"]
+finding = "S5-A"
+deviation = "bracket-reading advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/cells-run/subject/counter/k::configuration::Cell(k::map![y -> x, ..])"]
+finding = "S5-A"
+deviation = "map-notation-at-non-map advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
 # S5.0g: the kinds base (`class_matrix::kinds`), recorded from filtered runs
 # of the readable, cells and init shards. Owners as ruled: a path-named cell below `?`/`*`, admitted or
 # refused with another code, S5-S1 (its K3, S6's); the overwrite and the subject lint, S5-Q1; the second

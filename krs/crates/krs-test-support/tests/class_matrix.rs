@@ -1002,6 +1002,7 @@ fn expectations() -> (MistakeClass, Accepted) {
             doc: String::new(),
             proposed: false,
             advice: Vec::new(),
+            examples: Vec::new(),
         },
         Accepted {
             k: None,

@@ -100,7 +100,7 @@ by_test = { k8 = "S5" }
 ["S5-A"]
 owner = "S5"
 kind = "diagnostic"
-what = "a `cells!` wrapper of a layer the cell's stack has nowhere (`KCell(..)` on an optional leaf, `Cell(..)`/`KCell(..)` on a collection) answers with the missing presence or instances, not with `cell-wrapper` (decision (A), P3 b). On the collection the missing layer's advice is refused again; on the optional leaf the product advises `Some(k::configuration::Cell(..))`, which is admitted, so its 8 K8 deviations are the class's, and S5.3 settles `cell-wrapper`'s advice per form without deleting that one"
+what = "a `cells!` wrapper of a layer the cell's stack has nowhere (`KCell(..)` on an optional leaf, `Cell(..)`/`KCell(..)` on a collection) answers with the missing presence or instances, not with `cell-wrapper` (decision (A), P3 b). On the collection the missing layer's advice is refused again; on the optional leaf the product advises `Some(k::configuration::Cell(..))`, which is admitted, so its 8 K8 deviations are the class's, and S5.3 settles `cell-wrapper`'s advice per form without deleting that one; and (S5.0g pattern review P-R5) a `Cell(..)` on the optional leaf whose inside the leaf refuses (`Cell([x, ..])`, `Cell(k::map![..])`) answers with the missing presence and advises `Some(k::configuration::Cell(..))`, which is refused again, where the inside's `bracket-reading` or `map-notation-at-non-map` is the mistake (10 K2 and 10 K8 entries)"
 
 ["S5-C2"]
 owner = "S5"

@@ -6,11 +6,15 @@
 //!
 //! 1. **form**: what the spelling and its side alone refuse: `_`, `name @ P` and a named rest
 //!    `name @ ..` outside a pattern, `None` or an anonymous rest in an initializer's value, an
-//!    anonymous rest in a map literal outside a `cells!` pattern;
+//!    anonymous rest in a map literal outside a `cells!` pattern (a `cells!` result's
+//!    `Cell(k::map![.., ..])` included: the stated M3 limitation);
 //! 2. **kind**, against the cell's own layers, outermost first: the outermost layer's mark admits
 //!    the entry and its inside is judged against the next layer; a mark no layer of the stack
-//!    has gives that mark's refusal; a deeper layer's mark, or a value where the outermost layer
-//!    has a mark, gives the missing layer's refusal;
+//!    has gives that mark's refusal (brackets on a Set or Map collection are its instances of the
+//!    wrong order; an item after a cons list's rest builds no term); a deeper layer's mark, or a
+//!    value where the outermost layer has a mark, gives the missing layer's refusal where the
+//!    entry's inside passes against the layers the advice puts it in, and the inside's own
+//!    refusal otherwise;
 //! 3. **path**: an entry naming a cell below a `?` or `*` ancestor is refused for the outermost
 //!    such ancestor, whatever it spells: the ancestor's presence and the instance it means are
 //!    written at the ancestor's level (S1 (b)). It comes after the kind, since its advice writes
@@ -18,7 +22,9 @@
 //!    be refused again.
 //!
 //! [`pair`] then judges the entry with its rule: a result's rest against its subject's, at its
-//! cell's content root and at each child's of the group and instance records it writes, a Map
+//! cell's content root and at each child's of the group and instance records it writes (an
+//! update whose label no subject instance has creating its instance from a value bound
+//! elsewhere, or having no base), a Map
 //! collection's instance key ([`GroupKind::key`]), which a created instance writes and an
 //! update keeps, a
 //! result's group record with a bare `..` for a group that exists, a result over a cell the
@@ -118,6 +124,13 @@ pub enum Refusal {
     /// A readable computation's rest before an item: the computation is matched from its
     /// front (the class matrix's E1).
     ComputationBackItem,
+    /// An item after a cons list's rest (`[.., x]`, `[x, .., y]`, `[..rest, x]`): a cons list is
+    /// a constructor term built from its front, so its back is no constructor pattern and, with
+    /// no append declared, builds no term.
+    ConsListBackItem,
+    /// An instance update (`T { .., ..me }`) whose label names no instance the subject matches
+    /// and no value the sentence binds: the update has no base.
+    RecordUpdateBase,
     /// A readable map read at a result entry's head, which has no result side yet: the result
     /// is the frame write `Cell(k::map![k -> v, ..])` (a stated limitation of the readable
     /// record's top-level route).
@@ -165,6 +178,8 @@ impl Refusal {
             Self::RestMismatch => "rest-mismatch",
             Self::OpenRecordOutsidePattern => "open-record-outside-pattern",
             Self::ComputationBackItem => "computation-back-item",
+            Self::ConsListBackItem => "cons-list-back-item",
+            Self::RecordUpdateBase => "record-update-base",
             Self::MapReadInResult => "map-read-in-result",
             Self::MapCollectionKey => "map-collection-key",
             Self::MapReadValueBinder => "map-read-value-binder",
@@ -271,14 +286,16 @@ const fn missing(layer: &Layer) -> Refusal {
 fn foreign(mark: Mark, stack: &[Layer]) -> Refusal {
     match mark {
         Mark::Presence => Refusal::PresenceOnPlainCell,
-        Mark::Sequence => Refusal::BracketReading,
-        Mark::InstanceSet | Mark::InstanceList
+        // Brackets are a List collection's instances, so on a Set or Map collection they are
+        // its instances of the wrong order, whatever they hold.
+        Mark::Sequence | Mark::InstanceSet | Mark::InstanceList
             if stack
                 .iter()
                 .any(|layer| matches!(layer, Layer::Instances(_))) =>
         {
             Refusal::InstanceListShape
         }
+        Mark::Sequence => Refusal::BracketReading,
         Mark::InstanceSet | Mark::InstanceList => Refusal::InstancesOnPlainCell,
         Mark::Map => Refusal::MapNotationAtNonMap,
         Mark::Leaf | Mark::Computation | Mark::Value => Refusal::CellWrapper,
@@ -424,30 +441,17 @@ impl Admission<'_> {
             return self.kind(below, spelling, head);
         }
         let mark = mark(self.form, spelling);
+        if self.lacks(outer, below, mark) {
+            return self.missing_layer(stack, spelling, head);
+        }
         if mark == Mark::Value {
-            if marked(self.form, outer) {
-                // Adding the missing layers puts the value where it is a term; a term whose bare
-                // `..` leaves a field open is refused there again, so its own mistake is named
-                // first.
-                if self.side == EntrySide::Result
-                    && open_record(spelling, self.groups)
-                    && lands_as_term(stack, spelling)
-                {
-                    return Err(Refusal::OpenRecordOutsidePattern);
-                }
-                return Err(missing(outer));
-            }
             if let Layer::Group(group) = outer {
                 return self.group(group, spelling);
             }
             return self.value(spelling);
         }
         if !reads(self.form, outer, mark) {
-            return Err(if below.iter().any(|layer| reads(self.form, layer, mark)) {
-                missing(outer)
-            } else {
-                foreign(mark, stack)
-            });
+            return Err(foreign(mark, stack));
         }
         match (outer, spelling) {
             (Layer::Optional, EntrySpelling::Present(content) | EntrySpelling::Absent(content)) => {
@@ -473,11 +477,48 @@ impl Admission<'_> {
             }
             (_, EntrySpelling::MapLiteral(map)) => self.entries(map),
             (Layer::Computation, _) => self.computation(spelling),
+            (Layer::Leaf(notation), EntrySpelling::Brackets(seq)) => {
+                cons_front(*notation, seq)?;
+                seq.items.iter().try_for_each(|item| self.value(item))
+            }
             _ => sequence(spelling)
                 .into_iter()
                 .flat_map(|seq| &seq.items)
                 .try_for_each(|item| self.value(item)),
         }
+    }
+
+    /// Whether an entry whose head carries `mark` lacks the layer `outer`, above `below`: a value
+    /// where `outer` has a mark, or a mark of a layer below it.
+    fn lacks(&self, outer: &Layer, below: &[Layer], mark: Mark) -> bool {
+        if mark == Mark::Value {
+            marked(self.form, outer)
+        } else {
+            !reads(self.form, outer, mark)
+                && below.iter().any(|layer| reads(self.form, layer, mark))
+        }
+    }
+
+    /// An entry that lacks `stack`'s outermost layer is refused for it only where its inside
+    /// passes against the layers the advice puts it in: below every layer it lacks, each of
+    /// which the advice adds. Otherwise the advice would be refused again there, so the inside's
+    /// own refusal is the one named.
+    fn missing_layer(
+        &mut self,
+        stack: &[Layer],
+        spelling: &EntrySpelling,
+        head: bool,
+    ) -> Result<(), Refusal> {
+        let mark = mark(self.form, spelling);
+        let mut inside = &stack[1..];
+        while let Some((outer, below)) = inside.split_first()
+            && self.lacks(outer, below, mark)
+            && !(self.side == EntrySide::Initializer && matches!(outer, Layer::Instances(_)))
+        {
+            inside = below;
+        }
+        self.kind(inside, spelling, head)?;
+        Err(missing(&stack[0]))
     }
 
     /// Inside a leaf's `Cell(..)`: the leaf's own notation, or its value.
@@ -487,6 +528,7 @@ impl Admission<'_> {
                 if !matches!(notation, Notation::List | Notation::Cons) {
                     return Err(Refusal::BracketReading);
                 }
+                cons_front(notation, seq)?;
                 seq.items.iter().try_for_each(|item| self.value(item))
             }
             EntrySpelling::MapLiteral(map) => {
@@ -682,6 +724,15 @@ pub fn admit(
     })
 }
 
+/// A cons list is built from its front, so its brackets end in their rest: an item after the rest
+/// lowers to no term.
+fn cons_front(notation: Notation, seq: &EntrySeq) -> Result<(), Refusal> {
+    if notation == Notation::Cons && matches!(seq.rest, Some((_, RestPlace::Front))) {
+        return Err(Refusal::ConsListBackItem);
+    }
+    Ok(())
+}
+
 /// Adds to `groups` each group `layers` hold, at any depth (a group's children's included),
 /// once by name: the groups [`admit`] reads a term's record by.
 pub fn collect_groups(layers: &[Layer], groups: &mut Vec<GroupKind>) {
@@ -777,18 +828,6 @@ enum Other<'s> {
     Created,
 }
 
-/// Whether a value on `stack` lands, once the layers its head lacks are added, at a term's
-/// position rather than as a record of a group the stack has (a group cell's, or an instance).
-fn lands_as_term(stack: &[Layer], spelling: &EntrySpelling) -> bool {
-    match stack {
-        [Layer::Optional, below @ ..] => lands_as_term(below, spelling),
-        [Layer::Instances(_), Layer::Group(group), ..] | [Layer::Group(group), ..] => {
-            record_of(spelling, group).is_none()
-        }
-        _ => true,
-    }
-}
-
 /// Whether `spelling`, a term, holds a record (itself included) whose bare `..` leaves a field
 /// open ([`leaves_open`]). A record's fields are those of the group of `groups` its head names;
 /// a head that names none has no fields the record is known to name, so its `..` is open.
@@ -856,26 +895,28 @@ impl Other<'_> {
     }
 
     /// The other side of an instance record a result writes in a collection whose other side is
-    /// `self`: an update `..label` changes in place the subject's instance labelled `label`; one
-    /// whose label no subject instance has is an instance the subject does not show; any other
-    /// instance record creates an instance, whose `..` is its template's.
-    fn instance(self, record: &EntryRecord) -> Self {
+    /// `self`, `None` where the record has none. An update `..label` changes in place the
+    /// subject's instance labelled `label`: only an instance the subject matches is rewritten in
+    /// place. An update whose label no subject instance has builds a new instance from the value
+    /// the sentence binds `label` to elsewhere, a created instance, and has no base where the
+    /// sentence binds it nowhere (`None`). Any other instance record creates an instance, whose
+    /// `..` is its template's.
+    fn instance(self, record: &EntryRecord, bound: &dyn Fn(&str) -> bool) -> Option<Self> {
         let RecordTail::Update(label) = &record.tail else {
-            return Self::Created;
+            return Some(Self::Created);
         };
-        let Self::Matched(subject) = self else {
-            return Self::Unmatched;
-        };
-        sequence(unaliased(subject))
-            .and_then(|seq| {
+        let shown = match self {
+            Self::Matched(subject) => sequence(unaliased(subject)).and_then(|seq| {
                 seq.items.iter().find_map(|item| match item {
                     EntrySpelling::Alias(name, instance) if name == label => {
                         Some(Self::Matched(instance))
                     }
                     _ => None,
                 })
-            })
-            .unwrap_or(Self::Unmatched)
+            }),
+            Self::Unmatched | Self::Created => None,
+        };
+        shown.or_else(|| bound(label).then_some(Self::Created))
     }
 }
 
@@ -899,8 +940,9 @@ fn keyed(order: Order, group: &GroupKind, record: &EntryRecord, other: Other<'_>
     };
     match (&record.tail, named(record, key)) {
         (RecordTail::Update(_), Some(value)) => {
+            // An update of a value bound elsewhere creates its instance, which writes its key.
             let Other::Matched(subject) = other else {
-                return false;
+                return other == Other::Created;
             };
             match (
                 value,
@@ -929,6 +971,7 @@ fn pair_content(
     stack: &[Layer],
     spelling: &EntrySpelling,
     other: Other<'_>,
+    bound: &dyn Fn(&str) -> bool,
 ) -> Result<(), Refusal> {
     let anonymous = |root: Root<'_>| root == Root::Rest(&EntryRest::Anonymous);
     match other {
@@ -954,7 +997,7 @@ fn pair_content(
             }
         }
     }
-    pair_records(form, stack, spelling, other)
+    pair_records(form, stack, spelling, other, bound)
 }
 
 /// The group and instance records a result's content writes: a group that exists takes no bare
@@ -964,17 +1007,18 @@ fn pair_records(
     stack: &[Layer],
     spelling: &EntrySpelling,
     other: Other<'_>,
+    bound: &dyn Fn(&str) -> bool,
 ) -> Result<(), Refusal> {
     let fields = |group: &GroupKind, record: &EntryRecord, other: Other<'_>| {
         record.fields.iter().try_for_each(|(name, value)| {
             group.child(name).map_or(Ok(()), |kind| {
-                pair_content(form, &kind.layers, value, other.child(group, name))
+                pair_content(form, &kind.layers, value, other.child(group, name), bound)
             })
         })
     };
     match (stack, spelling) {
         ([Layer::Optional, below @ ..], EntrySpelling::Present(content)) => {
-            pair_records(form, below, content, other.present())
+            pair_records(form, below, content, other.present(), bound)
         }
         ([Layer::Group(group), ..], _) => {
             let Some(record) = record_of(spelling, group) else {
@@ -990,7 +1034,9 @@ fn pair_records(
             .iter()
             .filter_map(|item| record_of(item, group))
             .try_for_each(|record| {
-                let other = other.instance(record);
+                let other = other
+                    .instance(record, bound)
+                    .ok_or(Refusal::RecordUpdateBase)?;
                 if !keyed(*order, group, record, other) {
                     return Err(Refusal::MapCollectionKey);
                 }
@@ -1036,6 +1082,7 @@ pub fn pair(
     spelling: &EntrySpelling,
     other: Option<&EntrySpelling>,
     written: bool,
+    bound: &dyn Fn(&str) -> bool,
 ) -> Result<Option<Lint>, Refusal> {
     match side {
         EntrySide::Subject if written => Ok(None),
@@ -1047,7 +1094,7 @@ pub fn pair(
         }
         EntrySide::Result => {
             let other = other.map_or(Other::Unmatched, Other::Matched);
-            pair_content(form, stack, spelling, other).map(|()| None)
+            pair_content(form, stack, spelling, other, bound).map(|()| None)
         }
         EntrySide::Initializer => Ok(None),
     }
@@ -1132,6 +1179,7 @@ mod tests {
             &spelling,
             subject.as_ref(),
             false,
+            &|_| true,
         )
     }
 
@@ -1832,21 +1880,6 @@ mod tests {
             children: vec![("a".to_owned(), int()), ("b".to_owned(), int())],
         });
         let w = group("W", vec![("g", vec![g]), ("n", plain())]);
-        let threads = [
-            Layer::Instances(Order::List),
-            Layer::Group(GroupKind {
-                name: "T".to_owned(),
-                children: vec![
-                    (
-                        "k".to_owned(),
-                        CellKind {
-                            layers: vec![Layer::Computation],
-                        },
-                    ),
-                    ("n".to_owned(), int()),
-                ],
-            }),
-        ];
         let uor = Err(Refusal::UnmatchedOptionalResult);
         let open = Err(Refusal::OpenRecordOutsidePattern);
         // An overwritten group's computation child: a readable rule does not drop the
@@ -1894,7 +1927,29 @@ mod tests {
             result(readable, &w, "W { g: G { a: x, b: y }, n: 0 }", None),
             Ok(None)
         );
-        // An update whose label no subject instance has: its children are unmatched too.
+    }
+
+    #[test]
+    fn an_update_whose_label_the_subject_does_not_show_is_created_or_has_no_base() {
+        let readable = EntryForm::Readable;
+        let threads = [
+            Layer::Instances(Order::List),
+            Layer::Group(GroupKind {
+                name: "T".to_owned(),
+                children: vec![
+                    (
+                        "k".to_owned(),
+                        CellKind {
+                            layers: vec![Layer::Computation],
+                        },
+                    ),
+                    ("n".to_owned(), int()),
+                ],
+            }),
+        ];
+        // An update whose label no subject instance has is no in-place rewrite: of a value the
+        // sentence binds elsewhere, it creates an instance, whose `..` keeps nothing; of a label
+        // bound nowhere, it has no base.
         assert_eq!(
             result(
                 readable,
@@ -1902,10 +1957,27 @@ mod tests {
                 "[T { k: [x, ..], ..me }, ..]",
                 Some("[..]")
             ),
-            Err(Refusal::ContinuationInReadable)
+            Err(Refusal::RestMismatch)
+        );
+        assert_eq!(
+            result(readable, &threads, "[T { k: [x], ..me }, ..]", Some("[..]")),
+            Ok(None)
+        );
+        let spelling = read(readable, "[T { k: [x], ..me }, ..]");
+        let subject = read(readable, "[..]");
+        assert_eq!(
+            pair(
+                readable,
+                EntrySide::Result,
+                &threads,
+                &spelling,
+                Some(&subject),
+                false,
+                &|name| name != "me",
+            ),
+            Err(Refusal::RecordUpdateBase)
         );
     }
-
     #[test]
     fn an_update_of_a_map_collections_instance_keeps_its_key() {
         let (readable, cells) = (EntryForm::Readable, EntryForm::Cells);
@@ -2282,6 +2354,7 @@ mod tests {
                 &read(EntryForm::Readable, text),
                 None,
                 written,
+                &|_| false,
             )
         };
         assert_eq!(lint("Frame { .. }", false), Ok(Some(Lint::NoEffectEntry)));
@@ -2305,5 +2378,107 @@ mod tests {
                 "{text} breaks a shape rule"
             );
         }
+    }
+
+    #[test]
+    fn an_item_after_a_cons_lists_rest_is_refused_inside_its_mark() {
+        let (readable, cells) = (EntryForm::Readable, EntryForm::Cells);
+        let cons = [Layer::Leaf(Notation::Cons)];
+        let list = [Layer::Leaf(Notation::List)];
+        for text in ["[.., x]", "[x, .., y]"] {
+            assert_eq!(
+                judge(readable, EntrySide::Subject, &cons, text),
+                Err(Refusal::ConsListBackItem)
+            );
+            assert_eq!(judge(readable, EntrySide::Subject, &list, text), Ok(()));
+        }
+        assert_eq!(
+            judge(
+                cells,
+                EntrySide::Subject,
+                &cons,
+                "k::configuration::Cell([.., x])"
+            ),
+            Err(Refusal::ConsListBackItem)
+        );
+        assert_eq!(
+            below(
+                readable,
+                EntrySide::Subject,
+                &[Layer::Optional],
+                &cons,
+                "[.., x]"
+            ),
+            Err(Refusal::ConsListBackItem)
+        );
+        assert_eq!(
+            judge(readable, EntrySide::Subject, &cons, "[x, ..]"),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn brackets_on_an_unordered_collection_are_its_instances_of_the_wrong_order() {
+        let readable = EntryForm::Readable;
+        for order in [Order::Set, Order::Map] {
+            let stack = [Layer::Instances(order), frame()];
+            for text in ["[x, ..]", "[..]", "[Frame { ret: x, .. }, ..]"] {
+                assert_eq!(
+                    judge(readable, EntrySide::Subject, &stack, text),
+                    Err(Refusal::InstanceListShape)
+                );
+            }
+        }
+        assert_eq!(
+            judge(readable, EntrySide::Subject, &[frame()], "[x, ..]"),
+            Err(Refusal::BracketReading)
+        );
+    }
+
+    #[test]
+    fn a_missing_layer_is_named_only_where_its_inside_passes() {
+        let (readable, cells) = (EntryForm::Readable, EntryForm::Cells);
+        let optional_int = [Layer::Optional, Layer::Leaf(Notation::Plain)];
+        let optional_frame = [Layer::Optional, frame()];
+        let set = [Layer::Instances(Order::Set), frame()];
+        assert_eq!(
+            judge(
+                cells,
+                EntrySide::Subject,
+                &optional_int,
+                "k::configuration::Cell([x, ..])"
+            ),
+            Err(Refusal::BracketReading)
+        );
+        assert_eq!(
+            judge(
+                cells,
+                EntrySide::Subject,
+                &optional_int,
+                "k::configuration::Cell(x)"
+            ),
+            Err(Refusal::OptionalWithoutPresence)
+        );
+        assert_eq!(
+            judge(cells, EntrySide::Subject, &optional_int, "x"),
+            Err(Refusal::OptionalWithoutPresence)
+        );
+        assert_eq!(
+            judge(
+                readable,
+                EntrySide::Subject,
+                &optional_frame,
+                "Frame { ret: x }"
+            ),
+            Err(Refusal::RecordMissingChildren)
+        );
+        assert_eq!(
+            judge(readable, EntrySide::Subject, &set, "Frame { ret: x }"),
+            Err(Refusal::RecordMissingChildren)
+        );
+        assert_eq!(
+            judge(readable, EntrySide::Subject, &set, "x"),
+            Err(Refusal::CollectionWithoutInstances)
+        );
     }
 }

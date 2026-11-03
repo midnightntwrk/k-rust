@@ -17,19 +17,76 @@
 #   answers in readable, claim and cells! (whose row writes each record as its fragment); a
 #   member is its stack, `other` and result, in readable's spelling.
 # - children, init: a row group is one value, its pattern the one answer.
+# - the `more` tables (readable, claim more; cells more; init more) print each form's
+#   further single-entry spellings (the pattern review's gaps G7, G8, G9) as tables of their
+#   own, with the same rows; children, base matched nowhere is the children table's reading
+#   where nothing binds an update's label (S5.0g:P-R3).
 # Lines: `ID  PATH|answers  ANSWERS..` (the pattern), `ID  member  ..` (each row group that
 # has it), `ID  principle  TEXT`. IDs number the patterns in the order their first member is
 # printed in the sweep.
 #
-# The path rule, R3 (each main pattern's `?` and `*` lines): an entry naming a cell below a
-#   `?` or `*` ancestor is judged on its own layers first (the form step, then P3 against the
-#   cell's own stack, refusals inside its marks included) and those refusals stand; whatever
-#   they admit is then refused for the ancestor (S1 (b)): `owp` below `?`, `cwi` below `*`.
-#   A pairing refusal of the `-` row (rm, uor, atc, Q3's overwrite cir, F3's open record
-#   over an existing group) comes after the path, so the path class replaces it. The
-#   product's departures (E1 `cbi`, the List back instance `ils`, M3's readable `mrr` at the
-#   kind step, M3's `cells!` `arm` at the form step) come before the path and show through.
-# reviewed: not yet (S5.0g part (b), item 2)
+# The path rule, S5.0g:R3 (each main pattern's `?` and `*` lines): an entry naming a cell
+#   below a `?` or `*` ancestor is judged on its own layers first (the form step, then P3
+#   against the cell's own stack, refusals inside its marks included) and those refusals
+#   stand; whatever they admit is then refused for the ancestor (design:S1b): `owp` below
+#   `?`, `cwi` below `*`. A pairing refusal of the `-` row (rm, uor, atc, Q3's overwrite cir,
+#   S5.0:F3's open record over an existing group, map-collection-key, record-update-base)
+#   comes after the path, so the path class replaces it (S5.0g:P-R12). The product's
+#   departures (E1 `cbi`, the List back instance `ils`, design:M3's readable `mrr` at the
+#   kind step, design:M3's `cells!` `arm` and E3's `ir` at the form step) come before the path
+#   and show through.
+#
+# Citations: every principle line cites the IDs of this registry, and only these (a test
+#   fails on a line that cites none, an unknown one, or a ruling by a bare number):
+#   P0: an entry means the K configuration it lowers to; a spelling Rust reads otherwise is refused (S5-principles.md §1 P0)
+#   P1: an entry denotes the content of one cell at any depth; the declaration fixes its stack: ?, *, then a computation, a leaf or a group (S5-principles.md §1 P1)
+#   P2: each layer has one mark per form, read lexically; a cons list's brackets end in their rest (S5-principles.md §1 P2)
+#   P3: one judgement in every form, the entry's head against the whole stack: (a), (b), (c); a missing outer layer is named only where the inside passes form and kind (S5-principles.md §1 P3)
+#   P3a: the outermost layer's mark admits the entry, and its inside is judged against the next layer (S5-principles.md §1 P3 (a))
+#   P3b: a mark of a layer the cell has nowhere gives that mark's class (S5-principles.md §1 P3 (b))
+#   P3c: a deeper layer's mark, or a value where the outermost layer has a mark, gives the missing outer layer's class (S5-principles.md §1 P3 (c))
+#   P4: form, then kind (P3), then pairing, then sorts (the lattice), each answered by the first layer that can know it (S5-principles.md §1 P4)
+#   P5: a subject constrains and binds; a result is the new content; None tests absence by creation; an initializer is a complete result, a * cell's value one instance's template (S5-principles.md §1 P5)
+#   P6: at a content root .. is K's ...: a subject matches the rest, a result keeps it with .. or puts a named one back with ..name; records follow Rust, a bare .. in a result being the template of a created instance or of a ? cell created over None (S5-principles.md §1 P6)
+#   P7: readable abbreviates cells!: a readable entry is admitted exactly where the cells! entry it abbreviates is (S5-principles.md §1 P7)
+#   E1: the computation is read from its front: .. ends it (computation-back-item, a stated exception) (S5-principles.md §1, the exceptions)
+#   E2: the continuation has no readable value spelling (now Q3) (S5-principles.md §1, the exceptions)
+#   E3: an initializer's k![..] takes no ..pgm (a stated exception) (S5-principles.md §1, the exceptions)
+#   Q1: a subject entry that constrains nothing is a lint; a result over an unmatched cell is an overwrite (S5-cell-kinds.md rev. 4, decisions in force)
+#   Q2: one collection instance is a value only in an ordered collection; an unordered one's instance is chosen by a written record (S5-cell-kinds.md rev. 4, decisions in force)
+#   Q3: a readable rule never drops or captures the continuation (S5-cell-kinds.md rev. 4, decisions in force)
+#   L1: presence is lexical (S5-cell-kinds.md rev. 4, decisions in force (D3))
+#   L3: initializer brackets on a ? cell with no List layer give bracket-reading (as S5.0g:R7 words it) (S5-cell-kinds.md rev. 4, decisions in force (D3))
+#   L4: a group record at a configuration position names every child or writes .. (S5-cell-kinds.md rev. 4, decisions in force (D3))
+#   design:S1b: an entry naming a cell below a ? or * ancestor is refused for the outermost such ancestor (owp, cwi), the rule forms' (S5-cell-kinds.md rev. 4 §2.3, rows changed in revision 4)
+#   design:R3: Some(e) admits e by the underlying kind (the design's ruling 3) (S5-principles.md §2 row 55)
+#   design:R4: braces on a Set leaf are instances-on-plain-cell (the design's ruling 4) (S5-principles.md §2 row 56)
+#   design:R6: cells! judges the outermost layer first, withdrawn: one order for every form, a cells! wrapper on a ? or * cell is cell-wrapper (S5-principles.md §3 item 1 (A))
+#   design:M3: a map read has no result side until M3: readable { k -> v, .. } in a result is map-read-in-result and cells! Cell(k::map![.., ..]) in a result the product's arm, both stated limitations (S5-cell-kinds.md rev. 4 §2.3, the C-lims)
+#   design:rev4-R10: an instance child's other side is the labelled subject instance's same child (..me); a created instance's child has none (S5-cell-kinds.md rev. 4, revision 4 table, R10)
+#   S5.0:F1: None over a matched ? cell removes it with its rest, admitted (README.md §12 lane 3, S5.0 rulings)
+#   S5.0:F2: a named rest in a result is alias-outside-pattern (README.md §12 lane 3, S5.0 rulings)
+#   S5.0:F3: with ruling 1: a bare .. on a result group record of a group that exists, matched or overwritten, is open-record-outside-pattern; only a created instance has defaults (README.md §12 lane 3, S5.0 rulings)
+#   S5.0:R3: any @ in a result is refused (S5.0's ruling 3) (README.md §12 lane 3, S5.0 rulings)
+#   S5.0:R4: any @ in an initializer is refused (S5.0's ruling 4) (README.md §12 lane 3, S5.0 rulings)
+#   S5.0g:D-1: a result pairs its rests at every content root, a group or instance record's children included (README.md §12 lane 3, S5.0g D-1)
+#   S5.0g:D-2: a Map collection's instance is keyed by its first child; an update writes the key, if at all, as its subject's key binder (with S5.0g's ruling 2), else map-collection-key (README.md §12 lane 3, S5.0g D-2 and "ruled next")
+#   S5.0g:D-3: a fragment of the position's group is read as its record, for pairing and Q1's lint (README.md §12 lane 3, S5.0g D-3)
+#   S5.0g:D-4: k::fragment![crate::G { a: x }] is record-missing-children, as its readable form (README.md §12 lane 3, S5.0g D-4)
+#   S5.0g:D-5: a * value is one instance's template at every depth (README.md §12 lane 3, S5.0g D-5)
+#   S5.0g:key: a created Map instance must write its key (README.md §12 lane 3, S5.0g "ruled next")
+#   S5.0g:R3: the cell's own form, mark and kind refusals come before the path refusal, which replaces only what they admit and pairing (README.md §12 lane 3, S5.0g part (a) review R3)
+#   S5.0g:R4: a bare .. on a built record that is not a created instance is open-record-outside-pattern where it leaves a field open; after every field it defaults none (README.md §12 lane 3, S5.0g R4 and the vacuous-rest ruling)
+#   S5.0g:R7: L3 holds on a ? cell with no List layer; on a ? List the brackets are its leaf's mark (P3c) (tickets/S5-0g-review-a.md R7)
+#   S5.0g:R9: an update writing a Map key as the same literal its subject matched keeps it (README.md §12 lane 3, S5.0g part (a) review R9)
+#   S5.0g:P-R1: a cons list's back lowers to no K: cons-list-back-item, a kind refusal inside the leaf's mark (tickets/S5-0g-b-review-fixes.md ruling 1)
+#   S5.0g:P-R2: a cells! result's Cell(k::map![.., ..]) is a content root, judged by kind and pairing; arm only where the literal is no content root (tickets/S5-0g-b-review-fixes.md ruling 2)
+#   S5.0g:P-R3: an update whose label names no subject instance creates an instance where the sentence binds the label elsewhere, and is record-update-base where it binds it nowhere (tickets/S5-0g-b-review-fixes.md ruling 3)
+#   S5.0g:P-R4: brackets on a Set or Map collection are instance-list-shape, whatever they hold (tickets/S5-0g-b-review-fixes.md ruling 4)
+#   S5.0g:P-R5: a missing outer layer is named only where the inside passes form and kind against the deeper layers (tickets/S5-0g-b-review-fixes.md ruling 5)
+#   S5.0g:P-R12: under a path, an ancestor's own pairing decides whether a group is created, so F3's refusal is pairing and the path class replaces it (tickets/S5-0g-b-review-fixes.md ruling 7)
+#   S5.0g:P-R13: a ? cell created over None has a template (the initializer's k::absent!(v)), so its bare .. is admitted (tickets/S5-0g-b-review-fixes.md ruling 7, P6 as amended)
+# reviewed: S5-0g-pattern-review.md (the 86 patterns of 90858e27a); the patterns its rulings moved and the new tables, by S5.0g part (b) item 2 fixes, not yet
 #
 ## readable, claim
 pattern	line	Some(x)	None	[x, ..]	[x]	[..]	[.., x]	[x, r @ ..]	{ G { a: x, .. }, .. }	{ y -> x, .. }	x	_	0	G { a: x, .. }	G { a: x, b: y, .. }	G { a: x }
@@ -37,214 +94,238 @@ rc01	-	pop	pop	ok	ok	ok+no-effect-entry	ok|product:cbi	cir	iop	mna	cw	cw	cw	cw	c
 rc01	?	pop	pop	owp	owp	owp	owp|product:cbi	cir	iop	mna	cw	cw	cw	cw	cw	cw
 rc01	*	pop	pop	cwi	cwi	cwi	cwi|product:cbi	cir	iop	mna	cw	cw	cw	cw	cw	cw
 rc01	member	readable, claim	subject	computation
-rc01	principle	Subject on the computation: Some/None pop, braces iop, map notation mna (P3b); [x, ..] and [x] ok (P3a, P5: they constrain and bind); [..] ok+no-effect-entry (Q1's lint: it matches every content and binds nothing, on a cell the result leaves); [.., x] ok by the principles, the product's cbi being E1 (a [cell-exception]); [x, r @ ..] cir (Q3: a readable rule never captures the continuation; a refusal inside the mark, so it stands under a path); x, _, 0 and every record cw (P3c: a value where the computation has its mark; E2 for the whole binder). Paths: R3.
+rc01	principle	Subject on the computation: Some/None pop, braces iop, map notation mna (P3b); [x, ..] and [x] ok (P3a, P5: they constrain and bind); [..] ok+no-effect-entry (Q1's lint: it matches every content and binds nothing, on a cell the result leaves); [.., x] ok by the principles, the product's cbi being E1 (a [cell-exception]); [x, r @ ..] cir (Q3: a readable rule never captures the continuation; a refusal inside the mark, so it stands under a path); x, _, 0 and every record cw (P3c: a value where the computation has its mark; E2 for the whole binder). Paths: S5.0g:R3.
 rc02	-	pop	pop	br	br	br	br	br	iop	mna	ok	ok+no-effect-entry	sort	sort	sort	sort
 rc02	?	pop	pop	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	owp
 rc02	*	pop	pop	br	br	br	br	br	iop	mna	cwi	cwi	cwi	cwi	cwi	cwi
 rc02	member	readable, claim	subject	leaf Int
 rc02	member	readable, claim	subject	leaf Set
-rc02	principle	Subject on a plain Int or Set leaf: Some/None pop, every bracket spelling br (no List layer), braces iop (on the Set leaf too, ruling 4), map notation mna (P3b); x ok, _ ok+no-effect-entry (Q1's lint); 0 and the records sort (values: the lattice, step 4, judges a record of another sort). Paths: R3.
+rc02	principle	Subject on a plain Int or Set leaf: Some/None pop, every bracket spelling br (no layer brackets mark, no instance layer), braces iop (on the Set leaf too, design:R4), map notation mna (P3b); x ok, _ ok+no-effect-entry (Q1's lint); 0 and the records sort (values: the lattice, P4's sort step, judges a record of another sort). Paths: S5.0g:R3.
 rc03	-	pop	pop	ok	ok	ok+no-effect-entry	ok	ok	iop	mna	ok	ok+no-effect-entry	sort	sort	sort	sort
 rc03	?	pop	pop	owp	owp	owp	owp	owp	iop	mna	owp	owp	owp	owp	owp	owp
 rc03	*	pop	pop	cwi	cwi	cwi	cwi	cwi	iop	mna	cwi	cwi	cwi	cwi	cwi	cwi
 rc03	member	readable, claim	subject	leaf List
-rc03	member	readable, claim	subject	leaf Cons
-rc03	principle	Subject on a List or cons leaf, alike (P2: brackets mark both): [x, ..], [x], [.., x], [x, r @ ..] ok (P3a; P6: a subject `..` matches the unwritten rest, `r @ ..` names it, and a leaf's list may be matched at either end); [..] ok+no-effect-entry (Q1's lint); braces iop, map notation mna, Some/None pop (P3b); x ok, _ ok+no-effect-entry; 0 and the records sort (the lattice). Paths: R3.
-rc04	-	pop	pop	br	br	br	br	br	iop	ok	ok	ok+no-effect-entry	sort	sort	sort	sort
-rc04	?	pop	pop	br	br	br	br	br	iop	owp	owp	owp	owp	owp	owp	owp
-rc04	*	pop	pop	br	br	br	br	br	iop	cwi	cwi	cwi	cwi	cwi	cwi	cwi
-rc04	member	readable, claim	subject	leaf Map
-rc04	principle	Subject on a Map leaf: { y -> x, .. } ok (P3a: the map read, its rest framed); brackets br, Some/None pop, braces of records iop (P3b; P2 reads braces of records as instances, lexically, not as map notation); x ok, _ ok+no-effect-entry (Q1's lint); 0 and the records sort (the lattice). Paths: R3.
-rc05	-	pop	pop	br	br	br	br	br	iop	mna	ok	ok+no-effect-entry	sort	ok	ok	rmc
-rc05	?	pop	pop	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	rmc
-rc05	*	pop	pop	br	br	br	br	br	iop	mna	cwi	cwi	cwi	cwi	cwi	rmc
-rc05	member	readable, claim	subject	group G
-rc05	principle	Subject on the plain group G, which has no mark (P2): Some/None pop, brackets br, braces iop, map notation mna (P3b); x ok, _ ok+no-effect-entry (Q1's lint); 0 sort (the lattice); G { a: x, .. } and G { a: x, b: y, .. } ok (P6: a subject record's `..` leaves the other children unconstrained); G { a: x } rmc (L4: without `..` a record names every child; a kind refusal, so it stands under a path). Paths: R3.
-rc06	-	ok	atc	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	owp
-rc06	?	owp	owp	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	owp
-rc06	*	cwi	cwi	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	owp
-rc06	member	readable, claim	subject	? leaf Int
-rc06	member	readable, claim	subject	? group G
-rc06	principle	Subject on a `?` cell over Int or G: Some(x) ok (P3a); None atc (P5: K tests absence only by creating the cell, and the result leaves it); brackets br (no List layer anywhere), braces iop, map notation mna (P3b); x, _, 0 and every record owp (P3c: a value under `?`; an incomplete record's rmc would be deeper, after the advice). Paths: R3 (atc is pairing, so the ancestor's class replaces it).
-rc07	-	ok	atc	owp	owp	owp	owp	owp	iop	mna	owp	owp	owp	owp	owp	owp
-rc07	?	owp	owp	owp	owp	owp	owp	owp	iop	mna	owp	owp	owp	owp	owp	owp
-rc07	*	cwi	cwi	owp	owp	owp	owp	owp	iop	mna	owp	owp	owp	owp	owp	owp
-rc07	member	readable, claim	subject	? leaf List
-rc07	principle	Subject on `? leaf List`: Some(x) ok, None atc (P5, as rc06); every bracket spelling owp (P3c: the List leaf's mark under `?`, R7); braces iop, map notation mna (P3b); x, _, 0 and every record owp (P3c). Paths: R3.
-rc08	-	ok	atc	br	br	br	br	br	iop	owp	owp	owp	owp	owp	owp	owp
-rc08	?	owp	owp	br	br	br	br	br	iop	owp	owp	owp	owp	owp	owp	owp
-rc08	*	cwi	cwi	br	br	br	br	br	iop	owp	owp	owp	owp	owp	owp	owp
-rc08	member	readable, claim	subject	? leaf Map
-rc08	principle	Subject on `? leaf Map`: Some(x) ok, None atc (P5, as rc06); { y -> x, .. } owp (P3c: the Map leaf's mark under `?`); brackets br, braces iop (P3b); x, _, 0 and every record owp (P3c). Paths: R3.
-rc09	-	pop	pop	ok	ok	ok+no-effect-entry	ok|product:ils	ok	ils	mna	cwi	cwi	cwi	cwi	cwi	cwi
-rc09	?	pop	pop	owp	owp	owp	owp|product:ils	owp	ils	mna	cwi	cwi	cwi	cwi	cwi	cwi
-rc09	*	pop	pop	cwi	cwi	cwi	cwi|product:ils	cwi	ils	mna	cwi	cwi	cwi	cwi	cwi	cwi
-rc09	member	readable, claim	subject	* List of G
-rc09	principle	Subject on a List collection: [x, ..], [x] and [x, r @ ..] ok (P3a: the instance list; Q2: a value item is an instance of an ordered collection; P6 rests); [..] ok+no-effect-entry (Q1's lint); [.., x] ok by the principles, the product's ils being the stated limitation (a back instance matched in place, principles #9); braces ils (P2: braces mark unordered instances, on a List collection); Some/None pop, map notation mna (P3b); x, _, 0 and every record cwi (P3c: a value on `*`, B7). Paths: R3.
-rc10	-	pop	pop	br	br	br	br	br	ok	mna	cwi	cwi	cwi	cwi	cwi	cwi
-rc10	?	pop	pop	br	br	br	br	br	owp	mna	cwi	cwi	cwi	cwi	cwi	cwi
-rc10	*	pop	pop	br	br	br	br	br	cwi	mna	cwi	cwi	cwi	cwi	cwi	cwi
-rc10	member	readable, claim	subject	* Set of G
-rc10	member	readable, claim	subject	* Map of G
-rc10	member	readable, claim	subject, written	* Set of G
-rc10	member	readable, claim	subject, written	* Map of G
-rc10	principle	Subject on a Set or Map collection, the result leaving or writing it alike: { G { a: x, .. }, .. } ok (P3a: one instance record, the other instances framed; on the Map collection it names the key a); every bracket spelling br (P3b: brackets denote nothing on an unordered collection), Some/None pop, map notation mna (P3b); x, _, 0 and every record cwi (P3c on `*`). No entry here constrains nothing, so no lint tells the sides apart. Paths: R3.
-rc11	-	pop	pop	ok	ok	ok	ok|product:cbi	cir	iop	mna	cw	cw	cw	cw	cw	cw
-rc11	?	pop	pop	owp	owp	owp	owp|product:cbi	cir	iop	mna	cw	cw	cw	cw	cw	cw
-rc11	*	pop	pop	cwi	cwi	cwi	cwi|product:cbi	cir	iop	mna	cw	cw	cw	cw	cw	cw
-rc11	member	readable, claim	subject, written	computation
-rc11	principle	As rc01, the result writing the computation: [..] ok without the lint (Q1's lint is for a cell the result leaves out). Some/None pop, braces iop, map mna (P3b); the brackets ok (P3a), [.., x] the product's E1 cbi; [x, r @ ..] cir (Q3); values and records cw (P3c, E2). Paths: R3.
-rc12	-	pop	pop	br	br	br	br	br	iop	mna	ok	ok	sort	sort	sort	sort
-rc12	?	pop	pop	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	owp
-rc12	*	pop	pop	br	br	br	br	br	iop	mna	cwi	cwi	cwi	cwi	cwi	cwi
-rc12	member	readable, claim	subject, written	leaf Int
-rc12	member	readable, claim	subject, written	leaf Set
-rc12	principle	As rc02, the result writing the leaf: _ ok without the lint (Q1). Some/None pop, brackets br, braces iop, map mna (P3b); x ok; 0 and the records sort (the lattice). Paths: R3.
-rc13	-	pop	pop	ok	ok	ok	ok	ok	iop	mna	ok	ok	sort	sort	sort	sort
-rc13	?	pop	pop	owp	owp	owp	owp	owp	iop	mna	owp	owp	owp	owp	owp	owp
-rc13	*	pop	pop	cwi	cwi	cwi	cwi	cwi	iop	mna	cwi	cwi	cwi	cwi	cwi	cwi
-rc13	member	readable, claim	subject, written	leaf List
-rc13	member	readable, claim	subject, written	leaf Cons
-rc13	principle	As rc03, the result writing the leaf: [..] and _ ok without the lint (Q1). Every bracket spelling ok (P3a, P6); braces iop, map mna, Some/None pop (P3b); x ok; 0 and the records sort. Paths: R3.
-rc14	-	pop	pop	br	br	br	br	br	iop	ok	ok	ok	sort	sort	sort	sort
-rc14	?	pop	pop	br	br	br	br	br	iop	owp	owp	owp	owp	owp	owp	owp
-rc14	*	pop	pop	br	br	br	br	br	iop	cwi	cwi	cwi	cwi	cwi	cwi	cwi
-rc14	member	readable, claim	subject, written	leaf Map
-rc14	principle	As rc04, the result writing the leaf: _ ok without the lint (Q1). { y -> x, .. } ok (P3a); brackets br, braces iop, Some/None pop (P3b); x ok; 0 and the records sort. Paths: R3.
-rc15	-	pop	pop	br	br	br	br	br	iop	mna	ok	ok	sort	ok	ok	rmc
-rc15	?	pop	pop	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	rmc
-rc15	*	pop	pop	br	br	br	br	br	iop	mna	cwi	cwi	cwi	cwi	cwi	rmc
-rc15	member	readable, claim	subject, written	group G
-rc15	principle	As rc05, the result writing the group: _ ok without the lint (Q1). Some/None pop, brackets br, braces iop, map mna (P3b); x ok; 0 sort; G { a: x, .. } and G { a: x, b: y, .. } ok (P6); G { a: x } rmc (L4). Paths: R3.
-rc16	-	ok	ok	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	owp
-rc16	?	owp	owp	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	owp
-rc16	*	cwi	cwi	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	owp
-rc16	member	readable, claim	subject, written	? leaf Int
-rc16	member	readable, claim	subject, written	? group G
-rc16	principle	As rc06, the result writing the cell: None ok (P5: the result creates it, so K can test its absence). Some(x) ok (P3a); brackets br, braces iop, map mna (P3b); values and records owp (P3c). Paths: R3.
-rc17	-	ok	ok	owp	owp	owp	owp	owp	iop	mna	owp	owp	owp	owp	owp	owp
-rc17	?	owp	owp	owp	owp	owp	owp	owp	iop	mna	owp	owp	owp	owp	owp	owp
-rc17	*	cwi	cwi	owp	owp	owp	owp	owp	iop	mna	owp	owp	owp	owp	owp	owp
-rc17	member	readable, claim	subject, written	? leaf List
-rc17	principle	As rc07, the result writing the cell: None ok (P5). Some(x) ok; brackets owp (P3c, R7); braces iop, map mna (P3b); values and records owp (P3c). Paths: R3.
-rc18	-	ok	ok	br	br	br	br	br	iop	owp	owp	owp	owp	owp	owp	owp
-rc18	?	owp	owp	br	br	br	br	br	iop	owp	owp	owp	owp	owp	owp	owp
-rc18	*	cwi	cwi	br	br	br	br	br	iop	owp	owp	owp	owp	owp	owp	owp
-rc18	member	readable, claim	subject, written	? leaf Map
-rc18	principle	As rc08, the result writing the cell: None ok (P5). Some(x) ok; { y -> x, .. } owp (P3c); brackets br, braces iop (P3b); values and records owp (P3c). Paths: R3.
-rc19	-	pop	pop	ok	ok	ok	ok|product:ils	ok	ils	mna	cwi	cwi	cwi	cwi	cwi	cwi
-rc19	?	pop	pop	owp	owp	owp	owp|product:ils	owp	ils	mna	cwi	cwi	cwi	cwi	cwi	cwi
-rc19	*	pop	pop	cwi	cwi	cwi	cwi|product:ils	cwi	ils	mna	cwi	cwi	cwi	cwi	cwi	cwi
-rc19	member	readable, claim	subject, written	* List of G
-rc19	principle	As rc09, the result writing the collection: [..] ok without the lint (Q1). [x, ..], [x], [x, r @ ..] ok (P3a, Q2, P6); [.., x] ok, the product's ils the stated limitation (principles #9); braces ils (P2); Some/None pop, map mna (P3b); values and records cwi (P3c). Paths: R3.
-rc20	-	pop	pop	sort	rm	ok	sort|product:cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
-rc20	?	pop	pop	owp	owp	owp	owp|product:cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
-rc20	*	pop	pop	cwi	cwi	cwi	cwi|product:cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
-rc20	member	readable, claim	result, matched	computation
-rc20	principle	Result over the computation matched by `[y, ..]`: [x, ..] sort (P6: `..` keeps the subject's rest; x to the lattice); [x] rm (it drops the subject's `..`, D2); [..] ok (it keeps the rest and drops y); [.., x] sort by the principles (it keeps the rest), the product's cbi being E1; [x, r @ ..] alias-outside-pattern and _ wop (P4 placement: `@` and `_` in a result, F2 and ruling 3, before the kind); Some/None pop, braces iop, map mna (P3b); x, 0, G { a: x, b: y, .. } and G { a: x } cw (P3c, E2; the vacuous `..` leaves nothing open, the R4 ruling); G { a: x, .. } open-record-outside-pattern (R4: a built record leaving b open, named before P3 (c) because the advice puts it at a term's position). Paths: R3 (alias, wop and the open record are form or kind answers and stand).
-rc21	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	sort
-rc21	?	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-rc21	*	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
-rc21	member	readable, claim	result, matched	leaf Int
-rc21	member	readable, claim	result, matched	leaf Set
-rc21	member	readable, claim	result, unmatched	leaf Int
-rc21	member	readable, claim	result, unmatched	leaf Set
-rc21	principle	Result over a plain Int or Set leaf, matched by the binder `old` or not matched (Q1's overwrite): the same answers, since no rest is paired. Some/None pop, brackets br, braces iop, map mna (P3b); [x, r @ ..] alias-outside-pattern and _ wop (P4 placement, before the kind); x, 0, G { a: x, b: y, .. } and G { a: x } sort (P5: the new content, its sort to the lattice; the vacuous `..`, R4 ruling); G { a: x, .. } open-record-outside-pattern (R4: a built term record leaving b open, where Rust reads defaults and K keeps, P0). Paths: R3.
-rc22	-	pop	pop	sort	rm	ok	sort	alias-outside-pattern	iop	mna	rm	wop	rm	open-record-outside-pattern	rm	rm
-rc22	?	pop	pop	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-rc22	*	pop	pop	cwi	cwi	cwi	cwi	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
-rc22	member	readable, claim	result, matched	leaf List
-rc22	member	readable, claim	result, matched	leaf Cons
-rc22	principle	Result over a List or cons leaf matched by `[y, ..]` (P6 at its content root): [x, ..] and [.., x] sort (they keep the rest), [..] ok, [x] rm (it drops the subject's `..`); x, 0, G { a: x, b: y, .. } and G { a: x } rm (a whole value drops the subject's `..`); [x, r @ ..] alias-outside-pattern and _ wop (P4); G { a: x, .. } open-record-outside-pattern (R4, at the kind step, before pairing); Some/None pop, braces iop, map mna (P3b). Paths: R3 (rm is pairing, so the ancestor's class replaces it).
-rc23	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	sort|product:mrr	rm	wop	rm	open-record-outside-pattern	rm	rm
-rc23	?	pop	pop	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
-rc23	*	pop	pop	br	br	br	br	alias-outside-pattern	iop	cwi|product:mrr	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
-rc23	member	readable, claim	result, matched	leaf Map
-rc23	principle	Result over a Map leaf matched by `{ z -> y, .. }`: { y -> x, .. } sort by the principles (P6, M3: the frame write keeps the subject's rest), the product's map-read-in-result being the stated limitation (principles #16, #40); x, 0, G { a: x, b: y, .. } and G { a: x } rm (a whole value drops the subject's `..`); brackets br, braces iop, Some/None pop (P3b); [x, r @ ..] alias-outside-pattern and _ wop (P4); G { a: x, .. } open-record-outside-pattern (R4). Paths: R3.
-rc24	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	rmc
-rc24	?	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
-rc24	*	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	cwi	wop	cwi	cwi	cwi	rmc
-rc24	member	readable, claim	result, matched	group G
-rc24	member	readable, claim	result, unmatched	group G
-rc24	principle	Result over the plain group G, matched by `G { a: y, .. }` or overwritten (the same answers: a record's `..` frames children and is no content root, P6): x and 0 sort (P5, the lattice); G { a: x, b: y, .. } sort (the vacuous rest, R4 ruling); G { a: x, .. } open-record-outside-pattern (F3, ruling 1: a bare `..` over an existing group is Rust's defaults, which only a created instance has; pairing, so the ancestor's class replaces it under a path); G { a: x } rmc (L4: a kind refusal, it stands); Some/None pop, brackets br, braces iop, map mna (P3b); [x, r @ ..] alias-outside-pattern and _ wop (P4). Paths: R3.
-rc25	-	sort	ok	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-rc25	?	owp	owp	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-rc25	*	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-rc25	member	readable, claim	result, matched	? leaf Int
-rc25	principle	Result over `? leaf Int` matched by `Some(old)`: Some(x) sort (P3a, ruling 3), None ok (F1: it removes the matched cell); brackets br, braces iop, map mna (P3b); x, 0, G { a: x, b: y, .. } and G { a: x } owp (P3c); [x, r @ ..] alias-outside-pattern and _ wop (P4); G { a: x, .. } open-record-outside-pattern (R4: the advice `Some(..)` puts it at the leaf's term position, where it is refused again, so it is named first). Paths: R3.
-rc26	-	rm	ok	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-rc26	?	owp	owp	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-rc26	*	cwi	cwi	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-rc26	member	readable, claim	result, matched	? leaf List
-rc26	principle	Result over `? leaf List` matched by `Some([y, ..])`: Some(x) rm (ruling 3: inside `Some`, judged by the List kind, where x drops the subject's `..`); None ok (F1); the other bracket spellings owp (P3c: the List mark under `?`); braces iop, map mna (P3b); x, 0, G { a: x, b: y, .. } and G { a: x } owp (P3c); [x, r @ ..] alias-outside-pattern and _ wop (P4); G { a: x, .. } open-record-outside-pattern (R4, as rc25). Paths: R3.
-rc27	-	rm	ok	br	br	br	br	alias-outside-pattern	iop	owp	owp	wop	owp	open-record-outside-pattern	owp	owp
-rc27	?	owp	owp	br	br	br	br	alias-outside-pattern	iop	owp	owp	wop	owp	open-record-outside-pattern	owp	owp
-rc27	*	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	owp	owp	wop	owp	open-record-outside-pattern	owp	owp
-rc27	member	readable, claim	result, matched	? leaf Map
-rc27	principle	Result over `? leaf Map` matched by `Some({ z -> y, .. })`: Some(x) rm (ruling 3: inside `Some`, x drops the map's `..`); None ok (F1); { y -> x, .. } owp (P3c: the Map mark under `?`); brackets br, braces iop (P3b); x, 0, G { a: x, b: y, .. } and G { a: x } owp (P3c); [x, r @ ..] alias-outside-pattern and _ wop (P4); G { a: x, .. } open-record-outside-pattern (R4). Paths: R3.
-rc28	-	sort	ok	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	owp
-rc28	?	owp	owp	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	owp
-rc28	*	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	owp
-rc28	member	readable, claim	result, matched	? group G
-rc28	principle	Result over `? group G` matched by `Some(G { a: y, .. })`: Some(x) sort (P3a), None ok (F1); brackets br, braces iop, map mna (P3b); x, 0 and every record owp (P3c: a value under `?`; the open record's advice `Some(G { a: x, .. })` lands at the group's position, not at a term's, so R4 does not name it first, and F3 refuses it there, deeper); [x, r @ ..] alias-outside-pattern and _ wop (P4). Paths: R3.
-rc29	-	pop	pop	sort	rm	ok	sort|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	cwi
-rc29	?	pop	pop	owp	owp	owp	owp|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	cwi
-rc29	*	pop	pop	cwi	cwi	cwi	cwi|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	cwi
-rc29	member	readable, claim	result, matched	* List of G
-rc29	principle	Result over a List collection matched by `[G { a: y, .. }, ..]`: [x, ..] sort (Q2: x a front instance; `..` keeps the subject's rest); [x] rm (it drops the subject's `..`); [..] ok (it drops the front instance and keeps the rest); [.., x] sort by the principles, the product's ils being the stated limitation (both ends changed, principles #9); braces ils (P2); Some/None pop, map mna (P3b); x, 0 and every record cwi (P3c on `*`; a record's advice is a created instance, whose bare `..` takes the template's fields, P6); [x, r @ ..] alias-outside-pattern and _ wop (P4). Paths: R3.
-rc30	-	pop	pop	br	br	br	br	alias-outside-pattern	sort	mna	cwi	wop	cwi	cwi	cwi	cwi
-rc30	?	pop	pop	br	br	br	br	alias-outside-pattern	owp	mna	cwi	wop	cwi	cwi	cwi	cwi
-rc30	*	pop	pop	br	br	br	br	alias-outside-pattern	cwi	mna	cwi	wop	cwi	cwi	cwi	cwi
-rc30	member	readable, claim	result, matched	* Set of G
-rc30	member	readable, claim	result, matched	* Map of G
-rc30	principle	Result over a Set or Map collection matched by `{ G { a: y, .. }, .. }`: { G { a: x, .. }, .. } sort (a created instance: its bare `..` is the template's fields, P6; it writes the key a, ruling 3; the set's `..` keeps the subject's other instances); the other bracket spellings br, Some/None pop, map mna (P3b); x, 0 and every record cwi (P3c on `*`); [x, r @ ..] alias-outside-pattern and _ wop (P4). Paths: R3.
-rc31	-	pop	pop	cir	cir	cir	cir|product:cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
-rc31	?	pop	pop	owp	owp	owp	owp|product:cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
-rc31	*	pop	pop	cwi	cwi	cwi	cwi|product:cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
-rc31	member	readable, claim	result, unmatched	computation
-rc31	principle	Result over the computation the subject does not match (Q1's overwrite): [x, ..], [x], [..] and [.., x] cir (Q3: the overwrite drops the continuation; [.., x] shows the product's E1 cbi, a kind answer); Some/None pop, braces iop, map mna (P3b); x, 0, G { a: x, b: y, .. } and G { a: x } cw (P3c, E2); [x, r @ ..] alias-outside-pattern and _ wop (P4); G { a: x, .. } open-record-outside-pattern (R4). Paths: R3 (Q3's overwrite is pairing, so the ancestor's class replaces it).
-rc32	-	pop	pop	rm	sort	rm	rm	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	sort
-rc32	?	pop	pop	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-rc32	*	pop	pop	cwi	cwi	cwi	cwi	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
-rc32	member	readable, claim	result, unmatched	leaf List
-rc32	member	readable, claim	result, unmatched	leaf Cons
-rc32	principle	Overwrite of a List or cons leaf (Q1): [x] sort (the exact new list); x, 0, G { a: x, b: y, .. } and G { a: x } sort (P5: the new content, its sort to the lattice); [x, ..], [..] and [.., x] rm (P6: a `..` the subject never wrote); [x, r @ ..] alias-outside-pattern and _ wop (P4); G { a: x, .. } open-record-outside-pattern (R4); Some/None pop, braces iop, map mna (P3b). Paths: R3.
-rc33	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	rm|product:mrr	sort	wop	sort	open-record-outside-pattern	sort	sort
-rc33	?	pop	pop	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
-rc33	*	pop	pop	br	br	br	br	alias-outside-pattern	iop	cwi|product:mrr	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
-rc33	member	readable, claim	result, unmatched	leaf Map
-rc33	principle	Overwrite of a Map leaf (Q1): { y -> x, .. } rm (P6, M3: the frame write keeps a rest the subject never wrote), the product's map-read-in-result being the stated limitation; x, 0, G { a: x, b: y, .. } and G { a: x } sort (P5); brackets br, braces iop, Some/None pop (P3b); [x, r @ ..] alias-outside-pattern and _ wop (P4); G { a: x, .. } open-record-outside-pattern (R4). Paths: R3.
-rc34	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-rc34	?	owp	owp	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-rc34	*	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-rc34	member	readable, claim	result, unmatched	? leaf Int
-rc34	principle	Overwrite of `? leaf Int`: Some(x) and None uor (Q1 x P5: the rule does not know the cell's presence); brackets br, braces iop, map mna (P3b); x, 0, G { a: x, b: y, .. } and G { a: x } owp (P3c, the kind before pairing); [x, r @ ..] alias-outside-pattern and _ wop (P4); G { a: x, .. } open-record-outside-pattern (R4, as rc25). Paths: R3.
-rc35	-	uor	uor	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-rc35	?	owp	owp	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-rc35	*	cwi	cwi	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
-rc35	member	readable, claim	result, unmatched	? leaf List
-rc35	principle	Overwrite of `? leaf List`: Some(x) and None uor (Q1 x P5); the other bracket spellings owp (P3c, R7); braces iop, map mna (P3b); x, 0, G { a: x, b: y, .. } and G { a: x } owp (P3c); [x, r @ ..] alias-outside-pattern and _ wop (P4); G { a: x, .. } open-record-outside-pattern (R4). Paths: R3.
-rc36	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	owp	owp	wop	owp	open-record-outside-pattern	owp	owp
-rc36	?	owp	owp	br	br	br	br	alias-outside-pattern	iop	owp	owp	wop	owp	open-record-outside-pattern	owp	owp
-rc36	*	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	owp	owp	wop	owp	open-record-outside-pattern	owp	owp
-rc36	member	readable, claim	result, unmatched	? leaf Map
-rc36	principle	Overwrite of `? leaf Map`: Some(x) and None uor (Q1 x P5); { y -> x, .. } owp (P3c); brackets br, braces iop (P3b); x, 0, G { a: x, b: y, .. } and G { a: x } owp (P3c); [x, r @ ..] alias-outside-pattern and _ wop (P4); G { a: x, .. } open-record-outside-pattern (R4). Paths: R3.
-rc37	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	owp
-rc37	?	owp	owp	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	owp
-rc37	*	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	owp
-rc37	member	readable, claim	result, unmatched	? group G
-rc37	principle	Overwrite of `? group G`: Some(x) and None uor (Q1 x P5); brackets br, braces iop, map mna (P3b); x, 0 and every record owp (P3c; the records' advice lands at the group's position, as rc28); [x, r @ ..] alias-outside-pattern and _ wop (P4). Paths: R3.
-rc38	-	pop	pop	rm	sort	rm	rm|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	cwi
-rc38	?	pop	pop	owp	owp	owp	owp|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	cwi
-rc38	*	pop	pop	cwi	cwi	cwi	cwi|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	cwi
-rc38	member	readable, claim	result, unmatched	* List of G
-rc38	principle	Overwrite of a List collection (Q1): [x] sort (the collection becomes the one instance x, Q2); [x, ..] and [..] rm (P6: a `..` the subject never wrote); [.., x] rm by the principles, the product's ils being the stated limitation (a kind answer); braces ils (P2); Some/None pop, map mna (P3b); x, 0 and every record cwi (P3c); [x, r @ ..] alias-outside-pattern and _ wop (P4). Paths: R3.
-rc39	-	pop	pop	br	br	br	br	alias-outside-pattern	rm	mna	cwi	wop	cwi	cwi	cwi	cwi
-rc39	?	pop	pop	br	br	br	br	alias-outside-pattern	owp	mna	cwi	wop	cwi	cwi	cwi	cwi
-rc39	*	pop	pop	br	br	br	br	alias-outside-pattern	cwi	mna	cwi	wop	cwi	cwi	cwi	cwi
-rc39	member	readable, claim	result, unmatched	* Set of G
-rc39	member	readable, claim	result, unmatched	* Map of G
-rc39	principle	Overwrite of a Set or Map collection (Q1): { G { a: x, .. }, .. } rm (P6: the set's `..` keeps instances the subject never matched); the other bracket spellings br, Some/None pop, map mna (P3b); x, 0 and every record cwi (P3c); [x, r @ ..] alias-outside-pattern and _ wop (P4). Paths: R3.
+rc03	principle	Subject on a List leaf: every bracket spelling ok, [.., x] and [x, r @ ..] included (P3a; P6: a subject `..` matches the unwritten rest and `r @ ..` names it; the builtin List is matched at either end); [..] ok+no-effect-entry (Q1's lint); braces iop, map notation mna, Some/None pop (P3b); x ok, _ ok+no-effect-entry; 0 and the records sort (the lattice). Paths: S5.0g:R3.
+rc04	-	pop	pop	ok	ok	ok+no-effect-entry	cons-list-back-item	ok	iop	mna	ok	ok+no-effect-entry	sort	sort	sort	sort
+rc04	?	pop	pop	owp	owp	owp	cons-list-back-item	owp	iop	mna	owp	owp	owp	owp	owp	owp
+rc04	*	pop	pop	cwi	cwi	cwi	cons-list-back-item	cwi	iop	mna	cwi	cwi	cwi	cwi	cwi	cwi
+rc04	member	readable, claim	subject	leaf Cons
+rc04	principle	Subject on a cons leaf: as on a List leaf (P2: brackets mark both), but [.., x] cons-list-back-item (S5.0g:P-R1, P0: a cons list is built from its front, so an item after its rest is no constructor pattern and lowers to no K; a refusal inside the leaf's mark, so it stands under a path); [x, ..], [x] and [x, r @ ..] ok (P3a, P6); [..] ok+no-effect-entry (Q1's lint); braces iop, map notation mna, Some/None pop (P3b); x ok, _ ok+no-effect-entry; 0 and the records sort (the lattice). Paths: S5.0g:R3.
+rc05	-	pop	pop	br	br	br	br	br	iop	ok	ok	ok+no-effect-entry	sort	sort	sort	sort
+rc05	?	pop	pop	br	br	br	br	br	iop	owp	owp	owp	owp	owp	owp	owp
+rc05	*	pop	pop	br	br	br	br	br	iop	cwi	cwi	cwi	cwi	cwi	cwi	cwi
+rc05	member	readable, claim	subject	leaf Map
+rc05	principle	Subject on a Map leaf: { y -> x, .. } ok (P3a: the map read, its rest framed, P6); brackets br (no bracket or instance layer), Some/None pop, braces of records iop (P3b; P2 reads braces of records as instances, lexically, not as map notation); x ok, _ ok+no-effect-entry (Q1's lint); 0 and the records sort (the lattice). Paths: S5.0g:R3.
+rc06	-	pop	pop	br	br	br	br	br	iop	mna	ok	ok+no-effect-entry	sort	ok	ok	rmc
+rc06	?	pop	pop	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	rmc
+rc06	*	pop	pop	br	br	br	br	br	iop	mna	cwi	cwi	cwi	cwi	cwi	rmc
+rc06	member	readable, claim	subject	group G
+rc06	principle	Subject on the plain group G, which has no mark (P2): Some/None pop, brackets br, braces iop, map notation mna (P3b); x ok, _ ok+no-effect-entry (Q1's lint); 0 sort (the lattice); G { a: x, .. } and G { a: x, b: y, .. } ok (P6: a subject record's `..` leaves the other children unconstrained); G { a: x } rmc (L4: without `..` a record names every child; a kind refusal, so it stands under a path). Paths: S5.0g:R3.
+rc07	-	ok	atc	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	owp
+rc07	?	owp	owp	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	owp
+rc07	*	cwi	cwi	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	owp
+rc07	member	readable, claim	subject	? leaf Int
+rc07	principle	Subject on `? leaf Int`: Some(x) ok (P3a); None atc (P5: K tests absence only by creating the cell, and the result leaves it); brackets br, braces iop, map notation mna (P3b: no layer has these marks); x, _, 0 and every record owp (P3c: a value under `?`, whose inside the Int leaf passes, S5.0g:P-R5). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rc08	-	ok	atc	owp	owp	owp	owp	owp	iop	mna	owp	owp	owp	owp	owp	owp
+rc08	?	owp	owp	owp	owp	owp	owp	owp	iop	mna	owp	owp	owp	owp	owp	owp
+rc08	*	cwi	cwi	owp	owp	owp	owp	owp	iop	mna	owp	owp	owp	owp	owp	owp
+rc08	member	readable, claim	subject	? leaf List
+rc08	principle	Subject on `? leaf List`: Some(x) ok (P3a); None atc (P5); every bracket spelling owp (P3c: the List leaf's mark under `?`, S5.0g:R7, its inside passing against the leaf, S5.0g:P-R5); braces iop, map notation mna (P3b); x, _, 0 and every record owp (P3c). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rc09	-	ok	atc	br	br	br	br	br	iop	owp	owp	owp	owp	owp	owp	owp
+rc09	?	owp	owp	br	br	br	br	br	iop	owp	owp	owp	owp	owp	owp	owp
+rc09	*	cwi	cwi	br	br	br	br	br	iop	owp	owp	owp	owp	owp	owp	owp
+rc09	member	readable, claim	subject	? leaf Map
+rc09	principle	Subject on `? leaf Map`: Some(x) ok (P3a); None atc (P5); { y -> x, .. } owp (P3c: the Map leaf's mark under `?`, its inside passing, S5.0g:P-R5); brackets br, braces iop (P3b); x, _, 0 and every record owp (P3c). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rc10	-	ok	atc	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	rmc
+rc10	?	owp	owp	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	rmc
+rc10	*	cwi	cwi	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	rmc
+rc10	member	readable, claim	subject	? group G
+rc10	principle	Subject on `? group G`: Some(x) ok (P3a); None atc (P5); brackets br, braces iop, map notation mna (P3b); x, _, 0, G { a: x, .. } and G { a: x, b: y, .. } owp (P3c: their inside passes against G); G { a: x } rmc (S5.0g:P-R5: the advice Some(G { a: x }) is refused again by L4, so the inside's refusal is named; a kind refusal, it stands under a path). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rc11	-	pop	pop	ok	ok	ok+no-effect-entry	ok|product:ils	ok	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
+rc11	?	pop	pop	owp	owp	owp	owp|product:ils	owp	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
+rc11	*	pop	pop	cwi	cwi	cwi	cwi|product:ils	cwi	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
+rc11	member	readable, claim	subject	* List of G
+rc11	principle	Subject on a List collection of G: brackets are its instance mark (P2): [x, ..], [x] and [x, r @ ..] ok (P3a; Q2: an ordered collection's value item is its front instance; P6 at the instances' root), [..] ok+no-effect-entry (Q1's lint), [.., x] ok by the principles, the product's ils being the stated limitation of a List collection's back instance (a [cell-exception]); braces ils (P3b: the instance mark of the other order); Some/None pop, map notation mna (P3b); x, _, 0, G { a: x, .. } and G { a: x, b: y, .. } cwi (P3c: a value where the collection has its instances, its inside passing against G); G { a: x } rmc (S5.0g:P-R5: L4 refuses the instance record the advice writes). Paths: S5.0g:R3.
+rc12	-	pop	pop	ils	ils	ils	ils	ils	ok	mna	cwi	cwi	cwi	cwi	cwi	rmc
+rc12	?	pop	pop	ils	ils	ils	ils	ils	owp	mna	cwi	cwi	cwi	cwi	cwi	rmc
+rc12	*	pop	pop	ils	ils	ils	ils	ils	cwi	mna	cwi	cwi	cwi	cwi	cwi	rmc
+rc12	member	readable, claim	subject	* Set of G
+rc12	member	readable, claim	subject	* Map of G
+rc12	member	readable, claim	subject, written	* Set of G
+rc12	member	readable, claim	subject, written	* Map of G
+rc12	principle	Subject on a Set or Map collection of G, the result leaving or writing it alike: every bracket spelling ils (S5.0g:P-R4: brackets are a List collection's instance mark, of the wrong order here, whatever they hold); { G { a: x, .. }, .. } ok (P3a: an instance record in braces, the collection's rest framed, P6; it binds, so no lint, Q1); Some/None pop, map notation mna (P3b); x, _, 0, G { a: x, .. } and G { a: x, b: y, .. } cwi (P3c, their inside passing against G); G { a: x } rmc (S5.0g:P-R5). Paths: S5.0g:R3.
+rc13	-	pop	pop	ok	ok	ok	ok|product:cbi	cir	iop	mna	cw	cw	cw	cw	cw	cw
+rc13	?	pop	pop	owp	owp	owp	owp|product:cbi	cir	iop	mna	cw	cw	cw	cw	cw	cw
+rc13	*	pop	pop	cwi	cwi	cwi	cwi|product:cbi	cir	iop	mna	cw	cw	cw	cw	cw	cw
+rc13	member	readable, claim	subject, written	computation
+rc13	principle	Subject on the computation, the result writing it: [..] ok without the lint (Q1's lint is for a cell the result leaves out). Some/None pop, braces iop, map mna (P3b); [x, ..] and [x] ok (P3a), [.., x] ok with the product's E1 cbi; [x, r @ ..] cir (Q3, inside the mark, standing under a path); x, _, 0 and the records cw (P3c, E2). Paths: S5.0g:R3.
+rc14	-	pop	pop	br	br	br	br	br	iop	mna	ok	ok	sort	sort	sort	sort
+rc14	?	pop	pop	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	owp
+rc14	*	pop	pop	br	br	br	br	br	iop	mna	cwi	cwi	cwi	cwi	cwi	cwi
+rc14	member	readable, claim	subject, written	leaf Int
+rc14	member	readable, claim	subject, written	leaf Set
+rc14	principle	Subject on a plain Int or Set leaf, the result writing it: _ ok without the lint (Q1). Some/None pop, brackets br, braces iop (design:R4 on the Set leaf), map mna (P3b); x ok; 0 and the records sort (the lattice). Paths: S5.0g:R3.
+rc15	-	pop	pop	ok	ok	ok	ok	ok	iop	mna	ok	ok	sort	sort	sort	sort
+rc15	?	pop	pop	owp	owp	owp	owp	owp	iop	mna	owp	owp	owp	owp	owp	owp
+rc15	*	pop	pop	cwi	cwi	cwi	cwi	cwi	iop	mna	cwi	cwi	cwi	cwi	cwi	cwi
+rc15	member	readable, claim	subject, written	leaf List
+rc15	principle	Subject on a List leaf, the result writing it: [..] and _ ok without the lint (Q1). Every bracket spelling ok (P3a, P6; the builtin List is matched at either end); braces iop, map mna, Some/None pop (P3b); x ok; 0 and the records sort (the lattice). Paths: S5.0g:R3.
+rc16	-	pop	pop	ok	ok	ok	cons-list-back-item	ok	iop	mna	ok	ok	sort	sort	sort	sort
+rc16	?	pop	pop	owp	owp	owp	cons-list-back-item	owp	iop	mna	owp	owp	owp	owp	owp	owp
+rc16	*	pop	pop	cwi	cwi	cwi	cons-list-back-item	cwi	iop	mna	cwi	cwi	cwi	cwi	cwi	cwi
+rc16	member	readable, claim	subject, written	leaf Cons
+rc16	principle	Subject on a cons leaf, the result writing it: [.., x] cons-list-back-item (S5.0g:P-R1, P0: a cons list's back lowers to no K; inside the leaf's mark, it stands under a path); [..] and _ ok without the lint (Q1); [x, ..], [x] and [x, r @ ..] ok (P3a, P6); braces iop, map mna, Some/None pop (P3b); x ok; 0 and the records sort (the lattice). Paths: S5.0g:R3.
+rc17	-	pop	pop	br	br	br	br	br	iop	ok	ok	ok	sort	sort	sort	sort
+rc17	?	pop	pop	br	br	br	br	br	iop	owp	owp	owp	owp	owp	owp	owp
+rc17	*	pop	pop	br	br	br	br	br	iop	cwi	cwi	cwi	cwi	cwi	cwi	cwi
+rc17	member	readable, claim	subject, written	leaf Map
+rc17	principle	Subject on a Map leaf, the result writing it: _ ok without the lint (Q1). { y -> x, .. } ok (P3a); brackets br, braces iop, Some/None pop (P3b); x ok; 0 and the records sort (the lattice). Paths: S5.0g:R3.
+rc18	-	pop	pop	br	br	br	br	br	iop	mna	ok	ok	sort	ok	ok	rmc
+rc18	?	pop	pop	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	rmc
+rc18	*	pop	pop	br	br	br	br	br	iop	mna	cwi	cwi	cwi	cwi	cwi	rmc
+rc18	member	readable, claim	subject, written	group G
+rc18	principle	Subject on the group G, the result writing it: _ ok without the lint (Q1). Some/None pop, brackets br, braces iop, map mna (P3b); x ok; 0 sort; G { a: x, .. } and G { a: x, b: y, .. } ok (P6); G { a: x } rmc (L4, a kind refusal). Paths: S5.0g:R3.
+rc19	-	ok	ok	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	owp
+rc19	?	owp	owp	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	owp
+rc19	*	cwi	cwi	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	owp
+rc19	member	readable, claim	subject, written	? leaf Int
+rc19	principle	Subject on `? leaf Int`, the result writing it: None ok (P5: the result creates the cell, so K can test its absence); Some(x) ok (P3a); brackets br, braces iop, map mna (P3b); values and records owp (P3c, the inside passing, S5.0g:P-R5). Paths: S5.0g:R3.
+rc20	-	ok	ok	owp	owp	owp	owp	owp	iop	mna	owp	owp	owp	owp	owp	owp
+rc20	?	owp	owp	owp	owp	owp	owp	owp	iop	mna	owp	owp	owp	owp	owp	owp
+rc20	*	cwi	cwi	owp	owp	owp	owp	owp	iop	mna	owp	owp	owp	owp	owp	owp
+rc20	member	readable, claim	subject, written	? leaf List
+rc20	principle	Subject on `? leaf List`, the result writing it: None ok (P5); Some(x) ok (P3a); every bracket spelling owp (P3c: the List leaf's mark under `?`, S5.0g:R7); braces iop, map mna (P3b); values and records owp (P3c). Paths: S5.0g:R3.
+rc21	-	ok	ok	br	br	br	br	br	iop	owp	owp	owp	owp	owp	owp	owp
+rc21	?	owp	owp	br	br	br	br	br	iop	owp	owp	owp	owp	owp	owp	owp
+rc21	*	cwi	cwi	br	br	br	br	br	iop	owp	owp	owp	owp	owp	owp	owp
+rc21	member	readable, claim	subject, written	? leaf Map
+rc21	principle	Subject on `? leaf Map`, the result writing it: None ok (P5); Some(x) ok (P3a); { y -> x, .. } owp (P3c); brackets br, braces iop (P3b); values and records owp (P3c). Paths: S5.0g:R3.
+rc22	-	ok	ok	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	rmc
+rc22	?	owp	owp	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	rmc
+rc22	*	cwi	cwi	br	br	br	br	br	iop	mna	owp	owp	owp	owp	owp	rmc
+rc22	member	readable, claim	subject, written	? group G
+rc22	principle	Subject on `? group G`, the result writing it: None ok (P5); Some(x) ok (P3a); brackets br, braces iop, map mna (P3b); x, _, 0 and the open and vacuous records owp (P3c, their inside passing against G); G { a: x } rmc (S5.0g:P-R5: L4 refuses the advice Some(G { a: x }) again). Paths: S5.0g:R3.
+rc23	-	pop	pop	ok	ok	ok	ok|product:ils	ok	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
+rc23	?	pop	pop	owp	owp	owp	owp|product:ils	owp	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
+rc23	*	pop	pop	cwi	cwi	cwi	cwi|product:ils	cwi	ils	mna	cwi	cwi	cwi	cwi	cwi	rmc
+rc23	member	readable, claim	subject, written	* List of G
+rc23	principle	Subject on a List collection of G, the result writing it: [..] ok without the lint (Q1). [x, ..], [x] and [x, r @ ..] ok (P3a, Q2), [.., x] ok with the product's back-instance ils (a [cell-exception]); braces ils, Some/None pop, map mna (P3b); values and the open and vacuous records cwi (P3c); G { a: x } rmc (S5.0g:P-R5). Paths: S5.0g:R3.
+rc24	-	pop	pop	sort	rm	ok	sort|product:cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
+rc24	?	pop	pop	owp	owp	owp	owp|product:cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
+rc24	*	pop	pop	cwi	cwi	cwi	cwi|product:cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
+rc24	member	readable, claim	result, matched	computation
+rc24	principle	Result over the computation matched by `[y, ..]`: [x, ..] sort (P6: `..` keeps the subject's rest; x to the lattice); [x] rm (it drops the subject's `..`, P6); [..] ok (it keeps the rest and drops y); [.., x] sort by the principles (it keeps the rest), the product's cbi being E1; [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4 placement, before the kind); Some/None pop, braces iop, map mna (P3b); x, 0, G { a: x, b: y, .. } and G { a: x } cw (P3c, E2; the vacuous `..` leaves nothing open, S5.0g:R4); G { a: x, .. } open-record-outside-pattern (S5.0g:R4: a built record leaving b open, named before the missing wrapper since the advice puts it at a term's position, S5.0g:P-R5). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class). The alias, wop and the open record are form or kind answers and stand.
+rc25	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	sort
+rc25	?	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
+rc25	*	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
+rc25	member	readable, claim	result, matched	leaf Int
+rc25	member	readable, claim	result, matched	leaf Set
+rc25	member	readable, claim	result, unmatched	leaf Int
+rc25	member	readable, claim	result, unmatched	leaf Set
+rc25	principle	Result over a plain Int or Set leaf, matched by the binder `old` or not matched (Q1's overwrite), alike since no rest is paired: Some/None pop, brackets br, braces iop, map mna (P3b); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4 placement, before the kind); x, 0, G { a: x, b: y, .. } and G { a: x } sort (P5: the new content, its sort to the lattice; the vacuous `..`, S5.0g:R4); G { a: x, .. } open-record-outside-pattern (S5.0g:R4: a built term's record leaving b open, where Rust reads defaults and K keeps, P0; a kind answer, it stands). Paths: S5.0g:R3.
+rc26	-	pop	pop	sort	rm	ok	sort	alias-outside-pattern	iop	mna	rm	wop	rm	open-record-outside-pattern	rm	rm
+rc26	?	pop	pop	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
+rc26	*	pop	pop	cwi	cwi	cwi	cwi	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
+rc26	member	readable, claim	result, matched	leaf List
+rc26	principle	Result over a List leaf matched by `[y, ..]` (P6 at its content root): [x, ..] and [.., x] sort (they keep the rest; the builtin List has both ends), [..] ok, [x] rm (it drops the subject's `..`); x, 0, G { a: x, b: y, .. } and G { a: x } rm (a whole value drops the subject's `..`); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4); G { a: x, .. } open-record-outside-pattern (S5.0g:R4, at the kind step, before pairing); Some/None pop, braces iop, map mna (P3b). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rc27	-	pop	pop	sort	rm	ok	cons-list-back-item	alias-outside-pattern	iop	mna	rm	wop	rm	open-record-outside-pattern	rm	rm
+rc27	?	pop	pop	owp	owp	owp	cons-list-back-item	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
+rc27	*	pop	pop	cwi	cwi	cwi	cons-list-back-item	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
+rc27	member	readable, claim	result, matched	leaf Cons
+rc27	principle	Result over a cons leaf matched by `[y, ..]`: as over a List leaf, but [.., x] cons-list-back-item (S5.0g:P-R1: a cons list's back builds no term, P0; a kind refusal inside the mark, so before pairing, and it stands under a path). [x, ..] sort and [..] ok (P6: they keep the rest), [x] rm; x, 0, G { a: x, b: y, .. } and G { a: x } rm (a whole value drops the `..`); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4); G { a: x, .. } open-record-outside-pattern (S5.0g:R4); Some/None pop, braces iop, map mna (P3b). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rc28	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	sort|product:mrr	rm	wop	rm	open-record-outside-pattern	rm	rm
+rc28	?	pop	pop	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
+rc28	*	pop	pop	br	br	br	br	alias-outside-pattern	iop	cwi|product:mrr	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
+rc28	member	readable, claim	result, matched	leaf Map
+rc28	principle	Result over a Map leaf matched by `{ z -> y, .. }`: { y -> x, .. } sort by the principles (P6, design:M3: the frame write keeps the subject's rest), the product's map-read-in-result being the stated limitation; x, 0, G { a: x, b: y, .. } and G { a: x } rm (a whole value drops the subject's `..`); brackets br, braces iop, Some/None pop (P3b); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4); G { a: x, .. } open-record-outside-pattern (S5.0g:R4). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rc29	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	rmc
+rc29	?	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
+rc29	*	pop	pop	br	br	br	br	alias-outside-pattern	iop	mna	cwi	wop	cwi	cwi	cwi	rmc
+rc29	member	readable, claim	result, matched	group G
+rc29	member	readable, claim	result, unmatched	group G
+rc29	principle	Result over the plain group G, matched by `G { a: y, .. }` or overwritten, alike (a record's `..` frames children and is no content root, P6): x and 0 sort (P5, the lattice); G { a: x, b: y, .. } sort (the vacuous rest, S5.0g:R4); G { a: x, .. } open-record-outside-pattern (S5.0:F3: a bare `..` over an existing group is Rust's defaults, which only a created instance has; it is pairing, and under a path the ancestor's own pairing decides whether the group is created, so the ancestor's class replaces it, S5.0g:P-R12); G { a: x } rmc (L4, a kind refusal, it stands); Some/None pop, brackets br, braces iop, map mna (P3b); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4). Paths: S5.0g:R3.
+rc30	-	sort	ok	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
+rc30	?	owp	owp	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
+rc30	*	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
+rc30	member	readable, claim	result, matched	? leaf Int
+rc30	principle	Result over `? leaf Int` matched by `Some(old)`: Some(x) sort (P3a, design:R3: `Some(e)` admits e by the underlying kind), None ok (S5.0:F1: it removes the matched cell); brackets br, braces iop, map mna (P3b); x, 0, G { a: x, b: y, .. } and G { a: x } owp (P3c, the inside passing against the Int leaf); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4); G { a: x, .. } open-record-outside-pattern (S5.0g:R4, named first: the advice Some(..) puts it at the leaf's term position, S5.0g:P-R5). Paths: S5.0g:R3.
+rc31	-	rm	ok	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
+rc31	?	owp	owp	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
+rc31	*	cwi	cwi	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
+rc31	member	readable, claim	result, matched	? leaf List
+rc31	principle	Result over `? leaf List` matched by `Some([y, ..])`: Some(x) rm (design:R3: inside `Some`, judged by the List kind, where x drops the subject's `..`; pairing, replaced under a path); None ok (S5.0:F1); the other bracket spellings owp (P3c: the List mark under `?`, S5.0g:R7); braces iop, map mna (P3b); x, 0, G { a: x, b: y, .. } and G { a: x } owp (P3c); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4); G { a: x, .. } open-record-outside-pattern (S5.0g:R4, S5.0g:P-R5). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rc32	-	rm	ok	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
+rc32	?	owp	owp	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
+rc32	*	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
+rc32	member	readable, claim	result, matched	? leaf Map
+rc32	principle	Result over `? leaf Map` matched by `Some({ z -> y, .. })`: Some(x) rm (design:R3: by the Map kind, x drops the subject's `..`; pairing, replaced under a path); None ok (S5.0:F1); { y -> x, .. } owp (P3c: the Map mark under `?`), the product's map-read-in-result being design:M3's limitation, which refuses the advice Some({ y -> x, .. }) again and is named first (S5.0g:P-R5; a [cell-exception]); brackets br, braces iop (P3b); x, 0, G { a: x, b: y, .. } and G { a: x } owp (P3c); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4); G { a: x, .. } open-record-outside-pattern (S5.0g:R4, S5.0g:P-R5). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rc33	-	sort	ok	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
+rc33	?	owp	owp	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
+rc33	*	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
+rc33	member	readable, claim	result, matched	? group G
+rc33	principle	Result over `? group G` matched by `Some(G { a: y, .. })`: Some(x) sort (design:R3: a whole binder of G); None ok (S5.0:F1); brackets br, braces iop, map mna (P3b); x, 0, G { a: x, .. } and G { a: x, b: y, .. } owp (P3c: their inside passes form and kind against G, S5.0g:P-R5; the open record's S5.0:F3 is pairing, met once the advice is written); G { a: x } rmc (S5.0g:P-R5: L4 refuses the advice again); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4). Over a subject `None` the advice Some(G { a: x, .. }) creates the cell and takes its template's fields, admitted (S5.0g:P-R13). Paths: S5.0g:R3.
+rc34	-	pop	pop	sort	rm	ok	sort|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
+rc34	?	pop	pop	owp	owp	owp	owp|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
+rc34	*	pop	pop	cwi	cwi	cwi	cwi|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
+rc34	member	readable, claim	result, matched	* List of G
+rc34	principle	Result over a List collection of G matched by `[G { a: y, .. }, ..]`: [x, ..] sort (Q2: the front instance as a value; P6: `..` keeps the subject's instances), [..] ok, [x] rm (it drops the subject's `..`), [.., x] sort by the principles, the product's ils being the stated back-instance limitation; braces ils, Some/None pop, map mna (P3b); x, 0, G { a: x, .. } and G { a: x, b: y, .. } cwi (P3c, the inside passing against G); G { a: x } rmc (S5.0g:P-R5); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rc35	-	pop	pop	ils	ils	ils	ils	alias-outside-pattern	sort	mna	cwi	wop	cwi	cwi	cwi	rmc
+rc35	?	pop	pop	ils	ils	ils	ils	alias-outside-pattern	owp	mna	cwi	wop	cwi	cwi	cwi	rmc
+rc35	*	pop	pop	ils	ils	ils	ils	alias-outside-pattern	cwi	mna	cwi	wop	cwi	cwi	cwi	rmc
+rc35	member	readable, claim	result, matched	* Set of G
+rc35	member	readable, claim	result, matched	* Map of G
+rc35	principle	Result over a Set or Map collection of G matched by `{ G { a: y, .. }, .. }`: every bracket spelling ils (S5.0g:P-R4), but [x, r @ ..] alias-outside-pattern (S5.0:F2: the form step first); { G { a: x, .. }, .. } sort (a created instance, its `..` the template's, P6; the root `..` keeps the subject's instances; on a Map collection it writes its key a, S5.0g:key); Some/None pop, map mna (P3b); x, 0, G { a: x, .. } and G { a: x, b: y, .. } cwi (P3c); G { a: x } rmc (S5.0g:P-R5); _ wop (P4). Paths: S5.0g:R3.
+rc36	-	pop	pop	cir	cir	cir	cir|product:cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
+rc36	?	pop	pop	owp	owp	owp	owp|product:cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
+rc36	*	pop	pop	cwi	cwi	cwi	cwi|product:cbi	alias-outside-pattern	iop	mna	cw	wop	cw	open-record-outside-pattern	cw	cw
+rc36	member	readable, claim	result, unmatched	computation
+rc36	principle	Result over the computation the subject does not match (Q1's overwrite): [x, ..], [x], [..] and [.., x] cir (Q3: the overwrite drops the continuation; [.., x] shows the product's E1 cbi, a kind answer); Some/None pop, braces iop, map mna (P3b); x, 0, G { a: x, b: y, .. } and G { a: x } cw (P3c, E2); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4); G { a: x, .. } open-record-outside-pattern (S5.0g:R4, S5.0g:P-R5). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rc37	-	pop	pop	rm	sort	rm	rm	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	sort
+rc37	?	pop	pop	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
+rc37	*	pop	pop	cwi	cwi	cwi	cwi	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
+rc37	member	readable, claim	result, unmatched	leaf List
+rc37	principle	Overwrite of a List leaf (Q1): [x] sort (the exact new list); x, 0, G { a: x, b: y, .. } and G { a: x } sort (P5: the new content, its sort to the lattice); [x, ..], [..] and [.., x] rm (P6: a `..` the subject never wrote); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4); G { a: x, .. } open-record-outside-pattern (S5.0g:R4); Some/None pop, braces iop, map mna (P3b). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rc38	-	pop	pop	rm	sort	rm	cons-list-back-item	alias-outside-pattern	iop	mna	sort	wop	sort	open-record-outside-pattern	sort	sort
+rc38	?	pop	pop	owp	owp	owp	cons-list-back-item	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
+rc38	*	pop	pop	cwi	cwi	cwi	cons-list-back-item	alias-outside-pattern	iop	mna	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
+rc38	member	readable, claim	result, unmatched	leaf Cons
+rc38	principle	Overwrite of a cons leaf (Q1): as of a List leaf, but [.., x] cons-list-back-item (S5.0g:P-R1: refused inside the mark, before the pairing that would give rm, and standing under a path); [x] sort; x, 0, G { a: x, b: y, .. } and G { a: x } sort (P5); [x, ..] and [..] rm (P6); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4); G { a: x, .. } open-record-outside-pattern (S5.0g:R4); Some/None pop, braces iop, map mna (P3b). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rc39	-	pop	pop	br	br	br	br	alias-outside-pattern	iop	rm|product:mrr	sort	wop	sort	open-record-outside-pattern	sort	sort
+rc39	?	pop	pop	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
+rc39	*	pop	pop	br	br	br	br	alias-outside-pattern	iop	cwi|product:mrr	cwi	wop	cwi	open-record-outside-pattern	cwi	cwi
+rc39	member	readable, claim	result, unmatched	leaf Map
+rc39	principle	Overwrite of a Map leaf (Q1): { y -> x, .. } rm (P6, design:M3: the frame write keeps a rest the subject never wrote), the product's map-read-in-result being the stated limitation; x, 0, G { a: x, b: y, .. } and G { a: x } sort (P5); brackets br, braces iop, Some/None pop (P3b); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4); G { a: x, .. } open-record-outside-pattern (S5.0g:R4). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rc40	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
+rc40	?	owp	owp	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
+rc40	*	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
+rc40	member	readable, claim	result, unmatched	? leaf Int
+rc40	principle	Overwrite of `? leaf Int`: Some(x) and None uor (Q1 with P5: the rule does not know the cell's presence); brackets br, braces iop, map mna (P3b); x, 0, G { a: x, b: y, .. } and G { a: x } owp (P3c, the kind before pairing); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4); G { a: x, .. } open-record-outside-pattern (S5.0g:R4, S5.0g:P-R5). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rc41	-	uor	uor	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
+rc41	?	owp	owp	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
+rc41	*	cwi	cwi	owp	owp	owp	owp	alias-outside-pattern	iop	mna	owp	wop	owp	open-record-outside-pattern	owp	owp
+rc41	member	readable, claim	result, unmatched	? leaf List
+rc41	principle	Overwrite of `? leaf List`: Some(x) and None uor (Q1, P5); the other bracket spellings owp (P3c, S5.0g:R7); braces iop, map mna (P3b); x, 0, G { a: x, b: y, .. } and G { a: x } owp (P3c); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4); G { a: x, .. } open-record-outside-pattern (S5.0g:R4, S5.0g:P-R5). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rc42	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
+rc42	?	owp	owp	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
+rc42	*	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	owp|product:mrr	owp	wop	owp	open-record-outside-pattern	owp	owp
+rc42	member	readable, claim	result, unmatched	? leaf Map
+rc42	principle	Overwrite of `? leaf Map`: Some(x) and None uor (Q1, P5); { y -> x, .. } owp (P3c), the product's map-read-in-result named first (design:M3's limitation refuses the advice again, S5.0g:P-R5); brackets br, braces iop (P3b); x, 0, G { a: x, b: y, .. } and G { a: x } owp (P3c); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4); G { a: x, .. } open-record-outside-pattern (S5.0g:R4, S5.0g:P-R5). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rc43	-	uor	uor	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
+rc43	?	owp	owp	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
+rc43	*	cwi	cwi	br	br	br	br	alias-outside-pattern	iop	mna	owp	wop	owp	owp	owp	rmc
+rc43	member	readable, claim	result, unmatched	? group G
+rc43	principle	Overwrite of `? group G`: Some(x) and None uor (Q1, P5); brackets br, braces iop, map mna (P3b); x, 0, G { a: x, .. } and G { a: x, b: y, .. } owp (P3c: the inside passes against G; the advice Some(..) then meets Q1's uor, a pairing step, S5.0g:P-R5); G { a: x } rmc (S5.0g:P-R5); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rc44	-	pop	pop	rm	sort	rm	rm|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
+rc44	?	pop	pop	owp	owp	owp	owp|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
+rc44	*	pop	pop	cwi	cwi	cwi	cwi|product:ils	alias-outside-pattern	ils	mna	cwi	wop	cwi	cwi	cwi	rmc
+rc44	member	readable, claim	result, unmatched	* List of G
+rc44	principle	Overwrite of a List collection of G (Q1): [x] sort (the exact overwrite of the collection, its one item the front instance, Q2); [x, ..], [..] and [.., x] rm (P6: a `..` the subject never wrote; [.., x] shows the product's back-instance ils, a kind answer); braces ils, Some/None pop, map mna (P3b); x, 0, G { a: x, .. } and G { a: x, b: y, .. } cwi (P3c); G { a: x } rmc (S5.0g:P-R5); [x, r @ ..] alias-outside-pattern (S5.0:F2) and _ wop (P4). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rc45	-	pop	pop	ils	ils	ils	ils	alias-outside-pattern	rm	mna	cwi	wop	cwi	cwi	cwi	rmc
+rc45	?	pop	pop	ils	ils	ils	ils	alias-outside-pattern	owp	mna	cwi	wop	cwi	cwi	cwi	rmc
+rc45	*	pop	pop	ils	ils	ils	ils	alias-outside-pattern	cwi	mna	cwi	wop	cwi	cwi	cwi	rmc
+rc45	member	readable, claim	result, unmatched	* Set of G
+rc45	member	readable, claim	result, unmatched	* Map of G
+rc45	principle	Overwrite of a Set or Map collection of G (Q1): every bracket spelling ils (S5.0g:P-R4), but [x, r @ ..] alias-outside-pattern (S5.0:F2, the form step first); { G { a: x, .. }, .. } rm (P6: the root `..` keeps instances the subject never matched); Some/None pop, map mna (P3b); x, 0, G { a: x, .. } and G { a: x, b: y, .. } cwi (P3c); G { a: x } rmc (S5.0g:P-R5); _ wop (P4). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
 #
 ## cells
 pattern	line	Some(k::configuration::Cell(x))	None	k::configuration::Cell(x)	k::configuration::Cell([x, ..])	k::configuration::Cell(k::map![y -> x, ..])	k::configuration::KCell(x, ..)	k::configuration::KCell(x)	[k::fragment![crate::G { a: x, .. }], ..]	{ k::fragment![crate::G { a: x, .. }], .. }	x	_	k::fragment![crate::G { a: x, .. }]	k::fragment![crate::G { a: x, b: y, .. }]	k::fragment![crate::G { a: x }]
@@ -253,7 +334,7 @@ c01	?	pop	pop	cw	cw	cw	owp	owp	iop	iop	cw	cw	cw	cw	cw
 c01	*	pop	pop	cw	cw	cw	cwi	cwi	iop	iop	cw	cw	cw	cw	cw
 c01	member	cells	subject	computation
 c01	member	cells	subject, written	computation
-c01	principle	cells! subject on the computation, the result leaving or writing it alike: KCell(x, ..) and KCell(x) sort (P3a: the computation's wrapper; P6's rest; the binder's sort to the lattice); every Cell(..) cw (P3b: a leaf's wrapper, which the stack has nowhere); Some/None pop, the instance lists iop (P3b); x, _ and the fragments cw (P3c: a value where `KCell` is the mark). No entry here matches everything and binds nothing, so no lint tells the sides apart. Paths: R3.
+c01	principle	cells! subject on the computation, the result leaving or writing it alike: KCell(x, ..) and KCell(x) sort (P3a: the computation's wrapper; P6's rest; the binder's sort to the lattice); every Cell(..) cw (P3b: a leaf's wrapper, which the stack has nowhere); Some/None pop, the instance lists iop (P3b); x, _ and the fragments cw (P3c: a value where `KCell` is the mark). No entry here matches everything and binds nothing, so no lint tells the sides apart. Paths: S5.0g:R3.
 c02	-	pop	pop	sort	br	mna	cw	cw	iop	iop	cw	cw	cw	cw	cw
 c02	?	pop	pop	owp	br	mna	cw	cw	iop	iop	cw	cw	cw	cw	cw
 c02	*	pop	pop	cwi	br	mna	cw	cw	iop	iop	cw	cw	cw	cw	cw
@@ -261,7 +342,7 @@ c02	member	cells	subject	leaf Int
 c02	member	cells	subject	leaf Set
 c02	member	cells	subject, written	leaf Int
 c02	member	cells	subject, written	leaf Set
-c02	principle	cells! subject on a plain Int or Set leaf, either side: Cell(x) sort (P3a: the leaf's wrapper); Cell([x, ..]) br and Cell(k::map![..]) mna (P3b inside the wrapper: no List or Map layer); KCell cw (A: the computation's wrapper, which the leaf has nowhere); Some/None pop, the instance lists iop (P3b); x, _ and the fragments cw (P3c: a bare value on a cells! leaf, whose mark is `Cell`). Paths: R3.
+c02	principle	cells! subject on a plain Int or Set leaf, either side: Cell(x) sort (P3a: the leaf's wrapper); Cell([x, ..]) br and Cell(k::map![..]) mna (P3b inside the wrapper: no List or Map layer); KCell cw (design:R6: the computation's wrapper, which the leaf has nowhere); Some/None pop, the instance lists iop (P3b); x, _ and the fragments cw (P3c: a bare value on a cells! leaf, whose mark is `Cell`). Paths: S5.0g:R3.
 c03	-	pop	pop	sort	sort	mna	cw	cw	iop	iop	cw	cw	cw	cw	cw
 c03	?	pop	pop	owp	owp	mna	cw	cw	iop	iop	cw	cw	cw	cw	cw
 c03	*	pop	pop	cwi	cwi	mna	cw	cw	iop	iop	cw	cw	cw	cw	cw
@@ -269,190 +350,513 @@ c03	member	cells	subject	leaf List
 c03	member	cells	subject	leaf Cons
 c03	member	cells	subject, written	leaf List
 c03	member	cells	subject, written	leaf Cons
-c03	principle	cells! subject on a List or cons leaf, either side: Cell(x) and Cell([x, ..]) sort (P3a; P6: the list's rest at its content root); Cell(k::map![..]) mna (P3b inside); KCell cw (A); Some/None pop, the instance lists iop (P3b); x, _ and the fragments cw (P3c). Paths: R3.
+c03	principle	cells! subject on a List or cons leaf, either side: Cell(x) and Cell([x, ..]) sort (P3a; P6: the list's rest at its content root, last, so a cons list too); Cell(k::map![..]) mna (P3b inside); KCell cw (design:R6); Some/None pop, the instance lists iop (P3b); x, _ and the fragments cw (P3c). Paths: S5.0g:R3.
 c04	-	pop	pop	sort	br	sort	cw	cw	iop	iop	cw	cw	cw	cw	cw
 c04	?	pop	pop	owp	br	owp	cw	cw	iop	iop	cw	cw	cw	cw	cw
 c04	*	pop	pop	cwi	br	cwi	cw	cw	iop	iop	cw	cw	cw	cw	cw
 c04	member	cells	subject	leaf Map
 c04	member	cells	subject, written	leaf Map
-c04	principle	cells! subject on a Map leaf, either side: Cell(x) and Cell(k::map![y -> x, ..]) sort (P3a: the map read, its rest framed); Cell([x, ..]) br (P3b inside); KCell cw (A); Some/None pop, the instance lists iop (P3b); x, _ and the fragments cw (P3c). Paths: R3.
+c04	principle	cells! subject on a Map leaf, either side: Cell(x) and Cell(k::map![y -> x, ..]) sort (P3a: the map read, its rest framed); Cell([x, ..]) br (P3b inside); KCell cw (design:R6); Some/None pop, the instance lists iop (P3b); x, _ and the fragments cw (P3c). Paths: S5.0g:R3.
 c05	-	pop	pop	cw	cw	cw	cw	cw	iop	iop	sort	ok+no-effect-entry	sort	sort	rmc
 c05	?	pop	pop	cw	cw	cw	cw	cw	iop	iop	owp	owp	owp	owp	rmc
 c05	*	pop	pop	cw	cw	cw	cw	cw	iop	iop	cwi	cwi	cwi	cwi	rmc
 c05	member	cells	subject	group G
-c05	principle	cells! subject on the group G, which has no wrapper (P2): x sort (a whole binder); _ ok+no-effect-entry (R9's lint: it matches all and binds nothing, on a cell the result leaves); the fragments G { a: x, .. } and G { a: x, b: y, .. } sort (P6: a subject's `..`); k::fragment![crate::G { a: x }] rmc (D-4: L4 in both forms, P7; a kind refusal, so it stands under a path); Cell and KCell cw (P3b, A: no layer has a wrapper); Some/None pop, the instance lists iop (P3b). Paths: R3.
-c06	-	sort	atc	owp	owp	owp	cw	cw	iop	iop	owp	owp	owp	owp	owp
-c06	?	owp	owp	owp	owp	owp	cw	cw	iop	iop	owp	owp	owp	owp	owp
-c06	*	cwi	cwi	owp	owp	owp	cw	cw	iop	iop	owp	owp	owp	owp	owp
+c05	principle	cells! subject on the group G, which has no wrapper (P2): x sort (a whole binder); _ ok+no-effect-entry (Q1's lint: it matches all and binds nothing, on a cell the result leaves); the fragments G { a: x, .. } and G { a: x, b: y, .. } sort (P6: a subject's `..`); k::fragment![crate::G { a: x }] rmc (S5.0g:D-4: L4 in both forms, P7; a kind refusal, so it stands under a path); Cell and KCell cw (P3b, design:R6: no layer has a wrapper); Some/None pop, the instance lists iop (P3b). Paths: S5.0g:R3.
+c06	-	sort	atc	owp	br	mna	cw	cw	iop	iop	owp	owp	owp	owp	owp
+c06	?	owp	owp	owp	br	mna	cw	cw	iop	iop	owp	owp	owp	owp	owp
+c06	*	cwi	cwi	owp	br	mna	cw	cw	iop	iop	owp	owp	owp	owp	owp
 c06	member	cells	subject	? leaf Int
-c06	member	cells	subject	? leaf List
-c06	member	cells	subject	? leaf Map
-c06	principle	cells! subject on a `?` leaf (Int, List or Map), the result leaving it: Some(Cell(x)) sort (P3a, then the leaf's wrapper); None atc (P5: K tests absence only by creating the cell); Cell(x), Cell([x, ..]) and Cell(k::map![..]) owp (P3c: the leaf's wrapper under `?`; principles row 20); KCell cw (A: the computation's wrapper, nowhere on the stack); the instance lists iop (P3b); x, _ and the fragments owp (P3c). Paths: R3.
-c07	-	cw	atc	cw	cw	cw	cw	cw	iop	iop	owp	owp	owp	owp	owp
-c07	?	cw	owp	cw	cw	cw	cw	cw	iop	iop	owp	owp	owp	owp	owp
-c07	*	cw	cwi	cw	cw	cw	cw	cw	iop	iop	owp	owp	owp	owp	owp
-c07	member	cells	subject	? group G
-c07	principle	cells! subject on `? group G`, the result leaving it: Some(Cell(x)) cw (P3a, then `Cell` inside, which no group has, P3b: a refusal inside the mark, so it stands under a path); None atc (P5); Cell and KCell cw (P3b, A: no layer of the stack has either wrapper); the instance lists iop (P3b); x, _ and the fragments owp (P3c). Paths: R3.
-c08	-	pop	pop	cw	cw	cw	cw	cw	sort	ils	cwi	cwi	cwi	cwi	cwi
-c08	?	pop	pop	cw	cw	cw	cw	cw	owp	ils	cwi	cwi	cwi	cwi	cwi
-c08	*	pop	pop	cw	cw	cw	cw	cw	cwi	ils	cwi	cwi	cwi	cwi	cwi
-c08	member	cells	subject	* List of G
-c08	member	cells	subject, written	* List of G
-c08	principle	cells! subject on a List collection, either side: [k::fragment![crate::G { a: x, .. }], ..] sort (P3a: the instance list, P6); its braced form ils (P2: braces mark unordered instances); Some/None pop (P3b); Cell and KCell cw (A: a wrapper of a layer the stack has nowhere, principles row 21); x, _ and the fragments cwi (P3c on `*`). Paths: R3.
-c09	-	pop	pop	cw	cw	cw	cw	cw	ils	sort	cwi	cwi	cwi	cwi	cwi
-c09	?	pop	pop	cw	cw	cw	cw	cw	ils	owp	cwi	cwi	cwi	cwi	cwi
-c09	*	pop	pop	cw	cw	cw	cw	cw	ils	cwi	cwi	cwi	cwi	cwi	cwi
-c09	member	cells	subject	* Set of G
-c09	member	cells	subject	* Map of G
-c09	member	cells	subject, written	* Set of G
-c09	member	cells	subject, written	* Map of G
-c09	principle	cells! subject on a Set or Map collection, either side: { k::fragment![crate::G { a: x, .. }], .. } sort (P3a: one instance record, the others framed; it names the key a); its bracketed form ils (P2: brackets of instance records mark List instances, the collection's instances have another order); Some/None pop (P3b); Cell and KCell cw (A); x, _ and the fragments cwi (P3c). Paths: R3.
-c10	-	pop	pop	cw	cw	cw	cw	cw	iop	iop	sort	ok	sort	sort	rmc
-c10	?	pop	pop	cw	cw	cw	cw	cw	iop	iop	owp	owp	owp	owp	rmc
-c10	*	pop	pop	cw	cw	cw	cw	cw	iop	iop	cwi	cwi	cwi	cwi	rmc
-c10	member	cells	subject, written	group G
-c10	principle	As c05, the result writing the group: _ ok without the lint (Q1). x and the open and vacuous fragments sort (P6); k::fragment![crate::G { a: x }] rmc (D-4); Cell and KCell cw (A); Some/None pop, the instance lists iop (P3b). Paths: R3.
-c11	-	sort	ok	owp	owp	owp	cw	cw	iop	iop	owp	owp	owp	owp	owp
-c11	?	owp	owp	owp	owp	owp	cw	cw	iop	iop	owp	owp	owp	owp	owp
-c11	*	cwi	cwi	owp	owp	owp	cw	cw	iop	iop	owp	owp	owp	owp	owp
-c11	member	cells	subject, written	? leaf Int
-c11	member	cells	subject, written	? leaf List
-c11	member	cells	subject, written	? leaf Map
-c11	principle	As c06, the result writing the cell: None ok (P5: the result creates it, so K can test its absence). Some(Cell(x)) sort; Cell(..) owp (P3c); KCell cw (A); the instance lists iop (P3b); x, _ and the fragments owp (P3c). Paths: R3.
-c12	-	cw	ok	cw	cw	cw	cw	cw	iop	iop	owp	owp	owp	owp	owp
-c12	?	cw	owp	cw	cw	cw	cw	cw	iop	iop	owp	owp	owp	owp	owp
-c12	*	cw	cwi	cw	cw	cw	cw	cw	iop	iop	owp	owp	owp	owp	owp
-c12	member	cells	subject, written	? group G
-c12	principle	As c07, the result writing the cell: None ok (P5). Some(Cell(x)) cw (Cell inside, P3b); Cell and KCell cw (A); the instance lists iop (P3b); x, _ and the fragments owp (P3c). Paths: R3.
-c13	-	pop	pop	cw	cw	arm	sort	rm	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-c13	?	pop	pop	cw	cw	arm	owp	owp	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-c13	*	pop	pop	cw	cw	arm	cwi	cwi	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-c13	member	cells	result, matched	computation
-c13	principle	cells! result over the computation matched by `KCell(y, ..)`: KCell(x, ..) sort (P6: `..` keeps the rest); KCell(x) rm (it drops the subject's `..`, D2; Q3 binds readable only); Cell(x) and Cell([x, ..]) cw (P3b, A); Cell(k::map![y -> x, ..]) arm (design 2.3's form step: an anonymous rest in a `map!` literal no subject map frames, before the kind); Some/None pop, the instance lists iop (P3b); x and the other two fragments cw (P3c); _ wop (P4); k::fragment![crate::G { a: x, .. }] open-record-outside-pattern (R4: the advice `KCell(..)` puts it at a term's position). Paths: R3 (arm, wop and the open record are form or kind answers and stand).
-c14	-	pop	pop	sort	br	arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-c14	?	pop	pop	owp	br	arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-c14	*	pop	pop	cwi	br	arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-c14	member	cells	result, matched	leaf Int
-c14	member	cells	result, matched	leaf Set
-c14	member	cells	result, unmatched	leaf Int
-c14	member	cells	result, unmatched	leaf Map
-c14	member	cells	result, unmatched	leaf Set
-c14	principle	cells! result over a plain Int or Set leaf, matched by `Cell(old)` or overwritten, and over an overwritten Map leaf (no rest is paired, so the answers agree): Cell(x) sort (P5, the lattice); Cell([x, ..]) br (P3b inside: no List layer, the Map leaf's included); Cell(k::map![y -> x, ..]) arm (the form step: no subject map frames it); KCell cw (A); Some/None pop, the instance lists iop (P3b); x and the other two fragments cw (P3c: the leaf's `Cell` is missing); _ wop (P4); the open fragment open-record-outside-pattern (R4: the advice `Cell(..)` puts it at a term's position). Paths: R3.
-c15	-	pop	pop	rm	sort	arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-c15	?	pop	pop	owp	owp	arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-c15	*	pop	pop	cwi	cwi	arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-c15	member	cells	result, matched	leaf List
-c15	member	cells	result, matched	leaf Cons
-c15	principle	cells! result over a List or cons leaf matched by `Cell([y, ..])`: Cell([x, ..]) sort (P6 keeps the rest); Cell(x) rm (a whole value drops the subject's `..`); Cell(k::map![..]) arm (the form step: no subject map frames it); KCell cw (A); Some/None pop, the instance lists iop (P3b); x and the other two fragments cw (P3c); _ wop (P4); the open fragment open-record-outside-pattern (R4). Paths: R3 (rm is pairing).
-c16	-	pop	pop	rm	br	sort|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-c16	?	pop	pop	owp	br	owp|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-c16	*	pop	pop	cwi	br	cwi|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-c16	member	cells	result, matched	leaf Map
-c16	principle	cells! result over a Map leaf matched by `Cell(k::map![z -> y, ..])`: Cell(k::map![y -> x, ..]) sort (ruling 1 of part (b): the subject's map frames its rest, so the result's `..` keeps it, P6 at the map's content root, M3; P7, as readable's { y -> x, .. } in rc23), the product's arm being the stated M3 limitation, a form-step answer that shows on every line; Cell(x) rm (a whole value drops the subject's `..`); Cell([x, ..]) br (P3b inside); KCell cw (A); Some/None pop, the instance lists iop (P3b); x and the other two fragments cw (P3c); _ wop (P4); the open fragment open-record-outside-pattern (R4). Paths: R3.
-c17	-	pop	pop	cw	cw	arm	cw	cw	iop	iop	sort	wop	open-record-outside-pattern	sort	rmc
-c17	?	pop	pop	cw	cw	arm	cw	cw	iop	iop	owp	wop	owp	owp	rmc
-c17	*	pop	pop	cw	cw	arm	cw	cw	iop	iop	cwi	wop	cwi	cwi	rmc
-c17	member	cells	result, matched	group G
-c17	member	cells	result, unmatched	group G
-c17	principle	cells! result over the group G, matched by `k::fragment![crate::G { a: y, .. }]` or overwritten (a record's `..` is no content root, P6): x sort (P5); the vacuous fragment sort (R4 ruling); k::fragment![crate::G { a: x, .. }] open-record-outside-pattern (F3, ruling 1, D-3: a bare `..` over an existing group; pairing, so the ancestor's class replaces it under a path); k::fragment![crate::G { a: x }] rmc (D-4, L4: a kind refusal, it stands); Cell(..) and KCell cw (P3b, A); Cell(k::map![..]) arm (the form step); Some/None pop, the instance lists iop (P3b); _ wop (P4). Paths: R3.
-c18	-	sort	ok	owp	owp	arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-c18	?	owp	owp	owp	owp	arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-c18	*	cwi	cwi	owp	owp	arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-c18	member	cells	result, matched	? leaf Int
-c18	principle	cells! result over `? leaf Int` matched by `Some(Cell(old))`: Some(Cell(x)) sort (P3a, ruling 3), None ok (F1: it removes the matched cell); Cell(x) and Cell([x, ..]) owp (P3c: the leaf's wrapper under `?`); Cell(k::map![..]) arm (the form step); KCell cw (A); the instance lists iop (P3b); x and the other two fragments owp (P3c); _ wop (P4); the open fragment open-record-outside-pattern (R4: the advice `Some(Cell(..))` puts it at a term's position). Paths: R3.
-c19	-	rm	ok	owp	owp	arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-c19	?	owp	owp	owp	owp	arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-c19	*	cwi	cwi	owp	owp	arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-c19	member	cells	result, matched	? leaf List
-c19	principle	cells! result over `? leaf List` matched by `Some(Cell([y, ..]))`: Some(Cell(x)) rm (ruling 3: inside `Some` by the List kind, x drops the subject's `..`); None ok (F1); Cell(x) and Cell([x, ..]) owp (P3c: the leaf's wrapper under `?`); Cell(k::map![y -> x, ..]) arm (the form step: no subject map frames it); KCell cw (A); the instance lists iop (P3b); x and the other two fragments owp (P3c); _ wop (P4); the open fragment open-record-outside-pattern (R4: the advice puts it at a term's position). Paths: R3.
-c20	-	rm	ok	owp	owp	owp|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-c20	?	owp	owp	owp	owp	owp|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-c20	*	cwi	cwi	owp	owp	owp|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-c20	member	cells	result, matched	? leaf Map
-c20	principle	cells! result over `? leaf Map` matched by `Some(Cell(k::map![z -> y, ..]))`: Cell(k::map![y -> x, ..]) owp on every line (ruling 1 of part (b): the subject's map frames it, so no form-step arm; P3c, the Map leaf's wrapper under `?`, a refusal of the cell's own layers that stands under a path, R3; readable's rc27 alike), the product's arm being the stated M3 limitation; Some(Cell(x)) rm (ruling 3: inside `Some`, x drops the map's `..`); None ok (F1); Cell(x) and Cell([x, ..]) owp (P3c); KCell cw (A); the instance lists iop (P3b); x and the other two fragments owp (P3c); _ wop (P4); the open fragment open-record-outside-pattern (R4). Paths: R3.
-c21	-	cw	ok	cw	cw	arm	cw	cw	iop	iop	owp	wop	owp	owp	owp
-c21	?	cw	owp	cw	cw	arm	cw	cw	iop	iop	owp	wop	owp	owp	owp
-c21	*	cw	cwi	cw	cw	arm	cw	cw	iop	iop	owp	wop	owp	owp	owp
-c21	member	cells	result, matched	? group G
-c21	principle	cells! result over `? group G` matched by `Some(k::fragment![crate::G { a: y, .. }])`: Some(Cell(x)) cw (`Cell` inside `Some`, which no group has, P3b; it stands under a path); None ok (F1); Cell(..) and KCell cw (P3b, A); Cell(k::map![..]) arm (the form step); the instance lists iop (P3b); x and every fragment owp (P3c; the open fragment's advice lands at the group's position, as rc28); _ wop (P4). Paths: R3.
-c22	-	pop	pop	cw	cw	arm	cw	cw	sort	ils	cwi	wop	cwi	cwi	cwi
-c22	?	pop	pop	cw	cw	arm	cw	cw	owp	ils	cwi	wop	cwi	cwi	cwi
-c22	*	pop	pop	cw	cw	arm	cw	cw	cwi	ils	cwi	wop	cwi	cwi	cwi
-c22	member	cells	result, matched	* List of G
-c22	principle	cells! result over a List collection matched by `[k::fragment![crate::G { a: y, .. }], ..]`: [k::fragment![crate::G { a: x, .. }], ..] sort (a created front instance, its `..` the template's fields, P6; the list's `..` keeps the rest); its braced form ils (P2); Cell(..) and KCell cw (A); Cell(k::map![..]) arm (the form step); Some/None pop (P3b); x and the fragments cwi (P3c on `*`); _ wop (P4). Paths: R3.
-c23	-	pop	pop	cw	cw	arm	cw	cw	ils	sort	cwi	wop	cwi	cwi	cwi
-c23	?	pop	pop	cw	cw	arm	cw	cw	ils	owp	cwi	wop	cwi	cwi	cwi
-c23	*	pop	pop	cw	cw	arm	cw	cw	ils	cwi	cwi	wop	cwi	cwi	cwi
-c23	member	cells	result, matched	* Set of G
-c23	member	cells	result, matched	* Map of G
-c23	principle	cells! result over a Set or Map collection matched by `{ k::fragment![crate::G { a: y, .. }], .. }`: { k::fragment![crate::G { a: x, .. }], .. } sort (a created instance writing its key a, ruling 3, P6; the set's `..` keeps the other instances); its bracketed form ils (P2); Cell(..) and KCell cw (A); Cell(k::map![..]) arm (the form step); Some/None pop (P3b); x and the fragments cwi (P3c); _ wop (P4). Paths: R3.
-c24	-	pop	pop	cw	cw	arm	rm	sort	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-c24	?	pop	pop	cw	cw	arm	owp	owp	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-c24	*	pop	pop	cw	cw	arm	cwi	cwi	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-c24	member	cells	result, unmatched	computation
-c24	principle	cells! overwrite of the computation (Q1; Q3 binds readable only): KCell(x) sort (the exact new computation); KCell(x, ..) rm (P6: a `..` the subject never wrote); Cell(x) and Cell([x, ..]) cw (A); Cell(k::map![..]) arm (the form step); Some/None pop, the instance lists iop (P3b); x and the other two fragments cw (P3c); _ wop (P4); the open fragment open-record-outside-pattern (R4). Paths: R3.
-c25	-	pop	pop	sort	rm	arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-c25	?	pop	pop	owp	owp	arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-c25	*	pop	pop	cwi	cwi	arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
-c25	member	cells	result, unmatched	leaf List
-c25	member	cells	result, unmatched	leaf Cons
-c25	principle	cells! overwrite of a List or cons leaf (Q1): Cell(x) sort (P5: the new content); Cell([x, ..]) rm (P6: a `..` the subject never wrote); Cell(k::map![..]) arm (the form step); KCell cw (A); Some/None pop, the instance lists iop (P3b); x and the other two fragments cw (P3c); _ wop (P4); the open fragment open-record-outside-pattern (R4). Paths: R3.
-c26	-	uor	uor	owp	owp	arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-c26	?	owp	owp	owp	owp	arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-c26	*	cwi	cwi	owp	owp	arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
-c26	member	cells	result, unmatched	? leaf Int
-c26	member	cells	result, unmatched	? leaf List
-c26	member	cells	result, unmatched	? leaf Map
-c26	principle	cells! overwrite of a `?` leaf (Int, List or Map): Some(Cell(x)) and None uor (Q1 x P5: presence unknown); Cell(x) and Cell([x, ..]) owp (P3c); Cell(k::map![..]) arm (the form step: nothing frames it); KCell cw (A); the instance lists iop (P3b); x and the other two fragments owp (P3c); _ wop (P4); the open fragment open-record-outside-pattern (R4). Paths: R3.
-c27	-	cw	uor	cw	cw	arm	cw	cw	iop	iop	owp	wop	owp	owp	owp
-c27	?	cw	owp	cw	cw	arm	cw	cw	iop	iop	owp	wop	owp	owp	owp
-c27	*	cw	cwi	cw	cw	arm	cw	cw	iop	iop	owp	wop	owp	owp	owp
-c27	member	cells	result, unmatched	? group G
-c27	principle	cells! overwrite of `? group G`: Some(Cell(x)) cw (`Cell` inside `Some`, P3b: the kind before pairing); None uor (Q1 x P5); Cell(..) and KCell cw (P3b, A); Cell(k::map![..]) arm (the form step); the instance lists iop (P3b); x and every fragment owp (P3c); _ wop (P4). Paths: R3.
-c28	-	pop	pop	cw	cw	arm	cw	cw	rm	ils	cwi	wop	cwi	cwi	cwi
-c28	?	pop	pop	cw	cw	arm	cw	cw	owp	ils	cwi	wop	cwi	cwi	cwi
-c28	*	pop	pop	cw	cw	arm	cw	cw	cwi	ils	cwi	wop	cwi	cwi	cwi
-c28	member	cells	result, unmatched	* List of G
-c28	principle	cells! overwrite of a List collection (Q1): [k::fragment![crate::G { a: x, .. }], ..] rm (P6: the list's `..` keeps instances the subject never matched); its braced form ils (P2); Cell(..) and KCell cw (A); Cell(k::map![..]) arm (the form step); Some/None pop (P3b); x and the fragments cwi (P3c); _ wop (P4). Paths: R3.
-c29	-	pop	pop	cw	cw	arm	cw	cw	ils	rm	cwi	wop	cwi	cwi	cwi
-c29	?	pop	pop	cw	cw	arm	cw	cw	ils	owp	cwi	wop	cwi	cwi	cwi
-c29	*	pop	pop	cw	cw	arm	cw	cw	ils	cwi	cwi	wop	cwi	cwi	cwi
-c29	member	cells	result, unmatched	* Set of G
-c29	member	cells	result, unmatched	* Map of G
-c29	principle	cells! overwrite of a Set or Map collection (Q1): { k::fragment![crate::G { a: x, .. }], .. } rm (P6: the set's `..` keeps instances the subject never matched); its bracketed form ils (P2); Cell(..) and KCell cw (A); Cell(k::map![..]) arm (the form step); Some/None pop (P3b); x and the fragments cwi (P3c); _ wop (P4). Paths: R3.
+c06	principle	cells! subject on `? leaf Int`: Some(Cell(x)) sort (P3a, design:R3); None atc (P5: the result leaves the cell); Cell(x) owp (P3c: the leaf's wrapper under `?`, its inside passing); Cell([x, ..]) br and Cell(k::map![..]) mna (S5.0g:P-R5: the advice Some(Cell(..)) is refused again inside the wrapper, so that refusal is named); KCell cw (design:R6); the instance lists iop (P3b); x, _ and the fragments owp (P3c, the inside passing: the advice adds `Some` and `Cell` alike). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+c07	-	sort	atc	owp	owp	mna	cw	cw	iop	iop	owp	owp	owp	owp	owp
+c07	?	owp	owp	owp	owp	mna	cw	cw	iop	iop	owp	owp	owp	owp	owp
+c07	*	cwi	cwi	owp	owp	mna	cw	cw	iop	iop	owp	owp	owp	owp	owp
+c07	member	cells	subject	? leaf List
+c07	principle	cells! subject on `? leaf List`: Some(Cell(x)) sort (P3a, design:R3); None atc (P5); Cell(x) and Cell([x, ..]) owp (P3c: the List leaf's wrapper under `?`, its inside passing); Cell(k::map![..]) mna (S5.0g:P-R5: refused again inside the wrapper); KCell cw (design:R6); the instance lists iop (P3b); x, _ and the fragments owp (P3c). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+c08	-	sort	atc	owp	br	owp	cw	cw	iop	iop	owp	owp	owp	owp	owp
+c08	?	owp	owp	owp	br	owp	cw	cw	iop	iop	owp	owp	owp	owp	owp
+c08	*	cwi	cwi	owp	br	owp	cw	cw	iop	iop	owp	owp	owp	owp	owp
+c08	member	cells	subject	? leaf Map
+c08	principle	cells! subject on `? leaf Map`: Some(Cell(x)) sort (P3a, design:R3); None atc (P5); Cell(x) and Cell(k::map![y -> x, ..]) owp (P3c, the inside passing); Cell([x, ..]) br (S5.0g:P-R5: refused again inside the wrapper); KCell cw (design:R6); the instance lists iop (P3b); x, _ and the fragments owp (P3c). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+c09	-	cw	atc	cw	cw	cw	cw	cw	iop	iop	owp	owp	owp	owp	rmc
+c09	?	cw	owp	cw	cw	cw	cw	cw	iop	iop	owp	owp	owp	owp	rmc
+c09	*	cw	cwi	cw	cw	cw	cw	cw	iop	iop	owp	owp	owp	owp	rmc
+c09	member	cells	subject	? group G
+c09	principle	cells! subject on `? group G`: Some(Cell(x)) cw (design:R3 then P3b: inside `Some` the group has no wrapper); None atc (P5); every Cell(..) and KCell cw (P3b, design:R6: no layer of the stack has a wrapper); the instance lists iop (P3b); x, _, the open and the vacuous fragment owp (P3c, the inside passing against G); k::fragment![crate::G { a: x }] rmc (S5.0g:P-R5 with S5.0g:D-4: L4 refuses the advice again). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+c10	-	pop	pop	cw	cw	cw	cw	cw	sort	ils	cwi	cwi	cwi	cwi	rmc
+c10	?	pop	pop	cw	cw	cw	cw	cw	owp	ils	cwi	cwi	cwi	cwi	rmc
+c10	*	pop	pop	cw	cw	cw	cw	cw	cwi	ils	cwi	cwi	cwi	cwi	rmc
+c10	member	cells	subject	* List of G
+c10	member	cells	subject, written	* List of G
+c10	principle	cells! subject on a List collection of G, either side: [k::fragment![crate::G { a: x, .. }], ..] sort (P3a: the instance list, P6's rest; the fragment a term to the lattice, P7); the instance set ils (P3b: the other order's mark); Some/None pop, Cell and KCell cw (P3b, design:R6); x, _, the open and the vacuous fragment cwi (P3c, the inside passing against G); k::fragment![crate::G { a: x }] rmc (S5.0g:P-R5, S5.0g:D-4). Paths: S5.0g:R3.
+c11	-	pop	pop	cw	cw	cw	cw	cw	ils	sort	cwi	cwi	cwi	cwi	rmc
+c11	?	pop	pop	cw	cw	cw	cw	cw	ils	owp	cwi	cwi	cwi	cwi	rmc
+c11	*	pop	pop	cw	cw	cw	cw	cw	ils	cwi	cwi	cwi	cwi	cwi	rmc
+c11	member	cells	subject	* Set of G
+c11	member	cells	subject	* Map of G
+c11	member	cells	subject, written	* Set of G
+c11	member	cells	subject, written	* Map of G
+c11	principle	cells! subject on a Set or Map collection of G, either side: { k::fragment![crate::G { a: x, .. }], .. } sort (P3a: the instance set, its rest framed, P6); the instance list ils (P3b: the List order's mark, S5.0g:P-R4); Some/None pop, Cell and KCell cw (P3b, design:R6); x, _, the open and the vacuous fragment cwi (P3c); k::fragment![crate::G { a: x }] rmc (S5.0g:P-R5, S5.0g:D-4). Paths: S5.0g:R3.
+c12	-	pop	pop	cw	cw	cw	cw	cw	iop	iop	sort	ok	sort	sort	rmc
+c12	?	pop	pop	cw	cw	cw	cw	cw	iop	iop	owp	owp	owp	owp	rmc
+c12	*	pop	pop	cw	cw	cw	cw	cw	iop	iop	cwi	cwi	cwi	cwi	rmc
+c12	member	cells	subject, written	group G
+c12	principle	cells! subject on the group G, the result writing it: _ ok without the lint (Q1). x and the open and vacuous fragments sort (P6); k::fragment![crate::G { a: x }] rmc (S5.0g:D-4); Cell and KCell cw (design:R6); Some/None pop, the instance lists iop (P3b). Paths: S5.0g:R3.
+c13	-	sort	ok	owp	br	mna	cw	cw	iop	iop	owp	owp	owp	owp	owp
+c13	?	owp	owp	owp	br	mna	cw	cw	iop	iop	owp	owp	owp	owp	owp
+c13	*	cwi	cwi	owp	br	mna	cw	cw	iop	iop	owp	owp	owp	owp	owp
+c13	member	cells	subject, written	? leaf Int
+c13	principle	cells! subject on `? leaf Int`, the result writing it: None ok (P5: the result creates the cell); otherwise as with the cell left: Some(Cell(x)) sort (P3a, design:R3); Cell(x) owp (P3c); Cell([x, ..]) br and Cell(k::map![..]) mna (S5.0g:P-R5); KCell cw (design:R6); the instance lists iop (P3b); x, _ and the fragments owp (P3c). Paths: S5.0g:R3.
+c14	-	sort	ok	owp	owp	mna	cw	cw	iop	iop	owp	owp	owp	owp	owp
+c14	?	owp	owp	owp	owp	mna	cw	cw	iop	iop	owp	owp	owp	owp	owp
+c14	*	cwi	cwi	owp	owp	mna	cw	cw	iop	iop	owp	owp	owp	owp	owp
+c14	member	cells	subject, written	? leaf List
+c14	principle	cells! subject on `? leaf List`, the result writing it: None ok (P5); Some(Cell(x)) sort (P3a); Cell(x) and Cell([x, ..]) owp (P3c); Cell(k::map![..]) mna (S5.0g:P-R5); KCell cw (design:R6); the instance lists iop (P3b); x, _ and the fragments owp (P3c). Paths: S5.0g:R3.
+c15	-	sort	ok	owp	br	owp	cw	cw	iop	iop	owp	owp	owp	owp	owp
+c15	?	owp	owp	owp	br	owp	cw	cw	iop	iop	owp	owp	owp	owp	owp
+c15	*	cwi	cwi	owp	br	owp	cw	cw	iop	iop	owp	owp	owp	owp	owp
+c15	member	cells	subject, written	? leaf Map
+c15	principle	cells! subject on `? leaf Map`, the result writing it: None ok (P5); Some(Cell(x)) sort (P3a); Cell(x) and Cell(k::map![y -> x, ..]) owp (P3c); Cell([x, ..]) br (S5.0g:P-R5); KCell cw (design:R6); the instance lists iop (P3b); x, _ and the fragments owp (P3c). Paths: S5.0g:R3.
+c16	-	cw	ok	cw	cw	cw	cw	cw	iop	iop	owp	owp	owp	owp	rmc
+c16	?	cw	owp	cw	cw	cw	cw	cw	iop	iop	owp	owp	owp	owp	rmc
+c16	*	cw	cwi	cw	cw	cw	cw	cw	iop	iop	owp	owp	owp	owp	rmc
+c16	member	cells	subject, written	? group G
+c16	principle	cells! subject on `? group G`, the result writing it: None ok (P5); Some(Cell(x)), every Cell(..) and KCell cw (P3b, design:R6); the instance lists iop (P3b); x, _, the open and the vacuous fragment owp (P3c); k::fragment![crate::G { a: x }] rmc (S5.0g:P-R5, S5.0g:D-4). Paths: S5.0g:R3.
+c17	-	pop	pop	cw	cw	cw|product:arm	sort	rm	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+c17	?	pop	pop	cw	cw	cw|product:arm	owp	owp	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+c17	*	pop	pop	cw	cw	cw|product:arm	cwi	cwi	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+c17	member	cells	result, matched	computation
+c17	principle	cells! result over the computation matched by `KCell(y, ..)`: KCell(x, ..) sort (P6: `..` keeps the subject's rest) and KCell(x) rm (it drops it); every Cell(..) cw (P3b: a leaf's wrapper on the computation), Cell(k::map![y -> x, ..]) is lexically the leaf's content root, so the form step refuses nothing in it (S5.0g:P-R2): it is cw too, the product's arm being design:M3's stated limitation; Some/None pop, the instance lists iop (P3b); x, the vacuous fragment and k::fragment![crate::G { a: x }] cw (P3c); _ wop (P4); the open fragment open-record-outside-pattern (S5.0g:R4: a term leaving b open, named first since the advice KCell(..) puts it at a term's position, S5.0g:P-R5). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+c18	-	pop	pop	sort	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+c18	?	pop	pop	owp	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+c18	*	pop	pop	cwi	br	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+c18	member	cells	result, matched	leaf Int
+c18	member	cells	result, matched	leaf Set
+c18	member	cells	result, unmatched	leaf Int
+c18	member	cells	result, unmatched	leaf Set
+c18	principle	cells! result over a plain Int or Set leaf, matched by `Cell(old)` or not matched, alike: Cell(x) sort (P5, the lattice); Cell([x, ..]) br (P3b inside); Cell(k::map![y -> x, ..]) is lexically the leaf's content root, so the form step refuses nothing in it (S5.0g:P-R2): map notation on a leaf that is no Map, mna (P3b inside the wrapper), the product's arm being design:M3's limitation; KCell cw (design:R6); Some/None pop, the instance lists iop (P3b); x, the vacuous fragment and k::fragment![crate::G { a: x }] cw (P3c: a value without the leaf's `Cell`); _ wop (P4); the open fragment open-record-outside-pattern (S5.0g:R4, S5.0g:P-R5). Paths: S5.0g:R3.
+c19	-	pop	pop	rm	sort	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+c19	?	pop	pop	owp	owp	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+c19	*	pop	pop	cwi	cwi	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+c19	member	cells	result, matched	leaf List
+c19	member	cells	result, matched	leaf Cons
+c19	principle	cells! result over a List or cons leaf matched by `Cell([y, ..])`: Cell([x, ..]) sort (P6: it keeps the rest, written last, so a cons list too); Cell(x) rm (a whole value drops the subject's `..`); Cell(k::map![y -> x, ..]) is lexically the leaf's content root, so the form step refuses nothing in it (S5.0g:P-R2): mna (P3b inside), the product's arm being design:M3's limitation; KCell cw (design:R6); Some/None pop, the instance lists iop (P3b); x, the vacuous fragment and k::fragment![crate::G { a: x }] cw (P3c); _ wop (P4); the open fragment open-record-outside-pattern (S5.0g:R4). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+c20	-	pop	pop	rm	br	sort|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+c20	?	pop	pop	owp	br	owp|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+c20	*	pop	pop	cwi	br	cwi|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+c20	member	cells	result, matched	leaf Map
+c20	principle	cells! result over a Map leaf matched by `Cell(k::map![z -> y, ..])`: Cell(k::map![y -> x, ..]) is lexically the leaf's content root, so the form step refuses nothing in it (S5.0g:P-R2): its `..` keeps the rest the subject's map framed (P6 at the map's content root), sort, as readable's { y -> x, .. } over { z -> y, .. } (P7), the product's arm being design:M3's stated limitation, a form-step answer that shows on every line; Cell(x) rm (a whole value drops the subject's `..`); Cell([x, ..]) br (P3b inside); KCell cw (design:R6); Some/None pop, the instance lists iop (P3b); x, the vacuous fragment and k::fragment![crate::G { a: x }] cw (P3c); _ wop (P4); the open fragment open-record-outside-pattern (S5.0g:R4). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+c21	-	pop	pop	cw	cw	cw|product:arm	cw	cw	iop	iop	sort	wop	open-record-outside-pattern	sort	rmc
+c21	?	pop	pop	cw	cw	cw|product:arm	cw	cw	iop	iop	owp	wop	owp	owp	rmc
+c21	*	pop	pop	cw	cw	cw|product:arm	cw	cw	iop	iop	cwi	wop	cwi	cwi	rmc
+c21	member	cells	result, matched	group G
+c21	member	cells	result, unmatched	group G
+c21	principle	cells! result over the group G, matched by `k::fragment![crate::G { a: y, .. }]` or overwritten, alike: x and the vacuous fragment sort (P5, S5.0g:R4); the open fragment open-record-outside-pattern (S5.0:F3 with S5.0g:D-3's reading of a fragment as its record: a bare `..` over an existing group is Rust's defaults; it is pairing, and under a path the ancestor's own pairing decides whether the group is created, `Some(P { g: .. })` over `None` or a created instance, so the ancestor's class replaces it, S5.0g:P-R12); k::fragment![crate::G { a: x }] rmc (S5.0g:D-4, a kind refusal); every Cell(..) and KCell cw (P3b, design:R6: the group has no wrapper; Cell(k::map![y -> x, ..]) is lexically the leaf's content root, so the form step refuses nothing in it (S5.0g:P-R2): the product's arm is design:M3's limitation); Some/None pop, the instance lists iop (P3b); _ wop (P4). Paths: S5.0g:R3.
+c22	-	sort	ok	owp	br	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+c22	?	owp	owp	owp	br	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+c22	*	cwi	cwi	owp	br	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+c22	member	cells	result, matched	? leaf Int
+c22	principle	cells! result over `? leaf Int` matched by `Some(Cell(old))`: Some(Cell(x)) sort (design:R3) and None ok (S5.0:F1); Cell(x) owp (P3c); Cell([x, ..]) br (S5.0g:P-R5: refused again inside the wrapper); Cell(k::map![y -> x, ..]) is lexically the leaf's content root, so the form step refuses nothing in it (S5.0g:P-R2): mna, refused again inside the wrapper (S5.0g:P-R5), the product's arm being design:M3's limitation; KCell cw (design:R6); the instance lists iop (P3b); x, the vacuous fragment and k::fragment![crate::G { a: x }] owp (P3c); _ wop (P4); the open fragment open-record-outside-pattern (S5.0g:R4, S5.0g:P-R5). Paths: S5.0g:R3.
+c23	-	rm	ok	owp	owp	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+c23	?	owp	owp	owp	owp	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+c23	*	cwi	cwi	owp	owp	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+c23	member	cells	result, matched	? leaf List
+c23	principle	cells! result over `? leaf List` matched by `Some(Cell([y, ..]))`: Some(Cell(x)) rm (design:R3: by the List kind, x drops the subject's `..`; pairing, replaced under a path); None ok (S5.0:F1); Cell(x) and Cell([x, ..]) owp (P3c); Cell(k::map![y -> x, ..]) is lexically the leaf's content root, so the form step refuses nothing in it (S5.0g:P-R2): mna, refused again inside the wrapper (S5.0g:P-R5), the product's arm being design:M3's limitation; KCell cw (design:R6); the instance lists iop (P3b); x, the vacuous fragment and k::fragment![crate::G { a: x }] owp (P3c); _ wop (P4); the open fragment open-record-outside-pattern (S5.0g:R4, S5.0g:P-R5). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+c24	-	rm	ok	owp	br	owp|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+c24	?	owp	owp	owp	br	owp|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+c24	*	cwi	cwi	owp	br	owp|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+c24	member	cells	result, matched	? leaf Map
+c24	principle	cells! result over `? leaf Map` matched by `Some(Cell(k::map![z -> y, ..]))`: Some(Cell(x)) rm (design:R3: x drops the subject's `..`); None ok (S5.0:F1); Cell(x) owp (P3c); Cell([x, ..]) br (S5.0g:P-R5); Cell(k::map![y -> x, ..]) is lexically the leaf's content root, so the form step refuses nothing in it (S5.0g:P-R2): owp (P3c: the Map leaf's wrapper under `?`, its inside passing), the product's arm being design:M3's limitation; KCell cw (design:R6); the instance lists iop (P3b); x, the vacuous fragment and k::fragment![crate::G { a: x }] owp (P3c); _ wop (P4); the open fragment open-record-outside-pattern (S5.0g:R4, S5.0g:P-R5). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+c25	-	cw	ok	cw	cw	cw|product:arm	cw	cw	iop	iop	owp	wop	owp	owp	rmc
+c25	?	cw	owp	cw	cw	cw|product:arm	cw	cw	iop	iop	owp	wop	owp	owp	rmc
+c25	*	cw	cwi	cw	cw	cw|product:arm	cw	cw	iop	iop	owp	wop	owp	owp	rmc
+c25	member	cells	result, matched	? group G
+c25	principle	cells! result over `? group G` matched by `Some(k::fragment![crate::G { a: y, .. }])`: Some(Cell(x)) cw (design:R3 then P3b: the group has no wrapper); None ok (S5.0:F1); every Cell(..) and KCell cw (P3b, design:R6; Cell(k::map![y -> x, ..]) is lexically the leaf's content root, so the form step refuses nothing in it (S5.0g:P-R2): the product's arm is design:M3's limitation); the instance lists iop (P3b); x, the open and the vacuous fragment owp (P3c, the inside passing against G; the open fragment's S5.0:F3 is pairing, met on the advice, and over a subject `None` the advice creates the cell with its template, S5.0g:P-R13); k::fragment![crate::G { a: x }] rmc (S5.0g:P-R5, S5.0g:D-4); _ wop (P4). Paths: S5.0g:R3.
+c26	-	pop	pop	cw	cw	cw|product:arm	cw	cw	sort	ils	cwi	wop	cwi	cwi	rmc
+c26	?	pop	pop	cw	cw	cw|product:arm	cw	cw	owp	ils	cwi	wop	cwi	cwi	rmc
+c26	*	pop	pop	cw	cw	cw|product:arm	cw	cw	cwi	ils	cwi	wop	cwi	cwi	rmc
+c26	member	cells	result, matched	* List of G
+c26	principle	cells! result over a List collection of G matched by `[k::fragment![..], ..]`: [k::fragment![crate::G { a: x, .. }], ..] sort (a created instance at the front, its `..` the template's, P6; the root `..` keeps the subject's instances); the instance set ils (P3b); Some/None pop, every Cell(..) and KCell cw (P3b, design:R6; Cell(k::map![y -> x, ..]) is lexically the leaf's content root, so the form step refuses nothing in it (S5.0g:P-R2): the product's arm is design:M3's limitation); x, the open and the vacuous fragment cwi (P3c); k::fragment![crate::G { a: x }] rmc (S5.0g:P-R5, S5.0g:D-4); _ wop (P4). Paths: S5.0g:R3.
+c27	-	pop	pop	cw	cw	cw|product:arm	cw	cw	ils	sort	cwi	wop	cwi	cwi	rmc
+c27	?	pop	pop	cw	cw	cw|product:arm	cw	cw	ils	owp	cwi	wop	cwi	cwi	rmc
+c27	*	pop	pop	cw	cw	cw|product:arm	cw	cw	ils	cwi	cwi	wop	cwi	cwi	rmc
+c27	member	cells	result, matched	* Set of G
+c27	member	cells	result, matched	* Map of G
+c27	principle	cells! result over a Set or Map collection of G matched by `{ k::fragment![..], .. }`: { k::fragment![crate::G { a: x, .. }], .. } sort (a created instance, its `..` the template's, P6; on a Map collection it writes its key a, S5.0g:key; the root `..` keeps the subject's instances); the instance list ils (P3b, S5.0g:P-R4); Some/None pop, every Cell(..) and KCell cw (P3b, design:R6; Cell(k::map![y -> x, ..]) is lexically the leaf's content root, so the form step refuses nothing in it (S5.0g:P-R2): the product's arm is design:M3's limitation); x, the open and the vacuous fragment cwi (P3c); k::fragment![crate::G { a: x }] rmc (S5.0g:P-R5, S5.0g:D-4); _ wop (P4). Paths: S5.0g:R3.
+c28	-	pop	pop	cw	cw	cw|product:arm	rm	sort	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+c28	?	pop	pop	cw	cw	cw|product:arm	owp	owp	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+c28	*	pop	pop	cw	cw	cw|product:arm	cwi	cwi	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+c28	member	cells	result, unmatched	computation
+c28	principle	cells! result over the computation the subject does not match (Q1's overwrite; cells! may drop the continuation, P7, unlike readable's Q3): KCell(x) sort (the exact new computation) and KCell(x, ..) rm (P6: a `..` the subject never wrote); every Cell(..) cw (P3b; Cell(k::map![y -> x, ..]) is lexically the leaf's content root, so the form step refuses nothing in it (S5.0g:P-R2): the product's arm is design:M3's limitation); Some/None pop, the instance lists iop (P3b); x, the vacuous fragment and k::fragment![crate::G { a: x }] cw (P3c); _ wop (P4); the open fragment open-record-outside-pattern (S5.0g:R4, S5.0g:P-R5). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+c29	-	pop	pop	sort	rm	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+c29	?	pop	pop	owp	owp	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+c29	*	pop	pop	cwi	cwi	mna|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+c29	member	cells	result, unmatched	leaf List
+c29	member	cells	result, unmatched	leaf Cons
+c29	principle	cells! overwrite of a List or cons leaf (Q1): Cell(x) sort (the new content, P5); Cell([x, ..]) rm (P6: a `..` the subject never wrote); Cell(k::map![y -> x, ..]) is lexically the leaf's content root, so the form step refuses nothing in it (S5.0g:P-R2): mna (P3b inside), the product's arm being design:M3's limitation; KCell cw (design:R6); Some/None pop, the instance lists iop (P3b); x, the vacuous fragment and k::fragment![crate::G { a: x }] cw (P3c); _ wop (P4); the open fragment open-record-outside-pattern (S5.0g:R4). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+c30	-	pop	pop	sort	br	rm|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+c30	?	pop	pop	owp	br	owp|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+c30	*	pop	pop	cwi	br	cwi|product:arm	cw	cw	iop	iop	cw	wop	open-record-outside-pattern	cw	cw
+c30	member	cells	result, unmatched	leaf Map
+c30	principle	cells! overwrite of a Map leaf (Q1): Cell(x) sort (P5); Cell(k::map![y -> x, ..]) is lexically the leaf's content root, so the form step refuses nothing in it (S5.0g:P-R2): its `..` keeps a rest the subject never wrote, rm (P6, as readable's { y -> x, .. } over an unmatched map, P7), the product's arm being design:M3's limitation; Cell([x, ..]) br (P3b inside); KCell cw (design:R6); Some/None pop, the instance lists iop (P3b); x, the vacuous fragment and k::fragment![crate::G { a: x }] cw (P3c); _ wop (P4); the open fragment open-record-outside-pattern (S5.0g:R4). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+c31	-	uor	uor	owp	br	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+c31	?	owp	owp	owp	br	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+c31	*	cwi	cwi	owp	br	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+c31	member	cells	result, unmatched	? leaf Int
+c31	principle	cells! overwrite of `? leaf Int`: Some(Cell(x)) and None uor (Q1 with P5: the rule does not know the cell's presence); Cell(x) owp (P3c); Cell([x, ..]) br (S5.0g:P-R5); Cell(k::map![y -> x, ..]) is lexically the leaf's content root, so the form step refuses nothing in it (S5.0g:P-R2): mna (S5.0g:P-R5), the product's arm being design:M3's limitation; KCell cw (design:R6); the instance lists iop (P3b); x, the vacuous fragment and k::fragment![crate::G { a: x }] owp (P3c); _ wop (P4); the open fragment open-record-outside-pattern (S5.0g:R4, S5.0g:P-R5). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+c32	-	uor	uor	owp	owp	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+c32	?	owp	owp	owp	owp	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+c32	*	cwi	cwi	owp	owp	mna|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+c32	member	cells	result, unmatched	? leaf List
+c32	principle	cells! overwrite of `? leaf List`: Some(Cell(x)) and None uor (Q1, P5); Cell(x) and Cell([x, ..]) owp (P3c); Cell(k::map![y -> x, ..]) is lexically the leaf's content root, so the form step refuses nothing in it (S5.0g:P-R2): mna (S5.0g:P-R5), the product's arm being design:M3's limitation; KCell cw (design:R6); the instance lists iop (P3b); x, the vacuous fragment and k::fragment![crate::G { a: x }] owp (P3c); _ wop (P4); the open fragment open-record-outside-pattern (S5.0g:R4, S5.0g:P-R5). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+c33	-	uor	uor	owp	br	owp|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+c33	?	owp	owp	owp	br	owp|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+c33	*	cwi	cwi	owp	br	owp|product:arm	cw	cw	iop	iop	owp	wop	open-record-outside-pattern	owp	owp
+c33	member	cells	result, unmatched	? leaf Map
+c33	principle	cells! overwrite of `? leaf Map`: Some(Cell(x)) and None uor (Q1, P5); Cell(x) owp (P3c); Cell([x, ..]) br (S5.0g:P-R5); Cell(k::map![y -> x, ..]) is lexically the leaf's content root, so the form step refuses nothing in it (S5.0g:P-R2): owp (P3c, its inside passing; the advice then meets Q1's uor), the product's arm being design:M3's limitation; KCell cw (design:R6); the instance lists iop (P3b); x, the vacuous fragment and k::fragment![crate::G { a: x }] owp (P3c); _ wop (P4); the open fragment open-record-outside-pattern (S5.0g:R4, S5.0g:P-R5). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+c34	-	cw	uor	cw	cw	cw|product:arm	cw	cw	iop	iop	owp	wop	owp	owp	rmc
+c34	?	cw	owp	cw	cw	cw|product:arm	cw	cw	iop	iop	owp	wop	owp	owp	rmc
+c34	*	cw	cwi	cw	cw	cw|product:arm	cw	cw	iop	iop	owp	wop	owp	owp	rmc
+c34	member	cells	result, unmatched	? group G
+c34	principle	cells! overwrite of `? group G`: None uor (Q1, P5); Some(Cell(x)), every Cell(..) and KCell cw (P3b, design:R6: kind before pairing; Cell(k::map![y -> x, ..]) is lexically the leaf's content root, so the form step refuses nothing in it (S5.0g:P-R2): the product's arm is design:M3's limitation); the instance lists iop (P3b); x, the open and the vacuous fragment owp (P3c, the inside passing against G); k::fragment![crate::G { a: x }] rmc (S5.0g:P-R5, S5.0g:D-4); _ wop (P4). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+c35	-	pop	pop	cw	cw	cw|product:arm	cw	cw	rm	ils	cwi	wop	cwi	cwi	rmc
+c35	?	pop	pop	cw	cw	cw|product:arm	cw	cw	owp	ils	cwi	wop	cwi	cwi	rmc
+c35	*	pop	pop	cw	cw	cw|product:arm	cw	cw	cwi	ils	cwi	wop	cwi	cwi	rmc
+c35	member	cells	result, unmatched	* List of G
+c35	principle	cells! overwrite of a List collection of G (Q1): [k::fragment![crate::G { a: x, .. }], ..] rm (P6: a root `..` the subject never wrote); the instance set ils (P3b); Some/None pop, every Cell(..) and KCell cw (P3b, design:R6; Cell(k::map![y -> x, ..]) is lexically the leaf's content root, so the form step refuses nothing in it (S5.0g:P-R2): the product's arm is design:M3's limitation); x, the open and the vacuous fragment cwi (P3c); k::fragment![crate::G { a: x }] rmc (S5.0g:P-R5, S5.0g:D-4); _ wop (P4). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+c36	-	pop	pop	cw	cw	cw|product:arm	cw	cw	ils	rm	cwi	wop	cwi	cwi	rmc
+c36	?	pop	pop	cw	cw	cw|product:arm	cw	cw	ils	owp	cwi	wop	cwi	cwi	rmc
+c36	*	pop	pop	cw	cw	cw|product:arm	cw	cw	ils	cwi	cwi	wop	cwi	cwi	rmc
+c36	member	cells	result, unmatched	* Set of G
+c36	member	cells	result, unmatched	* Map of G
+c36	principle	cells! overwrite of a Set or Map collection of G (Q1): { k::fragment![crate::G { a: x, .. }], .. } rm (P6: a root `..` the subject never wrote); the instance list ils (P3b, S5.0g:P-R4); Some/None pop, every Cell(..) and KCell cw (P3b, design:R6; Cell(k::map![y -> x, ..]) is lexically the leaf's content root, so the form step refuses nothing in it (S5.0g:P-R2): the product's arm is design:M3's limitation); x, the open and the vacuous fragment cwi (P3c); k::fragment![crate::G { a: x }] rmc (S5.0g:P-R5, S5.0g:D-4); _ wop (P4). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
 #
 ## init
 pattern	line	Some(0)	k::absent!(0)	None	k::k![pgm]	k::k![Cmd::Go(), ..]	[0]	[0, ..]	k::map![0 -> 1]	0	G { a: 0, b: 0 }	G { a: 0 }	Cmd::Go()	pgm
 i01	-	pop	pop	nii	sort	ir	sort	ir	mna	cw	cw	cw	cw	cw
 i01	member	init	init	computation
-i01	principle	Initializer of the computation: k::k![pgm] and [0] sort (P3a: the computation's marks, brackets read by the declared type, ruling 2; the items' sorts to the lattice); None nii, k::k![Cmd::Go(), ..] and [0, ..] ir (the form step, P5 and E3: an initializer's value is complete, with no `None` and no rest); Some(0) and k::absent!(0) pop, k::map![0 -> 1] mna (P3b); 0, both records, Cmd::Go() and pgm cw (P3c: a value on a computation; E3: the program is k::k![pgm]). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
+i01	principle	Initializer of the computation: k::k![pgm] and [0] sort (P3a: the computation's marks, brackets read by the declared type; the items' sorts to the lattice); None nii, k::k![Cmd::Go(), ..] and [0, ..] ir (the form step, P5: an initializer's value is complete, with no `None` and no anonymous rest); Some(0) and k::absent!(0) pop, k::map![0 -> 1] mna (P3b); 0, both records, Cmd::Go() and pgm cw (P3c: a value on a computation, which k::k![pgm] writes). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
 i02	-	pop	pop	nii	cw	ir	br	ir	mna	sort	sort	sort	sort	sort
 i02	member	init	init	leaf Int
 i02	member	init	init	leaf Set
-i02	principle	Initializer of a plain Int or Set leaf: 0, both records, Cmd::Go() and pgm sort (no mark: the lattice judges each, a record of another sort included); [0] br (P3b: no List layer); k::k![pgm] cw (A); k::map![0 -> 1] mna, Some(0) and k::absent!(0) pop (P3b); None nii, k::k![Cmd::Go(), ..] and [0, ..] ir (the form step, P5). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
+i02	principle	Initializer of a plain Int or Set leaf: 0, both records, Cmd::Go() and pgm sort (no mark: the lattice judges each, a record of another sort included); [0] br (P3b: no List layer); k::k![pgm] cw (design:R6); k::map![0 -> 1] mna, Some(0) and k::absent!(0) pop (P3b); None nii, k::k![Cmd::Go(), ..] and [0, ..] ir (the form step, P5). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
 i03	-	pop	pop	nii	cw	ir	sort	ir	mna	sort	sort	sort	sort	sort
 i03	member	init	init	leaf List
 i03	member	init	init	leaf Cons
-i03	principle	Initializer of a List or cons leaf: [0] sort (P3a, ruling 2: brackets by the declared type); 0, both records, Cmd::Go() and pgm sort (the lattice); k::k![pgm] cw (A); k::map![0 -> 1] mna, Some(0) and k::absent!(0) pop (P3b); None nii, the two rests ir (the form step). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
+i03	principle	Initializer of a List or cons leaf: [0] sort (P3a: brackets by the declared type); 0, both records, Cmd::Go() and pgm sort (the lattice); k::k![pgm] cw (design:R6); k::map![0 -> 1] mna, Some(0) and k::absent!(0) pop (P3b); None nii, the two rests ir (the form step, P5). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
 i04	-	pop	pop	nii	cw	ir	br	ir	sort	sort	sort	sort	sort	sort
 i04	member	init	init	leaf Map
-i04	principle	Initializer of a Map leaf: k::map![0 -> 1] sort (P3a); 0, both records, Cmd::Go() and pgm sort (the lattice); [0] br (P3b); k::k![pgm] cw (A); Some(0) and k::absent!(0) pop (P3b); None nii, the two rests ir (the form step). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
+i04	principle	Initializer of a Map leaf: k::map![0 -> 1] sort (P3a); 0, both records, Cmd::Go() and pgm sort (the lattice); [0] br (P3b); k::k![pgm] cw (design:R6); Some(0) and k::absent!(0) pop (P3b); None nii, the two rests ir (the form step, P5). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
 i05	-	pop	pop	nii	cw	ir	br	ir	mna	sort	sort	rmc	sort	sort
 i05	member	init	init	group G
 i05	member	init	init	* List of G
 i05	member	init	init	* Set of G
 i05	member	init	init	* Map of G
-i05	principle	Initializer of the group G, and of a List, Set or Map collection of G, whose value is one instance's template (P5, D-5): G { a: 0, b: 0 } sort (a complete record, ruling 5); G { a: 0 } rmc (L4 and ruling 5: an initializer's record keeps Rust's struct-literal rules; a kind refusal, it stands under a path); 0, Cmd::Go() and pgm sort (the lattice); [0] br (P3b), k::k![pgm] cw (A), k::map![0 -> 1] mna, Some(0) and k::absent!(0) pop (P3b); None nii, the two rests ir (the form step). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
+i05	principle	Initializer of the group G, and of a List, Set or Map collection of G, whose value is one instance's template (P5, S5.0g:D-5): G { a: 0, b: 0 } sort (a complete record, P6: records follow Rust's struct literals); G { a: 0 } rmc (L4 with P6: an initializer's record names every field; a kind refusal); 0, Cmd::Go() and pgm sort (the lattice); [0] br (P3b: brackets on the template, whose instance layer is not written), k::k![pgm] cw (design:R6), k::map![0 -> 1] mna, Some(0) and k::absent!(0) pop (P3b); None nii, the two rests ir (the form step, P5). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
 i06	-	sort	sort	nii	cw	ir	br	ir	mna	owp	owp	owp	owp	owp
 i06	member	init	init	? leaf Int
-i06	member	init	init	? group G
-i06	principle	Initializer of `? leaf Int` or `? group G`: Some(0) and k::absent!(0) sort (P2's initializer presence marks, P3a; 0 is the template, its sort to the lattice); None nii (the form step, P5: write k::absent!(template)); [0] br (L3, as R7 reads it: a `?` cell with no List layer); k::k![pgm] cw (A); k::map![0 -> 1] mna (P3b); 0, both records, Cmd::Go() and pgm owp (P3c: a value under `?`); the two rests ir (the form step). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
+i06	principle	Initializer of `? leaf Int`: Some(0) and k::absent!(0) sort (P2's initializer presence marks, P3a; 0 is the template, its sort to the lattice); None nii (the form step, P5: write k::absent!(template)); [0] br (L3, as S5.0g:R7 words it: a `?` cell with no List layer); k::k![pgm] cw (design:R6); k::map![0 -> 1] mna (P3b); 0, both records, Cmd::Go() and pgm owp (P3c: a value under `?`, its inside passing); the two rests ir (the form step). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
 i07	-	sort	sort	nii	cw	ir	owp	ir	mna	owp	owp	owp	owp	owp
 i07	member	init	init	? leaf List
-i07	principle	Initializer of `? leaf List`: Some(0) and k::absent!(0) sort (P3a); [0] owp (P3c: the List leaf's brackets under `?`, R7); None nii and the two rests ir (the form step); k::k![pgm] cw (A); k::map![0 -> 1] mna (P3b); 0, both records, Cmd::Go() and pgm owp (P3c). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
+i07	principle	Initializer of `? leaf List`: Some(0) and k::absent!(0) sort (P3a); [0] owp (P3c: the List leaf's brackets under `?`, S5.0g:R7); None nii and the two rests ir (the form step, P5); k::k![pgm] cw (design:R6); k::map![0 -> 1] mna (P3b); 0, both records, Cmd::Go() and pgm owp (P3c). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
 i08	-	sort	sort	nii	cw	ir	br	ir	owp	owp	owp	owp	owp	owp
 i08	member	init	init	? leaf Map
-i08	principle	Initializer of `? leaf Map`: Some(0) and k::absent!(0) sort (P3a); k::map![0 -> 1] owp (P3c: the Map mark under `?`); [0] br (P3b); None nii and the two rests ir (the form step); k::k![pgm] cw (A); 0, both records, Cmd::Go() and pgm owp (P3c). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
+i08	principle	Initializer of `? leaf Map`: Some(0) and k::absent!(0) sort (P3a); k::map![0 -> 1] owp (P3c: the Map mark under `?`); [0] br (P3b, L3); None nii and the two rests ir (the form step, P5); k::k![pgm] cw (design:R6); 0, both records, Cmd::Go() and pgm owp (P3c). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
+i09	-	sort	sort	nii	cw	ir	br	ir	mna	owp	owp	rmc	owp	owp
+i09	member	init	init	? group G
+i09	principle	Initializer of `? group G`: Some(0) and k::absent!(0) sort (P3a; 0 is a template of another sort, the lattice's); [0] br (L3: no List layer); k::k![pgm] cw (design:R6); k::map![0 -> 1] mna (P3b); 0, G { a: 0, b: 0 }, Cmd::Go() and pgm owp (P3c, the inside passing against G); G { a: 0 } rmc (S5.0g:P-R5: L4 refuses the advice Some(G { a: 0 }) again); None nii and the two rests ir (the form step, P5). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
+#
+## readable, claim more
+pattern	line	[G { a: x, .. }, ..]	{ x, .. }	map![y -> x, ..]	Some(_)	Some(G { .. })	Some([..])	{ G { a: x, b: y } }	{ G { b: x, .. }, .. }
+rx01	-	sort	iop	arm	pop	pop	pop	iop	iop
+rx01	?	owp	iop	arm	pop	pop	pop	iop	iop
+rx01	*	cwi	iop	arm	pop	pop	pop	iop	iop
+rx01	member	readable more, claim more	subject	computation
+rx01	member	readable more, claim more	subject	leaf List
+rx01	member	readable more, claim more	subject	leaf Cons
+rx01	member	readable more, claim more	subject, written	computation
+rx01	member	readable more, claim more	subject, written	leaf List
+rx01	member	readable more, claim more	subject, written	leaf Cons
+rx01	principle	Subject on the computation or a List or cons leaf, the result leaving or writing it: [G { a: x, .. }, ..] sort (P3a: brackets are the mark, the record an item, a term the lattice judges); { x, .. } and the exact and keyless instance sets iop (P3b: braces mark instances, which the stack has nowhere); map![y -> x, ..] arm (the form step: readable writes a map's root as { k -> v, .. }, so its map! is a literal, S5.0g:P-R2); Some(_), Some(G { .. }) and Some([..]) pop (P3b). Paths: S5.0g:R3.
+rx02	-	br	iop	arm	pop	pop	pop	iop	iop
+rx02	?	br	iop	arm	pop	pop	pop	iop	iop
+rx02	*	br	iop	arm	pop	pop	pop	iop	iop
+rx02	member	readable more, claim more	subject	leaf Int
+rx02	member	readable more, claim more	subject	leaf Map
+rx02	member	readable more, claim more	subject	leaf Set
+rx02	member	readable more, claim more	subject	group G
+rx02	member	readable more, claim more	subject, written	leaf Int
+rx02	member	readable more, claim more	subject, written	leaf Map
+rx02	member	readable more, claim more	subject, written	leaf Set
+rx02	member	readable more, claim more	subject, written	group G
+rx02	principle	Subject on a plain Int, Map or Set leaf or the group G, either side: [G { a: x, .. }, ..] br (P3b: no layer brackets mark and no instance layer); the braces iop (P3b, design:R4); map![y -> x, ..] arm (the form step, S5.0g:P-R2); the three Some(..) pop (P3b). Paths: S5.0g:R3.
+rx03	-	br	iop	arm	ok	sort	br	iop	iop
+rx03	?	br	iop	arm	owp	owp	br	iop	iop
+rx03	*	br	iop	arm	cwi	cwi	br	iop	iop
+rx03	member	readable more, claim more	subject	? leaf Int
+rx03	member	readable more, claim more	subject	? leaf Map
+rx03	member	readable more, claim more	subject, written	? leaf Int
+rx03	member	readable more, claim more	subject, written	? leaf Map
+rx03	principle	Subject on `? leaf Int` or `? leaf Map`, either side: Some(_) ok (P3a: presence, its inside any content; a `?` cell's presence constrains, so no lint, Q1); Some(G { .. }) sort (design:R3: a record value on the leaf, the lattice's); Some([..]) and [G { a: x, .. }, ..] br (P3b: no List layer); the braces iop (P3b); map![y -> x, ..] arm (the form step, S5.0g:P-R2). Paths: S5.0g:R3.
+rx04	-	owp	iop	arm	ok	sort	ok	iop	iop
+rx04	?	owp	iop	arm	owp	owp	owp	iop	iop
+rx04	*	owp	iop	arm	cwi	cwi	cwi	iop	iop
+rx04	member	readable more, claim more	subject	? leaf List
+rx04	member	readable more, claim more	subject, written	? leaf List
+rx04	principle	Subject on `? leaf List`, either side: Some(_) and Some([..]) ok (P3a, design:R3: the List leaf's brackets inside `Some`); Some(G { .. }) sort (a record item value, the lattice's); [G { a: x, .. }, ..] owp (P3c: the List leaf's mark under `?`, its inside passing, S5.0g:P-R5); the braces iop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3.
+rx05	-	br	iop	arm	ok	ok	br	iop	iop
+rx05	?	br	iop	arm	owp	owp	br	iop	iop
+rx05	*	br	iop	arm	cwi	cwi	br	iop	iop
+rx05	member	readable more, claim more	subject	? group G
+rx05	member	readable more, claim more	subject, written	? group G
+rx05	principle	Subject on `? group G`, either side: Some(_) and Some(G { .. }) ok (P3a, design:R3: the group's record inside `Some`, its `..` unconstraining, P6); Some([..]) and [G { a: x, .. }, ..] br (P3b); the braces iop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3.
+rx06	-	ok	ils	arm	pop	pop	pop	ils	ils
+rx06	?	owp	ils	arm	pop	pop	pop	ils	ils
+rx06	*	cwi	ils	arm	pop	pop	pop	ils	ils
+rx06	member	readable more, claim more	subject	* List of G
+rx06	member	readable more, claim more	subject, written	* List of G
+rx06	principle	Subject on a List collection of G, either side: [G { a: x, .. }, ..] ok (P3a: the List collection's instance mark, the record its instance); { x, .. } and the exact and keyless instance sets ils (P3b: braces are the other order's instance mark); map![y -> x, ..] arm (the form step); the three Some(..) pop (P3b). Paths: S5.0g:R3.
+rx07	-	ils	ils	arm	pop	pop	pop	ok	ok
+rx07	?	ils	ils	arm	pop	pop	pop	owp	owp
+rx07	*	ils	ils	arm	pop	pop	pop	cwi	cwi
+rx07	member	readable more, claim more	subject	* Set of G
+rx07	member	readable more, claim more	subject	* Map of G
+rx07	member	readable more, claim more	subject, written	* Set of G
+rx07	member	readable more, claim more	subject, written	* Map of G
+rx07	principle	Subject on a Set or Map collection of G, either side: [G { a: x, .. }, ..] ils (S5.0g:P-R4: brackets, here of an instance record, are the List order's mark); { x, .. } ils (Q2: an unordered collection's instance is chosen by a written record); { G { a: x, b: y } } ok (P3a: an exact instance set, P6); { G { b: x, .. }, .. } ok (a subject's instance record leaves its key unconstrained, P5); map![y -> x, ..] arm (the form step); the three Some(..) pop (P3b). Paths: S5.0g:R3.
+rx08	-	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
+rx08	?	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
+rx08	*	open-record-outside-pattern	iop	arm	wop	pop	pop	iop	iop
+rx08	member	readable more, claim more	result, matched	computation
+rx08	member	readable more, claim more	result, matched	leaf List
+rx08	member	readable more, claim more	result, matched	leaf Cons
+rx08	member	readable more, claim more	result, unmatched	computation
+rx08	member	readable more, claim more	result, unmatched	leaf List
+rx08	member	readable more, claim more	result, unmatched	leaf Cons
+rx08	principle	Result over the computation or a List or cons leaf, matched or not: [G { a: x, .. }, ..] open-record-outside-pattern (S5.0g:R4: its item is a built term leaving b open; a kind answer before pairing, so it stands under a path); Some(_) wop (P4: `_` in a result, before the kind); Some(G { .. }) and Some([..]) pop (P3b); { x, .. } and the instance sets iop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3.
+rx09	-	br	iop	arm	wop	pop	pop	iop	iop
+rx09	?	br	iop	arm	wop	pop	pop	iop	iop
+rx09	*	br	iop	arm	wop	pop	pop	iop	iop
+rx09	member	readable more, claim more	result, matched	leaf Int
+rx09	member	readable more, claim more	result, matched	leaf Map
+rx09	member	readable more, claim more	result, matched	leaf Set
+rx09	member	readable more, claim more	result, matched	group G
+rx09	member	readable more, claim more	result, unmatched	leaf Int
+rx09	member	readable more, claim more	result, unmatched	leaf Map
+rx09	member	readable more, claim more	result, unmatched	leaf Set
+rx09	member	readable more, claim more	result, unmatched	group G
+rx09	principle	Result over a plain Int, Map or Set leaf or the group G, matched or not: [G { a: x, .. }, ..] br (P3b); Some(_) wop (P4); Some(G { .. }) and Some([..]) pop (P3b); the braces iop (P3b, design:R4); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3.
+rx10	-	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
+rx10	?	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
+rx10	*	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
+rx10	member	readable more, claim more	result, matched	? leaf Int
+rx10	member	readable more, claim more	result, matched	? leaf Map
+rx10	member	readable more, claim more	result, unmatched	? leaf Int
+rx10	member	readable more, claim more	result, unmatched	? leaf Map
+rx10	principle	Result over `? leaf Int` or `? leaf Map`, matched or not: Some(G { .. }) open-record-outside-pattern (S5.0g:R4: inside `Some` a term record of the leaf leaving a and b open; a kind answer, it stands, and comes before Q1's pairing over an unmatched cell); Some(_) wop (P4); Some([..]) and [G { a: x, .. }, ..] br (P3b); the braces iop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3.
+rx11	-	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	ok	iop	iop
+rx11	?	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	owp	iop	iop
+rx11	*	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	cwi	iop	iop
+rx11	member	readable more, claim more	result, matched	? leaf List
+rx11	principle	Result over `? leaf List` matched by `Some([y, ..])`: Some([..]) ok (design:R3, P6: it keeps the subject's rest); Some(G { .. }) and [G { a: x, .. }, ..] open-record-outside-pattern (S5.0g:R4: a built item leaving fields open, named first, S5.0g:P-R5; kind answers, they stand); Some(_) wop (P4); the braces iop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3.
+rx12	-	br	iop	arm	wop	open-record-outside-pattern	br	iop	iop
+rx12	?	br	iop	arm	wop	owp	br	iop	iop
+rx12	*	br	iop	arm	wop	cwi	br	iop	iop
+rx12	member	readable more, claim more	result, matched	? group G
+rx12	principle	Result over `? group G` matched by `Some(G { a: y, .. })`: Some(G { .. }) open-record-outside-pattern (S5.0:F3: a bare `..` over the existing group leaves a and b to Rust's defaults; pairing, so under a path the ancestor's class replaces it, S5.0g:P-R12); Some(_) wop (P4); Some([..]) and [G { a: x, .. }, ..] br (P3b); the braces iop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rx13	-	sort	ils	arm	wop	pop	pop	ils	ils
+rx13	?	owp	ils	arm	wop	pop	pop	ils	ils
+rx13	*	cwi	ils	arm	wop	pop	pop	ils	ils
+rx13	member	readable more, claim more	result, matched	* List of G
+rx13	principle	Result over a List collection of G matched by `[G { a: y, .. }, ..]`: [G { a: x, .. }, ..] sort (P6: a created instance at the front, its `..` the template's, and the root `..` keeps the subject's instances); { x, .. } and the instance sets ils (P3b: braces of the other order); Some(_) wop (P4); Some(G { .. }) and Some([..]) pop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rx14	-	ils	ils	arm	wop	pop	pop	rm	sort
+rx14	?	ils	ils	arm	wop	pop	pop	owp	owp
+rx14	*	ils	ils	arm	wop	pop	pop	cwi	cwi
+rx14	member	readable more, claim more	result, matched	* Set of G
+rx14	principle	Result over a Set collection of G matched by `{ G { a: y, .. }, .. }`: { G { b: x, .. }, .. } sort (a created instance with its template's defaults, P6; a Set collection keys none); { G { a: x, b: y } } rm (P6: the exact set drops the subject's `..`); [G { a: x, .. }, ..] ils (S5.0g:P-R4) and { x, .. } ils (Q2); Some(_) wop (P4); Some(G { .. }) and Some([..]) pop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rx15	-	ils	ils	arm	wop	pop	pop	rm	map-collection-key
+rx15	?	ils	ils	arm	wop	pop	pop	owp	owp
+rx15	*	ils	ils	arm	wop	pop	pop	cwi	cwi
+rx15	member	readable more, claim more	result, matched	* Map of G
+rx15	principle	Result over a Map collection of G matched by `{ G { a: y, .. }, .. }`: { G { b: x, .. }, .. } map-collection-key (S5.0g:key: a created Map instance writes its key, its first child a, which the template does not state); { G { a: x, b: y } } rm (P6: the exact set drops the subject's `..`); [G { a: x, .. }, ..] ils (S5.0g:P-R4) and { x, .. } ils (Q2); Some(_) wop (P4); Some(G { .. }) and Some([..]) pop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rx16	-	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	uor	iop	iop
+rx16	?	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	owp	iop	iop
+rx16	*	open-record-outside-pattern	iop	arm	wop	open-record-outside-pattern	cwi	iop	iop
+rx16	member	readable more, claim more	result, unmatched	? leaf List
+rx16	principle	Overwrite of `? leaf List` (Q1): Some([..]) uor (Q1 with P5: its presence unknown); Some(G { .. }) and [G { a: x, .. }, ..] open-record-outside-pattern (S5.0g:R4, kind answers before pairing, standing under a path); Some(_) wop (P4); the braces iop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rx17	-	br	iop	arm	wop	uor	br	iop	iop
+rx17	?	br	iop	arm	wop	owp	br	iop	iop
+rx17	*	br	iop	arm	wop	cwi	br	iop	iop
+rx17	member	readable more, claim more	result, unmatched	? group G
+rx17	principle	Overwrite of `? group G` (Q1): Some(G { .. }) uor (Q1, P5: pairing meets the unknown presence before the record's own S5.0:F3); Some(_) wop (P4); Some([..]) and [G { a: x, .. }, ..] br (P3b); the braces iop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rx18	-	rm	ils	arm	wop	pop	pop	ils	ils
+rx18	?	owp	ils	arm	wop	pop	pop	ils	ils
+rx18	*	cwi	ils	arm	wop	pop	pop	ils	ils
+rx18	member	readable more, claim more	result, unmatched	* List of G
+rx18	principle	Overwrite of a List collection of G (Q1): [G { a: x, .. }, ..] rm (P6: a root `..` the subject never wrote); { x, .. } and the instance sets ils (P3b); Some(_) wop (P4); Some(G { .. }) and Some([..]) pop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+rx19	-	ils	ils	arm	wop	pop	pop	sort	rm
+rx19	?	ils	ils	arm	wop	pop	pop	owp	owp
+rx19	*	ils	ils	arm	wop	pop	pop	cwi	cwi
+rx19	member	readable more, claim more	result, unmatched	* Set of G
+rx19	member	readable more, claim more	result, unmatched	* Map of G
+rx19	principle	Overwrite of a Set or Map collection of G (Q1): { G { a: x, b: y } } sort (Q1's exact overwrite of the collection: one created instance naming every field, its key a included, S5.0g:key); { G { b: x, .. }, .. } rm (P6: a root `..` the subject never wrote, before the key); [G { a: x, .. }, ..] ils (S5.0g:P-R4) and { x, .. } ils (Q2); Some(_) wop (P4); Some(G { .. }) and Some([..]) pop (P3b); map![y -> x, ..] arm (the form step). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+#
+## cells more
+pattern	line	k::configuration::Cell([.., x])	k::configuration::KCell(.., x)	k::configuration::Cell(_)
+cx01	-	cw	sort	cw
+cx01	?	cw	owp	cw
+cx01	*	cw	cwi	cw
+cx01	member	cells more	subject	computation
+cx01	member	cells more	subject, written	computation
+cx01	principle	cells! subject on the computation, either side: KCell(.., x) sort by the principles (P3a: the computation's wrapper, its rest before an item; E1, the computation read from its front, is the readable form's stated exception in the table, and no generated cells! case shows what the compiler does with it); Cell([.., x]) and Cell(_) cw (P3b: a leaf's wrapper). Paths: S5.0g:R3.
+cx02	-	br	cw	ok+no-effect-entry
+cx02	?	br	cw	owp
+cx02	*	br	cw	cwi
+cx02	member	cells more	subject	leaf Int
+cx02	member	cells more	subject	leaf Map
+cx02	member	cells more	subject	leaf Set
+cx02	principle	cells! subject on a plain Int, Map or Set leaf, the result leaving it: Cell(_) ok+no-effect-entry (Q1's lint across forms: it matches every content and binds nothing, as readable `_`, P7); Cell([.., x]) br (P3b inside the wrapper); KCell(.., x) cw (design:R6). Paths: S5.0g:R3.
+cx03	-	sort	cw	ok+no-effect-entry
+cx03	?	owp	cw	owp
+cx03	*	cwi	cw	cwi
+cx03	member	cells more	subject	leaf List
+cx03	principle	cells! subject on a List leaf, the result leaving it: Cell([.., x]) sort (P3a, P6: the builtin List matched at either end); Cell(_) ok+no-effect-entry (Q1); KCell(.., x) cw (design:R6). Paths: S5.0g:R3.
+cx04	-	cons-list-back-item	cw	ok+no-effect-entry
+cx04	?	cons-list-back-item	cw	owp
+cx04	*	cons-list-back-item	cw	cwi
+cx04	member	cells more	subject	leaf Cons
+cx04	principle	cells! subject on a cons leaf, the result leaving it: Cell([.., x]) cons-list-back-item (S5.0g:P-R1: a cons list's back lowers to no K, in cells! as in readable, P7; inside the wrapper's mark, it stands under a path); Cell(_) ok+no-effect-entry (Q1); KCell(.., x) cw (design:R6). Paths: S5.0g:R3.
+cx05	-	cw	cw	cw
+cx05	?	cw	cw	cw
+cx05	*	cw	cw	cw
+cx05	member	cells more	subject	group G
+cx05	member	cells more	subject	? group G
+cx05	member	cells more	subject	* List of G
+cx05	member	cells more	subject	* Set of G
+cx05	member	cells more	subject	* Map of G
+cx05	member	cells more	subject, written	group G
+cx05	member	cells more	subject, written	? group G
+cx05	member	cells more	subject, written	* List of G
+cx05	member	cells more	subject, written	* Set of G
+cx05	member	cells more	subject, written	* Map of G
+cx05	principle	cells! subject on a group, a `?` group or a collection, either side: Cell([.., x]), KCell(.., x) and Cell(_) cw (P3b, design:R6: no layer of these stacks has a leaf's or the computation's wrapper). Paths: S5.0g:R3.
+cx06	-	br	cw	owp
+cx06	?	br	cw	owp
+cx06	*	br	cw	owp
+cx06	member	cells more	subject	? leaf Int
+cx06	member	cells more	subject	? leaf Map
+cx06	member	cells more	subject, written	? leaf Int
+cx06	member	cells more	subject, written	? leaf Map
+cx06	principle	cells! subject on `? leaf Int` or `? leaf Map`, either side: Cell(_) owp (P3c: the leaf's wrapper under `?`, its inside passing); Cell([.., x]) br (S5.0g:P-R5: refused again inside the wrapper); KCell(.., x) cw (design:R6). Paths: S5.0g:R3.
+cx07	-	owp	cw	owp
+cx07	?	owp	cw	owp
+cx07	*	owp	cw	owp
+cx07	member	cells more	subject	? leaf List
+cx07	member	cells more	subject, written	? leaf List
+cx07	principle	cells! subject on `? leaf List`, either side: Cell([.., x]) and Cell(_) owp (P3c, the inside passing against the List leaf); KCell(.., x) cw (design:R6). Paths: S5.0g:R3.
+cx08	-	br	cw	ok
+cx08	?	br	cw	owp
+cx08	*	br	cw	cwi
+cx08	member	cells more	subject, written	leaf Int
+cx08	member	cells more	subject, written	leaf Map
+cx08	member	cells more	subject, written	leaf Set
+cx08	principle	cells! subject on a plain Int, Map or Set leaf, the result writing it: Cell(_) ok without the lint (Q1: the result writes the cell); Cell([.., x]) br (P3b inside); KCell(.., x) cw (design:R6). Paths: S5.0g:R3.
+cx09	-	sort	cw	ok
+cx09	?	owp	cw	owp
+cx09	*	cwi	cw	cwi
+cx09	member	cells more	subject, written	leaf List
+cx09	principle	cells! subject on a List leaf, the result writing it: Cell([.., x]) sort (P3a, P6); Cell(_) ok without the lint (Q1); KCell(.., x) cw (design:R6). Paths: S5.0g:R3.
+cx10	-	cons-list-back-item	cw	ok
+cx10	?	cons-list-back-item	cw	owp
+cx10	*	cons-list-back-item	cw	cwi
+cx10	member	cells more	subject, written	leaf Cons
+cx10	principle	cells! subject on a cons leaf, the result writing it: Cell([.., x]) cons-list-back-item (S5.0g:P-R1, standing under a path); Cell(_) ok without the lint (Q1); KCell(.., x) cw (design:R6). Paths: S5.0g:R3.
+cx11	-	cw	sort	wop
+cx11	?	cw	owp	wop
+cx11	*	cw	cwi	wop
+cx11	member	cells more	result, matched	computation
+cx11	principle	cells! result over the computation matched by `KCell(y, ..)`: KCell(.., x) sort by the principles (P3a: the computation's wrapper, its rest before an item kept, P6; E1, the computation read from its front, is the readable form's stated exception in the table, and no generated cells! case shows what the compiler does with it); Cell([.., x]) cw (P3b); Cell(_) wop (P4: `_` in a result, before the kind). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+cx12	-	br	cw	wop
+cx12	?	br	cw	wop
+cx12	*	br	cw	wop
+cx12	member	cells more	result, matched	leaf Int
+cx12	member	cells more	result, matched	leaf Map
+cx12	member	cells more	result, matched	leaf Set
+cx12	member	cells more	result, matched	? leaf Int
+cx12	member	cells more	result, matched	? leaf Map
+cx12	member	cells more	result, unmatched	leaf Int
+cx12	member	cells more	result, unmatched	leaf Map
+cx12	member	cells more	result, unmatched	leaf Set
+cx12	member	cells more	result, unmatched	? leaf Int
+cx12	member	cells more	result, unmatched	? leaf Map
+cx12	principle	cells! result over a plain Int, Map or Set leaf or `? leaf Int` or `? leaf Map`, matched or not: Cell([.., x]) br (P3b inside the wrapper; under `?`, S5.0g:P-R5); KCell(.., x) cw (design:R6); Cell(_) wop (P4). Paths: S5.0g:R3.
+cx13	-	sort	cw	wop
+cx13	?	owp	cw	wop
+cx13	*	cwi	cw	wop
+cx13	member	cells more	result, matched	leaf List
+cx13	principle	cells! result over a List leaf matched by `Cell([y, ..])`: Cell([.., x]) sort (P6: it keeps the rest, the builtin List matched at either end); KCell(.., x) cw (design:R6); Cell(_) wop (P4). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+cx14	-	cons-list-back-item	cw	wop
+cx14	?	cons-list-back-item	cw	wop
+cx14	*	cons-list-back-item	cw	wop
+cx14	member	cells more	result, matched	leaf Cons
+cx14	member	cells more	result, unmatched	leaf Cons
+cx14	principle	cells! result over a cons leaf, matched or not: Cell([.., x]) cons-list-back-item (S5.0g:P-R1: a kind refusal inside the mark, before pairing, standing under a path); KCell(.., x) cw (design:R6); Cell(_) wop (P4). Paths: S5.0g:R3.
+cx15	-	cw	cw	wop
+cx15	?	cw	cw	wop
+cx15	*	cw	cw	wop
+cx15	member	cells more	result, matched	group G
+cx15	member	cells more	result, matched	? group G
+cx15	member	cells more	result, matched	* List of G
+cx15	member	cells more	result, matched	* Set of G
+cx15	member	cells more	result, matched	* Map of G
+cx15	member	cells more	result, unmatched	group G
+cx15	member	cells more	result, unmatched	? group G
+cx15	member	cells more	result, unmatched	* List of G
+cx15	member	cells more	result, unmatched	* Set of G
+cx15	member	cells more	result, unmatched	* Map of G
+cx15	principle	cells! result over a group, a `?` group or a collection, matched or not: Cell([.., x]) and KCell(.., x) cw (P3b, design:R6); Cell(_) wop (P4: the form step, before the kind). Paths: S5.0g:R3.
+cx16	-	owp	cw	wop
+cx16	?	owp	cw	wop
+cx16	*	owp	cw	wop
+cx16	member	cells more	result, matched	? leaf List
+cx16	member	cells more	result, unmatched	? leaf List
+cx16	principle	cells! result over `? leaf List`, matched or not: Cell([.., x]) owp (P3c: the List leaf's wrapper under `?`, its inside passing); KCell(.., x) cw (design:R6); Cell(_) wop (P4). Paths: S5.0g:R3.
+cx17	-	cw	rm	wop
+cx17	?	cw	owp	wop
+cx17	*	cw	cwi	wop
+cx17	member	cells more	result, unmatched	computation
+cx17	principle	cells! result over the computation the subject does not match (Q1): KCell(.., x) rm (P6: a `..` the subject never wrote); Cell([.., x]) cw (P3b); Cell(_) wop (P4). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+cx18	-	rm	cw	wop
+cx18	?	owp	cw	wop
+cx18	*	cwi	cw	wop
+cx18	member	cells more	result, unmatched	leaf List
+cx18	principle	cells! overwrite of a List leaf (Q1): Cell([.., x]) rm (P6: a `..` the subject never wrote); KCell(.., x) cw (design:R6); Cell(_) wop (P4). Paths: S5.0g:R3 (a pairing refusal is replaced by the ancestor's class).
+#
+## init more
+pattern	line	G { a: 0, ..base }	k::k![Cmd::Go(), ..pgm]	k::map![0 -> 1, ..env]
+ix01	-	cw	sort|product:ir	mna
+ix01	member	init more	init	computation
+ix01	principle	Initializer of the computation: k::k![Cmd::Go(), ..pgm] sort by the principles (P3a: the computation's mark; P5 reads `..pgm` as a base, an update), the product's ir being E3 (a [cell-exception]: an item-sorted variable is an item, `k::k![x, pgm]`); G { a: 0, ..base } cw (P3c: a value on the computation); k::map![0 -> 1, ..env] mna (P3b). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
+ix02	-	sort	cw|product:ir	mna
+ix02	member	init more	init	leaf Int
+ix02	member	init more	init	leaf List
+ix02	member	init more	init	leaf Cons
+ix02	member	init more	init	leaf Set
+ix02	member	init more	init	group G
+ix02	member	init more	init	* List of G
+ix02	member	init more	init	* Set of G
+ix02	member	init more	init	* Map of G
+ix02	principle	Initializer of a plain Int, List, cons or Set leaf, the group G or a collection of G (its template, S5.0g:D-5): G { a: 0, ..base } sort (P5: `..base` updates, so the record names its fields through the base; a term the lattice judges); k::k![Cmd::Go(), ..pgm] cw (design:R6: the computation's mark elsewhere), the product's ir being E3's form-step answer, which shows on every stack; k::map![0 -> 1, ..env] mna (P3b). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
+ix03	-	sort	cw|product:ir	sort
+ix03	member	init more	init	leaf Map
+ix03	principle	Initializer of a Map leaf: k::map![0 -> 1, ..env] sort (P3a; P5: `..env` is a base the literal updates, D2's #8 as the principles keep it); G { a: 0, ..base } sort (P5, the lattice); k::k![Cmd::Go(), ..pgm] cw (design:R6), the product's ir being E3. No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
+ix04	-	owp	cw|product:ir	mna
+ix04	member	init more	init	? leaf Int
+ix04	member	init more	init	? leaf List
+ix04	member	init more	init	? group G
+ix04	principle	Initializer of `? leaf Int`, `? leaf List` or `? group G`: G { a: 0, ..base } owp (P3c: a value under `?`, its inside passing); k::k![Cmd::Go(), ..pgm] cw (design:R6), the product's ir being E3; k::map![0 -> 1, ..env] mna (P3b: no Map layer). No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
+ix05	-	owp	cw|product:ir	owp
+ix05	member	init more	init	? leaf Map
+ix05	principle	Initializer of `? leaf Map`: k::map![0 -> 1, ..env] and G { a: 0, ..base } owp (P3c: values and the Map mark under `?`, their inside passing); k::k![Cmd::Go(), ..pgm] cw (design:R6), the product's ir being E3. No path rows: an initializer, a struct literal of the configuration, names no cell by a path.
 #
 ## children
 pattern	line	readable	claim	cells
@@ -465,8 +869,10 @@ ch01	member	? group H	None	Some(H { l: [x, ..], b: 0 })
 ch01	member	* List of T	[me @ T { k: [y, ..], .. }, ..]	[T { k: [x], ..me }, ..]
 ch01	member	* List of T	[..]	[T { k: [x, ..], n: 0 }, ..]
 ch01	member	* Map of A	{ me @ A { id: z, l: [y, ..] }, .. }	{ A { l: [x], ..me }, .. }
+ch01	member	* List of T	[..]	[T { k: [x, ..], ..me }, ..]
 ch01	member	* Map of A	{ .. }	{ A { l: [x, ..], ..me }, .. }
-ch01	principle	rm in every form (P1 x P6, D-1; P7): each record child's content root is paired with its own other side. `l: [x]` and `k: [x]` drop the `..` of the child the subject matched (the group's, inside `Some`, and an updated instance's same child through `..me`, R10); `l: [x, ..]` and `k: [x, ..]` write a `..` no subject wrote, where the subject's record does not name the child, the group is overwritten, `Some` over `None` creates it, the instance is created, or `..me` names no subject instance (R1: unmatched). A matched computation child's dropped rest is rm, as rc20's [x]; Q3's cir is only for an overwrite.
+ch01	member	? leaf List	None	Some([x, ..])
+ch01	principle	rm in every form (P6 at each content root, S5.0g:D-1: a group or instance record's children are entries of their own cells): a child's result drops its other side's rest, or writes a `..` its other side never wrote. The other side is the subject record's same child, an unmatched child where the subject does not name it (Q1's overwrite), the labelled subject instance's same child in an update `..me` (design:rev4-R10), and none to keep for a created instance's child, a `?` cell created over `None` (P5), or an update of a value matched elsewhere, which creates its instance (S5.0g:P-R3: `me` is bound).
 ch02	answers	sort	sort	sort
 ch02	member	group H	H { l: [y, ..], .. }	H { l: [x, ..], b: 0 }
 ch02	member	group H	H { b: y, .. }	H { l: [x], b: 0 }
@@ -483,29 +889,38 @@ ch02	member	* Map of A	{ .. }	{ A { id: 5, .. }, .. }
 ch02	member	* List of T	[..]	[T { n: 0, .. }, ..]
 ch02	member	group W	-	W { g: G { a: x, b: y }, n: 0 }
 ch02	member	group W	-	W { g: G { a: x, b: y, .. }, n: 0 }
+ch02	member	* List of T	[..]	[T { k: [x], ..me }, ..]
 ch02	member	* Map of A	{ me @ A { id: 5, .. }, .. }	{ A { id: 5, ..me }, .. }
-ch02	principle	Admitted in every form, each child at its own root (P1 x P6): a `..` that keeps the matched child's rest (`l: [x, ..]`, `k: [x, ..]` through `..me`); Q1's overwrite of a child the subject does not name, or of an overwritten group's child, exact (`l: [x]`); a child `..me` keeps (`T { n: 0, ..me }`); a created instance's exact child (`k: [x]`, R10) or template fields (a bare `..`, P6); a Map instance that writes its key at creation (ruling 3) or writes it as the matched key binder or the same literal in an update (rulings 2 and R9); a complete or vacuous group child (`g: G { a: x, b: y }`, the R4 ruling).
+ch02	member	? group G	None	Some(G { a: x, .. })
+ch02	principle	sort in every form (P1, P6): each child's rest pairs with its own other side, and each value to the lattice. An exact child over a framed one or none; a created instance's exact child or bare `..` (template fields, P6); an update `..me` of a shown instance keeping or naming its key as the subject's binder or literal (S5.0g:D-2, S5.0g:R9); an update whose label the subject does not show, of a value matched elsewhere, which creates its instance (S5.0g:P-R3); a vacuous `..` (S5.0g:R4); a `?` cell created over `None` taking its template's fields for a bare `..` (S5.0g:P-R13).
 ch03	answers	map-collection-key	map-collection-key	map-collection-key
 ch03	member	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { id: 5, ..me }, .. }
 ch03	member	* Map of A	{ me @ A { l: [y, ..], .. }, .. }	{ A { id: 5, ..me }, .. }
 ch03	member	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { id: y, ..me }, .. }
 ch03	member	* Map of A	{ .. }	{ A { l: [x], .. }, .. }
 ch03	member	* Map of A	{ me @ A { id: 5, .. }, .. }	{ A { id: 6, ..me }, .. }
-ch03	principle	map-collection-key in every form: an update (`..me`) that writes the key as anything but provably the key it matched (`id: 5` or `id: y` over `id: z`, `id: 6` over the literal 5, any key where me's record does not name `id`: rulings 2 and R9, P0), and a created instance that does not write its key, whose bare `..` takes template fields that state no identity (ruling 3, P5).
+ch03	principle	map-collection-key in every form: a Map collection's instance keeps its key, its first child (S5.0g:D-2): an update of a shown instance writing it as anything but its subject's key binder or the same literal (S5.0g:R9), or a key the labelled instance does not name, is a key change (P0); a created instance must write it (S5.0g:key).
 ch04	answers	cir	cir	sort
 ch04	member	group C	-	C { c: [x], n: 0 }
-ch04	member	* List of T	[..]	[T { k: [x], ..me }, ..]
-ch04	principle	cir in readable and claim, sort in cells!: an overwritten group's computation child `C { c: [x], n: 0 }`, and `T { k: [x], ..me }` whose `..me` names no subject instance (R1: unmatched, not created): the readable overwrite of a computation drops its continuation (Q3); cells! writes the exact computation, admitted (Q3 binds readable only).
+ch04	principle	An overwritten group's computation child (S5.0g:D-1, Q1): readable and claim cir (Q3: a readable rule never drops the continuation it did not match); cells! sort (the exact new computation; cells! may drop it, P7).
 ch05	answers	uor	uor	uor
 ch05	member	group O	-	O { o: Some(1), n: 0 }
 ch05	member	group O	-	O { o: None, n: 0 }
-ch05	principle	uor in every form: the `?` child of an overwritten group is unmatched (R1), so its presence is unknown (Q1 x P5), whether written `Some(1)` or `None`.
+ch05	principle	uor in every form: an overwritten group's `?` child, written Some(..) or None, has a presence the rule does not know (Q1 with P5).
 ch06	answers	open-record-outside-pattern	open-record-outside-pattern	open-record-outside-pattern
 ch06	member	group W	-	W { g: G { a: x, .. }, n: 0 }
-ch06	principle	open-record-outside-pattern in every form: the group child g of an overwritten W exists, so its bare `..` is Rust's defaults, which only a created instance has (F3, ruling 1, P6), and it leaves b open (the R4 ruling).
-ch07	answers	cir	cir	rm
-ch07	member	* List of T	[..]	[T { k: [x, ..], ..me }, ..]
-ch07	principle	cir in readable and claim, rm in cells!: `T { k: [x, ..], ..me }` whose `..me` names no subject instance, so k is unmatched (R1): readable and claim refuse the overwrite of a computation (Q3); cells! refuses the `..` no subject wrote (P6).
+ch06	principle	open-record-outside-pattern in every form: an overwritten group's group child exists, so its bare `..` is Rust's defaults, which only a created instance has (S5.0:F3, S5.0g:D-1).
+ch07	answers	rmc	rmc	rmc
+ch07	member	? group G	None	Some(G { a: x })
+ch07	principle	record-missing-children in every form: a `?` cell created over `None` is written by its record, which names every child or writes `..` (L4, S5.0g:D-4), whatever its creation.
+#
+## children, base matched nowhere
+pattern	line	readable	claim	cells
+cn01	answers	record-update-base	record-update-base	record-update-base
+cn01	member	* List of T	[..]	[T { k: [x], ..me }, ..]
+cn01	member	* List of T	[..]	[T { k: [x, ..], ..me }, ..]
+cn01	member	* Map of A	{ .. }	{ A { l: [x, ..], ..me }, .. }
+cn01	principle	record-update-base in every form (S5.0g:P-R3, P0): an update `..me` whose label names no instance the subject matches, with nothing else in the sentence binding `me`, has no base: it is no in-place rewrite, since K rewrites in place only an instance the left side matched, and no value builds a new instance.
 #
 ## children, init
 pattern	line	init
@@ -514,10 +929,19 @@ ci01	member	* Map of Q	Q { id: 0, js: J { p: 0 } }
 ci01	member	* Map of Q	Q { id: 0, js: 0 }
 ci01	member	group P	P { js: J { p: 0 } }
 ci01	member	group P	P { js: 0 }
-ci01	principle	Admitted (P5 at every depth, D-5): a collection child of a template is valued by one instance's template (`js: J { p: 0 }`), or by a value whose sort the lattice judges (`js: 0`), in a Map collection's template and in a plain group alike.
+ci01	member	group O	O { o: k::absent!(0), n: 0 }
+ci01	member	group O	O { o: Some(0), n: 0 }
+ci01	member	* Map of A	A { id: 0, l: [0] }
+ci01	principle	sort: a template record naming every field (P5, P6), its collection child valued by that collection's own template (S5.0g:D-5), its `?` child by `Some(..)` or `k::absent!(..)` (P2's initializer presence marks), a Map collection's template naming its key; each value to the lattice.
 ci02	answer	br
 ci02	member	* Map of Q	Q { id: 0, js: [J { p: 0 }] }
-ci02	principle	br: brackets on a template's collection child, whose value is the instance group, with no List layer (P5, P3b), as an initializer's [0] on a collection (i05).
+ci02	principle	bracket-reading: brackets on a template's collection child, whose instance layer is not written (P5, S5.0g:D-5), as at the top (P3b).
 ci03	answer	pop
 ci03	member	group P	P { js: Some(J { p: 0 }) }
-ci03	principle	pop: `Some` on a template's collection child, which has no `?` (P3b).
+ci03	principle	presence-on-plain-cell: a template's collection child has no `?` layer (P3b).
+ci04	answer	owp
+ci04	member	group O	O { o: 0, n: 0 }
+ci04	principle	optional-without-presence: a template's `?` child valued without `Some(..)` or `k::absent!(..)` (P3c).
+ci05	answer	rmc
+ci05	member	* Map of A	A { l: [0] }
+ci05	principle	record-missing-children: a Map collection's template is a record of its group, which names every field, its key included (L4, P5, P6).

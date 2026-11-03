@@ -160,6 +160,10 @@ pub struct MistakeClass {
     /// (K8, [`super::advice`]), each an ID or a template over [`FORM`]; empty for
     /// `advice = "none"`, a refusal that advises no rewrite.
     pub advice: Vec<String>,
+    /// The spellings a cell-entry class's doc names, as machine-read examples (`examples`): each
+    /// `FORM ; SIDE ; PATH ; STACK ; ENTRY ; OTHER`, which the cells oracle's test judges by
+    /// `outcome` (`tests/cells_oracle.rs`); empty for a class with none.
+    pub examples: Vec<String>,
 }
 
 /// The placeholder of a class's advice template for the refused case's form.
@@ -1117,7 +1121,7 @@ fn parse_classes(item: &Item, errors: &mut Vec<TableError>) -> BTreeMap<String, 
             class,
             &owner,
             &["code", "doc", "advice"],
-            &["proposed"],
+            &["proposed", "examples"],
             errors,
         );
         let proposed = match fields.get("proposed").map(|item| item.as_bool()) {
@@ -1135,6 +1139,7 @@ fn parse_classes(item: &Item, errors: &mut Vec<TableError>) -> BTreeMap<String, 
                 doc: string(fields.get("doc"), &owner, "doc", errors),
                 proposed,
                 advice: advice(fields.get("advice"), &owner, errors),
+                examples: strings(fields.get("examples"), &owner, "examples", errors),
             },
         );
     }
