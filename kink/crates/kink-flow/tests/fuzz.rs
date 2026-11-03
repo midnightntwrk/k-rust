@@ -1729,6 +1729,7 @@ endmodule
                     start_sort: None,
                     variables: Vec::new(),
                     inputs: toml::Table::new(),
+                    case: None,
                 };
                 confirm_program(
                     &manifest,

@@ -53,6 +53,7 @@ fn a_minimal_manifest_takes_every_default() {
             start_sort: None,
             variables: vec![],
             inputs: toml::Table::new(),
+            case: None,
         }]
     );
     let empty = decode(SPEC).unwrap();
@@ -127,6 +128,7 @@ text = "1 + 2"
                 start_sort: Some("Stmt".into()),
                 variables: vec![("A".into(), "true".into()), ("Z".into(), "3".into())],
                 inputs: toml::Table::new(),
+                case: None,
             },
             Program {
                 id: "inline".into(),
@@ -134,6 +136,7 @@ text = "1 + 2"
                 start_sort: None,
                 variables: vec![],
                 inputs: toml::Table::new(),
+                case: None,
             },
         ]
     );
@@ -236,6 +239,7 @@ fn a_program_without_file_or_text_is_a_program_less_case() {
             start_sort: None,
             variables: vec![("ENTRY".into(), "run".into())],
             inputs: toml::Table::new(),
+            case: None,
         }]
     );
     assert_error(

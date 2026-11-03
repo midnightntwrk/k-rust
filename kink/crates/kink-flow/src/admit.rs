@@ -110,6 +110,11 @@ pub trait InputFiles {
 /// and the file it resolves to must lie inside the canonical manifest directory `root`.
 struct ManifestFiles<'a> {
     root: &'a Path,
+    /// The case document the inputs were written in (`Program::case`, its path as matched),
+    /// whose directory as written a path named by no other file is relative to, as `krs run
+    /// --case` reads it; `None`: the manifest's directory. A path named from another file is
+    /// relative to that file's name, links resolved.
+    document: Option<&'a str>,
 }
 
 impl InputFiles for ManifestFiles<'_> {
@@ -120,6 +125,7 @@ impl InputFiles for ManifestFiles<'_> {
             ));
         }
         let base = from
+            .or(self.document)
             .and_then(|from| Path::new(from).parent())
             .unwrap_or_else(|| Path::new(""));
         let written = base.join(path);
@@ -431,7 +437,10 @@ fn read_inputs(
         reason: "input-value".into(),
         detail,
     };
-    let mut files = ManifestFiles { root: &root };
+    let mut files = ManifestFiles {
+        root: &root,
+        document: program.case.as_deref(),
+    };
     // By K name, with the input name each came from.
     let mut typed = BTreeMap::<String, (String, Term)>::new();
     for (name, document) in &program.inputs {

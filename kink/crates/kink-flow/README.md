@@ -77,7 +77,7 @@ kink-flow refuses a KRS corpus (``spec.krs: a KRS corpus: run `krs kink <command
 
 Every path is relative to the manifest's directory and must stay inside it.
 Unknown keys, values of the wrong type, duplicate or empty program ids,
-a program with both `file` and `text`, and a `start_sort` on a program with neither are errors that name the key or the program id.
+a program with both `file` and `text`, a `start_sort` on a program with neither, and a pattern that is invalid or matches nothing are errors that name the key or the program id.
 
 A program is a case: an assignment of a value to each configuration variable of the definition.
 `file` or `text` is the program text bound to `$PGM`; every other variable is bound by name.
@@ -94,6 +94,41 @@ A document the decoder refuses, or a variable bound twice (by both `variables` a
 A file a document names is read as a program file is: its path is relative to the manifest's directory (or, for a file a decoder reads from another, to that file's directory), resolved by the operating system, links included, and an absolute path or one that resolves outside the manifest's directory is refused.
 `fuzz` refuses a template of a program with typed inputs: it varies and replays K text only.
 
+### Programs from a pattern
+
+A `[[program]]` entry may name a pattern of case files instead of one program, so that a corpus of many cases needs no generated manifest:
+
+```toml
+[[program]]
+files = "programs/**/*.imp"   # each match is a program text, as `file = "<match>"`
+start_sort = "Pgm"            # optional; the entry's start_sort, variables and inputs are every match's
+variables = { IN = "3" }
+
+[[program]]
+cases = "cases/*/case.toml"   # each match is a case document, the whole case
+```
+
+Each match is a program whose id is its path relative to the manifest's directory, as matched (`programs/sum.imp`, `cases/boot/case.toml`).
+Adding a matching file adds a program and removing it removes it, without editing the manifest; the id depends only on where the case is, never on the host, the corpus's absolute path or the pattern that matched it, and every document reports it as a listed program's id.
+The entry is replaced in place by its matches, sorted by id, so the program order, and every document, never depends on the order the file system lists a directory in.
+A pattern entry takes no `id`; an id that a listed program or another entry's match also gives is an error (`duplicate program id`, naming both entries).
+
+A pattern is components separated by `/`: a literal name; a glob of literal characters, `*` (any run of characters) and `?` (one character); or exactly `**` (zero or more directories; a trailing `**` matches every file below).
+It is relative to the manifest's directory; `.` and `..` components, empty components, `\`, and `[`, `]`, `{`, `}` (no classes, alternatives or escapes) are refused.
+A `files` pattern has at least one wildcard (one program text is `file`); a `cases` pattern may name one case document by its path, since no other key names one.
+A wildcard never matches a name that starts with `.` (the cache directory `.kink-flow/`, editor and version-control files): `**` never enters one, and a glob matches one only by its own literal first `.` (`.cases*`), as a literal component may name one;
+`**` descends into real directories only, never through a link, while literal and glob components follow links.
+A match is a regular file, links followed, or a link that does not resolve, which is refused when it is read, so a case never disappears silently; a directory is no match, and a named pipe, socket or device the pattern matches is an error, since reading one can block for good.
+A name that is not UTF-8 is an error when the pattern matches a path through it, since no id can name that match, and is ignored otherwise.
+A pattern that matches nothing is an error, not an empty corpus: a typo or a run in the wrong directory would otherwise judge every mutation by no program.
+
+`files` takes `start_sort`, `variables` and `inputs` beside it (`file` and `text` are the matches').
+`cases` takes no other key: a match is a case document, the case's typed inputs under `[inputs]` by input name and no other top-level key, the document `krs run --case` reads, so the document is the whole case in every tool.
+A value many cases share is written once in a file the documents include, through the encoding.
+The paths a case document's inputs name are relative to the document's directory as matched, not that of the file a link leads to, which is the directory `krs run --case` resolves them against for the same path; the document itself is read when the manifest is, inside the manifest's directory by the rule a program file is read by, and a document that cannot be read, is no TOML, has another key or has an `inputs` that is not a table is a manifest error naming its program.
+The last component of a `cases` pattern must end in `.toml`: kink hands typed inputs to the front end's decoder as TOML values, so it reads case documents in TOML only.
+At the K level, which has no decoder, each case with inputs is refused as a listed program with `inputs` is (`inputs`/`typed-inputs`).
+
 Defaults:
 
 | Key | Default | Note |
@@ -109,6 +144,7 @@ Defaults:
 | `program.start_sort` | the sort of `$PGM` | |
 | `program.variables` | none | Every configuration variable other than `$PGM` must be given, here or under `inputs`; streams default to empty (`$IO` to `"off"`, `$STDIN` to `""`). A variable's text is read with the rule every tool reads it with (k-rust `variable_reading_modules`): with the syntax module's grammar first wherever that module has the variable's sort, then with the main module's, so one text denotes one term in kink, krs-exec, krun's `-c` and a `fuzz` campaign. On a definition with stream cells a program may not bind `$IO` (refused at `inputs`, reason `stream-mode`): with IO off the stream cells hold the text printed and the input not yet read, so a final configuration states the program's output. |
 | `program.inputs` | none | Typed inputs, read only by a front end's decoder (above). |
+| `program.files`, `program.cases` | none | A pattern of program texts or of case documents (above, "Programs from a pattern"); at most one, in place of `id`. |
 | `result.cells` | absent | The cells the programs' second slot compares, by K name (below, "Which cells are compared"); a nonempty array of distinct nonempty names. Absent: every cell the specification does not declare `unobservable`. In the specification digest when present. |
 
 ### Which cells are compared

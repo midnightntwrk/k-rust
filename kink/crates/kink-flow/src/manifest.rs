@@ -5,6 +5,18 @@
 //! leaves the manifest's directory is an error naming the key or the program id, so that a typo
 //! is never silently ignored.
 //!
+//! A `[[program]]` entry may name a pattern of case files instead of one program: `files` (each
+//! match is a program text, as `file`, with the entry's other keys shared) or `cases` (each match
+//! is a case document, `[inputs]` by input name, the whole case). Each match is a program whose
+//! id is its path relative to the manifest's directory, as matched (`programs/sum.imp`), so a
+//! case is added or removed by adding or removing its file, and its id is the same on every run
+//! and host. The entry is replaced in place by its matches, sorted by id, so the program order is
+//! a function of the ids, never of the order the file system lists a directory in. A pattern that
+//! matches nothing is an error, not an empty corpus; an id that a listed program or another
+//! match also gives is an error (`duplicate program id`). The case documents are read here,
+//! inside the manifest's directory by the program-file rule, so the decoded programs are the
+//! whole corpus for both front ends.
+//!
 //! One schema serves both front ends. `[spec]` declares the specification in one of two ways
 //! ([`SpecDecl`]): a K specification (`entry`, `main_module`, ...), which kink-flow loads as
 //! written, or a KRS package's emitted K (`krs = { definition = "main" }`), which the krs front
@@ -12,10 +24,13 @@
 //! before that binding; [`ManifestFile::bind`] gives the [`FlowManifest`] every command runs on,
 //! so every other key decodes once, for both front ends.
 
+mod case_pattern;
+
 use crate::admit::InputDecoder;
+use case_pattern::CasePattern;
 use kink_corpus::ProgramSource;
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     fmt, fs,
     path::{Component, Path, PathBuf},
     sync::Arc,
@@ -178,6 +193,13 @@ pub struct Program {
     /// as written; kink-flow never reads them itself. Only a front end's [`InputDecoder`] reads
     /// them (`FlowManifest::input_decoder`); without one admission refuses the program.
     pub inputs: Table,
+    /// The case document a `cases` pattern matched, which gave `inputs`: its path relative to the
+    /// manifest's directory as matched (the program's id). The paths its inputs name are relative
+    /// to the directory of that path as written, not of the file a link leads to, which is the
+    /// directory `krs run --case` resolves them against, so a case document reached through a
+    /// link is the same case in every tool. `None` for every other program, whose inputs' paths
+    /// are relative to the manifest's directory.
+    pub case: Option<String>,
 }
 
 /// A manifest that cannot be read or decoded. `key` names the offending key (for example
@@ -274,22 +296,26 @@ impl ManifestFile {
             Some(value) => budget(value)?,
         };
         let result = top.get("result").map(result).transpose()?;
-        let programs = match top.get("program") {
-            None => Vec::new(),
-            Some(Value::Array(entries)) => entries
-                .iter()
-                .enumerate()
-                .map(|(index, entry)| program(index, entry))
-                .collect::<Result<Vec<_>, _>>()?,
+        let no_entries = Vec::new();
+        let entries = match top.get("program") {
+            None => &no_entries,
+            Some(Value::Array(entries)) => entries,
             Some(_) => return Err(ManifestError::new("program", "expected [[program]] tables")),
         };
-        let mut ids = BTreeSet::new();
-        for program in &programs {
-            if !ids.insert(program.id.as_str()) {
-                return Err(ManifestError::new(
-                    program_key(&program.id),
-                    "duplicate program id",
-                ));
+        let mut programs = Vec::new();
+        // The entry each id came from (`program[0]`, `program[2].files`), for a duplicate's error.
+        let mut origins = BTreeMap::<String, String>::new();
+        for (index, entry) in entries.iter().enumerate() {
+            for (program, origin) in program_entry(index, entry, directory)? {
+                if let Some(first) = origins.get(&program.id) {
+                    return Err(ManifestError::new(
+                        program_key(&program.id),
+                        // Two entries: the matches of one entry are distinct paths.
+                        format!("duplicate program id: {first} and {origin} both give it"),
+                    ));
+                }
+                origins.insert(program.id.clone(), origin);
+                programs.push(program);
             }
         }
         Ok(Self {
@@ -619,10 +645,204 @@ fn result(value: &Value) -> Result<ResultSection, ManifestError> {
     Ok(ResultSection { cells })
 }
 
-fn program(index: usize, value: &Value) -> Result<Program, ManifestError> {
+/// One `[[program]]` entry: a listed program, or the matches of its `files` or `cases` pattern
+/// under `directory` in the order of their ids, each with the entry it came from.
+fn program_entry(
+    index: usize,
+    value: &Value,
+    directory: &Path,
+) -> Result<Vec<(Program, String)>, ManifestError> {
     let position = format!("program[{index}]");
     let entry = table(value, &position)?;
-    let id = required_string(entry, &position, "id")?;
+    match (entry.get("files"), entry.get("cases")) {
+        (None, None) => Ok(vec![(program(&position, entry)?, position)]),
+        (Some(_), Some(_)) => Err(ManifestError::new(
+            position,
+            "has both files and cases; give one",
+        )),
+        (Some(pattern), None) => files_entry(&position, entry, pattern, directory),
+        (None, Some(pattern)) => cases_entry(&position, entry, pattern, directory),
+    }
+}
+
+/// A pattern entry takes no `id`: its programs' ids are the paths it matches.
+fn no_id(entry: &Table, position: &str) -> Result<(), ManifestError> {
+    if entry.contains_key("id") {
+        return Err(ManifestError::new(
+            join(position, "id"),
+            "a pattern entry's program ids are the paths it matches; remove id",
+        ));
+    }
+    Ok(())
+}
+
+/// What a pattern's matches are: program texts (`files`) or case documents (`cases`).
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum Matches {
+    Texts,
+    CaseDocuments,
+}
+
+/// The matches of the pattern `value` (the key `key`) under `directory`; none is an error.
+fn pattern_matches(
+    value: &Value,
+    key: &str,
+    directory: &Path,
+    kind: Matches,
+) -> Result<Vec<String>, ManifestError> {
+    let text = string(value, key)?;
+    let pattern = CasePattern::parse(&text).map_err(|message| ManifestError::new(key, message))?;
+    // One program text is `file`; a `cases` entry is the one way to name a case document, so a
+    // `cases` pattern may name exactly one.
+    if kind == Matches::Texts && !pattern.has_wildcard() {
+        return Err(ManifestError::new(
+            key,
+            format!(
+                "pattern {text:?} has no wildcard: name one program text with `file`, or match \
+                 with `*`, `?` or `**`"
+            ),
+        ));
+    }
+    let suffix = (kind == Matches::CaseDocuments).then_some(".toml");
+    if let Some(suffix) = suffix
+        && !pattern.ends_with(suffix)
+    {
+        return Err(ManifestError::new(
+            key,
+            format!(
+                "pattern {text:?}: case documents are TOML, so the pattern's last component must \
+                 end in `{suffix}`"
+            ),
+        ));
+    }
+    let matches = pattern
+        .matches(directory)
+        .map_err(|message| ManifestError::new(key, message))?;
+    if matches.is_empty() {
+        return Err(ManifestError::new(
+            key,
+            format!(
+                "pattern {text:?} matches no file in the manifest's directory; a pattern that \
+                 matches nothing is an error, not an empty corpus"
+            ),
+        ));
+    }
+    Ok(matches)
+}
+
+/// `files = "<pattern>"`: each match is a program text, as `file = "<match>"`, with the entry's
+/// `start_sort`, `variables` and `inputs`.
+fn files_entry(
+    position: &str,
+    entry: &Table,
+    pattern: &Value,
+    directory: &Path,
+) -> Result<Vec<(Program, String)>, ManifestError> {
+    no_id(entry, position)?;
+    if let Some(key) = ["file", "text"]
+        .into_iter()
+        .find(|key| entry.contains_key(*key))
+    {
+        return Err(ManifestError::new(
+            join(position, key),
+            "the matches of `files` are the program texts; give no file or text beside it",
+        ));
+    }
+    known_keys(
+        entry,
+        position,
+        &["files", "start_sort", "variables", "inputs"],
+    )?;
+    let key = join(position, "files");
+    let start_sort = optional_string(entry, position, "start_sort")?;
+    let variables = variables(entry, position)?;
+    let inputs = inputs(entry, position)?;
+    Ok(pattern_matches(pattern, &key, directory, Matches::Texts)?
+        .into_iter()
+        .map(|id| {
+            let program = Program {
+                source: Some(ProgramSource::File(id.clone())),
+                id,
+                start_sort: start_sort.clone(),
+                variables: variables.clone(),
+                inputs: inputs.clone(),
+                case: None,
+            };
+            (program, key.clone())
+        })
+        .collect())
+}
+
+/// `cases = "<pattern>"`: each match is a case document, the whole case.
+fn cases_entry(
+    position: &str,
+    entry: &Table,
+    pattern: &Value,
+    directory: &Path,
+) -> Result<Vec<(Program, String)>, ManifestError> {
+    no_id(entry, position)?;
+    if let Some(key) = entry.keys().find(|key| *key != "cases") {
+        return Err(ManifestError::new(
+            join(position, key),
+            "a case document states its whole case, so an entry with `cases` has no other key \
+             (share a value between cases through a file the documents include)",
+        ));
+    }
+    let key = join(position, "cases");
+    let matches = pattern_matches(pattern, &key, directory, Matches::CaseDocuments)?;
+    let root = fs::canonicalize(directory).map_err(|e| {
+        ManifestError::new(
+            &key,
+            format!("cannot resolve the manifest's directory: {e}"),
+        )
+    })?;
+    matches
+        .into_iter()
+        .map(|id| {
+            let inputs = case_document(&root, &id)?;
+            let program = Program {
+                case: Some(id.clone()),
+                id,
+                source: None,
+                start_sort: None,
+                variables: Vec::new(),
+                inputs,
+            };
+            Ok((program, key.clone()))
+        })
+        .collect()
+}
+
+/// The `inputs` of the case document `id` (a path relative to the canonical manifest directory
+/// `root`), which must resolve, links included, to a file inside `root` (the rule a program file
+/// is read by). A case document has the one top-level key `inputs`, a table of typed inputs by
+/// input name, as in every tool that reads one.
+fn case_document(root: &Path, id: &str) -> Result<Table, ManifestError> {
+    let key = program_key(id);
+    let refused = |message: String| ManifestError::new(&key, message);
+    let resolved = fs::canonicalize(root.join(id))
+        .map_err(|e| refused(format!("cannot read the case document: {e}")))?;
+    if !resolved.starts_with(root) {
+        return Err(refused(
+            "the case document escapes the manifest's directory".to_owned(),
+        ));
+    }
+    let text = fs::read_to_string(&resolved)
+        .map_err(|e| refused(format!("cannot read the case document: {e}")))?;
+    let document: Table = toml::from_str(&text)
+        .map_err(|e| refused(format!("the case document is no TOML document: {e}")))?;
+    if let Some(unknown) = document.keys().find(|key| *key != "inputs") {
+        return Err(ManifestError::new(
+            join(&key, unknown),
+            "unknown key in a case document; a case has the key `inputs`",
+        ));
+    }
+    inputs(&document, &key)
+}
+
+/// A listed program: `id` and its own keys.
+fn program(position: &str, entry: &Table) -> Result<Program, ManifestError> {
+    let id = required_string(entry, position, "id")?;
     let key = program_key(&id);
     known_keys(
         entry,
@@ -655,30 +875,47 @@ fn program(index: usize, value: &Value) -> Result<Program, ManifestError> {
             "start_sort applies to a program text; this program has none",
         ));
     }
-    let inputs = match entry.get("inputs") {
-        None => Table::new(),
+    let inputs = inputs(entry, &key)?;
+    let variables = variables(entry, &key)?;
+    Ok(Program {
+        id,
+        source,
+        start_sort,
+        variables,
+        inputs,
+        case: None,
+    })
+}
+
+/// `inputs` of `entry` (a program's or a case document's, named `key`): a table of typed inputs
+/// by nonempty input name, kept as written.
+fn inputs(entry: &Table, key: &str) -> Result<Table, ManifestError> {
+    match entry.get("inputs") {
+        None => Ok(Table::new()),
         Some(Value::Table(inputs)) => {
             if let Some(name) = inputs.keys().find(|name| name.is_empty()) {
                 return Err(ManifestError::new(
-                    join(&join(&key, "inputs"), name),
+                    join(&join(key, "inputs"), name),
                     "empty input name",
                 ));
             }
-            inputs.clone()
+            Ok(inputs.clone())
         }
-        Some(_) => {
-            return Err(ManifestError::new(
-                join(&key, "inputs"),
-                "expected a table of typed inputs by name",
-            ));
-        }
-    };
-    let variables = match entry.get("variables") {
-        None => Vec::new(),
-        Some(Value::Table(variables)) => variables
+        Some(_) => Err(ManifestError::new(
+            join(key, "inputs"),
+            "expected a table of typed inputs by name",
+        )),
+    }
+}
+
+/// `variables` of a program entry named `key`: K text by variable name, sorted by name.
+fn variables(entry: &Table, key: &str) -> Result<Vec<(String, String)>, ManifestError> {
+    match entry.get("variables") {
+        None => Ok(Vec::new()),
+        Some(Value::Table(variables)) => Ok(variables
             .iter()
             .map(|(name, text)| {
-                let variable_key = join(&join(&key, "variables"), name);
+                let variable_key = join(&join(key, "variables"), name);
                 if name.is_empty() {
                     return Err(ManifestError::new(variable_key, "empty variable name"));
                 }
@@ -689,19 +926,10 @@ fn program(index: usize, value: &Value) -> Result<Program, ManifestError> {
             })
             .collect::<Result<BTreeMap<_, _>, _>>()?
             .into_iter()
-            .collect(),
-        Some(_) => {
-            return Err(ManifestError::new(
-                join(&key, "variables"),
-                "expected a table of strings",
-            ));
-        }
-    };
-    Ok(Program {
-        id,
-        source,
-        start_sort,
-        variables,
-        inputs,
-    })
+            .collect()),
+        Some(_) => Err(ManifestError::new(
+            join(key, "variables"),
+            "expected a table of strings",
+        )),
+    }
 }

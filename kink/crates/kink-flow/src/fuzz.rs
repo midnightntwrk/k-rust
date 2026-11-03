@@ -860,6 +860,7 @@ fn fragment(template: &Template, instance: &Instance, case: &WitnessCase) -> Fra
         start_sort: instance.written_start_sort.clone(),
         variables: variables.clone(),
         inputs: Table::new(),
+        case: None,
     };
     let inputs = CaseInputs {
         text,
@@ -1081,6 +1082,7 @@ fn template_program(template: &Template, instance: &Instance) -> Program {
         start_sort: instance.written_start_sort.clone(),
         variables: instance.variables.clone(),
         inputs: Table::new(),
+        case: None,
     }
 }
 
