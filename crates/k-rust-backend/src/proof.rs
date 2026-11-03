@@ -140,6 +140,9 @@ pub enum ProofStatus {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProofIndeterminateReason {
+    /// The destination's term matched the state's, and whether the state's instances satisfy
+    /// the destination's condition was not decided. The branch ends at that state: the search
+    /// does not step it or apply a circularity to it.
     Implication,
     Rewrite(IndeterminateReason),
     Simplification(SimplificationError),
@@ -582,7 +585,6 @@ pub fn prove_claim(
             record_bottom!(contradicted_total);
         }
 
-        let mut implication_indeterminate = false;
         let mut current_target_refuted = false;
         let mut implication_remainder = None;
         if state.depth >= options.min_depth {
@@ -658,11 +660,43 @@ pub fn prove_claim(
                     implication_remainder = Some(remainder);
                 }
                 Coverage::ConditionRefuted { .. } | Coverage::TermMismatch => {}
-                Coverage::Undecided => implication_indeterminate = true,
+                // The destination's term matched the state's (a mismatch is `TermMismatch`)
+                // and its obligations were neither shown to hold nor refuted on any part of the
+                // state. The branch ends here, at this state.
+                //
+                // The claim is an all-path (or one-path) weak-reachability claim: an instance
+                // satisfies it when it is in the destination, or when it has successors and
+                // every (some) successor satisfies it. An undecided check does not split the
+                // state into the instances in the destination and the rest, so the prover may
+                // either continue with the whole state or stop. Stopping is sound: the leaf is
+                // `Indeterminate`, and `finish` proves a claim only when every leaf is proven or
+                // trusted, so ending a branch here never yields a proof. It hides no
+                // refutation either: no leaf below this state could be certified, because its
+                // trace would carry no complement of this destination
+                // (`ProofState::path_certifiable`).
+                //
+                // Continuing could prove the claim only by showing that every instance,
+                // including those already in the destination here, reaches it again through a
+                // later step or a circularity. That needs a destination that recurs along the
+                // run and is decided at the recurrence, or a circularity that applies after it.
+                // A destination that describes one point of the run is not reached again, and on
+                // a semantics that does not terminate, continuing spends the depth and breadth
+                // budget and reports that bound instead of the state where the check was lost
+                // (`an_undecided_destination_ends_its_branch_although_it_recurs_decided`).
+                Coverage::Undecided => {
+                    record_refined_leaf!(externalise_leaf(
+                        definition,
+                        state,
+                        ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Implication),
+                        options,
+                        solver,
+                    ));
+                    continue;
+                }
             }
         }
 
-        if state.depth < options.min_depth || implication_indeterminate {
+        if state.depth < options.min_depth {
             state.destination_undecided = true;
         }
 
@@ -710,9 +744,6 @@ pub fn prove_claim(
                 }
                 Some(UndecidedStep::Simplification(error)) => {
                     ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Simplification(error))
-                }
-                None if implication_indeterminate => {
-                    ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Implication)
                 }
                 None => {
                     record_stuck_leaf!(state, StuckEvidence::StepNotRun);
@@ -1027,9 +1058,7 @@ pub fn prove_claim(
                 }
             }
             RewriteResult::Stuck(_) => {
-                let outcome = if implication_indeterminate {
-                    ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Implication)
-                } else if let Some(reason) = claim_indeterminate {
+                let outcome = if let Some(reason) = claim_indeterminate {
                     ProofLeafOutcome::Indeterminate(reason)
                 } else {
                     record_stuck_leaf!(state, StuckEvidence::StepStuck);
@@ -1294,9 +1323,10 @@ enum StuckEvidence {
 ///   are true syntactically, and every free variable has an inhabited sort
 ///   (`implication::Instance::shown`, shared with the complete implication policy).
 ///   Those complements say "outside the destination" only if every state on the trace had its
-///   implication check run and decided (`ProofState::destination_undecided`): a skipped or
-///   undecided check leaves no complement, and the configurations that continued past it may
-///   have reached the destination there.
+///   implication check run and decided (`ProofState::destination_undecided`): a skipped check
+///   leaves no complement, and the configurations that continued past it may have reached the
+///   destination there. An undecided check ends its branch as `Indeterminate(Implication)`, so
+///   no trace continues past one.
 ///
 /// Every other `Stuck` leaf reports `ProofStatus::Failed`.
 ///
@@ -1459,8 +1489,9 @@ struct ProofState {
     /// right-hand side stands for several successors (`rewrite_step_sequential_tracking_dropped`).
     alternative_discarded: bool,
     /// Some state on this trace was not shown outside the destination: its implication check
-    /// was skipped (below the minimum depth) or undecided. Part of its configurations may then
-    /// have satisfied the claim there, before the path went on.
+    /// was skipped (below the minimum depth). Part of its configurations may then have satisfied
+    /// the claim there, before the path went on. A check that ran and was undecided ends its
+    /// branch instead (`Coverage::Undecided` in [`prove_claim`]), so no path goes on past one.
     destination_undecided: bool,
     /// The rule step that produced this state, for the undefined step it is when it turns out
     /// to denote no state ([`proof_undefined_step`]); `None` for a state no rule step produced.
@@ -4105,6 +4136,156 @@ mod tests {
         assert_eq!(
             leaf.outcome,
             ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Implication),
+            "{result:#?}"
+        );
+    }
+
+    /// The proof an undecided destination gives up. The destination `start(0)` matches the
+    /// left-hand side `start(X)` with the obligation `X = 0`, which the solver leaves undecided;
+    /// the only rule takes every `start(X)` to `start(0)`, where the destination recurs and is
+    /// decided without the solver. Continuing past `start(X)` would prove the claim at depth 1;
+    /// the branch ends at `start(X)` instead, indeterminate, because a destination met and not
+    /// decided ends its branch whatever a later state would decide.
+    #[test]
+    fn an_undecided_destination_ends_its_branch_although_it_recurs_decided() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortState{} []
+                symbol start{}(SortInt{}) : SortState{} [constructor{}()]
+                alias weakAlwaysFinally{S}(S) : S
+                    where weakAlwaysFinally{S}(@X:S) := @X:S []
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(start{}(X:SortInt{}), \top{SortState{}}()),
+                    start{}(\dv{SortInt{}}("0"))
+                ) [label{}("reset")]
+                claim{} \implies{SortState{}}(
+                    \and{SortState{}}(start{}(X:SortInt{}), \top{SortState{}}()),
+                    weakAlwaysFinally{SortState{}}(start{}(\dv{SortInt{}}("0")))
+                ) [label{}("recurrent")]
+            endmodule []"#,
+        )
+        .expect("recurrent destination probe should parse");
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("recurrent destination probe should internalize");
+        let claim = claim_with_label(&definition, "recurrent");
+        let unknown = FixedSolver {
+            satisfiability: Ok(Satisfiability::Sat),
+            validity: Ok(Validity::Unknown("timeout".into())),
+        };
+        let check = |state: &str| {
+            check_disjunctive_implication_with_existentials(
+                &definition,
+                &Pattern {
+                    term: term(&definition, state),
+                    constraints: Vec::new(),
+                },
+                &claim.rhs,
+                &claim.existentials,
+                SimplificationOptions::default(),
+                &unknown,
+            )
+            .expect("no stop is armed")
+            .expect("the destination check should run")
+        };
+        // Undecided at the first match, decided at the recurrence.
+        assert_eq!(check("start{}(X:SortInt{})"), Coverage::Undecided);
+        assert!(
+            matches!(
+                check(r#"start{}(\dv{SortInt{}}("0"))"#),
+                Coverage::Covered(_)
+            ),
+            "the recurrence should be decided"
+        );
+
+        let result = prove_claim(
+            &definition,
+            claim,
+            ProofOptions {
+                max_depth: 8,
+                ..ProofOptions::default()
+            },
+            &unknown,
+        )
+        .expect("claim should execute");
+        assert_eq!(result.status, ProofStatus::Indeterminate, "{result:#?}");
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("expected one leaf, found {result:#?}");
+        };
+        assert_eq!(
+            leaf.outcome,
+            ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Implication),
+            "{result:#?}"
+        );
+        assert_eq!(leaf.depth, 0, "{result:#?}");
+        assert_eq!(
+            leaf.pattern.term,
+            term(&definition, "start{}(X:SortInt{})"),
+            "{result:#?}"
+        );
+    }
+
+    /// A destination on a cycle that stays undecided ends the search at its first match, the
+    /// state where the check was lost, instead of at the depth bound: `run(X)` steps to itself
+    /// forever and matches the destination `run(0)` with the undecided obligation `X = 0` at
+    /// every step, and the claim's own left-hand side `start(X)` never applies there as a
+    /// circularity.
+    #[test]
+    fn an_undecided_destination_on_a_cycle_ends_at_its_first_match() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortState{} []
+                symbol start{}(SortInt{}) : SortState{} [constructor{}()]
+                symbol run{}(SortInt{}) : SortState{} [constructor{}()]
+                alias weakAlwaysFinally{S}(S) : S
+                    where weakAlwaysFinally{S}(@X:S) := @X:S []
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(start{}(X:SortInt{}), \top{SortState{}}()),
+                    run{}(X:SortInt{})
+                ) [label{}("enter")]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(run{}(X:SortInt{}), \top{SortState{}}()),
+                    run{}(X:SortInt{})
+                ) [label{}("spin")]
+                claim{} \implies{SortState{}}(
+                    \and{SortState{}}(start{}(X:SortInt{}), \top{SortState{}}()),
+                    weakAlwaysFinally{SortState{}}(run{}(\dv{SortInt{}}("0")))
+                ) [label{}("cyclic")]
+            endmodule []"#,
+        )
+        .expect("cyclic destination probe should parse");
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("cyclic destination probe should internalize");
+        let unknown = FixedSolver {
+            satisfiability: Ok(Satisfiability::Sat),
+            validity: Ok(Validity::Unknown("timeout".into())),
+        };
+        let result = prove_claim(
+            &definition,
+            claim_with_label(&definition, "cyclic"),
+            ProofOptions {
+                max_depth: 6,
+                ..ProofOptions::default()
+            },
+            &unknown,
+        )
+        .expect("claim should execute");
+        assert_eq!(result.status, ProofStatus::Indeterminate, "{result:#?}");
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("expected one leaf, found {result:#?}");
+        };
+        assert_eq!(
+            leaf.outcome,
+            ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Implication),
+            "{result:#?}"
+        );
+        assert_eq!(leaf.depth, 1, "{result:#?}");
+        assert_eq!(
+            leaf.pattern.term,
+            term(&definition, "run{}(X:SortInt{})"),
             "{result:#?}"
         );
     }

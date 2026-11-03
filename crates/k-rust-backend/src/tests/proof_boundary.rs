@@ -380,11 +380,89 @@ fn a_remainder_left_undecided_by_a_lower_priority_rule_is_an_indeterminate_leaf(
     assert_eq!(result.status, ProofStatus::Indeterminate);
 }
 
+/// Refutes an obligation that applies `f` on a state whose constraints hold no negation, and
+/// leaves it undecided on a state whose constraints hold one; every other validity question is
+/// undecided. Incomplete, as a solver that more assumptions make time out is, but consistent:
+/// an obligation it refutes on a state it never decides otherwise on a part of that state.
+struct UndecidedUnderNegationSolver;
+
+impl SmtSolver for UndecidedUnderNegationSolver {
+    fn is_sat(
+        &self,
+        _predicates: &[Predicate],
+        _substitution: &Substitution,
+    ) -> Stoppable<Result<Satisfiability, SmtError>> {
+        Ok(Ok(Satisfiability::Sat))
+    }
+
+    fn check_predicates(
+        &self,
+        known: &[Predicate],
+        _substitution: &Substitution,
+        checked: &[Predicate],
+    ) -> Stoppable<Result<Validity, SmtError>> {
+        let negated = known
+            .iter()
+            .any(|predicate| matches!(predicate, Predicate::Not(_)));
+        Ok(Ok(if mentions_symbol(checked, "f") && !negated {
+            Validity::Refuted
+        } else {
+            Validity::Unknown("scripted".into())
+        }))
+    }
+}
+
 /// The remainder of a step to which no lower rule applies has no successor; when the
 /// destination check cannot decide whether it lies in the destination, it is neither proven nor
-/// stuck: it is an `Indeterminate` leaf for the implication.
+/// stuck: it is an `Indeterminate` leaf for the implication. The check on the state the step
+/// took is decided (refuted), so the search steps it; one undecided there would end the branch
+/// before the step (`an_undecided_destination_ends_the_branch_before_its_step`).
 #[test]
 fn an_undecided_destination_on_a_remainder_is_an_indeterminate_leaf() {
+    let definition = definition(&rule("wrap-a", "wrap{}(a{}())", "b{}()", None));
+    let y = Variable::new("Y", crate::term::Sort::simple("SortS"));
+    let claim = claim(
+        pattern(&definition, "wrap{}(X:SortS{})", Vec::new()),
+        vec![
+            pattern(&definition, "b{}()", Vec::new()),
+            pattern(
+                &definition,
+                "wrap{}(Y:SortS{})",
+                vec![Predicate::Equals(
+                    term(&definition, "f{}(Y:SortS{})"),
+                    term(&definition, "a{}()"),
+                )],
+            ),
+        ],
+        std::slice::from_ref(&y),
+    );
+    // The remainder is `wrap(X)` with `X` not `a`, a negated constraint.
+    let result = prove(
+        &definition,
+        &claim,
+        ProofOptions::default(),
+        &UndecidedUnderNegationSolver,
+    );
+    let indeterminate = leaves_where(&result, |outcome| {
+        outcome == &ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Implication)
+    });
+    let [remainder] = indeterminate.as_slice() else {
+        panic!("expected one indeterminate remainder leaf, found {result:#?}");
+    };
+    assert_eq!(remainder.depth, 0);
+    assert_eq!(head(&remainder.pattern.term), "wrap");
+    assert_eq!(
+        remainder.trace.last().map(|entry| entry.kind),
+        Some(TraceKind::Remainder)
+    );
+    assert_eq!(result.status, ProofStatus::Indeterminate, "{result:#?}");
+}
+
+/// A state whose destination check is undecided ends its branch there, before its step: with
+/// the obligation `f(X) = a` undecided on `wrap(X)` itself, the rule `wrap(a) => b()` is never
+/// tried, and the one leaf is `wrap(X)`, indeterminate for the implication, with no remainder.
+#[test]
+fn an_undecided_destination_ends_the_branch_before_its_step() {
     let definition = definition(&rule("wrap-a", "wrap{}(a{}())", "b{}()", None));
     let y = Variable::new("Y", crate::term::Sort::simple("SortS"));
     let claim = claim(
@@ -407,17 +485,21 @@ fn an_undecided_destination_on_a_remainder_is_an_indeterminate_leaf() {
         validity: Validity::Unknown("scripted".into()),
     };
     let result = prove(&definition, &claim, ProofOptions::default(), &solver);
-    let indeterminate = leaves_where(&result, |outcome| {
-        outcome == &ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Implication)
-    });
-    let [remainder] = indeterminate.as_slice() else {
-        panic!("expected one indeterminate remainder leaf, found {result:#?}");
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one leaf, found {result:#?}");
     };
-    assert_eq!(remainder.depth, 0);
-    assert_eq!(head(&remainder.pattern.term), "wrap");
     assert_eq!(
-        remainder.trace.last().map(|entry| entry.kind),
-        Some(TraceKind::Remainder)
+        leaf.outcome,
+        ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Implication),
+        "{result:#?}"
+    );
+    assert_eq!(leaf.depth, 0);
+    assert_eq!(head(&leaf.pattern.term), "wrap");
+    assert!(
+        leaf.trace
+            .iter()
+            .all(|entry| entry.kind != TraceKind::Remainder),
+        "{result:#?}"
     );
     assert_eq!(result.status, ProofStatus::Indeterminate, "{result:#?}");
 }

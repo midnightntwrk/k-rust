@@ -537,7 +537,9 @@ words are:
   leaf is dropped only when its constraint is shown unsatisfiable, so a symbolic claim fails
   whenever one of its instances would, and `--allow-vacuous` accepts it.
 - `indeterminate`, `depth bound`, `breadth bound`: the search could not decide a leaf, or hit a
-  bound.
+  bound. A state whose term matches the destination's but whose destination condition is not
+  decided there ends its path as an `indeterminate` leaf: the search does not step past it, even
+  where a later state would be decided.
 - `refused (<reason>)`: the claim's constraints have no definedness-explicit form (their
   definedness depends on an impure application under `#if`, `andThenBool` or `orElseBool`, or an
   atom holds a term-level `\and`, or an `\equals` reads a term as a predicate), so the claim is
