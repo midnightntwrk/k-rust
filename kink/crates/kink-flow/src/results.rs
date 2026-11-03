@@ -307,6 +307,41 @@ impl<'a> BaselineRunner<'a> {
         self.ends.get_or_init(|| EndReader::of(&self.spec.compiled))
     }
 
+    /// The specification's definition exclusion as a document's `spec.exclusion` prints it
+    /// ([`crate::exclusion::definition_exclusion`]; null when there is none).
+    pub fn definition_exclusion(&self) -> Value {
+        if self.spec.exclusions.definition_exclusion().is_none() {
+            return Value::Null;
+        }
+        crate::exclusion::definition_exclusion(&self.spec.exclusions, self.end_reader())
+    }
+
+    /// Why every run of `test` on the baseline is excluded before it runs, read as admission
+    /// reads it (`crate::admit::InputSession::exclusion`) on `backend`, a load of the
+    /// specification's compiled KORE: the definition exclusion, else the exclusion of the
+    /// test's initial configuration on the definition `backend` selects.
+    fn program_exclusion(
+        &self,
+        backend: &mut Backend,
+        test: &TestCase,
+    ) -> Option<crate::admit::ProgramExclusion> {
+        use crate::exclusion::ExclusionScope;
+        let exclusions = &self.spec.exclusions;
+        if let Some(exclusion) = exclusions.definition_exclusion() {
+            return Some(crate::admit::ProgramExclusion {
+                exclusion,
+                scope: ExclusionScope::Definition,
+            });
+        }
+        let definition = backend.select_definition(None).ok()?;
+        exclusions
+            .state_exclusion(&definition, &test.initial_state)
+            .map(|exclusion| crate::admit::ProgramExclusion {
+                exclusion,
+                scope: ExclusionScope::InitialState,
+            })
+    }
+
     /// The compiled ids of each authored rule of the specification a run can observe (a rule
     /// that compiles to a rewrite rule).
     pub fn observable_rules(&self) -> &[BTreeSet<String>] {
@@ -454,8 +489,11 @@ impl<'a> BaselineRunner<'a> {
     /// The campaign refused the baseline run, or gave it no sides, and it did not stop on time:
     /// run the initial state once more through the execution adapter, for the class, the cause,
     /// the final states and the coverage. When the campaign named the exclusion of the baseline
-    /// run (`exclusion`), the cause's hint is that exclusion's ([`exclusion_hint`]), not one read
-    /// from the leaves' shape (re-pin adoption A-1b): an excluded run's leaves can all be clean.
+    /// run (`exclusion`), the cause's hint is that exclusion's, not one read from the leaves'
+    /// shape (re-pin adoption A-1b): an excluded run's leaves can all be clean. An exclusion that
+    /// holds for every run of the program, the definition's or its initial configuration's, is
+    /// said as `check` says it ([`crate::exclusion::program_detail`]); any other as
+    /// [`exclusion_hint`] says it.
     fn diagnose(
         &self,
         test: &TestCase,
@@ -526,7 +564,16 @@ impl<'a> BaselineRunner<'a> {
             })
             .collect::<Vec<_>>();
         let hint = if let Some(exclusion) = exclusion {
-            exclusion_hint(exclusion, !execution.facts().contradicted_claims.is_empty())
+            match self.program_exclusion(&mut backend, test) {
+                Some(known) if known.exclusion == exclusion => {
+                    format!(
+                        "the run is excluded ({}): {}",
+                        exclusion.name(),
+                        known.detail()
+                    )
+                }
+                _ => exclusion_hint(exclusion, !execution.facts().contradicted_claims.is_empty()),
+            }
         } else if leaves.iter().any(|leaf| leaf.halt == HaltClass::DepthBound) {
             format!(
                 "the run reached max_depth = {}",
@@ -1208,6 +1255,7 @@ pub fn results(manifest: &FlowManifest, options: &ResultsOptions) -> (Value, boo
         runner.baseline_runs(),
     );
     document["data"] = spec.data.value();
+    document["spec"]["exclusion"] = runner.definition_exclusion();
     // The rules no mutation of the given list targets (flow F-13, informational only).
     if let Some(path) = &options.mutations {
         match crate::mutation::MutationList::read(path) {
@@ -1622,6 +1670,10 @@ fn document(
                 .iter()
                 .map(|f| json!({"name": f.name, "sha256": f.sha256.to_string()}))
                 .collect::<Vec<_>>(),
+            // The definition exclusion (`crate::exclusion`), set by `results` once the
+            // specification is admitted; added to version 4 without a new version, since it is
+            // additive and no command reads a `results` document back.
+            "exclusion": null,
         },
         "programs": programs,
         "rules": rules,

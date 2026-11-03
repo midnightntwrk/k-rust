@@ -102,7 +102,7 @@ fn clean_is_admitted_and_records_are_canonical_and_deterministic() {
 #[test]
 fn committed_refusal_manifests_have_exact_stages_and_reasons() {
     for (file, stage, reason) in [
-        ("excluded-id.json", "exclusion", "below-floor"),
+        ("excluded-id.json", "refused-case", "below-floor"),
         ("wrong-source-pin.json", "load", "source-pin"),
     ] {
         let text = fs::read_to_string(fixture().join(file)).unwrap();
@@ -126,7 +126,7 @@ fn every_refusal_stage_and_first_failure() {
     let mut v = named("token-float.k", "T12TOKEN");
     refused(&v, "representation", "G-T");
     v["definitions"][0]["id"] = json!("let-test");
-    let r = refused(&v, "exclusion", "below-floor");
+    let r = refused(&v, "refused-case", "below-floor");
     assert!(r.record.kompile_warnings.is_none());
     let mut v = clean();
     v["definitions"][0]["requires_profile"] = json!("z3");
@@ -196,10 +196,10 @@ fn every_refusal_stage_and_first_failure() {
     v["definitions"][0]["root"]["path"] =
         json!("testdata/corpus/admission-v1/k-distribution/tests/regression-new/let-test");
     v["definitions"][0]["id"] = json!("renamed");
-    refused(&v, "exclusion", "below-floor");
+    refused(&v, "refused-case", "below-floor");
     v["definitions"][0]["root"]["path"] =
         json!("testdata/corpus/admission-v1/k-distribution/tests/regression-new/let-test/inner/..");
-    refused(&v, "exclusion", "below-floor");
+    refused(&v, "refused-case", "below-floor");
 }
 /// R3-ADMIT-FLOAT: a definition whose rules hold Float literals passes the representation gate;
 /// k-rust stores every Float domain value as the canonical text of its value, so G-F is retired.
@@ -306,7 +306,7 @@ fn symlink_cannot_hide_a_below_floor_path() {
     v["definitions"][0]["root"]["path"] = json!("alias");
     let m = CorpusManifest::from_canonical_json(&canonical_json(&v)).unwrap();
     let r = admit_definition(&m, "clean", &dir);
-    assert_eq!(r.record.refusal.unwrap().stage, "exclusion");
+    assert_eq!(r.record.refusal.unwrap().stage, "refused-case");
     fs::remove_dir_all(dir).unwrap();
 }
 #[test]
@@ -464,14 +464,14 @@ fn assert_below_floor(r: &AdmissionResult) {
     assert_eq!(
         (&*refusal.stage, &*refusal.reason, &*refusal.detail),
         (
-            "exclusion",
+            "refused-case",
             "below-floor",
             kink_corpus::admission::BELOW_FLOOR_CITATION
         ),
         "{}",
         r.record.text()
     );
-    // Nothing after the exclusion stage ran.
+    // Nothing after the refused-case stage ran.
     assert!(r.record.kompile_warnings.is_none(), "{}", r.record.text());
     assert!(r.record.census.is_none(), "{}", r.record.text());
 }
@@ -480,7 +480,7 @@ const CASE_FILE: &str = "k-distribution/tests/regression-new/let-test/let-test.k
 
 /// CS-12 review 1 major, probe P1 (flow F-16): a wrapper entry under another id, outside the
 /// case directory, that requires a below-floor source by a relative path is refused at the
-/// exclusion stage with the below-floor reason, as the case's own entry is. Admission checks
+/// refused-case stage with the below-floor reason, as the case's own entry is. Admission checks
 /// every file the loader read, not only the entry.
 #[test]
 fn a_wrapper_requiring_a_below_floor_source_by_relative_path_is_excluded() {
@@ -498,7 +498,7 @@ fn a_wrapper_requiring_a_below_floor_source_by_relative_path_is_excluded() {
 }
 
 /// CS-12 review 1 major, probe P2 (flow F-16): the same wrapper reaching the below-floor
-/// source through `include_dirs` is refused at the exclusion stage too.
+/// source through `include_dirs` is refused at the refused-case stage too.
 #[test]
 fn a_wrapper_requiring_a_below_floor_source_through_include_dirs_is_excluded() {
     let dir = probe_workspace("p2", &[("wrapper.k", "requires \"let-test.k\"\n")]);
@@ -514,7 +514,7 @@ fn a_wrapper_requiring_a_below_floor_source_through_include_dirs_is_excluded() {
 }
 
 /// CS-12 review 1 control probe P3: an entry that is a symbolic link into the case directory
-/// is still refused at the exclusion stage (the entry's resolved path, as before F-16); and a
+/// is still refused at the refused-case stage (the entry's resolved path, as before F-16); and a
 /// wrapper whose required source is reached through a linked directory is refused by the
 /// loaded-file check.
 #[cfg(unix)]
@@ -543,8 +543,8 @@ fn a_symlinked_entry_or_required_source_into_a_below_floor_case_is_excluded() {
 
 /// The loaded-file check refuses only below-floor sources: the same wrapper shape requiring
 /// a source outside every case directory is admitted, with the record of a direct load of
-/// both files, and an author exclusion with another reason refuses a wrapper that requires its
-/// case with that exclusion's own reason, as for a direct entry.
+/// both files, and an author refused case with another reason refuses a wrapper that requires its
+/// case with that refused case's own reason, as for a direct entry.
 #[test]
 fn a_wrapper_requiring_a_source_outside_every_case_is_admitted() {
     let dir = probe_workspace("control", &[("wrapper.k", "requires \"clean.k\"\n")]);
@@ -575,7 +575,7 @@ fn a_wrapper_requiring_a_source_outside_every_case_is_admitted() {
             "own-wrapper.k",
         ],
     );
-    v["exclusions"]
+    v["refused_cases"]
         .as_array_mut()
         .unwrap()
         .push(json!({"case":"own-case","citation":"author note","reason":"other"}));
@@ -583,7 +583,7 @@ fn a_wrapper_requiring_a_source_outside_every_case_is_admitted() {
     let refusal = r.record.refusal.as_ref().expect("refused");
     assert_eq!(
         (&*refusal.stage, &*refusal.reason, &*refusal.detail),
-        ("exclusion", "other", "author note"),
+        ("refused-case", "other", "author note"),
         "{}",
         r.record.text()
     );
@@ -593,9 +593,9 @@ fn a_wrapper_requiring_a_source_outside_every_case_is_admitted() {
 const CASE_INPUT: &str = "k-distribution/tests/regression-new/let-test/program.txt";
 
 /// F-16 review 1 minor 2 (flow F-17): admission checks every file it read, test inputs
-/// included, against the exclusions. A clean definition outside every case directory whose
+/// included, against the refused cases. A clean definition outside every case directory whose
 /// program file lies in a below-floor case directory, named directly or reached through a
-/// link, is refused at the exclusion stage with the below-floor reason, as a below-floor
+/// link, is refused at the refused-case stage with the below-floor reason, as a below-floor
 /// source is; the same program outside the case directory is admitted.
 #[test]
 fn a_test_input_in_a_below_floor_case_directory_is_excluded() {

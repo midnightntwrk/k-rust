@@ -2,13 +2,14 @@
 //!
 //! Exit status: [`EXIT_OK`] when the command did its job and found nothing wrong with the
 //! corpus, [`EXIT_CORPUS`] when the manifest, the specification, a program or a mutation is
-//! refused (the document says which and why), and [`EXIT_USAGE`] on a usage error (stderr).
+//! refused (the document says which and why), or, for `check`, when a program cannot be judged on
+//! the baseline, and [`EXIT_USAGE`] on a usage error (stderr).
 //!
 //! A mutation list (`MUTATIONS` below) is a `MUTATIONS.toml` file or a mutations directory of
 //! `<topic>.toml` files ([`MutationList::read`]).
 
 use crate::{
-    admit::{FlowAdmission, ProgramAdmission, admit, admit_spec},
+    admit::{FlowAdmission, admit, admit_spec},
     check::{CorpusCoverage, MutationCheck, check_mutations, corpus_coverage},
     fuzz::{FuzzJob, FuzzOptions, TemplateList},
     manifest::{FlowManifest, ManifestError},
@@ -817,12 +818,7 @@ pub fn check_corpus_mutations(
         let programs = manifest
             .programs
             .iter()
-            .map(|program| ProgramAdmission {
-                id: program.id.clone(),
-                outcome: session
-                    .text(program)
-                    .and_then(|text| session.test_case(program, text)),
-            })
+            .map(|program| session.admit(program))
             .collect::<Vec<_>>();
         let cache = cache_directory(manifest, cache);
         (programs, corpus_coverage(&spec, manifest, &session, &cache))
@@ -844,9 +840,10 @@ pub fn check_corpus_mutations(
 }
 
 /// The document of `check --mutations` and its exit status: the check document
-/// ([`check_document`]) with `mutation_list`, `mutations` and `coverage`, and [`EXIT_OK`] when the
-/// specification and every program are admitted, the list decodes and no mutation is refused
-/// (by resolution or by a finding with `refusal: true`), else [`EXIT_CORPUS`].
+/// ([`check_document`]) with `mutation_list`, `mutations` and `coverage`, and [`EXIT_OK`] when
+/// every program can be judged on the baseline as far as admission shows
+/// ([`FlowAdmission::all_judgeable`]), the list decodes and no mutation is refused (by resolution
+/// or by a finding with `refusal: true`), else [`EXIT_CORPUS`].
 pub fn check_mutations_document(checked: &CorpusMutationCheck) -> (Value, u8) {
     let mut document = check_document(&checked.admission);
     match &checked.list {
@@ -869,7 +866,7 @@ pub fn check_mutations_document(checked: &CorpusMutationCheck) -> (Value, u8) {
             .mutations
             .as_ref()
             .is_some_and(MutationCheck::refused);
-    let status = if checked.admission.all_admitted() && !refused {
+    let status = if checked.admission.all_judgeable() && !refused {
         EXIT_OK
     } else {
         EXIT_CORPUS
@@ -877,13 +874,15 @@ pub fn check_mutations_document(checked: &CorpusMutationCheck) -> (Value, u8) {
     (document, status)
 }
 
-/// `kink-flow check FLOW.toml` without a mutation list: admission alone.
+/// `kink-flow check FLOW.toml` without a mutation list: admission alone, and [`EXIT_OK`] exactly
+/// when every program can be judged on the baseline as far as admission shows
+/// ([`FlowAdmission::all_judgeable`]).
 fn check_admission(manifest: &Path) -> (Value, u8) {
     match FlowManifest::read(manifest) {
         Err(error) => (manifest_refused(&error), EXIT_CORPUS),
         Ok(manifest) => {
             let admission = admit(&manifest);
-            let status = if admission.all_admitted() {
+            let status = if admission.all_judgeable() {
                 EXIT_OK
             } else {
                 EXIT_CORPUS
@@ -894,8 +893,9 @@ fn check_admission(manifest: &Path) -> (Value, u8) {
 }
 
 /// The version of the check document: 2 adds `mutation_list`, `mutations` and `coverage` (null
-/// without `--mutations`).
-pub const CHECK_VERSION: u64 = 2;
+/// without `--mutations`); 3 adds `spec.exclusion` and the program outcome `excluded`, and
+/// exits 1 when any program cannot be judged on the baseline, a definition exclusion included.
+pub const CHECK_VERSION: u64 = 3;
 
 fn header(spec: Value, programs: Vec<Value>) -> Value {
     json!({
@@ -921,15 +921,30 @@ pub fn manifest_refused(error: &ManifestError) -> Value {
             "reason": "invalid-manifest",
             "detail": error.to_string(),
             "files": [],
+            "exclusion": null,
         }),
         Vec::new(),
     )
 }
 
-/// The check document of an admission.
+/// The check document of an admission. `spec.exclusion` is the definition exclusion of the
+/// admitted specification ([`crate::exclusion::definition_exclusion`], null when there is none
+/// or the specification is refused). A program is `ok`, `refused` (stage, reason and detail of
+/// the refusal), or `excluded`: admitted, but every run of it on the baseline is excluded before
+/// it runs (stage `definition` or `initial-state`, the exclusion's name as reason, and why).
 pub fn check_document(admission: &FlowAdmission) -> Value {
     let record = &admission.record;
     let refusal = record.refusal.as_ref();
+    let exclusion = admission
+        .spec
+        .as_ref()
+        .filter(|spec| spec.exclusions.definition_exclusion().is_some())
+        .map_or(Value::Null, |spec| {
+            crate::exclusion::definition_exclusion(
+                &spec.exclusions,
+                &crate::evidence::EndReader::of(&spec.compiled),
+            )
+        });
     let spec = json!({
         "outcome": if refusal.is_some() { "refused" } else { "admitted" },
         "stage": refusal.map(|r| &r.stage),
@@ -940,19 +955,33 @@ pub fn check_document(admission: &FlowAdmission) -> Value {
             .iter()
             .map(|f| json!({"name": f.name, "sha256": f.sha256.to_string()}))
             .collect::<Vec<_>>(),
+        "exclusion": exclusion,
     });
     let programs = admission
         .programs
         .iter()
-        .map(|program| {
-            let refusal = program.outcome.as_ref().err();
-            json!({
+        .map(|program| match (&program.outcome, &program.exclusion) {
+            (Err(refusal), _) => json!({
                 "id": program.id,
-                "outcome": if refusal.is_some() { "refused" } else { "ok" },
-                "stage": refusal.map(|r| &r.stage),
-                "reason": refusal.map(|r| &r.reason),
-                "detail": refusal.map(|r| &r.detail),
-            })
+                "outcome": "refused",
+                "stage": refusal.stage,
+                "reason": refusal.reason,
+                "detail": refusal.detail,
+            }),
+            (Ok(_), Some(exclusion)) => json!({
+                "id": program.id,
+                "outcome": "excluded",
+                "stage": exclusion.scope.name(),
+                "reason": exclusion.exclusion.name(),
+                "detail": exclusion.detail(),
+            }),
+            (Ok(_), None) => json!({
+                "id": program.id,
+                "outcome": "ok",
+                "stage": null,
+                "reason": null,
+                "detail": null,
+            }),
         })
         .collect();
     header(spec, programs)

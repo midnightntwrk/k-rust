@@ -2,33 +2,44 @@
 //! stages (`kink_corpus::admission`), with kink-corpus's stage names and refusal reasons.
 //!
 //! The order is kink-corpus's, without the stages that only a corpus manifest has (source
-//! pins, solver profile, oracles): the below-floor exclusion of the entry, the load
-//! (`kink_corpus::load_source`, which records every non-builtin file read), the
-//! below-floor exclusion of every loaded file, the semantic-input canonical check, the
-//! compile with its kompile warnings, the representation gate (TB-03), the declaration
+//! pins, solver profile, oracles): the below-floor case check of the entry (stage
+//! `refused-case`), the load (`kink_corpus::load_source`, which records every non-builtin file
+//! read), the below-floor case check of every loaded file, the semantic-input canonical check,
+//! the compile with its kompile warnings, the representation gate (TB-03), the declaration
 //! census (VI-T13), the input backend, and the definition's full critical-pair check on that
 //! backend (stage `assume-joined`: every name of `[spec] assume_joined` must name exactly one
 //! finding that can be assumed; fz26 KINK-BASELINE-FINDINGS). Then each program is admitted on
 //! its own: its
 //! file is read inside the manifest's directory, its configuration is assembled, and the
 //! concrete-state check and the input gate run. A refused program never stops the others.
+//!
+//! Beside the data facts, admission reads the definition exclusions of the input backend's load
+//! ([`AdmittedSpec::exclusions`], kink-native `DefinitionExclusions::of`, as the campaign runner
+//! reads them for every run), and for each admitted program whether every run of it on the
+//! baseline is excluded before it runs ([`ProgramAdmission::exclusion`]): by the definition
+//! exclusion, or by the exclusion of its initial configuration. Neither refuses anything: a
+//! program so excluded is admitted, `results` runs it and reports its class, and `check` fails
+//! on it, since it cannot be judged on the baseline (README, `check`).
 
+pub use crate::exclusion::ExclusionScope;
 use crate::manifest::{FlowManifest, Program};
-use k_rust::backend::Backend;
+use k_rust::backend::{Backend, BackendOptions};
 use kink_campaign::TestCase;
 use kink_corpus::{
     CorpusSource, InputAssembler, InputError, InputGrammar, LoadedSource, ProgramSource,
     admission::{
-        AdmissionRecord, AdmissionRefusal, below_floor_exclusions, check_exclusions,
-        check_initial_state, check_loaded_exclusions, check_loaded_semantic_input,
-        compile_definition_with, input_backend, input_refusal, path_names_case,
+        AdmissionRecord, AdmissionRefusal, below_floor_cases, check_initial_state,
+        check_loaded_refused_cases, check_loaded_semantic_input, check_refused_cases,
+        compile_definition_with, input_refusal, path_names_case,
     },
     load_source,
-    manifest::Exclusion,
+    manifest::RefusedCase,
 };
 use kink_native::{
-    CensusError, DeclarationCensus, NativeValidator, ValidatedDefinition, data::DataFacts,
+    CensusError, DeclarationCensus, NativeValidator, ValidatedDefinition,
+    data::DataFacts,
     declaration_census,
+    exclusion::{CeilMemo, DefinitionExclusions, Exclusion},
 };
 use kink_patch::SemanticInput;
 use std::{
@@ -55,6 +66,13 @@ pub struct AdmittedSpec {
     /// be killed (`baseline-findings`), no comparable program can kill, and no query `no` is
     /// given.
     pub data: DataFacts,
+    /// The definition exclusions of the input backend's load (kink-native
+    /// `DefinitionExclusions::of` of the compiled KORE and the definition the backend selected
+    /// for the main module), the facts the campaign runner reads for every baseline run: while
+    /// [`DefinitionExclusions::definition_exclusion`] holds, every run on the specification is
+    /// excluded, so no program can be judged on it, and `check` fails. Read once, beside `data`,
+    /// from what admission already loaded.
+    pub exclusions: DefinitionExclusions,
     /// Which admission produced this specification; the [`ProgramInputs`] admitted beside it
     /// carry the same value, and only this specification opens a session on them.
     admission: AdmissionId,
@@ -79,6 +97,36 @@ pub struct ProgramAdmission {
     /// The program's concrete initial configuration as a test case with no oracles (the
     /// caller chooses the oracles), or the refusal.
     pub outcome: Result<TestCase, AdmissionRefusal>,
+    /// For an admitted program, why every run of it on the baseline is excluded, when that is
+    /// known before it runs ([`InputSession::exclusion`]); `None` for a refused program.
+    pub exclusion: Option<ProgramExclusion>,
+}
+
+impl ProgramAdmission {
+    /// Whether the program can be judged on the baseline as far as admission shows without
+    /// running it: it is admitted and no exclusion holds for every run of it.
+    pub fn judgeable(&self) -> bool {
+        self.outcome.is_ok() && self.exclusion.is_none()
+    }
+}
+
+/// Why every run of an admitted program on the baseline is excluded (kink-native `exclusion`: a
+/// run that is no evidence), read without running it: the specification's definition exclusion,
+/// else the exclusion of the program's initial configuration. The campaign runner excludes the
+/// program's baseline run for this reason, unless a reason only the run shows comes first (a
+/// timeout, a stack stop, a contradicted claim, a value the definition leaves open).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ProgramExclusion {
+    pub exclusion: Exclusion,
+    pub scope: ExclusionScope,
+}
+
+impl ProgramExclusion {
+    /// Why the program cannot be judged, in the reader's words (`crate::exclusion`).
+    #[must_use]
+    pub fn detail(&self) -> String {
+        crate::exclusion::program_detail(self.exclusion, self.scope)
+    }
 }
 
 /// The admission of a whole manifest. A refused specification has no programs.
@@ -93,6 +141,14 @@ impl FlowAdmission {
     /// The specification is admitted and every program is admitted.
     pub fn all_admitted(&self) -> bool {
         self.spec.is_some() && self.programs.iter().all(|p| p.outcome.is_ok())
+    }
+
+    /// The specification is admitted and every program can be judged on the baseline as far as
+    /// admission shows ([`ProgramAdmission::judgeable`]): no program is refused, and no exclusion
+    /// holds for every run of one, the definition exclusion included. `check` exits 0 exactly
+    /// when this holds (and, with `--mutations`, the list is not refused).
+    pub fn all_judgeable(&self) -> bool {
+        self.spec.is_some() && self.programs.iter().all(ProgramAdmission::judgeable)
     }
 }
 
@@ -110,12 +166,7 @@ pub fn admit(manifest: &FlowManifest) -> FlowAdmission {
     let programs = manifest
         .programs
         .iter()
-        .map(|program| ProgramAdmission {
-            id: program.id.clone(),
-            outcome: session
-                .text(program)
-                .and_then(|text| session.test_case(program, text)),
-        })
+        .map(|program| session.admit(program))
         .collect();
     FlowAdmission {
         record,
@@ -202,6 +253,7 @@ impl ProgramInputs {
             backend: &mut self.backend,
             grammar: &self.grammar,
             assembler: None,
+            ceil_memo: CeilMemo::default(),
         }
     }
 }
@@ -228,9 +280,53 @@ pub struct InputSession<'a> {
     backend: &'a mut Backend,
     grammar: &'a OnceCell<Result<InputGrammar, InputError>>,
     assembler: Option<InputAssembler<'a>>,
+    /// The ceil-theory judgements of the initial-state exclusions read so far, on the input
+    /// backend's definition ([`Self::exclusion`]).
+    ceil_memo: CeilMemo,
 }
 
 impl InputSession<'_> {
+    /// The admission of one program: its text, its test case ([`Self::test_case`]) and, when it
+    /// is admitted, its exclusion ([`Self::exclusion`]).
+    pub fn admit(&mut self, program: &Program) -> ProgramAdmission {
+        let outcome = self
+            .text(program)
+            .and_then(|text| self.test_case(program, text));
+        let exclusion = outcome
+            .as_ref()
+            .ok()
+            .and_then(|test| self.exclusion(&test.initial_state));
+        ProgramAdmission {
+            id: program.id.clone(),
+            outcome,
+            exclusion,
+        }
+    }
+
+    /// Why every run on the baseline from `initial` (an admitted program's initial
+    /// configuration) is excluded, before it runs: the specification's definition exclusion
+    /// first, then the exclusion of `initial` on the input backend's definition (kink-native
+    /// `DefinitionExclusions::state_exclusion`), as the campaign runner reads both for a
+    /// baseline run, on the same compiled definition.
+    pub fn exclusion(&mut self, initial: &k_rust::kore::ast::Pattern) -> Option<ProgramExclusion> {
+        let exclusions = &self.spec.exclusions;
+        if let Some(exclusion) = exclusions.definition_exclusion() {
+            return Some(ProgramExclusion {
+                exclusion,
+                scope: ExclusionScope::Definition,
+            });
+        }
+        // Admission selected this definition (`baseline_data`), so the selection is the one
+        // the exclusions were read from.
+        let definition = self.backend.select_definition(None).ok()?;
+        exclusions
+            .state_exclusion_memoized(&definition, initial, &mut self.ceil_memo)
+            .map(|exclusion| ProgramExclusion {
+                exclusion,
+                scope: ExclusionScope::InitialState,
+            })
+    }
+
     /// The program's text, as [`ProgramInputs::text`].
     pub fn text(&self, program: &Program) -> Result<String, AdmissionRefusal> {
         read_text(self.root, program)
@@ -282,16 +378,15 @@ fn spec_root(manifest: &FlowManifest) -> Result<PathBuf, AdmissionRefusal> {
         .map_err(|_| load_refusal("the manifest's directory is unavailable"))
 }
 
-/// The below-floor exclusion stage for one source path, matched both lexically (as the
-/// manifest names it) and after resolving links (kink-corpus `check_exclusions`).
+/// The below-floor case check (stage `refused-case`) for one source path, matched both
+/// lexically (as the manifest names it) and after resolving links (kink-corpus
+/// `check_refused_cases`).
 fn check_below_floor(
-    exclusions: &[Exclusion],
+    cases: &[RefusedCase],
     lexical: &Path,
     resolved: &Path,
 ) -> Result<(), AdmissionRefusal> {
-    check_exclusions(exclusions, resolved, |exclusion| {
-        path_names_case(lexical, &exclusion.case)
-    })
+    check_refused_cases(cases, resolved, |case| path_names_case(lexical, &case.case))
 }
 
 /// How kink-corpus `load_source` loads the manifest's specification (it records every
@@ -317,19 +412,34 @@ fn admit_definition(
     ) -> Result<DeclarationCensus, CensusError>,
 ) -> Result<(AdmittedSpec, Backend), AdmissionRefusal> {
     let spec = &manifest.spec;
-    let exclusions = below_floor_exclusions();
+    let cases = below_floor_cases();
     let entry = manifest.directory.join(&spec.entry);
-    check_below_floor(&exclusions, &entry, &entry)?;
+    check_below_floor(&cases, &entry, &entry)?;
     let loaded = load_source(&corpus_source(manifest)).map_err(load_refusal)?;
     record.files = loaded.files.clone();
     let root = spec_root(manifest)?;
-    // kink-corpus's loaded-file exclusion stage (shared since flow F-16).
-    check_loaded_exclusions(&exclusions, &manifest.directory, &root, &loaded.files)?;
+    // kink-corpus's loaded-file refused-case stage (shared since flow F-16).
+    check_loaded_refused_cases(&cases, &manifest.directory, &root, &loaded.files)?;
     let semantic_input = check_loaded_semantic_input(&loaded)?;
     let validator = NativeValidator::bind(loaded.baseline.clone(), Default::default());
     let compiled = compile_definition_with(&validator, record, |side| census(&loaded, side))?;
-    let mut backend = input_backend(&compiled, &spec.main_module)?;
-    let data = baseline_data(&mut backend, &spec.assume_joined)?;
+    // The input backend (kink-corpus `input_backend`: the compiled KORE for the main module with
+    // default options, refused as `inputs`/`input-gate`), from KORE parsed once here, since the
+    // definition exclusions read the parsed KORE too.
+    let kore = k_rust::kore::parser::parse_definition(&compiled.artifacts().definition_kore)
+        .map_err(|e| input_gate_refusal(format!("could not parse KORE definition: {e}")))?;
+    let mut backend = Backend::from_definition(
+        kore.clone(),
+        k_rust::kast::identifier::encode(&spec.main_module),
+        BackendOptions::default(),
+    )
+    .map_err(|e| input_gate_refusal(e.to_string()))?;
+    let (data, exclusions) = baseline_data(
+        &mut backend,
+        &kore,
+        &compiled.compile_options().builtin_source_prefixes,
+        &spec.assume_joined,
+    )?;
     Ok((
         AdmittedSpec {
             loaded,
@@ -337,31 +447,42 @@ fn admit_definition(
             compiled,
             validator,
             data,
+            exclusions,
             admission: AdmissionId::fresh(),
         },
         backend,
     ))
 }
 
-/// The baseline's data facts on its input backend (stage `assume-joined`): the definition the
-/// backend selected for the main module, its full critical-pair check, and every name of
-/// `assume_joined` checked against it (kink-native `DataFacts::refused_names`: a name must name
-/// exactly one finding, and not a decided one).
+fn input_gate_refusal(detail: String) -> AdmissionRefusal {
+    AdmissionRefusal {
+        stage: "inputs".into(),
+        reason: "input-gate".into(),
+        detail,
+    }
+}
+
+/// The baseline's data facts and definition exclusions on its input backend, whose compiled
+/// KORE is `kore`: the definition the backend selected for the main module (selecting it loads
+/// it, so its load counts are final, as kink-campaign's `Runtime::prepare` reads them), its
+/// definition exclusions (kink-native `DefinitionExclusions::of`, with the compile's builtin
+/// source prefixes), its full critical-pair check, and every name of `assume_joined` checked
+/// against it (stage `assume-joined`; kink-native `DataFacts::refused_names`: a name must name
+/// exactly one finding, and not a decided one). A definition exclusion refuses nothing.
 fn baseline_data(
     backend: &mut Backend,
+    kore: &k_rust::kore::ast::Definition,
+    builtin_source_prefixes: &[String],
     assume_joined: &[String],
-) -> Result<DataFacts, AdmissionRefusal> {
+) -> Result<(DataFacts, DefinitionExclusions), AdmissionRefusal> {
     let selected = backend
         .select_definition(None)
-        .map_err(|e| AdmissionRefusal {
-            stage: "inputs".into(),
-            reason: "input-gate".into(),
-            detail: e.to_string(),
-        })?;
+        .map_err(|e| input_gate_refusal(e.to_string()))?;
     let data = DataFacts::of(&selected, assume_joined);
     let refused = data.refused_names();
     if refused.is_empty() {
-        Ok(data)
+        let exclusions = DefinitionExclusions::of(kore, &selected, builtin_source_prefixes);
+        Ok((data, exclusions))
     } else {
         Err(AdmissionRefusal {
             stage: "assume-joined".into(),

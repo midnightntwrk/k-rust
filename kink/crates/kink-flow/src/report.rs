@@ -98,8 +98,9 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// and to executed entries; 10 since fz26 KINK-BASELINE-FINDINGS added `data`, a row's
 /// `findings` and a program row's `unable_to_kill`; 11 since kink27 R5-WEAKENING added the status
 /// `unkillable` (reason `weakening`) and each row's `weakening`; 12 since CF-16 added each executed
-/// entry's `difference`, the sides of a cached or one-sided kill, and each program row's `ends`.
-pub const RUN_VERSION: u64 = 12;
+/// entry's `difference`, the sides of a cached or one-sided kill, and each program row's `ends`;
+/// 13 since CF-02 added `spec.exclusion`, the definition exclusion and its causes.
+pub const RUN_VERSION: u64 = 13;
 
 /// k-rust's contradicted-claim records of one run as specification diagnostics (re-pin adoption
 /// A-1): each `{claim, symbol, k_label, rule_id, rule_label, application, undefined,

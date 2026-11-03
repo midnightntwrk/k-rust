@@ -3,7 +3,7 @@
 
 use crate::{
     CorpusSource, ProgramSource, SourceFile, load_source,
-    manifest::{CorpusInput, CorpusManifest, DefinitionSpec, exclusion_applies, path_excluded},
+    manifest::{CorpusInput, CorpusManifest, DefinitionSpec, case_applies, path_in_case},
     resolver::read_under_root,
     runner::{CLASSIFIER, all_normal, corpus_run_options, run_definition},
     store::{Store, StoreError, time_bound_fired},
@@ -485,13 +485,11 @@ fn verify_admission_stages(
             })
             .collect::<Vec<_>>()
     });
-    if corpus.exclusions().iter().any(|exclusion| {
-        exclusion_applies(definition, exclusion)
-            || parts
-                .as_ref()
-                .is_some_and(|p| path_excluded(p, &exclusion.case))
+    if corpus.refused_cases().iter().any(|case| {
+        case_applies(definition, case)
+            || parts.as_ref().is_some_and(|p| path_in_case(p, &case.case))
     }) {
-        return Err(invalid("stored definition is excluded"));
+        return Err(invalid("stored definition is a refused case"));
     }
     if definition
         .requires_profile
@@ -565,7 +563,7 @@ fn verify_sources(
         }
     }
     // Every file admission read, definition sources and file-backed test inputs alike, is
-    // checked against the exclusions, as admission checks its record's file list (flow F-16,
+    // checked against the refused cases, as admission checks its record's file list (flow F-16,
     // F-17): a store admitted before that check cannot resume a definition that reads a
     // below-floor file.
     let read = expected
@@ -575,13 +573,13 @@ fn verify_sources(
             sha256: *sha256,
         })
         .collect::<Vec<_>>();
-    crate::admission::check_loaded_exclusions(
-        corpus.exclusions(),
+    crate::admission::check_loaded_refused_cases(
+        corpus.refused_cases(),
         Path::new(&definition.root.path),
         &root,
         &read,
     )
-    .map_err(|_| invalid("stored definition is excluded"))?;
+    .map_err(|_| invalid("stored definition is a refused case"))?;
     let files = expected
         .into_iter()
         .map(|(name, sha256)| json!({"name":name,"sha256":sha256.to_string()}))

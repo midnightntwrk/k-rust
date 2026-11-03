@@ -94,7 +94,7 @@ fn calc_is_admitted_with_every_program_ok_and_the_document_is_exact() {
         ]
     );
     assert_eq!(document["schema"], "kink-flow-check");
-    assert_eq!(document["version"], 2);
+    assert_eq!(document["version"], 3);
     // Without --mutations no list is checked.
     for key in ["mutation_list", "mutations", "coverage"] {
         assert!(document[key].is_null(), "{key}");
@@ -108,10 +108,14 @@ fn calc_is_admitted_with_every_program_ok_and_the_document_is_exact() {
     );
     assert_eq!(
         keys(&document["spec"]),
-        ["detail", "files", "outcome", "reason", "stage"]
+        ["detail", "exclusion", "files", "outcome", "reason", "stage"]
     );
     assert_eq!(document["spec"]["outcome"], "admitted");
     assert!(document["spec"]["stage"].is_null() && document["spec"]["reason"].is_null());
+    assert!(
+        document["spec"]["exclusion"].is_null(),
+        "calc has no exclusion"
+    );
     assert_eq!(
         document["spec"]["files"],
         serde_json::json!([{"name": "calc.k", "sha256": sha256(CALC_K.as_bytes()).to_string()}])
@@ -368,7 +372,7 @@ start_sort = "Int"
 }
 
 #[test]
-fn below_floor_paths_are_excluded_for_the_entry_and_every_loaded_file() {
+fn below_floor_paths_are_refused_for_the_entry_and_every_loaded_file() {
     // The entry lies inside a below-floor conformance case directory.
     let dir = scratch("excluded").join("k-distribution/tests/regression-new/let-test/flow");
     write(&dir.join("calc.k"), CALC_K);
@@ -380,7 +384,7 @@ fn below_floor_paths_are_excluded_for_the_entry_and_every_loaded_file() {
     let (stage, reason, detail) = spec_refusal(&admission);
     assert_eq!(
         (stage.as_str(), reason.as_str()),
-        ("exclusion", "below-floor")
+        ("refused-case", "below-floor")
     );
     assert_eq!(
         detail,
@@ -393,7 +397,7 @@ fn below_floor_paths_are_excluded_for_the_entry_and_every_loaded_file() {
     let alias = scratch("excluded-alias");
     std::os::unix::fs::symlink(&dir, alias.join("spec")).unwrap();
     let (stage, ..) = spec_refusal(&admit_manifest(&alias.join("spec/FLOW.toml")));
-    assert_eq!(stage, "exclusion");
+    assert_eq!(stage, "refused-case");
 
     // The entry is clean but requires a file inside a below-floor case directory.
     let dir = scratch("excluded-include");
@@ -413,7 +417,7 @@ fn below_floor_paths_are_excluded_for_the_entry_and_every_loaded_file() {
     let (stage, reason, _) = spec_refusal(&admission);
     assert_eq!(
         (stage.as_str(), reason.as_str()),
-        ("exclusion", "below-floor")
+        ("refused-case", "below-floor")
     );
     assert_eq!(
         admission
@@ -642,7 +646,7 @@ fn check_resolves_every_mutation_and_runs_no_program() {
     );
     let (document, status) = check_list(&manifest, &mutations, None);
     assert_eq!(status, EXIT_CORPUS, "{document:#}");
-    assert_eq!(document["version"], 2);
+    assert_eq!(document["version"], 3);
     assert_eq!(document["spec"]["outcome"], "admitted");
     assert_eq!(document["mutation_list"]["outcome"], "ok");
     // Nothing ran and nothing was written: no cache, so no unreached-rule warning.
@@ -783,8 +787,383 @@ fn the_binary_checks_a_mutations_directory() {
     }
 }
 
+// ---------------------------------------------------------------------------------------
+// CF-02: definition exclusions at admission, their cause chains, and `check`'s rule that it
+// fails when a program cannot be judged on the baseline.
+
+const SCFETCH_K: &str = include_str!("../../../testdata/k/r0c/scfetch.k");
+
+/// The 1-based line of `scfetch.k` that holds `text`.
+fn scfetch_line(text: &str) -> u64 {
+    SCFETCH_K
+        .lines()
+        .position(|line| line.contains(text))
+        .map(|index| index as u64 + 1)
+        .unwrap_or_else(|| panic!("scfetch.k holds {text:?}"))
+}
+
+/// SM83's shape at a state that still depends on the short-circuit reading (kink-native's
+/// fixture `r0c/scfetch.k`): the rules `fetch` and `fetch-halt-bug` apply `decode`, whose
+/// condition skips a `bitRangeInt` operand below `andThenBool` under `notBool`. Two programs.
+fn scfetch_flow(name: &str) -> PathBuf {
+    let dir = scratch(name);
+    write(&dir.join("scfetch.k"), SCFETCH_K);
+    write(
+        &dir.join("FLOW.toml"),
+        "[spec]\nentry = \"scfetch.k\"\nmain_module = \"SCFETCH\"\nsyntax_module = \
+         \"SCFETCH-SYNTAX\"\n\n[[program]]\nid = \"fetch\"\ntext = \"# fetch\"\n\n\
+         [[program]]\nid = \"again\"\ntext = \"# fetch\"\n",
+    );
+    dir
+}
+
+/// A definition with no exclusion of its own whose programs `g1` and `g0` apply `g`, a total
+/// function whose value depends on whether `orBool` skips an operand that may be undefined
+/// (`1 /Int X`), which no rule applies; the program `plain` does not apply it. k-rust evaluates
+/// every operand, so `g(0)` is undefined and its run contradicts `g`'s `total` claim.
+fn initial_state_flow(name: &str) -> PathBuf {
+    let dir = scratch(name);
+    write(
+        &dir.join("sc.k"),
+        "module SC-SYNTAX
+  imports INT-SYNTAX
+  imports BOOL-SYNTAX
+  syntax Pgm ::= run(Bool) [symbol(run)]
+  syntax Bool ::= g(Int) [function, total, symbol(g)]
+endmodule
+
+module SC
+  imports SC-SYNTAX
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Pgm </k> <out> false </out>
+  rule g(X) => true orBool (1 /Int X ==Int 1)
+  rule [run]: <k> run(B) => .K </k> <out> _ => B </out>
+endmodule
+",
+    );
+    write(
+        &dir.join("FLOW.toml"),
+        "[spec]\nentry = \"sc.k\"\nmain_module = \"SC\"\nsyntax_module = \"SC-SYNTAX\"\n\n\
+         [[program]]\nid = \"g1\"\ntext = \"run(g(1))\"\n\n\
+         [[program]]\nid = \"g0\"\ntext = \"run(g(0))\"\n\n\
+         [[program]]\nid = \"plain\"\ntext = \"run(true)\"\n",
+    );
+    dir
+}
+
+fn on_stack<T: Send + 'static>(body: impl FnOnce() -> T + Send + 'static) -> T {
+    std::thread::Builder::new()
+        .stack_size(kink_corpus::cli::DEFINITION_STACK_BYTES)
+        .spawn(body)
+        .unwrap()
+        .join()
+        .unwrap()
+}
+
+/// The cause in `exclusion` of the rule labelled `label`.
+#[track_caller]
+fn cause_of<'e>(exclusion: &'e Value, label: &str) -> &'e Value {
+    exclusion["causes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|cause| cause["rule"]["label"] == label)
+        .unwrap_or_else(|| panic!("{label}: {exclusion:#}"))
+}
+
+/// `check` on SM83's shape: admission computes the definition exclusion and admits the
+/// specification and both programs, `spec.exclusion` names, for each of `fetch` and
+/// `fetch-halt-bug`, the rule, `decode` with the equation and the part of it through which it
+/// depends on the reading, `andThenBool` and the `bitRangeInt` operand, each with its module,
+/// position and compiled id, and every program is `excluded` at stage `definition`, so `check`
+/// exits 1, with and without `--mutations`.
+#[test]
+fn a_definition_exclusion_names_its_cause_chain_and_fails_check() {
+    let dir = scfetch_flow("scfetch");
+    let manifest = dir.join("FLOW.toml");
+    let (admission, (document, status)) = {
+        let manifest = manifest.clone();
+        on_stack(move || (admit_manifest(&manifest), check(&manifest)))
+    };
+    assert!(admission.all_admitted(), "{}", admission.record.text());
+    assert!(!admission.all_judgeable());
+    assert_eq!(
+        admission
+            .spec
+            .as_ref()
+            .unwrap()
+            .exclusions
+            .definition_exclusion(),
+        Some(kink_native::exclusion::Exclusion::ShortCircuitReading)
+    );
+    assert_eq!(status, EXIT_CORPUS, "{document:#}");
+    assert_eq!(document["version"], 3);
+    assert_eq!(document["spec"]["outcome"], "admitted");
+    for program in document["programs"].as_array().unwrap() {
+        assert_eq!(
+            (&program["outcome"], &program["stage"], &program["reason"]),
+            (
+                &Value::from("excluded"),
+                &Value::from("definition"),
+                &Value::from("short-circuit-reading")
+            ),
+            "{program:#}"
+        );
+        assert!(
+            program["detail"]
+                .as_str()
+                .unwrap()
+                .contains("spec.exclusion"),
+            "{program:#}"
+        );
+    }
+    let exclusion = &document["spec"]["exclusion"];
+    assert_eq!(
+        exclusion["exclusion"], "short-circuit-reading",
+        "{exclusion:#}"
+    );
+    assert_eq!(
+        exclusion["causes"].as_array().unwrap().len(),
+        2,
+        "{exclusion:#}"
+    );
+    let detail = exclusion["detail"].as_str().unwrap();
+    for (label, text) in [
+        ("SCFETCH.fetch", "rule [fetch]:"),
+        ("SCFETCH.fetch-halt-bug", "rule [fetch-halt-bug]:"),
+    ] {
+        let cause = cause_of(exclusion, label);
+        let rule = &cause["rule"];
+        assert_eq!(rule["module"], "SCFETCH");
+        assert_eq!(rule["source"], "scfetch.k", "{rule:#}");
+        assert_eq!(
+            rule["location"]["start_line"],
+            scfetch_line(text),
+            "{rule:#}"
+        );
+        assert_eq!(rule["id"].as_str().unwrap().len(), 64, "{rule:#}");
+        assert_eq!(cause["effect"], "applicability");
+        assert_eq!(cause["part"], serde_json::json!({"part": "right-side"}));
+        let links = cause["links"].as_array().unwrap();
+        assert_eq!(links.len(), 2, "{cause:#}");
+        let (function, operator) = (&links[0], &links[1]);
+        assert_eq!(function["link"], "function");
+        assert_eq!(function["function"]["id"], "Lbldecode");
+        assert_eq!(
+            function["function"]["location"]["start_line"],
+            scfetch_line("syntax Instr ::= decode"),
+        );
+        assert_eq!(function["dependence"], "valued");
+        let equation = &function["equation"];
+        assert_eq!(equation["label"], "SCFETCH.decode-inc", "{equation:#}");
+        assert_eq!(equation["source"], "scfetch.k");
+        assert_eq!(
+            equation["location"]["start_line"],
+            scfetch_line("rule [decode-inc]")
+        );
+        assert_eq!(equation["id"].as_str().unwrap().len(), 64);
+        assert_eq!(function["part"]["part"], "condition");
+        assert_eq!(operator["link"], "operator");
+        assert_eq!(operator["operator"]["hook"], "BOOL.andThen");
+        assert!(!operator["operator"]["location"].is_null(), "{operator:#}");
+        assert_eq!(operator["position"], 1);
+        assert_eq!(operator["operand"]["rendering"], "k", "{operator:#}");
+        assert_eq!(
+            operator["operand"]["text"],
+            "bitRangeInt ( Op:Int , Off:Int , 2 ) ==Int 0"
+        );
+        assert_eq!(
+            operator["term"]["text"],
+            "bitRangeInt ( Op:Int , Off:Int , 2 )"
+        );
+        assert_eq!(operator["term_symbol"]["hook"], "INT.bitRange");
+        // The text names the same chain, with positions.
+        let line = scfetch_line(text);
+        assert!(
+            detail.contains(&format!("rule {label} (scfetch.k:{line}:")),
+            "{detail}"
+        );
+    }
+    for part in [
+        "which applies decode (declared at scfetch.k:",
+        "through its equation SCFETCH.decode-inc (scfetch.k:",
+        "which applies _andThenBool_ (BOOL.andThen, declared at ",
+        "over its operand 1 `bitRangeInt ( Op:Int , Off:Int , 2 ) ==Int 0`",
+        "where `bitRangeInt ( Op:Int , Off:Int , 2 )` (bitRangeInt",
+    ] {
+        assert!(detail.contains(part), "{part:?} in {detail}");
+    }
+
+    // With a mutation list that resolves, the rule is the same.
+    write(
+        &dir.join("MUTATIONS.toml"),
+        &one_edit(
+            "unknown-op",
+            "  rule = \"decode-unknown\"\n  find = \"unknown(Op)\"\n  replace = \"inc(Op)\"",
+        ),
+    );
+    let (document, status) = {
+        let mutations = dir.join("MUTATIONS.toml");
+        on_stack(move || check_list(&manifest, &mutations, None))
+    };
+    assert_eq!(status, EXIT_CORPUS, "{document:#}");
+    assert_eq!(
+        row(&document, "unknown-op")["outcome"],
+        "ok",
+        "{document:#}"
+    );
+    assert_eq!(
+        document["spec"]["exclusion"]["exclusion"],
+        "short-circuit-reading"
+    );
+}
+
+/// A program whose initial configuration applies a function whose value depends on the
+/// short-circuit reading is `excluded` at stage `initial-state`, alone: the definition has no
+/// exclusion, the program that does not apply it is `ok`, and `check` exits 1.
+#[test]
+fn a_program_whose_initial_configuration_is_excluded_fails_check_alone() {
+    let manifest = initial_state_flow("initial-state").join("FLOW.toml");
+    let (admission, (document, status)) =
+        on_stack(move || (admit_manifest(&manifest), check(&manifest)));
+    assert!(admission.all_admitted(), "{}", admission.record.text());
+    assert!(!admission.all_judgeable());
+    assert_eq!(
+        admission
+            .programs
+            .iter()
+            .map(|p| (
+                p.id.as_str(),
+                p.exclusion.map(|e| (e.exclusion.name(), e.scope.name()))
+            ))
+            .collect::<Vec<_>>(),
+        [
+            ("g1", Some(("short-circuit-reading", "initial-state"))),
+            ("g0", Some(("short-circuit-reading", "initial-state"))),
+            ("plain", None)
+        ]
+    );
+    assert_eq!(status, EXIT_CORPUS, "{document:#}");
+    assert!(document["spec"]["exclusion"].is_null(), "{document:#}");
+    let g1 = &document["programs"][0];
+    assert_eq!(
+        (&g1["outcome"], &g1["stage"], &g1["reason"]),
+        (
+            &Value::from("excluded"),
+            &Value::from("initial-state"),
+            &Value::from("short-circuit-reading")
+        ),
+        "{g1:#}"
+    );
+    assert!(
+        g1["detail"]
+            .as_str()
+            .unwrap()
+            .contains("initial configuration"),
+        "{g1:#}"
+    );
+    assert_eq!(document["programs"][2]["outcome"], "ok");
+}
+
 mod kink_tier {
     use super::*;
+
+    /// `results` and `run` print the definition exclusion as `check` prints it (one formatter),
+    /// and each excluded program's cause says why every run of it is excluded, as `check` says it:
+    /// for the definition exclusion and for an excluded initial configuration. A reason only the
+    /// run shows can come first (`g0`'s run contradicts `g`'s `total` claim): the program is not
+    /// judged either way.
+    #[test]
+    #[ignore = "kink"]
+    fn results_and_run_print_the_exclusion_as_check_does() {
+        use kink_flow::{
+            cli::{results, run},
+            results::ResultsOptions,
+            search::RunOptions,
+        };
+        let dir = scfetch_flow("scfetch-results");
+        write(
+            &dir.join("MUTATIONS.toml"),
+            &one_edit(
+                "unknown-op",
+                "  rule = \"decode-unknown\"\n  find = \"unknown(Op)\"\n  replace = \"inc(Op)\"",
+            ),
+        );
+        let manifest = dir.join("FLOW.toml");
+        let (checked, results_document, run_document) = on_stack(move || {
+            let (checked, _) = check(&manifest);
+            let (results_document, status) = results(
+                &manifest,
+                &ResultsOptions {
+                    cache: Some(dir.join("cache")),
+                    ..ResultsOptions::default()
+                },
+            );
+            assert_eq!(
+                status, EXIT_OK,
+                "an unknown program is no error of results: {results_document:#}"
+            );
+            let (run_document, _) = run(
+                &manifest,
+                &dir.join("MUTATIONS.toml"),
+                &RunOptions {
+                    cache: Some(dir.join("cache")),
+                    ..RunOptions::default()
+                },
+            );
+            (checked, results_document, run_document)
+        });
+        let exclusion = &checked["spec"]["exclusion"];
+        assert_eq!(exclusion["exclusion"], "short-circuit-reading");
+        assert_eq!(&results_document["spec"]["exclusion"], exclusion);
+        assert_eq!(&run_document["spec"]["exclusion"], exclusion);
+        let detail = checked["programs"][0]["detail"].as_str().unwrap();
+        for program in results_document["programs"].as_array().unwrap() {
+            assert_eq!(program["class"], "unknown", "{program:#}");
+            let cause = program["cause"].as_str().unwrap();
+            assert!(
+                cause.contains(&format!(
+                    "the run is excluded (short-circuit-reading): {detail}"
+                )),
+                "{cause}"
+            );
+        }
+
+        let manifest = initial_state_flow("initial-state-results").join("FLOW.toml");
+        let cache = manifest.parent().unwrap().join("cache");
+        let (checked, results_document) = on_stack(move || {
+            let (checked, _) = check(&manifest);
+            let (results_document, _) = results(
+                &manifest,
+                &ResultsOptions {
+                    cache: Some(cache),
+                    ..ResultsOptions::default()
+                },
+            );
+            (checked, results_document)
+        });
+        assert!(results_document["spec"]["exclusion"].is_null());
+        let detail = checked["programs"][0]["detail"].as_str().unwrap();
+        let g1 = &results_document["programs"][0];
+        assert_eq!(g1["class"], "unknown", "{g1:#}");
+        assert!(
+            g1["cause"].as_str().unwrap().contains(&format!(
+                "the run is excluded (short-circuit-reading): {detail}"
+            )),
+            "{g1:#}"
+        );
+        let g0 = &results_document["programs"][1];
+        assert_eq!(g0["class"], "unknown", "{g0:#}");
+        assert!(
+            g0["cause"]
+                .as_str()
+                .unwrap()
+                .contains("the run is excluded (contradicted-claim)"),
+            "{g0:#}"
+        );
+        assert_eq!(results_document["programs"][2]["class"], "comparable");
+    }
 
     /// With every program's result cached, `check` warns of an edited rule no comparable
     /// program witnesses; `run` exits 1 when a selected mutation is invalid.

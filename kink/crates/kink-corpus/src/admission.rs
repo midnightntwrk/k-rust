@@ -4,8 +4,8 @@ use crate::{
     InputAssembler, InputGrammar, LoadedSource, ProgramSource, SourceFile, TestInputSpec,
     assemble_input_with,
     manifest::{
-        BELOW_FLOOR, CorpusInput, CorpusManifest, DefinitionSpec, Exclusion, exclusion_applies,
-        normalized, path_excluded,
+        BELOW_FLOOR, CorpusInput, CorpusManifest, DefinitionSpec, RefusedCase, case_applies,
+        normalized, path_in_case,
     },
 };
 use k_rust::{
@@ -130,7 +130,9 @@ pub fn admit_definition(
         .definitions
         .iter()
         .find(|d| d.id == definition_id)
-        .ok_or_else(|| AdmissionRefusal::new("exclusion", "other", "definition is not listed"))
+        .ok_or_else(|| {
+            AdmissionRefusal::new(REFUSED_CASE_STAGE, "other", "definition is not listed")
+        })
         .and_then(|d| admit(manifest, d, workspace, &mut record));
     match result {
         Ok(admitted) => AdmissionResult {
@@ -152,10 +154,10 @@ fn admit(
     workspace: &Path,
     record: &mut AdmissionRecord,
 ) -> Result<AdmittedDefinition, AdmissionRefusal> {
-    check_exclusions(
-        &manifest.exclusions,
+    check_refused_cases(
+        &manifest.refused_cases,
         &workspace.join(&d.root.path).join(&d.entry),
-        |exclusion| exclusion_applies(d, exclusion),
+        |case| case_applies(d, case),
     )?;
     if d.requires_profile
         .is_some_and(|p| p != SolverProfile::BUILD)
@@ -172,8 +174,8 @@ fn admit(
     // The record's file list holds the definition sources and the file-backed test inputs
     // (program files and kore_state files), so both are checked; the resume binding
     // (cli.rs `verify_sources`) checks the same set (flow F-17).
-    check_loaded_exclusions(
-        &manifest.exclusions,
+    check_loaded_refused_cases(
+        &manifest.refused_cases,
         Path::new(&d.root.path),
         &loaded.root,
         &record.files,
@@ -233,16 +235,23 @@ fn admit(
     })
 }
 
-/// The citation every corpus manifest gives for a below-floor exclusion
+/// The admission stage that refuses a definition the manifest lists as a refused case (its id,
+/// or a conformance case directory that encloses its entry or a file its load reads), with the
+/// case's reason and citation; also the stage of a definition id the manifest does not list.
+/// A refused case is not an exclusion: kink's exclusions are runs that are no evidence
+/// (kink-native `exclusion`), and a refused case is never admitted, so it has no runs.
+pub const REFUSED_CASE_STAGE: &str = "refused-case";
+
+/// The citation every corpus manifest gives for a below-floor case
 /// (manifest.rs requires exactly this text for each `BELOW_FLOOR` case).
 pub const BELOW_FLOOR_CITATION: &str = "../k-rust-927b9ce6-intake/findings/verify.md section 4";
 
-/// The below-floor exclusions a corpus manifest must list, in `BELOW_FLOOR` order, for
+/// The below-floor cases a corpus manifest must list, in `BELOW_FLOOR` order, for
 /// callers that admit a definition without a corpus manifest.
-pub fn below_floor_exclusions() -> Vec<Exclusion> {
+pub fn below_floor_cases() -> Vec<RefusedCase> {
     BELOW_FLOOR
         .iter()
-        .map(|case| Exclusion {
+        .map(|case| RefusedCase {
             case: (*case).into(),
             reason: "below-floor".into(),
             citation: BELOW_FLOOR_CITATION.into(),
@@ -252,7 +261,7 @@ pub fn below_floor_exclusions() -> Vec<Exclusion> {
 
 /// Whether `path`, normalized lexically (a leading root is ignored and no link is
 /// resolved), lies inside the full conformance case directory `case`: the lexical identity
-/// match that `exclusion_applies` makes for a manifest's root and entry.
+/// match that `case_applies` makes for a manifest's root and entry.
 pub fn path_names_case(path: &Path, case: &str) -> bool {
     let relative = path
         .components()
@@ -261,29 +270,29 @@ pub fn path_names_case(path: &Path, case: &str) -> bool {
     relative
         .to_str()
         .and_then(|p| normalized(p).ok())
-        .is_some_and(|parts| path_excluded(&parts, case))
+        .is_some_and(|parts| path_in_case(&parts, case))
 }
 
-/// Exclusion stage: the first exclusion that `applies` (the caller's identity match), or
+/// Refused-case stage: the first refused case that `applies` (the caller's identity match), or
 /// whose conformance case directory encloses `path` once links are resolved, refuses with
 /// its reason and citation. Only path identities are inspected: an alias cannot hide a
 /// below-floor source.
-pub fn check_exclusions(
-    exclusions: &[Exclusion],
+pub fn check_refused_cases(
+    cases: &[RefusedCase],
     path: &Path,
-    applies: impl Fn(&Exclusion) -> bool,
+    applies: impl Fn(&RefusedCase) -> bool,
 ) -> Result<(), AdmissionRefusal> {
-    for exclusion in exclusions {
-        if applies(exclusion) || resolved_names_case(path, &exclusion.case) {
-            return Err(exclusion_refusal(exclusion));
+    for case in cases {
+        if applies(case) || resolved_names_case(path, &case.case) {
+            return Err(case_refusal(case));
         }
     }
     Ok(())
 }
 
-/// Exclusion stage over the files a load read (corpus-scale CS-12 review 1, flow F-16): the
-/// first exclusion, in list order, whose conformance case directory encloses one of `files`
-/// refuses with its reason and citation, exactly as for an excluded entry. Each file is named
+/// Refused-case stage over the files a load read (corpus-scale CS-12 review 1, flow F-16): the
+/// first refused case, in list order, whose conformance case directory encloses one of `files`
+/// refuses with its reason and citation, exactly as for a refused entry. Each file is named
 /// by its logical name under the definition root and is matched both lexically under
 /// `lexical_root` (the root as the manifest names it) and once links are resolved under
 /// `canonical_root`. A file's name is the one its caller records: a source under the name
@@ -296,25 +305,25 @@ pub fn check_exclusions(
 /// below-floor file into a definition whose entry lies outside every case directory.
 /// kink-flow passes its definition's sources only; its program files are not checked here
 /// (flow F-17 review 1, minor 1).
-pub fn check_loaded_exclusions(
-    exclusions: &[Exclusion],
+pub fn check_loaded_refused_cases(
+    cases: &[RefusedCase],
     lexical_root: &Path,
     canonical_root: &Path,
     files: &[SourceFile],
 ) -> Result<(), AdmissionRefusal> {
-    for exclusion in exclusions {
+    for case in cases {
         if files.iter().any(|file| {
-            path_names_case(&lexical_root.join(&file.name), &exclusion.case)
-                || resolved_names_case(&canonical_root.join(&file.name), &exclusion.case)
+            path_names_case(&lexical_root.join(&file.name), &case.case)
+                || resolved_names_case(&canonical_root.join(&file.name), &case.case)
         }) {
-            return Err(exclusion_refusal(exclusion));
+            return Err(case_refusal(case));
         }
     }
     Ok(())
 }
 
-fn exclusion_refusal(exclusion: &Exclusion) -> AdmissionRefusal {
-    AdmissionRefusal::new("exclusion", &exclusion.reason, &exclusion.citation)
+fn case_refusal(case: &RefusedCase) -> AdmissionRefusal {
+    AdmissionRefusal::new(REFUSED_CASE_STAGE, &case.reason, &case.citation)
 }
 
 /// Whether `path`, once links are resolved, lies inside the full conformance case directory
@@ -328,7 +337,7 @@ fn resolved_names_case(path: &Path, case: &str) -> bool {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        path_excluded(&parts, case)
+        path_in_case(&parts, case)
     })
 }
 

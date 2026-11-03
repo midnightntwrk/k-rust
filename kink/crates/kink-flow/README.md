@@ -17,7 +17,8 @@ report usability: named oracle slots, timings, leaf censuses in the causes of st
 per-input pattern checks with the `query` command (flow F-18; "Checking a pattern" below),
 the `fuzz` command: hole values of a template program that kill a mutation, reach a rule or hit a pattern, found by k-rust-fuzz on kink's own sides (fz26 P7-KINKFLOW T3a and T5; "Killing a survivor with `fuzz`" below),
 the mutations directory, anchors by a suffix of a label's components and the required `misunderstanding` (CF-13; `MUTATIONS.toml` below),
-and the resolve-only check of a mutation list, `check --mutations` (CF-18; "Checking mutations" below).
+the resolve-only check of a mutation list, `check --mutations` (CF-18; "Checking mutations" below),
+and the definition exclusions read at admission, each named with its causes by one formatter for every command, with `check` failing when a program cannot be judged on the baseline (CF-02; "When `check` fails" below).
 
 ## Building
 
@@ -75,12 +76,12 @@ Defaults:
 | `program.variables` | none | Every configuration variable other than `$PGM` must be given; streams default to empty (`$IO` to `"off"`, `$STDIN` to `""`). On a definition with stream cells a program may not bind `$IO` (refused at `inputs`, reason `stream-mode`): with IO off the stream cells hold the text printed and the input not yet read, so a final configuration states the program's output. |
 
 The tool supplies everything else: the k-rust revision is the build's (every output's `k_rust_revision` is k-rust's build identity, `k_rust::build_identity`: the version of the in-repo k-rust kink is built with and a digest of its sources; the semantics identity and the cache keys name the version, `kink_native::K_RUST_REVISION`, beside the executable's digest),
-and the below-floor conformance cases (kink-corpus `BELOW_FLOOR`) are refused for the entry and for every file the load reads.
+and the below-floor conformance cases (kink-corpus `BELOW_FLOOR`) are refused for the entry and for every file the load reads (stage `refused-case`).
 
 ## `kink-flow check FLOW.toml [--mutations MUTATIONS] [--cache DIR]`
 
 Admits the specification through kink-corpus's admission stages, with the same stage names and refusal reasons:
-`manifest` (this crate: the manifest does not decode), `exclusion`, `load`, `semantic-input`, `compile`,
+`manifest` (this crate: the manifest does not decode), `refused-case` (a below-floor conformance case), `load`, `semantic-input`, `compile`,
 `representation`, `declaration-census` and `inputs`, then `assume-joined` (this crate: the definition's full
 critical-pair check on the input backend, against `[spec] assume_joined`).
 The declaration census passes a hooked symbol whose hook its reference declares with the same argument and result sorts (rule H), or one whose hook the reference does not declare and k-rust has no evaluator for (inert); any other hooked symbol is refused (`vi-t13`).
@@ -91,20 +92,46 @@ Then each program is admitted on its own (file read: stage `load`; parse: `input
 other assembly failures: `inputs`/`assemble`; the concrete-state check and the input gate: `inputs`/`input-gate`).
 A refused specification skips the programs; a refused program never stops the others.
 
+Beside the data facts, admission reads the definition exclusions of the input backend's load, the facts the campaign runner reads for every run (kink-native `DefinitionExclusions`; root README, "What a kill trusts"),
+and decides for each admitted program whether every run of it on the baseline is excluded before it runs:
+by the definition exclusion, which excludes every run on the specification, or by the exclusion of the program's initial configuration (it applies a hook whose value the definition leaves open, or a function or operator whose value depends on the short-circuit reading).
+Neither refuses anything: `results` still runs such a program and gives it no comparable class; its cause says this exclusion as `check` says it, unless a reason only the run shows comes first (a timeout, or a run that contradicts a claim).
+
+**When `check` fails.** `check` fails when any program cannot be judged on the baseline, whatever the reason.
+A program is judged on the baseline when `results` can give it a class from its baseline run; `check` decides what can be decided without running it:
+a program cannot be judged when the specification is refused, when the program is refused, or when every run of it is excluded.
+A definition exclusion is one such reason, not a special case: it makes every program `excluded`.
+What only a run shows (a timeout, a final configuration kink does not compare, an exclusion a run's own lists give) is `results`' class, not `check`'s: `check` runs no program.
+A finding of the critical-pair check that `[spec] assume_joined` leaves unnamed does not stop a program from being judged (`results` gives it its class and marks it `unable_to_kill`), so it does not make `check` fail.
+
 It prints one JSON document:
 
 ```json
-{"schema": "kink-flow-check", "version": 2, "k_rust_revision": "...", "profile": "no-z3",
+{"schema": "kink-flow-check", "version": 3, "k_rust_revision": "...", "profile": "no-z3",
  "spec": {"outcome": "admitted", "stage": null, "reason": null, "detail": null,
-          "files": [{"name": "calc.k", "sha256": "..."}]},
+          "files": [{"name": "calc.k", "sha256": "..."}], "exclusion": null},
  "programs": [{"id": "add", "outcome": "ok", "stage": null, "reason": null, "detail": null}],
  "mutation_list": null, "mutations": null, "coverage": null}
 ```
 
-Version 2 (CF-18) adds `mutation_list`, `mutations` and `coverage`, which are null without `--mutations`.
+A program's `outcome` is `ok`; `refused`, with the stage, reason and detail of the refusal; or `excluded`: admitted, but every run of it on the baseline is excluded, with stage `definition` (the definition exclusion) or `initial-state` (its initial configuration's), the exclusion's name as `reason` (`short-circuit-reading`, `implementation-chosen-hook`, `equals-condition`, `load-stack-stop`) and why as `detail`.
 
-Exit status: 0 when the specification is admitted, every program is ok and, with `--mutations`, the list decodes and no mutation is refused (warnings do not count);
-1 when the manifest, the specification, a program, the mutation list or a mutation is refused; 2 on a usage error (message on stderr).
+`spec.exclusion` is the definition exclusion, null when there is none (or the specification is refused): `{exclusion, detail, causes}`.
+`detail` says what makes it hold, naming each sentence with its position (`file:start_line:start_column-end_line:end_column`, the file as the load named it; a builtin's is `krust-builtin://...`), at most eight causes; `causes` lists every one.
+For `short-circuit-reading`, each cause is one rule's chain `{rule, effect, part, links}`:
+`effect` is `applicability` (whether the rule applies can differ between a backend that evaluates every operand and one that skips an operand a short-circuit operator does not need) or `result` (its result can be undefined in k-rust's reading where a skipping backend gives a value);
+`part` is where in the rule the first link sits (`{part: "condition", leaf}` or `{part: "right-side"}`);
+and `links` go from the rule to the operator, each `{link: "function", function, dependence, equation, part}`, a function applied there with the equation (and the part of it) through which it depends on the reading (`dependence` `valued` or `undefined`),
+or `{link: "operator", operator, position, operand, term, term_symbol}`, the short-circuit operator, the position of the operand a backend may skip, the operand, and the application in it that may be undefined.
+A sentence is `{name, module, label, id, source, location}` (`id` its compiled `UNIQUE_ID`), a symbol `{id, module, label, hook, source, location}` (`id` its KORE name), and a term (`leaf`, `operand`, `term`) is printed as kill evidence prints a value (`{text, rendering, truncated}`, below under "Kill evidence").
+For `implementation-chosen-hook` a cause is `{sentence, symbol, hook}`, for `equals-condition` `{sentence}`; a `load-stack-stop` has none (`detail` gives the count).
+`results` and `run` print the definition exclusion with the same formatter (kink-flow `exclusion`), and `fuzz` its `detail`.
+
+Version 2 (CF-18) adds `mutation_list`, `mutations` and `coverage`, which are null without `--mutations`.
+Version 3 (CF-02) adds `spec.exclusion` and the program outcome `excluded`, and `check` exits 1 when a program cannot be judged on the baseline; before, a definition with a definition exclusion passed `check` with every program `ok`.
+
+Exit status: 0 when every program is `ok` (so the specification is admitted) and, with `--mutations`, the list decodes and no mutation is refused (warnings do not count);
+1 when the manifest, the specification, a program, the mutation list or a mutation is refused, or a program is `excluded`; 2 on a usage error (message on stderr).
 
 ### Checking mutations
 
@@ -205,7 +232,11 @@ supplies the class, the cause, the final states and the coverage (`diagnostic` c
 the campaign named the exclusion of the baseline run, the cause says that exclusion and why it
 holds, never a guess from the shape of the leaves (an excluded run's leaves can all be values); for
 `contradicted-claim` it points at the row's `specification_diagnostics` and says to fix the claim,
-not the program (re-pin adoption A-1b). When no exclusion is named and every path ended, the cause
+not the program (re-pin adoption A-1b). An exclusion that holds for every run of the program, the
+definition exclusion or its initial configuration's, is said as `check` says it (its program
+`detail`), and the document's `spec.exclusion` is the definition exclusion with its causes, as in
+the check document (null when there is none; added to version 4 without a new version, since it is
+additive). When no exclusion is named and every path ended, the cause
 names why a final configuration is not a value kink compares (fz26 KINK-CAUSE-SUBTERM): in the first
 leaf whose state's term has no terminal value, the first node, in pre-order, that fails its own test
 with its children ignored (a head that is not a free constructor, an overload application k-rust does
@@ -585,13 +616,13 @@ The document is the same either way: the exit status is how a script or an agent
 
 `run` prints one document and writes the same document to `.kink-flow/report.json` (after every mutation, and once more at the end):
 
-`{schema: "kink-flow-run", version: 12, k_rust_revision, profile, result_schema_version, kink_build, kink, spec, programs, unusable_programs, mutations, counts, survivors, stopped, outcome_cache, mismatches, baseline_runs, order, untargeted_rules, data}`; `data` (fz26 KINK-BASELINE-FINDINGS, also in the `results` and `query` documents; null in the run and `results` documents when the specification is refused, absent from a refused `query` document) is `{assume_joined, has_data, findings: [{name, verdict, assumed, description}]}`, the baseline's full critical-pair check under the premises.
-Version 3 (F-13) names the oracle slots of an executed entry, versions 4 to 6 add row fields (below), version 7 (packet CACHE-ID) adds `kink`, kink's semantics identity, version 8 (packet CACHE-ID-fix-1) adds `kink_build`, the SHA-256 of the executable that wrote it, version 9 (re-pin adoption A-1) adds `specification_diagnostics` and `smt_unknowns` to program rows and executed entries, version 10 (fz26 KINK-BASELINE-FINDINGS) adds `data`, the `findings` of a `baseline-findings` row and a comparable program row's `unable_to_kill`, version 11 (kink27 R5-WEAKENING) adds the status `unkillable` and each row's `weakening`, and version 12 (CF-16) adds each executed entry's `difference`, the sides of a cached or one-sided kill, and each program row's `ends`.
+`{schema: "kink-flow-run", version: 13, k_rust_revision, profile, result_schema_version, kink_build, kink, spec, programs, unusable_programs, mutations, counts, survivors, stopped, outcome_cache, mismatches, baseline_runs, order, untargeted_rules, data}`; `data` (fz26 KINK-BASELINE-FINDINGS, also in the `results` and `query` documents; null in the run and `results` documents when the specification is refused, absent from a refused `query` document) is `{assume_joined, has_data, findings: [{name, verdict, assumed, description}]}`, the baseline's full critical-pair check under the premises.
+Version 3 (F-13) names the oracle slots of an executed entry, versions 4 to 6 add row fields (below), version 7 (packet CACHE-ID) adds `kink`, kink's semantics identity, version 8 (packet CACHE-ID-fix-1) adds `kink_build`, the SHA-256 of the executable that wrote it, version 9 (re-pin adoption A-1) adds `specification_diagnostics` and `smt_unknowns` to program rows and executed entries, version 10 (fz26 KINK-BASELINE-FINDINGS) adds `data`, the `findings` of a `baseline-findings` row and a comparable program row's `unable_to_kill`, version 11 (kink27 R5-WEAKENING) adds the status `unkillable` and each row's `weakening`, version 12 (CF-16) adds each executed entry's `difference`, the sides of a cached or one-sided kill, and each program row's `ends`, and version 13 (CF-02) adds `spec.exclusion`.
 `report` prints the stored statuses without re-deriving them, so it refuses (`unreadable`) a document of another version, one written by another build (or naming none), and one whose `kink` is not this build's.
 
 | Field | Meaning |
 | --- | --- |
-| `spec` | `{outcome, stage, reason, detail, digest, files}`: the specification's admission and its digest. |
+| `spec` | `{outcome, stage, reason, detail, digest, files, exclusion}`: the specification's admission and its digest, and its definition exclusion with its causes (`exclusion`, since version 13; as in the check document, null when there is none). |
 | `programs` | The `results` rows `{id, digest, class, cause, cached, verify, wall_ms, specification_diagnostics, smt_unknowns, ends}` (`ends`, each end's computation head and class, since version 12), plus `rerun` for a timeout record run again. `specification_diagnostics` (the baseline run's contradicted-claim records, above) and `smt_unknowns` (its undecided solver answers, reported only) come from the result record (absent on a `refused` row, which has none). |
 | `unusable_programs` | Every program whose class is not `comparable`, once: `{id, class, cause}`. These programs are never run on a mutant. |
 | `mutations` | One row per selected mutation, in the list's order (below). |
@@ -836,7 +867,7 @@ program = "primes"         # a [[program]] of FLOW.toml (its text, start_sort an
 - **Target.** The differential target on all paths (`--one-path` for one), as kink compares complete state sets: a case is a hit when the mutant reaches an end the baseline cannot or the reverse, on ends that are data.
 - **Comparability is strict.** If a definition's full critical-pair check reports a finding no name assumes, the campaign is `not-comparable` and the document lists every finding (`findings`: side, name, verdict). Such a definition may identify the two ends a kill compares, so a kill there would hold in no model of it, and `run` refuses it too (`baseline-findings`). A finding is read as resolved only when you name it: the flow's `[spec] assume_joined` names are always passed, and `--assume-joined NAME` adds one for this command. A decided finding cannot be named; a genuine one can, but it is a premise known to be false, and the fragment says so.
 - **Budgets.** `--cases N` (default 1000) or `--work W`, `--seed S` (default 0), the library's blind proposer. Every case runs with `[budget] max_depth`, a safety limit of `[budget] time_ms` per execution, and a work bound of `--max-work N` (default 100000). `run` bounds the mutant at `work_factor` times the baseline's work plus 10000, so a kill whose mutant needs more is `unknown` there. `--time-limit-ms T` cancels the campaign's run after `T` ms (not the admission and compiles before it); a cancelled campaign is outside the determinism contract (`stopped: time-limit`). Otherwise the same inputs and seed give the same document, but for cases a clock or the stack decided: a case that `time_ms`, a solver `unknown` or a stop for lack of stack decided is outside the determinism contract (the embedded report's `totals.outside-determinism`), and since every later case depends on the cases before it, a re-run may differ from the first such case on (`totals.first-outside-determinism`, which also counts a candidate whose confirmation the clock stopped, and which the statement in `action` names); kink's confirmation runs under `time_ms` too.
-- **Definition exclusions.** Before any case, kink's definition exclusions are read on both sides as kink's runner reads them (kink-native `DefinitionExclusions::of_validated`, `definition_exclusion`). One on the mutant (an edit that brings in an implementation-chosen hook, a short-circuit reading, an equals condition, or a load stack stop) makes `run` report the mutation `unknown` with that reason; one on the baseline excludes every baseline run, so `run` finds no comparable program (`error`, `no-comparable-program`, each program's cause naming the exclusion). Either refuses the job with that status and reason (`job.refusal.stage: exclusions`, `job.exclusions`); nothing is fuzzed.
+- **Definition exclusions.** Before any case, kink's definition exclusions are read on both sides as kink's runner reads them (kink-native `DefinitionExclusions::of_validated`, `definition_exclusion`). One on the mutant (an edit that brings in an implementation-chosen hook, a short-circuit reading, an equals condition, or a load stack stop) makes `run` report the mutation `unknown` with that reason; one on the baseline excludes every baseline run, so `run` finds no comparable program (`error`, `no-comparable-program`, each program's cause naming the exclusion). Either refuses the job with that status and reason (`job.refusal.stage: exclusions`, `job.exclusions`: each side's `{exclusion, detail}`, the detail as the check document's `spec.exclusion` gives it, or null); nothing is fuzzed.
 - **Assembly.** kink assembles every test's input from the baseline's grammar, for both sides. The campaign binds kink's stream defaults (`$IO` to `"off"`, `$STDIN` to `""`) after the template's variables, as kink does, for each stream variable the definition declares and the template leaves unbound, since k-rust-fuzz's own default binds `$STDIN` to krun's buffered `"\n"`; the printed fragment leaves these bindings out. A run of no case gives each side's initial configuration at the holes' anchors (the fuzz report identity's `initial-configuration-digest`). When the mutant's differs from the baseline's (an edit of a `[macro]` rule, or of anything the program's parse reads), the job is refused before any case (`mutant-assembly-differs`: the mutant parses the template differently from kink's input); when the baseline's differs from kink's own assembly of the template, it is refused too (`template-assembly-differs`, a defect to report). Then the candidate's program is assembled by kink exactly as a `[[program]]` (start sort, variables, the concrete-state check and the input gate), and each side's `initial_configuration` in the witness, parsed as KORE, must equal it; otherwise the candidate is not offered (`stopped: assembly-mismatch`, `candidate.assembly` says which side or kink's refusal).
 - **The last run.** The last `run` document (`report.json` in `--cache DIR`, default `.kink-flow`, read as `report` reads it and only when it is of the current specification) gives the template's own program class (found by its program digest) and the mutation's status and `reaching` programs, each suggested as a template (`template.last_run`). Nothing in the cache is written.
 - **Warnings** (`warnings: [{kind, detail}]`): `unusable-template` (the template's program is not `comparable` in the last run, or kink refuses the template's own input), `template-not-reaching` (the template's program is not among the mutation's `reaching` programs), `no-reaching-program`, `already-killed`, `unkillable` (the last run found the mutation `unkillable`: no template helps; the detail is the row's action), `stale-run-document`, `crash` (one per crash finding of the campaign: a k-rust or k-rust-fuzz panic or internal error during a case, kept in the embedded report's `crashes`; a crash is no kill and moves no verdict), `client-refused` (kink's rules, as the filter reads them, refused candidate hits inside the campaign, counted per cause), `witness-not-terminating` (the offered witness's run of every path was cut by a bound or a clock, so as a corpus program it may not terminate; only a pattern witness can be one), and `time-limit-scope` with `--time-limit-ms` (it bounds the campaign's run, not kink's admission, the mutant's preparation, the exclusions or k-rust-fuzz's `Campaign::new`, which builds both grammars and backends and runs both definitions' full critical-pair checks).

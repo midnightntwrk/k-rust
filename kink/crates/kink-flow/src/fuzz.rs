@@ -922,50 +922,6 @@ fn premises(manifest: &FlowManifest, options: &FuzzOptions, report: &FuzzReport)
 // Guards: definition exclusions, assembly, the last run's facts
 // ---------------------------------------------------------------------------------------------
 
-/// What makes `exclusion` hold on a definition with these facts, naming the sentences.
-fn exclusion_detail(facts: &DefinitionExclusions, exclusion: Exclusion) -> String {
-    fn listed(items: impl IntoIterator<Item = String>) -> String {
-        let items = items.into_iter().collect::<Vec<_>>();
-        let shown = items.iter().take(8).cloned().collect::<Vec<_>>().join("; ");
-        if items.len() > 8 {
-            format!("{shown}; and {} more", items.len() - 8)
-        } else {
-            shown
-        }
-    }
-    match exclusion {
-        Exclusion::LoadStackStop => format!(
-            "its load counted {} stop(s) for lack of native stack, so the theory a run executes \
-             is not a function of the definition",
-            facts.load_stack_stops
-        ),
-        Exclusion::ImplementationChosenHook => format!(
-            "it references a hook whose value the definition leaves open and k-rust chooses: {}",
-            listed(facts.implementation_chosen.iter().map(|reference| format!(
-                "{} {} applies {} ({})",
-                reference.module, reference.sentence, reference.symbol, reference.hook
-            )))
-        ),
-        Exclusion::ShortCircuitReading => format!(
-            "a rule's condition or result depends on whether andBool, orBool or #if skip an \
-             operand that may be undefined: {}",
-            listed(
-                facts
-                    .short_circuit_conditions
-                    .iter()
-                    .chain(&facts.short_circuit_results)
-                    .cloned()
-                    .collect::<BTreeSet<_>>()
-            )
-        ),
-        Exclusion::EqualsCondition => format!(
-            "a rule or equation has a condition equating two terms, a gap of k-rust's answers: {}",
-            listed(facts.equals_conditions.iter().cloned())
-        ),
-        other => other.name().to_owned(),
-    }
-}
-
 /// The definition exclusion of one side, if any, as kink-campaign's runner reads it for every
 /// run on that side: from the side's compiled KORE loaded for `module` on this thread, with the
 /// load, which the witness filter keeps ([`crate::fuzz_filter`]).
@@ -974,10 +930,15 @@ fn side_exclusion(
     module: &str,
 ) -> Result<(ValidatedLoad, Option<(Exclusion, String)>), String> {
     let load = DefinitionExclusions::load_validated(side, module)?;
-    let excluded = load
-        .exclusions
-        .definition_exclusion()
-        .map(|exclusion| (exclusion, exclusion_detail(&load.exclusions, exclusion)));
+    let excluded = load.exclusions.definition_exclusion().map(|exclusion| {
+        // What makes it hold, as every kink-flow document says it (`crate::exclusion`).
+        let detail = crate::exclusion::detail(
+            &load.exclusions,
+            exclusion,
+            &crate::evidence::EndReader::of(side),
+        );
+        (exclusion, detail)
+    });
     Ok((load, excluded))
 }
 

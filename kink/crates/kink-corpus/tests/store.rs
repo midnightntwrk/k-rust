@@ -323,8 +323,8 @@ mod kink_tier {
                 ("token-float", "representation", "G-T"),
                 ("flagged", "declaration-census", "vi-t13"),
                 ("map-string", "baseline", "baseline-oracle-failed"),
-                ("let-test", "exclusion", "below-floor"),
-                ("renamed", "exclusion", "below-floor"),
+                ("let-test", "refused-case", "below-floor"),
+                ("renamed", "refused-case", "below-floor"),
             ] {
                 let outcome = run_definition(&workspace(), &manifest, id, &store).unwrap();
                 assert!(outcome.campaign.is_none());

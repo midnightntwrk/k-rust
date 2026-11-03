@@ -629,8 +629,9 @@ text = 'h(opaque(1), 2)'
         // document's `kink` identity; packet CACHE-ID-fix-1: version 8 adds its `kink_build`; re-pin
         // adoption A-1: version 9 adds `specification_diagnostics` and `smt_unknowns`; fz26
         // KINK-BASELINE-FINDINGS: version 10 adds `data`, a row's `findings` and `unable_to_kill`;
-        // kink27 R5-WEAKENING: version 11 adds the status `unkillable` and a row's `weakening`.
-        assert_eq!(document["version"], 12);
+        // kink27 R5-WEAKENING: version 11 adds the status `unkillable` and a row's `weakening`;
+        // CF-16: version 12 adds `difference` and `ends`; CF-02: version 13 adds `spec.exclusion`.
+        assert_eq!(document["version"], 13);
         assert_eq!(row["typing_diagnostics"], json!([]));
         assert_eq!(
             entry(&document, "guard-dropped", "by-zero")["slots"],

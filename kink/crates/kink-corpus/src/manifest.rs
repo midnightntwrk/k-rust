@@ -27,6 +27,9 @@ use std::{
 };
 
 pub const CORPUS_MANIFEST_DOMAIN: &str = "kink/corpus-manifest/v1";
+/// The version of the corpus manifest format: 2 renamed the list of refused cases from
+/// `exclusions` to `refused_cases`.
+pub const MANIFEST_VERSION: u64 = 2;
 /// Full conformance case names from
 /// ../k-rust-927b9ce6-intake/findings/verify.md section 4 and
 /// ../k-rust-927b9ce6/scripts/conformance/expectations.toml.
@@ -60,7 +63,7 @@ pub enum ManifestError {
     UnknownClassifier,
     PatternOracle,
     Observation(String),
-    MissingBelowFloorExclusion,
+    MissingBelowFloorCase,
 }
 impl fmt::Display for ManifestError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -82,8 +85,12 @@ pub struct DefinitionRoot {
     pub path: String,
     pub revision: Option<String>,
 }
+/// A conformance case (or a definition id) the manifest refuses to admit, with its reason and
+/// citation (`refused_cases`; admission stage `refused-case`). Version 2 of the manifest named
+/// the list `refused_cases`; version 1 called it `exclusions`, a word kink keeps for runs that
+/// are no evidence.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Exclusion {
+pub struct RefusedCase {
     pub case: String,
     pub reason: String,
     pub citation: String,
@@ -120,7 +127,7 @@ pub struct CorpusManifest {
     pub(crate) campaign: CorpusCampaign,
     pub(crate) universe: Universe,
     pub(crate) operators: Vec<OperatorSpec>,
-    pub(crate) exclusions: Vec<Exclusion>,
+    pub(crate) refused_cases: Vec<RefusedCase>,
     pub(crate) definitions: Vec<DefinitionSpec>,
     profiles: Vec<SolverProfile>,
 }
@@ -142,11 +149,13 @@ impl CorpusManifest {
                 "campaign",
                 "universe",
                 "operators",
-                "exclusions",
+                "refused_cases",
                 "definitions",
             ],
         )?;
-        if string(&top["schema"])? != "kink-corpus-manifest" || number(&top["version"])? != 1 {
+        if string(&top["schema"])? != "kink-corpus-manifest"
+            || number(&top["version"])? != MANIFEST_VERSION
+        {
             return Err(schema("manifest version"));
         }
         let corpus = object(&top["corpus"], &["name", "version"])?;
@@ -175,18 +184,18 @@ impl CorpusManifest {
         if operators.is_empty() {
             return Err(schema("empty operators"));
         }
-        let exclusions = array(&top["exclusions"])?
+        let refused_cases = array(&top["refused_cases"])?
             .iter()
-            .map(exclusion)
+            .map(refused_case)
             .collect::<Result<Vec<_>, _>>()?;
         if BELOW_FLOOR.iter().any(|case| {
-            !exclusions.iter().any(|e| {
+            !refused_cases.iter().any(|e| {
                 e.case == *case
                     && e.reason == "below-floor"
                     && e.citation == "../k-rust-927b9ce6-intake/findings/verify.md section 4"
             })
         }) {
-            return Err(ManifestError::MissingBelowFloorExclusion);
+            return Err(ManifestError::MissingBelowFloorCase);
         }
         let definitions = array(&top["definitions"])?
             .iter()
@@ -207,7 +216,7 @@ impl CorpusManifest {
             campaign,
             universe,
             operators,
-            exclusions,
+            refused_cases,
             definitions,
             profiles,
         };
@@ -242,8 +251,8 @@ impl CorpusManifest {
     pub fn operators(&self) -> &[OperatorSpec] {
         &self.operators
     }
-    pub fn exclusions(&self) -> &[Exclusion] {
-        &self.exclusions
+    pub fn refused_cases(&self) -> &[RefusedCase] {
+        &self.refused_cases
     }
 }
 fn schema(detail: impl Into<String>) -> ManifestError {
@@ -450,13 +459,13 @@ fn universe(v: &Value) -> Result<Universe, ManifestError> {
         exclude_macro_rules: boolean(&m["exclude_macro_rules"])?,
     })
 }
-fn exclusion(v: &Value) -> Result<Exclusion, ManifestError> {
+fn refused_case(v: &Value) -> Result<RefusedCase, ManifestError> {
     let m = object(v, &["case", "reason", "citation"])?;
     let reason = string(&m["reason"])?;
     if !["below-floor", "r0", "float", "collections", "other"].contains(&reason.as_str()) {
-        return Err(schema("exclusion reason"));
+        return Err(schema("refused case reason"));
     }
-    Ok(Exclusion {
+    Ok(RefusedCase {
         case: nonempty(&m["case"])?,
         reason,
         citation: nonempty(&m["citation"])?,
@@ -767,17 +776,17 @@ fn plan(v: &Value, vocabulary: &EventVocabulary) -> Result<PatternPlan, Manifest
     decode().map_err(|_| ManifestError::PatternOracle)
 }
 /// Match the author id, or any enclosing full conformance case directory.
-pub fn exclusion_applies(definition: &DefinitionSpec, exclusion: &Exclusion) -> bool {
-    if definition.id == exclusion.case {
+pub fn case_applies(definition: &DefinitionSpec, case: &RefusedCase) -> bool {
+    if definition.id == case.case {
         return true;
     }
     let joined = format!("{}/{}", definition.root.path, definition.entry);
     let Ok(parts) = normalized(&joined) else {
         return false;
     };
-    path_excluded(&parts, &exclusion.case)
+    path_in_case(&parts, &case.case)
 }
-pub(crate) fn path_excluded(parts: &[String], case: &str) -> bool {
+pub(crate) fn path_in_case(parts: &[String], case: &str) -> bool {
     let needle = format!("k-distribution/tests/regression-new/{case}")
         .split('/')
         .map(str::to_owned)

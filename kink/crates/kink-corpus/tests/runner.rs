@@ -356,7 +356,7 @@ mod kink_tier {
     }
 
     /// The binary-library identity on the mini corpus (two admitted definitions, the second's
-    /// ends holding a Bytes key, and refusals at representation, census, baseline and exclusion)
+    /// ends holding a Bytes key, and refusals at representation, census, baseline and refused case)
     /// under Full.
     #[test]
     #[ignore = "kink"]
@@ -587,14 +587,17 @@ mod kink_tier {
         // The clean fixture's delete-rule population has three members.
         capped["campaign"]["max_candidates_per_spec"] = json!(1);
         let mut excluded = value.clone();
-        excluded["exclusions"].as_array_mut().unwrap().push(json!({
-            "case":"clean", "reason":"other", "citation":"CS-13B D1 regression"
-        }));
+        excluded["refused_cases"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "case":"clean", "reason":"other", "citation":"CS-13B D1 regression"
+            }));
         let mut changed_entry = value.clone();
         changed_entry["definitions"][0]["entry"] = json!("other.k");
         let mut variants = vec![
             ("candidate cap", capped),
-            ("exclusion", excluded),
+            ("refused case", excluded),
             ("entry", changed_entry),
         ];
         if SolverProfile::BUILD == SolverProfile::NoZ3 {
@@ -711,7 +714,7 @@ mod kink_tier {
     /// F-16 review 1 minor 2 (flow F-17): the resume binding checks the same file set as
     /// admission, test inputs included. After a completed run, the program file is replaced by
     /// a link to the same bytes inside a below-floor case directory; resume refuses at the
-    /// exclusion check (before F-17 it checked definition sources only and refused later, on the
+    /// refused-case check (before F-17 it checked definition sources only and refused later, on the
     /// file list) and writes nothing.
     #[cfg(unix)]
     #[test]
@@ -749,7 +752,7 @@ mod kink_tier {
             String::from_utf8_lossy(&output.stdout)
         );
         assert!(
-            String::from_utf8_lossy(&output.stderr).contains("stored definition is excluded"),
+            String::from_utf8_lossy(&output.stderr).contains("stored definition is a refused case"),
             "{}",
             String::from_utf8_lossy(&output.stderr)
         );

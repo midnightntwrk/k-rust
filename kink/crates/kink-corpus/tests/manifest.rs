@@ -1,5 +1,5 @@
 use kink_corpus::manifest::{
-    BELOW_FLOOR, CORPUS_MANIFEST_DOMAIN, CorpusManifest, ManifestError, exclusion_applies,
+    BELOW_FLOOR, CORPUS_MANIFEST_DOMAIN, CorpusManifest, ManifestError, case_applies,
 };
 use kink_native::{K_RUST_REVISION, execution::SolverProfile};
 use kink_patch::{canonical_json, payload_digest};
@@ -53,7 +53,7 @@ fn exact_keys_canonical_bytes_and_profile() {
             "campaign",
             "universe",
             "operators",
-            "exclusions",
+            "refused_cases",
             "definitions",
         ],
     );
@@ -220,7 +220,7 @@ fn campaign_budget_mutants() {
     }
 }
 #[test]
-fn mandatory_bounds_classifier_and_exclusions() {
+fn mandatory_bounds_classifier_and_refused_cases() {
     for remove in [false, true] {
         let mut v = clean();
         if remove {
@@ -253,11 +253,11 @@ fn mandatory_bounds_classifier_and_exclusions() {
     failure(&v, ManifestError::UnknownClassifier);
     for case in BELOW_FLOOR {
         let mut v = clean();
-        v["exclusions"]
+        v["refused_cases"]
             .as_array_mut()
             .unwrap()
             .retain(|e| e["case"] != case);
-        failure(&v, ManifestError::MissingBelowFloorExclusion);
+        failure(&v, ManifestError::MissingBelowFloorCase);
     }
     for (file, expected) in [
         ("max-depth-null.json", ManifestError::MissingMaxDepth),
@@ -317,18 +317,18 @@ fn data_patterns_are_validated_against_the_observation_vocabulary() {
     assert!(matches!(read(&v), Err(ManifestError::Observation(_))));
 }
 #[test]
-fn exclusions_match_full_case_paths_with_parent_normalization() {
+fn refused_cases_match_full_case_paths_with_parent_normalization() {
     let m = read(&clean()).unwrap();
     let mut d = m.definitions()[0].clone();
     let e = m
-        .exclusions()
+        .refused_cases()
         .iter()
         .find(|e| e.case == "let-test")
         .unwrap();
     d.root.path = "some/k-distribution/tests/regression-new/let-test/inner/..".into();
-    assert!(exclusion_applies(&d, e));
+    assert!(case_applies(&d, e));
     d.root.path = "some/k-distribution/tests/regression-new/let-test-extra".into();
-    assert!(!exclusion_applies(&d, e));
+    assert!(!case_applies(&d, e));
     d.id = "let-test".into();
-    assert!(exclusion_applies(&d, e));
+    assert!(case_applies(&d, e));
 }

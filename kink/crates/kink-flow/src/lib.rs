@@ -20,13 +20,16 @@
 //! kill evidence: the first differing cell path of a kill's ends, both values as K text, and each
 //! end's computation head and class ([`evidence`]). CF-18 adds the resolve-only check of a
 //! mutation list, `check --mutations` ([`check`]), and CF-13 the mutations directory and anchors
-//! by a suffix of a label's components ([`mutation`]).
+//! by a suffix of a label's components ([`mutation`]). CF-02 reads the definition exclusions at
+//! admission, prints why each holds with one formatter for every command ([`exclusion`]), and
+//! makes `check` fail when a program cannot be judged on the baseline.
 
 pub mod admit;
 pub mod check;
 pub mod cli;
 pub mod digest;
 pub mod evidence;
+pub mod exclusion;
 pub mod fuzz;
 pub mod fuzz_filter;
 pub mod hints;
@@ -41,7 +44,8 @@ pub mod results;
 pub mod search;
 
 pub use admit::{
-    AdmittedSpec, FlowAdmission, InputSession, ProgramAdmission, ProgramInputs, admit, admit_spec,
+    AdmittedSpec, FlowAdmission, InputSession, ProgramAdmission, ProgramExclusion, ProgramInputs,
+    admit, admit_spec,
 };
 pub use check::{
     CorpusCoverage, Finding, MutationCheck, MutationCheckRow, check_mutations, corpus_coverage,

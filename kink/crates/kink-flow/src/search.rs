@@ -1679,6 +1679,8 @@ pub fn run_with(
         }
     };
     let mut update = update_results(&spec, manifest, &mut inputs, &runner, &cache, verify);
+    // Once per command: the definition exclusion every document this run writes names.
+    let exclusion = runner.definition_exclusion();
     let hints = Hints::read(&cache);
     if !verify {
         // F-05 review 1 minor 1 (README 7.5.7): a timeout record is host-dependent, so a
@@ -1920,6 +1922,7 @@ pub fn run_with(
                 order: json!(options.order.as_str()),
                 untargeted_rules: untargeted.clone(),
                 data: spec.data.value(),
+                exclusion: exclusion.clone(),
             },
         );
         match store.write_json(&report_path, &document) {
@@ -1958,6 +1961,7 @@ pub fn run_with(
             order: json!(options.order.as_str()),
             untargeted_rules: untargeted,
             data: spec.data.value(),
+            exclusion,
         },
     );
     // The stored report is the document the command prints: write it unless the last write
@@ -2217,6 +2221,9 @@ struct Accounting<'m> {
     untargeted_rules: Value,
     /// The baseline's data facts (kink-native `DataFacts::value`): the premises and findings.
     data: Value,
+    /// The specification's definition exclusion, as `spec.exclusion` prints it
+    /// (`crate::exclusion::definition_exclusion`).
+    exclusion: Value,
 }
 
 impl Accounting<'_> {
@@ -2227,6 +2234,7 @@ impl Accounting<'_> {
         order: Value::Null,
         untargeted_rules: Value::Null,
         data: Value::Null,
+        exclusion: Value::Null,
     };
 }
 
@@ -2279,6 +2287,7 @@ fn document(
                 .iter()
                 .map(|f| json!({"name": f.name, "sha256": f.sha256.to_string()}))
                 .collect::<Vec<_>>(),
+            "exclusion": accounting.exclusion,
         },
         "programs": programs,
         "unusable_programs": unusable_programs(programs),
