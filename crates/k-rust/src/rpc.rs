@@ -1480,13 +1480,14 @@ fn module_verification_detail(
 }
 
 /// The sentence of the added module that an error about one of its axioms names: an unlicensed
-/// injection, and the refusals of the predicate reading.
+/// injection, the refusals of the predicate reading, and a rewrite rule's unbound set variable.
 fn located_sentence(error: &DefinitionError) -> Option<&SentenceKey> {
     match error {
         DefinitionError::UnlicensedInjection { sentence, .. }
         | DefinitionError::AxiomReadsTermAsPredicate { sentence, .. }
         | DefinitionError::RulePattern(
             RulePatternError::NegatedConfiguration { sentence, .. }
+            | RulePatternError::UnboundSetVariable { sentence, .. }
             | RulePatternError::TermConnectiveInConjunction {
                 sentence: Some(sentence),
                 ..

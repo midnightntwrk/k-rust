@@ -2624,7 +2624,8 @@ fn translate_query_in_state(
 /// none is read as an opaque constant without reading its other side (`translate_term_node_plain`).
 ///
 /// A request holds no set variable (`definition::Admitted`); this is the solver's own refusal, for
-/// a library caller's terms and for a set variable a rewrite rule's right-hand side introduces.
+/// a library caller's terms (a rewrite rule that would introduce one is refused at load,
+/// `RulePatternError::UnboundSetVariable`).
 /// `holds_set_variable` is one look, so a term without one costs nothing here.
 fn may_denote_several(term: &Term) -> bool {
     let mut pending = vec![term];

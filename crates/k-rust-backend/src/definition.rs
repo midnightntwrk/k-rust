@@ -619,6 +619,22 @@ impl RequestLiterals {
     }
 }
 
+/// Add to `occurrences` each occurrence of a set variable in `term`, descending only into the
+/// subterms that hold one (`definedness::holds_set_variable`).
+fn count_set_variable_occurrences(term: &Term, occurrences: &mut BTreeMap<Variable, usize>) {
+    if let TermKind::Variable(variable) = term.kind() {
+        if variable.kind == VariableKind::Set {
+            *occurrences.entry(variable.clone()).or_default() += 1;
+        }
+        return;
+    }
+    for child in crate::term::immediate_children(term.kind()) {
+        if crate::definedness::holds_set_variable(child) {
+            count_set_variable_occurrences(child, occurrences);
+        }
+    }
+}
+
 impl<'a> Admitted<'a> {
     /// The admission decision this witness records.
     pub fn admission(self) -> Admission {
@@ -654,16 +670,22 @@ impl<'a> Admitted<'a> {
     }
 
     /// The pattern admitted as a match target, a pattern other patterns are matched against
-    /// (a search target, `kore-match-disjunction`'s pattern): a set variable its term holds is
-    /// admitted, and every other set variable is still refused
-    /// ([`UnstatedDefinedness::SetVariable`]).
+    /// (a search target, `kore-match-disjunction`'s pattern): a set variable that occurs exactly
+    /// once in its term and in none of its constraints is admitted, and every other set variable
+    /// is still refused ([`UnstatedDefinedness::SetVariable`]).
     ///
-    /// A match target's variables are pattern variables, each bound by the match to a subterm of
-    /// the subject (`search`, `MatchMode::Implies`), as a rule's left-hand-side variables are. A
-    /// set variable there ranges over sets of elements, and the subterm it is bound to denotes
-    /// one of them, so the binding is a witness and the match condition is read over the
-    /// subject's terms, which hold no set variable. A set variable only the target's
-    /// constraints hold is bound by no match, and is free as in any other request.
+    /// A match target's variables are read existentially, as a rule's left-hand-side variables
+    /// are: a state `s` matches when some valuation puts `s` in the target. Every application,
+    /// injection, collection and term conjunction denotes the pointwise union over its
+    /// arguments' elements, `C[S] = ⋃_{e ∈ S} C[e]`, so for a set variable `S` that occurs once
+    /// in the term `C[S]` and in no constraint, `∃S. s ∈ C[S]` holds iff `∃e. s ∈ C[e]` for an
+    /// element `e`. That is the element-variable reading, which matching computes: the subterm
+    /// `t` the match binds is a witness, and the reported `S = t` names one (the condition
+    /// itself is `t ∈ S`). With two occurrences, or one also in a constraint, a set of several
+    /// elements can do what no element does, and matching's one binding would answer a definite
+    /// "no match": against `p(a, b)`, `p(@X, @X)` matches at `@X = {a, b}`, and so does
+    /// `p(@X, b) /\ \not(@X = a)`, since `{a, b} = {a}` is false. So those are refused, as is a
+    /// set variable only the constraints hold, which no match binds.
     pub fn as_match_target(self) -> Self {
         Self {
             match_target: true,
@@ -680,25 +702,45 @@ impl<'a> Admitted<'a> {
     /// one value hold only for terms that denote at most one element: with `@P = @Q = {true,
     /// false}`, `notBool(@P /\ @Q)` is `{false, true}`, so `true = notBool(@P /\ @Q)` is false,
     /// and its rewrite `\not(true = @P /\ @Q)` is true. So a request holds none, and no answer
-    /// rests on that reading. A match target's term may hold them ([`Self::as_match_target`]).
+    /// rests on that reading. A match target's term may hold one that occurs once in it and in
+    /// none of its constraints ([`Self::as_match_target`]).
     fn refuse_set_variables<'p>(
         self,
         term: Option<&Term>,
         predicates: impl IntoIterator<Item = &'p crate::rule::Predicate>,
     ) -> Result<(), DefinitionError> {
-        let admitted = |variable: &Variable| {
-            self.match_target
-                && term.is_some_and(|term| term.attributes().variables.contains(variable))
-        };
+        let predicates = predicates.into_iter().collect::<Vec<_>>();
+        // The set variables a match target admits: those the term holds exactly once and no
+        // constraint holds.
+        let mut admitted = BTreeSet::new();
+        if self.match_target
+            && let Some(term) = term
+            && crate::definedness::holds_set_variable(term)
+        {
+            let mut occurrences = BTreeMap::new();
+            count_set_variable_occurrences(term, &mut occurrences);
+            admitted.extend(
+                occurrences
+                    .into_iter()
+                    .filter_map(|(variable, count)| (count == 1).then_some(variable)),
+            );
+            for predicate in &predicates {
+                predicate.visit_terms(&mut |term: &Term| {
+                    if crate::definedness::holds_set_variable(term) {
+                        for variable in &term.attributes().variables {
+                            admitted.remove(variable);
+                        }
+                    }
+                });
+            }
+        }
         let mut refused = None;
         let mut check = |term: &Term| {
             if refused.is_none()
                 && crate::definedness::holds_set_variable(term)
-                && let Some(variable) = term
-                    .attributes()
-                    .variables
-                    .iter()
-                    .find(|variable| variable.kind == VariableKind::Set && !admitted(variable))
+                && let Some(variable) = term.attributes().variables.iter().find(|variable| {
+                    variable.kind == VariableKind::Set && !admitted.contains(*variable)
+                })
             {
                 refused = Some(variable.name.to_string());
             }
