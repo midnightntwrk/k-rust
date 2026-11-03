@@ -34,11 +34,12 @@
 # refuse: `_` in a result or an initializer, `None` or a rest in an initializer), the kind (the
 # entry's marks against the cell's declared layers, outermost first), the pairing of the two sides
 # (rests, absence, an entry that constrains nothing), and the sort (the lattice). The rule-level
-# classes (`always-enabled-rule`, `rule-changes-no-cell`, `unused-configuration-variable`,
-# `main-cell-not-k`) judge the whole sentence after its entries are admitted. The cells oracle
-# (`class_matrix::cells_oracle`) states the first three from the principles; `tests/cells_oracle.rs`
-# checks every cell-entry row against it, and `[cell-exception."GLOB"]` lists the rows that depart
-# from it, each with the principle it departs by.
+# classes (`group-and-descendant`, `always-enabled-rule`, `rule-changes-no-cell`,
+# `unused-configuration-variable`, `main-cell-not-k`) judge the whole sentence after its entries
+# are admitted. The cells oracle (`class_matrix::cells_oracle`) states the first three from the
+# principles; `tests/cells_oracle.rs` checks every cell-entry row against it, and
+# `[cell-exception."GLOB"]` lists the rows that depart from it, each with the principle it departs
+# by.
 #
 # How a case's outcome is decided, from what its construct means in its slot:
 # - A spelling that belongs to one kind of cell (`Some`/`None`, an instance list, map notation,
@@ -271,6 +272,11 @@ advice = "none"
 code = "krs::analysis::function-in-pattern"
 doc = "a function application at a matched position of a rewrite rule's, an equation's or a context's pattern, or of a `let` or `k::matches!` pattern, a slot's root as below it, a collection's value or element included, other than an equation's subject root (the function it defines) and a map key or a set element, which is computed and looked up: a pattern matches terms as written, and an application is evaluated; or a function application (a collection literal that builds, an index or a method included) below an alias's or a desugar's subject root, which static expansion matches against a program's terms as written, before anything evaluates, so the application would stand for its spelling rather than its value (decision NT-11-5); or a collection's unit, a set's singleton or a concatenation (`set::item(x)`, `set![]`, `map![]`, `set::concat(..)`) as the whole subject of a `#[k::rule]` fn or a context, where it is the application of the collection's function (`SetItem`, `.Set`, `.Map`): a rule rooted at a function is that function's equation, and a context is rooted at the production it heats (decision NT-11-2)"
 advice = ["notation/rule/guard/k::builtin::map::empty()[x]", "terms/simplification/subject/k::builtin::int::add(x, 1)", "terms/equation/subject/x", "readable/subject/env/{ y -> x, .. }"]
+
+[class.group-and-descendant]
+code = "krs::analysis::group-and-descendant"
+doc = "a rule or claim whose entries, on either side, name a group (or a collection) and a cell below it: an entry denotes the content of one cell, so the group's entry already names the cell below it, and the two denote overlapping content (P1); judged on the whole rule"
+advice = "none"
 
 [class.helper-on-constant]
 code = "krs::syntax::invalid-constant"

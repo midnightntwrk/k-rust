@@ -191,10 +191,17 @@ fn check_1_every_cell_entry_row_agrees_with_the_principles() {
 
 /// The rule-level classes no generated case's row has, so check 1r cannot see `rule_outcome`
 /// miss them (it sees it answer them where no row does), with why; S5.0g generates them.
-const RULE_UNCOVERED: [(&str, &str); 1] = [(
-    "rule-changes-no-cell",
-    "every generated rule writes a cell (its computation's, at least)",
-)];
+const RULE_UNCOVERED: [(&str, &str); 2] = [
+    (
+        "group-and-descendant",
+        "no generated rule names a group and a cell below it (modelled at the S5.0g stop's \
+         D-1 to D-3 fix; S5.0g generates it)",
+    ),
+    (
+        "rule-changes-no-cell",
+        "every generated rule writes a cell (its computation's, at least)",
+    ),
+];
 
 /// Check 1r: where the entry is admitted, the rule-level judgement equals a rule-level row's
 /// class, and is none on an accept; and every rule-level class is some generated case's row, or
@@ -2322,6 +2329,114 @@ fn an_update_of_a_map_collections_instance_that_writes_its_key_is_refused() {
             Outcome::After,
         ),
     ]);
+}
+
+/// `group-and-descendant` (design §2.3, an unchanged class, extended to instances): P1 makes an
+/// entry denote the content of one cell, so a rule or claim whose entries name a cell and a cell
+/// below it, on either side, names that cell twice. The compiler refuses it today with
+/// `krs::analysis::group-and-descendant` (`semantic/rules.rs` `check_group_descendants`, the
+/// `configuration-cells` fixture `group-and-leaf`); the oracle answers it at step 5, first.
+#[test]
+fn a_rule_naming_a_group_and_a_cell_below_it_is_refused_on_the_whole_rule() {
+    use class_matrix::cells_oracle::build::{bind, lit, open, seq};
+    use class_matrix::cells_oracle::{Entry, Sentence};
+    let entry = |cell: &str, side, stack: Vec<Layer>, spelling| Entry {
+        cell: cell.to_owned(),
+        side,
+        path: Vec::new(),
+        stack,
+        spelling,
+    };
+    let frame = |children: Vec<(&str, Vec<Layer>)>| {
+        Layer::Group(Group {
+            name: "Frame".to_owned(),
+            children: children
+                .into_iter()
+                .map(|(name, stack)| (name.to_owned(), stack))
+                .collect(),
+        })
+    };
+    let flat = frame(vec![("pc", int()), ("gas", int())]);
+    let k = entry(
+        "k",
+        Side::Subject,
+        vec![Layer::Computation],
+        Spelling::Brackets(seq(vec![bind("x")], open())),
+    );
+    let pc = |side| entry("pc", side, int(), bind("p"));
+    let whole = |side, stack: &Layer| entry("frame", side, vec![stack.clone()], bind("f"));
+    let next = entry(
+        "pc",
+        Side::Result,
+        int(),
+        Spelling::Call(vec![bind("p"), lit()]),
+    );
+    let rule = |sentence, entries| Template {
+        sentence,
+        entries,
+        guard: false,
+        variables: Vec::new(),
+    };
+    let admitted = Outcome::Admit { lint: None };
+    let descendant = Some("group-and-descendant");
+    // The fixture's `peek`: `frame: f, pc: p` => `pc: p + 1`.
+    let peek = rule(
+        Sentence::Rule,
+        vec![k.clone(), whole(Side::Subject, &flat), next.clone()],
+    );
+    assert_eq!(
+        rule_outcome(&peek, &pc(Side::Subject), admitted),
+        descendant
+    );
+    // The group and the cell below it on the result side only, and in a claim.
+    let written = rule(Sentence::Rule, vec![k.clone(), whole(Side::Result, &flat)]);
+    assert_eq!(rule_outcome(&written, &next, admitted), descendant);
+    let claim = rule(
+        Sentence::Claim,
+        vec![k.clone(), whole(Side::Subject, &flat)],
+    );
+    assert_eq!(
+        rule_outcome(&claim, &pc(Side::Subject), admitted),
+        descendant
+    );
+    // A cell at any depth below, through a nested group or a collection's instances.
+    let nested = frame(vec![(
+        "inner",
+        vec![Layer::Group(Group {
+            name: "Inner".to_owned(),
+            children: vec![("pc".to_owned(), int())],
+        })],
+    )]);
+    let deep = rule(
+        Sentence::Rule,
+        vec![k.clone(), whole(Side::Subject, &nested), next.clone()],
+    );
+    assert_eq!(
+        rule_outcome(&deep, &pc(Side::Subject), admitted),
+        descendant
+    );
+    let jobs = entry(
+        "jobs",
+        Side::Subject,
+        vec![Layer::Instances(Order::List), frame(vec![("pc", int())])],
+        Spelling::Brackets(seq(Vec::new(), open())),
+    );
+    let collection = rule(Sentence::Rule, vec![k.clone(), jobs, next.clone()]);
+    assert_eq!(
+        rule_outcome(&collection, &pc(Side::Subject), admitted),
+        descendant
+    );
+    // The cell alone, or a group that holds no such cell, is no overlap.
+    let alone = rule(Sentence::Rule, vec![k.clone(), next.clone()]);
+    assert_eq!(rule_outcome(&alone, &pc(Side::Subject), admitted), None);
+    let other = frame(vec![("ret", int())]);
+    let apart = rule(Sentence::Rule, vec![k, whole(Side::Subject, &other), next]);
+    assert_eq!(rule_outcome(&apart, &pc(Side::Subject), admitted), None);
+    // A refused entry has no rule-level row.
+    assert_eq!(
+        rule_outcome(&peek, &pc(Side::Subject), Outcome::Refuse("cell-wrapper")),
+        None
+    );
 }
 
 /// Ruling 3 on F2: `name @ P` names what a pattern matched, so a result holds none, at any depth

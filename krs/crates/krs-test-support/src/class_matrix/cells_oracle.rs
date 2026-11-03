@@ -373,8 +373,9 @@ pub const ENTRY_CLASSES: [&str; 20] = [
 ];
 
 /// The classes [`rule_outcome`] answers with: they judge the whole sentence.
-pub const RULE_CLASSES: [&str; 4] = [
+pub const RULE_CLASSES: [&str; 5] = [
     "always-enabled-rule",
+    "group-and-descendant",
     "main-cell-not-k",
     "rule-changes-no-cell",
     "unused-configuration-variable",
@@ -385,7 +386,7 @@ pub const LINT_CLASSES: [&str; 1] = [NO_EFFECT_ENTRY];
 
 /// The code each class of [`ENTRY_CLASSES`], [`RULE_CLASSES`] and [`LINT_CLASSES`] answers with,
 /// which `expected.toml` must declare alike (check 0).
-pub const CODES: [(&str, &str); 25] = [
+pub const CODES: [(&str, &str); 26] = [
     (
         "absence-test-without-creation",
         "krs::analysis::optional-presence",
@@ -405,6 +406,10 @@ pub const CODES: [(&str, &str); 25] = [
     (
         "continuation-in-readable",
         "krs::syntax::continuation-in-readable",
+    ),
+    (
+        "group-and-descendant",
+        "krs::analysis::group-and-descendant",
     ),
     (
         "initializer-remainder",
@@ -1260,6 +1265,11 @@ impl EntryCase {
 /// Step 5, the rule-level rows, judged after the entries are admitted, from the whole sentence:
 /// `entry` is the case's own entry, `template` the rest of its sentence.
 ///
+/// - `group-and-descendant`: two entries of a rule or claim, on either side, name a cell and a
+///   cell below it (P1: an entry denotes the content of one cell, so the first already names
+///   the second, and the two denote overlapping content). Judged first: the rule's other
+///   classes judge what the rule matches and writes, which overlapping entries do not state
+///   once;
 /// - `always-enabled-rule`: every subject entry of a rule constrains nothing (Q1's [`total`])
 ///   and there is no guard, so the rule matches every configuration;
 /// - `rule-changes-no-cell`: a rule writes no cell;
@@ -1272,6 +1282,11 @@ pub fn rule_outcome(template: &Template, entry: &Entry, outcome: Outcome) -> Opt
         return None;
     }
     let entries = || template.entries.iter().chain([entry]);
+    if template.sentence != Sentence::Initializer
+        && entries().any(|outer| entries().any(|inner| holds(&outer.stack, &inner.cell)))
+    {
+        return Some("group-and-descendant");
+    }
     match template.sentence {
         Sentence::Rule => {
             if !template.guard
@@ -1305,6 +1320,18 @@ pub fn rule_outcome(template: &Template, entry: &Entry, outcome: Outcome) -> Opt
             None
         }
     }
+}
+
+/// Whether a group of `stack` holds a cell named `cell` at any depth below it, through its
+/// children's own layers (a `?` or `*` child's included).
+fn holds(stack: &[Layer], cell: &str) -> bool {
+    stack.iter().any(|layer| match layer {
+        Layer::Group(group) => group
+            .children
+            .iter()
+            .any(|(name, child)| name == cell || holds(child, cell)),
+        _ => false,
+    })
 }
 
 fn wrap_seq(items: Vec<Spelling>, rest: Option<(Rest, RestAt)>) -> Seq {
