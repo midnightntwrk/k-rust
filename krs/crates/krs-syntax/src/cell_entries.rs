@@ -124,10 +124,10 @@ pub enum Refusal {
     /// A Map collection's instance that does not keep its key, its first child, which is its
     /// identity: a created instance that does not write it (a bare `..` takes the template's
     /// fields, which state no identity), or an instance update (`..me`) that writes it as
-    /// anything but the binder the subject matched the key with (a literal, another name, a
-    /// computed value, or a key the labelled instance does not name), since an update changes
-    /// the instance in place and another key is another entry of the map. Written as the
-    /// subject's own key binder, the key is unchanged.
+    /// anything but what is provably the key the subject matched (another literal, another
+    /// name, a computed value, or a key the labelled instance does not name), since an update
+    /// changes the instance in place and another key is another entry of the map. Written as
+    /// the subject's own key binder, or as the same literal it matched, the key is unchanged.
     MapCollectionKey,
     /// A readable map read at a record's top level whose value is not a fresh binder (a stated
     /// limitation of the readable record's top-level route; inside an instance record the value
@@ -769,9 +769,9 @@ impl Other<'_> {
 /// `other` its other side, keys its instance as its collection does ([`GroupKind::key`]): a Map
 /// instance's key is its identity, written at creation and never changed. A created instance
 /// writes it, since a bare `..` takes only template fields, which state no identity. An update
-/// changes the instance in place, so it writes the key, if at all, as the binder the subject
-/// matched the key with, which is the same instance; any other key value, or a key the labelled
-/// instance does not name, is a key change.
+/// changes the instance in place, so it writes the key, if at all, as what is provably the key
+/// the subject matched: the key's own binder, or the same literal, which is the same instance;
+/// any other key value, or a key the labelled instance does not name, is a key change.
 fn keyed(order: Order, group: &GroupKind, record: &EntryRecord, other: Other<'_>) -> bool {
     fn named<'r>(record: &'r EntryRecord, key: &str) -> Option<&'r EntrySpelling> {
         record
@@ -788,13 +788,20 @@ fn keyed(order: Order, group: &GroupKind, record: &EntryRecord, other: Other<'_>
             let Other::Matched(subject) = other else {
                 return false;
             };
-            matches!(
-                (value, record_of(subject, group).and_then(|record| named(record, key))),
+            match (
+                value,
+                record_of(subject, group).and_then(|record| named(record, key)),
+            ) {
                 (
                     EntrySpelling::Binder(written),
                     Some(EntrySpelling::Binder(bound) | EntrySpelling::Alias(bound, _)),
-                ) if written == bound
-            )
+                ) => written == bound,
+                (EntrySpelling::Literal(written), Some(matched)) => matches!(
+                    unaliased(matched),
+                    EntrySpelling::Literal(literal) if literal == written
+                ),
+                _ => false,
+            }
         }
         (RecordTail::Update(_), None) => true,
         (RecordTail::Exact | RecordTail::Open, written) => written.is_some(),
@@ -1786,6 +1793,35 @@ mod tests {
                 me
             ),
             Ok(None)
+        );
+        // The same literal the subject matched is provably the same key; another literal is
+        // another key.
+        let five = Some("{ me @ A { id: 5, .. }, .. }");
+        assert_eq!(
+            result(readable, &map, "{ A { id: 5, ..me }, .. }", five),
+            Ok(None)
+        );
+        assert_eq!(
+            result(
+                readable,
+                &map,
+                "{ A { id: 5, ..me }, .. }",
+                Some("{ me @ A { id: k @ 5, .. }, .. }")
+            ),
+            Ok(None)
+        );
+        assert_eq!(
+            result(
+                cells,
+                &map,
+                "{ k::fragment![crate::A { id: 5, ..me }], .. }",
+                Some("{ me @ k::fragment![crate::A { id: 5, .. }], .. }")
+            ),
+            Ok(None)
+        );
+        assert_eq!(
+            result(readable, &map, "{ A { id: 6, ..me }, .. }", five),
+            refused
         );
         // A subject's record is no update.
         assert_eq!(

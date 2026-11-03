@@ -355,7 +355,7 @@ advice = "init/main-k/k/k::k![pgm]"
 
 [class.map-collection-key]
 code = "krs::analysis::map-collection-key"
-doc = "a Map collection's instance that does not keep its key, its first child, which is its identity, written at creation and never changed by an update (§7): a created instance that does not write it (a bare `..` takes the template's fields, which state no identity, P5), or an instance update (`..me`) that writes it as anything but the binder the subject matched the key with (a literal, another name, a computed value, or a key the labelled instance does not name); written as the subject's own key binder it is unchanged (P0)"
+doc = "a Map collection's instance that does not keep its key, its first child, which is its identity, written at creation and never changed by an update (§7): a created instance that does not write it (a bare `..` takes the template's fields, which state no identity, P5), or an instance update (`..me`) that writes it as anything but what is provably the key the subject matched (another literal, another name, a computed value, or a key the labelled instance does not name); written as the subject's own key binder, or as the same literal it matched, it is unchanged (P0)"
 advice = "none"
 
 [class.map-notation-at-non-map]

@@ -427,10 +427,21 @@ fn oracle_layer(layer: &cell_kind::Layer) -> Layer {
 }
 
 /// The product's spelling as the oracle declares it: the marks and names, a literal's text
-/// dropped.
+/// dropped (the generator declares a literal without it, [`build::lit`]).
 fn declared_as(spelling: &EntrySpelling) -> Spelling {
+    read_as(spelling, false)
+}
+
+/// The product's spelling as a probe gives it to the oracle: its literals' texts kept, so the
+/// oracle can tell two literals apart (R9's key written back).
+fn probed_as(spelling: &EntrySpelling) -> Spelling {
+    read_as(spelling, true)
+}
+
+fn read_as(spelling: &EntrySpelling, texts: bool) -> Spelling {
+    let read = |spelling: &EntrySpelling| read_as(spelling, texts);
     let seq = |seq: &EntrySeq| Seq {
-        items: seq.items.iter().map(declared_as).collect(),
+        items: seq.items.iter().map(read).collect(),
         rest: seq.rest.as_ref().map(|(rest, place)| {
             (
                 rest_as(rest),
@@ -445,7 +456,7 @@ fn declared_as(spelling: &EntrySpelling) -> Spelling {
         entries: map
             .entries
             .iter()
-            .map(|(key, value)| (declared_as(key), declared_as(value)))
+            .map(|(key, value)| (read(key), read(value)))
             .collect(),
         rest: map.rest.as_ref().map(rest_as),
     };
@@ -454,7 +465,7 @@ fn declared_as(spelling: &EntrySpelling) -> Spelling {
         fields: record
             .fields
             .iter()
-            .map(|(name, value)| (name.clone(), declared_as(value)))
+            .map(|(name, value)| (name.clone(), read(value)))
             .collect(),
         rest: match &record.tail {
             RecordTail::Exact => RecordRest::Exact,
@@ -462,14 +473,12 @@ fn declared_as(spelling: &EntrySpelling) -> Spelling {
             RecordTail::Update(base) => RecordRest::Update(base.clone()),
         },
     };
-    let boxed = |inner: &EntrySpelling| Box::new(declared_as(inner));
+    let boxed = |inner: &EntrySpelling| Box::new(read(inner));
     match spelling {
         EntrySpelling::Wild => Spelling::Wild,
         EntrySpelling::Binder(name) => Spelling::Binder(name.clone()),
-        EntrySpelling::Literal(_) => Spelling::Literal,
-        EntrySpelling::Call(arguments) => {
-            Spelling::Call(arguments.iter().map(declared_as).collect())
-        }
+        EntrySpelling::Literal(text) => Spelling::Literal(texts.then(|| text.clone())),
+        EntrySpelling::Call(arguments) => Spelling::Call(arguments.iter().map(read).collect()),
         EntrySpelling::ConfigVar(name) => Spelling::ConfigVar(name.clone()),
         EntrySpelling::Present(inner) => Spelling::Present(boxed(inner)),
         EntrySpelling::Missing => Spelling::Missing,
@@ -537,7 +546,9 @@ fn product_of(spelling: &Spelling) -> EntrySpelling {
     match spelling {
         Spelling::Wild => EntrySpelling::Wild,
         Spelling::Binder(name) => EntrySpelling::Binder(name.clone()),
-        Spelling::Literal => EntrySpelling::Literal("0".to_owned()),
+        Spelling::Literal(text) => {
+            EntrySpelling::Literal(text.clone().unwrap_or_else(|| "0".to_owned()))
+        }
         Spelling::Call(arguments) => {
             EntrySpelling::Call(arguments.iter().map(product_of).collect())
         }
@@ -1480,7 +1491,7 @@ fn mark_name(form: Form, spelling: &Spelling) -> String {
         (Mark::Comp, _) => "comp",
         (Mark::Value, Spelling::Binder(_) | Spelling::Alias(..)) => "value:binder",
         (Mark::Value, Spelling::Wild) => "value:_",
-        (Mark::Value, Spelling::Literal | Spelling::MapLit(_)) => "value:literal",
+        (Mark::Value, Spelling::Literal(_) | Spelling::MapLit(_)) => "value:literal",
         (Mark::Value, Spelling::Record(_)) => "value:record",
         (Mark::Value, Spelling::Fragment(_)) => "value:fragment",
         (Mark::Value, Spelling::Call(_)) => "value:call",
@@ -1852,7 +1863,7 @@ impl Probe<'_> {
     fn context(&self) -> class_matrix::cells_oracle::Context {
         class_matrix::cells_oracle::Context {
             bound: self.bound.iter().map(|name| (*name).to_owned()).collect(),
-            other: self.other.map(|text| declared_as(&self.read(text))),
+            other: self.other.map(|text| probed_as(&self.read(text))),
             written: self.written,
         }
     }
@@ -1872,7 +1883,7 @@ impl Probe<'_> {
             self.side,
             self.path,
             stack,
-            &declared_as(&self.read(self.text)),
+            &probed_as(&self.read(self.text)),
             &self.context(),
         )
     }
@@ -2831,6 +2842,53 @@ fn an_update_of_a_map_collections_instance_that_writes_its_key_is_refused() {
             child_probe(Form::Readable, &set, "{ A { id: 5, ..me }, .. }", me),
             Outcome::After,
         ),
+        // R9 (P0): the same literal the subject matched the key with is provably the matched
+        // key, so the instance's identity is unchanged; another literal is another key.
+        (
+            child_probe(
+                Form::Readable,
+                &map,
+                "{ A { id: 5, ..me }, .. }",
+                Some("{ me @ A { id: 5, .. }, .. }"),
+            ),
+            Outcome::After,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &map,
+                "{ A { id: 5, ..me }, .. }",
+                Some("{ me @ A { id: k @ 5, .. }, .. }"),
+            ),
+            Outcome::After,
+        ),
+        (
+            child_probe(
+                Form::Cells,
+                &map,
+                "{ k::fragment![crate::A { id: 5, ..me }], .. }",
+                Some("{ me @ k::fragment![crate::A { id: 5, .. }], .. }"),
+            ),
+            Outcome::After,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &map,
+                "{ A { id: 6, ..me }, .. }",
+                Some("{ me @ A { id: 5, .. }, .. }"),
+            ),
+            refused,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &map,
+                "{ A { id: 5, ..me }, .. }",
+                Some("{ me @ A { id: z, .. }, other @ A { id: 5, .. }, .. }"),
+            ),
+            refused,
+        ),
     ]);
 }
 
@@ -3391,7 +3449,7 @@ fn children_stack(name: &str) -> Vec<Layer> {
 
 /// The children sweep's rows: a stack, the subject's entry of the cell (`-`: the subject does
 /// not match it), and a result, each written in readable (claim alike) and in `cells!`.
-const CHILDREN_SWEEP: [(&str, [&str; 2], [&str; 2]); 33] = [
+const CHILDREN_SWEEP: [(&str, [&str; 2], [&str; 2]); 35] = [
     (
         "group H",
         [
@@ -3698,6 +3756,29 @@ const CHILDREN_SWEEP: [(&str, [&str; 2], [&str; 2]); 33] = [
         [
             "{ A { l: [x, ..], ..me }, .. }",
             "{ k::fragment![crate::A { l: [x, ..], ..me }], .. }",
+        ],
+    ),
+    // R9 (P0): an update writing the key as the same literal its subject matched keeps it.
+    (
+        "* Map of A",
+        [
+            "{ me @ A { id: 5, .. }, .. }",
+            "{ me @ k::fragment![crate::A { id: 5, .. }], .. }",
+        ],
+        [
+            "{ A { id: 5, ..me }, .. }",
+            "{ k::fragment![crate::A { id: 5, ..me }], .. }",
+        ],
+    ),
+    (
+        "* Map of A",
+        [
+            "{ me @ A { id: 5, .. }, .. }",
+            "{ me @ k::fragment![crate::A { id: 5, .. }], .. }",
+        ],
+        [
+            "{ A { id: 6, ..me }, .. }",
+            "{ k::fragment![crate::A { id: 6, ..me }], .. }",
         ],
     ),
 ];

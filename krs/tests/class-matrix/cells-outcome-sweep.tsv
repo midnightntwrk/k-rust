@@ -638,6 +638,8 @@ readable	group W	-	W { g: G { a: x, b: y }, n: 0 }	sort
 readable	* List of T	[..]	[T { k: [x, ..], ..me }, ..]	cir
 readable	* List of T	[..]	[T { k: [x], ..me }, ..]	cir
 readable	* Map of A	{ .. }	{ A { l: [x, ..], ..me }, .. }	rm
+readable	* Map of A	{ me @ A { id: 5, .. }, .. }	{ A { id: 5, ..me }, .. }	sort
+readable	* Map of A	{ me @ A { id: 5, .. }, .. }	{ A { id: 6, ..me }, .. }	map-collection-key
 claim	group H	H { l: [y, ..], .. }	H { l: [x], b: 0 }	rm
 claim	group H	H { l: [y, ..], .. }	H { l: [x, ..], b: 0 }	sort
 claim	group H	H { b: y, .. }	H { l: [x, ..], b: 0 }	rm
@@ -671,6 +673,8 @@ claim	group W	-	W { g: G { a: x, b: y }, n: 0 }	sort
 claim	* List of T	[..]	[T { k: [x, ..], ..me }, ..]	cir
 claim	* List of T	[..]	[T { k: [x], ..me }, ..]	cir
 claim	* Map of A	{ .. }	{ A { l: [x, ..], ..me }, .. }	rm
+claim	* Map of A	{ me @ A { id: 5, .. }, .. }	{ A { id: 5, ..me }, .. }	sort
+claim	* Map of A	{ me @ A { id: 5, .. }, .. }	{ A { id: 6, ..me }, .. }	map-collection-key
 cells	group H	k::fragment![crate::H { l: [y, ..], .. }]	k::fragment![crate::H { l: [x], b: 0 }]	rm
 cells	group H	k::fragment![crate::H { l: [y, ..], .. }]	k::fragment![crate::H { l: [x, ..], b: 0 }]	sort
 cells	group H	k::fragment![crate::H { b: y, .. }]	k::fragment![crate::H { l: [x, ..], b: 0 }]	rm
@@ -704,6 +708,8 @@ cells	group W	-	k::fragment![crate::W { g: G { a: x, b: y }, n: 0 }]	sort
 cells	* List of T	[..]	[k::fragment![crate::T { k: [x, ..], ..me }], ..]	rm
 cells	* List of T	[..]	[k::fragment![crate::T { k: [x], ..me }], ..]	sort
 cells	* Map of A	{ .. }	{ k::fragment![crate::A { l: [x, ..], ..me }], .. }	rm
+cells	* Map of A	{ me @ k::fragment![crate::A { id: 5, .. }], .. }	{ k::fragment![crate::A { id: 5, ..me }], .. }	sort
+cells	* Map of A	{ me @ k::fragment![crate::A { id: 5, .. }], .. }	{ k::fragment![crate::A { id: 6, ..me }], .. }	map-collection-key
 #
 ## children, init: a template record with a collection child (P5 at every depth)
 # Groups: Q (id: Int, js: * List of J), P (js: * List of J), J (p: Int). Bound: pgm.

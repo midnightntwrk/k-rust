@@ -138,8 +138,9 @@ pub enum Spelling {
     Wild,
     /// A binder, `x`; whether it is fresh is the rule's ([`Context::bound`]).
     Binder(String),
-    /// A literal, `0`.
-    Literal,
+    /// A literal, `0`, with its text where it is declared (two literals are provably equal only
+    /// when both texts are known and the same).
+    Literal(Option<String>),
     /// A function application or a constructor term, with its arguments.
     Call(Vec<Self>),
     /// A configuration variable in an initializer, `pgm`.
@@ -606,7 +607,7 @@ pub fn children(spelling: &Spelling) -> Vec<&Spelling> {
         Spelling::Call(arguments) => arguments.iter().collect(),
         Spelling::Wild
         | Spelling::Binder(_)
-        | Spelling::Literal
+        | Spelling::Literal(_)
         | Spelling::ConfigVar(_)
         | Spelling::Missing => Vec::new(),
     }
@@ -1181,9 +1182,10 @@ fn record_of<'s>(spelling: &'s Spelling, group: &Group) -> Option<&'s Record> {
 /// (§2.3, §7). A Map collection's instance is keyed by its first child, its identity: written at
 /// creation and never changed by an update. A created instance writes it (P5: a bare `..` gives
 /// the template's fields, and the template states no identity). An update (`..me`) changes the
-/// instance in place: it writes the key, if at all, as the binder its subject matched the key
-/// with, which means the same instance (P0); any other key value, or a key the labelled
-/// instance does not name, is a key change. A List or Set collection has no key.
+/// instance in place: it writes the key, if at all, as what is provably the key its subject
+/// matched, the key's own binder or the same literal, which means the same instance (P0); any
+/// other key value, or a key the labelled instance does not name, is a key change. A List or
+/// Set collection has no key.
 fn keyed(order: Order, group: &Group, record: &Record, other: Other<'_>) -> bool {
     fn named<'r>(record: &'r Record, key: &str) -> Option<&'r Spelling> {
         record
@@ -1201,11 +1203,17 @@ fn keyed(order: Order, group: &Group, record: &Record, other: Other<'_>) -> bool
                 return false;
             };
             let matched = record_of(subject, group).and_then(|record| named(record, key));
-            matches!(
-                (value, matched),
-                (Spelling::Binder(written), Some(Spelling::Binder(bound) | Spelling::Alias(bound, _)))
-                    if written == bound
-            )
+            match (value, matched) {
+                (
+                    Spelling::Binder(written),
+                    Some(Spelling::Binder(bound) | Spelling::Alias(bound, _)),
+                ) => written == bound,
+                (Spelling::Literal(Some(written)), Some(matched)) => matches!(
+                    unaliased(matched),
+                    Spelling::Literal(Some(literal)) if literal == written
+                ),
+                _ => false,
+            }
         }
         (RecordRest::Update(_), None) => true,
         (RecordRest::Exact | RecordRest::Open, written) => written.is_some(),
@@ -1544,10 +1552,10 @@ pub mod build {
     pub fn bind(name: &str) -> Spelling {
         Spelling::Binder(name.to_owned())
     }
-    /// A literal.
+    /// A literal, its text unstated.
     #[must_use]
     pub const fn lit() -> Spelling {
-        Spelling::Literal
+        Spelling::Literal(None)
     }
     /// An application.
     #[must_use]
