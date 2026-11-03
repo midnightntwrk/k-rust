@@ -14,7 +14,7 @@ use crate::{ExecError, report::RuleKind};
 /// One identity of the catalog.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct CatalogRule {
-    /// The rule's label, as the backend names it (`MODULE.name`).
+    /// The rule's label, as the backend names it (`SM83.boundary-fetch`, `krsRule_3d70...`).
     pub(crate) label: Option<String>,
     /// What kind of sentence it is.
     pub(crate) kind: RuleKind,

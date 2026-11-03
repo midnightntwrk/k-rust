@@ -9,8 +9,8 @@
 # The corpus, in the order the AI writes it. A test is a program in plus/programs/.
 [[test]]
 id = "t1"
-# The rules the program's run applies, read off its rewrite steps. krs does not report run
-# coverage yet (k-rust's run API does, as collectCoverage), so this list is maintained by hand.
+# The equations the program's run applies, which `krs run --coverage` reports as `applied` (they
+# take no rewrite step, so no trace shows them); this list is still maintained by hand.
 rules = ["plus_zero"]
 
 [[test]]
