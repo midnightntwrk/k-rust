@@ -30,7 +30,8 @@ file = "programs/primes.imp"
 
 # collatz took about 36 s on the baseline as a path set even with m = 3, so before re-pin
 # L1-1 it was `timeout` under this budget; as a state set it ends in about 10 ms and is
-# comparable, so every mutation's search runs it (it kills none; README.md).
+# comparable, so every mutation's search runs it (it is the first killer of none, and kills 11 in
+# the full matrix, `run --full`; README.md).
 [[program]]
 id = "collatz"
 file = "programs/collatz.imp"

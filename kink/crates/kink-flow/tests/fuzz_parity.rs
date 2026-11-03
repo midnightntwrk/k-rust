@@ -175,6 +175,7 @@ fn kink_run(dir: &Path, only: &str) -> Value {
         order: ProgramOrder::Corpus,
         compile_workers: None,
         memo: MemoUse::On,
+        schedule: kink_campaign::ScheduleMode::FirstKill,
     };
     let (document, ok) = on_stack(move || run(&manifest, &list, &options));
     assert!(ok, "{document:#}");

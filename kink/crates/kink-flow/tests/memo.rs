@@ -143,6 +143,7 @@ fn search_only(
             order: ProgramOrder::Corpus,
             compile_workers: Some(1),
             memo,
+            schedule: kink_campaign::ScheduleMode::FirstKill,
         },
         mode,
     )

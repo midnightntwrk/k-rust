@@ -69,6 +69,12 @@
 //! distinguishing slot's `sides` is no longer null for a cached or one-sided kill: it is read from
 //! the difference ([`slots_value`]). A program's row carries `ends`, each end's `{head, class}`.
 //!
+//! CF-23 (version 15): the document carries `schedule`, `first-kill` or `full` (`run --full`),
+//! and `matrix`, the kill matrix of a full run per comparable program ([`matrix`]; null under
+//! first-kill); every row carries `killed_by`, every killing program in corpus order under
+//! `full` (null under first-kill and on a row no fold decided). A full row's `executed` lists
+//! every program in corpus order, its cached and live cells merged.
+//!
 //! Nothing here reads or changes a verdict: every status is the kill search's, which is the
 //! campaign runner's fold over live and cached outcomes (README 7.5.3).
 
@@ -113,8 +119,9 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// where it leaves some cell out; 15 since CF-03 judged each run of a definition whose
 /// short-circuit analysis flags a rule by its own list, taking the short-circuit reading out of
 /// `spec.exclusion` and adding each executed entry's and each program row's
-/// `short_circuit_readings`.
-pub const RUN_VERSION: u64 = 15;
+/// `short_circuit_readings`; 16 since CF-23 added `schedule`,
+/// `matrix` and each row's `killed_by` (`run --full`).
+pub const RUN_VERSION: u64 = 16;
 
 /// k-rust's contradicted-claim records of one run as specification diagnostics (re-pin adoption
 /// A-1): each `{claim, symbol, k_label, rule_id, rule_label, application, undefined,
@@ -819,6 +826,53 @@ pub fn survivors(mutations: &[Value]) -> Vec<Value> {
         })
         .map(|row| row["id"].clone())
         .collect()
+}
+
+/// The kill matrix of a full run (`run --full`), from its program rows (the `results` rows, in
+/// corpus order) and its mutation rows: `{programs: [{id, kills, sole_killer_of, undecided}]}`,
+/// one entry per program whose class is `comparable`, in corpus order (a list, since a JSON
+/// object would order the ids by name). `kills` are the mutations (in row order) whose
+/// `killed_by` holds the program, `sole_killer_of` those whose `killed_by` is exactly the
+/// program, and `undecided` those whose `executed` has an entry of the program with an outcome
+/// other than `agree` and `distinguish` (a timeout, an unknown, an incomparable, an error or a
+/// failed run): the cells where the program might kill and the run could not tell. A row with no
+/// cell (a mutation that does not resolve, an `unkillable` one, a corpus error, a mutant that
+/// failed as a whole) is in no list. Nothing reads it back.
+pub fn matrix(programs: &[Value], mutations: &[Value]) -> Value {
+    let comparable = programs
+        .iter()
+        .filter(|row| row["class"] == ResultClass::Comparable.as_str())
+        .map(|row| {
+            let id = &row["id"];
+            let ids = |keep: &dyn Fn(&Value) -> bool| {
+                mutations
+                    .iter()
+                    .filter(|mutation| keep(mutation))
+                    .map(|mutation| mutation["id"].clone())
+                    .collect::<Vec<_>>()
+            };
+            let killed_by = |mutation: &Value| {
+                mutation["killed_by"]
+                    .as_array()
+                    .map(Vec::as_slice)
+                    .unwrap_or_default()
+                    .to_vec()
+            };
+            json!({
+                "id": id,
+                "kills": ids(&|mutation| killed_by(mutation).contains(id)),
+                "sole_killer_of": ids(&|mutation| killed_by(mutation) == [id.clone()]),
+                "undecided": ids(&|mutation| {
+                    mutation["executed"].as_array().into_iter().flatten().any(|entry| {
+                        entry["program"] == *id
+                            && entry["outcome"] != "agree"
+                            && entry["outcome"] != "distinguish"
+                    })
+                }),
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({"programs": comparable})
 }
 
 /// Every program that cannot kill (its result class is not `comparable`), once, from the

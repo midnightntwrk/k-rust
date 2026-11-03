@@ -772,11 +772,8 @@ fn a_pattern_corpus_is_reported_as_its_listed_programs() {
             &manifest,
             &dir.join("MUTATIONS.toml"),
             &RunOptions {
-                only: Vec::new(),
-                cache: None,
                 order: ProgramOrder::Corpus,
-                compile_workers: None,
-                memo: kink_flow::memo::MemoUse::On,
+                ..RunOptions::default()
             },
         );
         assert_eq!(program_ids(&check), expected, "{check:#}");

@@ -71,6 +71,7 @@ pub fn corpus_run(manifest: &Path, mutations: &Path) -> (Value, bool) {
             order: ProgramOrder::Corpus,
             compile_workers: None,
             memo: kink_flow::memo::MemoUse::On,
+            schedule: kink_campaign::ScheduleMode::FirstKill,
         },
     )
 }

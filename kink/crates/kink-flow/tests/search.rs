@@ -90,6 +90,7 @@ fn search(manifest: &Path, mutations: &Path, only: &[&str]) -> (Value, bool) {
             order: ProgramOrder::Corpus,
             compile_workers: None,
             memo: kink_flow::memo::MemoUse::On,
+            schedule: kink_campaign::ScheduleMode::FirstKill,
         },
     )
 }
@@ -859,8 +860,9 @@ note = "requires and right-hand side"
         // `findings` and `unable_to_kill`; kink27 R5-WEAKENING: version 11 adds the status
         // `unkillable` and a row's `weakening`; CF-16: version 12 adds `difference` and `ends`;
         // CF-02: version 13 adds `spec.exclusion`; version 14 adds `result`, the compared cells;
-        // CF-03: version 15 adds `short_circuit_readings`, the step that excluded a run.
-        assert_eq!(document["version"], 15);
+        // CF-03: version 15 adds `short_circuit_readings`, the step that excluded a run; CF-23:
+        // version 16 adds `schedule`, `matrix` and a row's `killed_by`.
+        assert_eq!(document["version"], 16);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());

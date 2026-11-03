@@ -52,8 +52,9 @@ load 18-20): 20.7 s and 0.11 GiB peak, against 140.1 s and 10.2 GiB at 1ee9955 (
 killed, `add-commuted` survives). Two things change, both because runs now finish inside
 `time_ms`:
 - `collatz` is `comparable` (its baseline takes 10 ms; as a path set it took 34.6 s, past the 10 s
-  bound, so it was `timeout`), so every mutation's call also runs it. It kills nothing; the
-  calls are otherwise those of the path-set run.
+  bound, so it was `timeout`), so every mutation's call also runs it. It is the first killer of
+  no mutation, but it kills 11 of them (below, "The full matrix"); the calls are otherwise those
+  of the path-set run.
 - `and-false-returns-rhs` is killed by `primes`, whose mutant run ended as a path set only at the
   time bound (still not after 120 s), instead of by `and`. The kill rests on re-pin decision 3
   (k-rust's state-set merge is correct). The L1-1 review confirmed it without that premise: the
@@ -160,3 +161,15 @@ Statuses are equal in every scenario (20 killed, `add-commuted` survived); five 
 (`arith`, `redeclare` or `and` instead of `primes` or `sum`).
 The cold run is cheaper mostly because a mutant that loops is now killed by a fast program before it can run a slow one to `time_ms`:
 in corpus order six (mutation, program) runs time out after 10 s each and make the 14 GiB peak; in cost order none does.
+
+## The full matrix (`--full`)
+
+`kink-flow run FLOW.toml MUTATIONS.toml --full` runs every program on every mutation, in the manifest's order, instead of stopping at the first kill.
+Measured when `--full` was added (k-rust e50ac51d1; debug build, shared host), its 147 cells are 47 kills, 89 agreements and 11 work-bound `unknown` cells in 6 mutations; every status is the first-kill run's (20 killed, `add-commuted` survived).
+Kills per program: `sum` 8, `primes` 13, `collatz` 11, `arith` 6, `and` 5, `divzero` 2, `redeclare` 2.
+The only proven killer of a mutation (the matrix's `sole_killer_of`; where the mutation has an `unknown` cell, that cell's program might kill it too): `arith` of `div-becomes-mul`, `add-becomes-sub` and `neg-drops-sign`, `and` of `and-true-ignores-rhs`, `divzero` of `div-guard-dropped`, `redeclare` of `decl-allows-redeclaration`.
+`seq-reversed` is killed by `sum` and `collatz` only, so a corpus that keeps every proven kill needs one of them.
+`collatz` kills 11, yet under first-kill a program the search ran before it killed each of them first: in corpus order, which no host changes, and in the `--order cost` run measured, whose order reads that host's wall times.
+
+A cold full run took 33.4 s and 0.87 GiB peak, against 31.5 s and 0.33 GiB for a cold first-kill run in corpus order on the same build (which ran 48 cells): the mutant compiles, which both pay once per mutation, dominate, and the full call holds every program's mutant evidence at once.
+A warm full run took 10.4 s: the 136 cacheable cells are cached, and the 6 mutations with an `unknown` cell compile and run that cell again.

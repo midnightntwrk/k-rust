@@ -258,6 +258,7 @@ mod kink_tier {
                 order: ProgramOrder::Corpus,
                 compile_workers: Some(1),
                 memo: kink_flow::memo::MemoUse::On,
+                schedule: kink_campaign::ScheduleMode::FirstKill,
             },
         );
         // kink27 R5-WEAKENING: version 11 adds the status `unkillable` and a row's `weakening`.

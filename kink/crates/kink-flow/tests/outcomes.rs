@@ -133,6 +133,7 @@ fn search_mode(manifest: &Path, mutations: &Path, only: &[&str], mode: RunMode) 
             order: ProgramOrder::Corpus,
             compile_workers: None,
             memo: kink_flow::memo::MemoUse::On,
+            schedule: kink_campaign::ScheduleMode::FirstKill,
         },
         mode,
     )

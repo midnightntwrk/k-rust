@@ -153,8 +153,6 @@ pub const MUTATION_IDENTITY_DOMAIN: &str = "kink-flow/mutation-identity/v1";
 pub const HINT_DOMAIN: &str = "kink-flow/hint/v1";
 /// The classifier of every flow campaign, as the tier-1 context names it.
 pub const CLASSIFIER: &str = "all-normal";
-/// The schedule of every kill-search call, as the tier-1 context names it.
-pub const SCHEDULE: &str = "first-kill";
 
 /// The digest of what a specification's execution depends on, with its kind.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -396,7 +394,9 @@ pub fn outcome_context(
         "budget": budget,
         "oracles": result.slots(),
         "classifier": CLASSIFIER,
-        "schedule": SCHEDULE,
+        // No schedule: a record is the outcome of one executed test, and the schedule decides
+        // only whether a test is executed, never its request, sides or slots, so one store
+        // serves the first-kill search and `run --full` (search.rs module documentation).
     });
     // Absent when nothing is left out, so a whole-term context is unchanged.
     if result.cells().is_some() {

@@ -34,6 +34,7 @@ use crate::{
     results::{ResultsOptions, cache_directory},
     search::{ProgramOrder, RunMode, RunOptions, mutation_list_refused},
 };
+use kink_campaign::ScheduleMode;
 use kink_corpus::cli::DEFINITION_STACK_BYTES;
 use kink_native::execution::SolverProfile;
 use serde_json::{Value, json};
@@ -53,7 +54,7 @@ pub const USAGE: &str = "usage: kink-flow --version | kink-flow check FLOW.toml 
                          results FLOW.toml [--verify] [--mutations MUTATIONS] [--cache DIR] \
                          [--output json|verdicts] | kink-flow run \
                          FLOW.toml MUTATIONS [--only ID]... [--verify] [--order cost|corpus] \
-                         [--compile-workers N] [--no-memo] [--cache DIR] [--output \
+                         [--full] [--compile-workers N] [--no-memo] [--cache DIR] [--output \
                          json|verdicts] | kink-flow report \
                          FLOW.toml [--cache DIR] | kink-flow query FLOW.toml PATTERNS.toml \
                          [--only ID]... [--verify] [--cache DIR] | kink-flow fuzz FLOW.toml \
@@ -96,7 +97,7 @@ pub fn execute(args: Vec<OsString>) -> u8 {
     };
     let output = command.output();
     let (document, status) = match FlowManifest::read(&manifest) {
-        Err(error) => (verb.manifest_refused(&error), EXIT_CORPUS),
+        Err(error) => (command.manifest_refused(&error), EXIT_CORPUS),
         Ok(manifest) => match dispatch(manifest, command, FrontEnd::default()) {
             Ok(result) => result,
             Err(panicked) => {
@@ -224,7 +225,9 @@ impl Verb {
 
     /// The document of this verb for a manifest that does not decode: the specification refused
     /// at stage `manifest` with the error, under the verb's schema (`fuzz`: its input refusal).
-    pub fn manifest_refused(self, error: &ManifestError) -> Value {
+    /// A run's document also names its schedule, which only the parsed command knows
+    /// ([`FlowCommand::manifest_refused`]).
+    fn manifest_refused(self, error: &ManifestError) -> Value {
         let schema = match self {
             Self::Check => return manifest_refused(error),
             Self::Fuzz => return crate::fuzz::input_refused("FLOW.toml", error),
@@ -454,6 +457,20 @@ impl FlowCommand {
         }
     }
 
+    /// The command's document for a manifest that does not decode ([`Verb::manifest_refused`]).
+    /// A run's names the command's `schedule` and a null `matrix`, as every run document does,
+    /// so that a refusal under `--full` reads as a full run's, whichever input was refused
+    /// ([`mutation_list_refused`]).
+    #[must_use]
+    pub fn manifest_refused(&self, error: &ManifestError) -> Value {
+        let mut document = self.verb().manifest_refused(error);
+        if let Self::Run { options, .. } = self {
+            document["schedule"] = json!(crate::search::schedule_name(options.schedule));
+            document["matrix"] = Value::Null;
+        }
+        document
+    }
+
     /// What the command prints: `--output` of `results` and `run`, the JSON document otherwise.
     #[must_use]
     pub const fn output(&self) -> OutputFormat {
@@ -579,7 +596,7 @@ pub fn run_command(
             // `run_front` annotates every document it writes and returns.
             return match MutationList::read(mutations) {
                 Err(error) => (
-                    front.annotated(mutation_list_refused(&error.to_string())),
+                    front.annotated(mutation_list_refused(&error.to_string(), options.schedule)),
                     EXIT_CORPUS,
                 ),
                 Ok(list) => {
@@ -685,10 +702,11 @@ fn fuzz_command(
 }
 
 /// [`run_command`] of `command` on the manifest at `path`, as kink-flow runs it, on the calling
-/// thread; a manifest that does not decode gives the verb's refusal ([`Verb::manifest_refused`]).
+/// thread; a manifest that does not decode gives the command's refusal
+/// ([`FlowCommand::manifest_refused`]).
 fn on_manifest(path: &Path, command: &FlowCommand) -> (Value, u8) {
     match FlowManifest::read(path) {
-        Err(error) => (command.verb().manifest_refused(&error), EXIT_CORPUS),
+        Err(error) => (command.manifest_refused(&error), EXIT_CORPUS),
         Ok(manifest) => run_command(&manifest, command, &FrontEnd::default()),
     }
 }
@@ -785,6 +803,9 @@ fn run_options(args: &[String]) -> Result<(RunOptions, RunMode, OutputFormat), S
                 );
             }
             "--no-memo" if options.memo == MemoUse::On => options.memo = MemoUse::Off,
+            "--full" if options.schedule == ScheduleMode::FirstKill => {
+                options.schedule = ScheduleMode::Full;
+            }
             "--only" => {
                 let id = args.next().ok_or("--only needs a mutation id")?;
                 if !options.only.contains(id) {
@@ -797,6 +818,15 @@ fn run_options(args: &[String]) -> Result<(RunOptions, RunMode, OutputFormat), S
             }
             _ => return Err(format!("unexpected argument {arg:?}")),
         }
+    }
+    // Under `Full` no test is skipped, so the order changes no cell in the no-Z3 profile; under
+    // Z3, where a mutant's reused backend carries solver answers from one program to the next, a
+    // fixed order is the reproducible one.
+    if options.schedule == ScheduleMode::Full && order.is_some() {
+        return Err(
+            "--order orders the first-kill search; --full runs every program in corpus order"
+                .to_owned(),
+        );
     }
     Ok((options, mode, output.unwrap_or_default()))
 }

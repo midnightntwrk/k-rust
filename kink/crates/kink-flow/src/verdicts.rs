@@ -6,8 +6,9 @@
 //!
 //! ```toml
 //! schema = "kink-flow-verdicts"
-//! version = 1
+//! version = 2
 //! document = "results"
+//! profile = "no-z3"
 //!
 //! [spec]
 //! outcome = "admitted"
@@ -19,11 +20,17 @@
 //! matched = ["plus_zero"]
 //! ```
 //!
+//! The header names the document, a run document's `schedule` (`first-kill`, or `full` for `run
+//! --full`) and the build's solver `profile` (`no-z3` or `z3`): under Z3 a class, a status and a
+//! cell can move between `killed`, `unknown` and `survived` with the order and the solver's
+//! timing, so a diff of two renderings across profiles shows why.
+//!
 //! A `results` document gives each program (`[[case]]`, in manifest order) its class and the
 //! rules its run fires (a rule's `fired_by`) and reaches (`reached_by`, k-rust `matched`), each
 //! rule named by its KRS item when a front end annotated it (`krs.item`), else its label, else
 //! its `file:line`, ordered by module name, then by position in the module. A `run` document
-//! gives each mutation it judged (`[[mutation]]`, in list order) its status, and, when a corpus
+//! gives each mutation it judged (`[[mutation]]`, in list order) its status, under `full` a
+//! killed mutation's `killed_by` (every killing program in corpus order), and, when a corpus
 //! error stopped it, the mutation and the reason under `[stopped]` (the mutations after it have
 //! no status). A refused specification has its `stage` and `reason` under `[spec]`, and a refused
 //! mutation list its `outcome` under `[mutation_list]` (a run document of a list that does not
@@ -32,13 +39,16 @@
 //! `kink-flow` prints it on stderr).
 //!
 //! Left out, each because it is not a function of the specification, the corpus and the budget:
-//! timings, digests, the build and the cache's state; the killer of a killed mutation, since
-//! under the first-kill search it is the first killing program the search reached, which depends
-//! on the order (`--order cost` reads wall times) and on the outcomes the cache already holds
-//! (the killers become part of the rendering, under a new version, once a run proves every
-//! killer of a mutation); and a status's reason, since the reason of `unknown` is the first
-//! exclusion in run order. A status itself does not depend on the order or the cache in the
-//! no-Z3 profile while no `budget.time_ms` bound fires (README, the program order). A `timeout`
+//! timings, digests, the build's identity (its solver profile is in the header) and the cache's
+//! state; the killer of a first-kill run, since it is the first killing program the search
+//! reached, which depends on the order (`--order cost` reads wall times) and on the outcomes the
+//! cache already holds; and a status's reason, since the reason of `unknown` is the first
+//! exclusion in run order. A status itself does not depend
+//! on the order or the cache in the no-Z3 profile while no `budget.time_ms` bound fires (README,
+//! the program order), and neither does a full run's `killed_by`: it is the set of comparable
+//! programs whose cell is a proved difference, each cell an outcome that does not depend on the
+//! other programs of the call, live or cached under a key that names every input. So a first-kill
+//! rendering locks the statuses, and a full rendering the statuses and every killer. A `timeout`
 //! class or status depends on the host by its nature.
 
 use serde_json::Value;
@@ -46,8 +56,9 @@ use std::fmt::Write as _;
 
 /// The `schema` of the rendering.
 pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
-/// The version of the rendering: 1, the first.
-pub const VERDICTS_VERSION: u64 = 1;
+/// The version of the rendering: 1, the first; 2 since CF-23 added the header's `schedule` (run
+/// documents) and `profile`, and a full run's `killed_by`.
+pub const VERDICTS_VERSION: u64 = 2;
 
 /// The rendering of a `results` or `run` document (module documentation); the error names what
 /// the document is when it is neither.
@@ -66,6 +77,12 @@ pub fn verdicts(document: &Value) -> Result<String, String> {
     line(&mut text, "schema", &string(VERDICTS_SCHEMA));
     line(&mut text, "version", &VERDICTS_VERSION.to_string());
     line(&mut text, "document", &string(kind));
+    let full = document["schedule"] == "full";
+    for key in ["schedule", "profile"] {
+        if let Some(value) = document[key].as_str() {
+            line(&mut text, key, &string(value));
+        }
+    }
     for section in ["spec", "mutation_list"] {
         let Some(object) = document[section].as_object() else {
             continue;
@@ -80,7 +97,7 @@ pub fn verdicts(document: &Value) -> Result<String, String> {
     if kind == "results" {
         cases(&mut text, document);
     } else {
-        mutations(&mut text, document);
+        mutations(&mut text, document, full);
     }
     if let Some(stopped) = document["stopped"].as_object() {
         text.push_str("\n[stopped]\n");
@@ -173,7 +190,9 @@ fn cases(text: &mut String, document: &Value) {
     }
 }
 
-fn mutations(text: &mut String, document: &Value) {
+/// Each mutation's id and status; under `full` (a run document of `run --full`) a killed
+/// mutation's `killed_by` too, which a first-kill rendering never writes (module documentation).
+fn mutations(text: &mut String, document: &Value, full: bool) {
     for row in document["mutations"].as_array().into_iter().flatten() {
         text.push_str("\n[[mutation]]\n");
         line(text, "id", &string(row["id"].as_str().unwrap_or_default()));
@@ -182,6 +201,17 @@ fn mutations(text: &mut String, document: &Value) {
             "status",
             &string(row["status"].as_str().unwrap_or_default()),
         );
+        if full
+            && row["status"] == "killed"
+            && let Some(killers) = row["killed_by"].as_array()
+        {
+            let killers = killers
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
+            line(text, "killed_by", &strings(&killers));
+        }
     }
 }
 

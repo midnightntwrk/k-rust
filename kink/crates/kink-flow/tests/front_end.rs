@@ -698,10 +698,18 @@ fn verdicts_do_not_depend_on_the_cache_or_the_order() {
     assert_eq!(cold, warm);
     assert_eq!(cold, other_order);
     assert_eq!(cold_results, warm_results);
-    assert!(cold.starts_with(
-        "schema = \"kink-flow-verdicts\"\nversion = 1\ndocument = \"run\"\n\n[spec]\noutcome = \
-         \"admitted\"\n"
-    ));
+    // CF-23: version 2 names the schedule and the solver profile.
+    assert!(
+        cold.starts_with(&format!(
+            "schema = \"kink-flow-verdicts\"\nversion = 2\ndocument = \"run\"\nschedule = \
+             \"first-kill\"\nprofile = \"{}\"\n\n[spec]\noutcome = \"admitted\"\n",
+            kink_native::execution::SolverProfile::BUILD.name()
+        )),
+        "{cold}"
+    );
+    // A first-kill rendering writes no killer: the first killer depends on the order and the
+    // cache.
+    assert!(!cold.contains("killed_by"), "{cold}");
     assert!(
         cold.contains("\n[[mutation]]\nid = \"add-swaps-operands\"\nstatus = \"survived\"\n"),
         "{cold}"
@@ -756,8 +764,11 @@ fn the_command_line_prints_verdicts() {
     let printed = String::from_utf8(output.stdout).unwrap();
     assert_eq!(
         printed,
-        "schema = \"kink-flow-verdicts\"\nversion = 1\ndocument = \"run\"\n\n\
-         [mutation_list]\noutcome = \"refused\"\n"
+        format!(
+            "schema = \"kink-flow-verdicts\"\nversion = 2\ndocument = \"run\"\nschedule = \
+             \"first-kill\"\nprofile = \"{}\"\n\n[mutation_list]\noutcome = \"refused\"\n",
+            kink_native::execution::SolverProfile::BUILD.name()
+        )
     );
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(

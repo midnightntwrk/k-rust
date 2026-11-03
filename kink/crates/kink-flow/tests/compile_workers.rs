@@ -2,8 +2,13 @@
 //! cold, then warm, in private copies of its fixture, with 1 (the sequential path) and with more
 //! compile workers; every run document must be equal once the wall times are removed, and the
 //! outcome cache (`outcomes/`), the killer hints and the stored report must be byte-equal. With 2
-//! workers a chunk holds 8 mutations, so `collstore`'s 9 span two chunks.
+//! workers a chunk holds 8 mutations, so `collstore`'s 9 span two chunks. `run --full` (CF-23)
+//! is compared the same way. These comparisons show that the worker count changes no row, record
+//! or hint; they cannot show which mutants were compiled ahead, since a wrong compile-ahead guess
+//! costs a compile and nothing a document or a store holds. The tier-1 rule the guess shares with
+//! the search, under each schedule, is pinned by `search.rs`'s `tier_one_decides_by_the_schedule`.
 
+use kink_campaign::ScheduleMode;
 use kink_flow::{
     FlowManifest, MutationList,
     results::CACHE_DIRECTORY,
@@ -91,7 +96,7 @@ fn stores(cache: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     files
 }
 
-fn search(dir: &Path, list: &str, workers: usize) -> (Value, bool) {
+fn search(dir: &Path, list: &str, workers: usize, schedule: ScheduleMode) -> (Value, bool) {
     let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
     let mutations = MutationList::read(&dir.join(list)).unwrap();
     run(
@@ -103,6 +108,7 @@ fn search(dir: &Path, list: &str, workers: usize) -> (Value, bool) {
             order: ProgramOrder::Corpus,
             compile_workers: Some(workers),
             memo: kink_flow::memo::MemoUse::On,
+            schedule,
         },
     )
 }
@@ -118,16 +124,24 @@ fn statuses(document: &Value) -> Vec<String> {
 }
 
 fn compare(name: &str, list: &str, workers: &[usize]) -> Vec<String> {
+    compare_as(name, list, workers, ScheduleMode::FirstKill)
+}
+
+fn compare_as(name: &str, list: &str, workers: &[usize], schedule: ScheduleMode) -> Vec<String> {
+    let suffix = match schedule {
+        ScheduleMode::FirstKill => list.to_owned(),
+        ScheduleMode::Full => format!("{list}-full"),
+    };
     let dirs = workers
         .iter()
-        .map(|&w| fixture(name, list, w))
+        .map(|&w| fixture(name, &suffix, w))
         .collect::<Vec<_>>();
     let mut cold_statuses = Vec::new();
     for round in ["cold", "warm"] {
         let runs = dirs
             .iter()
             .zip(workers)
-            .map(|(dir, &w)| search(dir, list, w))
+            .map(|(dir, &w)| search(dir, list, w, schedule))
             .collect::<Vec<_>>();
         let (reference, ok) = &runs[0];
         if round == "cold" {
@@ -196,6 +210,22 @@ mod kink_tier {
                 .any(|s| s.ends_with("=\"invalid\"") || s.ends_with("=\"equivalent\"")),
             "{calc:?}"
         );
+    }
+
+    /// CF-23: the full schedule, cold and warm, with 1 and 4 workers: the worker count changes
+    /// no full row, record or hint (the module documentation says what this cannot show).
+    #[test]
+    #[ignore = "kink"]
+    fn compile_workers_change_no_full_row_record_or_hint_on_calc() {
+        warn_if_one_worker();
+        let calc = compare_as(
+            "calc",
+            "MUTATIONS-statuses.toml",
+            &[1, 4],
+            ScheduleMode::Full,
+        );
+        assert_eq!(calc.len(), 6);
+        assert!(calc.iter().any(|s| s.ends_with("=\"killed\"")));
     }
 }
 

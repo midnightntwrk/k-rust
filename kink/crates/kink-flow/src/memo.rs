@@ -21,8 +21,9 @@
 //! tier 1 reads: the patch digest, the edited rules (texts, lines, labels, whether the
 //! `requires` changed), the tier-1 mutation identity, the edited rules' typing diagnostics and
 //! the claims the edit leaves unbacked ([`Facts`]). It never holds the patch, and a memo hit is
-//! used only for a mutation that tier 1 decides with no call (a valid killed record, or a valid
-//! agreement for every program of O): every mutation that compiles or runs anything is resolved
+//! used only for a mutation that tier 1 decides with no call under the run's schedule (a valid
+//! killed record, under the first-kill search only, or a valid record for every program of O;
+//! `search::tier1_decides`): every mutation that compiles or runs anything is resolved
 //! live in this command, so no memo ever feeds a compile, a load of a mutant or an execution
 //! (the patch's canonical JSON does not carry k-rust's term metadata, so a decoded patch would
 //! not be the patch resolution builds). Its key ([`resolution_key`]) names every input

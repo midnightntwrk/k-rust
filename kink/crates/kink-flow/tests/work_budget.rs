@@ -79,6 +79,7 @@ fn search(manifest: &Path) -> Value {
             order: ProgramOrder::Corpus,
             compile_workers: None,
             memo: kink_flow::memo::MemoUse::On,
+            schedule: kink_campaign::ScheduleMode::FirstKill,
         },
     );
     assert!(ok, "{document:#}");
