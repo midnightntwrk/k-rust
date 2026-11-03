@@ -7,6 +7,7 @@
 //!
 //! The shards are ignored tests, one per family group: `readable` (readable records and claims),
 //! `cells`, `runs` (the readable records and `cells!` rules on the run base, which K7 runs), `init`,
+//! `sweep` (one case per root cell of the cells oracle's sweep, `class_matrix::sweep`),
 //! `terms`, `import`, `notation` (the collection notation at the term
 //! positions), and `attrs` (every sentence attribute on every sentence form), each of which also
 //! judges its accepted cases by K3
@@ -47,7 +48,8 @@
 //! - `KRS_CLASS_RECORD=1`: the record mode. Each accepted case that the table does not refuse
 //!   gets its K written into `expected.toml`, or a term family's into `accepted-terms.toml`
 //!   (`[accept."ID"].k`, [`closure::case_k`]), its entry created when the table has none; the K is
-//!   reviewed as a diff, never written by hand.
+//!   reviewed as a diff. The one exception is a case whose pending K2 entry is `OTHER_K`: its
+//!   table K is the principled K, written by hand under its finding, and record mode keeps it.
 //!
 //! An accepted case that the table accepts must emit the K the table records, and the K of every
 //! case its `same_k_as` names (K3's documented equal spellings, keyed `k3/<case ID>` with the
@@ -79,8 +81,8 @@ use krs_test_support::class_matrix::invariants::{
 };
 use krs_test_support::class_matrix::k7::K7;
 use krs_test_support::class_matrix::pending::{
-    ADVICE, CLOSURE, FULL, Judgement, KEYS, LATTICE, NATIVE, Observation, Pending, RUN, TWIN,
-    case_of, test_of,
+    ADVICE, CLOSURE, FULL, Judgement, KEYS, LATTICE, NATIVE, OTHER_K, Observation, Pending, RUN,
+    TWIN, case_of, test_of,
 };
 use krs_test_support::class_matrix::table::{
     Expected, Glob, Resolution, TERM_ACCEPTS_FILE, Table, TableError, in_term_accepts,
@@ -437,7 +439,7 @@ fn k2_signature(
     if let Some(lint) = lint {
         lint.signature()
     } else if moved {
-        "accepted, with other K than recorded".to_owned()
+        OTHER_K.to_owned()
     } else {
         signature(&judged.observed, placed)
     }
@@ -951,13 +953,21 @@ fn check_unchecked(name: &str, shard: &mut Shard, whole: bool) {
         .extend(unchecked_drift(name, &shard.unchecked, UNCHECKED, whole));
 }
 
-/// The own text of every generated case the table accepts, for the forms K8 reads.
+/// The own text of every generated case the table accepts and KRS accepts as the table says (no
+/// pending K2 entry, under its ID or `full/`), for the forms K8 reads. A case whose own K2 verdict
+/// is red shows no form an author can write: the product refuses it or writes other K, so it
+/// is no witness that advice to write its form can be followed.
 fn accepted_corpus(resolution: &Resolution<'_>) -> Corpus {
+    let pending = &spec().pending.entries;
     Corpus::new(
         spec()
             .cases
             .iter()
             .filter(|case| matches!(resolution.expected.get(&case.id), Some(Expected::Accept(_))))
+            .filter(|case| {
+                !pending.contains_key(&case.id)
+                    && !pending.contains_key(&format!("{FULL}{}", case.id))
+            })
             .map(|case| (case.id.clone(), case.own_source())),
     )
 }
@@ -1060,6 +1070,7 @@ fn k3(
 fn record(recorded: &BTreeMap<String, String>) {
     let (terms, others): (BTreeMap<_, _>, BTreeMap<_, _>) =
         recorded.iter().partition(|(id, _)| in_term_accepts(id));
+    let pending = &spec().pending;
     for (file, recorded) in [(TERM_ACCEPTS_FILE, terms), ("expected.toml", others)] {
         if recorded.is_empty() {
             continue;
@@ -1075,6 +1086,9 @@ fn record(recorded: &BTreeMap<String, String>) {
             .as_table_mut()
             .expect("[accept] is a table");
         for (id, k) in recorded {
+            if pending.holds_other_k(id) {
+                continue;
+            }
             let entry = accept
                 .entry(id)
                 .or_insert_with(toml_edit::table)
@@ -1497,6 +1511,12 @@ fn notation() {
 #[ignore = "the full tier builds packages; run it through scripts/krs-class.sh"]
 fn attrs() {
     shard("attrs", &[Family::Attributes]);
+}
+
+#[test]
+#[ignore = "the full tier builds packages; run it through scripts/krs-class.sh"]
+fn sweep() {
+    shard("sweep", &[Family::Sweep]);
 }
 
 #[test]

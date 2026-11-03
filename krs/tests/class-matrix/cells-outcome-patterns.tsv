@@ -1000,13 +1000,13 @@ cf01	member	subject	group H	-	H { l: [y], .. }
 cf01	member	subject	group C	-	C { c: [y, ..], .. }
 cf01	member	subject	group C	-	C { c: [y], .. }
 cf01	principle	Subject group records naming a Map, List or computation child, framed or exact: readable and claim ok (P5: they constrain and bind; a fresh readable binder takes its position's sort), cells! sort (a cells! binder is typed, the lattice's). The field's value is its child's entry and content root (P1, P6, S5.0g:F-1), so its `..` matches the child's rest in both forms (P7).
-cf02	answers	sort	sort	sort|product:arm
+cf02	answers	sort|product:mrr	sort|product:mrr	sort|product:arm
 cf02	member	result	group M	M { m: { z -> y, .. }, .. }	M { m: { y -> x, .. }, n: 0 }
-cf02	principle	Result writing a group's Map child with a rest over the subject's child with one: sort in every form (P6 at the child's content root: `..` keeps the rest the subject's child framed; S5.0g:F-1: the fragment field's k::map![.., ..] is that root, as readable's { y -> x, .. } is, P7); the product's arm is design:M3's stated limitation.
-cf03	answers	rm	rm	rm|product:arm
+cf02	principle	Result writing a group's Map child with a rest over the subject's child with one: sort in every form (P6 at the child's content root: `..` keeps the rest the subject's child framed; S5.0g:F-1: the fragment field's k::map![.., ..] is that root, as readable's { y -> x, .. } is, P7); the product's arm is design:M3's stated limitation; the product's readable and claim `mrr` is the same design:M3 limitation for a map read with a rest at a group record's child, a [cell-exception] (S5.0g item 3a fixes, F-8).
+cf03	answers	rm|product:mrr	rm|product:mrr	rm|product:arm
 cf03	member	result	group M	M { m: { z -> y }, .. }	M { m: { y -> x, .. }, n: 0 }
 cf03	member	result	group M	M { n: z, .. }	M { m: { y -> x, .. }, n: 0 }
-cf03	principle	Result writing a group's Map child with a rest over a subject child that is exact or not named: rm in every form (P6: a result `..` the subject's child did not match, the unnamed child being unmatched, S5.0g:D-1; S5.0g:F-1 makes the cells! fragment field the child's content root, P7); the product's arm is design:M3's limitation, met at its form step first.
+cf03	principle	Result writing a group's Map child with a rest over a subject child that is exact or not named: rm in every form (P6: a result `..` the subject's child did not match, the unnamed child being unmatched, S5.0g:D-1; S5.0g:F-1 makes the cells! fragment field the child's content root, P7); the product's arm is design:M3's limitation, met at its form step first; the product's readable and claim `mrr` is the same design:M3 limitation for a map read with a rest at a group record's child, a [cell-exception] (S5.0g item 3a fixes, F-8).
 cf04	answers	rm	rm	rm
 cf04	member	result	group M	M { m: { z -> y, .. }, .. }	M { m: { y -> x }, n: 0 }
 cf04	member	result	group H	H { l: [z], .. }	H { l: [x, ..], b: 0 }

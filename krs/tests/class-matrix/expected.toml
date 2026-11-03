@@ -2315,6 +2315,3029 @@ class = "overlapping-static-clauses"
 at = "item"
 
 
+# S5.0g item 3a: the compiled sweep (refusals), every row from the cells oracle's `outcome` (`class_matrix::sweep`;
+# tests/cells_oracle.rs `the_kinds_cases_outcomes_print_on_request`), a value `outcome` leaves to the
+# lattice refused with the sort class the compiled run gives it.
+[[refuse]]
+match = 'sweep/{cells,claim,readable}/subject/{ogroup,olist,omap}/None'
+class = "absence-test-without-creation"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,prog,seq,set,stack}/[x\, r @ ..]'
+class = "alias-outside-pattern"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,prog,seq,set,stack}/[x\, r @ ..]'
+class = "alias-outside-pattern"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,prog,seq,set,stack}/map![y -> x\, ..]'
+class = "anonymous-rest-in-map-literal"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,prog,seq,set,stack}/map![y -> x\, ..]'
+class = "anonymous-rest-in-map-literal"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,prog,seq,set,stack}/map![y -> x\, ..]'
+class = "anonymous-rest-in-map-literal"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,prog,seq,set,stack}/map![y -> x\, ..]'
+class = "anonymous-rest-in-map-literal"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,prog,seq,set,stack}/k::configuration::Cell(k::map![y -> x\, ..])'
+class = "anonymous-rest-in-map-literal"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/result/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,prog,seq,set,stack}/k::configuration::Cell(k::map![y -> x\, ..])'
+class = "anonymous-rest-in-map-literal"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/result/{f02-mcell,f03-mcell,f06-mcell}/k::fragment![crate::M \{ mm: k::map![y -> x\, ..]\, mn: 0 \}]'
+class = "anonymous-rest-in-map-literal"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/ogroup/Some(x)'
+class = "binder-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/frame/x'
+class = "binder-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{counter,ogroup,omap}/Some([..])'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{counter,env,frame,ogroup,omap,pc,set}/[..\, x]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{counter,env,frame,ogroup,omap,pc,set}/[..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{counter,env,frame,omap,pc,set}/[G \{ a: x\, .. \}\, ..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/ogroup/[Gp \{ pa: x\, .. \}\, ..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{counter,env,frame,ogroup,omap,pc,set}/[x\, ..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{counter,env,frame,ogroup,omap,pc,set}/[x]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/{counter,env,omap,pc,set}/k::configuration::Cell([..\, x])'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/{counter,env,omap,pc,set}/k::configuration::Cell([x\, ..])'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{counter,ogroup,omap}/Some([..])'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{counter,env,frame,ogroup,omap,pc,set}/[..\, x]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{env,frame,ogroup,omap,set}/[..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{counter,env,frame,omap,pc,set}/[G \{ a: x\, .. \}\, ..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/ogroup/[Gp \{ pa: x\, .. \}\, ..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{env,frame,ogroup,omap}/[x\, ..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{counter,env,frame,ogroup,omap,pc,set}/[x]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/result/{counter,env,omap,pc,set}/k::configuration::Cell([..\, x])'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/result/{counter,env,omap,pc,set}/k::configuration::Cell([x\, ..])'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{counter,ogroup,omap}/Some([..])'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{counter,env,frame,ogroup,omap,pc,set}/[..\, x]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{ogroup,omap,set}/[..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{counter,env,frame,omap,pc,set}/[G \{ a: x\, .. \}\, ..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/ogroup/[Gp \{ pa: x\, .. \}\, ..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{ogroup,omap,set}/[x\, ..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{counter,env,frame,ogroup,omap,pc,set}/[x\, r @ ..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{counter,env,frame,ogroup,omap,pc,set}/[x]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/subject/{counter,env,omap,pc,set}/k::configuration::Cell([..\, x])'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/subject/{omap,set}/k::configuration::Cell([x\, ..])'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{counter,ogroup,omap}/Some([..])'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{counter,env,frame,ogroup,omap,pc,set}/[..\, x]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{counter,env,frame,ogroup,omap,pc,set}/[..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{counter,env,frame,omap,pc,set}/[G \{ a: x\, .. \}\, ..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/ogroup/[Gp \{ pa: x\, .. \}\, ..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{counter,env,frame,ogroup,omap,pc,set}/[x\, ..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{counter,env,frame,ogroup,omap,pc,set}/[x\, r @ ..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{counter,env,frame,ogroup,omap,pc,set}/[x]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/written/{counter,env,omap,pc,set}/k::configuration::Cell([..\, x])'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/written/{counter,env,omap,pc,set}/k::configuration::Cell([x\, ..])'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/init/init/prog/G \{ a: 0 \}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/init/init/prog/G \{ a: 0\, ..base \}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/prog/0'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/prog/G \{ a: x \}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/prog/G \{ a: x\, b: y\, .. \}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/ogroup/Some(k::configuration::Cell(x))'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/{acct,bag,frame,job,ogroup,prog}/k::configuration::Cell([..\, x])'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/{acct,bag,frame,job,ogroup,prog}/k::configuration::Cell([x\, ..])'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/{acct,bag,frame,job,ogroup,prog}/k::configuration::Cell(x)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,seq,set,stack}/k::configuration::KCell(..\, x)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,seq,set,stack}/k::configuration::KCell(x)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,seq,set,stack}/k::configuration::KCell(x\, ..)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,seq,set,stack}/k::configuration::KCell(x\, ..\, y)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/{env,pc,prog,seq,set,stack}/k::fragment![crate::G \{ a: x \}]'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/{env,pc,prog,seq,set,stack}/k::fragment![crate::G \{ a: x\, b: y\, .. \}]'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/{env,pc,seq,set,stack}/x'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{cells,claim,readable}/overwrite/prog/x'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/prog/0'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/prog/G \{ a: x \}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/prog/G \{ a: x\, b: y\, .. \}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/ogroup/Some(k::configuration::Cell(x))'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/{acct,bag,frame,job,ogroup,prog}/k::configuration::Cell([..\, x])'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/{acct,bag,frame,job,ogroup,prog}/k::configuration::Cell([x\, ..])'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/{acct,bag,frame,job,ogroup,prog}/k::configuration::Cell(x)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,seq,set,stack}/k::configuration::KCell(..\, x)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/{acct,bag,env,frame,job,ogroup,olist,omap,seq,set,stack}/k::configuration::KCell(x)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,seq,set,stack}/k::configuration::KCell(x\, ..)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,seq,set,stack}/k::configuration::KCell(x\, ..\, y)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/{env,pc,prog,seq,set,stack}/k::fragment![crate::G \{ a: x \}]'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/{env,pc,prog,seq,set,stack}/k::fragment![crate::G \{ a: x\, b: y\, .. \}]'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/{env,seq,set,stack}/x'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{cells,claim,readable}/result/prog/x'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/prog/G \{ a: x \}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/prog/G \{ a: x\, .. \}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/prog/G \{ a: x\, b: y\, .. \}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/ogroup/Some(k::configuration::Cell(x))'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/{seq,set}/_'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/{acct,bag,frame,job,ogroup,prog}/k::configuration::Cell([..\, x])'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/{acct,bag,ogroup}/k::configuration::Cell([x\, ..])'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/{acct,bag,ogroup}/k::configuration::Cell(_)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/{acct,bag,ogroup}/k::configuration::Cell(k::map![y -> x\, ..])'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/{acct,bag,ogroup}/k::configuration::Cell(x)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,seq,set,stack}/k::configuration::KCell(..\, x)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,seq,set,stack}/k::configuration::KCell(x)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/{acct,ogroup,olist,set}/k::configuration::KCell(x\, ..)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,seq,set,stack}/k::configuration::KCell(x\, ..\, y)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/{env,pc,prog,seq,set,stack}/k::fragment![crate::G \{ a: x \}]'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/{env,pc,prog,seq,set,stack}/k::fragment![crate::G \{ a: x\, .. \}]'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/{env,pc,prog,seq,set,stack}/k::fragment![crate::G \{ a: x\, b: y\, .. \}]'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/set/x'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/prog/0'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/prog/G \{ a: x \}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/prog/G \{ a: x\, .. \}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/prog/G \{ a: x\, b: y\, .. \}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/ogroup/Some(k::configuration::Cell(x))'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/{env,pc,seq,set,stack}/_'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{cells,claim,readable}/written/prog/_'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/{acct,bag,frame,job,ogroup,prog}/k::configuration::Cell([..\, x])'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/{acct,bag,frame,job,ogroup,prog}/k::configuration::Cell([x\, ..])'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/{acct,bag,frame,job,ogroup,prog}/k::configuration::Cell(_)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/{acct,bag,frame,job,ogroup,prog}/k::configuration::Cell(k::map![y -> x\, ..])'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/{acct,bag,frame,job,ogroup,prog}/k::configuration::Cell(x)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,seq,set,stack}/k::configuration::KCell(..\, x)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,seq,set,stack}/k::configuration::KCell(x)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,seq,set,stack}/k::configuration::KCell(x\, ..)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,seq,set,stack}/k::configuration::KCell(x\, ..\, y)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/{env,pc,prog,seq,set,stack}/k::fragment![crate::G \{ a: x \}]'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/{env,pc,prog,seq,set,stack}/k::fragment![crate::G \{ a: x\, .. \}]'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/{env,pc,prog,seq,set,stack}/k::fragment![crate::G \{ a: x\, b: y\, .. \}]'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/{env,pc,seq,set,stack}/x'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{cells,claim,readable}/written/prog/x'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{bag,job}/0'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/job/Gl \{ la: x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/job/Gl \{ la: x\, lb: y\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/acct/Gm \{ ma: x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/acct/Gm \{ ma: x\, mb: y\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/bag/Gs \{ sa: x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/bag/Gs \{ sa: x\, sb: y\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/job/k::fragment![crate::Gl \{ la: x\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/job/k::fragment![crate::Gl \{ la: x\, lb: y\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/acct/k::fragment![crate::Gm \{ ma: x\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/acct/k::fragment![crate::Gm \{ ma: x\, mb: y\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/bag/k::fragment![crate::Gs \{ sa: x\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/bag/k::fragment![crate::Gs \{ sa: x\, sb: y\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{cells,claim,readable}/overwrite/{acct,bag,job}/x'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{acct,bag,job}/0'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/job/Gl \{ la: x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/job/Gl \{ la: x\, lb: y\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/acct/Gm \{ ma: x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/acct/Gm \{ ma: x\, mb: y\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/bag/Gs \{ sa: x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/bag/Gs \{ sa: x\, sb: y\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/job/k::fragment![crate::Gl \{ la: x\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/job/k::fragment![crate::Gl \{ la: x\, lb: y\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/acct/k::fragment![crate::Gm \{ ma: x\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/acct/k::fragment![crate::Gm \{ ma: x\, mb: y\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/bag/k::fragment![crate::Gs \{ sa: x\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/bag/k::fragment![crate::Gs \{ sa: x\, sb: y\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{cells,claim,readable}/result/{acct,bag,job}/x'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{acct,bag}/0'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/job/Gl \{ la: x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/job/Gl \{ la: x\, lb: y\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/acct/Gm \{ ma: x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/acct/Gm \{ ma: x\, mb: y\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/bag/Gs \{ sa: x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/bag/Gs \{ sa: x\, sb: y\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/bag/_'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{cells,claim,readable}/subject/acct/_'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/job/k::fragment![crate::Gl \{ la: x\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/job/k::fragment![crate::Gl \{ la: x\, lb: y\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/acct/k::fragment![crate::Gm \{ ma: x\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/acct/k::fragment![crate::Gm \{ ma: x\, mb: y\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/bag/k::fragment![crate::Gs \{ sa: x\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/bag/k::fragment![crate::Gs \{ sa: x\, sb: y\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{cells,claim,readable}/subject/acct/x'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/bag/x'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{acct,bag,job}/0'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/job/Gl \{ la: x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/job/Gl \{ la: x\, lb: y\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/acct/Gm \{ ma: x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/acct/Gm \{ ma: x\, mb: y\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/bag/Gs \{ sa: x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/bag/Gs \{ sa: x\, sb: y\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{cells,claim,readable}/written/{acct,bag,job}/_'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/job/k::fragment![crate::Gl \{ la: x\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/job/k::fragment![crate::Gl \{ la: x\, lb: y\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/acct/k::fragment![crate::Gm \{ ma: x\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/acct/k::fragment![crate::Gm \{ ma: x\, mb: y\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/bag/k::fragment![crate::Gs \{ sa: x\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/bag/k::fragment![crate::Gs \{ sa: x\, sb: y\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{cells,claim,readable}/written/{acct,bag,job}/x'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/prog/[..\, x]'
+class = "computation-back-item"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/prog/k::configuration::KCell(..\, x)'
+class = "computation-back-item"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/prog/k::configuration::KCell(x\, ..\, y)'
+class = "computation-back-item"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/prog/[..\, x]'
+class = "computation-back-item"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/prog/k::configuration::KCell(..\, x)'
+class = "computation-back-item"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/prog/k::configuration::KCell(x\, ..\, y)'
+class = "computation-back-item"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/prog/[..\, x]'
+class = "computation-back-item"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/prog/k::configuration::KCell(..\, x)'
+class = "computation-back-item"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/prog/k::configuration::KCell(x\, ..\, y)'
+class = "computation-back-item"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/prog/[..\, x]'
+class = "computation-back-item"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/prog/k::configuration::KCell(..\, x)'
+class = "computation-back-item"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/prog/k::configuration::KCell(x\, ..\, y)'
+class = "computation-back-item"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/seq/[..\, x]'
+class = "cons-list-back-item"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/seq/k::configuration::Cell([..\, x])'
+class = "cons-list-back-item"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/seq/[..\, x]'
+class = "cons-list-back-item"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/seq/k::configuration::Cell([..\, x])'
+class = "cons-list-back-item"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/seq/[..\, x]'
+class = "cons-list-back-item"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/seq/k::configuration::Cell([..\, x])'
+class = "cons-list-back-item"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/seq/[..\, x]'
+class = "cons-list-back-item"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/seq/k::configuration::Cell([..\, x])'
+class = "cons-list-back-item"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/init/init/{env,pc,seq,set,stack}/G \{ a: 0 \}'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/init/init/{env,pc,seq,set,stack}/G \{ a: 0\, ..base \}'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/init/init/i05-pcell/P \{ pjs: 0 \}'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/init/init/{ogroup,olist,omap}/Some(0)'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/init/init/{ogroup,olist,omap}/k::absent!(0)'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{frame,set}/0'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{pc,set}/G \{ a: x \}'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{pc,set}/G \{ a: x\, b: y\, .. \}'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{seq,set}/0'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{env,pc,seq,set,stack}/G \{ a: x \}'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{env,pc,seq,set,stack}/G \{ a: x\, .. \}'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{env,pc,seq,set,stack}/G \{ a: x\, b: y\, .. \}'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{counter,olist,omap}/Some(G \{ .. \})'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/seq/[G \{ a: x\, .. \}\, ..]'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{env,frame,seq,set,stack}/0'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{env,pc,seq,set,stack}/G \{ a: x \}'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{env,pc,seq,set,stack}/G \{ a: x\, .. \}'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{env,pc,seq,set,stack}/G \{ a: x\, b: y\, .. \}'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{counter,olist,omap}/Some(G \{ .. \})'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/seq/[G \{ a: x\, .. \}\, ..]'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/c25-ccell/C \{ cc: [x]\, cn: 0 \}'
+class = "continuation-in-readable"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/prog/[..]'
+class = "continuation-in-readable"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/prog/[x\, ..]'
+class = "continuation-in-readable"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/prog/[x]'
+class = "continuation-in-readable"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/f20-ccell/C \{ cc: [x\, ..]\, cn: 0 \}'
+class = "continuation-in-readable"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/prog/[x\, r @ ..]'
+class = "continuation-in-readable"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/prog/[x\, r @ ..]'
+class = "continuation-in-readable"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/init/init/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,prog,seq,set,stack}/[0\, ..]'
+class = "initializer-remainder"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/init/init/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,prog,seq,set,stack}/k::k![Cmd::Go()\, ..]'
+class = "initializer-remainder"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/init/init/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,seq,set,stack}/k::k![Cmd::Go()\, ..pgm]'
+class = "initializer-remainder"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{acct,bag,job}/[..\, x]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{acct,bag}/[..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/acct/[Gm \{ ma: x\, .. \}\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/bag/[Gs \{ sa: x\, .. \}\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/acct/[k::fragment![crate::Gm \{ ma: x\, .. \}]\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/bag/[k::fragment![crate::Gs \{ sa: x\, .. \}]\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{acct,bag}/[x\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{acct,bag}/[x]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/job/\{ Gl \{ la: x\, .. \}\, .. \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/job/\{ Gl \{ la: x\, lb: y \} \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/job/\{ Gl \{ lb: x\, .. \}\, .. \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/job/\{ k::fragment![crate::Gl \{ la: x\, .. \}]\, .. \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{acct,bag,job}/\{ x\, .. \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{acct,bag,job}/[..\, x]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{acct,bag}/[..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/acct/[Gm \{ ma: x\, .. \}\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/bag/[Gs \{ sa: x\, .. \}\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/acct/[k::fragment![crate::Gm \{ ma: x\, .. \}]\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/bag/[k::fragment![crate::Gs \{ sa: x\, .. \}]\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{acct,bag}/[x\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{acct,bag}/[x]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/job/\{ Gl \{ la: x\, .. \}\, .. \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/job/\{ Gl \{ la: x\, lb: y \} \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/job/\{ Gl \{ lb: x\, .. \}\, .. \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/job/\{ k::fragment![crate::Gl \{ la: x\, .. \}]\, .. \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{acct,bag,job}/\{ x\, .. \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{acct,bag,job}/[..\, x]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{acct,bag}/[..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/acct/[Gm \{ ma: x\, .. \}\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/bag/[Gs \{ sa: x\, .. \}\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/acct/[k::fragment![crate::Gm \{ ma: x\, .. \}]\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/bag/[k::fragment![crate::Gs \{ sa: x\, .. \}]\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{acct,bag}/[x\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{acct,bag}/[x\, r @ ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{acct,bag}/[x]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/job/\{ Gl \{ la: x\, .. \}\, .. \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/job/\{ Gl \{ la: x\, lb: y \} \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/job/\{ Gl \{ lb: x\, .. \}\, .. \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/job/\{ k::fragment![crate::Gl \{ la: x\, .. \}]\, .. \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{acct,bag,job}/\{ x\, .. \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{acct,bag,job}/[..\, x]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{acct,bag}/[..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/acct/[Gm \{ ma: x\, .. \}\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/bag/[Gs \{ sa: x\, .. \}\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/acct/[k::fragment![crate::Gm \{ ma: x\, .. \}]\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/bag/[k::fragment![crate::Gs \{ sa: x\, .. \}]\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{acct,bag}/[x\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{acct,bag}/[x\, r @ ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{acct,bag}/[x]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/job/\{ Gl \{ la: x\, .. \}\, .. \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/job/\{ Gl \{ la: x\, lb: y \} \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/job/\{ Gl \{ lb: x\, .. \}\, .. \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/job/\{ k::fragment![crate::Gl \{ la: x\, .. \}]\, .. \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{acct,bag,job}/\{ x\, .. \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/{frame,olist,omap,prog,seq,set,stack}/[k::fragment![crate::G \{ a: x\, .. \}]\, ..]'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/ogroup/[k::fragment![crate::Gp \{ pa: x\, .. \}]\, ..]'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{counter,env,frame,olist,omap,pc,prog,seq,set,stack}/\{ G \{ a: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{counter,env,frame,olist,omap,pc,prog,seq,set,stack}/\{ G \{ a: x\, b: y \} \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{counter,env,frame,olist,omap,pc,prog,seq,set,stack}/\{ G \{ b: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/ogroup/\{ Gp \{ pa: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/ogroup/\{ Gp \{ pa: x\, pb: y \} \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/ogroup/\{ Gp \{ pb: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/{counter,env,frame,olist,omap,pc,prog,seq,set,stack}/\{ k::fragment![crate::G \{ a: x\, .. \}]\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/ogroup/\{ k::fragment![crate::Gp \{ pa: x\, .. \}]\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{counter,env,frame,ogroup,olist,omap,pc,prog,seq,set,stack}/\{ x\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/{counter,env,frame,olist,omap,pc,prog,seq,set,stack}/[k::fragment![crate::G \{ a: x\, .. \}]\, ..]'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/ogroup/[k::fragment![crate::Gp \{ pa: x\, .. \}]\, ..]'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{counter,env,frame,olist,omap,pc,prog,seq,set,stack}/\{ G \{ a: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{counter,env,frame,olist,omap,pc,prog,seq,set,stack}/\{ G \{ a: x\, b: y \} \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{counter,env,frame,olist,omap,pc,prog,seq,set,stack}/\{ G \{ b: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/ogroup/\{ Gp \{ pa: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/ogroup/\{ Gp \{ pa: x\, pb: y \} \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/ogroup/\{ Gp \{ pb: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/{counter,env,frame,olist,omap,pc,prog,seq,stack}/\{ k::fragment![crate::G \{ a: x\, .. \}]\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/ogroup/\{ k::fragment![crate::Gp \{ pa: x\, .. \}]\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{counter,env,frame,ogroup,olist,omap,pc,prog,seq,set,stack}/\{ x\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/{counter,env,frame,olist,omap,pc,prog,seq,set,stack}/[k::fragment![crate::G \{ a: x\, .. \}]\, ..]'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/ogroup/[k::fragment![crate::Gp \{ pa: x\, .. \}]\, ..]'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{counter,env,olist,pc,set,stack}/\{ G \{ a: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{counter,env,frame,olist,omap,pc,prog,seq,set,stack}/\{ G \{ a: x\, b: y \} \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{counter,env,frame,olist,omap,pc,prog,seq,set,stack}/\{ G \{ b: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/ogroup/\{ Gp \{ pa: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/ogroup/\{ Gp \{ pa: x\, pb: y \} \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/ogroup/\{ Gp \{ pb: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/{counter,env,frame,olist,omap,pc,prog,seq,set,stack}/\{ k::fragment![crate::G \{ a: x\, .. \}]\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/ogroup/\{ k::fragment![crate::Gp \{ pa: x\, .. \}]\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{counter,env,frame,ogroup,olist,omap,pc,prog,seq,set,stack}/\{ x\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/{counter,env,frame,olist,omap,pc,prog,seq,set,stack}/[k::fragment![crate::G \{ a: x\, .. \}]\, ..]'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/ogroup/[k::fragment![crate::Gp \{ pa: x\, .. \}]\, ..]'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{counter,env,frame,olist,omap,pc,prog,seq,set,stack}/\{ G \{ a: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{counter,env,frame,olist,omap,pc,prog,seq,set,stack}/\{ G \{ a: x\, b: y \} \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{counter,env,frame,olist,omap,pc,prog,seq,set,stack}/\{ G \{ b: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/ogroup/\{ Gp \{ pa: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/ogroup/\{ Gp \{ pa: x\, pb: y \} \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/ogroup/\{ Gp \{ pb: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/{counter,env,frame,olist,omap,pc,prog,seq,set,stack}/\{ k::fragment![crate::G \{ a: x\, .. \}]\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/ogroup/\{ k::fragment![crate::Gp \{ pa: x\, .. \}]\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{counter,env,frame,ogroup,olist,omap,pc,prog,seq,set,stack}/\{ x\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{c14-acc,c16-acc}/\{ A \{ aid: 5\, ..me \}\, .. \}'
+class = "map-collection-key"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/c35-acc/\{ A \{ aid: 6\, ..me \}\, .. \}'
+class = "map-collection-key"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/c21-acc/\{ A \{ aid: y\, ..me \}\, .. \}'
+class = "map-collection-key"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/c22-acc/\{ A \{ al: [x]\, .. \}\, .. \}'
+class = "map-collection-key"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/acct/\{ Gm \{ mb: x\, .. \}\, .. \}'
+class = "map-collection-key"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/{c14-acc,c16-acc}/\{ k::fragment![crate::A \{ aid: 5\, ..me \}]\, .. \}'
+class = "map-collection-key"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/c35-acc/\{ k::fragment![crate::A \{ aid: 6\, ..me \}]\, .. \}'
+class = "map-collection-key"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/c21-acc/\{ k::fragment![crate::A \{ aid: y\, ..me \}]\, .. \}'
+class = "map-collection-key"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/c22-acc/\{ k::fragment![crate::A \{ al: [x]\, .. \}]\, .. \}'
+class = "map-collection-key"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/init/init/{acct,bag,counter,frame,job,ogroup,olist,pc,prog,seq,set,stack}/k::map![0 -> 1\, ..env]'
+class = "map-notation-at-non-map"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{bag,frame,job,olist,prog,seq,set,stack}/\{ y -> x\, .. \}'
+class = "map-notation-at-non-map"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{acct,bag,frame,job,ogroup,olist,prog,seq,set,stack}/\{ y -> x\, .. \}'
+class = "map-notation-at-non-map"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/subject/{olist,seq,set}/k::configuration::Cell(k::map![y -> x\, ..])'
+class = "map-notation-at-non-map"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{acct,bag,ogroup,olist,seq,set}/\{ y -> x\, .. \}'
+class = "map-notation-at-non-map"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/written/{counter,olist,pc,seq,set,stack}/k::configuration::Cell(k::map![y -> x\, ..])'
+class = "map-notation-at-non-map"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{acct,bag,counter,frame,job,ogroup,olist,pc,prog,seq,set,stack}/\{ y -> x\, .. \}'
+class = "map-notation-at-non-map"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/omap/\{ y -> x\, .. \}'
+class = "map-read-in-result"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{f02-mcell,f03-mcell,f06-mcell}/M \{ mm: \{ y -> x\, .. \}\, mn: 0 \}'
+class = "map-read-in-result"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{env,omap}/\{ y -> x\, .. \}'
+class = "map-read-in-result"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{counter,env,frame,olist,omap,pc,prog,seq,set,stack}/G \{ a: x\, .. \}'
+class = "open-record-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{counter,olist,omap}/Some(G \{ .. \})'
+class = "open-record-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/c28-wcell/W \{ wg: Gw \{ wa: x\, .. \}\, wn: 0 \}'
+class = "open-record-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{olist,prog,seq,stack}/[G \{ a: x\, .. \}\, ..]'
+class = "open-record-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/{counter,env,frame,olist,omap,pc,prog,seq,set,stack}/k::fragment![crate::G \{ a: x\, .. \}]'
+class = "open-record-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/c28-wcell/k::fragment![crate::W \{ wg: Gw \{ wa: x\, .. \}\, wn: 0 \}]'
+class = "open-record-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{counter,env,frame,olist,omap,pc,prog,seq,stack}/G \{ a: x\, .. \}'
+class = "open-record-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{counter,olist,omap}/Some(G \{ .. \})'
+class = "open-record-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/ogroup/Some(Gp \{ .. \})'
+class = "open-record-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{olist,prog,seq,stack}/[G \{ a: x\, .. \}\, ..]'
+class = "open-record-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/result/{counter,env,frame,olist,omap,pc,prog,seq,stack}/k::fragment![crate::G \{ a: x\, .. \}]'
+class = "open-record-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/init/init/{counter,olist,omap}/G \{ a: 0 \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/init/init/{counter,olist,omap}/G \{ a: 0\, ..base \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/init/init/ogroup/Gp \{ pa: 0\, ..base \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/init/init/ogroup/Gp \{ pa: 0\, pb: 0 \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/init/init/i08-ocell/O \{ oo: 0\, on: 0 \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/init/init/omap/k::map![0 -> 1\, ..env]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{olist,omap}/0'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{counter,olist,omap}/G \{ a: x \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{counter,olist,omap}/G \{ a: x\, b: y\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/ogroup/Gp \{ pa: x\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/ogroup/Gp \{ pa: x\, pb: y\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/olist/[..\, x]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/olist/[..]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/olist/[x\, ..]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/olist/[x]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/olist/k::configuration::Cell([..\, x])'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/olist/k::configuration::Cell([x\, ..])'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/{counter,olist,omap}/k::configuration::Cell(x)'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/{counter,olist,omap}/k::fragment![crate::G \{ a: x \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/{counter,olist,omap}/k::fragment![crate::G \{ a: x\, b: y\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/ogroup/k::fragment![crate::Gp \{ pa: x\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/ogroup/k::fragment![crate::Gp \{ pa: x\, pb: y\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{cells,claim,readable}/overwrite/{counter,ogroup,olist,omap}/x'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{ogroup,olist,omap}/0'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{counter,olist,omap}/G \{ a: x \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{counter,olist,omap}/G \{ a: x\, b: y\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/ogroup/Gp \{ pa: x\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/ogroup/Gp \{ pa: x\, pb: y\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/olist/[..\, x]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/olist/[..]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/olist/[x\, ..]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/olist/[x]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/olist/k::configuration::Cell([..\, x])'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/olist/k::configuration::Cell([x\, ..])'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/{olist,omap}/k::configuration::Cell(x)'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/{counter,olist,omap}/k::fragment![crate::G \{ a: x \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/{counter,olist,omap}/k::fragment![crate::G \{ a: x\, b: y\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/ogroup/k::fragment![crate::Gp \{ pa: x\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/ogroup/k::fragment![crate::Gp \{ pa: x\, pb: y\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{cells,claim,readable}/result/{ogroup,olist,omap}/x'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{ogroup,olist,omap}/0'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{counter,olist,omap}/G \{ a: x \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{counter,olist,omap}/G \{ a: x\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{counter,olist,omap}/G \{ a: x\, b: y\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/ogroup/Gp \{ pa: x\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/ogroup/Gp \{ pa: x\, pb: y\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/olist/[..\, x]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/olist/[..]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/olist/[G \{ a: x\, .. \}\, ..]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/olist/[x\, ..]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/olist/[x\, r @ ..]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/olist/[x]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/omap/_'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{cells,claim,readable}/subject/{ogroup,olist}/_'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/olist/k::configuration::Cell([..\, x])'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/olist/k::configuration::Cell([x\, ..])'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/{olist,omap}/k::configuration::Cell(_)'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/omap/k::configuration::Cell(k::map![y -> x\, ..])'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/{olist,omap}/k::configuration::Cell(x)'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/{counter,olist,omap}/k::fragment![crate::G \{ a: x \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/{counter,olist,omap}/k::fragment![crate::G \{ a: x\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/{counter,olist,omap}/k::fragment![crate::G \{ a: x\, b: y\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/ogroup/k::fragment![crate::Gp \{ pa: x\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/ogroup/k::fragment![crate::Gp \{ pa: x\, pb: y\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{cells,claim,readable}/subject/{ogroup,olist}/x'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/omap/x'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/omap/\{ y -> x\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{counter,ogroup,olist,omap}/0'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{counter,olist,omap}/G \{ a: x \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{counter,olist,omap}/G \{ a: x\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{counter,olist,omap}/G \{ a: x\, b: y\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/ogroup/Gp \{ pa: x\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/ogroup/Gp \{ pa: x\, pb: y\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/olist/[..\, x]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/olist/[..]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/olist/[G \{ a: x\, .. \}\, ..]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/olist/[x\, ..]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/olist/[x\, r @ ..]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/olist/[x]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{cells,claim,readable}/written/{counter,ogroup,olist,omap}/_'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/olist/k::configuration::Cell([..\, x])'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/olist/k::configuration::Cell([x\, ..])'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/{counter,olist,omap}/k::configuration::Cell(_)'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/omap/k::configuration::Cell(k::map![y -> x\, ..])'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/{counter,olist,omap}/k::configuration::Cell(x)'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/{counter,olist,omap}/k::fragment![crate::G \{ a: x \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/{counter,olist,omap}/k::fragment![crate::G \{ a: x\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/{counter,olist,omap}/k::fragment![crate::G \{ a: x\, b: y\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/ogroup/k::fragment![crate::Gp \{ pa: x\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/ogroup/k::fragment![crate::Gp \{ pa: x\, pb: y\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{cells,claim,readable}/written/{counter,ogroup,olist,omap}/x'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/omap/\{ y -> x\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/init/init/i04-pcell/P \{ pjs: Some(Jp \{ pp: 0 \}) \}'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{cells,claim,readable}/overwrite/{bag,frame,job,prog,seq,set,stack}/None'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{env,frame,pc,prog,seq,set,stack}/Some(G \{ .. \})'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/job/Some(Gl \{ .. \})'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/acct/Some(Gm \{ .. \})'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/bag/Some(Gs \{ .. \})'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{acct,bag,env,frame,job,pc,prog,seq,set,stack}/Some([..])'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/{acct,bag,env,frame,job,pc,prog,seq,set,stack}/Some(k::configuration::Cell(x))'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{acct,bag,env,frame,job,pc,prog,seq,set,stack}/Some(x)'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{cells,claim,readable}/result/{acct,bag,env,frame,job,prog,seq,set,stack}/None'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{env,frame,pc,prog,seq,set,stack}/Some(G \{ .. \})'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/job/Some(Gl \{ .. \})'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/acct/Some(Gm \{ .. \})'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/bag/Some(Gs \{ .. \})'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{acct,bag,env,frame,job,pc,prog,seq,set,stack}/Some([..])'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/{acct,bag,env,frame,job,prog,seq,set,stack}/Some(k::configuration::Cell(x))'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{acct,bag,env,frame,job,prog,seq,set,stack}/Some(x)'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{cells,claim,readable}/subject/{acct,bag,seq,set}/None'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{env,frame,pc,prog,seq,set,stack}/Some(G \{ .. \})'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/job/Some(Gl \{ .. \})'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/acct/Some(Gm \{ .. \})'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/bag/Some(Gs \{ .. \})'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{acct,bag,env,frame,job,pc,prog,seq,set,stack}/Some([..])'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{acct,bag,env,frame,job,pc,prog,seq,set,stack}/Some(_)'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/subject/{acct,set}/Some(k::configuration::Cell(x))'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/{acct,set}/Some(x)'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{cells,claim,readable}/written/{acct,bag,env,frame,job,pc,prog,seq,set,stack}/None'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{env,frame,pc,prog,seq,set,stack}/Some(G \{ .. \})'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/job/Some(Gl \{ .. \})'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/acct/Some(Gm \{ .. \})'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/bag/Some(Gs \{ .. \})'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{acct,bag,env,frame,job,pc,prog,seq,set,stack}/Some([..])'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{acct,bag,env,frame,job,pc,prog,seq,set,stack}/Some(_)'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/written/{acct,bag,env,frame,job,pc,prog,seq,set,stack}/Some(k::configuration::Cell(x))'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/{acct,bag,env,frame,job,pc,prog,seq,set,stack}/Some(x)'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/init/init/i10-acc/A \{ al: [0] \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/init/init/frame/G \{ a: 0 \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/init/init/job/Gl \{ la: 0 \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/init/init/acct/Gm \{ ma: 0 \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/init/init/ogroup/Gp \{ pa: 0 \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/init/init/bag/Gs \{ sa: 0 \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/frame/G \{ a: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/job/Gl \{ la: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/acct/Gm \{ ma: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/ogroup/Gp \{ pa: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/bag/Gs \{ sa: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/frame/k::fragment![crate::G \{ a: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/job/k::fragment![crate::Gl \{ la: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/acct/k::fragment![crate::Gm \{ ma: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/ogroup/k::fragment![crate::Gp \{ pa: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/bag/k::fragment![crate::Gs \{ sa: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/frame/G \{ a: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/job/Gl \{ la: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/acct/Gm \{ ma: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/ogroup/Gp \{ pa: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/bag/Gs \{ sa: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/c38-ogroup/Some(Gp \{ pa: x \})'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/result/c38-ogroup/Some(k::fragment![crate::Gp \{ pa: x \}])'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/result/frame/k::fragment![crate::G \{ a: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/result/job/k::fragment![crate::Gl \{ la: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/result/acct/k::fragment![crate::Gm \{ ma: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/result/ogroup/k::fragment![crate::Gp \{ pa: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/result/bag/k::fragment![crate::Gs \{ sa: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/job/Gl \{ la: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/acct/Gm \{ ma: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/ogroup/Gp \{ pa: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/subject/bag/Gs \{ sa: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/subject/job/k::fragment![crate::Gl \{ la: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/subject/acct/k::fragment![crate::Gm \{ ma: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/subject/ogroup/k::fragment![crate::Gp \{ pa: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/subject/bag/k::fragment![crate::Gs \{ sa: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/frame/G \{ a: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/job/Gl \{ la: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/acct/Gm \{ ma: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/ogroup/Gp \{ pa: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/written/bag/Gs \{ sa: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/written/frame/k::fragment![crate::G \{ a: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/written/job/k::fragment![crate::Gl \{ la: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/written/acct/k::fragment![crate::Gm \{ ma: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/written/ogroup/k::fragment![crate::Gp \{ pa: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/written/bag/k::fragment![crate::Gs \{ sa: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/u01-tjob/[T \{ tk: [x\, ..]\, ..me \}\, ..]'
+class = "record-update-base"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/u00-tjob/[T \{ tk: [x]\, ..me \}\, ..]'
+class = "record-update-base"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/u01-tjob/[k::fragment![crate::T \{ tk: [x\, ..]\, ..me \}]\, ..]'
+class = "record-update-base"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/u00-tjob/[k::fragment![crate::T \{ tk: [x]\, ..me \}]\, ..]'
+class = "record-update-base"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/u02-acc/\{ A \{ al: [x\, ..]\, ..me \}\, .. \}'
+class = "record-update-base"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/u02-acc/\{ k::fragment![crate::A \{ al: [x\, ..]\, ..me \}]\, .. \}'
+class = "record-update-base"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/c04-hcell/H \{ hl: [x\, ..]\, hb: 0 \}'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/stack/[..\, x]'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{job,seq,stack}/[..]'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/job/[Gl \{ la: x\, .. \}\, ..]'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/job/[k::fragment![crate::Gl \{ la: x\, .. \}]\, ..]'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{job,seq,stack}/[x\, ..]'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/stack/k::configuration::Cell([..\, x])'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/{seq,stack}/k::configuration::Cell([x\, ..])'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/prog/k::configuration::KCell(x\, ..)'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/c04-hcell/k::fragment![crate::H \{ hl: [x\, ..]\, hb: 0 \}]'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/acct/\{ Gm \{ ma: x\, .. \}\, .. \}'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/acct/\{ Gm \{ mb: x\, .. \}\, .. \}'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/bag/\{ Gs \{ sa: x\, .. \}\, .. \}'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/bag/\{ Gs \{ sb: x\, .. \}\, .. \}'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/acct/\{ k::fragment![crate::Gm \{ ma: x\, .. \}]\, .. \}'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/bag/\{ k::fragment![crate::Gs \{ sa: x\, .. \}]\, .. \}'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{env,seq,stack}/0'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/f17-ccell/C \{ cc: [x\, ..]\, cn: 0 \}'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/f18-ccell/C \{ cc: [x]\, cn: 0 \}'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{env,seq,stack}/G \{ a: x \}'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{env,seq,stack}/G \{ a: x\, b: y\, .. \}'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{c02-hcell,f10-hcell,f13-hcell}/H \{ hl: [x\, ..]\, hb: 0 \}'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{c00-hcell,f11-hcell}/H \{ hl: [x]\, hb: 0 \}'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/f04-mcell/M \{ mm: \{ y -> x \}\, mn: 0 \}'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/c07-ohcell/Some(Ho \{ ohl: [x\, ..]\, ohb: 0 \})'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/c06-ohcell/Some(Ho \{ ohl: [x]\, ohb: 0 \})'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/c37-olist/Some([x\, ..])'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/c37-olist/Some(k::configuration::Cell([x\, ..]))'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/{olist,omap}/Some(k::configuration::Cell(x))'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/c07-ohcell/Some(k::fragment![crate::Ho \{ ohl: [x\, ..]\, ohb: 0 \}])'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/c06-ohcell/Some(k::fragment![crate::Ho \{ ohl: [x]\, ohb: 0 \}])'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{olist,omap}/Some(x)'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/c13-tjob/[T \{ tk: [x\, ..]\, tn: 0 \}\, ..]'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/c09-tjob/[T \{ tk: [x]\, ..me \}\, ..]'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/c13-tjob/[k::fragment![crate::T \{ tk: [x\, ..]\, tn: 0 \}]\, ..]'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/c09-tjob/[k::fragment![crate::T \{ tk: [x]\, ..me \}]\, ..]'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{job,prog,seq,stack}/[x]'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/{env,seq,stack}/k::configuration::Cell(x)'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/prog/k::configuration::KCell(x)'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/{f17-ccell,f20-ccell}/k::fragment![crate::C \{ cc: [x\, ..]\, cn: 0 \}]'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/f18-ccell/k::fragment![crate::C \{ cc: [x]\, cn: 0 \}]'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/{c02-hcell,f10-hcell,f13-hcell}/k::fragment![crate::H \{ hl: [x\, ..]\, hb: 0 \}]'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/{c00-hcell,f11-hcell}/k::fragment![crate::H \{ hl: [x]\, hb: 0 \}]'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/f04-mcell/k::fragment![crate::M \{ mm: k::map![y -> x]\, mn: 0 \}]'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{env,seq,stack}/x'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/c18-acc/\{ A \{ al: [x]\, ..me \}\, .. \}'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/acct/\{ Gm \{ ma: x\, mb: y \} \}'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/bag/\{ Gs \{ sa: x\, sb: y \} \}'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/result/c18-acc/\{ k::fragment![crate::A \{ al: [x]\, ..me \}]\, .. \}'
+class = "rest-mismatch"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{cells,claim,readable}/overwrite/{olist,omap}/None'
+class = "unmatched-optional-result"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/c27-ocell/O \{ oo: None\, on: 0 \}'
+class = "unmatched-optional-result"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/c26-ocell/O \{ oo: Some(1)\, on: 0 \}'
+class = "unmatched-optional-result"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/ogroup/Some(Gp \{ .. \})'
+class = "unmatched-optional-result"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/olist/Some([..])'
+class = "unmatched-optional-result"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/{counter,olist,omap}/Some(k::configuration::Cell(x))'
+class = "unmatched-optional-result"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{counter,ogroup,olist,omap}/Some(x)'
+class = "unmatched-optional-result"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/c27-ocell/k::fragment![crate::O \{ oo: None\, on: 0 \}]'
+class = "unmatched-optional-result"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/c26-ocell/k::fragment![crate::O \{ oo: Some(1)\, on: 0 \}]'
+class = "unmatched-optional-result"
+at = "entry"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,prog,seq,set,stack}/Some(_)'
+class = "wildcard-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{cells,claim,readable}/overwrite/{bag,frame,job,olist,omap,prog,seq,set,stack}/_'
+class = "wildcard-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{acct,counter,env,ogroup,pc}/_'
+class = "wildcard-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/overwrite/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,prog,seq,set,stack}/k::configuration::Cell(_)'
+class = "wildcard-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/result/{acct,bag,env,frame,job,ogroup,olist,omap,pc,prog,seq,set,stack}/Some(_)'
+class = "wildcard-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/result/{counter,pc}/_'
+class = "wildcard-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{cells,claim,readable}/result/{acct,bag,env,frame,job,ogroup,olist,omap,prog,seq,set,stack}/_'
+class = "wildcard-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/cells/result/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,prog,seq,set,stack}/k::configuration::Cell(_)'
+class = "wildcard-outside-pattern"
+at = "spelling"
+
 [accept."cells/result/counter/None"]
 k = """
 rule [case-TAG]:
@@ -7411,6 +10434,3354 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
+# S5.0g item 3a: the compiled sweep's accepts (K written by `--record`).
+[accept."sweep/cells/overwrite/c05-hcell/k::fragment![crate::H { hl: [x], hb: 0 }]"]
+
+[accept."sweep/cells/overwrite/c25-ccell/k::fragment![crate::C { cc: [x], cn: 0 }]"]
+
+[accept."sweep/cells/overwrite/c29-wcell/k::fragment![crate::W { wg: Gw { wa: x, wb: y }, wn: 0 }]"]
+
+[accept."sweep/cells/overwrite/c30-wcell/k::fragment![crate::W { wg: Gw { wa: x, wb: y, .. }, wn: 0 }]"]
+
+[accept."sweep/cells/overwrite/env/k::configuration::Cell(x)"]
+
+[accept."sweep/cells/overwrite/frame/k::fragment![crate::G { a: x, b: y, .. }]"]
+
+[accept."sweep/cells/overwrite/frame/x"]
+
+[accept."sweep/cells/overwrite/pc/k::configuration::Cell(x)"]
+
+[accept."sweep/cells/overwrite/prog/k::configuration::KCell(x)"]
+
+[accept."sweep/cells/overwrite/seq/k::configuration::Cell(x)"]
+
+[accept."sweep/cells/overwrite/set/k::configuration::Cell(x)"]
+
+[accept."sweep/cells/overwrite/stack/k::configuration::Cell(x)"]
+
+[accept."sweep/cells/result/acct/{ k::fragment![crate::Gm { ma: x, .. }], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(<acct>
+<ma> V1:Int </ma>
+...
+</acct> => .Bag)
+(.Bag => <acct>
+<ma> V0:Int </ma>
+...
+</acct>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/cells/result/bag/{ k::fragment![crate::Gs { sa: x, .. }], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(<bag>
+<sa> V1:Int </sa>
+...
+</bag> => .Bag)
+(.Bag => <bag>
+<sa> V0:Int </sa>
+...
+</bag>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/cells/result/c01-hcell/k::fragment![crate::H { hl: [x, ..], hb: 0 }]"]
+
+[accept."sweep/cells/result/c03-hcell/k::fragment![crate::H { hl: [x], hb: 0 }]"]
+
+[accept."sweep/cells/result/c08-ohcell/Some(k::fragment![crate::Ho { ohl: [x], ohb: 0 }])"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(.Bag => <ohcell> <ohl> ListItem(V0:Int) </ohl> <ohb> 0 </ohb> </ohcell>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/cells/result/c10-tjob/[k::fragment![crate::T { tk: [x, ..], ..me }], ..]"]
+
+[accept."sweep/cells/result/c11-tjob/[k::fragment![crate::T { tn: 0, ..me }], ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<tqueue>
+<tjob>
+<tn> V0:Int => 0 </tn>
+...
+</tjob>
+...
+</tqueue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/result/c12-tjob/[k::fragment![crate::T { tk: [x], tn: 0 }], ..]"]
+
+[accept."sweep/cells/result/c15-acc/{ k::fragment![crate::A { aid: z, ..me }], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<acc>
+<aid> V0:Int </aid>
+...
+</acc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/result/c17-acc/{ k::fragment![crate::A { al: [x], ..me }], .. }"]
+
+[accept."sweep/cells/result/c19-acc/{ k::fragment![crate::A { al: [x, ..], ..me }], .. }"]
+
+[accept."sweep/cells/result/c20-acc/{ k::fragment![crate::A { aid: 5, al: [x] }], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(.Bag => <acc>
+<aid> 5 </aid>
+<al> ListItem(V0:Int) </al>
+</acc>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/cells/result/c23-acc/{ k::fragment![crate::A { aid: 5, .. }], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(.Bag => <acc>
+<aid> 5 </aid>
+...
+</acc>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/result/c24-tjob/[k::fragment![crate::T { tn: 0, .. }], ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<tqueue>
+(.Bag => <tjob>
+<tn> 0 </tn>
+...
+</tjob>)
+...
+</tqueue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/result/c34-acc/{ k::fragment![crate::A { aid: 5, ..me }], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<acc>
+<aid> 5 </aid>
+...
+</acc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/result/c36-ogroup/Some(k::fragment![crate::Gp { pa: x, .. }])"]
+
+[accept."sweep/cells/result/f05-mcell/k::fragment![crate::M { mm: k::map![y -> x], mn: 0 }]"]
+
+[accept."sweep/cells/result/f09-hcell/k::fragment![crate::H { hl: [x, ..], hb: 0 }]"]
+
+[accept."sweep/cells/result/f12-hcell/k::fragment![crate::H { hl: [x], hb: 0 }]"]
+
+[accept."sweep/cells/result/f16-ccell/k::fragment![crate::C { cc: [x, ..], cn: 0 }]"]
+
+[accept."sweep/cells/result/f19-ccell/k::fragment![crate::C { cc: [x], cn: 0 }]"]
+
+[accept."sweep/cells/result/frame/k::fragment![crate::G { a: x, b: y, .. }]"]
+
+[accept."sweep/cells/result/frame/x"]
+
+[accept."sweep/cells/result/job/[k::fragment![crate::Gl { la: x, .. }], ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<queue>
+(<job>
+<la> V1:Int </la>
+...
+</job> => .Bag)
+(.Bag => <job>
+<la> V0:Int </la>
+...
+</job>)
+...
+</queue>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/cells/result/ogroup/None"]
+
+[accept."sweep/cells/result/olist/None"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(<olist> ListItem(V0:KItem) ... </olist> => .Bag)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/result/omap/None"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(<omap> V0:KItem |-> V1:KItem ... </omap> => .Bag)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/result/prog/k::configuration::KCell(x, ..)"]
+
+[accept."sweep/cells/result/seq/k::configuration::Cell([x, ..])"]
+
+[accept."sweep/cells/result/stack/k::configuration::Cell([.., x])"]
+
+[accept."sweep/cells/result/stack/k::configuration::Cell([x, ..])"]
+
+[accept."sweep/cells/subject/acct/{ k::fragment![crate::Gm { ma: x, .. }], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<acct>
+<ma> V0:Int </ma>
+...
+</acct>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/subject/bag/{ k::fragment![crate::Gs { sa: x, .. }], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<bag>
+<sa> V0:Int </sa>
+...
+</bag>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/subject/f00-mcell/k::fragment![crate::M { mm: k::map![y -> x, ..], .. }]"]
+
+[accept."sweep/cells/subject/f01-mcell/k::fragment![crate::M { mm: k::map![y -> x], .. }]"]
+
+[accept."sweep/cells/subject/f07-hcell/k::fragment![crate::H { hl: [y, ..], .. }]"]
+
+[accept."sweep/cells/subject/f08-hcell/k::fragment![crate::H { hl: [y], .. }]"]
+
+[accept."sweep/cells/subject/f14-ccell/k::fragment![crate::C { cc: [y, ..], .. }]"]
+
+[accept."sweep/cells/subject/f15-ccell/k::fragment![crate::C { cc: [y], .. }]"]
+
+[accept."sweep/cells/subject/frame/k::fragment![crate::G { a: x, .. }]"]
+
+[accept."sweep/cells/subject/frame/k::fragment![crate::G { a: x, b: y, .. }]"]
+
+[accept."sweep/cells/subject/job/[k::fragment![crate::Gl { la: x, .. }], ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+<job>
+<la> V0:Int </la>
+...
+</job>
+...
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/subject/olist/Some(k::configuration::Cell(x))"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<olist> ... </olist>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/subject/prog/k::configuration::KCell(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<prog> V0:KItem </prog>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/subject/seq/k::configuration::Cell([x, ..])"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> V0:Int : ... </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/subject/seq/k::configuration::Cell(_)"]
+lint = "no-effect-entry"
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> _ </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/subject/seq/k::configuration::Cell(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> V0:Ints </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/subject/set/k::configuration::Cell(_)"]
+lint = "no-effect-entry"
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<set> _ </set>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/subject/set/k::configuration::Cell(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<set> ... </set>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/subject/stack/k::configuration::Cell([.., x])"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> _ ListItem(V0:KItem) </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/written/acct/{ k::fragment![crate::Gm { ma: x, .. }], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(<acct>
+<ma> V0:Int </ma>
+...
+</acct> => .Bag)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/written/bag/{ k::fragment![crate::Gs { sa: x, .. }], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(<bag>
+<sa> V0:Int </sa>
+...
+</bag> => .Bag)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/written/counter/None"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(.Bag => <counter> 1 </counter>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/written/counter/Some(k::configuration::Cell(x))"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<counter> V0:Int => 1 </counter>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/written/env/k::configuration::Cell(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<env> _ => .Map </env>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/written/env/k::configuration::Cell(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<env> V0:Map => .Map </env>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/written/frame/_"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(_:FrameCell => <frame> <a> 1 </a> <b> 1 </b> </frame>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/written/frame/k::fragment![crate::G { a: x, .. }]"]
+
+[accept."sweep/cells/written/frame/k::fragment![crate::G { a: x, b: y, .. }]"]
+
+[accept."sweep/cells/written/frame/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(V0:FrameCell => <frame> <a> 1 </a> <b> 1 </b> </frame>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/written/job/[k::fragment![crate::Gl { la: x, .. }], ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+(<job>
+<la> V0:Int </la>
+...
+</job> => .Bag)
+...
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/written/ogroup/None"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(.Bag => <ogroup> <pa> 1 </pa> <pb> 1 </pb> </ogroup>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/written/olist/None"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(.Bag => <olist> .List </olist>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/written/olist/Some(k::configuration::Cell(x))"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<olist> V0:List => .List </olist>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/written/omap/None"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(.Bag => <omap> .Map </omap>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/written/omap/Some(k::configuration::Cell(x))"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<omap> V0:Map => .Map </omap>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/written/pc/k::configuration::Cell(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<pc> _ => 1 </pc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/written/pc/k::configuration::Cell(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<pc> V0:Int => 1 </pc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/written/prog/k::configuration::KCell(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<prog> V0:KItem => .K </prog>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/written/prog/k::configuration::KCell(x, ..)"]
+
+[accept."sweep/cells/written/seq/k::configuration::Cell([x, ..])"]
+
+[accept."sweep/cells/written/seq/k::configuration::Cell(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> _ => . Ints </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/written/seq/k::configuration::Cell(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> V0:Ints => . Ints </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/written/set/k::configuration::Cell(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<set> _ => .Set </set>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/written/set/k::configuration::Cell(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<set> V0:Set => .Set </set>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/written/stack/k::configuration::Cell([.., x])"]
+
+[accept."sweep/cells/written/stack/k::configuration::Cell([x, ..])"]
+
+[accept."sweep/cells/written/stack/k::configuration::Cell(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> _ => .List </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/cells/written/stack/k::configuration::Cell(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> V0:List => .List </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/overwrite/acct/{ Gm { ma: x, mb: y } }"]
+
+[accept."sweep/claim/overwrite/bag/{ Gs { sa: x, sb: y } }"]
+
+[accept."sweep/claim/overwrite/c05-hcell/H { hl: [x], hb: 0 }"]
+
+[accept."sweep/claim/overwrite/c29-wcell/W { wg: Gw { wa: x, wb: y }, wn: 0 }"]
+
+[accept."sweep/claim/overwrite/c30-wcell/W { wg: Gw { wa: x, wb: y, .. }, wn: 0 }"]
+
+[accept."sweep/claim/overwrite/env/G { a: x }"]
+
+[accept."sweep/claim/overwrite/env/G { a: x, b: y, .. }"]
+
+[accept."sweep/claim/overwrite/env/x"]
+
+[accept."sweep/claim/overwrite/frame/0"]
+
+[accept."sweep/claim/overwrite/frame/G { a: x, b: y, .. }"]
+
+[accept."sweep/claim/overwrite/frame/x"]
+
+[accept."sweep/claim/overwrite/job/[x]"]
+
+[accept."sweep/claim/overwrite/pc/G { a: x }"]
+
+[accept."sweep/claim/overwrite/pc/G { a: x, b: y, .. }"]
+
+[accept."sweep/claim/overwrite/pc/x"]
+
+[accept."sweep/claim/overwrite/seq/0"]
+
+[accept."sweep/claim/overwrite/seq/G { a: x }"]
+
+[accept."sweep/claim/overwrite/seq/G { a: x, b: y, .. }"]
+
+[accept."sweep/claim/overwrite/seq/[x]"]
+
+[accept."sweep/claim/overwrite/seq/x"]
+
+[accept."sweep/claim/overwrite/set/0"]
+
+[accept."sweep/claim/overwrite/set/G { a: x }"]
+
+[accept."sweep/claim/overwrite/set/G { a: x, b: y, .. }"]
+
+[accept."sweep/claim/overwrite/set/x"]
+
+[accept."sweep/claim/overwrite/stack/0"]
+
+[accept."sweep/claim/overwrite/stack/G { a: x }"]
+
+[accept."sweep/claim/overwrite/stack/G { a: x, b: y, .. }"]
+
+[accept."sweep/claim/overwrite/stack/[x]"]
+
+[accept."sweep/claim/overwrite/stack/x"]
+
+[accept."sweep/claim/result/acct/{ Gm { ma: x, .. }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(<acct>
+<ma> V1:Int </ma>
+...
+</acct> => .Bag)
+(.Bag => <acct>
+<ma> V0:Int </ma>
+...
+</acct>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/claim/result/bag/{ Gs { sa: x, .. }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(<bag>
+<sa> V1:Int </sa>
+...
+</bag> => .Bag)
+(.Bag => <bag>
+<sa> V0:Int </sa>
+...
+</bag>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/claim/result/bag/{ Gs { sb: x, .. }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(<bag>
+<sa> V1:Int </sa>
+...
+</bag> => .Bag)
+(.Bag => <bag>
+<sb> V0:Int </sb>
+...
+</bag>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/claim/result/c01-hcell/H { hl: [x, ..], hb: 0 }"]
+
+[accept."sweep/claim/result/c03-hcell/H { hl: [x], hb: 0 }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(<hcell> <hl> _ </hl> <hb> V1:Int </hb> </hcell> => <hcell> <hl> ListItem(V0:Int) </hl> <hb> 0 </hb> </hcell>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/claim/result/c08-ohcell/Some(Ho { ohl: [x], ohb: 0 })"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(.Bag => <ohcell> <ohl> ListItem(V0:Int) </ohl> <ohb> 0 </ohb> </ohcell>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/claim/result/c10-tjob/[T { tk: [x, ..], ..me }, ..]"]
+
+[accept."sweep/claim/result/c11-tjob/[T { tn: 0, ..me }, ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<tqueue>
+<tjob>
+<tn> V0:Int => 0 </tn>
+...
+</tjob>
+...
+</tqueue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/result/c12-tjob/[T { tk: [x], tn: 0 }, ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tqueue>
+(.Bag => <tjob>
+<tk> V0:Int </tk>
+<tn> 0 </tn>
+</tjob>)
+...
+</tqueue>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/claim/result/c15-acc/{ A { aid: z, ..me }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<acc>
+<aid> V0:Int </aid>
+...
+</acc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/result/c17-acc/{ A { al: [x], ..me }, .. }"]
+
+[accept."sweep/claim/result/c19-acc/{ A { al: [x, ..], ..me }, .. }"]
+
+[accept."sweep/claim/result/c20-acc/{ A { aid: 5, al: [x] }, .. }"]
+
+[accept."sweep/claim/result/c23-acc/{ A { aid: 5, .. }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+(.Bag => <acc>
+<aid> 5 </aid>
+...
+</acc>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/result/c24-tjob/[T { tn: 0, .. }, ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<tqueue>
+(.Bag => <tjob>
+<tn> 0 </tn>
+...
+</tjob>)
+...
+</tqueue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/result/c34-acc/{ A { aid: 5, ..me }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<acc>
+<aid> 5 </aid>
+...
+</acc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/result/c36-ogroup/Some(Gp { pa: x, .. })"]
+
+[accept."sweep/claim/result/f05-mcell/M { mm: { y -> x }, mn: 0 }"]
+
+[accept."sweep/claim/result/f09-hcell/H { hl: [x, ..], hb: 0 }"]
+
+[accept."sweep/claim/result/f12-hcell/H { hl: [x], hb: 0 }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(<hcell> <hl> ListItem(V1:KItem) </hl> <hb> _ </hb> </hcell> => <hcell> <hl> ListItem(V0:Int) </hl> <hb> 0 </hb> </hcell>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/claim/result/f16-ccell/C { cc: [x, ..], cn: 0 }"]
+
+[accept."sweep/claim/result/f19-ccell/C { cc: [x], cn: 0 }"]
+
+[accept."sweep/claim/result/frame/G { a: x, b: y, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(<frame> <a> V1:Int </a> <b> _ </b> </frame> => <frame> <a> V0:Int </a> <b> V1:Int </b> </frame>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/claim/result/job/[..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+(<job>
+<la> V0:Int </la>
+...
+</job> => .Bag)
+...
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/result/job/[Gl { la: x, .. }, ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<queue>
+(<job>
+<la> V1:Int </la>
+...
+</job> => .Bag)
+(.Bag => <job>
+<la> V0:Int </la>
+...
+</job>)
+...
+</queue>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/claim/result/job/[x, ..]"]
+
+[accept."sweep/claim/result/ogroup/None"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+(<ogroup> <pa> V0:Int </pa> <pb> _ </pb> </ogroup> => .Bag)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/result/olist/None"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+(<olist> ListItem(V0:KItem) ... </olist> => .Bag)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/result/olist/Some([..])"]
+
+[accept."sweep/claim/result/omap/None"]
+
+[accept."sweep/claim/result/prog/[..]"]
+
+[accept."sweep/claim/result/prog/[x, ..]"]
+
+[accept."sweep/claim/result/seq/[..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> V0:Int : V1:Ints => V1:Ints </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/result/seq/[x, ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<seq> V1:Int : V2:Ints => V0:Int : V2:Ints </seq>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/claim/result/stack/[.., x]"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<stack> ListItem(V1:KItem) V2:List => V2:List ListItem(V0:Int) </stack>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/claim/result/stack/[..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(V0:KItem) V1:List => V1:List </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/result/stack/[x, ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<stack> ListItem(V1:KItem) V2:List => ListItem(V0:Int) V2:List </stack>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/claim/subject/acct/{ Gm { ma: x, .. }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<acct>
+<ma> V0:Int </ma>
+...
+</acct>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/subject/acct/{ Gm { ma: x, mb: y } }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<bank>
+<acct>
+<ma> V0:Int </ma>
+<mb> V1:Int </mb>
+</acct>
+</bank>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/subject/acct/{ Gm { mb: x, .. }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<acct>
+<mb> V0:Int </mb>
+...
+</acct>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/subject/bag/{ Gs { sa: x, .. }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<bag>
+<sa> V0:Int </sa>
+...
+</bag>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/subject/bag/{ Gs { sa: x, sb: y } }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<shelf>
+<bag>
+<sa> V0:Int </sa>
+<sb> V1:Int </sb>
+</bag>
+</shelf>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/subject/bag/{ Gs { sb: x, .. }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<bag>
+<sb> V0:Int </sb>
+...
+</bag>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/subject/counter/Some(_)"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<counter> _ </counter>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/subject/f00-mcell/M { mm: { y -> x, .. }, .. }"]
+
+[accept."sweep/claim/subject/f01-mcell/M { mm: { y -> x }, .. }"]
+
+[accept."sweep/claim/subject/f07-hcell/H { hl: [y, ..], .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<hcell> <hl> ListItem(V0:KItem) ... </hl> <hb> _ </hb> </hcell>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/subject/f08-hcell/H { hl: [y], .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<hcell> <hl> ListItem(V0:KItem) </hl> <hb> _ </hb> </hcell>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/subject/f14-ccell/C { cc: [y, ..], .. }"]
+
+[accept."sweep/claim/subject/f15-ccell/C { cc: [y], .. }"]
+
+[accept."sweep/claim/subject/frame/G { a: x, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<frame> <a> V0:Int </a> <b> _ </b> </frame>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/subject/frame/G { a: x, b: y, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<frame> <a> V0:Int </a> <b> V1:Int </b> </frame>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/subject/job/[Gl { la: x, .. }, ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+<job>
+<la> V0:Int </la>
+...
+</job>
+...
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/subject/job/[x, r @ ..]"]
+
+[accept."sweep/claim/subject/job/[x]"]
+
+[accept."sweep/claim/subject/ogroup/Some(Gp { .. })"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<ogroup> <pa> _ </pa> <pb> _ </pb> </ogroup>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/subject/ogroup/Some(_)"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+_:OgroupCell
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/subject/ogroup/Some(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+V0:OgroupCell
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/subject/olist/Some([..])"]
+
+[accept."sweep/claim/subject/olist/Some(_)"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<olist> _ </olist>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/subject/olist/Some(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<olist> ... </olist>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/subject/omap/Some(_)"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<omap> _ </omap>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/subject/prog/[G { a: x, .. }, ..]"]
+
+[accept."sweep/claim/subject/prog/[x]"]
+
+[accept."sweep/claim/subject/seq/[..]"]
+lint = "no-effect-entry"
+
+[accept."sweep/claim/subject/seq/[x, ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> V0:Int : V1:Ints </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/subject/seq/[x, r @ ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> V0:Int : V1:Ints </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/subject/seq/[x]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> V0:Int : . Ints </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/subject/seq/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> V0:Ints </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/subject/set/_"]
+lint = "no-effect-entry"
+
+[accept."sweep/claim/subject/set/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<set> ... </set>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/subject/stack/[.., x]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> V0:List ListItem(V1:KItem) </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/subject/stack/[G { a: x, .. }, ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(<frame> <a> V0:Int </a> <b> _ </b> </frame>) ... </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/subject/stack/[x, r @ ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(V0:KItem) ... </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/subject/stack/[x]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(V0:KItem) </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/acct/{ Gm { ma: x, .. }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+(<acct>
+<ma> V0:Int </ma>
+...
+</acct> => .Bag)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/acct/{ Gm { ma: x, mb: y } }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<bank>
+(<acct>
+<ma> V0:Int </ma>
+<mb> V1:Int </mb>
+</acct> => .Bag)
+</bank>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/acct/{ Gm { mb: x, .. }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+(<acct>
+<mb> V0:Int </mb>
+...
+</acct> => .Bag)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/bag/{ Gs { sa: x, .. }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+(<bag>
+<sa> V0:Int </sa>
+...
+</bag> => .Bag)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/bag/{ Gs { sa: x, sb: y } }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<shelf>
+(<bag>
+<sa> V0:Int </sa>
+<sb> V1:Int </sb>
+</bag> => .Bag)
+</shelf>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/bag/{ Gs { sb: x, .. }, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+(<bag>
+<sb> V0:Int </sb>
+...
+</bag> => .Bag)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/counter/None"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+(.Bag => <counter> 1 </counter>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/counter/Some(_)"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<counter> _ => 1 </counter>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/counter/Some(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<counter> V0:Int => 1 </counter>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/env/_"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<env> _ => .Map </env>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/env/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<env> V0:Map => .Map </env>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/frame/G { a: x, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+(<frame> <a> V0:Int </a> <b> _ </b> </frame> => <frame> <a> 1 </a> <b> 1 </b> </frame>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/frame/G { a: x, b: y, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+(<frame> <a> V0:Int </a> <b> V1:Int </b> </frame> => <frame> <a> 1 </a> <b> 1 </b> </frame>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/frame/_"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+(_:FrameCell => <frame> <a> 1 </a> <b> 1 </b> </frame>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/frame/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+(V0:FrameCell => <frame> <a> 1 </a> <b> 1 </b> </frame>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/job/[..]"]
+
+[accept."sweep/claim/written/job/[Gl { la: x, .. }, ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+(<job>
+<la> V0:Int </la>
+...
+</job> => .Bag)
+...
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/job/[x, ..]"]
+
+[accept."sweep/claim/written/job/[x, r @ ..]"]
+
+[accept."sweep/claim/written/job/[x]"]
+
+[accept."sweep/claim/written/ogroup/None"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+(.Bag => <ogroup> <pa> 1 </pa> <pb> 1 </pb> </ogroup>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/ogroup/Some(Gp { .. })"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+(<ogroup> <pa> _ </pa> <pb> _ </pb> </ogroup> => <ogroup> <pa> 1 </pa> <pb> 1 </pb> </ogroup>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/ogroup/Some(_)"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+(_:OgroupCell => <ogroup> <pa> 1 </pa> <pb> 1 </pb> </ogroup>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/ogroup/Some(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+(V0:OgroupCell => <ogroup> <pa> 1 </pa> <pb> 1 </pb> </ogroup>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/olist/None"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+(.Bag => <olist> .List </olist>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/olist/Some([..])"]
+
+[accept."sweep/claim/written/olist/Some(_)"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<olist> _ => .List </olist>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/olist/Some(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<olist> V0:List => .List </olist>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/omap/None"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+(.Bag => <omap> .Map </omap>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/omap/Some(_)"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<omap> _ => .Map </omap>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/omap/Some(x)"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<omap> V0:Map => .Map </omap>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/pc/0"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<pc> 0 => 1 </pc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/pc/_"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<pc> _ => 1 </pc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/pc/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<pc> V0:Int => 1 </pc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/prog/[..]"]
+
+[accept."sweep/claim/written/prog/[G { a: x, .. }, ..]"]
+
+[accept."sweep/claim/written/prog/[x, ..]"]
+
+[accept."sweep/claim/written/prog/[x]"]
+
+[accept."sweep/claim/written/seq/[..]"]
+
+[accept."sweep/claim/written/seq/[x, ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> V0:Int : V1:Ints => V1:Ints </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/seq/[x, r @ ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> V0:Int : V1:Ints => . Ints </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/seq/[x]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> V0:Int : . Ints => . Ints </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/seq/_"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> _ => . Ints </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/seq/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> V0:Ints => . Ints </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/set/_"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<set> _ => .Set </set>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/set/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<set> V0:Set => .Set </set>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/stack/[.., x]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> V0:List ListItem(V1:KItem) => V0:List </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/stack/[..]"]
+
+[accept."sweep/claim/written/stack/[G { a: x, .. }, ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(<frame> <a> V0:Int </a> <b> _ </b> </frame>) V1:List => V1:List </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/stack/[x, ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(V0:KItem) V1:List => V1:List </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/stack/[x, r @ ..]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(V0:KItem) V1:List => .List </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/stack/[x]"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(V0:KItem) => .List </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/stack/_"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> _ => .List </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/claim/written/stack/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> V0:List => .List </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/init/init/acct/Gm { ma: 0, ..base }"]
+
+[accept."sweep/init/init/acct/Gm { ma: 0, mb: 0 }"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<prog> .K </prog>
+<pc> 0 </pc>
+<stack> .List </stack>
+<seq> . Ints </seq>
+<env> .Map </env>
+<set> .Set </set>
+<frame>
+<a> 0 </a>
+<b> 0 </b>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<olist multiplicity="?"> .List </olist>
+<omap multiplicity="?"> .Map </omap>
+<ogroup multiplicity="?">
+<pa> 0 </pa>
+<pb> 0 </pb>
+</ogroup>
+<queue>
+<job multiplicity="*" type="List">
+<la> 0 </la>
+<lb> 0 </lb>
+</job>
+</queue>
+<shelf>
+<bag multiplicity="*" type="Set">
+<sa> 0 </sa>
+<sb> 0 </sb>
+</bag>
+</shelf>
+<bank>
+<acct multiplicity="*" type="Map">
+<ma> 0 </ma>
+<mb> 0 </mb>
+</acct>
+</bank>
+<hcell>
+<hl> .List </hl>
+<hb> 0 </hb>
+</hcell>
+<ohcell multiplicity="?">
+<ohl> .List </ohl>
+<ohb> 0 </ohb>
+</ohcell>
+<tqueue>
+<tjob multiplicity="*" type="List">
+<tk> .K </tk>
+<tn> 0 </tn>
+</tjob>
+</tqueue>
+<abank>
+<acc multiplicity="*" type="Map">
+<aid> 0 </aid>
+<al> .List </al>
+</acc>
+</abank>
+<ccell>
+<cc> .K </cc>
+<cn> 0 </cn>
+</ccell>
+<ocell>
+<oo multiplicity="?"> 0 </oo>
+<on> 0 </on>
+</ocell>
+<wcell>
+<wg>
+<wa> 0 </wa>
+<wb> 0 </wb>
+</wg>
+<wn> 0 </wn>
+</wcell>
+<mcell>
+<mm> .Map </mm>
+<mn> 0 </mn>
+</mcell>
+<pcell>
+<pjs multiplicity="*" type="List">
+<pp> 0 </pp>
+</pjs>
+</pcell>
+"""
+
+[accept."sweep/init/init/bag/Gs { sa: 0, ..base }"]
+
+[accept."sweep/init/init/bag/Gs { sa: 0, sb: 0 }"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<prog> .K </prog>
+<pc> 0 </pc>
+<stack> .List </stack>
+<seq> . Ints </seq>
+<env> .Map </env>
+<set> .Set </set>
+<frame>
+<a> 0 </a>
+<b> 0 </b>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<olist multiplicity="?"> .List </olist>
+<omap multiplicity="?"> .Map </omap>
+<ogroup multiplicity="?">
+<pa> 0 </pa>
+<pb> 0 </pb>
+</ogroup>
+<queue>
+<job multiplicity="*" type="List">
+<la> 0 </la>
+<lb> 0 </lb>
+</job>
+</queue>
+<shelf>
+<bag multiplicity="*" type="Set">
+<sa> 0 </sa>
+<sb> 0 </sb>
+</bag>
+</shelf>
+<bank>
+<acct multiplicity="*" type="Map">
+<ma> 0 </ma>
+<mb> 0 </mb>
+</acct>
+</bank>
+<hcell>
+<hl> .List </hl>
+<hb> 0 </hb>
+</hcell>
+<ohcell multiplicity="?">
+<ohl> .List </ohl>
+<ohb> 0 </ohb>
+</ohcell>
+<tqueue>
+<tjob multiplicity="*" type="List">
+<tk> .K </tk>
+<tn> 0 </tn>
+</tjob>
+</tqueue>
+<abank>
+<acc multiplicity="*" type="Map">
+<aid> 0 </aid>
+<al> .List </al>
+</acc>
+</abank>
+<ccell>
+<cc> .K </cc>
+<cn> 0 </cn>
+</ccell>
+<ocell>
+<oo multiplicity="?"> 0 </oo>
+<on> 0 </on>
+</ocell>
+<wcell>
+<wg>
+<wa> 0 </wa>
+<wb> 0 </wb>
+</wg>
+<wn> 0 </wn>
+</wcell>
+<mcell>
+<mm> .Map </mm>
+<mn> 0 </mn>
+</mcell>
+<pcell>
+<pjs multiplicity="*" type="List">
+<pp> 0 </pp>
+</pjs>
+</pcell>
+"""
+
+[accept."sweep/init/init/env/k::map![0 -> 1, ..env]"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<prog> .K </prog>
+<pc> 0 </pc>
+<stack> .List </stack>
+<seq> . Ints </seq>
+<env> $ENV:Map [ 0 <- 1 ] </env>
+<set> .Set </set>
+<frame>
+<a> 0 </a>
+<b> 0 </b>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<olist multiplicity="?"> .List </olist>
+<omap multiplicity="?"> .Map </omap>
+<ogroup multiplicity="?">
+<pa> 0 </pa>
+<pb> 0 </pb>
+</ogroup>
+<queue>
+<job multiplicity="*" type="List">
+<la> 0 </la>
+<lb> 0 </lb>
+</job>
+</queue>
+<shelf>
+<bag multiplicity="*" type="Set">
+<sa> 0 </sa>
+<sb> 0 </sb>
+</bag>
+</shelf>
+<bank>
+<acct multiplicity="*" type="Map">
+<ma> 0 </ma>
+<mb> 0 </mb>
+</acct>
+</bank>
+<hcell>
+<hl> .List </hl>
+<hb> 0 </hb>
+</hcell>
+<ohcell multiplicity="?">
+<ohl> .List </ohl>
+<ohb> 0 </ohb>
+</ohcell>
+<tqueue>
+<tjob multiplicity="*" type="List">
+<tk> .K </tk>
+<tn> 0 </tn>
+</tjob>
+</tqueue>
+<abank>
+<acc multiplicity="*" type="Map">
+<aid> 0 </aid>
+<al> .List </al>
+</acc>
+</abank>
+<ccell>
+<cc> .K </cc>
+<cn> 0 </cn>
+</ccell>
+<ocell>
+<oo multiplicity="?"> 0 </oo>
+<on> 0 </on>
+</ocell>
+<wcell>
+<wg>
+<wa> 0 </wa>
+<wb> 0 </wb>
+</wg>
+<wn> 0 </wn>
+</wcell>
+<mcell>
+<mm> .Map </mm>
+<mn> 0 </mn>
+</mcell>
+<pcell>
+<pjs multiplicity="*" type="List">
+<pp> 0 </pp>
+</pjs>
+</pcell>
+"""
+
+[accept."sweep/init/init/frame/G { a: 0, ..base }"]
+
+[accept."sweep/init/init/i03-pcell/P { pjs: Jp { pp: 0 } }"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<prog> .K </prog>
+<pc> 0 </pc>
+<stack> .List </stack>
+<seq> . Ints </seq>
+<env> .Map </env>
+<set> .Set </set>
+<frame>
+<a> 0 </a>
+<b> 0 </b>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<olist multiplicity="?"> .List </olist>
+<omap multiplicity="?"> .Map </omap>
+<ogroup multiplicity="?">
+<pa> 0 </pa>
+<pb> 0 </pb>
+</ogroup>
+<queue>
+<job multiplicity="*" type="List">
+<la> 0 </la>
+<lb> 0 </lb>
+</job>
+</queue>
+<shelf>
+<bag multiplicity="*" type="Set">
+<sa> 0 </sa>
+<sb> 0 </sb>
+</bag>
+</shelf>
+<bank>
+<acct multiplicity="*" type="Map">
+<ma> 0 </ma>
+<mb> 0 </mb>
+</acct>
+</bank>
+<hcell>
+<hl> .List </hl>
+<hb> 0 </hb>
+</hcell>
+<ohcell multiplicity="?">
+<ohl> .List </ohl>
+<ohb> 0 </ohb>
+</ohcell>
+<tqueue>
+<tjob multiplicity="*" type="List">
+<tk> .K </tk>
+<tn> 0 </tn>
+</tjob>
+</tqueue>
+<abank>
+<acc multiplicity="*" type="Map">
+<aid> 0 </aid>
+<al> .List </al>
+</acc>
+</abank>
+<ccell>
+<cc> .K </cc>
+<cn> 0 </cn>
+</ccell>
+<ocell>
+<oo multiplicity="?"> 0 </oo>
+<on> 0 </on>
+</ocell>
+<wcell>
+<wg>
+<wa> 0 </wa>
+<wb> 0 </wb>
+</wg>
+<wn> 0 </wn>
+</wcell>
+<mcell>
+<mm> .Map </mm>
+<mn> 0 </mn>
+</mcell>
+<pcell>
+<pjs multiplicity="*" type="List">
+<pp> 0 </pp>
+</pjs>
+</pcell>
+"""
+
+[accept."sweep/init/init/i06-ocell/O { oo: k::absent!(0), on: 0 }"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<prog> .K </prog>
+<pc> 0 </pc>
+<stack> .List </stack>
+<seq> . Ints </seq>
+<env> .Map </env>
+<set> .Set </set>
+<frame>
+<a> 0 </a>
+<b> 0 </b>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<olist multiplicity="?"> .List </olist>
+<omap multiplicity="?"> .Map </omap>
+<ogroup multiplicity="?">
+<pa> 0 </pa>
+<pb> 0 </pb>
+</ogroup>
+<queue>
+<job multiplicity="*" type="List">
+<la> 0 </la>
+<lb> 0 </lb>
+</job>
+</queue>
+<shelf>
+<bag multiplicity="*" type="Set">
+<sa> 0 </sa>
+<sb> 0 </sb>
+</bag>
+</shelf>
+<bank>
+<acct multiplicity="*" type="Map">
+<ma> 0 </ma>
+<mb> 0 </mb>
+</acct>
+</bank>
+<hcell>
+<hl> .List </hl>
+<hb> 0 </hb>
+</hcell>
+<ohcell multiplicity="?">
+<ohl> .List </ohl>
+<ohb> 0 </ohb>
+</ohcell>
+<tqueue>
+<tjob multiplicity="*" type="List">
+<tk> .K </tk>
+<tn> 0 </tn>
+</tjob>
+</tqueue>
+<abank>
+<acc multiplicity="*" type="Map">
+<aid> 0 </aid>
+<al> .List </al>
+</acc>
+</abank>
+<ccell>
+<cc> .K </cc>
+<cn> 0 </cn>
+</ccell>
+<ocell>
+<oo multiplicity="?"> 0 </oo>
+<on> 0 </on>
+</ocell>
+<wcell>
+<wg>
+<wa> 0 </wa>
+<wb> 0 </wb>
+</wg>
+<wn> 0 </wn>
+</wcell>
+<mcell>
+<mm> .Map </mm>
+<mn> 0 </mn>
+</mcell>
+<pcell>
+<pjs multiplicity="*" type="List">
+<pp> 0 </pp>
+</pjs>
+</pcell>
+"""
+
+[accept."sweep/init/init/i07-ocell/O { oo: Some(0), on: 0 }"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<prog> .K </prog>
+<pc> 0 </pc>
+<stack> .List </stack>
+<seq> . Ints </seq>
+<env> .Map </env>
+<set> .Set </set>
+<frame>
+<a> 0 </a>
+<b> 0 </b>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<olist multiplicity="?"> .List </olist>
+<omap multiplicity="?"> .Map </omap>
+<ogroup multiplicity="?">
+<pa> 0 </pa>
+<pb> 0 </pb>
+</ogroup>
+<queue>
+<job multiplicity="*" type="List">
+<la> 0 </la>
+<lb> 0 </lb>
+</job>
+</queue>
+<shelf>
+<bag multiplicity="*" type="Set">
+<sa> 0 </sa>
+<sb> 0 </sb>
+</bag>
+</shelf>
+<bank>
+<acct multiplicity="*" type="Map">
+<ma> 0 </ma>
+<mb> 0 </mb>
+</acct>
+</bank>
+<hcell>
+<hl> .List </hl>
+<hb> 0 </hb>
+</hcell>
+<ohcell multiplicity="?">
+<ohl> .List </ohl>
+<ohb> 0 </ohb>
+</ohcell>
+<tqueue>
+<tjob multiplicity="*" type="List">
+<tk> .K </tk>
+<tn> 0 </tn>
+</tjob>
+</tqueue>
+<abank>
+<acc multiplicity="*" type="Map">
+<aid> 0 </aid>
+<al> .List </al>
+</acc>
+</abank>
+<ccell>
+<cc> .K </cc>
+<cn> 0 </cn>
+</ccell>
+<ocell>
+<oo multiplicity="?" initial=""> 0 </oo>
+<on> 0 </on>
+</ocell>
+<wcell>
+<wg>
+<wa> 0 </wa>
+<wb> 0 </wb>
+</wg>
+<wn> 0 </wn>
+</wcell>
+<mcell>
+<mm> .Map </mm>
+<mn> 0 </mn>
+</mcell>
+<pcell>
+<pjs multiplicity="*" type="List">
+<pp> 0 </pp>
+</pjs>
+</pcell>
+"""
+
+[accept."sweep/init/init/i09-acc/A { aid: 0, al: [0] }"]
+
+[accept."sweep/init/init/job/Gl { la: 0, ..base }"]
+
+[accept."sweep/init/init/job/Gl { la: 0, lb: 0 }"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<prog> .K </prog>
+<pc> 0 </pc>
+<stack> .List </stack>
+<seq> . Ints </seq>
+<env> .Map </env>
+<set> .Set </set>
+<frame>
+<a> 0 </a>
+<b> 0 </b>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<olist multiplicity="?"> .List </olist>
+<omap multiplicity="?"> .Map </omap>
+<ogroup multiplicity="?">
+<pa> 0 </pa>
+<pb> 0 </pb>
+</ogroup>
+<queue>
+<job multiplicity="*" type="List">
+<la> 0 </la>
+<lb> 0 </lb>
+</job>
+</queue>
+<shelf>
+<bag multiplicity="*" type="Set">
+<sa> 0 </sa>
+<sb> 0 </sb>
+</bag>
+</shelf>
+<bank>
+<acct multiplicity="*" type="Map">
+<ma> 0 </ma>
+<mb> 0 </mb>
+</acct>
+</bank>
+<hcell>
+<hl> .List </hl>
+<hb> 0 </hb>
+</hcell>
+<ohcell multiplicity="?">
+<ohl> .List </ohl>
+<ohb> 0 </ohb>
+</ohcell>
+<tqueue>
+<tjob multiplicity="*" type="List">
+<tk> .K </tk>
+<tn> 0 </tn>
+</tjob>
+</tqueue>
+<abank>
+<acc multiplicity="*" type="Map">
+<aid> 0 </aid>
+<al> .List </al>
+</acc>
+</abank>
+<ccell>
+<cc> .K </cc>
+<cn> 0 </cn>
+</ccell>
+<ocell>
+<oo multiplicity="?"> 0 </oo>
+<on> 0 </on>
+</ocell>
+<wcell>
+<wg>
+<wa> 0 </wa>
+<wb> 0 </wb>
+</wg>
+<wn> 0 </wn>
+</wcell>
+<mcell>
+<mm> .Map </mm>
+<mn> 0 </mn>
+</mcell>
+<pcell>
+<pjs multiplicity="*" type="List">
+<pp> 0 </pp>
+</pjs>
+</pcell>
+"""
+
+[accept."sweep/readable/overwrite/acct/{ Gm { ma: x, mb: y } }"]
+
+[accept."sweep/readable/overwrite/bag/{ Gs { sa: x, sb: y } }"]
+
+[accept."sweep/readable/overwrite/c05-hcell/H { hl: [x], hb: 0 }"]
+
+[accept."sweep/readable/overwrite/c29-wcell/W { wg: Gw { wa: x, wb: y }, wn: 0 }"]
+
+[accept."sweep/readable/overwrite/c30-wcell/W { wg: Gw { wa: x, wb: y, .. }, wn: 0 }"]
+
+[accept."sweep/readable/overwrite/env/G { a: x }"]
+
+[accept."sweep/readable/overwrite/env/G { a: x, b: y, .. }"]
+
+[accept."sweep/readable/overwrite/env/x"]
+
+[accept."sweep/readable/overwrite/frame/0"]
+
+[accept."sweep/readable/overwrite/frame/G { a: x, b: y, .. }"]
+
+[accept."sweep/readable/overwrite/frame/x"]
+
+[accept."sweep/readable/overwrite/job/[x]"]
+
+[accept."sweep/readable/overwrite/pc/G { a: x }"]
+
+[accept."sweep/readable/overwrite/pc/G { a: x, b: y, .. }"]
+
+[accept."sweep/readable/overwrite/pc/x"]
+
+[accept."sweep/readable/overwrite/seq/0"]
+
+[accept."sweep/readable/overwrite/seq/G { a: x }"]
+
+[accept."sweep/readable/overwrite/seq/G { a: x, b: y, .. }"]
+
+[accept."sweep/readable/overwrite/seq/[x]"]
+
+[accept."sweep/readable/overwrite/seq/x"]
+
+[accept."sweep/readable/overwrite/set/0"]
+
+[accept."sweep/readable/overwrite/set/G { a: x }"]
+
+[accept."sweep/readable/overwrite/set/G { a: x, b: y, .. }"]
+
+[accept."sweep/readable/overwrite/set/x"]
+
+[accept."sweep/readable/overwrite/stack/0"]
+
+[accept."sweep/readable/overwrite/stack/G { a: x }"]
+
+[accept."sweep/readable/overwrite/stack/G { a: x, b: y, .. }"]
+
+[accept."sweep/readable/overwrite/stack/[x]"]
+
+[accept."sweep/readable/overwrite/stack/x"]
+
+[accept."sweep/readable/result/acct/{ Gm { ma: x, .. }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(<acct>
+<ma> V1:Int </ma>
+...
+</acct> => .Bag)
+(.Bag => <acct>
+<ma> V0:Int </ma>
+...
+</acct>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/readable/result/bag/{ Gs { sa: x, .. }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(<bag>
+<sa> V1:Int </sa>
+...
+</bag> => .Bag)
+(.Bag => <bag>
+<sa> V0:Int </sa>
+...
+</bag>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/readable/result/bag/{ Gs { sb: x, .. }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(<bag>
+<sa> V1:Int </sa>
+...
+</bag> => .Bag)
+(.Bag => <bag>
+<sb> V0:Int </sb>
+...
+</bag>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/readable/result/c01-hcell/H { hl: [x, ..], hb: 0 }"]
+
+[accept."sweep/readable/result/c03-hcell/H { hl: [x], hb: 0 }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(<hcell> <hl> _ </hl> <hb> V1:Int </hb> </hcell> => <hcell> <hl> ListItem(V0:Int) </hl> <hb> 0 </hb> </hcell>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/readable/result/c08-ohcell/Some(Ho { ohl: [x], ohb: 0 })"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(.Bag => <ohcell> <ohl> ListItem(V0:Int) </ohl> <ohb> 0 </ohb> </ohcell>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/readable/result/c10-tjob/[T { tk: [x, ..], ..me }, ..]"]
+
+[accept."sweep/readable/result/c11-tjob/[T { tn: 0, ..me }, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<tqueue>
+<tjob>
+<tn> V0:Int => 0 </tn>
+...
+</tjob>
+...
+</tqueue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/result/c12-tjob/[T { tk: [x], tn: 0 }, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<tqueue>
+(.Bag => <tjob>
+<tk> V0:Int </tk>
+<tn> 0 </tn>
+</tjob>)
+...
+</tqueue>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/readable/result/c15-acc/{ A { aid: z, ..me }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<acc>
+<aid> V0:Int </aid>
+...
+</acc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/result/c17-acc/{ A { al: [x], ..me }, .. }"]
+
+[accept."sweep/readable/result/c19-acc/{ A { al: [x, ..], ..me }, .. }"]
+
+[accept."sweep/readable/result/c20-acc/{ A { aid: 5, al: [x] }, .. }"]
+
+[accept."sweep/readable/result/c23-acc/{ A { aid: 5, .. }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(.Bag => <acc>
+<aid> 5 </aid>
+...
+</acc>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/result/c24-tjob/[T { tn: 0, .. }, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<tqueue>
+(.Bag => <tjob>
+<tn> 0 </tn>
+...
+</tjob>)
+...
+</tqueue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/result/c34-acc/{ A { aid: 5, ..me }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<acc>
+<aid> 5 </aid>
+...
+</acc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/result/c36-ogroup/Some(Gp { pa: x, .. })"]
+
+[accept."sweep/readable/result/f05-mcell/M { mm: { y -> x }, mn: 0 }"]
+
+[accept."sweep/readable/result/f09-hcell/H { hl: [x, ..], hb: 0 }"]
+
+[accept."sweep/readable/result/f12-hcell/H { hl: [x], hb: 0 }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(<hcell> <hl> ListItem(V1:KItem) </hl> <hb> _ </hb> </hcell> => <hcell> <hl> ListItem(V0:Int) </hl> <hb> 0 </hb> </hcell>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/readable/result/f16-ccell/C { cc: [x, ..], cn: 0 }"]
+
+[accept."sweep/readable/result/f19-ccell/C { cc: [x], cn: 0 }"]
+
+[accept."sweep/readable/result/frame/G { a: x, b: y, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(<frame> <a> V1:Int </a> <b> _ </b> </frame> => <frame> <a> V0:Int </a> <b> V1:Int </b> </frame>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/readable/result/job/[..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+(<job>
+<la> V0:Int </la>
+...
+</job> => .Bag)
+...
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/result/job/[Gl { la: x, .. }, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<queue>
+(<job>
+<la> V1:Int </la>
+...
+</job> => .Bag)
+(.Bag => <job>
+<la> V0:Int </la>
+...
+</job>)
+...
+</queue>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/readable/result/job/[x, ..]"]
+
+[accept."sweep/readable/result/ogroup/None"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(<ogroup> <pa> V0:Int </pa> <pb> _ </pb> </ogroup> => .Bag)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/result/olist/None"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(<olist> ListItem(V0:KItem) ... </olist> => .Bag)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/result/olist/Some([..])"]
+
+[accept."sweep/readable/result/omap/None"]
+
+[accept."sweep/readable/result/prog/[..]"]
+
+[accept."sweep/readable/result/prog/[x, ..]"]
+
+[accept."sweep/readable/result/seq/[..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> V0:Int : V1:Ints => V1:Ints </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/result/seq/[x, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<seq> V1:Int : V2:Ints => V0:Int : V2:Ints </seq>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/readable/result/stack/[.., x]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<stack> ListItem(V1:KItem) V2:List => V2:List ListItem(V0:Int) </stack>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/readable/result/stack/[..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(V0:KItem) V1:List => V1:List </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/result/stack/[x, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<stack> ListItem(V1:KItem) V2:List => ListItem(V0:Int) V2:List </stack>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
+
+[accept."sweep/readable/subject/acct/{ Gm { ma: x, .. }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<acct>
+<ma> V0:Int </ma>
+...
+</acct>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/subject/acct/{ Gm { ma: x, mb: y } }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<bank>
+<acct>
+<ma> V0:Int </ma>
+<mb> V1:Int </mb>
+</acct>
+</bank>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/subject/acct/{ Gm { mb: x, .. }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<acct>
+<mb> V0:Int </mb>
+...
+</acct>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/subject/bag/{ Gs { sa: x, .. }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<bag>
+<sa> V0:Int </sa>
+...
+</bag>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/subject/bag/{ Gs { sa: x, sb: y } }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<shelf>
+<bag>
+<sa> V0:Int </sa>
+<sb> V1:Int </sb>
+</bag>
+</shelf>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/subject/bag/{ Gs { sb: x, .. }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<bag>
+<sb> V0:Int </sb>
+...
+</bag>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/subject/counter/Some(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<counter> _ </counter>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/subject/f00-mcell/M { mm: { y -> x, .. }, .. }"]
+
+[accept."sweep/readable/subject/f01-mcell/M { mm: { y -> x }, .. }"]
+
+[accept."sweep/readable/subject/f07-hcell/H { hl: [y, ..], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<hcell> <hl> ListItem(V0:KItem) ... </hl> <hb> _ </hb> </hcell>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/subject/f08-hcell/H { hl: [y], .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<hcell> <hl> ListItem(V0:KItem) </hl> <hb> _ </hb> </hcell>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/subject/f14-ccell/C { cc: [y, ..], .. }"]
+
+[accept."sweep/readable/subject/f15-ccell/C { cc: [y], .. }"]
+
+[accept."sweep/readable/subject/frame/G { a: x, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<frame> <a> V0:Int </a> <b> _ </b> </frame>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/subject/frame/G { a: x, b: y, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<frame> <a> V0:Int </a> <b> V1:Int </b> </frame>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/subject/job/[Gl { la: x, .. }, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+<job>
+<la> V0:Int </la>
+...
+</job>
+...
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/subject/job/[x, r @ ..]"]
+
+[accept."sweep/readable/subject/job/[x]"]
+
+[accept."sweep/readable/subject/ogroup/Some(Gp { .. })"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<ogroup> <pa> _ </pa> <pb> _ </pb> </ogroup>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/subject/ogroup/Some(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+_:OgroupCell
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/subject/ogroup/Some(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+V0:OgroupCell
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/subject/olist/Some([..])"]
+
+[accept."sweep/readable/subject/olist/Some(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<olist> _ </olist>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/subject/olist/Some(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<olist> ... </olist>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/subject/omap/Some(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<omap> _ </omap>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/subject/prog/[G { a: x, .. }, ..]"]
+
+[accept."sweep/readable/subject/prog/[x]"]
+
+[accept."sweep/readable/subject/seq/[..]"]
+lint = "no-effect-entry"
+
+[accept."sweep/readable/subject/seq/[x, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> V0:Int : V1:Ints </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/subject/seq/[x, r @ ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> V0:Int : V1:Ints </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/subject/seq/[x]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> V0:Int : . Ints </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/subject/seq/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> V0:Ints </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/subject/set/_"]
+lint = "no-effect-entry"
+
+[accept."sweep/readable/subject/set/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<set> ... </set>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/subject/stack/[.., x]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> V0:List ListItem(V1:KItem) </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/subject/stack/[G { a: x, .. }, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(<frame> <a> V0:Int </a> <b> _ </b> </frame>) ... </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/subject/stack/[x, r @ ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(V0:KItem) ... </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/subject/stack/[x]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(V0:KItem) </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/acct/{ Gm { ma: x, .. }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(<acct>
+<ma> V0:Int </ma>
+...
+</acct> => .Bag)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/acct/{ Gm { ma: x, mb: y } }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<bank>
+(<acct>
+<ma> V0:Int </ma>
+<mb> V1:Int </mb>
+</acct> => .Bag)
+</bank>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/acct/{ Gm { mb: x, .. }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(<acct>
+<mb> V0:Int </mb>
+...
+</acct> => .Bag)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/bag/{ Gs { sa: x, .. }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(<bag>
+<sa> V0:Int </sa>
+...
+</bag> => .Bag)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/bag/{ Gs { sa: x, sb: y } }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<shelf>
+(<bag>
+<sa> V0:Int </sa>
+<sb> V1:Int </sb>
+</bag> => .Bag)
+</shelf>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/bag/{ Gs { sb: x, .. }, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(<bag>
+<sb> V0:Int </sb>
+...
+</bag> => .Bag)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/counter/None"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(.Bag => <counter> 1 </counter>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/counter/Some(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<counter> _ => 1 </counter>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/counter/Some(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<counter> V0:Int => 1 </counter>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/env/_"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<env> _ => .Map </env>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/env/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<env> V0:Map => .Map </env>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/frame/G { a: x, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(<frame> <a> V0:Int </a> <b> _ </b> </frame> => <frame> <a> 1 </a> <b> 1 </b> </frame>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/frame/G { a: x, b: y, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(<frame> <a> V0:Int </a> <b> V1:Int </b> </frame> => <frame> <a> 1 </a> <b> 1 </b> </frame>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/frame/_"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(_:FrameCell => <frame> <a> 1 </a> <b> 1 </b> </frame>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/frame/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(V0:FrameCell => <frame> <a> 1 </a> <b> 1 </b> </frame>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/job/[..]"]
+
+[accept."sweep/readable/written/job/[Gl { la: x, .. }, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<queue>
+(<job>
+<la> V0:Int </la>
+...
+</job> => .Bag)
+...
+</queue>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/job/[x, ..]"]
+
+[accept."sweep/readable/written/job/[x, r @ ..]"]
+
+[accept."sweep/readable/written/job/[x]"]
+
+[accept."sweep/readable/written/ogroup/None"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(.Bag => <ogroup> <pa> 1 </pa> <pb> 1 </pb> </ogroup>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/ogroup/Some(Gp { .. })"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(<ogroup> <pa> _ </pa> <pb> _ </pb> </ogroup> => <ogroup> <pa> 1 </pa> <pb> 1 </pb> </ogroup>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/ogroup/Some(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(_:OgroupCell => <ogroup> <pa> 1 </pa> <pb> 1 </pb> </ogroup>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/ogroup/Some(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(V0:OgroupCell => <ogroup> <pa> 1 </pa> <pb> 1 </pb> </ogroup>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/olist/None"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(.Bag => <olist> .List </olist>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/olist/Some([..])"]
+
+[accept."sweep/readable/written/olist/Some(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<olist> _ => .List </olist>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/olist/Some(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<olist> V0:List => .List </olist>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/omap/None"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(.Bag => <omap> .Map </omap>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/omap/Some(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<omap> _ => .Map </omap>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/omap/Some(x)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<omap> V0:Map => .Map </omap>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/pc/0"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<pc> 0 => 1 </pc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/pc/_"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<pc> _ => 1 </pc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/pc/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<pc> V0:Int => 1 </pc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/prog/[..]"]
+
+[accept."sweep/readable/written/prog/[G { a: x, .. }, ..]"]
+
+[accept."sweep/readable/written/prog/[x, ..]"]
+
+[accept."sweep/readable/written/prog/[x]"]
+
+[accept."sweep/readable/written/seq/[..]"]
+
+[accept."sweep/readable/written/seq/[x, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> V0:Int : V1:Ints => V1:Ints </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/seq/[x, r @ ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> V0:Int : V1:Ints => . Ints </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/seq/[x]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> V0:Int : . Ints => . Ints </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/seq/_"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> _ => . Ints </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/seq/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> V0:Ints => . Ints </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/set/_"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<set> _ => .Set </set>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/set/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<set> V0:Set => .Set </set>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/stack/[.., x]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> V0:List ListItem(V1:KItem) => V0:List </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/stack/[..]"]
+
+[accept."sweep/readable/written/stack/[G { a: x, .. }, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(<frame> <a> V0:Int </a> <b> _ </b> </frame>) V1:List => V1:List </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/stack/[x, ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(V0:KItem) V1:List => V1:List </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/stack/[x, r @ ..]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(V0:KItem) V1:List => .List </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/stack/[x]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(V0:KItem) => .List </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/stack/_"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> _ => .List </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."sweep/readable/written/stack/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> V0:List => .List </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
 # Cell-entry exceptions: the cell-entry rows that depart from the cells oracle
 # (`class_matrix::cells_oracle`), each with the principle it departs by: `E3` (no `..pgm` in an
 # initializer's `k!`), or `C-lim: REASON`, a stated
@@ -7439,3 +13810,21 @@ principle = "E3"
 
 [cell-exception.'{claim,readable}/subject/typed/map/{1,Go(),Unit()}']
 principle = "C-lim: a readable record's top-level map read takes its value as a binder; inside an instance record the value is matched (P5), as `readable-run/subject/bag/{ Obj { key: 1, m: { 1 -> 2, .. } }, .. }` shows"
+
+[cell-exception.'sweep/cells/{overwrite,result}/*/k::configuration::Cell(k::map![y -> x\, ..])']
+principle = "C-lim: a `cells!` result's map literal with a rest is refused at the form until M3 (design:M3), at a content root too, where P6 judges it by kind and pairing (S5.0g pattern review P-R2)"
+
+[cell-exception.'sweep/cells/result/{f02-mcell,f03-mcell,f06-mcell}/k::fragment![crate::M \{ mm: k::map![y -> x\, ..]\, mn: 0 \}]']
+principle = "C-lim: a `cells!` result's map literal with a rest is refused at the form until M3 (design:M3); a fragment field's value is its Map child's content root, which P6 judges by pairing (S5.0g fixes review F-1)"
+
+[cell-exception.'sweep/{claim,readable}/result/{f02-mcell,f03-mcell,f06-mcell}/M \{ mm: \{ y -> x\, .. \}\, mn: 0 \}']
+principle = "C-lim: a map read has no result side until M3; a group record's field value is its Map child's content root (P1, P7; S5.0g fixes review F-1), so P6 reads the child's `{ k -> v, .. }` in a result as the frame write `Cell(k::map![k -> v, ..])`, as its `cells!` twin's fragment child, judged by kind and pairing"
+
+[cell-exception.'sweep/{claim,readable}/{overwrite,result}/{env,omap}/\{ y -> x\, .. \}']
+principle = "C-lim: a map read has no result side until M3; P6 reads `{ k -> v, .. }` in a result as the frame write `Cell(k::map![k -> v, ..])`, judged by kind and pairing (on the `?` Map leaf its advice `Some({ y -> x, .. })` is refused again by that limitation, so the limitation is named first, P-R5)"
+
+[cell-exception.'sweep/{claim,readable}/{overwrite,result,subject,written}/job/[..\, x]']
+principle = "C-lim: a List collection's back instance is not matched in place, though P2 and P6 read `[.., x]` as naming the back instance and Q2 makes that instance a value (S5-principles §2 row 9)"
+
+[cell-exception.'sweep/init/init/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,seq,set,stack}/k::k![Cmd::Go()\, ..pgm]']
+principle = "E3: a stated exception, a spelling rule applied before P3: an initializer's `k![..]` takes no `..pgm` on any cell, so the product answers `initializer-remainder` at the form, where `outcome`, which leaves E3 out by design, judges the value by the stack (P3b: the computation's mark off the computation)"

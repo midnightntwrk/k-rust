@@ -743,18 +743,36 @@ pub fn binds(spelling: &Spelling) -> bool {
     }
 }
 
-/// Whether `spelling` names the configuration variable `name`.
+/// Whether `spelling` names the configuration variable `name`: as a value, or as the base a
+/// value is built on (P5, D2 #8): a computation's, list's, map's or instance sequence's `..name`
+/// and a record update's `..name` use the variable exactly as an item `name` would.
 #[must_use]
 pub fn mentions(spelling: &Spelling, name: &str) -> bool {
-    match spelling {
-        Spelling::ConfigVar(variable) => variable == name,
-        Spelling::KCell(seq) | Spelling::KMacro(seq) | Spelling::Brackets(seq) if matches!(&seq.rest, Some((Rest::Splice(variable), _)) if variable == name) => {
-            true
-        }
-        _ => children(spelling)
+    let base = match spelling {
+        Spelling::ConfigVar(variable) => return variable == name,
+        Spelling::Brackets(seq)
+        | Spelling::Braces(seq)
+        | Spelling::KCell(seq)
+        | Spelling::InstList(seq)
+        | Spelling::InstSet(seq)
+        | Spelling::KMacro(seq) => match &seq.rest {
+            Some((Rest::Splice(variable), _)) => Some(variable),
+            _ => None,
+        },
+        Spelling::MapRead(entries) | Spelling::MapLit(entries) => match &entries.rest {
+            Some(Rest::Splice(variable)) => Some(variable),
+            _ => None,
+        },
+        Spelling::Record(record) | Spelling::Fragment(record) => match &record.rest {
+            RecordRest::Update(variable) => Some(variable),
+            _ => None,
+        },
+        _ => None,
+    };
+    base.is_some_and(|variable| variable == name)
+        || children(spelling)
             .into_iter()
-            .any(|inner| mentions(inner, name)),
-    }
+            .any(|inner| mentions(inner, name))
 }
 
 /// The child that keys an instance of `group` in a collection ordered by `order`: a Map

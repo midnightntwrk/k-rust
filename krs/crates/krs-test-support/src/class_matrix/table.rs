@@ -214,7 +214,7 @@ pub struct Accepted {
 pub struct CellException {
     /// The glob over case IDs (a run case is matched through its twin, as by a refusal rule).
     pub pattern: String,
-    /// The principle: `E1`, `E3` or `C-lim: REASON`.
+    /// The principle: `E1`, `E3` (either with `: REASON`) or `C-lim: REASON`.
     pub principle: String,
 }
 

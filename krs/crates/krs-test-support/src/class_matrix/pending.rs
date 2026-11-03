@@ -79,6 +79,11 @@ pub const ADVICE: &str = "k8/";
 /// The ID prefix of a case's entry that only the full tier reads, `full/CASE`.
 pub const FULL: &str = "full/";
 
+/// K2's deviation for an accepted case whose K differs from the K the table records. Under a
+/// finding it says the recorded K is the principled one and the product's K is wrong: record
+/// mode keeps that K ([`Pending::holds_other_k`]), and the finding states its `risk`.
+pub const OTHER_K: &str = "accepted, with other K than recorded";
+
 /// The case an entry's ID names: the ID itself, or the ID after [`KEYS`], [`CLOSURE`],
 /// [`NATIVE`], [`RUN`], [`TWIN`], [`ADVICE`] or [`FULL`]; `None` for a [`LATTICE`] entry, which
 /// names no case.
@@ -245,6 +250,16 @@ impl Pending {
         } else {
             Err(errors)
         }
+    }
+
+    /// Whether the case `id` has a K2 entry (`ID` or `full/ID`) whose deviation is [`OTHER_K`]:
+    /// the table's K for it is the principled K, which record mode must not overwrite.
+    #[must_use]
+    pub fn holds_other_k(&self, id: &str) -> bool {
+        [id.to_owned(), format!("{FULL}{id}")]
+            .iter()
+            .filter_map(|key| self.entries.get(key))
+            .any(|entry| entry.deviation == OTHER_K)
     }
 
     /// Judge one case.

@@ -28,6 +28,15 @@ use krs_test_support::class_matrix::cells_oracle::{
 };
 use krs_test_support::class_matrix::invariants::registry_kind;
 use krs_test_support::class_matrix::pending::{self, Pending};
+use krs_test_support::class_matrix::sweep;
+use krs_test_support::class_matrix::sweep::{
+    CHILDREN as CHILDREN_SWEEP, CHILDREN_UNBASED as CHILDREN_UNBASED_SWEEP,
+    FRAGMENT_CHILD as FRAGMENT_CHILD_SWEEP, INITIALIZER_CHILDREN as INITIALIZER_CHILDREN_SWEEP,
+    back_spellings as sweep_back_spellings, children_stack, form_name, group_g,
+    group_of as sweep_group, main_tables as sweep_main_tables,
+    more_spellings as sweep_more_spellings, nested_collection_stack, spellings as sweep_spellings,
+    stack_name, stacks as sweep_stacks, subject as sweep_subject, untexted,
+};
 use krs_test_support::class_matrix::table::{Expected, Glob, TERM_ACCEPTS_FILE, Table, twin};
 use krs_test_support::class_matrix::{self, Base, Case, Family, Side, entry_cases};
 
@@ -143,14 +152,18 @@ fn check_1_every_cell_entry_row_agrees_with_the_principles() {
     let exceptions = exceptions();
     let mut failures = Vec::new();
     for (_, pattern, principle) in &exceptions {
-        let stated = principle == "E1"
-            || principle == "E3"
-            || principle
-                .strip_prefix("C-lim: ")
-                .is_some_and(|reason| !reason.trim().is_empty());
+        let stated = ["E1", "E3"].iter().any(|named| {
+            principle == named
+                || principle
+                    .strip_prefix(named)
+                    .and_then(|tail| tail.strip_prefix(": "))
+                    .is_some_and(|reason| !reason.trim().is_empty())
+        }) || principle
+            .strip_prefix("C-lim: ")
+            .is_some_and(|reason| !reason.trim().is_empty());
         if !stated {
             failures.push(format!(
-                "cell-exception {pattern:?}: the principle {principle:?} is not E1, E3 or `C-lim: REASON`"
+                "cell-exception {pattern:?}: the principle {principle:?} is not E1, E3 (each with an optional `: REASON`) or `C-lim: REASON`"
             ));
         }
     }
@@ -957,7 +970,7 @@ fn template_agreement(
                 on(Side::Result).is_some()
             ));
         }
-        Side::Result if entry.context.other != on(Side::Subject) => {
+        Side::Result if entry.context.other.as_ref().map(untexted) != on(Side::Subject) => {
             return Err(format!(
                 "the template's subject entry of `{cell}` is {:?}, the rendered sentence's {:?}",
                 entry.context.other,
@@ -1145,7 +1158,7 @@ fn check_2_the_product_admits_as_the_table_says() {
                 continue;
             }
         };
-        if declared_as(&spelling) != entry.entry.spelling {
+        if declared_as(&spelling) != untexted(&entry.entry.spelling) {
             failures.push(format!(
                 "{}: the product reads {:?}, the generator declares {:?}",
                 case.id,
@@ -1532,33 +1545,6 @@ fn mark_name(form: Form, spelling: &Spelling) -> String {
     .to_owned()
 }
 
-fn stack_name(cell: &str, stack: &[Layer]) -> String {
-    let leaf = |notation: &Notation| match notation {
-        Notation::Plain => "leaf Int",
-        Notation::List => "leaf List",
-        Notation::Cons => "leaf Cons",
-        Notation::Map => "leaf Map",
-        Notation::Set => "leaf Set",
-    };
-    match stack {
-        [Layer::Computation] if cell.ends_with("code") => "second computation".to_owned(),
-        [Layer::Computation] => "computation".to_owned(),
-        [Layer::Leaf(notation)] => leaf(notation).to_owned(),
-        [Layer::Group(_)] => "group".to_owned(),
-        [Layer::Optional, Layer::Leaf(notation)] => format!("? {}", leaf(notation)),
-        [Layer::Optional, Layer::Group(_)] => "? group".to_owned(),
-        [Layer::Instances(order), ..] => format!(
-            "* {}",
-            match order {
-                Order::List => "List",
-                Order::Set => "Set",
-                Order::Map => "Map",
-            }
-        ),
-        other => format!("{other:?}"),
-    }
-}
-
 /// The reason of an [`UNCOVERED`] entry whose tuples no case covers because the sweep golden
 /// prints `outcome` at each of them, and the row's pattern in [`PATTERNS_FILE`] states the
 /// principle that gives it, for review (the coverage ruling: cases cover every pair of the
@@ -1570,15 +1556,6 @@ const SWEEP: &str = "judged by the sweep row's reviewed pattern in cells-outcome
 /// to the sweep golden, which must print `outcome` at each; check 5 still requires every pair of
 /// the domain's dimensions to be some case's, unless an entry with another reason names it.
 const UNCOVERED: [(&str, &str, &str, &str, &str, &str); 1] = [("*", "*", "*", "*", "*", SWEEP)];
-
-fn form_name(form: Form) -> &'static str {
-    match form {
-        Form::Readable => "readable",
-        Form::Claim => "claim",
-        Form::Cells => "cells",
-        Form::Init => "init",
-    }
-}
 
 /// The side as check 5 names it: a result over a cell its subject does not match is
 /// `result-unmatched`.
@@ -1999,14 +1976,6 @@ fn int() -> Vec<Layer> {
     vec![Layer::Leaf(Notation::Plain)]
 }
 
-/// The sweep's group `G`, two `Int` children (so a record naming one is not complete).
-fn group_g() -> Layer {
-    Layer::Group(Group {
-        name: "G".to_owned(),
-        children: vec![("a".to_owned(), int()), ("b".to_owned(), int())],
-    })
-}
-
 /// The review's probes of S1 (b) and Q1's overwrite (R1, R2), outside every generated case: the
 /// oracle and the product both refuse each, with the class the principles give.
 #[test]
@@ -2290,7 +2259,8 @@ fn a_cells_result_map_with_a_rest_at_its_leaf_root_is_judged_by_kind_and_pairing
 /// record or a fragment at a configuration position is its child cell's content, a content root
 /// (P6) exactly as `Cell(..)`'s argument is: a fragment's Map child `m: k::map![y -> x, ..]` is
 /// judged by kind and pairing against the subject's same child, as the readable record it
-/// abbreviates is (P7), and the product's `arm` there is the stated M3 limitation. Below that,
+/// abbreviates is (P7), and the product's `arm` there is the stated M3 limitation, as its
+/// `map-read-in-result` is for the readable record's map read (S5.0g item 3a fixes, F-8). Below that,
 /// inside a term (a list's element, a constructor's argument), and at an entry's head without its
 /// leaf's `Cell(..)`, the literal stays `anonymous-rest-in-map-literal` (P6: below a root,
 /// notation is a term's).
@@ -2326,7 +2296,7 @@ fn a_cells_result_map_with_a_rest_at_a_records_child_is_judged_by_pairing() {
                 Some("B { m: { z -> y, .. }, .. }"),
             ),
             Outcome::After,
-            Outcome::After,
+            Outcome::Refuse("map-read-in-result"),
         ),
         (
             result_probe(
@@ -3654,6 +3624,83 @@ fn the_main_cell_rule_reads_the_entries_as_a_set() {
     assert_eq!(judged(&init(vec![k_pgm]), &prog_empty), None);
 }
 
+/// S5.0g item 3a fixes, ruling 2 (P5, D2 #8): a value's base `..name` uses the configuration
+/// variable `name` exactly as an item `name` would, so an initializer whose only use of a
+/// variable is a map's, list's, computation's or instance sequence's base, or a record update's,
+/// uses it; a base of another name does not.
+#[test]
+fn an_initializer_uses_a_configuration_variable_it_writes_as_a_base() {
+    use class_matrix::cells_oracle::build::{lit, seq};
+    use class_matrix::cells_oracle::{Entry, Sentence};
+    let entry = |cell: &str, stack: Vec<Layer>, spelling| Entry {
+        cell: cell.to_owned(),
+        side: Side::Initializer,
+        path: Vec::new(),
+        stack,
+        spelling,
+    };
+    let init = |variable: &str| Template {
+        sentence: Sentence::Initializer,
+        entries: Vec::new(),
+        guard: false,
+        variables: vec![(variable.to_owned(), false)],
+    };
+    let splice = |name: &str| Some((Rest::Splice(name.to_owned()), RestAt::Back));
+    let group = Layer::Group(Group {
+        name: "G".to_owned(),
+        children: vec![("a".to_owned(), int()), ("b".to_owned(), int())],
+    });
+    let bases = |name: &str| {
+        vec![
+            entry(
+                "env",
+                vec![Layer::Leaf(Notation::Map)],
+                Spelling::MapLit(Entries {
+                    entries: vec![(lit(), lit())],
+                    rest: Some(Rest::Splice(name.to_owned())),
+                }),
+            ),
+            entry(
+                "stack",
+                vec![Layer::Leaf(Notation::List)],
+                Spelling::Brackets(seq(vec![lit()], splice(name))),
+            ),
+            entry(
+                "k",
+                vec![Layer::Computation],
+                Spelling::KMacro(seq(vec![lit()], splice(name))),
+            ),
+            entry(
+                "jobs",
+                vec![Layer::Instances(Order::List), group.clone()],
+                Spelling::InstList(seq(Vec::new(), splice(name))),
+            ),
+            entry(
+                "frame",
+                vec![group.clone()],
+                Spelling::Record(Record {
+                    head: "G".to_owned(),
+                    fields: vec![("a".to_owned(), lit())],
+                    rest: RecordRest::Update(name.to_owned()),
+                }),
+            ),
+        ]
+    };
+    let admitted = Outcome::Admit { lint: None };
+    for (used, unused) in bases("base").into_iter().zip(bases("other")) {
+        assert_eq!(
+            rule_outcome(&init("base"), &used, admitted),
+            None,
+            "{used:?}"
+        );
+        assert_eq!(
+            rule_outcome(&init("base"), &unused, admitted),
+            Some("unused-configuration-variable"),
+            "{unused:?}"
+        );
+    }
+}
+
 #[test]
 fn a_rule_naming_a_group_and_a_cell_below_it_is_refused_on_the_whole_rule() {
     use class_matrix::cells_oracle::build::{bind, lit, open, seq};
@@ -3949,194 +3996,6 @@ fn sweep_name(outcome: Outcome) -> String {
     }
 }
 
-/// The sweep's own stacks: every kind the domain has (check 5's, but the second computation,
-/// which differs from the first by its name only, P1), with `G` as the group and the
-/// collections' instance group.
-fn sweep_stacks() -> Vec<(&'static str, Vec<Layer>)> {
-    let leaf = |notation| vec![Layer::Leaf(notation)];
-    let optional = |mut stack: Vec<Layer>| {
-        stack.insert(0, Layer::Optional);
-        stack
-    };
-    let many = |order| vec![Layer::Instances(order), group_g()];
-    vec![
-        ("computation", vec![Layer::Computation]),
-        ("leaf Int", leaf(Notation::Plain)),
-        ("leaf List", leaf(Notation::List)),
-        ("leaf Cons", leaf(Notation::Cons)),
-        ("leaf Map", leaf(Notation::Map)),
-        ("leaf Set", leaf(Notation::Set)),
-        ("group G", vec![group_g()]),
-        ("? leaf Int", optional(leaf(Notation::Plain))),
-        ("? leaf List", optional(leaf(Notation::List))),
-        ("? leaf Map", optional(leaf(Notation::Map))),
-        ("? group G", optional(vec![group_g()])),
-        ("* List of G", many(Order::List)),
-        ("* Set of G", many(Order::Set)),
-        ("* Map of G", many(Order::Map)),
-    ]
-}
-
-/// The entry a matched result's subject writes in its cell: the cell's content with an
-/// anonymous rest at its content root where it has one, else a binder.
-fn sweep_subject(form: Form, stack: &[Layer]) -> String {
-    let cells = form == Form::Cells;
-    let inner = |text: &str| {
-        if cells {
-            format!("k::configuration::Cell({text})")
-        } else {
-            text.to_owned()
-        }
-    };
-    match stack {
-        [Layer::Optional, rest @ ..] => format!("Some({})", sweep_subject(form, rest)),
-        [Layer::Computation] if cells => "k::configuration::KCell(y, ..)".to_owned(),
-        [Layer::Computation] => "[y, ..]".to_owned(),
-        [Layer::Leaf(Notation::List | Notation::Cons)] => inner("[y, ..]"),
-        [Layer::Leaf(Notation::Map)] if cells => inner("k::map![z -> y, ..]"),
-        [Layer::Leaf(Notation::Map)] => "{ z -> y, .. }".to_owned(),
-        [Layer::Leaf(_)] => inner("old"),
-        [Layer::Group(_)] if cells => "k::fragment![crate::G { a: y, .. }]".to_owned(),
-        [Layer::Group(_)] => "G { a: y, .. }".to_owned(),
-        [Layer::Instances(Order::List), ..] if cells => {
-            "[k::fragment![crate::G { a: y, .. }], ..]".to_owned()
-        }
-        [Layer::Instances(_), ..] if cells => {
-            "{ k::fragment![crate::G { a: y, .. }], .. }".to_owned()
-        }
-        [Layer::Instances(Order::List), ..] => "[G { a: y, .. }, ..]".to_owned(),
-        [Layer::Instances(_), ..] => "{ G { a: y, .. }, .. }".to_owned(),
-        other => panic!("no sweep subject for {other:?}"),
-    }
-}
-
-/// The spellings the sweep writes in each form, one per column: each mark of the form, and the
-/// rests and records that pairing and L4 read.
-const fn sweep_spellings(form: Form) -> &'static [&'static str] {
-    match form {
-        Form::Readable | Form::Claim => &[
-            "Some(x)",
-            "None",
-            "[x, ..]",
-            "[x]",
-            "[..]",
-            "[.., x]",
-            "[x, r @ ..]",
-            "{ G { a: x, .. }, .. }",
-            "{ y -> x, .. }",
-            "x",
-            "_",
-            "0",
-            "G { a: x, .. }",
-            "G { a: x, b: y, .. }",
-            "G { a: x }",
-        ],
-        Form::Cells => &[
-            "Some(k::configuration::Cell(x))",
-            "None",
-            "k::configuration::Cell(x)",
-            "k::configuration::Cell([x, ..])",
-            "k::configuration::Cell(k::map![y -> x, ..])",
-            "k::configuration::KCell(x, ..)",
-            "k::configuration::KCell(x)",
-            "[k::fragment![crate::G { a: x, .. }], ..]",
-            "{ k::fragment![crate::G { a: x, .. }], .. }",
-            "x",
-            "_",
-            "k::fragment![crate::G { a: x, .. }]",
-            "k::fragment![crate::G { a: x, b: y, .. }]",
-            "k::fragment![crate::G { a: x }]",
-        ],
-        Form::Init => &[
-            "Some(0)",
-            "k::absent!(0)",
-            "None",
-            "k::k![pgm]",
-            "k::k![Cmd::Go(), ..]",
-            "[0]",
-            "[0, ..]",
-            "k::map![0 -> 1]",
-            "0",
-            "G { a: 0, b: 0 }",
-            "G { a: 0 }",
-            "Cmd::Go()",
-            "pgm",
-        ],
-    }
-}
-
-/// The sweep's second table of each form: single-entry spellings the first does not print (the
-/// S5.0g pattern review's gaps G7, G8 and G9), each a column of its own table so that the first
-/// table's patterns stand as reviewed.
-const fn sweep_more_spellings(form: Form) -> &'static [&'static str] {
-    match form {
-        // G8: a bracketed instance record (P-R4), a value item in unordered braces (Q2), the
-        // readable map literal (`READABLE_ONLY`), `_` inside `Some` (a result's placement),
-        // `Some` of an open record and of a sequence, an exact instance set (Q1's exact
-        // overwrite of a collection), and an instance record that does not name a Map
-        // collection's key.
-        Form::Readable | Form::Claim => &[
-            "[G { a: x, .. }, ..]",
-            "{ x, .. }",
-            "map![y -> x, ..]",
-            "Some(_)",
-            "Some(G { .. })",
-            "Some([..])",
-            "{ G { a: x, b: y } }",
-            "{ G { b: x, .. }, .. }",
-        ],
-        // G9: back items (E1, the List back instance, P-R1) and `Cell(_)` (Q1's lint).
-        Form::Cells => &[
-            "k::configuration::Cell([.., x])",
-            "k::configuration::KCell(.., x)",
-            "k::configuration::Cell(_)",
-        ],
-        // G7: a record update, E3's splice of the program, D2 #8's map base.
-        Form::Init => &[
-            "G { a: 0, ..base }",
-            "k::k![Cmd::Go(), ..pgm]",
-            "k::map![0 -> 1, ..env]",
-        ],
-    }
-}
-
-/// The sweep's third table of each form that has one: the computation's back items in `cells!`
-/// (E1 holds in every form, the S5.0g fixes review's F-6), a table of its own so that the
-/// second table's patterns stand as reviewed.
-const fn sweep_back_spellings(form: Form) -> &'static [&'static str] {
-    match form {
-        Form::Cells => &["k::configuration::KCell(x, .., y)"],
-        Form::Readable | Form::Claim | Form::Init => &[],
-    }
-}
-
-/// The sweep's main tables: each form's, then its second table ([`sweep_more_spellings`]), then
-/// its third where it has one ([`sweep_back_spellings`]).
-fn sweep_main_tables() -> Vec<(String, Form, &'static [&'static str])> {
-    let forms = [Form::Readable, Form::Claim, Form::Cells, Form::Init];
-    let first = forms
-        .iter()
-        .map(|form| (form_name(*form).to_owned(), *form, sweep_spellings(*form)));
-    let second = forms.iter().map(|form| {
-        (
-            format!("{} more", form_name(*form)),
-            *form,
-            sweep_more_spellings(*form),
-        )
-    });
-    let third = forms
-        .iter()
-        .filter(|form| !sweep_back_spellings(**form).is_empty())
-        .map(|form| {
-            (
-                format!("{} back", form_name(*form)),
-                *form,
-                sweep_back_spellings(*form),
-            )
-        });
-    first.chain(second).chain(third).collect()
-}
-
 /// The sweep of [`outcome`] over form × side (a subject whose cell the result leaves or writes,
 /// a result over a matched or an unmatched cell, an initializer) × path (none, below a `?`
 /// ancestor, below a `*` ancestor) × stack × spelling, with the product's answer where it
@@ -4234,666 +4093,6 @@ fn outcome_sweep() -> String {
     children_sweep(&mut out);
     out
 }
-
-/// A group of the children sweep: its name and its children's own layers, in declaration
-/// order (a Map collection's key is its first child).
-fn sweep_group(name: &str, children: &[(&str, Layer)]) -> Layer {
-    Layer::Group(Group {
-        name: name.to_owned(),
-        children: children
-            .iter()
-            .map(|(child, layer)| ((*child).to_owned(), vec![layer.clone()]))
-            .collect(),
-    })
-}
-
-/// The children sweep's stacks, by name.
-fn children_stack(name: &str) -> Vec<Layer> {
-    let list = Layer::Leaf(Notation::List);
-    let int = Layer::Leaf(Notation::Plain);
-    let h = || sweep_group("H", &[("l", list.clone()), ("b", int.clone())]);
-    match name {
-        "group H" => vec![h()],
-        "? group H" => vec![Layer::Optional, h()],
-        "* List of T" => vec![
-            Layer::Instances(Order::List),
-            sweep_group("T", &[("k", Layer::Computation), ("n", int.clone())]),
-        ],
-        "* Map of A" => vec![
-            Layer::Instances(Order::Map),
-            sweep_group("A", &[("id", int.clone()), ("l", list.clone())]),
-        ],
-        "group C" => vec![sweep_group(
-            "C",
-            &[("c", Layer::Computation), ("n", int.clone())],
-        )],
-        "group O" => vec![Layer::Group(Group {
-            name: "O".to_owned(),
-            children: vec![
-                ("o".to_owned(), vec![Layer::Optional, int.clone()]),
-                ("n".to_owned(), vec![int.clone()]),
-            ],
-        })],
-        "group W" => vec![sweep_group("W", &[("g", group_g()), ("n", int.clone())])],
-        "group M" => vec![sweep_group(
-            "M",
-            &[("m", Layer::Leaf(Notation::Map)), ("n", int.clone())],
-        )],
-        "? group G" => vec![Layer::Optional, group_g()],
-        "? leaf List" => vec![Layer::Optional, list.clone()],
-        other => panic!("no children-sweep stack {other}"),
-    }
-}
-
-/// The children sweep's rows: a stack, the subject's entry of the cell (`-`: the subject does
-/// not match it), and a result, each written in readable (claim alike) and in `cells!`.
-const CHILDREN_SWEEP: [(&str, [&str; 2], [&str; 2]); 39] = [
-    (
-        "group H",
-        [
-            "H { l: [y, ..], .. }",
-            "k::fragment![crate::H { l: [y, ..], .. }]",
-        ],
-        [
-            "H { l: [x], b: 0 }",
-            "k::fragment![crate::H { l: [x], b: 0 }]",
-        ],
-    ),
-    (
-        "group H",
-        [
-            "H { l: [y, ..], .. }",
-            "k::fragment![crate::H { l: [y, ..], .. }]",
-        ],
-        [
-            "H { l: [x, ..], b: 0 }",
-            "k::fragment![crate::H { l: [x, ..], b: 0 }]",
-        ],
-    ),
-    (
-        "group H",
-        ["H { b: y, .. }", "k::fragment![crate::H { b: y, .. }]"],
-        [
-            "H { l: [x, ..], b: 0 }",
-            "k::fragment![crate::H { l: [x, ..], b: 0 }]",
-        ],
-    ),
-    (
-        "group H",
-        ["H { b: y, .. }", "k::fragment![crate::H { b: y, .. }]"],
-        [
-            "H { l: [x], b: 0 }",
-            "k::fragment![crate::H { l: [x], b: 0 }]",
-        ],
-    ),
-    (
-        "group H",
-        ["-", "-"],
-        [
-            "H { l: [x, ..], b: 0 }",
-            "k::fragment![crate::H { l: [x, ..], b: 0 }]",
-        ],
-    ),
-    (
-        "group H",
-        ["-", "-"],
-        [
-            "H { l: [x], b: 0 }",
-            "k::fragment![crate::H { l: [x], b: 0 }]",
-        ],
-    ),
-    (
-        "? group H",
-        [
-            "Some(H { l: [y, ..], .. })",
-            "Some(k::fragment![crate::H { l: [y, ..], .. }])",
-        ],
-        [
-            "Some(H { l: [x], b: 0 })",
-            "Some(k::fragment![crate::H { l: [x], b: 0 }])",
-        ],
-    ),
-    (
-        "? group H",
-        ["None", "None"],
-        [
-            "Some(H { l: [x, ..], b: 0 })",
-            "Some(k::fragment![crate::H { l: [x, ..], b: 0 }])",
-        ],
-    ),
-    (
-        "? group H",
-        ["None", "None"],
-        [
-            "Some(H { l: [x], b: 0 })",
-            "Some(k::fragment![crate::H { l: [x], b: 0 }])",
-        ],
-    ),
-    (
-        "* List of T",
-        [
-            "[me @ T { k: [y, ..], .. }, ..]",
-            "[me @ k::fragment![crate::T { k: [y, ..], .. }], ..]",
-        ],
-        [
-            "[T { k: [x], ..me }, ..]",
-            "[k::fragment![crate::T { k: [x], ..me }], ..]",
-        ],
-    ),
-    (
-        "* List of T",
-        [
-            "[me @ T { k: [y, ..], .. }, ..]",
-            "[me @ k::fragment![crate::T { k: [y, ..], .. }], ..]",
-        ],
-        [
-            "[T { k: [x, ..], ..me }, ..]",
-            "[k::fragment![crate::T { k: [x, ..], ..me }], ..]",
-        ],
-    ),
-    (
-        "* List of T",
-        [
-            "[me @ T { n: y, .. }, ..]",
-            "[me @ k::fragment![crate::T { n: y, .. }], ..]",
-        ],
-        [
-            "[T { n: 0, ..me }, ..]",
-            "[k::fragment![crate::T { n: 0, ..me }], ..]",
-        ],
-    ),
-    (
-        "* List of T",
-        ["[..]", "[..]"],
-        [
-            "[T { k: [x], n: 0 }, ..]",
-            "[k::fragment![crate::T { k: [x], n: 0 }], ..]",
-        ],
-    ),
-    (
-        "* List of T",
-        ["[..]", "[..]"],
-        [
-            "[T { k: [x, ..], n: 0 }, ..]",
-            "[k::fragment![crate::T { k: [x, ..], n: 0 }], ..]",
-        ],
-    ),
-    (
-        "* Map of A",
-        [
-            "{ me @ A { id: z, .. }, .. }",
-            "{ me @ k::fragment![crate::A { id: z, .. }], .. }",
-        ],
-        [
-            "{ A { id: 5, ..me }, .. }",
-            "{ k::fragment![crate::A { id: 5, ..me }], .. }",
-        ],
-    ),
-    (
-        "* Map of A",
-        [
-            "{ me @ A { id: z, .. }, .. }",
-            "{ me @ k::fragment![crate::A { id: z, .. }], .. }",
-        ],
-        [
-            "{ A { id: z, ..me }, .. }",
-            "{ k::fragment![crate::A { id: z, ..me }], .. }",
-        ],
-    ),
-    (
-        "* Map of A",
-        [
-            "{ me @ A { l: [y, ..], .. }, .. }",
-            "{ me @ k::fragment![crate::A { l: [y, ..], .. }], .. }",
-        ],
-        [
-            "{ A { id: 5, ..me }, .. }",
-            "{ k::fragment![crate::A { id: 5, ..me }], .. }",
-        ],
-    ),
-    (
-        "* Map of A",
-        [
-            "{ me @ A { id: z, .. }, .. }",
-            "{ me @ k::fragment![crate::A { id: z, .. }], .. }",
-        ],
-        [
-            "{ A { l: [x], ..me }, .. }",
-            "{ k::fragment![crate::A { l: [x], ..me }], .. }",
-        ],
-    ),
-    (
-        "* Map of A",
-        [
-            "{ me @ A { id: z, l: [y, ..] }, .. }",
-            "{ me @ k::fragment![crate::A { id: z, l: [y, ..] }], .. }",
-        ],
-        [
-            "{ A { l: [x], ..me }, .. }",
-            "{ k::fragment![crate::A { l: [x], ..me }], .. }",
-        ],
-    ),
-    (
-        "* Map of A",
-        [
-            "{ me @ A { id: z, l: [y, ..] }, .. }",
-            "{ me @ k::fragment![crate::A { id: z, l: [y, ..] }], .. }",
-        ],
-        [
-            "{ A { l: [x, ..], ..me }, .. }",
-            "{ k::fragment![crate::A { l: [x, ..], ..me }], .. }",
-        ],
-    ),
-    (
-        "* Map of A",
-        ["{ .. }", "{ .. }"],
-        [
-            "{ A { id: 5, l: [x] }, .. }",
-            "{ k::fragment![crate::A { id: 5, l: [x] }], .. }",
-        ],
-    ),
-    (
-        "* Map of A",
-        [
-            "{ me @ A { id: z, .. }, .. }",
-            "{ me @ k::fragment![crate::A { id: z, .. }], .. }",
-        ],
-        [
-            "{ A { id: y, ..me }, .. }",
-            "{ k::fragment![crate::A { id: y, ..me }], .. }",
-        ],
-    ),
-    (
-        "* Map of A",
-        ["{ .. }", "{ .. }"],
-        [
-            "{ A { l: [x], .. }, .. }",
-            "{ k::fragment![crate::A { l: [x], .. }], .. }",
-        ],
-    ),
-    (
-        "* Map of A",
-        ["{ .. }", "{ .. }"],
-        [
-            "{ A { id: 5, .. }, .. }",
-            "{ k::fragment![crate::A { id: 5, .. }], .. }",
-        ],
-    ),
-    (
-        "* List of T",
-        ["[..]", "[..]"],
-        [
-            "[T { n: 0, .. }, ..]",
-            "[k::fragment![crate::T { n: 0, .. }], ..]",
-        ],
-    ),
-    // R1 (S5.0g review): an overwritten group's children are unmatched, not created (Q1): its
-    // computation child (Q3), its `?` child (P5) and its group child (P6) each pair as an
-    // overwrite.
-    (
-        "group C",
-        ["-", "-"],
-        [
-            "C { c: [x], n: 0 }",
-            "k::fragment![crate::C { c: [x], n: 0 }]",
-        ],
-    ),
-    (
-        "group O",
-        ["-", "-"],
-        [
-            "O { o: Some(1), n: 0 }",
-            "k::fragment![crate::O { o: Some(1), n: 0 }]",
-        ],
-    ),
-    (
-        "group O",
-        ["-", "-"],
-        [
-            "O { o: None, n: 0 }",
-            "k::fragment![crate::O { o: None, n: 0 }]",
-        ],
-    ),
-    (
-        "group W",
-        ["-", "-"],
-        [
-            "W { g: G { a: x, .. }, n: 0 }",
-            "k::fragment![crate::W { g: G { a: x, .. }, n: 0 }]",
-        ],
-    ),
-    (
-        "group W",
-        ["-", "-"],
-        [
-            "W { g: G { a: x, b: y }, n: 0 }",
-            "k::fragment![crate::W { g: G { a: x, b: y }, n: 0 }]",
-        ],
-    ),
-    // A bare `..` that names every child leaves no field open: the exact record (P6, P0).
-    (
-        "group W",
-        ["-", "-"],
-        [
-            "W { g: G { a: x, b: y, .. }, n: 0 }",
-            "k::fragment![crate::W { g: G { a: x, b: y, .. }, n: 0 }]",
-        ],
-    ),
-    // P-R3 (S5.0g pattern review): an update whose label no subject instance has, of a value
-    // the sentence matches elsewhere (`me` is bound), creates an instance.
-    (
-        "* List of T",
-        ["[..]", "[..]"],
-        [
-            "[T { k: [x, ..], ..me }, ..]",
-            "[k::fragment![crate::T { k: [x, ..], ..me }], ..]",
-        ],
-    ),
-    (
-        "* List of T",
-        ["[..]", "[..]"],
-        [
-            "[T { k: [x], ..me }, ..]",
-            "[k::fragment![crate::T { k: [x], ..me }], ..]",
-        ],
-    ),
-    (
-        "* Map of A",
-        ["{ .. }", "{ .. }"],
-        [
-            "{ A { l: [x, ..], ..me }, .. }",
-            "{ k::fragment![crate::A { l: [x, ..], ..me }], .. }",
-        ],
-    ),
-    // R9 (P0): an update writing the key as the same literal its subject matched keeps it.
-    (
-        "* Map of A",
-        [
-            "{ me @ A { id: 5, .. }, .. }",
-            "{ me @ k::fragment![crate::A { id: 5, .. }], .. }",
-        ],
-        [
-            "{ A { id: 5, ..me }, .. }",
-            "{ k::fragment![crate::A { id: 5, ..me }], .. }",
-        ],
-    ),
-    (
-        "* Map of A",
-        [
-            "{ me @ A { id: 5, .. }, .. }",
-            "{ me @ k::fragment![crate::A { id: 5, .. }], .. }",
-        ],
-        [
-            "{ A { id: 6, ..me }, .. }",
-            "{ k::fragment![crate::A { id: 6, ..me }], .. }",
-        ],
-    ),
-    // G2 (S5.0g pattern review): a `?` cell whose subject is `None`, which the result creates at
-    // the entry's root (P5, P6).
-    (
-        "? group G",
-        ["None", "None"],
-        [
-            "Some(G { a: x, .. })",
-            "Some(k::fragment![crate::G { a: x, .. }])",
-        ],
-    ),
-    (
-        "? leaf List",
-        ["None", "None"],
-        ["Some([x, ..])", "Some(k::configuration::Cell([x, ..]))"],
-    ),
-    (
-        "? group G",
-        ["None", "None"],
-        ["Some(G { a: x })", "Some(k::fragment![crate::G { a: x }])"],
-    ),
-];
-
-/// The children sweep's updates whose label the sentence matches nowhere (S5.0g pattern review
-/// P-R3): the subject shows no instance labelled `me`, and nothing else binds it.
-const CHILDREN_UNBASED_SWEEP: [(&str, [&str; 2], [&str; 2]); 3] = [
-    (
-        "* List of T",
-        ["[..]", "[..]"],
-        [
-            "[T { k: [x], ..me }, ..]",
-            "[k::fragment![crate::T { k: [x], ..me }], ..]",
-        ],
-    ),
-    (
-        "* List of T",
-        ["[..]", "[..]"],
-        [
-            "[T { k: [x, ..], ..me }, ..]",
-            "[k::fragment![crate::T { k: [x, ..], ..me }], ..]",
-        ],
-    ),
-    (
-        "* Map of A",
-        ["{ .. }", "{ .. }"],
-        [
-            "{ A { l: [x, ..], ..me }, .. }",
-            "{ k::fragment![crate::A { l: [x, ..], ..me }], .. }",
-        ],
-    ),
-];
-
-/// The fragment-child sweep's rows (the S5.0g fixes review's F-1, ruled): a group record whose
-/// child holds a Map, a List or a computation, in a subject and in a result, the child framed or
-/// exact, and in a result over a subject child framed, exact or not named. Each is a side, a
-/// stack, the subject's entry of the cell (`-`: none; a subject's own row has none) and the
-/// entry, each written in readable (claim alike) and in `cells!`, whose fragment writes the
-/// child's content bare (P1: the field's value is the child's entry, its content root, P6).
-const FRAGMENT_CHILD_SWEEP: [(&str, &str, [&str; 2], [&str; 2]); 21] = [
-    (
-        "subject",
-        "group M",
-        ["-", "-"],
-        [
-            "M { m: { y -> x, .. }, .. }",
-            "k::fragment![crate::M { m: k::map![y -> x, ..], .. }]",
-        ],
-    ),
-    (
-        "subject",
-        "group M",
-        ["-", "-"],
-        [
-            "M { m: { y -> x }, .. }",
-            "k::fragment![crate::M { m: k::map![y -> x], .. }]",
-        ],
-    ),
-    (
-        "result",
-        "group M",
-        [
-            "M { m: { z -> y, .. }, .. }",
-            "k::fragment![crate::M { m: k::map![z -> y, ..], .. }]",
-        ],
-        [
-            "M { m: { y -> x, .. }, n: 0 }",
-            "k::fragment![crate::M { m: k::map![y -> x, ..], n: 0 }]",
-        ],
-    ),
-    (
-        "result",
-        "group M",
-        [
-            "M { m: { z -> y }, .. }",
-            "k::fragment![crate::M { m: k::map![z -> y], .. }]",
-        ],
-        [
-            "M { m: { y -> x, .. }, n: 0 }",
-            "k::fragment![crate::M { m: k::map![y -> x, ..], n: 0 }]",
-        ],
-    ),
-    (
-        "result",
-        "group M",
-        [
-            "M { m: { z -> y, .. }, .. }",
-            "k::fragment![crate::M { m: k::map![z -> y, ..], .. }]",
-        ],
-        [
-            "M { m: { y -> x }, n: 0 }",
-            "k::fragment![crate::M { m: k::map![y -> x], n: 0 }]",
-        ],
-    ),
-    (
-        "result",
-        "group M",
-        [
-            "M { m: { z -> y }, .. }",
-            "k::fragment![crate::M { m: k::map![z -> y], .. }]",
-        ],
-        [
-            "M { m: { y -> x }, n: 0 }",
-            "k::fragment![crate::M { m: k::map![y -> x], n: 0 }]",
-        ],
-    ),
-    (
-        "result",
-        "group M",
-        ["M { n: z, .. }", "k::fragment![crate::M { n: z, .. }]"],
-        [
-            "M { m: { y -> x, .. }, n: 0 }",
-            "k::fragment![crate::M { m: k::map![y -> x, ..], n: 0 }]",
-        ],
-    ),
-    (
-        "subject",
-        "group H",
-        ["-", "-"],
-        [
-            "H { l: [y, ..], .. }",
-            "k::fragment![crate::H { l: [y, ..], .. }]",
-        ],
-    ),
-    (
-        "subject",
-        "group H",
-        ["-", "-"],
-        ["H { l: [y], .. }", "k::fragment![crate::H { l: [y], .. }]"],
-    ),
-    (
-        "result",
-        "group H",
-        [
-            "H { l: [z, ..], .. }",
-            "k::fragment![crate::H { l: [z, ..], .. }]",
-        ],
-        [
-            "H { l: [x, ..], b: 0 }",
-            "k::fragment![crate::H { l: [x, ..], b: 0 }]",
-        ],
-    ),
-    (
-        "result",
-        "group H",
-        ["H { l: [z], .. }", "k::fragment![crate::H { l: [z], .. }]"],
-        [
-            "H { l: [x, ..], b: 0 }",
-            "k::fragment![crate::H { l: [x, ..], b: 0 }]",
-        ],
-    ),
-    (
-        "result",
-        "group H",
-        [
-            "H { l: [z, ..], .. }",
-            "k::fragment![crate::H { l: [z, ..], .. }]",
-        ],
-        [
-            "H { l: [x], b: 0 }",
-            "k::fragment![crate::H { l: [x], b: 0 }]",
-        ],
-    ),
-    (
-        "result",
-        "group H",
-        ["H { l: [z], .. }", "k::fragment![crate::H { l: [z], .. }]"],
-        [
-            "H { l: [x], b: 0 }",
-            "k::fragment![crate::H { l: [x], b: 0 }]",
-        ],
-    ),
-    (
-        "result",
-        "group H",
-        ["H { b: z, .. }", "k::fragment![crate::H { b: z, .. }]"],
-        [
-            "H { l: [x, ..], b: 0 }",
-            "k::fragment![crate::H { l: [x, ..], b: 0 }]",
-        ],
-    ),
-    (
-        "subject",
-        "group C",
-        ["-", "-"],
-        [
-            "C { c: [y, ..], .. }",
-            "k::fragment![crate::C { c: [y, ..], .. }]",
-        ],
-    ),
-    (
-        "subject",
-        "group C",
-        ["-", "-"],
-        ["C { c: [y], .. }", "k::fragment![crate::C { c: [y], .. }]"],
-    ),
-    (
-        "result",
-        "group C",
-        [
-            "C { c: [z, ..], .. }",
-            "k::fragment![crate::C { c: [z, ..], .. }]",
-        ],
-        [
-            "C { c: [x, ..], n: 0 }",
-            "k::fragment![crate::C { c: [x, ..], n: 0 }]",
-        ],
-    ),
-    (
-        "result",
-        "group C",
-        ["C { c: [z], .. }", "k::fragment![crate::C { c: [z], .. }]"],
-        [
-            "C { c: [x, ..], n: 0 }",
-            "k::fragment![crate::C { c: [x, ..], n: 0 }]",
-        ],
-    ),
-    (
-        "result",
-        "group C",
-        [
-            "C { c: [z, ..], .. }",
-            "k::fragment![crate::C { c: [z, ..], .. }]",
-        ],
-        [
-            "C { c: [x], n: 0 }",
-            "k::fragment![crate::C { c: [x], n: 0 }]",
-        ],
-    ),
-    (
-        "result",
-        "group C",
-        ["C { c: [z], .. }", "k::fragment![crate::C { c: [z], .. }]"],
-        [
-            "C { c: [x], n: 0 }",
-            "k::fragment![crate::C { c: [x], n: 0 }]",
-        ],
-    ),
-    (
-        "result",
-        "group C",
-        ["C { n: z, .. }", "k::fragment![crate::C { n: z, .. }]"],
-        [
-            "C { c: [x, ..], n: 0 }",
-            "k::fragment![crate::C { c: [x, ..], n: 0 }]",
-        ],
-    ),
-];
 
 /// The fragment-child sweep (the S5.0g fixes review's F-1): a group record's Map, List or
 /// computation child at its own content root, in readable, claim and `cells!`, so that a
@@ -5010,61 +4209,6 @@ fn children_rows(out: &mut String, rows: &[(&str, [&str; 2], [&str; 2])], bound:
         }
     }
 }
-
-/// D-5's stacks: a Map collection of `Q { id: Int, js: * List of J { p: Int } }`, and a plain
-/// group `P { js: * List of J }`, each with a collection child.
-fn nested_collection_stack(name: &str) -> Vec<Layer> {
-    let int = Layer::Leaf(Notation::Plain);
-    let js = vec![
-        Layer::Instances(Order::List),
-        sweep_group("J", &[("p", int.clone())]),
-    ];
-    let group = |head: &str, mut children: Vec<(String, Vec<Layer>)>| {
-        children.push(("js".to_owned(), js.clone()));
-        Layer::Group(Group {
-            name: head.to_owned(),
-            children,
-        })
-    };
-    match name {
-        "* Map of Q" => vec![
-            Layer::Instances(Order::Map),
-            group("Q", vec![("id".to_owned(), vec![int.clone()])]),
-        ],
-        "group P" => vec![group("P", Vec::new())],
-        // G7: a template with a `?` child, and a Map collection's template.
-        "group O" => vec![Layer::Group(Group {
-            name: "O".to_owned(),
-            children: vec![
-                ("o".to_owned(), vec![Layer::Optional, int.clone()]),
-                ("n".to_owned(), vec![int]),
-            ],
-        })],
-        "* Map of A" => vec![
-            Layer::Instances(Order::Map),
-            sweep_group("A", &[("id", int), ("l", Layer::Leaf(Notation::List))]),
-        ],
-        other => panic!("no nested-collection stack {other}"),
-    }
-}
-
-/// The initializer rows of the children sweep (D-5, P5): a template record whose child is a
-/// collection, valued by that collection's own instance template, or otherwise.
-const INITIALIZER_CHILDREN_SWEEP: [(&str, &str); 11] = [
-    ("* Map of Q", "Q { id: 0, js: J { p: 0 } }"),
-    ("* Map of Q", "Q { id: 0, js: [J { p: 0 }] }"),
-    ("* Map of Q", "Q { id: 0, js: 0 }"),
-    ("group P", "P { js: J { p: 0 } }"),
-    ("group P", "P { js: Some(J { p: 0 }) }"),
-    ("group P", "P { js: 0 }"),
-    // G7 (S5.0g pattern review): `k::absent!` in a template's `?` child, and a Map collection's
-    // template, which names its key or omits it.
-    ("group O", "O { o: k::absent!(0), n: 0 }"),
-    ("group O", "O { o: Some(0), n: 0 }"),
-    ("group O", "O { o: 0, n: 0 }"),
-    ("* Map of A", "A { id: 0, l: [0] }"),
-    ("* Map of A", "A { l: [0] }"),
-];
 
 fn initializer_children_sweep(out: &mut String) {
     out.push_str(concat!(
@@ -6147,322 +5291,256 @@ fn every_principle_line_cites_the_registry() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
-/// Where the compiled witnesses of the patterns are accounted for (measure (a)).
+/// Where the root sweep cells no compiled case witnesses are accounted for (measure (a)).
 const WITNESSES_FILE: &str = "cells-outcome-witnesses.tsv";
-
-/// A generated case's row group as the sweep names it: its form, its side (a subject the result
-/// leaves or writes, a result over a matched or an unmatched cell), its stack.
-fn sweep_row_of(case: &Case, entry: &EntryCase) -> (&'static str, &'static str, String) {
-    let side = match entry.entry.side {
-        Side::Subject if entry.context.written => "subject, written",
-        Side::Subject => "subject",
-        Side::Result if entry.context.other.is_some() => "result, matched",
-        Side::Result => "result, unmatched",
-        _ => "init",
-    };
-    let declared = entry_cases::declared_stack(case, &entry.entry.cell);
-    let stack = match stack_name(&entry.entry.cell, &declared).as_str() {
-        "second computation" => "computation".to_owned(),
-        "group" => "group G".to_owned(),
-        "? group" => "? group G".to_owned(),
-        list if list.starts_with("* ") => format!("{list} of G"),
-        other => other.to_owned(),
-    };
-    (form_name(entry.form), side, stack)
-}
-
-/// The unwitnessed answers of the patterns: for each pattern, each member's forms, side and
-/// stack, and each distinct answer of its rows (the oracle's, its product mark dropped), the
-/// ones no generated case on that form, side and stack answers. A generated case is compiled
-/// by its `krs-class` shard, so a witness carries the compiler's own verdict on the answer, as
-/// a conforming case or a red.
-fn unwitnessed() -> BTreeSet<(String, String, String, String)> {
-    let mut witnessed = BTreeSet::new();
-    for (case, entry) in ENTRIES.iter() {
-        let (form, side, stack) = sweep_row_of(case, entry);
-        witnessed.insert((
-            form.to_owned(),
-            side.to_owned(),
-            stack,
-            sweep_name(entry.outcome()),
-        ));
-    }
-    let sweep = outcome_sweep();
-    let tables = sweep_tables(&sweep);
-    let mut missing = BTreeSet::new();
-    for table in &tables {
-        let main = !table.name.starts_with("children");
-        let form = table.name.split(' ').next().unwrap_or(table.name);
-        let stack_at = table
-            .header
-            .iter()
-            .position(|cell| *cell == "stack")
-            .expect("a stack column");
-        let side_at = table.header.iter().position(|cell| *cell == "side");
-        for row in &table.rows {
-            let (side, stack, answers) = if main {
-                (row[0], row[2], &row[4..])
-            } else {
-                (
-                    side_at.map_or("result", |at| row[at]),
-                    row[stack_at],
-                    &row[row.len() - 1..],
-                )
-            };
-            let form = if main { form } else { row[0] };
-            for answer in answers {
-                let answer = answer.split('|').next().unwrap_or(answer);
-                let seen = witnessed.contains(&(
-                    form.to_owned(),
-                    side.to_owned(),
-                    stack.to_owned(),
-                    answer.to_owned(),
-                ));
-                if !seen {
-                    missing.insert((
-                        table.name.to_owned(),
-                        side.to_owned(),
-                        stack.to_owned(),
-                        answer.to_owned(),
-                    ));
-                }
-            }
-        }
-    }
-    missing
-}
-
-/// Measure (a) of the S5.0g pattern review fixes, in its fallback form: the compiler's own
-/// verdict cannot be had on every sweep tuple in process (the compile path reaches cell-entry
-/// lowering only after rustc builds the case's package and the collector runs it), so every
-/// pattern's answer on every stack it names is required to be some generated, compiled case's
-/// answer on that form, side and stack, or to be listed in [`WITNESSES_FILE`] with the reason
-/// it has none. A new unwitnessed answer fails until listed with a reason; a listed one that is
-/// witnessed or gone fails as stale. `KRS_CELLS_WITNESSES_RECORD=1` rewrites the file, keeping
-/// the reason of every entry still unwitnessed.
-#[test]
-fn every_pattern_answer_on_every_stack_is_witnessed_by_a_compiled_case() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/class-matrix")
-        .join(WITNESSES_FILE);
-    let golden = std::fs::read_to_string(&path).unwrap_or_default();
-    let mut reasons = BTreeMap::new();
-    for line in golden.lines().filter(|line| !line.starts_with('#')) {
-        let cells = line.splitn(5, '\t').collect::<Vec<_>>();
-        if let [table, side, stack, answer, reason] = cells[..] {
-            reasons.insert(
-                (
-                    table.to_owned(),
-                    side.to_owned(),
-                    stack.to_owned(),
-                    answer.to_owned(),
-                ),
-                reason.to_owned(),
-            );
-        }
-    }
-    let missing = unwitnessed();
-    if std::env::var_os("KRS_CELLS_WITNESSES_RECORD").is_some() {
-        let mut text = String::from(concat!(
-            "# The patterns' answers no generated case witnesses (measure (a) of the S5.0g pattern\n",
-            "# review fixes, its fallback form): `TABLE  SIDE  STACK  ANSWER  REASON`, one line per\n",
-            "# sweep table, row side, stack and distinct answer that no generated, compiled case on that\n",
-            "# form, side and stack answers. Generated by krs-test-support `--test cells_oracle`\n",
-            "# (`every_pattern_answer_on_every_stack_is_witnessed_by_a_compiled_case`); rewrite with\n",
-            "# KRS_CELLS_WITNESSES_RECORD=1, which keeps each listed reason and leaves a new entry's\n",
-            "# empty: the test fails until it is written. Each entry is a case item 3 owes, or says why\n",
-            "# none can be generated.\n",
-        ));
-        for key in &missing {
-            let reason = reasons.get(key).map_or("", String::as_str);
-            let _ = writeln!(text, "{}\t{}\t{}\t{}\t{reason}", key.0, key.1, key.2, key.3);
-        }
-        std::fs::write(&path, text).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
-        return;
-    }
-    let mut failures = Vec::new();
-    for key in &missing {
-        match reasons.get(key) {
-            None => failures.push(format!(
-                "{key:?}: no generated case witnesses this answer and {WITNESSES_FILE} lists no reason"
-            )),
-            Some(reason) if reason.trim().is_empty() => {
-                failures.push(format!("{key:?}: listed without a reason"));
-            }
-            Some(_) => {}
-        }
-    }
-    for key in reasons.keys().filter(|key| !missing.contains(*key)) {
-        failures.push(format!(
-            "{key:?}: listed in {WITNESSES_FILE}, and a generated case witnesses it or the sweep \
-             no longer answers it: remove it"
-        ));
-    }
-    println!("{} unwitnessed answers listed", missing.len());
-    assert!(
-        failures.is_empty(),
-        "{} failures: {:#?}",
-        failures.len(),
-        failures.iter().take(40).collect::<Vec<_>>()
-    );
-}
 
 /// The cases a pending entry names, by any test's key ([`pending::case_of`]): each is red on
 /// some test, so its compiled verdict is not the one its row states.
-fn pending_cases() -> BTreeSet<String> {
+fn pending_cases() -> BTreeMap<String, BTreeSet<String>> {
     let pending = Pending::parse(&read_class_matrix("pending.toml"))
         .unwrap_or_else(|errors| panic!("pending.toml: {errors:#?}"));
-    pending
-        .entries
-        .keys()
-        .filter_map(|key| pending::case_of(key))
-        .map(str::to_owned)
-        .collect()
+    let mut cases = BTreeMap::<String, BTreeSet<String>>::new();
+    for (key, entry) in &pending.entries {
+        if let Some(case) = pending::case_of(key) {
+            cases
+                .entry(case.to_owned())
+                .or_default()
+                .insert(entry.finding.clone());
+        }
+    }
+    cases
 }
 
-/// The witnesses of measure (a): every generated case named at its record's level (path `-`)
-/// whose row agrees with `outcome`, which no `[cell-exception]` names and no pending entry names
-/// (itself or its run twin), as `(form, side, stack, spelling)`. Such a case is compiled by its
-/// `krs-class` shard and conforms there, so the compiler's verdict on its spelling is the one
-/// `outcome` gives; an excepted or red case's verdict is another, and witnesses nothing. The
-/// spelling is kept as its data's printed form, which tells spellings apart as the data does.
-fn witnesses() -> BTreeSet<(String, String, String, String)> {
-    let exceptions = exceptions();
-    let pending = pending_cases();
-    let red =
-        |id: &str| pending.contains(id) || twin(id).is_some_and(|twin| pending.contains(&twin));
-    ENTRIES
-        .iter()
-        .filter(|(case, entry)| {
-            entry.entry.path.is_empty()
-                && agrees(entry.outcome(), &EXPECTED[&case.id])
-                && naming(&case.id, &exceptions).is_empty()
-                && !red(&case.id)
-        })
-        .map(|(case, entry)| {
-            let (form, side, stack) = sweep_row_of(case, entry);
-            (
-                form.to_owned(),
-                side.to_owned(),
-                stack,
-                format!("{:?}", entry.entry.spelling),
-            )
-        })
-        .collect()
-}
-
-/// A sweep cell measure (a) keys a witness by: `(table, side, stack, column)`.
-type WitnessKey = (String, String, String, String);
-
-/// The sweep cells measure (a) requires a witness of, keyed without their answer: `(table,
-/// side, stack, column)`, one per main table's row at path `-` and column (the column is the
-/// entry's spelling), and one per children row (its side is the result over the row's `other`,
-/// its column the result), each with the form its entry is written in and its spelling as the
-/// generator declares one. A path row (`?`, `*`) needs no witness of its own: S5.0g:R3 judges it
-/// from the cell's own answer, its `-` row's, and check 4's path step judges the advice there.
-fn witness_cells() -> Vec<(WitnessKey, Form, Spelling)> {
-    let sweep = outcome_sweep();
-    let mut cells = Vec::new();
-    let declared = |form: Form, text: &str| {
-        let probe = Probe {
-            form,
-            side: Side::Subject,
-            path: &[],
-            stack: &[],
-            text,
-            other: None,
-            written: false,
-            bound: &[],
-        };
-        declared_as(&probe.read(text))
-    };
-    for table in sweep_tables(&sweep) {
+/// The sweep cells measure (a) requires a witness of, keyed `(table, side, stack, column)`, as
+/// the checked-in sweep prints them: one per main table's row at path `-` and column (the column
+/// is the entry's spelling), and one per children row (its side is its form and side, over the
+/// row's `other` where it has one; its column the entry). A path row (`?`, `*`) needs no witness
+/// of its own: S5.0g:R3 judges it from the cell's own answer, its `-` row's, and check 4's path
+/// step judges the advice there.
+fn printed_root_cells(sweep: &str) -> BTreeSet<sweep::Key> {
+    let mut cells = BTreeSet::new();
+    for table in sweep_tables(sweep) {
         if table.name.starts_with("children") {
             let at = |name: &str| table.header.iter().position(|cell| *cell == name);
             let (stack, other) = (at("stack").expect("a stack column"), at("other"));
             let entry = table.header.len() - 2;
             for row in &table.rows {
-                let form = match row[0] {
-                    "readable" => Form::Readable,
-                    "claim" => Form::Claim,
-                    "cells" => Form::Cells,
-                    _ => Form::Init,
-                };
                 let written = at("side").map_or("result", |side| row[side]);
                 let side = match other.map(|other| row[other]) {
-                    _ if form == Form::Init => "init".to_owned(),
+                    _ if row[0] == "init" => "init".to_owned(),
                     Some("-") | None => format!("{} {written}", row[0]),
                     Some(other) => format!("{} {written} over {other}", row[0]),
                 };
-                let key = (
+                cells.insert((
                     table.name.to_owned(),
                     side,
                     row[stack].to_owned(),
                     row[entry].to_owned(),
-                );
-                cells.push((key, form, declared(form, row[entry])));
+                ));
             }
             continue;
         }
-        let form = match table.name.split(' ').next() {
-            Some("readable") => Form::Readable,
-            Some("claim") => Form::Claim,
-            Some("cells") => Form::Cells,
-            _ => Form::Init,
-        };
         for row in table.rows.iter().filter(|row| row[1] == "-") {
             for column in &table.header[4..] {
-                let key = (
+                cells.insert((
                     table.name.to_owned(),
                     row[0].to_owned(),
                     row[2].to_owned(),
                     (*column).to_owned(),
-                );
-                cells.push((key, form, declared(form, column)));
+                ));
             }
         }
     }
     cells
 }
 
-/// The sweep cells no conforming, unexcepted generated case witnesses ([`witnesses`]).
-fn unwitnessed_cells() -> BTreeSet<WitnessKey> {
-    let witnesses = witnesses();
-    witness_cells()
-        .into_iter()
-        .filter(|((_, side, stack, _), form, spelling)| {
-            !witnesses.contains(&(
-                form_name(*form).to_owned(),
-                side.clone(),
-                stack.clone(),
-                format!("{spelling:?}"),
-            ))
-        })
-        .map(|(key, ..)| key)
-        .collect()
+/// The sweep's answer at a root cell, as the sweep's probe gives it.
+fn sweep_answer(cell: &sweep::Cell) -> Outcome {
+    let stack = sweep::named_stack(cell.stack);
+    Probe {
+        form: cell.form,
+        side: cell.side,
+        path: &[],
+        stack: &stack,
+        text: cell.text,
+        other: cell.other.as_deref(),
+        written: cell.written,
+        bound: cell.bound,
+    }
+    .oracle()
 }
 
-/// The sweep cells measure (a) keyed by (form, side, stack, column) at path `-` (the S5.0g
-/// fixes review's F-2, ruled) leaves unwitnessed, counted by table: the size of the witness
-/// list that key would check in, measured before the list is written (it is not yet: the
-/// count is over the ruling's bound, so the orchestrator decides its form first).
-#[test]
-#[ignore = "prints measure (a)'s unwitnessed count; run on request"]
-fn the_unwitnessed_sweep_cells_count() {
-    let all = witness_cells();
-    let missing = unwitnessed_cells();
-    let mut by_table = BTreeMap::<&str, (usize, usize)>::new();
-    for (key, ..) in &all {
-        let entry = by_table.entry(key.0.as_str()).or_default();
-        entry.0 += 1;
-        if missing.contains(key) {
-            entry.1 += 1;
+/// Whether a case witnesses a root cell whose sweep answer is `answer`: its row agrees with
+/// `outcome`, and so its compiled verdict, which conforms (no pending entry names it), is
+/// `outcome`'s; it means the cell (its `outcome` is the cell's answer); and no
+/// `[cell-exception]` names it (an excepted row departs from `outcome`, so its verdict witnesses
+/// the departure, not `outcome`).
+fn witnesses_cell(
+    id: &str,
+    entry: &EntryCase,
+    answer: Outcome,
+    exceptions: &[(Glob, String, String)],
+    red: &BTreeMap<String, BTreeSet<String>>,
+) -> bool {
+    agrees(entry.outcome(), &EXPECTED[id])
+        && entry.outcome() == answer
+        && naming(id, exceptions).is_empty()
+        && !red.contains_key(id)
+}
+
+/// Each root sweep cell no compiled case witnesses, with the reason, from the cases themselves:
+/// `red: FINDINGS (ID)` where the cell's case is red (the compiler departs from `outcome` there,
+/// under those findings), `excepted: PRINCIPLE (ID)` where an exception holds its row at the
+/// product's answer, or the generator's `unbuilt:` reason where no case can be compiled; and
+/// `no witness (IDS)` where a case exists and witnesses nothing for another reason (its row or
+/// its answer disagrees), which is no reason and fails.
+fn unwitnessed_cells() -> BTreeMap<sweep::Key, String> {
+    let exceptions = exceptions();
+    let red = pending_cases();
+    let unbuilt = sweep::unbuilt();
+    let mut by_key = BTreeMap::<sweep::Key, Vec<&(&Case, EntryCase)>>::new();
+    let mut by_row = BTreeMap::<(String, String, String, String), Vec<&(&Case, EntryCase)>>::new();
+    for generated in ENTRIES.iter() {
+        let (case, entry) = generated;
+        if let Some(key) = sweep::key_of(&case.id) {
+            by_key.entry(key.clone()).or_default().push(generated);
+        } else if entry.entry.path.is_empty() {
+            let stack = entry_cases::declared_stack(case, &entry.entry.cell);
+            by_row
+                .entry(sweep::row_key(&stack, entry))
+                .or_default()
+                .push(generated);
         }
     }
-    for (table, (cells, unwitnessed)) in &by_table {
-        println!("{table}\t{cells} cells\t{unwitnessed} unwitnessed");
+    let mut out = BTreeMap::new();
+    for cell in sweep::cells() {
+        let answer = sweep_answer(&cell);
+        let mut candidates = by_key.get(&cell.key).cloned().unwrap_or_default();
+        candidates.extend(
+            by_row
+                .get(&sweep::main_key(&cell))
+                .into_iter()
+                .flatten()
+                .copied(),
+        );
+        if candidates
+            .iter()
+            .any(|(case, entry)| witnesses_cell(&case.id, entry, answer, &exceptions, &red))
+        {
+            continue;
+        }
+        let reason = if let Some(reason) = unbuilt.get(&cell.key) {
+            (*reason).to_owned()
+        } else if let Some((case, _)) = candidates
+            .iter()
+            .find(|(case, _)| red.contains_key(&case.id))
+        {
+            let findings = red[&case.id].iter().cloned().collect::<Vec<_>>();
+            format!("red: {} ({})", findings.join(", "), case.id)
+        } else if let Some((case, _)) = candidates
+            .iter()
+            .find(|(case, _)| !naming(&case.id, &exceptions).is_empty())
+        {
+            let principle = exceptions
+                .iter()
+                .find(|(glob, ..)| glob.matches(&case.id))
+                .map_or("", |(_, _, principle)| principle.as_str());
+            format!("excepted: {principle} ({})", case.id)
+        } else {
+            let ids = candidates
+                .iter()
+                .map(|(case, _)| case.id.as_str())
+                .collect::<Vec<_>>();
+            format!("no witness ({})", ids.join(", "))
+        };
+        out.insert(cell.key, reason);
     }
-    println!("total\t{} cells\t{} unwitnessed", all.len(), missing.len());
+    out
+}
+
+/// Measure (a) in the key of the S5.0g fixes review's ruling 2 (F-2): every root sweep cell
+/// (form, side, stack, column at path `-`) is witnessed by a compiled case, the sweep's own
+/// ([`sweep`], shard `sweep`) or another family's case of the same form, side, stack, spelling
+/// and subject entry, whose row agrees with `outcome` there, with no `[cell-exception]` or
+/// pending entry naming it ([`witnesses_cell`]). Otherwise [`WITNESSES_FILE`] lists the cell with
+/// its reason, which the cases give ([`unwitnessed_cells`]): the file must equal it, so a new
+/// unwitnessed cell, a stale entry and a changed reason each fail, and a cell with no reason
+/// (`no witness`) fails whatever the file says. `KRS_CELLS_WITNESSES_RECORD=1` rewrites the file.
+/// The generator's cells are the checked-in sweep's root cells, one for one.
+///
+/// This test reads the table and `pending.toml`, never a compiled verdict: a case counts as a
+/// witness because its row says what the compiler must answer and no pending entry says it
+/// answers otherwise. It is sound together with a green full `sweep` shard
+/// (`scripts/krs-class.sh --shard sweep`), which compiles every case and fails on any verdict
+/// its row and pending entry do not state; neither alone shows that the compiler agrees with
+/// `outcome` (S5.0g item 3a fixes, F-7).
+///
+/// Path rows need no witness of their own: S5.0g:R3 and check 4's path step judge them from the
+/// root's answer.
+#[test]
+fn every_root_sweep_cell_is_witnessed_by_a_compiled_case() {
+    let printed = printed_root_cells(&outcome_sweep());
+    let generated = sweep::cells()
+        .into_iter()
+        .map(|cell| cell.key)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        printed.symmetric_difference(&generated).collect::<Vec<_>>(),
+        Vec::<&sweep::Key>::new(),
+        "the generator's root cells are not the sweep's"
+    );
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/class-matrix")
+        .join(WITNESSES_FILE);
+    let missing = unwitnessed_cells();
+    let mut text = String::from(concat!(
+        "# The root sweep cells no compiled case witnesses (measure (a), in the S5.0g fixes review's\n",
+        "# ruling 2 key): `TABLE  SIDE  STACK  COLUMN  REASON`, one line per sweep cell at path `-`\n",
+        "# whose case is red (the compiler departs from `outcome`, under the findings named), excepted\n",
+        "# (its row holds the product's answer, by the principle named), or cannot be compiled (the\n",
+        "# generator's reason). Generated by krs-test-support `--test cells_oracle`\n",
+        "# (`every_root_sweep_cell_is_witnessed_by_a_compiled_case`), which fails where the file\n",
+        "# differs from the cases; rewrite with KRS_CELLS_WITNESSES_RECORD=1 and review the diff.\n",
+    ));
+    for (key, reason) in &missing {
+        let _ = writeln!(text, "{}\t{}\t{}\t{}\t{reason}", key.0, key.1, key.2, key.3);
+    }
+    let mut counts = BTreeMap::<&str, usize>::new();
+    for reason in missing.values() {
+        *counts
+            .entry(reason.split(':').next().unwrap_or(reason))
+            .or_default() += 1;
+    }
+    println!(
+        "{} root cells, {} unwitnessed: {counts:?}",
+        generated.len(),
+        missing.len()
+    );
+    if std::env::var_os("KRS_CELLS_WITNESSES_RECORD").is_some() {
+        std::fs::write(&path, &text).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+    }
+    let failures = missing
+        .iter()
+        .filter(|(_, reason)| reason.starts_with("no witness"))
+        .map(|(key, reason)| format!("{key:?}: {reason}"))
+        .collect::<Vec<_>>();
+    assert!(
+        failures.is_empty(),
+        "{} root cells have a case that witnesses nothing: {:#?}",
+        failures.len(),
+        failures.iter().take(40).collect::<Vec<_>>()
+    );
+    let golden = std::fs::read_to_string(&path).unwrap_or_default();
+    if golden != text {
+        let lines = |text: &str| text.lines().map(str::to_owned).collect::<BTreeSet<_>>();
+        let (golden, text) = (lines(&golden), lines(&text));
+        panic!(
+            "{WITNESSES_FILE} differs from the cases (rewrite with KRS_CELLS_WITNESSES_RECORD=1): \
+             listed, not computed {:#?}; computed, not listed {:#?}",
+            golden.difference(&text).take(20).collect::<Vec<_>>(),
+            text.difference(&golden).take(20).collect::<Vec<_>>()
+        );
+    }
 }
 
 /// A stack the sweep names: one of its main stacks, a children stack, or an initializer
@@ -6651,17 +5729,15 @@ fn k_cells<'k>(k: &'k str, cell: &str) -> Vec<&'k str> {
     found
 }
 
-/// The rest variables of a K cell content: a variable of a collection's or a computation's sort
-/// (`V3:Map`) standing at the content's top level beside other content (a variable alone is the
-/// whole content, and one inside an application's parentheses is an argument, no rest).
-fn rest_variables(content: &str) -> BTreeSet<&str> {
+/// The tokens of a K text at its own top level, outside every parenthesis: `ListItem(V0:KItem)
+/// V1:List` is `ListItem`, `V1:List`; a cons list `V0:Int : V1:Ints` is `V0:Int`, `:`, `V1:Ints`.
+fn top_tokens(content: &str) -> Vec<&str> {
     let content = content.trim();
     let mut depth = 0_usize;
     let mut top = Vec::new();
     let mut start = None;
     for (at, c) in content.char_indices() {
-        let separator = c.is_whitespace() || matches!(c, '(' | ')' | ',');
-        if separator {
+        if c.is_whitespace() || matches!(c, '(' | ')' | ',') {
             if let Some(from) = start.take()
                 && depth == 0
             {
@@ -6681,40 +5757,348 @@ fn rest_variables(content: &str) -> BTreeSet<&str> {
     {
         top.push(&content[from..]);
     }
-    top.into_iter()
-        .filter(|token| {
-            token.strip_prefix('V').is_some_and(|tail| {
-                tail.split_once(':').is_some_and(|(number, sort)| {
-                    !number.is_empty()
-                        && number.bytes().all(|byte| byte.is_ascii_digit())
-                        && matches!(sort, "List" | "Map" | "Set" | "K")
-                })
-            }) && *token != content
+    top
+}
+
+/// Every token of a K text, inside parentheses too.
+fn all_tokens(k: &str) -> impl Iterator<Item = &str> {
+    k.split(|c: char| c.is_whitespace() || matches!(c, '(' | ')' | ','))
+        .filter(|token| !token.is_empty())
+}
+
+/// A K variable token's name: `V3` for `V3:Map` or `V3`.
+fn variable_name(token: &str) -> Option<&str> {
+    let name = token.split_once(':').map_or(token, |(name, _)| name);
+    let number = name.strip_prefix('V')?;
+    (!number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit())).then_some(name)
+}
+
+/// The variables of a K cell content that can stand for its rest: one of a collection's or a
+/// computation's sort (`V3:Map`) at the content's top level, or a cons list's tail (the last
+/// item, after a `:`).
+fn rest_candidates(content: &str) -> Vec<&str> {
+    let top = top_tokens(content);
+    let last = top.len().saturating_sub(1);
+    top.iter()
+        .enumerate()
+        .filter_map(|(at, token)| {
+            let name = variable_name(token)?;
+            match token.split_once(':').map(|(_, sort)| sort) {
+                Some("List" | "Map" | "Set" | "K") => Some(name),
+                _ if at == last && at > 0 && top[at - 1] == ":" => Some(name),
+                _ => None,
+            }
         })
         .collect()
 }
 
-/// P6 read off one K cell content for an entry's content root on `side`: whether the K keeps a
-/// frame (`...`, or a rest variable) exactly where the root keeps the rest. A subject's `..` or
-/// `name @ ..` matches the unwritten rest, so its side has a frame; an exact subject has none. A
-/// result's `..` keeps the subject's rest (`...`, or the subject's rest variable written again),
-/// `..name` puts a rest back, an exact result keeps none. An initializer's value is complete.
+/// How often a variable occurs in a K sentence.
+fn occurrences(sentence: &str, name: &str) -> usize {
+    all_tokens(sentence)
+        .filter(|token| variable_name(token) == Some(name))
+        .count()
+}
+
+/// Ruling 1 (b), as F-9 widens it: a rest variable of `subject` that stands at the same content
+/// root in `result`, in any position (P6 makes a result's `..` the subject's rest of the same
+/// cell, wherever the result puts it), and occurs nowhere else in `sentence` than at those
+/// `places` (1 when the cell is not rewritten, so both sides are one text; 2 otherwise). A
+/// variable that occurs again, a condition included, constrains the rest: it is a use, not a
+/// frame.
+fn kept_rest(subject: &str, result: &str, sentence: &str, places: usize) -> bool {
+    rest_candidates(subject).into_iter().any(|name| {
+        top_tokens(result)
+            .iter()
+            .any(|token| variable_name(token) == Some(name))
+            && occurrences(sentence, name) == places
+    })
+}
+
+/// Ruling 1 (c) by its meaning (P0): a subject's rest variable that occurs nowhere else in the
+/// sentence matches the rest unconstrained, exactly as `_` there does.
+fn unused_rest(subject: &str, sentence: &str) -> bool {
+    rest_candidates(subject)
+        .into_iter()
+        .any(|name| occurrences(sentence, name) == 1)
+}
+
+/// A K text split at its own ` => `, outside every cell and parenthesis it holds; `None` where it
+/// writes no rewrite of its own.
+fn split_rewrite(text: &str) -> Option<(&str, &str)> {
+    let (mut cells, mut parens) = (0_isize, 0_isize);
+    let bytes = text.as_bytes();
+    for (at, c) in text.char_indices() {
+        match c {
+            '(' => parens += 1,
+            ')' => parens -= 1,
+            '<' if text[at + 1..].starts_with('/') => cells -= 1,
+            '<' if text[at + 1..].starts_with(|c: char| c.is_ascii_alphabetic()) => cells += 1,
+            '=' if cells == 0
+                && parens == 0
+                && bytes.get(at + 1) == Some(&b'>')
+                && at > 0
+                && bytes[at - 1] == b' ' =>
+            {
+                return Some((text[..at].trim(), text[at + 2..].trim()));
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// A whole-cell rewrite of a K sentence (ruling 1 (d)), `(<c> L </c> => <c> R </c>)`: its span
+/// in the sentence, with both sides.
+struct CellRewrite<'k> {
+    span: std::ops::Range<usize>,
+    cell: &'k str,
+    subject: &'k str,
+    result: &'k str,
+}
+
+/// One side of a whole-cell rewrite.
+enum RewriteSide<'k> {
+    /// The cell itself, `<name> .. </name>`.
+    Cell(&'k str),
+    /// A whole cell written otherwise: `.Bag` (no cell, a `?` cell absent) or one variable or
+    /// `_` of its cell sort.
+    Whole,
+}
+
+/// The side of a whole-cell rewrite `text` is, if it is one.
+fn rewrite_side(text: &str) -> Option<RewriteSide<'_>> {
+    match text.strip_prefix('<') {
+        Some(tag) => {
+            let name = tag
+                .split(|c: char| c == '>' || c.is_whitespace())
+                .next()
+                .unwrap_or_default();
+            text.ends_with(&format!("</{name}>"))
+                .then_some(RewriteSide::Cell(name))
+        }
+        None => (!text.contains(char::is_whitespace)).then_some(RewriteSide::Whole),
+    }
+}
+
+/// Every whole-cell rewrite a K sentence writes.
+fn cell_rewrites(k: &str) -> Vec<CellRewrite<'_>> {
+    let mut found = Vec::new();
+    let mut at = 0;
+    while let Some(open) = k[at..].find('(').map(|open| open + at) {
+        let mut depth = 0_isize;
+        let mut close = None;
+        for (offset, c) in k[open..].char_indices() {
+            match c {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close = Some(open + offset);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let Some(close) = close else { break };
+        let inner = &k[open + 1..close];
+        let rewrite = split_rewrite(inner).and_then(|(subject, result)| {
+            match (rewrite_side(subject)?, rewrite_side(result)?) {
+                (RewriteSide::Cell(left), RewriteSide::Cell(right)) if left != right => None,
+                (RewriteSide::Cell(cell), _) | (_, RewriteSide::Cell(cell)) => {
+                    Some((cell, subject, result))
+                }
+                (RewriteSide::Whole, RewriteSide::Whole) => None,
+            }
+        });
+        if let Some((cell, subject, result)) = rewrite {
+            found.push(CellRewrite {
+                span: open..close + 1,
+                cell,
+                subject,
+                result,
+            });
+            at = close + 1;
+        } else {
+            at = open + 1;
+        }
+    }
+    found
+}
+
+/// The K sentence as one side reads it: every whole-cell rewrite replaced by its subject's cell
+/// or its result's (ruling 1 (d)).
+fn side_view(k: &str, result: bool) -> String {
+    let mut view = String::new();
+    let mut at = 0;
+    for rewrite in cell_rewrites(k) {
+        view.push_str(&k[at..rewrite.span.start]);
+        view.push_str(if result {
+            rewrite.result
+        } else {
+            rewrite.subject
+        });
+        at = rewrite.span.end;
+    }
+    view.push_str(&k[at..]);
+    view
+}
+
+/// The names of the cells directly inside a K cell's content, in order.
+fn child_cells(content: &str) -> Vec<&str> {
+    let mut children = Vec::new();
+    let mut depth = 0_usize;
+    let mut rest = content;
+    while let Some(at) = rest.find('<') {
+        let tag = &rest[at + 1..];
+        if let Some(name) = tag.strip_prefix('/') {
+            depth = depth.saturating_sub(1);
+            rest = &name[name.find('>').map_or(name.len(), |end| end + 1)..];
+            continue;
+        }
+        if !tag.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            rest = tag;
+            continue;
+        }
+        let end = tag.find(['>', ' ']).unwrap_or(tag.len());
+        if depth == 0 {
+            children.push(&tag[..end]);
+        }
+        depth += 1;
+        rest = &tag[end..];
+    }
+    children
+}
+
+/// The results of every rewrite a K sentence writes: each whole-cell rewrite's result and each
+/// cell content's own ` => `'s right side.
+fn rewrite_results(k: &str) -> Vec<String> {
+    let mut results: Vec<String> = cell_rewrites(k)
+        .iter()
+        .map(|rewrite| rewrite.result.to_owned())
+        .collect();
+    let mut at = 0;
+    while let Some(open) = k[at..].find('<').map(|open| open + at) {
+        at = open + 1;
+        let tag = &k[open + 1..];
+        if !tag.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            continue;
+        }
+        let name = &tag[..tag.find(['>', ' ']).unwrap_or(tag.len())];
+        for content in k_cells(&k[open..], name).into_iter().take(1) {
+            if let Some((_, result)) = split_rewrite(content) {
+                results.push(result.to_owned());
+            }
+        }
+    }
+    results
+}
+
+/// Ruling 1's checks on a recorded K sentence as a whole: `_` never in a result (c), and a
+/// whole-cell rewrite (d) that keeps its cell's children, in order, and the subject's frame.
+fn sentence_frames(k: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    for result in rewrite_results(k) {
+        if all_tokens(&result).any(|token| token == "_") {
+            found.push(format!("a `_` in the result `{result}`"));
+        }
+    }
+    for rewrite in cell_rewrites(k) {
+        let inside = |side: &str| {
+            k_cells(side, rewrite.cell)
+                .first()
+                .copied()
+                .unwrap_or_default()
+                .to_owned()
+        };
+        let cell = format!("<{}", rewrite.cell);
+        if !rewrite.subject.starts_with(&cell) || !rewrite.result.starts_with(&cell) {
+            continue;
+        }
+        let (subject, result) = (inside(rewrite.subject), inside(rewrite.result));
+        if child_cells(&subject) != child_cells(&result) {
+            found.push(format!(
+                "a rewrite of `<{}>` whose result writes the children {:?}, its subject {:?}",
+                rewrite.cell,
+                child_cells(&result),
+                child_cells(&subject)
+            ));
+        }
+        if top_level_frame(&subject) && !top_level_frame(&result) {
+            found.push(format!(
+                "a rewrite of `<{}>` whose result drops its subject's frame",
+                rewrite.cell
+            ));
+        }
+    }
+    found
+}
+
+/// Whether a K text writes the cell `cell`: its tag, or a variable or `_` of its cell sort
+/// (`V0:OgroupCell`, `_:OgroupCell`).
+fn writes_cell(k: &str, cell: &str) -> bool {
+    let mut letters = cell.chars();
+    let sort = letters.next().map_or_else(String::new, |first| {
+        format!("{}{}Cell", first.to_uppercase(), letters.as_str())
+    });
+    k_cells(k, cell).len() + usize::from(container(k, cell).is_some()) > 0
+        || all_tokens(k).any(|token| token.split_once(':').is_some_and(|(_, of)| of == sort))
+}
+
+/// The presence half of check 6 (S5.0g item 3a fixes, ruling 5; P5, P0): a subject's `Some(..)`
+/// on a `?` cell tests that the cell is present, so its K writes the cell, or a variable or `_`
+/// of the cell's sort, on the subject side; a bare untyped `_` there names no cell and tests
+/// nothing. A subject's `None` tests that it is absent, so where the result writes the cell the
+/// K creates it: the subject side writes no such cell.
+fn presence_frame(entry: &EntryCase, subject: &str, result: &str) -> Option<String> {
+    let entry = &entry.entry;
+    if entry.side != Side::Subject || entry.stack.first() != Some(&Layer::Optional) {
+        return None;
+    }
+    let spelling = match &entry.spelling {
+        Spelling::Alias(_, inner) => inner,
+        other => other,
+    };
+    let cell = entry.cell.as_str();
+    match spelling {
+        Spelling::Present(_) if !writes_cell(subject, cell) => Some(format!(
+            "its subject `Some(..)` on the `?` cell `{cell}` writes no `<{cell}>` and no variable \
+             of its sort, so the rule tests no presence"
+        )),
+        Spelling::Missing if writes_cell(result, cell) && writes_cell(subject, cell) => {
+            Some(format!(
+                "its subject `None` on the `?` cell `{cell}` writes the cell on the subject side, \
+                 so the result does not create it"
+            ))
+        }
+        _ => None,
+    }
+}
+
+/// P6 read off one K content root for an entry's root on `side` (ruling 1): whether the K keeps a
+/// frame exactly where the root keeps the rest. `content` is the cell's content as `side` reads
+/// it, `subject` and `result` the content of each side of its rewrite, `places` how many texts
+/// they are (1 for a cell no rewrite writes). A frame is `...` in the cell (a), which frames both
+/// sides of a rewrite inside it, a kept rest variable (b), or on the subject a `_` at the
+/// content's top level (c).
+/// A subject's `..` or `name @ ..` matches the unwritten rest, so its side has a frame; an exact
+/// subject has none. A result's `..` keeps the subject's rest, `..name` puts a rest back, an
+/// exact result keeps none. An initializer's value is complete.
 fn frame_agrees(
     side: Side,
     root: &class_matrix::cells_oracle::Root,
     content: &str,
+    (subject, result): (&str, &str),
+    sentence: &str,
+    places: usize,
 ) -> Result<(), String> {
     use class_matrix::cells_oracle::Root;
     let dots = content.split_whitespace().any(|token| token == "...");
-    let (subject, result) = content
-        .split_once(" => ")
-        .map_or((content, content), |(subject, result)| (subject, result));
-    let subject_rests = rest_variables(subject);
-    let kept = rest_variables(result)
-        .into_iter()
-        .any(|variable| subject_rests.contains(variable));
+    let kept = kept_rest(subject, result, sentence, places);
     let framed = match side {
-        Side::Subject => dots || !subject_rests.is_empty(),
+        Side::Subject => {
+            dots || kept || top_tokens(subject).contains(&"_") || unused_rest(subject, sentence)
+        }
         Side::Result => dots || kept,
         _ => dots,
     };
@@ -6747,6 +6131,13 @@ fn frame_agrees(
 /// K is the product's, recorded by `--record`; this judges it against the principle, so a
 /// lowering that keeps a rest an exact entry does not write (S5-D2's) or drops one a `..` keeps
 /// fails here, whatever the row's class.
+///
+/// An entry means the K it lowers to, so the frame is judged by that meaning, not its spelling
+/// (S5.0g item 3a fixes, ruling 1, P0): at a content root, `...` (a), a rest variable kept at the
+/// same place on both sides and used nowhere else (b), `_` in a subject (c), each read on the
+/// side of a whole-cell rewrite `(<c> L </c> => <c> R </c>)` the entry is on (d). `_` in a result
+/// and a whole-cell rewrite that drops a child or its subject's frame are refused
+/// ([`sentence_frames`]).
 #[test]
 fn check_6_the_recorded_k_keeps_a_frame_exactly_where_p6_says() {
     use class_matrix::cells_oracle::root;
@@ -6763,6 +6154,20 @@ fn check_6_the_recorded_k_keeps_a_frame_exactly_where_p6_says() {
         // The case's own sentence (or configuration) is the K text's first paragraph; the base's
         // sentences follow it.
         let k = k.trim_start().split("\n\n").next().unwrap_or_default();
+        for found in sentence_frames(k) {
+            failures.push(format!("{}: {found}", case.id));
+        }
+        let (subject_view, result_view) = (side_view(k, false), side_view(k, true));
+        if let Some(found) = presence_frame(entry, &subject_view, &result_view) {
+            failures.push(format!("{}: {found}", case.id));
+        }
+        let view = if entry.entry.side == Side::Result {
+            &result_view
+        } else {
+            &subject_view
+        };
+        // Records are judged on the whole text, as before the views: a created instance's
+        // `...` takes its template's defaults, which no side view reads.
         record_frames_agree(case, entry, k, &mut failures, &mut counts);
         let mut roots = Vec::new();
         content_roots(
@@ -6780,20 +6185,47 @@ fn check_6_the_recorded_k_keeps_a_frame_exactly_where_p6_says() {
             cells.entry(cell.as_str()).or_default().push(spelling);
         }
         for (cell, spellings) in cells {
-            let contents = k_cells(k, cell);
+            let contents = k_cells(view, cell);
+            let (subjects, results) = (k_cells(&subject_view, cell), k_cells(&result_view, cell));
             if contents.len() != spellings.len() {
                 failures.push(format!(
                     "{}: the entry writes {} content roots of `{cell}`, its K has {} cells \
-                     `<{cell}>`",
+                     `<{cell}>` on its side",
                     case.id,
                     spellings.len(),
-                    contents.len()
+                    contents.len(),
                 ));
                 continue;
             }
-            for (spelling, content) in spellings.into_iter().zip(contents) {
+            // A cell a whole-cell rewrite creates (`.Bag => <c> .. </c>`) or deletes has one
+            // side only; the other has no content.
+            let paired = subjects.len() == results.len();
+            // A cell no whole-cell rewrite holds is one text on both sides.
+            let in_rewrite = k_cells(k, cell).len() != subjects.len();
+            for (at, (spelling, content)) in spellings.into_iter().zip(contents).enumerate() {
                 *counts.entry("content roots judged").or_default() += 1;
-                if let Err(found) = frame_agrees(entry.entry.side, &root(spelling), content) {
+                let (subject, result) = if paired {
+                    (subjects[at], results[at])
+                } else if entry.entry.side == Side::Result {
+                    ("", content)
+                } else {
+                    (content, "")
+                };
+                let subject = split_rewrite(subject).map_or(subject, |(left, _)| left);
+                let result = split_rewrite(result).map_or(result, |(_, right)| right);
+                let places = if in_rewrite || split_rewrite(content).is_some() {
+                    2
+                } else {
+                    1
+                };
+                if let Err(found) = frame_agrees(
+                    entry.entry.side,
+                    &root(spelling),
+                    content,
+                    (subject, result),
+                    k,
+                    places,
+                ) {
                     failures.push(format!(
                         "{}: `<{cell}> {content} </{cell}>` has {found}, where P6 says the \
                          content root {:?} on the {:?} side {}",
@@ -6820,8 +6252,13 @@ fn check_6_the_recorded_k_keeps_a_frame_exactly_where_p6_says() {
 /// rest.
 #[derive(Debug)]
 enum RecordFrame {
-    /// A record of the group the cell holds (the cell's own group, or one instance's).
-    Record { cell: String, keeps: bool },
+    /// A record of the group the cell holds (the cell's own group, or one instance's), with the
+    /// children it does not name.
+    Record {
+        cell: String,
+        keeps: bool,
+        unnamed: Vec<String>,
+    },
     /// The instances of a collection, of which `records` are records.
     Instances {
         cell: String,
@@ -6867,6 +6304,14 @@ fn record_frames(
         }
         _ => None,
     };
+    let unnamed = |group: &Group, record: &Record| {
+        group
+            .children
+            .iter()
+            .filter(|(child, _)| !record.fields.iter().any(|(name, _)| name == child))
+            .map(|(child, _)| child.clone())
+            .collect()
+    };
     let fields = |group: &Group, record: &Record, out: &mut Vec<RecordFrame>| {
         for (name, value) in &record.fields {
             if let Some((_, child)) = group.children.iter().find(|(child, _)| child == name) {
@@ -6883,6 +6328,7 @@ fn record_frames(
                 out.push(RecordFrame::Record {
                     cell: cell.to_owned(),
                     keeps: record_keeps(group, &found),
+                    unnamed: unnamed(group, &found),
                 });
                 fields(group, &found, out);
             }
@@ -6901,6 +6347,7 @@ fn record_frames(
                     out.push(RecordFrame::Record {
                         cell: cell.to_owned(),
                         keeps: record_keeps(group, &found),
+                        unnamed: unnamed(group, &found),
                     });
                     fields(group, &found, out);
                 }
@@ -6997,11 +6444,18 @@ fn record_frames_agree(
         &entry.entry.spelling,
         &mut frames,
     );
-    let mut records = BTreeMap::<&str, Vec<bool>>::new();
+    let mut records = BTreeMap::<&str, Vec<(bool, &[String])>>::new();
     for frame in &frames {
         match frame {
-            RecordFrame::Record { cell, keeps } => {
-                records.entry(cell.as_str()).or_default().push(*keeps);
+            RecordFrame::Record {
+                cell,
+                keeps,
+                unnamed,
+            } => {
+                records
+                    .entry(cell.as_str())
+                    .or_default()
+                    .push((*keeps, unnamed.as_slice()));
             }
             RecordFrame::Instances {
                 cell,
@@ -7047,9 +6501,18 @@ fn record_frames_agree(
                 .or_default() += wanted.len();
             continue;
         }
-        for (keeps, content) in wanted.into_iter().zip(contents) {
+        for ((keeps, unnamed), content) in wanted.into_iter().zip(contents) {
             *counts.entry("record frames judged").or_default() += 1;
-            let has_frame = top_level_frame(content);
+            // Ruling 1 (c): on a subject, a child the record does not name written `_` as its
+            // whole content matches that child unconstrained; a record whose every unnamed child
+            // is so written (none, where it names every child) keeps the rest it does not name.
+            let has_frame = top_level_frame(content)
+                || (keeps
+                    && entry.entry.side == Side::Subject
+                    && unnamed.iter().all(|child| {
+                        let found = k_cells(content, child);
+                        found.len() == 1 && found[0] == "_"
+                    }));
             if has_frame != keeps {
                 failures.push(format!(
                     "{}: `<{cell}> {content} </{cell}>` has {} at its top level, where P6 says \
@@ -7071,7 +6534,7 @@ fn record_frames_agree(
     }
 }
 
-/// With `KRS_CELLS_ROWS=FILE`, write each kinds-base case's ID, `outcome` and rule-level class
+/// With `KRS_CELLS_ROWS=FILE`, write each kinds-base and sweep case's ID, `outcome` and rule-level class
 /// to FILE (S5.0g's rows come from `outcome`, and the generated table diff is reviewed).
 #[test]
 fn the_kinds_cases_outcomes_print_on_request() {
@@ -7080,7 +6543,7 @@ fn the_kinds_cases_outcomes_print_on_request() {
     };
     let mut out = String::new();
     for (case, entry) in ENTRIES.iter() {
-        if case.base != Base::Kinds {
+        if !matches!(case.base, Base::Kinds | Base::Sweep) {
             continue;
         }
         let got = entry.outcome();
@@ -7098,4 +6561,16 @@ fn the_kinds_cases_outcomes_print_on_request() {
         );
     }
     std::fs::write(file, out).expect("the rows file is written");
+}
+
+/// With `KRS_CELLS_CASE=GLOB`, print the rendered item of each case the glob selects, for review.
+#[test]
+fn the_cases_items_print_on_request() {
+    let Some(glob) = std::env::var_os("KRS_CELLS_CASE") else {
+        return;
+    };
+    let glob = Glob::parse(&glob.to_string_lossy()).expect("KRS_CELLS_CASE is a glob");
+    for case in CASES.iter().filter(|case| glob.matches(&case.id)) {
+        println!("## {}\n{}", case.id, case.item());
+    }
 }
