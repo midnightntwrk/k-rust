@@ -1794,6 +1794,29 @@ mod tests {
             ),
             Ok(None)
         );
+        // A subject's record is no update.
+        assert_eq!(
+            judge(
+                readable,
+                EntrySide::Subject,
+                &map,
+                "{ me @ A { id: z, .. }, .. }"
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn an_update_writing_the_literal_its_subject_matched_keeps_the_key() {
+        let (readable, cells) = (EntryForm::Readable, EntryForm::Cells);
+        let map = [
+            Layer::Instances(Order::Map),
+            Layer::Group(GroupKind {
+                name: "A".to_owned(),
+                children: vec![("id".to_owned(), int()), ("bal".to_owned(), int())],
+            }),
+        ];
+        let refused = Err(Refusal::MapCollectionKey);
         // The same literal the subject matched is provably the same key; another literal is
         // another key.
         let five = Some("{ me @ A { id: 5, .. }, .. }");
@@ -1822,16 +1845,6 @@ mod tests {
         assert_eq!(
             result(readable, &map, "{ A { id: 6, ..me }, .. }", five),
             refused
-        );
-        // A subject's record is no update.
-        assert_eq!(
-            judge(
-                readable,
-                EntrySide::Subject,
-                &map,
-                "{ me @ A { id: z, .. }, .. }"
-            ),
-            Ok(())
         );
     }
 

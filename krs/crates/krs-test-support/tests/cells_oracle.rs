@@ -1942,7 +1942,6 @@ fn the_oracle_and_the_product_refuse_the_reviews_probes() {
     let map = [Layer::Instances(Order::Map)];
     let list = [Layer::Instances(Order::List)];
     let int = int();
-    let jobs = [Layer::Instances(Order::List), group_g()];
     let probe = |form, side, path, stack, text, other| Probe {
         form,
         side,
@@ -1973,53 +1972,6 @@ fn the_oracle_and_the_product_refuse_the_reviews_probes() {
         (
             probe(Form::Cells, subject, &list, &int, "[x, ..]", None),
             "instances-on-plain-cell",
-        ),
-        // A spelling the cell's own layers admit is refused for its ancestor (S1 (b)).
-        (
-            probe(Form::Readable, subject, &optional, &int, "x", None),
-            "optional-without-presence",
-        ),
-        (
-            probe(Form::Readable, subject, &map, &int, "x", None),
-            "collection-without-instances",
-        ),
-        (
-            probe(
-                Form::Readable,
-                subject,
-                &list,
-                &[Layer::Optional, Layer::Leaf(Notation::Plain)],
-                "Some(x)",
-                None,
-            ),
-            "collection-without-instances",
-        ),
-        (
-            probe(
-                Form::Cells,
-                subject,
-                &optional,
-                &int,
-                "k::configuration::Cell(x)",
-                None,
-            ),
-            "optional-without-presence",
-        ),
-        // The cell's own P3 (c) comes first too: a value on its own `?` layer below a `*`.
-        (
-            probe(
-                Form::Readable,
-                subject,
-                &list,
-                &[Layer::Optional, Layer::Leaf(Notation::Plain)],
-                "x",
-                None,
-            ),
-            "optional-without-presence",
-        ),
-        (
-            probe(Form::Readable, subject, &optional, &jobs, "x", None),
-            "collection-without-instances",
         ),
         // R2: a result over a cell the subject does not match.
         (
@@ -2070,6 +2022,67 @@ fn the_oracle_and_the_product_refuse_the_reviews_probes() {
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// S5.0g review R3 (P3's reason): the cell's own kind is judged before its path (S1 (b)), since
+/// the path's advice writes the entry inside the ancestor's mark: a spelling the cell's own
+/// layers admit is refused for its ancestor, and one they refuse, by (b) or (c), is refused by
+/// them.
+#[test]
+fn a_cell_below_a_marked_ancestor_is_judged_on_its_own_layers_first() {
+    let optional = [Layer::Optional];
+    let map = [Layer::Instances(Order::Map)];
+    let list = [Layer::Instances(Order::List)];
+    let int = int();
+    let jobs = [Layer::Instances(Order::List), group_g()];
+    let probe = |form, path, stack, text| Probe {
+        form,
+        side: Side::Subject,
+        path,
+        stack,
+        text,
+        other: None,
+        written: false,
+        bound: &[],
+    };
+    probes_agree(&[
+        // A spelling the cell's own layers admit is refused for its ancestor (S1 (b)).
+        (
+            probe(Form::Readable, &optional, &int, "x"),
+            Outcome::Refuse("optional-without-presence"),
+        ),
+        (
+            probe(Form::Readable, &map, &int, "x"),
+            Outcome::Refuse("collection-without-instances"),
+        ),
+        (
+            probe(
+                Form::Readable,
+                &list,
+                &[Layer::Optional, Layer::Leaf(Notation::Plain)],
+                "Some(x)",
+            ),
+            Outcome::Refuse("collection-without-instances"),
+        ),
+        (
+            probe(Form::Cells, &optional, &int, "k::configuration::Cell(x)"),
+            Outcome::Refuse("optional-without-presence"),
+        ),
+        // The cell's own P3 (c) comes first too: a value on its own `?` layer below a `*`.
+        (
+            probe(
+                Form::Readable,
+                &list,
+                &[Layer::Optional, Layer::Leaf(Notation::Plain)],
+                "x",
+            ),
+            Outcome::Refuse("optional-without-presence"),
+        ),
+        (
+            probe(Form::Readable, &optional, &jobs, "x"),
+            Outcome::Refuse("collection-without-instances"),
+        ),
+    ]);
 }
 
 /// Each probe's outcome, from the oracle and from the product alike, against `want`.
@@ -2744,6 +2757,68 @@ fn an_overwritten_records_children_are_unmatched_not_created() {
 /// admitted; any other key value (a literal, another name, a computed value), or a key the
 /// labelled instance does not name, is `map-collection-key`. An update's unnamed non-key child
 /// is Q1's overwrite; a Set collection keys none.
+/// R9 (S5.0g review, P0): an update writing a Map collection's key as the same literal its
+/// subject matched it with writes provably the matched key, so the instance's identity is
+/// unchanged; another literal, or the literal another instance matched, is another key.
+#[test]
+fn an_update_writing_the_literal_its_subject_matched_keeps_the_key() {
+    let map = vec![
+        Layer::Instances(Order::Map),
+        Layer::Group(Group {
+            name: "A".to_owned(),
+            children: vec![("id".to_owned(), int()), ("bal".to_owned(), int())],
+        }),
+    ];
+    let refused = Outcome::Refuse("map-collection-key");
+    probes_agree(&[
+        (
+            child_probe(
+                Form::Readable,
+                &map,
+                "{ A { id: 5, ..me }, .. }",
+                Some("{ me @ A { id: 5, .. }, .. }"),
+            ),
+            Outcome::After,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &map,
+                "{ A { id: 5, ..me }, .. }",
+                Some("{ me @ A { id: k @ 5, .. }, .. }"),
+            ),
+            Outcome::After,
+        ),
+        (
+            child_probe(
+                Form::Cells,
+                &map,
+                "{ k::fragment![crate::A { id: 5, ..me }], .. }",
+                Some("{ me @ k::fragment![crate::A { id: 5, .. }], .. }"),
+            ),
+            Outcome::After,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &map,
+                "{ A { id: 6, ..me }, .. }",
+                Some("{ me @ A { id: 5, .. }, .. }"),
+            ),
+            refused,
+        ),
+        (
+            child_probe(
+                Form::Readable,
+                &map,
+                "{ A { id: 5, ..me }, .. }",
+                Some("{ me @ A { id: z, .. }, other @ A { id: 5, .. }, .. }"),
+            ),
+            refused,
+        ),
+    ]);
+}
+
 #[test]
 fn an_update_of_a_map_collections_instance_that_writes_its_key_is_refused() {
     let account = |order| {
@@ -2841,53 +2916,6 @@ fn an_update_of_a_map_collections_instance_that_writes_its_key_is_refused() {
         (
             child_probe(Form::Readable, &set, "{ A { id: 5, ..me }, .. }", me),
             Outcome::After,
-        ),
-        // R9 (P0): the same literal the subject matched the key with is provably the matched
-        // key, so the instance's identity is unchanged; another literal is another key.
-        (
-            child_probe(
-                Form::Readable,
-                &map,
-                "{ A { id: 5, ..me }, .. }",
-                Some("{ me @ A { id: 5, .. }, .. }"),
-            ),
-            Outcome::After,
-        ),
-        (
-            child_probe(
-                Form::Readable,
-                &map,
-                "{ A { id: 5, ..me }, .. }",
-                Some("{ me @ A { id: k @ 5, .. }, .. }"),
-            ),
-            Outcome::After,
-        ),
-        (
-            child_probe(
-                Form::Cells,
-                &map,
-                "{ k::fragment![crate::A { id: 5, ..me }], .. }",
-                Some("{ me @ k::fragment![crate::A { id: 5, .. }], .. }"),
-            ),
-            Outcome::After,
-        ),
-        (
-            child_probe(
-                Form::Readable,
-                &map,
-                "{ A { id: 6, ..me }, .. }",
-                Some("{ me @ A { id: 5, .. }, .. }"),
-            ),
-            refused,
-        ),
-        (
-            child_probe(
-                Form::Readable,
-                &map,
-                "{ A { id: 5, ..me }, .. }",
-                Some("{ me @ A { id: z, .. }, other @ A { id: 5, .. }, .. }"),
-            ),
-            refused,
         ),
     ]);
 }
@@ -4136,7 +4164,9 @@ fn frame_agrees(
 }
 
 /// Check 6 (P6 in the recorded K, independent of classes): every accepted cell-entry case with
-/// recorded K keeps a frame in its K exactly where its entry's content roots keep the rest. The
+/// recorded K keeps a frame in its K exactly where its entry's content roots keep the rest, and
+/// exactly where its records and instance sequences keep the fields and instances they do not
+/// name ([`record_frames_agree`], S5.0g review R8). The
 /// K is the product's, recorded by `--record`; this judges it against the principle, so a
 /// lowering that keeps a rest an exact entry does not write (S5-D2's) or drops one a `..` keeps
 /// fails here, whatever the row's class.
@@ -4156,6 +4186,7 @@ fn check_6_the_recorded_k_keeps_a_frame_exactly_where_p6_says() {
         // The case's own sentence (or configuration) is the K text's first paragraph; the base's
         // sentences follow it.
         let k = k.trim_start().split("\n\n").next().unwrap_or_default();
+        record_frames_agree(case, entry, k, &mut failures, &mut counts);
         let mut roots = Vec::new();
         content_roots(
             &entry.entry.cell,
@@ -4204,6 +4235,254 @@ fn check_6_the_recorded_k_keeps_a_frame_exactly_where_p6_says() {
     }
     println!("{counts:#?}");
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// A record-level frame an entry writes (P6, records follow Rust): a group or instance record's
+/// cell, whose K content keeps a top-level `...` exactly where the record keeps the rest, and an
+/// instance sequence's collection, whose K keeps the other instances exactly where it writes a
+/// rest.
+#[derive(Debug)]
+enum RecordFrame {
+    /// A record of the group the cell holds (the cell's own group, or one instance's).
+    Record { cell: String, keeps: bool },
+    /// The instances of a collection, of which `records` are records.
+    Instances {
+        cell: String,
+        keeps: bool,
+        records: usize,
+    },
+}
+
+/// Every record frame an entry's spelling writes, below presence and through the children of
+/// the records it writes. On a subject a record's `..` (or `..base`) matches the fields it does
+/// not name; on a result an update `..label` keeps them and a created instance's `..` takes its
+/// template's, K's `...` alike; an initializer's value is complete, so it writes none.
+fn record_frames(
+    cell: &str,
+    side: Side,
+    stack: &[Layer],
+    spelling: &Spelling,
+    out: &mut Vec<RecordFrame>,
+) {
+    let spelling = match spelling {
+        Spelling::Alias(_, inner) => inner,
+        other => other,
+    };
+    let keeps = |rest: bool| rest && side != Side::Initializer;
+    let record = |group: &Group, item: &Spelling| match item {
+        Spelling::Alias(_, inner) => match &**inner {
+            Spelling::Record(record) | Spelling::Fragment(record) if record.head == group.name => {
+                Some(record.clone())
+            }
+            _ => None,
+        },
+        Spelling::Record(record) | Spelling::Fragment(record) if record.head == group.name => {
+            Some(record.clone())
+        }
+        _ => None,
+    };
+    let fields = |group: &Group, record: &Record, out: &mut Vec<RecordFrame>| {
+        for (name, value) in &record.fields {
+            if let Some((_, child)) = group.children.iter().find(|(child, _)| child == name) {
+                record_frames(name, side, child, value, out);
+            }
+        }
+    };
+    match (stack, spelling) {
+        ([Layer::Optional, rest @ ..], Spelling::Present(inner) | Spelling::Absent(inner)) => {
+            record_frames(cell, side, rest, inner, out);
+        }
+        ([Layer::Group(group), ..], _) => {
+            if let Some(found) = record(group, spelling) {
+                out.push(RecordFrame::Record {
+                    cell: cell.to_owned(),
+                    keeps: keeps(found.rest != RecordRest::Exact),
+                });
+                fields(group, &found, out);
+            }
+        }
+        (
+            [Layer::Instances(_), Layer::Group(group), ..],
+            Spelling::Brackets(seq)
+            | Spelling::Braces(seq)
+            | Spelling::InstList(seq)
+            | Spelling::InstSet(seq),
+        ) => {
+            let mut records = 0;
+            for item in &seq.items {
+                if let Some(found) = record(group, item) {
+                    records += 1;
+                    out.push(RecordFrame::Record {
+                        cell: cell.to_owned(),
+                        keeps: keeps(found.rest != RecordRest::Exact),
+                    });
+                    fields(group, &found, out);
+                }
+            }
+            out.push(RecordFrame::Instances {
+                cell: cell.to_owned(),
+                keeps: keeps(seq.rest.is_some()),
+                records,
+            });
+        }
+        _ => {}
+    }
+}
+
+/// Whether a K cell content has `...` at its own top level, outside every cell nested in it.
+fn top_level_frame(content: &str) -> bool {
+    let mut depth = 0_usize;
+    let mut top = String::new();
+    let mut rest = content;
+    while let Some(at) = rest.find('<') {
+        let (before, tag) = rest.split_at(at);
+        if depth == 0 {
+            top.push_str(before);
+            top.push(' ');
+        }
+        let closing = tag.starts_with("</");
+        let opening = tag[1..].starts_with(|c: char| c.is_ascii_alphabetic());
+        let Some(end) = tag.find('>').filter(|_| closing || opening) else {
+            if depth == 0 {
+                top.push('<');
+            }
+            rest = &tag[1..];
+            continue;
+        };
+        if closing {
+            depth = depth.saturating_sub(1);
+        } else {
+            depth += 1;
+        }
+        rest = &tag[end + 1..];
+    }
+    if depth == 0 {
+        top.push_str(rest);
+    }
+    top.split(|c: char| c.is_whitespace() || matches!(c, '(' | ')'))
+        .any(|token| token == "...")
+}
+
+/// The cell that holds the first `<cell>` of a K text, if the text writes it.
+fn container<'k>(k: &'k str, cell: &str) -> Option<&'k str> {
+    let open = format!("<{cell}");
+    let at = k
+        .match_indices(&open)
+        .find(|(at, _)| k[at + open.len()..].starts_with(['>', ' ']))?
+        .0;
+    let mut stack = Vec::new();
+    let mut rest = &k[..at];
+    while let Some(start) = rest.find('<') {
+        let tag = &rest[start + 1..];
+        let Some(end) = tag.find(['>', ' ']) else {
+            break;
+        };
+        match tag.strip_prefix('/') {
+            Some(name) => {
+                let name = &name[..name.find('>').unwrap_or(name.len())];
+                if stack.last() == Some(&name) {
+                    stack.pop();
+                }
+            }
+            None if tag.starts_with(|c: char| c.is_ascii_alphabetic()) => stack.push(&tag[..end]),
+            None => {}
+        }
+        rest = &tag[end..];
+    }
+    stack.last().copied()
+}
+
+/// Check 6's record half (S5.0g review R8): `failures` gains every record frame of `entry`
+/// whose recorded K keeps a frame where P6 says none or none where it says one; `counts` the
+/// judged and the unjudged (a cell the K writes more often than the entry, such as a result's
+/// instance beside the subject's, or a collection with no instance record to find it by).
+fn record_frames_agree(
+    case: &Case,
+    entry: &EntryCase,
+    k: &str,
+    failures: &mut Vec<String>,
+    counts: &mut BTreeMap<&'static str, usize>,
+) {
+    let mut frames = Vec::new();
+    record_frames(
+        &entry.entry.cell,
+        entry.entry.side,
+        &entry.entry.stack,
+        &entry.entry.spelling,
+        &mut frames,
+    );
+    let mut records = BTreeMap::<&str, Vec<bool>>::new();
+    for frame in &frames {
+        match frame {
+            RecordFrame::Record { cell, keeps } => {
+                records.entry(cell.as_str()).or_default().push(*keeps);
+            }
+            RecordFrame::Instances {
+                cell,
+                keeps,
+                records,
+            } => {
+                if *records == 0 {
+                    *counts
+                        .entry("instance frames unjudged (no record)")
+                        .or_default() += 1;
+                    continue;
+                }
+                *counts.entry("instance frames judged").or_default() += 1;
+                let holds_frame = match container(k, cell) {
+                    Some(holder) => k_cells(k, holder)
+                        .first()
+                        .is_some_and(|content| top_level_frame(content)),
+                    // Unwritten, the collection's other instances are framed by K's
+                    // configuration abstraction.
+                    None => true,
+                };
+                if holds_frame != *keeps {
+                    failures.push(format!(
+                        "{}: the instances of `{cell}` {} the other instances in K, where P6 says \
+                         the instance sequence {}",
+                        case.id,
+                        if holds_frame { "frame" } else { "do not frame" },
+                        if *keeps {
+                            "keeps them"
+                        } else {
+                            "names every instance"
+                        }
+                    ));
+                }
+            }
+        }
+    }
+    for (cell, wanted) in records {
+        let contents = k_cells(k, cell);
+        if contents.len() != wanted.len() {
+            *counts
+                .entry("record frames unjudged (K writes the cell more often)")
+                .or_default() += wanted.len();
+            continue;
+        }
+        for (keeps, content) in wanted.into_iter().zip(contents) {
+            *counts.entry("record frames judged").or_default() += 1;
+            let has_frame = top_level_frame(content);
+            if has_frame != keeps {
+                failures.push(format!(
+                    "{}: `<{cell}> {content} </{cell}>` has {} at its top level, where P6 says \
+                     the record {}",
+                    case.id,
+                    if has_frame {
+                        "a frame `...`"
+                    } else {
+                        "no frame"
+                    },
+                    if keeps {
+                        "keeps the fields it does not name"
+                    } else {
+                        "names every field"
+                    }
+                ));
+            }
+        }
+    }
 }
 
 /// With `KRS_CELLS_ROWS=FILE`, write each kinds-base case's ID, `outcome` and rule-level class
