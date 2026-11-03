@@ -100,12 +100,28 @@ pub(crate) enum Shape {
 }
 
 impl Term {
-    /// The kind of this term's root and, for an application, its symbol's role.
+    /// The kind of this term's root and, for an application, its symbol's role: the
+    /// [`Shape::of`] its node stored when it was allocated. O(1), one read of the node.
+    #[inline]
+    #[must_use]
+    pub(crate) fn shape(&self) -> Shape {
+        self.attributes().shape()
+    }
+}
+
+impl Shape {
+    /// The shape of a node of kind `kind`, which `Term::allocate` stores in the node.
+    ///
+    /// A function of the kind: its variant and, for an application, the role
+    /// [`SymbolAttributes::head_role`](crate::term::SymbolAttributes::head_role) folds from the
+    /// symbol's attributes. The node holds that symbol behind a shared `Arc`, which nothing
+    /// mutates while shared (`Arc::make_mut` copies a shared symbol), so the stored shape is
+    /// the one this function would compute from the node at any later time.
     #[inline]
     #[must_use]
     #[deny(clippy::wildcard_enum_match_arm)]
-    pub(crate) fn shape(&self) -> Shape {
-        match self.kind() {
+    pub(crate) fn of(kind: &TermKind) -> Self {
+        match kind {
             TermKind::Variable(_) => Shape::Variable,
             TermKind::And(..) => Shape::And,
             TermKind::DomainValue { .. } => Shape::DomainValue,

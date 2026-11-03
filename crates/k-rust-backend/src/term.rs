@@ -768,6 +768,8 @@ pub struct TermAttributes {
     k_cells: u8,
     /// See [`TermAttributes::may_be_rigid`]; set only by `Term::allocate`, from the kind.
     may_be_rigid: bool,
+    /// See [`Term::shape`]; set only by `Term::allocate`, from the kind ([`head::Shape::of`]).
+    shape: head::Shape,
     /// The first conjunct of a conjunction, `None` for any other kind: see
     /// [`Term::first_conjunct`]; set only by `Term::allocate`, from the kind. A second handle to
     /// a subterm of the kind, which [`Term`]'s `Drop` releases before it reads the kind's
@@ -789,6 +791,7 @@ impl Default for TermAttributes {
             has_macro_or_alias: false,
             k_cells: 0,
             may_be_rigid: false,
+            shape: head::Shape::Variable,
             first_conjunct: None,
             hash: 0,
         }
@@ -814,12 +817,20 @@ impl fmt::Debug for TermAttributes {
             .field("has_macro_or_alias", &self.has_macro_or_alias)
             .field("k_cells", &self.k_cells)
             .field("may_be_rigid", &self.may_be_rigid)
+            .field("shape", &self.shape)
             .field("hash", &self.hash)
             .finish()
     }
 }
 
 impl TermAttributes {
+    /// See [`Term::shape`].
+    #[inline]
+    #[must_use]
+    pub(crate) fn shape(&self) -> head::Shape {
+        self.shape
+    }
+
     /// Whether the backend makes a value claim about this term: whether the `evaluated` mark of
     /// this term and of each of its subterms is evidence about the value the term denotes (a
     /// normal form distinct from every other normal form), not only that no equation matches
@@ -2202,6 +2213,7 @@ fn set_kind_attributes(kind: &TermKind, attributes: &mut TermAttributes) {
     attributes.has_macro_or_alias = has_macro_or_alias(kind);
     attributes.k_cells = k_cells(kind);
     attributes.may_be_rigid = may_be_rigid(kind);
+    attributes.shape = head::Shape::of(kind);
     attributes.first_conjunct = match kind {
         TermKind::And(left, _) => Some(left.first_conjunct().clone()),
         _ => None,
@@ -3431,6 +3443,7 @@ fn synthesize_attributes(kind: &TermKind) -> (TermAttributes, bool) {
 #[cfg(debug_assertions)]
 #[deny(clippy::wildcard_enum_match_arm)]
 fn validate_attributes(kind: &TermKind, attributes: &TermAttributes, cache: EvaluatedCache) {
+    assert_eq!(attributes.shape, head::Shape::of(kind));
     assert!(!attributes.constructor_like || attributes.concrete_after_normalization);
     assert!(!attributes.concrete_after_normalization || attributes.variables.is_empty());
     assert!(!attributes.value_claimed || attributes.evaluated);

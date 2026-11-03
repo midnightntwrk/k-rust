@@ -95,7 +95,7 @@ use crate::{
         Term, TermKind, Variable,
         head::{
             Fixed, FixedRoot, Head, HeadClash, NormalEvidence, NormalForms, Open, PatternReading,
-            RecordedPatterns, ReleasedRoots, RigidCycle, RootComparison, classify_pattern,
+            RecordedPatterns, ReleasedRoots, RigidCycle, RootComparison, Shape, classify_pattern,
             classify_value, compare_roots, rigid_occurrence,
         },
     },
@@ -766,11 +766,7 @@ pub(crate) fn match_injection_equality(
 
 fn has_constructor_like_top(term: &Term) -> bool {
     term.attributes().constructor_like
-        || matches!(
-            term.kind(),
-            TermKind::Application { symbol, .. }
-                if symbol.attributes.head_role() == HeadRole::FreeConstructor
-        )
+        || term.shape() == Shape::Application(HeadRole::FreeConstructor)
         || matches!(
             term.kind(),
             TermKind::Injection { .. }
