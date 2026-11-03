@@ -401,7 +401,7 @@ finding = "S0-9"
 deviation = "krs::analysis::invalid-term @ spelling"
 
 ["claim/subject/job/[..]"]
-finding = "S0-9"
+finding = "S5-Q1"
 deviation = "krs::analysis::collection-entry @ entry"
 
 ["claim/subject/job/_"]
@@ -417,7 +417,7 @@ finding = "S0-9"
 deviation = "krs::analysis::invalid-term @ spelling"
 
 ["claim/subject/k/[..]"]
-finding = "S0-9"
+finding = "S5-Q1"
 deviation = "krs::analysis::collection-entry @ entry"
 
 ["claim/subject/k/_"]
@@ -429,7 +429,7 @@ finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
 
 ["claim/subject/stack/[..]"]
-finding = "S0-9"
+finding = "S5-Q1"
 deviation = "krs::analysis::collection-entry @ entry"
 
 ["readable/result/counter/0"]
@@ -653,7 +653,7 @@ finding = "S0-9"
 deviation = "krs::analysis::invalid-term @ spelling"
 
 ["readable/subject/job/[..]"]
-finding = "S0-9"
+finding = "S5-Q1"
 deviation = "krs::analysis::collection-entry @ entry"
 
 ["readable/subject/job/_"]
@@ -681,7 +681,7 @@ finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
 
 ["readable/subject/stack/[..]"]
-finding = "S0-9"
+finding = "S5-Q1"
 deviation = "krs::analysis::collection-entry @ entry"
 
 # S0-14: a readable map read's key refuses the `@` and `|` patterns the reference documents for map keys
@@ -2583,35 +2583,35 @@ deviation = "krs::rust-expansion::uncoded-error @ spelling"
 
 ["k8/cells/result/job/k::configuration::Cell(0)"]
 finding = "S0-9"
-deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
 
 ["k8/cells/result/job/k::configuration::Cell([x, y])"]
 finding = "S0-9"
-deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
 
 ["k8/cells/result/job/k::configuration::Cell(k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), y, 2))"]
 finding = "S0-9"
-deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
 
 ["k8/cells/result/job/k::configuration::Cell(k::map![x -> 1, y -> 2])"]
 finding = "S0-9"
-deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
 
 ["k8/cells/result/job/k::configuration::Cell(k::map![x -> y])"]
 finding = "S0-9"
-deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
 
 ["k8/cells/result/job/k::configuration::Cell(x)"]
 finding = "S0-9"
-deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
 
 ["k8/cells/result/job/k::configuration::KCell()"]
 finding = "S0-9"
-deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
 
 ["k8/cells/result/job/k::configuration::KCell(x)"]
 finding = "S0-9"
-deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
 
 # S0-14 (K8): the advice check on cases pending above under S0-14, whose refusal it reads.
 
@@ -2741,35 +2741,35 @@ deviation = "printed surface refused: krs::analysis::collection-entry @ item"
 
 ["k8/cells-run/result/job/k::configuration::Cell(0)"]
 finding = "S0-9"
-deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
 
 ["k8/cells-run/result/job/k::configuration::Cell([x, y])"]
 finding = "S0-9"
-deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
 
 ["k8/cells-run/result/job/k::configuration::Cell(k::builtin::map::update(k::builtin::map::update(k::builtin::map::empty(), x, 1), y, 2))"]
 finding = "S0-9"
-deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
 
 ["k8/cells-run/result/job/k::configuration::Cell(k::map![x -> 1, y -> 2])"]
 finding = "S0-9"
-deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
 
 ["k8/cells-run/result/job/k::configuration::Cell(k::map![x -> y])"]
 finding = "S0-9"
-deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
 
 ["k8/cells-run/result/job/k::configuration::Cell(x)"]
 finding = "S0-9"
-deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
 
 ["k8/cells-run/result/job/k::configuration::KCell()"]
 finding = "S0-9"
-deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
 
 ["k8/cells-run/result/job/k::configuration::KCell(x)"]
 finding = "S0-9"
-deviation = "collection-without-instances advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
 
 ["readable-run/result/counter/0"]
 finding = "S0-9"
@@ -3036,7 +3036,7 @@ finding = "S0-9"
 deviation = "krs::analysis::invalid-term @ spelling"
 
 ["readable-run/subject/job/[..]"]
-finding = "S0-9"
+finding = "S5-Q1"
 deviation = "krs::analysis::collection-entry @ entry"
 
 ["readable-run/subject/job/[]"]
@@ -3072,7 +3072,7 @@ finding = "S0-9"
 deviation = "krs::analysis::collection-entry @ entry"
 
 ["readable-run/subject/stack/[..]"]
-finding = "S0-9"
+finding = "S5-Q1"
 deviation = "krs::analysis::collection-entry @ entry"
 
 # NT-35-1 (K7, the printed state): the printer reverses the case's alias, whose subject writes
@@ -3214,3 +3214,222 @@ deviation = "different"
 finding = "NT-30-2"
 deviation = "different"
 
+# S5.0 (design S5, revision 4): the rows the cells oracle moves turn these green cases red until the
+# step that owns their finding: (A) at S5.3; Q1 at S5.3 (`cells!`) and S5.2 (readable); Q2 at S5.2;
+# D2 at S5.5.
+
+["cells/subject/job/k::configuration::Cell(0)"]
+finding = "S5-A"
+deviation = "krs::analysis::collection-entry @ entry"
+
+["cells/subject/job/k::configuration::Cell([x, ..])"]
+finding = "S5-A"
+deviation = "krs::analysis::collection-entry @ entry"
+
+["cells/subject/job/k::configuration::Cell(_)"]
+finding = "S5-A"
+deviation = "krs::analysis::collection-entry @ entry"
+
+["cells/subject/job/k::configuration::Cell(k::map![y -> x, ..])"]
+finding = "S5-A"
+deviation = "krs::analysis::collection-entry @ entry"
+
+["cells/subject/job/k::configuration::Cell(x)"]
+finding = "S5-A"
+deviation = "krs::analysis::collection-entry @ entry"
+
+["cells/subject/job/k::configuration::KCell()"]
+finding = "S5-A"
+deviation = "krs::analysis::collection-entry @ entry"
+
+["cells/subject/job/k::configuration::KCell(x, ..)"]
+finding = "S5-A"
+deviation = "krs::analysis::collection-entry @ entry"
+
+["cells/subject/counter/k::configuration::KCell()"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["cells/subject/counter/k::configuration::KCell(x, ..)"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["cells/result/counter/k::configuration::KCell()"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["cells/result/counter/k::configuration::KCell(x)"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["cells-run/subject/job/k::configuration::Cell(0)"]
+finding = "S5-A"
+deviation = "krs::analysis::collection-entry @ entry"
+
+["cells-run/subject/job/k::configuration::Cell([x, ..])"]
+finding = "S5-A"
+deviation = "krs::analysis::collection-entry @ entry"
+
+["cells-run/subject/job/k::configuration::Cell(_)"]
+finding = "S5-A"
+deviation = "krs::analysis::collection-entry @ entry"
+
+["cells-run/subject/job/k::configuration::Cell(k::map![y -> x, ..])"]
+finding = "S5-A"
+deviation = "krs::analysis::collection-entry @ entry"
+
+["cells-run/subject/job/k::configuration::Cell(x)"]
+finding = "S5-A"
+deviation = "krs::analysis::collection-entry @ entry"
+
+["cells-run/subject/job/k::configuration::KCell()"]
+finding = "S5-A"
+deviation = "krs::analysis::collection-entry @ entry"
+
+["cells-run/subject/job/k::configuration::KCell(x, ..)"]
+finding = "S5-A"
+deviation = "krs::analysis::collection-entry @ entry"
+
+["cells-run/subject/counter/k::configuration::KCell()"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["cells-run/subject/counter/k::configuration::KCell(x, ..)"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["cells-run/result/counter/k::configuration::KCell()"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["cells-run/result/counter/k::configuration::KCell(x)"]
+finding = "S5-A"
+deviation = "krs::analysis::optional-presence @ entry"
+
+["readable/subject/pc/_"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/subject/env/_"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/subject/frame/_"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable/subject/stack/_"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/subject/pc/_"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/subject/env/_"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/subject/frame/_"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["claim/subject/stack/_"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable-run/subject/pc/_"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable-run/subject/env/_"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable-run/subject/frame/_"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["readable-run/subject/stack/_"]
+finding = "S5-Q1"
+deviation = "krs::syntax::rust-syntax @ entry"
+
+["cells/subject/pc/k::configuration::Cell(_)"]
+finding = "S5-Q1"
+deviation = "accepted, without the lint no-effect-entry"
+
+["cells/subject/env/k::configuration::Cell(_)"]
+finding = "S5-Q1"
+deviation = "accepted, without the lint no-effect-entry"
+
+["cells/subject/stack/k::configuration::Cell(_)"]
+finding = "S5-Q1"
+deviation = "accepted, without the lint no-effect-entry"
+
+["cells/subject/frame/_"]
+finding = "S5-Q1"
+deviation = "accepted, without the lint no-effect-entry"
+
+["cells-run/subject/pc/k::configuration::Cell(_)"]
+finding = "S5-Q1"
+deviation = "accepted, without the lint no-effect-entry"
+
+["cells-run/subject/env/k::configuration::Cell(_)"]
+finding = "S5-Q1"
+deviation = "accepted, without the lint no-effect-entry"
+
+["cells-run/subject/stack/k::configuration::Cell(_)"]
+finding = "S5-Q1"
+deviation = "accepted, without the lint no-effect-entry"
+
+["cells-run/subject/frame/_"]
+finding = "S5-Q1"
+deviation = "accepted, without the lint no-effect-entry"
+
+["readable/subject/job/[x, ..]"]
+finding = "S5-Q2"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["claim/subject/job/[x, ..]"]
+finding = "S5-Q2"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["readable-run/subject/job/[x, ..]"]
+finding = "S5-Q2"
+deviation = "krs::analysis::invalid-list-notation @ entry"
+
+["cells-run/result/env/k::configuration::Cell(k::map![5 -> old, x -> y])"]
+finding = "S5-D2"
+deviation = "accepted"
+
+["k8/cells/result/counter/k::configuration::KCell()"]
+finding = "S5-A"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/cells/result/counter/k::configuration::KCell(x)"]
+finding = "S5-A"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/cells/subject/counter/k::configuration::KCell()"]
+finding = "S5-A"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/cells/subject/counter/k::configuration::KCell(x, ..)"]
+finding = "S5-A"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/cells-run/result/counter/k::configuration::KCell()"]
+finding = "S5-A"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/cells-run/result/counter/k::configuration::KCell(x)"]
+finding = "S5-A"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/cells-run/subject/counter/k::configuration::KCell()"]
+finding = "S5-A"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"
+
+["k8/cells-run/subject/counter/k::configuration::KCell(x, ..)"]
+finding = "S5-A"
+deviation = "cell-wrapper advises none, and its refusal advises `Some(k::configuration::Cell(..))`"

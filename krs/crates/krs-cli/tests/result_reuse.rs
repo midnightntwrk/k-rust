@@ -67,6 +67,19 @@ impl Fixture {
         options: &[&str],
         no_reuse_env: bool,
     ) -> Run {
+        self.run_judged(kind, backend, output, options, no_reuse_env, &[])
+    }
+
+    /// [`Fixture::run`] with each of `judgements` (`KRS_CHECK_EXPANDS`, ..) set to `1`.
+    fn run_judged(
+        &self,
+        kind: &str,
+        backend: &str,
+        output: Option<&Path>,
+        options: &[&str],
+        no_reuse_env: bool,
+        judgements: &[&str],
+    ) -> Run {
         let sequence = self.next.fetch_add(1, Ordering::Relaxed);
         let counters_path = self.root.path().join(format!("counters-{sequence}.json"));
         let timings_path = self.root.path().join(format!("timings-{sequence}.json"));
@@ -91,7 +104,12 @@ impl Fixture {
             .arg(&timings_path)
             .env("CARGO_NET_OFFLINE", "true")
             .env("RUSTUP_TOOLCHAIN", "stable")
-            .env_remove("KRS_NO_REUSE");
+            .env_remove("KRS_NO_REUSE")
+            .env_remove("KRS_CHECK_EXPANDS")
+            .env_remove("KRS_CHECK_AGREEMENT");
+        for judgement in judgements {
+            command.env(judgement, "1");
+        }
         if let Some(output) = output {
             command.arg("--output").arg(output);
         }
@@ -365,6 +383,28 @@ fn source_request_and_executable_changes_miss_and_escape_hatches_recompute() {
         .unwrap()
         .set_times(FileTimes::new().set_modified(UNIX_EPOCH + Duration::from_secs(12_345)))
         .unwrap();
+    fixture
+        .run("check", "llvm", None, &[], false)
+        .assert_reused(0);
+}
+
+/// A check stored without a judgement `krs check` makes under the environment
+/// (`KRS_CHECK_EXPANDS=1`, `KRS_CHECK_AGREEMENT=1`) was never judged by it, so a check that asks
+/// for it is not restored from that outcome; one stored with it is.
+#[test]
+fn a_check_judged_under_the_environment_is_restored_only_with_that_judgement() {
+    let fixture = Fixture::new(FOO_BAR);
+    fixture
+        .run("check", "llvm", None, &[], false)
+        .assert_reused(0);
+    for judgement in ["KRS_CHECK_EXPANDS", "KRS_CHECK_AGREEMENT"] {
+        for reused in [0, 1] {
+            fixture
+                .run_judged("check", "llvm", None, &[], false, &[judgement])
+                .assert_reused(reused);
+        }
+    }
+    // A command keeps one stored outcome, now the last judgement's.
     fixture
         .run("check", "llvm", None, &[], false)
         .assert_reused(0);

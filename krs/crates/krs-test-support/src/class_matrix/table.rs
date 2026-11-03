@@ -80,6 +80,7 @@ use std::ops::Range;
 use krs_diagnostic::codes::CodeKind;
 use toml_edit::{DocumentMut, Item, Table as TomlTable};
 
+use super::invariants::{Observed, Severity};
 use super::oracle::{Class as OracleClass, Outcome, Stage};
 use super::{Case, Family, Placed};
 
@@ -197,6 +198,20 @@ pub struct Accepted {
     pub k: Option<String>,
     /// Other accepted cases that must emit the same normalized K.
     pub same_k_as: Vec<String>,
+    /// The lint class the case owes (a warning `krs check` reports, the program accepted), or
+    /// `None` for a case accepted without one.
+    pub lint: Option<String>,
+}
+
+/// A cell-entry case whose row departs from the cells oracle's outcome
+/// ([`super::cells_oracle`]), with the principle it departs by: `E1`, `E3`, or `C-lim: REASON`, a
+/// stated limitation that refuses a spelling the principles give a meaning to.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CellException {
+    /// The glob over case IDs (a run case is matched through its twin, as by a refusal rule).
+    pub pattern: String,
+    /// The principle: `E1`, `E3` or `C-lim: REASON`.
+    pub principle: String,
 }
 
 /// The parsed table.
@@ -208,6 +223,49 @@ pub struct Table {
     pub refuse: Vec<RefuseRule>,
     /// The accepted cases by ID.
     pub accept: BTreeMap<String, Accepted>,
+    /// The cell-entry exceptions, in table order.
+    pub cell_exceptions: Vec<CellException>,
+    /// The lint classes: every class an accept entry owes as its `lint`.
+    pub lints: BTreeSet<String>,
+}
+
+/// How an accepted case's warnings depart from the lint its row owes, inside its entry.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LintDeviation<'a> {
+    /// The row owes this lint, and no warning of its code is inside the entry.
+    Missing(&'a str),
+    /// A warning of this lint class's code is inside the entry, and the row owes no lint of
+    /// that code: the case is linted where the table says nothing is wrong (S2: the lint follows
+    /// its reason).
+    Unowed(&'a str),
+}
+
+impl LintDeviation<'_> {
+    /// The deviation as `pending.toml` records it ([`super::findings::LINT_MISSING`],
+    /// [`super::findings::LINT_UNOWED`]).
+    #[must_use]
+    pub fn signature(self) -> String {
+        match self {
+            Self::Missing(lint) => format!("{}{lint}", super::findings::LINT_MISSING),
+            Self::Unowed(lint) => format!(
+                "{}{lint}, which the table does not owe",
+                super::findings::LINT_UNOWED
+            ),
+        }
+    }
+
+    /// What the table expects that the case did not do.
+    #[must_use]
+    pub fn miss(self) -> String {
+        match self {
+            Self::Missing(lint) => {
+                format!("the table expects the lint {lint}, a warning inside the entry")
+            }
+            Self::Unowed(lint) => format!(
+                "the table owes no lint {lint}, and a warning of its code is inside the entry"
+            ),
+        }
+    }
 }
 
 /// What the table expects of one case.
@@ -427,6 +485,43 @@ pub struct Resolution<'t> {
 }
 
 impl Table {
+    /// How the warnings `observed` reports inside `entry` depart from the lint `accepted` owes,
+    /// both ways: the owed lint's code reported by no warning ([`LintDeviation::Missing`]), or a
+    /// warning of another lint class's code ([`LintDeviation::Unowed`]). `None` where they agree
+    /// or the case was refused.
+    #[must_use]
+    pub fn lint_deviation<'a>(
+        &'a self,
+        accepted: &'a Accepted,
+        observed: &Observed,
+        entry: &Range<usize>,
+    ) -> Option<LintDeviation<'a>> {
+        if observed.refused() {
+            return None;
+        }
+        let code = |class: &str| self.classes.get(class).map(|class| class.code.as_str());
+        let reported = |code: Option<&str>| {
+            observed.diagnostics.iter().any(|diagnostic| {
+                diagnostic.severity == Severity::Warning
+                    && code.is_some()
+                    && diagnostic.code.as_deref() == code
+                    && diagnostic.located_inside(entry)
+            })
+        };
+        let owed = accepted.lint.as_deref();
+        if let Some(lint) = owed
+            && !reported(code(lint))
+        {
+            return Some(LintDeviation::Missing(lint));
+        }
+        self.lints
+            .iter()
+            .map(String::as_str)
+            .filter(|lint| owed.is_none_or(|owed| code(owed) != code(lint)))
+            .find(|lint| reported(code(lint)))
+            .map(LintDeviation::Unowed)
+    }
+
     /// Parse the table's text.
     ///
     /// # Errors
@@ -443,17 +538,37 @@ impl Table {
                 "class" => table.classes = parse_classes(item, &mut errors),
                 "refuse" => table.refuse = parse_rules(item, &mut errors),
                 "accept" => table.accept = parse_accepts(item, &mut errors),
+                "cell-exception" => table.cell_exceptions = parse_exceptions(item, &mut errors),
                 other => errors.push(schema(format!("unknown part {other:?}"))),
             }
         }
-        for rule in &table.refuse {
-            if let Err(reason) = Glob::parse(&rule.pattern) {
+        for pattern in table.refuse.iter().map(|rule| &rule.pattern).chain(
+            table
+                .cell_exceptions
+                .iter()
+                .map(|exception| &exception.pattern),
+        ) {
+            if let Err(reason) = Glob::parse(pattern) {
                 errors.push(TableError::Glob {
-                    pattern: rule.pattern.clone(),
+                    pattern: pattern.clone(),
                     reason,
                 });
             }
         }
+        for (id, accepted) in &table.accept {
+            if let Some(lint) = &accepted.lint
+                && !table.classes.contains_key(lint)
+            {
+                errors.push(schema(format!(
+                    "accept.{id:?} owes the lint {lint:?}, which is no declared class"
+                )));
+            }
+        }
+        table.lints = table
+            .accept
+            .values()
+            .filter_map(|accepted| accepted.lint.clone())
+            .collect();
         if errors.is_empty() {
             Ok(table)
         } else {
@@ -483,11 +598,15 @@ impl Table {
         }
         match Self::parse(term_accepts) {
             Ok(terms) => {
-                if !terms.classes.is_empty() || !terms.refuse.is_empty() {
+                if !terms.classes.is_empty()
+                    || !terms.refuse.is_empty()
+                    || !terms.cell_exceptions.is_empty()
+                {
                     errors.push(schema(format!(
                         "{TERM_ACCEPTS_FILE} holds parts other than accept entries"
                     )));
                 }
+                table.lints.extend(terms.lints);
                 for (id, accepted) in terms.accept {
                     if in_term_accepts(&id) {
                         table.accept.insert(id, accepted);
@@ -1060,7 +1179,7 @@ fn parse_accepts(item: &Item, errors: &mut Vec<TableError>) -> BTreeMap<String, 
         let Some(accepted) = table_of(item, &owner, errors) else {
             continue;
         };
-        let fields = fields(accepted, &owner, &[], &["k", "same_k_as"], errors);
+        let fields = fields(accepted, &owner, &[], &["k", "same_k_as", "lint"], errors);
         accepts.insert(
             id.to_owned(),
             Accepted {
@@ -1068,10 +1187,32 @@ fn parse_accepts(item: &Item, errors: &mut Vec<TableError>) -> BTreeMap<String, 
                     .contains_key("k")
                     .then(|| string(fields.get("k"), &owner, "k", errors)),
                 same_k_as: strings(fields.get("same_k_as"), &owner, "same_k_as", errors),
+                lint: fields
+                    .contains_key("lint")
+                    .then(|| string(fields.get("lint"), &owner, "lint", errors)),
             },
         );
     }
     accepts
+}
+
+fn parse_exceptions(item: &Item, errors: &mut Vec<TableError>) -> Vec<CellException> {
+    let mut exceptions = Vec::new();
+    let Some(table) = table_of(item, "[cell-exception]", errors) else {
+        return exceptions;
+    };
+    for (pattern, item) in table {
+        let owner = format!("cell-exception.{pattern:?}");
+        let Some(exception) = table_of(item, &owner, errors) else {
+            continue;
+        };
+        let fields = fields(exception, &owner, &["principle"], &[], errors);
+        exceptions.push(CellException {
+            pattern: pattern.to_owned(),
+            principle: string(fields.get("principle"), &owner, "principle", errors),
+        });
+    }
+    exceptions
 }
 
 /// A parsed glob over case IDs.

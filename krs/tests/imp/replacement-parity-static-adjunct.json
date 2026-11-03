@@ -1,0 +1,14 @@
+{
+  "non_rule_count": 17,
+  "non_rule_counts": {
+    "constructor": 5,
+    "context_alias": 1,
+    "grammar": 5,
+    "structured_rule": 6
+  },
+  "reference_rules": {},
+  "replacement_rules": {},
+  "sentence_count": 42,
+  "subsort_count": 0,
+  "syntax_sentence_count": 52
+}

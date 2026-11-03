@@ -99,8 +99,12 @@ pub enum Command {
         /// Print each package's program-syntax partition instead of the summary.
         partition: bool,
     },
-    /// Print the deterministic layer-2 Rust reference surface.
-    Expand,
+    /// Print the deterministic layer-2 Rust reference surface: the one module file expansion
+    /// changes on stdout, or every changed file under `output`.
+    Expand {
+        /// Directory to write each changed module file into, at its package-relative path.
+        output: Option<PathBuf>,
+    },
     /// Emit the canonical source projection and shared sidecars.
     EmitK {
         /// Artifact directory to populate.
@@ -134,7 +138,7 @@ impl Command {
     pub const fn kind(&self) -> CommandKind {
         match self {
             Self::Check { .. } => CommandKind::Check,
-            Self::Expand => CommandKind::Expand,
+            Self::Expand { .. } => CommandKind::Expand,
             Self::EmitK { .. } => CommandKind::EmitK,
             Self::Build { .. } => CommandKind::Build,
             Self::Parse(_) => CommandKind::Parse,
@@ -150,7 +154,7 @@ impl Command {
         match self {
             Self::Check { backend, .. } => *backend,
             Self::Build { backend, .. } => Some(*backend),
-            Self::Expand
+            Self::Expand { .. }
             | Self::EmitK { .. }
             | Self::Parse(_)
             | Self::Run(_)
@@ -171,13 +175,14 @@ impl Command {
         )
     }
 
-    /// The artifact directory, for the commands that write one.
+    /// The KRS-owned artifact directory, for the commands that write one; `expand`'s output is
+    /// a source overlay, not such a directory.
     #[must_use]
     pub fn output(&self) -> Option<&Path> {
         match self {
             Self::EmitK { output } | Self::Build { output, .. } => Some(output),
             Self::Check { .. }
-            | Self::Expand
+            | Self::Expand { .. }
             | Self::Parse(_)
             | Self::Run(_)
             | Self::Search(_)
@@ -375,9 +380,11 @@ fn execute_with_sources(
             check(&prepared, *backend, *partition, measurement)
                 .map(CommandExecution::without_artifacts)
         }
-        Command::Expand => measurement
+        Command::Expand { output } => measurement
             .timings
-            .try_span("expand.render", |_| expand(&prepared, &plan))
+            .try_span("expand.render", |_| {
+                expand(&prepared, &plan, output.as_deref())
+            })
             .map(CommandExecution::without_artifacts),
         Command::EmitK { output } => emit(&prepared, output, measurement),
         Command::Build { backend, output } => build(&prepared, *backend, output, measurement),
@@ -392,6 +399,17 @@ fn execute_with_sources(
             )
         }
     };
+    // `KRS_CHECK_EXPANDS=1`: a package `krs check` accepts has a printed form (S6 defines a
+    // readable rule as the rule `krs expand` prints).
+    if let Command::Check { .. } = &request.command
+        && outcome.is_ok()
+        && check_expands()
+        && let Err(error) = expansion(&prepared, &plan)
+    {
+        outcome = Err(CommandError::CheckDisagreement(format!(
+            "KRS_CHECK_EXPANDS: krs check passed, but krs expand refuses the package: {error}"
+        )));
+    }
     if let Command::Check { backend, .. } = &request.command
         && agreement::enabled()
     {
@@ -954,10 +972,57 @@ fn analysis_warnings<'a>(
     reports
 }
 
+/// `krs expand`: the printed package is the authored one with each module file that holds a
+/// readable form replaced by its printed file ([`expand_package_reference_source`]).
+///
+/// Without `output`, stdout holds the one printed file that differs from the authored one (the
+/// crate root when none does); more than one is refused, since stdout cannot say which file is
+/// which. With `output`, an absent or empty directory, each changed file is written at its
+/// package-relative path there, and stdout lists those paths, one per line: overlaying the
+/// directory on a copy of the package gives the printed package.
 fn expand(
     prepared: &PreparedDefinition,
     plan: &CollectorPlan,
+    output: Option<&Path>,
 ) -> Result<CommandOutcome, CommandError> {
+    let expanded = expansion(prepared, plan)?;
+    let stdout = match output {
+        Some(output) => write_expansion(output, &expanded.changed)?,
+        None => match expanded.changed.as_slice() {
+            [] => expanded.root.text.into_bytes(),
+            [file] => file.text.clone().into_bytes(),
+            files => {
+                return Err(CommandError::Usage(format!(
+                    "krs expand changes {} module files ({}); stdout holds one, so pass --output DIRECTORY to write each at its path",
+                    files.len(),
+                    files
+                        .iter()
+                        .map(|file| file.path.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )));
+            }
+        },
+    };
+    Ok(CommandOutcome {
+        stderr: Vec::new(),
+        exit_code: 0,
+        warnings: definition_warnings(prepared),
+        stdout,
+    })
+}
+
+/// Whether `KRS_CHECK_EXPANDS=1` asks `krs check` to judge that `krs expand` prints what it
+/// accepts.
+fn check_expands() -> bool {
+    std::env::var_os("KRS_CHECK_EXPANDS").as_deref() == Some(OsStr::new("1"))
+}
+
+/// The printed package of the root facet ([`expand_package_reference_source`]).
+fn expansion(
+    prepared: &PreparedDefinition,
+    plan: &CollectorPlan,
+) -> Result<krs_compiler::PackageExpansion, CommandError> {
     let root = plan
         .facets()
         .iter()
@@ -992,20 +1057,49 @@ fn expand(
         crates.insert(id, name.clone());
     }
     let facade = FacadeAliases::from_manifest(&root.manifest_path).map_err(CommandError::Facade)?;
-    let expanded = expand_package_reference_source(
+    Ok(expand_package_reference_source(
         &prepared.bundle,
         &prepared.semantic,
         &package,
         &crates,
         &root.manifest_path,
+        &root.crate_root_path,
         &facade.scope(),
-    )?;
-    Ok(CommandOutcome {
-        stderr: Vec::new(),
-        exit_code: 0,
-        warnings: definition_warnings(prepared),
-        stdout: expanded.into_bytes(),
-    })
+    )?)
+}
+
+/// Writes each of `files` at its package-relative path under `output`, which must be absent or
+/// empty: a file left there by an earlier expansion that no longer changes it would otherwise be
+/// overlaid too. Returns the paths written, one per line.
+fn write_expansion(
+    output: &Path,
+    files: &[krs_compiler::ExpandedFile],
+) -> Result<Vec<u8>, CommandError> {
+    let io = |path: &Path| {
+        let path = path.to_path_buf();
+        move |source| CommandError::Io { path, source }
+    };
+    if output.exists() {
+        let mut entries = std::fs::read_dir(output).map_err(io(output))?;
+        if entries.next().is_some() {
+            return Err(CommandError::Usage(format!(
+                "krs expand --output `{}` is not empty; give an absent or empty directory, since a file an earlier expansion left there would be overlaid too",
+                output.display()
+            )));
+        }
+    }
+    std::fs::create_dir_all(output).map_err(io(output))?;
+    let mut listed = String::new();
+    for file in files {
+        let path = output.join(&file.path);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(io(parent))?;
+        }
+        std::fs::write(&path, &file.text).map_err(io(&path))?;
+        listed.push_str(&file.path);
+        listed.push('\n');
+    }
+    Ok(listed.into_bytes())
 }
 
 /// The artifacts `emit-k` writes, rendered in memory, in `emit-k`'s order;
@@ -1423,7 +1517,8 @@ pub enum CommandError {
         source: Box<CommandError>,
     },
     /// `KRS_CHECK_AGREEMENT=1`: the verdict of `krs check` differs from the
-    /// verdicts of the commands it judges.
+    /// verdicts of the commands it judges; `KRS_CHECK_EXPANDS=1`: `krs expand`
+    /// refuses a package `krs check` accepts.
     CheckDisagreement(String),
     /// `KRS_CHECK_PRINTS=1`: a state `run`, `search` or `prove` printed does not read back as
     /// the state.

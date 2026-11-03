@@ -853,6 +853,131 @@ fn unsupported_field(reason: &'static str, span: proc_macro2::Span) -> SyntaxErr
     )
 }
 
+/// A parsed configuration field read as a cell kind's view
+/// ([`krs_ir::cell_kind::CellView`]), with the declarations its nested
+/// groups name.
+///
+/// This reads the source alone: a nested group's declaration is the parsed
+/// `#[k::cell]` struct whose name is the declaration path's last segment, and
+/// a leaf's notation is its sort's (the builtin `List`, `Map` and `Set` by
+/// their names, a cons list where `cons_lists` names its sort). Rust's name
+/// resolution is not consulted; the collector's resolved field is the other
+/// view of the same declaration.
+#[derive(Clone, Copy, Debug)]
+pub struct ConfigurationCell<'a> {
+    field: &'a FixedCellField,
+    declarations: &'a [ConfigurationDeclaration],
+    cons_lists: &'a [String],
+}
+
+impl<'a> ConfigurationCell<'a> {
+    /// The view of `field`, whose nested groups are among `declarations`.
+    #[must_use]
+    pub const fn new(
+        field: &'a FixedCellField,
+        declarations: &'a [ConfigurationDeclaration],
+        cons_lists: &'a [String],
+    ) -> Self {
+        Self {
+            field,
+            declarations,
+            cons_lists,
+        }
+    }
+
+    /// The parsed field.
+    #[must_use]
+    pub const fn field(&self) -> &'a FixedCellField {
+        self.field
+    }
+
+    /// The declaration a nested field names, if one of the declarations is it.
+    #[must_use]
+    pub fn nested(&self) -> Option<&'a ConfigurationDeclaration> {
+        let ConfigurationCellContent::Nested { declaration } = self.field.cell_content() else {
+            return None;
+        };
+        let name = &declaration.segments.last()?.ident;
+        self.declarations
+            .iter()
+            .find(|candidate| candidate.name() == name)
+    }
+
+    /// The views of a nested group's fields; empty for a leaf.
+    #[must_use]
+    pub fn children(&self) -> Vec<Self> {
+        self.nested().map_or_else(Vec::new, |declaration| {
+            declaration
+                .cells()
+                .iter()
+                .map(|field| Self::new(field, self.declarations, self.cons_lists))
+                .collect()
+        })
+    }
+}
+
+impl krs_ir::cell_kind::CellView for ConfigurationCell<'_> {
+    fn name(&self) -> String {
+        self.field.name().unraw().to_string()
+    }
+
+    fn multiplicity(&self) -> krs_ir::cell_kind::Multiplicity {
+        use krs_ir::cell_kind::{Multiplicity, Order};
+        let attribute = self.field.attribute();
+        match attribute.multiplicity().map(syn::LitStr::value).as_deref() {
+            Some("*") => Multiplicity::Many(
+                match attribute.cell_type().map(syn::LitStr::value).as_deref() {
+                    Some("List") => Order::List,
+                    Some("Map") => Order::Map,
+                    // The attribute parser admits no other `cell_type` on a
+                    // collection; an unordered one is the remaining case.
+                    _ => Order::Set,
+                },
+            ),
+            Some("?") => Multiplicity::Optional,
+            _ if self.field.is_optional() => Multiplicity::Optional,
+            _ => Multiplicity::One,
+        }
+    }
+
+    fn content(&self) -> krs_ir::cell_kind::Content<Self> {
+        use krs_ir::cell_kind::{Content, Notation};
+        match self.field.cell_content() {
+            ConfigurationCellContent::Leaf {
+                computation: true, ..
+            } => Content::Computation,
+            ConfigurationCellContent::Leaf { sort, .. } => {
+                let name = sort
+                    .segments
+                    .last()
+                    .map(|segment| segment.ident.to_string())
+                    .unwrap_or_default();
+                Content::Leaf(match name.as_str() {
+                    "List" => Notation::List,
+                    "Map" => Notation::Map,
+                    "Set" => Notation::Set,
+                    "KSequence" => return Content::Computation,
+                    _ if self.cons_lists.contains(&name) => Notation::Cons,
+                    _ => Notation::Plain,
+                })
+            }
+            ConfigurationCellContent::Nested { declaration } => Content::Group {
+                name: self.nested().map_or_else(
+                    || {
+                        declaration
+                            .segments
+                            .last()
+                            .map(|segment| segment.ident.to_string())
+                            .unwrap_or_default()
+                    },
+                    |nested| nested.name().to_string(),
+                ),
+                children: self.children(),
+            },
+        }
+    }
+}
+
 #[cfg(test)]
 mod keyed {
     use super::{ConfigurationCellContent, ConfigurationDeclaration, FixedCellField, SortArgument};

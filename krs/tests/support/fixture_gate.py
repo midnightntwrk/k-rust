@@ -4,6 +4,9 @@ A feature gate checks small KRS fixture packages end to end:
 
 - KRS: `krs check`, `krs expand`, and `krs emit-k`, with the expansion and every
   emitted `.k` artifact pinned by digest (`expand.<package>`, `emitted.<package>.<artifact>`);
+- the expansion round trip: each package the gate expands, printed with `krs expand --output`
+  and overlaid on a copy of its workspace, must check and emit the K the authored package emits,
+  up to the normalization `support.k_round_trip` states (`FixtureGate.round_trip`);
 - the native route: the emitted Definition IR loaded into one `krs-gate` session,
   programs parsed through `configure` (k-rust selects `<MAIN>-SYNTAX` for `$PGM`)
   and run through `execute`;
@@ -72,6 +75,9 @@ from typing import Any, Iterator, Mapping, Sequence
 
 from support import ROOT, GateError, krs_gate
 from support.hashing import sha256_file
+from support import k_round_trip
+import json
+import shutil
 from support.krs import Invocation
 from support.pins import Ledger
 from support.process import run
@@ -180,9 +186,12 @@ class FixtureGate:
         if self.check_prints:
             self.environment = {**self.environment, "KRS_CHECK_PRINTS": "1"}
 
-    def _krs(self, fixture: Fixture, command: str, *extra: os.PathLike[str] | str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    def _krs(
+        self, fixture: Fixture, command: str, *extra: os.PathLike[str] | str, check: bool = True,
+        agreement: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
         argv = fixture.invocation(self.krs).argv(command, *fixture.argv_extra(), *extra)
-        environment = {**self.environment, "KRS_CHECK_AGREEMENT": "1"}
+        environment = {**self.environment, "KRS_CHECK_AGREEMENT": "1"} if agreement else self.environment
         if check:
             return run(argv, environment=environment, timeout=900)
         return subprocess.run(
@@ -222,11 +231,87 @@ class FixtureGate:
         return process.stdout, warnings
 
     def expand(self, fixture: Fixture) -> str:
-        """Pin and return the deterministic `krs expand` reference surface."""
+        """Pin and return the deterministic `krs expand` reference surface, and judge its round
+        trip (`round_trip`)."""
 
         expansion = self._krs(fixture, "expand").stdout
         self.pins.expect(("expand", fixture.package), _sha256_text(expansion))
+        self.round_trip(fixture)
         return expansion
+
+    def round_trip(self, fixture: Fixture) -> None:
+        """Require the printed package to check and emit the authored package's K.
+
+        `krs expand --output` writes each module file it changes at its package path. The files
+        are overlaid on a copy of the fixture's Cargo workspace, whose path dependencies outside
+        the workspace are written as absolute paths; the copy must pass `krs check` where the
+        authored package does, and its `.k` artifacts must equal the authored package's up to
+        `support.k_round_trip`'s normalization. The pin of the expansion records what was
+        printed; this judges it.
+
+        A failure known to the ledger's `known_round_trip_failures.<package>` (its kind and
+        diagnostic code or artifact) is reported and accepted; the gate fails when it changes
+        or no longer occurs, as for a pinned divergence.
+        """
+
+        failure = self._round_trip_failure(fixture)
+        known = (self.pins.get("known_round_trip_failures", {}) if self.pins is not None else {}).get(fixture.package)
+        if failure is None and known is not None:
+            raise GateError(
+                f"{fixture.package}: the pinned round-trip failure {known!r} no longer occurs; remove it"
+            )
+        if failure is None:
+            return
+        summary, detail = failure
+        if summary != known:
+            raise GateError(f"{fixture.package}: {detail}")
+        print(f"KNOWN {fixture.package}: expansion round trip fails ({summary})")
+
+    def _round_trip_failure(self, fixture: Fixture) -> tuple[str, str] | None:
+        """The round trip's failure, as (summary, detail), or `None`."""
+
+        root = self.workspace / "round-trip" / fixture.package
+        shutil.rmtree(root, ignore_errors=True)
+        root.mkdir(parents=True)
+        listed = self._krs(fixture, "expand", "--output", root / "printed", agreement=False).stdout.splitlines()
+        metadata = json.loads(run(
+            ["cargo", "metadata", "--format-version", "1", "--no-deps", "--offline",
+             "--manifest-path", fixture.manifest],
+            environment=self.environment,
+        ).stdout)
+        workspace = Path(metadata["workspace_root"])
+        package = next(
+            Path(entry["manifest_path"]).parent
+            for entry in metadata["packages"] if entry["name"] == fixture.package
+        )
+        copy = root / "copy"
+        shutil.copytree(workspace, copy, ignore=shutil.ignore_patterns("target"))
+        for manifest in copy.rglob("Cargo.toml"):
+            original = workspace / manifest.relative_to(copy)
+            manifest.write_text(_absolute_outside(manifest.read_text(encoding="utf-8"), original.parent, workspace), encoding="utf-8")
+        for path in listed:
+            shutil.copyfile(root / "printed" / path, copy / package.relative_to(workspace) / path)
+        printed = Fixture(
+            copy / fixture.manifest.resolve().relative_to(workspace.resolve()),
+            fixture.package, fixture.definition, fixture.dependencies,
+        )
+        checked = self._krs(printed, "check", check=False, agreement=False)
+        if checked.returncode != 0 and self._krs(fixture, "check", check=False, agreement=False).returncode == 0:
+            codes = sorted(set(re.findall(r"^error\[([^\]]+)\]", checked.stderr, re.MULTILINE)))
+            return (
+                f"check: {', '.join(codes)}",
+                f"the printed package {listed} does not check:\n{checked.stderr}",
+            )
+        self._krs(fixture, "emit-k", "--output", root / "authored", agreement=False)
+        self._krs(printed, "emit-k", "--output", root / "printed-emit", agreement=False)
+        found = k_round_trip.differences(root / "authored", root / "printed-emit")
+        if found:
+            artifacts = sorted({line.split(" ", 1)[0].rstrip(":") for line in found})
+            return (
+                f"emit: {', '.join(artifacts)}",
+                f"the printed package {listed} emits other K:\n" + "\n".join(found[:8]),
+            )
+        return None
 
     def build(self, fixture: Fixture) -> Path:
         """Compile the fixture natively and return the KORE artifact directory."""
@@ -632,6 +717,22 @@ def java_search_outcome(process: subprocess.CompletedProcess[str]) -> list[str]:
     if not cells:
         raise GateError(f"krun --search printed no computation cell:\n{process.stdout}")
     return sorted(cells)
+
+
+_PATH_DEPENDENCY = re.compile(r'(\bpath\s*=\s*")([^"]+)(")')
+
+
+def _absolute_outside(manifest: str, directory: Path, workspace: Path) -> str:
+    """`manifest`, read from `directory`, with each `path = ".."` that leaves `workspace` written
+    absolute; a path inside the workspace stays relative, so it names the copy's package."""
+
+    def absolute(match: re.Match[str]) -> str:
+        target = (directory / match.group(2)).resolve()
+        if target == workspace.resolve() or workspace.resolve() in target.parents:
+            return match.group(0)
+        return f"{match.group(1)}{target}{match.group(3)}"
+
+    return _PATH_DEPENDENCY.sub(absolute, manifest)
 
 
 def diagnostic_lines(stderr: str) -> list[str]:

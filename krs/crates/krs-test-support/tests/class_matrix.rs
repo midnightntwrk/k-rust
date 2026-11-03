@@ -805,6 +805,20 @@ fn the_kind_of_a_red_is_computed_from_its_entry() {
         ("terms/a", internal, &accept, RedKind::OverRefusal, coded),
         ("terms/a", "accepted", &accept, RedKind::OtherK, none),
         (
+            "terms/a",
+            "accepted, without the lint no-effect-entry",
+            &accept,
+            RedKind::LintMissing,
+            none,
+        ),
+        (
+            "terms/a",
+            "accepted, with the lint no-effect-entry, which the table does not owe",
+            &accept,
+            RedKind::LintUnowed,
+            none,
+        ),
+        (
             "k3/terms/a",
             "printed surface refused: krs::emit::unsupported-shape @ unlocated",
             &accept,
@@ -986,6 +1000,7 @@ fn expectations() -> (MistakeClass, Accepted) {
         Accepted {
             k: None,
             same_k_as: Vec::new(),
+            lint: None,
         },
     )
 }
@@ -1441,7 +1456,7 @@ fn the_findings_registry_follows_its_schema() {
 }
 
 /// A run family's case is judged as its twin, the machine-base case of the same slot and spelling,
-/// is (`table::twin`): the table expects the same of both, accepted with the same `same_k_as` pairs
+/// is (`table::twin`): the table expects the same of both, accepted with the same lint and `same_k_as` pairs
 /// between twins and the same K (the sentences the case adds, its command written `TAG`, so the run
 /// base's driver commands and Set collection change no twin's K), or refused with the same class
 /// at the same site.
@@ -1456,8 +1471,9 @@ fn every_run_case_is_expected_what_its_twin_is() {
     let resolution = table.resolve_cases(&cases, registry_kind);
     let shape = |expected: &Expected<'_>| match expected {
         Expected::Accept(accepted) => format!(
-            "accepted, K {:?}, same K as {:?}",
+            "accepted, K {:?}, lint {:?}, same K as {:?}",
             accepted.k,
+            accepted.lint,
             accepted
                 .same_k_as
                 .iter()
@@ -1518,6 +1534,89 @@ fn each_mutation_breaks_one_header_of_the_base() {
 
 fn table(text: &str) -> Table {
     Table::parse(text).unwrap_or_else(|errors| panic!("{errors:#?}"))
+}
+
+/// The full tier compares an accepted case's warnings inside its entry with the lint its row
+/// owes both ways: an owed lint no warning reports is missing, and a lint class's warning the row
+/// does not owe is unowed (S2: the lint follows its reason, so an over-lint is a red too).
+#[test]
+fn the_lint_a_case_owes_is_compared_with_its_warnings_both_ways() {
+    let table = table(
+        r#"
+[class.no-effect-entry]
+code = "krs::analysis::no-effect-entry"
+proposed = true
+doc = "a subject entry that constrains nothing"
+advice = "none"
+
+[accept."cells/subject/pc/k::configuration::Cell(_)"]
+lint = "no-effect-entry"
+
+[accept."cells/subject/pc/k::configuration::Cell(x)"]
+"#,
+    );
+    let owed = &table.accept["cells/subject/pc/k::configuration::Cell(_)"];
+    let none = &table.accept["cells/subject/pc/k::configuration::Cell(x)"];
+    let entry = 10..20;
+    let warned = |code: &str, range: Range<usize>| Observed {
+        accepted: true,
+        diagnostics: vec![ObservedDiagnostic {
+            severity: Severity::Warning,
+            code: Some(code.to_owned()),
+            kind: None,
+            range: Some(range),
+            labels: Vec::new(),
+            message: "warning".to_owned(),
+            help: Vec::new(),
+        }],
+        panic: None,
+    };
+    let quiet = Observed {
+        accepted: true,
+        ..Observed::default()
+    };
+    let lint = "krs::analysis::no-effect-entry";
+    assert_eq!(
+        table.lint_deviation(owed, &quiet, &entry),
+        Some(table::LintDeviation::Missing("no-effect-entry"))
+    );
+    assert_eq!(
+        table.lint_deviation(owed, &warned(lint, 12..14), &entry),
+        None
+    );
+    // A warning outside the entry is not the entry's.
+    assert_eq!(
+        table.lint_deviation(owed, &warned(lint, 30..34), &entry),
+        Some(table::LintDeviation::Missing("no-effect-entry"))
+    );
+    assert_eq!(table.lint_deviation(none, &quiet, &entry), None);
+    let unowed = table.lint_deviation(none, &warned(lint, 12..14), &entry);
+    assert_eq!(
+        unowed,
+        Some(table::LintDeviation::Unowed("no-effect-entry"))
+    );
+    // A warning of no lint class's code is no lint.
+    assert_eq!(
+        table.lint_deviation(none, &warned("krs::analysis::other", 12..14), &entry),
+        None
+    );
+    // The signatures are the deviations the red's kind is computed from.
+    let (class, accepted) = expectations();
+    let _ = class;
+    let kind = |deviation: table::LintDeviation<'_>| {
+        Red::of(
+            "cells/a",
+            &deviation.signature(),
+            Some(&Expected::Accept(&accepted)),
+            registry_kind,
+        )
+        .kind
+    };
+    assert_eq!(kind(unowed.expect("unowed")), RedKind::LintUnowed);
+    assert_eq!(
+        kind(table::LintDeviation::Missing("no-effect-entry")),
+        RedKind::LintMissing
+    );
 }
 
 const CLASSES: &str = r#"

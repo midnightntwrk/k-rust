@@ -27,6 +27,11 @@ struct CacheRequest<'a> {
     registration: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     profile: Option<&'static str>,
+    /// The judgements `krs check` makes beside its own under the environment
+    /// (`KRS_CHECK_AGREEMENT=1`, `KRS_CHECK_EXPANDS=1`): an outcome stored without one was never
+    /// judged by it, so it is not restored where the judgement is asked for.
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    judged: Vec<&'static str>,
 }
 
 pub(super) struct ResultCache {
@@ -248,6 +253,16 @@ fn request_key(request: &CommandRequest) -> String {
             RegistrationMode::Explicit => "explicit",
         },
         profile: profile.map(krs_ir::RawKProfile::as_str),
+        judged: match command {
+            super::Command::Check { .. } => [
+                ("agreement", super::agreement::enabled()),
+                ("expands", super::check_expands()),
+            ]
+            .into_iter()
+            .filter_map(|(judgement, enabled)| enabled.then_some(judgement))
+            .collect(),
+            _ => Vec::new(),
+        },
     };
     serde_json::to_string(&key).expect("cache request serialization cannot fail")
 }
