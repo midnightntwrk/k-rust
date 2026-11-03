@@ -6,8 +6,9 @@
 //!
 //! 1. **form**: what the spelling and its side alone refuse: `_`, `name @ P` and a named rest
 //!    `name @ ..` outside a pattern, `None` or an anonymous rest in an initializer's value, an
-//!    anonymous rest in a map literal outside a `cells!` pattern (a `cells!` result's
-//!    `Cell(k::map![.., ..])` included: the stated M3 limitation);
+//!    anonymous rest in a map literal outside a `cells!` pattern (a `cells!` result's map at a
+//!    content root included, `Cell(k::map![.., ..])` or a record field's `k::map![.., ..]` at a
+//!    configuration position: the stated M3 limitation);
 //! 2. **kind**, against the cell's own layers, outermost first: the outermost layer's mark admits
 //!    the entry and its inside is judged against the next layer; a mark no layer of the stack
 //!    has gives that mark's refusal (brackets on a Set or Map collection are its instances of the
@@ -40,12 +41,13 @@
 //! mark but `Cell(..)` in `cells!`, and inside it brackets (a list) or map notation (a map); a
 //! group has none, since a record is a value.
 //!
+//! A computation is read from its front in every form (E1), so `..` ends it.
+//!
 //! Where the class matrix states a departure from these principles (`[cell-exception]`), the
-//! departure is written here as the table states it, with its reason: a readable computation is
-//! matched from its front, a List collection's back instance is not matched in place, an
-//! initializer's `k::k![..]` splices no configuration variable's computation (`..pgm`), and a
-//! readable record's top-level map read has no result side and reads its value as a fresh
-//! binder.
+//! departure is written here as the table states it, with its reason: a List collection's back
+//! instance is not matched in place, an initializer's `k::k![..]` splices no configuration
+//! variable's computation (`..pgm`), and a readable record's top-level map read has no result
+//! side and reads its value as a fresh binder.
 
 use krs_ir::cell_kind::{GroupKind, Layer, Notation, Order};
 
@@ -121,8 +123,8 @@ pub enum Refusal {
     /// which only a created instance has (its template). A `..` after every child defaults
     /// none, and the record is the exact one.
     OpenRecordOutsidePattern,
-    /// A readable computation's rest before an item: the computation is matched from its
-    /// front (the class matrix's E1).
+    /// A computation's rest before an item, in any form (`[.., x]`, `KCell(x, .., y)`): the
+    /// computation is read from its front, where the next step is (the class matrix's E1).
     ComputationBackItem,
     /// An item after a cons list's rest (`[.., x]`, `[x, .., y]`, `[..rest, x]`): a cons list is
     /// a constructor term built from its front, so its back is no constructor pattern and, with
@@ -409,7 +411,10 @@ impl Admission<'_> {
             {
                 return Err(Refusal::InitializerRemainder);
             }
-            // `..` names the rest of a map only where a `cells!` pattern frames one.
+            // `..` names the rest of a map only where a `cells!` pattern frames one. A `cells!`
+            // result's map at a content root (`Cell(k::map![.., ..])`, a record field's
+            // `k::map![.., ..]`) keeps its subject's rest, a frame write this route does not
+            // lower yet (the stated M3 limitation).
             EntrySpelling::MapLiteral(map)
                 if map.rest == Some(EntryRest::Anonymous)
                     && !(self.form == EntryForm::Cells && pattern) =>
@@ -579,16 +584,19 @@ impl Admission<'_> {
     fn computation(&mut self, spelling: &EntrySpelling) -> Result<(), Refusal> {
         let seq = sequence(spelling).expect("a computation's mark is a sequence");
         seq.items.iter().try_for_each(|item| self.value(item))?;
-        if self.form.is_readable() {
-            match &seq.rest {
-                // A readable rule never drops or captures the continuation.
-                Some((EntryRest::Named(_) | EntryRest::Splice(_), _)) => {
-                    return Err(Refusal::ContinuationInReadable);
-                }
-                // The computation is matched from its front (E1).
-                Some((_, RestPlace::Front)) => return Err(Refusal::ComputationBackItem),
-                _ => {}
-            }
+        // A readable rule never drops or captures the continuation.
+        if self.form.is_readable()
+            && matches!(
+                seq.rest,
+                Some((EntryRest::Named(_) | EntryRest::Splice(_), _))
+            )
+        {
+            return Err(Refusal::ContinuationInReadable);
+        }
+        // The computation is read from its front, where the next step is, in every form: `..`
+        // ends it and no item follows (E1).
+        if matches!(seq.rest, Some((_, RestPlace::Front))) {
+            return Err(Refusal::ComputationBackItem);
         }
         Ok(())
     }
@@ -2414,6 +2422,45 @@ mod tests {
         assert_eq!(
             judge(readable, EntrySide::Subject, &cons, "[x, ..]"),
             Ok(())
+        );
+    }
+
+    #[test]
+    fn an_item_after_the_computations_rest_is_refused_in_every_form() {
+        let computation = [Layer::Computation];
+        for (form, text) in [
+            (EntryForm::Readable, "[.., x]"),
+            (EntryForm::Readable, "[x, .., y]"),
+            (EntryForm::Claim, "[.., x]"),
+            (EntryForm::Cells, "k::configuration::KCell(.., x)"),
+            (EntryForm::Cells, "k::configuration::KCell(x, .., y)"),
+        ] {
+            for side in [EntrySide::Subject, EntrySide::Result] {
+                assert_eq!(
+                    judge(form, side, &computation, text),
+                    Err(Refusal::ComputationBackItem),
+                    "{form:?} {side:?} {text}"
+                );
+            }
+        }
+        assert_eq!(
+            judge(
+                EntryForm::Cells,
+                EntrySide::Subject,
+                &computation,
+                "k::configuration::KCell(x, ..)"
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            below(
+                EntryForm::Cells,
+                EntrySide::Subject,
+                &[Layer::Optional],
+                &computation,
+                "k::configuration::KCell(.., x)"
+            ),
+            Err(Refusal::ComputationBackItem)
         );
     }
 

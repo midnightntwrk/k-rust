@@ -292,6 +292,36 @@ cells	subject, written	leaf Set	mna	item 3: no generated cells case on this stac
 cells	subject, written	leaf Set	owp	item 3: no generated cells case on this stack and side answers it
 cells	subject, written	leaf Set	pop	item 3: no generated cells case on this stack and side answers it
 cells	subject, written	leaf Set	sort	item 3: no generated cells case on this stack and side answers it
+cells back	result, matched	* Set of G	cw	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	result, matched	? leaf List	cw	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	result, matched	? leaf Map	cw	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	result, matched	computation	cbi	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	result, matched	leaf Cons	cw	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	result, matched	leaf Set	cw	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	result, unmatched	* Map of G	cw	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	result, unmatched	? group G	cw	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	result, unmatched	? leaf Int	cw	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	result, unmatched	? leaf Map	cw	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	result, unmatched	computation	cbi	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	result, unmatched	leaf Cons	cw	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	result, unmatched	leaf Int	cw	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	result, unmatched	leaf Map	cw	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	subject	? leaf List	cw	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	subject	computation	cbi	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	subject, written	* List of G	cw	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	subject, written	* Map of G	cw	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	subject, written	* Set of G	cw	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	subject, written	? group G	cw	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	subject, written	? leaf Int	cw	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	subject, written	? leaf List	cw	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	subject, written	? leaf Map	cw	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	subject, written	computation	cbi	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	subject, written	group G	cw	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	subject, written	leaf Cons	cw	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	subject, written	leaf Int	cw	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	subject, written	leaf List	cw	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	subject, written	leaf Map	cw	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
+cells back	subject, written	leaf Set	cw	item 3: a cells column the generator has no spelling for (E1 in every form, the fixes review's F-6); generate it on this stack and side
 cells more	result, matched	* List of G	wop	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
 cells more	result, matched	* Map of G	wop	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
 cells more	result, matched	* Set of G	cw	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
@@ -301,8 +331,7 @@ cells more	result, matched	? leaf List	cw	item 3: a cells column the generator h
 cells more	result, matched	? leaf List	wop	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
 cells more	result, matched	? leaf Map	br	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
 cells more	result, matched	? leaf Map	cw	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
-cells more	result, matched	computation	cwi	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
-cells more	result, matched	computation	owp	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
+cells more	result, matched	computation	cbi	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
 cells more	result, matched	leaf Cons	cons-list-back-item	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
 cells more	result, matched	leaf Cons	cw	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
 cells more	result, matched	leaf Int	wop	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
@@ -323,8 +352,7 @@ cells more	result, unmatched	? leaf List	wop	item 3: a cells column the generato
 cells more	result, unmatched	? leaf Map	br	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
 cells more	result, unmatched	? leaf Map	cw	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
 cells more	result, unmatched	? leaf Map	wop	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
-cells more	result, unmatched	computation	owp	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
-cells more	result, unmatched	computation	rm	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
+cells more	result, unmatched	computation	cbi	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
 cells more	result, unmatched	computation	wop	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
 cells more	result, unmatched	group G	wop	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
 cells more	result, unmatched	leaf Cons	cons-list-back-item	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
@@ -342,8 +370,7 @@ cells more	result, unmatched	leaf Set	br	item 3: a cells column the generator ha
 cells more	result, unmatched	leaf Set	wop	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
 cells more	subject	? leaf List	cw	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
 cells more	subject	? leaf Map	br	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
-cells more	subject	computation	cwi	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
-cells more	subject	computation	owp	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
+cells more	subject	computation	cbi	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
 cells more	subject	leaf Cons	cons-list-back-item	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
 cells more	subject	leaf Cons	cwi	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
 cells more	subject	leaf Cons	ok+no-effect-entry	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
@@ -368,10 +395,8 @@ cells more	subject, written	? leaf List	owp	item 3: a cells column the generator
 cells more	subject, written	? leaf Map	br	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
 cells more	subject, written	? leaf Map	cw	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
 cells more	subject, written	? leaf Map	owp	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
+cells more	subject, written	computation	cbi	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
 cells more	subject, written	computation	cw	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
-cells more	subject, written	computation	cwi	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
-cells more	subject, written	computation	owp	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
-cells more	subject, written	computation	sort	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
 cells more	subject, written	group G	cw	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
 cells more	subject, written	leaf Cons	cons-list-back-item	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
 cells more	subject, written	leaf Cons	cw	item 3: a cells column the generator has no spelling for (the pattern review's G7, G8, G9); generate it on this stack and side
@@ -417,6 +442,19 @@ children	result	group W	open-record-outside-pattern	item 3's generated groups (G
 children	result	group W	sort	item 3's generated groups (G1, G2, G4): the sweep's own groups and results have no generated case
 children, base matched nowhere	result	* List of T	record-update-base	item 3's G1 group: an update whose label nothing in the sentence binds
 children, base matched nowhere	result	* Map of A	record-update-base	item 3's G1 group: an update whose label nothing in the sentence binds
+children, fragment child	result	group C	cir	item 3's generated groups (G4, the fixes review's F-1): the sweep's own groups have no generated case
+children, fragment child	result	group C	rm	item 3's generated groups (G4, the fixes review's F-1): the sweep's own groups have no generated case
+children, fragment child	result	group C	sort	item 3's generated groups (G4, the fixes review's F-1): the sweep's own groups have no generated case
+children, fragment child	result	group H	rm	item 3's generated groups (G4, the fixes review's F-1): the sweep's own groups have no generated case
+children, fragment child	result	group H	sort	item 3's generated groups (G4, the fixes review's F-1): the sweep's own groups have no generated case
+children, fragment child	result	group M	rm	item 3's generated groups (G4, the fixes review's F-1): the sweep's own groups have no generated case
+children, fragment child	result	group M	sort	item 3's generated groups (G4, the fixes review's F-1): the sweep's own groups have no generated case
+children, fragment child	subject	group C	ok	item 3's generated groups (G4, the fixes review's F-1): the sweep's own groups have no generated case
+children, fragment child	subject	group C	sort	item 3's generated groups (G4, the fixes review's F-1): the sweep's own groups have no generated case
+children, fragment child	subject	group H	ok	item 3's generated groups (G4, the fixes review's F-1): the sweep's own groups have no generated case
+children, fragment child	subject	group H	sort	item 3's generated groups (G4, the fixes review's F-1): the sweep's own groups have no generated case
+children, fragment child	subject	group M	ok	item 3's generated groups (G4, the fixes review's F-1): the sweep's own groups have no generated case
+children, fragment child	subject	group M	sort	item 3's generated groups (G4, the fixes review's F-1): the sweep's own groups have no generated case
 children, init	result	* Map of A	rmc	item 3: a template's child (D-5, G7) on the sweep's own groups
 children, init	result	* Map of A	sort	item 3: a template's child (D-5, G7) on the sweep's own groups
 children, init	result	* Map of Q	br	item 3: a template's child (D-5, G7) on the sweep's own groups
@@ -540,6 +578,7 @@ claim	result, unmatched	? leaf Map	iop	item 3: no generated claim case on this s
 claim	result, unmatched	? leaf Map	uor	item 3: no generated claim case on this stack and side answers it
 claim	result, unmatched	? leaf Map	wop	item 3: no generated claim case on this stack and side answers it
 claim	result, unmatched	computation	alias-outside-pattern	item 3: no generated claim case on this stack and side answers it
+claim	result, unmatched	computation	cbi	item 3: no generated claim case on this stack and side answers it
 claim	result, unmatched	computation	cir	item 3: no generated claim case on this stack and side answers it
 claim	result, unmatched	computation	cwi	item 3: no generated claim case on this stack and side answers it
 claim	result, unmatched	computation	mna	item 3: no generated claim case on this stack and side answers it
@@ -678,6 +717,7 @@ claim	subject, written	? leaf Map	cwi	item 3: no generated claim case on this st
 claim	subject, written	? leaf Map	iop	item 3: no generated claim case on this stack and side answers it
 claim	subject, written	? leaf Map	ok	item 3: no generated claim case on this stack and side answers it
 claim	subject, written	? leaf Map	owp	item 3: no generated claim case on this stack and side answers it
+claim	subject, written	computation	cbi	item 3: no generated claim case on this stack and side answers it
 claim	subject, written	computation	cir	item 3: no generated claim case on this stack and side answers it
 claim	subject, written	computation	cw	item 3: no generated claim case on this stack and side answers it
 claim	subject, written	computation	cwi	item 3: no generated claim case on this stack and side answers it
@@ -1080,6 +1120,7 @@ readable	result, unmatched	? leaf Map	iop	item 3: no generated readable case on 
 readable	result, unmatched	? leaf Map	uor	item 3: no generated readable case on this stack and side answers it
 readable	result, unmatched	? leaf Map	wop	item 3: no generated readable case on this stack and side answers it
 readable	result, unmatched	computation	alias-outside-pattern	item 3: no generated readable case on this stack and side answers it
+readable	result, unmatched	computation	cbi	item 3: no generated readable case on this stack and side answers it
 readable	result, unmatched	computation	cir	item 3: no generated readable case on this stack and side answers it
 readable	result, unmatched	computation	cwi	item 3: no generated readable case on this stack and side answers it
 readable	result, unmatched	computation	mna	item 3: no generated readable case on this stack and side answers it
@@ -1218,6 +1259,7 @@ readable	subject, written	? leaf Map	cwi	item 3: no generated readable case on t
 readable	subject, written	? leaf Map	iop	item 3: no generated readable case on this stack and side answers it
 readable	subject, written	? leaf Map	ok	item 3: no generated readable case on this stack and side answers it
 readable	subject, written	? leaf Map	owp	item 3: no generated readable case on this stack and side answers it
+readable	subject, written	computation	cbi	item 3: no generated readable case on this stack and side answers it
 readable	subject, written	computation	cir	item 3: no generated readable case on this stack and side answers it
 readable	subject, written	computation	cw	item 3: no generated readable case on this stack and side answers it
 readable	subject, written	computation	cwi	item 3: no generated readable case on this stack and side answers it

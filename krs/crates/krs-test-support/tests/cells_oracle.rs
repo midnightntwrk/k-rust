@@ -27,6 +27,7 @@ use krs_test_support::class_matrix::cells_oracle::{
     Seq, Spelling, Step, Template, abbreviate, advise, judge, mark, outcome, rule_outcome,
 };
 use krs_test_support::class_matrix::invariants::registry_kind;
+use krs_test_support::class_matrix::pending::{self, Pending};
 use krs_test_support::class_matrix::table::{Expected, Glob, TERM_ACCEPTS_FILE, Table, twin};
 use krs_test_support::class_matrix::{self, Base, Case, Family, Side, entry_cases};
 
@@ -1695,6 +1696,7 @@ fn sweep_tuples() -> BTreeSet<Tuple> {
             for text in sweep_spellings(form)
                 .iter()
                 .chain(sweep_more_spellings(form))
+                .chain(sweep_back_spellings(form))
             {
                 let probe = Probe {
                     form,
@@ -2283,12 +2285,19 @@ fn a_cells_result_map_with_a_rest_at_its_leaf_root_is_judged_by_kind_and_pairing
     oracle_and_product(&probes);
 }
 
-/// The same lexical reading below a leaf's root (P6: below a root, notation is a term's): a
-/// `k::map![.., ..]` that is no direct argument of `Cell(..)`, a fragment's child among them, is
-/// a literal, `anonymous-rest-in-map-literal`, whatever the subject writes at the same place.
+/// The same lexical reading at a record's child (the S5.0g fixes review's F-1, ruled): P1 makes
+/// a record's child an entry, so the direct value of a field of a group record, an instance
+/// record or a fragment at a configuration position is its child cell's content, a content root
+/// (P6) exactly as `Cell(..)`'s argument is: a fragment's Map child `m: k::map![y -> x, ..]` is
+/// judged by kind and pairing against the subject's same child, as the readable record it
+/// abbreviates is (P7), and the product's `arm` there is the stated M3 limitation. Below that,
+/// inside a term (a list's element, a constructor's argument), and at an entry's head without its
+/// leaf's `Cell(..)`, the literal stays `anonymous-rest-in-map-literal` (P6: below a root,
+/// notation is a term's).
 #[test]
-fn a_cells_result_map_with_a_rest_below_a_leaf_root_is_a_literal() {
+fn a_cells_result_map_with_a_rest_at_a_records_child_is_judged_by_pairing() {
     let arm = Outcome::Refuse("anonymous-rest-in-map-literal");
+    let rm = Outcome::Refuse("rest-mismatch");
     let int = Layer::Leaf(Notation::Plain);
     let group = [sweep_group(
         "B",
@@ -2306,7 +2315,27 @@ fn a_cells_result_map_with_a_rest_below_a_leaf_root_is_a_literal() {
                 "k::fragment![crate::B { m: k::map![y -> x, ..], n: 0 }]",
                 Some("k::fragment![crate::B { m: k::map![z -> y, ..], .. }]"),
             ),
+            Outcome::After,
             arm,
+        ),
+        (
+            result_probe(
+                Form::Readable,
+                &group,
+                "B { m: { y -> x, .. }, n: 0 }",
+                Some("B { m: { z -> y, .. }, .. }"),
+            ),
+            Outcome::After,
+            Outcome::After,
+        ),
+        (
+            result_probe(
+                Form::Cells,
+                &group,
+                "k::fragment![crate::B { m: k::map![y -> x, ..], n: 0 }]",
+                Some("k::fragment![crate::B { m: k::map![z -> y], .. }]"),
+            ),
+            rm,
             arm,
         ),
         (
@@ -2316,7 +2345,7 @@ fn a_cells_result_map_with_a_rest_below_a_leaf_root_is_a_literal() {
                 "k::fragment![crate::B { m: k::map![y -> x, ..], n: 0 }]",
                 Some("k::fragment![crate::B { n: z, .. }]"),
             ),
-            arm,
+            rm,
             arm,
         ),
         (
@@ -2329,7 +2358,7 @@ fn a_cells_result_map_with_a_rest_below_a_leaf_root_is_a_literal() {
                     Some("{ me @ k::fragment![crate::A { id: z, m: k::map![z -> y, ..] }], .. }"),
                 )
             },
-            arm,
+            Outcome::After,
             arm,
         ),
         (
@@ -2338,6 +2367,47 @@ fn a_cells_result_map_with_a_rest_below_a_leaf_root_is_a_literal() {
                 &[Layer::Leaf(Notation::Map)],
                 "k::map![y -> x, ..]",
                 Some("k::configuration::Cell(k::map![z -> y, ..])"),
+            ),
+            arm,
+            arm,
+        ),
+    ];
+    oracle_and_product(&probes);
+}
+
+/// Below a content root, inside a term (a list's element, a constructor's argument), a
+/// `cells!` result's `k::map![.., ..]` is a literal, `anonymous-rest-in-map-literal`, in the
+/// oracle and the product alike (P6: below a root, notation is a term's; S5.0g fixes review
+/// F-1).
+#[test]
+fn a_cells_result_map_with_a_rest_inside_a_term_is_a_literal() {
+    let arm = Outcome::Refuse("anonymous-rest-in-map-literal");
+    let int = Layer::Leaf(Notation::Plain);
+    let group = [sweep_group(
+        "B",
+        &[("m", Layer::Leaf(Notation::Map)), ("n", int.clone())],
+    )];
+    let list = [sweep_group(
+        "H",
+        &[("l", Layer::Leaf(Notation::List)), ("b", int)],
+    )];
+    let probes = [
+        (
+            result_probe(
+                Form::Cells,
+                &list,
+                "k::fragment![crate::H { l: [k::map![y -> x, ..]], b: 0 }]",
+                Some("k::fragment![crate::H { l: [y, ..], .. }]"),
+            ),
+            arm,
+            arm,
+        ),
+        (
+            result_probe(
+                Form::Cells,
+                &group,
+                "k::fragment![crate::B { m: Cmd::Hold(k::map![y -> x, ..]), n: 0 }]",
+                Some("k::fragment![crate::B { m: k::map![z -> y, ..], .. }]"),
             ),
             arm,
             arm,
@@ -4030,7 +4100,18 @@ const fn sweep_more_spellings(form: Form) -> &'static [&'static str] {
     }
 }
 
-/// The sweep's main tables: each form's, then its second table ([`sweep_more_spellings`]).
+/// The sweep's third table of each form that has one: the computation's back items in `cells!`
+/// (E1 holds in every form, the S5.0g fixes review's F-6), a table of its own so that the
+/// second table's patterns stand as reviewed.
+const fn sweep_back_spellings(form: Form) -> &'static [&'static str] {
+    match form {
+        Form::Cells => &["k::configuration::KCell(x, .., y)"],
+        Form::Readable | Form::Claim | Form::Init => &[],
+    }
+}
+
+/// The sweep's main tables: each form's, then its second table ([`sweep_more_spellings`]), then
+/// its third where it has one ([`sweep_back_spellings`]).
 fn sweep_main_tables() -> Vec<(String, Form, &'static [&'static str])> {
     let forms = [Form::Readable, Form::Claim, Form::Cells, Form::Init];
     let first = forms
@@ -4043,7 +4124,17 @@ fn sweep_main_tables() -> Vec<(String, Form, &'static [&'static str])> {
             sweep_more_spellings(*form),
         )
     });
-    first.chain(second).collect()
+    let third = forms
+        .iter()
+        .filter(|form| !sweep_back_spellings(**form).is_empty())
+        .map(|form| {
+            (
+                format!("{} back", form_name(*form)),
+                *form,
+                sweep_back_spellings(*form),
+            )
+        });
+    first.chain(second).chain(third).collect()
 }
 
 /// The sweep of [`outcome`] over form × side (a subject whose cell the result leaves or writes,
@@ -4074,7 +4165,7 @@ fn outcome_sweep() -> String {
         "# A cell: ok (admitted), ok+LINT (admitted, owing the lint), sort (admitted, a value's sort\n",
         "#   left to the lattice, step 4), or the refusal's class by its short name below.\n",
         "#   `A|product:B` marks where the product (krs_syntax::cell_entries) answers B: each such\n",
-        "#   cell is a [cell-exception] departure (E1, E3, a C-lim) or a disagreement to explain.\n",
+        "#   cell is a [cell-exception] departure (E3, a C-lim) or a disagreement to explain.\n",
         "#\n",
     ));
     for (class, short) in SWEEP_LEGEND {
@@ -4184,6 +4275,10 @@ fn children_stack(name: &str) -> Vec<Layer> {
             ],
         })],
         "group W" => vec![sweep_group("W", &[("g", group_g()), ("n", int.clone())])],
+        "group M" => vec![sweep_group(
+            "M",
+            &[("m", Layer::Leaf(Notation::Map)), ("n", int.clone())],
+        )],
         "? group G" => vec![Layer::Optional, group_g()],
         "? leaf List" => vec![Layer::Optional, list.clone()],
         other => panic!("no children-sweep stack {other}"),
@@ -4584,6 +4679,274 @@ const CHILDREN_UNBASED_SWEEP: [(&str, [&str; 2], [&str; 2]); 3] = [
     ),
 ];
 
+/// The fragment-child sweep's rows (the S5.0g fixes review's F-1, ruled): a group record whose
+/// child holds a Map, a List or a computation, in a subject and in a result, the child framed or
+/// exact, and in a result over a subject child framed, exact or not named. Each is a side, a
+/// stack, the subject's entry of the cell (`-`: none; a subject's own row has none) and the
+/// entry, each written in readable (claim alike) and in `cells!`, whose fragment writes the
+/// child's content bare (P1: the field's value is the child's entry, its content root, P6).
+const FRAGMENT_CHILD_SWEEP: [(&str, &str, [&str; 2], [&str; 2]); 21] = [
+    (
+        "subject",
+        "group M",
+        ["-", "-"],
+        [
+            "M { m: { y -> x, .. }, .. }",
+            "k::fragment![crate::M { m: k::map![y -> x, ..], .. }]",
+        ],
+    ),
+    (
+        "subject",
+        "group M",
+        ["-", "-"],
+        [
+            "M { m: { y -> x }, .. }",
+            "k::fragment![crate::M { m: k::map![y -> x], .. }]",
+        ],
+    ),
+    (
+        "result",
+        "group M",
+        [
+            "M { m: { z -> y, .. }, .. }",
+            "k::fragment![crate::M { m: k::map![z -> y, ..], .. }]",
+        ],
+        [
+            "M { m: { y -> x, .. }, n: 0 }",
+            "k::fragment![crate::M { m: k::map![y -> x, ..], n: 0 }]",
+        ],
+    ),
+    (
+        "result",
+        "group M",
+        [
+            "M { m: { z -> y }, .. }",
+            "k::fragment![crate::M { m: k::map![z -> y], .. }]",
+        ],
+        [
+            "M { m: { y -> x, .. }, n: 0 }",
+            "k::fragment![crate::M { m: k::map![y -> x, ..], n: 0 }]",
+        ],
+    ),
+    (
+        "result",
+        "group M",
+        [
+            "M { m: { z -> y, .. }, .. }",
+            "k::fragment![crate::M { m: k::map![z -> y, ..], .. }]",
+        ],
+        [
+            "M { m: { y -> x }, n: 0 }",
+            "k::fragment![crate::M { m: k::map![y -> x], n: 0 }]",
+        ],
+    ),
+    (
+        "result",
+        "group M",
+        [
+            "M { m: { z -> y }, .. }",
+            "k::fragment![crate::M { m: k::map![z -> y], .. }]",
+        ],
+        [
+            "M { m: { y -> x }, n: 0 }",
+            "k::fragment![crate::M { m: k::map![y -> x], n: 0 }]",
+        ],
+    ),
+    (
+        "result",
+        "group M",
+        ["M { n: z, .. }", "k::fragment![crate::M { n: z, .. }]"],
+        [
+            "M { m: { y -> x, .. }, n: 0 }",
+            "k::fragment![crate::M { m: k::map![y -> x, ..], n: 0 }]",
+        ],
+    ),
+    (
+        "subject",
+        "group H",
+        ["-", "-"],
+        [
+            "H { l: [y, ..], .. }",
+            "k::fragment![crate::H { l: [y, ..], .. }]",
+        ],
+    ),
+    (
+        "subject",
+        "group H",
+        ["-", "-"],
+        ["H { l: [y], .. }", "k::fragment![crate::H { l: [y], .. }]"],
+    ),
+    (
+        "result",
+        "group H",
+        [
+            "H { l: [z, ..], .. }",
+            "k::fragment![crate::H { l: [z, ..], .. }]",
+        ],
+        [
+            "H { l: [x, ..], b: 0 }",
+            "k::fragment![crate::H { l: [x, ..], b: 0 }]",
+        ],
+    ),
+    (
+        "result",
+        "group H",
+        ["H { l: [z], .. }", "k::fragment![crate::H { l: [z], .. }]"],
+        [
+            "H { l: [x, ..], b: 0 }",
+            "k::fragment![crate::H { l: [x, ..], b: 0 }]",
+        ],
+    ),
+    (
+        "result",
+        "group H",
+        [
+            "H { l: [z, ..], .. }",
+            "k::fragment![crate::H { l: [z, ..], .. }]",
+        ],
+        [
+            "H { l: [x], b: 0 }",
+            "k::fragment![crate::H { l: [x], b: 0 }]",
+        ],
+    ),
+    (
+        "result",
+        "group H",
+        ["H { l: [z], .. }", "k::fragment![crate::H { l: [z], .. }]"],
+        [
+            "H { l: [x], b: 0 }",
+            "k::fragment![crate::H { l: [x], b: 0 }]",
+        ],
+    ),
+    (
+        "result",
+        "group H",
+        ["H { b: z, .. }", "k::fragment![crate::H { b: z, .. }]"],
+        [
+            "H { l: [x, ..], b: 0 }",
+            "k::fragment![crate::H { l: [x, ..], b: 0 }]",
+        ],
+    ),
+    (
+        "subject",
+        "group C",
+        ["-", "-"],
+        [
+            "C { c: [y, ..], .. }",
+            "k::fragment![crate::C { c: [y, ..], .. }]",
+        ],
+    ),
+    (
+        "subject",
+        "group C",
+        ["-", "-"],
+        ["C { c: [y], .. }", "k::fragment![crate::C { c: [y], .. }]"],
+    ),
+    (
+        "result",
+        "group C",
+        [
+            "C { c: [z, ..], .. }",
+            "k::fragment![crate::C { c: [z, ..], .. }]",
+        ],
+        [
+            "C { c: [x, ..], n: 0 }",
+            "k::fragment![crate::C { c: [x, ..], n: 0 }]",
+        ],
+    ),
+    (
+        "result",
+        "group C",
+        ["C { c: [z], .. }", "k::fragment![crate::C { c: [z], .. }]"],
+        [
+            "C { c: [x, ..], n: 0 }",
+            "k::fragment![crate::C { c: [x, ..], n: 0 }]",
+        ],
+    ),
+    (
+        "result",
+        "group C",
+        [
+            "C { c: [z, ..], .. }",
+            "k::fragment![crate::C { c: [z, ..], .. }]",
+        ],
+        [
+            "C { c: [x], n: 0 }",
+            "k::fragment![crate::C { c: [x], n: 0 }]",
+        ],
+    ),
+    (
+        "result",
+        "group C",
+        ["C { c: [z], .. }", "k::fragment![crate::C { c: [z], .. }]"],
+        [
+            "C { c: [x], n: 0 }",
+            "k::fragment![crate::C { c: [x], n: 0 }]",
+        ],
+    ),
+    (
+        "result",
+        "group C",
+        ["C { n: z, .. }", "k::fragment![crate::C { n: z, .. }]"],
+        [
+            "C { c: [x, ..], n: 0 }",
+            "k::fragment![crate::C { c: [x, ..], n: 0 }]",
+        ],
+    ),
+];
+
+/// The fragment-child sweep (the S5.0g fixes review's F-1): a group record's Map, List or
+/// computation child at its own content root, in readable, claim and `cells!`, so that a
+/// `cells!` fragment's child and the readable record's child it abbreviates (P7) show side by
+/// side.
+fn fragment_child_sweep(out: &mut String) {
+    out.push_str(concat!(
+        "#\n",
+        "## children, fragment child: a group record's Map, List or computation child, in a subject and a result\n",
+        "# Each row is a side, the group, the subject's entry of the cell (`-`: none, or a subject's\n",
+        "#   own row) and the entry. Groups: M (m: Map, n: Int), H (l: List, b: Int), C (c: a\n",
+        "#   computation, n: Int). Bound names: in a result x, y, z; in a subject none. The `cells!`\n",
+        "#   rows write each record as its fragment, whose child is the child's entry, unwrapped (P1):\n",
+        "#   the field's direct value is the child's content root (P6).\n",
+        "form\tside\tstack\tother\tentry\toutcome\n",
+    ));
+    for form in [Form::Readable, Form::Claim, Form::Cells] {
+        let spelled = usize::from(form == Form::Cells);
+        for (side_name, stack_name, other, entry) in &FRAGMENT_CHILD_SWEEP {
+            let stack = children_stack(stack_name);
+            let other = (other[spelled] != "-").then_some(other[spelled]);
+            let (side, bound): (Side, &[&str]) = if *side_name == "subject" {
+                (Side::Subject, &[])
+            } else {
+                (Side::Result, &["x", "y", "z"])
+            };
+            let probe = Probe {
+                form,
+                side,
+                path: &[],
+                stack: &stack,
+                text: entry[spelled],
+                other,
+                written: false,
+                bound,
+            };
+            let (oracle, product) = (probe.oracle(), probe.product());
+            let _ = write!(
+                out,
+                "{}\t{side_name}\t{stack_name}\t{}\t{}\t{}",
+                form_name(form),
+                other.unwrap_or("-"),
+                entry[spelled],
+                sweep_name(oracle)
+            );
+            if product != oracle {
+                let _ = write!(out, "|product:{}", sweep_name(product));
+            }
+            out.push('\n');
+        }
+    }
+}
+
 /// The sweep of a result's children (P1: a group or instance record's children are entries of
 /// their own cells): each child's content root against its own other side (P6, R10), and a
 /// Map collection's key written in an instance update (§7).
@@ -4610,6 +4973,7 @@ fn children_sweep(out: &mut String) {
         "form\tstack\tother\tresult\toutcome\n",
     ));
     children_rows(out, &CHILDREN_UNBASED_SWEEP, &["x", "y", "z"]);
+    fragment_child_sweep(out);
     initializer_children_sweep(out);
 }
 
@@ -4760,248 +5124,496 @@ fn the_outcome_sweep_is_the_golden() {
     }
 }
 
+/// The forms a [`Scope`] names.
+const EVERY_FORM: &[&str] = &["readable", "claim", "cells", "init"];
+const RULE_FORMS: &[&str] = &["readable", "claim", "cells"];
+const READABLE_FORMS: &[&str] = &["readable", "claim"];
+const CELLS_FORM: &[&str] = &["cells"];
+const INIT_FORM: &[&str] = &["init"];
+
+/// Where a registry ID can decide a cell (the S5.0g fixes review's F-4, ruled): the forms its
+/// statement is of, and the stacks, by a word of the stack's sweep name (`?`, `*`, `computation`,
+/// `group`, `* Map`, ..), none for every stack. Coarse by intent: a line that cites an ID for a
+/// pattern none of whose members it reaches cites a ruling that does not cover the cell.
+#[derive(Clone, Copy)]
+struct Scope {
+    forms: &'static [&'static str],
+    stacks: &'static [&'static str],
+}
+
+impl Scope {
+    fn holds(&self, form: &str, stack: &str) -> bool {
+        self.forms.contains(&form)
+            && (self.stacks.is_empty() || self.stacks.iter().any(|word| stack.contains(word)))
+    }
+
+    fn shown(&self) -> String {
+        let forms = if self.forms == EVERY_FORM {
+            "every form".to_owned()
+        } else {
+            self.forms.join(", ")
+        };
+        if self.stacks.is_empty() {
+            format!("{forms}; any stack")
+        } else {
+            format!("{forms}; stacks with {}", self.stacks.join(" or "))
+        }
+    }
+}
+
 /// The citation registry of the principle lines (S5.0g pattern review P-R11): every line cites
-/// its principles and rulings by these IDs, each with a one-line statement and its source.
-const CITATIONS: [(&str, &str, &str); 48] = [
+/// its principles and rulings by these IDs, each with a one-line statement, its source and its
+/// [`Scope`].
+const CITATIONS: [(&str, &str, &str, Scope); 50] = [
     (
         "P0",
         "an entry means the K configuration it lowers to; a spelling Rust reads otherwise is refused",
         "S5-principles.md §1 P0",
+        Scope {
+            forms: EVERY_FORM,
+            stacks: &[],
+        },
     ),
     (
         "P1",
         "an entry denotes the content of one cell at any depth; the declaration fixes its stack: ?, *, then a computation, a leaf or a group",
         "S5-principles.md §1 P1",
+        Scope {
+            forms: EVERY_FORM,
+            stacks: &[],
+        },
     ),
     (
         "P2",
         "each layer has one mark per form, read lexically; a cons list's brackets end in their rest",
         "S5-principles.md §1 P2",
+        Scope {
+            forms: EVERY_FORM,
+            stacks: &[],
+        },
     ),
     (
         "P3",
         "one judgement in every form, the entry's head against the whole stack: (a), (b), (c); a missing outer layer is named only where the inside passes form and kind",
         "S5-principles.md §1 P3",
+        Scope {
+            forms: EVERY_FORM,
+            stacks: &[],
+        },
     ),
     (
         "P3a",
         "the outermost layer's mark admits the entry, and its inside is judged against the next layer",
         "S5-principles.md §1 P3 (a)",
+        Scope {
+            forms: EVERY_FORM,
+            stacks: &[],
+        },
     ),
     (
         "P3b",
         "a mark of a layer the cell has nowhere gives that mark's class",
         "S5-principles.md §1 P3 (b)",
+        Scope {
+            forms: EVERY_FORM,
+            stacks: &[],
+        },
     ),
     (
         "P3c",
         "a deeper layer's mark, or a value where the outermost layer has a mark, gives the missing outer layer's class",
         "S5-principles.md §1 P3 (c)",
+        Scope {
+            forms: EVERY_FORM,
+            stacks: &[],
+        },
     ),
     (
         "P4",
         "form, then kind (P3), then pairing, then sorts (the lattice), each answered by the first layer that can know it",
         "S5-principles.md §1 P4",
+        Scope {
+            forms: EVERY_FORM,
+            stacks: &[],
+        },
     ),
     (
         "P5",
         "a subject constrains and binds; a result is the new content; None tests absence by creation; an initializer is a complete result, a * cell's value one instance's template",
         "S5-principles.md §1 P5",
+        Scope {
+            forms: EVERY_FORM,
+            stacks: &[],
+        },
     ),
     (
         "P6",
         "at a content root .. is K's ...: a subject matches the rest, a result keeps it with .. or puts a named one back with ..name; records follow Rust, a bare .. in a result being the template of a created instance or of a ? cell created over None",
         "S5-principles.md §1 P6",
+        Scope {
+            forms: EVERY_FORM,
+            stacks: &[],
+        },
     ),
     (
         "P7",
         "readable abbreviates cells!: a readable entry is admitted exactly where the cells! entry it abbreviates is",
         "S5-principles.md §1 P7",
+        Scope {
+            forms: RULE_FORMS,
+            stacks: &[],
+        },
     ),
     (
         "E1",
-        "the computation is read from its front: .. ends it (computation-back-item, a stated exception)",
+        "the computation is read from its front: .. ends it (computation-back-item, a stated exception of every form, S5.0g:F-6)",
         "S5-principles.md §1, the exceptions",
+        Scope {
+            forms: EVERY_FORM,
+            stacks: &["computation"],
+        },
     ),
     (
         "E2",
         "the continuation has no readable value spelling (now Q3)",
         "S5-principles.md §1, the exceptions",
+        Scope {
+            forms: READABLE_FORMS,
+            stacks: &["computation"],
+        },
     ),
     (
         "E3",
         "an initializer's k![..] takes no ..pgm (a stated exception)",
         "S5-principles.md §1, the exceptions",
+        Scope {
+            forms: INIT_FORM,
+            stacks: &[],
+        },
     ),
     (
         "Q1",
         "a subject entry that constrains nothing is a lint; a result over an unmatched cell is an overwrite",
         "S5-cell-kinds.md rev. 4, decisions in force",
+        Scope {
+            forms: RULE_FORMS,
+            stacks: &[],
+        },
     ),
     (
         "Q2",
         "one collection instance is a value only in an ordered collection; an unordered one's instance is chosen by a written record",
         "S5-cell-kinds.md rev. 4, decisions in force",
+        Scope {
+            forms: RULE_FORMS,
+            stacks: &["*"],
+        },
     ),
     (
         "Q3",
         "a readable rule never drops or captures the continuation",
         "S5-cell-kinds.md rev. 4, decisions in force",
+        Scope {
+            forms: READABLE_FORMS,
+            stacks: &[],
+        },
     ),
     (
         "L1",
         "presence is lexical",
         "S5-cell-kinds.md rev. 4, decisions in force (D3)",
+        Scope {
+            forms: EVERY_FORM,
+            stacks: &[],
+        },
     ),
     (
         "L3",
         "initializer brackets on a ? cell with no List layer give bracket-reading (as S5.0g:R7 words it)",
         "S5-cell-kinds.md rev. 4, decisions in force (D3)",
+        Scope {
+            forms: INIT_FORM,
+            stacks: &["?"],
+        },
     ),
     (
         "L4",
         "a group record at a configuration position names every child or writes ..",
         "S5-cell-kinds.md rev. 4, decisions in force (D3)",
+        Scope {
+            forms: EVERY_FORM,
+            stacks: &["group", "*"],
+        },
     ),
     (
         "design:S1b",
         "an entry naming a cell below a ? or * ancestor is refused for the outermost such ancestor (owp, cwi), the rule forms'",
         "S5-cell-kinds.md rev. 4 §2.3, rows changed in revision 4",
+        Scope {
+            forms: RULE_FORMS,
+            stacks: &[],
+        },
     ),
     (
         "design:R3",
         "Some(e) admits e by the underlying kind (the design's ruling 3)",
         "S5-principles.md §2 row 55",
+        Scope {
+            forms: EVERY_FORM,
+            stacks: &["?"],
+        },
     ),
     (
         "design:R4",
         "braces on a Set leaf are instances-on-plain-cell (the design's ruling 4)",
         "S5-principles.md §2 row 56",
+        Scope {
+            forms: READABLE_FORMS,
+            stacks: &["leaf Set"],
+        },
     ),
     (
         "design:R6",
         "cells! judges the outermost layer first, withdrawn: one order for every form, a cells! wrapper on a ? or * cell is cell-wrapper",
         "S5-principles.md §3 item 1 (A)",
+        Scope {
+            forms: CELLS_FORM,
+            stacks: &["?", "*"],
+        },
     ),
     (
         "design:M3",
-        "a map read has no result side until M3: readable { k -> v, .. } in a result is map-read-in-result and cells! Cell(k::map![.., ..]) in a result the product's arm, both stated limitations",
+        "a map read has no result side until M3: readable { k -> v, .. } in a result is map-read-in-result and a cells! result's k::map![.., ..] at a content root (Cell(..)'s argument, a record field's value) the product's arm, both stated limitations",
         "S5-cell-kinds.md rev. 4 §2.3, the C-lims",
+        Scope {
+            forms: RULE_FORMS,
+            stacks: &[],
+        },
     ),
     (
         "design:rev4-R10",
         "an instance child's other side is the labelled subject instance's same child (..me); a created instance's child has none",
         "S5-cell-kinds.md rev. 4, revision 4 table, R10",
+        Scope {
+            forms: RULE_FORMS,
+            stacks: &["*"],
+        },
     ),
     (
         "S5.0:F1",
         "None over a matched ? cell removes it with its rest, admitted",
         "README.md §12 lane 3, S5.0 rulings",
+        Scope {
+            forms: RULE_FORMS,
+            stacks: &["?"],
+        },
     ),
     (
         "S5.0:F2",
         "a named rest in a result is alias-outside-pattern",
         "README.md §12 lane 3, S5.0 rulings",
+        Scope {
+            forms: RULE_FORMS,
+            stacks: &[],
+        },
     ),
     (
         "S5.0:F3",
         "with ruling 1: a bare .. on a result group record of a group that exists, matched or overwritten, is open-record-outside-pattern; only a created instance has defaults",
         "README.md §12 lane 3, S5.0 rulings",
+        Scope {
+            forms: RULE_FORMS,
+            stacks: &["group"],
+        },
     ),
     (
         "S5.0:R3",
         "any @ in a result is refused (S5.0's ruling 3)",
         "README.md §12 lane 3, S5.0 rulings",
+        Scope {
+            forms: RULE_FORMS,
+            stacks: &[],
+        },
     ),
     (
         "S5.0:R4",
         "any @ in an initializer is refused (S5.0's ruling 4)",
         "README.md §12 lane 3, S5.0 rulings",
+        Scope {
+            forms: INIT_FORM,
+            stacks: &[],
+        },
     ),
     (
         "S5.0g:D-1",
         "a result pairs its rests at every content root, a group or instance record's children included",
         "README.md §12 lane 3, S5.0g D-1",
+        Scope {
+            forms: RULE_FORMS,
+            stacks: &["group", "*"],
+        },
     ),
     (
         "S5.0g:D-2",
         "a Map collection's instance is keyed by its first child; an update writes the key, if at all, as its subject's key binder (with S5.0g's ruling 2), else map-collection-key",
         "README.md §12 lane 3, S5.0g D-2 and \"ruled next\"",
+        Scope {
+            forms: RULE_FORMS,
+            stacks: &["* Map"],
+        },
     ),
     (
         "S5.0g:D-3",
         "a fragment of the position's group is read as its record, for pairing and Q1's lint",
         "README.md §12 lane 3, S5.0g D-3",
+        Scope {
+            forms: RULE_FORMS,
+            stacks: &["group", "*"],
+        },
     ),
     (
         "S5.0g:D-4",
         "k::fragment![crate::G { a: x }] is record-missing-children, as its readable form",
         "README.md §12 lane 3, S5.0g D-4",
+        Scope {
+            forms: RULE_FORMS,
+            stacks: &["group", "*"],
+        },
     ),
     (
         "S5.0g:D-5",
         "a * value is one instance's template at every depth",
         "README.md §12 lane 3, S5.0g D-5",
+        Scope {
+            forms: INIT_FORM,
+            stacks: &[],
+        },
     ),
     (
         "S5.0g:key",
         "a created Map instance must write its key",
         "README.md §12 lane 3, S5.0g \"ruled next\"",
+        Scope {
+            forms: RULE_FORMS,
+            stacks: &["* Map"],
+        },
     ),
     (
         "S5.0g:R3",
         "the cell's own form, mark and kind refusals come before the path refusal, which replaces only what they admit and pairing",
         "README.md §12 lane 3, S5.0g part (a) review R3",
+        Scope {
+            forms: RULE_FORMS,
+            stacks: &[],
+        },
     ),
     (
         "S5.0g:R4",
         "a bare .. on a built record that is not a created instance is open-record-outside-pattern where it leaves a field open; after every field it defaults none",
         "README.md §12 lane 3, S5.0g R4 and the vacuous-rest ruling",
+        Scope {
+            forms: RULE_FORMS,
+            stacks: &[],
+        },
     ),
     (
         "S5.0g:R7",
         "L3 holds on a ? cell with no List layer; on a ? List the brackets are its leaf's mark (P3c)",
         "tickets/S5-0g-review-a.md R7",
+        Scope {
+            forms: EVERY_FORM,
+            stacks: &["?"],
+        },
     ),
     (
         "S5.0g:R9",
         "an update writing a Map key as the same literal its subject matched keeps it",
         "README.md §12 lane 3, S5.0g part (a) review R9",
+        Scope {
+            forms: RULE_FORMS,
+            stacks: &["* Map"],
+        },
     ),
     (
         "S5.0g:P-R1",
         "a cons list's back lowers to no K: cons-list-back-item, a kind refusal inside the leaf's mark",
         "tickets/S5-0g-b-review-fixes.md ruling 1",
+        Scope {
+            forms: EVERY_FORM,
+            stacks: &["Cons"],
+        },
     ),
     (
         "S5.0g:P-R2",
-        "a cells! result's Cell(k::map![.., ..]) is a content root, judged by kind and pairing; arm only where the literal is no content root",
+        "a cells! result's Cell(k::map![.., ..]) is a content root, judged by kind and pairing; arm only where the literal is no content root, a readable map! everywhere",
         "tickets/S5-0g-b-review-fixes.md ruling 2",
+        Scope {
+            forms: RULE_FORMS,
+            stacks: &[],
+        },
     ),
     (
         "S5.0g:P-R3",
         "an update whose label names no subject instance creates an instance where the sentence binds the label elsewhere, and is record-update-base where it binds it nowhere",
         "tickets/S5-0g-b-review-fixes.md ruling 3",
+        Scope {
+            forms: RULE_FORMS,
+            stacks: &["*"],
+        },
     ),
     (
         "S5.0g:P-R4",
         "brackets on a Set or Map collection are instance-list-shape, whatever they hold",
         "tickets/S5-0g-b-review-fixes.md ruling 4",
+        Scope {
+            forms: RULE_FORMS,
+            stacks: &["* Set", "* Map"],
+        },
     ),
     (
         "S5.0g:P-R5",
         "a missing outer layer is named only where the inside passes form and kind against the deeper layers",
         "tickets/S5-0g-b-review-fixes.md ruling 5",
+        Scope {
+            forms: EVERY_FORM,
+            stacks: &[],
+        },
     ),
     (
         "S5.0g:P-R12",
         "under a path, an ancestor's own pairing decides whether a group is created, so F3's refusal is pairing and the path class replaces it",
         "tickets/S5-0g-b-review-fixes.md ruling 7",
+        Scope {
+            forms: RULE_FORMS,
+            stacks: &["group"],
+        },
     ),
     (
         "S5.0g:P-R13",
         "a ? cell created over None has a template (the initializer's k::absent!(v)), so its bare .. is admitted",
         "tickets/S5-0g-b-review-fixes.md ruling 7, P6 as amended",
+        Scope {
+            forms: RULE_FORMS,
+            stacks: &["?"],
+        },
+    ),
+    (
+        "S5.0g:F-1",
+        "a field's direct value in a group record, an instance record or a fragment at a configuration position is its child's entry and content root, as Cell(..)'s argument is: a cells! fragment's k::map![.., ..] child is judged by kind and pairing; deeper, in a term, it stays arm",
+        "tickets/S5-0g-b-review-fixes-2.md ruling 1",
+        Scope {
+            forms: RULE_FORMS,
+            stacks: &["group", "*"],
+        },
+    ),
+    (
+        "S5.0g:F-6",
+        "E1 holds in every form: the computation is read from its front, so cells! KCell(.., x) and KCell(x, .., y) are computation-back-item as readable [.., x] is",
+        "tickets/S5-0g-b-review-fixes-2.md ruling 6",
+        Scope {
+            forms: EVERY_FORM,
+            stacks: &["computation"],
+        },
     ),
 ];
 
@@ -5159,16 +5771,17 @@ fn main_patterns(
 
 /// The children sections' patterns: a row group is one result (its answers in readable, claim
 /// and `cells!`, whose rows follow in that order) or one initializer value (its one answer).
-fn children_patterns(tables: &[SweepTable<'_>]) -> [PatternTable; 3] {
+fn children_patterns(tables: &[SweepTable<'_>]) -> [PatternTable; 4] {
     [
         result_patterns(tables, "children", "ch"),
         result_patterns(tables, "children, base matched nowhere", "cn"),
+        result_patterns(tables, "children, fragment child", "cf"),
         initializer_patterns(tables),
     ]
 }
 
-/// The patterns of a children table of results, `name`: one result's answers in readable, claim
-/// and `cells!`.
+/// The patterns of a children table of entries, `name`: one entry's answers in readable, claim
+/// and `cells!` (its row's last cell), its member the row's other cells but the form.
 fn result_patterns(
     tables: &[SweepTable<'_>],
     name: &'static str,
@@ -5193,10 +5806,11 @@ fn result_patterns(
         for (row, form) in rows.iter().zip(forms) {
             assert_eq!((row[0], row[1]), (form, rows[0][1]), "children row {at}");
         }
-        let answers = rows.iter().map(|row| row[4].to_owned()).collect();
+        let last = rows[0].len() - 1;
+        let answers = rows.iter().map(|row| row[last].to_owned()).collect();
         table.add(
             vec![("answers".to_owned(), answers)],
-            owned(&[rows[0][1], rows[0][2], rows[0][3]]),
+            owned(&rows[0][1..last]),
         );
     }
     table
@@ -5267,6 +5881,7 @@ fn sweep_patterns(sweep: &str, golden: &str) -> String {
             &["readable more", "claim more"],
         ),
         main_patterns(&tables, "cells more", "cx", &["cells more"]),
+        main_patterns(&tables, "cells back", "cb", &["cells back"]),
         main_patterns(&tables, "init more", "ix", &["init more"]),
     ];
     out.extend(children_patterns(&tables));
@@ -5294,8 +5909,11 @@ fn sweep_patterns(sweep: &str, golden: &str) -> String {
         "# - children, init: a row group is one value, its pattern the one answer.\n",
         "# - the `more` tables (readable, claim more; cells more; init more) print each form's\n",
         "#   further single-entry spellings (the pattern review's gaps G7, G8, G9) as tables of their\n",
-        "#   own, with the same rows; children, base matched nowhere is the children table's reading\n",
-        "#   where nothing binds an update's label (S5.0g:P-R3).\n",
+        "#   own, with the same rows, and cells back the computation's back items in cells! (E1 in\n",
+        "#   every form, the fixes review's F-6); children, base matched nowhere is the children\n",
+        "#   table's reading where nothing binds an update's label (S5.0g:P-R3); children, fragment\n",
+        "#   child a group record's Map, List or computation child in a subject and a result (the\n",
+        "#   fixes review's F-1), its member the row's side, stack, `other` and entry.\n",
         "# Lines: `ID  PATH|answers  ANSWERS..` (the pattern), `ID  member  ..` (each row group that\n",
         "# has it), `ID  principle  TEXT`. IDs number the patterns in the order their first member is\n",
         "# printed in the sweep.\n",
@@ -5307,15 +5925,19 @@ fn sweep_patterns(sweep: &str, golden: &str) -> String {
         "#   `?`, `cwi` below `*`. A pairing refusal of the `-` row (rm, uor, atc, Q3's overwrite cir,\n",
         "#   S5.0:F3's open record over an existing group, map-collection-key, record-update-base)\n",
         "#   comes after the path, so the path class replaces it (S5.0g:P-R12). The product's\n",
-        "#   departures (E1 `cbi`, the List back instance `ils`, design:M3's readable `mrr` at the\n",
-        "#   kind step, design:M3's `cells!` `arm` and E3's `ir` at the form step) come before the path\n",
-        "#   and show through.\n",
+        "#   departures (the List back instance `ils`, design:M3's readable `mrr` at the kind step,\n",
+        "#   design:M3's `cells!` `arm` and E3's `ir` at the form step) come before the path and show\n",
+        "#   through.\n",
         "#\n",
         "# Citations: every principle line cites the IDs of this registry, and only these (a test\n",
         "#   fails on a line that cites none, an unknown one, or a ruling by a bare number):\n",
     ));
-    for (id, statement, source) in CITATIONS {
-        let _ = writeln!(text, "#   {id}: {statement} ({source})");
+    for (id, statement, source, scope) in CITATIONS {
+        let _ = writeln!(
+            text,
+            "#   {id}: {statement} ({source}; scope: {})",
+            scope.shown()
+        );
     }
     text.push_str(&reviewed);
     text.push('\n');
@@ -5438,9 +6060,48 @@ fn citations(line: &str) -> (Vec<&str>, Vec<String>) {
     (cited, bare)
 }
 
+/// The members of each pattern of the patterns golden, as `(form, stack)`: a main table's
+/// member names its forms (a `more` or `back` table's by its form) and its stack; a children
+/// table's member is written in readable, claim and `cells!` (the init children's in the
+/// initializer), its stack the member's own.
+fn pattern_members(golden: &str) -> BTreeMap<&str, Vec<(String, String)>> {
+    let mut members = BTreeMap::<&str, Vec<(String, String)>>::new();
+    let mut section = "";
+    for line in golden.lines() {
+        if let Some(name) = line.strip_prefix("## ") {
+            section = name;
+            continue;
+        }
+        let cells = line.split('\t').collect::<Vec<_>>();
+        if line.starts_with('#') || cells.get(1) != Some(&"member") {
+            continue;
+        }
+        let entry = members.entry(cells[0]).or_default();
+        let (forms, stack): (Vec<&str>, &str) = match section {
+            "children, init" => (vec!["init"], cells[2]),
+            "children, fragment child" => (RULE_FORMS.to_vec(), cells[3]),
+            children if children.starts_with("children") => (RULE_FORMS.to_vec(), cells[2]),
+            _ => (
+                cells[2]
+                    .split(", ")
+                    .map(|form| form.split(' ').next().unwrap_or(form))
+                    .collect(),
+                cells[4],
+            ),
+        };
+        for form in forms {
+            entry.push((form.to_owned(), stack.to_owned()));
+        }
+    }
+    members
+}
+
 /// Measure (c) of the S5.0g pattern review fixes (P-R11): every principle line cites the
 /// registry ([`CITATIONS`]), and every ID it cites is the registry's; a ruling cited by a bare
-/// number fails, since several rulings share each number.
+/// number fails, since several rulings share each number. And (the fixes review's F-4, ruled) an
+/// ID a line cites must reach some member of its pattern by its [`Scope`]: a line citing an ID
+/// for cells no member is in (a `cells!` ruling for an initializer, a ruling on `?` and `*` cells
+/// for a plain leaf) cites a ruling that does not cover them (P-R10's class).
 #[test]
 fn every_principle_line_cites_the_registry() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -5449,8 +6110,9 @@ fn every_principle_line_cites_the_registry() {
     let golden = std::fs::read_to_string(&path).unwrap_or_default();
     let known = CITATIONS
         .iter()
-        .map(|(id, ..)| *id)
-        .collect::<BTreeSet<_>>();
+        .map(|(id, _, _, scope)| (*id, *scope))
+        .collect::<BTreeMap<_, _>>();
+    let members = pattern_members(&golden);
     let mut failures = Vec::new();
     let mut lines = 0;
     for line in golden.lines() {
@@ -5462,8 +6124,18 @@ fn every_principle_line_cites_the_registry() {
         if cited.is_empty() {
             failures.push(format!("{id}: its principle cites no registry ID"));
         }
-        for unknown in cited.iter().filter(|cited| !known.contains(*cited)) {
-            failures.push(format!("{id}: cites {unknown}, which the registry has not"));
+        let own = members.get(id).map_or(&[][..], Vec::as_slice);
+        for cited in &cited {
+            match known.get(cited) {
+                None => failures.push(format!("{id}: cites {cited}, which the registry has not")),
+                Some(scope) if !own.iter().any(|(form, stack)| scope.holds(form, stack)) => {
+                    failures.push(format!(
+                        "{id}: cites {cited}, whose scope ({}) holds none of its members {own:?}",
+                        scope.shown()
+                    ));
+                }
+                Some(_) => {}
+            }
         }
         for bare in bare {
             failures.push(format!(
@@ -5521,11 +6193,21 @@ fn unwitnessed() -> BTreeSet<(String, String, String, String)> {
     for table in &tables {
         let main = !table.name.starts_with("children");
         let form = table.name.split(' ').next().unwrap_or(table.name);
+        let stack_at = table
+            .header
+            .iter()
+            .position(|cell| *cell == "stack")
+            .expect("a stack column");
+        let side_at = table.header.iter().position(|cell| *cell == "side");
         for row in &table.rows {
             let (side, stack, answers) = if main {
                 (row[0], row[2], &row[4..])
             } else {
-                ("result", row[1], &row[4..5])
+                (
+                    side_at.map_or("result", |at| row[at]),
+                    row[stack_at],
+                    &row[row.len() - 1..],
+                )
             };
             let form = if main { form } else { row[0] };
             for answer in answers {
@@ -5625,11 +6307,170 @@ fn every_pattern_answer_on_every_stack_is_witnessed_by_a_compiled_case() {
     );
 }
 
+/// The cases a pending entry names, by any test's key ([`pending::case_of`]): each is red on
+/// some test, so its compiled verdict is not the one its row states.
+fn pending_cases() -> BTreeSet<String> {
+    let pending = Pending::parse(&read_class_matrix("pending.toml"))
+        .unwrap_or_else(|errors| panic!("pending.toml: {errors:#?}"));
+    pending
+        .entries
+        .keys()
+        .filter_map(|key| pending::case_of(key))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The witnesses of measure (a): every generated case named at its record's level (path `-`)
+/// whose row agrees with `outcome`, which no `[cell-exception]` names and no pending entry names
+/// (itself or its run twin), as `(form, side, stack, spelling)`. Such a case is compiled by its
+/// `krs-class` shard and conforms there, so the compiler's verdict on its spelling is the one
+/// `outcome` gives; an excepted or red case's verdict is another, and witnesses nothing. The
+/// spelling is kept as its data's printed form, which tells spellings apart as the data does.
+fn witnesses() -> BTreeSet<(String, String, String, String)> {
+    let exceptions = exceptions();
+    let pending = pending_cases();
+    let red =
+        |id: &str| pending.contains(id) || twin(id).is_some_and(|twin| pending.contains(&twin));
+    ENTRIES
+        .iter()
+        .filter(|(case, entry)| {
+            entry.entry.path.is_empty()
+                && agrees(entry.outcome(), &EXPECTED[&case.id])
+                && naming(&case.id, &exceptions).is_empty()
+                && !red(&case.id)
+        })
+        .map(|(case, entry)| {
+            let (form, side, stack) = sweep_row_of(case, entry);
+            (
+                form.to_owned(),
+                side.to_owned(),
+                stack,
+                format!("{:?}", entry.entry.spelling),
+            )
+        })
+        .collect()
+}
+
+/// A sweep cell measure (a) keys a witness by: `(table, side, stack, column)`.
+type WitnessKey = (String, String, String, String);
+
+/// The sweep cells measure (a) requires a witness of, keyed without their answer: `(table,
+/// side, stack, column)`, one per main table's row at path `-` and column (the column is the
+/// entry's spelling), and one per children row (its side is the result over the row's `other`,
+/// its column the result), each with the form its entry is written in and its spelling as the
+/// generator declares one. A path row (`?`, `*`) needs no witness of its own: S5.0g:R3 judges it
+/// from the cell's own answer, its `-` row's, and check 4's path step judges the advice there.
+fn witness_cells() -> Vec<(WitnessKey, Form, Spelling)> {
+    let sweep = outcome_sweep();
+    let mut cells = Vec::new();
+    let declared = |form: Form, text: &str| {
+        let probe = Probe {
+            form,
+            side: Side::Subject,
+            path: &[],
+            stack: &[],
+            text,
+            other: None,
+            written: false,
+            bound: &[],
+        };
+        declared_as(&probe.read(text))
+    };
+    for table in sweep_tables(&sweep) {
+        if table.name.starts_with("children") {
+            let at = |name: &str| table.header.iter().position(|cell| *cell == name);
+            let (stack, other) = (at("stack").expect("a stack column"), at("other"));
+            let entry = table.header.len() - 2;
+            for row in &table.rows {
+                let form = match row[0] {
+                    "readable" => Form::Readable,
+                    "claim" => Form::Claim,
+                    "cells" => Form::Cells,
+                    _ => Form::Init,
+                };
+                let written = at("side").map_or("result", |side| row[side]);
+                let side = match other.map(|other| row[other]) {
+                    _ if form == Form::Init => "init".to_owned(),
+                    Some("-") | None => format!("{} {written}", row[0]),
+                    Some(other) => format!("{} {written} over {other}", row[0]),
+                };
+                let key = (
+                    table.name.to_owned(),
+                    side,
+                    row[stack].to_owned(),
+                    row[entry].to_owned(),
+                );
+                cells.push((key, form, declared(form, row[entry])));
+            }
+            continue;
+        }
+        let form = match table.name.split(' ').next() {
+            Some("readable") => Form::Readable,
+            Some("claim") => Form::Claim,
+            Some("cells") => Form::Cells,
+            _ => Form::Init,
+        };
+        for row in table.rows.iter().filter(|row| row[1] == "-") {
+            for column in &table.header[4..] {
+                let key = (
+                    table.name.to_owned(),
+                    row[0].to_owned(),
+                    row[2].to_owned(),
+                    (*column).to_owned(),
+                );
+                cells.push((key, form, declared(form, column)));
+            }
+        }
+    }
+    cells
+}
+
+/// The sweep cells no conforming, unexcepted generated case witnesses ([`witnesses`]).
+fn unwitnessed_cells() -> BTreeSet<WitnessKey> {
+    let witnesses = witnesses();
+    witness_cells()
+        .into_iter()
+        .filter(|((_, side, stack, _), form, spelling)| {
+            !witnesses.contains(&(
+                form_name(*form).to_owned(),
+                side.clone(),
+                stack.clone(),
+                format!("{spelling:?}"),
+            ))
+        })
+        .map(|(key, ..)| key)
+        .collect()
+}
+
+/// The sweep cells measure (a) keyed by (form, side, stack, column) at path `-` (the S5.0g
+/// fixes review's F-2, ruled) leaves unwitnessed, counted by table: the size of the witness
+/// list that key would check in, measured before the list is written (it is not yet: the
+/// count is over the ruling's bound, so the orchestrator decides its form first).
+#[test]
+#[ignore = "prints measure (a)'s unwitnessed count; run on request"]
+fn the_unwitnessed_sweep_cells_count() {
+    let all = witness_cells();
+    let missing = unwitnessed_cells();
+    let mut by_table = BTreeMap::<&str, (usize, usize)>::new();
+    for (key, ..) in &all {
+        let entry = by_table.entry(key.0.as_str()).or_default();
+        entry.0 += 1;
+        if missing.contains(key) {
+            entry.1 += 1;
+        }
+    }
+    for (table, (cells, unwitnessed)) in &by_table {
+        println!("{table}\t{cells} cells\t{unwitnessed} unwitnessed");
+    }
+    println!("total\t{} cells\t{} unwitnessed", all.len(), missing.len());
+}
+
 /// A stack the sweep names: one of its main stacks, a children stack, or an initializer
 /// children stack.
 fn named_stack(name: &str) -> Vec<Layer> {
-    const CHILDREN: [&str; 9] = [
+    const CHILDREN: [&str; 10] = [
         "group H",
+        "group M",
         "? group H",
         "* List of T",
         "* Map of A",

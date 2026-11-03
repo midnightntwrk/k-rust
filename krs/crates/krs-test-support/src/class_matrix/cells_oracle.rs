@@ -14,15 +14,17 @@
 //! 1. **form**: what the spelling and its side alone refuse (`_`, `name @ P` and a named rest
 //!    `name @ ..` in a result or an initializer, `None` or an anonymous rest in an initializer, an
 //!    anonymous rest in a map literal that is lexically no content root: outside a `cells!`
-//!    pattern, other than the direct argument of a `cells!` result's `Cell(..)`);
+//!    pattern, other than a cell entry's content in a `cells!` result, the direct argument of
+//!    `Cell(..)` or the direct value of a field of a record at a configuration position);
 //! 2. **kind**: P3 against the cell's own layers, outermost first: (a) the outermost layer's mark
 //!    admits the entry and its inside is judged against the next layer; (b) a mark of a layer the
 //!    stack has nowhere gives that mark's class; (c) a deeper layer's mark, or a value where the
 //!    outermost layer has a mark, gives the missing layer's class, but only where the entry's
 //!    inside passes form and kind against the deeper layers, and otherwise the inside's own
 //!    refusal (P3's reason at every depth, S5.0g pattern review P-R5); a cons list's back item is
-//!    refused inside the leaf's mark (P2, P-R1), and brackets on a Set or Map collection are its
-//!    instance mark of the wrong order (P-R4); then the path (S1 (b)): an
+//!    refused inside the leaf's mark (P2, P-R1), the computation's inside its own (E1, in every
+//!    form), and brackets on a Set or Map collection are its instance mark of the wrong order
+//!    (P-R4); then the path (S1 (b)): an
 //!    entry naming a cell below a `?` or `*` ancestor is refused for the outermost such ancestor,
 //!    whatever it spells, since the ancestor's presence and the instance meant are written at the
 //!    ancestor's level, never in the entry (a mark in the entry is the cell's own, P2). The
@@ -46,9 +48,11 @@
 //! sort the lattice must check (step 4, the compiler's). [`rule_outcome`] answers step 5, the
 //! rule-level classes, from the whole sentence, with the [`Template`] as its input.
 //!
-//! The stated exceptions (E1, E3 and the stated limitations) are not here: they are
-//! `[cell-exception."GLOB"]` entries of `expected.toml`, which check 1 (`tests/cells_oracle.rs`)
-//! reads, so an exception that names no disagreement any more is found stale.
+//! E1 (the computation is read from its front) is here, in every form ([`computation_front`]):
+//! it is stated of the computation, and P3 is one judgement in every form. The other stated
+//! exceptions (E3 and the stated limitations) are not here: they are `[cell-exception."GLOB"]`
+//! entries of `expected.toml`, which check 1 (`tests/cells_oracle.rs`) reads, so an exception
+//! that names no disagreement any more is found stale.
 //!
 //! **Names.** P1 makes a cell's name play no part in its entries' judgement, and steps 1–3 compare
 //! names only as data: a record's head with the position's group, a binder with the names the
@@ -361,13 +365,14 @@ pub struct Refusal {
 pub const NO_EFFECT_ENTRY: &str = "no-effect-entry";
 
 /// The classes [`outcome`] answers with.
-pub const ENTRY_CLASSES: [&str; 22] = [
+pub const ENTRY_CLASSES: [&str; 23] = [
     "absence-test-without-creation",
     "alias-outside-pattern",
     "anonymous-rest-in-map-literal",
     "bracket-reading",
     "cell-wrapper",
     "collection-without-instances",
+    "computation-back-item",
     "cons-list-back-item",
     "continuation-in-readable",
     "initializer-remainder",
@@ -400,7 +405,7 @@ pub const LINT_CLASSES: [&str; 1] = [NO_EFFECT_ENTRY];
 
 /// The code each class of [`ENTRY_CLASSES`], [`RULE_CLASSES`] and [`LINT_CLASSES`] answers with,
 /// which `expected.toml` must declare alike (check 0).
-pub const CODES: [(&str, &str); 28] = [
+pub const CODES: [(&str, &str); 29] = [
     (
         "absence-test-without-creation",
         "krs::analysis::optional-presence",
@@ -416,6 +421,10 @@ pub const CODES: [(&str, &str); 28] = [
     (
         "collection-without-instances",
         "krs::analysis::collection-entry",
+    ),
+    (
+        "computation-back-item",
+        "krs::collect::invalid-configuration",
     ),
     (
         "cons-list-back-item",
@@ -802,6 +811,55 @@ pub fn collect_groups(layers: &[Layer], groups: &mut Vec<Group>) {
     }
 }
 
+/// Where a spelling stands, read lexically (P1, P6): whether at a configuration position, and
+/// whether as a cell entry's content there, its content root.
+///
+/// The entry's head stands at a position. A record or fragment at a position is the record of
+/// its group or instance, so each field's direct value is its child cell's entry (P1), which no
+/// wrapper marks: that value, below `Some(..)` and an alias, is the child's content, at a
+/// position. An instance list's or set's items at a position are instance records, at a
+/// position. `Cell(..)`'s argument is its leaf's content. Anywhere else, a list's element, a
+/// map's entry, a constructor's or a call's argument, a spelling is a term's part (P6: below a
+/// root, notation is a term's).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct Place {
+    /// At a configuration position.
+    position: bool,
+    /// A cell entry's content: a content root (P6).
+    root: bool,
+}
+
+impl Place {
+    /// The entry's head: at a position, and its content is inside its own mark.
+    const HEAD: Self = Self {
+        position: true,
+        root: false,
+    };
+
+    /// Where the spellings directly inside `spelling`, standing here, stand.
+    const fn inside(self, spelling: &Spelling) -> Self {
+        match spelling {
+            Spelling::Cell(_) => Self {
+                position: false,
+                root: true,
+            },
+            Spelling::Present(_) | Spelling::Absent(_) | Spelling::Alias(..) => self,
+            Spelling::Record(_) | Spelling::Fragment(_) if self.position => Self {
+                position: true,
+                root: true,
+            },
+            Spelling::InstList(_) | Spelling::InstSet(_) if self.position => Self {
+                position: true,
+                root: false,
+            },
+            _ => Self {
+                position: false,
+                root: false,
+            },
+        }
+    }
+}
+
 /// One entry's judgement: what refused it, and whether a value's sort is the lattice's.
 struct Judge<'c> {
     form: Form,
@@ -815,9 +873,9 @@ const fn refuse(class: &'static str, step: Step, depth: usize) -> Result<(), Ref
 }
 
 impl Judge<'_> {
-    /// Step 1: what the spelling and its side alone refuse, read lexically (P4): `in_cell` tells
-    /// that `spelling` is the direct argument of a `Cell(..)`, a leaf's content root (P6).
-    fn form_step(&self, spelling: &Spelling, depth: usize, in_cell: bool) -> Result<(), Refusal> {
+    /// Step 1: what the spelling and its side alone refuse, read lexically (P4): `place` tells
+    /// where `spelling` stands ([`Place`]).
+    fn form_step(&self, spelling: &Spelling, depth: usize, place: Place) -> Result<(), Refusal> {
         let initializer = self.side == Side::Initializer;
         match spelling {
             Spelling::Wild if matches!(self.side, Side::Result | Side::Initializer) => {
@@ -845,24 +903,24 @@ impl Judge<'_> {
             }
             // P6: `..` is K's `...` at a content root only; below a root, notation is a term's,
             // and a term's `..` names no map. A `cells!` map literal is lexically a content root
-            // where it is the direct argument of `Cell(..)` (a leaf's root, P6), in a subject
-            // (where every map a pattern writes is matched) and in a result alike: whether its
-            // `..` keeps a rest is pairing's (P4: it needs the declaration and the other side;
-            // S5.0g pattern review P-R2). A readable `map![..]` is a literal everywhere: readable
-            // writes a map's root as `{ k -> v, .. }` (P2).
+            // where it is a cell entry's content ([`Place::root`]), in a subject (where every map
+            // a pattern writes is matched) and in a result alike: whether its `..` keeps a rest
+            // is pairing's (P4: it needs the declaration and the other side; S5.0g pattern review
+            // P-R2, and the fixes review's F-1 for a record's child). A readable `map![..]` is a
+            // literal everywhere: readable writes a map's root as `{ k -> v, .. }` (P2).
             Spelling::MapLit(entries)
                 if entries.rest == Some(Rest::Anon)
                     && !(self.form == Form::Cells
                         && (self.side == Side::Subject
-                            || (self.side == Side::Result && in_cell))) =>
+                            || (self.side == Side::Result && place.root))) =>
             {
                 return refuse("anonymous-rest-in-map-literal", Step::Form, depth);
             }
             _ => {}
         }
-        let cell = matches!(spelling, Spelling::Cell(_));
-        for inner in children(spelling) {
-            self.form_step(inner, depth + 1, cell)?;
+        let inner = place.inside(spelling);
+        for one in children(spelling) {
+            self.form_step(one, depth + 1, inner)?;
         }
         Ok(())
     }
@@ -1036,6 +1094,7 @@ impl Judge<'_> {
                         return refuse("continuation-in-readable", Step::Inside, depth);
                     }
                 }
+                computation_front(&stack[0], spelling, depth)?;
             }
         }
         Ok(())
@@ -1329,6 +1388,22 @@ fn cons_front(notation: Notation, seq: &Seq, depth: usize) -> Result<(), Refusal
     Ok(())
 }
 
+/// E1: the computation is read from its front, where the next step is, so `..` ends it and no
+/// item follows it (`[.., x]`, `KCell(x, .., y)`). E1 is stated of the computation, not of a
+/// form: P3 is one judgement in every form, so it holds in readable, claims and `cells!` alike
+/// (S5.0g fixes review F-6, ruled). It is the computation mark's own shape, known from the
+/// declaration, so it is a kind refusal inside the mark (it stands under a path, and comes
+/// before pairing).
+fn computation_front(layer: &Layer, spelling: &Spelling, depth: usize) -> Result<(), Refusal> {
+    let (Spelling::Brackets(seq) | Spelling::KCell(seq) | Spelling::KMacro(seq)) = spelling else {
+        return Ok(());
+    };
+    if *layer == Layer::Computation && matches!(seq.rest, Some((_, RestAt::Front))) {
+        return refuse("computation-back-item", Step::Inside, depth);
+    }
+    Ok(())
+}
+
 /// The record of `group` that `spelling` writes, below an alias: a record, or its fragment.
 fn record_of<'s>(spelling: &'s Spelling, group: &Group) -> Option<&'s Record> {
     match unaliased(spelling) {
@@ -1443,7 +1518,7 @@ pub fn judge(
         context,
         sort: false,
     };
-    judge.form_step(spelling, 0, false)?;
+    judge.form_step(spelling, 0, Place::HEAD)?;
     judge.judge(stack, spelling, 0)?;
     // S1 (b): below a marked ancestor, the entry is refused for the outermost one, after the
     // cell's own kind (P3's reason): the advice writes the entry inside the ancestor's mark, so
