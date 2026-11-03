@@ -468,6 +468,28 @@ pub struct ComputedRuleAttributes {
     pub lhs_alias_variables: LhsAliasCell,
 }
 
+/// The renaming of one sentence's variables to rule-side variables (`Variable::with_provenance`),
+/// remembered per variable and provenance, so that every occurrence of a variable in the
+/// sentence's sides and conditions becomes one value sharing one name allocation: `Ord for
+/// Variable` then decides two occurrences equal by a pointer test instead of comparing their
+/// text, as a substitution's keys (left-hand side) meet its lookups (right-hand side and
+/// conditions). Each name is the text `with_provenance` gives, so nothing that reads names
+/// sees a difference.
+#[derive(Default)]
+struct SharedRenaming(
+    std::cell::RefCell<std::collections::HashMap<(Variable, VariableProvenance), Variable>>,
+);
+
+impl SharedRenaming {
+    fn rename(&self, variable: &Variable, provenance: VariableProvenance) -> Variable {
+        self.0
+            .borrow_mut()
+            .entry((variable.clone(), provenance))
+            .or_insert_with(|| variable.with_provenance(provenance))
+            .clone()
+    }
+}
+
 /// A rule's left-hand-side alias variables once they have been collected: derived data, so it
 /// takes no part in the rule's equality, and a clone of the rule starts without it, since a
 /// clone may be changed (renamed apart) before it is used.
@@ -1930,29 +1952,31 @@ pub fn internalize_axiom(
                 .iter()
                 .map(|variable| definition.internalize_variable(variable, sort_parameters))
                 .collect::<Result<BTreeSet<_>, DefinitionError>>()?;
+            let renaming = SharedRenaming::default();
             let rhs_renaming = |variable: &Variable| {
-                if existential_variables.contains(variable) {
-                    variable.with_provenance(VariableProvenance::Existential)
-                } else {
-                    variable.with_provenance(VariableProvenance::Rule)
-                }
+                renaming.rename(
+                    variable,
+                    if existential_variables.contains(variable) {
+                        VariableProvenance::Existential
+                    } else {
+                        VariableProvenance::Rule
+                    },
+                )
             };
+            let rule_renaming =
+                |variable: &Variable| renaming.rename(variable, VariableProvenance::Rule);
             let rhs = rename_rhs(rhs, rhs_renaming);
             let ensures = rename_predicates(&ensures, rhs_renaming);
             let existentials = existential_variables
                 .iter()
-                .map(|variable| variable.with_provenance(VariableProvenance::Existential))
+                .map(|variable| renaming.rename(variable, VariableProvenance::Existential))
                 .collect::<BTreeSet<_>>();
             live.into_iter()
                 .map(|(index, lhs, requires)| {
                     let mut rule = make_rule(
-                        rename_term(&lhs, |variable| {
-                            variable.with_provenance(VariableProvenance::Rule)
-                        }),
+                        rename_term(&lhs, rule_renaming),
                         rhs.clone(),
-                        rename_predicates(&requires, |variable| {
-                            variable.with_provenance(VariableProvenance::Rule)
-                        }),
+                        rename_predicates(&requires, rule_renaming),
                         ensures.clone(),
                         attributes.clone(),
                         existentials.clone(),
@@ -2026,8 +2050,9 @@ pub fn internalize_axiom(
                     injection_role,
                     reading,
                 )?;
+                let renaming = SharedRenaming::default();
                 let rename =
-                    |variable: &Variable| variable.with_provenance(VariableProvenance::Equation);
+                    |variable: &Variable| renaming.rename(variable, VariableProvenance::Equation);
                 let mut lhs = rename_predicates(&[lhs], rename);
                 return Ok(vec![InternalizedRule::Predicate(
                     PredicateRewriteRule::new(
@@ -2061,8 +2086,9 @@ pub fn internalize_axiom(
                 ConditionSlot::Last,
                 PredicateReading::Written,
             )?;
+            let renaming = SharedRenaming::default();
             let rename =
-                |variable: &Variable| variable.with_provenance(VariableProvenance::Equation);
+                |variable: &Variable| renaming.rename(variable, VariableProvenance::Equation);
             Ok(vec![InternalizedRule::Term(
                 RuleKind::Simplification,
                 make_rule(
@@ -2185,8 +2211,9 @@ pub fn internalize_axiom(
                     sentence: Box::new(sentence.clone()),
                 })
             };
+            let renaming = SharedRenaming::default();
             let rename =
-                |variable: &Variable| variable.with_provenance(VariableProvenance::Equation);
+                |variable: &Variable| renaming.rename(variable, VariableProvenance::Equation);
             let stated = |requires: &kore::Pattern,
                           rhs: &kore::Pattern|
              -> Result<(RuleRhs, Vec<Predicate>, Vec<Predicate>), DefinitionError> {
@@ -2269,8 +2296,9 @@ pub fn internalize_axiom(
                 injection_role,
                 PredicateReading::Written,
             )?;
+            let renaming = SharedRenaming::default();
             let rename =
-                |variable: &Variable| variable.with_provenance(VariableProvenance::Equation);
+                |variable: &Variable| renaming.rename(variable, VariableProvenance::Equation);
             let lhs = rename_term(&lhs, rename);
             let requires = rename_predicates(&requires, rename);
             let rhs = rename_predicates(&rhs, rename);
