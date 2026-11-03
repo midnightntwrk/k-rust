@@ -624,10 +624,10 @@ fn lower_cell_declaration(
             &name,
             scope.present.get(&id),
         )?;
-        let repeated = if kind.multiplicity() != Multiplicity::One {
-            Some(name.clone())
-        } else {
+        let repeated = if kind.multiplicity() == Multiplicity::One {
             scope.repeated.clone()
+        } else {
+            Some(name.clone())
         };
         for attribute in &attributes {
             scope.console.check_declaration(

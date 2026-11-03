@@ -8,6 +8,7 @@
 mod attribute;
 pub mod cell_entries;
 pub mod cell_entry;
+pub mod cell_kind_agreement;
 mod collection_literal;
 mod configuration;
 mod constant;

@@ -1532,6 +1532,7 @@ dependencies = [
  "krs-ir",
  "krs-ir-levels",
  "krs-k-rust",
+ "krs-syntax",
  "krs-test-support",
  "krs-unparse",
  "quote",

@@ -201,6 +201,8 @@
 //! After a failed load, `kore.digest`, `ir.query`, `registration.table`, and the `kast.*` operations can still succeed in that session.
 //! A malformed JSON line, missing `id` or `operation`, unknown operation, definition-dependent operation before a successful load, or second load terminates the session with a nonzero exit status and a message on stderr.
 
+/// The kind of every declared cell, collected and parsed, compared (S5.1).
+pub mod cell_kinds;
 /// Compare collector stdout with a typed emitted descriptor bundle.
 pub mod collector_bundle;
 /// Compile Definition IR into native KORE.

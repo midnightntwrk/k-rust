@@ -7,7 +7,9 @@ that read only the port's packages and the KRS tools (`support.semantics`
 and `krs fmt --check`, the `krs check` descriptor count and warnings, the
 `krs expand` digest and its independent compile, two fresh emissions and a
 cached replay, and the digest of every emitted artifact. A difference fails
-here exactly as it would fail the heavy gate. The heavy pins are never
+here exactly as it would fail the heavy gate. It also compares the kind of
+every cell the emitted descriptor bundle declares with the kind the port's
+source declares (`krs-gate cell-kinds`), the two views every kind reader asks. The heavy pins are never
 recorded here; an intended change to an artifact is recorded by the port's
 own gate.
 
@@ -40,13 +42,15 @@ gates. The external checkouts are inputs of those layers only.
 from __future__ import annotations
 
 import argparse
+import os
 from dataclasses import dataclass
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import time
 import tomllib
-from typing import Callable
+from typing import Callable, Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, entry, krs_gate, semantics  # noqa: E402
@@ -149,6 +153,25 @@ def macro_output(session: krs_gate.Session, port: PortEmission) -> tuple[dict[st
     return digests, refused
 
 
+def cell_kinds(gate: Path, port: PortEmission, workspace: Path, environment: Mapping[str, str]) -> str:
+    """Compare the cell kinds the emitted descriptor bundle declares with the port source's.
+
+    The collector's declaration of each cell, which every compile-path reader asks for its
+    kind, and the source's, which the macros and the class oracle parse, must agree
+    (`krs-gate cell-kinds`). The port's own package, `port.packages[0]`, is the one emitted.
+    """
+    bundles = sorted(workspace.rglob("descriptor-bundle.json"))
+    if not bundles:
+        raise GateError(f"{port.label} emission left no descriptor-bundle.json to compare cell kinds with")
+    completed = subprocess.run(
+        [str(gate), "cell-kinds", str(bundles[0]), str(ROOT / port.packages[0] / "src")],
+        capture_output=True, text=True, env={**os.environ, **environment}, check=False,
+    )
+    if completed.returncode != 0:
+        raise GateError(f"{port.label} cell kinds: {completed.stderr.strip() or completed.stdout.strip()}")
+    return completed.stdout.strip()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -198,9 +221,10 @@ def main() -> int:
                 port.emission(Path(temporary), krs, gate)
             except GateError as error:
                 raise GateError(f"{port.label} emission against tests/{port.key}'s pins: {error}") from error
+            kinds = cell_kinds(gate, port, Path(temporary), environment)
         print(
             f"PASS {port.label} emission: formatting, check, expansion, and artifacts match "
-            f"tests/{port.key}'s pins ({time.monotonic() - started:.0f} s)",
+            f"tests/{port.key}'s pins; {kinds} ({time.monotonic() - started:.0f} s)",
             flush=True,
         )
     pins.finish("krs-ports-emit")
