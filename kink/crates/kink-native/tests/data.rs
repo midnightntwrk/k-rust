@@ -497,6 +497,20 @@ fn a_plain_anywhere_head_is_a_data_head_and_admits_only_irreducible_applications
 /// one-sided (some states move from `hit` to `unknown`, none to `no`), and the answers are still
 /// functions of the term and the definition. The four pins are re-pinned; the rest is
 /// byte-identical.
+///
+/// NT-38-1 (k-rust 50f00554b; re-pinned at kink27 R6-PINS, main had been red on this pin since):
+/// `excluded` also passes over an equation that gives the subject back
+/// (`gives_subject_back`): equation matching matches its left-hand side to the subject itself by
+/// a substitution under which its right-hand side is the subject, it ensures nothing, and its
+/// left-hand side holds no collection (`holds_collection`). Without collections the matching is
+/// syntactic, so an instance `σ(t)` of the subject is matched only by `σ` after that
+/// substitution, and the equation's instance there is `σ(t) = σ(t)`, which states nothing of the
+/// term (the evaluator already ends a lineage at such a step and takes the term as its value);
+/// not reading `requires` only drops instances where it does not apply. So `instance_normal`
+/// still answers yes only of a term every instance of which is a normal form: it stays
+/// one-sided, and a term such an equation used to keep unreduced is now instance-normal (more
+/// ends are data, none fewer). `instance_normal_doc` and `excluded` are re-pinned and the two new
+/// helpers are pinned; the rest is byte-identical.
 #[test]
 fn the_data_judgement_kink_reads_is_pinned() {
     const DATA_TERM: &str = include_str!("../../../../crates/k-rust-backend/src/data_term.rs");
@@ -547,6 +561,14 @@ fn the_data_judgement_kink_reads_is_pinned() {
             "instance_normal",
         ),
         (method(INSTANCE_NORMAL, "", "excluded"), "excluded"),
+        (
+            method(INSTANCE_NORMAL, "", "gives_subject_back"),
+            "gives_subject_back",
+        ),
+        (
+            between(INSTANCE_NORMAL, "\nfn holds_collection(", "\n}\n"),
+            "holds_collection",
+        ),
         (
             between(
                 DEFINEDNESS,
@@ -698,7 +720,7 @@ fn the_data_judgement_kink_reads_is_pinned() {
             ),
             (
                 "instance_normal_doc",
-                "7fba49e94666ca7c1dd2dc113566a8c43d87e54daf2205a9f65f6ba186cc56f5"
+                "c42f9fd4e8466861e15eaa8623b575565049c2345acf6b1017ef9a9c2ff764f4"
             ),
             (
                 "instance_normal",
@@ -706,7 +728,15 @@ fn the_data_judgement_kink_reads_is_pinned() {
             ),
             (
                 "excluded",
-                "55e69a88c1f1b008ae1331b735ba560e094d3f83fdb0adb6d0cc118d6c523ce4"
+                "f42533026c757256d745496f328ec00be8c1bc59e4594baf0aabc46c604d6973"
+            ),
+            (
+                "gives_subject_back",
+                "75af386728c30593264c08124f9974298e3ac4f64bf45682f525c12781ee30ec"
+            ),
+            (
+                "holds_collection",
+                "b07ac88df47aa8fb0ac64dbc394fc0fc5b66fa1705c1b8a25d076a214a465e8a"
             ),
             (
                 "ground_defined",

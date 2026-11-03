@@ -415,6 +415,15 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// kink27 INT1: the passages are byte-identical (same digests) and only moved, compatibility.md down 15 lines between 552 and 2367 (R1-PINS 1 line after 418, R1-BRACKET 14 lines of bracket exemption at 547-565), 17 from 2368 (R1-PINS 2 lines after 2367) and 18 after 2977 (R1-SOUND 1 line); re-pinned at their new lines.
 ///
 /// Re-pin kink27 R2-PIN-BY-ANCHOR: each passage is located by its anchor and opening (`testdata/k/passage.rs`), not by line; every digest is unchanged, each passage found at 3ebd1f8f6 at the lines it was pinned at. Line numbers in the history above are those of the revisions it names.
+///
+/// Re-pin kink27 R6-PINS (NT-13-15, k-rust 1df1aaee9): the passage beginning "When a definition
+/// is loaded the backend checks" gains one sentence: a function's equations may each be
+/// restricted by `concrete` or `symbolic`, bare or on some of its variables, beside unrestricted
+/// ones, and the definition checks refuse only a variable both attributes name. The evaluator's
+/// reading is unchanged (a set-aside instance whose `requires` holds or is undecided keeps the
+/// application, and every lower-priority premise excludes it), so the verdicts kink's check
+/// reads are the same; kink judges a restriction per equation (kink-patch `concrete-equation`,
+/// kink-native `data::symbolic`, which reads a restriction on some variables already).
 const PREMISE_PASSAGES: [passage::Passage; 4] = [
     passage::Passage {
         file: "docs/compatibility.md",
@@ -428,7 +437,7 @@ const PREMISE_PASSAGES: [passage::Passage; 4] = [
         anchor: "## Anywhere rules",
         opening: "When a definition is loaded the backend checks",
         lines: 8,
-        digest: "16798fc021e1c3b22eee935971f2c7fcbfdddb5af1771ee22bdd0929d7d58bf1",
+        digest: "59dd880a3304148e6209274b4e71b0de75ef1f08d886c55a3dd6c135a724c2ab",
     },
     passage::Passage {
         file: "docs/compatibility.md",

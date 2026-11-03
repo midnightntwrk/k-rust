@@ -647,6 +647,15 @@ fn trusted_claims_are_pinned() {
 // kink27 INT1: the passages are byte-identical (same digests) and only moved, compatibility.md down 15 lines between 552 and 2367 (R1-PINS 1 line after 418, R1-BRACKET 14 lines of bracket exemption at 547-565), 17 from 2368 (R1-PINS 2 lines after 2367) and 18 after 2977 (R1-SOUND 1 line); re-pinned at their new lines. smt.rs 1852-1863 moved byte-identical to 1867-1878 (R1-SOUND's single-point domain
 // state above it). TRUSTED_CLAIMS' citations (src/claims.rs) follow the pins.
 // Re-pin kink27 R2-PIN-BY-ANCHOR: each passage is located by its anchor and opening (`testdata/k/passage.rs`), not by line; every digest is unchanged, each passage found at 3ebd1f8f6 at the lines it was pinned at. Line numbers in the history above are those of the revisions it names.
+// Re-pin kink27 R6-PINS (NT-41-1, k-rust a01ee1caf): the sentence beginning "The contract
+// states, and does not check, that" now excepts from "evaluation terminates" a ground
+// evaluation whose determined equation steps reach a term again, which is refused as
+// `EvaluationCycle`, and says an equation whose instance is `t = t` ends the evaluation at `t`.
+// No trusted claim or removal changes. A cycle used to run to the iteration bound; now it is a
+// simplification error, a run's `SimplificationError` halt (kink-native bridge: incomplete,
+// never a data end) or a rule condition's failure (handled as every other one). A `t = t` end is
+// the term itself, which the equation constrains no further, and kink's data judgement still
+// decides whether it is data.
 const TRUSTED_CLAIM_PASSAGES: [passage::Passage; 18] = [
     passage::Passage {
         file: "docs/compatibility.md",
@@ -660,7 +669,7 @@ const TRUSTED_CLAIM_PASSAGES: [passage::Passage; 18] = [
         anchor: "## Anywhere rules",
         opening: "The contract states, and does not check, that",
         lines: 1,
-        digest: "9fa7fb1ee4fde986bdc71fd04e907f47fe0d37e800774563526ce8a8bfaaeef3",
+        digest: "1b7a7b32e3f359efa8e7a6e3414956fde88666a378e9ddb951a080fd413d8a53",
     },
     passage::Passage {
         file: "docs/compatibility.md",
