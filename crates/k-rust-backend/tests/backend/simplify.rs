@@ -6706,18 +6706,17 @@ fn z3_keeps_a_predicate_its_encoding_cannot_pose() {
             module MAIN
                 hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
                 hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol second{}(SortInt{}) : SortInt{} [function{}(), total{}(), smt-hook{}("(+ #1 #2)")]
             endmodule []"#,
     )
     .unwrap();
     let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
-    // A term-level `\and` of two integers has no SMT encoding; the predicate is still a
-    // constraint and comes back unchanged.
+    // An `smt-hook` that names an argument its symbol does not have has no SMT encoding; the
+    // predicate is still a constraint and comes back unchanged. (A term-level `\and` of two
+    // integers served here before GAP K36, which reads it by its domain plan.)
     let predicate = Predicate::Equals(
         term(&definition, "X:SortInt{}"),
-        Term::and(
-            term(&definition, "Y:SortInt{}"),
-            term(&definition, "Z:SortInt{}"),
-        ),
+        term(&definition, "second{}(Y:SortInt{})"),
     );
 
     let (result, diagnostics) = diagnostic::collect(|| {
@@ -6735,7 +6734,12 @@ fn z3_keeps_a_predicate_its_encoding_cannot_pose() {
     assert!(matches!(
         diagnostics.as_slice(),
         [BackendDiagnostic::UndecidedPredicate {
-            reason: ConditionIndeterminacy::Untranslatable(TranslationError::NonBooleanAnd(_)),
+            reason: ConditionIndeterminacy::Untranslatable(
+                TranslationError::PlaceholderOutOfBounds {
+                    placeholder: 2,
+                    arguments: 1
+                }
+            ),
             ..
         }]
     ));

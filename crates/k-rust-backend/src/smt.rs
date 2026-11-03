@@ -1118,27 +1118,24 @@ impl TranslationState {
             // A term-level `\and` denotes the intersection of its operands' values, `\bottom` where
             // they differ, not their Boolean conjunction: `true /\ false` is `\bottom`, not
             // `false`. Without a set variable it is therefore a partial operation of its
-            // operands: defined exactly where both are defined and equal, its domain plan
-            // (`functional::domain_plan`, `definedness::and_side`), and there its value is their
-            // common element, which its first conjunct denotes (`Term::first_conjunct`). Every
-            // atom over it is read under that domain (`atom_with_domains`), so the first
-            // conjunct's value is read only where it is the conjunction's, as a partial hook's
-            // total operation is: faithful in every polarity, and exact where the operands'
-            // readings and domains are (GAP K35). A conjunction with a set variable, which may
-            // denote several elements, stays an opaque constant gated by its opaque `\ceil`.
+            // operands, at any sort: defined exactly where both are defined and equal, its
+            // domain plan (`functional::domain_plan`, `definedness::and_side`), and there its
+            // value is their common element, which its first conjunct denotes
+            // (`Term::first_conjunct`). Every atom over it is read under that domain
+            // (`atom_with_domains`), so the first conjunct's value is read only where it is the
+            // conjunction's, as a partial hook's total operation is: faithful in every polarity,
+            // and exact where the operands' readings and domains are (GAP K35, K36). A
+            // conjunction with a set variable, which may denote several elements, stays an
+            // opaque constant of its sort gated by its opaque `\ceil`.
             // A request or condition with such an atom states that domain beside it, the
             // equality of the operands (`definedness::and_side`, GAP K30).
-            TermKind::And(left, right)
-                if left.sort().is_builtin(BuiltinSort::Bool)
-                    && right.sort().is_builtin(BuiltinSort::Bool) =>
-            {
+            TermKind::And(..) => {
                 if crate::definedness::holds_set_variable(term) {
                     Ok(self.abstract_term(term, Exactness::Approximate))
                 } else {
                     self.translate_term(term.first_conjunct())
                 }
             }
-            TermKind::And(..) => Err(TranslationError::NonBooleanAnd(term.clone())),
             TermKind::Application {
                 symbol, arguments, ..
             } if let Some(operation) = literal::read(symbol, &term.sort(), arguments) => {
@@ -2594,6 +2591,8 @@ fn translate_query_in_state(
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum TranslationError {
+    /// Not produced since GAP K36, which reads a term-level `\and` of every sort by its domain
+    /// plan; kept for the wire format.
     NonBooleanAnd(Term),
     PlaceholderOutOfBounds {
         placeholder: usize,

@@ -3485,6 +3485,78 @@ mod tests {
         }
     }
 
+    /// GAP K36: an `\and` of any sort is read as the Boolean one is (GAP K35): defined where its
+    /// sides are defined and equal, with their common value. So `X ∧ Y = 4` holds exactly where
+    /// both are 4 and has that model, `\not(X ∧ 3 = 3)` holds exactly where `X` is not 3, and
+    /// `\ceil(X ∧ Y)` is `X = Y`.
+    #[test]
+    fn an_integer_term_conjunction_is_defined_where_its_sides_are_equal() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let int = |value: &str| crate::term::Term::raw_domain_value(Sort::simple("SortInt"), value);
+        let variable =
+            |name: &str| crate::term::Term::variable(Variable::new(name, Sort::simple("SortInt")));
+        let and =
+            |left: crate::term::Term, right: crate::term::Term| crate::term::Term::and(left, right);
+        let not = |predicate: Predicate| Predicate::Not(std::sync::Arc::new(predicate));
+        let s = Substitution::new();
+        let four = Predicate::Equals(and(variable("X"), variable("Y")), int("4"));
+        assert_eq!(
+            solver.is_sat(
+                &[
+                    four.clone(),
+                    not(Predicate::Equals(variable("Y"), int("4")))
+                ],
+                &s
+            ),
+            Ok(Ok(Satisfiability::Unsat))
+        );
+        assert_eq!(
+            solver.get_model(&ModelQuery::for_solver_tests(
+                std::slice::from_ref(&four),
+                &s
+            )),
+            Ok(Ok(ModelResult::Sat(Substitution::from([
+                (x(), int("4")),
+                (Variable::new("Y", Sort::simple("SortInt")), int("4")),
+            ]))))
+        );
+        let three = Predicate::Equals(and(variable("X"), int("3")), int("3"));
+        assert_eq!(
+            solver.check_predicates(
+                &[not(three.clone())],
+                &s,
+                &[not(Predicate::Equals(variable("X"), int("3")))]
+            ),
+            Ok(Ok(Validity::Valid))
+        );
+        assert_eq!(
+            solver.check_predicates(&[], &s, &[Predicate::Equals(variable("X"), int("3"))]),
+            Ok(Ok(Validity::Contingent))
+        );
+        let defined = Predicate::Ceil(and(variable("X"), variable("Y")));
+        assert_eq!(
+            solver.check_predicates(&[], &s, std::slice::from_ref(&defined)),
+            Ok(Ok(Validity::Contingent))
+        );
+        assert_eq!(
+            solver.check_predicates(
+                &[Predicate::Equals(variable("X"), variable("Y"))],
+                &s,
+                std::slice::from_ref(&defined)
+            ),
+            Ok(Ok(Validity::Valid))
+        );
+        assert_eq!(
+            solver.check_predicates(
+                &[defined],
+                &s,
+                &[Predicate::Equals(variable("X"), variable("Y"))]
+            ),
+            Ok(Ok(Validity::Valid))
+        );
+    }
+
     /// GAP K23: a node is named in a scope outside a binder only when the binder binds none of
     /// its variables. In `\exists Y. (half(X) = Y /\ \forall X. half(X) = Y)` the inner
     /// `half(X)` reads the `X` the `\forall` binds, not the free `X` of the first conjunct, so

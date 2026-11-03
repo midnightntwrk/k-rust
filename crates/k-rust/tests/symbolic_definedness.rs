@@ -1303,6 +1303,59 @@ endmodule
         assert_ne!(implies_bottom(&mut backend, &pattern), "valid");
     }
 
+    /// GAP K36: an atom over an Int `\and` is decided by the solver. With `l = Z +Int 1` and
+    /// `r = W *Int 2`, `(l /\ r) >Int 0` holds exactly where `l = r` and `l > 0`: elsewhere the
+    /// intersection is `\bottom`, and so is the comparison. Admission states `l = r` beside the
+    /// atom, which the simplifier cannot use as a substitution, so the solver reads the
+    /// conjunction: as defined exactly where `l = r` (its domain plan) with `l`'s value there. So
+    /// the atom implies `l > 0`, follows from `l = r /\ l > 0`, and its negation beside `l = r`
+    /// implies `\not(l > 0)` and beside `l > 0` implies `l =/= r`; `l > 0` alone does not imply
+    /// it. Before GAP K36 the solver had no translation of a non-Boolean `\and`
+    /// (`NonBooleanAnd`), and each of these was `unknown`.
+    #[test]
+    fn a_request_atom_over_an_integer_term_conjunction_is_decided_by_its_definedness() {
+        let mut backend = backend();
+        if !backend.capabilities().smt {
+            return;
+        }
+        let positive =
+            |term: &str| holds(&format!("Lbl'Unds-GT-'Int'Unds'{{}}({term}, {})", int(0)));
+        let l = format!("Lbl'UndsPlus'Int'Unds'{{}}({Z}, {})", int(1));
+        let r = format!("Lbl'UndsStar'Int'Unds'{{}}({W}, {})", int(2));
+        let atom = positive(&format!("\\and{{SortInt{{}}}}({l}, {r})"));
+        let mut implies = |antecedent: &str, consequent: &str| {
+            backend
+                .implies(ImplicationRequest::new(
+                    parse(&and(&pos3(), antecedent)),
+                    parse(&and(&pos3(), consequent)),
+                ))
+                .map(|result| result.status)
+        };
+        for (case, antecedent, consequent) in [
+            ("the atom implies l > 0", atom.clone(), positive(&l)),
+            (
+                "l = r and l > 0 imply the atom",
+                and(&equals(&l, &r), &positive(&l)),
+                atom.clone(),
+            ),
+            (
+                "its negation beside l = r implies not l > 0",
+                and(&not(&atom), &equals(&l, &r)),
+                not(&positive(&l)),
+            ),
+            (
+                "its negation beside l > 0 implies l =/= r",
+                and(&not(&atom), &positive(&l)),
+                not(&equals(&l, &r)),
+            ),
+        ] {
+            let status = implies(&antecedent, &consequent);
+            assert_eq!(status.as_deref().ok(), Some("valid"), "{case}: {status:?}");
+        }
+        let status = implies(&positive(&l), &atom);
+        assert_ne!(status.as_deref().ok(), Some("valid"), "{status:?}");
+    }
+
     /// GAP K30: `B /\ true ==Bool true` holds exactly where `B` is `true`, where the intersection
     /// is `true`; elsewhere the intersection is `\bottom` and the atom is false. A request with
     /// it is admitted, and `implies` decides it as `B = true` both ways, and its negation as

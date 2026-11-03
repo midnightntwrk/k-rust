@@ -14,7 +14,6 @@ use crate::{
     rule::Predicate,
     term::{FunctionType, SymbolType, Term, TermKind},
 };
-use k_rust_kore::names::BuiltinSort;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct SharedDomains {
@@ -698,22 +697,17 @@ pub(super) fn domain_plan(
                 // the sides' first conjuncts, which denote the sides' elements there), with the
                 // sides' domains below. With a set variable it is the conjunction's own `\ceil`,
                 // read as opaque. The value read under the plan is the first conjunct's
-                // (`TranslationState::translate_term_node_plain`) (GAP K35).
-                TermKind::And(left, right)
-                    if left.sort().is_builtin(BuiltinSort::Bool)
-                        && right.sort().is_builtin(BuiltinSort::Bool) =>
-                {
-                    Some(
-                        crate::definedness::and_side(term, left, right)
-                            .into_iter()
-                            .collect(),
-                    )
-                }
+                // (`TranslationState::translate_term_node_plain`) (GAP K35). Nothing here reads
+                // the sort, so the plan is every sort's (GAP K36).
+                TermKind::And(left, right) => Some(
+                    crate::definedness::and_side(term, left, right)
+                        .into_iter()
+                        .collect(),
+                ),
                 TermKind::Application { .. }
                 | TermKind::Map { .. }
                 | TermKind::List { .. }
-                | TermKind::Set { .. }
-                | TermKind::And(..) => None,
+                | TermKind::Set { .. } => None,
             })
         },
     )?;
@@ -784,8 +778,9 @@ fn domain_lemmas(
 
 /// Admit a plan's conditions: every term an atom reads is pure (`eligible_operand`, memoized
 /// over the shared DAG, so a shared argument costs its distinct nodes once per query), and no
-/// atom reads a term-level `\and`, whose definedness is more than its operands' (the
-/// translation refuses a non-Boolean one). One unit of `remaining` per predicate node and term
+/// atom reads a term-level `\and`, whose definedness is more than its operands' (a
+/// conservative bound: the translation reads such an atom under the conjunction's domain plan,
+/// so admitting it would be faithful too). One unit of `remaining` per predicate node and term
 /// read; the terms are not walked as trees.
 /// Whether `term` holds a term-level `\and`. Each distinct node is read once per query: the
 /// nodes of a walk that found none are recorded (`TranslationState::conjunction_free`), and one
