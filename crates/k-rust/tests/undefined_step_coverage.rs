@@ -2412,3 +2412,41 @@ endmodule
         assert!(wrong.is_empty(), "{}", wrong.join("\n"));
     }
 }
+
+#[path = "support/pattern_results.rs"]
+mod pattern_results;
+
+/// The pattern result forms serialize as the `Value` forms on undefined steps: the rolled-back
+/// observations of `apart(X, Y)` (`discarded`) and the contradicted `total` of `s3(0)`'s
+/// `Trivial` leaf, stopped at its branch, in each execution and search.
+#[test]
+fn undefined_steps_serialize_alike_as_patterns() {
+    use k_rust::backend::{SearchPatternRequest, SearchRequest};
+    for (program, stop_at_branch, key) in [
+        (format!("Lblapart{{}}({X}, {Y})"), false, "discarded"),
+        (format!("Lbls3{{}}({})", int(0)), true, "contradictedTotal"),
+    ] {
+        let mut seen = Vec::new();
+        let execute = ExecuteRequest {
+            stop_at_branch,
+            ..request(&program)
+        };
+        seen.extend(pattern_results::executions_alike(backend, &execute));
+        let state = parse_pattern(&top(&program)).unwrap();
+        seen.extend(pattern_results::searches_alike(
+            backend,
+            &SearchRequest::new(state.clone()),
+        ));
+        seen.extend(pattern_results::pattern_searches_alike(
+            backend,
+            &SearchPatternRequest::new(
+                state,
+                parse_pattern("VarResult:SortGeneratedTopCell{}").unwrap(),
+            ),
+        ));
+        assert!(
+            pattern_results::shows(&seen, key),
+            "{program}: {key}: {seen:#?}"
+        );
+    }
+}

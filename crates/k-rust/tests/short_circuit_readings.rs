@@ -509,3 +509,39 @@ fn search_responses_list_readings() {
         }
     }
 }
+
+#[path = "support/pattern_results.rs"]
+mod pattern_results;
+
+/// The pattern result forms serialize as the `Value` forms on a run's short-circuit readings,
+/// in each execution and search.
+#[test]
+fn readings_serialize_alike_as_patterns() {
+    let (kore, initials) = compile(READINGS, &["ite(true, 0)"]);
+    let [initial] = initials.as_slice() else {
+        panic!("one program");
+    };
+    let fresh = || backend(&kore);
+    let mut seen = pattern_results::executions_alike(fresh, &ExecuteRequest::new(initial.clone()));
+    seen.extend(pattern_results::searches_alike(
+        fresh,
+        &SearchRequest {
+            search_type: SearchTypeArg::All,
+            ..SearchRequest::new(initial.clone())
+        },
+    ));
+    seen.extend(pattern_results::pattern_searches_alike(
+        fresh,
+        &SearchPatternRequest {
+            search_type: SearchTypeArg::All,
+            ..SearchPatternRequest::new(
+                initial.clone(),
+                parse_pattern("VarResult:SortGeneratedTopCell{}").unwrap(),
+            )
+        },
+    ));
+    assert!(
+        pattern_results::shows(&seen, "shortCircuitReadings"),
+        "{seen:#?}"
+    );
+}

@@ -3475,3 +3475,56 @@ endmodule
         );
     }
 }
+
+#[path = "support/pattern_results.rs"]
+mod pattern_results;
+
+/// The pattern result forms serialize as the `Value` forms on the run lists of records, in each
+/// execution and search: the claims a run contradicted (`sib(0)`), the claim and the allowance
+/// refusal the load observed (`LOAD`), and an unsupported hook in a passed-over equation
+/// (`runh(1)`).
+#[test]
+fn records_serialize_alike_as_patterns() {
+    use k_rust::{
+        backend::{ExecuteRequest, SearchPatternRequest, SearchRequest, SearchTypeArg},
+        kore::parser::parse_pattern,
+    };
+    let target = parse_pattern("VarResult:SortGeneratedTopCell{}").unwrap();
+    for (source, program, keys) in [
+        (CONTRADICTIONS, "sib(0)", &["contradictedClaims"][..]),
+        (
+            LOAD,
+            "go(1)",
+            &["contradictedClaims", "allowanceRefusals"][..],
+        ),
+        (refusals::REFUSALS, "runh(1)", &["unsupportedHooks"][..]),
+    ] {
+        let (kore, initial) = compile_program(source, program);
+        let fresh = || observed::backend(&kore);
+        let mut seen = Vec::new();
+        seen.extend(pattern_results::executions_alike(
+            fresh,
+            &ExecuteRequest::new(initial.clone()),
+        ));
+        seen.extend(pattern_results::searches_alike(
+            fresh,
+            &SearchRequest {
+                search_type: SearchTypeArg::All,
+                ..SearchRequest::new(initial.clone())
+            },
+        ));
+        seen.extend(pattern_results::pattern_searches_alike(
+            fresh,
+            &SearchPatternRequest {
+                search_type: SearchTypeArg::All,
+                ..SearchPatternRequest::new(initial, target.clone())
+            },
+        ));
+        for key in keys {
+            assert!(
+                pattern_results::shows(&seen, key),
+                "{program}: {key}: {seen:#?}"
+            );
+        }
+    }
+}

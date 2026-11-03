@@ -1270,6 +1270,10 @@ pub(super) trait WireKore: Sized {
         source: S,
     ) -> Result<Self, BackendError>;
 
+    /// Whether this form writes JSON, so that the measured JSON node and byte counts count it.
+    #[cfg(feature = "measure")]
+    const WRITES_JSON: bool;
+
     #[cfg(feature = "measure")]
     fn encoded_len(&self) -> Option<usize>;
 }
@@ -1281,6 +1285,9 @@ impl WireKore for Value {
         kore_json::to_value_source(source)
             .map_err(|error| BackendError::new(format!("could not encode KORE JSON: {error}")))
     }
+
+    #[cfg(feature = "measure")]
+    const WRITES_JSON: bool = true;
 
     #[cfg(feature = "measure")]
     fn encoded_len(&self) -> Option<usize> {
@@ -1297,8 +1304,31 @@ impl WireKore for Box<RawValue> {
     }
 
     #[cfg(feature = "measure")]
+    const WRITES_JSON: bool = true;
+
+    #[cfg(feature = "measure")]
     fn encoded_len(&self) -> Option<usize> {
         Some(self.get().len())
+    }
+}
+
+/// A result's KORE as a pattern, built from the operation's terms with an explicit stack inside
+/// the operation; its holder clones, compares, drops and prints it with explicit stacks, and it
+/// serializes to the KORE JSON a [`Value`] holds, so an output serializes alike with either.
+/// No JSON is written, so the measured JSON node and byte counts have nothing to add.
+impl WireKore for KorePattern {
+    fn from_source<'a, S: k_rust_kore::kore::node::PatternSource<'a>>(
+        source: S,
+    ) -> Result<Self, BackendError> {
+        Ok(k_rust_kore::kore::node::materialize(source))
+    }
+
+    #[cfg(feature = "measure")]
+    const WRITES_JSON: bool = false;
+
+    #[cfg(feature = "measure")]
+    fn encoded_len(&self) -> Option<usize> {
+        None
     }
 }
 
@@ -1307,7 +1337,7 @@ fn encode_pattern_source<'a, S: k_rust_kore::kore::node::PatternSource<'a>, K: W
 ) -> Result<K, BackendError> {
     let value = K::from_source(source.clone())?;
     #[cfg(feature = "measure")]
-    if measure::output_counting_enabled() {
+    if K::WRITES_JSON && measure::output_counting_enabled() {
         let (nodes, distinct) = k_rust_kore::kore::node::measure_nodes(source);
         measure::add(Counter::ObservationJsonNodesWritten, nodes);
         measure::add(Counter::ObservationJsonDistinctNodes, distinct);

@@ -2,8 +2,8 @@
 //! small thread at a size that overflowed it, executions whose evaluation recurses far deeper
 //! than their input, run through the backend facade on a small thread, KORE patterns a million
 //! levels deep converted to KAST on an 8 MiB thread, and a request holding a list longer than
-//! the backend's deepest stack executed through the facade on an 8 MiB thread
-//! (`docs/backend-port.md`, "Stack bounds").
+//! the backend's deepest stack executed through the facade to a pattern result, which is walked
+//! and dropped, on an 8 MiB thread (`docs/backend-port.md`, "Stack bounds").
 //!
 //! A failure here is a stack overflow, which aborts the process; these tests live in their own
 //! binary so that the abort takes down only this file's tests.
@@ -427,15 +427,18 @@ const LIST_STATE: &str = r#"[]
         symbol wrap{}(SortList{}) : SortState{} [constructor{}(), functional{}()]
     endmodule []"#;
 
-/// A state holding a list one entry longer than the deepest pattern the backend provides a
-/// stack for, written as a right-nested `listConcat` chain, executes on an 8 MiB thread and
-/// returns its one leaf with every entry: the facade sizes the operation for the request with
-/// its collections associated, where the list is one level deep. Sized for the nested chain,
-/// it was refused with `InsufficientStack` on any thread.
+/// A state holding a list of a million entries, or of one entry more than the deepest pattern
+/// the backend provides a stack for where that is more, written as a right-nested `listConcat`
+/// chain, executes through `execute_kore` on an 8 MiB thread, and its one leaf, a pattern
+/// holding every entry in order, is walked and dropped there.
+/// The facade sizes the operation for the request with its collections associated, where the
+/// list is one level deep, and builds the leaf's pattern, which its holder walks and drops,
+/// with explicit stacks. Sized for the nested chain, the request was refused with
+/// `InsufficientStack` on any thread.
 #[test]
-fn a_state_holding_a_list_longer_than_the_backend_depth_executes_on_an_8_mib_thread() {
+fn a_state_holding_a_million_entry_list_executes_to_a_pattern_on_an_8_mib_thread() {
     on_a_conversion_thread(|| {
-        let entries = k_rust_backend::nesting::max_depth() + 1;
+        let entries = 1_000_000.max(k_rust_backend::nesting::max_depth() + 1);
         let element = |value: usize| apply("listItem", vec![int(value)]);
         let mut list = element(entries - 1);
         for value in (0..entries - 1).rev() {
@@ -445,8 +448,25 @@ fn a_state_holding_a_list_longer_than_the_backend_depth_executes_on_an_8_mib_thr
             .expect("the definition loads");
         let mut request = ExecuteRequest::new(apply("wrap", vec![list]));
         request.max_depth = Some(0);
-        let result = backend.execute_json(request).expect("the state executes");
-        assert_eq!(result.matches(r#""wrap""#).count(), 1, "one leaf");
-        assert_eq!(result.matches(r#""listItem""#).count(), entries);
+        let result = backend.execute_kore(request).expect("the state executes");
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("one leaf, not {}", result.leaves.len());
+        };
+        let (mut wraps, mut items) = (0, Vec::with_capacity(entries));
+        k_rust::kore::walk::for_each_post_order(&leaf.state, |pattern| match pattern {
+            Pattern::Application { symbol, .. } if symbol.name == "wrap" => wraps += 1,
+            Pattern::DomainValue { value, .. } => items.push(value.clone()),
+            _ => {}
+        });
+        assert_eq!(wraps, 1);
+        assert_eq!(items.len(), entries);
+        assert!(
+            items
+                .iter()
+                .enumerate()
+                .all(|(index, value)| value.as_bytes() == index.to_string().as_bytes()),
+            "every entry, in order"
+        );
+        drop(result);
     });
 }

@@ -2,6 +2,7 @@
 //!
 //! The text, JSON, and binary codecs and every traversal of [`Pattern`] and its sorts are iterative and impose no depth limit.
 //! [`to_value`], [`to_value_source`], and [`codec::from_value`](super::codec::from_value) build or read a [`serde_json::Value`], whose own serialization, cloning, and destruction recurse once per level; host and RPC ingress therefore decodes KORE from its JSON text with [`from_str`] instead.
+//! A [`Pattern`]'s `serde::Serialize` goes through that value and recurses alike.
 //! KAST term traits and text codecs, backend pattern internalization, and backend term passes retain their own native-stack bounds.
 //!
 //! ```toml algorithm
@@ -245,6 +246,19 @@ pub fn to_string_pretty(pattern: &Pattern) -> Result<String, Error> {
 
 pub fn to_value(pattern: &Pattern) -> Result<serde_json::Value, Error> {
     to_value_source(pattern)
+}
+
+/// A pattern serializes as its KORE JSON envelope, the [`serde_json::Value`] that [`to_value`]
+/// builds: with any serializer, a value holding a pattern serializes as it does when it holds
+/// that envelope as a `serde_json::Value`.
+/// Write a pattern alone with [`to_string`], which uses explicit stacks at any depth.
+impl serde::Serialize for Pattern {
+    // stack-accepted(kore-pattern-serialize): serde writes the envelope, and the envelope is dropped, one stack frame per level of the pattern. See docs/backend-port.md#stack-bounds.
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        to_value(self)
+            .map_err(serde::ser::Error::custom)?
+            .serialize(serializer)
+    }
 }
 
 /// Encode a pattern one node at a time, without materializing its KORE tree.

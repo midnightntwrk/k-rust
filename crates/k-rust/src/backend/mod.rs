@@ -614,6 +614,20 @@ pub enum ExecutionStrategy {
     Any,
 }
 
+/// An execution result whose KORE is held as patterns ([`Backend::execute_kore`]).
+pub type KoreExecutionResult = ExecutionResult<KorePattern>;
+/// A leaf of a [`KoreExecutionResult`].
+pub type KoreExecutionLeaf = ExecutionLeaf<KorePattern>;
+/// A search response whose KORE is held as patterns ([`Backend::search_kore`]).
+pub type KoreSearchResponse = SearchResponse<KorePattern>;
+/// A path search response whose KORE is held as patterns ([`Backend::search_paths_kore`]).
+pub type KorePathSearchResponse = PathSearchResponse<KorePattern>;
+/// A pattern search response whose KORE is held as patterns ([`Backend::search_pattern_kore`]).
+pub type KorePatternSearchResponse = PatternSearchResponse<KorePattern>;
+/// A pattern path search response whose KORE is held as patterns
+/// ([`Backend::search_pattern_paths_kore`]).
+pub type KorePathPatternSearchResponse = PathPatternSearchResponse<KorePattern>;
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionResult<K = Value> {
@@ -2091,7 +2105,7 @@ impl Backend {
     /// made refuse a result, a load-time check or discharge stopped for lack of stack, and in
     /// builds with Z3 a result whose `smt_unknowns` is nonzero).
     ///
-    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::execute_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::execute_json`] writes the same result as text inside the operation, and [`Self::execute_kore`] holds it as patterns. See docs/backend-port.md#stack-bounds.
     ///
     /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn execute(&mut self, request: ExecuteRequest) -> Result<ExecutionResult, BackendError> {
@@ -2103,13 +2117,36 @@ impl Backend {
     /// Branch identities are independent of the rule filter; `rules: Some(vec![])` returns
     /// every identity and no observation events.
     ///
-    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::execute_observed_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::execute_observed_json`] writes the same result as text inside the operation, and [`Self::execute_observed_kore`] holds it as patterns. See docs/backend-port.md#stack-bounds.
     ///
     /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn execute_observed(
         &mut self,
         request: ObservedRequest<ExecuteRequest>,
     ) -> Result<ExecutionResult, BackendError> {
+        self.execute_using(request.request, Some(request.rules))
+    }
+
+    /// [`Self::execute`], with the result's KORE as patterns.
+    /// Each is built from the operation's terms inside the operation, and its holder clones,
+    /// compares, drops and prints it with explicit stacks; the result serializes as
+    /// [`Self::execute`]'s does.
+    ///
+    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
+    pub fn execute_kore(
+        &mut self,
+        request: ExecuteRequest,
+    ) -> Result<KoreExecutionResult, BackendError> {
+        self.execute_using(request, None)
+    }
+
+    /// [`Self::execute_observed`], with the result's KORE as patterns, as [`Self::execute_kore`].
+    ///
+    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
+    pub fn execute_observed_kore(
+        &mut self,
+        request: ObservedRequest<ExecuteRequest>,
+    ) -> Result<KoreExecutionResult, BackendError> {
         self.execute_using(request.request, Some(request.rules))
     }
 
@@ -2248,20 +2285,41 @@ impl Backend {
     /// states must not decide a claim; prove through [`Self::prove`]
     /// (docs/compatibility.md, "Implementation-chosen hook values").
     ///
-    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_json`] writes the same result as text inside the operation, and [`Self::search_kore`] holds it as patterns. See docs/backend-port.md#stack-bounds.
     ///
     /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn search(&mut self, request: SearchRequest) -> Result<SearchResponse, BackendError> {
         self.search_using(request, None)
     }
 
-    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_observed_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_observed_json`] writes the same result as text inside the operation, and [`Self::search_observed_kore`] holds it as patterns. See docs/backend-port.md#stack-bounds.
     ///
     /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn search_observed(
         &mut self,
         request: ObservedRequest<SearchRequest>,
     ) -> Result<SearchResponse, BackendError> {
+        self.search_using(request.request, Some(request.rules))
+    }
+
+    /// [`Self::search`], with the response's KORE as patterns, as [`Self::execute_kore`].
+    ///
+    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
+    pub fn search_kore(
+        &mut self,
+        request: SearchRequest,
+    ) -> Result<KoreSearchResponse, BackendError> {
+        self.search_using(request, None)
+    }
+
+    /// [`Self::search_observed`], with the response's KORE as patterns, as
+    /// [`Self::execute_kore`].
+    ///
+    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
+    pub fn search_observed_kore(
+        &mut self,
+        request: ObservedRequest<SearchRequest>,
+    ) -> Result<KoreSearchResponse, BackendError> {
         self.search_using(request.request, Some(request.rules))
     }
 
@@ -2322,7 +2380,7 @@ impl Backend {
     /// states must not decide a claim; prove through [`Self::prove`]
     /// (docs/compatibility.md, "Implementation-chosen hook values").
     ///
-    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_paths_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_paths_json`] writes the same result as text inside the operation, and [`Self::search_paths_kore`] holds it as patterns. See docs/backend-port.md#stack-bounds.
     ///
     /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn search_paths(
@@ -2332,13 +2390,34 @@ impl Backend {
         self.search_paths_using(request, None)
     }
 
-    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_paths_observed_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_paths_observed_json`] writes the same result as text inside the operation, and [`Self::search_paths_observed_kore`] holds it as patterns. See docs/backend-port.md#stack-bounds.
     ///
     /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn search_paths_observed(
         &mut self,
         request: ObservedRequest<SearchRequest>,
     ) -> Result<PathSearchResponse, BackendError> {
+        self.search_paths_using(request.request, Some(request.rules))
+    }
+
+    /// [`Self::search_paths`], with the response's KORE as patterns, as [`Self::execute_kore`].
+    ///
+    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
+    pub fn search_paths_kore(
+        &mut self,
+        request: SearchRequest,
+    ) -> Result<KorePathSearchResponse, BackendError> {
+        self.search_paths_using(request, None)
+    }
+
+    /// [`Self::search_paths_observed`], with the response's KORE as patterns, as
+    /// [`Self::execute_kore`].
+    ///
+    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
+    pub fn search_paths_observed_kore(
+        &mut self,
+        request: ObservedRequest<SearchRequest>,
+    ) -> Result<KorePathSearchResponse, BackendError> {
         self.search_paths_using(request.request, Some(request.rules))
     }
 
@@ -2399,7 +2478,7 @@ impl Backend {
     /// states must not decide a claim; prove through [`Self::prove`]
     /// (docs/compatibility.md, "Implementation-chosen hook values").
     ///
-    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_pattern_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_pattern_json`] writes the same result as text inside the operation, and [`Self::search_pattern_kore`] holds it as patterns. See docs/backend-port.md#stack-bounds.
     ///
     /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn search_pattern(
@@ -2409,13 +2488,34 @@ impl Backend {
         self.search_pattern_using(request, None)
     }
 
-    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_pattern_observed_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_pattern_observed_json`] writes the same result as text inside the operation, and [`Self::search_pattern_observed_kore`] holds it as patterns. See docs/backend-port.md#stack-bounds.
     ///
     /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn search_pattern_observed(
         &mut self,
         request: ObservedRequest<SearchPatternRequest>,
     ) -> Result<PatternSearchResponse, BackendError> {
+        self.search_pattern_using(request.request, Some(request.rules))
+    }
+
+    /// [`Self::search_pattern`], with the response's KORE as patterns, as [`Self::execute_kore`].
+    ///
+    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
+    pub fn search_pattern_kore(
+        &mut self,
+        request: SearchPatternRequest,
+    ) -> Result<KorePatternSearchResponse, BackendError> {
+        self.search_pattern_using(request, None)
+    }
+
+    /// [`Self::search_pattern_observed`], with the response's KORE as patterns, as
+    /// [`Self::execute_kore`].
+    ///
+    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
+    pub fn search_pattern_observed_kore(
+        &mut self,
+        request: ObservedRequest<SearchPatternRequest>,
+    ) -> Result<KorePatternSearchResponse, BackendError> {
         self.search_pattern_using(request.request, Some(request.rules))
     }
 
@@ -2484,7 +2584,7 @@ impl Backend {
         })
     }
 
-    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_pattern_paths_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_pattern_paths_json`] writes the same result as text inside the operation, and [`Self::search_pattern_paths_kore`] holds it as patterns. See docs/backend-port.md#stack-bounds.
     ///
     /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn search_pattern_paths(
@@ -2494,13 +2594,35 @@ impl Backend {
         self.search_pattern_paths_using(request, None)
     }
 
-    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_pattern_paths_observed_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_pattern_paths_observed_json`] writes the same result as text inside the operation, and [`Self::search_pattern_paths_observed_kore`] holds it as patterns. See docs/backend-port.md#stack-bounds.
     ///
     /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn search_pattern_paths_observed(
         &mut self,
         request: ObservedRequest<SearchPatternRequest>,
     ) -> Result<PathPatternSearchResponse, BackendError> {
+        self.search_pattern_paths_using(request.request, Some(request.rules))
+    }
+
+    /// [`Self::search_pattern_paths`], with the response's KORE as patterns, as
+    /// [`Self::execute_kore`].
+    ///
+    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
+    pub fn search_pattern_paths_kore(
+        &mut self,
+        request: SearchPatternRequest,
+    ) -> Result<KorePathPatternSearchResponse, BackendError> {
+        self.search_pattern_paths_using(request, None)
+    }
+
+    /// [`Self::search_pattern_paths_observed`], with the response's KORE as patterns, as
+    /// [`Self::execute_kore`].
+    ///
+    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
+    pub fn search_pattern_paths_observed_kore(
+        &mut self,
+        request: ObservedRequest<SearchPatternRequest>,
+    ) -> Result<KorePathPatternSearchResponse, BackendError> {
         self.search_pattern_paths_using(request.request, Some(request.rules))
     }
 
