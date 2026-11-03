@@ -1,14 +1,18 @@
 //! Inputs that once overflowed the native stack while loading or compiling, each compiled on a
-//! small thread at a size that overflowed it, and executions whose evaluation recurses far deeper
-//! than their input, run through the backend facade on a small thread (`docs/backend-port.md`,
-//! "Stack bounds").
+//! small thread at a size that overflowed it, executions whose evaluation recurses far deeper
+//! than their input, run through the backend facade on a small thread, and KORE patterns a
+//! million levels deep converted to KAST on an 8 MiB thread (`docs/backend-port.md`, "Stack
+//! bounds").
 //!
 //! A failure here is a stack overflow, which aborts the process; these tests live in their own
 //! binary so that the abort takes down only this file's tests.
 
 use k_rust::backend::{Backend, BackendOptions, ExecuteRequest};
 use k_rust::builtin::embedded;
+use k_rust::kast::convert::Converter;
+use k_rust::kast::{Sort, Term};
 use k_rust::kompile::{CompilationBackend, CompileOptions, compile_loaded_definition};
+use k_rust::kore::ast::{KoreString, Pattern, Sort as KoreSort, Symbol, Variable, VariableKind};
 use k_rust::kore::parser::parse_pattern;
 use k_rust::outer::{LoadOptions, ResolvedSource, load_with_options};
 
@@ -239,4 +243,170 @@ fn a_recursion_past_its_stack_budget_stops_with_stack_exhausted() {
         text.contains(&format!("{cause:?}")) || text.contains(&cause.to_string()),
         "{result:?}"
     );
+}
+
+/// The levels of the patterns converted to KAST below: a collection of a million elements, which
+/// a KORE result holds as a chain one level per element. The list and the map take about 2 GiB
+/// each in a `dev` build.
+const CONVERSION_LEVELS: usize = 1_000_000;
+
+/// The stack of the thread each conversion runs on: a main thread's default on Linux. A
+/// conversion that recursed once per level overflowed it at about 4,000 levels in a release
+/// build.
+const CONVERSION_STACK: usize = 8 << 20;
+
+/// Run `work` on a [`CONVERSION_STACK`] thread.
+fn on_a_conversion_thread(work: impl FnOnce() + Send + 'static) {
+    std::thread::Builder::new()
+        .stack_size(CONVERSION_STACK)
+        .spawn(work)
+        .expect("the worker should spawn")
+        .join()
+        .expect("the worker should finish");
+}
+
+/// The application of the KORE symbol `name`, without sort parameters, to `arguments`.
+fn apply(name: &str, arguments: Vec<Pattern>) -> Pattern {
+    Pattern::Application {
+        symbol: Symbol {
+            name: name.to_owned(),
+            sort_parameters: Vec::new(),
+        },
+        arguments,
+    }
+}
+
+/// The nullary KORE sort `name`.
+fn kore_sort(name: &str) -> KoreSort {
+    KoreSort::Application {
+        name: name.to_owned(),
+        arguments: Vec::new(),
+    }
+}
+
+/// The integer `value`. A collection in a result holds its elements injected into `KItem`; the
+/// conversion removes injections (a unit test of `kast::convert` shows it), and they are left out
+/// here, as they add memory and no depth.
+fn int(value: usize) -> Pattern {
+    Pattern::DomainValue {
+        sort: kore_sort("SortInt"),
+        value: KoreString::from_bytes(value.to_string().into_bytes()),
+    }
+}
+
+/// The arguments of `term`, an application of `label`.
+fn arguments_of<'t>(term: &'t Term, label: &str) -> &'t [Term] {
+    match term {
+        Term::Apply {
+            label: applied,
+            arguments,
+        } if applied.name == label => arguments,
+        _ => panic!("expected an application of {label}"),
+    }
+}
+
+/// Whether `term` is the `Int` token of `value`.
+fn is_int(term: &Term, value: usize) -> bool {
+    matches!(term, Term::Token { token, sort } if *token == value.to_string() && sort.name == "Int")
+}
+
+/// A `List` of a million elements, as a left-nested `_List_` chain over `.List`, converts on an
+/// 8 MiB thread: each level is a `_List_` application whose second argument is the element.
+#[test]
+fn a_million_element_list_converts_to_kast_on_an_8_mib_thread() {
+    on_a_conversion_thread(|| {
+        let mut list = apply("Lbl'Stop'List", Vec::new());
+        for element in 0..CONVERSION_LEVELS {
+            list = apply(
+                "Lbl'Unds'List'Unds'",
+                vec![list, apply("LblListItem", vec![int(element)])],
+            );
+        }
+        let term = Converter::new(&Default::default())
+            .convert(&list)
+            .expect("the list converts");
+        let mut level = &term;
+        for element in (0..CONVERSION_LEVELS).rev() {
+            let [rest, last] = arguments_of(level, "_List_") else {
+                panic!("`_List_` is binary");
+            };
+            let [value] = arguments_of(last, "ListItem") else {
+                panic!("`ListItem` is unary");
+            };
+            assert!(is_int(value, element), "element {element}");
+            level = rest;
+        }
+        assert!(arguments_of(level, ".List").is_empty());
+    });
+}
+
+/// A `Map` of a million entries, as a right-nested `_Map_` chain over `.Map`, converts on an
+/// 8 MiB thread: each level is a `_Map_` application whose first argument is the entry.
+#[test]
+fn a_million_entry_map_converts_to_kast_on_an_8_mib_thread() {
+    on_a_conversion_thread(|| {
+        let mut map = apply("Lbl'Stop'Map", Vec::new());
+        for key in (0..CONVERSION_LEVELS).rev() {
+            let entry = apply("Lbl'UndsPipe'-'-GT-Unds'", vec![int(key), int(key % 256)]);
+            map = apply("Lbl'Unds'Map'Unds'", vec![entry, map]);
+        }
+        let term = Converter::new(&Default::default())
+            .convert(&map)
+            .expect("the map converts");
+        let mut level = &term;
+        for key in 0..CONVERSION_LEVELS {
+            let [entry, rest] = arguments_of(level, "_Map_") else {
+                panic!("`_Map_` is binary");
+            };
+            let [stored, value] = arguments_of(entry, "_|->_") else {
+                panic!("`_|->_` is binary");
+            };
+            assert!(
+                is_int(stored, key) && is_int(value, key % 256),
+                "entry {key}"
+            );
+            level = rest;
+        }
+        assert!(arguments_of(level, ".Map").is_empty());
+    });
+}
+
+/// A variable whose sort nests a million sort applications converts on an 8 MiB thread: the
+/// KAST sort has the same nesting.
+#[test]
+fn a_million_level_sort_converts_to_kast_on_an_8_mib_thread() {
+    on_a_conversion_thread(|| {
+        let mut sort = kore_sort("SortInt");
+        for _ in 0..CONVERSION_LEVELS {
+            sort = KoreSort::Application {
+                name: "SortWrap".to_owned(),
+                arguments: vec![sort],
+            };
+        }
+        let variable = Pattern::Variable(Variable {
+            kind: VariableKind::Element,
+            name: "VarX".to_owned(),
+            sort,
+        });
+        let term = Converter::new(&Default::default())
+            .convert(&variable)
+            .expect("the variable converts");
+        let Term::Variable {
+            name,
+            sort: Some(sort),
+        } = &term
+        else {
+            panic!("a variable converts to a sorted variable");
+        };
+        assert_eq!(name, "X");
+        let mut level: &Sort = sort;
+        for _ in 0..CONVERSION_LEVELS {
+            assert_eq!(level.name, "Wrap");
+            let [parameter] = level.parameters.as_slice() else {
+                panic!("`Wrap` has one parameter");
+            };
+            level = parameter;
+        }
+        assert!(level.name == "Int" && level.parameters.is_empty());
+    });
 }
