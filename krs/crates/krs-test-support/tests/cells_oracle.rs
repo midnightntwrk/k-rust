@@ -191,17 +191,7 @@ fn check_1_every_cell_entry_row_agrees_with_the_principles() {
 
 /// The rule-level classes no generated case's row has, so check 1r cannot see `rule_outcome`
 /// miss them (it sees it answer them where no row does), with why; S5.0g generates them.
-const RULE_UNCOVERED: [(&str, &str); 2] = [
-    (
-        "group-and-descendant",
-        "no generated rule names a group and a cell below it (modelled at the S5.0g stop's \
-         D-1 to D-3 fix; S5.0g generates it)",
-    ),
-    (
-        "rule-changes-no-cell",
-        "every generated rule writes a cell (its computation's, at least)",
-    ),
-];
+const RULE_UNCOVERED: [(&str, &str); 0] = [];
 
 /// Check 1r: where the entry is admitted, the rule-level judgement equals a rule-level row's
 /// class, and is none on an accept; and every rule-level class is some generated case's row, or

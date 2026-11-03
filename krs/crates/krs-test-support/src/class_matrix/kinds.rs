@@ -520,16 +520,30 @@ enum RuleSide {
     Subject,
     Result,
     Overwrite,
+    /// A subject whose rule writes no cell (`=> { }`).
+    NoChange,
+    /// A subject that also names the first child of the cell's group.
+    Descendant,
 }
 
 impl RuleSide {
     const ALL: [Self; 3] = [Self::Subject, Self::Result, Self::Overwrite];
+
+    /// The side of the case's own entry.
+    const fn entry_side(self) -> Side {
+        match self {
+            Self::Result | Self::Overwrite => Side::Result,
+            _ => Side::Subject,
+        }
+    }
 
     const fn name(self) -> &'static str {
         match self {
             Self::Subject => "subject",
             Self::Result => "result",
             Self::Overwrite => "overwrite",
+            Self::NoChange => "nochange",
+            Self::Descendant => "descendant",
         }
     }
 }
@@ -830,11 +844,7 @@ fn readable_case(family: Family, side: RuleSide, cell_name: &str, mark: &Written
     let spec = CaseSpec {
         family,
         base: Base::Kinds,
-        side: if side == RuleSide::Subject {
-            Side::Subject
-        } else {
-            Side::Result
-        },
+        side: side.entry_side(),
         kind: None,
         slot: vec![
             side.name().to_owned(),
@@ -843,7 +853,11 @@ fn readable_case(family: Family, side: RuleSide, cell_name: &str, mark: &Written
         ],
         construct: mark.text.clone(),
     };
-    let arity = if side == RuleSide::Subject { 0 } else { 2 };
+    let arity = if side.entry_side() == Side::Subject {
+        0
+    } else {
+        2
+    };
     let command = Command::for_case(&spec.id(), arity);
     let label = format!("case_{}", spec.tag());
     let (block, attribute) = match family {
@@ -875,6 +889,21 @@ fn readable_case(family: Family, side: RuleSide, cell_name: &str, mark: &Written
             entries.push(k_subject(vec![]));
             entries.push(k_result());
         }
+        RuleSide::NoChange => {
+            item.push(&format!("k: [{}(), ..], ", command.name))
+                .entry(cell_name, &mark.text)
+                .push(" } => { };\n}\n");
+            entries.push(k_subject(vec![]));
+        }
+        RuleSide::Descendant => {
+            let (_, child) = head(decl);
+            item.push(&format!("k: [{}(), ..], ", command.name))
+                .entry(cell_name, &mark.text)
+                .push(&format!(", {child}: y }} => {{ k: [..] }};\n}}\n"));
+            entries.push(k_subject(vec![]));
+            entries.push(entry(&child, Side::Subject, bind("y")));
+            entries.push(k_result());
+        }
         RuleSide::Result | RuleSide::Overwrite => {
             item.push(&format!("k: [{}(x, y), ..], ", command.name));
             entries.push(k_subject(vec![bind("x"), bind("y")]));
@@ -896,15 +925,7 @@ fn readable_case(family: Family, side: RuleSide, cell_name: &str, mark: &Written
         case,
         entry: EntryCase {
             form,
-            entry: entry(
-                cell_name,
-                if side == RuleSide::Subject {
-                    Side::Subject
-                } else {
-                    Side::Result
-                },
-                mark.spelling.clone(),
-            ),
+            entry: entry(cell_name, side.entry_side(), mark.spelling.clone()),
             context,
             template: Template {
                 sentence,
@@ -1149,6 +1170,58 @@ fn generate() -> Vec<Generated> {
             out.push(init_case(cells[0], &init_mark(mark, decl(cells[0]))));
         }
     }
+    out.extend(listed());
+    out
+}
+
+/// The cases the ticket lists beside the array: a rule that writes no cell
+/// (`rule-changes-no-cell`), a rule naming a group and a cell below it (`group-and-descendant`),
+/// L4's 2-child group record written whole, `Some(_)` in a result, and S5-F1's `cells!` result
+/// fragment with a bare `..` over a matched group. L4's record naming one of the two children
+/// waits on the S5.0g stop D-4 (`outcome` admits its `cells!` fragment).
+fn listed() -> Vec<Generated> {
+    let frame = decl("frame");
+    let g = |fields: Vec<(&str, Spelling)>, text: &str, rest| {
+        written(text, Spelling::Record(record("G", fields, rest)))
+    };
+    let mut out = Vec::new();
+    for family in [Family::Readable, Family::Claim] {
+        out.push(readable_case(
+            family,
+            RuleSide::Descendant,
+            "frame",
+            &readable_mark("value:binder", frame),
+        ));
+        for side in [RuleSide::Subject, RuleSide::Result] {
+            out.push(readable_case(
+                family,
+                side,
+                "frame",
+                &g(
+                    vec![("a", bind("x")), ("b", bind("y"))],
+                    "G { a: x, b: y }",
+                    RecordRest::Exact,
+                ),
+            ));
+        }
+        out.push(readable_case(
+            family,
+            RuleSide::Result,
+            "counter",
+            &written("Some(_)", some(wild())),
+        ));
+    }
+    out.push(readable_case(
+        Family::Readable,
+        RuleSide::NoChange,
+        "pc",
+        &readable_mark("value:binder", decl("pc")),
+    ));
+    out.push(cells_case(
+        RuleSide::Result,
+        "frame",
+        &cells_mark("value:fragment", frame, RuleSide::Result),
+    ));
     out
 }
 

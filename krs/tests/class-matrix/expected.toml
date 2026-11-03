@@ -1716,6 +1716,27 @@ match = '{claim,readable}/result/kinds/{hacct,hcounter,henv,hogroup,hpc}/_'
 class = "wildcard-outside-pattern"
 at = "spelling"
 
+# S5.0g: the cases the ticket lists beside the kinds array (`class_matrix::kinds` `listed`)
+[[refuse]]
+match = 'cells/result/kinds/frame/k::fragment![crate::G \{ a: x\, .. \}]'
+class = "open-record-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/descendant/kinds/frame/x'
+class = "group-and-descendant"
+at = "item"
+
+[[refuse]]
+match = '{claim,readable}/result/kinds/counter/Some(_)'
+class = "wildcard-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'readable/nochange/kinds/pc/x'
+class = "rule-changes-no-cell"
+at = "item"
+
 [accept]
 
 # alternatives-bind-unequally (NT-2): alternatives in a subject that bind other names
@@ -2483,6 +2504,8 @@ syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%
 
 [accept."claim/result/kinds/code/[x, ..]"]
 
+[accept."claim/result/kinds/frame/G { a: x, b: y }"]
+
 [accept."claim/result/pc/0"]
 k = """
 claim [case-TAG]:
@@ -2860,6 +2883,8 @@ claim [case-TAG]:
 """
 
 [accept."claim/subject/kinds/bag/{ Obj { key: x, .. }, .. }"]
+
+[accept."claim/subject/kinds/frame/G { a: x, b: y }"]
 
 [accept."claim/subject/kinds/frame/_"]
 lint = "no-effect-entry"
@@ -4126,6 +4151,8 @@ syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%
 
 [accept."readable/result/kinds/code/[x, ..]"]
 
+[accept."readable/result/kinds/frame/G { a: x, b: y }"]
+
 [accept."readable/result/pc/0"]
 k = """
 rule [case-TAG]:
@@ -4512,6 +4539,8 @@ rule [case-TAG]:
 same_k_as = ["cells/subject/k/k::configuration::KCell(x, ..)"]
 
 [accept."readable/subject/kinds/bag/{ Obj { key: x, .. }, .. }"]
+
+[accept."readable/subject/kinds/frame/G { a: x, b: y }"]
 
 [accept."readable/subject/kinds/frame/_"]
 lint = "no-effect-entry"
