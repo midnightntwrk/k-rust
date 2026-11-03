@@ -14,14 +14,15 @@
 //! 1. **form**: what the spelling and its side alone refuse (`_`, `name @ P` and a named rest
 //!    `name @ ..` in a result or an initializer, `None` or an anonymous rest in an initializer, an
 //!    anonymous rest in a map literal outside a `cells!` pattern);
-//! 2. **kind**: first the path (S1 (b)): an entry naming a cell below a `?` or `*` ancestor is
-//!    refused for the outermost such ancestor, whatever it spells, since the ancestor's presence
-//!    and the instance meant are written at the ancestor's level, never in the entry (a mark in
-//!    the entry is the cell's own, P2); then P3 against the cell's own layers, outermost first:
-//!    (a) the outermost layer's mark admits the entry and its inside is judged against the next
-//!    layer; (b) a mark of a layer the stack has nowhere gives that mark's class; (c) a deeper
-//!    layer's mark, or a value where the outermost layer has a mark, gives the missing layer's
-//!    class;
+//! 2. **kind**: P3 against the cell's own layers, outermost first: (a) the outermost layer's mark
+//!    admits the entry and its inside is judged against the next layer; (b) a mark of a layer the
+//!    stack has nowhere gives that mark's class; (c) a deeper layer's mark, or a value where the
+//!    outermost layer has a mark, gives the missing layer's class; then the path (S1 (b)): an
+//!    entry naming a cell below a `?` or `*` ancestor is refused for the outermost such ancestor,
+//!    whatever it spells, since the ancestor's presence and the instance meant are written at the
+//!    ancestor's level, never in the entry (a mark in the entry is the cell's own, P2). The
+//!    cell's own refusal comes first for P3's reason: the path's advice writes the entry inside
+//!    the ancestor's mark, so a spelling its own stack refuses would be refused again there;
 //! 3. **pairing**: rests (P6), absence (P5), Q1's lint and overwrite (a result over a cell the
 //!    subject does not match, [`Context::other`] `None`), Q3, and a bare `..` in a result's group
 //!    record for a group that exists, matched or overwritten (P6: Rust's default fields, which
@@ -325,7 +326,7 @@ pub enum Step {
     MarkElsewhere,
     /// P3 (c): a deeper layer's mark, or a value where the outermost layer has a mark.
     MissingLayer,
-    /// S1 (b): the entry names a cell below a `?` or `*` ancestor.
+    /// S1 (b): the entry names a cell below a `?` or `*` ancestor (after the cell's own kind).
     Path,
     /// Inside a layer's mark (a leaf's notation, an instance's shape, Q3).
     Inside,
@@ -1252,11 +1253,13 @@ pub fn judge(
         sort: false,
     };
     judge.form_step(spelling, 0)?;
-    // S1 (b): below a marked ancestor, the entry is refused for the outermost one.
+    judge.judge(stack, spelling, 0)?;
+    // S1 (b): below a marked ancestor, the entry is refused for the outermost one, after the
+    // cell's own kind (P3's reason): the advice writes the entry inside the ancestor's mark, so
+    // a spelling the cell's own stack refuses would be refused again there.
     if let Some(ancestor) = path.first() {
         refuse(missing(ancestor), Step::Path, 0)?;
     }
-    judge.judge(stack, spelling, 0)?;
     let lint = judge.pair(stack, spelling)?;
     Ok(if judge.sort && lint.is_none() {
         Outcome::After

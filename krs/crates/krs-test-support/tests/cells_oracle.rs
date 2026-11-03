@@ -1304,7 +1304,9 @@ const LAYER_CLASSES: [&str; 3] = [
 const UNORDERED_ADVICE: &str = "a value wrapped in unordered braces is Q2's value item; the advice is an instance record, which wrapping cannot build";
 
 /// Check 4 (P3's reason): a refusal for a missing layer at the author's head has an advice, the
-/// spelling with every missing layer added, and the advice is admitted at the head.
+/// spelling with every missing layer added, and the advice is admitted at the head. A refusal
+/// for a marked ancestor (S1 (b)) advises the entry inside the ancestor's mark, so the entry
+/// must be admitted by its own cell's layers (S5.0g review R3).
 ///
 /// That each class's `advice` case is one the oracle admits is not checked here: the table's
 /// resolution refuses an advice that is no accepted case (`AdviceNotAccepted`), check 1 makes
@@ -1326,6 +1328,28 @@ fn check_4_the_advice_of_a_missing_layer_is_admitted_at_the_head() {
         let Err(refusal) = judge(form, side, path, stack, spelling, &entry.context) else {
             continue;
         };
+        // S1 (b) (S5.0g review R3): a path refusal's advice writes the author's entry inside
+        // the ancestor's mark, at the ancestor's level, so the entry must be one the cell's own
+        // layers admit there: judged without the path, steps 1 and 2 refuse nothing. Its
+        // pairing is the ancestor entry's, against the ancestor's other side, which the advice
+        // writes anew.
+        if refusal.step == Step::Path {
+            let verdict = match judge(form, side, &[], stack, spelling, &entry.context) {
+                Err(again) if again.step != Step::Pairing => {
+                    failures.push(format!(
+                        "{}: refused as {} for its ancestor, and the advice, the entry inside \
+                         the ancestor's mark, is refused again at the author's head as {}",
+                        case.id, refusal.class, again.class
+                    ));
+                    "path, refused again"
+                }
+                _ => "path, admitted at the head",
+            };
+            *counts
+                .entry(format!("{} {verdict}", refusal.class))
+                .or_default() += 1;
+            continue;
+        }
         if refusal.step != Step::MissingLayer || refusal.depth != 0 {
             continue;
         }
@@ -1907,6 +1931,7 @@ fn the_oracle_and_the_product_refuse_the_reviews_probes() {
     let map = [Layer::Instances(Order::Map)];
     let list = [Layer::Instances(Order::List)];
     let int = int();
+    let jobs = [Layer::Instances(Order::List), group_g()];
     let probe = |form, side, path, stack, text, other| Probe {
         form,
         side,
@@ -1919,21 +1944,70 @@ fn the_oracle_and_the_product_refuse_the_reviews_probes() {
     };
     let (subject, result) = (Side::Subject, Side::Result);
     let probes = [
-        // R1: an ancestor's mark spelled in the entry.
+        // R1: an ancestor's mark spelled in the entry admits nothing. It is no mark of the
+        // cell's own layers, which refuse it first (S5.0g review R3, P3's reason: the path's
+        // advice, the entry inside the ancestor's mark, would be refused again).
         (
             probe(Form::Readable, subject, &optional, &int, "Some(x)", None),
-            "optional-without-presence",
+            "presence-on-plain-cell",
         ),
         (
             probe(Form::Readable, subject, &map, &int, "{ .. }", None),
-            "collection-without-instances",
+            "instances-on-plain-cell",
         ),
         (
             probe(Form::Readable, subject, &list, &int, "[x, ..]", None),
-            "collection-without-instances",
+            "bracket-reading",
         ),
         (
             probe(Form::Cells, subject, &list, &int, "[x, ..]", None),
+            "instances-on-plain-cell",
+        ),
+        // A spelling the cell's own layers admit is refused for its ancestor (S1 (b)).
+        (
+            probe(Form::Readable, subject, &optional, &int, "x", None),
+            "optional-without-presence",
+        ),
+        (
+            probe(Form::Readable, subject, &map, &int, "x", None),
+            "collection-without-instances",
+        ),
+        (
+            probe(
+                Form::Readable,
+                subject,
+                &list,
+                &[Layer::Optional, Layer::Leaf(Notation::Plain)],
+                "Some(x)",
+                None,
+            ),
+            "collection-without-instances",
+        ),
+        (
+            probe(
+                Form::Cells,
+                subject,
+                &optional,
+                &int,
+                "k::configuration::Cell(x)",
+                None,
+            ),
+            "optional-without-presence",
+        ),
+        // The cell's own P3 (c) comes first too: a value on its own `?` layer below a `*`.
+        (
+            probe(
+                Form::Readable,
+                subject,
+                &list,
+                &[Layer::Optional, Layer::Leaf(Notation::Plain)],
+                "x",
+                None,
+            ),
+            "optional-without-presence",
+        ),
+        (
+            probe(Form::Readable, subject, &optional, &jobs, "x", None),
             "collection-without-instances",
         ),
         // R2: a result over a cell the subject does not match.

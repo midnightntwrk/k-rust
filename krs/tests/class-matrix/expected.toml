@@ -1162,7 +1162,17 @@ class = "bracket-reading"
 at = "spelling"
 
 [[refuse]]
+match = '{claim,readable}/overwrite/kinds/{hbag,hframe,homap}/[x\, ..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
 match = '{claim,readable}/result/kinds/set/[x\, ..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/subject/kinds/{aacct,acounter,aenv,aogroup,apc}/[x\, ..]'
 class = "bracket-reading"
 at = "spelling"
 
@@ -1192,12 +1202,57 @@ class = "cell-wrapper"
 at = "entry"
 
 [[refuse]]
+match = '{claim,readable}/overwrite/kinds/hprog/G \{ a: x\, .. \}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'cells/overwrite/kinds/{hbag,hframe,hprog}/k::configuration::Cell(x)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'cells/overwrite/kinds/{ajob,aolist,aset,astack}/k::configuration::KCell(x)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'cells/overwrite/kinds/{hprog,hseq}/k::fragment![crate::G \{ a: x\, .. \}]'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'cells/overwrite/kinds/{acode,aset,astack}/x'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/overwrite/kinds/hprog/x'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/result/kinds/aprog/0'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
 match = '{claim,readable}/result/kinds/code/G \{ a: x\, .. \}'
 class = "cell-wrapper"
 at = "entry"
 
 [[refuse]]
+match = 'cells/result/kinds/hogroup/Some(k::configuration::Cell(x))'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
 match = 'cells/result/kinds/{code,job}/k::configuration::Cell(x)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'cells/result/kinds/{hacct,hcounter,henv,hogroup,hpc}/k::configuration::KCell(x)'
 class = "cell-wrapper"
 at = "entry"
 
@@ -1212,12 +1267,37 @@ class = "cell-wrapper"
 at = "entry"
 
 [[refuse]]
+match = 'cells/result/kinds/{henv,hpc}/x'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/subject/kinds/hcode/0'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/kinds/{hcode,hset,hstack}/_'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
 match = '{claim,readable}/subject/kinds/prog/_'
 class = "cell-wrapper"
 at = "entry"
 
 [[refuse]]
+match = 'cells/subject/kinds/{aacct,aogroup}/k::configuration::Cell(x)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
 match = 'cells/subject/kinds/{bag,frame,omap,seq}/k::configuration::KCell(x\, ..)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/kinds/{aenv,apc}/k::fragment![crate::G \{ a: x\, .. \}]'
 class = "cell-wrapper"
 at = "entry"
 
@@ -1232,37 +1312,42 @@ class = "collection-without-instances"
 at = "entry"
 
 [[refuse]]
-match = 'cells/overwrite/kinds/{acode,ajob,aolist,aset,astack}/Some(k::configuration::Cell(x))'
+match = '{claim,readable}/overwrite/kinds/hbag/Hobj \{ hkey: x\, .. \}'
 class = "collection-without-instances"
 at = "entry"
 
 [[refuse]]
-match = '{claim,readable}/overwrite/kinds/{acode,ajob,aolist,aset,astack}/Some(x)'
+match = 'cells/overwrite/kinds/aolist/Some(k::configuration::Cell(x))'
 class = "collection-without-instances"
 at = "entry"
 
 [[refuse]]
-match = 'cells/overwrite/kinds/{acode,ajob,aolist,aset,astack}/k::configuration::KCell(x)'
+match = '{claim,readable}/overwrite/kinds/aolist/Some(x)'
 class = "collection-without-instances"
 at = "entry"
 
 [[refuse]]
-match = 'cells/overwrite/kinds/{acode,ajob,aolist,aset,astack}/x'
+match = 'cells/overwrite/kinds/acode/k::configuration::KCell(x)'
 class = "collection-without-instances"
 at = "entry"
 
 [[refuse]]
-match = '{claim,readable}/overwrite/kinds/ajob/\{ Ajob \{ apay: x\, .. \}\, .. \}'
+match = 'cells/overwrite/kinds/hbag/k::fragment![crate::Hobj \{ hkey: x\, .. \}]'
 class = "collection-without-instances"
 at = "entry"
 
 [[refuse]]
-match = '{claim,readable}/overwrite/kinds/{acode,aolist,aset,astack}/\{ G \{ a: x\, .. \}\, .. \}'
+match = 'cells/overwrite/kinds/ajob/x'
 class = "collection-without-instances"
 at = "entry"
 
 [[refuse]]
-match = '{claim,readable}/result/kinds/{abag,aframe,aomap,aprog,aseq}/0'
+match = '{claim,readable}/overwrite/kinds/hbag/x'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/result/kinds/{abag,aframe,aseq}/0'
 class = "collection-without-instances"
 at = "entry"
 
@@ -1272,22 +1357,7 @@ class = "collection-without-instances"
 at = "entry"
 
 [[refuse]]
-match = '{cells,claim,readable}/result/kinds/{abag,aframe,aomap,aprog,aseq}/None'
-class = "collection-without-instances"
-at = "entry"
-
-[[refuse]]
-match = 'cells/result/kinds/aframe/[k::fragment![crate::Ag \{ aa: x\, .. \}]\, ..]'
-class = "collection-without-instances"
-at = "entry"
-
-[[refuse]]
-match = 'cells/result/kinds/abag/[k::fragment![crate::Aobj \{ akey: x\, .. \}]\, ..]'
-class = "collection-without-instances"
-at = "entry"
-
-[[refuse]]
-match = 'cells/result/kinds/{aomap,aprog,aseq}/[k::fragment![crate::G \{ a: x\, .. \}]\, ..]'
+match = '{cells,claim,readable}/result/kinds/aomap/None'
 class = "collection-without-instances"
 at = "entry"
 
@@ -1297,12 +1367,17 @@ class = "collection-without-instances"
 at = "entry"
 
 [[refuse]]
+match = 'cells/result/kinds/hacct/x'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
 match = '{claim,readable}/result/kinds/job/x'
 class = "collection-without-instances"
 at = "entry"
 
 [[refuse]]
-match = '{claim,readable}/result/kinds/{abag,aframe,aomap,aprog,aseq}/\{ y -> x\, .. \}'
+match = '{claim,readable}/subject/kinds/hjob/0'
 class = "collection-without-instances"
 at = "entry"
 
@@ -1312,17 +1387,7 @@ class = "collection-without-instances"
 at = "entry"
 
 [[refuse]]
-match = '{claim,readable}/subject/kinds/aogroup/Ao \{ aoa: x\, .. \}'
-class = "collection-without-instances"
-at = "entry"
-
-[[refuse]]
-match = '{claim,readable}/subject/kinds/{acounter,aenv,apc}/G \{ a: x\, .. \}'
-class = "collection-without-instances"
-at = "entry"
-
-[[refuse]]
-match = '{claim,readable}/subject/kinds/{aacct,acounter,aenv,aogroup,apc}/[x\, ..]'
+match = '{claim,readable}/subject/kinds/{aenv,apc}/G \{ a: x\, .. \}'
 class = "collection-without-instances"
 at = "entry"
 
@@ -1332,7 +1397,12 @@ class = "collection-without-instances"
 at = "entry"
 
 [[refuse]]
-match = 'cells/subject/kinds/{aacct,acounter,aenv,aogroup,apc}/k::configuration::Cell(x)'
+match = 'cells/subject/kinds/hjob/_'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/kinds/{aenv,apc}/k::configuration::Cell(x)'
 class = "collection-without-instances"
 at = "entry"
 
@@ -1342,17 +1412,7 @@ class = "collection-without-instances"
 at = "entry"
 
 [[refuse]]
-match = 'cells/subject/kinds/aogroup/k::fragment![crate::Ao \{ aoa: x\, .. \}]'
-class = "collection-without-instances"
-at = "entry"
-
-[[refuse]]
-match = 'cells/subject/kinds/{acounter,aenv,apc}/k::fragment![crate::G \{ a: x\, .. \}]'
-class = "collection-without-instances"
-at = "entry"
-
-[[refuse]]
-match = '{claim,readable}/subject/kinds/{aacct,acounter,aenv,aogroup,apc}/x'
+match = '{claim,readable}/subject/kinds/{aacct,aenv,apc}/x'
 class = "collection-without-instances"
 at = "entry"
 
@@ -1363,16 +1423,6 @@ at = "entry"
 
 [[refuse]]
 match = 'cells/subject/kinds/aacct/\{ k::fragment![crate::Aacct \{ aid: x\, .. \}]\, .. \}'
-class = "collection-without-instances"
-at = "entry"
-
-[[refuse]]
-match = 'cells/subject/kinds/aogroup/\{ k::fragment![crate::Ao \{ aoa: x\, .. \}]\, .. \}'
-class = "collection-without-instances"
-at = "entry"
-
-[[refuse]]
-match = 'cells/subject/kinds/{acounter,aenv,apc}/\{ k::fragment![crate::G \{ a: x\, .. \}]\, .. \}'
 class = "collection-without-instances"
 at = "entry"
 
@@ -1412,6 +1462,16 @@ class = "instance-list-shape"
 at = "entry"
 
 [[refuse]]
+match = '{claim,readable}/overwrite/kinds/ajob/\{ Ajob \{ apay: x\, .. \}\, .. \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'cells/result/kinds/abag/[k::fragment![crate::Aobj \{ akey: x\, .. \}]\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
 match = 'cells/result/kinds/job/\{ k::fragment![crate::Job \{ payload: x\, .. \}]\, .. \}'
 class = "instance-list-shape"
 at = "entry"
@@ -1427,12 +1487,62 @@ class = "instances-on-plain-cell"
 at = "entry"
 
 [[refuse]]
+match = '{claim,readable}/overwrite/kinds/{acode,aolist,aset,astack}/\{ G \{ a: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'cells/overwrite/kinds/{homap,hprog,hseq}/\{ k::fragment![crate::G \{ a: x\, .. \}]\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'cells/overwrite/kinds/hframe/\{ k::fragment![crate::Hg \{ ha: x\, .. \}]\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'cells/result/kinds/aframe/[k::fragment![crate::Ag \{ aa: x\, .. \}]\, ..]'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'cells/result/kinds/{aomap,aprog,aseq}/[k::fragment![crate::G \{ a: x\, .. \}]\, ..]'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/result/kinds/{hcounter,henv,hpc}/\{ G \{ a: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/result/kinds/hogroup/\{ Ho \{ hoa: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
 match = 'cells/result/kinds/{code,olist,set,stack}/\{ k::fragment![crate::G \{ a: x\, .. \}]\, .. \}'
 class = "instances-on-plain-cell"
 at = "entry"
 
 [[refuse]]
+match = 'cells/subject/kinds/{hcode,holist,hset,hstack}/[k::fragment![crate::G \{ a: x\, .. \}]\, ..]'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
 match = '{claim,readable}/subject/kinds/{frame,omap,prog,seq}/\{ G \{ a: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/kinds/aogroup/\{ k::fragment![crate::Ao \{ aoa: x\, .. \}]\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/kinds/{acounter,aenv,apc}/\{ k::fragment![crate::G \{ a: x\, .. \}]\, .. \}'
 class = "instances-on-plain-cell"
 at = "entry"
 
@@ -1443,6 +1553,16 @@ at = "spelling"
 
 [[refuse]]
 match = '{claim,readable}/overwrite/kinds/{account,counter,ogroup,pc}/\{ y -> x\, .. \}'
+class = "map-notation-at-non-map"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/result/kinds/{abag,aframe,aprog,aseq}/\{ y -> x\, .. \}'
+class = "map-notation-at-non-map"
+at = "spelling"
+
+[[refuse]]
+match = '{claim,readable}/subject/kinds/{hcode,hjob,holist,hset,hstack}/\{ y -> x\, .. \}'
 class = "map-notation-at-non-map"
 at = "spelling"
 
@@ -1492,7 +1612,7 @@ class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = '{claim,readable}/overwrite/kinds/{homap,hprog,hseq}/G \{ a: x\, .. \}'
+match = '{claim,readable}/overwrite/kinds/{homap,hseq}/G \{ a: x\, .. \}'
 class = "optional-without-presence"
 at = "entry"
 
@@ -1502,22 +1622,17 @@ class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = '{claim,readable}/overwrite/kinds/hbag/Hobj \{ hkey: x\, .. \}'
+match = '{claim,readable}/overwrite/kinds/{hprog,hseq}/[x\, ..]'
 class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = '{claim,readable}/overwrite/kinds/{hbag,hframe,homap,hprog,hseq}/[x\, ..]'
+match = 'cells/overwrite/kinds/{homap,hseq}/k::configuration::Cell(x)'
 class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = 'cells/overwrite/kinds/{hbag,hframe,homap,hprog,hseq}/k::configuration::Cell(x)'
-class = "optional-without-presence"
-at = "entry"
-
-[[refuse]]
-match = 'cells/overwrite/kinds/{homap,hprog,hseq}/k::fragment![crate::G \{ a: x\, .. \}]'
+match = 'cells/overwrite/kinds/homap/k::fragment![crate::G \{ a: x\, .. \}]'
 class = "optional-without-presence"
 at = "entry"
 
@@ -1527,22 +1642,12 @@ class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = 'cells/overwrite/kinds/hbag/k::fragment![crate::Hobj \{ hkey: x\, .. \}]'
+match = 'cells/overwrite/kinds/aolist/x'
 class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = '{claim,readable}/overwrite/kinds/{hbag,hframe,homap,hprog,hseq}/x'
-class = "optional-without-presence"
-at = "entry"
-
-[[refuse]]
-match = 'cells/overwrite/kinds/{homap,hprog,hseq}/\{ k::fragment![crate::G \{ a: x\, .. \}]\, .. \}'
-class = "optional-without-presence"
-at = "entry"
-
-[[refuse]]
-match = 'cells/overwrite/kinds/hframe/\{ k::fragment![crate::Hg \{ ha: x\, .. \}]\, .. \}'
+match = '{claim,readable}/overwrite/kinds/{hframe,homap,hseq}/x'
 class = "optional-without-presence"
 at = "entry"
 
@@ -1552,17 +1657,22 @@ class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
+match = '{claim,readable}/result/kinds/aomap/0'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
 match = '{claim,readable}/result/kinds/olist/G \{ a: x\, .. \}'
 class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = 'cells/result/kinds/{hacct,hcounter,henv,hogroup,hpc}/Some(k::configuration::Cell(x))'
+match = 'cells/result/kinds/hcounter/Some(k::configuration::Cell(x))'
 class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = '{claim,readable}/result/kinds/{hacct,hcounter,henv,hogroup,hpc}/Some(x)'
+match = '{claim,readable}/result/kinds/{hcounter,hogroup}/Some(x)'
 class = "optional-without-presence"
 at = "entry"
 
@@ -1577,17 +1687,12 @@ class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = 'cells/result/kinds/{hacct,hcounter,henv,hogroup,hpc}/k::configuration::KCell(x)'
-class = "optional-without-presence"
-at = "entry"
-
-[[refuse]]
 match = 'cells/result/kinds/olist/k::fragment![crate::G \{ a: x\, .. \}]'
 class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = 'cells/result/kinds/{hacct,hcounter,henv,hogroup,hpc}/x'
+match = 'cells/result/kinds/{hcounter,hogroup}/x'
 class = "optional-without-presence"
 at = "entry"
 
@@ -1597,32 +1702,32 @@ class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = '{claim,readable}/result/kinds/{hcounter,henv,hpc}/\{ G \{ a: x\, .. \}\, .. \}'
-class = "optional-without-presence"
-at = "entry"
-
-[[refuse]]
 match = '{claim,readable}/result/kinds/hacct/\{ Hacct \{ hid: x\, .. \}\, .. \}'
 class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = '{claim,readable}/result/kinds/hogroup/\{ Ho \{ hoa: x\, .. \}\, .. \}'
+match = '{claim,readable}/result/kinds/aomap/\{ y -> x\, .. \}'
 class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = '{claim,readable}/subject/kinds/{hcode,hjob,holist,hset,hstack}/0'
+match = '{claim,readable}/subject/kinds/{holist,hset,hstack}/0'
 class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = '{cells,claim,readable}/subject/kinds/{hcode,hjob,holist,hset,hstack}/None'
+match = '{claim,readable}/subject/kinds/aogroup/Ao \{ aoa: x\, .. \}'
 class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = 'cells/subject/kinds/{hcode,holist,hset,hstack}/[k::fragment![crate::G \{ a: x\, .. \}]\, ..]'
+match = '{claim,readable}/subject/kinds/acounter/G \{ a: x\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{cells,claim,readable}/subject/kinds/holist/None'
 class = "optional-without-presence"
 at = "entry"
 
@@ -1632,7 +1737,7 @@ class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = 'cells/subject/kinds/{hcode,hjob,holist,hset,hstack}/_'
+match = 'cells/subject/kinds/holist/_'
 class = "optional-without-presence"
 at = "entry"
 
@@ -1642,12 +1747,27 @@ class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = 'cells/subject/kinds/omap/x'
+match = 'cells/subject/kinds/acounter/k::configuration::Cell(x)'
 class = "optional-without-presence"
 at = "entry"
 
 [[refuse]]
-match = '{claim,readable}/subject/kinds/{hcode,hjob,holist,hset,hstack}/\{ y -> x\, .. \}'
+match = 'cells/subject/kinds/aogroup/k::fragment![crate::Ao \{ aoa: x\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/kinds/acounter/k::fragment![crate::G \{ a: x\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/subject/kinds/{acounter,aogroup}/x'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'cells/subject/kinds/omap/x'
 class = "optional-without-presence"
 at = "entry"
 
@@ -1663,6 +1783,36 @@ at = "entry"
 
 [[refuse]]
 match = '{cells,claim,readable}/overwrite/kinds/{account,env,pc}/None'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'cells/overwrite/kinds/{acode,ajob,aset,astack}/Some(k::configuration::Cell(x))'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/overwrite/kinds/{acode,ajob,aset,astack}/Some(x)'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = '{cells,claim,readable}/result/kinds/{abag,aframe,aprog,aseq}/None'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'cells/result/kinds/{hacct,henv,hpc}/Some(k::configuration::Cell(x))'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = '{claim,readable}/result/kinds/{hacct,henv,hpc}/Some(x)'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = '{cells,claim,readable}/subject/kinds/{hcode,hjob,hset,hstack}/None'
 class = "presence-on-plain-cell"
 at = "entry"
 

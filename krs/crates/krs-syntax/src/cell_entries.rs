@@ -7,13 +7,15 @@
 //! 1. **form**: what the spelling and its side alone refuse: `_`, `name @ P` and a named rest
 //!    `name @ ..` outside a pattern, `None` or an anonymous rest in an initializer's value, an
 //!    anonymous rest in a map literal outside a `cells!` pattern;
-//! 2. **path**: an entry naming a cell below a `?` or `*` ancestor is refused for the outermost
-//!    such ancestor, whatever it spells: the ancestor's presence and the instance it means are
-//!    written at the ancestor's level (S1 (b));
-//! 3. **kind**, against the cell's own layers, outermost first: the outermost layer's mark admits
+//! 2. **kind**, against the cell's own layers, outermost first: the outermost layer's mark admits
 //!    the entry and its inside is judged against the next layer; a mark no layer of the stack
 //!    has gives that mark's refusal; a deeper layer's mark, or a value where the outermost layer
-//!    has a mark, gives the missing layer's refusal.
+//!    has a mark, gives the missing layer's refusal;
+//! 3. **path**: an entry naming a cell below a `?` or `*` ancestor is refused for the outermost
+//!    such ancestor, whatever it spells: the ancestor's presence and the instance it means are
+//!    written at the ancestor's level (S1 (b)). It comes after the kind, since its advice writes
+//!    the entry inside the ancestor's mark, where a spelling the cell's own layers refuse would
+//!    be refused again.
 //!
 //! [`pair`] then judges the entry with its rule: a result's rest against its subject's, at its
 //! cell's content root and at each child's of the group and instance records it writes, a Map
@@ -578,9 +580,9 @@ impl Admission<'_> {
     }
 }
 
-/// Steps 1 to 3 for one entry: its form, its path (`path`, the layers of the cell's `?` and `*`
-/// ancestors, outermost first), then its kind against `stack`, the cell's own layers, outermost
-/// first. An initializer's value of a `*` cell is one instance's template, judged below the
+/// Steps 1 to 3 for one entry: its form, its kind against `stack`, the cell's own layers,
+/// outermost first, then its path (`path`, the layers of the cell's `?` and `*` ancestors,
+/// outermost first). An initializer's value of a `*` cell is one instance's template, judged below the
 /// instances layer. `bound` tells the names the rule binds outside the entry.
 ///
 /// # Errors
@@ -601,12 +603,12 @@ pub fn admit(
         sorted: false,
     };
     admission.form(spelling)?;
+    admission.kind(stack, spelling, true)?;
     match path.first() {
         Some(Layer::Optional) => return Err(Refusal::BelowOptionalAncestor),
         Some(_) => return Err(Refusal::BelowCollectionAncestor),
         None => {}
     }
-    admission.kind(stack, spelling, true)?;
     Ok(Admitted {
         sorted: admission.sorted,
     })
@@ -1112,30 +1114,54 @@ mod tests {
         let list = [Layer::Instances(Order::List)];
         let (subject, readable, cells) =
             (EntrySide::Subject, EntryForm::Readable, EntryForm::Cells);
-        // The review's three probes: an ancestor's mark spelled in the entry admitted it.
+        // The review's three probes: an ancestor's mark spelled in the entry admitted it. It is
+        // no mark of the cell's own layers, which refuse it first, so the path's advice (the
+        // entry inside the ancestor's mark) is never a spelling refused again.
         assert_eq!(
             below(readable, subject, &optional, &int, "Some(x)"),
-            Err(Refusal::BelowOptionalAncestor)
+            Err(Refusal::PresenceOnPlainCell)
         );
         assert_eq!(
             below(readable, subject, &map, &int, "{ .. }"),
-            Err(Refusal::BelowCollectionAncestor)
+            Err(Refusal::InstancesOnPlainCell)
         );
         assert_eq!(
             below(readable, subject, &list, &int, "[x, ..]"),
-            Err(Refusal::BelowCollectionAncestor)
+            Err(Refusal::BracketReading)
         );
         assert_eq!(
             below(cells, subject, &list, &int, "[x, ..]"),
+            Err(Refusal::InstancesOnPlainCell)
+        );
+        // A spelling the cell's own layers admit is refused for its ancestor.
+        assert_eq!(
+            below(
+                readable,
+                subject,
+                &list,
+                &[Layer::Optional, Layer::Leaf(Notation::Plain)],
+                "Some(x)"
+            ),
             Err(Refusal::BelowCollectionAncestor)
         );
-        for form in [readable, cells] {
+        assert_eq!(
+            below(cells, subject, &optional, &int, "k::configuration::Cell(x)"),
+            Err(Refusal::BelowOptionalAncestor)
+        );
+        for (form, x, one) in [
+            (readable, "x", "1"),
+            (
+                cells,
+                "k::configuration::Cell(x)",
+                "k::configuration::Cell(1)",
+            ),
+        ] {
             assert_eq!(
-                below(form, subject, &map, &int, "x"),
+                below(form, subject, &map, &int, x),
                 Err(Refusal::BelowCollectionAncestor)
             );
             assert_eq!(
-                below(form, subject, &optional, &int, "x"),
+                below(form, subject, &optional, &int, x),
                 Err(Refusal::BelowOptionalAncestor)
             );
             // The outermost marked ancestor's refusal.
@@ -1145,11 +1171,16 @@ mod tests {
                     EntrySide::Result,
                     &[Layer::Optional, Layer::Instances(Order::List)],
                     &int,
-                    "1"
+                    one
                 ),
                 Err(Refusal::BelowOptionalAncestor)
             );
         }
+        // A value without the leaf's `cells!` wrapper is the cell's own mistake, first.
+        assert_eq!(
+            below(cells, subject, &map, &int, "x"),
+            Err(Refusal::CellWrapper)
+        );
         assert_eq!(
             Refusal::BelowOptionalAncestor.class(),
             "optional-without-presence"
