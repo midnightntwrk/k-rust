@@ -675,8 +675,9 @@ text = 'h(opaque(1), 2)'
         // KINK-BASELINE-FINDINGS: version 10 adds `data`, a row's `findings` and `unable_to_kill`;
         // kink27 R5-WEAKENING: version 11 adds the status `unkillable` and a row's `weakening`;
         // CF-16: version 12 adds `difference` and `ends`; CF-02: version 13 adds `spec.exclusion`;
-        // version 14 adds `result`, the compared cells.
-        assert_eq!(document["version"], 14);
+        // version 14 adds `result`, the compared cells; CF-03: version 15 adds
+        // `short_circuit_readings`, the step that excluded a run.
+        assert_eq!(document["version"], 15);
         assert_eq!(row["typing_diagnostics"], json!([]));
         assert_eq!(
             entry(&document, "guard-dropped", "by-zero")["slots"],

@@ -1247,8 +1247,12 @@ fn check_admission(manifest: &FlowManifest) -> (Value, u8) {
 /// 4 adds `data` and `spec.baseline_findings`, and exits 1 when the baseline has no data under
 /// `[spec] assume_joined` ([`FlowAdmission::verdicts_possible`]); 5 adds `result`, the slots and
 /// the cells the programs' second slot compares ([`crate::observed`]), and the specification's
-/// refusal at stage `result`.
-pub const CHECK_VERSION: u64 = 5;
+/// refusal at stage `result`; 6 (CF-03) adds `spec.short_circuit`, the rules the short-circuit
+/// analysis flags, which are no longer a definition exclusion: each run of such a definition is
+/// judged by k-rust's list of that run, so no program is `excluded` for them before it runs; and
+/// a program whose initial configuration applies a reading-dependent function is `excluded` at
+/// stage `initial-state` only when its depth-0 run lists a reading that counts against it.
+pub const CHECK_VERSION: u64 = 6;
 
 fn header(spec: Value, programs: Vec<Value>, data: Value, result: Value) -> Value {
     json!({
@@ -1277,6 +1281,7 @@ pub fn manifest_refused(error: &ManifestError) -> Value {
             "detail": error.to_string(),
             "files": [],
             "exclusion": null,
+            "short_circuit": null,
             "baseline_findings": null,
         }),
         Vec::new(),
@@ -1285,29 +1290,38 @@ pub fn manifest_refused(error: &ManifestError) -> Value {
     )
 }
 
-/// The check document of an admission. `spec.exclusion` is the definition exclusion of the
-/// admitted specification ([`crate::exclusion::definition_exclusion`], null when there is none
-/// or the specification is refused). A program is `ok`, `refused` (stage, reason and detail of
-/// the refusal), or `excluded`: admitted, but every run of it on the baseline is excluded before
-/// it runs (stage `definition` or `initial-state`, the exclusion's name as reason, and why).
-/// `data` is the baseline's full critical-pair check under `[spec] assume_joined`, as the run,
-/// `results` and `query` documents print it (kink-native `DataFacts::value`), and
-/// `spec.baseline_findings` says why the baseline has no data ([`baseline_findings`]); `result`
-/// names the slots and the cells the programs' second slot compares
-/// ([`crate::observed::ResultProjection::value`]); all three are null when the specification is
-/// refused.
+/// The check document of an admission. `spec.exclusion` is the definition exclusion of the admitted
+/// specification ([`crate::exclusion::definition_exclusion`], null when there is none or the
+/// specification is refused), and `spec.short_circuit` the rules its short-circuit analysis flags
+/// ([`crate::exclusion::short_circuit`], null when it flags none), which make no program
+/// `excluded`: a run of such a definition is judged by its own list of readings. A program is `ok`,
+/// `refused` (stage, reason and detail of the refusal), or `excluded`: admitted, but every run of
+/// it on the baseline is excluded before it runs (stage `definition` or `initial-state`, the
+/// exclusion's name as reason, and why). `data` is the baseline's full critical-pair check under
+/// `[spec] assume_joined`, as the run, `results` and `query` documents print it (kink-native
+/// `DataFacts::value`), and `spec.baseline_findings` says why the baseline has no data
+/// ([`baseline_findings`]); `result` names the slots and the cells the programs' second slot
+/// compares ([`crate::observed::ResultProjection::value`]); all three are null when the
+/// specification is refused.
 pub fn check_document(admission: &FlowAdmission) -> Value {
     let record = &admission.record;
     let refusal = record.refusal.as_ref();
     let exclusion = admission
         .spec
         .as_ref()
-        .filter(|spec| spec.exclusions.static_exclusion().is_some())
+        .filter(|spec| spec.exclusions.definition_exclusion().is_some())
         .map_or(Value::Null, |spec| {
             crate::exclusion::definition_exclusion(
                 spec,
                 &crate::evidence::EndReader::of(&spec.compiled),
             )
+        });
+    let short_circuit = admission
+        .spec
+        .as_ref()
+        .filter(|spec| spec.exclusions.short_circuit_flagged())
+        .map_or(Value::Null, |spec| {
+            crate::exclusion::short_circuit(spec, &crate::evidence::EndReader::of(&spec.compiled))
         });
     let spec = json!({
         "outcome": if refusal.is_some() { "refused" } else { "admitted" },
@@ -1320,6 +1334,7 @@ pub fn check_document(admission: &FlowAdmission) -> Value {
             .map(|f| json!({"name": f.name, "sha256": f.sha256.to_string()}))
             .collect::<Vec<_>>(),
         "exclusion": exclusion,
+        "short_circuit": short_circuit,
         "baseline_findings": admission
             .spec
             .as_ref()

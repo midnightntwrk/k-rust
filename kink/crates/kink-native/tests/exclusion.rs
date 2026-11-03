@@ -28,7 +28,7 @@ use kink_native::exclusion::{
     UNDOCUMENTED_EVALUATED_HOOKS, census_hook, state_references_implementation_chosen,
 };
 use kink_native::execution::{
-    AdaptedExecution, ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile,
+    AdaptedExecution, ExecutionAdapter, ExecutionBudget, HaltClass, RunFacts, SolverProfile,
 };
 use kink_native::feasibility::TestInitialState;
 use kink_native::step_events::ObservationDecider;
@@ -1490,20 +1490,22 @@ fn a_short_circuit_step_over_an_undefined_operand_is_excluded() {
     });
 }
 
-/// CF-03: on `scrhs.k`, whose analysis flags `go`, `fn`, `at`, `oe`, `cond` and `imp`, every run
-/// is judged by k-rust's `shortCircuitReadings` list, and the definition is no longer excluded as
-/// a whole (the analysis still flags it for routes without the list). On 0 each flagged rule's
+/// CF-03: on `scrhs.k`, whose analysis flags `go`, `fn`, `at`, `oe`, `cond` and `imp`, every run is
+/// judged by k-rust's `shortCircuitReadings` list, and the definition is no longer excluded as a
+/// whole (the analysis still flags it for routes without the list). On 0 each flagged rule's
 /// successor reads the strict definedness of `10 /Int 0 >Int 0`, the operand after a deciding
 /// `false`, `true` or `#if true`; k-rust lists it `undefined` under that rule, and the run is
-/// `short-circuit-reading` with the step named. On 1 the operand is defined, the list is empty,
-/// and the run is judged: the short-circuiting reading gives the same run. `rqa`'s condition
-/// `false andBool 10 /Int I >Int 0` is a positive conjunct, unflagged: on 0 its attempt lists the
-/// reading under `rqa`, which on a ground run counts not (the analysis shows `rqa` applies in the
-/// same cases in both readings); from a symbolic `I` it counts, since a symbolic run can evaluate
-/// a term a flagged rule built under a later rule's path condition. An initial state that applies
-/// `f` is normalized by no rule's work, whose entry counts; the static state check is left to
-/// routes without a run. On `scmlat.k`, which the analysis clears, `gp(-1, 0)` lists the reading of
-/// its `owise` guard's discarded `-1 /Int 0 ==Int 0` and is judged: the list is not read there.
+/// `short-circuit-reading` with the step named. On 1 the operand is defined, the list is empty, and
+/// the run is judged: the short-circuiting reading gives the same run. `rqa`'s condition `false
+/// andBool 10 /Int I >Int 0` is a positive conjunct, unflagged: on 0 its attempt lists the reading
+/// under `rqa`, which on a ground run counts not (the analysis shows `rqa` applies in the same
+/// cases in both readings); from a symbolic `I` it counts, since a symbolic run can evaluate a term
+/// a flagged rule built under a later rule's path condition. An initial state that applies `f` is
+/// normalized by no rule's work, whose entry counts; the state check of a run reads the same
+/// entries (on 1 the list is empty and the state is judged; with no list it is excluded), and the
+/// static state check is left to routes without a run. On `scmlat.k`, which the analysis clears,
+/// `gp(-1, 0)` lists the reading of its `owise` guard's discarded `-1 /Int 0 ==Int 0` and is
+/// judged: the list is not read there.
 #[test]
 fn a_flagged_definition_judges_each_run_by_its_short_circuit_readings() {
     use k_rust::backend::ReadingOutcomeOutput;
@@ -1599,12 +1601,44 @@ fn a_flagged_definition_judges_each_run_by_its_short_circuit_readings() {
             exclusions.run_exclusion(&initial),
             Some(Exclusion::ShortCircuitReading)
         );
+        let defined_program =
+            support::app("Lblres", vec![support::app("Lblf", vec![support::int(1)])]);
+        let defined = run(&side, &module, defined_program.clone());
+        assert_eq!(
+            defined.facts().short_circuit_readings.as_deref(),
+            Some(&[][..]),
+            "{:?}",
+            defined.facts()
+        );
+        assert_eq!(exclusions.run_exclusion(&defined), None);
         let mut loaded = backend(&side, &module);
         let definition = loaded.select_definition(None).unwrap();
         let state = support::initial_state(program, "SortProg");
-        assert_eq!(exclusions.state_exclusion(&definition, &state), None);
         assert_eq!(
             exclusions.static_state_exclusion(&definition, &state),
+            Some(Exclusion::ShortCircuitReading)
+        );
+        // The state applies `f`, whose value depends on the reading: its run is judged by the
+        // entries of its list that count against it, as on a definition the analysis clears.
+        assert_eq!(
+            exclusions.state_exclusion(&definition, &state, initial.facts()),
+            Some(Exclusion::ShortCircuitReading)
+        );
+        let defined_state = support::initial_state(defined_program, "SortProg");
+        assert_eq!(
+            exclusions.static_state_exclusion(&definition, &defined_state),
+            Some(Exclusion::ShortCircuitReading)
+        );
+        assert_eq!(
+            exclusions.state_exclusion(&definition, &defined_state, defined.facts()),
+            None
+        );
+        let unlisted = RunFacts {
+            short_circuit_readings: None,
+            ..defined.facts().clone()
+        };
+        assert_eq!(
+            exclusions.state_exclusion(&definition, &defined_state, &unlisted),
             Some(Exclusion::ShortCircuitReading)
         );
         let (side, module) = fixture("r0c", "scmlat");

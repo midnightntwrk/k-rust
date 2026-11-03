@@ -53,6 +53,13 @@
 //! edited equation (null on every other row); a mutant run's cause names the function whose
 //! application an indeterminate leaf holds unreduced ([`executed_cause`]).
 //!
+//! CF-03 (version 15): a run of a definition whose short-circuit analysis flags a rule is judged
+//! by k-rust's `shortCircuitReadings` list of that run, so `spec.exclusion` no longer names the
+//! short-circuit reading (the check and results documents' `spec.short_circuit` name the flagged
+//! rules); an executed entry whose mutant run lists readings that count against it carries
+//! `short_circuit_readings` (`crate::exclusion::readings_value`), and its cause names the step;
+//! a program's row carries its baseline run's (`results`).
+//!
 //! CF-16 (version 12): every executed entry of a compared program carries `difference`, the kill
 //! evidence of a distinguishing one (null otherwise; [`crate::evidence`]): the first differing
 //! cell path between an end of one side outside the other's set and its nearest end there, both
@@ -103,8 +110,11 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// 13 since CF-02 added `spec.exclusion`, the definition exclusion and its causes; 14 since the
 /// compared cells added `result`, the slots and the cells the programs' second slot compares, so
 /// that every survivor is reported with the cells it was compared on, and named that slot `cells`
-/// where it leaves some cell out.
-pub const RUN_VERSION: u64 = 14;
+/// where it leaves some cell out; 15 since CF-03 judged each run of a definition whose
+/// short-circuit analysis flags a rule by its own list, taking the short-circuit reading out of
+/// `spec.exclusion` and adding each executed entry's and each program row's
+/// `short_circuit_readings`.
+pub const RUN_VERSION: u64 = 15;
 
 /// k-rust's contradicted-claim records of one run as specification diagnostics (re-pin adoption
 /// A-1): each `{claim, symbol, k_label, rule_id, rule_label, application, undefined,
@@ -675,9 +685,12 @@ fn failure_cause(kind: ExecutionFailureKind, budget: Budget) -> String {
                 .into()
         }
         ExecutionFailureKind::ShortCircuitReading => {
-            "short-circuit-reading: the mutant's result depends on whether andBool, orBool, \
-             impliesBool, #if, andThenBool or orElseBool skip an operand that may be undefined, \
-             which the definition leaves to the backend; k-rust evaluates every operand"
+            "short-circuit-reading: a run of this program (the mutant's, or the baseline's) read \
+             the definedness of an operand a short-circuiting backend may skip, the operand after \
+             the deciding one of andBool, orBool, impliesBool, #if, andThenBool or orElseBool, \
+             which k-rust found undefined or left undecided at a step its definition's \
+             short-circuit analysis does not clear, so another reading the definition leaves to \
+             the backend may give that run another result"
                 .into()
         }
         ExecutionFailureKind::AllowanceRefusal => {

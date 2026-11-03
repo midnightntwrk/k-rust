@@ -858,8 +858,9 @@ note = "requires and right-hand side"
         // `smt_unknowns`; fz26 KINK-BASELINE-FINDINGS: version 10 adds `data`, a row's
         // `findings` and `unable_to_kill`; kink27 R5-WEAKENING: version 11 adds the status
         // `unkillable` and a row's `weakening`; CF-16: version 12 adds `difference` and `ends`;
-        // CF-02: version 13 adds `spec.exclusion`; version 14 adds `result`, the compared cells.
-        assert_eq!(document["version"], 14);
+        // CF-02: version 13 adds `spec.exclusion`; version 14 adds `result`, the compared cells;
+        // CF-03: version 15 adds `short_circuit_readings`, the step that excluded a run.
+        assert_eq!(document["version"], 15);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());

@@ -525,6 +525,92 @@ fn a_template_whose_variables_only_the_syntax_module_reads_assembles_as_kinks() 
     assert_eq!(&assembly["baseline_anchor"], kink, "{assembly:#}");
 }
 
+/// CF-03: a definition whose short-circuit analysis flags a rule has no definition exclusion for
+/// it, since kink's runner judges each of its runs by k-rust's list of that run's short-circuit
+/// readings, so a fuzz job of it is no longer refused before any case (`job.exclusions` names none
+/// on the baseline), with the witness filter and without it. `at` writes `andThenBool` over
+/// `10 /Int I >Int 0` to its output cell, flagged; the template's input `at(1)` applies no
+/// function, so the filter's static initial-state check passes it. A case whose step of `at`
+/// reads the undefined skipped operand gives no witness; one whose run reads only defined
+/// operands is confirmed.
+#[test]
+fn a_job_of_a_flagged_definition_is_not_refused_up_front() {
+    let spec = r"module SCR-SYNTAX
+  imports INT-SYNTAX
+  imports BOOL-SYNTAX
+  syntax Prog ::= at(Int) [symbol(at)]
+endmodule
+
+module SCR
+  imports SCR-SYNTAX
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Prog </k> <out> true </out>
+  rule [at]: <k> at(I) => .K </k> <out> _ => false andThenBool 10 /Int I >Int 0 </out>
+endmodule
+";
+    let manifest = "[spec]\nentry = \"scr.k\"\nmain_module = \"SCR\"\nsyntax_module = \
+                    \"SCR-SYNTAX\"\n\n[[program]]\nid = \"one\"\ntext = \"at(1)\"\n";
+    let dir = scratch_flow("short-circuit-job", "scr.k", spec, manifest, "");
+    let templates = "[[template]]\nid = \"at-holes\"\nprogram = \"one\"\n\
+                     [[template.hole]]\nname = \"N\"\nsort = \"Int\"\nfind = \"at(1)\"\n\
+                     literal = \"1\"\nrange = { min = 0, max = 3 }\n";
+    for filter in [true, false] {
+        let (document, _) = run_job(
+            &dir,
+            templates,
+            "at-holes",
+            Job::Reach("at".into(), true),
+            FuzzOptions {
+                filter,
+                ..imp_options(0)
+            },
+        );
+        assert_eq!(
+            document["job"]["refusal"],
+            Value::Null,
+            "filter {filter}: {document:#}"
+        );
+        assert_eq!(
+            document["job"]["exclusions"]["baseline"],
+            Value::Null,
+            "filter {filter}: {document:#}"
+        );
+    }
+    // The job runs. On `at(0)` the step of `at` is undefined only through the operand
+    // `andThenBool` skips, so no run of it reaches the rule as a comparable baseline and the
+    // campaign exhausts that domain with no witness (the filter's leaf check of such a step,
+    // `short-circuit-step`, is the unit test `fuzz_filter`
+    // `an_undefined_step_of_a_short_circuit_rule_is_refused_under_its_sides_facts`). On `at(2)`
+    // the run lists no short-circuit reading, and kink's confirmation confirms the witness.
+    let only = |value: u32| {
+        format!(
+            "[[template]]\nid = \"at-holes\"\nprogram = \"one\"\n[[template.hole]]\nname = \
+             \"N\"\nsort = \"Int\"\nfind = \"at(1)\"\nliteral = \"1\"\nrange = {{ min = \
+             {value}, max = {value} }}\n"
+        )
+    };
+    let reach = |templates: &str| {
+        run_job(
+            &dir,
+            templates,
+            "at-holes",
+            Job::Reach("at".into(), false),
+            FuzzOptions {
+                confirm: true,
+                ..imp_options(4)
+            },
+        )
+        .0
+    };
+    let undefined = reach(&only(0));
+    assert_eq!(undefined["stopped"], "domain-exhausted", "{undefined:#}");
+    assert_eq!(undefined["program"], Value::Null, "{undefined:#}");
+    let confirmed = reach(&only(2));
+    assert_eq!(confirmed["stopped"], Value::Null, "{confirmed:#}");
+    assert_eq!(confirmed["program"]["confirmed"], true, "{confirmed:#}");
+}
+
 const TOKENS_TEMPLATES: &str = "[[template]]\nid = \"run-holes\"\nprogram = \"one\"\n\
                                 [[template.hole]]\nname = \"X\"\nsort = \"Int\"\nfind = \
                                 \"run(1)\"\nliteral = \"1\"\nrange = { min = 0, max = 9 }\n";
@@ -2496,12 +2582,13 @@ mod comparable_b {
             assert_eq!(first, kill(0, false, true).0);
         }
 
-        /// A template whose own input kink excludes is refused before any case
+        /// A template whose own input the witness filter excludes is refused before any case
         /// (`initial-state-excluded`): `g` is a total function whose value depends on whether
         /// `orBool` skips an operand that may be undefined, which no rule applies (so the definition
-        /// has no exclusion of its own), but the template's input `run(g(1))` applies it, so kink
-        /// takes no evidence from any program of the template. With `--no-filter` the check is not
-        /// made.
+        /// has no exclusion of its own), but the template's input `run(g(1))` applies it, and the
+        /// filter, which reads a case's initial state without the run's list, refuses every
+        /// candidate that keeps it. With `--no-filter` the check is not made, and kink's
+        /// confirmation judges each witness by its runs' lists.
         #[test]
         #[ignore = "kink"]
         fn a_template_whose_input_kink_excludes_is_refused_before_any_case() {

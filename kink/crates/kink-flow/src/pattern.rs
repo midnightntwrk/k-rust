@@ -44,19 +44,19 @@
 //! clock is its only bound on a runaway program.
 //!
 //! **Answers** ([`judge`]):
-//! - `hit`: the search returned a decided match: no condition (`constraints` empty), no
-//!   diagnostic of the match or of the matching state's path, a state that carries no predicate,
-//!   a state whose term is defined (below), no hook application the search left unevaluated
-//!   (below), and the watchdog did not fire. A hit is sound even
-//!   when the run read a value the definition leaves open (an implementation-chosen hook, the
-//!   short-circuit reading, an initial state flagged for either): k-rust's choice is one model of
-//!   the definition, and the claim is existential. For the short-circuit reading this is K's own
-//!   latitude: `domains.md` says `andBool` and `orBool` "may be short-circuited in concrete
-//!   backends" and that `#if` "does not short-circuit on symbolic backends", so k-rust's strict
-//!   reading (a condition with an undefined operand is undefined, and the rule does not apply) is
-//!   one reading K allows. The consequence: a hit may be on a state that only the strict reading
-//!   reaches (for example an `owise` rule that fired because another rule's condition was
-//!   undefined), which a short-circuiting backend might not reach.
+//! - `hit`: the search returned a decided match: no condition (`constraints` empty), no diagnostic
+//!   of the match or of the matching state's path, a state that carries no predicate, a state whose
+//!   term is defined (below), no hook application the search left unevaluated (below), and the
+//!   watchdog did not fire. A hit is sound even when the run read a value the definition leaves
+//!   open (an implementation-chosen hook, an operand a short-circuiting backend may skip, an
+//!   initial state flagged for either): k-rust's choice is one model of the definition, and the
+//!   claim is existential. For the short-circuit reading this is K's own latitude: `domains.md`
+//!   says `andBool` and `orBool` "may be short-circuited in concrete backends" and that `#if` "does
+//!   not short-circuit on symbolic backends", so k-rust's strict reading (a condition with an
+//!   undefined operand is undefined, and the rule does not apply) is one reading K allows. The
+//!   consequence: a hit may be on a state that only the strict reading reaches (for example an
+//!   `owise` rule that fired because another rule's condition was undefined), which a
+//!   short-circuiting backend might not reach.
 //!
 //!   **A defined state.** A reached state that holds an irreducible application of a function not
 //!   declared total (a user function with no equation for its argument: `f(3)` where `f` has an
@@ -104,17 +104,26 @@
 //!   `allowanceRefusals` lists empty: KINK-R4 review N2, since such an application's value, or its
 //!   undefinedness, decides successors k-rust did not compute; and the search read no value the
 //!   definition leaves open, its `implementationChosenValues` list empty: kink27
-//!   R3-CENSUS-RUNLEVEL, since k-rust's classes are judged per run rather than by the census, and
-//!   a search lists every class value it took, the pattern's own matching included, so with one
-//!   on the list another model of that value may reach the pattern), and also the program's baseline run, kink's plain state-set run of the same initial
-//!   state under the same budget (the result cache), is `comparable`: complete and free of every
-//!   exclusion kink-campaign reads (a stack stop the run counted, a load stack stop, a
-//!   contradicted claim, an undefined step of the short-circuit reading, an allowance refusal);
-//!   the definition passes decision 1's census and kink's other definition exclusions (no
-//!   implementation-chosen hook, no rule that depends on the short-circuit reading, no condition
-//!   equating two terms, no load stack stop), and so does the initial state; and the build is not
-//!   the Z3 profile. Another model of an open value could reach the pattern, so a `no` is relative
-//!   to the definition only when no implementation-chosen value is in play.
+//!   R3-CENSUS-RUNLEVEL, since k-rust's classes are judged per run rather than by the census, and a
+//!   search lists every class value it took, the pattern's own matching included, so with one on
+//!   the list another model of that value may reach the pattern; and, on a definition whose
+//!   short-circuit analysis flags a rule, or for an initial state that applies a function or
+//!   operator whose value depends on the short-circuit reading, the search's `shortCircuitReadings`
+//!   list holds no entry that counts, as kink-campaign judges a run's list, kink-native
+//!   `DefinitionExclusions::short_circuit_excludes` and `state_exclusion`: an empty list means that
+//!   every evaluation the search used, the initial state's normalization included, gives the same
+//!   value under a reading that skips the operand after a deciding one, so its states and its
+//!   exploration are that reading's too, while an entry that counts is a place where another
+//!   reading may reach another state; a backend that lists no readings gives no `no` there), and
+//!   also the program's baseline run, kink's plain state-set run of the same initial state under
+//!   the same budget (the result cache), is `comparable`: complete and free of every exclusion
+//!   kink-campaign reads (a stack stop the run counted, a load stack stop, a contradicted claim, a
+//!   short-circuit reading that counts on its list, an allowance refusal); the definition passes
+//!   decision 1's census and kink's other definition exclusions (no implementation-chosen hook, no
+//!   condition equating two terms, no load stack stop), and so does the initial state (it applies
+//!   no such hook, kink-native `state_references_implementation_chosen`); and the build is not the
+//!   Z3 profile. Another model of an open value could reach the pattern, so a `no` is relative to
+//!   the definition only when no implementation-chosen value is in play.
 //!
 //!   **A pattern holding an equation-head application** (fz26 KRUST-ANYWHERE-HEAD, review N5),
 //!   such as SIMPLE's `array(_, _)[2]`, which an `anywhere` rule reduces. Neither the pattern
@@ -167,6 +176,7 @@ use crate::{
     manifest::{Budget, FlowManifest, ManifestError},
     results::{SIMPLIFICATION_ITERATIONS, sentence_value},
 };
+use k_rust::backend::ShortCircuitReadingOutput;
 use k_rust::{
     backend::{
         BACKEND_SCHEMA_VERSION, Backend, BackendError, BackendOptions, SearchPatternRequest,
@@ -182,8 +192,8 @@ use k_rust::{
 };
 use kink_native::{
     coverage::{Authorship, RuleAuthors},
-    exclusion::{DefinitionExclusions, Exclusion},
-    execution::SolverProfile,
+    exclusion::{DefinitionExclusions, Exclusion, state_references_implementation_chosen},
+    execution::{RunFacts, SolverProfile},
 };
 use kink_patch::{Sha256Digest, canonical_json, payload_digest};
 use serde_json::{Value, json};
@@ -605,9 +615,9 @@ fn exclusion_cause(exclusion: Exclusion, what: &str) -> String {
              value could reach the pattern"
         }
         Exclusion::ShortCircuitReading => {
-            "a rule's condition or result depends on whether andBool, orBool or #if skip an \
-             operand that may be undefined (short-circuit-reading): another reading could reach \
-             the pattern"
+            "a function or operator whose value depends on whether andBool, orBool, impliesBool, \
+             #if, andThenBool or orElseBool skip an operand that may be undefined is applied \
+             (short-circuit-reading): another reading could reach the pattern"
         }
         Exclusion::EqualsCondition => {
             "a rule or equation has a condition equating two terms (equals-condition), a gap of \
@@ -661,7 +671,8 @@ pub fn judge(outcome: &SearchOutcome, facts: &Facts<'_>) -> Answer {
         SearchOutcome::Incomplete(cause) => Answer::unknown(cause.clone()),
         SearchOutcome::Complete => {
             let would = "the exploration completed with no match, but a no is not given";
-            if let Some(exclusion) = exclusions.static_exclusion() {
+            // The short-circuit reading is judged on the search's own list ([`outcome`]).
+            if let Some(exclusion) = exclusions.definition_exclusion() {
                 return Answer::unknown(exclusion_cause(exclusion, would));
             }
             // fz26 KINK-BASELINE-FINDINGS: matching is syntactic, while a pair that does not join
@@ -780,10 +791,15 @@ impl Searcher {
         &self.exclusions
     }
 
-    /// The exclusion of a program's initial state on that definition, if any.
+    /// The exclusion of a program's initial state on that definition known before it is
+    /// searched, if any: it applies a hook whose value the definition leaves open (kink-native
+    /// `state_references_implementation_chosen`, as the campaign runner reads it). Whether its
+    /// value depends on the short-circuit reading is judged on the search's own list, which holds
+    /// the initial state's normalization ([`Self::search`]), as the runner judges a run's
+    /// (`DefinitionExclusions::state_exclusion`).
     pub fn state_exclusion(&self, initial: &Pattern) -> Option<Exclusion> {
-        self.exclusions
-            .static_state_exclusion(&self.definition, initial)
+        state_references_implementation_chosen(&self.definition, initial)
+            .then_some(Exclusion::ImplementationChosenHook)
     }
 
     /// One search (module docs) and its wall time.
@@ -800,9 +816,12 @@ impl Searcher {
             schema_version: BACKEND_SCHEMA_VERSION,
         };
         let time = Duration::from_millis(self.budget.time_ms);
+        let listed = self.backend.capabilities().short_circuit_readings;
+        let ground = initial.free_variables().is_empty();
         let started = Instant::now();
         let (result, fired) = watchdog(time, || self.backend.search_pattern_json(request));
         let definition = &self.definition;
+        let exclusions = &self.exclusions;
         let outcome = outcome(
             result,
             fired,
@@ -810,6 +829,11 @@ impl Searcher {
             lowered,
             &self.rule_names,
             &|state| defined_state(definition, state),
+            &|readings| {
+                readings_cause(exclusions, readings, listed, ground, &|| {
+                    exclusions.state_depends_on_short_circuit(definition, initial)
+                })
+            },
         );
         let wall_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         (outcome, wall_ms)
@@ -959,7 +983,9 @@ fn holds_conjunction(pattern: &Pattern) -> bool {
 
 /// The search's outcome (module docs: what makes a match decided and an exploration complete).
 /// `defined` decides whether a decided match's state is defined ([`defined_state`] on the
-/// searcher's definition; the unit tests pass their own).
+/// searcher's definition; the unit tests pass their own); `readings` says why the search's
+/// `shortCircuitReadings` list keeps a completed exploration from being complete, or `None`
+/// ([`readings_cause`] on the searcher's definition).
 fn outcome(
     result: Result<String, BackendError>,
     fired: bool,
@@ -967,6 +993,7 @@ fn outcome(
     lowered: &LoweredPattern,
     rule_names: &BTreeMap<String, String>,
     defined: &dyn Fn(&Value) -> Result<(), String>,
+    readings: &dyn Fn(Vec<ShortCircuitReadingOutput>) -> Option<String>,
 ) -> SearchOutcome {
     let clock = || {
         SearchOutcome::Incomplete(format!(
@@ -1068,7 +1095,91 @@ fn outcome(
              may reach the pattern"
         ));
     }
+    // A hit is unchanged by the list (module docs): a decided match is one model's reached
+    // configuration, and the claim is existential. The field is omitted when empty; a present
+    // field that is not a list of entries is no list, as above.
+    let listed = match response.get("shortCircuitReadings") {
+        None => Vec::new(),
+        Some(list) => {
+            match serde_json::from_value::<Vec<ShortCircuitReadingOutput>>(list.clone()) {
+                Ok(list) => list,
+                Err(error) => {
+                    return SearchOutcome::Failed(format!(
+                        "k-rust's search result has a `shortCircuitReadings` field that is not a \
+                     list of readings ({error}), so kink cannot read it"
+                    ));
+                }
+            }
+        }
+    };
+    if let Some(why) = readings(listed) {
+        return SearchOutcome::Incomplete(format!(
+            "the exploration found no match, but {why}, so a backend that skips that operand may \
+             reach the pattern"
+        ));
+    }
     SearchOutcome::Complete
+}
+
+/// The cause a `no` is refused for when the search read an operand a short-circuiting backend
+/// may skip.
+const SHORT_CIRCUIT_READING: &str = "short-circuit-reading";
+
+/// Why a search's `shortCircuitReadings` list (`readings`; `listed`: whether the searching
+/// backend lists them, its `short_circuit_readings` capability; `ground`: whether the search
+/// started from a state without free variables) keeps its completed exploration from a `no` on
+/// the definition whose exclusions are `exclusions`, or `None`: the list is judged as
+/// kink-campaign judges a run's (kink-native `DefinitionExclusions::short_circuit_excludes`, and
+/// for an initial state that applies a reading-dependent function, which `state` tells and is
+/// asked only when the list leaves the question open, `DefinitionExclusions::state_exclusion`),
+/// so the search is excluded exactly where a run of it would be.
+fn readings_cause(
+    exclusions: &DefinitionExclusions,
+    readings: Vec<ShortCircuitReadingOutput>,
+    listed: bool,
+    ground: bool,
+    state: &dyn Fn() -> bool,
+) -> Option<String> {
+    let facts = RunFacts {
+        short_circuit_readings: listed.then_some(readings),
+        ground,
+        ..RunFacts::default()
+    };
+    let (counting, of_state) = if exclusions.short_circuit_excludes(&facts) {
+        (exclusions.counting_short_circuit_readings(&facts), false)
+    } else {
+        let counting = exclusions.state_short_circuit_readings(&facts);
+        if (listed && counting.is_empty()) || !state() {
+            return None;
+        }
+        (counting, true)
+    };
+    let counting = counting.into_iter().cloned().collect::<Vec<_>>();
+    let flagged = if of_state {
+        "the program's initial state applies a function or operator whose value depends on the \
+         short-circuit reading"
+    } else {
+        "the definition's short-circuit analysis flags a rule"
+    };
+    Some(if counting.is_empty() {
+        format!(
+            "{flagged} and the backend lists no short-circuit readings ({SHORT_CIRCUIT_READING}), \
+             so kink cannot tell whether the search read an operand a short-circuiting backend \
+             may skip"
+        )
+    } else if of_state {
+        format!(
+            "{flagged}, and the search read the definedness of an operand a short-circuiting \
+             backend may skip ({SHORT_CIRCUIT_READING}: {})",
+            crate::exclusion::readings_text(&counting)
+        )
+    } else {
+        format!(
+            "the search read the definedness of an operand a short-circuiting backend may skip \
+             ({SHORT_CIRCUIT_READING}: {})",
+            crate::exclusion::readings_text(&counting)
+        )
+    })
 }
 
 /// The cause a `no` is refused for when the search read a value the definition leaves open.
@@ -1311,6 +1422,7 @@ mod tests {
             &lowered(),
             &BTreeMap::new(),
             defined,
+            &|_| None,
         )
     }
 
@@ -1500,8 +1612,145 @@ mod tests {
             &lowered(),
             &BTreeMap::new(),
             &always,
+            &|_| None,
         );
         incomplete(&fired, "time_ms");
+    }
+
+    /// CF-03: a completed exploration of a definition whose short-circuit analysis flags a rule
+    /// gives a `no` exactly when the search's `shortCircuitReadings` list holds no entry that
+    /// counts, as kink-campaign judges a run's list: an entry of a flagged rule's work, or of no
+    /// rule's, keeps it incomplete with the entry named (rule, operator, outcome, operand); an
+    /// entry of an unflagged rule's work on a ground search does not; a backend that lists no
+    /// readings gives none; a definition the analysis clears ignores the list, unless the
+    /// program's initial state applies a reading-dependent function, whose search is judged by
+    /// the same entries on every definition; a decided match is a hit whatever the list holds;
+    /// and a field that is not a list of readings is no list.
+    #[test]
+    fn a_search_that_read_a_skipped_operand_gives_no_no() {
+        let flagged = DefinitionExclusions {
+            short_circuit_rules: std::iter::once("at".to_owned()).collect(),
+            short_circuit_results: vec!["at".to_owned()],
+            ..DefinitionExclusions::default()
+        };
+        let clear = DefinitionExclusions::default();
+        let entry = |rule: Option<&str>| {
+            let mut entry = json!({
+                "operator": "BOOL.andThen",
+                "outcome": "undefined",
+                "head": "Lbl'Unds-GT-'Int'Unds'",
+                "operand": {"tag": "EVar", "name": "VarX", "sort": {"tag": "SortApp", "name": "SortBool", "args": []}},
+                "observedIn": "run",
+            });
+            if let Some(rule) = rule {
+                entry["rewriteRuleId"] = json!(rule);
+                entry["rewriteRuleLabel"] = json!(format!("M.{rule}"));
+            }
+            entry
+        };
+        let judged_with = |exclusions: &DefinitionExclusions,
+                           list: Value,
+                           listed: bool,
+                           ground: bool,
+                           state: bool,
+                           matches| {
+            let mut response = response(matches, vec![]);
+            if !list.is_null() {
+                response["shortCircuitReadings"] = list;
+            }
+            outcome(
+                Ok(response.to_string()),
+                false,
+                Budget::default(),
+                &lowered(),
+                &BTreeMap::new(),
+                &always,
+                &|readings| readings_cause(exclusions, readings, listed, ground, &|| state),
+            )
+        };
+        let judged = |exclusions: &DefinitionExclusions, list, listed, ground, matches| {
+            judged_with(exclusions, list, listed, ground, false, matches)
+        };
+        let counted = judged(&flagged, json!([entry(Some("at"))]), true, true, vec![]);
+        incomplete(&counted, SHORT_CIRCUIT_READING);
+        incomplete(&counted, "the work of rule M.at");
+        incomplete(
+            &counted,
+            "the operand of BOOL.andThen after its deciding one",
+        );
+        incomplete(&counted, "undefined");
+        incomplete(
+            &judged(&flagged, json!([entry(None)]), true, true, vec![]),
+            "work of no rule",
+        );
+        assert_eq!(
+            judged(&flagged, json!([entry(Some("other"))]), true, true, vec![]),
+            SearchOutcome::Complete,
+            "an unflagged rule's entry on a ground search counts not"
+        );
+        incomplete(
+            &judged(&flagged, json!([entry(Some("other"))]), true, false, vec![]),
+            "the work of rule M.other",
+        );
+        assert_eq!(
+            judged(&flagged, Value::Null, true, true, vec![]),
+            SearchOutcome::Complete,
+            "an omitted list is an empty one on a backend that lists readings"
+        );
+        incomplete(
+            &judged(&flagged, Value::Null, false, true, vec![]),
+            "lists no short-circuit readings",
+        );
+        assert_eq!(
+            judged(&clear, json!([entry(None)]), true, true, vec![]),
+            SearchOutcome::Complete,
+            "a definition the analysis clears does not read the list"
+        );
+        assert!(matches!(
+            judged(
+                &flagged,
+                json!([entry(Some("at"))]),
+                true,
+                true,
+                vec![decided_match()]
+            ),
+            SearchOutcome::Hit(_)
+        ));
+        // An initial state that applies a reading-dependent function is judged by the same
+        // entries, whatever the analysis flags elsewhere.
+        let of_state = judged_with(&clear, json!([entry(None)]), true, true, true, vec![]);
+        incomplete(&of_state, "the program's initial state applies");
+        incomplete(&of_state, "work of no rule");
+        for exclusions in [&clear, &flagged] {
+            assert_eq!(
+                judged_with(exclusions, Value::Null, true, true, true, vec![]),
+                SearchOutcome::Complete,
+                "a state whose search lists nothing is judged"
+            );
+            assert_eq!(
+                judged_with(
+                    exclusions,
+                    json!([entry(Some("other"))]),
+                    true,
+                    true,
+                    true,
+                    vec![]
+                ),
+                SearchOutcome::Complete,
+                "an unflagged rule's entry on a ground search counts not against the state"
+            );
+            incomplete(
+                &judged_with(exclusions, Value::Null, false, true, true, vec![]),
+                "lists no short-circuit readings",
+            );
+        }
+        for malformed in [json!({}), json!("BOOL.andThen"), json!([{"operator": 1}])] {
+            let outcome = judged(&flagged, malformed.clone(), true, true, vec![]);
+            assert!(
+                matches!(&outcome, SearchOutcome::Failed(why) if why.contains("shortCircuitReadings")),
+                "{malformed}: {outcome:?}"
+            );
+        }
     }
 
     /// calc's searcher and the state its search for `<k> 3 </k>` reached from `add` (the KORE

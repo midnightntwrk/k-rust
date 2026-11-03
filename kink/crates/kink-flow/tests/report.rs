@@ -283,6 +283,90 @@ fn report_reprints_the_same_bytes() {
     }
 }
 
+/// CF-03, the mini control: a mutant whose skipped operand becomes undefined on one program and
+/// not on the other. The baseline's `at` applies `andThenBool` over `10 /Int (I +Int 1) >Int 0`,
+/// which the analysis flags and which is defined at 0 and 1; the mutant writes `10 /Int I`. On
+/// `at(0)` the mutant's run reads the undefined `10 /Int 0 >Int 0` that `andThenBool` skips after
+/// the deciding `false`, so that program is `unknown` for the mutation (failure
+/// `short-circuit-reading`), its executed entry naming the step (rule, operator, outcome,
+/// operand); on `at(1)` both runs read defined operands and are compared (they agree). Both
+/// baselines are comparable: the definition is no longer excluded as a whole.
+#[test]
+fn a_mutant_run_that_reads_a_skipped_undefined_operand_names_the_step() {
+    let dir = scratch("short-circuit-step");
+    fs::write(
+        dir.join("scr.k"),
+        r"module SCR-SYNTAX
+  imports INT-SYNTAX
+  imports BOOL-SYNTAX
+  syntax Prog ::= at(Int) [symbol(at)] | res(Bool) [symbol(res)]
+endmodule
+
+module SCR
+  imports SCR-SYNTAX
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Prog </k>
+  rule [at]: <k> at(I) => res(false andThenBool 10 /Int (I +Int 1) >Int 0) </k>
+endmodule
+",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("FLOW.toml"),
+        "[spec]\nentry = \"scr.k\"\nmain_module = \"SCR\"\nsyntax_module = \"SCR-SYNTAX\"\n\n\
+         [[program]]\nid = \"zero\"\ntext = \"at(0)\"\n\n[[program]]\nid = \"one\"\ntext = \"at(1)\"\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.join("MUTATIONS.toml"),
+        "[[mutation]]\nid = \"divides-by-i\"\nmisunderstanding = \"divides by I\"\n\n  \
+         [[mutation.edit]]\n  rule = \"at\"\n  find = \"I +Int 1\"\n  replace = \"I\"\n",
+    )
+    .unwrap();
+    let (document, ok) = std::thread::Builder::new()
+        .stack_size(kink_corpus::cli::DEFINITION_STACK_BYTES)
+        .spawn(move || search(&dir.join("FLOW.toml"), &dir.join("MUTATIONS.toml"), &[]))
+        .unwrap()
+        .join()
+        .unwrap();
+    assert!(ok, "{document:#}");
+    for program in document["programs"].as_array().unwrap() {
+        assert_eq!(program["class"], "comparable", "{program:#}");
+    }
+    let row = mutation(&document, "divides-by-i");
+    assert_eq!(row["status"], "unknown", "{row:#}");
+    let entries = row["executed"].as_array().unwrap();
+    let entry = |id: &str| {
+        entries
+            .iter()
+            .find(|entry| entry["program"] == id)
+            .unwrap_or_else(|| panic!("{id}: {row:#}"))
+    };
+    let zero = entry("zero");
+    assert_eq!(zero["failure"], "short-circuit-reading", "{zero:#}");
+    let readings = zero["short_circuit_readings"].as_array().unwrap();
+    assert!(!readings.is_empty(), "{zero:#}");
+    for reading in readings {
+        assert_eq!(reading["operator"], "BOOL.andThen", "{reading:#}");
+        assert_eq!(reading["outcome"], "undefined", "{reading:#}");
+        assert_eq!(reading["rule"]["label"], "SCR.at", "{reading:#}");
+        assert_eq!(reading["operand"]["rendering"], "kore", "{reading:#}");
+        assert!(
+            reading["operand"]["text"].as_str().unwrap().contains("Int"),
+            "{reading:#}"
+        );
+    }
+    let cause = zero["cause"].as_str().unwrap();
+    assert!(
+        cause.contains("the mutant's run: in the work of rule SCR.at"),
+        "{cause}"
+    );
+    let one = entry("one");
+    assert_eq!(one["outcome"], "agree", "{one:#}");
+    assert!(one.get("short_circuit_readings").is_none(), "{one:#}");
+}
+
 mod kink_tier {
     use super::*;
 

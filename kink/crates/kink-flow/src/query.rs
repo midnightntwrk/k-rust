@@ -77,8 +77,12 @@ pub const RECORD_SCHEMA: &str = "kink-flow-pattern";
 /// a `no` needs the definition to have data, its check complete as well as finding-free; v5, kink27
 /// R3-CENSUS-RUNLEVEL: a `no` also needs the search's `implementationChosenValues` empty, since
 /// k-rust's classes are judged per run rather than by the census, so a v4 `no` may no longer be
-/// one).
-pub const ANSWER_SCHEMA_VERSION: &str = "kink-flow/pattern-answer/v5";
+/// one; v6, CF-03: on a definition whose short-circuit analysis flags a rule, a `no` needs the
+/// search's `shortCircuitReadings` list to hold no entry that counts, as a run's list is judged,
+/// where before no `no` was given on such a definition, and an initial state that applies a
+/// reading-dependent function is judged by the same list on every definition, as a run's is; a
+/// `no` may now be given where a v5 answer was `unknown`, and a `hit` is unchanged).
+pub const ANSWER_SCHEMA_VERSION: &str = "kink-flow/pattern-answer/v6";
 /// Domain of a record's digest.
 pub const PATTERN_RECORD_DOMAIN: &str = "kink-flow/pattern-answer/v1";
 /// The cache's directory in the cache directory.

@@ -429,6 +429,108 @@ endmodule
     );
 }
 
+/// A definition whose short-circuit analysis flags the rule `at`: its successor applies
+/// `andThenBool` over `10 /Int I >Int 0`, which is undefined at `I = 0` in k-rust's reading and
+/// skipped by a reading that evaluates the deciding `false` alone.
+const SCR_K: &str = r"module SCR-SYNTAX
+  imports INT-SYNTAX
+  imports BOOL-SYNTAX
+  syntax Prog ::= at(Int) [symbol(at)] | res(Bool) [symbol(res)]
+endmodule
+
+module SCR
+  imports SCR-SYNTAX
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Prog </k>
+  rule [at]: <k> at(I) => res(false andThenBool 10 /Int I >Int 0) </k>
+endmodule
+";
+
+/// CF-03: on a definition whose short-circuit analysis flags a rule, each program's baseline run
+/// is judged by k-rust's list of that run's short-circuit readings, not the definition as a
+/// whole. `at(0)`'s run reads the operand `10 /Int 0 >Int 0` that `andThenBool` skips after the
+/// deciding `false`, under the flagged rule `at`, so it is `unknown` and its row names the step
+/// (rule, operator, outcome, operand), in its cause and as data; `at(1)`'s run reads a defined
+/// operand, lists nothing and is comparable. The document's `spec.exclusion` is null and
+/// `spec.short_circuit` names the flagged rule. Both results are functions of their keys, so a
+/// second command reads them from the cache with the same rows; and `check` makes no program
+/// `excluded` for the flag.
+#[test]
+fn a_flagged_definition_judges_each_program_by_its_short_circuit_readings() {
+    let dir = scratch("short-circuit-readings");
+    write(&dir.join("scr.k"), SCR_K);
+    write(
+        &dir.join("FLOW.toml"),
+        "[spec]\nentry = \"scr.k\"\nmain_module = \"SCR\"\nsyntax_module = \"SCR-SYNTAX\"\n\n\
+         [[program]]\nid = \"zero\"\ntext = \"at(0)\"\n\n[[program]]\nid = \"one\"\ntext = \"at(1)\"\n",
+    );
+    let manifest = dir.join("FLOW.toml");
+    let (document, status) = run(&manifest, false);
+    assert_eq!(status, EXIT_OK, "{document:#}");
+    assert_eq!(
+        rows(&document),
+        expect(&[("zero", "unknown", false), ("one", "comparable", false)])
+    );
+    assert!(document["spec"]["exclusion"].is_null(), "{document:#}");
+    let flagged = &document["spec"]["short_circuit"];
+    let causes = flagged["causes"].as_array().unwrap();
+    assert_eq!(causes.len(), 1, "{flagged:#}");
+    assert_eq!(causes[0]["rule"]["label"], "SCR.at", "{flagged:#}");
+    let zero = &document["programs"][0];
+    let readings = zero["short_circuit_readings"].as_array().unwrap();
+    assert!(!readings.is_empty(), "{zero:#}");
+    for reading in readings {
+        assert_eq!(reading["operator"], "BOOL.andThen", "{reading:#}");
+        assert_eq!(reading["outcome"], "undefined", "{reading:#}");
+        assert_eq!(reading["rule"]["label"], "SCR.at", "{reading:#}");
+        assert_eq!(reading["observed_in"], "run", "{reading:#}");
+        assert_eq!(reading["operand"]["rendering"], "kore", "{reading:#}");
+        assert!(
+            reading["operand"]["text"].as_str().unwrap().contains("Int"),
+            "{reading:#}"
+        );
+    }
+    let cause = zero["cause"].as_str().unwrap();
+    for part in [
+        "the run is excluded (short-circuit-reading)",
+        "in the work of rule SCR.at",
+        "the operand of BOOL.andThen after its deciding one",
+        "undefined",
+    ] {
+        assert!(cause.contains(part), "{part:?} in {cause}");
+    }
+    let one = &document["programs"][1];
+    assert_eq!(one["short_circuit_readings"], json!([]), "{one:#}");
+
+    let (again, status) = run(&manifest, false);
+    assert_eq!(status, EXIT_OK, "{again:#}");
+    assert_eq!(
+        rows(&again),
+        expect(&[("zero", "unknown", true), ("one", "comparable", true)])
+    );
+    for index in 0..2 {
+        for key in ["cause", "short_circuit_readings"] {
+            assert_eq!(
+                again["programs"][index][key], document["programs"][index][key],
+                "{key} of program {index}"
+            );
+        }
+    }
+
+    let (checked, status) = std::thread::Builder::new()
+        .stack_size(kink_corpus::cli::DEFINITION_STACK_BYTES)
+        .spawn(move || kink_flow::cli::check(&manifest))
+        .unwrap()
+        .join()
+        .unwrap();
+    assert_eq!(status, EXIT_OK, "{checked:#}");
+    assert_eq!(&checked["spec"]["short_circuit"], flagged);
+    for program in checked["programs"].as_array().unwrap() {
+        assert_eq!(program["outcome"], "ok", "{program:#}");
+    }
+}
+
 /// The build identity of the executable at `path`, as its records name it.
 fn build_of(path: &Path) -> String {
     kink_campaign::identity::build_identity_of(path)
@@ -887,8 +989,9 @@ text = 'h(opaque(1), 2)'
         );
         assert_eq!(document["rules"][2]["fired_by"], json!(["twice"]));
         assert!(document["rules"][2]["reason"].is_null());
-        // KINK-R4 fix round (review N7): 3, since `fired_by`'s meaning changed; 5 adds `result`.
-        assert_eq!(document["version"], 5);
+        // KINK-R4 fix round (review N7): 3, since `fired_by`'s meaning changed; 5 adds `result`;
+        // 6 (CF-03) takes the short-circuit reading out of `spec.exclusion`.
+        assert_eq!(document["version"], 6);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
@@ -1321,7 +1424,7 @@ endmodule
             // comparable record holds its ends' summaries. v10, because the key names the execution
             // digest and the bounds a stored class depends on, and no host-dependent class is
             // stored.
-            assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v10");
+            assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v11");
             record["key"]["schema_version"] = json!("kink-flow/result/v1");
             fs::write(&path, record.to_string()).unwrap();
             let (recomputed, status) = run(&manifest, false);

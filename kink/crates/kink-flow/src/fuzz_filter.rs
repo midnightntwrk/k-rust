@@ -13,15 +13,17 @@
 //! configuration, the configuration and halt of every leaf, the rule of every undefined step and
 //! each side's work. It composes kink's own deciders, in the order kink's runner applies them to a
 //! run (`kink-campaign` `Runtime::judge_with`, `judge_across`):
-//! 1. the state exclusion (`DefinitionExclusions::state_exclusion`) of the baseline side's initial
-//!    configuration, under each side's facts and definition: kink assembles every test's input
-//!    from the baseline's grammar for both sides (cause `initial-state:<exclusion>`);
+//! 1. the state exclusion of the baseline side's initial configuration as a route without
+//!    k-rust's run lists reads it (`DefinitionExclusions::static_state_exclusion`: an
+//!    implementation-chosen hook, or a function or operator whose value depends on the
+//!    short-circuit reading, whatever the analysis flags), under each side's facts and
+//!    definition: kink assembles every test's input from the baseline's grammar for both sides
+//!    (cause `initial-state:<exclusion>`);
 //! 2. the undefined-step exclusions of each side's run, under that side's facts, read by
 //!    kink-native's `DefinitionExclusions::undefined_step_exclusions`, the one reading kink's own
 //!    leaf predicates use: a `trivial` leaf of a `preserves-definedness` rule contradicts a claim
 //!    (`preserves-definedness`), one of a rule whose result depends on the short-circuit reading
-//!    is no evidence (`short-circuit-step`; a job never meets it, since such a rule is a
-//!    definition exclusion that refuses the job before any case);
+//!    is no evidence (`short-circuit-step`);
 //! 3. TV-01 on every `stuck` leaf's term under its own side's definition, with that side's
 //!    collection trust and data facts (`ObservationDecider::terminal_value`; the cause is the
 //!    first failing node's test, [`cause_of`], and a String-like domain value that is not ASCII
@@ -58,21 +60,32 @@
 //! **Stricter and laxer than kink.** The filter only removes candidates, and kink's own run of
 //! the fragment stays the verdict (KF-T4). A difference costs a witness or leaves kink's refusal
 //! to its confirmation, never a claim kink does not make:
-//! - stricter: the work-factor check reads the fuzz's work for kink's, which differs where kink
-//!   sends another execution request (both read the state set of the same request whatever its
-//!   leaves since KINK-PATHSET-FALLBACK); and a term past the backend's depth is refused (`too-deep`)
-//!   where kink's runner, judging it without a stack sized for it, may overflow instead. (Leaves
-//!   kink drops as solver-refuted, `Unsat`, never reach TV-01 here either: [`leaf_term`] gives a
-//!   term only for a decided state, which the adapter never refutes.)
+//! - stricter: the initial-state check (1), on every definition, and the undefined-step check (2),
+//!   on a definition whose short-circuit analysis flags a rule, read the analysis, where kink's
+//!   runner judges each run by k-rust's `shortCircuitReadings` list of that run (kink-native
+//!   `DefinitionExclusions::run_exclusion` and `state_exclusion`): a case whose runs read no
+//!   skipped operand that counts is judged by kink but can be refused here, since the case
+//!   k-rust-fuzz hands the filter carries no such list; the work-factor check reads the fuzz's work
+//!   for kink's, which differs where kink sends another execution request (both read the state set
+//!   of the same request whatever its leaves since KINK-PATHSET-FALLBACK); and a term past the
+//!   backend's depth is refused (`too-deep`) where kink's runner, judging it without a stack sized
+//!   for it, may overflow instead. (Leaves kink drops as solver-refuted, `Unsat`, never reach TV-01
+//!   here either: [`leaf_term`] gives a term only for a decided state, which the adapter never
+//!   refutes.)
 //! - laxer: a leaf whose state is not one decided term (a constrained state kink may show
 //!   feasible and judge), leaf diagnostics (kink makes a diagnosed leaf incomplete), a halt
 //!   outside the bridge's contract, a configuration that does not parse, a side kink-native could
 //!   not reach, the mutant's single path of a one-path campaign (which is not its set of ends),
 //!   an added end under `work_factor`, a `trivial` leaf kink does not show to exist, everything
-//!   after a pattern's first match, and the run's `implementationChosenValues` list (since kink27
+//!   after a pattern's first match, the run's `implementationChosenValues` list (since kink27
 //!   R3-CENSUS-RUNLEVEL a definition that applies a k-rust class reaches fuzz jobs; the filter
 //!   judges leaves and halts, not that list, so it can keep a witness kink refuses as
-//!   `implementation-chosen-value`) are left to kink's confirmation.
+//!   `implementation-chosen-value`), and the run's `shortCircuitReadings` list (since CF-03 a
+//!   definition whose short-circuit analysis flags a rule reaches fuzz jobs; a run of a flagged
+//!   rule whose skipped operand is undefined need not end in that rule's `trivial` leaf, for
+//!   instance when the operand is in the rule's condition, which then does not apply, so the
+//!   filter can keep a witness kink refuses as `short-circuit-reading`) are left to kink's
+//!   confirmation.
 //!
 //! **Identity.** [`KinkJudgement::id`] names [`FILTER_VERSION`] (this composition: the deciders,
 //! the leaves, the cause tokens, the repair), the `KINK_IDENTITY` components it composes or
@@ -1257,8 +1270,8 @@ mod tests {
     }
 
     /// The short-circuit reading of an undefined step, under each side's own facts (review S5):
-    /// no job meets it, since such a rule is a definition exclusion, but the judgement reads it as
-    /// kink's leaf predicate does.
+    /// since CF-03 a job of a definition whose analysis flags a rule runs, and the judgement reads
+    /// such a step without the run's list, as kink's leaf predicate did before CF-03.
     #[test]
     fn an_undefined_step_of_a_short_circuit_rule_is_refused_under_its_sides_facts() {
         let case = |baseline_rule, mutant_rule| {

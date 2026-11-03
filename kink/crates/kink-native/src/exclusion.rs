@@ -117,11 +117,8 @@
 //!   place where they agree, such as a positive conjunct of a condition). The static analysis
 //!   below stays, as a clearance in two tiers and for the routes that judge without a run list:
 //!   - If it flags no rewrite rule ([`DefinitionExclusions::short_circuit_flagged`]), no run of
-//!     the definition depends on the reading through its rules, the list is not read, and a
-//!     test's initial state is read statically as before ([`DefinitionExclusions::state_exclusion`]):
-//!     the analysis does not cover what the initial state applies, and the list cannot tell the
-//!     initial state's normalization from a step's remainder, both work of no rule, the latter
-//!     the place of the over-reports the clearance exists to ignore.
+//!     the definition depends on the reading through its rules, and the list is not read for
+//!     them.
 //!   - Otherwise a run is excluded exactly when its list holds an entry that counts
 //!     ([`DefinitionExclusions::counting_short_circuit_readings`]), or when the backend that
 //!     recorded it lists none (its `short_circuit_readings` capability is off, so an empty list
@@ -139,6 +136,17 @@
 //!     counts there. The leaf check of a flagged rule's undefined step
 //!     ([`DefinitionExclusions::short_circuit_step`]) is subsumed: such a leaf's undefinedness
 //!     comes from an operand the reading skips only if the leaf's rule noted the entry.
+//!   - On either tier, a run whose initial state applies a function or operator whose value
+//!     depends on the reading ([`DefinitionExclusions::state_depends_on_short_circuit`]; the
+//!     analysis of rules does not cover what a test's state applies) is excluded exactly when its
+//!     list holds an entry that counts by the second tier's rule
+//!     ([`DefinitionExclusions::state_short_circuit_readings`]), or when its backend lists none
+//!     ([`DefinitionExclusions::state_exclusion`]): the state's normalization is work of no rule
+//!     inside the run, so with no such entry the run starts from the same state in both readings
+//!     and is the same run. On a cleared definition an entry of no rule can be an over-report of a
+//!     step's remainder, which the list does not tell from the state's normalization; for such a
+//!     state it counts anyway, which only fails closed. The rule does not depend on what else the
+//!     analysis flags, so flagging a rule never makes such a state's run judgeable.
 //!
 //!   The analysis flags a rewrite rule whose condition depends on the reading, or whose
 //!   right-hand side applies a function whose condition does (whether the rule applies at all
@@ -248,8 +256,13 @@ use crate::execution::{AdaptedExecution, AdaptedLeaf, HaltClass, RunFacts};
 /// rule, and is no longer an exclusion of the definition; only the operand after the deciding
 /// left one is skippable (a Boolean operator's left operand no longer is). Both narrow what is
 /// excluded; a run of a flagged definition is excluded only by an entry that counts, or when its
-/// backend lists none.
-pub const DEFINITION_EXCLUSION_VERSION: &str = "kink-native/definition-exclusion/v6";
+/// backend lists none. v7 (CF-03): a run whose initial state applies a reading-dependent function
+/// is judged by its list too, on every definition ([`DefinitionExclusions::state_exclusion`]):
+/// it is excluded only by an entry that counts, or when its backend lists none, where before a
+/// definition the analysis clears excluded it whatever the list held and a flagged one did not
+/// read the state. It narrows what is excluded on a cleared definition, and excludes no run of a
+/// flagged one that its list did not already exclude.
+pub const DEFINITION_EXCLUSION_VERSION: &str = "kink-native/definition-exclusion/v7";
 
 /// The hooks for which k-rust 8f8ad57c5 says it may compute a value the definition leaves open,
 /// the hooks for which its classifier `chosen_value` (`k-rust-backend/src/builtin.rs`;
@@ -1597,12 +1610,8 @@ impl DefinitionExclusions {
 
     /// The entries of `facts`' `shortCircuitReadings` list that count against the run on this
     /// definition (the module documentation's second tier), in the list's order: none when the
-    /// analysis flags no rule ([`Self::short_circuit_flagged`]); else each entry the load
-    /// observed, each of no rule's work, and each of a flagged rule's work, and on a run that is
-    /// not ground ([`RunFacts::ground`], or a definition with [`Self::existential_rules`]) every
-    /// entry. A rule is named as k-rust names it, by its `UNIQUE_ID`, else its label; an entry
-    /// under a rule named so counts when a flagged rule has that name, and every entry counts
-    /// when a flagged rule has neither (k-rust then gives it a name no sentence carries).
+    /// analysis flags no rule ([`Self::short_circuit_flagged`]); else
+    /// [`Self::state_short_circuit_readings`].
     #[must_use]
     pub fn counting_short_circuit_readings<'f>(
         &self,
@@ -1611,6 +1620,24 @@ impl DefinitionExclusions {
         if !self.short_circuit_flagged() {
             return Vec::new();
         }
+        self.state_short_circuit_readings(facts)
+    }
+
+    /// The entries of `facts`' `shortCircuitReadings` list that count against the run by the
+    /// module documentation's second tier, whatever the analysis flags, in the list's order: each
+    /// entry the load observed, each of no rule's work, and each of a flagged rule's work, and on
+    /// a run that is not ground ([`RunFacts::ground`], or a definition with
+    /// [`Self::existential_rules`]) every entry. A rule is named as k-rust names it, by its
+    /// `UNIQUE_ID`, else its label; an entry under a rule named so counts when a flagged rule has
+    /// that name, and every entry counts when a flagged rule has neither (k-rust then gives it a
+    /// name no sentence carries). These are the entries [`Self::state_exclusion`] reads for a run
+    /// whose initial state applies a reading-dependent function, and on a definition the analysis
+    /// flags they are [`Self::counting_short_circuit_readings`].
+    #[must_use]
+    pub fn state_short_circuit_readings<'f>(
+        &self,
+        facts: &'f RunFacts,
+    ) -> Vec<&'f ShortCircuitReadingOutput> {
         let ground = facts.ground && self.existential_rules.is_empty();
         let flagged = |name: &str| {
             self.short_circuit_rules.contains(name)
@@ -1762,38 +1789,53 @@ impl DefinitionExclusions {
     }
 
     /// The exclusion of `state`, the initial state of a run on `definition` (the definition these
-    /// facts were read from) that is judged with its lists ([`Self::run_exclusion`]), if any: it
-    /// applies an implementation-chosen hook ([`state_references_implementation_chosen`]), or, on
-    /// a definition whose analysis flags no rule ([`Self::short_circuit_flagged`]), a function or
-    /// operator whose value depends on the short-circuit reading
-    /// ([`Self::state_depends_on_short_circuit`]). On a flagged definition the run's list judges
-    /// the initial state's normalization (work of no rule, whose entries always count), so the
-    /// state is not read for the reading; on a definition the analysis clears, the list is not
-    /// read and the state is.
+    /// facts were read from) whose facts are `facts`, judged with its lists as
+    /// [`Self::run_exclusion`] judges the run, if any: `state` applies an implementation-chosen
+    /// hook ([`state_references_implementation_chosen`]), or it applies a function or operator
+    /// whose value depends on the short-circuit reading
+    /// ([`Self::state_depends_on_short_circuit`]) and the run's list holds an entry that counts
+    /// against it ([`Self::state_short_circuit_readings`]) or the backend that recorded the run
+    /// lists none ([`RunFacts::short_circuit_readings`] is `None`).
+    ///
+    /// The initial state's normalization is work of no rule inside the run, so each place where
+    /// it used the strict definedness of a skipped operand and did not find it defined is an entry
+    /// of no rule on the run's list, which counts. With no counting entry, every term the
+    /// normalization evaluated has the same value under a reading that skips the operand after a
+    /// deciding one, so the run starts from the same state in both readings; from there, an
+    /// unflagged rule's work is the same in both readings by the analysis, and every other place
+    /// where they could part is an entry that counts. So such a run is the same run in both
+    /// readings, whatever else the analysis flags, and is judged. Where the state applies no such
+    /// function, its normalization is the same in both readings by the analysis, and the list is
+    /// not read for it. The rule is the same on every definition, so a rule the analysis flags
+    /// elsewhere never makes a state judgeable that is not, nor the reverse.
     #[must_use]
     pub fn state_exclusion(
         &self,
         definition: &BackendDefinition,
         state: &Pattern,
+        facts: &RunFacts,
     ) -> Option<Exclusion> {
-        self.state_exclusion_memoized(definition, state, &mut CeilMemo::default())
+        self.state_exclusion_memoized(definition, state, facts, &mut CeilMemo::default())
     }
 
     /// [`Self::state_exclusion`] with the ceil-theory judgements of `memo`, which must have been
     /// filled only on `definition`; the judgements it makes are added to `memo`. A caller that
     /// judges many states on one definition keeps one memo for it, so each application is
-    /// internalized and its ceil simplified once.
+    /// internalized and its ceil simplified once. The state is analysed only when the run's list
+    /// leaves the question open.
     #[must_use]
     pub fn state_exclusion_memoized(
         &self,
         definition: &BackendDefinition,
         state: &Pattern,
+        facts: &RunFacts,
         memo: &mut CeilMemo,
     ) -> Option<Exclusion> {
         state_references_implementation_chosen(definition, state)
             .then_some(Exclusion::ImplementationChosenHook)
             .or_else(|| {
-                (!self.short_circuit_flagged()
+                let listed = facts.short_circuit_readings.is_some();
+                ((!listed || !self.state_short_circuit_readings(facts).is_empty())
                     && self.state_depends_on_short_circuit_memoized(definition, state, memo))
                 .then_some(Exclusion::ShortCircuitReading)
             })

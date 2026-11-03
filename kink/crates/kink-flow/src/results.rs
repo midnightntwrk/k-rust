@@ -15,17 +15,22 @@
 //! live runs in its kill search. The session is never written to disk, so a later command runs
 //! every baseline it needs live again. The documents report the count as `baseline_runs`.
 //!
-//! A program is `comparable` exactly when that campaign admits its baseline run and gives it
-//! sides: the run is complete, no exclusion holds (a run whose leaf contradicts a trusted claim is
+//! A program is `comparable` exactly when that campaign admits its baseline run and gives it sides:
+//! the run is complete, no exclusion holds (a run whose leaf contradicts a trusted claim is
 //! admitted but gives none, re-pin decision 2; one excluded by k-rust's run-level lists is refused,
-//! re-pin adoption A-1), and every oracle side is a value. Only a comparable program can later
-//! kill a mutant. Every record carries the baseline run's contradicted-claim records as
-//! specification diagnostics and its count of undecided solver answers (re-pin adoption A-1),
-//! outside the key and the run digest.
-//! When the campaign refuses the baseline run, the runner returns no evidence; a diagnostic run
-//! of the same initial state through the kink-native execution adapter then tells a timeout from
-//! an unknown or failed run and supplies the cause, the final states and the coverage for the
-//! reader. The diagnostic run never makes a program comparable.
+//! re-pin adoption A-1), and every oracle side is a value. Only a comparable program can later kill
+//! a mutant. Every record carries the baseline run's contradicted-claim records as specification
+//! diagnostics and its count of undecided solver answers (re-pin adoption A-1), and the entries of
+//! its short-circuit readings that exclude it (`short_circuit_readings`: on a definition whose
+//! short-circuit analysis flags a rule, and for a program whose initial configuration applies a
+//! reading-dependent function, the campaign runner judges each run by k-rust's
+//! `shortCircuitReadings` list of that run, kink-native `DefinitionExclusions::run_exclusion` and
+//! `state_exclusion`, so such a program is comparable when its run reads no skipped operand that
+//! counts, and otherwise `unknown` with the step named), outside the key and the run digest. When
+//! the campaign refuses the baseline run, the runner returns no evidence; a diagnostic run of the
+//! same initial state through the kink-native execution adapter then tells a timeout from an
+//! unknown or failed run and supplies the cause, the final states and the coverage for the reader.
+//! The diagnostic run never makes a program comparable.
 //!
 //! The cache is plain JSON under `<cache>/results/<execution digest>/<program digest>.json`. A
 //! record is used only when its key equals the current key; any other record, or one that does not
@@ -393,6 +398,13 @@ pub struct ProgramResult {
     /// k-rust's count of the baseline run's undecided solver answers (`smtUnknowns`; decision
     /// D-7 (a1): reported, never an exclusion); 0 without a run or without Z3.
     pub smt_unknowns: usize,
+    /// The entries of the baseline run's `shortCircuitReadings` list that exclude it
+    /// (`short-circuit-reading`; kink-native
+    /// `DefinitionExclusions::counting_short_circuit_readings`, or `state_short_circuit_readings`
+    /// for a run excluded by its initial state, on the diagnostic run), as
+    /// [`crate::exclusion::readings_value`] prints them: the step that excluded the run. An empty
+    /// array for every other result. Outside the key and the run digest.
+    pub short_circuit_readings: Value,
     /// Why the result is not a function of its key ([`host_dependence`]); `None` when it is.
     /// Outside the record: a result with a host dependence is never written.
     pub host: Option<HostDependence>,
@@ -410,6 +422,7 @@ impl ProgramResult {
             wall_ms: None,
             specification_diagnostics: json!([]),
             smt_unknowns: 0,
+            short_circuit_readings: json!([]),
             host: None,
         }
     }
@@ -495,24 +508,37 @@ impl<'a> BaselineRunner<'a> {
     /// The specification's definition exclusion as a document's `spec.exclusion` prints it
     /// ([`crate::exclusion::definition_exclusion`]; null when there is none).
     pub fn definition_exclusion(&self) -> Value {
-        if self.spec.exclusions.static_exclusion().is_none() {
+        if self.spec.exclusions.definition_exclusion().is_none() {
             return Value::Null;
         }
         crate::exclusion::definition_exclusion(self.spec, self.end_reader())
     }
 
-    /// Why every run of `test` on the baseline is excluded before it runs, read as admission
-    /// reads it (`crate::admit::InputSession::exclusion`) on `backend`, a load of the
+    /// The rules the specification's short-circuit analysis flags, as a document's
+    /// `spec.short_circuit` prints them ([`crate::exclusion::short_circuit`]; null when it flags
+    /// none).
+    pub fn short_circuit(&self) -> Value {
+        if !self.spec.exclusions.short_circuit_flagged() {
+            return Value::Null;
+        }
+        crate::exclusion::short_circuit(self.spec, self.end_reader())
+    }
+
+    /// Why every run of `test` on the baseline is excluded, read as admission reads it
+    /// (`crate::admit::InputSession::exclusion` and its depth-0 run) on `backend`, a load of the
     /// specification's compiled KORE: the definition exclusion, else the exclusion of the
-    /// test's initial configuration on the definition `backend` selects.
+    /// test's initial configuration on the definition `backend` selects, as the campaign runner
+    /// reads both for a run judged with its lists, here those of the baseline run whose facts
+    /// are `facts` (its list holds the initial configuration's normalization).
     fn program_exclusion(
         &self,
         backend: &mut Backend,
         test: &TestCase,
+        facts: &kink_native::execution::RunFacts,
     ) -> Option<crate::admit::ProgramExclusion> {
         use crate::exclusion::ExclusionScope;
         let exclusions = &self.spec.exclusions;
-        if let Some(exclusion) = exclusions.static_exclusion() {
+        if let Some(exclusion) = exclusions.definition_exclusion() {
             return Some(crate::admit::ProgramExclusion {
                 exclusion,
                 scope: ExclusionScope::Definition,
@@ -520,7 +546,7 @@ impl<'a> BaselineRunner<'a> {
         }
         let definition = backend.select_definition(None).ok()?;
         exclusions
-            .static_state_exclusion(&definition, &test.initial_state)
+            .state_exclusion(&definition, &test.initial_state, facts)
             .map(|exclusion| crate::admit::ProgramExclusion {
                 exclusion,
                 scope: ExclusionScope::InitialState,
@@ -636,6 +662,7 @@ impl<'a> BaselineRunner<'a> {
                         &evidence.notes.contradicted_claims,
                     ),
                     smt_unknowns: evidence.notes.smt_unknowns,
+                    short_circuit_readings: json!([]),
                     host: None,
                 }
             }
@@ -660,6 +687,7 @@ impl<'a> BaselineRunner<'a> {
                     wall_ms: None,
                     specification_diagnostics: json!([]),
                     smt_unknowns: 0,
+                    short_circuit_readings: json!([]),
                     host: Some(HostDependence::Time),
                 }
             }
@@ -695,6 +723,7 @@ impl<'a> BaselineRunner<'a> {
                     wall_ms: None,
                     specification_diagnostics: json!([]),
                     smt_unknowns: 0,
+                    short_circuit_readings: json!([]),
                     host: None,
                 }
             }
@@ -721,6 +750,7 @@ impl<'a> BaselineRunner<'a> {
             wall_ms: None,
             specification_diagnostics: json!([]),
             smt_unknowns: 0,
+            short_circuit_readings: json!([]),
             host: Some(HostDependence::Failure),
         }
     }
@@ -732,10 +762,12 @@ impl<'a> BaselineRunner<'a> {
     /// shape (re-pin adoption A-1b): an excluded run's leaves can all be clean. An exclusion that
     /// holds for every run of the program, the definition's or its initial configuration's, is
     /// said as `check` says it ([`crate::exclusion::program_detail`]); any other as
-    /// [`exclusion_hint`] says it. The diagnostic run is the campaign's request: the same budget
-    /// and `[budget] baseline_max_work`. `live_stop` is how this command's live run of the
-    /// baseline ended (`None` when none ran), which with the class and the exclusion says whether
-    /// the result depends on the host ([`host_dependence`]).
+    /// [`exclusion_hint`] says it, a short-circuit reading with the entries of the diagnostic
+    /// run's list that count against it (the step that excluded the run, which the result also
+    /// carries as data, [`ProgramResult::short_circuit_readings`]). The diagnostic run is the
+    /// campaign's request: the same budget and `[budget] baseline_max_work`. `live_stop` is how
+    /// this command's live run of the baseline ended (`None` when none ran), which with the class
+    /// and the exclusion says whether the result depends on the host ([`host_dependence`]).
     fn diagnose(
         &self,
         test: &TestCase,
@@ -797,6 +829,7 @@ impl<'a> BaselineRunner<'a> {
                 wall_ms: None,
                 specification_diagnostics: json!([]),
                 smt_unknowns: 0,
+                short_circuit_readings: json!([]),
                 host: Some(HostDependence::Time),
             };
         }
@@ -815,13 +848,53 @@ impl<'a> BaselineRunner<'a> {
                 )
             })
             .collect::<Vec<_>>();
+        // The entries that exclude the run, as the campaign runner reads them for the baseline
+        // (the specification's exclusions are those of the compiled definition it loads): those
+        // that count against the run, else, on a definition the analysis clears, those that count
+        // against its initial state, the one route by which such a run is excluded for the
+        // reading.
+        let readings = if exclusion == Some(Exclusion::ShortCircuitReading) {
+            let exclusions = &self.spec.exclusions;
+            let facts = execution.facts();
+            let counting = exclusions.counting_short_circuit_readings(facts);
+            if counting.is_empty() {
+                exclusions.state_short_circuit_readings(facts)
+            } else {
+                counting
+            }
+            .into_iter()
+            .cloned()
+            .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
         let hint = if let Some(exclusion) = exclusion {
-            match self.program_exclusion(&mut backend, test) {
+            match self.program_exclusion(&mut backend, test, execution.facts()) {
+                Some(known) if known.exclusion == exclusion && !readings.is_empty() => format!(
+                    "the run is excluded ({}): {}; the step: {}",
+                    exclusion.name(),
+                    known.detail(),
+                    crate::exclusion::readings_text(&readings)
+                ),
                 Some(known) if known.exclusion == exclusion => {
                     format!(
                         "the run is excluded ({}): {}",
                         exclusion.name(),
                         known.detail()
+                    )
+                }
+                _ if !readings.is_empty() => format!(
+                    "{}; the step: {}",
+                    exclusion_hint(exclusion, false),
+                    crate::exclusion::readings_text(&readings)
+                ),
+                _ if exclusion == Exclusion::ShortCircuitReading
+                    && execution.facts().short_circuit_readings.is_none() =>
+                {
+                    format!(
+                        "{}; the backend lists no short-circuit readings, so no run of a \
+                         definition whose analysis flags a rule can be judged on it",
+                        exclusion_hint(exclusion, false)
                     )
                 }
                 _ => exclusion_hint(exclusion, !execution.facts().contradicted_claims.is_empty()),
@@ -878,6 +951,7 @@ impl<'a> BaselineRunner<'a> {
                 &execution.facts().contradicted_claims,
             ),
             smt_unknowns: execution.facts().smt_unknowns,
+            short_circuit_readings: crate::exclusion::readings_value(&readings),
             host: host_dependence(
                 class,
                 exclusion,
@@ -1135,9 +1209,11 @@ fn exclusion_hint(exclusion: Exclusion, records: bool) -> String {
             "the definition uses a hook whose value the definition leaves open and k-rust chooses"
         }
         Exclusion::ShortCircuitReading => {
-            "the run's result depends on whether andBool, orBool, impliesBool, #if, andThenBool or \
-             orElseBool skip an operand that may be undefined, which the definition leaves to the \
-             backend"
+            "the run read the definedness of an operand a skipping backend may skip: the operand \
+             after the deciding one of andBool, orBool, impliesBool, #if, andThenBool or \
+             orElseBool, which k-rust found undefined or left undecided, at a step the \
+             definition's short-circuit analysis does not clear, so another reading the \
+             definition leaves to the backend may give the run another result"
         }
         Exclusion::AllowanceRefusal => {
             "a Bytes hook of the run was refused for the process's memory allowance, a property \
@@ -1355,6 +1431,7 @@ pub fn record_value(
         "wall_ms": result.wall_ms,
         "specification_diagnostics": result.specification_diagnostics,
         "smt_unknowns": result.smt_unknowns,
+        "short_circuit_readings": result.short_circuit_readings,
     })
 }
 
@@ -1619,6 +1696,7 @@ pub fn results(manifest: &FlowManifest, options: &ResultsOptions) -> (Value, boo
     document["data"] = spec.data.value();
     document["result"] = spec.result.value();
     document["spec"]["exclusion"] = runner.definition_exclusion();
+    document["spec"]["short_circuit"] = runner.short_circuit();
     // The rules no mutation of the given list targets (flow F-13, informational only).
     if let Some(path) = &options.mutations {
         match crate::mutation::MutationList::read(path) {
@@ -1689,6 +1767,11 @@ fn program_row(
         row["smt_unknowns"] = record["smt_unknowns"].clone();
         // CF-16: each end's computation head and class (null unless comparable).
         row["ends"] = record.get("ends").cloned().unwrap_or(Value::Null);
+        // The step that excluded a `short-circuit-reading` run (empty otherwise).
+        row["short_circuit_readings"] = record
+            .get("short_circuit_readings")
+            .cloned()
+            .unwrap_or_else(|| json!([]));
         row
     };
     let refused = |digest, refusal: kink_corpus::admission::AdmissionRefusal| {
@@ -1959,6 +2042,13 @@ fn document(
     });
     json!({
         "schema": "kink-flow-results",
+        // 6 since CF-03: `spec.exclusion` no longer names the short-circuit reading, `spec` gains
+        // `short_circuit`, the rules the short-circuit analysis flags, and a row gains
+        // `short_circuit_readings`, the readings that excluded its run; each run of a definition
+        // whose analysis flags a rule, and each run whose initial configuration applies a
+        // reading-dependent function, is judged by its own list of readings, so a program's
+        // class can change at the same key's inputs. The meaning of `spec.exclusion` changes, so
+        // a reader keyed on the version can tell.
         // 5 since the compared cells: the document's `result` names the slots and the cells the
         // second slot compares (null when the specification is refused), and where that slot is
         // `cells` a program's `final_configuration` and `ends` are the projected ends, each
@@ -1977,7 +2067,7 @@ fn document(
         // 2 since re-pin L2-1: a rule's status `no-coverage-signal` (summary
         // `no_coverage_signal`) replaced `not-observable`, equations are covered, and every rule
         // carries `fired_by`.
-        "version": 5,
+        "version": 6,
         "k_rust_revision": crate::k_rust_revision(),
         "profile": SolverProfile::BUILD.name(),
         "result_schema_version": RESULT_SCHEMA_VERSION,
@@ -1994,8 +2084,12 @@ fn document(
                 .collect::<Vec<_>>(),
             // The definition exclusion (`crate::exclusion`), set by `results` once the
             // specification is admitted; added to version 4 without a new version, since it is
-            // additive and no command reads a `results` document back.
+            // additive and no command reads a `results` document back. The rules the
+            // short-circuit analysis flags (`crate::exclusion::short_circuit`), likewise set
+            // once the specification is admitted; added in version 6 with the change of meaning
+            // of `exclusion`, and each program's row carries the readings that excluded its run.
             "exclusion": null,
+            "short_circuit": null,
         },
         "programs": programs,
         "rules": rules,

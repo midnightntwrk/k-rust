@@ -3,26 +3,37 @@
 //!
 //! A definition exclusion (kink-native `DefinitionExclusions::definition_exclusion`) excludes
 //! every run on the definition, so no program can be judged on it. kink-native records, for each
-//! exclusion, the sentences that make it hold, and for the short-circuit reading the cause chain
-//! of each rule it excludes (`ShortCircuitCause`): the rule, the part of it where the dependence
-//! shows, every function applied with the equation through which it depends on the reading, and
-//! the short-circuit operator with the operand a backend may skip and the term in it that may be
-//! undefined. This module prints them, as data ([`definition_exclusion`]) and as one text
-//! ([`detail`]), and says why a program's baseline run is excluded before it runs
-//! ([`program_detail`]).
+//! exclusion, the sentences that make it hold. This module prints them, as data
+//! ([`definition_exclusion`]) and as one text ([`detail`]), and says why a program's baseline run
+//! is excluded before it runs ([`program_detail`]).
+//!
+//! The short-circuit reading is no definition exclusion: a run of a definition whose analysis
+//! flags a rule is judged by k-rust's `shortCircuitReadings` list of that run (kink-native
+//! `DefinitionExclusions::run_exclusion`). The analysis records the cause chain of each rule it
+//! flags (`ShortCircuitCause`): the rule, the part of it where the dependence shows, every
+//! function applied with the equation through which it depends on the reading, and the
+//! short-circuit operator with the operand a backend may skip and the term in it that may be
+//! undefined. [`short_circuit`] prints them as the places where a run can read such an operand,
+//! and [`readings_value`] and [`readings_text`] print the entries of a run's list that exclude
+//! it, the step that did.
 //!
 //! Every term is printed as K text by the command's [`EndReader`], cut at [`VALUE_CAP`]
 //! characters in the data and at [`HEAD_CAP`] in the text; a term the printer refuses is printed
 //! as KORE, as kill evidence prints it (the text leaves out such a condition leaf, which the data
-//! holds). A position is the `Source` and `Location` attributes the
-//! compiled sentence or symbol declaration carries: the file as the load named it, and the span
-//! `start_line:start_column-end_line:end_column`.
+//! holds). A run's reading is printed as KORE text, cut the same way: it is one instance of the
+//! operand, and the mutant's runs have no reader of their own. A position is the `Source` and
+//! `Location` attributes the compiled sentence or symbol declaration carries: the file as the
+//! load named it, and the span `start_line:start_column-end_line:end_column`.
 
 use crate::{
     admit::AdmittedSpec,
     evidence::{EndReader, HEAD_CAP, VALUE_CAP},
 };
-use k_rust::{kast::identifier::label_or_name, kore::ast::Pattern};
+use k_rust::{
+    backend::{ObservedInOutput, ReadingOutcomeOutput, ShortCircuitReadingOutput},
+    kast::identifier::label_or_name,
+    kore::ast::Pattern,
+};
 use kink_native::coverage::{Authorship, RuleAuthors};
 use kink_native::exclusion::{
     CauseLink, CausePart, DefinitionExclusions, Exclusion, OperatorLink, ReadingDependence,
@@ -35,14 +46,15 @@ use std::collections::BTreeSet;
 pub const DETAIL_CAUSES: usize = 8;
 
 /// Where an exclusion of every run of a program on the baseline comes from, as admission reads it
-/// without running the program (`crate::admit::ProgramExclusion`).
+/// without running a step of the program (`crate::admit::ProgramExclusion`).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExclusionScope {
     /// The specification's definition exclusion, which excludes every run on it.
     Definition,
     /// The exclusion of the program's initial configuration (kink-native
     /// `DefinitionExclusions::state_exclusion`): it applies an implementation-chosen hook, or a
-    /// function or operator whose value depends on the short-circuit reading.
+    /// function or operator whose value depends on the short-circuit reading where its
+    /// normalization, the depth-0 run, lists a reading that counts against it.
     InitialState,
 }
 
@@ -57,17 +69,10 @@ impl ExclusionScope {
     }
 }
 
-/// The definition exclusion of `facts` as data: null when there is none, else
+/// The definition exclusion of `spec` as data: null when there is none, else
 /// `{exclusion, detail, causes}`, where `exclusion` is its name, `detail` is [`detail`]'s text and
 /// `causes` lists what makes it hold:
 ///
-/// - `short-circuit-reading`: each rule's cause chain, `{rule, effect, part, links}`: `rule` a
-///   sentence; `effect` `applicability` (whether the rule applies can differ between the
-///   readings) or `result` (its result can be undefined in k-rust's reading where a
-///   short-circuiting backend gives a value); `part` where in the rule the first link sits; and
-///   `links` in order from the rule, each `{link: "function", function, dependence, equation,
-///   part}` (`dependence` `valued` or `undefined`) or `{link: "operator", operator, position,
-///   operand, term, term_symbol}`;
 /// - `implementation-chosen-hook`: `{sentence, symbol, hook}` per reference;
 /// - `equals-condition`: `{sentence}` per sentence;
 /// - `load-stack-stop`: none (`detail` gives the count).
@@ -84,7 +89,7 @@ impl ExclusionScope {
 #[must_use]
 pub fn definition_exclusion(spec: &AdmittedSpec, reader: &EndReader) -> Value {
     let facts = &spec.exclusions;
-    let Some(exclusion) = facts.static_exclusion() else {
+    let Some(exclusion) = facts.definition_exclusion() else {
         return Value::Null;
     };
     let authors = RuleAuthors::of(&spec.compiled);
@@ -94,11 +99,6 @@ pub fn definition_exclusion(spec: &AdmittedSpec, reader: &EndReader) -> Value {
     };
     let sentence = |name: &str| links.named(facts, name);
     let causes = match exclusion {
-        Exclusion::ShortCircuitReading => facts
-            .short_circuit_causes
-            .iter()
-            .map(|cause| cause_value(cause, &links, reader))
-            .collect(),
         Exclusion::ImplementationChosenHook => facts
             .implementation_chosen
             .iter()
@@ -144,46 +144,12 @@ pub fn detail(facts: &DefinitionExclusions, exclusion: Exclusion, reader: &EndRe
                 reference.hook
             )))
         ),
-        Exclusion::ShortCircuitReading => {
-            let causes = &facts.short_circuit_causes;
-            let shown = causes
-                .iter()
-                .take(DETAIL_CAUSES)
-                .map(|cause| cause_text(cause, reader))
-                .collect::<Vec<_>>();
-            let named = causes
-                .iter()
-                .map(|cause| cause.rule.name.clone())
-                .collect::<BTreeSet<_>>();
-            // A rule a list names without a cause (none, as kink-native builds the lists) is
-            // still named, by its sentence.
-            let uncaused = facts
-                .short_circuit_conditions
-                .iter()
-                .chain(&facts.short_circuit_results)
-                .filter(|name| !named.contains(*name))
-                .cloned()
-                .collect::<BTreeSet<_>>();
-            let mut text = format!(
-                "a rule's applicability or result depends on whether andBool, orBool, \
-                 impliesBool, #if, andThenBool or orElseBool skip an operand that may be \
-                 undefined, which the definition leaves to the backend: {}",
-                shown.join("; ")
-            );
-            if causes.len() > DETAIL_CAUSES {
-                text.push_str(&format!(
-                    "; and {} more cause(s)",
-                    causes.len() - DETAIL_CAUSES
-                ));
-            }
-            if !uncaused.is_empty() {
-                text.push_str(&format!(
-                    "; and rules with no recorded cause: {}",
-                    listed(uncaused.iter().map(|name| sentence_text(facts, name)))
-                ));
-            }
-            text
-        }
+        Exclusion::ShortCircuitReading => format!(
+            "a rule's applicability or result depends on whether andBool, orBool, impliesBool, \
+             #if, andThenBool or orElseBool skip an operand that may be undefined, which the \
+             definition leaves to the backend: {}",
+            causes_text(facts, reader)
+        ),
         Exclusion::EqualsCondition => format!(
             "a rule or equation has a condition equating two terms ({{ A #Equals B }}), which \
              k-rust may decide wrongly when they may be undefined: {}",
@@ -195,6 +161,224 @@ pub fn detail(facts: &DefinitionExclusions, exclusion: Exclusion, reader: &EndRe
             )
         ),
         other => other.name().to_owned(),
+    }
+}
+
+/// Each flagged rule's cause chain as text (at most [`DETAIL_CAUSES`]; the data lists every
+/// one), then any rule a list names without a cause.
+fn causes_text(facts: &DefinitionExclusions, reader: &EndReader) -> String {
+    let causes = &facts.short_circuit_causes;
+    let shown = causes
+        .iter()
+        .take(DETAIL_CAUSES)
+        .map(|cause| cause_text(cause, reader))
+        .collect::<Vec<_>>();
+    let named = causes
+        .iter()
+        .map(|cause| cause.rule.name.clone())
+        .collect::<BTreeSet<_>>();
+    // A rule a list names without a cause (none, as kink-native builds the lists) is still
+    // named, by its sentence.
+    let uncaused = facts
+        .short_circuit_conditions
+        .iter()
+        .chain(&facts.short_circuit_results)
+        .filter(|name| !named.contains(*name))
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let mut text = shown.join("; ");
+    if causes.len() > DETAIL_CAUSES {
+        text.push_str(&format!(
+            "; and {} more cause(s)",
+            causes.len() - DETAIL_CAUSES
+        ));
+    }
+    if !uncaused.is_empty() {
+        text.push_str(&format!(
+            "; and rules with no recorded cause: {}",
+            listed(uncaused.iter().map(|name| sentence_text(facts, name)))
+        ));
+    }
+    text
+}
+
+/// The rules the short-circuit analysis flags on `spec`'s definition, as data: null when it
+/// flags none (kink-native `DefinitionExclusions::short_circuit_flagged`), else `{detail,
+/// causes}`. No run is excluded for them as such: each run of a flagged definition is judged by
+/// k-rust's `shortCircuitReadings` list of that run, and only a run whose list holds an entry
+/// that counts is `short-circuit-reading` (its row names the entry, [`readings_value`]). The
+/// flagged rules are where a run can read the definedness of an operand a short-circuiting
+/// backend may skip, so a program is best written so that its runs read none there.
+///
+/// `causes` holds each flagged rule's cause chain, `{rule, effect, part, links}`: `rule` a
+/// sentence; `effect` `applicability` (whether the rule applies can differ between the
+/// readings) or `result` (its result can be undefined in k-rust's reading where a
+/// short-circuiting backend gives a value); `part` where in the rule the first link sits; and
+/// `links` in order from the rule, each `{link: "function", function, dependence, equation,
+/// part}` (`dependence` `valued` or `undefined`) or `{link: "operator", operator, position,
+/// operand, term, term_symbol}`. Sentences, symbols, parts and terms are printed as
+/// [`definition_exclusion`] prints them; `detail` names the chains in one text, with positions.
+#[must_use]
+pub fn short_circuit(spec: &AdmittedSpec, reader: &EndReader) -> Value {
+    let facts = &spec.exclusions;
+    if !facts.short_circuit_flagged() {
+        return Value::Null;
+    }
+    let authors = RuleAuthors::of(&spec.compiled);
+    let links = Links {
+        spec,
+        authors: &authors,
+    };
+    json!({
+        "detail": format!(
+            "the short-circuit analysis flags rules whose applicability or result can depend on \
+             whether andBool, orBool, impliesBool, #if, andThenBool or orElseBool skip an operand \
+             that may be undefined, which the definition leaves to the backend; a run is \
+             excluded (short-circuit-reading) only when k-rust lists such a reading of it that \
+             counts, and every other run is judged: {}",
+            causes_text(facts, reader)
+        ),
+        "causes": facts
+            .short_circuit_causes
+            .iter()
+            .map(|cause| cause_value(cause, &links, reader))
+            .collect::<Vec<_>>(),
+    })
+}
+
+/// A run's readings that exclude it (kink-native
+/// `DefinitionExclusions::counting_short_circuit_readings`, or the entries the campaign runner's
+/// notes of the run carry) as data: each `{operator, outcome, head, operand, rule, observed_in}`.
+/// `operator` is the hook of the short-circuit operator whose operand after the deciding one
+/// k-rust read (`BOOL.andThen`, `KEQUAL.ite`, ...), null where the reading is a deferred
+/// definedness atom's decision, which does not know its operator; `outcome` is `undefined`
+/// (k-rust found the operand `\bottom`) or `undecided` (it kept the operand's definedness as an
+/// open condition); `head` the KORE symbol at the operand's root, or null; `operand` one instance
+/// of it as KORE text, `{text, rendering: "kore", truncated}`, cut at [`VALUE_CAP`]; `rule` the
+/// rewrite rule whose work read it, `{id, label, source, location}` (k-rust's `rewriteRule*`),
+/// null for work of no rule (the initial state's normalization, a step's remainder, a leaf's
+/// constraints, the load); and `observed_in` `run` or `load`.
+#[must_use]
+pub fn readings_value(readings: &[ShortCircuitReadingOutput]) -> Value {
+    Value::Array(
+        readings
+            .iter()
+            .map(|reading| {
+                let (text, truncated) = operand_text(reading, VALUE_CAP);
+                json!({
+                    "operator": reading.operator,
+                    "outcome": outcome_name(reading.outcome),
+                    "head": reading.head,
+                    "operand": {"text": text, "rendering": "kore", "truncated": truncated},
+                    "rule": reading_rule(reading).map_or(Value::Null, |_| json!({
+                        "id": reading.rewrite_rule_id,
+                        "label": reading.rewrite_rule_label,
+                        "source": reading.rewrite_rule_origin.as_ref().and_then(|o| o.source.clone()),
+                        "location": reading.rewrite_rule_origin.as_ref().and_then(|o| o.location.clone()),
+                    })),
+                    "observed_in": observed_name(reading.observed_in),
+                })
+            })
+            .collect(),
+    )
+}
+
+/// A run's readings that exclude it ([`readings_value`]) as one text: for each, the step that
+/// read it (the rule, else where the work was), the operator, the outcome and the operand (cut at
+/// [`HEAD_CAP`]); at most [`DETAIL_CAUSES`], then how many more.
+#[must_use]
+pub fn readings_text(readings: &[ShortCircuitReadingOutput]) -> String {
+    let mut text = readings
+        .iter()
+        .take(DETAIL_CAUSES)
+        .map(|reading| {
+            let (operand, truncated) = operand_text(reading, HEAD_CAP);
+            let operand = if truncated {
+                format!("`{operand}...`")
+            } else {
+                format!("`{operand}`")
+            };
+            let what = reading.operator.as_deref().map_or_else(
+                || format!("a deferred definedness atom's subject {operand}"),
+                |operator| format!("the operand of {operator} after its deciding one, {operand},"),
+            );
+            let outcome = match reading.outcome {
+                ReadingOutcomeOutput::Undefined => "undefined",
+                ReadingOutcomeOutput::Undecided => "of undecided definedness",
+            };
+            let place = match (reading_rule(reading), reading.observed_in) {
+                (Some(rule), _) => format!("the work of rule {rule}"),
+                (None, ObservedInOutput::Load) => "the definition's load".to_owned(),
+                (None, ObservedInOutput::Run) => "work of no rule (the initial state's \
+                                                  normalization, a step's remainder or a leaf's \
+                                                  constraints)"
+                    .to_owned(),
+            };
+            format!("in {place}, k-rust found {what} {outcome}")
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    if readings.len() > DETAIL_CAUSES {
+        text.push_str(&format!(
+            "; and {} more reading(s)",
+            readings.len() - DETAIL_CAUSES
+        ));
+    }
+    text
+}
+
+/// The rule of a reading as text: its label, else its id, then its source position; `None` for
+/// work of no rule.
+fn reading_rule(reading: &ShortCircuitReadingOutput) -> Option<String> {
+    let name = reading
+        .rewrite_rule_label
+        .clone()
+        .or_else(|| reading.rewrite_rule_id.clone())?;
+    let origin = reading.rewrite_rule_origin.as_ref();
+    let position = match (
+        origin.and_then(|o| o.source.as_deref()),
+        origin.and_then(|o| o.location.as_deref()),
+    ) {
+        (Some(source), Some(location)) => Some(format!("{source}:{location}")),
+        (Some(source), None) => Some(source.to_owned()),
+        (None, Some(location)) => Some(location.to_owned()),
+        (None, None) => None,
+    };
+    Some(match position {
+        Some(position) => format!("{name} ({position})"),
+        None => name,
+    })
+}
+
+/// The operand of a reading as KORE text cut at `cap` characters, and whether it was cut.
+fn operand_text(reading: &ShortCircuitReadingOutput, cap: usize) -> (String, bool) {
+    let envelope = if reading.operand.get("format").is_some() {
+        reading.operand.clone()
+    } else {
+        json!({"format": "KORE", "version": 1, "term": reading.operand})
+    };
+    let text = k_rust::kore::codec::from_value(&envelope).map_or_else(
+        |_| reading.operand.to_string(),
+        |pattern| pattern.to_string(),
+    );
+    if text.chars().count() > cap {
+        (text.chars().take(cap).collect(), true)
+    } else {
+        (text, false)
+    }
+}
+
+const fn outcome_name(outcome: ReadingOutcomeOutput) -> &'static str {
+    match outcome {
+        ReadingOutcomeOutput::Undefined => "undefined",
+        ReadingOutcomeOutput::Undecided => "undecided",
+    }
+}
+
+const fn observed_name(observed: ObservedInOutput) -> &'static str {
+    match observed {
+        ObservedInOutput::Run => "run",
+        ObservedInOutput::Load => "load",
     }
 }
 
@@ -219,7 +403,9 @@ pub fn program_detail(exclusion: Exclusion, scope: ExclusionScope) -> String {
             Exclusion::ShortCircuitReading => format!(
                 "the program's initial configuration applies a function whose value depends on \
                  whether a short-circuit operator skips an operand that may be undefined, or \
-                 such an operator itself, which the definition leaves to the backend ({})",
+                 such an operator itself, which the definition leaves to the backend, and the \
+                 list of short-circuit readings of its normalization holds one that counts, or \
+                 the backend lists none ({})",
                 exclusion.name()
             ),
             other => format!(

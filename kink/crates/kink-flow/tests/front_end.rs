@@ -379,9 +379,9 @@ fn visited(document: &mut Value) -> Vec<RuleRef> {
 
 const SCFETCH_K: &str = include_str!("../../../testdata/k/r0c/scfetch.k");
 
-/// A private flow over kink-native's fixture `r0c/scfetch.k`, whose definition kink excludes
-/// (`short-circuit-reading`): every document's `spec.exclusion` names the rules `fetch` and
-/// `fetch-halt-bug` and the equation of `decode` through which each depends on the reading.
+/// A private flow over kink-native's fixture `r0c/scfetch.k`, whose short-circuit analysis flags
+/// the rules `fetch` and `fetch-halt-bug`: every document's `spec.short_circuit` names them and
+/// the equation of `decode` through which each depends on the reading.
 fn scfetch(test: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("kink-flow-front-end-{}", std::process::id()))
@@ -433,8 +433,8 @@ fn assert_every_rule_visited_once(
     marked_documents
 }
 
-/// The rules of every document visited; in an excluded definition's documents, every compiled
-/// sentence an exclusion cause names (the rule, each function link's equation) carries the
+/// The rules of every document visited; in a flagged definition's documents, every compiled
+/// sentence a short-circuit cause names (the rule, each function link's equation) carries the
 /// baseline sentences it was compiled from, and each of them is visited.
 #[test]
 fn every_rule_a_document_names_is_visited_once() {
@@ -465,7 +465,9 @@ fn every_rule_a_document_names_is_visited_once() {
         &[],
         FrontEnd::default(),
     );
-    assert_eq!(status, EXIT_CORPUS, "{check:#}");
+    // A flagged rule is no definition exclusion: each run is judged by its own readings, so
+    // `check` makes no program `excluded` for it and passes.
+    assert_eq!(status, EXIT_OK, "{check:#}");
     let (results, _) = command(
         &dir,
         "results",
@@ -476,8 +478,8 @@ fn every_rule_a_document_names_is_visited_once() {
     for (name, document) in
         assert_every_rule_visited_once(&loaded, vec![("check", check), ("results", results)])
     {
-        let exclusion = &document["spec"]["exclusion"];
-        assert_eq!(exclusion["exclusion"], "short-circuit-reading", "{name}");
+        assert!(document["spec"]["exclusion"].is_null(), "{name}");
+        let exclusion = &document["spec"]["short_circuit"];
         let causes = exclusion["causes"].as_array().unwrap();
         assert_eq!(causes.len(), 2, "{name}: {exclusion:#}");
         for cause in causes {

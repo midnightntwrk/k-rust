@@ -33,20 +33,23 @@
 //! the flow lacks (kink counts no kill on the definition without it).
 //!
 //! **Guards** (T3b). kink's definition exclusions are read on both sides as kink's runner reads
-//! them; one refuses the job with the status and reason kink's `run` gives the mutation
-//! (`unknown` and the exclusion for the mutant's; `error`, `no-comparable-program` for the
-//! baseline's, which excludes every program's baseline run). kink assembles every test's input
-//! from the baseline's grammar for both sides, so a run of no case first compares each side's
-//! initial configuration at the holes' anchors: a mutant that assembles the template otherwise
-//! (a `[macro]` edit) is refused before any case, and so is a baseline that assembles it otherwise
-//! than kink does. The campaign assembles a case as krun does, and krun reads a configuration
-//! variable's text with the rule kink reads it with (k-rust `variable_reading_modules`, applied
-//! by k-rust's `ConfigurationAssembler` for both), so one text is one input to both. Each
-//! candidate's program is then assembled by kink exactly as a `[[program]]`
-//! ([`check_assembly`]), and each side's initial configuration must be that configuration, or
-//! the candidate is not offered (`assembly-mismatch`). The last `run` document, only read, gives
-//! the template program's class and the mutation's `reaching` programs (suggested as
-//! templates), and the document warns about an unusable template, a template outside the
+//! them; one refuses the job with the status and reason kink's `run` gives the mutation (`unknown`
+//! and the exclusion for the mutant's; `error`, `no-comparable-program` for the baseline's, which
+//! excludes every program's baseline run). A side whose short-circuit analysis flags a rule has no
+//! definition exclusion for it: kink's runner judges each run of it by k-rust's
+//! `shortCircuitReadings` list of that run, so the job runs, and kink's confirmation of a witness
+//! judges the witness's own runs (the witness filter keeps its stricter static reading). kink
+//! assembles every test's input from the baseline's grammar for both sides, so a run of no case
+//! first compares each side's initial configuration at the holes' anchors: a mutant that assembles
+//! the template otherwise (a `[macro]` edit) is refused before any case, and so is a baseline that
+//! assembles it otherwise than kink does. The campaign assembles a case as krun does, and krun
+//! reads a configuration variable's text with the rule kink reads it with (k-rust
+//! `variable_reading_modules`, applied by k-rust's `ConfigurationAssembler` for both), so one text
+//! is one input to both. Each candidate's program is then assembled by kink exactly as a
+//! `[[program]]` ([`check_assembly`]), and each side's initial configuration must be that
+//! configuration, or the candidate is not offered (`assembly-mismatch`). The last `run` document,
+//! only read, gives the template program's class and the mutation's `reaching` programs (suggested
+//! as templates), and the document warns about an unusable template, a template outside the
 //! reaching programs, and the scope of `--time-limit-ms`.
 //!
 //! **Witness filter** (fz26 FZ-COMPARABLE-B). Unless `--no-filter` is given
@@ -55,7 +58,9 @@
 //! from: a candidate kink would refuse for a reason that depends on the input (a non-ASCII String
 //! end) is refused inside the search, repaired when its String holes can be, and the search goes
 //! on. A campaign whose every hit was refused stops `client-refused`, never `budget`. A template
-//! whose own input kink excludes is refused before any case (`initial-state-excluded`). The
+//! whose own input the filter excludes, reading it as a route without a run's lists does, is
+//! refused before any case (`initial-state-excluded`), since the filter would refuse every
+//! candidate that keeps the template's text outside its holes. The
 //! filter keeps each side's kink load for the whole campaign (about +90 MB of peak memory on
 //! TRIAL3's SIMPLE job, not measurable on IMP); `--no-filter` drops them.
 //!
@@ -943,14 +948,15 @@ fn premises(manifest: &FlowManifest, options: &FuzzOptions, report: &FuzzReport)
 // ---------------------------------------------------------------------------------------------
 
 /// The definition exclusion of one side, if any, as kink-campaign's runner reads it for every
-/// run on that side: from the side's compiled KORE loaded for `module` on this thread, with the
-/// load, which the witness filter keeps ([`crate::fuzz_filter`]).
+/// run on that side (kink-native `DefinitionExclusions::definition_exclusion`, which a rule the
+/// short-circuit analysis flags is not): from the side's compiled KORE loaded for `module` on
+/// this thread, with the load, which the witness filter keeps ([`crate::fuzz_filter`]).
 fn side_exclusion(
     side: &ValidatedDefinition,
     module: &str,
 ) -> Result<(ValidatedLoad, Option<(Exclusion, String)>), String> {
     let load = DefinitionExclusions::load_validated(side, module)?;
-    let excluded = load.exclusions.static_exclusion().map(|exclusion| {
+    let excluded = load.exclusions.definition_exclusion().map(|exclusion| {
         // What makes it hold, as every kink-flow document says it (`crate::exclusion`).
         let detail = crate::exclusion::detail(
             &load.exclusions,
@@ -1912,10 +1918,11 @@ pub fn fuzz_front(
             let mut judgement =
                 KinkJudgement::new(job_kind, baseline, mutant_side, manifest.budget.work())
                     .with_spelling(spelling);
-            // Every candidate keeps the template's text outside its holes, so a state exclusion
-            // of the template's input is one of every candidate whose holes do not replace the
-            // excluded application. A hole whose span text holds that application could remove
-            // it; refusing then loses witnesses, never admits one (final review N3).
+            // Every candidate keeps the template's text outside its holes, so the filter's state
+            // exclusion of the template's input, read without a run's lists, is one of every
+            // candidate whose holes do not replace the excluded application. A hole whose span
+            // text holds that application could remove it; refusing then loses witnesses, never
+            // admits one (final review N3).
             if let Ok(test) = &kink_template
                 && let Some((role, exclusion)) = judgement.initial_exclusion(&test.initial_state)
             {
@@ -1927,16 +1934,21 @@ pub fn fuzz_front(
                         "initial-state-excluded",
                         format!(
                             "kink's input of the template has the exclusion {exclusion} on the \
-                             {role}'s definition; every candidate keeps the template's text \
-                             outside its holes, so kink takes no evidence from any candidate \
-                             unless a hole's text replaces the excluded application, which the \
-                             campaign does not look for"
+                             {role}'s definition, as the witness filter reads it without a run's \
+                             lists; every candidate keeps the template's text outside its holes, \
+                             so the filter refuses every candidate unless a hole's text replaces \
+                             the excluded application, which the campaign does not look for \
+                             (kink's own run of a candidate whose input applies a function whose \
+                             value depends on the short-circuit reading is judged by its list of \
+                             readings, which the filter does not see)"
                         ),
                     ),
                     &format!(
                         "choose a template whose input applies no implementation-chosen hook and \
-                         no function whose value depends on the short-circuit reading ({} gives \
-                         such a program the exclusion as its cause)",
+                         no function whose value depends on the short-circuit reading, or, for \
+                         the short-circuit reading, run with --no-filter so that kink's \
+                         confirmation judges each witness by its runs' lists ({} names the \
+                         exclusion as the cause of such a program it cannot judge)",
                         spelling.verb(Verb::Run)
                     ),
                 );

@@ -97,8 +97,13 @@ use std::{path::Path, sync::OnceLock};
 /// set; a record's coverage entries are `{module, index, label}`, without file and lines, and the
 /// record names its writer's specification digest outside the key; and no `timeout`, `error` or
 /// host-dependent `unknown` record is written or read, so a v9 record, which may be one, is never
-/// honoured.
-pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v10";
+/// honoured. v11 (CF-03): a record holds `short_circuit_readings`, the entries of the baseline
+/// run's `shortCircuitReadings` list that exclude it (empty unless the run is
+/// `short-circuit-reading`), outside the key and the run digest; on a definition whose
+/// short-circuit analysis flags a rule, and for a program whose initial configuration applies a
+/// reading-dependent function, a program whose run lists no such entry is `comparable`, as the
+/// campaign runner judges it since its run-level judgement of that list.
+pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v11";
 
 /// One component of [`KINK_IDENTITY`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

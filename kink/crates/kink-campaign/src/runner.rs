@@ -3177,7 +3177,8 @@ impl Runtime {
                     .unwrap_or_else(|refused| {
                         (Err(BridgeFailure::HostStackRefused(refused)), Vec::new())
                     });
-                let state_exclusion = exclusions.state_exclusion(definition, &test.initial_state);
+                let state_exclusion =
+                    exclusions.state_exclusion(definition, &test.initial_state, execution.facts());
                 Ok::<_, k_rust::backend::BackendError>((bridged, state_exclusion, one_sided))
             }) {
                 // No decider: every slot is unknown, unless the run is excluded, which is read
@@ -3191,7 +3192,11 @@ impl Runtime {
                     None => match self.backend.select_definition(None) {
                         Err(_) => SideRun::Failed(ExecutionFailureKind::Infrastructure),
                         Ok(definition) => {
-                            match exclusions.state_exclusion(&definition, &test.initial_state) {
+                            match exclusions.state_exclusion(
+                                &definition,
+                                &test.initial_state,
+                                execution.facts(),
+                            ) {
                                 Some(exclusion) => SideRun::Failed(exclusion.into()),
                                 None => SideRun::Sides {
                                     sides: vec![OracleSide::Unknown; test.oracles.len()],

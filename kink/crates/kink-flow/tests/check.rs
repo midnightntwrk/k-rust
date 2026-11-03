@@ -106,7 +106,7 @@ fn calc_is_admitted_with_every_program_ok_and_the_document_is_exact() {
         })
     );
     assert_eq!(document["schema"], "kink-flow-check");
-    assert_eq!(document["version"], 5);
+    assert_eq!(document["version"], 6);
     // Without --mutations no list is checked.
     for key in ["mutation_list", "mutations", "coverage"] {
         assert!(document[key].is_null(), "{key}");
@@ -127,6 +127,7 @@ fn calc_is_admitted_with_every_program_ok_and_the_document_is_exact() {
             "files",
             "outcome",
             "reason",
+            "short_circuit",
             "stage"
         ]
     );
@@ -141,6 +142,10 @@ fn calc_is_admitted_with_every_program_ok_and_the_document_is_exact() {
     assert!(
         document["spec"]["exclusion"].is_null(),
         "calc has no exclusion"
+    );
+    assert!(
+        document["spec"]["short_circuit"].is_null(),
+        "calc's short-circuit analysis flags no rule"
     );
     assert_eq!(
         document["spec"]["files"],
@@ -676,7 +681,7 @@ fn check_resolves_every_mutation_and_runs_no_program() {
     );
     let (document, status) = check_list(&manifest, &mutations, None);
     assert_eq!(status, EXIT_CORPUS, "{document:#}");
-    assert_eq!(document["version"], 5);
+    assert_eq!(document["version"], 6);
     assert_eq!(document["spec"]["outcome"], "admitted");
     assert_eq!(document["mutation_list"]["outcome"], "ok");
     // Nothing ran and nothing was written: no cache, so no unreached-rule warning.
@@ -850,12 +855,21 @@ fn scfetch_flow(name: &str) -> PathBuf {
 /// A definition with no exclusion of its own whose programs `g1` and `g0` apply `g`, a total
 /// function whose value depends on whether `orBool` skips an operand that may be undefined
 /// (`1 /Int X`), which no rule applies; the program `plain` does not apply it. k-rust evaluates
-/// every operand, so `g(0)` is undefined and its run contradicts `g`'s `total` claim.
-fn initial_state_flow(name: &str) -> PathBuf {
+/// every operand, so `g(0)` is undefined and its run contradicts `g`'s `total` claim. With
+/// `flagged`, one more rule that no program applies and the short-circuit analysis flags (`at`,
+/// whose result applies `andThenBool` over `10 /Int I`).
+fn initial_state_flow_of(name: &str, flagged: bool) -> PathBuf {
     let dir = scratch(name);
+    let at = if flagged {
+        "  syntax Pgm ::= at(Int) [symbol(at)]\n  \
+         rule [at]: <k> at(I) => run(false andThenBool 10 /Int I >Int 0) </k>\n"
+    } else {
+        ""
+    };
     write(
         &dir.join("sc.k"),
-        "module SC-SYNTAX
+        &format!(
+            "module SC-SYNTAX
   imports INT-SYNTAX
   imports BOOL-SYNTAX
   syntax Pgm ::= run(Bool) [symbol(run)]
@@ -869,8 +883,9 @@ module SC
   configuration <k> $PGM:Pgm </k> <out> false </out>
   rule g(X) => true orBool (1 /Int X ==Int 1)
   rule [run]: <k> run(B) => .K </k> <out> _ => B </out>
-endmodule
-",
+{at}endmodule
+"
+        ),
     );
     write(
         &dir.join("FLOW.toml"),
@@ -902,14 +917,17 @@ fn cause_of<'e>(exclusion: &'e Value, label: &str) -> &'e Value {
         .unwrap_or_else(|| panic!("{label}: {exclusion:#}"))
 }
 
-/// `check` on SM83's shape: admission computes the definition exclusion and admits the
-/// specification and both programs, `spec.exclusion` names, for each of `fetch` and
-/// `fetch-halt-bug`, the rule, `decode` with the equation and the part of it through which it
-/// depends on the reading, `andThenBool` and the `bitRangeInt` operand, each with its module,
-/// position and compiled id, and every program is `excluded` at stage `definition`, so `check`
-/// exits 1, with and without `--mutations`.
+/// `check` on SM83's shape: admission reads the short-circuit analysis, which flags `fetch` and
+/// `fetch-halt-bug`, and admits the specification and both programs; `spec.short_circuit` names,
+/// for each, the rule, `decode` with the equation and the part of it through which it depends on
+/// the reading, `andThenBool` and the `bitRangeInt` operand, each with its module, position and
+/// compiled id. A flagged rule is no definition exclusion: the campaign runner judges each run of
+/// the definition by k-rust's list of that run's short-circuit readings, so whether a program's
+/// run is excluded is known only once it runs. So `spec.exclusion` is null, every program is
+/// `ok`, and `check` exits 0, with and without `--mutations` (before CF-03 every program was
+/// `excluded` at stage `definition` and `check` exited 1).
 #[test]
-fn a_definition_exclusion_names_its_cause_chain_and_fails_check() {
+fn a_flagged_definition_names_its_cause_chains_and_passes_check() {
     let dir = scfetch_flow("scfetch");
     let manifest = dir.join("FLOW.toml");
     let (admission, (document, status)) = {
@@ -917,42 +935,18 @@ fn a_definition_exclusion_names_its_cause_chain_and_fails_check() {
         on_stack(move || (admit_manifest(&manifest), check(&manifest)))
     };
     assert!(admission.all_admitted(), "{}", admission.record.text());
-    assert!(!admission.all_judgeable());
-    assert_eq!(
-        admission
-            .spec
-            .as_ref()
-            .unwrap()
-            .exclusions
-            .static_exclusion(),
-        Some(kink_native::exclusion::Exclusion::ShortCircuitReading)
-    );
-    assert_eq!(status, EXIT_CORPUS, "{document:#}");
-    assert_eq!(document["version"], 5);
+    assert!(admission.all_judgeable());
+    let exclusions = &admission.spec.as_ref().unwrap().exclusions;
+    assert!(exclusions.short_circuit_flagged());
+    assert_eq!(exclusions.definition_exclusion(), None);
+    assert_eq!(status, EXIT_OK, "{document:#}");
+    assert_eq!(document["version"], 6);
     assert_eq!(document["spec"]["outcome"], "admitted");
+    assert!(document["spec"]["exclusion"].is_null(), "{document:#}");
     for program in document["programs"].as_array().unwrap() {
-        assert_eq!(
-            (&program["outcome"], &program["stage"], &program["reason"]),
-            (
-                &Value::from("excluded"),
-                &Value::from("definition"),
-                &Value::from("short-circuit-reading")
-            ),
-            "{program:#}"
-        );
-        assert!(
-            program["detail"]
-                .as_str()
-                .unwrap()
-                .contains("spec.exclusion"),
-            "{program:#}"
-        );
+        assert_eq!(program["outcome"], "ok", "{program:#}");
     }
-    let exclusion = &document["spec"]["exclusion"];
-    assert_eq!(
-        exclusion["exclusion"], "short-circuit-reading",
-        "{exclusion:#}"
-    );
+    let exclusion = &document["spec"]["short_circuit"];
     assert_eq!(
         exclusion["causes"].as_array().unwrap().len(),
         2,
@@ -1037,63 +1031,133 @@ fn a_definition_exclusion_names_its_cause_chain_and_fails_check() {
         let mutations = dir.join("MUTATIONS.toml");
         on_stack(move || check_list(&manifest, &mutations, None))
     };
-    assert_eq!(status, EXIT_CORPUS, "{document:#}");
+    assert_eq!(status, EXIT_OK, "{document:#}");
     assert_eq!(
         row(&document, "unknown-op")["outcome"],
         "ok",
         "{document:#}"
     );
-    assert_eq!(
-        document["spec"]["exclusion"]["exclusion"],
-        "short-circuit-reading"
-    );
+    assert!(document["spec"]["exclusion"].is_null(), "{document:#}");
+    assert_eq!(&document["spec"]["short_circuit"], exclusion);
 }
 
 /// A program whose initial configuration applies a function whose value depends on the
-/// short-circuit reading is `excluded` at stage `initial-state`, alone: the definition has no
-/// exclusion, the program that does not apply it is `ok`, and `check` exits 1.
+/// short-circuit reading is judged by its run's list of short-circuit readings, whatever the
+/// analysis flags elsewhere. Admission runs each program to depth 0, the normalization of its
+/// initial configuration, which every run of it on the baseline starts with: `g0`'s lists the
+/// undefined `1 /Int 0` that `orBool` may skip, so `g0` is `excluded` at stage `initial-state`,
+/// alone, and `check` exits 1; `g1`'s lists nothing (`1 /Int 1` is defined), so `g1` is `ok`, as
+/// is `plain`, which does not apply `g`. A rule the analysis flags, which no program applies,
+/// changes none of this.
 #[test]
 fn a_program_whose_initial_configuration_is_excluded_fails_check_alone() {
-    let manifest = initial_state_flow("initial-state").join("FLOW.toml");
-    let (admission, (document, status)) =
-        on_stack(move || (admit_manifest(&manifest), check(&manifest)));
-    assert!(admission.all_admitted(), "{}", admission.record.text());
-    assert!(!admission.all_judgeable());
-    assert_eq!(
-        admission
-            .programs
-            .iter()
-            .map(|p| (
-                p.id.as_str(),
-                p.exclusion.map(|e| (e.exclusion.name(), e.scope.name()))
-            ))
-            .collect::<Vec<_>>(),
-        [
-            ("g1", Some(("short-circuit-reading", "initial-state"))),
-            ("g0", Some(("short-circuit-reading", "initial-state"))),
-            ("plain", None)
-        ]
+    for flagged in [false, true] {
+        let name = if flagged {
+            "initial-state-flagged"
+        } else {
+            "initial-state"
+        };
+        let manifest = initial_state_flow_of(name, flagged).join("FLOW.toml");
+        let (admission, (document, status)) =
+            on_stack(move || (admit_manifest(&manifest), check(&manifest)));
+        assert!(admission.all_admitted(), "{}", admission.record.text());
+        assert!(!admission.all_judgeable());
+        assert_eq!(
+            admission
+                .programs
+                .iter()
+                .map(|p| (
+                    p.id.as_str(),
+                    p.exclusion.map(|e| (e.exclusion.name(), e.scope.name()))
+                ))
+                .collect::<Vec<_>>(),
+            [
+                ("g1", None),
+                ("g0", Some(("short-circuit-reading", "initial-state"))),
+                ("plain", None)
+            ],
+            "flagged: {flagged}"
+        );
+        assert_eq!(status, EXIT_CORPUS, "{document:#}");
+        assert!(document["spec"]["exclusion"].is_null(), "{document:#}");
+        assert_eq!(
+            document["spec"]["short_circuit"].is_object(),
+            flagged,
+            "{document:#}"
+        );
+        assert_eq!(document["programs"][0]["outcome"], "ok", "{document:#}");
+        let g0 = &document["programs"][1];
+        assert_eq!(
+            (&g0["outcome"], &g0["stage"], &g0["reason"]),
+            (
+                &Value::from("excluded"),
+                &Value::from("initial-state"),
+                &Value::from("short-circuit-reading")
+            ),
+            "{g0:#}"
+        );
+        assert!(
+            g0["detail"]
+                .as_str()
+                .unwrap()
+                .contains("initial configuration"),
+            "{g0:#}"
+        );
+        assert_eq!(document["programs"][2]["outcome"], "ok");
+    }
+}
+
+/// On a definition whose short-circuit analysis flags a rule (`at`, whose result applies
+/// `andThenBool` over `10 /Int I`), a program whose initial configuration has no value is refused
+/// as on any other definition (`initial-undefined`): `at(1 /Int 0)` applies no function whose
+/// value depends on the reading, and its depth-0 run lists no short-circuit reading, so the
+/// configuration has no value in either reading. Before CF-03 every program of such a definition
+/// was admitted as `excluded` at stage `definition`, and the depth-0 run was not made. The syntax
+/// module imports `INT`, not `INT-SYNTAX` alone, so that the program text can apply `/Int`.
+#[test]
+fn a_start_with_no_value_on_a_flagged_definition_is_refused() {
+    let dir = scratch("short-circuit-vacuous");
+    write(
+        &dir.join("scr.k"),
+        "module SCR-SYNTAX
+  imports INT
+  imports BOOL-SYNTAX
+  syntax Prog ::= at(Int) [symbol(at)] | res(Bool) [symbol(res)]
+endmodule
+
+module SCR
+  imports SCR-SYNTAX
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Prog </k>
+  rule [at]: <k> at(I) => res(false andThenBool 10 /Int I >Int 0) </k>
+endmodule
+",
     );
+    write(
+        &dir.join("FLOW.toml"),
+        "[spec]\nentry = \"scr.k\"\nmain_module = \"SCR\"\nsyntax_module = \"SCR-SYNTAX\"\n\n\
+         [[program]]\nid = \"vacuous\"\ntext = \"at(1 /Int 0)\"\n\n\
+         [[program]]\nid = \"one\"\ntext = \"at(1)\"\n",
+    );
+    let manifest = dir.join("FLOW.toml");
+    let (document, status) = on_stack(move || check(&manifest));
     assert_eq!(status, EXIT_CORPUS, "{document:#}");
-    assert!(document["spec"]["exclusion"].is_null(), "{document:#}");
-    let g1 = &document["programs"][0];
-    assert_eq!(
-        (&g1["outcome"], &g1["stage"], &g1["reason"]),
-        (
-            &Value::from("excluded"),
-            &Value::from("initial-state"),
-            &Value::from("short-circuit-reading")
-        ),
-        "{g1:#}"
-    );
     assert!(
-        g1["detail"]
-            .as_str()
-            .unwrap()
-            .contains("initial configuration"),
-        "{g1:#}"
+        document["spec"]["short_circuit"].is_object(),
+        "{document:#}"
     );
-    assert_eq!(document["programs"][2]["outcome"], "ok");
+    let vacuous = &document["programs"][0];
+    assert_eq!(
+        (&vacuous["outcome"], &vacuous["stage"], &vacuous["reason"]),
+        (
+            &Value::from("refused"),
+            &Value::from("inputs"),
+            &Value::from("initial-undefined")
+        ),
+        "{vacuous:#}"
+    );
+    assert_eq!(document["programs"][1]["outcome"], "ok", "{document:#}");
 }
 
 /// A definition without `$PGM`: its cases bind `$ENTRY`, `$N` and `$ROM` by name. `inverse` has
@@ -1722,12 +1786,14 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
         );
     }
 
-    /// `results` and `run` print the definition exclusion as `check` prints it (one formatter);
-    /// a run of a flagged definition is judged by its own short-circuit readings, and an excluded
-    /// program's cause says why every run of it is excluded, as `check` says it, for an excluded
-    /// initial configuration. A reason only the
-    /// run shows can come first (`g0`'s run contradicts `g`'s `total` claim): the program is not
-    /// judged either way.
+    /// `results` and `run` print the definition exclusion and the rules the short-circuit
+    /// analysis flags as `check` prints them (one formatter). On scfetch, whose analysis flags
+    /// `fetch` and `fetch-halt-bug`, each run is judged by its own short-circuit readings. A
+    /// program whose initial configuration applies a reading-dependent function is judged by its
+    /// run's list too, whether or not the analysis flags a rule: `g0`'s run reads the undefined
+    /// `1 /Int 0` that `orBool` may skip, and a reason only the run shows comes first (`g0`'s run
+    /// contradicts `g`'s `total` claim); `g1`'s reads the defined `1 /Int 1`, so a rule the
+    /// analysis flags elsewhere does not change `g1`'s class.
     #[test]
     #[ignore = "kink"]
     fn results_and_run_print_the_exclusion_as_check_does() {
@@ -1768,10 +1834,16 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
             );
             (checked, results_document, run_document)
         });
-        let exclusion = &checked["spec"]["exclusion"];
-        assert_eq!(exclusion["exclusion"], "short-circuit-reading");
-        assert_eq!(&results_document["spec"]["exclusion"], exclusion);
-        assert_eq!(&run_document["spec"]["exclusion"], exclusion);
+        assert!(checked["spec"]["exclusion"].is_null(), "{checked:#}");
+        assert!(results_document["spec"]["exclusion"].is_null());
+        assert!(run_document["spec"]["exclusion"].is_null());
+        let flagged = &checked["spec"]["short_circuit"];
+        assert_eq!(
+            flagged["causes"].as_array().unwrap().len(),
+            2,
+            "{flagged:#}"
+        );
+        assert_eq!(&results_document["spec"]["short_circuit"], flagged);
         // Re-pin CF-03 (reviewed by Sebastien, 2026-11-04): unknown to judged. Each program's
         // run of `# fetch` reads no skipped operand (its `shortCircuitReadings` list is empty), so
         // the strict and the short-circuiting readings give the same run and it is judged. Before:
@@ -1786,39 +1858,56 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
         assert_eq!(row["status"], "survived", "{row:#}");
         assert_eq!(row["reaching"], serde_json::json!([]), "{row:#}");
 
-        let manifest = initial_state_flow("initial-state-results").join("FLOW.toml");
-        let cache = manifest.parent().unwrap().join("cache");
-        let (checked, results_document) = on_stack(move || {
-            let (checked, _) = check(&manifest);
-            let (results_document, _) = results(
-                &manifest,
-                &ResultsOptions {
-                    cache: Some(cache),
-                    ..ResultsOptions::default()
-                },
-            );
-            (checked, results_document)
-        });
+        let classes = |flagged: bool| {
+            let name = if flagged {
+                "initial-state-results-flagged"
+            } else {
+                "initial-state-results"
+            };
+            let manifest = initial_state_flow_of(name, flagged).join("FLOW.toml");
+            let cache = manifest.parent().unwrap().join("cache");
+            on_stack(move || {
+                let (checked, _) = check(&manifest);
+                let (results_document, _) = results(
+                    &manifest,
+                    &ResultsOptions {
+                        cache: Some(cache),
+                        ..ResultsOptions::default()
+                    },
+                );
+                (checked, results_document)
+            })
+        };
+        let (checked, results_document) = classes(false);
+        let (flagged_checked, flagged_results) = classes(true);
         assert!(results_document["spec"]["exclusion"].is_null());
-        let detail = checked["programs"][0]["detail"].as_str().unwrap();
+        assert!(results_document["spec"]["short_circuit"].is_null());
+        assert!(flagged_results["spec"]["short_circuit"].is_object());
+        for (checked, results_document) in [
+            (&checked, &results_document),
+            (&flagged_checked, &flagged_results),
+        ] {
+            assert_eq!(checked["programs"][0]["outcome"], "ok", "{checked:#}");
+            let g0 = &results_document["programs"][1];
+            assert_eq!(g0["class"], "unknown", "{g0:#}");
+            assert!(
+                g0["cause"]
+                    .as_str()
+                    .unwrap()
+                    .contains("the run is excluded (contradicted-claim)"),
+                "{g0:#}"
+            );
+            assert_eq!(results_document["programs"][2]["class"], "comparable");
+        }
+        // The same program and the same function have one class whatever else the analysis flags.
         let g1 = &results_document["programs"][0];
-        assert_eq!(g1["class"], "unknown", "{g1:#}");
-        assert!(
-            g1["cause"].as_str().unwrap().contains(&format!(
-                "the run is excluded (short-circuit-reading): {detail}"
-            )),
-            "{g1:#}"
-        );
-        let g0 = &results_document["programs"][1];
-        assert_eq!(g0["class"], "unknown", "{g0:#}");
-        assert!(
-            g0["cause"]
-                .as_str()
-                .unwrap()
-                .contains("the run is excluded (contradicted-claim)"),
-            "{g0:#}"
-        );
-        assert_eq!(results_document["programs"][2]["class"], "comparable");
+        assert_eq!(g1["class"], flagged_results["programs"][0]["class"]);
+        // Re-pin CF-03 (reviewed by Sebastien, 2026-11-04): unknown to comparable. `g1`'s run
+        // lists no short-circuit reading (`1 /Int 1` is defined), so it is the same run under a
+        // skipping reading and is judged. Before: excluded by the initial-state check, which
+        // judged the function's definition rather than the run.
+        assert_eq!(g1["class"], "comparable", "{g1:#}");
+        assert!(g1["cause"].is_null(), "{g1:#}");
     }
 
     /// With every program's result cached, `check` warns of an edited rule no comparable

@@ -441,10 +441,11 @@ fn facts<'a>(
     }
 }
 
-/// Flow F-18: the answer rules, one premise at a time. A completed exploration is a `no` only on
-/// a comparable baseline, a definition with no exclusion, an initial state with none, and outside
-/// the Z3 profile; a hit stays a hit under every model-choice exclusion, and no answer is given on
-/// a load stack stop or an equals condition.
+/// Flow F-18: the answer rules, one premise at a time. A completed exploration is a `no` only on a
+/// comparable baseline, a definition with no exclusion (a rule the short-circuit analysis flags is
+/// none: the search's own readings decide, before the rules), an initial state with none, and
+/// outside the Z3 profile; a hit stays a hit under every model-choice exclusion, and no answer is
+/// given on a load stack stop or an equals condition.
 #[test]
 fn the_answer_rules() {
     let clean = exclusions();
@@ -481,23 +482,28 @@ fn the_answer_rules() {
         symbol: "Lblkeys'Unds'list".into(),
         hook: "MAP.keys_list".into(),
     });
+    // CF-03: a rule the short-circuit analysis flags is no definition exclusion; the search's
+    // own list of readings decides (pattern `outcome`), so the rules give a no here.
     let mut short = exclusions();
     short.short_circuit_conditions.push("r".into());
-    for (exclusions, name) in [
-        (&census, "implementation-chosen-hook"),
-        (&short, "short-circuit-reading"),
-    ] {
-        let answer = judge(
-            &complete,
-            &facts(exclusions, "comparable", SolverProfile::NoZ3),
-        );
-        assert_eq!(answer.answer, "unknown");
-        assert!(answer.cause.unwrap().contains(name));
-        assert_eq!(
-            judge(&hit, &facts(exclusions, "comparable", SolverProfile::NoZ3)).answer,
-            "hit"
-        );
-    }
+    assert_eq!(
+        judge(&complete, &facts(&short, "comparable", SolverProfile::NoZ3)).answer,
+        "no"
+    );
+    let answer = judge(
+        &complete,
+        &facts(&census, "comparable", SolverProfile::NoZ3),
+    );
+    assert_eq!(answer.answer, "unknown");
+    assert!(answer.cause.unwrap().contains("implementation-chosen-hook"));
+    assert_eq!(
+        judge(&hit, &facts(&census, "comparable", SolverProfile::NoZ3)).answer,
+        "hit"
+    );
+    assert_eq!(
+        judge(&hit, &facts(&short, "comparable", SolverProfile::NoZ3)).answer,
+        "hit"
+    );
     let state = Facts {
         state: Some(kink_native::exclusion::Exclusion::ImplementationChosenHook),
         ..facts(&clean, "comparable", SolverProfile::NoZ3)
@@ -546,6 +552,66 @@ fn the_answer_rules() {
         .answer,
         "error"
     );
+}
+
+/// CF-03: on a definition whose short-circuit analysis flags the rule `at` (its successor
+/// applies `andThenBool` over `10 /Int I >Int 0`), a completed exploration gives a `no` exactly
+/// when the search's list of short-circuit readings holds no entry that counts: from `at(1)` the
+/// search reads a defined operand and `res(true)` is refuted (a `no`, which before CF-03 no
+/// flagged definition gave), while from `at(0)` it reads `10 /Int 0 >Int 0`, which a backend that
+/// evaluates the deciding `false` alone skips, so the answer is `unknown` with the step named; a
+/// hit stands whatever the list holds.
+#[test]
+fn a_no_on_a_flagged_definition_needs_a_search_without_counting_readings() {
+    let dir = scratch("short-circuit-no");
+    write(
+        &dir.join("scr.k"),
+        r"module SCR-SYNTAX
+  imports INT-SYNTAX
+  imports BOOL-SYNTAX
+  syntax Prog ::= at(Int) [symbol(at)] | res(Bool) [symbol(res)]
+endmodule
+
+module SCR
+  imports SCR-SYNTAX
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Prog </k>
+  rule [at]: <k> at(I) => res(false andThenBool 10 /Int I >Int 0) </k>
+endmodule
+",
+    );
+    write(
+        &dir.join("FLOW.toml"),
+        "[spec]\nentry = \"scr.k\"\nmain_module = \"SCR\"\nsyntax_module = \"SCR-SYNTAX\"\n\n\
+         [[program]]\nid = \"zero\"\ntext = \"at(0)\"\n\n[[program]]\nid = \"one\"\ntext = \"at(1)\"\n",
+    );
+    write(
+        &dir.join("PATTERNS.toml"),
+        "[[pattern]]\nid = \"true\"\npattern = \"<k> res(true) </k>\"\n\n\
+         [[pattern]]\nid = \"start\"\npattern = \"<k> at(_) </k>\"\n",
+    );
+    let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
+    assert_eq!(status, EXIT_OK, "{document:#}");
+    assert_eq!(row(&document, "true", "one")["answer"], NO, "{document:#}");
+    let zero = row(&document, "true", "zero");
+    assert_eq!(zero["answer"], "unknown", "{zero:#}");
+    let cause = zero["cause"].as_str().unwrap();
+    for part in [
+        "short-circuit-reading",
+        "in the work of rule SCR.at",
+        "the operand of BOOL.andThen after its deciding one",
+        "undefined",
+    ] {
+        assert!(cause.contains(part), "{part:?} in {cause}");
+    }
+    for program in ["zero", "one"] {
+        assert_eq!(
+            row(&document, "start", program)["answer"],
+            "hit",
+            "{program}"
+        );
+    }
 }
 
 fn execute_request(state: Pattern, max_depth: u64) -> ExecuteRequest {

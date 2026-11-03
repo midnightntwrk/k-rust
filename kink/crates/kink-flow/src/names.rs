@@ -6,12 +6,12 @@
 //! `-report`, `-query` and `-fuzz` documents name every baseline sentence that way: results
 //! `rules[]`, `untargeted_rules[]` and each record's `coverage.*[]`, run `mutations[].rules[]`,
 //! `removed_claims`, `typing_diagnostics`, `weakening` and `untargeted_rules[]`, a check row's
-//! `rules[]` and each finding's `rule`, a fuzz reach job's `job.rule`, and, in `spec.exclusion`,
-//! the `authors[]` of each compiled sentence a cause names (its `rule`, a function link's
-//! `equation`, a hook reference's or an `\equals` condition's `sentence`: the baseline sentences
-//! the compiled one was compiled from, `crate::exclusion`). No other object of a document has
-//! both keys. [`visit_rules`] relies on that convention instead of a list of paths, so a document
-//! that gains a rule object is covered without a change here.
+//! `rules[]` and each finding's `rule`, a fuzz reach job's `job.rule`, and, in `spec.exclusion` and
+//! `spec.short_circuit`, the `authors[]` of each compiled sentence a cause names (its `rule`, a
+//! function link's `equation`, a hook reference's or an `\equals` condition's `sentence`: the
+//! baseline sentences the compiled one was compiled from, `crate::exclusion`). No other object of a
+//! document has both keys. [`visit_rules`] relies on that convention instead of a list of paths, so
+//! a document that gains a rule object is covered without a change here.
 //!
 //! The convention covers baseline sentences. A document also names compiled rules by their
 //! compiled id or K label alone, which name no baseline sentence by themselves and are not

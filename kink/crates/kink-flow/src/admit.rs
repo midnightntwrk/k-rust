@@ -32,8 +32,9 @@
 //! Beside the data facts, admission reads the definition exclusions of the input backend's load
 //! ([`AdmittedSpec::exclusions`], kink-native `DefinitionExclusions::of`, as the campaign runner
 //! reads them for every run), and for each admitted program whether every run of it on the
-//! baseline is excluded before it runs ([`ProgramAdmission::exclusion`]): by the definition
-//! exclusion, or by the exclusion of its initial configuration. Neither refuses anything: a
+//! baseline is excluded before it runs a step ([`ProgramAdmission::exclusion`]): by the
+//! definition exclusion, or by the exclusion of its initial configuration, read on its depth-0
+//! run for the short-circuit reading. Neither refuses anything: a
 //! program so excluded is admitted, `results` runs it and reports its class, and `check` fails
 //! on it, since it cannot be judged on the baseline (README, `check`). A finding of the full
 //! critical-pair check that `[spec] assume_joined` leaves unnamed refuses nothing either, and
@@ -63,7 +64,9 @@ use kink_native::{
     CensusError, DeclarationCensus, NativeValidator, ValidatedDefinition,
     data::DataFacts,
     declaration_census,
-    exclusion::{CeilMemo, DefinitionExclusions, Exclusion},
+    exclusion::{
+        CeilMemo, DefinitionExclusions, Exclusion, state_references_implementation_chosen,
+    },
     execution::{ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile},
 };
 use kink_patch::SemanticInput;
@@ -223,23 +226,27 @@ pub struct ProgramAdmission {
     /// caller chooses the oracles), or the refusal.
     pub outcome: Result<TestCase, AdmissionRefusal>,
     /// For an admitted program, why every run of it on the baseline is excluded, when that is
-    /// known before it runs ([`InputSession::exclusion`]); `None` for a refused program.
+    /// known before it runs any step ([`InputSession::exclusion`], and its depth-0 run for the
+    /// short-circuit reading); `None` for a refused program.
     pub exclusion: Option<ProgramExclusion>,
 }
 
 impl ProgramAdmission {
     /// Whether the program can be judged on the baseline as far as admission shows without
-    /// running it: it is admitted and no exclusion holds for every run of it.
+    /// running a step of it: it is admitted and no exclusion holds for every run of it.
     pub fn judgeable(&self) -> bool {
         self.outcome.is_ok() && self.exclusion.is_none()
     }
 }
 
 /// Why every run of an admitted program on the baseline is excluded (kink-native `exclusion`: a
-/// run that is no evidence), read without running it: the specification's definition exclusion,
-/// else the exclusion of the program's initial configuration. The campaign runner excludes the
-/// program's baseline run for this reason, unless a reason only the run shows comes first (a
-/// timeout, a stack stop, a contradicted claim, a value the definition leaves open).
+/// run that is no evidence), read without running a step of it: the specification's definition
+/// exclusion, else the exclusion of the program's initial configuration (a hook whose value the
+/// definition leaves open, or a function whose value depends on the short-circuit reading where
+/// the normalization of that configuration, the depth-0 run every run starts with, lists a
+/// reading that counts against it). The campaign runner excludes the program's baseline run for
+/// this reason, unless a reason only the run shows comes first (a timeout, a stack stop, a
+/// contradicted claim, a value the definition leaves open).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ProgramExclusion {
     pub exclusion: Exclusion,
@@ -516,15 +523,18 @@ impl<'a> InputSession<'a> {
     }
 
     /// Why every run on the baseline from `initial` (an admitted program's initial
-    /// configuration) is excluded, before it runs: the specification's definition exclusion
-    /// first, then the exclusion of `initial` on the input backend's definition, both as a route
-    /// without k-rust's run lists reads them (kink-native `DefinitionExclusions::static_exclusion`
-    /// and `static_state_exclusion`), on the compiled definition the campaign runner reads. The
-    /// runner judges a run of a definition the short-circuit analysis flags by the run's own list
-    /// instead, so this refuses such a program where the runner might judge it.
+    /// configuration) is excluded, known before the program runs any step: the specification's
+    /// definition exclusion first, then an implementation-chosen hook `initial` applies on the
+    /// input backend's definition (kink-native `DefinitionExclusions::definition_exclusion` and
+    /// `state_references_implementation_chosen`), as the campaign runner reads both for a
+    /// baseline run, on the same compiled definition. Whether `initial`'s value depends on the
+    /// short-circuit reading is judged by a run's list of readings, as the runner judges it, and
+    /// so on the depth-0 run ([`Self::check_initial_value`]); a definition whose short-circuit
+    /// analysis flags a rule has no exclusion for it either, since the runner judges each of its
+    /// runs by that run's list.
     pub fn exclusion(&mut self, initial: &k_rust::kore::ast::Pattern) -> Option<ProgramExclusion> {
         let exclusions = &self.spec.exclusions;
-        if let Some(exclusion) = exclusions.static_exclusion() {
+        if let Some(exclusion) = exclusions.definition_exclusion() {
             return Some(ProgramExclusion {
                 exclusion,
                 scope: ExclusionScope::Definition,
@@ -533,12 +543,10 @@ impl<'a> InputSession<'a> {
         // Admission selected this definition (`baseline_data`), so the selection is the one
         // the exclusions were read from.
         let definition = self.backend.select_definition(None).ok()?;
-        exclusions
-            .static_state_exclusion_memoized(&definition, initial, &mut self.ceil_memo)
-            .map(|exclusion| ProgramExclusion {
-                exclusion,
-                scope: ExclusionScope::InitialState,
-            })
+        state_references_implementation_chosen(&definition, initial).then_some(ProgramExclusion {
+            exclusion: Exclusion::ImplementationChosenHook,
+            scope: ExclusionScope::InitialState,
+        })
     }
 
     /// The program's inputs, as [`ProgramInputs::read`].
@@ -582,8 +590,10 @@ impl<'a> InputSession<'a> {
             )
             .map_err(input_refusal)?;
         check_initial_state(self.backend, &initial_state)?;
-        let exclusion = self.exclusion(&initial_state);
-        self.check_initial_value(program, inputs, &initial_state, exclusion.is_some())?;
+        let exclusion = match self.exclusion(&initial_state) {
+            Some(exclusion) => Some(exclusion),
+            None => self.check_initial_value(program, inputs, &initial_state)?,
+        };
         Ok((
             TestCase {
                 id: program.id.clone(),
@@ -670,24 +680,28 @@ impl InputSession<'_> {
     /// runs no step of the program (one that never ends is admitted at once), and a later step
     /// with no value is the program's behavior, which its own run reports as an undefined step.
     ///
+    /// The depth-0 run also judges the initial configuration's short-circuit reading as the
+    /// campaign runner judges a run's (kink-native `DefinitionExclusions::state_exclusion`, with
+    /// that run's facts): its list holds the entries of the normalization of `initial`, which
+    /// every run of the program on the baseline starts with (the run record has no rollback), so
+    /// where `initial` applies a reading-dependent function and an entry there counts against it,
+    /// every such run is excluded, and the program is admitted and reported as excluded at stage
+    /// `initial-state` (returned). Where no entry counts, only the program's own run can show one.
+    ///
     /// The vacuity is a fact of the specification only where the run is evidence. Where the
-    /// initial configuration is excluded (`excluded`, [`Self::exclusion`]: the definition
-    /// exclusion, or a value that depends on the short-circuit reading or the implementation) or
-    /// the depth-0 run is (kink-native `DefinitionExclusions::run_exclusion`: a contradicted
-    /// `total` claim, a stack stop, ...), whether the start has a value depends on what the
-    /// definition leaves open, and the program is admitted and reported as excluded instead: no
-    /// run of it is judged, so it kills nothing. Any other answer admits the program too: a
-    /// defined start, a timeout or a failure is what the program's own run then reports.
+    /// initial configuration is excluded so, or the depth-0 run is (kink-native
+    /// `DefinitionExclusions::run_exclusion`: a contradicted `total` claim, a stack stop, ...),
+    /// whether the start has a value depends on what the definition leaves open, and the program
+    /// is admitted instead: no run of it is judged, so it kills nothing. Where neither is, the
+    /// vacuity is a fact of both readings (a run with no counting entry is the same run in both),
+    /// and the program is refused. Any other answer admits the program too: a defined start, a
+    /// timeout or a failure is what the program's own run then reports.
     fn check_initial_value(
         &mut self,
         program: &Program,
         inputs: &CaseInputs,
         initial: &k_rust::kore::ast::Pattern,
-        excluded: bool,
-    ) -> Result<(), AdmissionRefusal> {
-        if excluded {
-            return Ok(());
-        }
+    ) -> Result<Option<ProgramExclusion>, AdmissionRefusal> {
         let budget = ExecutionBudget {
             time: self.time,
             max_simplification_iterations: crate::results::SIMPLIFICATION_ITERATIONS,
@@ -696,15 +710,36 @@ impl InputSession<'_> {
         };
         let adapter = ExecutionAdapter::new(SolverProfile::of(self.backend));
         let Ok(run) = adapter.execute(self.backend, initial, budget) else {
-            return Ok(());
+            return Ok(None);
         };
+        if run.timed_out() {
+            return Ok(None);
+        }
+        let exclusions = &self.spec.exclusions;
+        let state = self
+            .backend
+            .select_definition(None)
+            .ok()
+            .and_then(|definition| {
+                exclusions.state_exclusion_memoized(
+                    &definition,
+                    initial,
+                    run.facts(),
+                    &mut self.ceil_memo,
+                )
+            });
+        if let Some(exclusion) = state {
+            return Ok(Some(ProgramExclusion {
+                exclusion,
+                scope: ExclusionScope::InitialState,
+            }));
+        }
         let leaves = run.leaves();
-        if run.timed_out()
-            || leaves.is_empty()
+        if leaves.is_empty()
             || leaves.iter().any(|leaf| leaf.halt != HaltClass::Vacuous)
-            || self.spec.exclusions.run_exclusion(&run).is_some()
+            || exclusions.run_exclusion(&run).is_some()
         {
-            return Ok(());
+            return Ok(None);
         }
         Err(AdmissionRefusal {
             stage: "inputs".into(),

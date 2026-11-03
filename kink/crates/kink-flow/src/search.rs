@@ -1598,6 +1598,22 @@ fn executed_entries(
                 if notes.smt_unknowns > 0 {
                     entry["smt_unknowns"] = json!(notes.smt_unknowns);
                 }
+                // CF-03: the readings that count against the mutant's run, the step that
+                // excluded it.
+                if !notes.short_circuit_readings.is_empty() {
+                    entry["short_circuit_readings"] =
+                        crate::exclusion::readings_value(&notes.short_circuit_readings);
+                    if let (
+                        TestRun::Failed(kink_campaign::ExecutionFailureKind::ShortCircuitReading),
+                        Some(cause),
+                    ) = (&test.run, &cause)
+                    {
+                        entry["cause"] = json!(format!(
+                            "{cause}; the mutant's run: {}",
+                            crate::exclusion::readings_text(&notes.short_circuit_readings)
+                        ));
+                    }
+                }
             }
             Some(entry)
         })
