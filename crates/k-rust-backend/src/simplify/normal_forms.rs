@@ -7,7 +7,7 @@
 //! variable = "k = known predicates of the key; p = bindings and replacements of a subterm key's path condition; r = pairs of the key's renaming; c = conjuncts of a recorded simplification; n = term nodes of a recorded subject and result the record has not counted yet"
 //! counters = ["SimplifyNormalFormsRecorded", "SimplifyNormalFormsServed", "SimplifyNormalFormsSubtermRecorded", "SimplifyNormalFormsSubtermServed", "SimplifyNormalFormsRefusedConsole", "SimplifyNormalFormsRefusedUnspecified", "SimplifyNormalFormsRefusedCoverage", "SimplifyNormalFormsRefusedStop", "SimplifyNormalFormsRefusedFailed", "SimplifyNormalFormsRefusedDiagnostic", "SimplifyNormalFormsRefusedPathFact", "SimplifyNormalFormsRefusedUnknown", "SimplifyNormalFormsRefusedEffect", "SimplifyNormalFormsRefusedApart", "SimplifyNormalFormsSubtermRefusedConsole", "SimplifyNormalFormsSubtermRefusedUnspecified", "SimplifyNormalFormsSubtermRefusedCoverage", "SimplifyNormalFormsSubtermRefusedStop", "SimplifyNormalFormsSubtermRefusedFailed", "SimplifyNormalFormsSubtermRefusedDiagnostic", "SimplifyNormalFormsSubtermRefusedPathFact", "SimplifyNormalFormsSubtermRefusedUnknown", "SimplifyNormalFormsSubtermRefusedEffect", "SimplifyNormalFormsSubtermRefusedApart", "SimplifyNormalFormsCleared"]
 //! span = "none"
-//! invariant = "A recorded simplification ran inside a proof's scope and an ApartScope, outside an execution and any run with a console, with no Unspecified attempt or lineage and no coverage collection open, did not stop or dismiss a stack stop, did not fail, received no undecided solver answer, noted no path fact, performed no effect, holds no name its own renamings apart minted, and emitted no diagnostic where a collector was open; its key holds the subject node, the renaming applied to it, the known predicates, for a subterm the path condition it was simplified under, the options, the iteration budget it started from, the definition, the solver, the thread's condition modes, whether claims are checked and the choice-sampling seed. A subterm is routed only where no rule condition is active against re-entry. It is served only under an equal key, only where no path-fact record is open unless one was open when it was recorded, and only where no collector is open unless one was open when it was recorded; a serve counts again the equation conditions and attempts it left undecided, moves the renaming-apart counter on by the names it minted, and leaves the iteration budget it left."
+//! invariant = "A recorded simplification ran inside a proof's scope and an ApartScope, outside an execution and any run with a console, with no Unspecified attempt or lineage and no coverage collection open, did not stop or dismiss a stack stop, did not fail, received no undecided solver answer, noted no path fact, performed no effect, holds no name its own renamings apart minted, and emitted no diagnostic where a collector was open; its key holds the subject node, the renaming applied to it, the known predicates, for a subterm the path condition it was simplified under, the options, the iteration budget it started from, the definition, the solver, the thread's condition modes and the choice-sampling seed. A subterm is routed only where no rule condition is active against re-entry. It is served only under an equal key, only where no path-fact record is open unless one was open when it was recorded, only where no collector is open unless one was open when it was recorded, and only where claims are checked as they were when it was recorded, unless they were checked then, are not now and it reported no \\bottom; a serve counts again the equation conditions and attempts it left undecided, moves the renaming-apart counter on by the names it minted, and leaves the iteration budget it left."
 //! tests = ["crates/k-rust-backend/src/simplify/normal_forms.rs", "crates/k-rust-backend/src/implication/destination.rs", "crates/k-rust-backend/src/proof.rs"]
 //!
 //! [[cost]]
@@ -72,8 +72,18 @@
 //! not its own), so a subterm's key holds the path condition too. It is simplified within its
 //! caller's lineage, from the iteration budget that lineage has left: the key holds that
 //! budget, since one exhausted cuts the simplification short (or makes it fail), and a serve
-//! leaves the caller the budget the recorded simplification left. Whether contradicted claims
-//! are checked is in every key, since a lineage reports where it found `\bottom` only then.
+//! leaves the caller the budget the recorded simplification left.
+//!
+//! Whether contradicted claims are checked (`path_facts::checking_claims`, which a path-fact
+//! record's being open turns on) is not in the key; it is a condition of the serve, as the
+//! record and the collector are. A lineage that checks does the work one that does not does,
+//! and besides reports where it found `\bottom` (`Simplification::bottom`) and notes the claims
+//! that contradicts; the checks spend no budget, ask the solver nothing and mint no name. So a
+//! simplification recorded where claims are checked, which noted nothing (it is clean), is
+//! served where they are not when it reported no `\bottom`: a new one there reports none
+//! either, since every `\bottom` it reports arises in work that checks in both and reaches the
+//! result in both. One that reported a `\bottom` is not served there, nor one recorded where
+//! claims are not checked where they are: a new one could report a `\bottom`, or note a claim.
 //!
 //! A serve does none of the work a new simplification would do, so it spends none of the polls
 //! of `stop::check` or the native stack that work would spend: where a new simplification would
@@ -148,6 +158,10 @@ struct Recorded {
     /// Whether a diagnostic collector was open when it was simplified, so that "emitted none"
     /// covers what an open collector would have received.
     collected: bool,
+    /// Whether contradicted claims were checked when it was simplified
+    /// (`path_facts::checking_claims`), so that "found no `\bottom`" covers what a lineage
+    /// that checks would have reported ([`NormalForms::served`]).
+    checked: bool,
     /// What a reuse counts again ([`Replayed`]).
     replayed: Replayed,
     /// Its share of [`NormalForms::retained`].
@@ -235,9 +249,6 @@ struct Scalars {
     /// caller's (`simplify::simplify_on_stack`'s `remaining`), which an exhausted budget cuts
     /// short; a destination's is `max_iterations`, since its simplification starts a lineage.
     budget: usize,
-    /// Whether contradicted claims are checked (`path_facts::checking_claims`): a lineage then
-    /// reports where it found `\bottom` (`FoundBottom`), which it does not report otherwise.
-    claims_checked: bool,
     mode: EvaluationMode,
     general_path: bool,
     stated_ceil_conditions: bool,
@@ -481,7 +492,6 @@ impl<'a> Probe<'a> {
                 max_iterations: options.max_iterations,
                 keep_partial: options.budget == super::BudgetPolicy::KeepPartial,
                 budget,
-                claims_checked: crate::path_facts::checking_claims(),
                 mode,
                 general_path: crate::condition::on_general_condition_path(),
                 stated_ceil_conditions: crate::definedness::ceil_conditions_stated(),
@@ -724,6 +734,7 @@ impl<'a> Pending<'a> {
                     simplification.clone(),
                     watch.facts_open,
                     watch.collected,
+                    watch.checked,
                     replayed,
                 );
                 measure::bump(site.recorded());
@@ -741,6 +752,7 @@ struct Watch {
     collected: bool,
     facts: crate::path_facts::Marker,
     facts_open: bool,
+    checked: bool,
     unknown: usize,
     undecided: u64,
     apart: u64,
@@ -754,6 +766,7 @@ impl Watch {
             collected: crate::diagnostic::collecting(),
             facts: crate::path_facts::marker(),
             facts_open: crate::path_facts::is_open(),
+            checked: crate::path_facts::checking_claims(),
             unknown: crate::smt::undecided_on_thread(),
             undecided: super::undecided_so_far(),
             apart: crate::rule::apart_counter(),
@@ -880,9 +893,11 @@ const NODE_BYTES: usize = std::mem::size_of::<crate::term::TermKind>()
 
 impl NormalForms {
     /// The simplification recorded under `probe`'s key, with the counters its reuse moves;
-    /// `None` when there is none, or where a reuse would not replay what a new simplification
-    /// notes or emits: a path-fact record is open that was not open when it was recorded, or a
-    /// collector is that was not.
+    /// `None` when there is none, or where a reuse would not give what a new simplification
+    /// gives, notes or emits: a path-fact record is open that was not open when it was recorded,
+    /// a collector is that was not, claims are checked that were not, or they are not checked
+    /// and were, and the recorded simplification reported where it found `\bottom`
+    /// ([`Recorded::checked`]).
     fn served(probe: &Probe<'_>) -> Option<Served> {
         NORMAL_FORMS.with_borrow_mut(|record| {
             let record = record.as_mut()?;
@@ -911,6 +926,15 @@ impl NormalForms {
             if !recorded.collected && crate::diagnostic::collecting() {
                 return None;
             }
+            // Recorded where claims were checked and served where they are not, a new
+            // simplification differs from the recorded one only in the `\bottom` the checks
+            // report: none where the recorded one reported none. The other way, a new one could
+            // report one, or note the claim it contradicts.
+            let checked = crate::path_facts::checking_claims();
+            if checked != recorded.checked && (checked || recorded.simplification.bottom.is_some())
+            {
+                return None;
+            }
             Some(Served {
                 simplification: recorded.simplification.clone(),
                 replayed: recorded.replayed,
@@ -923,6 +947,7 @@ impl NormalForms {
         simplification: Simplification,
         facts_open: bool,
         collected: bool,
+        checked: bool,
         replayed: Replayed,
     ) {
         let renaming = probe.renaming.clone();
@@ -965,6 +990,7 @@ impl NormalForms {
                 simplification,
                 facts_open,
                 collected,
+                checked,
                 replayed,
                 bytes,
             };
@@ -1532,11 +1558,11 @@ mod tests {
         BackendDefinition::internalize(&syntax, "MAIN").expect("the definition internalizes")
     }
 
-    /// GAP K17 part b, the fix round: whether contradicted claims are checked is in the key. A
-    /// lineage reports where it found `\bottom` (`Simplification::bottom`) only where claims
-    /// are checked (a path-fact record is open); `h(Y)` recorded inside one is not served where
-    /// none is open, since a new simplification there reports nothing (with the key part left
-    /// out, `check-normal-forms` finds the served simplification differs from a new one).
+    /// GAP K17 part b, the fix round: a lineage reports where it found `\bottom`
+    /// (`Simplification::bottom`) only where claims are checked (a path-fact record is open);
+    /// `h(Y)` recorded inside one, where it reported `\bottom`, is not served where none is open,
+    /// since a new simplification there reports nothing (with the serve condition left out,
+    /// `check-normal-forms` finds the served simplification differs from a new one).
     #[test]
     fn a_subterm_recorded_where_claims_are_checked_is_not_served_where_they_are_not() {
         let definition = bottom_definition();
@@ -1568,5 +1594,83 @@ mod tests {
         let (fresh_checked, fresh_unchecked, _) = without_normal_forms(runs);
         assert_eq!(checked.simplification, fresh_checked.simplification);
         assert_eq!(unchecked.simplification, fresh_unchecked.simplification);
+    }
+
+    /// GAP K17 part b, gate fix: a simplification recorded where claims are checked (inside a
+    /// path-fact record) that reported no `\bottom` is served where they are not (no record
+    /// open). A new simplification there does none of the checks' work, which only reports
+    /// where `\bottom` was found (and notes the claims it contradicts, which a recorded one did
+    /// not), so it gives the recorded result: `t(Y)`, a `total` application of a definition that
+    /// declares a claim, is `Y` both ways, served once outside, with no fact noted inside.
+    /// `check-normal-forms` compares the serve with a new simplification.
+    #[test]
+    fn a_subterm_checked_that_found_no_bottom_is_served_where_claims_are_not_checked() {
+        let definition = bottom_definition();
+        assert!(definition.declares_claims());
+        let solver = Contingent;
+        let subject = term(&definition, "t{}(Y:SortInt{})");
+        let known = [];
+        let given = Given::under(&known);
+        let runs = || {
+            in_a_proof(|| {
+                let (checked, facts) = crate::path_facts::collect(|| {
+                    simplify_subterm(&definition, &subject, &given, &solver)
+                });
+                let unchecked = simplify_subterm(&definition, &subject, &given, &solver);
+                (checked, facts, unchecked)
+            })
+        };
+        let (checked, facts, unchecked) = runs();
+        assert!(facts.all().is_empty(), "{:?}", facts.all());
+        assert!(checked.simplification.bottom.is_none(), "{checked:#?}");
+        assert_eq!(
+            checked.simplification.term,
+            term(&definition, "Y:SortInt{}")
+        );
+        assert_eq!((checked.recorded, checked.served), (1, 0), "{checked:#?}");
+        assert_eq!(
+            (unchecked.recorded, unchecked.served),
+            (0, 1),
+            "{unchecked:#?}"
+        );
+        assert_eq!(checked.remaining, unchecked.remaining);
+        let (fresh_checked, _, fresh_unchecked) = without_normal_forms(runs);
+        assert_eq!(checked.simplification, fresh_checked.simplification);
+        assert_eq!(unchecked.simplification, fresh_unchecked.simplification);
+        assert_eq!(unchecked.remaining, fresh_unchecked.remaining);
+    }
+
+    /// GAP K17 part b, gate fix: the other way stays refused. A simplification recorded where
+    /// claims are not checked cannot say what one that checks would report: `h(Y)` recorded
+    /// with no path-fact record open reported no `\bottom`, and inside one a new simplification
+    /// reports it, so it is simplified again there, and recorded under the record open.
+    #[test]
+    fn a_subterm_recorded_where_claims_are_not_checked_is_not_served_where_they_are() {
+        let definition = bottom_definition();
+        let solver = Contingent;
+        let subject = term(&definition, "h{}(Y:SortInt{})");
+        let known = [];
+        let given = Given::under(&known);
+        let runs = || {
+            in_a_proof(|| {
+                let unchecked = simplify_subterm(&definition, &subject, &given, &solver);
+                let (checked, _facts) = crate::path_facts::collect(|| {
+                    simplify_subterm(&definition, &subject, &given, &solver)
+                });
+                (unchecked, checked)
+            })
+        };
+        let (unchecked, checked) = runs();
+        assert!(unchecked.simplification.bottom.is_none(), "{unchecked:#?}");
+        assert!(checked.simplification.bottom.is_some(), "{checked:#?}");
+        assert_eq!(
+            (unchecked.recorded, unchecked.served),
+            (1, 0),
+            "{unchecked:#?}"
+        );
+        assert_eq!((checked.recorded, checked.served), (1, 0), "{checked:#?}");
+        let (fresh_unchecked, fresh_checked) = without_normal_forms(runs);
+        assert_eq!(unchecked.simplification, fresh_unchecked.simplification);
+        assert_eq!(checked.simplification, fresh_checked.simplification);
     }
 }
