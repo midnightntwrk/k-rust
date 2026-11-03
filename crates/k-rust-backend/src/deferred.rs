@@ -539,10 +539,12 @@ fn impure_subterm(definition: &BackendDefinition, term: &Term) -> Option<Term> {
 /// gives its atom, since it ranges over every pattern); an injection, an application of a
 /// constructor or of a symbol declared total (an `impure` one included: the attribute states its
 /// definedness, so nothing is performed) gives its arguments' atoms, by strictness; an
-/// application of any other symbol gives its own atom, then its arguments'; a map or a set gives
-/// its own atom (the distinctness of its keys or elements) when it is not `ceil_free`, then its
-/// parts'; a list gives its items'. A console hook application on arguments in the console's
-/// domain ([`console_domain`]) is defined and gives only its arguments' atoms.
+/// application of any other symbol gives its own atom, then its arguments'; a term-level `\and`
+/// gives its own atom, then its sides', since it is defined only where its sides share an
+/// element; a map or a set gives its own atom (the distinctness of its keys or elements) when it
+/// is not `ceil_free`, then its parts'; a list gives its items'. A console hook application on
+/// arguments in the console's domain ([`console_domain`]) is defined and gives only its
+/// arguments' atoms.
 ///
 /// An atom is kept only if its subject holds no impure application: its truth would depend on
 /// an effect that is not performed, which no later step can decide. A partial impure
@@ -567,7 +569,15 @@ pub(crate) fn deferred_obligations(
                 }
             }
             TermKind::Injection { term: inner, .. } => children.push(inner),
-            TermKind::And(left, right) => children.extend([left, right]),
+            // `l /\ r` denotes what both sides denote: without a set variable, their common
+            // element where both are defined and equal, and nothing elsewhere. So it is a
+            // partial operation of its sides, and their definedness does not imply its own
+            // (`X /\ 0` is undefined wherever `X` is not 0). It gives its own atom, which the
+            // solver reads by the conjunction's domain plan, then its sides'.
+            TermKind::And(left, right) => {
+                atoms.push(Predicate::Defined(term.clone()));
+                children.extend([left, right]);
+            }
             TermKind::Application {
                 symbol, arguments, ..
             } => {

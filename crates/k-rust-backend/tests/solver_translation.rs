@@ -724,3 +724,120 @@ fn the_symbolic_power_queries_k19_found_return_under_either_bound() {
         std::panic::resume_unwind(panic);
     }
 }
+
+/// The wave-5 gate's failure (seed 19, generated case 17545) and its shapes: a term-level `\and`
+/// in the operand an `#if` discards. Every application is strict, `#if` included, so
+/// `#if true #then X #else E #fi` is `X` where `E` is defined and `\bottom` elsewhere; and
+/// `l /\ r` is defined exactly where both sides are and are equal. So `E`'s `\and` makes the
+/// conditional undefined wherever its sides differ, and `\not(X = #if ... #fi)` holds there.
+/// The simplifier stated the discarded operand's definedness as its sides' alone, which dropped
+/// the equality: `model_of` found the predicate `\bottom` (GAP w5 gate fix).
+fn discarded_conjunction_cases() -> Vec<(&'static str, Case)> {
+    use IntVar::{N, X, Y};
+    let lit = |value: i128| Box::new(IntT::Lit(value));
+    let var = |var: IntVar| Box::new(IntT::Var(var));
+    let and = |left: Box<IntT>, right: Box<IntT>| Box::new(IntT::And(left, right));
+    // `\not(X = #if true #then X #else E #fi)`.
+    let differs_from_discarding = |discarded: Box<IntT>| {
+        Pred::Not(Box::new(Pred::Eq(
+            AnyT::Int(IntT::Var(X)),
+            AnyT::Int(IntT::Ite(Box::new(BoolT::Lit(true)), var(X), discarded)),
+        )))
+    };
+    let alone = |checked: Pred| Case {
+        known: Vec::new(),
+        checked,
+        binding: None,
+    };
+    let shrunk = Case {
+        known: vec![Pred::Implies(
+            Box::new(Pred::Or(Box::new(Pred::Top), Box::new(Pred::Top))),
+            Box::new(Pred::Eq(
+                AnyT::Bool(BoolT::Not(Box::new(BoolT::Lt(and(lit(2), var(Y)), var(N))))),
+                AnyT::Bool(BoolT::Eq(
+                    Box::new(IntT::Ite(
+                        Box::new(BoolT::Var),
+                        var(N),
+                        Box::new(IntT::Div(lit(0), var(N))),
+                    )),
+                    Box::new(IntT::Div(
+                        Box::new(IntT::Pow(Box::new(IntT::Add(lit(1), lit(1))), lit(1))),
+                        lit(1),
+                    )),
+                )),
+            )),
+        )],
+        checked: Pred::Or(
+            Box::new(differs_from_discarding(and(
+                Box::new(IntT::Div(var(X), lit(1))),
+                Box::new(IntT::Sel(Box::new(BoolT::Var), var(X), lit(-1))),
+            ))),
+            Box::new(Pred::Bottom),
+        ),
+        binding: None,
+    };
+    vec![
+        ("the shrunk gate case", shrunk),
+        (
+            "X /\\ 0 discarded",
+            alone(differs_from_discarding(and(var(X), lit(0)))),
+        ),
+        (
+            "X /\\ 0 under +Int, discarded",
+            alone(differs_from_discarding(Box::new(IntT::Add(
+                lit(1),
+                and(var(X), lit(0)),
+            )))),
+        ),
+        (
+            "X /\\ 0 under ==Int, discarded",
+            alone(differs_from_discarding(Box::new(IntT::Ite(
+                Box::new(BoolT::Eq(and(var(X), lit(0)), lit(1))),
+                lit(1),
+                lit(2),
+            )))),
+        ),
+        (
+            "X /\\ 0 under sel, discarded",
+            alone(differs_from_discarding(Box::new(IntT::Sel(
+                Box::new(BoolT::Var),
+                and(var(X), lit(0)),
+                lit(1),
+            )))),
+        ),
+    ]
+}
+
+/// Each discarded-conjunction case agrees with K truth in every decided answer, and the smallest
+/// one, `\not(X = #if true #then X #else (X /\ 0) #fi)`, which holds exactly where `X` is not 0,
+/// has a model, `model_of`'s, which `check_case` checks.
+#[test]
+fn a_term_conjunction_an_if_discards_keeps_its_definedness() {
+    let backend = Backend::new();
+    let solver = solver(&backend.definition, KNOBS);
+    let stats = Stats::default();
+    let cases = discarded_conjunction_cases();
+    assert_eq!(
+        cases[0].1.to_string(),
+        r"known: [((\top \or \top) \implies notBool ((2 /\ Y) <Int N) = (#if B #then N #else divInt(0, N) #fi ==Int divInt(((1 +Int 1) ^Int 1), 1)))]; checked: (\not(X = #if true #then X #else (divInt(X, 1) /\ sel(B, X, -1)) #fi) \or \bottom)",
+        "the case the gate reported"
+    );
+    let failures = cases
+        .iter()
+        .filter_map(|(name, case)| {
+            check_case(&backend, &solver, case, &stats)
+                .err()
+                .map(|failure| format!("{name}: {failure}"))
+        })
+        .collect::<Vec<_>>();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    let smallest = backend.predicate(&cases[1].1.checked);
+    let model = model_of(&backend.definition, &smallest, &solver).expect("no stop is armed");
+    let Ok(ModelResult::Sat(model)) = model else {
+        panic!("{model:?}")
+    };
+    let (env, bound, _) = model_env(&backend, &model);
+    assert!(bound.contains(&IntVar::X), "{model:?}");
+    assert_ne!(env.ints[IntVar::X.index()], 0, "{model:?}");
+    eprintln!("{stats}");
+}
