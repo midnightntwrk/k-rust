@@ -780,9 +780,22 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
         // change refused below.
         let overwritten;
         let subject = match result.map(|result| overwritten_children(subject, result)) {
-            Some(Some(with_children)) => {
+            Some(Ok(Some(with_children))) => {
                 overwritten = with_children;
                 &overwritten
+            }
+            // A rest kept in a child the pattern instance does not name keeps content nothing
+            // matched; lowering only the named children would drop the write.
+            Some(Err(field)) => {
+                return Err(collection_error(
+                    descriptor,
+                    codes::analysis::COLLECTION_ENTRY,
+                    &field.key,
+                    format!(
+                        "the result keeps a rest of `{}`, which the pattern instance does not name, so no matched content is kept: name `{}` in the pattern instance, or write its whole new content",
+                        field.field, field.field
+                    ),
+                ));
             }
             _ => subject,
         };
@@ -1192,14 +1205,17 @@ fn collect_below(
     Ok(())
 }
 
-/// `subject` with each child `result` writes and `subject` does not name matched by any
-/// content: a leaf or group by `_`, a computation written exactly by its whole sequence. `None`
-/// where `result` writes no such child, or one written otherwise (a rest kept from content the
-/// pattern never matched), which the instance's lowering then refuses.
-fn overwritten_children(
+/// `subject` with each child `result` writes and `subject` does not name matched whole by `_`:
+/// a leaf, a group, or a computation the result writes exactly; `None` where `result` writes no
+/// such child. The child is the error where it is written otherwise: a rest kept from content the
+/// pattern never matched.
+fn overwritten_children<'r>(
     subject: &ProtocolRuleInstance<DescriptorTerm>,
-    result: &ProtocolRuleInstance<DescriptorTerm>,
-) -> Option<ProtocolRuleInstance<DescriptorTerm>> {
+    result: &'r ProtocolRuleInstance<DescriptorTerm>,
+) -> Result<
+    Option<ProtocolRuleInstance<DescriptorTerm>>,
+    &'r krs_ir::ProtocolRuleInstanceField<DescriptorTerm>,
+> {
     let mut with_children = subject.clone();
     for field in &result.fields {
         if subject
@@ -1212,25 +1228,19 @@ fn overwritten_children(
         let any = DescriptorTerm::Wildcard {
             key: field.key.clone(),
         };
+        // The whole content is matched by `_`, so the result's content replaces all of it (P5,
+        // P6): a computation matched by an anonymous tail would keep its rest framed.
         let value = match &field.value {
-            ProtocolRuleStateTerm::KSequence(sequence)
-                if sequence.tail == ProtocolRuleFrame::Exact =>
-            {
-                ProtocolRuleStateTerm::KSequence(krs_ir::ProtocolRuleKSequence {
-                    payload_key: field.key.clone(),
-                    dot_k_key: None,
-                    notation: sequence.notation,
-                    items: Vec::new(),
-                    tail: ProtocolRuleFrame::Anonymous {
-                        key: field.key.clone(),
-                    },
-                })
-            }
-            ProtocolRuleStateTerm::Term(_) | ProtocolRuleStateTerm::Map(_) => {
-                ProtocolRuleStateTerm::Term(any)
-            }
+            ProtocolRuleStateTerm::KSequence(krs_ir::ProtocolRuleKSequence {
+                tail: ProtocolRuleFrame::Exact,
+                ..
+            })
+            | ProtocolRuleStateTerm::Term(_)
+            | ProtocolRuleStateTerm::Map(_) => ProtocolRuleStateTerm::Term(any),
             ProtocolRuleStateTerm::Group(_) => ProtocolRuleStateTerm::Group(any),
-            _ => return None,
+            // A `?` or `*` child is refused where the instance's children are checked.
+            ProtocolRuleStateTerm::KSequence(_) => return Err(field),
+            _ => return Ok(None),
         };
         with_children
             .fields
@@ -1240,5 +1250,5 @@ fn overwritten_children(
                 value,
             });
     }
-    (with_children.fields.len() > subject.fields.len()).then_some(with_children)
+    Ok((with_children.fields.len() > subject.fields.len()).then_some(with_children))
 }

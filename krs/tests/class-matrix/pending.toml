@@ -15693,9 +15693,3 @@ deviation = "krs::analysis::invalid-term @ spelling"
 ["sweep/readable/result/c36-ogroup/Some(Gp { pa: x, .. })"]
 finding = "S5-X1"
 deviation = "krs::analysis::invalid-term @ spelling"
-
-# S5-Y1 (S5.3 part 2c): the overwrite of an unmatched computation by an exact `cells!` result keeps
-# the old content behind the frame; the K recorded for the case is the principled one, by hand.
-["sweep/cells/overwrite/prog/k::configuration::KCell(x)"]
-finding = "S5-Y1"
-deviation = "accepted, with other K than recorded"

@@ -755,9 +755,9 @@ pub(super) fn lower_configuration_rule_descriptor(
     )?))
 }
 
-/// A rule whose result writes a cell its subject does not match, with that cell matched by any
-/// content in its subject: the result overwrites it (Q1), `<c> _ => v </c>`. That means one
-/// configuration where the cell exists once and the result keeps nothing of its content: a
+/// A rule whose result writes a cell its subject does not match, with that cell's whole content
+/// matched by `_` in its subject: the result overwrites it (Q1), `<c> _ => v </c>`. That means
+/// one configuration where the cell exists once and the result keeps nothing of its content: a
 /// plain leaf, the computation written exactly, or a group. The entry-admission table refuses
 /// the rest first (an optional cell, whose presence the rule does not know; a rest kept from
 /// content the subject never matched), and an instance list, whose instances the subject does
@@ -788,21 +788,19 @@ fn with_overwritten_cells(
         let any = DescriptorTerm::Wildcard {
             key: cell.field.key.clone(),
         };
+        // The subject matches the whole content with `_`: an exact result is the cell's whole
+        // new content (P5, P6), so nothing of the old content is kept. A computation matched
+        // by `KCell(..)` would leave its unwritten rest framed (`...`), which the exact result
+        // then keeps behind what it writes.
         let value = match (&cell.value, &declared.content) {
-            (ProtocolRuleStateTerm::KSequence(sequence), _)
-                if sequence.tail == ProtocolRuleFrame::Exact =>
-            {
+            (
                 ProtocolRuleStateTerm::KSequence(krs_ir::ProtocolRuleKSequence {
-                    payload_key: cell.field.key.clone(),
-                    dot_k_key: None,
-                    notation: sequence.notation,
-                    items: Vec::new(),
-                    tail: ProtocolRuleFrame::Anonymous {
-                        key: cell.field.key.clone(),
-                    },
-                })
-            }
-            (ProtocolRuleStateTerm::Term(_), ProtocolCellContent::Leaf { .. }) => {
+                    tail: ProtocolRuleFrame::Exact,
+                    ..
+                }),
+                _,
+            )
+            | (ProtocolRuleStateTerm::Term(_), ProtocolCellContent::Leaf { .. }) => {
                 ProtocolRuleStateTerm::Term(any)
             }
             (ProtocolRuleStateTerm::Group(_), ProtocolCellContent::Nested { .. }) => {

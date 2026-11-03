@@ -112,7 +112,6 @@ cells	result, unmatched	? leaf Map	k::configuration::KCell(x, ..)	red: S0-9 (swe
 cells	result, unmatched	computation	_	red: S0-9 (sweep/cells/overwrite/prog/_)
 cells	result, unmatched	computation	k::configuration::Cell([x, ..])	red: S0-9 (sweep/cells/overwrite/prog/k::configuration::Cell([x, ..]))
 cells	result, unmatched	computation	k::configuration::Cell(k::map![y -> x, ..])	excepted: C-lim: a `cells!` result's map literal with a rest is refused at the form until M3 (design:M3), at a content root too, where P6 judges it by kind and pairing (S5.0g pattern review P-R2) (sweep/cells/overwrite/prog/k::configuration::Cell(k::map![y -> x, ..]))
-cells	result, unmatched	computation	k::configuration::KCell(x)	red: S5-Y1 (sweep/cells/overwrite/prog/k::configuration::KCell(x))
 cells	result, unmatched	computation	k::configuration::KCell(x, ..)	red: S0-9 (sweep/cells/overwrite/prog/k::configuration::KCell(x, ..))
 cells	result, unmatched	group G	_	red: S0-9 (sweep/cells/overwrite/frame/_)
 cells	result, unmatched	group G	k::configuration::Cell([x, ..])	red: S0-9 (sweep/cells/overwrite/frame/k::configuration::Cell([x, ..]))

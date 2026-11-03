@@ -221,9 +221,3 @@ risk = "the rule fires whether `ogroup` is present or absent: an author who wrot
 owner = "S5"
 kind = "bug"
 what = "a result that creates an optional group cell with a record that leaves its other fields to their defaults (`ogroup: Some(Gp { pa: x, .. })` over `None`, and its `cells!` fragment) is refused \"the cell term must name every child field exactly once\", though P6 and R4 read a created record's bare `..` as the defaults of the fields it does not name; S5-LOW (S5.3 part 2, ruling 4): the table admits it and the compiler cannot lower it yet, product feature work after S5.2, not routing"
-
-["S5-Y1"]
-owner = "S5"
-kind = "bug"
-what = "the overwrite (Q1) of an unmatched computation cell by an exact `cells!` result (`prog: k::configuration::KCell(x)`, the subject naming no `prog`) emits `<prog> .K => V0:Int ... </prog>`, which writes `x` in front of the cell's old content and keeps that content, where the result without `..` is the cell's whole new content (P5, P6; check 6: an Exact content root on the result side keeps no frame), `<prog> _ => V0:Int </prog>` (written by hand). The lift (`configuration_rules.rs` `with_overwritten_cells`) matches the cell with `KCell(..)`, an anonymous tail, and the exact result over an anonymous tail lowers as S5-R1's kept frame; S5.3's"
-risk = "KRS writes `x` in front of whatever the computation cell held and keeps the old content, so the rule prepends where the exact result says replace; a later step then runs the old content after `x`, and nothing tells the author the cell was not overwritten"
