@@ -124,8 +124,8 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use std::fmt;
 use std::num::NonZeroU64;
 use std::rc::Rc;
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
@@ -1517,17 +1517,37 @@ impl Production {
 
 const MINT_LITERAL_HOOK: &str = "MINT.literal";
 
+/// A parametric production as declared: what every instance of it shares.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ParametricOrigin {
+pub(crate) struct FormalProduction {
     pub(crate) label: Option<Label>,
     pub(crate) parameters: Vec<Sort>,
     pub(crate) result: Sort,
     pub(crate) items: Vec<ProductionItem>,
     pub(crate) attributes: Attributes,
+}
+
+/// The formal production an instance was made from, and the substitution that made it.
+///
+/// A formal production has one instance per candidate substitution (one per sort of the domain
+/// for a result parameter), and every module's grammar makes them, so the instances share the
+/// formal production instead of each holding a copy. It reads as the formal production
+/// (`Deref`), whose fields every reader of an origin asks for.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ParametricOrigin {
+    pub(crate) formal: Arc<FormalProduction>,
     pub(crate) substitution: BTreeMap<Sort, Sort>,
 }
 
-impl ParametricOrigin {
+impl std::ops::Deref for ParametricOrigin {
+    type Target = FormalProduction;
+
+    fn deref(&self) -> &FormalProduction {
+        &self.formal
+    }
+}
+
+impl FormalProduction {
     fn hook(&self) -> Option<&str> {
         self.attributes.string(AttributeKey::Hook)
     }

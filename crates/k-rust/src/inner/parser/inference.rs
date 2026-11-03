@@ -2765,21 +2765,23 @@ mod tests {
             .unwrap();
         let parameter = Sort::new("S");
         grammar.productions[rewrite].parametric_origin = Some(ParametricOrigin {
-            label: Some(Label::new("#KRewrite")),
-            parameters: vec![parameter.clone()],
-            result: parameter.clone(),
-            items: vec![
-                ProductionItem::NonTerminal {
-                    sort: parameter.clone(),
-                    name: None,
-                },
-                ProductionItem::Terminal("=>".into()),
-                ProductionItem::NonTerminal {
-                    sort: parameter.clone(),
-                    name: None,
-                },
-            ],
-            attributes: Attributes::default(),
+            formal: std::sync::Arc::new(crate::inner::parser::FormalProduction {
+                label: Some(Label::new("#KRewrite")),
+                parameters: vec![parameter.clone()],
+                result: parameter.clone(),
+                items: vec![
+                    ProductionItem::NonTerminal {
+                        sort: parameter.clone(),
+                        name: None,
+                    },
+                    ProductionItem::Terminal("=>".into()),
+                    ProductionItem::NonTerminal {
+                        sort: parameter.clone(),
+                        name: None,
+                    },
+                ],
+                attributes: Attributes::default(),
+            }),
             substitution: BTreeMap::from([(parameter, Sort::new("Base"))]),
         });
         grammar.subsort_relations.extend([
@@ -2883,20 +2885,22 @@ mod tests {
         let operand = Sort::new("S");
         let result = Sort::new("R");
         grammar.productions[equals].parametric_origin = Some(ParametricOrigin {
-            label: Some(Label::new("#Equals")),
-            parameters: vec![operand.clone(), result.clone()],
-            result: result.clone(),
-            items: vec![
-                ProductionItem::NonTerminal {
-                    sort: operand.clone(),
-                    name: None,
-                },
-                ProductionItem::NonTerminal {
-                    sort: operand.clone(),
-                    name: None,
-                },
-            ],
-            attributes: Attributes::default(),
+            formal: std::sync::Arc::new(crate::inner::parser::FormalProduction {
+                label: Some(Label::new("#Equals")),
+                parameters: vec![operand.clone(), result.clone()],
+                result: result.clone(),
+                items: vec![
+                    ProductionItem::NonTerminal {
+                        sort: operand.clone(),
+                        name: None,
+                    },
+                    ProductionItem::NonTerminal {
+                        sort: operand.clone(),
+                        name: None,
+                    },
+                ],
+                attributes: Attributes::default(),
+            }),
             substitution: BTreeMap::from([(operand, Sort::new("K")), (result, Sort::new("Bag"))]),
         });
         let rewrite = grammar.productions.len();
@@ -2911,20 +2915,22 @@ mod tests {
             .unwrap();
         let parameter = Sort::new("P");
         grammar.productions[rewrite].parametric_origin = Some(ParametricOrigin {
-            label: Some(Label::new("#KRewrite")),
-            parameters: vec![parameter.clone()],
-            result: parameter.clone(),
-            items: vec![
-                ProductionItem::NonTerminal {
-                    sort: parameter.clone(),
-                    name: None,
-                },
-                ProductionItem::NonTerminal {
-                    sort: parameter.clone(),
-                    name: None,
-                },
-            ],
-            attributes: Attributes::default(),
+            formal: std::sync::Arc::new(crate::inner::parser::FormalProduction {
+                label: Some(Label::new("#KRewrite")),
+                parameters: vec![parameter.clone()],
+                result: parameter.clone(),
+                items: vec![
+                    ProductionItem::NonTerminal {
+                        sort: parameter.clone(),
+                        name: None,
+                    },
+                    ProductionItem::NonTerminal {
+                        sort: parameter.clone(),
+                        name: None,
+                    },
+                ],
+                attributes: Attributes::default(),
+            }),
             substitution: BTreeMap::from([(parameter, Sort::new("K"))]),
         });
         grammar.subsort_relations.extend([
@@ -3254,21 +3260,23 @@ mod tests {
         );
         let parameter = Sort::new("S");
         grammar.productions[rewrite].parametric_origin = Some(ParametricOrigin {
-            label: Some(Label::new("#KRewrite")),
-            parameters: vec![parameter.clone()],
-            result: parameter.clone(),
-            items: vec![
-                ProductionItem::NonTerminal {
-                    sort: parameter.clone(),
-                    name: None,
-                },
-                ProductionItem::Terminal("=>".into()),
-                ProductionItem::NonTerminal {
-                    sort: parameter.clone(),
-                    name: None,
-                },
-            ],
-            attributes: Attributes::default(),
+            formal: std::sync::Arc::new(crate::inner::parser::FormalProduction {
+                label: Some(Label::new("#KRewrite")),
+                parameters: vec![parameter.clone()],
+                result: parameter.clone(),
+                items: vec![
+                    ProductionItem::NonTerminal {
+                        sort: parameter.clone(),
+                        name: None,
+                    },
+                    ProductionItem::Terminal("=>".into()),
+                    ProductionItem::NonTerminal {
+                        sort: parameter.clone(),
+                        name: None,
+                    },
+                ],
+                attributes: Attributes::default(),
+            }),
             substitution: BTreeMap::from([(parameter, Sort::new("D"))]),
         });
         let g = add(

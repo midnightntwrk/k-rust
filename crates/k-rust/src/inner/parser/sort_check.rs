@@ -355,16 +355,18 @@ mod tests {
 
     fn instance_origin(parameters: Vec<Sort>, result: Sort, slot: Sort) -> ParametricOrigin {
         ParametricOrigin {
-            label: None,
-            parameters,
-            result,
-            items: vec![
-                terminal("inner"),
-                terminal("("),
-                nonterminal(slot),
-                terminal(")"),
-            ],
-            attributes: Attributes::default(),
+            formal: std::sync::Arc::new(crate::inner::parser::FormalProduction {
+                label: None,
+                parameters,
+                result,
+                items: vec![
+                    terminal("inner"),
+                    terminal("("),
+                    nonterminal(slot),
+                    terminal(")"),
+                ],
+                attributes: Attributes::default(),
+            }),
             substitution: BTreeMap::new(),
         }
     }

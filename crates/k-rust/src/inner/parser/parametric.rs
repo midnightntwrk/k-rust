@@ -18,6 +18,7 @@
 //! Substitution is linear in the traversed sort tree.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use crate::definition::production_kind::mentions_parameter;
 use crate::definition::regex::Regex as KRegex;
@@ -28,7 +29,9 @@ use crate::kast::{Label, Sort};
 use crate::names::BuiltinSort;
 
 use super::grammar::{Placeholder, placeholder_of};
-use super::{Grammar, ParametricOrigin, ParseError, ProductionOptions, catalog_production};
+use super::{
+    FormalProduction, Grammar, ParametricOrigin, ParseError, ProductionOptions, catalog_production,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ParametricInstance {
@@ -40,14 +43,17 @@ impl ParametricInstance {
     /// Mint an instance only when every parameter is bound and every parameter-dependent slot
     /// is a sort of the domain or its formal head's recognition placeholder.
     fn close(
-        label: &Option<Label>,
-        parameters: &[Sort],
-        sort: &Sort,
-        items: &[ProductionItem],
-        attributes: &Attributes,
+        formal: &Arc<FormalProduction>,
         mut substitution: BTreeMap<Sort, Sort>,
         domain: &BTreeSet<Sort>,
     ) -> Option<Self> {
+        let FormalProduction {
+            label,
+            parameters,
+            result: sort,
+            items,
+            attributes,
+        } = &**formal;
         for parameter in parameters {
             substitution
                 .entry(parameter.clone())
@@ -79,11 +85,7 @@ impl ParametricInstance {
                 attributes: attributes.clone(),
             },
             origin: ParametricOrigin {
-                label: label.clone(),
-                parameters: parameters.to_vec(),
-                result: sort.clone(),
-                items: items.to_vec(),
-                attributes: attributes.clone(),
+                formal: Arc::clone(formal),
                 substitution,
             },
         })
@@ -280,13 +282,16 @@ pub(crate) fn concretize_parametric_productions<'a>(
             }
         };
 
+        let formal = Arc::new(FormalProduction {
+            label: label.clone(),
+            parameters: parameters.clone(),
+            result: sort.clone(),
+            items: items.clone(),
+            attributes: attributes.clone(),
+        });
         let instances = candidates
             .into_iter()
-            .filter_map(|candidate| {
-                ParametricInstance::close(
-                    label, parameters, sort, items, attributes, candidate, &domain,
-                )
-            })
+            .filter_map(|candidate| ParametricInstance::close(&formal, candidate, &domain))
             .collect::<Vec<_>>();
         for instance in &instances {
             placeholder_heads.extend(placeholders_written(
@@ -434,13 +439,14 @@ impl Grammar {
         term_production: usize,
         program_text: bool,
     ) -> Result<(), ParseError> {
+        let ParametricInstance { sentence, origin } = instance;
         let Sentence::Production {
             label,
             sort,
             items,
             attributes,
             ..
-        } = instance.sentence()
+        } = &sentence
         else {
             unreachable!()
         };
@@ -462,7 +468,7 @@ impl Grammar {
             },
             lexical,
         )?;
-        self.productions[index].parametric_origin = Some(instance.origin().clone());
+        self.productions[index].parametric_origin = Some(origin);
         self.productions[index].term_production = Some(term_production);
         Ok(())
     }

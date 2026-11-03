@@ -4943,17 +4943,19 @@ mod tests {
                 .unwrap();
             let parameter = Sort::new("Q");
             grammar.productions[index].parametric_origin = Some(ParametricOrigin {
-                label: Some(Label::new("id")),
-                parameters: vec![parameter.clone()],
-                result: parameter.clone(),
-                items: vec![
-                    ProductionItem::Terminal("id".into()),
-                    ProductionItem::NonTerminal {
-                        sort: parameter.clone(),
-                        name: None,
-                    },
-                ],
-                attributes: Default::default(),
+                formal: std::sync::Arc::new(crate::inner::parser::FormalProduction {
+                    label: Some(Label::new("id")),
+                    parameters: vec![parameter.clone()],
+                    result: parameter.clone(),
+                    items: vec![
+                        ProductionItem::Terminal("id".into()),
+                        ProductionItem::NonTerminal {
+                            sort: parameter.clone(),
+                            name: None,
+                        },
+                    ],
+                    attributes: Default::default(),
+                }),
                 substitution: BTreeMap::from([(parameter, sort(0))]),
             });
             (0..3)
@@ -5064,21 +5066,23 @@ mod tests {
                 substitution.insert(free.clone(), free);
             }
             grammar.productions[index].parametric_origin = Some(ParametricOrigin {
-                label: Some(Label::new("q")),
-                parameters,
-                result: sort(result),
-                items: vec![
-                    ProductionItem::Terminal("q".into()),
-                    ProductionItem::NonTerminal {
-                        sort: parameter.clone(),
-                        name: None,
-                    },
-                    ProductionItem::NonTerminal {
-                        sort: parameter.clone(),
-                        name: None,
-                    },
-                ],
-                attributes: Default::default(),
+                formal: std::sync::Arc::new(crate::inner::parser::FormalProduction {
+                    label: Some(Label::new("q")),
+                    parameters,
+                    result: sort(result),
+                    items: vec![
+                        ProductionItem::Terminal("q".into()),
+                        ProductionItem::NonTerminal {
+                            sort: parameter.clone(),
+                            name: None,
+                        },
+                        ProductionItem::NonTerminal {
+                            sort: parameter.clone(),
+                            name: None,
+                        },
+                    ],
+                    attributes: Default::default(),
+                }),
                 substitution,
             });
             term = PackedTerm::production(index, vec![term, variable(second)], Default::default());
@@ -5904,11 +5908,13 @@ mod tests {
             )
             .unwrap();
         grammar.productions[0].parametric_origin = Some(ParametricOrigin {
-            label: Some(Label::new("size")),
-            parameters: vec![parameter.clone()],
-            result: result.clone(),
-            items: vec![ProductionItem::Terminal("size".into())],
-            attributes: Default::default(),
+            formal: std::sync::Arc::new(crate::inner::parser::FormalProduction {
+                label: Some(Label::new("size")),
+                parameters: vec![parameter.clone()],
+                result: result.clone(),
+                items: vec![ProductionItem::Terminal("size".into())],
+                attributes: Default::default(),
+            }),
             substitution: BTreeMap::from([(parameter.clone(), parameter)]),
         });
         for (sort, terminal) in [("K", "k"), ("KItem", "i"), ("Bag", "b")] {
@@ -6136,14 +6142,16 @@ mod tests {
             )
             .unwrap();
         grammar.productions[0].parametric_origin = Some(ParametricOrigin {
-            label: Some(Label::new("foo")),
-            parameters: vec![width.clone()],
-            result: result.clone(),
-            items: vec![ProductionItem::NonTerminal {
-                sort: formal,
-                name: None,
-            }],
-            attributes: Default::default(),
+            formal: std::sync::Arc::new(crate::inner::parser::FormalProduction {
+                label: Some(Label::new("foo")),
+                parameters: vec![width.clone()],
+                result: result.clone(),
+                items: vec![ProductionItem::NonTerminal {
+                    sort: formal,
+                    name: None,
+                }],
+                attributes: Default::default(),
+            }),
             substitution: BTreeMap::from([(width, declared_width.clone())]),
         });
         grammar

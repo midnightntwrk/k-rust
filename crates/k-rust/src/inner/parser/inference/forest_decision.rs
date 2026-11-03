@@ -2351,13 +2351,15 @@ mod tests {
                 )
                 .unwrap();
             grammar.productions[index].parametric_origin = Some(ParametricOrigin {
-                label: Some(Label::new(label)),
-                parameters: parameters.iter().map(|sort| Sort::new(*sort)).collect(),
-                result: Sort::new(result),
-                items: std::iter::once(ProductionItem::Terminal(label.into()))
-                    .chain(items.iter().map(|sort| nonterminal(sort)))
-                    .collect(),
-                attributes: Attributes::default(),
+                formal: std::sync::Arc::new(crate::inner::parser::FormalProduction {
+                    label: Some(Label::new(label)),
+                    parameters: parameters.iter().map(|sort| Sort::new(*sort)).collect(),
+                    result: Sort::new(result),
+                    items: std::iter::once(ProductionItem::Terminal(label.into()))
+                        .chain(items.iter().map(|sort| nonterminal(sort)))
+                        .collect(),
+                    attributes: Attributes::default(),
+                }),
                 substitution: parameters
                     .iter()
                     .map(|sort| (Sort::new(*sort), Sort::new("K")))
