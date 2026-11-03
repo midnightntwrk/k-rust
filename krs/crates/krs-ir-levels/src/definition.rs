@@ -531,9 +531,18 @@ impl DefinitionIr {
     ///
     /// Returns a JSON encoding error if the serde data model cannot be encoded.
     pub fn to_canonical_json(&self) -> serde_json::Result<String> {
-        let mut json = serde_json::to_string_pretty(self)?;
-        json.push('\n');
-        Ok(json)
+        krs_ir::json::to_canonical_string(self)
+    }
+
+    /// Writes the bytes of [`Self::to_canonical_json`] to `writer` without collecting them, as a
+    /// digest of the canonical encoding needs.
+    ///
+    /// # Errors
+    ///
+    /// Returns a JSON encoding error if the serde data model cannot be encoded, or `writer`'s
+    /// error.
+    pub fn write_canonical_json<W: std::io::Write>(&self, writer: W) -> serde_json::Result<()> {
+        krs_ir::json::write_canonical(writer, self)
     }
 
     #[expect(

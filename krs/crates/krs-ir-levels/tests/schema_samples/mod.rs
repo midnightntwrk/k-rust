@@ -4338,7 +4338,7 @@ fn insert<T: Sample + Serialize + DeserializeOwned>(
     let values: Vec<_> = T::samples()
         .iter()
         .map(|sample| {
-            let json = serde_json::to_value(sample).unwrap();
+            let json = assert_renders(name, sample);
             let decoded: T = serde_json::from_value(json.clone()).unwrap();
             assert_eq!(
                 serde_json::to_value(decoded).unwrap(),
@@ -4350,6 +4350,21 @@ fn insert<T: Sample + Serialize + DeserializeOwned>(
         .collect();
     assert!(!values.is_empty());
     assert!(corpus.insert(name, values).is_none());
+}
+
+/// Renders `sample` with the canonical encoder every KRS artifact is written with
+/// ([`krs_ir::json::write_canonical`]) and returns the JSON it rendered, which is
+/// the JSON `serde_json::to_value` makes of it.
+pub(super) fn assert_renders<T: Serialize>(name: &str, sample: &T) -> serde_json::Value {
+    let text = krs_ir::json::to_canonical_string(sample)
+        .unwrap_or_else(|error| panic!("{name} sample does not render: {error}"));
+    let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(
+        json,
+        serde_json::to_value(sample).unwrap(),
+        "{name} rendering"
+    );
+    json
 }
 
 /// Checks that each of `fields` is required in the samples of `T` that

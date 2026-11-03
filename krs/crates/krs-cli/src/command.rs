@@ -6,9 +6,9 @@ use crate::{
 use krs_collector::{CollectionError, FacadeAliases};
 use krs_compiler::{
     DEFINITION_ARTIFACT, DEFINITION_IR_ARTIFACT, DESCRIPTOR_ARTIFACT, DescriptorLoweringError,
-    EmitError, LoweringError, ReferenceExpansionError, SEMANTIC_ARTIFACT, SOURCES_ARTIFACT,
-    SPEC_ARTIFACT, SYMBOLS_ARTIFACT, declared_cell_types, emit_k, expand_package_reference_source,
-    lower_descriptor_bundle, lower_semantic_theory,
+    EmitError, EmittedK, LoweringError, ReferenceExpansionError, SEMANTIC_ARTIFACT,
+    SOURCES_ARTIFACT, SPEC_ARTIFACT, SYMBOLS_ARTIFACT, declared_cell_types, emit_k,
+    expand_package_reference_source, lower_descriptor_bundle, lower_semantic_theory,
 };
 use krs_diagnostic::{Diagnostic, ToDiagnostic};
 use krs_ir::measure::Timings;
@@ -638,7 +638,8 @@ fn check(
 /// A check stands in front of `emit-k`, `build`, and the run commands, so it is
 /// useful exactly to the degree that its verdict predicts theirs; it therefore
 /// runs their judgements rather than a hand-maintained subset of them: the K
-/// emission of `emit-k` ([`render_emitted`], in memory), and, for each judged
+/// emission of `emit-k` ([`emit_definition`], in memory, without rendering the
+/// JSON artifacts, which cannot refuse what emission accepts), and, for each judged
 /// native route, the route's capability table and `build`'s native compile
 /// ([`compile_native`]). The `native-rust` route is the one `run`, `search`,
 /// and `prove` share with `build --backend haskell`, so on it the check also
@@ -664,7 +665,7 @@ fn check_verdict(
 ) -> Result<crate::DiagnosticReports, CommandError> {
     let backends = judged_backends(backend)?;
     let several = backend.is_none();
-    render_emitted(prepared, measurement)
+    emit_definition(prepared, measurement)
         .map_err(|error| error.attributed("`krs emit-k` refuses this definition".to_owned()))?;
     // Every route's capability table before any compile: a refusal costs nothing to find.
     let (refused, capable): (Vec<_>, Vec<_>) = backends
@@ -1102,17 +1103,43 @@ fn write_expansion(
     Ok(listed.into_bytes())
 }
 
-/// The artifacts `emit-k` writes, rendered in memory, in `emit-k`'s order;
-/// `check` renders them too, so an emission failure fails the check.
+/// The K `emit-k` writes, with the symbol and source maps that carry it back to
+/// the authored source, emitted in memory. Every refusal of `emit-k` after
+/// lowering is a refusal of this emission (the maps' checks included), so
+/// `check` and [`CollectedDefinition::emit_k`] judge it and render nothing.
+///
+/// [`CollectedDefinition::emit_k`]: crate::CollectedDefinition::emit_k
+fn emit_definition(
+    prepared: &PreparedDefinition,
+    measurement: &mut Measurement,
+) -> Result<EmittedK, CommandError> {
+    measurement.timings.try_span("emit_k.emit", |_| {
+        Ok::<_, CommandError>(emit_k(&prepared.lowered)?)
+    })
+}
+
+/// The artifacts `emit-k` writes, in `emit-k`'s order: the canonical JSON of
+/// the descriptor bundle, the semantic theory, the Definition IR and
+/// `emitted`'s maps, and `emitted`'s K.
+///
+/// Rendering cannot refuse a definition whose emission succeeded: `serde_json`
+/// fails only on a map key that is not a string or a serializer that fails, and
+/// the IR roots and the sidecar maps hold neither (their only maps are keyed by
+/// strings, and every custom `Serialize` impl delegates to a derived shape with
+/// no error of its own), so a command that discards the JSON need not render it
+/// to give `emit-k`'s verdict. krs-ir-levels' schema test renders every IR
+/// schema sample, which guards the structural half of that argument on the
+/// sampled shapes; the value-independence of the custom impls rests on their
+/// code.
 fn render_emitted(
     prepared: &PreparedDefinition,
+    emitted: &EmittedK,
     measurement: &mut Measurement,
 ) -> Result<Vec<(&'static str, Vec<u8>)>, CommandError> {
     measurement.timings.try_span("emit_k.render", |_| {
         let descriptor_bundle = prepared.bundle.to_canonical_json()?;
         let semantic_ir = prepared.semantic.to_canonical_json()?;
         let definition_ir = prepared.lowered.definition().to_canonical_json()?;
-        let emitted = emit_k(&prepared.lowered)?;
         let symbols = emitted.symbol_map().to_canonical_json()?;
         let sources = emitted.source_map().to_canonical_json()?;
         let mut artifacts = vec![
@@ -1137,7 +1164,8 @@ fn emit(
     output: &Path,
     measurement: &mut Measurement,
 ) -> Result<CommandExecution, CommandError> {
-    let rendered = render_emitted(prepared, measurement)?;
+    let emitted = emit_definition(prepared, measurement)?;
+    let rendered = render_emitted(prepared, &emitted, measurement)?;
     let stdout = emission_stdout(&rendered);
     let mut artifacts = rendered
         .into_iter()

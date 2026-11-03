@@ -210,9 +210,7 @@ impl SemanticTheory {
     ///
     /// Returns a JSON encoding error if the serde data model cannot be encoded.
     pub fn to_canonical_json(&self) -> serde_json::Result<String> {
-        let mut json = serde_json::to_string_pretty(self)?;
-        json.push('\n');
-        Ok(json)
+        krs_ir::json::to_canonical_string(self)
     }
 
     #[expect(

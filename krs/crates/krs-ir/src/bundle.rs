@@ -301,9 +301,7 @@ impl DescriptorBundle {
     /// Returns an error if this protocol's serde data model cannot be encoded
     /// as JSON. Current descriptor variants contain no fallible JSON values.
     pub fn to_canonical_json(&self) -> serde_json::Result<String> {
-        let mut json = serde_json::to_string_pretty(self)?;
-        json.push('\n');
-        Ok(json)
+        crate::json::to_canonical_string(self)
     }
 
     /// Serializes this bundle as compact collector protocol JSON with

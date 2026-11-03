@@ -143,12 +143,20 @@ fn commands_share_the_production_collection_and_definition_pipeline() {
 
     assert_check_measurement(temporary.path(), target.path(), &manifest, &check.stdout);
 
-    let emit = command(target.path(), &manifest, "emit-k", Some(&emitted), &[]);
+    let emit_timings = temporary.path().join("emit-timings.json");
+    let emit = command(
+        target.path(),
+        &manifest,
+        "emit-k",
+        Some(&emitted),
+        &["--no-reuse", "--timings", emit_timings.to_str().unwrap()],
+    );
     assert_success(&emit);
     assert_eq!(
         emit.stdout,
         b"emitted descriptor-bundle.json, semantic-ir.json, definition-ir.json, definition.k, symbols.json, sources.json\n"
     );
+    assert_emit_spans(&read_json(&emit_timings));
     let descriptor_bundle = fs::read_to_string(emitted.join("descriptor-bundle.json")).unwrap();
     assert_ne!(descriptor_bundle, expanded);
     let descriptor: serde_json::Value = serde_json::from_str(&descriptor_bundle).unwrap();
@@ -549,7 +557,8 @@ fn assert_check_measurement(temporary: &Path, target: &Path, manifest: &Path, st
     );
 }
 
-/// `check` renders what `emit-k` writes, then judges every native route:
+/// `check` emits the K `emit-k` writes, without rendering the JSON artifacts,
+/// then judges every native route:
 /// `build`'s native judgement on each, minus `native.write`, and on
 /// `native-rust` the run commands' definition load.
 fn assert_check_routes(ids: &[(String, u64)]) {
@@ -559,7 +568,7 @@ fn assert_check_routes(ids: &[(String, u64)]) {
             .map(|(id, depth)| (id.as_str(), *depth))
             .collect::<Vec<_>>(),
         [
-            ("emit_k.render", 0),
+            ("emit_k.emit", 0),
             ("check.routes", 0),
             ("check.native-llvm", 1),
             ("check.native-rust", 1),
@@ -585,6 +594,32 @@ fn assert_check_routes(ids: &[(String, u64)]) {
             "native.reparse.definition",
             "native.reparse.syntax",
             "native.provenance",
+        ]
+    );
+}
+
+/// `emit-k` emits the K, with its maps and their checks, before it renders the
+/// JSON artifacts, so an emission refusal names `emit_k.emit` and rendering
+/// runs only on an emission `emit-k` accepts.
+fn assert_emit_spans(timings: &serde_json::Value) {
+    assert_eq!(timings["command"], "emit-k");
+    assert_eq!(timings["status"], "ok");
+    assert_timing_invariants(timings);
+    let ids = span_ids(timings);
+    let lowered = ids
+        .iter()
+        .position(|(id, _)| id == "definition.lower")
+        .unwrap();
+    assert_eq!(
+        ids[lowered + 1..]
+            .iter()
+            .map(|(id, depth)| (id.as_str(), *depth))
+            .collect::<Vec<_>>(),
+        [
+            ("emit_k.emit", 0),
+            ("emit_k.render", 0),
+            ("emit_k.write", 0),
+            ("release", 0),
         ]
     );
 }

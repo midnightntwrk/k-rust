@@ -10,15 +10,14 @@
 
 use std::path::Path;
 
-use krs_compiler::{DEFINITION_ARTIFACT, SPEC_ARTIFACT};
 use krs_ir::DescriptorBundle;
 use krs_ir::measure::Measurement;
 use krs_ir_levels::DefinitionIr;
 
 use super::collector::{build_collector_measured, generate_collector, run_collector};
 use super::{
-    CommandError, CommandRequest, LoadVisit, check_verdict, definition_warnings, expansion,
-    plan_collector, prepare_bundle, render_emitted, validate_request,
+    CommandError, CommandRequest, LoadVisit, check_verdict, definition_warnings, emit_definition,
+    expansion, plan_collector, prepare_bundle, validate_request,
 };
 use crate::metadata::cargo_metadata_in;
 use crate::{CollectorPlan, DiagnosticReports};
@@ -82,8 +81,8 @@ pub fn collect_descriptors(
 }
 
 impl CollectedDefinition {
-    /// Lower `bundle` and emit its K, as `krs emit-k` does without writing the artifacts.
-    /// `bundle` is this definition's, or a subset of it.
+    /// Lower `bundle` and emit its K, as `krs emit-k` does without rendering or writing the
+    /// artifacts. `bundle` is this definition's, or a subset of it.
     ///
     /// # Errors
     ///
@@ -93,17 +92,11 @@ impl CollectedDefinition {
         let mut measurement = Measurement::disabled();
         let prepared = prepare_bundle(bundle, self.profile, &mut measurement)?;
         let warnings = definition_warnings(&prepared);
-        let artifacts = render_emitted(&prepared, &mut measurement)
+        let emitted = emit_definition(&prepared, &mut measurement)
             .map_err(|error| error.warned(warnings.clone()))?;
-        let text = |name: &str| {
-            artifacts
-                .iter()
-                .find(|(artifact, _)| *artifact == name)
-                .map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned())
-        };
         Ok(EmittedDefinition {
-            definition: text(DEFINITION_ARTIFACT).unwrap_or_default(),
-            spec: text(SPEC_ARTIFACT),
+            definition: emitted.source().to_owned(),
+            spec: emitted.spec().map(|spec| spec.source().to_owned()),
             ir: prepared.lowered.definition().clone(),
             warnings,
         })

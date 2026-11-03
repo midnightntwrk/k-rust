@@ -99,12 +99,11 @@ impl StageCache {
 
     fn at(root: PathBuf, definition: &DefinitionIr) -> Option<Self> {
         let krs = executable(&std::env::current_exe().ok()?, true)?;
-        let ir = definition.to_canonical_json().ok()?;
         let key = Key {
             stage_format: STAGE_FORMAT.to_owned(),
             krs_version: env!("CARGO_PKG_VERSION").to_owned(),
             krs,
-            definition_ir_sha256: sha256(ir.as_bytes()),
+            definition_ir_sha256: definition_sha256(definition)?,
             spec_module: None,
         };
         Self::keyed(root, key)
@@ -315,9 +314,32 @@ fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
+/// The SHA-256 of the Definition IR's canonical JSON, streamed into the hasher: the key needs the
+/// digest, not the text, which is hundreds of megabytes for a large definition.
+fn definition_sha256(definition: &DefinitionIr) -> Option<String> {
+    let mut hasher = Sha256::new();
+    let mut buffered = std::io::BufWriter::with_capacity(1 << 16, &mut hasher);
+    definition.write_canonical_json(&mut buffered).ok()?;
+    buffered.flush().ok()?;
+    drop(buffered);
+    Some(format!("{:x}", hasher.finalize()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The streamed digest is the digest of the canonical bytes, so the key, and every stored
+    /// entry's meaning, is that of the Definition IR's canonical JSON.
+    #[test]
+    fn the_definition_digest_is_that_of_the_canonical_json() {
+        let golden = include_bytes!("../../../krs-ir-levels/tests/golden/definition_foo_bar.json");
+        let definition: DefinitionIr =
+            krs_ir::json::from_slice(golden).expect("golden Definition IR");
+        let canonical = definition.to_canonical_json().unwrap();
+        assert_eq!(canonical.as_bytes(), golden);
+        assert_eq!(definition_sha256(&definition), Some(sha256(golden)));
+    }
 
     #[test]
     fn an_explicit_store_is_used_outside_the_workspace_and_refused_inside_it() {

@@ -1109,9 +1109,7 @@ fn insert_term(
 }
 
 fn canonical_json(value: &impl Serialize) -> serde_json::Result<String> {
-    let mut json = serde_json::to_string_pretty(value)?;
-    json.push('\n');
-    Ok(json)
+    krs_ir::json::to_canonical_string(value)
 }
 
 fn item_has_path_leak(item: &krs_ir::StableItemId) -> bool {

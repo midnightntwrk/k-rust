@@ -43,7 +43,8 @@
 //!   failure happened outside every span).
 //!
 //! Stable `krs` span ids, in execution order (`check`, `expand`, `emit_k`,
-//! `stage`, and `exec` ids belong to their command only; the `native` ids
+//! `stage`, and `exec` ids belong to their command only, except that `check`
+//! also runs `emit_k.emit`; the `native` ids
 //! belong to `build`, to `check` (all but `native.write`, and none when the
 //! selected route refuses a capability the definition needs), and, on a
 //! stage-cache miss, to `parse`, `run`, `search`, and `prove`):
@@ -62,7 +63,8 @@
 //! | `semantic.lower` | descriptor bundle to semantic theory |
 //! | `definition.lower` | semantic theory to Definition IR and sidecars |
 //! | `expand.render` | `expand`: select, reread, and render the source |
-//! | `emit_k.render` | `emit-k`: canonical JSON and K rendering |
+//! | `emit_k.emit` | `emit-k`, `check`: K emission, with the symbol and source maps |
+//! | `emit_k.render` | `emit-k`: canonical JSON rendering of the artifacts |
 //! | `emit_k.write` | `emit-k`: artifact writes |
 //! | `native.adapt` | `build`: structural adaptation |
 //! | `native.prepare` | `build`: k-rust structured loading |
@@ -76,6 +78,11 @@
 //! | `stage.store` | `parse`, `run`, `search`, `prove`, after the `native.*` spans: encode and store the compiled stage |
 //! | `exec.configuration`, `exec.unparser`, `exec.backend` | `parse`, `run`, `search`, `prove`: build the program grammar, the printer, and the backend from the compiled stage |
 //! | `release` | drop the in-memory bundle, theory, and Definition IR |
+//!
+//! `emit_k.render` measures the JSON rendering alone. A document written
+//! before `emit_k.emit` existed has no `emit_k.emit` span and counts the K
+//! emission in `emit_k.render`, so compare such a document's `emit_k.render`
+//! with the sum of `emit_k.emit` and `emit_k.render`.
 //!
 //! `collector.run` children (depth 1, grandchildren at depth 2):
 //! `collector.exec` is the time from spawning the built binary until it entered

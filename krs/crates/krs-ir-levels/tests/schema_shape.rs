@@ -657,11 +657,11 @@ fn registry() -> Registry {
     let mut digest_tracer = Tracer::new(digest_config());
     let mut classified = BTreeSet::new();
     let mut probed = BTreeSet::new();
-    macro_rules! trace {
-        ($name:ident : $ty:ty) => {
+    macro_rules! trace_values {
+        ($name:ident : $ty:ty) => {{
             let mut probe = Tracer::new(config());
-            if probe.trace_type::<$ty>(&samples).is_ok() {
-                tracer.trace_type::<$ty>(&samples).unwrap();
+            let (_, values) = if probe.trace_type::<$ty>(&samples).is_ok() {
+                tracer.trace_type::<$ty>(&samples).unwrap()
             } else {
                 digest_tracer
                     .trace_type::<$ty>(&samples)
@@ -670,9 +670,22 @@ fn registry() -> Registry {
                             "{} unexpectedly failed reflection: {error:?}",
                             stringify!($name)
                         )
-                    });
-            }
+                    })
+            };
             assert!(classified.insert(stringify!($name).to_owned()));
+            values
+        }};
+    }
+    // Every traced value of a rendered type is rendered; a decoded-only wire shape is not
+    // serializable, so no artifact can contain it.
+    macro_rules! trace {
+        (decoded $name:ident : $ty:ty) => {
+            trace_values!($name: $ty);
+        };
+        ($name:ident : $ty:ty) => {
+            for value in &trace_values!($name: $ty) {
+                schema_samples::assert_renders(stringify!($name), value);
+            }
         };
     }
     trace!(BuiltinOperation: BuiltinOperation);
@@ -713,16 +726,19 @@ fn registry() -> Registry {
     trace!(InstanceDelimiter: InstanceDelimiter);
     trace!(DescriptorCellName: DescriptorCellName);
     trace!(DescriptorCellReference: DescriptorCellReference);
-    trace!(DescriptorCellTypeWire: krs_ir::transport::configuration::DescriptorCellTypeWire);
+    trace!(decoded DescriptorCellTypeWire: krs_ir::transport::configuration::DescriptorCellTypeWire);
     {
         let mut probe = Tracer::new(
             TracerConfig::default()
                 .is_human_readable(true)
                 .default_string_value("Map".to_owned()),
         );
-        probe
+        let (_, values) = probe
             .trace_type::<DescriptorCellCollectionType>(&Samples::new())
             .unwrap();
+        for value in &values {
+            schema_samples::assert_renders("DescriptorCellCollectionType", value);
+        }
         assert!(classified.insert("DescriptorCellCollectionType".to_owned()));
     }
     trace!(DescriptorConfigurationReference: DescriptorConfigurationReference);
@@ -733,7 +749,7 @@ fn registry() -> Registry {
     trace!(DescriptorGroupReference: DescriptorGroupReference);
     trace!(DescriptorKSequenceNotation: DescriptorKSequenceNotation);
     trace!(DescriptorLexicalPrecedence: DescriptorLexicalPrecedence);
-    trace!(DescriptorPrecedenceChainWire: krs_ir::transport::grammar::DescriptorPrecedenceChainWire);
+    trace!(decoded DescriptorPrecedenceChainWire: krs_ir::transport::grammar::DescriptorPrecedenceChainWire);
     trace!(DescriptorRuleLabel: DescriptorRuleLabel);
     trace!(DescriptorRulePriority: DescriptorRulePriority);
     trace!(DescriptorNondetGroup: DescriptorNondetGroup);
@@ -1083,6 +1099,25 @@ fn krs_ir_schema_shape_is_pinned() {
         "SchemaVersion::CURRENT and Krs.lock [schemas] krs_ir",
         &actual,
     );
+}
+
+/// A command that discards the JSON artifacts judges a definition by its K
+/// emission alone, which is sound only if rendering cannot fail where emission
+/// succeeds. `serde_json` fails only on a map key that is not a string or a
+/// serializer that fails, so every sample of every schema type, traced (one
+/// value per variant) or untraced (the samples corpus, the IR roots among
+/// them), is rendered with the canonical encoder. This catches a failure that
+/// follows from a sampled shape, such as a non-string key in a non-empty map
+/// sample or a flatten of a non-map; it cannot catch a serializer that fails
+/// only for values no sample holds, which the custom impls exclude by
+/// delegating to derived shapes.
+#[test]
+fn every_schema_sample_renders_as_canonical_json() {
+    registry();
+    let corpus = schema_samples::corpus();
+    for root in ["DescriptorBundle", "SemanticTheory", "DefinitionIr"] {
+        assert!(corpus.contains_key(root), "{root} has samples");
+    }
 }
 
 /// The shell shapes `ProtocolMap`, `ProtocolRuleKSequence` and

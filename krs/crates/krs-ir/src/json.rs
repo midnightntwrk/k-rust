@@ -1,5 +1,7 @@
-//! Bounded JSON decoding for recursive descriptor and Definition IR terms.
+//! The canonical JSON encoding of KRS's serialized documents, and bounded JSON decoding for
+//! recursive descriptor and Definition IR terms.
 
+use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::io;
 #[cfg(not(target_family = "wasm"))]
@@ -11,6 +13,36 @@ use std::thread;
 /// descriptor protocol. This bound permits that case while keeping recursive
 /// Serde deserialization within a finite stack budget.
 pub const MAX_IR_JSON_DEPTH: usize = 1024;
+
+/// Writes `value`'s canonical JSON encoding to `writer`: pretty JSON with one trailing newline.
+///
+/// This is the one definition of the encoding; [`to_canonical_string`] is it collected in
+/// memory, so a digest computed by streaming into a hasher is the digest of the canonical bytes.
+///
+/// # Errors
+///
+/// Returns an error if `value` cannot be encoded (a map key that is not a string, or a
+/// serializer that fails) or `writer` fails.
+pub fn write_canonical<W: io::Write, T: Serialize + ?Sized>(
+    mut writer: W,
+    value: &T,
+) -> serde_json::Result<()> {
+    serde_json::to_writer_pretty(&mut writer, value)?;
+    writer.write_all(b"\n").map_err(serde_json::Error::io)
+}
+
+/// Returns `value`'s canonical JSON encoding ([`write_canonical`]) as a string.
+///
+/// # Errors
+///
+/// Returns an error if `value` cannot be encoded.
+pub fn to_canonical_string<T: Serialize + ?Sized>(value: &T) -> serde_json::Result<String> {
+    let mut bytes = Vec::new();
+    write_canonical(&mut bytes, value)?;
+    // serde_json writes UTF-8 only, so this never fails.
+    String::from_utf8(bytes)
+        .map_err(|error| serde_json::Error::io(io::Error::new(io::ErrorKind::InvalidData, error)))
+}
 
 /// Decode IR JSON beyond `serde_json`'s default depth limit.
 ///
@@ -82,7 +114,20 @@ fn check_depth(bytes: &[u8]) -> serde_json::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_IR_JSON_DEPTH, from_slice};
+    use super::{MAX_IR_JSON_DEPTH, from_slice, to_canonical_string, write_canonical};
+
+    #[test]
+    fn canonical_encoding_is_pretty_json_with_one_trailing_newline() {
+        let value = serde_json::json!({ "b": [1, { "c": null }], "a": "x" });
+        let mut streamed = Vec::new();
+        write_canonical(&mut streamed, &value).unwrap();
+        let text = to_canonical_string(&value).unwrap();
+        assert_eq!(text.as_bytes(), streamed);
+        assert_eq!(
+            text,
+            format!("{}\n", serde_json::to_string_pretty(&value).unwrap())
+        );
+    }
 
     #[test]
     fn decodes_deep_json_and_bounds_stack_depth() {
