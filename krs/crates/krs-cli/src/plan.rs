@@ -137,6 +137,8 @@ pub struct ResolvedFacet {
     pub root_crate_name: Option<String>,
     pub(crate) cargo_package_id: String,
     pub(crate) manifest_path: PathBuf,
+    /// The selected library target's root source file (`src_path`).
+    pub(crate) crate_root_path: PathBuf,
 }
 
 /// One package in the root package's resolved Cargo closure.
@@ -373,6 +375,15 @@ impl CollectorPlan {
                     .map(|dependency| dependency.name.clone()),
                 cargo_package_id: facet.package.id.clone(),
                 manifest_path: PathBuf::from(&facet.package.manifest_path),
+                crate_root_path: library_target.src_path.as_ref().map_or_else(
+                    || {
+                        Path::new(&facet.package.manifest_path)
+                            .parent()
+                            .unwrap_or(Path::new("."))
+                            .join("src/lib.rs")
+                    },
+                    PathBuf::from,
+                ),
             });
         }
         facets.sort_by(|left, right| facet_key(left).cmp(&facet_key(right)));

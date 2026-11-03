@@ -18,6 +18,7 @@
 pub mod bundle;
 pub mod bytes_token;
 mod catalog;
+pub mod cell_kind;
 pub mod coordinates;
 pub mod descriptor_index;
 mod detail_macros;

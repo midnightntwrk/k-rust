@@ -252,9 +252,18 @@ def artifact_gate(
     if f"{port.descriptors} descriptors" not in check.stdout:
         raise GateError(f"unexpected descriptor count: {check.stdout.strip()}")
     pins.expect("check_warnings", check_warnings(check.stderr))
-    expansions = [invocation.run("expand", environment=environment).stdout for _ in range(2)]
-    if expansions[0] != expansions[1]:
+    expansion = invocation.run("expand", environment=environment).stdout
+    # stdout holds one printed module file and does not say which. The expanded crate below is
+    # the manifest and `src/lib.rs` alone, so the repeated expansion, written at its paths, must
+    # change that one file and print it alike.
+    printed = workspace / "expanded-files"
+    shutil.rmtree(printed, ignore_errors=True)
+    listed = invocation.run("expand", "--output", printed, environment=environment).stdout.splitlines()
+    if listed != ["src/lib.rs"]:
+        raise GateError(f"readable expansion changes {listed}, not the crate root src/lib.rs alone")
+    if printed.joinpath("src/lib.rs").read_text(encoding="utf-8") != expansion:
         raise GateError("readable expansion is nondeterministic")
+    expansions = [expansion]
     pins.expect("expansion_sha256", sha256_text(expansions[0]))
 
     expanded = workspace / "expanded"

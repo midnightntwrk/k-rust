@@ -96,3 +96,24 @@ owner = "S5"
 kind = "diagnostic"
 what = "one cell-entry mistake answers with the code of whichever layer meets it first"
 by_test = { k8 = "S5" }
+
+["S5-A"]
+owner = "S5"
+kind = "diagnostic"
+what = "a `cells!` wrapper of a layer the cell's stack has nowhere (`KCell(..)` on an optional leaf, `Cell(..)`/`KCell(..)` on a collection) answers with the missing presence or instances, not with `cell-wrapper` (decision (A), P3 b). On the collection the missing layer's advice is refused again; on the optional leaf the product advises `Some(k::configuration::Cell(..))`, which is admitted, so its 8 K8 deviations are the class's, and S5.3 settles `cell-wrapper`'s advice per form without deleting that one"
+
+["S5-D2"]
+owner = "S5"
+kind = "bug"
+what = "a `cells!` map result without `..` after a subject's anonymous rest silently keeps the rest, where the spelling says the result is the whole map (decision D2, P6)"
+risk = "KRS writes K's `...` frame for the subject's anonymous rest and the result's entries over it, so the rule keeps every other entry of the map: the author's exact `k::map![5 -> old, x -> y]` reads as the whole new content in Rust, and nothing tells them the rest is kept"
+
+["S5-Q1"]
+owner = "S5"
+kind = "feature"
+what = "a subject entry that constrains nothing on a cell the result leaves out (`_`, `[..]`, `Cell(_)`) is a lint, not a refusal (decision Q1): readable refuses it, `cells!` accepts it without the warning"
+
+["S5-Q2"]
+owner = "S5"
+kind = "feature"
+what = "`job: [x, ..]` on a List collection binds its front instance (decision Q2), which readable refuses as bracket notation"

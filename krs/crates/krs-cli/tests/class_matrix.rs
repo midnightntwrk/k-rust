@@ -357,6 +357,13 @@ fn table_miss(
 ) -> Option<String> {
     match expected {
         Expected::Accept(_) if observed.refused() => Some("the table accepts the case".to_owned()),
+        Expected::Accept(accepted)
+            if let Some(lint) = spec()
+                .table
+                .lint_deviation(accepted, observed, &placed.entry) =>
+        {
+            Some(lint.miss())
+        }
         Expected::Accept(accepted) => match (accepted.k.as_deref(), k) {
             (Some(recorded), Some(k)) if recorded != k => Some(format!(
                 "the case emits other K than the table records, {}: re-record its K where the \
@@ -401,9 +408,11 @@ fn first_difference(recorded: &str, emitted: &str) -> String {
     }
 }
 
-/// K2's signature of a judged case: what it did ([`signature`]), and for an accepted case whose
-/// K is not the table's record (`k`, the case's K, `None` in the record mode) that its K moved,
-/// so that a failure names what moved and does not read as a refusal's absence.
+/// K2's signature of a judged case: what it did ([`signature`]); for an accepted case whose
+/// warnings depart from the lint its row owes, either way, that departure
+/// (`Table::lint_deviation`); and for an accepted case whose K is not the table's record (`k`, the
+/// case's K, `None` in the record mode) that its K moved, so that a failure names what moved and
+/// does not read as a refusal's absence.
 fn k2_signature(
     resolution: &Resolution<'_>,
     judged: &Judged,
@@ -417,7 +426,17 @@ fn k2_signature(
         }
         _ => false,
     };
-    if moved {
+    let lint = match resolution.expected.get(&judged.id) {
+        Some(Expected::Accept(accepted)) => {
+            spec()
+                .table
+                .lint_deviation(accepted, &judged.observed, &placed.entry)
+        }
+        _ => None,
+    };
+    if let Some(lint) = lint {
+        lint.signature()
+    } else if moved {
         "accepted, with other K than recorded".to_owned()
     } else {
         signature(&judged.observed, placed)

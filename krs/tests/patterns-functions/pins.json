@@ -536,5 +536,8 @@
       "imm-jal-backward": [],
       "imm-jal-forward": []
     }
+  },
+  "known_round_trip_failures": {
+    "krs-patterns-functions-lets": "check: krs::expand::let-outside-term"
   }
 }

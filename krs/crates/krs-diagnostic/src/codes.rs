@@ -122,8 +122,10 @@ register_codes! {
     }
     /// Diagnostics from reference Rust projection.
     reference {
-        SOURCE_SELECTION: "krs::reference::source-selection" => "The package descriptors do not select exactly one source file.",
-        SOURCE_MODULES: "krs::reference::source-modules" => "The selected source contains descriptors from multiple Rust modules.",
+        SOURCE_SELECTION: "krs::reference::source-selection" => "Package descriptors come from files the crate's module tree does not reach as modules.",
+        SOURCE_MODULE_PATH: "krs::reference::source-module-path" => "A `cfg_attr` may choose a module's file, which the source alone does not resolve.",
+        SOURCE_OUTSIDE_PACKAGE: "krs::reference::source-outside-package" => "A module file of the crate lies outside the package directory.",
+        SOURCE_SHARED_FILE: "krs::reference::source-shared-file" => "A file two modules read prints differently in each.",
         SOURCE_MANIFEST_DIRECTORY: "krs::reference::source-manifest-directory" [Environment] => "The package manifest has no parent directory.",
         SOURCE_READ: "krs::reference::source-read" [Environment] => "The selected source file could not be read.",
         SOURCE_CHANGED: "krs::reference::source-changed" [Environment] => "The selected source changed after collection.",
@@ -139,7 +141,7 @@ register_codes! {
         MISSING_BINDING_SORT: "krs::reference::missing-binding-sort" [Internal] => "Inference produced no sort for a readable binder.",
         EXTERNAL_DECLARATION: "krs::reference::external-declaration" => "No path the printed clause writes reaches an item of a package the source does not depend on directly.",
         DEPENDENCY_PATH: "krs::reference::dependency-path" => "No path the printed clause writes reaches a dependency's item, and its declaring path is not known to compile.",
-        EXTERNAL_REFERENCE_SORT: "krs::reference::external-reference-sort" => "A constructor field marker path is external.",
+        PRIVATE_MODULE: "krs::reference::private-module" => "No path the printed clause writes reaches an item that, or whose module, is private where the long form stands.",
         MIXED_APPLICATION_ARGUMENTS: "krs::reference::mixed-application-arguments" => "An application mixes positional and named arguments.",
         NAMED_BUILTIN_APPLICATION: "krs::reference::named-builtin-application" => "A builtin operation uses named arguments.",
         MISSING_DECLARATION: "krs::reference::missing-declaration" [Internal] => "A referenced declaration is absent from the collected bundle.",

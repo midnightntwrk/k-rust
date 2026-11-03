@@ -50,8 +50,24 @@ PINS_PATH = HERE / "pins.json"
 CORPUS_PATH = HERE / "corpus.json"
 RUST_MANIFEST = HERE / "rust-definition/Cargo.toml"
 EXPANSION_GOLDEN = HERE / "goldens/imp.expanded.rs"
+EXPANSION_GOLDENS = {
+    "src/imp.rs": EXPANSION_GOLDEN,
+    "src/static_adjunct.rs": HERE / "goldens/static_adjunct.expanded.rs",
+}
+"""The module files `krs expand --output` changes, by package-relative path, beside the reviewed
+golden of each printed file; every other file of the package prints as authored."""
 EXPANDED_MANIFEST = HERE / "expanded-definition/Cargo.toml"
 EXPANDED_SOURCE = HERE / "expanded-definition/src/imp.rs"
+EXPANDED_SOURCES = {
+    "src/imp.rs": EXPANDED_SOURCE,
+    "src/static_adjunct.rs": HERE / "expanded-definition/src/static_adjunct.rs",
+}
+"""The replacement crate's copy of each printed module file, by the authored file's path."""
+REPLACEMENT_PARITY = {
+    ("imp",): HERE / "replacement-parity.json",
+    ("static_adjunct",): HERE / "replacement-parity-static-adjunct.json",
+}
+"""The expected typed parity facts of each module the replacement crate prints, by module path."""
 PROBE_MANIFEST = HERE / "oracle/artifact-probe/Cargo.toml"
 PACKAGE = "krs-imp-definition"
 DEFINITION = "main"
@@ -94,25 +110,28 @@ def require_exact_summary(
         raise GateError(f"{phase} did not report its exact PASS summary: {compact(process)}")
 
 
-def _verify_replacement_parity(authored: Path, replacement: Path, gate: Path, environment: Mapping[str, str]) -> None:
+def _verify_replacement_parity(
+    authored: Path, replacement: Path, gate: Path, environment: Mapping[str, str],
+    module_path: tuple[str, ...], expected_path: Path,
+) -> None:
     def parity(module: str) -> dict[str, Any]:
         return krs_gate.ir_query(gate, replacement, {
             "kind": "replacement_parity", "reference": os.fspath(authored),
-            "module": module, "module_path": ["imp"],
+            "module": module, "module_path": list(module_path),
             "k_namespace": MODULE,
             "replaced_k_tail_cells": REPLACED_K_TAIL_CELLS,
             "preserved_map_remainder_cells": PRESERVED_MAP_REMAINDER_CELLS,
         }, environment=environment)
 
-    expected = dict(load_json(HERE / "replacement-parity.json"))
+    expected = dict(load_json(expected_path))
     syntax_sentence_count = expected.pop("syntax_sentence_count")
     facts = parity(MODULE)
     if facts != expected:
-        raise GateError(f"typed replacement parity differs: {facts!r}")
+        raise GateError(f"typed replacement parity of {'::'.join(module_path)} differs: {facts!r}")
     # The grammar is in the program-syntax module; its sentences must match too.
     syntax = parity(SYNTAX_MODULE)
     if {**syntax, "sentence_count": None} != {**facts, "sentence_count": None} or syntax["sentence_count"] != syntax_sentence_count:
-        raise GateError(f"typed replacement parity of {SYNTAX_MODULE} differs: {syntax!r}")
+        raise GateError(f"typed replacement parity of {'::'.join(module_path)} in {SYNTAX_MODULE} differs: {syntax!r}")
 
 
 @dataclass
@@ -231,7 +250,7 @@ class Artifacts:
     @property
     def detail(self) -> str:
         return (
-            "124 descriptors; deterministic reviewed Rust expansion; 83-descriptor replacement parity; "
+            "124 descriptors; deterministic reviewed Rust expansion; 100-descriptor replacement parity (imp, static_adjunct); "
             "seven repeated CLI/API source artifacts; repeated claim-free LLVM and Haskell native builds; "
             f"sha256={json_sha256(self.hashes)}"
         )
@@ -524,17 +543,25 @@ def emitted_artifacts(context: Context, krs: Path) -> tuple[Path, dict[str, str]
     if "KRS check passed: 124 descriptors, 2 semantic modules" not in check.stdout:
         raise GateError(f"KRS check summary differs: {compact(check)}")
 
-    expands = [
-        run(krs_invocation(krs).argv("expand"), timeout=300, environment=env).stdout
-        for _ in range(2)
-    ]
+    # The package's readable forms are in two module files, so `krs expand` writes each printed
+    # file at its path under `--output` and lists the paths on stdout.
+    expands = []
+    for _ in range(2):
+        output = Path(tempfile.mkdtemp(prefix="expand-", dir=context.workspace))
+        listed = run(
+            krs_invocation(krs).argv("expand", "--output", output), timeout=300, environment=env,
+        ).stdout.splitlines()
+        expands.append({path: output.joinpath(path).read_text(encoding="utf-8") for path in listed})
     if expands[0] != expands[1]:
         raise GateError("repeated KRS expansion differs byte-for-byte")
-    golden = EXPANSION_GOLDEN.read_text(encoding="utf-8")
-    if expands[0] != golden:
-        raise GateError("live KRS expansion differs from goldens/imp.expanded.rs")
-    if EXPANDED_SOURCE.read_text(encoding="utf-8") != golden:
-        raise GateError("replacement crate source differs from the reviewed expansion golden")
+    if list(expands[0]) != list(EXPANSION_GOLDENS):
+        raise GateError(f"KRS expansion changes {list(expands[0])}, not {list(EXPANSION_GOLDENS)}")
+    for path, golden_path in EXPANSION_GOLDENS.items():
+        if expands[0][path] != golden_path.read_text(encoding="utf-8"):
+            raise GateError(f"live KRS expansion of {path} differs from goldens/{golden_path.name}")
+    for path, source in EXPANDED_SOURCES.items():
+        if source.read_text(encoding="utf-8") != EXPANSION_GOLDENS[path].read_text(encoding="utf-8"):
+            raise GateError(f"replacement crate source {source.name} differs from the reviewed expansion golden")
 
     emit_a, emit_b = fresh_deterministic_emissions(
         krs_invocation(krs), context.workspace,
@@ -542,14 +569,17 @@ def emitted_artifacts(context: Context, krs: Path) -> tuple[Path, dict[str, str]
     )
     replacement_invocation = Invocation(krs, EXPANDED_MANIFEST, EXPANDED_PACKAGE, DEFINITION)
     replacement_check = replacement_invocation.run("check", timeout=300, environment=env)
-    if "KRS check passed: 83 descriptors, 2 semantic modules" not in replacement_check.stdout:
+    # Every descriptor of a module file the expansion changes; the claims and the simplifications
+    # are in files it prints as authored.
+    if "KRS check passed: 100 descriptors, 2 semantic modules" not in replacement_check.stdout:
         raise GateError(f"replacement KRS check summary differs: {compact(replacement_check)}")
     replacement = context.workspace / "expanded-replacement"
     replacement_invocation.run(
         "emit-k", "--backend", "haskell", "--output", replacement,
         timeout=300, environment=env,
     )
-    _verify_replacement_parity(emit_a, replacement, context.gate, env)
+    for module_path, expected_path in REPLACEMENT_PARITY.items():
+        _verify_replacement_parity(emit_a, replacement, context.gate, env, module_path, expected_path)
     emitted_names = emitted_files(emit_a, context.gate, environment=env)
     for name, digest in exact_directory(emit_a, emit_b, emitted_names).items():
         # The ownership marker is the same file `krs build` writes natively.

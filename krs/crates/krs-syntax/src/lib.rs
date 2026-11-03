@@ -6,6 +6,8 @@
 //! resolution and semantic IR construction deliberately live elsewhere.
 
 mod attribute;
+pub mod cell_entries;
+pub mod cell_entry;
 mod collection_literal;
 mod configuration;
 mod constant;
@@ -55,8 +57,8 @@ pub use attribute::{
 };
 pub use collection_literal::is_collection_literal;
 pub use configuration::{
-    ComputationCellField, ConfigurationCellContent, ConfigurationDeclaration, FixedCellField,
-    SortArgument, option_content,
+    ComputationCellField, ConfigurationCell, ConfigurationCellContent, ConfigurationDeclaration,
+    FixedCellField, SortArgument, option_content,
 };
 pub use constant::ConstantItem;
 pub use descriptor::{
