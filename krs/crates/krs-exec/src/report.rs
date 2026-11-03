@@ -39,6 +39,11 @@ impl Term {
         &self.kast
     }
 
+    /// The KORE pattern, given up.
+    pub(crate) fn into_kore(self) -> Pattern {
+        self.kore
+    }
+
     /// The first item of the computation cell `<cell>` (the definition's main cell,
     /// [`crate::Semantics::main_cell`]) as textual KAST: `Some(None)` when the cell is empty,
     /// `None` without such a cell.
@@ -198,7 +203,10 @@ pub enum Halt {
     SimplificationError,
     /// A step exceeded its time budget.
     Timeout,
-    /// The backend stopped for a reason a run does not request (branch, cut point, cancellation).
+    /// The run ended at one of its stop rules ([`crate::StopRules`], [`RunReport::stop`]).
+    Stopped,
+    /// The backend stopped for a reason a run does not request (branch, breadth or work bound,
+    /// cancellation).
     Interrupted,
 }
 
@@ -212,10 +220,9 @@ impl Halt {
             HaltReasonOutput::UnsupportedHook => Self::UnsupportedHook,
             HaltReasonOutput::SimplificationError => Self::SimplificationError,
             HaltReasonOutput::Timeout => Self::Timeout,
+            HaltReasonOutput::CutPoint | HaltReasonOutput::Terminal => Self::Stopped,
             HaltReasonOutput::Cancelled
             | HaltReasonOutput::Branch
-            | HaltReasonOutput::CutPoint
-            | HaltReasonOutput::Terminal
             | HaltReasonOutput::BreadthBound
             | HaltReasonOutput::WorkBound => Self::Interrupted,
         }
@@ -232,14 +239,19 @@ impl Halt {
             Self::UnsupportedHook => "unsupported-hook",
             Self::SimplificationError => "simplification-error",
             Self::Timeout => "timeout",
+            Self::Stopped => "stopped",
             Self::Interrupted => "interrupted",
         }
     }
 
-    /// Whether the result is complete (exit status 0) rather than inconclusive (exit status 1).
+    /// Whether the result is complete (exit status 0) rather than inconclusive (exit status 1):
+    /// a stop rule, as the depth bound, ends a run where it was asked to.
     #[must_use]
     pub const fn is_complete(self) -> bool {
-        matches!(self, Self::Stuck | Self::DepthBound | Self::Undefined)
+        matches!(
+            self,
+            Self::Stuck | Self::DepthBound | Self::Undefined | Self::Stopped
+        )
     }
 }
 
@@ -389,6 +401,44 @@ pub struct Coverage {
     pub rules: Vec<CoveredRule>,
 }
 
+/// Where a stop rule ended a run ([`crate::StopRules`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum StopAt {
+    /// Before the rule's step: the run's state is the one the rule would rewrite.
+    Before,
+    /// After the rule's step: the run's state is the rule's successor.
+    After,
+}
+
+/// A rule, by its identities and origin.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct NamedRule {
+    /// The backend's `UNIQUE_ID`.
+    pub rule_id: String,
+    /// K's label, as the definition carries it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// The KRS item that wrote the rule, as a Rust path below its crate root.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub item: Option<String>,
+    /// Where it came from.
+    pub origin: StepOrigin,
+}
+
+/// The stop rule that ended a run ([`RunReport::stop`]).
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct Stop {
+    /// Whether the run ended before or after the rule's step.
+    pub at: StopAt,
+    /// The rule: named always before its step; after it, when the run's stop rules select one
+    /// rule identity or the run kept its trace ([`crate::StopRules::after`]). k-rust names a
+    /// terminal rule only in the leaf's `detail` text, which is no stable encoding and which
+    /// krs-exec does not read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule: Option<NamedRule>,
+}
+
 /// The result of `run`: one path, as krun follows it.
 #[derive(Clone, Debug, Serialize)]
 pub struct RunReport {
@@ -422,8 +472,35 @@ pub struct RunReport {
     /// The run's coverage, when [`crate::RunOptions::coverage`] asked for it; omitted otherwise.
     /// A run that ends before a step with no value is followed again to its last state with a
     /// value, and its coverage is the first run's, the step that found no value included.
+    /// The step by a rule a run stopped before is the resumed run's: that run's coverage commits
+    /// the rule and counts the application, and the stopped run's does not
+    /// ([`crate::StopRules::before`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub coverage: Option<Coverage>,
+    /// The stop rule that ended the run, when one did ([`Halt::Stopped`]); omitted otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stop: Option<Stop>,
+    /// The state a later run goes on from, when it is not `state`'s own pattern
+    /// ([`Self::resume`]).
+    #[serde(skip)]
+    pub(crate) resume: Option<crate::State>,
+}
+
+impl RunReport {
+    /// The state a later run goes on from ([`crate::Semantics::run`]): where this run ended, as
+    /// the backend reached it (with its Floats as k-rust writes them, not as `state` prints
+    /// them). The later run's depth bound and step count start there.
+    ///
+    /// After a stop before a rule, the later run's first step is that rule's, which this run did
+    /// not take: the later run counts it in its `steps`, trace, depth bound and coverage, and goes
+    /// on from the rule's successor, so it does not stop at the same step again
+    /// ([`crate::StopRules::before`]).
+    #[must_use]
+    pub fn resume(&self) -> crate::State {
+        self.resume
+            .clone()
+            .unwrap_or_else(|| crate::State::new(self.state.kore().clone()))
+    }
 }
 
 /// One final state of a search.

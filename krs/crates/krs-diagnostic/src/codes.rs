@@ -504,6 +504,7 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
         PARSE: "krs::exec::parse" => "Program or configuration-variable text does not parse at its sort.",
         SORT: "krs::exec::sort" => "A requested parse sort is not a program sort.",
         CLAIM: "krs::exec::claim" => "A claim label matched no claim, several claims, or the definition has no claims.",
+        RULE: "krs::exec::rule" => "A stop rule's label matched no rewrite rule, a sentence that is no rewrite rule, or several labels by suffix.",
         STREAMS: "krs::exec::streams" => "Search was requested on a definition with stream cells.",
         UNAVAILABLE: "krs::exec::unavailable" [Environment] => "The requested operation is not available in this build.",
         RESULT: "krs::exec::result" [Internal] => "The backend returned a result KRS cannot read.",

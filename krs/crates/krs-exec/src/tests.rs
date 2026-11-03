@@ -12,8 +12,8 @@ use k_rust::{
 
 use super::{
     ConfigVariable, ExecError, Halt, OnePath, PathError, RunOptions, SearchMode, SearchOptions,
-    State, check_final_state, config_variables, log_lines, one_path, result_sort_hooks,
-    run_request, search_backend, term, valueless,
+    StopIds, check_final_state, config_variables, cut_point_candidate, kore_pattern, log_lines,
+    one_path, read_proposal, result_sort_hooks, run_request, search_backend, term, valueless,
 };
 
 /// A raw KORE definition with one initial state and two rules leaving it.
@@ -150,8 +150,8 @@ fn a_stuck_end_holds_only_where_no_rule_applies() {
 /// for every rewrite and simplification of the path unless asked not to (CF-32).
 #[test]
 fn a_run_requests_the_backend_trace_only_when_it_reports_one() {
-    let state = State(parse_pattern("initial{}()").unwrap());
-    let untraced = run_request(&state, &RunOptions::default());
+    let state = parse_pattern("initial{}()").unwrap();
+    let untraced = run_request(&state, &RunOptions::default(), &StopIds::default());
     assert!(!untraced.trace);
     assert!(matches!(untraced.strategy, ExecutionStrategy::Any));
     let traced = run_request(
@@ -161,6 +161,7 @@ fn a_run_requests_the_backend_trace_only_when_it_reports_one() {
             depth: Some(3),
             ..RunOptions::default()
         },
+        &StopIds::default(),
     );
     assert!(traced.trace);
     assert_eq!(traced.max_depth, Some(3));
@@ -169,6 +170,89 @@ fn a_run_requests_the_backend_trace_only_when_it_reports_one() {
     assert!(leaves.iter().all(|leaf| leaf.trace.is_empty()));
     let leaves = backend.execute(traced).unwrap().leaves;
     assert!(leaves.iter().any(|leaf| !leaf.trace.is_empty()));
+}
+
+/// A raw KORE definition of one path, `a => b => c`, by the rules `ab` and `bc`; an axiom without
+/// `UNIQUE_ID` is identified by its label.
+fn linear_backend() -> Backend {
+    let definition = r#"[]
+        module MAIN
+            sort SortState{} []
+            symbol a{}() : SortState{} [constructor{}()]
+            symbol b{}() : SortState{} [constructor{}()]
+            symbol c{}() : SortState{} [constructor{}()]
+            axiom{} \rewrites{SortState{}}(
+                \and{SortState{}}(a{}(), \top{SortState{}}()), b{}()
+            ) [label{}("ab")]
+            axiom{} \rewrites{SortState{}}(
+                \and{SortState{}}(b{}(), \top{SortState{}}()), c{}()
+            ) [label{}("bc")]
+        endmodule []"#;
+    Backend::new(definition, "MAIN", BackendOptions::default()).unwrap()
+}
+
+/// The backend's stop rules as a run asks for them (CF-22): a stop before `bc` ends at `b`, the
+/// state `bc` would rewrite, after one step, and proposes `c`, the successor a later run goes on
+/// from; a stop after `ab` ends at `b` after one step, the step by `ab` counted.
+#[test]
+fn stop_rules_end_a_run_before_or_after_the_rule_s_step() {
+    let state = parse_pattern("a{}()").unwrap();
+    let mut backend = linear_backend();
+    let before = StopIds {
+        before: vec!["bc".to_owned()],
+        after: Vec::new(),
+    };
+    let leaves = backend
+        .execute(run_request(&state, &RunOptions::default(), &before))
+        .unwrap()
+        .leaves;
+    let [leaf] = leaves.as_slice() else {
+        panic!("{leaves:?}")
+    };
+    assert_eq!(leaf.reason, HaltReasonOutput::CutPoint);
+    assert_eq!(Halt::from_backend(leaf.reason), Halt::Stopped);
+    assert_eq!(leaf.depth, 1);
+    assert_eq!(pattern_text(&leaf.state), "b{}()");
+    assert_eq!(proposed(leaf), "c{}()");
+    assert_eq!(leaf.candidates.as_ref().unwrap()[0].unique_id, "bc");
+
+    let after = StopIds {
+        before: Vec::new(),
+        after: vec!["ab".to_owned()],
+    };
+    let leaves = backend
+        .execute(run_request(&state, &RunOptions::default(), &after))
+        .unwrap()
+        .leaves;
+    let [leaf] = leaves.as_slice() else {
+        panic!("{leaves:?}")
+    };
+    assert_eq!(leaf.reason, HaltReasonOutput::Terminal);
+    assert_eq!(leaf.depth, 1);
+    assert_eq!(pattern_text(&leaf.state), "b{}()");
+    // A stop before the first step a run takes ends it where it starts.
+    let first = StopIds {
+        before: vec!["ab".to_owned()],
+        after: Vec::new(),
+    };
+    let leaves = backend
+        .execute(run_request(&state, &RunOptions::default(), &first))
+        .unwrap()
+        .leaves;
+    assert_eq!(leaves[0].reason, HaltReasonOutput::CutPoint);
+    assert_eq!(leaves[0].depth, 0);
+    assert_eq!(proposed(&leaves[0]), "b{}()");
+}
+
+fn proposed(leaf: &ExecutionLeaf) -> String {
+    kore_pattern(&cut_point_candidate(leaf).unwrap().state)
+        .unwrap()
+        .to_string()
+}
+
+fn pattern_text(state: &serde_json::Value) -> String {
+    let source = serde_json::to_string(state).unwrap();
+    k_rust::kore::json::from_str(&source).unwrap().to_string()
 }
 
 #[test]
@@ -240,6 +324,8 @@ fn halt_reasons_split_into_complete_and_inconclusive() {
                 | HaltReasonOutput::DepthBound
                 | HaltReasonOutput::Trivial
                 | HaltReasonOutput::Vacuous
+                | HaltReasonOutput::CutPoint
+                | HaltReasonOutput::Terminal
         );
         assert_eq!(halt.is_complete(), complete, "{reason:?}");
     }
@@ -483,6 +569,69 @@ fn a_run_follows_the_defined_leaf_of_a_definedness_split() {
     assert_eq!(Halt::from_backend(path.leaf.reason), Halt::Undefined);
     assert_eq!(path.leaf.depth, 1);
     assert_eq!(path.valueless, [pattern("undef{}()")]);
+}
+
+/// `partial_backend`'s `wrap` rule, declared to preserve definedness: the backend takes its
+/// successor `wrap(undef())` as defined, so it does not split on `undef()`'s definedness.
+fn preserving_backend() -> Backend {
+    let definition = r#"[]
+        module MAIN
+            sort SortState{} []
+            symbol initial{}() : SortState{} [constructor{}()]
+            symbol wrap{}(SortState{}) : SortState{} [constructor{}()]
+            symbol undef{}() : SortState{} [function{}()]
+            axiom{} \rewrites{SortState{}}(
+                \and{SortState{}}(initial{}(), \top{SortState{}}()), wrap{}(undef{}())
+            ) [label{}("wrap"), preserves-definedness{}()]
+        endmodule []"#;
+    Backend::new(definition, "MAIN", BackendOptions::default()).unwrap()
+}
+
+/// A stop before a rule proposes the rule's successor, which is read as a run's end is (CF-22).
+/// `wrap`'s successor holds `undef()`, which has no value where `undef` is partial and has no
+/// equation. Where the backend split the step on `undef()`'s definedness, the stopped leaf's
+/// condition reads it and the leaf is already undefined; where it did not (`wrap` preserves
+/// definedness), the proposal's reading finds the term: the step reaches no state, and the run
+/// ends undefined where it would have stopped, after no step. Where `undef` may have a value,
+/// the stop stands and proposes the successor.
+#[test]
+fn a_stop_before_a_rule_whose_successor_has_no_value_is_an_undefined_step() {
+    let stops = StopIds {
+        before: vec!["wrap".to_owned()],
+        after: Vec::new(),
+    };
+    let start = pattern("initial{}()");
+    let partial = Named::partial(&["undef"]);
+    let stopped = |backend: &mut Backend, heads: &Named| {
+        let leaves = backend
+            .execute(run_request(&start, &RunOptions::default(), &stops))
+            .unwrap()
+            .leaves;
+        one_path(leaves, heads).unwrap()
+    };
+
+    let split = stopped(&mut partial_backend(), &partial);
+    assert!(split.held);
+    assert_eq!(Halt::from_backend(split.leaf.reason), Halt::Undefined);
+    assert_eq!(split.leaf.depth, 0);
+
+    let mut backend = preserving_backend();
+    let path = stopped(&mut backend, &partial);
+    assert!(!path.held);
+    assert_eq!(path.leaf.reason, HaltReasonOutput::CutPoint);
+    let (leaf, proposed) = read_proposal(path.leaf, &partial).unwrap();
+    assert_eq!(Halt::from_backend(leaf.reason), Halt::Undefined);
+    assert_eq!(leaf.depth, 0);
+    assert_eq!(pattern_text(&leaf.state), "initial{}()");
+    assert_eq!(proposed.err().unwrap(), [pattern("undef{}()")]);
+
+    let path = stopped(&mut backend, &Named::default());
+    let (leaf, proposed) = read_proposal(path.leaf, &Named::default()).unwrap();
+    assert_eq!(Halt::from_backend(leaf.reason), Halt::Stopped);
+    assert_eq!(pattern_text(&leaf.state), "initial{}()");
+    let proposed = proposed.ok().unwrap();
+    assert_eq!(proposed.rule_id, "wrap");
+    assert_eq!(proposed.successor.to_string(), "wrap{}(undef{}())");
 }
 
 #[test]

@@ -953,6 +953,7 @@ pub(super) const fn diagnostic_code(error: &ExecError) -> Code {
         | ExecError::NoClaims
         | ExecError::NoSpecClaims(_)
         | ExecError::UnknownSpecModule { .. } => codes::exec::CLAIM,
+        ExecError::UnknownRule { .. } | ExecError::AmbiguousRule { .. } => codes::exec::RULE,
         ExecError::SearchWithStreams => codes::exec::STREAMS,
         ExecError::Unavailable(_) => codes::exec::UNAVAILABLE,
         ExecError::Result(_) => codes::exec::RESULT,

@@ -37,9 +37,9 @@ use std::{collections::HashMap, fmt};
 
 use k_rust::{
     backend::{
-        Backend, BackendOptions, EffectOutput, ExecuteRequest, ExecutionLeaf, ExecutionResult,
-        ExecutionStrategy, HaltReasonOutput, PatternRequest, ProveRequest, RunCoverageOutput,
-        SearchRequest, SearchResponse, SearchTypeArg, TraceEntry,
+        Backend, BackendOptions, EffectOutput, ExecuteRequest, ExecutionCandidateOutput,
+        ExecutionLeaf, ExecutionResult, ExecutionStrategy, HaltReasonOutput, PatternRequest,
+        ProveRequest, RunCoverageOutput, SearchRequest, SearchResponse, SearchTypeArg, TraceEntry,
     },
     inner::{ParseError, ProgramError, ProgramParseError},
     kast::{
@@ -67,9 +67,9 @@ pub use krs_unparse as unparse;
 pub use krs_unparse::{Mode as UnparseMode, Printed, Warning as UnparseWarning};
 pub use read_back::{PrintedCell, ReadBack};
 pub use report::{
-    Capabilities, ClaimInfo, ConfigVariable, Coverage, CoveredRule, Halt, Modality, ProofLeaf,
-    ProofReport, REPORT_SCHEMA, RuleKind, RunReport, SearchReport, Solution, SourceSpan, Step,
-    StepOrigin, Term, Verdict,
+    Capabilities, ClaimInfo, ConfigVariable, Coverage, CoveredRule, Halt, Modality, NamedRule,
+    ProofLeaf, ProofReport, REPORT_SCHEMA, RuleKind, RunReport, SearchReport, Solution, SourceSpan,
+    Step, StepOrigin, Stop, StopAt, Term, Verdict,
 };
 pub use values::{Ctor, Decl, Float, SortRef, Value, ValueError, ValueIndex};
 pub use view::{CellError, StateView, View};
@@ -81,7 +81,7 @@ pub use view::{CellError, StateView, View};
 pub type SourceText = Box<dyn Fn(&SourceFileId) -> Option<String>>;
 
 /// Options for [`Semantics::run`].
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct RunOptions {
     /// At most this many rewrite steps; equation evaluation is not a step.
     pub depth: Option<u64>,
@@ -97,6 +97,61 @@ pub struct RunOptions {
     /// Report the run's coverage ([`RunReport::coverage`]): the rules and equations it matched,
     /// applied and committed, with how many times it applied each.
     pub coverage: Option<CoverageOptions>,
+    /// End the run at a step by one of these rules ([`RunReport::stop`]).
+    pub stop: StopRules,
+}
+
+/// The rewrite rules at which a run ends ([`RunOptions::stop`]): k-rust's cut-point and terminal
+/// rules (`ExecuteRequest::cut_point_rules`, `terminal_rules`).
+///
+/// Each rule is named by its K label, exactly (`SM83.boundary-fetch`) or by a unique `.`-suffix
+/// (`boundary-fetch`), as `krs prove --claim` names a claim; a label several rules carry names
+/// each of them. The name is resolved among the labels of every sentence, an exact label winning
+/// over every suffix, and is an error where it selects no sentence, several labels, or a
+/// sentence that is no rewrite rule ([`ExecError::UnknownRule`], [`ExecError::AmbiguousRule`]):
+/// an equation, a simplification or a definedness equation takes no step, so no run stops at it.
+///
+/// A run that ends at a stop rule reports `stopped` ([`Halt::Stopped`]) and the stop
+/// ([`RunReport::stop`]), and a later run from [`RunReport::resume`] goes on along the path from
+/// there; any run can be resumed so, whatever ended it.
+/// Each step of the path is then taken by exactly one of the runs: summed over a run cut at stop
+/// rules and resumed, the runs' `steps`, their traces in order and their coverage are the uncut
+/// run's (coverage's counts but for an equation instance the uncut run serves from its memo,
+/// which a later run evaluates again).
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct StopRules {
+    /// End before a step by one of these rules: the run ends at the state the rule would rewrite,
+    /// and the step is the resumed run's first, which its `steps`, its trace, its depth bound and
+    /// its coverage count (the stopped run's count none of it, the backend's proposal of the
+    /// step's successor included), so the resumed run does not stop at the same step again.
+    /// The stop names the rule.
+    ///
+    /// The proposed successor is read as a run's end is: where it holds a term with no value
+    /// (`Semantics::run`'s reading, which the backend's own normalization does not decide), the
+    /// step reaches no state, so the run does not stop but ends undefined at the state the rule
+    /// would rewrite, as the uncut run does where its end holds that term.
+    pub before: Vec<String>,
+    /// End after a step by one of these rules: the run ends at the rule's successor, and resumes
+    /// from there. The stop names the rule when these names select one rule identity, or the run
+    /// keeps its trace ([`RunOptions::trace`]), whose last step it is; otherwise it does not:
+    /// k-rust names a terminal rule only in the leaf's `detail`, legacy text that is no stable
+    /// encoding, which krs-exec does not read.
+    pub after: Vec<String>,
+}
+
+impl StopRules {
+    /// Whether no rule is named.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.before.is_empty() && self.after.is_empty()
+    }
+}
+
+/// The stop rules of one run by `UNIQUE_ID`, as the backend selects them.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct StopIds {
+    before: Vec<String>,
+    after: Vec<String>,
 }
 
 /// What a run's coverage also reports ([`RunOptions::coverage`]).
@@ -221,16 +276,51 @@ pub struct ConfigInputs {
     pub stdin: Option<Vec<u8>>,
 }
 
-/// An initial configuration, ready to run or search.
+/// A state to run or search from: an initial configuration ([`Semantics::configure`]), or the
+/// state a run left off at ([`RunReport::resume`]).
 #[derive(Clone, Debug)]
-pub struct State(Pattern);
+pub struct State {
+    /// The pattern a run or search from the state starts at.
+    pattern: Pattern,
+    /// The step a run that stopped before its rule did not take ([`StopRules::before`]), which
+    /// a run from this state takes first; `pattern` is the step's successor.
+    taken: Option<TakenStep>,
+}
 
 impl State {
-    /// The KORE pattern of `initGeneratedTopCell`.
+    pub(crate) const fn new(pattern: Pattern) -> Self {
+        Self {
+            pattern,
+            taken: None,
+        }
+    }
+
+    /// The KORE pattern a run or search from the state starts at: `initGeneratedTopCell`
+    /// applied to the inputs for an initial configuration, the configuration itself for the
+    /// state a run left off at, and after a stop before a rule, that rule's successor: a search
+    /// starts there, and a run takes the rule's step first ([`Semantics::run`]).
     #[must_use]
     pub const fn kore(&self) -> &Pattern {
-        &self.0
+        &self.pattern
     }
+}
+
+/// The step by a stop-before rule that a run proposed and did not take (`State::taken`).
+#[derive(Clone, Debug)]
+struct TakenStep {
+    /// The state the step rewrites, where a run that takes no step ends.
+    before: Pattern,
+    /// The rule's `UNIQUE_ID`.
+    rule_id: String,
+    /// The rule's label.
+    label: Option<String>,
+}
+
+/// The successor a stop before a rule proposes ([`read_proposal`]).
+struct Proposal {
+    successor: Pattern,
+    rule_id: String,
+    label: Option<String>,
 }
 
 /// How [`Semantics::print`] renders a term.
@@ -347,6 +437,23 @@ pub enum ExecError {
         /// The matching labels.
         matches: Vec<String>,
     },
+    /// A stop rule ([`StopRules`]) named no rewrite rule.
+    UnknownRule {
+        /// The label as written.
+        requested: String,
+        /// The label and kind of the sentence that is no rewrite rule the name selects instead,
+        /// when it selects one (an equation, a simplification or a definedness equation).
+        sentence: Option<(String, RuleKind)>,
+        /// A close rewrite-rule label, when one exists.
+        suggestion: Option<String>,
+    },
+    /// A stop rule ([`StopRules`]) matched several rewrite-rule labels by suffix.
+    AmbiguousRule {
+        /// The label as written.
+        requested: String,
+        /// The matching labels.
+        matches: Vec<String>,
+    },
     /// `prove` on a definition without claims.
     NoClaims,
     /// `--spec-module` named an author spec module without claims (KF-041).
@@ -383,6 +490,10 @@ pub enum ExecError {
 }
 
 impl fmt::Display for ExecError {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One arm per error variant keeps every message in one place."
+    )]
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Compile(error) => error.fmt(formatter),
@@ -439,6 +550,25 @@ impl fmt::Display for ExecError {
             Self::AmbiguousClaim { requested, matches } => write!(
                 formatter,
                 "claim label `{requested}` is ambiguous; matches {}",
+                matches
+                    .iter()
+                    .map(|label| format!("`{label}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            Self::UnknownRule {
+                requested,
+                sentence,
+                suggestion,
+            } => write_unknown_rule(
+                formatter,
+                requested,
+                sentence.as_ref().map(|(label, kind)| (label.as_str(), *kind)),
+                suggestion.as_deref(),
+            ),
+            Self::AmbiguousRule { requested, matches } => write!(
+                formatter,
+                "rule label `{requested}` is ambiguous; matches {}",
                 matches
                     .iter()
                     .map(|label| format!("`{label}`"))
@@ -511,6 +641,30 @@ fn unboxed_configuration_value(boxed: &Pattern) -> &Pattern {
         }
         _ => sequence,
     }
+}
+
+fn write_unknown_rule(
+    formatter: &mut fmt::Formatter<'_>,
+    requested: &str,
+    sentence: Option<(&str, RuleKind)>,
+    suggestion: Option<&str>,
+) -> fmt::Result {
+    write!(formatter, "no rewrite rule has label `{requested}`")?;
+    if let Some((label, kind)) = sentence {
+        let kind = match kind {
+            RuleKind::Equation => "a function equation",
+            RuleKind::Simplification => "a simplification",
+            RuleKind::Definedness => "a definedness (`#Ceil`) equation",
+            RuleKind::Rule => "a rewrite rule",
+        };
+        write!(
+            formatter,
+            ": `{label}` is {kind}, which a run applies without taking a step, so no step can stop at it"
+        )?;
+    } else if let Some(suggestion) = suggestion {
+        write!(formatter, "; did you mean `{suggestion}`?")?;
+    }
+    Ok(())
 }
 
 fn write_variables(
@@ -1093,7 +1247,7 @@ impl Semantics {
                 }
             })?;
         self.check_cell_types(&pattern)?;
-        Ok(State(pattern))
+        Ok(State::new(pattern))
     }
 
     /// Check every configuration variable's value in `pattern`, an assembled
@@ -1191,33 +1345,87 @@ impl Semantics {
 
     /// Follow one path from `state`, with strategy `any`, as krun does.
     ///
+    /// From the state a run that stopped before a rule left off at ([`RunReport::resume`]), the
+    /// run's first step is that rule's, which its `steps`, trace, depth bound and coverage count
+    /// ([`StopRules::before`]); a depth bound of 0 leaves it untaken, so the run ends where the
+    /// stopped run did.
+    ///
     /// # Errors
     ///
-    /// Returns [`ExecError::Backend`] when the backend fails, [`ExecError::Undecided`] when the run
-    /// reaches several states under conditions it cannot decide, or [`ExecError::Result`] when the
-    /// backend returns several states under no condition, or none.
+    /// Returns [`ExecError::UnknownRule`] or [`ExecError::AmbiguousRule`] when a stop rule names
+    /// no rewrite rule, or several by suffix ([`StopRules`]), [`ExecError::Backend`] when the
+    /// backend fails, [`ExecError::Undecided`] when the run reaches several states under
+    /// conditions it cannot decide, or [`ExecError::Result`] when the backend returns several
+    /// states under no condition, or none.
     pub fn run(&mut self, state: &State, options: RunOptions) -> Result<RunReport, ExecError> {
+        let stops = self.stop_ids(&options.stop)?;
+        let Some(taken) = &state.taken else {
+            return self.run_from(&state.pattern, &options, &stops, None);
+        };
+        // The bound left once the taken step is counted: `None` where the bound allows no step.
+        let Some(depth) = options
+            .depth
+            .map_or(Some(None), |depth| depth.checked_sub(1).map(Some))
+        else {
+            // The bound allows no step, so not the one the stopped run left: the run ends where
+            // that run did, having used nothing ([`RunReport::coverage`]).
+            let untaken = RunOptions {
+                depth: Some(0),
+                trace: options.trace,
+                ..RunOptions::default()
+            };
+            let mut report = self.run_from(&taken.before, &untaken, &StopIds::default(), None)?;
+            report.coverage = options.coverage.map(|asked| Coverage {
+                offered: asked.offered,
+                rules: Vec::new(),
+            });
+            report.resume = Some(state.clone());
+            return Ok(report);
+        };
+        let options = RunOptions { depth, ..options };
+        self.run_from(&state.pattern, &options, &stops, Some(taken))
+    }
+
+    /// A run from `start` ([`Self::run`]); `taken` is the step that leads to `start`, which the
+    /// run counts as its first, after a stop before its rule.
+    fn run_from(
+        &mut self,
+        start: &Pattern,
+        options: &RunOptions,
+        stops: &StopIds,
+        taken: Option<&TakenStep>,
+    ) -> Result<RunReport, ExecError> {
         let ExecutionResult {
             leaves,
             implementation_chosen_values,
             unsupported_hooks,
             coverage,
             ..
-        } = self.backend.execute(run_request(state, &options))?;
+        } = self.backend.execute(run_request(start, options, stops))?;
         // A hook the backend left unevaluated may leave an equation's condition open, so no
         // application is decided to have no value ([`decided`]).
         let decides = unsupported_hooks.is_empty();
         let path = one_path(leaves, self.heads(decides));
         let OnePath {
             mut leaf,
-            valueless,
+            mut valueless,
             held,
         } = match path {
             Ok(path) => path,
             Err(error) => return Err(self.path_error(error)),
         };
         if held && leaf.depth > 0 {
-            leaf = self.before_valueless(state, leaf, decides, options.trace)?;
+            leaf = self.before_valueless(start, leaf, decides, options.trace, stops)?;
+        }
+        let mut proposal = None;
+        if leaf.reason == HaltReasonOutput::CutPoint {
+            let (read, proposed) =
+                read_proposal(leaf, self.heads(decides)).map_err(|error| self.path_error(error))?;
+            leaf = read;
+            match proposed {
+                Ok(proposed) => proposal = Some(proposed),
+                Err(terms) => valueless.extend(terms),
+            }
         }
         if leaf.reason == HaltReasonOutput::Stuck && (options.check_ends || check_ends()) {
             // The definition's heads, borrowed beside the backend ([`Self::heads`]).
@@ -1233,30 +1441,40 @@ impl Semantics {
             .map(|kore| self.term(kore))
             .collect::<Result<Vec<_>, _>>()?;
         let trace = if options.trace {
-            self.steps(&leaf.trace)
+            let trace = self.steps(&leaf.trace);
+            match taken {
+                Some(taken) => self.taken_first(taken, trace),
+                None => trace,
+            }
         } else {
             Vec::new()
         };
-        let coverage = options
-            .coverage
-            .zip(coverage)
-            .map(|(asked, coverage)| self.coverage(coverage, asked.offered));
-        let state = term(&leaf.state, &self.sort_hooks)?;
+        let coverage = options.coverage.zip(coverage).map(|(asked, coverage)| {
+            self.coverage(
+                coverage,
+                asked.offered,
+                taken.map(|taken| taken.rule_id.as_str()),
+                proposal.as_ref().map(|proposal| proposal.rule_id.as_str()),
+            )
+        });
+        let stop = self.stop(&leaf, stops, &trace);
+        let reached = term(&leaf.state, &self.sort_hooks)?;
         let halt = Halt::from_backend(leaf.reason);
         let stdout = if self.console.stdout {
-            console::stdout_buffer(state.kore())
+            console::stdout_buffer(reached.kore())
         } else {
             None
         };
         let exit_code = if self.console.exit && halt.is_complete() {
-            self.exit_code(&state)?
+            self.exit_code(&reached)?
         } else {
             None
         };
+        let (state, resume) = self.reported(reached, proposal)?;
         Ok(RunReport {
             halt,
-            steps: leaf.depth,
-            state: self.krun_floats(state)?,
+            steps: leaf.depth.saturating_add(u64::from(taken.is_some())),
+            state,
             trace,
             stdout,
             exit_code,
@@ -1264,13 +1482,123 @@ impl Semantics {
             implementation_chosen_values,
             valueless,
             coverage,
+            stop,
+            resume,
         })
+    }
+
+    /// A run's reported state, its Floats as krun prints them ([`Self::krun_floats`]), and the
+    /// state a later run goes on from where it is not the reported state's pattern
+    /// ([`RunReport::resume`]): the backend's own state, not the one printed with krun's Floats,
+    /// and after a stop before a rule, the rule's successor, the rule's step to be taken first.
+    fn reported(
+        &self,
+        reached: Term,
+        proposal: Option<Proposal>,
+    ) -> Result<(Term, Option<State>), ExecError> {
+        let resume = proposal.map(|proposal| State {
+            pattern: proposal.successor,
+            taken: Some(TakenStep {
+                before: reached.kore().clone(),
+                rule_id: proposal.rule_id,
+                label: proposal.label,
+            }),
+        });
+        Ok(match self.unparser.llvm_floats(reached.kore()) {
+            Some(kore) => (
+                self.term(kore)?,
+                resume.or_else(|| Some(State::new(reached.into_kore()))),
+            ),
+            None => (reached, resume),
+        })
+    }
+
+    /// The trace of a run from the state a stop before a rule left off at: the step by that rule
+    /// first, then `trace`, renumbered after it ([`StopRules::before`]).
+    fn taken_first(&mut self, taken: &TakenStep, trace: Vec<Step>) -> Vec<Step> {
+        let first = Step {
+            index: 1,
+            label: taken.label.clone(),
+            rule_id: taken.rule_id.clone(),
+            origin: self
+                .origins
+                .step_origin(self.provenance.get(&taken.rule_id)),
+        };
+        std::iter::once(first)
+            .chain(trace.into_iter().map(|step| Step {
+                index: step.index.saturating_add(1),
+                ..step
+            }))
+            .collect()
+    }
+
+    /// The `UNIQUE_ID`s of a run's stop rules, each name resolved among the rewrite rules
+    /// ([`StopRules`]).
+    fn stop_ids(&self, stop: &StopRules) -> Result<StopIds, ExecError> {
+        let resolve = |names: &[String]| {
+            let mut ids = BTreeSet::new();
+            for name in names {
+                ids.extend(self.rules.resolve_rewrite(name)?);
+            }
+            Ok::<_, ExecError>(ids.into_iter().collect::<Vec<_>>())
+        };
+        Ok(StopIds {
+            before: resolve(&stop.before)?,
+            after: resolve(&stop.after)?,
+        })
+    }
+
+    /// The stop a run's end is, if it is one: a cut-point leaf names its rule as its one
+    /// candidate's; a terminal leaf names it only in its `detail` text, which is no stable
+    /// encoding, so the rule is the one identity the stop rules select, or the last step of the
+    /// trace.
+    fn stop(&mut self, leaf: &ExecutionLeaf, stops: &StopIds, trace: &[Step]) -> Option<Stop> {
+        let (at, rule_id) = match leaf.reason {
+            HaltReasonOutput::CutPoint => (
+                StopAt::Before,
+                leaf.candidates
+                    .as_deref()
+                    .and_then(|candidates| match candidates {
+                        [candidate] => Some(candidate.unique_id.clone()),
+                        _ => None,
+                    }),
+            ),
+            HaltReasonOutput::Terminal => (
+                StopAt::After,
+                match stops.after.as_slice() {
+                    [id] => Some(id.clone()),
+                    _ => trace.last().map(|step| step.rule_id.clone()),
+                },
+            ),
+            _ => return None,
+        };
+        let rule = rule_id.map(|rule_id| {
+            let provenance = self.provenance.get(&rule_id);
+            NamedRule {
+                label: self.rules.get(&rule_id).and_then(|rule| rule.label.clone()),
+                item: origin::item(provenance),
+                origin: self.origins.step_origin(provenance),
+                rule_id,
+            }
+        });
+        Some(Stop { at, rule })
     }
 
     /// A run's coverage by identity, from k-rust's lists ([`Coverage`]): each identity once, with
     /// the predicates that hold of it, its label and kind from the definition's catalog, and its
     /// KRS origin.
-    fn coverage(&mut self, coverage: RunCoverageOutput, offered: bool) -> Coverage {
+    ///
+    /// The step by a stop-before rule is the resumed run's ([`StopRules::before`]): `proposed`,
+    /// the rule a run stopped before, loses the application the backend counts for the
+    /// successor it proposed, and `taken`, the rule whose step leads to the run's start, is
+    /// committed and gains it.
+    fn coverage(
+        &mut self,
+        coverage: RunCoverageOutput,
+        offered: bool,
+        taken: Option<&str>,
+        proposed: Option<&str>,
+    ) -> Coverage {
         let RunCoverageOutput {
             applied,
             matched,
@@ -1279,13 +1607,30 @@ impl Semantics {
             committed,
             ..
         } = coverage;
-        let applied = applied.into_iter().collect::<BTreeSet<_>>();
+        let mut applied = applied.into_iter().collect::<BTreeSet<_>>();
         let matched = matched.into_iter().collect::<BTreeSet<_>>();
-        let committed = committed
+        let mut committed = committed
             .unwrap_or_default()
             .into_iter()
             .collect::<BTreeSet<_>>();
-        let counts = applied_counts.unwrap_or_default();
+        let mut counts = applied_counts.unwrap_or_default();
+        if let Some(id) = proposed
+            && let Some(count) = counts.get_mut(id)
+        {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                counts.remove(id);
+                if !committed.contains(id) {
+                    applied.remove(id);
+                }
+            }
+        }
+        if let Some(id) = taken {
+            applied.insert(id.to_owned());
+            committed.insert(id.to_owned());
+            let count = counts.entry(id.to_owned()).or_default();
+            *count = count.saturating_add(1);
+        }
         // Each list is included in the one before it (k-rust's "Run coverage"); the union is
         // taken anyway, so an identity is listed whichever list names it.
         let ids = offered_ids
@@ -1335,21 +1680,23 @@ impl Semantics {
     /// when `trace` asks for the report's.
     fn before_valueless(
         &mut self,
-        state: &State,
+        start: &Pattern,
         mut leaf: ExecutionLeaf,
         decides: bool,
         trace: bool,
+        stops: &StopIds,
     ) -> Result<ExecutionLeaf, ExecError> {
         let mut depth = leaf.depth;
         while depth > 0 {
             depth -= 1;
             let request = run_request(
-                state,
+                start,
                 &RunOptions {
                     depth: Some(depth),
                     trace,
                     ..RunOptions::default()
                 },
+                stops,
             );
             let leaves = self.backend.execute(request)?.leaves;
             let earlier = match one_path(leaves, self.heads(decides)) {
@@ -1438,7 +1785,7 @@ impl Semantics {
         if self.has_stream_cells() {
             return Err(ExecError::SearchWithStreams);
         }
-        let response = search_backend(&mut self.backend, state.0.clone(), options)?;
+        let response = search_backend(&mut self.backend, state.pattern.clone(), options)?;
         // A final state of `=>!` is one no rule applies to; one at the step bound may not be.
         if options.mode == SearchMode::Final && check_ends() {
             for solution in &response.states {
@@ -1715,14 +2062,17 @@ impl Semantics {
     }
 }
 
-/// The backend request of a run from `state` under `options`: strategy `any`, as krun follows one
+/// The backend request of a run from `start` under `options`: strategy `any`, as krun follows one
 /// path, with the backend's trace kept only for a run that reports one (k-rust keeps it unless
-/// asked not to, an entry per rewrite and simplification of the path).
-fn run_request(state: &State, options: &RunOptions) -> ExecuteRequest {
-    let mut request = ExecuteRequest::new(state.0.clone());
+/// asked not to, an entry per rewrite and simplification of the path), and the stop rules by
+/// `UNIQUE_ID`, which the backend selects as it selects them by label.
+fn run_request(start: &Pattern, options: &RunOptions, stops: &StopIds) -> ExecuteRequest {
+    let mut request = ExecuteRequest::new(start.clone());
     request.strategy = ExecutionStrategy::Any;
     request.max_depth = options.depth;
     request.trace = options.trace;
+    request.cut_point_rules.clone_from(&stops.before);
+    request.terminal_rules.clone_from(&stops.after);
     if let Some(coverage) = options.coverage {
         request.collect_coverage = true;
         request.collect_counts = true;
@@ -1730,6 +2080,52 @@ fn run_request(state: &State, options: &RunOptions) -> ExecuteRequest {
         request.collect_offered = coverage.offered;
     }
     request
+}
+
+/// The successor a cut-point leaf proposes for the step by its stop rule
+/// ([`StopRules::before`]), read as the end of a run is ([`one_path`]): where it has no value,
+/// the step reaches no state, and the leaf, at the state the rule would rewrite, is then
+/// undefined (`vacuous`), with the terms with no value (`Err`); otherwise it stays the stop.
+fn read_proposal(
+    mut leaf: ExecutionLeaf,
+    heads: &dyn valueless::Heads,
+) -> Result<(ExecutionLeaf, Result<Proposal, Vec<Pattern>>), PathError> {
+    let candidate = cut_point_candidate(&leaf).map_err(PathError::Unread)?;
+    let (proposed, rule_id, label) = (
+        candidate.state.clone(),
+        candidate.unique_id.clone(),
+        candidate.label.clone(),
+    );
+    let successor = kore_pattern(&proposed).map_err(PathError::Unread)?;
+    let at = std::mem::replace(&mut leaf.state, proposed);
+    let read = one_path(vec![leaf], heads)?;
+    let mut leaf = read.leaf;
+    leaf.state = at;
+    if read.held {
+        leaf.reason = HaltReasonOutput::Vacuous;
+        return Ok((leaf, Err(read.valueless)));
+    }
+    leaf.reason = HaltReasonOutput::CutPoint;
+    Ok((
+        leaf,
+        Ok(Proposal {
+            successor,
+            rule_id,
+            label,
+        }),
+    ))
+}
+
+/// The one candidate of a cut-point leaf: the stop rule's step, its successor normalized by the
+/// backend as any successor is.
+fn cut_point_candidate(leaf: &ExecutionLeaf) -> Result<&ExecutionCandidateOutput, ExecError> {
+    match leaf.candidates.as_deref() {
+        Some([candidate]) => Ok(candidate),
+        candidates => Err(ExecError::Result(format!(
+            "a stop before a rule must propose one successor; the backend proposed {}",
+            candidates.map_or(0, <[_]>::len)
+        ))),
+    }
 }
 
 /// The K name of the main cell of the definition's configuration, the cell both backends mark
