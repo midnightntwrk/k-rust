@@ -1124,13 +1124,29 @@ impl TranslationState {
             // (`Term::first_conjunct`). Every atom over it is read under that domain
             // (`atom_with_domains`), so the first conjunct's value is read only where it is the
             // conjunction's, as a partial hook's total operation is: faithful in every polarity,
-            // and exact where the operands' readings and domains are (GAP K35, K36). A
-            // conjunction with a set variable, which may denote several elements, stays an
-            // opaque constant of its sort gated by its opaque `\ceil`.
+            // and exact where the operands' readings and domains are (GAP K35, K36).
             // A request or condition with such an atom states that domain beside it, the
             // equality of the operands (`definedness::and_side`, GAP K30).
-            TermKind::And(..) => {
-                if crate::definedness::holds_set_variable(term) {
+            //
+            // With a set variable the conjunction is read by how many elements it may denote.
+            // When one side holds none, that side denotes at most one element, so the
+            // intersection does too: it is that element or nothing, an opaque constant of its
+            // sort read under its opaque `\ceil` (every K valuation extends to a model, the
+            // constant taking the element where there is one), an approximate reading. When
+            // both sides hold set variables the intersection may have several elements
+            // (`@S ∧ @T` with `S = T = {-1, 0}` is `{-1, 0}`), and no single value reads it:
+            // `(@S ∧ @T) + 1 > 0` is then `{false, true}`, defined and neither `true` nor
+            // `false`, which no one SMT constant for the conjunction satisfies. The opaque `\ceil` does not save that
+            // reading: an atom is gated by its operand's domain, which a stated `\ceil` of the
+            // operand removes, and the domain holding does not make the operand one value.
+            // Such a conjunction is refused, so no atom over it is posed
+            // (`TranslationError::NonBooleanAnd`, the wire variant this refusal reuses).
+            TermKind::And(left, right) => {
+                if crate::definedness::holds_set_variable(left)
+                    && crate::definedness::holds_set_variable(right)
+                {
+                    Err(TranslationError::NonBooleanAnd(term.clone()))
+                } else if crate::definedness::holds_set_variable(term) {
                     Ok(self.abstract_term(term, Exactness::Approximate))
                 } else {
                     self.translate_term(term.first_conjunct())
@@ -2591,8 +2607,10 @@ fn translate_query_in_state(
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum TranslationError {
-    /// Not produced since GAP K36, which reads a term-level `\and` of every sort by its domain
-    /// plan; kept for the wire format.
+    /// A term-level `\and` both of whose sides hold set variables: it may denote several
+    /// elements, so no single SMT value reads it. Every other conjunction is translated (GAP
+    /// K36 reads one of any sort by its domain plan); the name, from when a non-Boolean
+    /// conjunction was refused, is kept for the wire format (`non-boolean-and`).
     NonBooleanAnd(Term),
     PlaceholderOutOfBounds {
         placeholder: usize,

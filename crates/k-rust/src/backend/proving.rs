@@ -149,7 +149,14 @@ pub fn definition_digest(definition: &Definition, spec_module: &str) -> String {
 ///   asserted where its `requires`' total reading held and K's did not, so the solver could
 ///   answer valid or unsatisfiable where K does not, and so
 ///   discharge a step or prune a branch, and prove a false claim, with neither the claim nor the
-///   definition changed; every proof saved under the previous reading is set aside.
+///   definition changed; every proof saved under the previous reading is set aside;
+/// - `solver-set-variable-conjunctions-refused-5`: the solver refuses a term-level `\and` both of
+///   whose sides hold set variables, at every sort, so no atom over it is posed. Such a
+///   conjunction may denote several elements (`@S ∧ @T` with `S = T = {-1, 0}`), and the previous
+///   reading took it as one opaque SMT constant, so facts K satisfies (an atom over it defined
+///   and neither `true` nor `false`) were contradictory to the solver, which could answer valid
+///   or unsatisfiable where K does not, and so prove a false claim; every proof saved under the
+///   previous reading is set aside.
 ///
 /// The backend gives a claim its reading when it internalizes it
 /// (`k_rust_backend::claim::internalize_reachability_claim` and
@@ -160,7 +167,7 @@ pub fn definition_digest(definition: &Definition, spec_module: &str) -> String {
 /// solver's reading of a predicate, or to the facts the solver is given. A change that only
 /// proves more (a completeness gain) need not, since every answer the previous reading gave
 /// still holds.
-const CLAIM_READING: &str = "solver-atoms-with-operand-definedness-4";
+const CLAIM_READING: &str = "solver-set-variable-conjunctions-refused-5";
 
 /// The assumptions of a proof run that change what a `proven` claim certifies, beside the
 /// compiled definition ([`saved_proofs_digest`]).
