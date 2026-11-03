@@ -12,7 +12,9 @@
 
 use std::collections::BTreeMap;
 
-use krs_ir::cell_kind::{CellKind, DescriptorCell, EntryKind, GroupKind};
+use krs_ir::cell_kind::{
+    CellKind, DescriptorCell, EntryKind, GroupKind, Layer, Multiplicity, Order,
+};
 use krs_ir::{
     ConfigurationSentenceKind, DescriptorBundle, DescriptorCellDeclaration, DescriptorCellIdentity,
     DescriptorIndex, DescriptorPayload, ProtocolCellContent, SourceRange, StableItemId,
@@ -283,12 +285,17 @@ fn judge_sentence(
     }
     .judge();
     if let Err((at, refusal)) = judged {
+        let side = if at < subject.len() {
+            EntrySide::Subject
+        } else {
+            EntrySide::Result
+        };
         let entry = subject
             .iter()
             .chain(&result)
             .nth(at)
             .expect("the refused entry is the sentence's");
-        return Err(refused(entry, refusal));
+        return Err(refused(entry, refusal, advice(&tree, entry, side, refusal)));
     }
     Ok(())
 }
@@ -386,26 +393,154 @@ impl<'i, 'a> Tree<'i, 'a> {
         }
     }
 
+    /// The cell `identity` names: its ancestors, outermost first, itself, and its owner.
+    fn cell(
+        &self,
+        identity: &DescriptorCellIdentity,
+    ) -> Option<&(
+        Vec<DescriptorCell<'i, 'a>>,
+        DescriptorCell<'i, 'a>,
+        &'a StableItemId,
+    )> {
+        self.cells.iter().find(|(_, cell, owner)| {
+            *owner == &identity.owner && cell.field().rust_field == identity.field
+        })
+    }
+
     /// The kind an entry naming `identity` is judged against.
     fn kind(&self, identity: &DescriptorCellIdentity) -> Option<EntryKind> {
-        let (ancestors, cell, _) = self.cells.iter().find(|(_, cell, owner)| {
-            *owner == &identity.owner && cell.field().rust_field == identity.field
-        })?;
+        let (ancestors, cell, _) = self.cell(identity)?;
         Some(CellKind::entry(ancestors, cell))
     }
 }
 
-fn refused(entry: &Entry<'_>, refusal: Refusal) -> CollectionError {
-    let error = CollectionError::new(
-        CollectionErrorKind::CellEntry(refusal),
-        refusal.reason(&entry.cell.field).unwrap_or_else(|| {
-            format!(
-                "the entry of the cell `{}` is refused: {}",
-                entry.cell.field,
-                refusal.class()
-            )
-        }),
-    );
+/// What the author is told to write instead of a refused entry, where the refusal's class has
+/// one spelling to advise:
+/// - `cell-wrapper`: the `cells!` spelling of the cell's own kind, its marks outermost first;
+/// - the result side of a path refusal below `*` (S1 (b)): an entry can name a cell only at a
+///   record's level, so the result updates the instance of the outermost collection that its
+///   subject names (`me @ ..` there), through the instance's record (`..me`). That is the
+///   spelling for a child of the instance's own record other than a Map collection's key,
+///   which is the instance's identity and so no update writes another.
+fn advice(
+    tree: &Tree<'_, '_>,
+    entry: &Entry<'_>,
+    side: EntrySide,
+    refusal: Refusal,
+) -> Option<String> {
+    let name = entry
+        .cell
+        .field
+        .strip_prefix("r#")
+        .unwrap_or(&entry.cell.field);
+    match refusal {
+        Refusal::CellWrapper => {
+            let own = &entry.kind.own.layers;
+            Some(format!(
+                "`{name}` holds {}, so write its entry as `{}`",
+                described(own),
+                spelled(own)
+            ))
+        }
+        Refusal::BelowCollectionAncestor if side == EntrySide::Result => {
+            let (ancestors, _, owner) = tree.cell(entry.cell)?;
+            let collection = ancestors
+                .iter()
+                .find(|ancestor| ancestor.kind().multiplicity() != Multiplicity::One)?;
+            let Multiplicity::Many(order) = collection.kind().multiplicity() else {
+                return None;
+            };
+            let field = collection.field();
+            let ProtocolCellContent::Nested { declaration } = &field.content else {
+                return None;
+            };
+            let instance = &declaration.declaration;
+            let collection_name = field
+                .rust_field
+                .strip_prefix("r#")
+                .unwrap_or(&field.rust_field);
+            let of =
+                format!("`{name}` is a cell of an instance of the collection `{collection_name}`");
+            let key = collection
+                .kind()
+                .group()
+                .and_then(|group| group.key(order))
+                .is_some_and(|key| key == name);
+            if *owner != instance || key {
+                return Some(format!(
+                    "{of}; a result updates such an instance through the record of the collection's entry, which its subject names (`me @ ..`) and the result puts back with `..me` after the children it writes"
+                ));
+            }
+            let path = std::iter::once("crate")
+                .chain(instance.module_path().iter().map(String::as_str))
+                .chain(std::iter::once(instance.item_name()))
+                .collect::<Vec<_>>()
+                .join("::");
+            let (open, close) = match order {
+                Order::List => ("[", "]"),
+                Order::Set | Order::Map => ("{ ", " }"),
+            };
+            Some(format!(
+                "{of}, and a result updates the instance its subject names, `{collection_name}: {open}me @ k::fragment![{path} {{ .. }}], ..{close}`; so write the result's entry as `{collection_name}: {open}k::fragment![{path} {{ {name}: v, ..me }}], ..{close}`"
+            ))
+        }
+        _ => None,
+    }
+}
+
+/// The `cells!` spelling of a cell of the layers `layers`, outermost first (P2): `Some(..)`,
+/// instance records in brackets (List) or braces (Set, Map), `KCell(..)`, `Cell(..)`, or a
+/// group's record.
+fn spelled(layers: &[Layer]) -> String {
+    match layers.split_first() {
+        Some((Layer::Optional, inner)) => format!("Some({})", spelled(inner)),
+        Some((Layer::Instances(Order::List), _)) => "[k::fragment![..], ..]".to_owned(),
+        Some((Layer::Instances(Order::Set | Order::Map), _)) => {
+            "{ k::fragment![..], .. }".to_owned()
+        }
+        Some((Layer::Computation, _)) => "k::configuration::KCell(..)".to_owned(),
+        Some((Layer::Leaf(_), _)) => "k::configuration::Cell(..)".to_owned(),
+        Some((Layer::Group(_), _)) | None => "k::fragment![..]".to_owned(),
+    }
+}
+
+/// The layers `layers` in words, with their article.
+fn described(layers: &[Layer]) -> String {
+    let noun = noun(layers);
+    let article = if noun.starts_with('o') { "an" } else { "a" };
+    format!("{article} {noun}")
+}
+
+/// The layers `layers` in words.
+fn noun(layers: &[Layer]) -> String {
+    match layers.split_first() {
+        Some((Layer::Optional, inner)) => format!("optional {}", noun(inner)),
+        Some((Layer::Instances(order), _)) => format!(
+            "{} collection of instances",
+            match order {
+                Order::List => "List",
+                Order::Set => "Set",
+                Order::Map => "Map",
+            }
+        ),
+        Some((Layer::Computation, _)) => "computation".to_owned(),
+        Some((Layer::Leaf(_), _)) => "leaf".to_owned(),
+        Some((Layer::Group(_), _)) | None => "group".to_owned(),
+    }
+}
+
+fn refused(entry: &Entry<'_>, refusal: Refusal, advice: Option<String>) -> CollectionError {
+    let mut detail = refusal.reason(&entry.cell.field).unwrap_or_else(|| {
+        format!(
+            "the entry of the cell `{}` is refused: {}",
+            entry.cell.field,
+            refusal.class()
+        )
+    });
+    if let Some(advice) = advice {
+        detail = format!("{detail}: {advice}");
+    }
+    let error = CollectionError::new(CollectionErrorKind::CellEntry(refusal), detail);
     match &entry.field.range {
         Some(range) => error.with_source_range(range.clone()),
         None => error,

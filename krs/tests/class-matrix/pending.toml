@@ -3644,7 +3644,7 @@ deviation = "open-record-outside-pattern advises none, and its refusal advises `
 
 ["k8/claim/result/kinds/code/x"]
 finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `rest @ ..`"
+deviation = "cell-wrapper's refusal advises `rest @ ..`, which cells/subject/pc/k::configuration::Cell(x), cells/result/counter/Some(k::configuration::Cell(x)), cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..], cells/shorthand/kinds/bag/{ k::fragment![crate::Obj { key, .. }], .. }, sweep/cells/result/c08-ohcell/Some(k::fragment![crate::Ho { ohl: [x], ohb: 0 }]) does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
 
 ["k8/readable/result/kinds/code/G { a: x, .. }"]
 finding = "S0-9"
@@ -3652,7 +3652,7 @@ deviation = "open-record-outside-pattern advises none, and its refusal advises `
 
 ["k8/readable/result/kinds/code/x"]
 finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `rest @ ..`"
+deviation = "cell-wrapper's refusal advises `rest @ ..`, which cells/subject/pc/k::configuration::Cell(x), cells/result/counter/Some(k::configuration::Cell(x)), cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..], cells/shorthand/kinds/bag/{ k::fragment![crate::Obj { key, .. }], .. }, sweep/cells/result/c08-ohcell/Some(k::fragment![crate::Ho { ohl: [x], ohb: 0 }]) does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
 
 ["readable/overwrite/kinds/account/{ y -> x, .. }"]
 finding = "S0-9"
@@ -5400,11 +5400,11 @@ deviation = "rest-mismatch's refusal advises `rest @ ..`, which readable/result/
 
 ["k8/sweep/claim/result/prog/0"]
 finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `rest @ ..`"
+deviation = "cell-wrapper's refusal advises `rest @ ..`, which cells/subject/pc/k::configuration::Cell(x), cells/result/counter/Some(k::configuration::Cell(x)), cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..], cells/shorthand/kinds/bag/{ k::fragment![crate::Obj { key, .. }], .. }, sweep/cells/result/c08-ohcell/Some(k::fragment![crate::Ho { ohl: [x], ohb: 0 }]) does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
 
 ["k8/sweep/claim/result/prog/G { a: x }"]
 finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `rest @ ..`"
+deviation = "cell-wrapper's refusal advises `rest @ ..`, which cells/subject/pc/k::configuration::Cell(x), cells/result/counter/Some(k::configuration::Cell(x)), cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..], cells/shorthand/kinds/bag/{ k::fragment![crate::Obj { key, .. }], .. }, sweep/cells/result/c08-ohcell/Some(k::fragment![crate::Ho { ohl: [x], ohb: 0 }]) does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
 
 ["k8/sweep/claim/result/prog/G { a: x, .. }"]
 finding = "S0-9"
@@ -5412,7 +5412,7 @@ deviation = "open-record-outside-pattern advises none, and its refusal advises `
 
 ["k8/sweep/claim/result/prog/G { a: x, b: y, .. }"]
 finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `rest @ ..`"
+deviation = "cell-wrapper's refusal advises `rest @ ..`, which cells/subject/pc/k::configuration::Cell(x), cells/result/counter/Some(k::configuration::Cell(x)), cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..], cells/shorthand/kinds/bag/{ k::fragment![crate::Obj { key, .. }], .. }, sweep/cells/result/c08-ohcell/Some(k::fragment![crate::Ho { ohl: [x], ohb: 0 }]) does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
 
 ["k8/sweep/claim/result/prog/None"]
 finding = "S0-9"
@@ -5448,7 +5448,7 @@ deviation = "anonymous-rest-in-map-literal's refusal advises `rest @ ..`, which 
 
 ["k8/sweep/claim/result/prog/x"]
 finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `rest @ ..`"
+deviation = "cell-wrapper's refusal advises `rest @ ..`, which cells/subject/pc/k::configuration::Cell(x), cells/result/counter/Some(k::configuration::Cell(x)), cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..], cells/shorthand/kinds/bag/{ k::fragment![crate::Obj { key, .. }], .. }, sweep/cells/result/c08-ohcell/Some(k::fragment![crate::Ho { ohl: [x], ohb: 0 }]) does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
 
 ["k8/sweep/claim/result/prog/{ G { a: x, b: y } }"]
 finding = "S0-9"
@@ -5832,11 +5832,11 @@ deviation = "rest-mismatch's refusal advises `rest @ ..`, which readable/result/
 
 ["k8/sweep/readable/result/prog/0"]
 finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `rest @ ..`"
+deviation = "cell-wrapper's refusal advises `rest @ ..`, which cells/subject/pc/k::configuration::Cell(x), cells/result/counter/Some(k::configuration::Cell(x)), cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..], cells/shorthand/kinds/bag/{ k::fragment![crate::Obj { key, .. }], .. }, sweep/cells/result/c08-ohcell/Some(k::fragment![crate::Ho { ohl: [x], ohb: 0 }]) does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
 
 ["k8/sweep/readable/result/prog/G { a: x }"]
 finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `rest @ ..`"
+deviation = "cell-wrapper's refusal advises `rest @ ..`, which cells/subject/pc/k::configuration::Cell(x), cells/result/counter/Some(k::configuration::Cell(x)), cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..], cells/shorthand/kinds/bag/{ k::fragment![crate::Obj { key, .. }], .. }, sweep/cells/result/c08-ohcell/Some(k::fragment![crate::Ho { ohl: [x], ohb: 0 }]) does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
 
 ["k8/sweep/readable/result/prog/G { a: x, .. }"]
 finding = "S0-9"
@@ -5844,7 +5844,7 @@ deviation = "open-record-outside-pattern advises none, and its refusal advises `
 
 ["k8/sweep/readable/result/prog/G { a: x, b: y, .. }"]
 finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `rest @ ..`"
+deviation = "cell-wrapper's refusal advises `rest @ ..`, which cells/subject/pc/k::configuration::Cell(x), cells/result/counter/Some(k::configuration::Cell(x)), cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..], cells/shorthand/kinds/bag/{ k::fragment![crate::Obj { key, .. }], .. }, sweep/cells/result/c08-ohcell/Some(k::fragment![crate::Ho { ohl: [x], ohb: 0 }]) does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
 
 ["k8/sweep/readable/result/prog/None"]
 finding = "S0-9"
@@ -5880,7 +5880,7 @@ deviation = "anonymous-rest-in-map-literal's refusal advises `rest @ ..`, which 
 
 ["k8/sweep/readable/result/prog/x"]
 finding = "S0-9"
-deviation = "cell-wrapper advises none, and its refusal advises `rest @ ..`"
+deviation = "cell-wrapper's refusal advises `rest @ ..`, which cells/subject/pc/k::configuration::Cell(x), cells/result/counter/Some(k::configuration::Cell(x)), cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..], cells/shorthand/kinds/bag/{ k::fragment![crate::Obj { key, .. }], .. }, sweep/cells/result/c08-ohcell/Some(k::fragment![crate::Ho { ohl: [x], ohb: 0 }]) does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
 
 ["k8/sweep/readable/result/prog/{ G { a: x, b: y } }"]
 finding = "S0-9"

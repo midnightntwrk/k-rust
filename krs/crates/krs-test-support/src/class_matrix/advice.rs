@@ -625,6 +625,16 @@ pub const UNCHECKED: &[Unchecked] = &[
         reason: "the advice is the map entry's own notation at the placeholders `key` and `value`, which no case spells, for a named rest `r @ ..` in an initializer's `k::map![..]` (S5.0g item 3b's listed initializers); the class's advised case writes a pattern in `k::matches!(x, Cmd::Hold(_))`",
     },
     Unchecked {
+        class: "collection-without-instances",
+        forms: &[
+            r"`account: \{ k::fragment![crate::Acct \{ {acode,aolist,aomap}: v\, ..me \}]\, .. \}`",
+            r"`bag: \{ k::fragment![crate::Obj \{ key: v\, ..me \}]\, .. \}`",
+            r"`job: [k::fragment![crate::Job \{ payload: v\, ..me \}]\, ..]`",
+        ],
+        shards: &["cells"],
+        reason: "the advice is the update of the instance whose child the case's result names by its path (P-R6), at that child, which only a case updating that child of that collection writes; the class's advised case writes the update of another child (`aframe`) of the Map collection `account`'s instance",
+    },
+    Unchecked {
         class: "configuration-variable-sort",
         forms: NARROWED,
         shards: &["terms"],

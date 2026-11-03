@@ -160,7 +160,9 @@ advice = "none"
 code = "krs::analysis::cell-wrapper"
 doc = "an entry whose wrapper is not its cell's, the spellings of its examples: the computation's wrapper, or a `cells!` leaf's `Cell(..)`, on a cell where no layer has it (P3b; on an optional cell or a collection too, design ruling 6 withdrawn); or a value where the computation's or a `cells!` leaf's wrapper is missing (P3c), where its inside passes form and kind (P3). Readable brackets are not this class's off the computation: they are the List leaf's or the List collection's mark, `bracket-reading` or `instance-list-shape` elsewhere"
 examples = ["readable ; subject ; - ; computation ; x ; -", "cells ; subject ; - ; leaf Int ; x ; -", "cells ; subject ; - ; leaf Int ; k::configuration::KCell(x, ..) ; -", "cells ; subject ; - ; * List of G ; k::configuration::Cell(x) ; -", "cells ; subject ; - ; ? leaf Int ; k::configuration::KCell(x, ..) ; -", "init ; init ; - ; computation ; 0 ; -"]
-advice = "none"
+# A `cells!` refusal advises the spelling of the cell's own kind, its marks outermost first (P2):
+# `Cell(..)`, `KCell(..)`, `Some(..)`, instance records in brackets or braces, a group's record.
+advice = ["cells/subject/pc/k::configuration::Cell(x)", "cells/result/counter/Some(k::configuration::Cell(x))", "cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..]", "cells/shorthand/kinds/bag/{ k::fragment![crate::Obj { key, .. }], .. }", "sweep/cells/result/c08-ohcell/Some(k::fragment![crate::Ho { ohl: [x], ohb: 0 }])"]
 
 [class.claim-only-term]
 code = "krs::expand::claim-only-term"
@@ -181,7 +183,9 @@ advice = "none"
 code = "krs::analysis::collection-entry"
 doc = "a `*` collection written without its instance list, the spellings of its examples, where the entry's inside passes form and kind against the instance group (P3c, with P3's reason at every depth: otherwise the inside's own refusal is named, S5.0g pattern review P-R5); or a rule's or claim's entry naming a cell below a `*` ancestor (S1 b, the rule forms'; an initializer, a struct literal of the configuration, names no cell by a path), where no single cell has the content it names: name the instance with an instance record, `account: { Account { balance: .., .. }, .. }` (S1 b)"
 examples = ["readable ; subject ; - ; * List of G ; x ; -", "readable ; subject ; - ; * Set of G ; _ ; -", "readable ; subject ; - ; * Map of G ; 0 ; -", "readable ; subject ; - ; * List of G ; G { a: x, .. } ; -", "readable ; subject ; * ; leaf Int ; x ; -", "cells ; result ; * ; leaf Int ; k::configuration::Cell(x) ; k::configuration::Cell(old)"]
-advice = "none"
+# A `cells!` result's path refusal below `*` advises the update of the instance the subject names
+# (P-R6): `{ me @ k::fragment![T { .. }], .. }` => `{ k::fragment![T { child: v, ..me }], .. }`.
+advice = ["cells/g4-b/kinds/account/{ k::fragment![crate::Acct { aframe: Ag { aa: x }, ..me }], ..instances0 }"]
 
 [class.continuation-in-readable]
 code = "krs::syntax::continuation-in-readable"
