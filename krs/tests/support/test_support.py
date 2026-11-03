@@ -51,6 +51,75 @@ class CheckWarningTests(unittest.TestCase):
         )
 
 
+class ArtifactGateRoundTripTests(unittest.TestCase):
+    """The port gate's expansion round trip: the crate compiled from `krs expand` emits the
+    authored K, up to `support.k_round_trip`'s normalization."""
+
+    AUTHORED = "module M\n  rule <k> f ( X:Int ) => g ( X:Int ) ... </k>\nendmodule\n"
+
+    def artifact_gate(self, root: Path, printed_k: str) -> None:
+        manifest = root / "port" / "Cargo.toml"
+        manifest.parent.mkdir()
+        manifest.write_text("[package]\n", encoding="utf-8")
+        port = mock.Mock(descriptors=1, manifest=manifest, package="port")
+        port.target.return_value = root / "target"
+
+        def emission(directory: Path, text: str) -> Path:
+            directory.mkdir(parents=True, exist_ok=True)
+            directory.joinpath("definition.k").write_text(text, encoding="utf-8")
+            return directory
+
+        def invoke(command: str, *arguments: object, **_: object) -> mock.Mock:
+            if command == "check":
+                return mock.Mock(stdout="KRS check passed: 1 descriptors", stderr="")
+            if arguments:  # `expand --output DIRECTORY`
+                printed = Path(arguments[1]) / "src" / "lib.rs"
+                printed.parent.mkdir(parents=True)
+                printed.write_text("printed", encoding="utf-8")
+                return mock.Mock(stdout="src/lib.rs\n")
+            return mock.Mock(stdout="printed")
+
+        def command(argv: list[object], **_: object) -> None:
+            if "emit-k" in argv:  # the crate compiled from the expansion
+                emission(Path(argv[argv.index("--output") + 1]), printed_k)
+
+        invocation = mock.Mock()
+        invocation.run.side_effect = invoke
+        invocation.argv.side_effect = lambda *argv: list(argv)
+        session = mock.MagicMock()
+        session.__enter__.return_value.ir_query.return_value = {"shape": "same"}
+        authored = emission(root / "emit-a", self.AUTHORED)
+        with (
+            mock.patch.object(semantics, "Invocation", return_value=invocation),
+            mock.patch.object(semantics, "run", side_effect=command),
+            mock.patch.object(semantics, "fresh_deterministic_emissions", return_value=(authored, authored)),
+            mock.patch.object(semantics, "emitted_files", return_value=("definition.k",)),
+            mock.patch.object(semantics, "exact_directory", return_value={}),
+            mock.patch.object(semantics.krs_gate, "Session", return_value=session),
+        ):
+            gated = semantics.artifact_gate(port, root, Path("krs"), mock.Mock(), Path("gate"), {})
+        self.assertEqual(gated, authored)
+
+    def test_an_expansion_emitting_the_authored_k_up_to_normalization_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            self.artifact_gate(
+                Path(temporary),
+                "module M\n  rule <k> f ( Y:Int ) ~> T:K => g ( Y:Int ) ~> T:K </k>\nendmodule\n",
+            )
+
+    def test_an_expansion_emitting_other_k_fails_with_the_sentence_that_differs(self) -> None:
+        # The typed definition shape is the same; only the K tells the two apart.
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaisesRegex(
+                GateError,
+                r"independently compiled expansion emits other K:\n"
+                r"definition\.k sentence 1:\n  authored: .*g \( V0:Int \).*\n  printed:  .*h \( V0:Int \)",
+            ):
+                self.artifact_gate(
+                    Path(temporary), "module M\n  rule <k> f ( X:Int ) => h ( X:Int ) ... </k>\nendmodule\n",
+                )
+
+
 def write_executable(path: Path, body: str) -> Path:
     path.write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8")
     path.chmod(0o755)

@@ -2,7 +2,8 @@
 
 `krs expand` writes each readable form as its long form. The printed package means what the
 authored one means only if, overlaid on a copy of the package, it checks and emits the same K.
-That is the invariant a feature gate's `expand` step judges (`FixtureGate.expand`).
+That is the invariant a feature gate's `expand` step judges (`FixtureGate.expand`), and a port
+gate's artifact layer for the crate it compiles from the expansion (`semantics.artifact_gate`).
 
 The two emissions are compared sentence by sentence, after one normalization, defined here
 and nowhere else. Each rule maps two K texts that mean the same thing to one text:
