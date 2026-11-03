@@ -51,8 +51,8 @@ source_map_sha256 = "6b62a5417e5f24e9be69f5f22c5fd98c2d05c8c22713be3a0de98ca57f7
 [macro_output.kmir]
 
 [macro_output.kmir."semantics/kmir/src/lib.rs"]
-text_sha256 = "cacdea6cdfe21172e088283a595733ad05601e7b184ba36af7cffff7373557ee"
-source_map_sha256 = "b5fbac64995c3aba75184bd0f8d6a49053143c9f93f1839d74235090ebe91ecb"
+text_sha256 = "ba5ece61f6ee07d769026859c001e7cfdb3d674414cb448b289138e233005331"
+source_map_sha256 = "f6fd0626413c8f483ad198484535e1a11494c690a2734fbf4d7e4d6dd35f7cab"
 
 [macro_output.kwasm]
 
