@@ -6,14 +6,14 @@
   },
   "emitted": {
     "krs-sorts-algebra-functions": {
-      "definition.k": "38541cced73e18966c388d49e6d878339c176047695fa17fce763a30054eab44"
+      "definition.k": "179247d90cb8ff7a21427366d09ccbd6549bad5dac0b5b1b7db7959e84b1079c"
     },
     "krs-sorts-algebra-constructors": {
       "definition.k": "30dd1e26c57d957943ec01261e2b0e36b818cddca381a45bee8439a68568707b"
     }
   },
   "reference_sha256": {
-    "krs-sorts-algebra-functions-haskell": "d1173698a0e2e1d53736ebd40d920acf115c075012070c5779ba260b8e262736",
+    "krs-sorts-algebra-functions-haskell": "c41a50d9e19069db7d0ebe85a15eb41dd8bb2f8bdd1b31d1ce96c99e37e615a5",
     "krs-sorts-algebra-constructors": "0a7f500ed285aaf1aa53cf12e257bf4b5bdf1d9dfc61e19076d895744decb64d"
   },
   "outcomes": {

@@ -17,22 +17,22 @@
   },
   "emitted": {
     "krs-rule-forms-priority": {
-      "definition.k": "a60c3ad983ee2eb644fe8626e4f315232742ee25e429394e56ecf62980985cdf"
+      "definition.k": "960fd915065228c21bebc8606304f65d9cbd0c9487d2cfdfb3fac9f7040a47ba"
     },
     "krs-rule-forms-nondet": {
-      "definition.k": "c9e0982b9169053bd75cbf50975a6095e534b191273571d1fbecb4c266cb21bd"
+      "definition.k": "5bf08d773d31dda39b14e4927fc3a520506168ee58c4ecbf9b07d5fd47cb9411"
     },
     "krs-rule-forms-anywhere": {
       "definition.k": "55c8128e14f362e437e7c8fd566227fc1f484a7be2641f857b977294f68cdd4a"
     },
     "krs-rule-forms-casts": {
-      "definition.k": "8380ca647fe1fcaae3f24be121561bc0dd096c05d5144e2fa5261cda3b76f01d"
+      "definition.k": "678d4b93b2950a22cd247f7928194cd29a816de2acd6874c15c11ed7dc127f9a"
     },
     "krs-rule-forms-fresh": {
-      "definition.k": "860c57d1f6d326a50aac6fd49963c240f788a8934e7c681489bd050f1b811bfd"
+      "definition.k": "8e766382fc2026ca24cbf15c04ccb9bb995556cc5cb60cd936fb95e7eee51357"
     },
     "krs-rule-forms-macros": {
-      "definition.k": "678fa1fe96cf5958471f7d0be834ace69a6f5202708fec12e3b9674a6242ba46"
+      "definition.k": "ded161637c293a31fc1e591e5af9e7eedea48ff2f11fcf8ab2097c51549723ee"
     },
     "krs-rule-forms-local-rewrite": {
       "definition.k": "a6d587bd60e27a7c6e7c82911c7985b2c77a612a2449c10be3c332068df3d480"
@@ -63,10 +63,10 @@
     }
   },
   "reference_sha256": {
-    "krs-rule-forms-nondet": "a1a66f1764dfc2ed6b077741c7b5df627d6d34f7292397e1fd614ed2b4d70885",
+    "krs-rule-forms-nondet": "5a1044fe59573348b39bf5f1bb0b58f5095f2ab58ce49c385a62e10dc3eb5618",
     "krs-rule-forms-anywhere": "01bd1be45a81002d4d1d14b9fcfefc598bcf2ba63f2bc1a2ad5b517683151240",
-    "krs-rule-forms-fresh": "f3658a7927331aa881b500b7c2fc0b5d642b86bc9d6d9163521b24614ff78e46",
-    "krs-rule-forms-macros": "ce568da83d6d380328403263c5f9c10d40e355268efa6ebd19f968aef35d1d56",
+    "krs-rule-forms-fresh": "1cc5916f19b5f669d1d32bd2e7115735251f94cd805d8353c3e869704a64c5e0",
+    "krs-rule-forms-macros": "58230052cc960476c15288aa21e36aab2f51951261bff59aec20b1c4b29cc195",
     "krs-rule-forms-local-rewrite": "98525bc9c5b910cb2974bcd0e3922bff729329774fd4fd78a6e511caa3ff28b6",
     "krs-rule-forms-restating-imp": "d261d05bb3a87908277492ab3630d853a74a57d42a43753568322a7cfc676534",
     "krs-rule-forms-local-term": "42080d864f585d7a6c00ce23a085ea25f0e3778f4d8a865de303f8521aff3cdf",
@@ -75,8 +75,8 @@
     "krs-rule-forms-contexts": "30123b598ec24f3b8eaf9f46d3f93e76a8844d23fd8f25136ee227d74623df97",
     "krs-rule-forms-contexts-lvalue": "ec77b0870ada7c966baeea31bcaca7ed55a7b02e176e371025079d7cb27fdd31",
     "krs-rule-forms-contexts-evaluate": "b2277087f1da392b32d900eba6cbc3eb1b6785725894fbed6d4edfe3ded7ca77",
-    "krs-rule-forms-casts": "1950ef8ed9a9b958439b2988984a1a2355bff23b72ea0895e7adb14e143bc3ba",
-    "krs-rule-forms-priority": "f83195d4238d63cf2ed8d8ec8f3ef19cd3c90b1debef7ecaa0114e2cec2e3c10"
+    "krs-rule-forms-casts": "3cad68b909683f3c7e01e81ddd7be369592f03ad65a1e09ac028b1293eba60f1",
+    "krs-rule-forms-priority": "9834fff3c49429c20cf3b7526ae7169a4d7496a98d8a7c5c01148b5752ebad75"
   },
   "outcomes": {
     "krs-rule-forms-priority": {

@@ -1,12 +1,12 @@
 {
   "artifact_sha256": {
-    "definition-ir.json": "34f8759fd0816b5bf331f394701d7f9254d292c4279ce40d8c96e3d6c0305dc0",
-    "definition.k": "1c1560612616be4a22f4a26de9049b0b99411d25d88d24ce855c0aa2d09609a8",
+    "definition-ir.json": "b655bca859775c909eb33aec30fd812ae49df30cccd6287170430cac5b921786",
+    "definition.k": "90259fd928b8822ea904fe76387cc8438c2b84c8eb75b681924264188cad0385",
     "descriptor-bundle.json": "aefd9fa9363226c65469a49f4988ca5a95213616ef0102b49e71ac189e983338",
-    "native-source.txt": "1f6308c35f44ea65a6ddd27057167c11167ce16bfc0c3ebbef8e155362d51271",
+    "native-source.txt": "c7155e1734bdb10f22a172e151839158808a035182b708a4e13fcf3c2f7302ee",
     "semantic-ir.json": "6b7cbe979d2f964e66a8849ea74bfee7c0c2a1ed4a42ac203beb138b88fcfcd2",
-    "sources.json": "8c328ac3b42a3a6dd6b4a095feba4ddc238d8a65eafa2631ce9da7a1072ac859",
-    "symbols.json": "38c38528b5501ad91fca5b7183873eb97fb5bd73799a50de6fdabad0f1d1c38d",
+    "sources.json": "4caea39932b0a2815031621b6346a8be230c082f100c0dc4ec26544337c93942",
+    "symbols.json": "8425d6eda6a237067ffcb448614002a23f7d9453304558c6d287a4d83dabd490",
     "spec.k": "46ad9636a91feb24b3c1b18752e64d36922f702322b3ae586c66a700b0fc6133"
   },
   "behavior": {
@@ -2050,11 +2050,11 @@
   },
   "reference_sha256": {
     "kompile-tests": "3320acf165f6fe601602a58decb2ad7b76870644c3f8fd40678e7f7abdd4f066",
-    "source-definitions": "a2f5a9f38cf1ff87621c99398597882706ed01a3c6ed4bf1aaec22a82d3d904d",
-    "native-claims": "035d9a30ad829d26f3b9e9ca6ff4862807a3ee2fd8e93a68bbc70afd04f57ec2",
-    "behavior": "a9a0a0977cbd403b51e7743f069fbef5178f9e4a0f77ca16f29049a5fa79e23c",
-    "proofs": "66f96bf72820cfd63a8ba82d9c78867998df2b3eb126417570a630551f2561dc",
-    "frontend-diagnostic": "ee14641253225485d5b3166c1d551ba1691a5ff8c38bfde7bd398baedabe7fd4"
+    "source-definitions": "ba287dc9fb84941abd099a7696f9228ae58f679f2ffa1b12467fec5a48efc451",
+    "native-claims": "990848320621a215a00e09b1bc3f538958f8e74b853281b3a25a3ca35fad478f",
+    "behavior": "f8f15afa0e668ce6b369784d9bbbc0873100f05a8fdcf0133a5c7486d8a00629",
+    "proofs": "625c3892c421f1d4f6fc8c537d16cc94843d9c57b27bf1d409b074d7500346bc",
+    "frontend-diagnostic": "9a6c91aa4f67401b122aa2596d61f57bf798131fec9d6340a96ea603e76e6ba0"
   },
   "native_proof_divergences": {
     "bmc-loop-concrete": {

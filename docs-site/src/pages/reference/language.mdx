@@ -810,6 +810,7 @@ An arm that overlaps an earlier one with the same result is not reported, since 
 Each equation is named after the function and its branch's position, from 1, and a branch inside a branch appends its own: `signed_less_2` for the second arm, `nested_2_1` for the first branch of the second arm's `match`.
 Adding a branch at the end keeps every other name.
 `#[k::label(name)]` on an arm, which Rust allows on a match arm, names its equation instead, and the branches inside it take `name_1`, `name_2`; give an arm a label wherever its identity matters, such as a proof hint, because reordering arms renumbers the others.
+An equation's default K label spells its name in the function's module, `<namespace>--<module>--…--<name>` (see [labels](#concrete-symbolic-and-smt-lemmas)): the third branch of `InterruptVector` in `src/interrupt.rs` of the namespace `SM83` is `sm83--interrupt--interrupt_vector_3`, and the first branch inside `#[k::label(vblank)]` is `sm83--interrupt--vblank_1`, so a renumbered branch is also relabelled.
 `krs expand` prints each branch as its `#[k::equation]` fn.
 
 A branching body is not K's `#if c #then a #else b #fi`: that is one function application, undefined wherever either branch is, so `#if map::in_keys(i, s) #then map::get(s, i) #else 0 #fi` would be undefined where the key is absent.
@@ -1195,6 +1196,11 @@ fn chop(k::term![Chop(i)]: Term<Int>) -> Term<Int> { int::rem_euclid(i, 256) }
 `symbolic(x)` applies it only when `x` contains a variable.
 `smt_lemma` hands the equation to Z3 as an axiom, so the solver can use it on terms the prover never rewrites; like an SMT translation it is trusted, not checked.
 KRS emits K's attributes with the sentence's variable names, before the label: `[simplification, concrete(X), smt-lemma, label(..)]`, `[simplification(40), concrete(C), symbolic(S), label(..)]`, and `[concrete, smt-lemma, label(..)]`.
+An equation, simplification, or term rule without `label = ".."` is labelled by its item's path: the K namespace with its letters lowered and `-` written `_`, each module below the crate root, and the fn's or row's name, joined by `--`, as `nat--plus_zero` for `plus_zero` at the crate root of the namespace `NAT`, or `sm83_core--cpu--alu--add_carry` for `add_carry` in `src/cpu/alu.rs` of `SM83-CORE`.
+No Rust identifier holds a `-`, so the label spells exactly one item, and K writes it in a `label(..)` attribute, which K does not qualify by module, so every tool names the sentence by that text.
+The label depends on the item's path only: editing the body or moving lines keeps it, and renaming or moving the item renames it.
+An item whose path is not ASCII, and an equation of a lifted local function, have no such spelling and are labelled `krsRule_` and a hash of their identity instead.
+A label that another sentence's label already is, authored or default, is refused with both owners named (`krs::analysis::name-collision`), never renamed.
 A label names one sentence in place of its fn's or row's name: `label = ".."` is a key of `#[k::equation(..)]` (on a fn and a table row) and `#[k::simplification(..)]` as of `#[k::rule(..)]`, and of a function shorthand's `#[k::function(..)]`, where it names the one equation a body that is a term defines; a shorthand whose body defines several equations (one per branch) or none is refused at the label (`krs::syntax::invalid-function-shorthand`), since a label names one sentence.
 Syntax errors (`krs::syntax::invalid-match-restriction`): a repeated key, `concrete` both bare and with a list, an empty list, a value on a key, and any of the keys on `#[k::rule]`, since restrictions apply to equations and simplifications.
 A restriction says when an equation is used, not what it states: an equation restricted to ground `x` still holds where `x` is symbolic, and a function application no equation applies to stays as it is.

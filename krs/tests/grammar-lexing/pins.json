@@ -38,7 +38,7 @@
       "definition.k": "563fc2b87095c9699bf879b478244f88a930b24d899d3cba72b1f47604d89823"
     },
     "krs-grammar-memo": {
-      "definition.k": "305da8a608267e19de46200addaec38d32867810a6e22c7187f5d5ce68188b2d"
+      "definition.k": "ca611abeefc1ed95a85ac802a03433868e5fd3f0f5548f11ccf3c02ee79e399d"
     },
     "krs-grammar-tokens": {
       "definition.k": "2895a11fab8f6592c3ea6c8469e99ba7df5b73bdda7542aa713726c9d070e0f5"
@@ -50,10 +50,10 @@
       "definition.k": "4dce8c7f42a71ad8d660f80ae0654857d7a686cf69208f289de56320fb57e22e"
     },
     "krs-grammar-lists": {
-      "definition.k": "18defbcf9dc5ff3d43483e21f65969699debe1244a44e76902a9ff857ed2a4c0"
+      "definition.k": "1188bd6d01343dd3a74f3d2bd8ea5870a5e012b3ed21b9dce73baf13f031d5b9"
     },
     "krs-grammar-strict-lists": {
-      "definition.k": "8d29021d4af2c21fa35cb4090ffe5eecdf3992976cad415cc4a0b090de111685"
+      "definition.k": "a39ebdcb1ecce7f87f254dd3957f0f2131cc679ab106d6db71db30de771a9a02"
     },
     "krs-grammar-dependency-rules": {
       "definition.k": "1466dc7452d2fdce8adcf938860d8369f2e60a15f716b13baa0b113cba65c53c"
@@ -83,12 +83,12 @@
     "krs-grammar-overload-ambiguous": "416d4919d419a1e014fe8f3fcc92ebf9c2d8b2fe5a2d6b5b21373a8b4161c656",
     "krs-grammar-visibility": "4d14c731fa7d2698a3dc653a094e9589941fbefd2fdb95b5616ff4662edc2d9e",
     "visibility-induced": "5d6285406a792cb2ba60b4f127f57e9de58a8871c114cc0ccb9519fa77f085ab",
-    "krs-grammar-memo": "12db8981d2265c30e5fa8f22c58713f1f72cac7bc74cc177b998d245ef5f2592",
+    "krs-grammar-memo": "e7419ce49965b8cbbe2d7303026a299eb88a3a60b3052f3149413744f397d62f",
     "krs-grammar-tokens": "6038e007449507ecfc82391a579beb7947b999002f21b03704f95353ec84b108",
     "krs-grammar-token-id": "26d03d082d7382915048f74fc8f92ce1e3479367246cf3ab9d856dda7892fb85",
     "krs-grammar-layout": "98581af21c089d65a13f98d9a65d1500e929ff74af122a4e4a18bd0953f88188",
-    "krs-grammar-lists": "80798e106ac55d6a7fad01a51153dd1ce0f051e2ff744e813e1ad4cf6ecf483d",
-    "krs-grammar-strict-lists": "aacb222a350a8c0569afab303909bf4574c1818edcc9056fe194bdf3affeeab3",
+    "krs-grammar-lists": "84f0e23600057d2a1f70b8b24b624e4f7a42be95a7a1cf9f58a5f1ab358db5f3",
+    "krs-grammar-strict-lists": "ae10f7c4c29ad163ed01de7324c205a9488b0f2015ab62315e25eae2919f131b",
     "krs-grammar-dependency-rules": "a3560179d1192210e3a2789cc983248b6ca48426aa75d0a551a92f2f9b95514a"
   },
   "outcomes": {
