@@ -2041,7 +2041,7 @@ mod tests {
                             &inhabitation,
                             &codec::to_value(&state).unwrap()
                         ),
-                        expected
+                        Ok(expected)
                     );
                 }
                 Ok::<_, BackendError>(())
