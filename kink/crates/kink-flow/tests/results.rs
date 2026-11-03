@@ -840,8 +840,8 @@ text = 'h(opaque(1), 2)'
         );
         assert_eq!(document["rules"][2]["fired_by"], json!(["twice"]));
         assert!(document["rules"][2]["reason"].is_null());
-        // KINK-R4 fix round (review N7): 3, since `fired_by`'s meaning changed.
-        assert_eq!(document["version"], 4);
+        // KINK-R4 fix round (review N7): 3, since `fired_by`'s meaning changed; 5 adds `result`.
+        assert_eq!(document["version"], 5);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());

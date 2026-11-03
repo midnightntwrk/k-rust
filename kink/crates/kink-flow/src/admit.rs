@@ -6,7 +6,8 @@
 //! `refused-case`), the load (`kink_corpus::load_source`, which records every non-builtin file
 //! read), the below-floor case check of every loaded file, the semantic-input canonical check,
 //! the compile with its kompile warnings, the representation gate (TB-03), the declaration
-//! census (VI-T13), the input backend, and the definition's full critical-pair check on that
+//! census (VI-T13), the cells the programs' second slot compares (stage `result`:
+//! [`crate::observed`]), the input backend, and the definition's full critical-pair check on that
 //! backend (stage `assume-joined`: every name of `[spec] assume_joined` must name exactly one
 //! finding that can be assumed; fz26 KINK-BASELINE-FINDINGS). Then each program is admitted on
 //! its own: its file is read inside the manifest's directory, its typed inputs are decoded by
@@ -41,6 +42,7 @@
 
 pub use crate::exclusion::ExclusionScope;
 use crate::manifest::{Decoder, FlowManifest, Program};
+use crate::observed::{ResultProjection, result_projection};
 use k_rust::{
     backend::{Backend, BackendOptions},
     kast::Term,
@@ -187,6 +189,9 @@ pub struct AdmittedSpec {
     /// excluded, so no program can be judged on it, and `check` fails. Read once, beside `data`,
     /// from what admission already loaded.
     pub exclusions: DefinitionExclusions,
+    /// What every program's second slot compares: the cells the specification does not declare
+    /// unobservable, narrowed by `[result] cells` (stage `result`; [`crate::observed`]).
+    pub result: ResultProjection,
     /// Which admission produced this specification; the [`ProgramInputs`] admitted beside it
     /// carry the same value, and only this specification opens a session on them.
     admission: AdmissionId,
@@ -802,11 +807,25 @@ fn admit_definition(
     let semantic_input = check_loaded_semantic_input(&loaded)?;
     let validator = NativeValidator::bind(loaded.baseline.clone(), Default::default());
     let compiled = compile_definition_with(&validator, record, |side| census(&loaded, side))?;
-    // The input backend (kink-corpus `input_backend`: the compiled KORE for the main module with
-    // default options, refused as `inputs`/`input-gate`), from KORE parsed once here, since the
-    // definition exclusions read the parsed KORE too.
+    // The compiled KORE, parsed once here: the compared cells, the input backend and the
+    // definition exclusions all read it.
     let kore = k_rust::kore::parser::parse_definition(&compiled.artifacts().definition_kore)
         .map_err(|e| input_gate_refusal(format!("could not parse KORE definition: {e}")))?;
+    let result = result_projection(
+        &compiled,
+        &kore,
+        manifest
+            .result
+            .as_ref()
+            .map(|section| section.cells.as_slice()),
+    )
+    .map_err(|refusal| AdmissionRefusal {
+        stage: "result".into(),
+        reason: refusal.reason().into(),
+        detail: refusal.to_string(),
+    })?;
+    // The input backend (kink-corpus `input_backend`: the compiled KORE for the main module with
+    // default options, refused as `inputs`/`input-gate`).
     let mut backend = Backend::from_definition(
         kore.clone(),
         k_rust::kast::identifier::encode(&spec.main_module),
@@ -827,6 +846,7 @@ fn admit_definition(
             validator,
             data,
             exclusions,
+            result,
             admission: AdmissionId::fresh(),
         },
         backend,

@@ -367,3 +367,35 @@ fn required_keys_types_and_bounds_are_checked() {
     assert_eq!(syntax.key, "");
     assert!(syntax.message.starts_with("invalid TOML"), "{syntax}");
 }
+
+#[test]
+fn result_cells_decode_as_written_and_default_to_none() {
+    assert_eq!(decode(SPEC).unwrap().result, None);
+    let manifest = decode(&format!("{SPEC}[result]\ncells = [\"regs\", \"k\"]\n")).unwrap();
+    assert_eq!(
+        manifest.result,
+        Some(kink_flow::ResultSection {
+            cells: vec!["regs".into(), "k".into()],
+        })
+    );
+}
+
+#[test]
+fn result_cells_errors_name_the_key() {
+    for (text, message) in [
+        ("[result]\n", "missing required key"),
+        ("[result]\ncells = []\n", "at least one cell"),
+        ("[result]\ncells = \"k\"\n", "expected an array"),
+        ("[result]\ncells = [\"k\", \"k\"]\n", "names `k` twice"),
+        ("[result]\ncells = [\"\"]\n", "entry 0 is empty"),
+        ("[result]\ncells = [\"k\", 3]\n", "entry 1 is not a string"),
+    ] {
+        assert_error(&format!("{SPEC}{text}"), "result.cells", message);
+    }
+    assert_error(
+        &format!("{SPEC}[result]\ncells = [\"k\"]\nslots = 2\n"),
+        "result.slots",
+        "unknown key",
+    );
+    assert_error(&format!("result = 1\n{SPEC}"), "result", "expected a table");
+}

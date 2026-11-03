@@ -455,6 +455,12 @@ fn an_outcome_written_under_another_identity_is_ignored() {
             digest: kink_patch::sha256(b"specification"),
         },
         Budget::default(),
+        &kink_flow::ResultProjection {
+            state: kink_campaign::StateProjection::WholeTerm,
+            compared: Some(vec!["k".into()]),
+            not_compared: Vec::new(),
+            unobservable: Vec::new(),
+        },
     );
     assert_eq!(context["kink"], kink_campaign::kink_identity());
     let identity = kink_patch::sha256(b"mutation");

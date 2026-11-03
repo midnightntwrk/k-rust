@@ -813,7 +813,7 @@ const CORPUS_MINIMUMS: Minimums = at_least(250, 200, 60, 50);
 /// 500 ms manifests are the only ones the clock may leave uncompared (both timed out): its
 /// minimum of compared pairs is 9 below the 29 compared; every other minimum is what was
 /// compared.
-const CORPUS: [(&str, &[&str], Minimums); 29] = [
+const CORPUS: [(&str, &[&str], Minimums); 30] = [
     ("bytes-map", &["FLOW.toml"], at_least(1, 0, 0, 0)),
     (
         "calc",
@@ -877,6 +877,13 @@ const CORPUS: [(&str, &[&str], Minimums); 29] = [
     ("fuzz/imp", &["FLOW.toml"], at_least(0, 0, 0, 0)),
     ("fuzz/impu", &["FLOW.toml"], at_least(0, 0, 0, 0)),
     ("twin", &["FLOW.toml"], at_least(3, 2, 2, 2)),
+    // The compared cells (no minimum: they are there for `tests/unobservable.rs`, and a
+    // modality differential compares the whole term, whatever a manifest's slots leave out).
+    (
+        "unobservable",
+        &["FLOW-plain.toml", "FLOW.toml"],
+        at_least(0, 0, 0, 0),
+    ),
     // kink27 R5-WEAKENING: functions whose equations a mutation deletes or narrows.
     ("weakening", &["FLOW.toml"], at_least(112, 105, 15, 15)),
     // kink27 R5-WEAKENING fix round 2: a weakening on a baseline with a finding (no minimum: it

@@ -37,6 +37,9 @@ pub struct FlowManifest {
     pub spec: SpecSection,
     pub budget: Budget,
     pub programs: Vec<Program>,
+    /// `[result]`: the cells the programs' second slot compares, when the manifest narrows them;
+    /// `None` compares every cell the specification does not declare unobservable.
+    pub result: Option<ResultSection>,
     /// The front end's reading of typed inputs (a program's `inputs`), which the front end that
     /// knows the inputs' declared types sets ([`Self::with_input_decoder`]). A decoded `FLOW.toml`
     /// has none: kink reads K text only, and admission refuses a program with `inputs` without
@@ -94,6 +97,15 @@ pub struct SpecSection {
     /// default: a definition with a finding then has no data, and every mutation is `unknown`
     /// (`baseline-findings`).
     pub assume_joined: Vec<String>,
+}
+
+/// `[result]`: what the programs' second slot compares.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResultSection {
+    /// `cells`: the K names of the cells compared (`regs` for `<regs>`), as written; nonempty,
+    /// each nonempty, without repeats. Every other cell is left out, except the cells that
+    /// enclose one of these; an unobservable cell inside one of these is left out too.
+    pub cells: Vec<String>,
 }
 
 /// `[budget]`: the bounds of every program run.
@@ -197,12 +209,13 @@ impl FlowManifest {
     pub fn decode(text: &str, directory: &Path) -> Result<Self, ManifestError> {
         let top: Table = toml::from_str(text)
             .map_err(|e| ManifestError::new("", format!("invalid TOML: {e}")))?;
-        known_keys(&top, "", &["spec", "budget", "program"])?;
+        known_keys(&top, "", &["spec", "budget", "result", "program"])?;
         let spec = spec(top.get("spec").ok_or_else(|| missing("spec"))?)?;
         let budget = match top.get("budget") {
             None => Budget::default(),
             Some(value) => budget(value)?,
         };
+        let result = top.get("result").map(result).transpose()?;
         let programs = match top.get("program") {
             None => Vec::new(),
             Some(Value::Array(entries)) => entries
@@ -226,6 +239,7 @@ impl FlowManifest {
             spec,
             budget,
             programs,
+            result,
             input_decoder: Decoder::default(),
         })
     }
@@ -404,6 +418,48 @@ fn budget(value: &Value) -> Result<Budget, ManifestError> {
             .then(|| positive(budget, "budget", "work_factor", 1))
             .transpose()?,
     })
+}
+
+fn result(value: &Value) -> Result<ResultSection, ManifestError> {
+    let section = table(value, "result")?;
+    known_keys(section, "result", &["cells"])?;
+    let key = "result.cells";
+    let Some(Value::Array(entries)) = section.get("cells") else {
+        return Err(match section.get("cells") {
+            None => missing(key),
+            Some(_) => ManifestError::new(key, "expected an array of cell names"),
+        });
+    };
+    if entries.is_empty() {
+        return Err(ManifestError::new(
+            key,
+            "must name at least one cell; without [result] every cell the specification does \
+             not declare unobservable is compared",
+        ));
+    }
+    let mut cells = Vec::with_capacity(entries.len());
+    for (index, entry) in entries.iter().enumerate() {
+        let name = match entry {
+            Value::String(name) if !name.is_empty() => name.clone(),
+            Value::String(_) => {
+                return Err(ManifestError::new(
+                    key,
+                    format!("entry {index} is empty: name a cell by its K name (`k` for <k>)"),
+                ));
+            }
+            _ => {
+                return Err(ManifestError::new(
+                    key,
+                    format!("entry {index} is not a string: name a cell by its K name"),
+                ));
+            }
+        };
+        if cells.contains(&name) {
+            return Err(ManifestError::new(key, format!("names `{name}` twice")));
+        }
+        cells.push(name);
+    }
+    Ok(ResultSection { cells })
 }
 
 fn program(index: usize, value: &Value) -> Result<Program, ManifestError> {

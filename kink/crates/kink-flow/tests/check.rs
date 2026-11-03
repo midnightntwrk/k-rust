@@ -89,13 +89,24 @@ fn calc_is_admitted_with_every_program_ok_and_the_document_is_exact() {
             "mutations",
             "profile",
             "programs",
+            "result",
             "schema",
             "spec",
             "version"
         ]
     );
+    // Nothing is left out: the second slot is the whole term, over calc's one cell.
+    assert_eq!(
+        document["result"],
+        serde_json::json!({
+            "slots": ["exit-stop", "whole-term"],
+            "compared": ["k"],
+            "not_compared": [],
+            "unobservable": [],
+        })
+    );
     assert_eq!(document["schema"], "kink-flow-check");
-    assert_eq!(document["version"], 4);
+    assert_eq!(document["version"], 5);
     // Without --mutations no list is checked.
     for key in ["mutation_list", "mutations", "coverage"] {
         assert!(document[key].is_null(), "{key}");
@@ -665,7 +676,7 @@ fn check_resolves_every_mutation_and_runs_no_program() {
     );
     let (document, status) = check_list(&manifest, &mutations, None);
     assert_eq!(status, EXIT_CORPUS, "{document:#}");
-    assert_eq!(document["version"], 4);
+    assert_eq!(document["version"], 5);
     assert_eq!(document["spec"]["outcome"], "admitted");
     assert_eq!(document["mutation_list"]["outcome"], "ok");
     // Nothing ran and nothing was written: no cache, so no unreached-rule warning.
@@ -917,7 +928,7 @@ fn a_definition_exclusion_names_its_cause_chain_and_fails_check() {
         Some(kink_native::exclusion::Exclusion::ShortCircuitReading)
     );
     assert_eq!(status, EXIT_CORPUS, "{document:#}");
-    assert_eq!(document["version"], 4);
+    assert_eq!(document["version"], 5);
     assert_eq!(document["spec"]["outcome"], "admitted");
     for program in document["programs"].as_array().unwrap() {
         assert_eq!(

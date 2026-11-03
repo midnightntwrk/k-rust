@@ -41,6 +41,7 @@ pub mod hints;
 pub mod manifest;
 pub mod memo;
 pub mod mutation;
+pub mod observed;
 pub mod outcomes;
 pub mod pattern;
 pub mod query;
@@ -55,12 +56,15 @@ pub use admit::{
 pub use check::{
     CorpusCoverage, Finding, MutationCheck, MutationCheckRow, check_mutations, corpus_coverage,
 };
-pub use manifest::{Budget, Decoder, FlowManifest, ManifestError, Program, SpecSection};
+pub use manifest::{
+    Budget, Decoder, FlowManifest, ManifestError, Program, ResultSection, SpecSection,
+};
 pub use mutation::{
     EditAction, EditSpec, EditedRule, InvalidMutation, InvalidReason, LabelMatch, Mutation,
     MutationList, ResolvedEdit, ResolvedMutation, RuleText, addressed_rule, label_match, resolve,
     rule_texts,
 };
+pub use observed::{ResultProjection, ResultRefusal, result_projection};
 
 /// The k-rust revision every kink-flow document names as `k_rust_revision`, and `--version`
 /// prints: k-rust's build identity (`k_rust::build_identity`, its version and a digest of its

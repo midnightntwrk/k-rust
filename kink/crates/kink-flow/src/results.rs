@@ -3,8 +3,9 @@
 //! `identity`), the specification digest, the program digest and the budget.
 //!
 //! Each program runs as its own zero-mutant campaign through `kink_campaign::run_campaign_multi`
-//! (the way kink-corpus admission's `baseline_only` does), with the fixed oracles of README 5.4
-//! (exit stop without an exit-code cell, then the whole final term; crash policy `reject`), the
+//! (the way kink-corpus admission's `baseline_only` does), with the specification's two oracles
+//! (README 5.4: exit stop without an exit-code cell, then the final term, without the cells the
+//! specification leaves out when it leaves any out, [`crate::observed`]; crash policy `reject`), the
 //! all-normal classifier and the manifest's budget, and every program of one command shares one
 //! `NativeValidator`, so the baseline compiles once. One program's failure never touches another.
 //!
@@ -123,17 +124,26 @@ impl ResultClass {
     }
 }
 
-/// The names of the oracle slots of [`fixed_oracles`], in slot order.
-pub const ORACLE_SLOTS: [&str; 2] = ["exit-stop", "whole-term"];
+/// The names of the oracle slots of [`fixed_oracles`], in slot order: the slots of a
+/// specification that leaves no cell out ([`crate::observed::WHOLE_TERM_SLOTS`]).
+pub const ORACLE_SLOTS: [&str; 2] = crate::observed::WHOLE_TERM_SLOTS;
 
-/// The two oracles of every flow program (README 5.4): the exit stop with no exit-code cell,
-/// then the whole final term; a semantic crash is outside the operand domain (`reject`).
+/// The two oracles of a flow program of a specification that leaves no cell out (README 5.4):
+/// the exit stop with no exit-code cell, then the whole final term; a semantic crash is outside
+/// the operand domain (`reject`). A program's oracles are its specification's
+/// ([`crate::observed::ResultProjection::oracles`]), which are these unless some cell is left out.
 pub fn fixed_oracles() -> Vec<OracleDeclaration> {
+    oracle_declarations(StateProjection::WholeTerm)
+}
+
+/// The two oracles of a flow program whose second slot projects `state`: the exit stop with no
+/// exit-code cell, then `state`; a semantic crash is outside the operand domain (`reject`).
+pub(crate) fn oracle_declarations(state: StateProjection) -> Vec<OracleDeclaration> {
     [
         StateProjection::ExitStop {
             exit_code_cell: None,
         },
-        StateProjection::WholeTerm,
+        state,
     ]
     .into_iter()
     .map(|projection| {
@@ -304,7 +314,9 @@ impl<'a> BaselineRunner<'a> {
     /// The command's reader of ends: the printer, cells and maps of the compiled specification
     /// (CF-16).
     pub fn end_reader(&self) -> &EndReader {
-        self.ends.get_or_init(|| EndReader::of(&self.spec.compiled))
+        self.ends.get_or_init(|| {
+            EndReader::of(&self.spec.compiled).projecting(self.spec.result.cells().cloned())
+        })
     }
 
     /// The specification's definition exclusion as a document's `spec.exclusion` prints it
@@ -386,10 +398,11 @@ impl<'a> BaselineRunner<'a> {
         })
     }
 
-    /// Run one admitted program (its oracles are replaced by [`fixed_oracles`]). Its baseline
-    /// runs live unless this command already ran the same program live.
+    /// Run one admitted program (its oracles are replaced by the specification's,
+    /// [`crate::observed::ResultProjection::oracles`]). Its baseline runs live unless this
+    /// command already ran the same program live.
     pub fn run(&self, mut test: TestCase) -> ProgramResult {
-        test.oracles = fixed_oracles();
+        test.oracles = self.spec.result.oracles();
         let options = CampaignOptions {
             schedule: ScheduleMode::FirstKill,
             selection: kink_campaign::SelectionPolicy::None,
@@ -1255,6 +1268,7 @@ pub fn results(manifest: &FlowManifest, options: &ResultsOptions) -> (Value, boo
         runner.baseline_runs(),
     );
     document["data"] = spec.data.value();
+    document["result"] = spec.result.value();
     document["spec"]["exclusion"] = runner.definition_exclusion();
     // The rules no mutation of the given list targets (flow F-13, informational only).
     if let Some(path) = &options.mutations {
@@ -1646,6 +1660,14 @@ fn document(
     });
     json!({
         "schema": "kink-flow-results",
+        // 5 since the compared cells: the document's `result` names the slots and the cells the
+        // second slot compares (null when the specification is refused), and where that slot is
+        // `cells` a program's `final_configuration` and `ends` are the projected ends, each
+        // uncompared cell's content `\top` of its sort. The result schema version stays: a
+        // record holds projected ends only under a key whose specification digest holds the
+        // source bytes (so the `unobservable` declarations) and `[result] cells`, and every key
+        // read or written names `kink_build`, so no record of a build before the compared cells
+        // is ever read.
         // 4 since CF-16: a program's row carries `ends`, each end's `{head, class}` (its
         // computation head printed as K text, and the exit-stop class), null unless comparable.
         // 3 since KINK-R4: a rewrite rule's `fired_by` lists only programs some path of whose
@@ -1655,7 +1677,7 @@ fn document(
         // 2 since re-pin L2-1: a rule's status `no-coverage-signal` (summary
         // `no_coverage_signal`) replaced `not-observable`, equations are covered, and every rule
         // carries `fired_by`.
-        "version": 4,
+        "version": 5,
         "k_rust_revision": crate::k_rust_revision(),
         "profile": SolverProfile::BUILD.name(),
         "result_schema_version": RESULT_SCHEMA_VERSION,
@@ -1682,6 +1704,7 @@ fn document(
         "baseline_runs": baseline_runs,
         "untargeted_rules": null,
         "data": null,
+        "result": null,
     })
 }
 

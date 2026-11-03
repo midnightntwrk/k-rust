@@ -898,10 +898,12 @@ fn check_admission(manifest: &Path) -> (Value, u8) {
 /// without `--mutations`); 3 adds `spec.exclusion` and the program outcome `excluded`, and
 /// exits 1 when any program cannot be judged on the baseline, a definition exclusion included;
 /// 4 adds `data` and `spec.baseline_findings`, and exits 1 when the baseline has no data under
-/// `[spec] assume_joined` ([`FlowAdmission::verdicts_possible`]).
-pub const CHECK_VERSION: u64 = 4;
+/// `[spec] assume_joined` ([`FlowAdmission::verdicts_possible`]); 5 adds `result`, the slots and
+/// the cells the programs' second slot compares ([`crate::observed`]), and the specification's
+/// refusal at stage `result`.
+pub const CHECK_VERSION: u64 = 5;
 
-fn header(spec: Value, programs: Vec<Value>, data: Value) -> Value {
+fn header(spec: Value, programs: Vec<Value>, data: Value, result: Value) -> Value {
     json!({
         "schema": "kink-flow-check",
         "version": CHECK_VERSION,
@@ -910,6 +912,7 @@ fn header(spec: Value, programs: Vec<Value>, data: Value) -> Value {
         "spec": spec,
         "programs": programs,
         "data": data,
+        "result": result,
         "mutation_list": null,
         "mutations": null,
         "coverage": null,
@@ -931,6 +934,7 @@ pub fn manifest_refused(error: &ManifestError) -> Value {
         }),
         Vec::new(),
         Value::Null,
+        Value::Null,
     )
 }
 
@@ -941,8 +945,10 @@ pub fn manifest_refused(error: &ManifestError) -> Value {
 /// it runs (stage `definition` or `initial-state`, the exclusion's name as reason, and why).
 /// `data` is the baseline's full critical-pair check under `[spec] assume_joined`, as the run,
 /// `results` and `query` documents print it (kink-native `DataFacts::value`), and
-/// `spec.baseline_findings` says why the baseline has no data ([`baseline_findings`]); both are
-/// null when the specification is refused.
+/// `spec.baseline_findings` says why the baseline has no data ([`baseline_findings`]); `result`
+/// names the slots and the cells the programs' second slot compares
+/// ([`crate::observed::ResultProjection::value`]); all three are null when the specification is
+/// refused.
 pub fn check_document(admission: &FlowAdmission) -> Value {
     let record = &admission.record;
     let refusal = record.refusal.as_ref();
@@ -1003,7 +1009,11 @@ pub fn check_document(admission: &FlowAdmission) -> Value {
         .spec
         .as_ref()
         .map_or(Value::Null, |spec| spec.data.value());
-    header(spec, programs, data)
+    let result = admission
+        .spec
+        .as_ref()
+        .map_or(Value::Null, |spec| spec.result.value());
+    header(spec, programs, data, result)
 }
 
 /// Why the baseline has no data under `[spec] assume_joined`, so that no mutation can have a

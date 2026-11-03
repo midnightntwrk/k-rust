@@ -111,9 +111,8 @@ use crate::{
         unusable_programs,
     },
     results::{
-        BaselineRunner, ORACLE_SLOTS, ProgramRow, RESULT_SCHEMA_VERSION, ResultClass,
-        cache_directory, fixed_oracles, kebab, millis, rerun_timeout_record, run_digest,
-        runner_refusal, update_results,
+        BaselineRunner, ProgramRow, RESULT_SCHEMA_VERSION, ResultClass, cache_directory, kebab,
+        millis, rerun_timeout_record, run_digest, runner_refusal, update_results,
     },
 };
 use k_rust::definition::AttributeKey;
@@ -388,7 +387,7 @@ struct Search<'a, 's> {
     runner: &'a BaselineRunner<'a>,
     rows: &'a [ProgramRow],
     candidates: Vec<Candidate<'a>>,
-    /// Each candidate's test case with the fixed oracles, assembled on first use.
+    /// Each candidate's test case with the specification's oracles, assembled on first use.
     tests: Vec<Option<TestCase>>,
     mode: RunMode,
     /// The tier-1 store; `None` when kink's build identity cannot be computed.
@@ -430,7 +429,7 @@ impl Search<'_, '_> {
                 });
             }
         };
-        test.oracles = fixed_oracles();
+        test.oracles = self.spec.result.oracles();
         self.tests[candidate] = Some(test.clone());
         Ok(test)
     }
@@ -575,7 +574,14 @@ impl Search<'_, '_> {
         json!({
             "program": self.candidates[candidate].id,
             "outcome": compared_outcome(&record.slots),
-            "slots": slots_value(&record.slots, None, None, false, &record.difference),
+            "slots": slots_value(
+                &self.spec.result.slots(),
+                &record.slots,
+                None,
+                None,
+                false,
+                &record.difference,
+            ),
             "difference": record.difference,
             "cause": null,
             "cached": true,
@@ -703,7 +709,7 @@ impl Search<'_, '_> {
             .into_iter()
             .map(|test_id| ManifestTest {
                 test_id,
-                slot_count: ORACLE_SLOTS.len(),
+                slot_count: self.spec.result.slots().len(),
             })
             .collect::<Vec<_>>();
         derive_mutant_report(&plan, &manifest, ScheduleMode::FirstKill)
@@ -1126,7 +1132,12 @@ impl Search<'_, '_> {
                 (wall_ms, Ok(live)) => {
                     let status = live.mutant.report.status;
                     calls.push((vec![h], json!(status_name(status)), wall_ms));
-                    executed.extend(executed_entries(&live, self.manifest.budget, true));
+                    executed.extend(executed_entries(
+                        &live,
+                        self.spec.result.slots(),
+                        self.manifest.budget,
+                        true,
+                    ));
                     if status == MutantStatus::Killed {
                         source = SOURCE_HINT;
                     }
@@ -1150,7 +1161,12 @@ impl Search<'_, '_> {
                     // Each program is listed once (F-14 review 1 m3, flow F-16): a hinted
                     // program this call ran again is listed with this call's run, the one the
                     // status is folded from.
-                    let entries = executed_entries(&live, self.manifest.budget, true);
+                    let entries = executed_entries(
+                        &live,
+                        self.spec.result.slots(),
+                        self.manifest.budget,
+                        true,
+                    );
                     executed.retain(|entry| {
                         entry["cached"] == true
                             || !entries
@@ -1266,7 +1282,12 @@ impl Search<'_, '_> {
                     json!(status_name(live.mutant.report.status)),
                     wall_ms,
                 ));
-                executed.extend(executed_entries(&live, self.manifest.budget, true));
+                executed.extend(executed_entries(
+                    &live,
+                    self.spec.result.slots(),
+                    self.manifest.budget,
+                    true,
+                ));
                 live.mutant
             }
         };
@@ -1285,7 +1306,12 @@ impl Search<'_, '_> {
                     let status = status_name(one.mutant.report.status);
                     calls.push((vec![*c], json!(status), wall_ms));
                     // An audit call: its kill is not the row's killer, so it shows no KORE.
-                    executed.extend(executed_entries(&one, self.manifest.budget, false));
+                    executed.extend(executed_entries(
+                        &one,
+                        self.spec.result.slots(),
+                        self.manifest.budget,
+                        false,
+                    ));
                     self.collect_live(&one.mutant, &mut live);
                     live.entry(*c).or_insert(Live::NotRun(status));
                 }
@@ -1483,7 +1509,12 @@ fn kill_differences<'a>(
 /// unless it agreed or distinguished the cause the runner's evidence and the session's leaf
 /// census give, and the session's timings: `wall_ms` (the mutant's run), `baseline_ms` (the
 /// program's live baseline run in this command) and `baseline_reused`.
-fn executed_entries(live: &LiveCall, budget: Budget, killer_terms: bool) -> Vec<Value> {
+fn executed_entries(
+    live: &LiveCall,
+    slots: [&str; 2],
+    budget: Budget,
+    killer_terms: bool,
+) -> Vec<Value> {
     let mutant = &live.mutant;
     let killer = mutant.report.killing_test_ids.first();
     mutant
@@ -1507,6 +1538,7 @@ fn executed_entries(live: &LiveCall, budget: Budget, killer_terms: bool) -> Vec<
                 .mutant_run(mutant.plan.mutant_id, &test.test_id);
             let baseline_run = live.recording.baseline_of(&test.test_id);
             let cause = executed_cause(
+                &slots,
                 &test.run,
                 evidence,
                 found.map_or(&[][..], |evidence| evidence.notes.across.as_slice()),
@@ -1524,6 +1556,7 @@ fn executed_entries(live: &LiveCall, budget: Budget, killer_terms: bool) -> Vec<
                     "program": test.test_id,
                     "outcome": compared_outcome(outcomes),
                     "slots": slots_value(
+                        &slots,
                         outcomes,
                         baseline,
                         evidence,
@@ -1718,6 +1751,7 @@ pub fn run_with(
                     build,
                     execution_digest(manifest, &spec.loaded),
                     manifest.budget,
+                    &spec.result,
                 ),
             )),
             None,
@@ -1923,6 +1957,7 @@ pub fn run_with(
                 untargeted_rules: untargeted.clone(),
                 data: spec.data.value(),
                 exclusion: exclusion.clone(),
+                result: spec.result.value(),
             },
         );
         match store.write_json(&report_path, &document) {
@@ -1962,6 +1997,7 @@ pub fn run_with(
             untargeted_rules: untargeted,
             data: spec.data.value(),
             exclusion,
+            result: spec.result.value(),
         },
     );
     // The stored report is the document the command prints: write it unless the last write
@@ -2224,6 +2260,10 @@ struct Accounting<'m> {
     /// The specification's definition exclusion, as `spec.exclusion` prints it
     /// (`crate::exclusion::definition_exclusion`).
     exclusion: Value,
+    /// The slots and the cells the programs' second slot compares
+    /// (`crate::observed::ResultProjection::value`), so that every survivor is reported with the
+    /// cells it was compared on.
+    result: Value,
 }
 
 impl Accounting<'_> {
@@ -2235,6 +2275,7 @@ impl Accounting<'_> {
         untargeted_rules: Value::Null,
         data: Value::Null,
         exclusion: Value::Null,
+        result: Value::Null,
     };
 }
 
@@ -2294,6 +2335,7 @@ fn document(
         "mutations": mutations,
         "counts": counts,
         "survivors": survivors,
+        "result": accounting.result,
         "stopped": stopped,
         "outcome_cache": accounting.outcome_cache,
         "mismatches": accounting.mismatches,

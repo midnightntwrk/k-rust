@@ -201,6 +201,7 @@ fn final_configurations_are_capped_at_4000_characters() {
     let mutant = whole(vec![term("x".repeat(KORE_CAP + 10)), term("y".into())]);
     let outcomes = [OracleOutcome::Agree, OracleOutcome::Distinguish];
     let killer = slots_value(
+        &kink_flow::results::ORACLE_SLOTS,
         &outcomes,
         Some(&baseline),
         Some(&mutant),
@@ -220,6 +221,7 @@ fn final_configurations_are_capped_at_4000_characters() {
     assert!(short["text"].as_str().unwrap().contains("\"y\""));
     // Only the killing program's entry carries the text.
     let other = slots_value(
+        &kink_flow::results::ORACLE_SLOTS,
         &outcomes,
         Some(&baseline),
         Some(&mutant),
@@ -630,8 +632,9 @@ text = 'h(opaque(1), 2)'
         // adoption A-1: version 9 adds `specification_diagnostics` and `smt_unknowns`; fz26
         // KINK-BASELINE-FINDINGS: version 10 adds `data`, a row's `findings` and `unable_to_kill`;
         // kink27 R5-WEAKENING: version 11 adds the status `unkillable` and a row's `weakening`;
-        // CF-16: version 12 adds `difference` and `ends`; CF-02: version 13 adds `spec.exclusion`.
-        assert_eq!(document["version"], 13);
+        // CF-16: version 12 adds `difference` and `ends`; CF-02: version 13 adds `spec.exclusion`;
+        // version 14 adds `result`, the compared cells.
+        assert_eq!(document["version"], 14);
         assert_eq!(row["typing_diagnostics"], json!([]));
         assert_eq!(
             entry(&document, "guard-dropped", "by-zero")["slots"],

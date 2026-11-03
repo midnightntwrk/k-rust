@@ -7,7 +7,9 @@
 //! # The ends compared
 //!
 //! A test's whole-term slot compares two sets of ends: each side's final configurations with the
-//! `<generatedCounter>` content erased (k-rust `counter_erased`, the whole-term projection). The
+//! `<generatedCounter>` content erased (k-rust `counter_erased`, the whole-term projection); a
+//! `cells` slot compares them with each cell it leaves out replaced by `\top` of its sort
+//! (kink-campaign `CellProjection`), and everything below holds of those projected ends. The
 //! baseline set `B` is the baseline side's whole-term value (a comparable program's side is always
 //! a value). The mutant set `M` is the mutant side's whole-term value when it is one (`complete`),
 //! and otherwise, for a one-sided kill (kink-campaign `OneSided`: the mutant's run reached its work
@@ -91,7 +93,7 @@ use k_rust::{
     kast::identifier::{encode, label_or_name},
     kore::{ast::Pattern, walk},
 };
-use kink_campaign::{FinalResult, OracleSide, OracleValue, SideRun, TestEvidence};
+use kink_campaign::{CellProjection, FinalResult, OracleSide, OracleValue, SideRun, TestEvidence};
 use kink_native::ValidatedDefinition;
 use krs_unparse::{ListSpelling, Mode, Options, Unparser};
 use serde_json::{Value, json};
@@ -111,6 +113,9 @@ const KSEQ: &str = "kseq";
 /// symbols (and which are main cells), and its map and list symbols. Built once per command
 /// ([`crate::results::BaselineRunner`]).
 pub struct EndReader {
+    /// The second slot's cell projection, when it leaves some cell out: the one-sided ends that
+    /// killed are projected with it, as the slot projected them ([`Self::test_difference`]).
+    projection: Option<CellProjection>,
     printer: Result<Unparser, String>,
     cells: BTreeSet<String>,
     main_cells: BTreeSet<String>,
@@ -179,6 +184,7 @@ impl EndReader {
                 .map(|printer| printer.with_program_grammar(compiled.definition()))
                 .map_err(|error| error.to_string());
         let mut reader = Self {
+            projection: None,
             printer,
             cells: BTreeSet::new(),
             main_cells: BTreeSet::new(),
@@ -211,6 +217,14 @@ impl EndReader {
         reader
     }
 
+    /// This reader for a specification whose second slot leaves cells out by `projection`
+    /// (`None`: it compares the whole final term).
+    #[must_use]
+    pub fn projecting(mut self, projection: Option<CellProjection>) -> Self {
+        self.projection = projection;
+        self
+    }
+
     /// A reader with no printer and the given cell, main cell, map and list symbols (KORE names;
     /// each collection's concatenation, element and unit), for tests.
     #[cfg(test)]
@@ -221,6 +235,7 @@ impl EndReader {
             unit: BTreeSet::from([unit.to_owned()]),
         };
         Self {
+            projection: None,
             printer: Err("no printer".into()),
             cells: cells.iter().map(|cell| (*cell).to_owned()).collect(),
             main_cells: main_cells.iter().map(|cell| (*cell).to_owned()).collect(),
@@ -383,7 +398,10 @@ impl EndReader {
     }
 
     /// The kill evidence of one test from its two sides' evidence (module documentation, "The
-    /// ends compared"); `None` when the baseline side holds no whole-term value.
+    /// ends compared"); `None` when the baseline side holds no whole-term value. Where the second
+    /// slot leaves cells out ([`Self::projecting`]), its values are the projected ends, and the
+    /// one-sided ends are projected as the slot projects them, so the evidence never shows a
+    /// difference in a cell left out.
     pub fn test_difference(&self, baseline: &TestEvidence, mutant: &TestEvidence) -> Option<Value> {
         let baseline_set = whole_term(&baseline.run)?;
         match whole_term(&mutant.run) {
@@ -392,7 +410,10 @@ impl EndReader {
                 let one_sided = mutant
                     .one_sided_ends
                     .iter()
-                    .map(|end| counter_erased(end).into_owned())
+                    .map(|end| match &self.projection {
+                        Some(projection) => projection.project(end).into_owned(),
+                        None => counter_erased(end).into_owned(),
+                    })
                     .collect();
                 self.difference(baseline_set, &one_sided, false)
             }
@@ -878,6 +899,7 @@ mod tests {
         assert_eq!(reader.test_difference(&baseline, &same), None);
         // The report reads the slots' sides from the difference: the mutant's value is unknown.
         let slots = crate::report::slots_value(
+            &crate::results::ORACLE_SLOTS,
             &[OracleOutcome::Unknown, OracleOutcome::Distinguish],
             Some(&baseline.run),
             Some(&mutant.run),
@@ -935,8 +957,14 @@ mod tests {
             .unwrap();
         let read = outcomes.read(identity);
         assert_eq!(read.get(&program), Some(&record));
-        let slots =
-            crate::report::slots_value(&record.slots, None, None, false, &record.difference);
+        let slots = crate::report::slots_value(
+            &crate::results::ORACLE_SLOTS,
+            &record.slots,
+            None,
+            None,
+            false,
+            &record.difference,
+        );
         assert_eq!(
             slots["whole-term"]["sides"],
             json!({

@@ -18,7 +18,8 @@ per-input pattern checks with the `query` command (flow F-18; "Checking a patter
 the `fuzz` command: hole values of a template program that kill a mutation, reach a rule or hit a pattern, found by k-rust-fuzz on kink's own sides (fz26 P7-KINKFLOW T3a and T5; "Killing a survivor with `fuzz`" below),
 the mutations directory, anchors by a suffix of a label's components and the required `misunderstanding` (CF-13; `MUTATIONS.toml` below),
 the resolve-only check of a mutation list, `check --mutations` (CF-18; "Checking mutations" below),
-and the definition exclusions read at admission, each named with its causes by one formatter for every command, with `check` failing when a fact known before any mutant runs makes a verdict impossible (CF-02; "When `check` fails" below).
+the definition exclusions read at admission, each named with its causes by one formatter for every command, with `check` failing when a fact known before any mutant runs makes a verdict impossible (CF-02; "When `check` fails" below),
+and the compared cells: the specification's unobservable cells left out of every comparison, a manifest's narrowing, and every document naming the cells compared ("Which cells are compared" below).
 
 ## Building
 
@@ -49,6 +50,9 @@ assume_joined = ["spec.k:7:3,spec.k:8:3@root"]   # optional; findings named as p
 time_ms = 10000
 max_depth = 100000
 work_factor = 4               # optional; no work budget when absent
+
+[result]                      # optional
+cells = ["k", "regs"]         # compare only these cells; default: every observable cell
 
 [[program]]
 id = "add"
@@ -90,6 +94,41 @@ Defaults:
 | `program.start_sort` | the sort of `$PGM` | |
 | `program.variables` | none | Every configuration variable other than `$PGM` must be given, here or under `inputs`; streams default to empty (`$IO` to `"off"`, `$STDIN` to `""`). A variable's text is read as krs-exec reads it (k-rust `variable_reading_modules`): with the syntax module's grammar first wherever that module has the variable's sort, then with the main module's, so one text denotes one term in both tools. krun's `-c`, and so a `fuzz` campaign, reads it with the main module's grammar alone; `fuzz` refuses a template that the two readings read differently (`variable-reading-differs`, below). On a definition with stream cells a program may not bind `$IO` (refused at `inputs`, reason `stream-mode`): with IO off the stream cells hold the text printed and the input not yet read, so a final configuration states the program's output. |
 | `program.inputs` | none | Typed inputs, read only by a front end's decoder (above). |
+| `result.cells` | absent | The cells the programs' second slot compares, by K name (below, "Which cells are compared"); a nonempty array of distinct nonempty names. Absent: every cell the specification does not declare `unobservable`. In the specification digest when present. |
+
+### Which cells are compared
+
+A program's run is compared by two oracle slots: the exit stop (no exit-code cell), then its final configurations.
+A cell declared `unobservable` (`<w unobservable=""> 0 </w>`; KRS does not accept its spelling `#[k::cell(unobservable)]` yet) holds state no use of the definition may observe, so no kill may rest on its content.
+The second slot therefore compares every cell except the unobservable ones:
+it is `cells`, the final configuration with the content of each cell left out replaced by `\top` of its sort (kink-campaign `StateProjection::Cells`), exactly when some cell is left out,
+and `whole-term`, the whole final configuration, otherwise.
+Either way `<generatedCounter>`'s content is erased, as before.
+Two final configurations agree under `cells` exactly when they are equal outside the cells left out, so a kill is a difference some compared cell shows, and a survivor survives relative to the cells compared: every document names them (`result`, below).
+A cell wrongly declared unobservable can hide kills, never make one.
+The projection is defined on every configuration, so the one-sided kill applies to a `cells` slot as to `whole-term` (root README, "What a kill trusts").
+Whether an end is data is still judged on the whole end: an unobservable cell holding a non-value makes the slot `unknown`.
+
+`[result] cells` narrows the compared cells to the cells named and the cells inside them.
+Every other cell is left out, except the cells that enclose a named one; an unobservable cell inside a named cell is left out too.
+A manifest can narrow the compared cells, never widen them past the specification's statement.
+
+A cell is left out only where every end has it at one argument position, which holds when every cell enclosing it has multiplicity `1`; the cell itself may be `?` or `*` (the whole optional cell or collection is left out).
+The specification is refused at stage `result`, naming the cell, when
+an unobservable cell lies inside a `?` or `*` cell that `[result] cells` does not leave out (`unobservable-cell-position`: mark the enclosing cell unobservable, or move the cell out of it),
+an unobservable cell production is placed by no configuration (`unobservable-cell-outside-configuration`),
+`[result] cells` names no cell of the configuration (`result-cell-unknown`; `<generatedTop>` and `<generatedCounter>` are compilation's, not the specification's),
+names an unobservable cell or one inside an unobservable cell (`result-cell-unobservable`),
+or names a cell inside a `?` or `*` cell (`result-cell-position`: name the enclosing cell);
+`cell-layout` (the configuration's cells cannot be placed in its KORE terms) is a k-rust defect to report.
+The layout is a premise only of leaving a cell out, so a specification that declares no unobservable cell and names no `[result] cells` is never refused with `cell-layout`: its slot is `whole-term`, and `compared` is null when its cells cannot be placed.
+
+The `check`, `results` and `run` documents (and so `report`) carry `result`, `{slots, compared, not_compared, unobservable}`, null when the specification is refused:
+`slots` the slot names (`["exit-stop", "whole-term"]` or `["exit-stop", "cells"]`),
+`compared` the outermost cells compared (the named cells when the manifest narrows them; a cell listed is compared except for the cells of `not_compared` inside it; null for a `whole-term` slot whose cells cannot be placed),
+`not_compared` the cells left out, and `unobservable` every cell the specification declares unobservable, each in configuration order.
+Where the slot is `cells`, a program's recorded final configurations and ends are the projected ones.
+A mutation that only adds or removes `unobservable` compiles to the same KORE and is `equivalent`.
 
 The tool supplies everything else: the k-rust revision is the build's (every output's `k_rust_revision` is k-rust's build identity, `k_rust::build_identity`: the version of the in-repo k-rust kink is built with and a digest of its sources; the semantics identity and the cache keys name the version, `kink_native::K_RUST_REVISION`, beside the executable's digest),
 and the below-floor conformance cases (kink-corpus `BELOW_FLOOR`) are refused for the entry and for every file the load reads (stage `refused-case`).
@@ -98,7 +137,7 @@ and the below-floor conformance cases (kink-corpus `BELOW_FLOOR`) are refused fo
 
 Admits the specification through kink-corpus's admission stages, with the same stage names and refusal reasons:
 `manifest` (this crate: the manifest does not decode), `refused-case` (a below-floor conformance case), `load`, `semantic-input`, `compile`,
-`representation`, `declaration-census` and `inputs`, then `assume-joined` (this crate: the definition's full
+`representation`, `declaration-census`, `result` (this crate: the compared cells, above under "Which cells are compared") and `inputs`, then `assume-joined` (this crate: the definition's full
 critical-pair check on the input backend, against `[spec] assume_joined`).
 The declaration census passes a hooked symbol whose hook its reference declares with the same argument and result sorts (rule H), or one whose hook the reference does not declare and k-rust has no evaluator for (inert); any other hooked symbol is refused (`vi-t13`).
 The reference is k-rust's embedded builtin files and blockchain-k-plugin's `plugin/krypto.md` at `651a2db5` (kink-native `census::KRYPTO_REFERENCE_TEXT`, pinned by digest), so a declaration of one of the plugin's `KRYPTO` hooks with its documented sorts is admitted whichever file or symbol declares it, and one with other sorts is refused, also for a hook k-rust does not evaluate (`KRYPTO.sha512`).
@@ -137,12 +176,14 @@ What only a run shows (a timeout, a final configuration kink does not compare, a
 It prints one JSON document:
 
 ```json
-{"schema": "kink-flow-check", "version": 4, "k_rust_revision": "...", "profile": "no-z3",
+{"schema": "kink-flow-check", "version": 5, "k_rust_revision": "...", "profile": "no-z3",
  "spec": {"outcome": "admitted", "stage": null, "reason": null, "detail": null,
           "files": [{"name": "calc.k", "sha256": "..."}], "exclusion": null,
           "baseline_findings": null},
  "programs": [{"id": "add", "outcome": "ok", "stage": null, "reason": null, "detail": null}],
  "data": {"assume_joined": [], "has_data": true, "incomplete": null, "findings": []},
+ "result": {"slots": ["exit-stop", "whole-term"], "compared": ["k"], "not_compared": [],
+            "unobservable": []},
  "mutation_list": null, "mutations": null, "coverage": null}
 ```
 
@@ -173,6 +214,7 @@ and no name can assume what the check did not read, so an incomplete check is a 
 Version 2 (CF-18) adds `mutation_list`, `mutations` and `coverage`, which are null without `--mutations`.
 Version 3 (CF-02) adds `spec.exclusion` and the program outcome `excluded`, and `check` exits 1 when a program cannot be judged on the baseline; before, a definition with a definition exclusion passed `check` with every program `ok`.
 Version 4 adds `data` and `spec.baseline_findings`, and `check` exits 1 when the baseline has no data under `[spec] assume_joined`; before, such a specification passed `check`, and `run` then reported every mutation `unknown`.
+Version 5 adds `result`, the slots and the cells compared (above), and the stage `result`.
 
 Exit status: 0 when every program is `ok` (so the specification is admitted), `spec.baseline_findings` is null and, with `--mutations`, the list decodes and no mutation is refused (warnings do not count);
 1 when the manifest, the specification, a program, the mutation list or a mutation is refused, a program is `excluded`, or the baseline has no data (`spec.baseline_findings`); 2 on a usage error (message on stderr).
@@ -220,7 +262,8 @@ Runs every program whose result is not cached yet and reports, per program, whet
 kill a mutant, and, per rule of the specification, which programs reach it.
 
 Each program runs on the baseline as its own zero-mutant campaign (kink-campaign's runner),
-with two fixed oracles: the exit stop (no exit-code cell) and the whole final configuration.
+with two oracles: the exit stop (no exit-code cell) and the final configuration without the cells left out (`whole-term` or `cells`, above under "Which cells are compared").
+The document's `result` names the slots and the cells compared; version 5 of the document adds it, and, where the slot is `cells`, makes a program's `final_configuration` and `ends` the projected ends.
 A program's class is
 
 | Class | Meaning | What to do |
@@ -498,7 +541,7 @@ is there a program of the corpus whose result the mutation changes?
    Otherwise the mutant runs on every remaining program in the order of step 3, the hinted one included.
 6. Every status is the one kink-campaign's own fold (`derive_mutant_report`, schedule first-kill) gives over the cached outcomes
    followed by the last runner call's tests. kink-flow compares no terms; only a proved difference of the exit stop or the
-   whole final configuration kills, live in this command or cached under an exactly matching key.
+   final configuration without the cells left out kills, live in this command or cached under an exactly matching key.
    A cached agreement is the fold's bottom, so the status is the one a run without any cache gives.
 7. Each program's baseline runs live at most once per command: the result update and every runner call share one
    in-memory baseline session, so a program the update ran, or an earlier call ran, is not run again on the baseline;
@@ -622,7 +665,7 @@ Besides `results/` and `report.json` (the last run's document, also written when
   `difference` is a `killed` record's kill evidence (below, "Kill evidence"), null on an `agree` record: outside the key, which names every input it is a function of, and inside `record_sha256` (domain `kink-flow/outcome-record/v2`), so a record whose evidence was altered is ignored; no status is read from it.
   A version 1 file, which has no evidence, is not current: its records are ignored and recomputed.
   `removed_claims` is the row's (below), for the reader only: it is read back by nothing and is in no digest.
-  The context is `{outcome_schema: "kink-flow/outcome/v1", kink_build, kink, profile, execution_digest: {kind, digest}, budget, oracles, classifier, schedule}` (with `work_factor` set, `budget` also holds `work: {factor, floor}`):
+  The context is `{outcome_schema: "kink-flow/outcome/v1", kink_build, kink, profile, execution_digest: {kind, digest}, budget, oracles, classifier, schedule}` (with `work_factor` set, `budget` also holds `work: {factor, floor}`; `oracles` names the slots, and where the second is `cells` the context also holds `not_compared`, the cells left out, since the `unobservable` attribute is not in the compiled KORE an execution digest may be read from):
   `kink` is kink's semantics identity (kink-campaign `identity`, packet CACHE-ID), `{k_rust_revision, fingerprint, canonical_patch, compiled_kore, patch_admission, claim_removal, mutant_consistency, mutant_effect, weakening, data_facts, terminal_value, definition_exclusion, execution_request, result_schema, coverage, one_sided}`, the version of every kink algorithm an outcome can depend on. Among them:
   `claim_removal` is kink-patch's `CLAIM_REMOVAL_VERSION`, since the mutant every record ran on depends on the claim-removal algorithm (v2 since re-pin R0c-fix-3: the reach follows the overload and unit axioms; v3 since R0c-fix-4: a rule with configuration context is an equation of its head);
   `mutant_consistency` is kink-native's `MUTANT_CONSISTENCY_VERSION`, since a mutant runs (and a record exists) only when its equations are shown consistent (v2 since R0c-fix-4: the check's guard reads the equation and skipped-pair counts; v3 since k-rust FZ-CONFLUENCE: k-rust pairs the equations at evaluated hooks with the hooks' written meanings and refutes more overlaps; v4 since fz26 phase 8: k-rust refutes still more overlaps and splits residuals, joins pairs over sorts with no normal form through the witness equations it adopts, whose adoption can flip between a baseline and its mutant, and the gate reads the mutant's full check from its per-definition facts, `data_facts` below, with their completeness guard);
@@ -664,8 +707,8 @@ The document is the same either way: the exit status is how a script or an agent
 
 `run` prints one document and writes the same document to `.kink-flow/report.json` (after every mutation, and once more at the end):
 
-`{schema: "kink-flow-run", version: 13, k_rust_revision, profile, result_schema_version, kink_build, kink, spec, programs, unusable_programs, mutations, counts, survivors, stopped, outcome_cache, mismatches, baseline_runs, order, untargeted_rules, data}`; `data` (fz26 KINK-BASELINE-FINDINGS, also in the `results` and `query` documents; null in the run and `results` documents when the specification is refused, absent from a refused `query` document) is `{assume_joined, has_data, findings: [{name, verdict, assumed, description}]}`, the baseline's full critical-pair check under the premises.
-Version 3 (F-13) names the oracle slots of an executed entry, versions 4 to 6 add row fields (below), version 7 (packet CACHE-ID) adds `kink`, kink's semantics identity, version 8 (packet CACHE-ID-fix-1) adds `kink_build`, the SHA-256 of the executable that wrote it, version 9 (re-pin adoption A-1) adds `specification_diagnostics` and `smt_unknowns` to program rows and executed entries, version 10 (fz26 KINK-BASELINE-FINDINGS) adds `data`, the `findings` of a `baseline-findings` row and a comparable program row's `unable_to_kill`, version 11 (kink27 R5-WEAKENING) adds the status `unkillable` and each row's `weakening`, version 12 (CF-16) adds each executed entry's `difference`, the sides of a cached or one-sided kill, and each program row's `ends`, and version 13 (CF-02) adds `spec.exclusion`.
+`{schema: "kink-flow-run", version: 14, k_rust_revision, profile, result_schema_version, kink_build, kink, spec, programs, unusable_programs, mutations, counts, survivors, result, stopped, outcome_cache, mismatches, baseline_runs, order, untargeted_rules, data}`; `data` (fz26 KINK-BASELINE-FINDINGS, also in the `results` and `query` documents; null in the run and `results` documents when the specification is refused, absent from a refused `query` document) is `{assume_joined, has_data, findings: [{name, verdict, assumed, description}]}`, the baseline's full critical-pair check under the premises.
+Version 3 (F-13) names the oracle slots of an executed entry, versions 4 to 6 add row fields (below), version 7 (packet CACHE-ID) adds `kink`, kink's semantics identity, version 8 (packet CACHE-ID-fix-1) adds `kink_build`, the SHA-256 of the executable that wrote it, version 9 (re-pin adoption A-1) adds `specification_diagnostics` and `smt_unknowns` to program rows and executed entries, version 10 (fz26 KINK-BASELINE-FINDINGS) adds `data`, the `findings` of a `baseline-findings` row and a comparable program row's `unable_to_kill`, version 11 (kink27 R5-WEAKENING) adds the status `unkillable` and each row's `weakening`, version 12 (CF-16) adds each executed entry's `difference`, the sides of a cached or one-sided kill, and each program row's `ends`, version 13 (CF-02) adds `spec.exclusion`, and version 14 adds `result` and the slot name `cells`.
 `report` prints the stored statuses without re-deriving them, so it refuses (`unreadable`) a document of another version, one written by another build (or naming none), and one whose `kink` is not this build's.
 
 | Field | Meaning |
@@ -675,7 +718,8 @@ Version 3 (F-13) names the oracle slots of an executed entry, versions 4 to 6 ad
 | `unusable_programs` | Every program whose class is not `comparable`, once: `{id, class, cause}`. These programs are never run on a mutant. |
 | `mutations` | One row per selected mutation, in the list's order (below). |
 | `counts` | The number of mutations per status (all nine statuses). |
-| `survivors` | The ids of the mutations whose status is `survived`, `timeout` or `unknown`: no program killed them, and a new program could. |
+| `survivors` | The ids of the mutations whose status is `survived`, `timeout` or `unknown`: no program killed them, and a new program could. Each survives relative to the cells compared (`result`). |
+| `result` | `{slots, compared, not_compared, unobservable}`: the slots and the cells the programs' second slot compares (above, "Which cells are compared"); null when the specification is refused. |
 | `stopped` | `null`, or `{mutation, reason}` of the corpus error that stopped the run. |
 | `outcome_cache` | `{context_sha256, enabled, verify, reason, mutations_from_cache, programs_from_cache, records_written}`: tier 1's context (null when disabled), whether it decided statuses, whether this is `run --verify`, why not, the mutations decided with no call, the cached program outcomes used, and the records written (one per program, also when a hinted program ran in two calls). |
 | `mismatches` | `run --verify`'s differences `{mutation, program, cached, live}`; empty otherwise. |
@@ -703,7 +747,7 @@ A mutation row is `{id, note, digest, identity, removed_claims, inconsistent_pai
 | `rules` | Null for a `killed` mutation and for an `invalid-mutation`; otherwise each edited rule, in sentence order: `{module, index, file, label, start_line, end_line, edits, before, after}`. `before` and `after` are the rule's K text before and after the mutation's edits, sliced from the file's K view by the sentence's span (`after` is null for a deleted rule); `edits` are the indices of the mutation's edits addressed to the rule. |
 | `action` | Null for `killed`; otherwise one sentence saying what the status asks (write a program, fix the mutation, fix the corpus, report it). |
 
-`slots` is an object keyed by oracle slot, `exit-stop` and `whole-term`, each `{outcome}` (`agree`, `distinguish`, `timeout`, `unknown`, `incomparable`, `error`).
+`slots` is an object keyed by oracle slot, `exit-stop` and `whole-term` (or `cells`, which has the shape of `whole-term`), each `{outcome}` (`agree`, `distinguish`, `timeout`, `unknown`, `incomparable`, `error`).
 A distinguishing slot also has `sides`: for `exit-stop`, each side's exit-stop kinds, for example `{"baseline": ["normal"], "mutant": []}`
 (the flow's classifier makes every ended run `normal`; an undefined step, a rule whose result is undefined such as a division by zero, is no end and has no kind, so a side whose every path takes one has `[]`, and an undefined path beside the same ends changes no kind);
 for `whole-term`, each side's number of final configurations, `{"baseline": {"final_configurations": 1}, "mutant": {"final_configurations": 1, "kore": [{"text", "truncated"}]}}`
@@ -716,7 +760,7 @@ No timing, census or side value enters an evidence row, a digest, a key or a hin
 
 A distinguishing program's `difference` (CF-16) says where the two sides' ends differ:
 `{outside, path, baseline, mutant}`, each side `{final_configurations, complete, classes, end, value}`.
-It compares the whole-term slot's sets of ends: each side's final configurations with the `<generatedCounter>` content erased.
+It compares the second slot's sets of ends: each side's final configurations with the `<generatedCounter>` content erased, and under `cells` each cell left out replaced by `\top` of its sort, so no difference it shows lies in a cell left out.
 For a one-sided kill (`complete: false`) the mutant's set is its run's one-sided ends: the clean, ground, stuck ends of explored complete paths that the one-sided rule reads (kink-campaign `TestEvidence::one_sided_ends`).
 The slot distinguishes one-sidedly exactly when one of them, erased, is outside the baseline's set, so the mutant end the difference shows is one that killed; every completion of that run has it among its ends.
 The run's other explored ends are not compared.

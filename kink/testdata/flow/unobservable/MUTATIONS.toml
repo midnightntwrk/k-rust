@@ -1,0 +1,20 @@
+# kink-flow mutation list for the compared cells: one mutation changes only <scratch>, the other
+# <out>.
+
+[[mutation]]
+id = "note-offset"
+misunderstanding = "note records its argument plus one: only the unobservable <scratch> differs"
+
+  [[mutation.edit]]
+  rule = "note"
+  find = "_ => I </scratch>"
+  replace = "_ => I +Int 1 </scratch>"
+
+[[mutation]]
+id = "emit-offset"
+misunderstanding = "emit adds its argument plus one: the observed <out> differs"
+
+  [[mutation.edit]]
+  rule = "emit"
+  find = "O => O +Int I </out>"
+  replace = "O => O +Int I +Int 1 </out>"

@@ -1,0 +1,9 @@
+# kink-flow corpus manifest for the compared cells: plain.k, where every cell is compared.
+[spec]
+entry = "plain.k"
+main_module = "UNOBS"
+syntax_module = "UNOBS-SYNTAX"
+
+[[program]]
+id = "both"
+text = "emit(1) ; note(2)"

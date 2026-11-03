@@ -23,7 +23,7 @@ use std::fmt;
 use k_rust::backend::counter_erased;
 use k_rust::definition::ResolvedDefinition;
 use k_rust::definition::configuration::{CellMultiplicity, declared_cells};
-use k_rust::kore::ast::{Pattern, Sentence, Sort};
+use k_rust::kore::ast::{Definition as KoreDefinition, Pattern, Sentence, Sort};
 use k_rust::kore::parser::parse_definition;
 use kink_native::ValidatedDefinition;
 
@@ -246,16 +246,28 @@ impl CellLayout {
     /// ([`CellLayoutRefusal::UnobservableCellOutsideConfiguration`]) when a cell outside the tree
     /// is declared unobservable.
     pub fn of(compiled: &ValidatedDefinition) -> Result<Self, CellLayoutRefusal> {
+        let kore = parse_definition(&compiled.artifacts().definition_kore).map_err(|error| {
+            CellLayoutRefusal::Layout {
+                cell: None,
+                detail: format!("definition.kore: {error}"),
+            }
+        })?;
+        Self::of_parsed(compiled, &kore)
+    }
+
+    /// [`Self::of`] with `compiled`'s `definition.kore` already parsed as `kore`, for a caller
+    /// that parses it anyway.
+    pub fn of_parsed(
+        compiled: &ValidatedDefinition,
+        kore: &KoreDefinition,
+    ) -> Result<Self, CellLayoutRefusal> {
         let layout = |cell: Option<&str>, detail: String| CellLayoutRefusal::Layout {
             cell: cell.map(str::to_owned),
             detail,
         };
-        let artifacts = compiled.artifacts();
-        let resolved = ResolvedDefinition::resolve(&artifacts.execution_definition)
+        let resolved = ResolvedDefinition::resolve(&compiled.artifacts().execution_definition)
             .map_err(|error| layout(None, format!("the compiled definition: {error}")))?;
         let declared = declared_cells(&resolved, resolved.main_module_id());
-        let kore = parse_definition(&artifacts.definition_kore)
-            .map_err(|error| layout(None, format!("definition.kore: {error}")))?;
         let mut signatures = BTreeMap::new();
         // The symbols without sort parameters of each result sort, sorted.
         let mut heads = BTreeMap::<&Sort, BTreeSet<&str>>::new();

@@ -69,7 +69,7 @@ use crate::outcomes::slot_name;
 use crate::{
     manifest::{Budget, FlowManifest},
     mutation::{EditedRule, RuleText},
-    results::{ORACLE_SLOTS, ResultClass, cache_directory, kebab, non_value_text},
+    results::{ResultClass, cache_directory, kebab, non_value_text},
     search::REPORT_FILE,
 };
 use kink_campaign::{
@@ -99,8 +99,11 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// `findings` and a program row's `unable_to_kill`; 11 since kink27 R5-WEAKENING added the status
 /// `unkillable` (reason `weakening`) and each row's `weakening`; 12 since CF-16 added each executed
 /// entry's `difference`, the sides of a cached or one-sided kill, and each program row's `ends`;
-/// 13 since CF-02 added `spec.exclusion`, the definition exclusion and its causes.
-pub const RUN_VERSION: u64 = 13;
+/// 13 since CF-02 added `spec.exclusion`, the definition exclusion and its causes; 14 since the
+/// compared cells added `result`, the slots and the cells the programs' second slot compares, so
+/// that every survivor is reported with the cells it was compared on, and named that slot `cells`
+/// where it leaves some cell out.
+pub const RUN_VERSION: u64 = 14;
 
 /// k-rust's contradicted-claim records of one run as specification diagnostics (re-pin adoption
 /// A-1): each `{claim, symbol, k_label, rule_id, rule_label, application, undefined,
@@ -252,11 +255,13 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
         "killed" => return None,
         "survived" => {
             "write a program that reaches an edited rule and whose final configuration the edit \
-             changes: every executed program reached a comparable result and agreed"
+             changes outside the cells result.not_compared lists: every executed program \
+             reached a comparable result and agreed"
         }
         "timeout" => {
-            "write a program that ends under the mutant within budget.time_ms with a different \
-             final configuration: a program did not end on the mutant, and no program killed it"
+            "write a program that ends under the mutant within budget.time_ms with a final \
+             configuration that differs outside the cells result.not_compared lists: a program \
+             did not end on the mutant, and no program killed it"
         }
         "unknown" if reason == Some("baseline-findings") => {
             "fix the specification, or name each finding you accept as a premise in [spec] \
@@ -331,10 +336,12 @@ fn is_corpus_error(reason: &str) -> bool {
 /// The most characters of one final configuration's KORE text the report shows.
 pub const KORE_CAP: usize = 4000;
 
-/// An executed entry's `slots` (flow F-13): an object keyed by slot name
-/// ([`ORACLE_SLOTS`]), each `{outcome}`, and for a distinguishing slot `sides`: for
+/// An executed entry's `slots` (flow F-13): an object keyed by slot name (`slots`, the
+/// specification's, [`crate::observed::ResultProjection::slots`]), each `{outcome}`, and for a
+/// distinguishing slot `sides`: for
 /// `exit-stop` each side's exit-stop kinds (`{"baseline": ["stuck"], "mutant": []}`: an undefined
-/// step is no end and has no kind), for `whole-term` each side's number of final configurations and,
+/// step is no end and has no kind), for `whole-term` (or `cells`, the final term without the
+/// cells left out) each side's number of final configurations and,
 /// when `killer_terms` (the killing program's entry), the mutant's final configurations as
 /// KORE text, each capped at [`KORE_CAP`] characters (`{"text", "truncated"}`). When the two
 /// sides' values are not at hand (a cached outcome, or a one-sided kill, whose mutant side is
@@ -344,6 +351,7 @@ pub const KORE_CAP: usize = 4000;
 /// ends) `complete: false` (whole-term) or `mutant_complete: false` (exit-stop); null when
 /// there is no difference either.
 pub fn slots_value(
+    slots: &[&str],
     outcomes: &[OracleOutcome],
     baseline: Option<&SideRun>,
     mutant: Option<&SideRun>,
@@ -354,9 +362,10 @@ pub fn slots_value(
         Some(SideRun::Sides { sides }) => sides.get(slot).cloned(),
         _ => None,
     };
+    let names = slots;
     let mut slots = serde_json::Map::new();
     for (slot, outcome) in outcomes.iter().enumerate() {
-        let name = ORACLE_SLOTS.get(slot).copied().unwrap_or("slot");
+        let name = names.get(slot).copied().unwrap_or("slot");
         let mut value = json!({"outcome": slot_name(*outcome)});
         if *outcome == OracleOutcome::Distinguish {
             value["sides"] =
@@ -426,7 +435,7 @@ fn difference_sides(slot: &str, difference: &Value) -> Value {
             }
             sides
         }
-        "whole-term" => {
+        "whole-term" | "cells" => {
             let mut mutant_side = json!({"final_configurations": mutant["final_configurations"]});
             if !complete {
                 mutant_side["complete"] = json!(false);
@@ -498,8 +507,10 @@ fn mutant_census_clause(census: &LeafCensus, edited: &BTreeSet<String>) -> Strin
 
 /// The `cause` of an executed program's outcome on the mutant, from the runner's evidence for
 /// that run and, when the session recorded it, the leaf census of the mutant's run: `None` when
-/// the outcome is `agree` or `distinguish` (or the test was skipped).
+/// the outcome is `agree` or `distinguish` (or the test was skipped). `slots` names the slots
+/// ([`slots_value`]).
 pub fn executed_cause(
+    slots: &[&str],
     run: &TestRun,
     mutant: Option<&SideRun>,
     across: &[CrossRefusal],
@@ -551,7 +562,7 @@ pub fn executed_cause(
                 if *outcome == OracleOutcome::Agree {
                     continue;
                 }
-                let name = ORACLE_SLOTS.get(slot).copied().unwrap_or("slot");
+                let name = slots.get(slot).copied().unwrap_or("slot");
                 // The mutant's own refusal first; the baseline's only when the mutant's side is
                 // otherwise a value.
                 let cross = refused(slot, false).or_else(|| {

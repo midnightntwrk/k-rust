@@ -14,7 +14,8 @@ use crate::{
     admit::CaseInputs,
     manifest::{Budget, FlowManifest, Program},
     mutation::{EditAction, EditedRule, Mutation, ResolvedMutation},
-    results::{ORACLE_SLOTS, result_key},
+    observed::ResultProjection,
+    results::result_key,
 };
 use kink_corpus::{LoadedSource, SourceFile};
 use kink_native::{K_RUST_REVISION, execution::SolverProfile};
@@ -32,8 +33,8 @@ pub const PROGRAM_DOMAIN: &str = "kink-flow/program/v1";
 /// The payload of the specification digest: the k-rust revision and solver profile of this
 /// build, how the specification is loaded, every non-builtin source file the load read
 /// (`files`, kink-corpus `load_source`), as `{name, sha256}` sorted by name, and the
-/// `assume_joined` premises when there are any. Builtin sources are fixed by the k-rust
-/// revision.
+/// `assume_joined` premises when there are any, and the `[result] cells` (sorted) when the
+/// manifest narrows the compared cells. Builtin sources are fixed by the k-rust revision.
 pub fn spec_payload(manifest: &FlowManifest, files: &[SourceFile]) -> Value {
     let spec = &manifest.spec;
     let mut files = files
@@ -59,6 +60,15 @@ pub fn spec_payload(manifest: &FlowManifest, files: &[SourceFile]) -> Value {
     // specification without premises keeps its digest.
     if !spec.assume_joined.is_empty() {
         payload["assume_joined"] = json!(spec.assume_joined);
+    }
+    // The compared cells, when the manifest narrows them: a program's comparable result holds
+    // the ends its second slot projects, so every store keyed on this digest misses when they
+    // change. Absent without `[result]`, so a manifest without it keeps its digest; which cells
+    // the specification declares unobservable is in its files.
+    if let Some(result) = &manifest.result {
+        let mut cells = result.cells.clone();
+        cells.sort();
+        payload["result_cells"] = json!(cells);
     }
     payload
 }
@@ -174,11 +184,18 @@ pub fn execution_digest(manifest: &FlowManifest, loaded: &LoadedSource) -> Execu
 }
 
 /// The tier-1 context (flow README 7.5.3, "The key"): every component of the key except the
-/// mutation and the program, shared by every mutation of one command.
+/// mutation and the program, shared by every mutation of one command. `result` is what the
+/// programs' second slot compares: the context names the slots, and the cells left out when
+/// there are any. Today's execution digest is the specification digest, which already holds the
+/// source bytes (and so every `unobservable` declaration) and `[result] cells`; the cells are in
+/// the context for an execution digest read from the compiled KORE (k-rust's
+/// `execution_digest()`, README 7.5.4), which the attribute does not reach, so that an outcome
+/// never answers for another projection there either.
 pub fn outcome_context(
     kink_build: Sha256Digest,
     execution: ExecutionDigest,
     budget: Budget,
+    result: &ResultProjection,
 ) -> Value {
     // The budget object of the result key, so both keys name the same bounds, and the mutants'
     // work budget, which bounds only mutant runs (re-pin L1-1; absent without one, so a
@@ -189,7 +206,7 @@ pub fn outcome_context(
     if let Some(factor) = work_factor {
         budget["work"] = json!({"factor": factor, "floor": crate::manifest::WORK_FLOOR});
     }
-    json!({
+    let mut context = json!({
         "outcome_schema": OUTCOME_SCHEMA_VERSION,
         "kink_build": kink_build.to_string(),
         // kink's semantics identity (kink-campaign `identity`, packet CACHE-ID): the k-rust
@@ -203,10 +220,15 @@ pub fn outcome_context(
         "profile": SolverProfile::BUILD.name(),
         "execution_digest": execution.value(),
         "budget": budget,
-        "oracles": ORACLE_SLOTS,
+        "oracles": result.slots(),
         "classifier": CLASSIFIER,
         "schedule": SCHEDULE,
-    })
+    });
+    // Absent when nothing is left out, so a whole-term context is unchanged.
+    if result.cells().is_some() {
+        context["not_compared"] = json!(result.not_compared);
+    }
+    context
 }
 
 /// The digest of a tier-1 context: `payload_digest("kink-flow/outcome-context/v1", canonical
