@@ -2189,6 +2189,11 @@ fn parse_group_entry(
         return Err(invalid(input.span()));
     }
     let span = tokens.span();
+    if context == StateMacroContext::Expression
+        && let Some(refusal) = pattern_only_entry(&tokens)
+    {
+        return Err(refusal);
+    }
     let term = state_term_tokens(tokens, context).map_err(|_| invalid(span))?;
     match term.tree() {
         TermTree::Reference(path) if path.get_ident().is_some() => Ok(StateTerm::Group(term)),
@@ -2198,6 +2203,39 @@ fn parse_group_entry(
         TermTree::Cell(_) => Ok(StateTerm::Group(term)),
         _ => Err(invalid(span)),
     }
+}
+
+/// The refusal of a whole nested-cell entry value that only a pattern holds, outside one: `_`,
+/// which matches any content and names none a result could build, and `name @ pattern` (K's
+/// `#as`), which names the content a pattern matched. Both are the form's own refusals (P4's
+/// placement), judged from the spelling and the side alone, whatever the cell's kind: the
+/// classes `wildcard-outside-pattern` and `alias-outside-pattern`, with the position table's
+/// reasons, as the same constructs inside a leaf's `Cell(..)` meet them.
+fn pattern_only_entry(tokens: &TokenStream) -> Option<SyntaxError> {
+    use crate::positions::Class;
+    if syn::parse2::<Token![_]>(tokens.clone()).is_ok() {
+        return Some(SyntaxError::new(
+            SyntaxErrorKind::UnsupportedTermExpression {
+                reason: Class::WildcardOutsidePattern.summary(),
+            },
+            tokens.span(),
+        ));
+    }
+    let alias = |input: ParseStream<'_>| -> syn::Result<()> {
+        input.parse::<Ident>()?;
+        input.parse::<Token![@]>()?;
+        input.parse::<TokenStream>().map(drop)
+    };
+    syn::parse::Parser::parse2(alias, tokens.clone())
+        .is_ok()
+        .then(|| {
+            SyntaxError::new(
+                SyntaxErrorKind::InvalidPatternAs {
+                    reason: Class::AliasOutsidePattern.summary().to_owned(),
+                },
+                tokens.span(),
+            )
+        })
 }
 
 /// Parses a leaf cell's content. `k!` and `map!` are read by their last

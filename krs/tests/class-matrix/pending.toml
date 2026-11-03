@@ -3626,26 +3626,6 @@ deviation = "E0308 @ spelling"
 finding = "B2"
 deviation = "E0308 @ spelling"
 
-["cells/overwrite/kinds/account/_"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["cells/overwrite/kinds/counter/_"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["cells/overwrite/kinds/env/_"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["cells/overwrite/kinds/ogroup/_"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["cells/overwrite/kinds/pc/_"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
 ["claim/overwrite/kinds/account/{ y -> x, .. }"]
 finding = "S0-9"
 deviation = "krs::syntax::rust-syntax @ spelling"
@@ -3933,26 +3913,6 @@ deviation = "krs::analysis::invalid-list-notation @ item"
 ["readable/result/kinds/job/[x, ..]"]
 finding = "S5-Q2"
 deviation = "krs::analysis::invalid-list-notation @ item"
-
-["cells/result/kinds/abag/_"]
-finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["cells/result/kinds/aframe/_"]
-finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["cells/result/kinds/aomap/_"]
-finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["cells/result/kinds/aprog/_"]
-finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["cells/result/kinds/aseq/_"]
-finding = "S5-S1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["cells/subject/kinds/aacct/k::fragment![crate::Aacct { aid: x, .. }]"]
 finding = "S5-S1"
@@ -4690,10 +4650,6 @@ deviation = "accepted"
 
 # S5.0g item 3b: the kinds base's groups (`class_matrix::kinds::groups`), each red owned by the finding of
 # the first mistake the compiler meets.
-
-["cells/alias/kinds/frame/f @ k::fragment![crate::G { a: x, b: y }]"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["cells/g1-a/kinds/account/{ k::fragment![crate::Acct { acounter: Some(x), ..me }], ..instances0 }"]
 finding = "S5-G1"
@@ -6286,10 +6242,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/overwrite/bag/_"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
 ["sweep/cells/overwrite/bag/k::configuration::Cell([.., x])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
@@ -6362,10 +6314,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/overwrite/frame/_"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
 ["sweep/cells/overwrite/frame/k::configuration::Cell([.., x])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
@@ -6383,10 +6331,6 @@ finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["sweep/cells/overwrite/frame/k::configuration::KCell(x, .., y)"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/overwrite/job/_"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
@@ -6430,10 +6374,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/overwrite/olist/_"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
 ["sweep/cells/overwrite/olist/k::configuration::Cell([.., x])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
@@ -6451,10 +6391,6 @@ finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["sweep/cells/overwrite/olist/k::configuration::KCell(x, .., y)"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/overwrite/omap/_"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
@@ -6498,10 +6434,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/overwrite/prog/_"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
 ["sweep/cells/overwrite/prog/k::configuration::Cell([.., x])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
@@ -6522,10 +6454,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/overwrite/seq/_"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
 ["sweep/cells/overwrite/seq/k::configuration::Cell([.., x])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
@@ -6539,10 +6467,6 @@ finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["sweep/cells/overwrite/seq/k::configuration::KCell(x, .., y)"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/overwrite/set/_"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
@@ -6566,10 +6490,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/overwrite/stack/_"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
 ["sweep/cells/overwrite/stack/k::configuration::KCell(.., x)"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
@@ -6579,10 +6499,6 @@ finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["sweep/cells/overwrite/stack/k::configuration::KCell(x, .., y)"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/result/acct/_"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
@@ -6603,10 +6519,6 @@ finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["sweep/cells/result/acct/k::configuration::KCell(x, .., y)"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/result/bag/_"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
@@ -6638,10 +6550,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/result/counter/_"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
 ["sweep/cells/result/counter/k::configuration::Cell([.., x])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
@@ -6659,10 +6567,6 @@ finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["sweep/cells/result/counter/k::configuration::KCell(x, .., y)"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/result/env/_"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
@@ -6718,10 +6622,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/result/frame/_"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
 ["sweep/cells/result/frame/k::configuration::Cell([.., x])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
@@ -6739,10 +6639,6 @@ finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["sweep/cells/result/frame/k::configuration::KCell(x, .., y)"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/result/job/_"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
@@ -6766,10 +6662,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/result/ogroup/_"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
 ["sweep/cells/result/ogroup/k::configuration::Cell([.., x])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
@@ -6787,10 +6679,6 @@ finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["sweep/cells/result/ogroup/k::configuration::KCell(x, .., y)"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/result/olist/_"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
@@ -6814,10 +6702,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/result/omap/_"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
 ["sweep/cells/result/omap/k::configuration::Cell([.., x])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
@@ -6835,10 +6719,6 @@ finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["sweep/cells/result/omap/k::configuration::KCell(x, .., y)"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/result/pc/_"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
@@ -6862,10 +6742,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/result/prog/_"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
 ["sweep/cells/result/prog/k::configuration::Cell([.., x])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
@@ -6882,10 +6758,6 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/result/seq/_"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
 ["sweep/cells/result/seq/k::configuration::Cell([.., x])"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
@@ -6899,10 +6771,6 @@ finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["sweep/cells/result/seq/k::configuration::KCell(x, .., y)"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/result/set/_"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
@@ -6923,10 +6791,6 @@ finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["sweep/cells/result/set/k::configuration::KCell(x, .., y)"]
-finding = "S0-9"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/result/stack/_"]
 finding = "S0-9"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 

@@ -1260,11 +1260,29 @@ fn whole_nested_cell_entries_are_binders_wildcards_or_fragments() {
                 .unwrap_err();
         assert_eq!(error.kind(), &group_entry, "{source}");
     }
-    let error = krs_syntax::parse_cells_expression(
-        krs_syntax::parse::tokens_from_source("frame: _").unwrap(),
-    )
-    .unwrap_err();
-    assert_eq!(error.kind(), &group_entry);
+    // `_` and `name @ pattern` are pattern-only whole entries (P4's placement): a result refuses
+    // them by their classes, whatever the cell's kind.
+    for (source, wildcard) in [
+        ("frame: _", true),
+        ("pc: _", true),
+        ("frame: f @ k::fragment![crate::Frame { pc: x }]", false),
+    ] {
+        let error = krs_syntax::parse_cells_expression(
+            krs_syntax::parse::tokens_from_source(source).unwrap(),
+        )
+        .unwrap_err();
+        let class = if wildcard {
+            krs_syntax::positions::Class::WildcardOutsidePattern
+        } else {
+            krs_syntax::positions::Class::AliasOutsidePattern
+        };
+        assert_eq!(error.kind().code(), class.code(), "{source}");
+        assert_eq!(
+            error.span().start().column,
+            source.find(": ").unwrap() + 2,
+            "{source}"
+        );
+    }
 }
 
 #[test]
