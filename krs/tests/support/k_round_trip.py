@@ -12,9 +12,12 @@ and nowhere else. Each rule maps two K texts that mean the same thing to one tex
    sentence's variables are bound in it, so a bijective renaming is the same sentence.
 2. In a computation cell, a rewrite with a named continuation, `<c> A ~> T:K => B ~> T:K </c>`,
    where `T` occurs nowhere else in the sentence, is read as `<c> A => B ... </c>`. A
-   computation cell is one whose content is a K sequence: the configuration declares it with
-   K content (`<instrs> $PGM:K </instrs>`, `<k> .K </k>`), whatever its name; a definition that
-   declares no configuration has K's default one, whose computation cell is `<k>`. The printed
+   computation cell is one whose content is a K sequence, as the configuration declares it:
+   with K content (`<instrs> $PGM:K </instrs>`, `<todo> .K </todo>`), or as the main cell,
+   whose content is the computation whatever its initializer's sort (`<instrs maincell="">`,
+   and `<k>`, the main cell K's configurations have when none is marked:
+   `<k> $PGM:Stmt </k>`). A definition that declares no configuration has K's default one,
+   whose computation cell is `<k>`. The printed
    long form names the continuation the readable clause leaves anonymous; both rewrite the
    sequence's head and carry the same rest unchanged, which is what K's `...` at the end of a
    cell whose content is a K sequence means. A cell of another sort (a Map, a List) holds no
@@ -43,9 +46,9 @@ _SENTENCE = re.compile(
 _VARIABLE = re.compile(r"\b([A-Z][A-Za-z0-9_']*):(?=[A-Za-z#])")
 _REST_SORTS = ("K", "Map", "Set", "List", "Bag")
 _RAW_K_COMMENT = re.compile(r"(// raw_k! \S+?):\d+:\d+( \(opaque to KRS\))")
-_COMPUTATION_CELL = re.compile(
-    r"<([A-Za-z][A-Za-z0-9-]*)(?:\s[^<>]*)?>\s*(?:\$[A-Za-z][A-Za-z0-9_]*:K|\.K)\s*</\1>"
-)
+_LEAF_CELL = re.compile(r"<([A-Za-z][A-Za-z0-9-]*)((?:\s[^<>]*)?)>([^<>]*)</\1>")
+_K_CONTENT = re.compile(r"\s*(?:\$[A-Za-z][A-Za-z0-9_]*:K|\.K)\s*")
+_MAIN_CELL = re.compile(r"\smaincell=")
 DEFAULT_COMPUTATION_CELLS = frozenset({"k"})
 """The computation cell of K's default configuration, `<k> $PGM:K </k>`, for a definition that
 declares none."""
@@ -59,15 +62,20 @@ def sentences(text: str) -> list[str]:
 
 
 def computation_cells(texts: Iterable[str]) -> frozenset[str]:
-    """The cells the configuration declarations in `texts` give K content (rule 2), or K's
-    default configuration's when none is declared."""
+    """The leaf cells the configuration declarations in `texts` give K content or make the main
+    cell (rule 2), or K's default configuration's when none is declared."""
 
     declarations = [
         sentence for text in texts for sentence in sentences(text) if sentence.startswith("configuration")
     ]
     if not declarations:
         return DEFAULT_COMPUTATION_CELLS
-    return frozenset(cell for sentence in declarations for cell in _COMPUTATION_CELL.findall(sentence))
+    return frozenset(
+        cell
+        for sentence in declarations
+        for cell, attributes, content in _LEAF_CELL.findall(sentence)
+        if _K_CONTENT.fullmatch(content) or _MAIN_CELL.search(attributes) or cell == "k"
+    )
 
 
 def _occurrences(words: list[str], name: str) -> int:

@@ -33,7 +33,17 @@ class NormalizationTests(unittest.TestCase):
                 normalized(f"rule <{cell}> f ( X:Int ) ~> T:K => g ( X:Int ) ~> T:K </{cell}>", cells),
                 normalized(f"rule <{cell}> f ( Y:Int ) => g ( Y:Int ) ... </{cell}>", cells),
             )
-        # `<k>` is a computation cell only when the configuration declares it one.
+        # The main cell's content is the computation whatever its initializer's sort: marked
+        # `maincell`, or `<k>` (the main cell when none is marked).
+        self.assertEqual(
+            computation_cells(["configuration <instrs maincell=\"\"> $PGM:Instrs </instrs> <stack> .List </stack>"]),
+            {"instrs"},
+        )
+        self.assertEqual(
+            computation_cells(["configuration <k color=\"green\"> $PGM:Stmt </k> <env> $ENV:Map </env>"]),
+            {"k"},
+        )
+        # `<k>` is a computation cell only when the configuration declares it.
         self.assertNotEqual(
             normalized("rule <k> f ( X:Int ) ~> T:K => g ( X:Int ) ~> T:K </k>", cells),
             normalized("rule <k> f ( Y:Int ) => g ( Y:Int ) ... </k>", cells),
