@@ -659,16 +659,21 @@ fn binds(spelling: &EntrySpelling) -> bool {
 
 /// Whether a result `spelling` writes a group record with a bare `..` for a group that exists:
 /// the cell's own group, which the subject matches or the result overwrites (`subject` `None`),
-/// or the one inside a `?` cell the subject matches present, and their group children. A
-/// collection's instance record is a created instance's, and a `?` cell over a subject `None`
-/// is created, so neither is. A result holds no alias (step 1).
+/// or the one inside a `?` cell the subject matches present, and their group children. The
+/// group's `k::fragment![..]` is the same record in `cells!`, which a readable record
+/// abbreviates, so its bare `..` is the same default fields. A collection's instance record is
+/// a created instance's, and a `?` cell over a subject `None` is created, so neither is. A
+/// result holds no alias (step 1).
 fn open_record_on_existing(
     stack: &[Layer],
     spelling: &EntrySpelling,
     subject: Option<&EntrySpelling>,
 ) -> bool {
     fn existing(stack: &[Layer], spelling: &EntrySpelling) -> bool {
-        let (Some(Layer::Group(group)), EntrySpelling::Record(record)) = (stack.first(), spelling)
+        let (
+            Some(Layer::Group(group)),
+            EntrySpelling::Record(record) | EntrySpelling::Fragment(record),
+        ) = (stack.first(), spelling)
         else {
             return false;
         };
@@ -1180,6 +1185,63 @@ mod tests {
                 &[Layer::Instances(Order::Set), frame()],
                 "{ Frame { ret: x, .. } }",
                 None
+            ),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn a_result_group_fragment_with_a_bare_rest_is_refused_over_an_existing_group() {
+        let cells = EntryForm::Cells;
+        let refused = Err(Refusal::OpenRecordOutsidePattern);
+        let group = [frame()];
+        let optional = [Layer::Optional, frame()];
+        let open = "k::fragment![crate::Frame { ret: x, .. }]";
+        // The fragment is the group's record (D-3): matched or overwritten, the group exists.
+        assert_eq!(
+            result(
+                cells,
+                &group,
+                open,
+                Some("k::fragment![crate::Frame { ret: y, .. }]")
+            ),
+            refused
+        );
+        assert_eq!(result(cells, &group, open, None), refused);
+        assert_eq!(
+            result(
+                cells,
+                &optional,
+                "Some(k::fragment![crate::Frame { ret: x, .. }])",
+                Some("Some(k::fragment![crate::Frame { ret: y, .. }])")
+            ),
+            refused
+        );
+        assert_eq!(
+            result(
+                cells,
+                &group,
+                "k::fragment![crate::Frame { ret: x, aux: 0 }]",
+                None
+            ),
+            Ok(None)
+        );
+        // A `?` cell created over a subject `None`, and a created instance, take the template's.
+        assert_eq!(
+            result(
+                cells,
+                &optional,
+                "Some(k::fragment![crate::Frame { ret: x, .. }])",
+                Some("None")
+            ),
+            Ok(None)
+        );
+        assert_eq!(
+            result(
+                cells,
+                &[Layer::Instances(Order::List), frame()],
+                "[k::fragment![crate::Frame { ret: x, .. }], ..]",
+                Some("[k::fragment![crate::Frame { ret: y, .. }], ..]")
             ),
             Ok(None)
         );

@@ -998,11 +998,14 @@ impl Judge<'_> {
 /// Whether a result `spelling` writes a group record with a bare `..` for a group that exists:
 /// the cell's own group, which the subject matches or the result overwrites (`other` `None`),
 /// or the group inside a `?` cell the subject matches present, and their group children. A
-/// collection's instance record is a created instance's, and a `?` cell over a subject `None`
-/// is created, so neither is. A result holds no alias (step 1).
+/// fragment of the group is its record (P7: readable `G { a: x, .. }` abbreviates
+/// `k::fragment![crate::G { a: x, .. }]`), as Q1's lint reads it ([`total`]). A collection's
+/// instance record is a created instance's, and a `?` cell over a subject `None` is created, so
+/// neither is. A result holds no alias (step 1).
 fn open_record_on_existing(stack: &[Layer], spelling: &Spelling, other: Option<&Spelling>) -> bool {
     fn existing(stack: &[Layer], spelling: &Spelling) -> bool {
-        let (Some(Layer::Group(group)), Spelling::Record(record)) = (stack.first(), spelling)
+        let (Some(Layer::Group(group)), Spelling::Record(record) | Spelling::Fragment(record)) =
+            (stack.first(), spelling)
         else {
             return false;
         };

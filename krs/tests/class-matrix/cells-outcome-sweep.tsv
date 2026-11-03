@@ -474,7 +474,7 @@ result, matched	-	leaf List	k::configuration::Cell([y, ..])	pop	pop	rm	sort	arm	
 result, matched	-	leaf Cons	k::configuration::Cell([y, ..])	pop	pop	rm	sort	arm	cw	cw	iop	iop	cw	wop	cw
 result, matched	-	leaf Map	k::configuration::Cell(k::map![z -> y, ..])	pop	pop	rm	br	arm	cw	cw	iop	iop	cw	wop	cw
 result, matched	-	leaf Set	k::configuration::Cell(old)	pop	pop	sort	br	arm	cw	cw	iop	iop	cw	wop	cw
-result, matched	-	group G	k::fragment![crate::G { a: y, .. }]	pop	pop	cw	cw	arm	cw	cw	iop	iop	sort	wop	sort
+result, matched	-	group G	k::fragment![crate::G { a: y, .. }]	pop	pop	cw	cw	arm	cw	cw	iop	iop	sort	wop	open-record-outside-pattern
 result, matched	-	? leaf Int	Some(k::configuration::Cell(old))	sort	ok	owp	owp	arm	cw	cw	iop	iop	owp	wop	owp
 result, matched	-	? leaf List	Some(k::configuration::Cell([y, ..]))	rm	ok	owp	owp	arm	cw	cw	iop	iop	owp	wop	owp
 result, matched	-	? leaf Map	Some(k::configuration::Cell(k::map![z -> y, ..]))	rm	ok	owp	owp	arm	cw	cw	iop	iop	owp	wop	owp
@@ -516,7 +516,7 @@ result, unmatched	-	leaf List	-	pop	pop	sort	rm	arm	cw	cw	iop	iop	cw	wop	cw
 result, unmatched	-	leaf Cons	-	pop	pop	sort	rm	arm	cw	cw	iop	iop	cw	wop	cw
 result, unmatched	-	leaf Map	-	pop	pop	sort	br	arm	cw	cw	iop	iop	cw	wop	cw
 result, unmatched	-	leaf Set	-	pop	pop	sort	br	arm	cw	cw	iop	iop	cw	wop	cw
-result, unmatched	-	group G	-	pop	pop	cw	cw	arm	cw	cw	iop	iop	sort	wop	sort
+result, unmatched	-	group G	-	pop	pop	cw	cw	arm	cw	cw	iop	iop	sort	wop	open-record-outside-pattern
 result, unmatched	-	? leaf Int	-	uor	uor	owp	owp	arm	cw	cw	iop	iop	owp	wop	owp
 result, unmatched	-	? leaf List	-	uor	uor	owp	owp	arm	cw	cw	iop	iop	owp	wop	owp
 result, unmatched	-	? leaf Map	-	uor	uor	owp	owp	arm	cw	cw	iop	iop	owp	wop	owp

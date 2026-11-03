@@ -2022,6 +2022,63 @@ fn a_result_group_record_with_a_bare_rest_is_refused_over_an_overwritten_group()
     ]);
 }
 
+/// D-3 (S5.0g): `k::fragment![crate::G { a: x, .. }]` is the record readable `G { a: x, .. }`
+/// abbreviates (P7), so its bare `..` in a result is Rust's default fields too, which a group that
+/// exists, matched or overwritten, does not have (P6, ruling 1); a `?` cell created over a
+/// subject `None` and a created instance have their template's.
+#[test]
+fn a_result_group_fragment_with_a_bare_rest_is_refused_over_an_existing_group() {
+    let refused = Outcome::Refuse("open-record-outside-pattern");
+    let group = [group_g()];
+    let optional = [Layer::Optional, group_g()];
+    let list = [Layer::Instances(Order::List), group_g()];
+    let open = "k::fragment![crate::G { a: x, .. }]";
+    let open_present = "Some(k::fragment![crate::G { a: x, .. }])";
+    probes_agree(&[
+        (
+            result_probe(
+                Form::Cells,
+                &group,
+                open,
+                Some("k::fragment![crate::G { a: y, .. }]"),
+            ),
+            refused,
+        ),
+        (result_probe(Form::Cells, &group, open, None), refused),
+        (
+            result_probe(
+                Form::Cells,
+                &optional,
+                open_present,
+                Some("Some(k::fragment![crate::G { a: y, .. }])"),
+            ),
+            refused,
+        ),
+        (
+            result_probe(Form::Cells, &optional, open_present, Some("None")),
+            Outcome::After,
+        ),
+        (
+            result_probe(
+                Form::Cells,
+                &group,
+                "k::fragment![crate::G { a: x, b: 0 }]",
+                None,
+            ),
+            Outcome::After,
+        ),
+        (
+            result_probe(
+                Form::Cells,
+                &list,
+                "[k::fragment![crate::G { a: x, .. }], ..]",
+                Some("[k::fragment![crate::G { a: y, .. }], ..]"),
+            ),
+            Outcome::After,
+        ),
+    ]);
+}
+
 /// Ruling 3 on F2: `name @ P` names what a pattern matched, so a result holds none, at any depth
 /// (§2.3 step 1), before the path is judged.
 #[test]
