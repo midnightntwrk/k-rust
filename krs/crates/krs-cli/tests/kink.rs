@@ -1461,3 +1461,91 @@ fn results_give_a_claim_helper_its_own_status() {
     assert_eq!(document["summary"]["uncovered"], count("uncovered"));
     assert_eq!(document["version"], 8);
 }
+
+/// A false `total` claim of a KRS function, observed by a run, is a specification diagnostic
+/// whose rules are named by their Rust items: `Div` is declared total and divides by its
+/// argument, and on `sib(0)` the nondet group's `sib_div` applies it at 0 beside `sib_done`
+/// (the sibling keeps the run's leaf clean, so only k-rust's list holds the record).
+#[test]
+fn a_contradicted_total_claim_names_its_rust_items() {
+    const LIBRARY: &str = r#"use k::builtin::{Int, KSequence};
+use k::{KItem, Term};
+
+k::sorts! {
+    Exp: KItem;
+}
+
+#[k::constructors(sort = Exp, result = k::KResult)]
+#[rustfmt::skip]
+pub enum ExpSyntax {
+    #[k::syntax("sib({value})")] Sib { value: Int },
+    #[k::syntax("val({value})")] Val { value: Int },
+    #[k::syntax("done")] Done(),
+}
+
+#[k::function(total, internal)]
+pub fn Div(value: Term<Int>) -> Term<Int> {
+    10 / value
+}
+
+#[k::rule(nondet = sib)]
+fn sib_div(k::term![ExpSyntax::Sib { value }]: Term<Exp>) -> Term<Exp> {
+    ExpSyntax::Val(Div(value))
+}
+
+#[k::rule(nondet = sib)]
+fn sib_done(k::term![ExpSyntax::Sib { value }]: Term<Exp>) -> Term<Exp> {
+    ExpSyntax::Done()
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self { k: k::k![pgm] }
+    }
+}
+"#;
+    let project = project_of(
+        "krs-cli-kink-total",
+        "TOTAL",
+        &[
+            ("src/lib.rs".to_owned(), LIBRARY.as_bytes().to_vec()),
+            (
+                "kink/FLOW.toml".to_owned(),
+                b"[spec]\nkrs = { definition = \"main\" }\n\n[[program]]\nid = \"sib-0\"\nfile = \"cases/sib0.exp\"\n"
+                    .to_vec(),
+            ),
+            ("kink/cases/sib0.exp".to_owned(), b"sib(0)\n".to_vec()),
+        ],
+    );
+    let output = project.kink("results", &[]);
+    assert_status(&output, 0);
+    let document = json(&output);
+    let program = &document["programs"][0];
+    assert_eq!(program["class"], "unknown", "{program:#}");
+    let [record] = program["specification_diagnostics"]
+        .as_array()
+        .unwrap()
+        .as_slice()
+    else {
+        panic!("one record: {program:#}")
+    };
+    assert_eq!(record["claim"], "total", "{record:#}");
+    assert_eq!(record["krs_rule"]["item"], "Div", "{record:#}");
+    assert_eq!(record["krs_rule"]["file"], "src/lib.rs", "{record:#}");
+    // The equation's authored source starts at the function or in its body.
+    let line = record["krs_rule"]["line"].as_u64().unwrap();
+    let function = line_of(LIBRARY, "pub fn Div(");
+    assert!((function..=function + 1).contains(&line), "{record:#}");
+    assert_eq!(
+        record["krs_observing_rule"]["item"], "sib_div",
+        "{record:#}"
+    );
+    assert!(document.get("krs").is_none(), "{:#}", document["krs"]);
+}
