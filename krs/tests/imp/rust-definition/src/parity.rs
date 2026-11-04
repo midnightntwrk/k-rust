@@ -752,6 +752,10 @@ fn normalized(mut value: Json, explicit: bool) -> Json {
         }
     }
 
+    // The provenance tables, like every `origin`, are provenance, which the routes do not share.
+    if let Some(object) = value.as_object_mut() {
+        object.remove("provenance");
+    }
     visit(&mut value, explicit);
     rename_generated(&mut value, &mut BTreeMap::new());
     sort_semantic_sets(&mut value);
@@ -1153,7 +1157,14 @@ fn assert_descriptor_transport_mapping(
 }
 
 fn unrelated_descriptor_json(bundle: &krs_ir::DescriptorBundle) -> Json {
-    let mut value: Json = serde_json::from_str(&bundle.to_canonical_json().unwrap()).unwrap();
+    // Every member of the bundle but its provenance tables, which differ between the two bundles,
+    // is encoded on its own, outside the tables; a stack so encoded is its frames.
+    let mut value = serde_json::json!({
+        "protocol_version": serde_json::to_value(bundle.protocol_version()).unwrap(),
+        "descriptors": serde_json::to_value(bundle.descriptors()).unwrap(),
+        "declarations": serde_json::to_value(bundle.declarations()).unwrap(),
+        "package_settings": serde_json::to_value(bundle.package_settings()).unwrap(),
+    });
     let object = value.as_object_mut().unwrap();
     for field in ["descriptors", "declarations"] {
         object[field].as_array_mut().unwrap().retain(|entry| {
