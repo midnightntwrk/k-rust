@@ -40,6 +40,11 @@ pub struct Location {
 #[derive(Default)]
 pub struct Attributes {
     entries: BTreeMap<String, Value>,
+    // The well-known keys `entries` holds, one bit each (`AttributeKey::from_name`): a key's bit
+    // is set exactly when `entries` has the key's spelling, so a well-known key that is absent
+    // is answered without searching the map. Every write of `entries` goes through `new`,
+    // `insert` and `remove`, which keep it.
+    present: KeySet,
     // Generated receipts can contain a module-wide origin set and must remain cheap to carry
     // through the definition clones made by the kompile pipeline; the structured receipt shares
     // that set and renders its JSON form only for consumers of the public map view.
@@ -93,10 +98,47 @@ impl PartialEq for Attributes {
 
 impl Eq for Attributes {}
 
+/// A set of well-known attribute keys, one bit per key in declaration order.
+#[derive(Clone, Copy, Default)]
+struct KeySet([u64; KEY_WORDS]);
+
+const KEY_WORDS: usize = AttributeKey::ALL.len().div_ceil(64);
+
+impl KeySet {
+    fn of_entries(entries: &BTreeMap<String, Value>) -> Self {
+        let mut set = Self::default();
+        for key in entries.keys() {
+            set.note_inserted(key);
+        }
+        set
+    }
+
+    #[inline]
+    fn contains(self, key: AttributeKey) -> bool {
+        let index = key as usize;
+        self.0[index / 64] & (1 << (index % 64)) != 0
+    }
+
+    fn note_inserted(&mut self, name: &str) {
+        if let Some(key) = AttributeKey::from_name(name) {
+            let index = key as usize;
+            self.0[index / 64] |= 1 << (index % 64);
+        }
+    }
+
+    fn note_removed(&mut self, name: &str) {
+        if let Some(key) = AttributeKey::from_name(name) {
+            let index = key as usize;
+            self.0[index / 64] &= !(1 << (index % 64));
+        }
+    }
+}
+
 impl Clone for Attributes {
     fn clone(&self) -> Self {
         Self {
             entries: self.entries.clone(),
+            present: self.present,
             origin: self.origin.as_ref().map(Arc::clone),
             inputs: self.inputs.as_ref().map(Arc::clone),
         }
@@ -136,6 +178,7 @@ impl Attributes {
             .remove(AttributeKey::Origin.as_str())
             .map(|value| Arc::new(OriginReceipt::from_value(value)));
         let mut attributes = Self {
+            present: KeySet::of_entries(&entries),
             entries,
             origin,
             inputs: None,
@@ -144,6 +187,9 @@ impl Attributes {
             .entries
             .remove(AttributeKey::InputAddresses.as_str())
         {
+            attributes
+                .present
+                .note_removed(AttributeKey::InputAddresses.as_str());
             attributes.insert(AttributeKey::InputAddresses.as_str(), value);
         }
         attributes
@@ -237,7 +283,7 @@ impl Attributes {
 
     /// Whether a well-known key is present.
     pub fn has(&self, key: AttributeKey) -> bool {
-        self.get(key.as_str()).is_some()
+        self.value(key).is_some()
     }
 
     /// Whether any of the well-known keys is present.
@@ -245,14 +291,22 @@ impl Attributes {
         keys.iter().any(|key| self.has(*key))
     }
 
-    /// The value of a well-known key.
+    /// The value of a well-known key: what [`Self::get`] gives for its spelling, without
+    /// searching the entries for a key they do not hold.
     pub fn value(&self, key: AttributeKey) -> Option<&Value> {
-        self.get(key.as_str())
+        match key {
+            AttributeKey::Origin => self.origin.as_deref().map(OriginReceipt::value),
+            AttributeKey::InputAddresses if self.inputs.is_some() => {
+                self.inputs.as_deref().map(InputAddresses::value)
+            }
+            key if self.present.contains(key) => self.entries.get(key.as_str()),
+            _ => None,
+        }
     }
 
     /// The string value of a well-known key; `None` when absent or not a string.
     pub fn string(&self, key: AttributeKey) -> Option<&str> {
-        self.get_str(key.as_str())
+        self.value(key).and_then(Value::as_str)
     }
 
     /// Read a typed K label while accepting the string form emitted by older krust builds.
@@ -283,14 +337,17 @@ impl Attributes {
                 .take()
                 .map(|inputs| inputs.value().clone())
                 .or_else(|| self.entries.remove(&key));
+            self.present.note_removed(&key);
             match InputAddresses::from_value(&value) {
                 Some(inputs) => self.inputs = Some(Arc::new(inputs)),
                 None => {
+                    self.present.note_inserted(&key);
                     self.entries.insert(key, value);
                 }
             }
             previous
         } else {
+            self.present.note_inserted(&key);
             self.entries.insert(key, value)
         }
     }
@@ -301,6 +358,7 @@ impl Attributes {
         } else if key == AttributeKey::InputAddresses.as_str() && self.inputs.is_some() {
             self.inputs.take().map(|inputs| inputs.value().clone())
         } else {
+            self.present.note_removed(key);
             self.entries.remove(key)
         }
     }
