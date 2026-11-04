@@ -439,3 +439,42 @@ fn an_unbound_shorthand_instance_child_fails_as_the_long_child() {
     assert!(!errors.is_empty());
     assert_eq!(errors, check_errors(target.path(), &long));
 }
+
+/// An instance label names exactly one subject instance, which at most one result instance
+/// updates (`krs::analysis::duplicate-instance-label`): a subject that labels two instances
+/// alike, and two result instances that update one label, are each refused with a reason in the
+/// terms of the entry.
+#[test]
+fn a_label_used_twice_is_refused_with_its_reason() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let rule = |subject: &str, result: &str| {
+        format!(
+            "k::rules! {{\n    for Machine;\n    use Cmd::*;\n    pay: {{ k: [Pay {{ id: want, amount }}, ..], account: {{ {subject} }} }} => {{ k: [..], account: {{ {result} }} }};\n}}\n"
+        )
+    };
+    for (name, subject, result, reason) in [
+        (
+            "label-twice-subject",
+            "me @ Account { id: want, .. }, me @ Account { id: amount, .. }, ..",
+            "Account { nonce: 1, ..me }, ..",
+            "labels two subject instances `me @`: a label names exactly one instance the subject matches",
+        ),
+        (
+            "label-twice-result",
+            "me @ Account { id: want, .. }, ..",
+            "Account { nonce: 1, ..me }, Account { balance: amount, ..me }, ..",
+            "update the subject instance labelled `me` (`..me`): an update rewrites the one instance its label names in place, so that instance is the base of one update at most",
+        ),
+    ] {
+        let manifest = package_over(temporary.path(), name, ACCOUNTS, &rule(subject, result));
+        let errors = check_errors(target.path(), &manifest);
+        assert!(
+            errors.iter().any(|error| {
+                error.starts_with("error[krs::analysis::duplicate-instance-label]")
+                    && error.contains(reason)
+            }),
+            "{name}: {errors:#?}"
+        );
+    }
+}

@@ -301,6 +301,14 @@ pub(super) fn judge_readable(
         groups: target.groups(),
     }
     .judge_located();
+    if judged.is_ok()
+        && let Some(entry) = result.iter().find(|entry| {
+            matches!(entry.kind.own.layers.first(), Some(Layer::Instances(_)))
+                && !subject.iter().any(|matched| matched.cell == entry.cell)
+        })
+    {
+        return Err(overwritten_collection(entry));
+    }
     match judged {
         Ok(lints) => Ok(lints
             .into_iter()
@@ -337,6 +345,26 @@ pub(super) fn judge_readable(
                 target.groups(),
             ))
         }
+    }
+}
+
+/// The refusal of an admitted result entry over a collection the subject does not match (Q1's
+/// overwrite of a `*` cell, design S5 §2.3). The entry replaces every instance the collection
+/// holds, whatever they are, which needs a pattern over the whole collection; a readable
+/// clause's collection entry matches instances one by one and keeps the others with `..` or
+/// names every one, so the overwrite has no lowering yet, and is refused rather than read as
+/// another rule.
+fn overwritten_collection(entry: &Entry<'_>) -> CollectionError {
+    let name = unraw(&entry.cell.field);
+    let error = CollectionError::new(
+        CollectionErrorKind::CollectionOverwrite,
+        format!(
+            "the result writes the collection `{name}`, whose instances the subject does not match, so the rule replaces every instance `{name}` holds, whatever they are; a collection's instances are matched one by one, the others kept by `..`, so a rule that drops instances it never matched is not lowered yet: match the instances the rule replaces in the subject"
+        ),
+    );
+    match &entry.field.range {
+        Some(range) => error.with_source_range(range.clone()),
+        None => error,
     }
 }
 

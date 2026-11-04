@@ -7194,6 +7194,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."claim/overwrite/kinds/pc/0"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<pc> _ => 0 </pc>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."claim/result/counter/None"]
 k = """
@@ -10369,6 +10376,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."readable/overwrite/kinds/pc/0"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+<pc> _ => 0 </pc>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."readable/result/counter/None"]
 k = """
@@ -12721,10 +12735,31 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."sweep/claim/overwrite/bag/{ Gs { sa: x, sb: y } }"]
 
 [accept."sweep/claim/overwrite/c05-hcell/H { hl: [x], hb: 0 }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(_:HcellCell => <hcell> <hl> ListItem(V0:Int) </hl> <hb> 0 </hb> </hcell>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/claim/overwrite/c29-wcell/W { wg: Gw { wa: x, wb: y }, wn: 0 }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(_:WcellCell => <wcell> <wg> <wa> V0:Int </wa> <wb> V1:Int </wb> </wg> <wn> 0 </wn> </wcell>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."sweep/claim/overwrite/c30-wcell/W { wg: Gw { wa: x, wb: y, .. }, wn: 0 }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(_:WcellCell => <wcell> <wg> <wa> V0:Int </wa> <wb> V1:Int </wb> </wg> <wn> 0 </wn> </wcell>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."sweep/claim/overwrite/env/G { a: x }"]
 
@@ -12735,6 +12770,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."sweep/claim/overwrite/frame/0"]
 
 [accept."sweep/claim/overwrite/frame/G { a: x, b: y, .. }"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(_:FrameCell => <frame> <a> V0:Int </a> <b> V1:Int </b> </frame>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."sweep/claim/overwrite/frame/x"]
 
@@ -12745,6 +12787,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."sweep/claim/overwrite/pc/G { a: x, b: y, .. }"]
 
 [accept."sweep/claim/overwrite/pc/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<pc> _ => V0:Int </pc>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/claim/overwrite/seq/0"]
 
@@ -12753,6 +12802,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."sweep/claim/overwrite/seq/G { a: x, b: y, .. }"]
 
 [accept."sweep/claim/overwrite/seq/[x]"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<seq> _ => V0:Int : . Ints </seq>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/claim/overwrite/seq/x"]
 
@@ -12771,6 +12827,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."sweep/claim/overwrite/stack/G { a: x, b: y, .. }"]
 
 [accept."sweep/claim/overwrite/stack/[x]"]
+k = """
+claim [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<stack> _ => ListItem(V0:Int) </stack>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/claim/overwrite/stack/x"]
 
@@ -14417,10 +14480,31 @@ configuration
 [accept."sweep/readable/overwrite/bag/{ Gs { sa: x, sb: y } }"]
 
 [accept."sweep/readable/overwrite/c05-hcell/H { hl: [x], hb: 0 }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(_:HcellCell => <hcell> <hl> ListItem(V0:Int) </hl> <hb> 0 </hb> </hcell>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/readable/overwrite/c29-wcell/W { wg: Gw { wa: x, wb: y }, wn: 0 }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(_:WcellCell => <wcell> <wg> <wa> V0:Int </wa> <wb> V1:Int </wb> </wg> <wn> 0 </wn> </wcell>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."sweep/readable/overwrite/c30-wcell/W { wg: Gw { wa: x, wb: y, .. }, wn: 0 }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(_:WcellCell => <wcell> <wg> <wa> V0:Int </wa> <wb> V1:Int </wb> </wg> <wn> 0 </wn> </wcell>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."sweep/readable/overwrite/env/G { a: x }"]
 
@@ -14431,6 +14515,13 @@ configuration
 [accept."sweep/readable/overwrite/frame/0"]
 
 [accept."sweep/readable/overwrite/frame/G { a: x, b: y, .. }"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+(_:FrameCell => <frame> <a> V0:Int </a> <b> V1:Int </b> </frame>)
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
 
 [accept."sweep/readable/overwrite/frame/x"]
 
@@ -14441,6 +14532,13 @@ configuration
 [accept."sweep/readable/overwrite/pc/G { a: x, b: y, .. }"]
 
 [accept."sweep/readable/overwrite/pc/x"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<pc> _ => V0:Int </pc>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/readable/overwrite/seq/0"]
 
@@ -14449,6 +14547,13 @@ configuration
 [accept."sweep/readable/overwrite/seq/G { a: x, b: y, .. }"]
 
 [accept."sweep/readable/overwrite/seq/[x]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<seq> _ => V0:Int : . Ints </seq>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/readable/overwrite/seq/x"]
 
@@ -14467,6 +14572,13 @@ configuration
 [accept."sweep/readable/overwrite/stack/G { a: x, b: y, .. }"]
 
 [accept."sweep/readable/overwrite/stack/[x]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<stack> _ => ListItem(V0:Int) </stack>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/readable/overwrite/stack/x"]
 
@@ -15860,6 +15972,14 @@ syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 [accept."claim/g4-d/kinds/account/{ Acct { aenv: { v -> x, .. }, ..me }, .. }"]
 
 [accept."claim/g5-a/kinds/olist/Some([..r])"]
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(V0:KItem) V1:List => ListItem(V0:KItem) </stack>
+<olist> V2:List => V1:List </olist>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."claim/lint/kinds/account/{ Acct { .. }, .. }"]
 k = """
@@ -16015,6 +16135,14 @@ same_k_as = ["cells/g4-c/kinds/account/{ k::fragment![crate::Acct { aqueue: Aque
 
 [accept."readable/g5-a/kinds/olist/Some([..r])"]
 same_k_as = ["cells/g5-a/kinds/olist/Some(k::configuration::Cell([..r]))"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> ListItem(V0:KItem) V1:List => ListItem(V0:KItem) </stack>
+<olist> V2:List => V1:List </olist>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."readable/lint/kinds/account/{ Acct { .. }, .. }"]
 same_k_as = ["cells/lint/kinds/account/{ k::fragment![crate::Acct { .. }], .. }"]

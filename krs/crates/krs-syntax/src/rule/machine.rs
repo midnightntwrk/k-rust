@@ -176,7 +176,7 @@ fn parse_readable_result_state(
                         Ok(expression)
                     })?;
                     Ok(StateTerm::Present(Box::new(StateTerm::Term(
-                        TermExpression::from_expression(expression)?,
+                        TermExpression::from_expression(named_rest_alone(expression))?,
                     ))))
                 }
                 _ => Err(readable_error(
@@ -199,6 +199,27 @@ fn parse_readable_result_state(
             )?))
         }
     }
+}
+
+/// A result's `[..name]` written as a present cell's whole content, `Some([..name])`: the content
+/// of a `?` cell's `Some(..)` is a content root, where `..name` puts the named rest back (P6), so
+/// brackets holding nothing else are the list `name` is, and the entry means `Some(name)`. Below
+/// the root, `[..name]` is a term's list notation, which has no element and is refused there.
+fn named_rest_alone(expression: Expr) -> Expr {
+    if let Expr::Array(array) = &expression
+        && array.attrs.is_empty()
+        && let [Expr::Range(range)] = array.elems.iter().collect::<Vec<_>>().as_slice()
+        && range.attrs.is_empty()
+        && range.start.is_none()
+        && matches!(range.limits, syn::RangeLimits::HalfOpen(_))
+        && let Some(end) = &range.end
+        && let Expr::Path(path) = end.as_ref()
+        && path.qself.is_none()
+        && path.path.get_ident().is_some()
+    {
+        return (**end).clone();
+    }
+    expression
 }
 
 /// Splits a group's payload at its top-level commas.
@@ -727,6 +748,7 @@ pub(super) fn parse_expression_before_arrow(input: ParseStream<'_>) -> Result<Ex
 fn parse_machine_result_record(
     input: ParseStream<'_>,
     states: &[(Ident, StateFamily)],
+    matched: &[&Ident],
 ) -> Result<Vec<(Ident, MachineResultCell)>, ParseError> {
     let content = input.call(|input| {
         let content;
@@ -780,13 +802,25 @@ fn parse_machine_result_record(
             continue;
         }
         content.parse::<Token![:]>()?;
-        let value = if let Some(family) = family {
-            MachineResultCell::State(Box::new(parse_readable_result_state(&content, family)?))
-        } else if content.peek(syn::token::Bracket) {
-            MachineResultCell::Bracket(content.parse()?)
-        } else {
-            MachineResultCell::Term(Box::new(content.call(crate::term::parse_term_expression)?))
+        // L1: presence is lexical. Over a cell the subject does not match, `Some(..)` and
+        // `None` are a presence, whatever the cell's kind; the collector then judges the
+        // overwrite of that presence against the cell (`unmatched-optional-result` on a `?`
+        // cell, `presence-on-plain-cell` elsewhere).
+        let unmatched_presence = !matched.iter().any(|name| name.unraw() == cell.unraw()) && {
+            let fork = content.fork();
+            fork.parse::<Ident>().is_ok_and(|ident| {
+                (ident == "None" && (fork.is_empty() || fork.peek(Token![,])))
+                    || (ident == "Some" && fork.peek(syn::token::Paren))
+            })
         };
+        let value =
+            if let Some(family) = family.or(unmatched_presence.then_some(StateFamily::Optional)) {
+                MachineResultCell::State(Box::new(parse_readable_result_state(&content, family)?))
+            } else if content.peek(syn::token::Bracket) {
+                MachineResultCell::Bracket(content.parse()?)
+            } else {
+                MachineResultCell::Term(Box::new(content.call(crate::term::parse_term_expression)?))
+            };
         cells.push((cell, value));
         if content.peek(Token![,]) {
             content.parse::<Token![,]>()?;
@@ -927,7 +961,12 @@ pub(super) fn parse_machine_clause(
             _ => None,
         })
         .collect::<Vec<_>>();
-    let result_cells = parse_machine_result_record(input, &states)?;
+    let matched = subject_cells
+        .iter()
+        .map(|(cell, _)| cell)
+        .collect::<Vec<_>>();
+    let result_cells = parse_machine_result_record(input, &states, &matched)?;
+    let subject_cells = with_overwritten_cells(subject_cells, &result_cells)?;
     let mut layout = RuleClauseLayout {
         label: TokenRange::for_tokens(name)?,
         pattern: TokenRange::for_tokens(&pattern_record)?,
@@ -988,6 +1027,54 @@ pub(super) fn parse_machine_clause(
         source_range: TokenRange::new(clause_start, semicolon.span),
     };
     read_machine_clause(&clause, &subject_cells, &result_cells)
+}
+
+/// The subject cells with a `_` entry for every cell the result writes and the subject does not
+/// match (design S5 §2.3, Q1): such a result overwrites the cell, replacing its old content
+/// whatever it was, which is what the subject `_` means for a leaf or a group, the kinds whose
+/// overwrite the entry-admission table admits. The `_` stands at the result's name of the cell.
+/// What the cell's kind refuses (an optional cell's presence, which the rule would not know; a
+/// collection's rest; the continuation, which a readable rule never drops) is the collector's
+/// judgement of the authored records, which it makes before the clause is lowered, so the
+/// entry read here is lowered only where the overwrite is admitted.
+fn with_overwritten_cells(
+    mut subject_cells: Vec<(Ident, MachinePatternCell)>,
+    result_cells: &[(Ident, MachineResultCell)],
+) -> Result<Vec<(Ident, MachinePatternCell)>, ParseError> {
+    for (cell, value) in result_cells {
+        if subject_cells
+            .iter()
+            .any(|(subject_cell, _)| subject_cell.unraw() == cell.unraw())
+        {
+            continue;
+        }
+        // A presence over the unmatched cell (L1) is paired with a subject presence of any
+        // content, `Some(_)`: the collector refuses that overwrite before it is lowered, as
+        // `unmatched-optional-result` or `presence-on-plain-cell`.
+        if matches!(value, MachineResultCell::State(_)) {
+            let any = TermExpression::parse_pattern_tokens(quote_spanned!(cell.span()=> _))?;
+            subject_cells.push((
+                cell.clone(),
+                MachinePatternCell::State(Box::new(StateTerm::Present(Box::new(StateTerm::Term(
+                    any,
+                ))))),
+            ));
+            continue;
+        }
+        let wildcard = Pat::Wild(syn::PatWild {
+            attrs: Vec::new(),
+            underscore_token: Token![_](cell.span()),
+        });
+        let (pattern, tree) = readable_cell_pattern(wildcard, NegativeLiteralSpans::default())?;
+        subject_cells.push((
+            cell.clone(),
+            MachinePatternCell::Term {
+                pattern: Box::new(pattern),
+                tree: Box::new(tree),
+            },
+        ));
+    }
+    Ok(subject_cells)
 }
 
 /// The parsed parts of one cell-record clause that every reading of its
@@ -1895,18 +1982,6 @@ fn assemble_machine_clause(
                     )?)),
                 });
             }
-        }
-    }
-    for (cell, _) in result_cells {
-        if !subject_cells
-            .iter()
-            .any(|(subject_cell, _)| subject_cell.unraw() == cell.unraw())
-        {
-            return Err(syn::Error::new(
-                cell.span(),
-                "a machine-rule result cannot introduce an unmatched cell",
-            )
-            .into());
         }
     }
     let (attribute, claim, retained) = match sentence {

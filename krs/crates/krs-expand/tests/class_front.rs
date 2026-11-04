@@ -950,9 +950,9 @@ code = "krs::analysis::invalid-term"
 doc = "another mistake"
 advice = "none"
 
-[class.optional-result]
+[class.computation-result]
 code = "krs::syntax::rust-syntax"
-doc = "an optional cell's result that is neither `Some(..)` nor `None`"
+doc = "a computation cell's result that is not its items"
 advice = "none"
 
 [[refuse]]
@@ -966,8 +966,8 @@ class = "other"
 at = "spelling"
 
 [[refuse]]
-match = "readable/deep-b/kinds/hpay/x"
-class = "optional-result"
+match = "readable/result/k/x"
+class = "computation-result"
 at = "spelling"
 
 [accept."terms/init/item/1"]
@@ -1005,10 +1005,11 @@ k = ""
         assert_eq!(verdict(id), "conforms", "{id}");
     }
     // The class's code, but outside the spelling. The witness is a refusal the readable macro
-    // still raises at the entry, one of its kind guesses (an optional cell's result); when the
-    // collector answers it instead, take another case the front refuses at the entry.
+    // still raises at the entry, one of its kind guesses (the computation cell's result is its
+    // items, `k: x` over `[Go(), ..]`); when the collector answers it instead, take
+    // another case the front refuses at the entry.
     assert_eq!(
-        verdict("readable/deep-b/kinds/hpay/x"),
+        verdict("readable/result/k/x"),
         "K2 front: krs::syntax::rust-syntax @ entry"
     );
     // Located, but with another class's code.

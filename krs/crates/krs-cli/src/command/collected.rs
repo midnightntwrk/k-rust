@@ -213,7 +213,10 @@ impl CollectedDefinition {
 
     /// The collector's warnings about the sentences of `bundle`, this definition's or a subset of
     /// it: those located inside an authored node of a descriptor of `bundle` (a `cells!` entry
-    /// lies inside its sentence's payload), or naming one, and those about no sentence.
+    /// lies inside its sentence's payload), or at a construct holding one (a readable entry's
+    /// group record holds the nodes of its path, and none of its own), or naming one, and those
+    /// about no sentence. A sentence's construct holds no other sentence's node, so a warning
+    /// is kept with the sentence it was raised at, whatever subset `bundle` is.
     fn warnings_of(&self, bundle: &DescriptorBundle) -> Vec<DiagnosticEnvelope> {
         let ranges = bundle
             .descriptors()
@@ -224,10 +227,16 @@ impl CollectedDefinition {
         self.warnings
             .iter()
             .filter(|warning| match (&warning.authored_range, &warning.item) {
-                (Some(range), _) => ranges.iter().any(|item| {
-                    item.file == range.file
-                        && item.start_byte <= range.start_byte
-                        && range.end_byte <= item.end_byte
+                (Some(range), _) => ranges.iter().any(|node| {
+                    let (node_bytes, warned) = (
+                        node.start_byte..node.end_byte,
+                        range.start_byte..range.end_byte,
+                    );
+                    let holds = |outer: &std::ops::Range<_>, inner: &std::ops::Range<_>| {
+                        outer.start <= inner.start && inner.end <= outer.end
+                    };
+                    node.file == range.file
+                        && (holds(&node_bytes, &warned) || holds(&warned, &node_bytes))
                 }),
                 (None, Some(item)) => bundle
                     .descriptors()

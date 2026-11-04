@@ -929,6 +929,69 @@ fn a_shorthand_entry_binds_at_the_cell_name() {
     assert_eq!(range(ProvenanceRole::RuleLeftReference), "gas");
 }
 
+/// A result entry over a cell the subject does not match overwrites it (design S5 §2.3, Q1): the
+/// clause reads the cell as the subject `_` reads it, at the result's name of the cell, whatever
+/// the result writes there (a term, list notation, a shorthand). Whether the cell's kind admits
+/// the overwrite is the collector's judgement of the authored records.
+#[test]
+fn a_result_over_a_cell_the_subject_does_not_match_overwrites_it() {
+    for (overwrite, matched) in [
+        (
+            "for Machine; x: { k: [Go(), ..] } => { k: [..], gas: 1 };",
+            "for Machine; x: { k: [Go(), ..], gas: _ } => { k: [..], gas: 1 };",
+        ),
+        (
+            "for Machine; x: { k: [Go(), ..] } => { k: [..], stack: [1] };",
+            "for Machine; x: { k: [Go(), ..], stack: _ } => { k: [..], stack: [1] };",
+        ),
+        (
+            "for Machine; x: { k: [Go(), ..] } => { k: [..], gas };",
+            "for Machine; x: { k: [Go(), ..], gas: _ } => { k: [..], gas };",
+        ),
+    ] {
+        let (bindings, extras, _) = clause_shape(overwrite);
+        let (matched_bindings, matched_extras, _) = clause_shape(matched);
+        assert_eq!(
+            (bindings, extras),
+            (matched_bindings, matched_extras),
+            "{overwrite}"
+        );
+        let block = krs_syntax::RuleBlock::parse_source(overwrite).unwrap();
+        let anchors = block.clauses()[0].provenance().unwrap();
+        let wildcard = anchors
+            .iter()
+            .find(|anchor| anchor.role() == ProvenanceRole::RuleLeftWildcard)
+            .unwrap();
+        let start = wildcard.range().first().byte_range().start;
+        assert_eq!(start, overwrite.rfind(", ").unwrap() + 2, "{overwrite}");
+    }
+}
+
+/// Presence is lexical (L1): over a cell the subject does not match, a result's `Some(..)` or
+/// `None` is a presence, read beside a subject presence of any content, whose overwrite the
+/// collector judges against the cell's kind.
+#[test]
+fn a_result_presence_over_an_unmatched_cell_is_a_presence() {
+    for source in [
+        "for Machine; x: { k: [Go(), ..] } => { k: [..], counter: None };",
+        "for Machine; x: { k: [Go(), n, ..] } => { k: [..], counter: Some(n) };",
+    ] {
+        let block = krs_syntax::RuleBlock::parse_source(source).unwrap();
+        let extra = block.clauses()[0]
+            .extras()
+            .iter()
+            .find(|extra| matches!(extra, RuleExtra::RewriteState { .. }));
+        let Some(RuleExtra::RewriteState { before, after, .. }) = extra else {
+            panic!("{source}: no presence read");
+        };
+        assert!(
+            matches!(**before, krs_syntax::StateTerm::Present(_)),
+            "{source}"
+        );
+        assert!(after.is_some(), "{source}");
+    }
+}
+
 #[test]
 fn shorthand_follows_the_entry_it_stands_for() {
     for (source, expected) in [
@@ -940,11 +1003,6 @@ fn shorthand_follows_the_entry_it_stands_for() {
         (
             "for Machine; x: { k: [Go(), ..], thread: { Thread { id: t, .. }, .. } } => { k: [..], thread };",
             "a collection cell's result is an instance list",
-        ),
-        // A result shorthand names a cell the subject matched.
-        (
-            "for Machine; x: { k: [Go(), ..] } => { k: [..], gas };",
-            "a machine-rule result cannot introduce an unmatched cell",
         ),
         (
             "for Machine; x: { k: [Go(), ..], gas, gas } => { k: [..] };",

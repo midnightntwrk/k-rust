@@ -90,6 +90,9 @@ pub enum CollectionErrorKind {
     /// ([`krs_syntax::StateRuleItem::reuse_refusal`]), asked once the sentence's entries are
     /// admitted, or at once for a sentence whose entries the table does not judge.
     ResultRemainderReuse,
+    /// A readable result entry over a collection the subject does not match: Q1's overwrite of
+    /// every instance, which the table admits and no lowering expresses yet.
+    CollectionOverwrite,
 }
 
 /// Typed host-collection diagnostic with a stable category and human detail.
@@ -249,6 +252,7 @@ impl ToDiagnostic for CollectionError {
             CollectionErrorKind::CellKindDisagreement => codes::collect::CELL_KIND_DISAGREEMENT,
             CollectionErrorKind::CellEntry(refusal) => refusal.code(),
             CollectionErrorKind::ResultRemainderReuse => codes::syntax::UNSUPPORTED_RULE_BODY,
+            CollectionErrorKind::CollectionOverwrite => codes::analysis::COLLECTION_ENTRY,
         };
         let diagnostic = Diagnostic::error(
             code,
