@@ -1275,11 +1275,11 @@ fn run_facts_on_no_leaf_are_found() {
         hook: hook.to_owned(),
         class: "order".to_owned(),
     };
-    let mark = |hook: &str| BackendDiagnosticOutput::ImplementationChosenValue {
+    let mark = |hook: &str| BackendDiagnosticOutput::<KorePattern>::ImplementationChosenValue {
         hook: hook.to_owned(),
         class: "order".to_owned(),
     };
-    let none: [BackendDiagnosticOutput; 0] = [];
+    let none: [BackendDiagnosticOutput<KorePattern>; 0] = [];
     assert!(!run::facts_off_leaves(&[], &[], || none.iter()));
     let on_a_leaf = [mark("MAP.keys_list")];
     assert!(!run::facts_off_leaves(

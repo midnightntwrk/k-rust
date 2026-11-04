@@ -537,12 +537,12 @@ fn one_ground_application_of_every_exposed_operation_evaluates_natively() {
     }
     for (label, functional, pattern) in cases {
         let result = backend
-            .execute(ExecuteRequest::new(parse_pattern(&pattern).unwrap()))
+            .execute_kore(ExecuteRequest::new(parse_pattern(&pattern).unwrap()))
             .unwrap_or_else(|error| panic!("{label}: {error}"));
         assert_eq!(result.leaves.len(), 1, "{label}: {result:#?}");
-        // The state is KORE JSON: `#Bottom` is the tag `Bottom`, and a symbol
+        // The state as KORE JSON: `#Bottom` is the tag `Bottom`, and a symbol
         // application names its symbol as a JSON string.
-        let rendered = result.leaves[0].state.to_string();
+        let rendered = serde_json::to_string(&result.leaves[0].state).unwrap();
         assert!(
             !rendered.contains("\"Bottom\""),
             "{label} is undefined: {rendered}"

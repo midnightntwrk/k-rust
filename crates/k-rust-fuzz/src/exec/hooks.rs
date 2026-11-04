@@ -17,8 +17,8 @@
 use std::collections::BTreeSet;
 
 use k_rust::backend::{
-    BackendDiagnosticOutput, ExecutionLeaf, ExecutionResult, ObservedInOutput, SearchFailureOutput,
-    StateMatchOutput,
+    BackendDiagnosticOutput, ExecutionLeaf, KoreExecutionResult, ObservedInOutput,
+    SearchFailureOutput, StateMatchOutput,
 };
 
 use super::{CaseResult, ComparableCondition, HaltCause, LeafReport, UnjudgedReason};
@@ -41,7 +41,7 @@ pub struct LeafHooks {
 impl LeafHooks {
     /// The hooks `leaf`'s cause and diagnostics name.
     #[must_use]
-    pub fn of_leaf(leaf: &ExecutionLeaf) -> Self {
+    pub fn of_leaf<K>(leaf: &ExecutionLeaf<K>) -> Self {
         let halt = match &leaf.cause {
             Some(SearchFailureOutput::UnsupportedHook { hook, .. }) => Some(hook.clone()),
             _ => None,
@@ -72,13 +72,13 @@ impl LeafHooks {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct RunHooks {
     /// The hooks of the applications the run left unevaluated as unsupported hooks
-    /// (`ExecutionResult::unsupported_hooks`, `observedIn: run`), the fact of
+    /// (`KoreExecutionResult::unsupported_hooks`, `observedIn: run`), the fact of
     /// [`super::UncleanReason::UnsupportedHook`].
     pub unsupported: Vec<String>,
     /// The same, observed in the definition's load (`observedIn: load`), a load record.
     pub load_unsupported: Vec<String>,
     /// The implementation-chosen values the run read that no leaf's marks carry
-    /// (`ExecutionResult::implementation_chosen_values`), the chosen half of
+    /// (`KoreExecutionResult::implementation_chosen_values`), the chosen half of
     /// [`CaseResult::run_facts_off_leaves`].
     pub chosen_off_leaves: Vec<ReasonHook>,
     /// For a run that matched its states (`at: any-state`), the implementation-chosen values on
@@ -92,7 +92,7 @@ pub struct RunHooks {
 impl RunHooks {
     /// The hooks `result`'s own lists name.
     #[must_use]
-    pub fn of_result(result: &ExecutionResult) -> Self {
+    pub fn of_result(result: &KoreExecutionResult) -> Self {
         let unsupported = |observed: ObservedInOutput| -> Vec<String> {
             result
                 .unsupported_hooks
@@ -133,7 +133,7 @@ impl RunHooks {
 
     /// The implementation-chosen values on `reach`'s prefix, for [`Self::chosen_on_reach`].
     #[must_use]
-    pub fn chosen_on(reach: &StateMatchOutput) -> Vec<ReasonHook> {
+    pub fn chosen_on<K>(reach: &StateMatchOutput<K>) -> Vec<ReasonHook> {
         reach
             .diagnostics
             .iter()

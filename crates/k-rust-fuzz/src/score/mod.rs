@@ -628,7 +628,7 @@ mod tests {
             request.collect_conditions = Some(ConditionCollection::new(["GUARD.goal"]));
             let result = compiled
                 .source_backend()
-                .execute(request)
+                .execute_kore(request)
                 .expect("the program executes");
             let coverage = result.coverage.expect("coverage was asked for");
             let conditions = coverage.conditions.expect("conditions were asked for");

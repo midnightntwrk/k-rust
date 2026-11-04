@@ -4,7 +4,7 @@
 //! The command admits the specification, brings the result cache up to date (`results` without
 //! `--verify`, or with it under `query --verify`), lowers every selected pattern once, and asks
 //! each pattern of each program it names (its claimed programs, or the whole corpus): one
-//! `search_pattern` per (pattern, program), unless a cached answer stands.
+//! `search_pattern_kore` per (pattern, program), unless a cached answer stands.
 //!
 //! **The cache** holds only `hit` and a final `no`, one record per (pattern, program):
 //! `patterns/<execution digest>/<pattern digest>/<program digest>.json` in the cache directory,

@@ -16,8 +16,8 @@
 //! `at: any-state`.
 
 use k_rust::{
-    backend::{ExecutionLeaf, ObservationEventOutput, SearchPatternRequest, SearchTypeArg},
-    kore::{ast::Pattern as KorePattern, codec, walk},
+    backend::{KoreExecutionLeaf, ObservationEventOutput, SearchPatternRequest, SearchTypeArg},
+    kore::{ast::Pattern as KorePattern, walk},
 };
 
 use crate::support::{ANY_STATE_HITS, ANYSTATE, AnyStateHit, COIN, Compiled, IMP};
@@ -123,7 +123,7 @@ impl Harness {
     }
 
     /// The observed leaves of the case that starts from `initial`, with every event.
-    fn observed(&mut self, initial: &KorePattern) -> Vec<ExecutionLeaf> {
+    fn observed(&mut self, initial: &KorePattern) -> Vec<KoreExecutionLeaf> {
         let shape = CaseRequestShape::new(&self.options, &TargetNeeds::default());
         let (_, leaves) = self
             .executor
@@ -146,7 +146,7 @@ fn all_paths() -> CaseOptions {
 
 /// The configurations of a one-path run's only leaf, by step: the `before` of each committed
 /// transition, then the leaf's state.
-fn configurations(leaves: &[ExecutionLeaf]) -> Vec<KorePattern> {
+fn configurations(leaves: &[KoreExecutionLeaf]) -> Vec<KorePattern> {
     let [leaf] = leaves else {
         panic!("one leaf: {leaves:#?}");
     };
@@ -154,9 +154,7 @@ fn configurations(leaves: &[ExecutionLeaf]) -> Vec<KorePattern> {
         .observations
         .iter()
         .filter_map(|event| match event {
-            ObservationEventOutput::Transition { before, .. } => {
-                Some(codec::from_value(before).expect("a configuration decodes"))
-            }
+            ObservationEventOutput::Transition { before, .. } => Some(before.clone()),
             ObservationEventOutput::Evaluation { .. }
             | ObservationEventOutput::Uncommitted { .. } => None,
         })
@@ -166,7 +164,7 @@ fn configurations(leaves: &[ExecutionLeaf]) -> Vec<KorePattern> {
         leaf.branch.len(),
         "every step has its event"
     );
-    configurations.push(codec::from_value(&leaf.state).expect("the state decodes"));
+    configurations.push(leaf.state.clone());
     configurations
 }
 
@@ -464,7 +462,7 @@ fn under_run_to_completion_the_reaching_leaf_must_end_naturally() {
 /// [`ANY_STATE_HITS`] as the fuzz judges them: a hit at the entry's step on its run's one clean
 /// leaf, on one path and on all paths; and, for a unique entry, a miss from the configuration
 /// after that step, so that no later configuration matches. Also the k-rust search that kink's
-/// query sends (`search_pattern`, every state, the first match only) on the same compiled
+/// query sends (`search_pattern_kore`, every state, the first match only) on the same compiled
 /// pattern: its first match is at the same depth, with no constraint and no diagnostic. That
 /// is the search, not kink's hit rule, which FZ-KINK-XTEST applies to these entries.
 #[test]
@@ -504,7 +502,7 @@ fn every_named_any_state_hit_reaches_at_its_step() {
             let found = harness
                 .executor
                 .backend_mut()
-                .search_pattern(SearchPatternRequest {
+                .search_pattern_kore(SearchPatternRequest {
                     search_type: SearchTypeArg::All,
                     max_results: Some(1),
                     ..SearchPatternRequest::new(initial.clone(), compiled[0].kore().clone())

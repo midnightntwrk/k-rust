@@ -2,9 +2,9 @@
 //! reach the target (ARCHITECTURE 4.1, 9.2). Owner: FZ-10.
 //!
 //! Until the rewrite loop has a per-step hook (gap G-9), observers are fed after each case. An
-//! observer case runs once, through `Backend::execute_observed` ([`Executor::run_observed`]),
+//! observer case runs once, through `Backend::execute_observed_kore` ([`Executor::run_observed`]),
 //! under the same cancellation scope, per-case safety limit and work budget as every case. The
-//! observed run answers the leaves `Backend::execute` would, in the same order, and adds, per
+//! observed run answers the leaves `Backend::execute_kore` would, in the same order, and adds, per
 //! leaf, the committed transitions of its path (`branch`) and their observation events
 //! (`ObservationEventOutput::Transition`, which carry the configuration each step leaves from).
 //! The leaves are judged as every case's are; the observer then walks the same leaves' paths.
@@ -44,15 +44,14 @@ use std::{any::Any, collections::BTreeSet, fmt, rc::Rc, sync::Arc};
 
 use k_rust::{
     backend::{
-        CancellationToken, CompiledRuleKind, ExecutionLeaf, ObservationEventOutput,
+        CancellationToken, CompiledRuleKind, KoreExecutionLeaf, ObservationEventOutput,
         TransitionIdOutput,
     },
     k_rust_backend::transition::ObservationOptions,
     kast::identifier::encode_label,
-    kore::{ast::Pattern as KorePattern, codec, walk},
+    kore::{ast::Pattern as KorePattern, walk},
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use super::{HitSite, Judgement, Resolved, ResolvedTarget};
 use crate::{
@@ -406,7 +405,7 @@ impl ResolvedTarget {
     /// `at: any-state`, [`Executor::run_any_state`] and the run's state matches
     /// (`super::any_state`). The engine's entry point for rule, pattern and observer targets.
     ///
-    /// An observer case runs once, through `Backend::execute_observed`, under the same
+    /// An observer case runs once, through `Backend::execute_observed_kore`, under the same
     /// cancellation scope, per-case safety limit and work budget as every other case, so its
     /// [`CaseResult::work`] is that one run's.
     ///
@@ -515,7 +514,7 @@ impl ResolvedTarget {
     fn judge_observed(
         &self,
         result: &CaseResult,
-        leaves: &[ExecutionLeaf],
+        leaves: &[KoreExecutionLeaf],
         cancel: Option<&CancellationToken>,
     ) -> Result<Result<ObservedJudgement, EngineDefect>, Abort> {
         Ok(match self.judge_observed_by(result, leaves, cancel) {
@@ -529,7 +528,7 @@ impl ResolvedTarget {
     fn judge_observed_by(
         &self,
         result: &CaseResult,
-        leaves: &[ExecutionLeaf],
+        leaves: &[KoreExecutionLeaf],
         cancel: Option<&CancellationToken>,
     ) -> Result<ObservedJudgement, Result<EngineDefect, Abort>> {
         let run_to_completion = self.target.run_to_completion;
@@ -701,12 +700,12 @@ pub(super) struct Node<'a> {
     /// The configuration after normalization: the `before` of the transitions that leave it,
     /// or the state of a leaf that ends here; `None` when only paths without complete
     /// observation events pass through it.
-    pub(super) configuration: Option<&'a Value>,
+    pub(super) configuration: Option<&'a KorePattern>,
     /// The `before` of a transition that leaves it, when a path through it has complete
     /// observation events: the configuration the run went on from. A leaf that ends here beside
     /// such a path holds a state under its own path condition (an undefined step, say), which
     /// [`Self::configuration`] may have taken first.
-    pub(super) before: Option<&'a Value>,
+    pub(super) before: Option<&'a KorePattern>,
     /// The successors, in the order the leaves first reach them.
     pub(super) edges: Vec<Edge<'a>>,
     /// The leaves that end here.
@@ -719,7 +718,7 @@ pub(super) struct Node<'a> {
 /// The configuration each transition of `leaf`'s path leaves from, aligned with its `branch`,
 /// when every committed transition has its observation event, in order. A path with missing
 /// events gives none: with an identity repeated on the path, the events could not be placed.
-fn befores(leaf: &ExecutionLeaf) -> Option<Vec<&Value>> {
+fn befores(leaf: &KoreExecutionLeaf) -> Option<Vec<&KorePattern>> {
     let transitions: Vec<_> = leaf
         .observations
         .iter()
@@ -750,7 +749,7 @@ struct Frame {
 
 /// The leaves' paths merged into a tree keyed by committed transition identity, root first
 /// ([`walk_paths`]). Every node's index is greater than its parent's.
-pub(super) fn path_tree(leaves: &[ExecutionLeaf]) -> Vec<Node<'_>> {
+pub(super) fn path_tree(leaves: &[KoreExecutionLeaf]) -> Vec<Node<'_>> {
     let mut nodes = vec![Node::default()];
     for (index, leaf) in leaves.iter().enumerate() {
         let befores = befores(leaf);
@@ -794,7 +793,7 @@ pub(super) fn path_tree(leaves: &[ExecutionLeaf]) -> Vec<Node<'_>> {
 /// the rewrite's successor before its functions are evaluated, which denotes the same
 /// configuration as the normalized one but is written differently (`3 +Int 1` for `4`), so the
 /// observer is shown the configuration the next transition leaves from, or the leaf's state.
-fn walk_paths(observer: &dyn ErasedObserver, leaves: &[ExecutionLeaf]) -> ObservedPaths {
+fn walk_paths(observer: &dyn ErasedObserver, leaves: &[KoreExecutionLeaf]) -> ObservedPaths {
     let mut hit_steps = vec![None; leaves.len()];
     let mut unobservable = false;
     let mut progress: Option<u32> = None;
@@ -826,8 +825,7 @@ fn walk_paths(observer: &dyn ErasedObserver, leaves: &[ExecutionLeaf]) -> Observ
             continue;
         }
         if hit.is_none() && (pre.is_some() || !current.edges.is_empty()) {
-            let decoded = current.configuration.map(codec::from_value);
-            let Some(Ok(pattern)) = decoded else {
+            let Some(pattern) = current.configuration.cloned() else {
                 // The observer cannot be shown this configuration: the leaves below stay
                 // unreached.
                 unobservable = true;

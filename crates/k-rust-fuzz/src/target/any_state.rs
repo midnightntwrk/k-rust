@@ -1,7 +1,7 @@
 //! Pattern targets `at: any-state` (ARCHITECTURE 4.1): the target is reached when a
 //! configuration the run reaches matches the pattern. Owners: FZ-ANYSTATE, FZ-STATESET-MATCH.
 //!
-//! A case runs once, through `Backend::execute` with `matchStates` set to the target's pattern
+//! A case runs once, through `Backend::execute_kore` with `matchStates` set to the target's pattern
 //! ([`Executor::run_any_state`]), under the same cancellation scope, per-case safety limit and
 //! work budget as every case; under all paths as a state set. k-rust matches every state the
 //! run reaches in normal form and does not merge into an equal state of its depth, as it reaches
@@ -50,8 +50,11 @@
 //! the run, and nothing held beyond a few matched states (ANY-STATE-MEM: the observed path set
 //! held every configuration of every path at once).
 
-use k_rust::backend::{
-    BackendDiagnosticOutput, CancellationToken, StateMatchOutput, UndecidedMatchReasonOutput,
+use k_rust::{
+    backend::{
+        BackendDiagnosticOutput, CancellationToken, StateMatchOutput, UndecidedMatchReasonOutput,
+    },
+    kore::ast::Pattern as KorePattern,
 };
 
 use super::{
@@ -86,7 +89,7 @@ pub(crate) struct StateMatchHit {
 
 /// The reasons of a reach whose prefix is not clean: the leaf facts its path's diagnostics
 /// carry, as a leaf's would give them (ARCHITECTURE 5.2, `Judge::leaf_reasons`).
-fn prefix_reasons(reach: &StateMatchOutput) -> Vec<UnjudgedReason> {
+fn prefix_reasons<K>(reach: &StateMatchOutput<K>) -> Vec<UnjudgedReason> {
     reach
         .diagnostics
         .iter()
@@ -229,11 +232,7 @@ impl ResolvedTarget {
             if judgement.class != OutcomeClass::Hit {
                 return Ok((judgement, None, Vec::new()));
             }
-            let configuration = k_rust::kore::codec::from_value(&reach.state).map_err(|error| {
-                defect(&format!(
-                    "the reaching state does not decode as KORE: {error}"
-                ))
-            })?;
+            let configuration = reach.state.clone();
             return Ok((
                 judgement,
                 Some(StateMatchHit {
@@ -263,7 +262,7 @@ impl ResolvedTarget {
 /// make a prefix unclean.
 fn no_clean_reach(
     result: &CaseResult,
-    matches: &k_rust::backend::StateMatchesOutput,
+    matches: &k_rust::backend::StateMatchesOutput<KorePattern>,
     run_to_completion: bool,
     data_end: bool,
 ) -> Result<Judgement, EngineDefect> {

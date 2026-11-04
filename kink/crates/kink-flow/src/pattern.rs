@@ -36,7 +36,7 @@
 //! module is loaded and the definition is not compiled again: the compile of the admission is the
 //! one every program runs on.
 //!
-//! **Evaluation** ([`Searcher`]): one k-rust `search_pattern` per (pattern, program) on the
+//! **Evaluation** ([`Searcher`]): one k-rust `search_pattern_kore` per (pattern, program) on the
 //! baseline, from the program's admitted initial state: search type all (`=>*`, every reachable
 //! configuration, the initial one included), state set, `max_results` 1 (the search stops at the
 //! first match), the manifest's `max_depth` and simplifier iterations, under kink's watchdog of
@@ -86,8 +86,8 @@
 //!   term-level `\and` anywhere (the walk owes nothing for `\and(a, a)`, but kink refuses every
 //!   conjunction; no K rule writes one on a right-hand side, so this refuses no state known to be
 //!   reached). A state that is not, or whose definedness kink cannot read (it does not
-//!   decode, verify or internalize on that definition, k-rust provides no stack for it, or
-//!   k-rust panics), makes the answer `unknown` (`undefined-state`).
+//!   verify or internalize on that definition, k-rust provides no stack for it, or k-rust
+//!   panics), makes the answer `unknown` (`undefined-state`).
 //!
 //!   **An unevaluated hook** (KINK-R4, KINK-HOOKED-VP-QUERY-HIT). `ground_defined` counts an
 //!   irreducible `value-production` application as a value from its declaration alone, also when
@@ -136,8 +136,7 @@
 //!   matcher reads as values, which hold whatever the equations make of that application.
 //! - `unknown`, with its cause, in every other case: a depth bound, the clock, an undecided step
 //!   or match, a matched state not shown defined, a stack-exhausted state, the census, a load
-//!   stack stop, a baseline run that is not comparable, the Z3 profile, a response of k-rust's
-//!   without its `matches` or `incomplete` list (an `error`).
+//!   stack stop, a baseline run that is not comparable, the Z3 profile.
 //! - `invalid-pattern` (above) and `error` (a program that is not admitted, a search k-rust
 //!   refuses).
 //!
@@ -179,7 +178,8 @@ use crate::{
 use k_rust::backend::ShortCircuitReadingOutput;
 use k_rust::{
     backend::{
-        BACKEND_SCHEMA_VERSION, Backend, BackendError, BackendOptions, SearchPatternRequest,
+        BACKEND_SCHEMA_VERSION, Backend, BackendError, BackendOptions, IncompleteSearchOutput,
+        KorePatternSearchResponse, SearchFailureOutput, SearchMatchOutput, SearchPatternRequest,
         SearchTypeArg,
     },
     definition::{AttributeKey, Attributes, ResolvedDefinition},
@@ -188,7 +188,11 @@ use k_rust::{
         stop::{CancellationToken, StopCause},
     },
     kompile::{ProgramGrammar, compile_search_pattern},
-    kore::{ast::Pattern, codec::from_value, json as kore_json, parser::parse_definition},
+    kore::{
+        ast::{Associativity, Pattern},
+        json as kore_json,
+        parser::parse_definition,
+    },
 };
 use kink_native::{
     coverage::{Authorship, RuleAuthors},
@@ -819,7 +823,7 @@ impl Searcher {
         let listed = self.backend.capabilities().short_circuit_readings;
         let ground = initial.free_variables().is_empty();
         let started = Instant::now();
-        let (result, fired) = watchdog(time, || self.backend.search_pattern_json(request));
+        let (result, fired) = watchdog(time, || self.backend.search_pattern_kore(request));
         let definition = &self.definition;
         let exclusions = &self.exclusions;
         let outcome = outcome(
@@ -865,19 +869,6 @@ fn watchdog<T>(time: Duration, body: impl FnOnce() -> T) -> (T, bool) {
     (value, fired.load(Ordering::Acquire))
 }
 
-/// A KORE JSON pattern as KORE text, or a note when it does not decode.
-fn kore_text(value: &Value) -> String {
-    let envelope = if value.get("format").is_some() {
-        value.clone()
-    } else {
-        json!({"format": "KORE", "version": 1, "term": value})
-    };
-    from_value(&envelope).map_or_else(
-        |e| format!("<KORE that does not decode: {e}>"),
-        |pattern| pattern.to_string(),
-    )
-}
-
 fn cut(text: String) -> Value {
     if text.chars().count() > WITNESS_CUT {
         json!({"kore": text.chars().take(WITNESS_CUT).collect::<String>(), "truncated": true})
@@ -886,9 +877,40 @@ fn cut(text: String) -> Value {
     }
 }
 
-/// The KORE term of a state, without its envelope.
-fn term(value: &Value) -> &Value {
-    value.get("term").unwrap_or(value)
+/// The tag KORE JSON writes for the root of `pattern` (`App`, `And`, `DV`, ...), which names
+/// its construct in a refusal.
+fn kore_tag(pattern: &Pattern) -> &'static str {
+    match pattern {
+        Pattern::String(_) => "String",
+        Pattern::Variable(variable) => match variable.kind {
+            k_rust::kore::ast::VariableKind::Element => "EVar",
+            k_rust::kore::ast::VariableKind::Set => "SVar",
+        },
+        Pattern::Application { .. } => "App",
+        Pattern::Top { .. } => "Top",
+        Pattern::Bottom { .. } => "Bottom",
+        Pattern::And { .. } => "And",
+        Pattern::Or { .. } => "Or",
+        Pattern::Not { .. } => "Not",
+        Pattern::Next { .. } => "Next",
+        Pattern::Implies { .. } => "Implies",
+        Pattern::Iff { .. } => "Iff",
+        Pattern::Rewrites { .. } => "Rewrites",
+        Pattern::Exists { .. } => "Exists",
+        Pattern::Forall { .. } => "Forall",
+        Pattern::Mu { .. } => "Mu",
+        Pattern::Nu { .. } => "Nu",
+        Pattern::Ceil { .. } => "Ceil",
+        Pattern::Floor { .. } => "Floor",
+        Pattern::Equals { .. } => "Equals",
+        Pattern::In { .. } => "In",
+        Pattern::DomainValue { .. } => "DV",
+        Pattern::AssociativeApplication {
+            associativity: Associativity::Left,
+            ..
+        } => "LeftAssoc",
+        Pattern::AssociativeApplication { .. } => "RightAssoc",
+    }
 }
 
 /// The cause a hit is refused for when its state is not shown defined (module docs).
@@ -904,33 +926,25 @@ type StackFor<'a> = &'a dyn Fn(
     &dyn Fn() -> Result<bool, String>,
 ) -> Result<Result<bool, String>, DefinitionError>;
 
-/// Whether the term of a matched state (`state`, its KORE JSON) is defined: k-rust's
-/// `ground_defined` of the state internalized on `definition`, the definition the search ran on
-/// (module docs).
+/// Whether the term of a matched state (`state`) is defined: k-rust's `ground_defined` of the
+/// state internalized on `definition`, the definition the search ran on (module docs).
 /// `Err` says why the state is not shown defined, or why kink could not tell.
-fn defined_state(definition: &BackendDefinition, state: &Value) -> Result<(), String> {
+fn defined_state(definition: &BackendDefinition, state: &Pattern) -> Result<(), String> {
     defined_state_with(definition, state, &|pattern, work| {
         definition.with_stack_for(&[pattern], work)
     })
 }
 
 /// [`defined_state`] whose internalization runs under `stack_for` ([`StackFor`]). Only an
-/// internalized term that k-rust shows `ground_defined` is `Ok`: a state that does not decode, holds
-/// a term-level `\and`, does not verify or internalize, a refused stack and a k-rust panic are
-/// each `Err` (the answer is then unknown, never a hit).
+/// internalized term that k-rust shows `ground_defined` is `Ok`: a state that holds a term-level
+/// `\and`, does not verify or internalize, a refused stack and a k-rust panic are each `Err` (the
+/// answer is then unknown, never a hit).
 fn defined_state_with(
     definition: &BackendDefinition,
-    state: &Value,
+    pattern: &Pattern,
     stack_for: StackFor<'_>,
 ) -> Result<(), String> {
-    let envelope = if state.get("format").is_some() {
-        state.clone()
-    } else {
-        json!({"format": "KORE", "version": 1, "term": state})
-    };
-    let pattern = from_value(&envelope)
-        .map_err(|e| format!("its KORE does not decode ({e}), so its definedness is not known"))?;
-    if holds_conjunction(&pattern) {
+    if holds_conjunction(pattern) {
         return Err(format!(
             "it holds a term-level \\and ({UNDEFINED_STATE}): a conjunction of different sides \
              denotes a configuration only where its sides are equal, which kink does not decide, \
@@ -940,9 +954,9 @@ fn defined_state_with(
     let unknown = |why: String| format!("{why}, so its definedness is not known");
     // The internalized term is dropped inside the work, on the stack k-rust sizes for it.
     let work = || {
-        stack_for(&pattern, &|| {
+        stack_for(pattern, &|| {
             definition
-                .verify_standalone_pattern(&pattern, &[])
+                .verify_standalone_pattern(pattern, &[])
                 .and_then(|admitted| admitted.internalize_term())
                 .map(|term| definition.ground_defined(&term))
                 .map_err(|e| format!("it does not internalize on the searched definition ({e})"))
@@ -987,12 +1001,12 @@ fn holds_conjunction(pattern: &Pattern) -> bool {
 /// `shortCircuitReadings` list keeps a completed exploration from being complete, or `None`
 /// ([`readings_cause`] on the searcher's definition).
 fn outcome(
-    result: Result<String, BackendError>,
+    result: Result<KorePatternSearchResponse, BackendError>,
     fired: bool,
     budget: Budget,
     lowered: &LoweredPattern,
     rule_names: &BTreeMap<String, String>,
-    defined: &dyn Fn(&Value) -> Result<(), String>,
+    defined: &dyn Fn(&Pattern) -> Result<(), String>,
     readings: &dyn Fn(Vec<ShortCircuitReadingOutput<Pattern>>) -> Option<String>,
 ) -> SearchOutcome {
     let clock = || {
@@ -1002,8 +1016,8 @@ fn outcome(
             budget.time_ms
         ))
     };
-    let text = match result {
-        Ok(text) => text,
+    let response = match result {
+        Ok(response) => response,
         Err(_) if fired => return clock(),
         Err(error) if matches!(error.stop_cause(), Some(StopCause::Cancelled)) => return clock(),
         Err(error) => return SearchOutcome::Failed(format!("k-rust refused the search: {error}")),
@@ -1013,50 +1027,32 @@ fn outcome(
     if fired {
         return clock();
     }
-    let response = match kink_patch::parse_json(&text) {
-        Ok(response) => response,
-        Err(error) => {
-            return SearchOutcome::Failed(format!("cannot read k-rust's search result: {error}"));
-        }
-    };
-    // Both lists are always present at the pin (k-rust `wire.rs`, `PatternSearchResponse`); a
-    // response without one is not read as an empty list, which would make a final no of it.
-    let (Some(incomplete), Some(matches)) = (
-        response["incomplete"].as_array(),
-        response["matches"].as_array(),
-    ) else {
-        return SearchOutcome::Failed(
-            "k-rust's search result has no `matches` or no `incomplete` list, so kink cannot \
-             read it"
-                .to_owned(),
-        );
-    };
-    if response["initialBottom"] == true {
+    if response.initial_bottom {
         return SearchOutcome::Incomplete(
             "the initial state has no instance (k-rust's initial_bottom), so no run starts"
                 .to_owned(),
         );
     }
-    if let Some(found) = matches.first() {
+    if let Some(found) = response.matches.first() {
         if let Some(why) = unevaluated(&response) {
             return SearchOutcome::Incomplete(format!(
                 "the first matching state the search found (depth {}) is not shown to be a \
                  configuration: {why}; the search stops at its first match, so no other state was \
                  asked",
-                found["state"]["depth"]
+                found.state.depth
             ));
         }
-        return match decided(found).and_then(|()| defined(&found["state"]["state"])) {
+        return match decided(found).and_then(|()| defined(&found.state.state)) {
             Ok(()) => SearchOutcome::Hit(witness(found, lowered, rule_names)),
             Err(why) => SearchOutcome::Incomplete(format!(
                 "the first matching state the search found (depth {}) is not a decided match: \
                  {why}; the search stops at its first match, so no other state was asked",
-                found["state"]["depth"]
+                found.state.depth
             )),
         };
     }
-    if !incomplete.is_empty() {
-        return SearchOutcome::Incomplete(incomplete_cause(incomplete, budget));
+    if !response.incomplete.is_empty() {
+        return SearchOutcome::Incomplete(incomplete_cause(&response.incomplete, budget));
     }
     // KINK-R4 review N2: an exploration that left a hook application unevaluated is not shown to
     // have explored the reachable configurations. Where the hook is undefined at its arguments
@@ -1076,18 +1072,6 @@ fn outcome(
     // search that read one: another model of the value may reach the pattern. A hit is unchanged:
     // a decided match carries no diagnostic, so no mark is on its own path, and it matches there in
     // every such model.
-    // A present field that is not a list is not read as an empty one, which would make a final
-    // no of it (as for `matches` and `incomplete` above).
-    if response
-        .get("implementationChosenValues")
-        .is_some_and(|marks| !marks.is_array())
-    {
-        return SearchOutcome::Failed(
-            "k-rust's search result has an `implementationChosenValues` field that is not a list, \
-             so kink cannot read it"
-                .to_owned(),
-        );
-    }
     if let Some(hooks) = chosen_values(&response) {
         return SearchOutcome::Incomplete(format!(
             "the exploration found no match, but the search read values the definition leaves \
@@ -1096,55 +1080,14 @@ fn outcome(
         ));
     }
     // A hit is unchanged by the list (module docs): a decided match is one model's reached
-    // configuration, and the claim is existential. The field is omitted when empty; a present
-    // field that is not a list of entries is no list, as above.
-    let listed = match response.get("shortCircuitReadings") {
-        None => Vec::new(),
-        Some(list) => {
-            match serde_json::from_value::<Vec<ShortCircuitReadingOutput>>(list.clone())
-                .map_err(|error| error.to_string())
-                .and_then(|list| list.into_iter().map(reading_pattern).collect())
-            {
-                Ok(list) => list,
-                Err(error) => {
-                    return SearchOutcome::Failed(format!(
-                        "k-rust's search result has a `shortCircuitReadings` field that is not a \
-                     list of readings ({error}), so kink cannot read it"
-                    ));
-                }
-            }
-        }
-    };
-    if let Some(why) = readings(listed) {
+    // configuration, and the claim is existential.
+    if let Some(why) = readings(response.short_circuit_readings) {
         return SearchOutcome::Incomplete(format!(
             "the exploration found no match, but {why}, so a backend that skips that operand may \
              reach the pattern"
         ));
     }
     SearchOutcome::Complete
-}
-
-/// `reading` with its operand, KORE JSON in the search response, as a pattern, as the run-level
-/// lists of an execution hold it (kink-native `RunFacts`); `Err` when the operand is not KORE.
-fn reading_pattern(
-    reading: ShortCircuitReadingOutput,
-) -> Result<ShortCircuitReadingOutput<Pattern>, String> {
-    let envelope = if reading.operand.get("format").is_some() {
-        reading.operand
-    } else {
-        json!({"format": "KORE", "version": 1, "term": reading.operand})
-    };
-    let operand = from_value(&envelope).map_err(|error| format!("an operand: {error}"))?;
-    Ok(ShortCircuitReadingOutput {
-        operator: reading.operator,
-        outcome: reading.outcome,
-        head: reading.head,
-        operand,
-        rewrite_rule_id: reading.rewrite_rule_id,
-        rewrite_rule_label: reading.rewrite_rule_label,
-        rewrite_rule_origin: reading.rewrite_rule_origin,
-        observed_in: reading.observed_in,
-    })
 }
 
 /// The cause a `no` is refused for when the search read an operand a short-circuiting backend
@@ -1212,20 +1155,12 @@ fn readings_cause(
 const IMPLEMENTATION_CHOSEN_VALUE: &str = "implementation-chosen-value";
 
 /// The hooks of the search response's `implementationChosenValues` list, each with its class, or
-/// `None` when the list is absent or empty (k-rust omits it when empty). The caller refuses a
-/// present field that is not a list before it asks.
-fn chosen_values(response: &Value) -> Option<String> {
-    let marks = response["implementationChosenValues"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|mark| {
-            format!(
-                "{} ({})",
-                mark["hook"].as_str().unwrap_or("?"),
-                mark["class"].as_str().unwrap_or("?")
-            )
-        })
+/// `None` when the list is empty.
+fn chosen_values(response: &KorePatternSearchResponse) -> Option<String> {
+    let marks = response
+        .implementation_chosen_values
+        .iter()
+        .map(|mark| format!("{} ({})", mark.hook, mark.class))
         .collect::<BTreeSet<_>>();
     (!marks.is_empty()).then(|| marks.into_iter().collect::<Vec<_>>().join(", "))
 }
@@ -1243,11 +1178,12 @@ const UNSUPPORTED_HOOK: &str = "unsupported-hook";
 /// compute. No path diagnostic records it, and the lists are the search's as a whole, so any entry
 /// refuses the hit (a fail-closed loss when the entry is on another branch) and makes a completed
 /// exploration incomplete (review N2).
-fn unevaluated(response: &Value) -> Option<String> {
-    let hooks = ["unsupportedHooks", "allowanceRefusals"]
+fn unevaluated(response: &KorePatternSearchResponse) -> Option<String> {
+    let hooks = response
+        .unsupported_hooks
         .iter()
-        .flat_map(|key| response[*key].as_array().into_iter().flatten())
-        .map(|entry| entry["hook"].as_str().unwrap_or("?").to_owned())
+        .chain(&response.allowance_refusals)
+        .map(|entry| entry.hook.clone())
         .collect::<BTreeSet<_>>();
     (!hooks.is_empty()).then(|| {
         format!(
@@ -1261,26 +1197,25 @@ fn unevaluated(response: &Value) -> Option<String> {
 }
 
 /// Why a match is not a decided hit, or `Ok`.
-fn decided(found: &Value) -> Result<(), String> {
-    let nonempty = |value: &Value| value.as_array().is_some_and(|items| !items.is_empty());
-    if nonempty(&found["constraints"]) {
+fn decided(found: &SearchMatchOutput<Pattern>) -> Result<(), String> {
+    if !found.constraints.is_empty() {
         return Err("it holds under a condition k-rust did not decide".to_owned());
     }
-    if nonempty(&found["diagnostics"]) {
+    if !found.diagnostics.is_empty() {
         return Err("matching it emitted a backend diagnostic".to_owned());
     }
-    if nonempty(&found["state"]["diagnostics"]) {
+    if !found.state.diagnostics.is_empty() {
         return Err(
             "its path emitted a backend diagnostic (the state may not be the normal form, a \
              condition on the path was left undecided, or a hook was refused)"
                 .to_owned(),
         );
     }
-    let state = term(&found["state"]["state"]);
-    if state["tag"] != "App" {
+    let state = &found.state.state;
+    if !matches!(state, Pattern::Application { .. }) {
         return Err(format!(
             "the state is a {} pattern, not a configuration without predicates",
-            state["tag"].as_str().unwrap_or("non-term")
+            kore_tag(state)
         ));
     }
     Ok(())
@@ -1309,46 +1244,41 @@ fn generated(lowered: &LoweredPattern, name: &str) -> bool {
 
 /// A hit's witness for the reader (module docs).
 fn witness(
-    found: &Value,
+    found: &SearchMatchOutput<Pattern>,
     lowered: &LoweredPattern,
     rule_names: &BTreeMap<String, String>,
 ) -> Value {
-    let state = &found["state"];
-    let bindings = found["bindings"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    let state = &found.state;
+    let bindings = found
+        .bindings
+        .iter()
         .filter(|binding| {
-            !term(&binding["variable"])["name"]
-                .as_str()
-                .is_some_and(|name| generated(lowered, name))
+            !matches!(&binding.variable, Pattern::Variable(variable)
+                if generated(lowered, &variable.name))
         })
         .map(|binding| {
             json!({
-                "variable": kore_text(&binding["variable"]),
-                "value": cut(kore_text(&binding["value"])),
+                "variable": binding.variable.to_string(),
+                "value": cut(binding.value.to_string()),
             })
         })
         .collect::<Vec<_>>();
-    let rules = state["trace"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|entry| entry["kind"] == "rewrite")
+    let rules = state
+        .trace
+        .iter()
+        .filter(|entry| entry.kind == "rewrite")
         .map(|entry| {
-            entry
-                .get("label")
-                .and_then(Value::as_str)
-                .or_else(|| {
-                    let id = entry["uniqueId"].as_str()?;
-                    rule_names.get(id).map(String::as_str).or(Some(id))
-                })
-                .map_or(Value::Null, |name| json!(name))
+            let name = entry.label.as_deref().unwrap_or_else(|| {
+                rule_names
+                    .get(&entry.unique_id)
+                    .map_or(entry.unique_id.as_str(), String::as_str)
+            });
+            json!(name)
         })
         .collect::<Vec<_>>();
     json!({
-        "depth": state["depth"],
-        "state": cut(kore_text(&state["state"])),
+        "depth": state.depth,
+        "state": cut(state.state.to_string()),
         "bindings": bindings,
         "rules": rules,
         "rendering": "kore",
@@ -1360,33 +1290,27 @@ fn witness(
 }
 
 /// The cause of an incomplete exploration, from k-rust's incomplete entries.
-fn incomplete_cause(incomplete: &[Value], budget: Budget) -> String {
+fn incomplete_cause(incomplete: &[IncompleteSearchOutput<Pattern>], budget: Budget) -> String {
+    use IncompleteSearchOutput as I;
     let mut kinds = BTreeSet::new();
     for entry in incomplete {
-        let kind = entry
-            .as_str()
-            .map(str::to_owned)
-            .or_else(|| entry["kind"].as_str().map(str::to_owned))
-            .or_else(|| entry.as_object().and_then(|o| o.keys().next().cloned()))
-            .unwrap_or_else(|| "unknown".to_owned());
-        let stack = entry.to_string().contains("stack-exhausted");
-        kinds.insert(match kind.as_str() {
-            "depth-bound" => format!("a path reached max_depth = {}", budget.max_depth),
-            "breadth-bound" => "the frontier exceeded the breadth bound".to_owned(),
-            "cancelled" => format!(
+        kinds.insert(match entry {
+            I::DepthBound { .. } => format!("a path reached max_depth = {}", budget.max_depth),
+            I::BreadthBound { .. } => "the frontier exceeded the breadth bound".to_owned(),
+            I::Cancelled { .. } => format!(
                 "the search did not finish within time_ms = {}",
                 budget.time_ms
             ),
-            "indeterminate" => "a step k-rust could not decide (indeterminate)".to_owned(),
-            "simplification" if stack => {
-                "a state's simplification stopped for lack of native stack (stack-exhausted)"
-                    .to_owned()
-            }
-            "simplification" => "a state's simplification failed".to_owned(),
-            "match" => "a state's match against the pattern was left undecided".to_owned(),
-            "smt" => "a solver query failed or was undecided".to_owned(),
-            "result-bound" => "the search stopped at its result bound".to_owned(),
-            other => format!("an incomplete entry of kind {other}"),
+            I::Indeterminate { .. } => "a step k-rust could not decide (indeterminate)".to_owned(),
+            I::Simplification {
+                error: SearchFailureOutput::StackExhausted,
+                ..
+            } => "a state's simplification stopped for lack of native stack (stack-exhausted)"
+                .to_owned(),
+            I::Simplification { .. } => "a state's simplification failed".to_owned(),
+            I::Match { .. } => "a state's match against the pattern was left undecided".to_owned(),
+            I::Smt { .. } => "a solver query failed or was undecided".to_owned(),
+            I::ResultBound => "the search stopped at its result bound".to_owned(),
         });
     }
     format!(
@@ -1400,49 +1324,79 @@ mod tests {
     //! The outcome of hand-built k-rust search responses (F-18 fix 1): what makes a match a
     //! decided hit and an exploration complete, one condition at a time.
     use super::*;
+    use k_rust::{
+        backend::{
+            BackendDiagnosticOutput, BudgetSubjectOutput, ChosenValueOutput, ObservedInOutput,
+            ReadingOutcomeOutput, ResultModalityOutput, SearchStateOutput, UnevaluatedHookOutput,
+        },
+        kore::{codec::from_value, parser::parse_pattern},
+    };
     use std::cell::Cell;
 
+    fn kore(text: &str) -> Pattern {
+        parse_pattern(text).unwrap()
+    }
+
     fn lowered() -> LoweredPattern {
-        let target = from_value(&json!({
-            "format": "KORE",
-            "version": 1,
-            "term": {"tag": "Top", "sort": {"tag": "SortApp", "name": "SortInt", "args": []}},
-        }))
-        .unwrap();
         LoweredPattern {
-            target,
+            target: kore(r"\top{SortInt{}}()"),
             generated: BTreeSet::new(),
             digest: payload_digest(PATTERN_DOMAIN, b"test"),
         }
     }
 
     /// A configuration term without predicates.
-    fn configuration() -> Value {
-        json!({"tag": "App", "name": "Lbl'-LT-'k'-GT-'", "sorts": [], "args": []})
+    fn configuration() -> Pattern {
+        kore("Lbl'-LT-'k'-GT-'{}()")
+    }
+
+    /// A search state at `depth`, without diagnostics, trace or observations.
+    fn reached(state: Pattern, depth: u64) -> SearchStateOutput<Pattern> {
+        SearchStateOutput {
+            state,
+            diagnostics: Vec::new(),
+            depth,
+            trace: Vec::new(),
+            branch: Vec::new(),
+            observations: Vec::new(),
+        }
     }
 
     /// A decided match at depth 2: no condition, no diagnostic, a term state.
-    fn decided_match() -> Value {
-        json!({
-            "bindings": [],
-            "constraints": [],
-            "state": {"state": configuration(), "depth": 2, "trace": []},
-        })
+    fn decided_match() -> SearchMatchOutput<Pattern> {
+        SearchMatchOutput {
+            bindings: Vec::new(),
+            constraints: Vec::new(),
+            state: reached(configuration(), 2),
+            diagnostics: Vec::new(),
+        }
     }
 
-    fn response(matches: Vec<Value>, incomplete: Vec<Value>) -> Value {
-        json!({
-            "schemaVersion": BACKEND_SCHEMA_VERSION,
-            "modality": "state-set",
-            "matches": matches,
-            "effects": [],
-            "incomplete": incomplete,
-        })
+    fn response(
+        matches: Vec<SearchMatchOutput<Pattern>>,
+        incomplete: Vec<IncompleteSearchOutput<Pattern>>,
+    ) -> KorePatternSearchResponse {
+        KorePatternSearchResponse {
+            schema_version: BACKEND_SCHEMA_VERSION,
+            modality: ResultModalityOutput::StateSet,
+            matches,
+            effects: Vec::new(),
+            incomplete,
+            initial_bottom: false,
+            implementation_chosen_values: Vec::new(),
+            contradicted_claims: Vec::new(),
+            allowance_refusals: Vec::new(),
+            unsupported_hooks: Vec::new(),
+            short_circuit_readings: Vec::new(),
+        }
     }
 
-    fn run(response: &Value, defined: &dyn Fn(&Value) -> Result<(), String>) -> SearchOutcome {
+    fn run(
+        response: KorePatternSearchResponse,
+        defined: &dyn Fn(&Pattern) -> Result<(), String>,
+    ) -> SearchOutcome {
         outcome(
-            Ok(response.to_string()),
+            Ok(response),
             false,
             Budget::default(),
             &lowered(),
@@ -1452,7 +1406,7 @@ mod tests {
         )
     }
 
-    fn always(_: &Value) -> Result<(), String> {
+    fn always(_: &Pattern) -> Result<(), String> {
         Ok(())
     }
 
@@ -1467,7 +1421,7 @@ mod tests {
     #[test]
     fn a_decided_match_on_a_defined_state_is_a_hit() {
         let asked = Cell::new(0);
-        let outcome = run(&response(vec![decided_match()], vec![]), &|state| {
+        let outcome = run(response(vec![decided_match()], vec![]), &|state| {
             asked.set(asked.get() + 1);
             assert_eq!(*state, configuration());
             Ok(())
@@ -1479,9 +1433,68 @@ mod tests {
         assert_eq!(asked.get(), 1, "the state's definedness is asked once");
     }
 
+    /// A hit's witness names the state and the bindings as KORE text and the path's rewrite
+    /// steps by label, else by the rule name kink knows for the id, else by the id; a binding of
+    /// a generated variable is left out.
+    #[test]
+    fn a_hit_witness_prints_the_state_bindings_and_rules() {
+        use k_rust::backend::{BindingOutput, TraceEntry};
+        let mut found = decided_match();
+        found.bindings = vec![
+            BindingOutput {
+                variable: kore("VarN:SortInt{}"),
+                value: kore(r#"\dv{SortInt{}}("3")"#),
+            },
+            BindingOutput {
+                variable: kore("VarHidden:SortInt{}"),
+                value: kore(r#"\dv{SortInt{}}("4")"#),
+            },
+        ];
+        let entry = |kind: &str, label: Option<&str>, id: &str| TraceEntry {
+            depth: 0,
+            kind: kind.to_owned(),
+            label: label.map(str::to_owned),
+            unique_id: id.to_owned(),
+        };
+        found.state.trace = vec![
+            entry("rewrite", Some("M.labelled"), "a"),
+            entry("simplification", None, "s"),
+            entry("rewrite", None, "b"),
+            entry("rewrite", None, "c"),
+        ];
+        let names = BTreeMap::from([("b".to_owned(), "lib.rs:7".to_owned())]);
+        let mut lowered = lowered();
+        lowered.generated.insert("VarHidden".to_owned());
+        let outcome = outcome(
+            Ok(response(vec![found], vec![])),
+            false,
+            Budget::default(),
+            &lowered,
+            &names,
+            &always,
+            &|_| None,
+        );
+        let SearchOutcome::Hit(witness) = outcome else {
+            panic!("a hit: {outcome:?}");
+        };
+        assert_eq!(witness["depth"], 2);
+        assert_eq!(
+            witness["state"],
+            json!({"kore": "Lbl'-LT-'k'-GT-'{}()", "truncated": false})
+        );
+        assert_eq!(
+            witness["bindings"],
+            json!([{
+                "variable": "VarN:SortInt{}",
+                "value": {"kore": r#"\dv{SortInt{}}("3")"#, "truncated": false},
+            }])
+        );
+        assert_eq!(witness["rules"], json!(["M.labelled", "lib.rs:7", "c"]));
+    }
+
     #[test]
     fn a_match_on_a_state_not_shown_defined_is_not_a_hit() {
-        let outcome = run(&response(vec![decided_match()], vec![]), &|_| {
+        let outcome = run(response(vec![decided_match()], vec![]), &|_| {
             Err(format!(
                 "k-rust does not show its term defined ({UNDEFINED_STATE})"
             ))
@@ -1492,33 +1505,28 @@ mod tests {
 
     #[test]
     fn a_conditional_or_diagnosed_match_is_not_a_hit() {
-        let diagnostic = json!({"kind": "undecided-condition"});
+        let diagnostic = || BackendDiagnosticOutput::SimplificationBudgetExhausted {
+            limit: 3,
+            subject: BudgetSubjectOutput::Predicates,
+        };
         let mut constrained = decided_match();
-        constrained["constraints"] =
-            json!([{"tag": "Top", "sort": {"tag": "SortApp", "name": "SortBool", "args": []}}]);
+        constrained.constraints = vec![kore(r"\top{SortBool{}}()")];
         let mut diagnosed = decided_match();
-        diagnosed["diagnostics"] = json!([diagnostic]);
+        diagnosed.diagnostics = vec![diagnostic()];
         let mut path = decided_match();
-        path["state"]["diagnostics"] = json!([diagnostic]);
+        path.state.diagnostics = vec![diagnostic()];
         let mut predicate = decided_match();
-        let top = json!({"tag": "SortApp", "name": "SortGeneratedTopCell", "args": []});
-        predicate["state"]["state"] = json!({
-            "tag": "And",
-            "sort": top,
-            "patterns": [configuration(), {"tag": "Top", "sort": top}],
-        });
-        let mut enveloped = decided_match();
-        enveloped["state"]["state"] =
-            json!({"format": "KORE", "version": 1, "term": predicate["state"]["state"]});
+        predicate.state.state = kore(
+            r"\and{SortGeneratedTopCell{}}(Lbl'-LT-'k'-GT-'{}(), \top{SortGeneratedTopCell{}}())",
+        );
         for (found, cause) in [
             (constrained, "under a condition k-rust did not decide"),
             (diagnosed, "matching it emitted a backend diagnostic"),
             (path, "its path emitted a backend diagnostic"),
             (predicate, "the state is a And pattern"),
-            (enveloped, "the state is a And pattern"),
         ] {
             // The definedness check is not what refuses these.
-            incomplete(&run(&response(vec![found], vec![]), &always), cause);
+            incomplete(&run(response(vec![found], vec![]), &always), cause);
         }
     }
 
@@ -1528,23 +1536,31 @@ mod tests {
     /// `Complete`.
     #[test]
     fn a_match_beside_an_unevaluated_hook_is_not_a_hit() {
-        let record = json!({"hook": "FOO.bar", "reason": "unsupported", "observedIn": "run"});
-        for key in ["unsupportedHooks", "allowanceRefusals"] {
+        let record = || UnevaluatedHookOutput {
+            hook: "FOO.bar".into(),
+            reason: "unsupported".into(),
+            observed_in: ObservedInOutput::Run,
+        };
+        let lists: [fn(&mut KorePatternSearchResponse) -> &mut Vec<UnevaluatedHookOutput>; 2] = [
+            |response| &mut response.unsupported_hooks,
+            |response| &mut response.allowance_refusals,
+        ];
+        for list in lists {
             let mut hooked = response(vec![decided_match()], vec![]);
-            hooked[key] = json!([record]);
-            let outcome = run(&hooked, &always);
+            list(&mut hooked).push(record());
+            let outcome = run(hooked, &always);
             incomplete(&outcome, UNSUPPORTED_HOOK);
             incomplete(&outcome, "FOO.bar");
             // Review N2: a completed exploration beside such a hook is not complete either, so it
             // gives no `no` whatever the program's baseline run met (before: `Complete`).
             let mut complete = response(vec![], vec![]);
-            complete[key] = json!([record]);
-            let outcome = run(&complete, &always);
+            list(&mut complete).push(record());
+            let outcome = run(complete, &always);
             incomplete(&outcome, UNSUPPORTED_HOOK);
             incomplete(&outcome, "FOO.bar");
         }
         assert_eq!(
-            run(&response(vec![], vec![]), &always),
+            run(response(vec![], vec![]), &always),
             SearchOutcome::Complete
         );
     }
@@ -1555,84 +1571,96 @@ mod tests {
     /// on that path in every such model. Before the fix the exploration was `Complete`.
     #[test]
     fn a_search_that_read_an_open_value_gives_no_no() {
-        let mark = json!([{"hook": "MAP.keys_list", "class": "order"}]);
+        let mark = || {
+            vec![ChosenValueOutput {
+                hook: "MAP.keys_list".into(),
+                class: "order".into(),
+            }]
+        };
         let mut complete = response(vec![], vec![]);
-        complete["implementationChosenValues"] = mark.clone();
-        let outcome = run(&complete, &always);
+        complete.implementation_chosen_values = mark();
+        let outcome = run(complete, &always);
         incomplete(&outcome, IMPLEMENTATION_CHOSEN_VALUE);
         incomplete(&outcome, "MAP.keys_list");
         let mut matched = response(vec![decided_match()], vec![]);
-        matched["implementationChosenValues"] = mark;
+        matched.implementation_chosen_values = mark();
         assert!(
-            matches!(run(&matched, &always), SearchOutcome::Hit(_)),
+            matches!(run(matched, &always), SearchOutcome::Hit(_)),
             "a decided match is a hit"
         );
         // An empty list is no mark.
-        let mut empty = response(vec![], vec![]);
-        empty["implementationChosenValues"] = json!([]);
-        assert_eq!(run(&empty, &always), SearchOutcome::Complete);
-        // A present field that is not a list is no list, so no no (fix round 1).
-        for malformed in [json!({}), json!(null), json!("MAP.keys_list")] {
-            let mut shape = response(vec![], vec![]);
-            shape["implementationChosenValues"] = malformed.clone();
-            let outcome = run(&shape, &always);
-            assert!(
-                matches!(&outcome, SearchOutcome::Failed(why) if why.contains("implementationChosenValues")),
-                "{malformed}: {outcome:?}"
-            );
-        }
+        assert_eq!(
+            run(response(vec![], vec![]), &always),
+            SearchOutcome::Complete
+        );
     }
 
     #[test]
     fn an_initial_state_without_instance_gives_no_answer() {
         let mut bottom = response(vec![], vec![]);
-        bottom["initialBottom"] = json!(true);
-        incomplete(&run(&bottom, &always), "initial_bottom");
+        bottom.initial_bottom = true;
+        incomplete(&run(bottom, &always), "initial_bottom");
         // Even beside a match (k-rust gives none then), it is not a hit.
         let mut both = response(vec![decided_match()], vec![]);
-        both["initialBottom"] = json!(true);
-        incomplete(&run(&both, &always), "initial_bottom");
+        both.initial_bottom = true;
+        incomplete(&run(both, &always), "initial_bottom");
     }
 
+    /// An exploration is complete only when its incomplete list is empty; each entry names its
+    /// cause, a simplification that stopped for lack of stack apart from one that failed
+    /// otherwise.
     #[test]
-    fn a_complete_exploration_needs_both_lists() {
+    fn a_complete_exploration_has_no_incomplete_entry() {
         assert_eq!(
-            run(&response(vec![], vec![]), &always),
+            run(response(vec![], vec![]), &always),
             SearchOutcome::Complete
         );
         incomplete(
             &run(
-                &response(vec![], vec![json!({"kind": "depth-bound"})]),
+                response(
+                    vec![],
+                    vec![IncompleteSearchOutput::DepthBound {
+                        state: reached(configuration(), 3),
+                    }],
+                ),
                 &always,
             ),
             "max_depth",
         );
-        for missing in ["matches", "incomplete"] {
-            let mut shape = response(vec![], vec![]);
-            shape.as_object_mut().unwrap().remove(missing);
-            let outcome = run(&shape, &always);
-            assert!(
-                matches!(&outcome, SearchOutcome::Failed(why) if why.contains("no `matches`")),
-                "{missing}: {outcome:?}"
-            );
-            // A list of another type is no list.
-            let mut shape = response(vec![], vec![]);
-            shape[missing] = json!({});
-            assert!(
-                matches!(run(&shape, &always), SearchOutcome::Failed(_)),
-                "{missing}"
-            );
-        }
-        // A decided match is not read from a response without its incomplete list either.
-        let mut shape = response(vec![decided_match()], vec![]);
-        shape.as_object_mut().unwrap().remove("incomplete");
-        assert!(matches!(run(&shape, &always), SearchOutcome::Failed(_)));
+        let simplification = |error| IncompleteSearchOutput::Simplification {
+            state: reached(configuration(), 1),
+            error,
+        };
+        incomplete(
+            &run(
+                response(
+                    vec![],
+                    vec![simplification(SearchFailureOutput::StackExhausted)],
+                ),
+                &always,
+            ),
+            "stopped for lack of native stack (stack-exhausted)",
+        );
+        let failed = run(
+            response(
+                vec![],
+                vec![simplification(SearchFailureOutput::ConflictingResults {
+                    rules: vec!["r".into()],
+                })],
+            ),
+            &always,
+        );
+        incomplete(&failed, "a state's simplification failed");
+        assert!(
+            !matches!(&failed, SearchOutcome::Incomplete(why) if why.contains("stack-exhausted")),
+            "{failed:?}"
+        );
     }
 
     #[test]
     fn a_fired_watchdog_leaves_no_answer() {
         let fired = outcome(
-            Ok(response(vec![decided_match()], vec![]).to_string()),
+            Ok(response(vec![decided_match()], vec![])),
             true,
             Budget::default(),
             &lowered(),
@@ -1650,8 +1678,8 @@ mod tests {
     /// entry of an unflagged rule's work on a ground search does not; a backend that lists no
     /// readings gives none; a definition the analysis clears ignores the list, unless the
     /// program's initial state applies a reading-dependent function, whose search is judged by
-    /// the same entries on every definition; a decided match is a hit whatever the list holds;
-    /// and a field that is not a list of readings is no list.
+    /// the same entries on every definition; and a decided match is a hit whatever the list
+    /// holds.
     #[test]
     fn a_search_that_read_a_skipped_operand_gives_no_no() {
         let flagged = DefinitionExclusions {
@@ -1660,32 +1688,26 @@ mod tests {
             ..DefinitionExclusions::default()
         };
         let clear = DefinitionExclusions::default();
-        let entry = |rule: Option<&str>| {
-            let mut entry = json!({
-                "operator": "BOOL.andThen",
-                "outcome": "undefined",
-                "head": "Lbl'Unds-GT-'Int'Unds'",
-                "operand": {"tag": "EVar", "name": "VarX", "sort": {"tag": "SortApp", "name": "SortBool", "args": []}},
-                "observedIn": "run",
-            });
-            if let Some(rule) = rule {
-                entry["rewriteRuleId"] = json!(rule);
-                entry["rewriteRuleLabel"] = json!(format!("M.{rule}"));
-            }
-            entry
+        let entry = |rule: Option<&str>| ShortCircuitReadingOutput {
+            operator: Some("BOOL.andThen".into()),
+            outcome: ReadingOutcomeOutput::Undefined,
+            head: Some("Lbl'Unds-GT-'Int'Unds'".into()),
+            operand: kore("VarX:SortBool{}"),
+            rewrite_rule_id: rule.map(str::to_owned),
+            rewrite_rule_label: rule.map(|rule| format!("M.{rule}")),
+            rewrite_rule_origin: None,
+            observed_in: ObservedInOutput::Run,
         };
         let judged_with = |exclusions: &DefinitionExclusions,
-                           list: Value,
+                           list: Vec<ShortCircuitReadingOutput<Pattern>>,
                            listed: bool,
                            ground: bool,
                            state: bool,
                            matches| {
             let mut response = response(matches, vec![]);
-            if !list.is_null() {
-                response["shortCircuitReadings"] = list;
-            }
+            response.short_circuit_readings = list;
             outcome(
-                Ok(response.to_string()),
+                Ok(response),
                 false,
                 Budget::default(),
                 &lowered(),
@@ -1697,7 +1719,7 @@ mod tests {
         let judged = |exclusions: &DefinitionExclusions, list, listed, ground, matches| {
             judged_with(exclusions, list, listed, ground, false, matches)
         };
-        let counted = judged(&flagged, json!([entry(Some("at"))]), true, true, vec![]);
+        let counted = judged(&flagged, vec![entry(Some("at"))], true, true, vec![]);
         incomplete(&counted, SHORT_CIRCUIT_READING);
         incomplete(&counted, "the work of rule M.at");
         incomplete(
@@ -1706,36 +1728,36 @@ mod tests {
         );
         incomplete(&counted, "undefined");
         incomplete(
-            &judged(&flagged, json!([entry(None)]), true, true, vec![]),
+            &judged(&flagged, vec![entry(None)], true, true, vec![]),
             "work of no rule",
         );
         assert_eq!(
-            judged(&flagged, json!([entry(Some("other"))]), true, true, vec![]),
+            judged(&flagged, vec![entry(Some("other"))], true, true, vec![]),
             SearchOutcome::Complete,
             "an unflagged rule's entry on a ground search counts not"
         );
         incomplete(
-            &judged(&flagged, json!([entry(Some("other"))]), true, false, vec![]),
+            &judged(&flagged, vec![entry(Some("other"))], true, false, vec![]),
             "the work of rule M.other",
         );
         assert_eq!(
-            judged(&flagged, Value::Null, true, true, vec![]),
+            judged(&flagged, vec![], true, true, vec![]),
             SearchOutcome::Complete,
-            "an omitted list is an empty one on a backend that lists readings"
+            "an empty list on a backend that lists readings"
         );
         incomplete(
-            &judged(&flagged, Value::Null, false, true, vec![]),
+            &judged(&flagged, vec![], false, true, vec![]),
             "lists no short-circuit readings",
         );
         assert_eq!(
-            judged(&clear, json!([entry(None)]), true, true, vec![]),
+            judged(&clear, vec![entry(None)], true, true, vec![]),
             SearchOutcome::Complete,
             "a definition the analysis clears does not read the list"
         );
         assert!(matches!(
             judged(
                 &flagged,
-                json!([entry(Some("at"))]),
+                vec![entry(Some("at"))],
                 true,
                 true,
                 vec![decided_match()]
@@ -1744,19 +1766,19 @@ mod tests {
         ));
         // An initial state that applies a reading-dependent function is judged by the same
         // entries, whatever the analysis flags elsewhere.
-        let of_state = judged_with(&clear, json!([entry(None)]), true, true, true, vec![]);
+        let of_state = judged_with(&clear, vec![entry(None)], true, true, true, vec![]);
         incomplete(&of_state, "the program's initial state applies");
         incomplete(&of_state, "work of no rule");
         for exclusions in [&clear, &flagged] {
             assert_eq!(
-                judged_with(exclusions, Value::Null, true, true, true, vec![]),
+                judged_with(exclusions, vec![], true, true, true, vec![]),
                 SearchOutcome::Complete,
                 "a state whose search lists nothing is judged"
             );
             assert_eq!(
                 judged_with(
                     exclusions,
-                    json!([entry(Some("other"))]),
+                    vec![entry(Some("other"))],
                     true,
                     true,
                     true,
@@ -1766,23 +1788,35 @@ mod tests {
                 "an unflagged rule's entry on a ground search counts not against the state"
             );
             incomplete(
-                &judged_with(exclusions, Value::Null, false, true, true, vec![]),
+                &judged_with(exclusions, vec![], false, true, true, vec![]),
                 "lists no short-circuit readings",
-            );
-        }
-        for malformed in [json!({}), json!("BOOL.andThen"), json!([{"operator": 1}])] {
-            let outcome = judged(&flagged, malformed.clone(), true, true, vec![]);
-            assert!(
-                matches!(&outcome, SearchOutcome::Failed(why) if why.contains("shortCircuitReadings")),
-                "{malformed}: {outcome:?}"
             );
         }
     }
 
-    /// calc's searcher and the state its search for `<k> 3 </k>` reached from `add` (the KORE
-    /// JSON of a real defined configuration), given to `body` on a thread with the command's
-    /// stack.
-    fn on_calc(body: impl FnOnce(&Searcher, Value) + Send + 'static) {
+    /// A state's KORE JSON envelope, which the tests below edit.
+    fn json_of(pattern: &Pattern) -> Value {
+        kore_json::to_value(pattern).unwrap()
+    }
+
+    /// The pattern of a KORE JSON term, in its envelope or not.
+    fn pattern_of(value: &Value) -> Pattern {
+        let envelope = if value.get("format").is_some() {
+            value.clone()
+        } else {
+            json!({"format": "KORE", "version": 1, "term": value})
+        };
+        from_value(&envelope).unwrap()
+    }
+
+    /// The KORE term of a state's JSON, without its envelope.
+    fn term(value: &Value) -> &Value {
+        value.get("term").unwrap_or(value)
+    }
+
+    /// calc's searcher and the state its search for `<k> 3 </k>` reached from `add` (a real
+    /// defined configuration), given to `body` on a thread with the command's stack.
+    fn on_calc(body: impl FnOnce(&Searcher, Pattern) + Send + 'static) {
         std::thread::Builder::new()
             .stack_size(kink_corpus::cli::DEFINITION_STACK_BYTES)
             .spawn(move || {
@@ -1800,9 +1834,9 @@ mod tests {
                 let mut inputs = inputs.session(&spec);
                 let case = inputs.read(program).unwrap();
                 let test = inputs.test_case(program, &case).unwrap();
-                let response = searcher
+                let mut response = searcher
                     .backend
-                    .search_pattern_json(SearchPatternRequest {
+                    .search_pattern_kore(SearchPatternRequest {
                         state: test.initial_state.clone(),
                         pattern: lowered.target.clone(),
                         module_name: None,
@@ -1814,9 +1848,8 @@ mod tests {
                         schema_version: BACKEND_SCHEMA_VERSION,
                     })
                     .unwrap();
-                let response = kink_patch::parse_json(&response).unwrap();
-                let state = response["matches"][0]["state"]["state"].clone();
-                assert_eq!(term(&state)["tag"], "App", "{response:#}");
+                let state = response.matches.swap_remove(0).state.state;
+                assert!(matches!(state, Pattern::Application { .. }), "{state}");
                 body(&searcher, state);
             })
             .unwrap()
@@ -1887,7 +1920,11 @@ mod tests {
             // The control: calc's reached state is defined, on the real stack and on the seam's.
             assert_eq!(defined_state(definition, &state), Ok(()));
             assert_eq!(defined_state_with(definition, &state, &here), Ok(()));
-            let undeclared = rename(&state, "Lbl'-LT-'k'-GT-'", "Lblundeclared'Unds'symbol");
+            let undeclared = pattern_of(&rename(
+                &json_of(&state),
+                "Lbl'-LT-'k'-GT-'",
+                "Lblundeclared'Unds'symbol",
+            ));
             assert_ne!(undeclared, state);
             not_defined(
                 defined_state(definition, &undeclared),
@@ -1901,7 +1938,7 @@ mod tests {
                     limit: 4 << 30,
                 })
             };
-            let cases: [(&str, StackFor<'_>, &Value, Option<&str>); 6] = [
+            let cases: [(&str, StackFor<'_>, &Pattern, Option<&str>); 6] = [
                 ("defined", &here, &state, None),
                 (
                     "undeclared",
@@ -1922,8 +1959,8 @@ mod tests {
             for (name, stack_for, subject, cause) in cases {
                 let result = defined_state_with(definition, subject, stack_for);
                 let mut found = decided_match();
-                found["state"]["state"] = subject.clone();
-                let outcome = run(&response(vec![found], vec![]), &|s| {
+                found.state.state = subject.clone();
+                let outcome = run(response(vec![found], vec![]), &|s| {
                     defined_state_with(definition, s, stack_for)
                 });
                 match cause {
@@ -1950,6 +1987,7 @@ mod tests {
     fn a_state_holding_a_conjunction_is_not_a_hit() {
         on_calc(|searcher, state| {
             let definition = searcher.definition();
+            let state = json_of(&state);
             let mut nested = state.clone();
             let cell = k_cell(&mut nested);
             let conjunct = cell.clone();
@@ -1958,15 +1996,13 @@ mod tests {
                 "sort": {"tag": "SortApp", "name": "SortKCell", "args": []},
                 "patterns": [conjunct.clone(), conjunct],
             });
+            let nested = pattern_of(&nested);
             not_defined(defined_state(definition, &nested), "term-level \\and");
             not_defined(defined_state(definition, &nested), UNDEFINED_STATE);
             // What the refusal adds: the conjunction verifies, internalizes and is ground_defined.
-            let pattern =
-                from_value(&json!({"format": "KORE", "version": 1, "term": term(&nested)}))
-                    .unwrap();
-            let free = definition.with_stack_for(&[&pattern], || {
+            let free = definition.with_stack_for(&[&nested], || {
                 definition
-                    .verify_standalone_pattern(&pattern, &[])
+                    .verify_standalone_pattern(&nested, &[])
                     .and_then(|admitted| admitted.internalize_term())
                     .map(|term| definition.ground_defined(&term))
                     .map_err(|e| e.to_string())
@@ -1976,7 +2012,10 @@ mod tests {
             let root = term(&state).clone();
             let top = json!({"tag": "SortApp", "name": "SortGeneratedTopCell", "args": []});
             let at_root = json!({"tag": "And", "sort": top, "patterns": [root.clone(), root]});
-            not_defined(defined_state(definition, &at_root), "term-level \\and");
+            not_defined(
+                defined_state(definition, &pattern_of(&at_root)),
+                "term-level \\and",
+            );
             // An associative application of `\and` below the root.
             let mut assoc = state.clone();
             let cell = k_cell(&mut assoc);
@@ -1987,11 +2026,14 @@ mod tests {
                 "sorts": [{"tag": "SortApp", "name": "SortKCell", "args": []}],
                 "argss": [conjunct.clone(), conjunct],
             });
-            not_defined(defined_state(definition, &assoc), "term-level \\and");
+            not_defined(
+                defined_state(definition, &pattern_of(&assoc)),
+                "term-level \\and",
+            );
             // Through `outcome`: an unknown with undefined-state, not a hit.
             let mut found = decided_match();
-            found["state"]["state"] = nested.clone();
-            let outcome = run(&response(vec![found], vec![]), &|s| {
+            found.state.state = nested.clone();
+            let outcome = run(response(vec![found], vec![]), &|s| {
                 defined_state(definition, s)
             });
             incomplete(&outcome, UNDEFINED_STATE);

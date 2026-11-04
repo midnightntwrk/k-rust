@@ -4,9 +4,9 @@
 use k_rust::{
     backend::{
         Backend, BackendDiagnosticOutput, BackendError, BackendErrorKind, CancellationToken,
-        ChosenValueOutput, ContradictedClaimOutput, ExecuteRequest, ExecutionLeaf, ExecutionResult,
-        HaltReasonOutput, ObservedInOutput, ObservedRequest, StateMatchesOutput, StopCause,
-        search::prepare_backend_match_target,
+        ChosenValueOutput, ContradictedClaimOutput, ExecuteRequest, ExecutionLeaf,
+        HaltReasonOutput, KoreExecutionLeaf, KoreExecutionResult, ObservedInOutput,
+        ObservedRequest, StateMatchesOutput, StopCause, search::prepare_backend_match_target,
     },
     definition::{AttributeKey, Attributes, ProductionItem, ResolvedDefinition, Sentence},
     k_rust_backend::{
@@ -23,7 +23,7 @@ use k_rust::{
         term::{FunctionType, HeadRole, SymbolType, Term, TermKind},
     },
     kompile::{CompiledSearchPattern, ProgramGrammar, compile_search_pattern},
-    kore::{ast::Pattern as KorePattern, codec},
+    kore::ast::Pattern as KorePattern,
     names::{BuiltinSort, WellKnownSymbol},
 };
 
@@ -779,7 +779,7 @@ impl Executor {
         self.poisoned
     }
 
-    /// Execute `initial` with `shape` through `Backend::execute`, within `cancel`'s scope and
+    /// Execute `initial` with `shape` through `Backend::execute_kore`, within `cancel`'s scope and
     /// the per-case safety limit, then judge every leaf: clean (ARCHITECTURE 5.2), natural end,
     /// and each of `matchers` (prepared by this executor). Load-time records go to
     /// [`CaseResult::load_records`], never onto leaves. An `Err` result becomes
@@ -799,10 +799,10 @@ impl Executor {
             .map(|(result, _, _)| result)
     }
 
-    /// [`Self::run`] through `Backend::execute_observed` with the event allowlist `rules`, in the
-    /// same token scope, safety limit and work budget, so that an observer case runs once
-    /// (FZ-10's request). `execute_observed` answers the same leaves in the same order as
-    /// `execute`; the raw observed leaves (branch identities and observations) are returned
+    /// [`Self::run`] through `Backend::execute_observed_kore` with the event allowlist `rules`, in
+    /// the same token scope, safety limit and work budget, so that an observer case runs once
+    /// (FZ-10's request). `execute_observed_kore` answers the same leaves in the same order as
+    /// `execute_kore`; the raw observed leaves (branch identities and observations) are returned
     /// beside the judged result, empty when the result is a failure.
     ///
     /// # Errors
@@ -815,7 +815,7 @@ impl Executor {
         matchers: &[&LeafMatcher],
         cancel: Option<&CancellationToken>,
         rules: Option<Vec<String>>,
-    ) -> Result<(CaseResult, Vec<ExecutionLeaf>), Abort> {
+    ) -> Result<(CaseResult, Vec<KoreExecutionLeaf>), Abort> {
         self.run_with(
             initial,
             shape,
@@ -828,7 +828,7 @@ impl Executor {
 
     /// [`Self::run`] with no leaf matcher, for an `at: any-state` pattern target
     /// (ARCHITECTURE 4.1, FZ-STATESET-MATCH): `shape` asks the run to match every state it
-    /// reaches against the target (`matchStates`), so one `Backend::execute` judges every
+    /// reaches against the target (`matchStates`), so one `Backend::execute_kore` judges every
     /// configuration, inside the run, within the same token scope and per-case safety limit.
     /// Besides the judged result, the run's state matches and its run-level unclean reasons
     /// ([`AnyStateRun`]); `None` for a failed case. The matcher's solver `unknown`s are added to
@@ -980,7 +980,7 @@ impl Executor {
 
 /// The reasons of a run's result that make every leaf unclean (ARCHITECTURE 5.2): stack stops,
 /// solver `unknown`s, allowance refusals and an unsupported hook observed in the run.
-fn run_reasons(result: &ExecutionResult) -> Vec<UncleanReason> {
+fn run_reasons(result: &KoreExecutionResult) -> Vec<UncleanReason> {
     let mut run_reasons = Vec::new();
     if result.stack_stops > 0 {
         run_reasons.push(UncleanReason::StackStops);
@@ -1019,15 +1019,15 @@ fn load_stack_stops(definition: &BackendDefinition) -> usize {
 
 /// What [`Executor::run_with`] returns: the judged result, the raw leaves of an observed run,
 /// and, for a run that matched its states, what an any-state target judges ([`AnyStateRun`]).
-type Executed = (CaseResult, Vec<ExecutionLeaf>, Option<AnyStateRun>);
+type Executed = (CaseResult, Vec<KoreExecutionLeaf>, Option<AnyStateRun>);
 
 /// What an `at: any-state` pattern target judges besides the leaves
 /// ([`Executor::run_any_state`]).
 #[derive(Clone, Debug)]
 pub(crate) struct AnyStateRun {
-    /// The run's state matches (`ExecutionResult::state_matches`): the first clean and dirty
+    /// The run's state matches (`KoreExecutionResult::state_matches`): the first clean and dirty
     /// reaches, the first undecided state of each reason, and the counts.
-    pub(crate) matches: StateMatchesOutput,
+    pub(crate) matches: StateMatchesOutput<KorePattern>,
     /// The run-level reasons no hit may rest on, which every leaf also carries (ARCHITECTURE
     /// 5.2): stack stops, solver `unknown`s, allowance refusals, an unsupported hook observed in
     /// the run.
@@ -1036,9 +1036,9 @@ pub(crate) struct AnyStateRun {
 
 /// How a case is executed.
 enum Execution {
-    /// `Backend::execute`.
+    /// `Backend::execute_kore`.
     Plain,
-    /// `Backend::execute_observed` with the observation filter `rules` (every event when
+    /// `Backend::execute_observed_kore` with the observation filter `rules` (every event when
     /// `None`).
     Observed { rules: Option<Vec<String>> },
 }
@@ -1101,7 +1101,7 @@ impl Judge<'_> {
         .then(|| request.state.clone());
         #[cfg(test)]
         let seam_state = request.state.clone();
-        // The catch site of `Backend::execute` (FZ-CRASH, stage `execute`).
+        // The catch site of `Backend::execute_kore` (FZ-CRASH, stage `execute`).
         let executed = crash::catch(|| {
             #[cfg(test)]
             seam::set_all_paths(matches!(
@@ -1113,9 +1113,9 @@ impl Judge<'_> {
                 return Err(error);
             }
             match execution {
-                Execution::Plain => backend.execute(request),
+                Execution::Plain => backend.execute_kore(request),
                 Execution::Observed { rules } => {
-                    backend.execute_observed(ObservedRequest { request, rules })
+                    backend.execute_observed_kore(ObservedRequest { request, rules })
                 }
             }
         });
@@ -1165,7 +1165,7 @@ impl Judge<'_> {
     fn judge_result(
         &self,
         backend: &mut Backend,
-        mut result: ExecutionResult,
+        mut result: KoreExecutionResult,
         probe: Option<&KorePattern>,
     ) -> Result<Executed, Abort> {
         let matches = result.state_matches.take();
@@ -1198,7 +1198,7 @@ impl Judge<'_> {
     fn judge(
         &self,
         backend: &mut Backend,
-        result: &ExecutionResult,
+        result: &KoreExecutionResult,
         probe: Option<&KorePattern>,
     ) -> Result<CaseResult, Abort> {
         let run_allowance_refusals = result
@@ -1208,14 +1208,8 @@ impl Judge<'_> {
             .count();
         let run_reasons = run_reasons(result);
         let mut leaves = Vec::with_capacity(result.leaves.len());
-        for (index, leaf) in result.leaves.iter().enumerate() {
-            let Ok(state) = codec::from_value(&leaf.state) else {
-                return Ok(self.failed(CaseFailure::new(
-                    format!("the state of leaf {index} does not decode as KORE"),
-                    FailureCause::Other,
-                    CrashStage::Judge,
-                )));
-            };
+        for leaf in &result.leaves {
+            let state = leaf.state.clone();
             let mut unclean = run_reasons.clone();
             unclean.extend(self.leaf_reasons(leaf));
             leaves.push(LeafReport {
@@ -1298,7 +1292,7 @@ impl Judge<'_> {
 
     /// The reasons a leaf's halt and its own diagnostics give (ARCHITECTURE 5.2).
     #[deny(clippy::wildcard_enum_match_arm)]
-    fn leaf_reasons(&self, leaf: &ExecutionLeaf) -> Vec<UncleanReason> {
+    fn leaf_reasons<K>(&self, leaf: &ExecutionLeaf<K>) -> Vec<UncleanReason> {
         let mut reasons = Vec::new();
         let end = match leaf.reason {
             HaltReasonOutput::Stuck => true,
@@ -1584,14 +1578,14 @@ fn initial_has_k(backend: &mut Backend, state: &KorePattern) -> Option<bool> {
         step_timeout_ms: None,
         ..ExecuteRequest::new(state.clone())
     };
-    let result = backend.execute(request).ok()?;
+    let result = backend.execute_kore(request).ok()?;
     let leaf = result.leaves.first()?;
-    let initial = codec::from_value(&leaf.state).ok()?;
+    let initial = &leaf.state;
     backend
-        .with_solver_over(None, &[&initial], |definition, _solver| {
+        .with_solver_over(None, &[initial], |definition, _solver| {
             Ok::<_, BackendError>(
                 definition
-                    .admit_unverified(&initial, &[])
+                    .admit_unverified(initial, &[])
                     .internalize_pattern()
                     .ok()
                     .map(|pattern| pattern.term.attributes().k_cells() > 0),
@@ -1801,7 +1795,7 @@ pub(super) fn verdict(
 /// normalize to `\bottom` (an undefined step, or a candidate a sibling covers), so that entry
 /// is not established and is left out (review 2, S1). Every earlier entry built a state that
 /// the run went on to step.
-pub(super) fn established_rewrites(leaf: &ExecutionLeaf) -> Vec<String> {
+pub(super) fn established_rewrites<K>(leaf: &ExecutionLeaf<K>) -> Vec<String> {
     let mut rewrites: Vec<String> = leaf
         .trace
         .iter()
@@ -1844,7 +1838,7 @@ fn failure_of(error: &BackendError, stage: CrashStage) -> Result<CaseFailure, Ab
         (None, Some(BackendErrorKind::SolverInit)) => {
             return Err(Abort::new(AbortKind::SolverInit, message));
         }
-        // `Backend::execute` validates and internalizes the state before it runs it.
+        // `Backend::execute_kore` validates and internalizes the state before it runs it.
         (None, Some(BackendErrorKind::InvalidState | BackendErrorKind::StateNotInternalized)) => {
             FailureCause::StateRefused
         }
@@ -1896,7 +1890,7 @@ fn load_stack_stop_record(load_stack_stops: usize) -> Option<LoadRecord> {
 }
 
 /// The run-level records the definition's load observed (T-5), in the result's order.
-fn load_records(result: &ExecutionResult) -> Vec<LoadRecord> {
+fn load_records(result: &KoreExecutionResult) -> Vec<LoadRecord> {
     let mut records = Vec::new();
     for claim in &result.contradicted_claims {
         if claim.observed_in == ObservedInOutput::Load {
@@ -1929,7 +1923,7 @@ fn load_records(result: &ExecutionResult) -> Vec<LoadRecord> {
 
 /// Whether the run noted an implementation-chosen value or a contradicted claim (`observedIn:
 /// run`) that no leaf's diagnostics carry (D16, review B3).
-fn run_facts_off_leaves(result: &ExecutionResult) -> bool {
+fn run_facts_off_leaves(result: &KoreExecutionResult) -> bool {
     let leaf_diagnostics = || result.leaves.iter().flat_map(|leaf| &leaf.diagnostics);
     facts_off_leaves(
         &result.implementation_chosen_values,
@@ -1939,13 +1933,13 @@ fn run_facts_off_leaves(result: &ExecutionResult) -> bool {
 }
 
 /// [`run_facts_off_leaves`] over the run's lists and the leaves' diagnostics.
-pub(super) fn facts_off_leaves<'a, I>(
+pub(super) fn facts_off_leaves<'a, K: PartialEq + 'a, I>(
     chosen: &[ChosenValueOutput],
-    claims: &[ContradictedClaimOutput],
+    claims: &[ContradictedClaimOutput<K>],
     leaf_diagnostics: impl Fn() -> I,
 ) -> bool
 where
-    I: Iterator<Item = &'a BackendDiagnosticOutput>,
+    I: Iterator<Item = &'a BackendDiagnosticOutput<K>>,
 {
     let chosen_off = chosen.iter().any(|value| {
         !leaf_diagnostics().any(|diagnostic| {

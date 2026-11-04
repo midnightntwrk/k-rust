@@ -7,7 +7,7 @@
 //! A campaign runs with `--io off` and an empty standard input, which krun buffers to one
 //! newline for `$STDIN`: a case reads nothing from the process, so its configuration is a
 //! function of the program text and the bindings alone (ARCHITECTURE 5.1, 5.4). Execution
-//! stays with the public `Backend::execute` (FZ-04, D20).
+//! stays with the public `Backend::execute_kore` (FZ-04, D20).
 //!
 //! # Lifetimes (interface question 2)
 //!

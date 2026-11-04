@@ -1009,7 +1009,7 @@ and `rows` one row per (pattern, program asked) `{pattern, program, claimed, ans
 | `no` | No run reaches one: the whole state space of the program was explored, within the budget, on a definition where nothing is left to the implementation. | The program does not do what you meant: change the program, or the pattern. |
 | `unknown` | No definitive answer; `cause` says why (below). | Read the cause; usually make the program terminate within the budget, or accept that the definition leaves the question open. |
 | `invalid-pattern` | The pattern does not parse, sort or compile; `cause` is k-rust's message. A position in it, `pattern:LINE:COLUMN`, is a line and column of the pattern's own text with its surrounding whitespace removed, not of the pattern list's file. It never runs. | Fix the pattern. |
-| `error` | The program is not admitted, k-rust refused the search, or its result lacks the `matches` or `incomplete` list kink reads (never read as empty); `cause` says which. | Fix the program, or report it. |
+| `error` | The program is not admitted, or k-rust refused the search; `cause` says which. | Fix the program, or report it. |
 
 `claim` is null for a program the corpus form asked; for a claimed program it is `confirmed` (`hit`), `refuted` (`no`) or `unconfirmed` (anything else).
 **A refuted claim** (also listed in `refuted_claims`) means the program, run exactly as kink runs it, never reaches the situation you said it tests: the purpose you gave the test is not what it does.
@@ -1046,7 +1046,7 @@ Constructors, functions declared total (a `total` helper with no equation for it
 ### How it runs, and what it costs
 
 Each pattern is compiled once, by k-rust's own compiler of search patterns (`kompile::compile_search_pattern`, the one `krun --pattern` uses), against the compiled definition the programs run on.
-Each (pattern, program) is one k-rust `search_pattern` from the program's initial configuration: search type all (every reachable configuration, the initial one included), state set (each distinct configuration of a depth once), at most one result, the manifest's `max_depth`, under a watchdog of `time_ms`.
+Each (pattern, program) is one k-rust `search_pattern_kore` from the program's initial configuration: search type all (every reachable configuration, the initial one included), state set (each distinct configuration of a depth once), at most one result, the manifest's `max_depth`, under a watchdog of `time_ms`.
 k-rust's search has no work budget yet (a k-rust request, KINK-24, would make a bounded answer reproducible), so `time_ms` is what stops a program that does not end.
 A check costs about one plain run of the program (release build, shared host at load 9-24; flow F-18 handoff): where the search explores every configuration it took 1.0-2.3 times the program's baseline run (`examples/imp` sum 6 ms against 3, primes 12 against 8, collatz 20 against 10; IMP++ primes 98 against 43, collatz 93 against 48, spawn 2.5-2.9 s against 2.5 s), and much less when the hit comes early (an interleaving of IMP++ spawn found at depth 39 in 0.32 s, against 2.5 s for the run).
 The search keeps every configuration it reached with the trace of one run to it, which added at most 45 MiB to the process's peak (IMP++ primes 153 MiB against 109 MiB).

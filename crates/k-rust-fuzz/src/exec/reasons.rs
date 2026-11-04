@@ -804,9 +804,9 @@ fn incomplete_leaf(leaf: &LeafReport) -> Option<UnjudgedReason> {
 ///   holds only k-rust's own text (`translationBlamed`), or the model k-rust asked for is
 ///   missing or unreadable.
 #[must_use]
-pub fn halt_cause(
+pub fn halt_cause<K: Serialize>(
     halt: HaltReasonOutput,
-    cause: Option<&SearchFailureOutput>,
+    cause: Option<&SearchFailureOutput<K>>,
     detail: Option<&str>,
 ) -> Option<HaltCause> {
     use SearchFailureOutput as F;
@@ -896,7 +896,7 @@ pub fn halt_cause(
 }
 
 /// What a solver failure says of a halt ([`halt_cause`]).
-fn smt_cause(error: &SmtFailureOutput, detail: Option<&str>) -> HaltCause {
+fn smt_cause<K>(error: &SmtFailureOutput<K>, detail: Option<&str>) -> HaltCause {
     let site = match error {
         SmtFailureOutput::Translation { .. }
         | SmtFailureOutput::Unavailable
@@ -943,7 +943,7 @@ fn builtin_site(error: &BuiltinFailureOutput) -> String {
 }
 
 /// A search failure's kind, its wire name (`match`, `requires`, ...).
-fn cause_kind(cause: &SearchFailureOutput) -> String {
+fn cause_kind<K: Serialize>(cause: &SearchFailureOutput<K>) -> String {
     serde_json::to_value(cause)
         .ok()
         .and_then(|value| match value {
@@ -959,10 +959,11 @@ fn cause_kind(cause: &SearchFailureOutput) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use k_rust::kore::ast::Pattern as KorePattern;
 
     #[test]
     fn an_unadmitted_definition_condition_leaves_the_fuzz_case_unjudged() {
-        let cause = SearchFailureOutput::UnstatedDefinedness {
+        let cause = SearchFailureOutput::<KorePattern>::UnstatedDefinedness {
             reason: "term-level conjunction in a definition condition".into(),
         };
         assert!(matches!(

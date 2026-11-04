@@ -1,7 +1,7 @@
 //! Per-case execution and classification: the execute request, clean leaves, natural ends,
 //! outcome classes and the determinism counters (ARCHITECTURE 5). Owner: FZ-04.
 //!
-//! Every case runs through the public `Backend::execute` (ARCHITECTURE 5.1). Leaf patterns
+//! Every case runs through the public `Backend::execute_kore` (ARCHITECTURE 5.1). Leaf patterns
 //! (the normal-termination pattern, a `pattern` target) are judged with the leaf matcher
 //! `krun --pattern` uses, `k_rust_backend::search::match_disjunction_with_solver` under
 //! `Backend::with_solver_over` in execution mode, and a match counts only with empty
@@ -431,7 +431,7 @@ impl LeafReport {
     }
 }
 
-/// Why `Backend::execute`, or the judgement of its leaves, answered `Err` or panicked (FZ-01
+/// Why `Backend::execute_kore`, or the judgement of its leaves, answered `Err` or panicked (FZ-01
 /// review S8, FZ-CRASH).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CaseFailure {
@@ -439,12 +439,12 @@ pub struct CaseFailure {
     pub message: String,
     /// What kind of failure it is.
     pub cause: FailureCause,
-    /// Whether it happened in `Backend::execute` or in the judgement of the run's leaves.
+    /// Whether it happened in `Backend::execute_kore` or in the judgement of the run's leaves.
     pub stage: CrashStage,
 }
 
 impl CaseFailure {
-    /// An internal error ([`FailureCause::Other`]) of `Backend::execute`; the case is
+    /// An internal error ([`FailureCause::Other`]) of `Backend::execute_kore`; the case is
     /// `unsupported`.
     #[must_use]
     pub fn other(message: impl Into<String>) -> Self {
@@ -520,7 +520,7 @@ pub struct CaseResult {
     /// none.
     pub work: u64,
     /// The run's coverage (`applied`, `matched`), when collected.
-    pub coverage: Option<RunCoverageOutput>,
+    pub coverage: Option<RunCoverageOutput<KorePattern>>,
     /// `ExecutionResult::stack_stops`.
     pub stack_stops: usize,
     /// `ExecutionResult::smt_unknowns`, plus the solver `unknown`s the leaf matching met in
@@ -534,8 +534,8 @@ pub struct CaseResult {
     pub load_records: Vec<LoadRecord>,
     /// The per-case safety limit stopped the run.
     pub safety_limit_hit: bool,
-    /// Why `Backend::execute` or the judgement of its leaves answered `Err`; the leaves are then
-    /// empty.
+    /// Why `Backend::execute_kore` or the judgement of its leaves answered `Err`; the leaves are
+    /// then empty.
     pub failure: Option<CaseFailure>,
     /// The run noted an implementation-chosen value or a contradicted claim
     /// (`ExecutionResult::implementation_chosen_values`, the `observedIn: run` entries of

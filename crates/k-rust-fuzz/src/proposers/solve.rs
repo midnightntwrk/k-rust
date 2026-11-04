@@ -69,7 +69,7 @@
 //! rule's step branch. Instead, every leaf whose path applied the blocked rule (its trace has the
 //! rule's `rewrite` entry, established: not the last entry of a `work-bound`, `timeout` or
 //! `cancelled` leaf) carries the path condition and the rule's condition in its constraint. For
-//! each such leaf, up to [`SOLVE_MAX_MODEL_QUERIES`], `Backend::get_model` asks for a model of
+//! each such leaf, up to [`SOLVE_MAX_MODEL_QUERIES`], `Backend::model_for_with` asks for a model of
 //! its constraint; the first satisfiable one gives the symbolic holes' values
 //! ([`model_values`]), and a hole the model leaves free keeps its value (a model that gives no
 //! symbolic hole a value is a failed run, not the blocked case again).
@@ -130,13 +130,14 @@ use std::{
 use k_rust::{
     backend::{
         Backend, BackendOptions, CancellationToken, CancelledResultOutput, ExecuteRequest,
-        ExecutionLeaf, ExecutionStrategy, HaltReasonOutput, PatternRequest, ResultModalityOutput,
+        ExecutionLeaf, ExecutionStrategy, HaltReasonOutput, ResultModalityOutput,
+        simplification::model_substitution,
     },
-    k_rust_backend::definition::BackendDefinition,
-    kore::{
-        ast::{Pattern as KorePattern, Sort as KoreSort, Variable, VariableKind},
-        codec,
+    k_rust_backend::{
+        definition::{Admission, BackendDefinition},
+        smt::ModelResult,
     },
+    kore::ast::{Pattern as KorePattern, Sort as KoreSort, Variable, VariableKind},
 };
 use num_bigint::BigInt;
 
@@ -259,7 +260,7 @@ fn hole_of(name: &str) -> Option<usize> {
 }
 
 /// The values a model `substitution` (a conjunction of `\equals(variable, value)`, as
-/// `Backend::get_model` answers) gives the query's variables, by hole: `Int` and `Bool` domain
+/// `Backend::model_for_with` answers) gives the query's variables, by hole: `Int` and `Bool` domain
 /// values only, under injections; anything else is left out.
 pub(crate) fn model_values(substitution: &KorePattern) -> BTreeMap<usize, Value> {
     let mut found = BTreeMap::new();
@@ -480,7 +481,7 @@ impl BackendSource<'_> {
 /// The unique ids of the rewrite steps on `leaf`'s path whose results exist: every `rewrite`
 /// trace entry, but for a `work-bound`, `timeout` or `cancelled` leaf the last one, whose state
 /// was taken from the worklist unnormalized and may still be `\bottom`.
-fn established(leaf: &ExecutionLeaf) -> impl Iterator<Item = &str> {
+fn established<K>(leaf: &ExecutionLeaf<K>) -> impl Iterator<Item = &str> {
     let stopped = matches!(
         leaf.reason,
         HaltReasonOutput::WorkBound | HaltReasonOutput::Timeout | HaltReasonOutput::Cancelled
@@ -495,6 +496,14 @@ fn established(leaf: &ExecutionLeaf) -> impl Iterator<Item = &str> {
     rewrites.into_iter().take(keep)
 }
 
+/// A model query's answer: a satisfiable state's substitution (none when the state holds no
+/// model predicate), an unsatisfiable state, or no answer.
+enum Model {
+    Sat(Option<KorePattern>),
+    Unsat,
+    Unknown,
+}
+
 /// Run `input` and query the leaves whose paths applied the blocked rule `rule_id` (module
 /// documentation, "The query"), on the calling thread, within the current cancellation scope.
 fn run_query(input: RunInput<'_>, rule_id: &str) -> Outcome {
@@ -507,7 +516,7 @@ fn run_query(input: RunInput<'_>, rule_id: &str) -> Outcome {
         Ok(backend) => backend,
         Err(message) => return failed(message, false),
     };
-    let result = match backend.execute(input.request) {
+    let result = match backend.execute_kore(input.request) {
         Ok(result) => result,
         Err(error) => return failed(error.to_string(), error.stop_cause().is_some()),
     };
@@ -540,14 +549,22 @@ fn run_query(input: RunInput<'_>, rule_id: &str) -> Outcome {
         Err(message) => return failed(message, false),
     };
     let mut unknown = false;
-    let mut undecodable = false;
     for leaf in arrived {
         work += 1;
-        let Ok(state) = codec::from_value(&leaf.state) else {
-            undecodable = true;
-            continue;
-        };
-        let model = match backend.get_model(PatternRequest::new(state)) {
+        // The model of the leaf's state, the predicate admitted unverified as every request
+        // pattern is, and the substitution of a satisfiable one as a pattern over its variables.
+        let model =
+            backend.model_for_with(None, &leaf.state, Admission::Unverified, |model, sort| {
+                Ok(match model {
+                    ModelResult::Sat(substitution) => Model::Sat(
+                        sort.as_ref()
+                            .and_then(|sort| model_substitution(&substitution, sort)),
+                    ),
+                    ModelResult::Unsat => Model::Unsat,
+                    ModelResult::Unknown(_) => Model::Unknown,
+                })
+            });
+        let model = match model {
             Ok(model) => model,
             Err(error) => {
                 return Outcome {
@@ -557,29 +574,22 @@ fn run_query(input: RunInput<'_>, rule_id: &str) -> Outcome {
                 };
             }
         };
-        match model.satisfiable.as_str() {
-            "sat" => {
-                let values = model
-                    .substitution
-                    .as_ref()
-                    .and_then(|substitution| codec::from_value(substitution).ok())
-                    .map(|substitution| model_values(&substitution))
-                    .unwrap_or_default();
+        match model {
+            Model::Sat(substitution) => {
+                let values = substitution.as_ref().map(model_values).unwrap_or_default();
                 return Outcome {
                     answer: Answer::Model(values),
                     work,
                     outside_determinism,
                 };
             }
-            "unsat" => {}
-            _ => unknown = true,
+            Model::Unsat => {}
+            Model::Unknown => unknown = true,
         }
     }
     Outcome {
         answer: if unknown {
             Answer::Unknown
-        } else if undecodable {
-            Answer::Failed("a leaf's state does not decode as KORE".into())
         } else {
             Answer::Unsatisfiable
         },

@@ -28,14 +28,23 @@
 //!   `unevaluated`, `symbolic`, `undefined`, `stopped` and `omitted` operands leave it to its
 //!   decided truth (`super::distance`).
 
-use k_rust::backend::{
-    ConditionAtomOutput, ConditionNodeOutput, ConditionRecordOutput, ConnectiveOutput,
-    RecordedValueOutput, RuleConditionsOutput, TruthOutput, VerdictOutput,
+use k_rust::{
+    backend::{ConnectiveOutput, TruthOutput, VerdictOutput},
+    kore::{
+        ast::{Pattern as KorePattern, Sort as KoreSort},
+        string::LiteralEncoding,
+    },
 };
 use num_bigint::BigInt;
-use serde_json::Value as Json;
 
 use crate::values::Value;
+
+/// The run's condition records as the facade hands them, their KORE as patterns.
+type RuleConditionsOutput = k_rust::backend::RuleConditionsOutput<KorePattern>;
+type ConditionRecordOutput = k_rust::backend::ConditionRecordOutput<KorePattern>;
+type ConditionNodeOutput = k_rust::backend::ConditionNodeOutput<KorePattern>;
+type ConditionAtomOutput = k_rust::backend::ConditionAtomOutput<KorePattern>;
+type RecordedValueOutput = k_rust::backend::RecordedValueOutput<KorePattern>;
 
 use super::{
     GuardEntry, Guards,
@@ -213,24 +222,37 @@ fn wrong_atoms(
     }
 }
 
-/// An `Int` or `Bool` domain value in KORE JSON (in its envelope or not, under injections).
-fn int_or_bool(term: &Json) -> Option<Value> {
-    let term = term.get("term").unwrap_or(term);
-    match term.get("tag")?.as_str()? {
-        "DV" => {
-            let value = term.get("value")?.as_str()?;
-            match term.get("sort")?.get("name")?.as_str()? {
-                "SortInt" => value.parse::<BigInt>().ok().map(Value::Int),
-                "SortBool" => match value {
-                    "true" => Some(Value::Bool(true)),
-                    "false" => Some(Value::Bool(false)),
-                    _ => None,
-                },
-                _ => None,
+/// A domain value's sort name and the code points of its literal, under any injections: what
+/// its KORE JSON writes as `sort.name` and `value`.
+fn domain_value(mut term: &KorePattern) -> Option<(&str, String)> {
+    loop {
+        match term {
+            KorePattern::DomainValue { sort, value } => {
+                let name = match sort {
+                    KoreSort::Application { name, .. } | KoreSort::Variable(name) => name,
+                };
+                let text = LiteralEncoding::of_domain_value(sort).code_points(value);
+                return Some((name, text));
             }
+            KorePattern::Application { symbol, arguments } if symbol.name == "inj" => {
+                let [inner] = &arguments[..] else {
+                    return None;
+                };
+                term = inner;
+            }
+            _ => return None,
         }
-        "App" if term.get("name")?.as_str()? == "inj" => match term.get("args")?.as_array()?[..] {
-            [ref inner] => int_or_bool(inner),
+    }
+}
+
+/// An `Int` or `Bool` domain value (under injections).
+fn int_or_bool(term: &KorePattern) -> Option<Value> {
+    let (sort, value) = domain_value(term)?;
+    match sort {
+        "SortInt" => value.parse::<BigInt>().ok().map(Value::Int),
+        "SortBool" => match value.as_str() {
+            "true" => Some(Value::Bool(true)),
+            "false" => Some(Value::Bool(false)),
             _ => None,
         },
         _ => None,
@@ -349,7 +371,7 @@ fn connect(connective: ConnectiveOutput, mut children: Vec<Cond>) -> Cond {
 /// An atom measured by its operands when it is a comparison over two ground `Int` or `String`
 /// values; otherwise counted by its truth (the caller wraps it in that truth).
 fn atom(atom: &ConditionAtomOutput) -> Cond {
-    let ground: Option<Vec<&Json>> = atom
+    let ground: Option<Vec<&KorePattern>> = atom
         .operands
         .iter()
         .map(|operand| match operand {
@@ -411,41 +433,48 @@ fn comparison(head: Option<&str>, hook: Option<&str>) -> Option<(Comparison, Fam
     })
 }
 
-/// An `Int` or `String` domain value in KORE JSON (in its envelope or not, under injections).
-fn operand(term: &Json) -> Option<Operand> {
-    let term = term.get("term").unwrap_or(term);
-    match term.get("tag")?.as_str()? {
-        "DV" => {
-            let sort = term.get("sort")?.get("name")?.as_str()?;
-            let value = term.get("value")?.as_str()?;
-            match sort {
-                "SortInt" => value.parse::<BigInt>().ok().map(Operand::Int),
-                "SortString" => Some(Operand::Str(value.to_owned())),
-                _ => None,
-            }
-        }
-        "App" if term.get("name")?.as_str()? == "inj" => match term.get("args")?.as_array()?[..] {
-            [ref inner] => operand(inner),
-            _ => None,
-        },
+/// An `Int` or `String` domain value (under injections).
+fn operand(term: &KorePattern) -> Option<Operand> {
+    let (sort, value) = domain_value(term)?;
+    match sort {
+        "SortInt" => value.parse::<BigInt>().ok().map(Operand::Int),
+        "SortString" => Some(Operand::Str(value)),
         _ => None,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use k_rust::backend::RecordedBindingOutput;
-    use serde_json::json;
+    use k_rust::{backend::RecordedBindingOutput, kore::ast::Variable};
 
     use super::*;
 
+    /// A domain value of `sort`.
+    fn dv(sort: &str, value: &str) -> KorePattern {
+        KorePattern::DomainValue {
+            sort: KoreSort::Application {
+                name: sort.into(),
+                arguments: Vec::new(),
+            },
+            value: value.into(),
+        }
+    }
+
+    /// A term that is no ground value.
+    fn opaque() -> KorePattern {
+        KorePattern::Variable(Variable {
+            kind: k_rust::kore::ast::VariableKind::Element,
+            name: "VarX".into(),
+            sort: KoreSort::Application {
+                name: "SortInt".into(),
+                arguments: Vec::new(),
+            },
+        })
+    }
+
     fn int(value: i64) -> RecordedValueOutput {
         RecordedValueOutput::Value {
-            term: json!({"format": "KORE", "version": 1, "term": {
-                "tag": "DV",
-                "sort": {"tag": "SortApp", "name": "SortInt", "args": []},
-                "value": value.to_string(),
-            }}),
+            term: dv("SortInt", &value.to_string()),
         }
     }
 
@@ -608,8 +637,8 @@ mod tests {
         ))];
         assert_eq!(one(strict, Refuted), None);
         for operand in [
-            RecordedValueOutput::Symbolic { term: json!({}) },
-            RecordedValueOutput::Unevaluated { term: json!({}) },
+            RecordedValueOutput::Symbolic { term: opaque() },
+            RecordedValueOutput::Unevaluated { term: opaque() },
             RecordedValueOutput::Stopped,
             RecordedValueOutput::Omitted,
         ] {
@@ -719,14 +748,17 @@ mod tests {
     #[test]
     fn the_ground_integer_and_string_bindings_are_read() {
         let string = RecordedValueOutput::Value {
-            term: json!({
-                "tag": "DV",
-                "sort": {"tag": "SortApp", "name": "SortString", "args": []},
-                "value": "open",
-            }),
+            term: dv("SortString", "open"),
         };
         let binding = |name: &str, value| RecordedBindingOutput {
-            variable: json!(name),
+            variable: KorePattern::Variable(Variable {
+                kind: k_rust::kore::ast::VariableKind::Element,
+                name: name.into(),
+                sort: KoreSort::Application {
+                    name: "SortInt".into(),
+                    arguments: Vec::new(),
+                },
+            }),
             value,
         };
         let mut record = entry(
@@ -735,7 +767,7 @@ mod tests {
         );
         record.bindings = vec![
             binding("A", int(5)),
-            binding("B", RecordedValueOutput::Symbolic { term: json!({}) }),
+            binding("B", RecordedValueOutput::Symbolic { term: opaque() }),
             binding("S", string),
             binding("U", RecordedValueOutput::Undefined),
         ];
@@ -862,7 +894,7 @@ mod tests {
         let symbolic = entry(
             vec![requires(atom(
                 "INT.eq",
-                vec![int(3), RecordedValueOutput::Symbolic { term: json!({}) }],
+                vec![int(3), RecordedValueOutput::Symbolic { term: opaque() }],
                 False,
             ))],
             Some(Refuted),

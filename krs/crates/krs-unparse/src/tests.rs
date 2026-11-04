@@ -19,7 +19,7 @@ use k_rust::{
         compile_loaded_definition, program_start_position,
         term_to_kore_from_resolved_with_token_module,
     },
-    kore::{ast::Pattern, json as kore_json},
+    kore::ast::Pattern,
     outer::{LoadOptions, ResolvedSource, load_for_compilation},
 };
 
@@ -117,10 +117,12 @@ impl Fixture {
         let mut request = ExecuteRequest::new(self.initial.clone());
         request.strategy = ExecutionStrategy::Any;
         request.max_depth = depth;
-        let result = self.backend.execute(request).expect("the run succeeds");
+        let result = self
+            .backend
+            .execute_kore(request)
+            .expect("the run succeeds");
         let [leaf] = <[_; 1]>::try_from(result.leaves).expect("one leaf");
-        let text = serde_json::to_string(&leaf.state).expect("JSON");
-        kore_json::from_str(&text).expect("KORE")
+        leaf.state
     }
 
     fn print(&self, pattern: &Pattern, options: Options) -> String {

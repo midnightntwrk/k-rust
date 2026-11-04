@@ -215,7 +215,7 @@ fn the_records_of_c7_make_exactly_h_and_i_symbolic() {
     let result = crate::support::MAZE
         .compiled()
         .source_backend()
-        .execute(request)
+        .execute_kore(request)
         .expect("the case runs");
     let conditions = result
         .coverage
@@ -360,7 +360,7 @@ fn a_source_helper_word_candidate_replays_on_a_fresh_backend() {
     let original = builder.configuration(&[int(0)], &[]).unwrap();
     let mut initial_request = ExecuteRequest::new(original);
     initial_request.collect_coverage = true;
-    let initial = fresh().execute(initial_request).unwrap();
+    let initial = fresh().execute_kore(initial_request).unwrap();
     assert!(!initial.coverage.unwrap().applied.contains(&rule));
     let mut solve = SolveProposer::new(builder, options, bounds, None, None);
     let candidate = solve
@@ -375,7 +375,7 @@ fn a_source_helper_word_candidate_replays_on_a_fresh_backend() {
     let configuration = solve.builder.configuration(&candidate, &[]).unwrap();
     let mut request = ExecuteRequest::new(configuration);
     request.collect_coverage = true;
-    let replay = fresh().execute(request).unwrap();
+    let replay = fresh().execute_kore(request).unwrap();
     assert!(replay.coverage.unwrap().applied.contains(&rule));
 }
 

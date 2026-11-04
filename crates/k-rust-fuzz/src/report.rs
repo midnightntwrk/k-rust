@@ -2057,7 +2057,7 @@ pub enum CrashSide {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CrashStage {
-    /// `Backend::execute`.
+    /// `Backend::execute_kore`.
     Execute,
     /// The judgement of the run's leaves (clean leaves, natural ends, leaf patterns, data ends).
     Judge,

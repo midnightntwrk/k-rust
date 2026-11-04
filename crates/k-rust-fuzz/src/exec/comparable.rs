@@ -76,7 +76,7 @@ pub enum LeafDiagnostic {
 impl LeafDiagnostic {
     /// The kinds of `leaf`'s diagnostics, sorted, each once.
     #[deny(clippy::wildcard_enum_match_arm)]
-    pub(crate) fn of_leaf(leaf: &ExecutionLeaf) -> Vec<Self> {
+    pub(crate) fn of_leaf<K>(leaf: &ExecutionLeaf<K>) -> Vec<Self> {
         let mut kinds: Vec<Self> = leaf
             .diagnostics
             .iter()

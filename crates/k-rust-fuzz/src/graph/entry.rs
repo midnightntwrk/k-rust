@@ -31,12 +31,9 @@ use k_rust::{
         ResultModalityOutput,
     },
     k_rust_backend::{definition::BackendDefinition, term::Term},
-    kore::{
-        ast::{
-            Pattern as KorePattern, Sort as KoreSort, Symbol as KoreSymbol,
-            Variable as KoreVariable, VariableKind,
-        },
-        codec,
+    kore::ast::{
+        Pattern as KorePattern, Sort as KoreSort, Symbol as KoreSymbol, Variable as KoreVariable,
+        VariableKind,
     },
 };
 
@@ -243,7 +240,7 @@ impl RuleGraph {
         request: ExecuteRequest,
     ) -> Result<Entry, BackendError> {
         let module = request.module_name.clone();
-        let result = backend.execute(ExecuteRequest {
+        let result = backend.execute_kore(ExecuteRequest {
             max_depth: Some(0),
             max_work: None,
             max_breadth: None,
@@ -265,17 +262,11 @@ impl RuleGraph {
             cancelled_result: CancelledResultOutput::Partial,
             ..request
         })?;
-        let states = result
+        // A `\bottom` state denotes no configuration, so it enables nothing.
+        let states: Vec<&KorePattern> = result
             .leaves
             .iter()
-            .map(|leaf| codec::from_value(&leaf.state))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| {
-                BackendError::new(format!("an initial state does not decode: {error}"))
-            })?;
-        // A `\bottom` state denotes no configuration, so it enables nothing.
-        let states: Vec<&KorePattern> = states
-            .iter()
+            .map(|leaf| &leaf.state)
             .filter(|state| !matches!(state, KorePattern::Bottom { .. }))
             .collect();
         let vacuous = states.is_empty();

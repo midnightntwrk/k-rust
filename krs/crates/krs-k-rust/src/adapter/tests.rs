@@ -881,10 +881,10 @@ fn pinned_native_prelude_evaluates_set_union() {
             item(right)
         );
         let result = backend
-            .execute(ExecuteRequest::new(parse_pattern(&pattern).unwrap()))
+            .execute_kore(ExecuteRequest::new(parse_pattern(&pattern).unwrap()))
             .unwrap();
         assert_eq!(result.leaves.len(), 1, "{result:#?}");
-        let rendered = result.leaves[0].state.to_string();
+        let rendered = serde_json::to_string(&result.leaves[0].state).unwrap();
         assert!(
             !rendered.contains("Pipe"),
             "union remained unevaluated: {rendered}"

@@ -17,7 +17,7 @@ use std::{
 
 use k_rust::{
     backend::{
-        Backend, BackendError, ExecuteRequest, ExecutionResult, ExecutionStrategy,
+        Backend, BackendError, ExecuteRequest, ExecutionStrategy, KoreExecutionResult,
         ResultModalityOutput,
     },
     k_rust_backend::{
@@ -27,7 +27,6 @@ use k_rust::{
     },
     kore::{
         ast::{Pattern as KorePattern, Sort as KoreSort},
-        codec,
         printer::Printer,
         walk,
     },
@@ -116,9 +115,9 @@ fn execute(
     backend: &mut Backend,
     initial: &KorePattern,
     strategy: ExecutionStrategy,
-) -> ExecutionResult {
+) -> KoreExecutionResult {
     backend
-        .execute(ExecuteRequest {
+        .execute_kore(ExecuteRequest {
             strategy,
             result_modality: ResultModalityOutput::PathSet,
             collect_coverage: true,
@@ -452,8 +451,7 @@ fn the_graph_programs_end_as_the_readme_says() {
         let [leaf] = result.leaves.as_slice() else {
             panic!("{file}: one leaf");
         };
-        let printed =
-            Printer::compact().print_pattern(&codec::from_value(&leaf.state).expect("a KORE leaf"));
+        let printed = Printer::compact().print_pattern(&leaf.state.clone());
         assert!(
             printed.contains(&format!(
                 r#"Lbl'-LT-'out'-GT-'{{}}(\dv{{SortInt{{}}}}("{out}"))"#

@@ -1,6 +1,6 @@
 //! Observer targets on real runs (ARCHITECTURE 4.1, 9.2): FZ-FIX's fixtures (`tests/support`)
 //! compiled in-process, each case executed once through [`Executor::run_observed`] (which
-//! calls `Backend::execute_observed`), and classed by [`crate::exec::classify`].
+//! calls `Backend::execute_observed_kore`), and classed by [`crate::exec::classify`].
 //!
 //! - COIN `count(N)` steps `count-step` N times, then `count-done` empties `<k>`;
 //!   `flip(N)` takes `heads` or `tails` in one step, two paths under all-paths.
@@ -14,7 +14,7 @@ use std::sync::{
 };
 
 use k_rust::backend::{
-    CancellationToken, ExecutionLeaf, HaltReasonOutput, ObservationEventOutput, ObservedRequest,
+    CancellationToken, HaltReasonOutput, KoreExecutionLeaf, ObservationEventOutput, ObservedRequest,
 };
 
 use k_rust::kore::ast::Pattern as KorePattern;
@@ -404,11 +404,11 @@ fn configuration(coin: &mut Harness, file: &str) -> KorePattern {
     let leaves = coin
         .executor
         .backend_mut()
-        .execute(shape.request(COIN.compiled().initial(file)))
+        .execute_kore(shape.request(COIN.compiled().initial(file)))
         .expect("the run answers")
         .leaves;
     assert_eq!(leaves.len(), 1);
-    k_rust::kore::codec::from_value(&leaves[0].state).expect("the state decodes")
+    leaves[0].state.clone()
 }
 
 /// COIN's configuration of `first` with the computation of `second` after it on `<k>`:
@@ -425,13 +425,13 @@ fn joined(coin: &mut Harness, first: &str, second: &str) -> KorePattern {
     initial
 }
 
-/// Run `initial` through `execute_observed` with every event, under the harness's options, as
+/// Run `initial` through `execute_observed_kore` with every event, under the harness's options, as
 /// an observer case runs, and return its leaves.
-fn observed_leaves(coin: &mut Harness, initial: KorePattern) -> Vec<ExecutionLeaf> {
+fn observed_leaves(coin: &mut Harness, initial: KorePattern) -> Vec<KoreExecutionLeaf> {
     let shape = CaseRequestShape::new(&coin.options, &crate::exec::TargetNeeds::default());
     coin.executor
         .backend_mut()
-        .execute_observed(ObservedRequest {
+        .execute_observed_kore(ObservedRequest {
             request: shape.request(initial),
             rules: None,
         })
@@ -478,7 +478,7 @@ fn an_unobservable_sibling_keeps_the_branching_and_is_never_a_miss() {
         observed_leaves(&mut coin, initial)
     };
     assert_eq!(leaves.len(), 2);
-    let first_rule = |leaf: &ExecutionLeaf| {
+    let first_rule = |leaf: &KoreExecutionLeaf| {
         leaf.observations
             .iter()
             .find_map(|event| match event {

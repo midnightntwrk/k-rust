@@ -9,7 +9,6 @@ use k_rust::{
     backend::{Backend, ChosenValueOutput, ExecuteRequest, ProveRequest, SearchRequest},
     kore::{
         ast::Pattern,
-        json as kore_json,
         parser::{parse_definition, parse_pattern},
     },
 };
@@ -54,7 +53,7 @@ fn execute(
                 "request field `max_simplification_iterations` must be an unsigned integer",
             )?)?;
     }
-    let mut result = backend.execute(execute)?;
+    let mut result = backend.execute_kore(execute)?;
     if !request
         .get("trace")
         .and_then(Value::as_bool)
@@ -72,8 +71,7 @@ fn execute(
             )
             .into());
         }
-        let source = serde_json::to_string(&result.leaves[0].state)?;
-        Some(kore_json::from_str(&source)?)
+        Some(result.leaves[0].state.clone())
     } else {
         None
     };
@@ -114,15 +112,15 @@ fn prove(backend: &mut Backend, request: &Value) -> Result<Value, Box<dyn Error>
     let claim = required_string(request, "claim")?;
     let disjuncts = backend.claim_disjuncts(None, claim)?;
     if disjuncts.len() <= 1 {
-        let result = backend.prove(ProveRequest {
+        let result = backend.prove_kore(ProveRequest {
             claim: Some(claim.to_owned()),
             ..ProveRequest::default()
         })?;
         return Ok(serde_json::to_value(result)?);
     }
-    let mut combined: Option<k_rust::backend::ProofResultOutput> = None;
+    let mut combined: Option<k_rust::backend::KoreProofResult> = None;
     for selector in disjuncts {
-        let result = backend.prove(ProveRequest {
+        let result = backend.prove_kore(ProveRequest {
             claim: Some(selector),
             ..ProveRequest::default()
         })?;
@@ -176,13 +174,13 @@ fn search(backend: &mut Backend, request: &Value) -> Result<SearchOutcome, Box<d
     let mut search = SearchRequest::new(parse_pattern(required_string(request, "pattern")?)?);
     search.max_depth = limit("max_depth")?;
     search.max_results = limit("max_results")?.map(usize::try_from).transpose()?;
-    let result = backend.search(search)?;
+    let result = backend.search_kore(search)?;
     if request.get("keep_each").is_some() {
-        let mut retained = Vec::with_capacity(result.states.len());
-        for state in &result.states {
-            let source = serde_json::to_string(&state.state)?;
-            retained.push(kore_json::from_str(&source)?);
-        }
+        let retained = result
+            .states
+            .iter()
+            .map(|state| state.state.clone())
+            .collect::<Vec<_>>();
         return Ok((
             with_marks(
                 json!({"modality": result.modality, "states": result.states.len()}),
@@ -199,8 +197,7 @@ fn search(backend: &mut Backend, request: &Value) -> Result<SearchOutcome, Box<d
             )
             .into());
         }
-        let source = serde_json::to_string(&result.states[0].state)?;
-        let retained = kore_json::from_str(&source)?;
+        let retained = result.states[0].state.clone();
         Ok((
             with_marks(
                 json!({"modality": result.modality, "states": result.states.len()}),
@@ -881,12 +878,98 @@ pub fn run() -> Result<(), Box<dyn Error>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Session, execute, float_text, search};
+    use super::{Session, execute, float_text, prove, search};
     use k_rust::{
-        backend::{Backend, BackendOptions},
-        kore::parser::parse_pattern,
+        backend::{Backend, BackendOptions, ExecuteRequest, ProveRequest, SearchRequest},
+        kore::{json as kore_json, parser::parse_pattern},
     };
-    use serde_json::json;
+    use serde_json::{Value, json};
+
+    /// `a` rewrites to `b` and `b` to `c`, with the claim that `a` reaches `c`.
+    fn chain_backend() -> Backend {
+        let definition = r#"[]
+            module MAIN
+                sort SortS{} []
+                symbol a{}() : SortS{} [constructor{}()]
+                symbol b{}() : SortS{} [constructor{}()]
+                symbol c{}() : SortS{} [constructor{}()]
+                alias weakExistsFinally{S}(S) : S
+                    where weakExistsFinally{S}(@X:S) := @X:S []
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(a{}(), \top{SortS{}}()), \and{SortS{}}(b{}(), \top{SortS{}}())
+                ) [label{}("a-to-b")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(b{}(), \top{SortS{}}()), \and{SortS{}}(c{}(), \top{SortS{}}())
+                ) [label{}("b-to-c")]
+                claim{} \implies{SortS{}}(
+                    \and{SortS{}}(\top{SortS{}}(), a{}()),
+                    weakExistsFinally{SortS{}}(\and{SortS{}}(c{}(), \top{SortS{}}()))
+                ) [label{}("reaches-c")]
+            endmodule []"#;
+        Backend::new(definition, "MAIN", BackendOptions::default()).unwrap()
+    }
+
+    /// The JSON text a facade `_json` method wrote, read back.
+    fn text(json: &str) -> Value {
+        serde_json::from_str(json).unwrap()
+    }
+
+    /// A raw `execute`, `search` or `prove` answers the backend's result as the facade's JSON
+    /// text form writes it for the same request, and a retained state is the result's state as
+    /// that text writes it: the gate serializes the pattern results with serde, and a pattern
+    /// serializes as its KORE JSON.
+    #[test]
+    fn raw_responses_are_the_facade_json_text() {
+        let a = || parse_pattern("a{}()").unwrap();
+        let request =
+            json!({"id": "run", "operation": "execute", "pattern": "a{}()", "trace": true});
+        let (full, retained) = execute(&mut chain_backend(), &request).unwrap();
+        assert!(retained.is_none());
+        let expected = text(
+            &chain_backend()
+                .execute_json(ExecuteRequest::new(a()))
+                .unwrap(),
+        );
+        assert_eq!(full, expected);
+        let mut keep = request.clone();
+        keep["keep"] = json!("final");
+        let (_, retained) = execute(&mut chain_backend(), &keep).unwrap();
+        let state = kore_json::from_str(&expected["leaves"][0]["state"].to_string()).unwrap();
+        assert_eq!(retained, Some(state));
+
+        let request = json!({"id": "search", "operation": "search", "pattern": "a{}()"});
+        let (full, retained) = search(&mut chain_backend(), &request).unwrap();
+        assert!(retained.is_none());
+        let expected = text(
+            &chain_backend()
+                .search_json(SearchRequest::new(a()))
+                .unwrap(),
+        );
+        assert_eq!(full, expected);
+        let mut keep = request.clone();
+        keep["keep_each"] = json!("final#");
+        let (_, retained) = search(&mut chain_backend(), &keep).unwrap();
+        let states = expected["states"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|state| kore_json::from_str(&state["state"].to_string()).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(retained, Some(states));
+
+        let request = json!({"id": "prove", "operation": "prove", "claim": "reaches-c"});
+        let full = prove(&mut chain_backend(), &request).unwrap();
+        let expected = text(
+            &chain_backend()
+                .prove_json(ProveRequest {
+                    claim: Some("reaches-c".into()),
+                    ..ProveRequest::default()
+                })
+                .unwrap(),
+        );
+        assert_eq!(full["status"], "proven");
+        assert_eq!(full, expected);
+    }
 
     #[test]
     fn float_expectations_compare_by_value() {

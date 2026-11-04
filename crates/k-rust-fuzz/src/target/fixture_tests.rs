@@ -1,6 +1,6 @@
 //! Rule and pattern targets on real runs (ARCHITECTURE 4.1, 4.2, 5.3): FZ-FIX's fixtures
 //! (`tests/support`) compiled in-process, resolved through a real [`Executor`]'s rule catalog,
-//! executed through `Backend::execute` and judged by [`ResolvedTarget::judge`].
+//! executed through `Backend::execute_kore` and judged by [`ResolvedTarget::judge`].
 //!
 //! - RULES `div(A, B)`: rule `div`'s right-hand side `A /Int B` is undefined for `B = 0`.
 //! - RULES `check(A)`: rule `check-hit`'s guard `A ==Int 42` fails on the anchor `check(7)`,

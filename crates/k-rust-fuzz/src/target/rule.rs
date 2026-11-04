@@ -10,8 +10,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use k_rust::backend::{
-    CompiledRuleKind, CompiledRuleOriginOutput, CompiledRuleOutput, RunCoverageOutput,
+use k_rust::{
+    backend::{CompiledRuleKind, CompiledRuleOriginOutput, CompiledRuleOutput, RunCoverageOutput},
+    kore::ast::Pattern as KorePattern,
 };
 
 use super::{RuleLocation, RuleMode, RuleName, RuleRef, rule_names};
@@ -543,7 +544,7 @@ pub(crate) fn rule_reached_ends(
             && (!run_to_completion
                 || (leaf.natural_end && (!data_end || leaf.data_end == Some(true))))
     };
-    let covered = |list: fn(&RunCoverageOutput) -> &Vec<String>| {
+    let covered = |list: fn(&RunCoverageOutput<KorePattern>) -> &Vec<String>| {
         result
             .coverage
             .as_ref()
@@ -606,14 +607,17 @@ fn run_reached(
 
 /// The rule is in coverage `applied`: some step built a successor of it, kept or rolled back.
 /// `false` without coverage.
-pub(crate) fn applied(id: &str, coverage: Option<&RunCoverageOutput>) -> bool {
+pub(crate) fn applied(id: &str, coverage: Option<&RunCoverageOutput<KorePattern>>) -> bool {
     coverage.is_some_and(|coverage| coverage.applied.iter().any(|entry| entry == id))
 }
 
 /// Whether the rule is in coverage `committed`: a step built a successor of it that its own
 /// normalization showed defined, on some explored path, absorbed arrivals included (the run's
 /// committed transitions, `collectCommitted`). `None` when the run did not report them.
-pub(crate) fn committed(id: &str, coverage: Option<&RunCoverageOutput>) -> Option<bool> {
+pub(crate) fn committed(
+    id: &str,
+    coverage: Option<&RunCoverageOutput<KorePattern>>,
+) -> Option<bool> {
     coverage
         .and_then(|coverage| coverage.committed.as_ref())
         .map(|committed| committed.iter().any(|entry| entry == id))
@@ -621,7 +625,7 @@ pub(crate) fn committed(id: &str, coverage: Option<&RunCoverageOutput>) -> Optio
 
 /// The rule's condition was entered and it built no successor: in coverage `matched`, not in
 /// `applied` (ARCHITECTURE 6.2). `false` without coverage.
-pub(crate) fn blocked(id: &str, coverage: Option<&RunCoverageOutput>) -> bool {
+pub(crate) fn blocked(id: &str, coverage: Option<&RunCoverageOutput<KorePattern>>) -> bool {
     coverage.is_some_and(|coverage| {
         coverage.matched.iter().any(|entry| entry == id)
             && !coverage.applied.iter().any(|entry| entry == id)

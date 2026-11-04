@@ -1,5 +1,5 @@
 //! Each fixture of `tests/data` does what `tests/data/README.md` says: it compiles in-process
-//! in the portable build, and its programs run through the public `Backend::execute` to the
+//! in the portable build, and its programs run through the public `Backend::execute_kore` to the
 //! halt, the final configuration and the record the README promises.
 //!
 //! These tests judge the fixtures, not the fuzz engine: they use only k-rust's public API.
@@ -9,10 +9,10 @@ mod support;
 use k_rust::{
     backend::{
         Backend, BackendDiagnosticOutput, CompiledRuleKind, ContradictedClaimKind,
-        ContradictedClaimOutput, ExecuteRequest, ExecutionLeaf, ExecutionResult, ExecutionStrategy,
-        HaltReasonOutput, ObservedInOutput, ResultModalityOutput,
+        ContradictedClaimOutput, ExecuteRequest, ExecutionStrategy, HaltReasonOutput,
+        KoreExecutionLeaf, KoreExecutionResult, ObservedInOutput, ResultModalityOutput,
     },
-    kore::{ast::Pattern, codec, printer::Printer},
+    kore::{ast::Pattern, printer::Printer},
 };
 use support::{
     CHOSEN, CHOSEN_KILL, COIN, COIN_FUNC, COIN_KILL, COIN_LAYOUT, COIN_PRIO, COIN_SWAPPED,
@@ -29,12 +29,12 @@ fn request(initial: &Pattern, strategy: ExecutionStrategy) -> ExecuteRequest {
     }
 }
 
-fn execute(backend: &mut Backend, request: ExecuteRequest) -> ExecutionResult {
-    backend.execute(request).expect("the request executes")
+fn execute(backend: &mut Backend, request: ExecuteRequest) -> KoreExecutionResult {
+    backend.execute_kore(request).expect("the request executes")
 }
 
 /// Run `initial` with every path on `krun`'s route.
-fn run_all(compiled: &Compiled, initial: &Pattern) -> ExecutionResult {
+fn run_all(compiled: &Compiled, initial: &Pattern) -> KoreExecutionResult {
     execute(
         &mut compiled.source_backend(),
         request(initial, ExecutionStrategy::All),
@@ -51,12 +51,12 @@ fn variant(compiled: &Compiled, file: &str, find: &str, replace: &str) -> Patter
         .unwrap_or_else(|error| panic!("{text} does not assemble: {error}"))
 }
 
-fn printed(leaf: &ExecutionLeaf) -> String {
-    Printer::compact().print_pattern(&codec::from_value(&leaf.state).expect("a KORE leaf"))
+fn printed(leaf: &KoreExecutionLeaf) -> String {
+    Printer::compact().print_pattern(&leaf.state.clone())
 }
 
 /// The one leaf of `result`.
-fn only_leaf(result: &ExecutionResult) -> &ExecutionLeaf {
+fn only_leaf(result: &KoreExecutionResult) -> &KoreExecutionLeaf {
     let [leaf] = result.leaves.as_slice() else {
         panic!("expected one leaf: {result:#?}");
     };
@@ -75,7 +75,7 @@ const EMPTY_K: &str = "Lbl'-LT-'k'-GT-'{}(dotk{}())";
 
 /// The run-level half of a clean leaf (ARCHITECTURE.md §5.2): no stack stop, no undecided
 /// solver answer, no allowance refusal and no unsupported hook, in the run or in the load.
-fn assert_clean_run(result: &ExecutionResult) {
+fn assert_clean_run(result: &KoreExecutionResult) {
     assert_eq!(result.stack_stops, 0, "{result:#?}");
     assert_eq!(result.smt_unknowns, 0, "{result:#?}");
     assert!(result.allowance_refusals.is_empty(), "{result:#?}");
@@ -84,7 +84,7 @@ fn assert_clean_run(result: &ExecutionResult) {
 
 /// A clean natural end of `result`: a `stuck` leaf with an empty `<k>`, no constraint and no
 /// diagnostic, in a run with no run-level fact that would make a leaf unclean.
-fn assert_natural_end(result: &ExecutionResult, leaf: &ExecutionLeaf) -> String {
+fn assert_natural_end(result: &KoreExecutionResult, leaf: &KoreExecutionLeaf) -> String {
     assert_clean_run(result);
     let state = printed(leaf);
     assert_eq!(leaf.reason, HaltReasonOutput::Stuck, "{state}");
@@ -98,7 +98,7 @@ fn assert_natural_end(result: &ExecutionResult, leaf: &ExecutionLeaf) -> String 
 }
 
 /// The one leaf of `result`, a clean natural end.
-fn natural_end(result: &ExecutionResult) -> String {
+fn natural_end(result: &KoreExecutionResult) -> String {
     assert_natural_end(result, only_leaf(result))
 }
 
@@ -111,7 +111,7 @@ fn binding(name: &str, value: i64) -> String {
 }
 
 /// The marks of a leaf, as `(hook, class)`.
-fn marks(leaf: &ExecutionLeaf) -> Vec<(String, String)> {
+fn marks(leaf: &KoreExecutionLeaf) -> Vec<(String, String)> {
     leaf.diagnostics
         .iter()
         .filter_map(|diagnostic| match diagnostic {
@@ -394,7 +394,7 @@ fn rules_catalog_holds_a_shared_identity_a_non_executable_rule_and_an_equation()
 }
 
 /// The `<out>` values of the leaves of `result`, which must all be natural ends.
-fn ends(result: &ExecutionResult) -> Vec<i64> {
+fn ends(result: &KoreExecutionResult) -> Vec<i64> {
     let mut ends = result
         .leaves
         .iter()
@@ -531,7 +531,7 @@ fn ledger_settles_a_transfer_bound_to_a_record_sorted_configuration_variable() {
 
 /// The one record of the LOADCLAIM load: `td`'s `total` attribute, contradicted by its equation
 /// `tdeq` at the ground input 0, observed when the definition was loaded.
-fn assert_load_record(records: &[ContradictedClaimOutput]) {
+fn assert_load_record(records: &[ContradictedClaimOutput<k_rust::kore::ast::Pattern>]) {
     let [record] = records else {
         panic!("expected one record: {records:#?}");
     };

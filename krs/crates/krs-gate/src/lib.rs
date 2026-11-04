@@ -33,12 +33,12 @@
 //! [`k_rust::kompile::ConfigurationAssembler`] builds `pattern` over one [`k_rust::kompile::ProgramGrammar`] per session, binding `$PGM` first, other supplied names in lexical order, and then the stream defaults.
 //! The per-variable `variables` rendering and cell expectations share a surface pipeline over the same grammar: it caches [`k_rust::inner::ProgramParser::from_resolved`] per parser module chosen with [`k_rust::kompile::initial_configuration::parser_modules`], parses at the declared sort, expands macros with [`k_rust::kompile::MacroExpansionDefinition::expand_program`], uses [`k_rust::kompile::SortInjector`] to determine and inject sorts at the expansion position, and lowers with [`k_rust::kompile::term_to_kore_from_resolved_with_token_module`].
 //! `execute` requires a KORE text `pattern` and accepts optional `max_depth` (unsigned integer or null), `max_simplification_iterations` (unsigned integer), `trace` (boolean), and `keep` (a state name).
-//! It parses the input with [`k_rust::kore::parser::parse_pattern`] and calls [`k_rust::backend::Backend::execute`].
-//! Without `keep`, its result is the backend's serialized `ExecuteResult`; leaf traces are empty unless `trace` is true.
-//! With `keep`, execution must have exactly one leaf, its final state replaces any previously retained state of that name, and the result contains only the modality, the leaf's reason, depth, optional detail, and trace, and the run's `implementationChosenValues` (omitted when empty, as in the full result).
+//! It parses the input with [`k_rust::kore::parser::parse_pattern`] and calls [`k_rust::backend::Backend::execute_kore`].
+//! Without `keep`, its result is the backend's result serialized with serde, the JSON [`k_rust::backend::Backend::execute_json`] writes; leaf traces are empty unless `trace` is true.
+//! With `keep`, execution must have exactly one leaf, its final state (the result's pattern) replaces any previously retained state of that name, and the result contains only the modality, the leaf's reason, depth, optional detail, and trace, and the run's `implementationChosenValues` (omitted when empty, as in the full result).
 //! `search` requires a KORE text `pattern` and accepts optional `max_depth` and `max_results` (unsigned integers or null) and `keep` (a state name) or `keep_each` (a state-name prefix).
-//! It parses the input with [`k_rust::kore::parser::parse_pattern`] and calls [`k_rust::backend::Backend::search`] with [`k_rust::backend::SearchRequest`] selecting final states.
-//! Without `keep`, its result is the backend's serialized [`k_rust::backend::SearchResponse`].
+//! It parses the input with [`k_rust::kore::parser::parse_pattern`] and calls [`k_rust::backend::Backend::search_kore`] with [`k_rust::backend::SearchRequest`] selecting final states.
+//! Without `keep`, its result is the backend's serialized [`k_rust::backend::SearchResponse`], the JSON [`k_rust::backend::Backend::search_json`] writes.
 //! With `keep`, search must return exactly one state, that state replaces any previously retained state of that name, and the result contains `modality`, `states` (the result state count), and the search's `implementationChosenValues` (omitted when empty).
 //! With `keep_each` (a name prefix) instead, every result state is retained as `<prefix><index>`, in the backend's order, and the result again contains `modality`, `states`, and `implementationChosenValues`.
 //! `kore.read` requires KORE pattern `text` and a `keep` name; it parses and retains the pattern, replacing a previous state of that name.
@@ -191,7 +191,7 @@
 //! Its result contains `met`, `expected`, and `actual`; the latter two are canonical KORE text for text and head checks, or decimal counts for size.
 //! Comparisons normalize nested builtin List association and unit, and Map and Set association, commutation, and unit using the compiled definition's hooks.
 //! No other difference is normalized.
-//! `prove` requires a string `claim` selector, calls [`k_rust::backend::Backend::prove`] to select and prove a claim in the loaded definition, and returns the backend's serialized [`k_rust::backend::ProofResultOutput`].
+//! `prove` requires a string `claim` selector, calls [`k_rust::backend::Backend::prove_kore`] to select and prove a claim in the loaded definition, and returns the backend's serialized [`k_rust::backend::ProofResultOutput`].
 //! The loaded definition is a [`krs_exec::Semantics`], compiled exactly as `krs run` compiles it; `execute`, `search`, and `prove` issue raw k-rust requests to its backend.
 //! `exec.run`, `exec.search`, and `exec.prove` run the `krs run`, `krs search`, and `krs prove` code paths of [`krs_exec`] and return their `krs-exec/1` reports.
 //! `exec.run` and `exec.search` accept `program` (surface text bound to `$PGM`) with an optional `program_name`, `variables` (an object of `-c` bindings by K name, `$`-prefixed name, or init parameter), and `depth` (unsigned integer or null); `exec.run` also accepts `trace` (boolean), and `exec.search` accepts `mode` (`final`, `all`, `one-step`, or `one-or-more-steps`) and `max_solutions`.

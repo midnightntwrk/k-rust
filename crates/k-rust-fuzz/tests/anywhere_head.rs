@@ -289,7 +289,7 @@ fn every_simple_data_end_exists() {
             .expect("the streams bind");
         let initial = assembler.finish().expect("the configuration assembles");
         let result = backend
-            .execute(ExecuteRequest {
+            .execute_kore(ExecuteRequest {
                 strategy: ExecutionStrategy::All,
                 result_modality: ResultModalityOutput::StateSet,
                 ..ExecuteRequest::new(initial)
@@ -300,7 +300,7 @@ fn every_simple_data_end_exists() {
             .iter()
             .filter(|leaf| leaf.reason == HaltReasonOutput::Stuck)
         {
-            let state = k_rust::kore::codec::from_value(&leaf.state).expect("a KORE leaf");
+            let state = leaf.state.clone();
             let (data, defined) = backend
                 .with_solver_over(None, &[&state], |definition, _| {
                     let term = definition
@@ -369,7 +369,7 @@ fn simple_s_one_name_spawn_is_not_marked_fresh_association() {
             .expect("the streams bind");
         let initial = assembler.finish().expect("the configuration assembles");
         let result = backend
-            .execute(ExecuteRequest {
+            .execute_kore(ExecuteRequest {
                 strategy: ExecutionStrategy::All,
                 result_modality: ResultModalityOutput::StateSet,
                 ..ExecuteRequest::new(initial)

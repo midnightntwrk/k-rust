@@ -114,7 +114,7 @@ fn x_is(ints: &[i64], test: impl Fn(i64) -> bool) -> bool {
     ints.iter().any(|value| test(*value))
 }
 
-/// (C) A panic in `Backend::execute` at `X = 7` is a crash finding of the baseline's run at
+/// (C) A panic in `Backend::execute_kore` at `X = 7` is a crash finding of the baseline's run at
 /// stage `execute`, located in the seam, reproduced on a fresh backend; the case is
 /// `unsupported` with the reason `panic`, and every other case is classed as without the
 /// panic, in the same case sequence. Fails without the inner catch site (the panic is then the

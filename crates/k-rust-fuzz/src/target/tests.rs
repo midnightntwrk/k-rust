@@ -1336,10 +1336,7 @@ fn any_state_target(run_to_completion: bool) -> ResolvedTarget {
 
 /// A run whose state matches hold one clean reach at depth 1.
 fn clean_reach() -> crate::exec::AnyStateRun {
-    let state = k_rust::kore::json::to_value(
-        &parse_pattern(r"\top{SortGeneratedTopCell{}}()").expect("a KORE pattern"),
-    )
-    .expect("KORE JSON");
+    let state = parse_pattern(r"\top{SortGeneratedTopCell{}}()").expect("a KORE pattern");
     crate::exec::AnyStateRun {
         matches: k_rust::backend::StateMatchesOutput {
             first_clean_reach: Some(k_rust::backend::StateMatchOutput {

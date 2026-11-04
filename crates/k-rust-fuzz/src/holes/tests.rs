@@ -8,7 +8,6 @@ use k_rust::{
     k_rust_backend::definition::BackendDefinition,
     kore::{
         ast::{KoreString, Pattern, Sort as KoreSort, Symbol, Variable, VariableKind},
-        codec,
         parser::parse_pattern,
         printer::Printer,
     },
@@ -861,7 +860,7 @@ fn the_program_and_definition_files_are_never_modified() {
     assert!(check.check(&built, &[int(11), int(-7)]).is_err());
     let mut backend = build_backend(&definition, BackendOptions::default()).expect("a backend");
     let result = backend
-        .execute(ExecuteRequest::new(built))
+        .execute_kore(ExecuteRequest::new(built))
         .expect("the case executes");
     assert!(!result.leaves.is_empty());
 
@@ -983,7 +982,7 @@ fn a_case_binds_the_streams_as_krun_does_with_an_empty_standard_input() {
 
     let mut backend = build_backend(definition, BackendOptions::default()).expect("a backend");
     let result = backend
-        .execute(ExecuteRequest {
+        .execute_kore(ExecuteRequest {
             max_depth: Some(0),
             ..ExecuteRequest::new(initial)
         })
@@ -991,7 +990,7 @@ fn a_case_binds_the_streams_as_krun_does_with_an_empty_standard_input() {
     let [leaf] = result.leaves.as_slice() else {
         panic!("one leaf: {result:#?}");
     };
-    let state = codec::from_value(&leaf.state).expect("a KORE leaf");
+    let state = leaf.state.clone();
     let expected = parse_pattern(KRUN_STREAMS_DEPTH_0).expect("krun's output parses");
     assert_eq!(printed(&state), printed(&expected));
 }
