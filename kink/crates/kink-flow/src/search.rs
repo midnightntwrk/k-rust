@@ -613,7 +613,7 @@ impl Search<'_, '_> {
                 .baseline
                 .iter()
                 .find(|evidence| evidence.test_id == candidate.id)
-                .and_then(|evidence| CampaignReport::baseline_row(evidence).ok())
+                .map(CampaignReport::baseline_row)
                 .as_ref()
                 .and_then(run_digest)
                 .map(|digest| digest.to_string());
@@ -1940,8 +1940,7 @@ pub fn drift_reason(first_mismatch: Option<&str>, count_mismatch: bool) -> Optio
 /// mutants' `tests[].mutant`).
 fn mutant_run_sha256(run: &MutantRun, test_id: &str) -> Option<String> {
     let evidence = run.evidence.iter().find(|e| e.test_id == test_id)?;
-    let row = CampaignReport::baseline_row(evidence).ok()?;
-    run_digest(&row).map(|digest| digest.to_string())
+    run_digest(&CampaignReport::baseline_row(evidence)).map(|digest| digest.to_string())
 }
 
 /// The kill evidence of each test of a live call some slot of which distinguished (CF-16,

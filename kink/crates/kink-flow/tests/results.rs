@@ -17,7 +17,8 @@ use kink_flow::{
     },
     results::{
         BaselineRunner, CACHE_DIRECTORY, RESULT_SCHEMA_VERSION, ResultClass, ResultsOptions,
-        TIMEOUT_BOUND_BY_WORK, TIMEOUT_NOT_CACHED, execution_budget, fixed_oracles, run_digest,
+        TIMEOUT_BOUND_BY_WORK, TIMEOUT_NOT_CACHED, execution_budget, fixed_oracles,
+        record_final_configuration, run_digest,
     },
 };
 use kink_native::{K_RUST_REVISION, execution::SolverProfile};
@@ -572,7 +573,7 @@ fn run_together(
     .unwrap();
     run.baseline
         .iter()
-        .map(|evidence| CampaignReport::baseline_row(evidence).unwrap())
+        .map(CampaignReport::baseline_row)
         .collect()
 }
 
@@ -597,9 +598,9 @@ mod kink_tier {
                 !record["baseline"].is_null() && !record["run_sha256"].is_null(),
                 "{record:#}"
             );
-            let finals = record["final_configuration"].as_array().unwrap();
+            let finals = record_final_configuration(&record).unwrap();
             assert_eq!(finals.len(), 1);
-            let text = finals[0].as_str().unwrap();
+            let text = finals[0];
             assert!(text.contains("\\dv{SortBytes{}}(\"a\")"), "{text}");
         }
     }
@@ -909,7 +910,9 @@ text = 'h(opaque(1), 2)'
                     run_digest(&record["baseline"]).unwrap().to_string()
                 );
                 assert_eq!(record["baseline"]["test_id"], *id);
-                assert_eq!(record["final_configuration"].as_array().unwrap().len(), 1);
+                assert_eq!(record_final_configuration(&record).unwrap().len(), 1);
+                // The ends are held once: in the baseline row, not again beside it.
+                assert!(record["final_configuration"].is_null(), "{record:#}");
                 assert_eq!(record["coverage"]["complete"], true);
             }
             let (second, status) = run(&manifest, false);
@@ -1295,7 +1298,11 @@ module MU
         let (manifest, trusted) = flow("undefined-map-trusted", "");
         assert_eq!(rows(&trusted), expect(&[("one", "comparable", false)]));
         if let Some(record) = stored_record(&manifest, &trusted, "one") {
-            assert_eq!(record["final_configuration"], json!([]), "{record:#}");
+            assert_eq!(
+                record_final_configuration(&record),
+                Some(Vec::new()),
+                "{record:#}"
+            );
         }
 
         let (_, distrusted) = flow(
@@ -1366,7 +1373,11 @@ endmodule
         if document["programs"][0]["class"] == "comparable"
             && let Some(record) = stored_record(&manifest, &document, "one")
         {
-            assert_ne!(record["final_configuration"], json!([]), "{record:#}");
+            assert_ne!(
+                record_final_configuration(&record),
+                Some(Vec::new()),
+                "{record:#}"
+            );
         }
         let (searched, status) = kink_flow::cli::run(
             &manifest,
@@ -1393,9 +1404,9 @@ endmodule
         if let Some(mut record) = stored_record(&manifest, &document, "store") {
             assert_eq!(record["class"], "comparable");
             assert!(record["baseline"].is_object() && record["run_sha256"].is_string());
-            let finals = record["final_configuration"].as_array().unwrap();
+            let finals = record_final_configuration(&record).unwrap();
             assert_eq!(finals.len(), 1);
-            let text = finals[0].as_str().unwrap();
+            let text = finals[0];
             assert!(
                 text.contains("Lbl'UndsPipe'-'-GT-Unds'")
                     && text.contains("\\dv{SortInt{}}(\"2\")"),
@@ -1423,8 +1434,9 @@ endmodule
             // configuration of a record. kink27 R3-UNDEF-BRIDGE: v8. CF-16: v9, because a
             // comparable record holds its ends' summaries. v10, because the key names the execution
             // digest and the bounds a stored class depends on, and no host-dependent class is
-            // stored.
-            assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v11");
+            // stored. v11 (CF-03), because a record holds the readings that excluded its run. v12
+            // (v12), because a record holds each end once, as KORE text.
+            assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v12");
             record["key"]["schema_version"] = json!("kink-flow/result/v1");
             fs::write(&path, record.to_string()).unwrap();
             let (recomputed, status) = run(&manifest, false);
@@ -1717,9 +1729,12 @@ endmodule
         // --verify reports; it never rewrites the record.
         assert_eq!(fs::read_to_string(&path).unwrap(), edited);
 
-        // A record whose baseline row was edited by hand, its digest left alone.
+        // A record whose baseline row was edited by hand, its digest left alone: the end's KORE
+        // text `\dv{SortInt{}}("9")`, a JSON string in the row, made to say 10.
         let mut record: Value = serde_json::from_str(&original).unwrap();
-        let row = record["baseline"].to_string().replace("\"9\"", "\"10\"");
+        let row = record["baseline"]
+            .to_string()
+            .replace(r#"\"9\""#, r#"\"10\""#);
         assert_ne!(row, record["baseline"].to_string());
         record["baseline"] = serde_json::from_str(&row).unwrap();
         fs::write(&path, record.to_string()).unwrap();

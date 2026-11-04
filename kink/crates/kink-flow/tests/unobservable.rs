@@ -143,7 +143,7 @@ fn a_change_only_to_an_unobservable_cell_survives_and_every_document_names_the_c
             .path();
         let record = fs::read_dir(spec).unwrap().next().unwrap().unwrap().path();
         let record: Value = serde_json::from_str(&fs::read_to_string(record).unwrap()).unwrap();
-        let end = record["final_configuration"][0].as_str().unwrap();
+        let end = kink_flow::results::record_final_configuration(&record).unwrap()[0];
         assert!(end.contains("\\top{SortScratchCell{}}()"), "{end}");
         assert!(!end.contains("SortScratchCell{}, "), "{end}");
     }

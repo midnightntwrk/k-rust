@@ -111,6 +111,16 @@ impl Store {
         self.write_bytes(path, text.as_bytes())
     }
     pub fn write_bytes(&self, path: &Path, bytes: &[u8]) -> Result<(), StoreError> {
+        self.write_streamed(path, |file| file.write_all(bytes))
+    }
+    /// Publish by rename the bytes `write` writes, which it writes as it produces them, so a
+    /// caller that encodes a document part by part never holds the whole of its text; `write`'s
+    /// error, as any I/O error, publishes nothing.
+    pub fn write_streamed(
+        &self,
+        path: &Path,
+        write: impl FnOnce(&mut dyn Write) -> std::io::Result<()>,
+    ) -> Result<(), StoreError> {
         static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
         let parent = path
             .parent()
@@ -122,11 +132,15 @@ impl Store {
             NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
         ));
         let result = (|| {
-            let mut file = fs::OpenOptions::new()
+            let file = fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
                 .open(&temp)?;
-            file.write_all(bytes)?;
+            let mut buffered = std::io::BufWriter::new(file);
+            write(&mut buffered)?;
+            let file = buffered
+                .into_inner()
+                .map_err(std::io::IntoInnerError::into_error)?;
             file.sync_all()?;
             fs::rename(&temp, path)?;
             Ok(())

@@ -470,6 +470,16 @@ fn keys(value: &Value, expected: &[&str]) {
 fn array(value: &Value) -> &[Value] {
     value.as_array().unwrap()
 }
+/// A pattern of a side: its KORE text (report version 6), which k-rust's parser reads back.
+fn check_kore_text(value: &Value) {
+    let text = value
+        .as_str()
+        .unwrap_or_else(|| panic!("not KORE text: {value}"));
+    assert!(
+        k_rust::kore::parser::parse_pattern(text).is_ok(),
+        "unreadable KORE text: {text}"
+    );
+}
 fn check_side_run(value: &Value) {
     if value.get("failed").is_some() {
         keys(value, &["failed"]);
@@ -486,12 +496,14 @@ fn check_side_run(value: &Value) {
         }
         if side.get("semantic-crash").is_some() {
             keys(side, &["semantic-crash"]);
+            check_kore_text(&side["semantic-crash"]);
             continue;
         }
         keys(side, &["normal"]);
         let value = &side["normal"];
         if value.get("whole-term").is_some() {
             keys(value, &["whole-term"]);
+            array(&value["whole-term"]).iter().for_each(check_kore_text);
         } else if value.get("exit-stop").is_some() {
             keys(value, &["exit-stop"]);
             for stop in array(&value["exit-stop"]) {
@@ -502,6 +514,7 @@ fn check_side_run(value: &Value) {
             for paths in array(&value["term-paths"]) {
                 for path in array(paths) {
                     keys(path, &["path", "term"]);
+                    check_kore_text(&path["term"]);
                 }
             }
         } else {
@@ -512,6 +525,7 @@ fn check_side_run(value: &Value) {
                     for tuple in array(&value["pattern"]["match"]) {
                         for binding in array(tuple) {
                             keys(binding, &["name", "term"]);
+                            check_kore_text(&binding["term"]);
                         }
                     }
                 }
@@ -538,7 +552,7 @@ fn check_report(report: &CampaignReport) {
         ],
     );
     assert_eq!(v["schema"], "kink-campaign-report");
-    assert_eq!(v["version"], 5);
+    assert_eq!(v["version"], 6);
     for baseline in array(&v["baseline"]) {
         keys(baseline, &["test_id", "run"]);
         check_side_run(&baseline["run"]);
@@ -1274,13 +1288,81 @@ mod kink_tier {
                 json!({"normal":{"exit-stop":[{"class":"stuck","code":null}]}})
             );
             assert_eq!(recorded[2]["normal"]["pattern"]["match"][0][0]["name"], "A");
-            assert_eq!(
-                recorded[4],
-                json!({"semantic-crash":k_rust::kore::codec::to_value(&z()).unwrap()})
-            );
+            assert_eq!(recorded[4], json!({"semantic-crash":z().to_string()}));
             assert_eq!(recorded[5], "timeout");
             assert_eq!(recorded[6], "unknown");
             assert_eq!(recorded[7], "error");
         });
+    }
+}
+
+/// A `ListItem(z)` list of `entries` entries as k-rust hands a run's end in: a right-nested chain
+/// of `_List_` concatenations, one level per entry. Built from the inside out, so building it
+/// takes no stack; a pattern's clone, comparison, printing and drop keep their work on the heap.
+fn deep_list(entries: usize) -> Pattern {
+    let mut list = constant("Lbl'Stop'List");
+    for _ in 0..entries {
+        list = kore_application(
+            "Lbl'Unds'List'Unds'",
+            Vec::new(),
+            vec![kore_application("LblListItem", Vec::new(), vec![z()]), list],
+        );
+    }
+    list
+}
+
+/// A baseline row whose end holds a list deeper than kink's JSON limit, where version 5 wrote the
+/// end as KORE JSON: that encoding nests two levels per entry, so the report and the result record
+/// refused the row (kink-patch `MAX_JSON_DEPTH`), and past about 840,000 entries in this build
+/// (1.29 million in release) the refused row's drop aborted the process. Since version 6 each
+/// pattern of a side is its KORE text: the row nests as deep as for a three-entry list, its
+/// canonical JSON is read back by kink's reader, and the text decodes to the same pattern.
+///
+/// `MAX_JSON_DEPTH` entries (128,000 here, 600,000 in release) are past the old refusal, the first
+/// bound the old encoding reached; the abort lay further out. Nothing on the new path builds a JSON
+/// tree whose depth depends on the entries (the depth is asserted equal to a three-entry list's),
+/// so a larger list shows nothing more and the test stays light.
+#[test]
+fn a_deep_end_is_written_as_kore_text_and_read_back() {
+    let row = |end: &Pattern| {
+        let evidence = kink_campaign::TestEvidence {
+            test_id: "deep".into(),
+            run: kink_campaign::SideRun::Sides {
+                sides: vec![
+                    kink_campaign::OracleSide::Normal(kink_campaign::OracleValue::FinalResult(
+                        kink_campaign::FinalResult::WholeTerm([end.clone()].into()),
+                    )),
+                    kink_campaign::OracleSide::SemanticCrash(end.clone()),
+                ],
+            },
+            notes: kink_campaign::RunNotes::default(),
+            ends: [end.clone()].into(),
+            undefined_steps: false,
+            one_sided_ends: Default::default(),
+            payloads: Default::default(),
+        };
+        CampaignReport::baseline_row(&evidence)
+    };
+    let entries = kink_patch::MAX_JSON_DEPTH;
+    let deep = deep_list(entries);
+    // As version 5 encoded it, the end alone is deeper than any document kink reads or writes.
+    let json = k_rust::kore::json::to_string(&deep).unwrap();
+    assert!(kink_patch::json_depth(&json) > kink_patch::MAX_JSON_DEPTH);
+    drop(json);
+
+    let written = row(&deep);
+    assert_eq!(
+        kink_patch::value_depth(&written),
+        kink_patch::value_depth(&row(&deep_list(3)))
+    );
+    let text = kink_patch::canonical_json(&written);
+    drop(written);
+    let read = kink_patch::parse_json(&text).unwrap();
+    let sides = array(&read["run"]["sides"]);
+    let ends = array(&sides[0]["normal"]["whole-term"]);
+    assert_eq!(ends.len(), 1);
+    for kore in [&ends[0], &sides[1]["semantic-crash"]] {
+        let decoded = k_rust::kore::parser::parse_pattern(kore.as_str().unwrap()).unwrap();
+        assert!(decoded == deep, "the KORE text decodes to another pattern");
     }
 }

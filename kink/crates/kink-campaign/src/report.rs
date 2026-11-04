@@ -11,7 +11,7 @@ use crate::{
 use k_rust::{
     definition::{AttributeKey, Sentence},
     kast::Term,
-    kore::{ast::Pattern, codec::to_value},
+    kore::ast::Pattern,
 };
 use kink_patch::{
     Baseline, CandidateDisposition, CandidateGeneration, Claim, Edit, SentenceFingerprint,
@@ -29,7 +29,13 @@ use serde_json::{Value, json};
 /// `invalid`, a name a reader could not tell from kink-flow's `invalid-mutation` (a mutation
 /// that does not resolve);
 /// a stored version 4 report is foreign, as for any change of the report's names.
-pub const CAMPAIGN_REPORT_VERSION: u64 = 5;
+/// Version 6 writes each KORE pattern of a side (an end of a `whole-term` value, a term at a
+/// path, a pattern binding, a semantic crash's pattern) as its compact KORE text, a JSON string,
+/// where version 5 wrote k-rust's KORE JSON object of it, which nests two levels per application
+/// and so two per entry of a collection as k-rust writes it; the text denotes the same pattern
+/// (k-rust's KORE parser reads it back to it), and a side's JSON depth no longer depends on its
+/// terms.
+pub const CAMPAIGN_REPORT_VERSION: u64 = 6;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CampaignReport {
@@ -43,9 +49,12 @@ impl CampaignReport {
         canonical_json(&self.value)
     }
     /// One baseline row of the report's `baseline` list, `{"test_id", "run"}`, exactly as
-    /// [`campaign_report_multi`] encodes it (the report uses this function).
-    pub fn baseline_row(evidence: &TestEvidence) -> Result<Value, ReportError> {
-        Ok(json!({"test_id":evidence.test_id,"run":side_run(&evidence.run)?}))
+    /// [`campaign_report_multi`] encodes it (the report uses this function). Each pattern of a
+    /// side is its KORE text, so the row nests a fixed number of JSON levels whatever its ends
+    /// hold.
+    #[must_use]
+    pub fn baseline_row(evidence: &TestEvidence) -> Value {
+        json!({"test_id":evidence.test_id,"run":side_run(&evidence.run)})
     }
 }
 
@@ -83,42 +92,46 @@ fn term(term: &Term) -> Result<Value, ReportError> {
 fn nsent(sentence: &Sentence) -> Result<Value, ReportError> {
     kink_patch::parse_json(&fingerprint_payload(sentence).map_err(encode)?).map_err(encode)
 }
-fn kore(pattern: &Pattern) -> Result<Value, ReportError> {
-    to_value(pattern).map_err(encode)
+/// A pattern of a side as the report writes it: its compact KORE text (k-rust's printer, which
+/// keeps its work on the heap), the text kink-flow's result record and run report print an end
+/// as. A JSON string, so the side's JSON depth is independent of the pattern's depth, which a
+/// run makes as deep as it likes (a list a step appends to is one level deeper per step).
+fn kore(pattern: &Pattern) -> Value {
+    Value::String(pattern.to_string())
 }
-fn oracle_value(value: &OracleValue) -> Result<Value, ReportError> {
-    Ok(match value {
+fn oracle_value(value: &OracleValue) -> Value {
+    match value {
         OracleValue::ExitStop(stops) => {
             json!({"exit-stop":stops.iter().map(|stop| json!({"class":enum_name(stop.class),"code":stop.code})).collect::<Vec<_>>()})
         }
         OracleValue::FinalResult(FinalResult::WholeTerm(terms)) => {
-            json!({"whole-term":terms.iter().map(kore).collect::<Result<Vec<_>, _>>()?})
+            json!({"whole-term":terms.iter().map(kore).collect::<Vec<_>>()})
         }
         OracleValue::FinalResult(FinalResult::TermPaths(terms)) => {
-            json!({"term-paths":terms.iter().map(|paths| paths.iter().map(|(path, term)| Ok(json!({"path":path,"term":kore(term)?}))).collect::<Result<Vec<_>, ReportError>>()).collect::<Result<Vec<_>, _>>()?})
+            json!({"term-paths":terms.iter().map(|paths| paths.iter().map(|(path, term)| json!({"path":path,"term":kore(term)})).collect::<Vec<_>>()).collect::<Vec<_>>()})
         }
         OracleValue::Pattern(PatternValue::NoMatch) => json!({"pattern":"no-match"}),
         OracleValue::Pattern(PatternValue::Match { bindings }) => {
-            json!({"pattern":{"match":bindings.as_ref().map(|tuples| tuples.iter().map(|tuple| tuple.iter().map(|binding| Ok(json!({"name":binding.name,"term":kore(&binding.term)?}))).collect::<Result<Vec<_>, ReportError>>()).collect::<Result<Vec<_>, _>>()).transpose()?}})
+            json!({"pattern":{"match":bindings.as_ref().map(|tuples| tuples.iter().map(|tuple| tuple.iter().map(|binding| json!({"name":binding.name,"term":kore(&binding.term)})).collect::<Vec<_>>()).collect::<Vec<_>>())}})
         }
-    })
+    }
 }
-fn side(side: &OracleSide) -> Result<Value, ReportError> {
-    Ok(match side {
-        OracleSide::Normal(value) => json!({"normal":oracle_value(value)?}),
-        OracleSide::SemanticCrash(pattern) => json!({"semantic-crash":kore(pattern)?}),
+fn side(side: &OracleSide) -> Value {
+    match side {
+        OracleSide::Normal(value) => json!({"normal":oracle_value(value)}),
+        OracleSide::SemanticCrash(pattern) => json!({"semantic-crash":kore(pattern)}),
         OracleSide::Timeout => json!("timeout"),
         OracleSide::Unknown => json!("unknown"),
         OracleSide::Error => json!("error"),
-    })
+    }
 }
-fn side_run(run: &SideRun) -> Result<Value, ReportError> {
-    Ok(match run {
+fn side_run(run: &SideRun) -> Value {
+    match run {
         SideRun::Sides { sides } => {
-            json!({"sides":sides.iter().map(side).collect::<Result<Vec<_>, _>>()?})
+            json!({"sides":sides.iter().map(side).collect::<Vec<_>>()})
         }
         SideRun::Failed(failure) => json!({"failed":enum_name(failure)}),
-    })
+    }
 }
 fn test_run(run: &TestRun) -> Value {
     match run {
@@ -377,7 +390,7 @@ pub fn campaign_report_multi(
                 .zip(edits)
                 .map(|(edit, canonical)| diff(baseline, edit, canonical))
                 .collect::<Result<Vec<_>, _>>()?;
-            let tests = mutant_run.plan.tests.iter().map(|test| Ok(json!({"test_id":test.test_id,"run":test_run(&test.run),"mutant":mutant_run.evidence.iter().find(|e| e.test_id == test.test_id).map(|e| side_run(&e.run)).transpose()?}))).collect::<Result<Vec<_>, ReportError>>()?;
+            let tests = mutant_run.plan.tests.iter().map(|test| json!({"test_id":test.test_id,"run":test_run(&test.run),"mutant":mutant_run.evidence.iter().find(|e| e.test_id == test.test_id).map(|e| side_run(&e.run))})).collect::<Vec<_>>();
             mutants.push(json!({"mutant_id":mutant_run.report.mutant_id.0,"operator":mutant_run.operator,"origins":generation.dispositions().iter().enumerate().filter_map(|(ordinal, d)| (*d == CandidateDisposition::Mutant(id)).then_some(ordinal + origin_offset)).collect::<Vec<_>>(),"patch_sha256":entry["patch_sha256"],"canonical_patch":patch,"affected_sentences":affected,"inserted_sentences":inserted,"diff":diffs,"status":report_status_name(mutant_run.report.status),"mutant_failure":mutant_run.plan.mutant_failure.map(enum_name),"executed_test_ids":mutant_run.report.executed_test_ids,"killing_test_ids":mutant_run.report.killing_test_ids,"skipped_test_ids":mutant_run.report.skipped_test_ids,"tests":tests,"selection":mutant_run.plan.selection.as_ref().map(|selection| selection.value()),"claims":{"withdrawn":mutant_run.plan.claims.withdrawn.iter().map(claim).collect::<Vec<_>>(),"unsupported":mutant_run.plan.claims.unsupported.iter().map(claim).collect::<Vec<_>>()},"inconsistent_pairs":mutant_run.plan.inconsistent_pairs.iter().map(kink_native::consistency::UnjoinedEquations::value).collect::<Vec<_>>()}));
         }
         offset += generation.candidates().len();
@@ -387,7 +400,7 @@ pub fn campaign_report_multi(
         .baseline
         .iter()
         .map(CampaignReport::baseline_row)
-        .collect::<Result<Vec<_>, ReportError>>()?;
+        .collect::<Vec<_>>();
     let coverage = match run.selection {
         SelectionPolicy::None => Value::Null,
         SelectionPolicy::Prioritize(_) => Value::Array(
@@ -400,7 +413,10 @@ pub fn campaign_report_multi(
     let score = run.score.map(|s| json!({"killed":s.killed,"survived":s.survived,"denominator":s.denominator,"ratio":s.ratio.map(|r| json!({"numerator":r.numerator,"denominator":r.denominator}))}));
     let value = json!({"schema":"kink-campaign-report","version":CAMPAIGN_REPORT_VERSION,"manifest_sha256":manifest.digest().to_string(),"manifest":manifest.value(),"baseline":baseline_runs,"coverage":coverage,"origins":origins,"mutants":mutants,"summary":{"tally":report_tally(counts),"score":score,"per_operator":per_operator}});
     // A report no reader could read back (kink-corpus `Store::read_json`, `replay`: deeper than
-    // kink-patch MAX_JSON_DEPTH) is refused here, where it is written (re-pin L1-3-fix-2).
+    // kink-patch MAX_JSON_DEPTH) is refused here, where it is written (re-pin L1-3-fix-2). Since
+    // version 6 the sides write their patterns as text, so only the KAST JSON of the mutants'
+    // edited terms and sentences (`diff`, an origin's bindings) and the manifest's KORE JSON of
+    // the inputs nest with the terms they hold.
     kink_patch::check_json_depth(&value).map_err(encode)?;
     Ok(CampaignReport { value })
 }

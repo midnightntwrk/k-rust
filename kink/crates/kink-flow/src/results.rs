@@ -33,6 +33,11 @@
 //! The diagnostic run never makes a program comparable.
 //!
 //! The cache is plain JSON under `<cache>/results/<execution digest>/<program digest>.json`. A
+//! record holds each end once, as KORE text: a comparable program's ends in the whole-term (or
+//! cells) side of its baseline row, which the run digest covers, and an unknown program's
+//! diagnostic leaves in `final_configuration` ([`record_final_configuration`] reads either). It
+//! is written by streaming its members ([`write_record`]), never built as one value, and its JSON
+//! depth is independent of what its ends hold. A
 //! record is used only when its key equals the current key; any other record, or one that does not
 //! parse, is recomputed and replaced. A record names its writer's build, so a record another
 //! build wrote is recomputed (packet CACHE-ID-fix-1); when the executable cannot be read, no
@@ -75,7 +80,7 @@ use kink_campaign::{
     OracleDeclaration, OracleSide, OracleValue, Projection, RunStop, ScheduleMode, SideRun,
     StateProjection, TestCase, run_campaign_multi_ordered, run_campaign_multi_with,
 };
-use kink_corpus::{Store, admission::AdmissionRecord, runner::all_normal};
+use kink_corpus::{Store, StoreError, admission::AdmissionRecord, runner::all_normal};
 use kink_native::{
     bridge::{LeafTerm, leaf_terms},
     coverage::{RuleAuthors, TestCoverage, coverage_domain, non_executable_ids},
@@ -89,8 +94,8 @@ use kink_native::{
     step_events::{EntryRole, NonValue, NonValueStep, ObservationDecider},
 };
 use kink_patch::{
-    CandidateGeneration, Discovery, Patch, SelectionPolicy, SentenceRef, Sha256Digest,
-    canonical_json, payload_digest, select,
+    CandidateGeneration, Discovery, MAX_JSON_DEPTH, Patch, SelectionPolicy, SentenceRef,
+    Sha256Digest, canonical_json, payload_digest, select, value_depth,
 };
 use serde_json::{Value, json};
 use std::{
@@ -109,8 +114,10 @@ use std::{
 pub use kink_campaign::RESULT_SCHEMA_VERSION;
 /// The `schema` field of a result record.
 pub const RECORD_SCHEMA: &str = "kink-flow-result";
-/// Domain of a run digest: the digest of the `run` part of a baseline row.
-pub const RUN_DOMAIN: &str = "kink-flow/run/v1";
+/// Domain of a run digest: the digest of the `run` part of a baseline row. v2 since the row
+/// writes each pattern of a side as its KORE text (kink-campaign report version 6), where v1
+/// digested the row with KORE JSON objects: a v2 digest is never compared with a v1 one.
+pub const RUN_DOMAIN: &str = "kink-flow/run/v2";
 /// The cache directory's name next to `FLOW.toml`.
 pub const CACHE_DIRECTORY: &str = ".kink-flow";
 /// Simplifier iterations per rewrite step of every program run (not a manifest key).
@@ -374,13 +381,17 @@ pub fn run_digest(row: &Value) -> Option<Sha256Digest> {
 pub struct ProgramResult {
     pub class: ResultClass,
     pub cause: Option<String>,
-    /// The baseline row exactly as kink-campaign's report encodes it; comparable only.
+    /// The baseline row exactly as kink-campaign's report encodes it; comparable only. It holds
+    /// the run's final configurations as KORE text, one per terminal, in its whole-term (or
+    /// cells) side, the one place the result holds them ([`Self::final_terms`]).
     pub baseline: Option<Value>,
-    /// The final configurations as KORE text, one per terminal (comparable), or the final
-    /// state of each leaf of the diagnostic run (unknown and error runs that have leaves).
+    /// The final state of each leaf of the diagnostic run as KORE text (unknown and error runs
+    /// that have leaves); `None` for a comparable result, whose final configurations are its
+    /// baseline row's.
     pub final_configuration: Option<Vec<String>>,
-    /// Each end's summary, `{head, class}`, in the order of `final_configuration` (CF-16,
-    /// `evidence::EndReader::summary`): comparable only, `None` otherwise. Outside the key and
+    /// Each end's summary, `{head, class}`, in the order of the baseline row's whole-term (or
+    /// cells) side ([`Self::final_terms`]; `evidence::EndReader::summary`): comparable only,
+    /// `None` otherwise. Outside the key and
     /// the run digest; a record names its writer's build, so every record this build reads has
     /// it.
     pub ends: Option<Value>,
@@ -429,6 +440,49 @@ impl ProgramResult {
     /// The run digest of the baseline row.
     pub fn run_sha256(&self) -> Option<Sha256Digest> {
         self.baseline.as_ref().and_then(run_digest)
+    }
+
+    /// The final configurations as KORE text: a comparable result's ends, from its baseline
+    /// row, else the diagnostic run's leaves; `None` when the result has neither, or when an end
+    /// of its baseline row is not a text.
+    #[must_use]
+    pub fn final_terms(&self) -> Option<Vec<&str>> {
+        match &self.baseline {
+            Some(row) => row_final_terms(row),
+            None => self
+                .final_configuration
+                .as_ref()
+                .map(|terms| terms.iter().map(String::as_str).collect()),
+        }
+    }
+}
+
+/// The whole-term (or cells) value of a baseline row: the first side that holds one, as the
+/// row's KORE texts; `None` when no side holds one, or when an entry of it is not a text, which
+/// no row kink-campaign writes holds.
+fn row_final_terms(row: &Value) -> Option<Vec<&str>> {
+    row["run"]["sides"]
+        .as_array()?
+        .iter()
+        .find_map(|side| side["normal"]["whole-term"].as_array())?
+        .iter()
+        .map(Value::as_str)
+        .collect()
+}
+
+/// A result record's final configurations as KORE text, as [`ProgramResult::final_terms`] gives
+/// them: a comparable record's from its baseline row's whole-term (or cells) side, any other
+/// record's from its `final_configuration`; `None` when it has neither, or when an entry of the
+/// one it reads is not a text, which no record kink-flow writes holds.
+#[must_use]
+pub fn record_final_configuration(record: &Value) -> Option<Vec<&str>> {
+    match record.get("baseline").filter(|row| !row.is_null()) {
+        Some(row) => row_final_terms(row),
+        None => record["final_configuration"]
+            .as_array()?
+            .iter()
+            .map(Value::as_str)
+            .collect(),
     }
 }
 
@@ -679,15 +733,11 @@ impl<'a> BaselineRunner<'a> {
                     result.wall_ms = wall_ms;
                     return result;
                 }
-                let row = match CampaignReport::baseline_row(evidence) {
-                    Ok(row) => row,
-                    Err(e) => return self.error(format!("cannot encode the baseline row: {e}")),
-                };
                 ProgramResult {
                     class: ResultClass::Comparable,
                     cause: None,
-                    baseline: Some(row),
-                    final_configuration: final_terms(&evidence.run),
+                    baseline: Some(CampaignReport::baseline_row(evidence)),
+                    final_configuration: None,
                     ends: final_ends(&evidence.run).map(|ends| self.end_reader().summaries(ends)),
                     coverage: run.baseline_coverage.first().cloned(),
                     wall_ms: None,
@@ -1375,11 +1425,6 @@ pub(crate) fn classify(end: &Pattern) -> kink_pattern::ExecutionTerminalKind {
     all_normal(end)
 }
 
-/// The whole-term side's terminal terms as KORE text.
-fn final_terms(run: &SideRun) -> Option<Vec<String>> {
-    final_ends(run).map(|terms| terms.iter().map(ToString::to_string).collect())
-}
-
 /// The whole-term value of a side's run, when it is one: its ends with the counter erased.
 fn final_ends(run: &SideRun) -> Option<&BTreeSet<Pattern>> {
     let SideRun::Sides { sides } = run else {
@@ -1440,15 +1485,17 @@ fn coverage_value(spec: &AdmittedSpec, coverage: &TestCoverage) -> Value {
     })
 }
 
-/// The result record of one program (never for a refused program). `spec_digest` is the
-/// writer's exact specification digest, outside the key, for diagnosis only: a reader can tell
-/// that a record was written under other bytes.
-pub fn record_value(
-    spec: &AdmittedSpec,
+/// The members a result record holds beside its ends ([`RECORD_ENDS`]): every member a reader of
+/// a program's row reads (never for a refused program). `spec_digest` is the writer's exact
+/// specification digest, outside the key, for diagnosis only: a reader can tell that a record
+/// was written under other bytes. `coverage` is the run's coverage as a record stores it
+/// ([`coverage_value`]), null when no run produced any.
+fn record_facts(
     key: &Value,
     spec_digest: Sha256Digest,
     id: &str,
     result: &ProgramResult,
+    coverage: Value,
 ) -> Value {
     json!({
         "schema": RECORD_SCHEMA,
@@ -1457,16 +1504,121 @@ pub fn record_value(
         "program_id": id,
         "class": result.class.as_str(),
         "cause": result.cause,
-        "baseline": result.baseline,
         "run_sha256": result.run_sha256().map(|d| d.to_string()),
-        "final_configuration": result.final_configuration,
         "ends": result.ends,
-        "coverage": result.coverage.as_ref().map(|c| coverage_value(spec, c)),
+        "coverage": coverage,
         "wall_ms": result.wall_ms,
         "specification_diagnostics": result.specification_diagnostics,
         "smt_unknowns": result.smt_unknowns,
         "short_circuit_readings": result.short_circuit_readings,
     })
+}
+
+/// The members of a result record that hold its ends: the baseline row (comparable only) and the
+/// diagnostic run's leaves. [`write_record`] writes them from the [`ProgramResult`] itself, and a
+/// program's row holds its record without them ([`ProgramRow::record`]).
+pub const RECORD_ENDS: [&str; 2] = ["baseline", "final_configuration"];
+
+/// The record facts of `result` ([`record_facts`]), its coverage read under `spec`.
+pub fn record_value(
+    spec: &AdmittedSpec,
+    key: &Value,
+    spec_digest: Sha256Digest,
+    id: &str,
+    result: &ProgramResult,
+) -> Value {
+    let coverage = result
+        .coverage
+        .as_ref()
+        .map_or(Value::Null, |c| coverage_value(spec, c));
+    record_facts(key, spec_digest, id, result, coverage)
+}
+
+/// Writes the result record of `result` to `path`: the members of `facts` ([`record_value`]) and
+/// its ends ([`RECORD_ENDS`]: the baseline row, the diagnostic leaves), member by member, in the
+/// sorted order of canonical JSON, so the bytes are those `canonical_json` gives for the record
+/// as one value, and neither that value nor the record's whole text is ever held. Every end is a
+/// KORE text, so the record nests a fixed number of levels; a record deeper than kink-patch
+/// `MAX_JSON_DEPTH`, which [`read_record`] would refuse, is refused before anything is written.
+/// The members are serialized on a stack sized from the record's depth, as `canonical_json`
+/// serializes a value, so a record of any depth up to that limit is written on any thread, and
+/// one whose stack the system refuses is refused before anything is written too.
+///
+/// # Errors
+/// [`StoreError::Invalid`] when `facts` is not an object, the record would be too deep or the
+/// system refuses the stack its depth needs, and the store's I/O error.
+pub fn write_record(
+    store: &Store,
+    path: &Path,
+    facts: &Value,
+    result: &ProgramResult,
+) -> Result<(), StoreError> {
+    enum Member<'a> {
+        Value(&'a Value),
+        Texts(Option<&'a [String]>),
+    }
+    let Value::Object(facts) = facts else {
+        return Err(StoreError::Invalid("a result record is an object".into()));
+    };
+    let baseline = result.baseline.as_ref().unwrap_or(&Value::Null);
+    let depth = 1 + facts
+        .values()
+        .chain(std::iter::once(baseline))
+        .map(value_depth)
+        .max()
+        .unwrap_or(0)
+        .max(1);
+    if depth > MAX_JSON_DEPTH {
+        return Err(StoreError::Invalid(format!(
+            "the result record nests {depth} levels deep, more than kink's limit of \
+             {MAX_JSON_DEPTH} (kink-patch MAX_JSON_DEPTH)"
+        )));
+    }
+    let mut members = facts
+        .iter()
+        .filter(|(name, _)| !RECORD_ENDS.contains(&name.as_str()))
+        .map(|(name, value)| (name.as_str(), Member::Value(value)))
+        .chain([
+            (RECORD_ENDS[0], Member::Value(baseline)),
+            (
+                RECORD_ENDS[1],
+                Member::Texts(result.final_configuration.as_deref()),
+            ),
+        ])
+        .collect::<Vec<_>>();
+    members.sort_by(|a, b| a.0.cmp(b.0));
+    let write = || {
+        store.write_streamed(path, |out| {
+            out.write_all(b"{")?;
+            for (index, (name, member)) in members.iter().enumerate() {
+                if index > 0 {
+                    out.write_all(b",")?;
+                }
+                serde_json::to_writer(&mut *out, name)?;
+                out.write_all(b":")?;
+                match member {
+                    Member::Value(value) => serde_json::to_writer(&mut *out, value)?,
+                    Member::Texts(texts) => serde_json::to_writer(&mut *out, texts)?,
+                }
+            }
+            out.write_all(b"}")
+        })
+    };
+    kink_patch::with_document_stack(depth, write).map_err(|refusal| {
+        StoreError::Invalid(format!(
+            "the result record nests {depth} levels deep and cannot be serialized: {refusal}"
+        ))
+    })?
+}
+
+/// `record` without its ends ([`RECORD_ENDS`]), as a program's row holds it.
+fn without_ends(mut record: Value) -> Value {
+    if let Value::Object(members) = &mut record {
+        for name in RECORD_ENDS {
+            members.remove(name);
+        }
+    }
+    record
 }
 
 /// A stored record: `None` when the file is absent; `Some(None)` when it exists but does not
@@ -1535,11 +1687,16 @@ pub struct ResultsOptions {
 pub struct ProgramRow {
     /// The program's row of the results document.
     pub row: Value,
-    /// The program's current record (stored or just written), if it has one.
+    /// The program's current record (stored or just written), if it has one, without its ends
+    /// ([`RECORD_ENDS`]): no reader of a row reads them, and a row holds its record until the
+    /// command's document is written, so holding them would keep one more copy, as KORE text, of
+    /// every program's ends until then (the command's baseline session holds each live run's
+    /// execution, its ends included, for the whole command).
     pub record: Option<Value>,
     /// Under `--verify`, when the program has a stored record: the record this command's own run
-    /// gives, which `record` (the stored one) was compared with. `None` otherwise (`record` is
-    /// then this command's run, or the stored record a command without `--verify` uses).
+    /// gives, without its ends, which `record` (the stored one) was compared with. `None`
+    /// otherwise (`record` is then this command's run, or the stored record a command without
+    /// `--verify` uses).
     pub live: Option<Value>,
     /// The program was refused, its run failed or its record could not be written.
     pub failed: bool,
@@ -1856,7 +2013,7 @@ fn program_row(
                 record,
             ),
             failed: record["class"] == ResultClass::Error.as_str(),
-            record: stored,
+            record: stored.map(without_ends),
             live: None,
             digest: Some(digest),
             inputs: Some(case),
@@ -1895,7 +2052,7 @@ fn program_row(
                 &record,
             ),
             failed: record["class"] == ResultClass::Error.as_str(),
-            record: Some(record),
+            record: Some(without_ends(record)),
             live: Some(record_value(
                 spec,
                 &key,
@@ -1928,7 +2085,7 @@ fn program_row(
         // The document's `result_cache` says why the store is off.
     } else if let Some(host) = result.host {
         row["not_cached"] = json!(host.reason(result.class, runner.time_ms()));
-    } else if let Err(e) = context.writer.write_json(&path, &record) {
+    } else if let Err(e) = write_record(context.writer, &path, &record, &result) {
         row["cache_error"] = json!(format!("cannot write the result record: {e}"));
         failed = true;
     }
@@ -2279,5 +2436,190 @@ mod tests {
             bound,
             false
         ));
+    }
+
+    /// A `ListItem(z)` list of `entries` entries, right-nested as k-rust hands an end in, built
+    /// from the inside out (a pattern's clone, comparison, printing and drop keep their work on
+    /// the heap).
+    fn deep_list(entries: usize) -> Pattern {
+        use k_rust::kompile::initial_configuration::kore_application;
+        let z = kore_application("Lblz", Vec::new(), Vec::new());
+        let mut list = kore_application("Lbl'Stop'List", Vec::new(), Vec::new());
+        for _ in 0..entries {
+            list = kore_application(
+                "Lbl'Unds'List'Unds'",
+                Vec::new(),
+                vec![
+                    kore_application("LblListItem", Vec::new(), vec![z.clone()]),
+                    list,
+                ],
+            );
+        }
+        list
+    }
+
+    /// The comparable result whose one end is `end`, with its baseline row as kink-campaign
+    /// writes it.
+    fn comparable(end: &Pattern) -> ProgramResult {
+        let evidence = kink_campaign::TestEvidence {
+            test_id: "deep".into(),
+            run: SideRun::Sides {
+                sides: vec![OracleSide::Normal(OracleValue::FinalResult(
+                    FinalResult::WholeTerm([end.clone()].into()),
+                ))],
+            },
+            notes: kink_campaign::RunNotes::default(),
+            ends: [end.clone()].into(),
+            undefined_steps: false,
+            one_sided_ends: BTreeSet::new(),
+            payloads: BTreeMap::new(),
+        };
+        ProgramResult {
+            class: ResultClass::Comparable,
+            cause: None,
+            baseline: Some(CampaignReport::baseline_row(&evidence)),
+            final_configuration: None,
+            ends: Some(json!([])),
+            coverage: None,
+            wall_ms: Some(1),
+            specification_diagnostics: json!([]),
+            smt_unknowns: 0,
+            short_circuit_readings: json!([]),
+            host: None,
+        }
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let directory =
+            std::env::temp_dir().join(format!("kink-flow-record-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        directory
+    }
+
+    /// The streamed record is the record's canonical JSON: the bytes `canonical_json` gives for it
+    /// built as one value, so the change of writer changes no byte of a record.
+    #[test]
+    fn a_streamed_record_is_its_canonical_json() {
+        let directory = scratch("canonical");
+        let store = Store::new(&directory);
+        let key = json!({"schema_version": RESULT_SCHEMA_VERSION, "program": "p"});
+        let digest = payload_digest("test", b"spec");
+        let mut unknown = ProgramResult::refused("a cause".into());
+        unknown.class = ResultClass::Unknown;
+        unknown.final_configuration = Some(vec!["Lblz{}()".into(), "\"\\n\u{e9}".into()]);
+        for result in [comparable(&deep_list(3)), unknown] {
+            let facts = record_facts(&key, digest, "p", &result, Value::Null);
+            let path = directory.join("record.json");
+            write_record(&store, &path, &facts, &result).unwrap();
+            let mut whole = facts.clone();
+            whole["baseline"] = json!(result.baseline);
+            whole["final_configuration"] = json!(result.final_configuration);
+            assert_eq!(fs::read_to_string(&path).unwrap(), canonical_json(&whole));
+            assert_eq!(
+                record_final_configuration(&whole),
+                result.final_terms(),
+                "{whole:#}"
+            );
+        }
+        fs::remove_dir_all(&directory).unwrap();
+    }
+
+    /// A record member as deep as the limit allows is written on a stack sized from its depth, as
+    /// `canonical_json` writes a value, so the promise that only a record deeper than
+    /// `MAX_JSON_DEPTH` is refused holds on a thread whose own stack is far smaller than that
+    /// member's serialization: no member is that deep today, but `write_record` must not depend
+    /// on it.
+    #[test]
+    fn a_member_at_the_depth_limit_is_written_on_a_small_thread() {
+        let directory = scratch("member-depth");
+        let path = directory.join("record.json");
+        let written = std::thread::Builder::new()
+            .stack_size(256 * 1024)
+            .spawn({
+                let (directory, path) = (directory.clone(), path.clone());
+                move || {
+                    let store = Store::new(&directory);
+                    let key = json!({"schema_version": RESULT_SCHEMA_VERSION, "program": "p"});
+                    let result = comparable(&deep_list(3));
+                    let mut member = Value::Array(Vec::new());
+                    for _ in 1..MAX_JSON_DEPTH - 1 {
+                        member = Value::Array(vec![member]);
+                    }
+                    let mut facts = record_facts(
+                        &key,
+                        payload_digest("test", b"spec"),
+                        "p",
+                        &result,
+                        Value::Null,
+                    );
+                    facts["coverage"] = member;
+                    assert_eq!(value_depth(&facts), MAX_JSON_DEPTH);
+                    let written = write_record(&store, &path, &facts, &result);
+                    facts["baseline"] = json!(result.baseline);
+                    facts["final_configuration"] = json!(result.final_configuration);
+                    let written = written
+                        .map(|()| canonical_json(&facts) == fs::read_to_string(&path).unwrap());
+                    // serde_json drops a value one stack frame per level.
+                    kink_patch::with_document_stack(MAX_JSON_DEPTH, move || drop(facts)).unwrap();
+                    written.map_err(|error| error.to_string())
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        assert_eq!(written, Ok(true));
+        fs::remove_dir_all(&directory).unwrap();
+    }
+
+    /// A record for a leaf deeper than the old bound is written and read back. Until result schema
+    /// v12 the record held the baseline row's end as KORE JSON, two levels per list entry, so a
+    /// list of more than `MAX_JSON_DEPTH / 2` entries was refused where the row was written, and a
+    /// longer one aborted the process in the row's drop (about 840,000 entries in this build). Now
+    /// the end is held once, as KORE text in the row: the record nests as deep as for a three-entry
+    /// list, `read_record` honours it, its run digest is its row's, and the text decodes to the
+    /// leaf. `MAX_JSON_DEPTH` entries (128,000 here) are past the old refusal; since no JSON depth
+    /// depends on the entries, a longer list would show nothing more.
+    #[test]
+    fn a_record_for_a_deep_leaf_is_written_and_read_back() {
+        let directory = scratch("deep");
+        let store = Store::new(&directory);
+        let key = json!({"schema_version": RESULT_SCHEMA_VERSION, "program": "deep"});
+        let digest = payload_digest("test", b"spec");
+        let deep = deep_list(MAX_JSON_DEPTH);
+        let result = comparable(&deep);
+        let facts = record_facts(&key, digest, "deep", &result, Value::Null);
+        let path = directory.join("deep.json");
+        write_record(&store, &path, &facts, &result).unwrap();
+        let shallow = comparable(&deep_list(3));
+        let shallow_path = directory.join("shallow.json");
+        write_record(
+            &store,
+            &shallow_path,
+            &record_facts(&key, digest, "deep", &shallow, Value::Null),
+            &shallow,
+        )
+        .unwrap();
+        let depth = |path: &Path| kink_patch::json_depth(&fs::read_to_string(path).unwrap());
+        assert_eq!(depth(&path), depth(&shallow_path));
+        let record = read_record(&path, &key)
+            .unwrap()
+            .expect("the record is honoured");
+        assert!(
+            record["final_configuration"].is_null(),
+            "the ends are held once"
+        );
+        assert_eq!(
+            record["run_sha256"],
+            json!(result.run_sha256().map(|d| d.to_string()))
+        );
+        assert!(verify_record(&record, &result).is_empty());
+        let ends = record_final_configuration(&record).unwrap();
+        assert_eq!(ends.len(), 1);
+        let decoded = k_rust::kore::parser::parse_pattern(ends[0]).unwrap();
+        assert!(
+            decoded == deep,
+            "the record's end decodes to another pattern"
+        );
+        fs::remove_dir_all(&directory).unwrap();
     }
 }

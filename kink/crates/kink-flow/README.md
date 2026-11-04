@@ -339,7 +339,7 @@ kill a mutant, and, per rule of the specification, which programs match and fire
 
 Each program runs on the baseline as its own zero-mutant campaign (kink-campaign's runner),
 with two oracles: the exit stop (no exit-code cell) and the final configuration without the cells left out (`whole-term` or `cells`, above under "Which cells are compared").
-The document's `result` names the slots and the cells compared; version 5 of the document adds it, and, where the slot is `cells`, makes a program's `final_configuration` and `ends` the projected ends.
+The document's `result` names the slots and the cells compared; version 5 of the document adds it, and, where the slot is `cells`, makes a comparable program's final configurations (its baseline row's `cells` side) and `ends` the projected ends.
 A program's class is
 
 | Class | Meaning | What to do |
@@ -354,10 +354,10 @@ Only comparable programs can kill a mutant; the others are reported and never co
 
 The cache is `.kink-flow/` next to `FLOW.toml` (or `--cache DIR`); deleting it is always safe.
 One JSON record per program, `results/<execution digest>/<program digest>.json`, holds its key
-(result schema version `kink-flow/result/v11`, kink's build identity `kink_build`, kink's semantics identity `kink`, the execution digest `execution: {kind, digest}`, the program digest and the budget), class and cause,
+(result schema version `kink-flow/result/v12`, kink's build identity `kink_build`, kink's semantics identity `kink`, the execution digest `execution: {kind, digest}`, the program digest and the budget), class and cause,
 the writer's specification digest `spec_digest` (outside the key: it only tells a reader that a record was written under other bytes),
 the baseline row exactly as the campaign report encodes it with the digest of its `run` part
-(`run_sha256`, comparable programs only), the final configurations as KORE text (an undefined step's pre-step configuration is none, so a run whose every path takes an undefined step lists none, and its baseline row's exit stop holds no class for it; since v7, kink27 R1-UNDEF), the rule
+(`run_sha256`, comparable programs only), whose whole-term (or `cells`) side holds the final configurations as KORE text (an undefined step's pre-step configuration is none, so a run whose every path takes an undefined step lists none, and its baseline row's exit stop holds no class for it; since v7, kink27 R1-UNDEF), each end once: since v12 a comparable record does not repeat them in `final_configuration`, which holds the final state of each leaf of an `unknown` program's diagnostic run (`results::record_final_configuration` reads either), the rule
 coverage (each sentence `{module, index, label}`: documents render file and lines from the current load), `wall_ms`, the wall time of the program's live baseline run (outside the key and
 the run digest; it orders the kill search, see `run`), and, since v5 (re-pin adoption A-1),
 `specification_diagnostics`, the baseline run's contradicted-claim records (see `run`), and

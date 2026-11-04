@@ -1045,8 +1045,8 @@ endmodule
         };
         let record: Value = serde_json::from_str(&fs::read_to_string(record).unwrap()).unwrap();
         assert_eq!(
-            record["final_configuration"],
-            json!([]),
+            kink_flow::results::record_final_configuration(&record),
+            Some(Vec::new()),
             "an undefined step's pre-step configuration is no final configuration: {record:#}"
         );
 
@@ -1329,8 +1329,8 @@ endmodule
             .find(|record| record["program_id"] == "one")
             .expect("a result record of `one`");
         assert_eq!(
-            record["final_configuration"],
-            json!([]),
+            kink_flow::results::record_final_configuration(&record),
+            Some(Vec::new()),
             "an undefined step's pre-step configuration is no final configuration: {record:#}"
         );
 

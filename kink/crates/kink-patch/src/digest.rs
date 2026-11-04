@@ -247,12 +247,14 @@ pub fn parse_json(text: &str) -> Result<serde_json::Value, JsonError> {
 }
 
 /// Runs `work`, which parses, builds, serializes and drops documents at most `levels` deep, on a
-/// stack that holds them all, drops included; for the patch codec, whose documents are its own to
-/// drop.
-pub(crate) fn with_document_stack<T>(
-    levels: usize,
-    work: impl FnOnce() -> T,
-) -> Result<T, StackRefusal> {
+/// stack that holds them all, drops included: for the patch codec, whose documents are its own to
+/// drop, and for a writer that serializes a document member by member instead of through
+/// [`canonical_json`] (kink-flow's result record).
+///
+/// # Errors
+/// Refused, without running `work`, when the stack `levels` needs exceeds the largest segment
+/// kink maps or the system refuses to map it.
+pub fn with_document_stack<T>(levels: usize, work: impl FnOnce() -> T) -> Result<T, StackRefusal> {
     with_stack(levels, JSON_STACK_PER_LEVEL, work)
 }
 

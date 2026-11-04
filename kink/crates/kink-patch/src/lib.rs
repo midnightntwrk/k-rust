@@ -65,7 +65,7 @@ pub use digest::{
     CAMPAIGN_MANIFEST_DOMAIN, CANONICAL_PATCH_DOMAIN, COMPILED_KORE_DOMAIN, JsonError,
     MAX_JSON_DEPTH, OBSERVATION_DOMAIN, Sha256Digest, StructureError, TEST_MANIFEST_DOMAIN,
     canonical_json, check_json_depth, json_depth, parse_json, payload_digest, sha256,
-    structure_sha256, value_depth,
+    structure_sha256, value_depth, with_document_stack,
 };
 pub use failure::{PatchFailure, PatchFailureKind};
 pub use fingerprint::{

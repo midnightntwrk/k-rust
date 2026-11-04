@@ -102,8 +102,13 @@ use std::{path::Path, sync::OnceLock};
 /// `short-circuit-reading`), outside the key and the run digest; on a definition whose
 /// short-circuit analysis flags a rule, and for a program whose initial configuration applies a
 /// reading-dependent function, a program whose run lists no such entry is `comparable`, as the
-/// campaign runner judges it since its run-level judgement of that list.
-pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v11";
+/// campaign runner judges it since its run-level judgement of that list. v12: a record
+/// holds each end once, as KORE text: its baseline row writes each pattern of a side as its
+/// KORE text (kink-campaign report version 6, run digest domain `kink-flow/run/v2`), and a
+/// comparable record no longer repeats its ends in `final_configuration`, which holds only an
+/// unknown record's diagnostic leaves; what counts as comparable is unchanged, but every v11
+/// record's row and run digest are another encoding, so none is honoured.
+pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v12";
 
 /// One component of [`KINK_IDENTITY`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
