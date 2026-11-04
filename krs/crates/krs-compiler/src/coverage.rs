@@ -65,6 +65,7 @@ use crate::equation_domain::{
     ColumnValues, Domain, Evaluator, Ground, Undecided, equation_view, evaluable_functions,
 };
 use crate::int_facts::{IntFact, IntFacts};
+use crate::overlap::Subsorts;
 
 /// The pattern-matrix nodes one function may visit before the lint gives up
 /// on it (and reports nothing for it).
@@ -388,25 +389,15 @@ pub(crate) fn instantiate(
 }
 
 impl Signature {
+    /// The signature of `modules`, over the subsort relation the overlap
+    /// check of transitions also reads ([`Subsorts`]).
     fn new(modules: &[SemanticModule]) -> Self {
+        let Subsorts { sorts, parents } = Subsorts::of(modules);
         let mut signature = Self {
-            sorts: BuiltinSort::ALL.into_iter().map(Sort::Builtin).collect(),
+            sorts,
             ..Self::default()
         };
-        let mut parents = BTreeMap::<Sort, BTreeSet<Sort>>::new();
         for module in modules {
-            signature.sorts.extend(
-                module
-                    .sorts()
-                    .iter()
-                    .map(|sort| Sort::Declared(sort.id().clone())),
-            );
-            for edge in module.subsorts() {
-                parents
-                    .entry(edge.subsort().clone())
-                    .or_default()
-                    .insert(edge.supersort().clone());
-            }
             for production in module.productions() {
                 let has = |test: fn(&ProductionAttribute<Sort, StableItemId>) -> bool| {
                     production.attributes().iter().any(test)

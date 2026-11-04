@@ -73,11 +73,6 @@ owner = "S6"
 kind = "bug"
 what = "a readable or `for Stmt` result, or a readable subject's Set collection instance cell, accepts `k::matches!` and `let` blocks that the `cells!` rule `krs expand` prints refuses (a subject's computed key no longer differs: NT-31)"
 
-["S0-8"]
-owner = "S4"
-kind = "bug"
-what = "the coverage lint's sort graph lacks the implicit `S ≤ KItem` edges the other judges have"
-
 ["S0-9"]
 owner = "S5"
 kind = "diagnostic"

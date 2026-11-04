@@ -524,6 +524,83 @@ pub fn Small(value: Term<Int>) -> Term<Int> {{
     );
 }
 
+/// Every sort but `K` is below `KItem` (K injects each into it), so a `KItem` binder matches
+/// every value of a builtin or declared sort: an equation with one applies wherever one with an
+/// Int literal, an Int binder or a binder of a declared sort does, and they overlap. No subsort
+/// sentence places `Int` or `Light` below `KItem`; only the injection relates them, which the
+/// check missed when its sort graph held only the sentences (S0-8).
+#[test]
+fn a_k_item_binder_overlaps_the_values_of_every_declared_sort() {
+    let target = shared_fixture_target();
+    let kind = |first: &str| {
+        format!(
+            r#"
+use k::builtin::{{Int, KSequence}};
+use k::Term;
+
+k::sorts! {{
+    Light;
+}}
+
+#[k::function(total, internal)]
+pub fn Kind(item: Term<k::KItem>) -> Term<Int>;
+
+k::equations! {{
+    for Kind;
+    kind_any: item => 2;
+}}
+
+{first}
+
+#[k::configuration(root = "machine")]
+pub struct Machine {{
+    pub k: k::configuration::KCell<KSequence>,
+}}
+
+impl Machine {{
+    #[k::init]
+    pub fn init() -> Self {{
+        Self {{
+            k: k::configuration::KCell::new(k::k![]),
+        }}
+    }}
+}}
+"#
+        )
+    };
+    let emitted = |name: &str, source: &str| {
+        let temporary = temp_dir();
+        package(temporary.path(), name, "ORG-KRS-KITEM", source);
+        let manifest = workspace(temporary.path(), &[name]);
+        let (success, stderr, _) = emit(
+            target.path(),
+            &manifest,
+            name,
+            &temporary.path().join("emitted"),
+        );
+        (success, stderr)
+    };
+    let equation = |name: &str, binder: &str| {
+        format!(
+            "#[k::equation]\nfn {name}({binder}k::term![Kind({argument})]: Term<Int>) -> Term<Int> {{\n    1\n}}\n",
+            argument = if binder.is_empty() { "1" } else { "x" },
+        )
+    };
+    let literal = emitted("literal", &kind(&equation("kind_one", "")));
+    let int = emitted("int", &kind(&equation("kind_int", "x: Term<Int>, ")));
+    let light = emitted("light", &kind(&equation("kind_light", "x: Term<Light>, ")));
+    let missed = [literal, int, light]
+        .iter()
+        .zip([("kind_one", "1"), ("kind_int", "0"), ("kind_light", "_")])
+        .filter(|((success, stderr), (first, argument))| {
+            *success
+                || !stderr.contains(&format!("error[krs::analysis::overlapping-equations]: equations `kind_any` and `{first}` of `Kind` both apply to `Kind({argument})` at the same priority and give it different results, `2` and `1`"))
+        })
+        .map(|((_, stderr), (first, _))| format!("{first}: {stderr}"))
+        .collect::<Vec<_>>();
+    assert!(missed.is_empty(), "{missed:#?}");
+}
+
 /// Equations whose overlap only a `k::matches!` test decides: the check
 /// evaluates the test on the concrete argument, and proves the negated test
 /// disjoint.

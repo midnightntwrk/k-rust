@@ -281,6 +281,84 @@ impl VariableCatalog {
     }
 }
 
+/// A definition's subsort relation before closure: what its subsort sentences
+/// state, and what K states of every sort without a sentence.
+pub(crate) struct Subsorts {
+    /// The sorts the relation is about: the builtin sorts, the declared
+    /// sorts, the sorts a subsort sentence names, and the generated sort of
+    /// every group cell.
+    pub(crate) sorts: BTreeSet<SemanticSortRef>,
+    /// Each sort's direct supersorts.
+    pub(crate) parents: BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
+}
+
+impl Subsorts {
+    /// The subsort sentences of `modules`, and `S ≤ KItem` for every sort
+    /// `S` but `KItem` and `K` when the definition declares the framework's
+    /// `KItem`.
+    ///
+    /// K injects every sort into `KItem` (`syntax {S} KItem ::= S`), whether
+    /// or not a sentence says so: a value of any sort is a computation item.
+    /// That holds of the builtin sorts (`Int`, `Map`, `List`, `Id`, ...), of
+    /// every declared sort, and of a group cell's generated sort, whose
+    /// values are cell terms. `K` is the one sort above `KItem` (a
+    /// computation is a sequence of items, `KItem ≤ K`), so it is not below
+    /// it; a sort parameter is not a sort. Without a `KItem` declaration no
+    /// term or binder has that sort, and there is nothing to relate.
+    pub(crate) fn of(modules: &[SemanticModule]) -> Self {
+        let mut sorts = BuiltinSort::ALL
+            .into_iter()
+            .map(SemanticSortRef::Builtin)
+            .collect::<BTreeSet<_>>();
+        let mut parents = BTreeMap::<SemanticSortRef, BTreeSet<SemanticSortRef>>::new();
+        for module in modules {
+            sorts.extend(
+                module
+                    .sorts()
+                    .iter()
+                    .map(|sort| SemanticSortRef::Declared(sort.id().clone())),
+            );
+            for edge in module.subsorts() {
+                sorts.insert(edge.subsort().clone());
+                sorts.insert(edge.supersort().clone());
+                parents
+                    .entry(edge.subsort().clone())
+                    .or_default()
+                    .insert(edge.supersort().clone());
+            }
+            let mut groups = Vec::new();
+            if let Some(configuration) = module.configuration() {
+                group_cells(configuration.cells(), &mut groups);
+            }
+            sorts.extend(groups.into_iter().map(|(_, sort, _)| sort));
+        }
+        let k_item = sorts
+            .iter()
+            .find(|sort| {
+                matches!(sort, SemanticSortRef::Declared(id)
+                    if id.item_name() == "KItem" && id.package().k_namespace() == "KRS-FRAMEWORK")
+            })
+            .cloned();
+        if let Some(k_item) = k_item {
+            for sort in &sorts {
+                if *sort != k_item
+                    && !matches!(
+                        sort,
+                        SemanticSortRef::Builtin(BuiltinSort::KSequence)
+                            | SemanticSortRef::Parameter(_)
+                    )
+                {
+                    parents
+                        .entry(sort.clone())
+                        .or_default()
+                        .insert(k_item.clone());
+                }
+            }
+        }
+        Self { sorts, parents }
+    }
+}
+
 #[derive(Default)]
 struct SortGraph {
     candidates: BTreeSet<SemanticSortRef>,
@@ -299,57 +377,42 @@ struct SortGraph {
 
 impl SortGraph {
     fn from_modules(modules: &[SemanticModule]) -> Self {
-        let mut graph = Self::default();
-        graph
-            .candidates
-            .extend(BuiltinSort::ALL.into_iter().map(SemanticSortRef::Builtin));
-        for module in modules {
-            graph.candidates.extend(
-                module
-                    .sorts()
-                    .iter()
-                    .map(|sort| SemanticSortRef::Declared(sort.id().clone())),
-            );
-            for production in module.productions() {
-                if production.id().item_kind() == ItemKind::Constructor
-                    && !production.attributes().iter().any(|attribute| {
-                        matches!(
-                            attribute,
-                            ProductionAttribute::Function { .. }
-                                | ProductionAttribute::Hook { .. }
-                                | ProductionAttribute::RawHook { .. }
-                                | ProductionAttribute::Memo { .. }
-                                | ProductionAttribute::FreshGenerator { .. }
-                                | ProductionAttribute::Alias { .. }
-                                | ProductionAttribute::Desugar { .. }
-                                | ProductionAttribute::Bracket { .. }
-                        )
-                    })
-                {
-                    graph.free_constructors.insert(production.id().clone());
-                }
-                if let Some(target) =
-                    production
-                        .attributes()
-                        .iter()
-                        .find_map(|attribute| match attribute {
-                            ProductionAttribute::Overload { target, .. } => Some(target),
-                            _ => None,
-                        })
-                {
-                    graph
-                        .overload_roots
-                        .insert(production.id().clone(), target.clone());
-                }
+        let Subsorts { sorts, parents } = Subsorts::of(modules);
+        let mut graph = Self {
+            candidates: sorts,
+            parents,
+            ..Self::default()
+        };
+        for production in modules.iter().flat_map(SemanticModule::productions) {
+            if production.id().item_kind() == ItemKind::Constructor
+                && !production.attributes().iter().any(|attribute| {
+                    matches!(
+                        attribute,
+                        ProductionAttribute::Function { .. }
+                            | ProductionAttribute::Hook { .. }
+                            | ProductionAttribute::RawHook { .. }
+                            | ProductionAttribute::Memo { .. }
+                            | ProductionAttribute::FreshGenerator { .. }
+                            | ProductionAttribute::Alias { .. }
+                            | ProductionAttribute::Desugar { .. }
+                            | ProductionAttribute::Bracket { .. }
+                    )
+                })
+            {
+                graph.free_constructors.insert(production.id().clone());
             }
-            for edge in module.subsorts() {
-                graph.candidates.insert(edge.subsort().clone());
-                graph.candidates.insert(edge.supersort().clone());
+            if let Some(target) =
+                production
+                    .attributes()
+                    .iter()
+                    .find_map(|attribute| match attribute {
+                        ProductionAttribute::Overload { target, .. } => Some(target),
+                        _ => None,
+                    })
+            {
                 graph
-                    .parents
-                    .entry(edge.subsort().clone())
-                    .or_default()
-                    .insert(edge.supersort().clone());
+                    .overload_roots
+                    .insert(production.id().clone(), target.clone());
             }
         }
         for module in modules {
@@ -357,12 +420,10 @@ impl SortGraph {
             if let Some(configuration) = module.configuration() {
                 group_cells(configuration.cells(), &mut groups);
             }
-            for (cell, sort, descendants) in groups {
+            for (cell, _, descendants) in groups {
                 graph.descendants.insert(cell, descendants);
-                graph.candidates.insert(sort);
             }
         }
-        graph.complete_k_item();
         // An anywhere rule rewrites its head wherever it occurs, so that
         // head's applications are not free terms; a head the check cannot
         // name leaves no constructor free.
@@ -389,37 +450,6 @@ impl SortGraph {
         graph.build_closure();
         graph.resolve_overload_roots();
         graph
-    }
-
-    /// Makes every candidate sort but `K` a subsort of `KItem`, as in the
-    /// emitted K: each declared and builtin sort and every generated
-    /// group-cell sort (KF-016), whether or not a subsort sentence says so.
-    fn complete_k_item(&mut self) {
-        let k_item = self
-            .candidates
-            .iter()
-            .find(|sort| {
-                matches!(sort, SemanticSortRef::Declared(id)
-                    if id.item_name() == "KItem" && id.package().k_namespace() == "KRS-FRAMEWORK")
-            })
-            .cloned();
-        let Some(k_item) = k_item else {
-            return;
-        };
-        for sort in &self.candidates {
-            if *sort != k_item
-                && !matches!(
-                    sort,
-                    SemanticSortRef::Builtin(BuiltinSort::KSequence)
-                        | SemanticSortRef::Parameter(_)
-                )
-            {
-                self.parents
-                    .entry(sort.clone())
-                    .or_default()
-                    .insert(k_item.clone());
-            }
-        }
     }
 
     /// Replaces each member's authored target by the root of its chain.
