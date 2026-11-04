@@ -10693,10 +10693,22 @@ fn apply_equation(
 }
 
 /// An equation [`apply_equation`] tries: as written, or renamed apart from the subject, boxed so
-/// that the frames of the recursion through an equation's `requires` do not hold a rule each.
-enum EquationRule<'r> {
+/// that the frames of the recursion through an equation's `requires` do not hold a rule each,
+/// and so that passing it on moves a pointer rather than a whole rule (a `Cow<RewriteRule>`
+/// is as large as a rule, even when it only borrows one).
+pub(crate) enum EquationRule<'r> {
     Written(&'r RewriteRule),
     Renamed(Box<RewriteRule>),
+}
+
+impl EquationRule<'_> {
+    /// The rule itself: the renamed one, or a copy of the written one.
+    pub(crate) fn into_owned(self) -> RewriteRule {
+        match self {
+            EquationRule::Written(rule) => rule.clone(),
+            EquationRule::Renamed(rule) => *rule,
+        }
+    }
 }
 
 impl std::ops::Deref for EquationRule<'_> {
@@ -10773,10 +10785,6 @@ fn instances_to_scan<'r>(
         SetAsideRequires::Unused
     } else {
         set_aside
-    };
-    let rule = match rule {
-        Cow::Borrowed(rule) => EquationRule::Written(rule),
-        Cow::Owned(rule) => EquationRule::Renamed(Box::new(rule)),
     };
     Ok(ControlFlow::Continue((rule, instances, set_aside)))
 }
@@ -11160,10 +11168,10 @@ pub(crate) fn equation_instances<'r>(
     rule: &'r RewriteRule,
     term: &Term,
     known_predicates: &[Predicate],
-) -> (Cow<'r, RewriteRule>, EquationInstances) {
+) -> (EquationRule<'r>, EquationInstances) {
     let rule = match rename_apart(rule, &term.attributes().variables, known_predicates) {
-        Some((renamed, _)) => Cow::Owned(renamed),
-        None => Cow::Borrowed(rule),
+        Some((renamed, _)) => EquationRule::Renamed(Box::new(renamed)),
+        None => EquationRule::Written(rule),
     };
     let (matched, bindings) = match_equation_in_definition(
         definition,
