@@ -160,7 +160,7 @@ impl fmt::Display for RederivationError {
 impl Error for RederivationError {}
 
 /// The sentence key of a semantic rule: the key its Definition IR sentence lowers from.
-fn sentence_key(rule: &SemanticRule) -> &SourceMapKey {
+pub(crate) fn sentence_key(rule: &SemanticRule) -> &SourceMapKey {
     rule.label()
         .map_or(rule.origin(), |label| label.origin())
         .key()

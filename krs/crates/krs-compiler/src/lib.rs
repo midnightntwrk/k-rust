@@ -14,6 +14,7 @@ mod equation_domain;
 mod error;
 mod int_facts;
 mod lowering;
+mod mutant_theory;
 mod overlap;
 pub mod partition;
 mod rederivation;
@@ -39,6 +40,9 @@ pub use emit::{
 };
 pub use error::{AnalysisError, AnalysisErrorKind};
 pub use lowering::{CollisionNamespace, LoweredDefinition, LoweringError, lower_semantic_theory};
+pub use mutant_theory::{
+    MutantTheory, TheoryChanges, TheoryCheckError, TheoryRefusal, rule_sentence_key,
+};
 pub use rederivation::{
     IndexedProduction, KLabelIndex, Rederivation, RederivationError, RederiveFailure, Rederived,
     Site,

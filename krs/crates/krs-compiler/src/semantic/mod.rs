@@ -439,13 +439,54 @@ fn lower_bundle(
         })
     })?;
     let admitted = if retain { modules.clone() } else { Vec::new() };
+    let modules = admit_rules(modules, &declarations, &semantic_sort_parents)?;
+    let pre_derivation = if retain { modules.clone() } else { Vec::new() };
+    let modules = local_functions::lift_local_functions(modules)?;
+    let modules = definedness::guard_conditions(modules)?;
+    let theory = checked_theory(modules)?;
+    Ok(RetainedLowering {
+        pre_derivation,
+        admitted,
+        descriptors: retained_descriptors,
+        sort_parents: if retain {
+            semantic_sort_parents
+        } else {
+            BTreeMap::new()
+        },
+        theory,
+    })
+}
+
+/// The rule-level admission checks and the static rewriting that [`lower_descriptor_bundle`]
+/// applies to the lowered modules after resolution, in its order (the smtlib symbols through the
+/// overlap checks of transitions, equations and match arms): the modules the derivation passes
+/// take, or the first refusal.
+///
+/// `declarations` indexes the descriptors the modules are lowered from and `sort_parents` gives
+/// every sort's subsort parents, as lowering computes them.
+///
+/// # Errors
+///
+/// The first rule-level refusal, as `lower_descriptor_bundle` reports it.
+#[expect(
+    clippy::too_many_lines,
+    reason = "The rule-level checks stay in lowering's fixed order, each error mapped where it is found."
+)]
+pub(crate) fn admit_rules(
+    modules: Vec<SemanticModule>,
+    declarations: &DescriptorIndex<'_>,
+    sort_parents: &BTreeMap<
+        krs_ir_levels::SemanticSortRef,
+        BTreeSet<krs_ir_levels::SemanticSortRef>,
+    >,
+) -> Result<Vec<SemanticModule>, DescriptorLoweringError> {
     smt::check_smtlib_symbols(&modules)?;
     restriction::check_equation_restrictions(&modules)?;
     or_positions::check_or_pattern_positions(&modules)?;
     list_patterns::check_list_patterns(&modules)?;
     restriction::check_smt_lemmas(&modules)?;
     result_sorts::check_result_sorts(&modules)?;
-    let modules = statics::static_clauses(modules, &semantic_sort_parents)?;
+    let modules = statics::static_clauses(modules, sort_parents)?;
     visibility::check_proof_visibility(&modules)?;
     spec_modules::check_spec_lemmas(&modules)?;
     spec_modules::check_spec_identifiers(&modules)?;
@@ -549,21 +590,28 @@ fn lower_bundle(
             second_head_range: range,
         });
     }
-    let pre_derivation = if retain { modules.clone() } else { Vec::new() };
-    let modules = local_functions::lift_local_functions(modules)?;
-    let modules = definedness::guard_conditions(modules)?;
-    let theory = checked_theory(modules)?;
-    Ok(RetainedLowering {
-        pre_derivation,
-        admitted,
-        descriptors: retained_descriptors,
-        sort_parents: if retain {
-            semantic_sort_parents
-        } else {
-            BTreeMap::new()
-        },
-        theory,
-    })
+    Ok(modules)
+}
+
+/// The checks [`lower_descriptor_bundle`] makes of each rule sentence alone before resolution
+/// (a fresh binder's generator, a heat or cool rule's hole), then [`admit_rules`]: every check of
+/// lowering that reads a rule sentence of the lowered modules, in lowering's order. The other
+/// checks before resolution read only declarations and descriptors.
+///
+/// # Errors
+///
+/// The first refusal, as `lower_descriptor_bundle` reports it.
+pub(crate) fn admit_sentences(
+    modules: Vec<SemanticModule>,
+    declarations: &DescriptorIndex<'_>,
+    sort_parents: &BTreeMap<
+        krs_ir_levels::SemanticSortRef,
+        BTreeSet<krs_ir_levels::SemanticSortRef>,
+    >,
+) -> Result<Vec<SemanticModule>, DescriptorLoweringError> {
+    fresh::check_fresh_generators(&modules)?;
+    evaluation::check_evaluation_steps(&modules)?;
+    admit_rules(modules, declarations, sort_parents)
 }
 
 /// The theory of `modules`, after the semantic theory's validation.
@@ -652,7 +700,7 @@ fn uses_framework(modules: &[SemanticModule]) -> bool {
 /// Whether a serialized IR value names an item of the framework package
 /// outside provenance: an item identity serializes with its `package`, whose
 /// `k_namespace` is the framework's.
-fn names_framework_item(value: &serde_json::Value) -> bool {
+pub(crate) fn names_framework_item(value: &serde_json::Value) -> bool {
     match value {
         serde_json::Value::Object(fields) => fields.iter().any(|(key, field)| {
             key != "origin"

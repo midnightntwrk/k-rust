@@ -41,6 +41,13 @@ pub fn info(spelling: &str) -> Option<&'static CodeInfo> {
     REGISTRY.iter().find(|info| info.code.as_str() == spelling)
 }
 
+/// The registered spelling equal to `spelling`, borrowed from the registry for the life of the
+/// program: the form a caller keeps when it names a condition by its code in a `&'static str`.
+#[must_use]
+pub fn static_spelling(spelling: &str) -> Option<&'static str> {
+    info(spelling).map(|info| info.code.as_str())
+}
+
 macro_rules! code_kind {
     () => {
         crate::codes::CodeKind::Author
