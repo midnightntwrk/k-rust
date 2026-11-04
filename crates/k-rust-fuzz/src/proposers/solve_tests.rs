@@ -260,10 +260,39 @@ fn query(rule: &str, case: Vec<Value>, symbolic: Vec<usize>) -> Query {
     }
 }
 
+/// The Z3 whose search decides `c7` within the solve budgets: [`SOLVE_RUN_RESOURCE_UNITS`],
+/// [`SOLVE_MODEL_RESOURCE_UNITS`] and their retries were measured on `c7` with it (the module
+/// documentation of the solve proposer).
+///
+/// Builds spell `Z3_get_full_version` differently (`Z3 4.16.0.0`, `4.12.5.0`), so the version is
+/// compared without the `Z3 ` prefix and with any further component after its patch number.
+const MEASURED_Z3: &str = "4.16.0";
+
+/// Fail, saying why, when this build links another Z3 than [`MEASURED_Z3`].
+///
+/// Resource units are counted by Z3's own search, so whether `c7`'s rule condition and its model
+/// are decided within the budgets is a property of the linked version, not of the proposer: with
+/// another version the run may keep the condition undecided and report `no_path`, which would
+/// read as a defect of the proposer. A test whose expected answer is `c7`'s factorization found
+/// within the budgets calls this first; one whose answer holds whatever the solver decides does
+/// not.
+fn assert_measured_z3() {
+    let linked = k_rust::backend::z3_version().unwrap_or("none");
+    let version = linked.strip_prefix("Z3 ").unwrap_or(linked);
+    assert!(
+        version == MEASURED_Z3 || version.starts_with(&format!("{MEASURED_Z3}.")),
+        "this test expects c7 decided within the solve budgets, which were measured with Z3 \
+         {MEASURED_Z3}; this build links Z3 {version}: build with that Z3 (`--features \
+         z3-gh-release` downloads it), or re-measure the budgets with Z3 {version} and update \
+         this expectation"
+    );
+}
+
 /// The nonlinear `c7` (`H * I == 2021027`, `1 < H < I`; 2021027 is 1009 times 2003, both
 /// prime): the model is the factorization, and the hole the guard does not read keeps its value.
 #[test]
 fn a_query_solves_the_nonlinear_guard_of_c7() {
+    assert_measured_z3();
     let mut solve = proposer(maze_spec(8, 9, "MAZE.c7"), Constraints::default());
     let candidate = solve
         .ask(&query("MAZE.c7", values((1, 7, 1050), 8, 9), vec![3, 4]))
@@ -443,6 +472,7 @@ fn the_proposer_asks_after_a_stall_never_twice_and_moves_on() {
         exec::OutcomeClass,
         score::{Blocked, Distance, Guard, Level},
     };
+    assert_measured_z3();
     let mut solve = proposer(maze_spec(8, 9, "MAZE.c7"), Constraints::default());
     let blocked = Observation {
         case: 0,
