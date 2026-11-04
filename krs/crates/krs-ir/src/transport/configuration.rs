@@ -597,6 +597,18 @@ protocol_shape! {
             /// Structured leaf state.
             value: T => [term_map],
         },
+        /// A leaf whose wrapper the declared cell's kind decides, not the spelling: a
+        /// bracketed value, `[a, b]`, which is the computation's items on a computation cell
+        /// and the list of its items on a list cell. The macro sees tokens only, so it cannot
+        /// say which; only a host descriptor holds one, and the collector decides it against
+        /// the declared kind, writing the [`Self::Leaf`] it is, before anything reads its
+        /// wrapper. A stable descriptor holds none.
+        NeutralLeaf {
+            /// Exact provenance of the value, which stands for the constructor.
+            constructor_key: ProvenanceKey => [keep],
+            /// The bracketed value as written: a list-notation term.
+            value: T => [term_map],
+        },
         /// Complete nominal nested-cell struct literal.
         Nested {
             /// Exact constructor reference.
@@ -1108,6 +1120,13 @@ trait ConfigurationValidationStage: ValidationStage {
     ) -> bool;
     /// Descriptor nested owners are stable identities; host nested owners are Rust type keys.
     fn nested_owner(declaration: &Self::CellDeclaration) -> Self::InitializerOwner;
+    /// Whether the stage holds kind-neutral initializer leaves: the host's, which the macro
+    /// writes and the collector decides; a stable descriptor holds decided leaves only.
+    const NEUTRAL_LEAVES: bool;
+    /// Whether `term` is bracket list notation, the term a decided neutral leaf holds on a
+    /// computation cell. A host term never stands there: the collector decides a neutral leaf
+    /// after host validation, and a host `KCell` leaf holds a `k!` sequence.
+    fn is_list_notation(term: &Term<Self>) -> bool;
 }
 
 impl ConfigurationValidationStage for DescriptorStage {
@@ -1228,6 +1247,23 @@ impl ConfigurationValidationStage for DescriptorStage {
     fn nested_owner(declaration: &DescriptorCellDeclarationReference) -> StableItemId {
         declaration.declaration.clone()
     }
+
+    const NEUTRAL_LEAVES: bool = false;
+
+    fn is_list_notation(term: &Term<Self>) -> bool {
+        matches!(
+            term,
+            Term::Application {
+                reference: crate::DescriptorApplicationReference {
+                    application: crate::DescriptorApplicationRef::ListNotation(
+                        crate::ListNotation::Cons | crate::ListNotation::Empty
+                    ),
+                    ..
+                },
+                ..
+            }
+        )
+    }
 }
 
 impl ConfigurationValidationStage for HostStage {
@@ -1327,6 +1363,12 @@ impl ConfigurationValidationStage for HostStage {
 
     fn nested_owner(declaration: &HostCellDeclarationReference) -> HostTypeKey {
         declaration.declaration.key
+    }
+
+    const NEUTRAL_LEAVES: bool = true;
+
+    fn is_list_notation(_: &Term<Self>) -> bool {
+        false
     }
 }
 
@@ -1643,7 +1685,30 @@ fn validate_initializer_cell<S: ConfigurationValidationStage>(
             || matches!(declared, Some(ProtocolCellContent::Leaf { wrapper: declared_wrapper, .. }) if wrapper == declared_wrapper) =>
         {
             keys.define(constructor_key, ProvenanceRole::InitializerCellConstructor)?;
-            validate_wrapper_state(*wrapper, value)?;
+            validate_wrapper_state::<S>(*wrapper, value)?;
+            validate_state_term::<S>(value, bindings, keys)
+        }
+        // A neutral leaf states no wrapper, so it cannot disagree with its declaration: the
+        // declared kind decides it, and the collector's admission judges its spelling against
+        // that kind, so no wrapper agreement is asked of it here.
+        (
+            ProtocolInitializerCellContent::NeutralLeaf {
+                constructor_key,
+                value,
+            },
+            _,
+        ) => {
+            if !S::NEUTRAL_LEAVES {
+                return Err(StateTransportError::InvalidCellContent(
+                    StateCellContentReason::UndecidedInitializerLeaf,
+                ));
+            }
+            if !matches!(value, ProtocolInitializerStateTerm::Term(_)) {
+                return Err(StateTransportError::InvalidCellContent(
+                    StateCellContentReason::NeutralLeafNotTerm,
+                ));
+            }
+            keys.define(constructor_key, ProvenanceRole::InitializerCellConstructor)?;
             validate_state_term::<S>(value, bindings, keys)
         }
         (
@@ -1692,9 +1757,9 @@ fn validate_nested_children<S: ConfigurationValidationStage>(
     Ok(())
 }
 
-fn validate_wrapper_state<T>(
+fn validate_wrapper_state<S: ConfigurationValidationStage>(
     wrapper: CellWrapper,
-    value: &ProtocolInitializerStateTerm<T>,
+    value: &ProtocolInitializerStateTerm<Term<S>>,
 ) -> Result<(), StateTransportError> {
     match (wrapper, value) {
         (CellWrapper::KCell, ProtocolInitializerStateTerm::KSequence(_))
@@ -1702,6 +1767,13 @@ fn validate_wrapper_state<T>(
             CellWrapper::Cell,
             ProtocolInitializerStateTerm::Term(_) | ProtocolInitializerStateTerm::Map(_),
         ) => Ok(()),
+        // A computation given by brackets, a neutral leaf the collector decided: the sequence
+        // of the bracket's items. A computation is given no other term.
+        (CellWrapper::KCell, ProtocolInitializerStateTerm::Term(term))
+            if S::is_list_notation(&term.term) =>
+        {
+            Ok(())
+        }
         _ => Err(StateTransportError::InvalidCellContent(
             StateCellContentReason::WrapperAndInitializerStateFamilyDisagree,
         )),

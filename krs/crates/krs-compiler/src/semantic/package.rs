@@ -595,7 +595,8 @@ fn collect_initializer_cell_packages(
 ) {
     packages.insert(cell.field.cell.owner.package().clone());
     match &cell.content {
-        ProtocolInitializerCellContent::Leaf { value, .. } => {
+        ProtocolInitializerCellContent::Leaf { value, .. }
+        | ProtocolInitializerCellContent::NeutralLeaf { value, .. } => {
             collect_initializer_state_packages(value, packages);
         }
         ProtocolInitializerCellContent::Nested {

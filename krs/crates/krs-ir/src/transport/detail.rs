@@ -94,6 +94,8 @@ details! {
         InvalidStandaloneDotKShell => "standalone .K has an invalid shell",
         InvalidStandaloneDotKPayload => "standalone .K must be empty",
         WrapperAndInitializerStateFamilyDisagree => "wrapper and initializer state family disagree",
+        NeutralLeafNotTerm => "a kind-neutral initializer leaf holds one term",
+        UndecidedInitializerLeaf => "a kind-neutral initializer leaf reached a stable descriptor undecided",
         MissingConfigurationHostOwner => "fixed configuration lacks a nominal host owner",
         MissingNestedCellHostOwner => "nested cell declaration lacks a nominal host owner",
         InvalidGroupCellEntry => "a nested cell entry is a binder, `_`, or fragment!",

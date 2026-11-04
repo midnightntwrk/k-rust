@@ -897,3 +897,86 @@ fn an_initializer_term_scopes_the_names_of_its_local_patterns() {
         Ok(())
     );
 }
+
+/// A neutral leaf: a host leaf whose wrapper the declared kind decides, here written on a
+/// declared `Cell` leaf, which it may stand on as it may on any other declared content.
+fn neutral<S: Stage>(cell: StageInitializerCell<S>) -> StageInitializerCell<S> {
+    let ProtocolInitializerCellContent::Leaf {
+        constructor_key,
+        value,
+        ..
+    } = cell.content
+    else {
+        unreachable!("the helper's cell is a leaf");
+    };
+    ProtocolInitializerCell {
+        content: ProtocolInitializerCellContent::NeutralLeaf {
+            constructor_key,
+            value,
+        },
+        ..cell
+    }
+}
+
+#[test]
+fn a_neutral_leaf_is_a_host_form_only_and_a_decided_computation_term_is_list_notation() {
+    let host = fixed_configuration::<HostStage>(
+        type_key::<Owner>(),
+        declaration::<HostStage>(
+            host_reference(ProvenanceRole::ConfigurationField),
+            host_sort(ProvenanceRole::ConfigurationCellContent),
+        ),
+        neutral::<HostStage>(initializer_cell::<HostStage>(host_reference(
+            ProvenanceRole::InitializerField,
+        ))),
+    );
+    assert_eq!(host.validate(type_key::<Owner>()), Ok(()));
+
+    let stable = |cell| {
+        fixed_configuration::<DescriptorStage>(
+            item(ItemKind::Configuration),
+            declaration::<DescriptorStage>(
+                descriptor_reference(ProvenanceRole::ConfigurationField),
+                descriptor_sort(ProvenanceRole::ConfigurationCellContent),
+            ),
+            cell,
+        )
+        .validate(&item(ItemKind::Configuration))
+    };
+    let cell = || {
+        initializer_cell::<DescriptorStage>(descriptor_reference(ProvenanceRole::InitializerField))
+    };
+    assert_eq!(
+        stable(neutral::<DescriptorStage>(cell())),
+        Err(StateTransportError::InvalidCellContent(
+            StateCellContentReason::UndecidedInitializerLeaf
+        ))
+    );
+    // A computation holds a `k!` sequence, or a bracket term a decided neutral leaf gives it;
+    // a literal is neither.
+    let mut literal = cell();
+    if let ProtocolInitializerCellContent::Leaf { wrapper, .. } = &mut literal.content {
+        *wrapper = CellWrapper::KCell;
+    }
+    assert!(DescriptorStage::is_list_notation(&Term::Application {
+        head_class: crate::transport::grammar::DescriptorApplicationHeadClass::Applied,
+        reference: DescriptorApplicationReference {
+            key: key(ProvenanceRole::InitializerTermPath),
+            application: DescriptorApplicationRef::ListNotation(crate::ListNotation::Empty),
+        },
+        path_key: key(ProvenanceRole::InitializerTermPath),
+        arguments: crate::transport::grammar::Arguments::default(),
+        instance: Vec::new(),
+        update: None,
+        open: false,
+    }));
+    let ProtocolInitializerCellContent::Leaf { value, .. } = &literal.content else {
+        unreachable!("the helper's cell is a leaf");
+    };
+    assert_eq!(
+        validate_wrapper_state::<DescriptorStage>(CellWrapper::KCell, value),
+        Err(StateTransportError::InvalidCellContent(
+            StateCellContentReason::WrapperAndInitializerStateFamilyDisagree
+        ))
+    );
+}

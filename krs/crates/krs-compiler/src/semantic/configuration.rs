@@ -774,7 +774,9 @@ fn initializer_typing(
     ) -> Result<(), DescriptorLoweringError> {
         for cell in cells {
             match &cell.content {
-                ProtocolInitializerCellContent::Leaf { value, .. } => {
+                // A stable descriptor holds no neutral leaf (its validation refuses one).
+                ProtocolInitializerCellContent::Leaf { value, .. }
+                | ProtocolInitializerCellContent::NeutralLeaf { value, .. } => {
                     let ty =
                         walker.cell_type(require_cell_field(&cell.field.cell, declarations)?)?;
                     match value {

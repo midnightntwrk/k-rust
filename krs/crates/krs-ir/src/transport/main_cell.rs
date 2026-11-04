@@ -131,7 +131,10 @@ impl<S: Stage> FixedConfiguration<S> {
                         value,
                         ..
                     } => found.push((field, main.is_some_and(|main| state_reads(value, main)))),
-                    ProtocolInitializerCellContent::Leaf { .. } => {}
+                    // An undecided neutral leaf is no computation cell: the collector
+                    // decides each one on a computation cell before reading the main cell.
+                    ProtocolInitializerCellContent::Leaf { .. }
+                    | ProtocolInitializerCellContent::NeutralLeaf { .. } => {}
                     ProtocolInitializerCellContent::Nested { children, .. } => {
                         leaves::<S>(children, main, found);
                     }
