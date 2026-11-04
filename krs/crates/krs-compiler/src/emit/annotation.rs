@@ -92,6 +92,23 @@ impl SentenceSource {
     pub const fn is_claim_helper(&self) -> bool {
         self.claim_helper
     }
+
+    /// The item as the `// KRS` line names it after the file: `<item>[, branch <b>][, local
+    /// function]`, the claim helper's mark left out ([`Self::is_claim_helper`] tells it). A
+    /// report that names the sentence uses this spelling, so it names the sentence as the K
+    /// does.
+    #[must_use]
+    pub fn item_spelling(&self) -> String {
+        let mut spelling = self.item.clone();
+        if let Some(branch) = &self.branch {
+            spelling.push_str(", branch ");
+            spelling.push_str(branch);
+        }
+        if self.local_function {
+            spelling.push_str(", local function");
+        }
+        spelling
+    }
 }
 
 /// `// KRS <package>/<file>: <item>[, branch <b>][, local function][ (claim helper: only
@@ -101,14 +118,10 @@ impl fmt::Display for SentenceSource {
         write!(
             formatter,
             "// KRS {}/{}: {}",
-            self.package, self.file, self.item
+            self.package,
+            self.file,
+            self.item_spelling()
         )?;
-        if let Some(branch) = &self.branch {
-            write!(formatter, ", branch {branch}")?;
-        }
-        if self.local_function {
-            formatter.write_str(", local function")?;
-        }
         if self.claim_helper {
             formatter.write_str(" (claim helper: only claims apply it)")?;
         }
