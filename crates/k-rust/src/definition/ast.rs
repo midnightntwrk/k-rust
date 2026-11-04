@@ -40,10 +40,10 @@ pub struct Location {
 #[derive(Default)]
 pub struct Attributes {
     entries: BTreeMap<String, Value>,
-    // The well-known keys `entries` holds, one bit each (`AttributeKey::from_name`): a key's bit
-    // is set exactly when `entries` has the key's spelling, so a well-known key that is absent
-    // is answered without searching the map. Every write of `entries` goes through `new`,
-    // `insert` and `remove`, which keep it.
+    // A one-word summary of the well-known keys `entries` holds (`AttributeKey::from_name`):
+    // every held key's bit is set, so a key whose bit is clear is absent and is answered without
+    // searching the map; a set bit may be shared with another key and only sends the lookup to
+    // the map. Every write of `entries` goes through `new`, `insert` and `remove`, which keep it.
     present: KeySet,
     // Generated receipts can contain a module-wide origin set and must remain cheap to carry
     // through the definition clones made by the kompile pipeline; the structured receipt shares
@@ -98,11 +98,14 @@ impl PartialEq for Attributes {
 
 impl Eq for Attributes {}
 
-/// A set of well-known attribute keys, one bit per key in declaration order.
+/// A superset of the well-known attribute keys a map holds: key `k` sets bit `k mod 64`.
+///
+/// One word rather than one bit per key (147 keys would take three words) because every sentence
+/// carries an `Attributes`, so each word is resident once per sentence for the whole compile. A
+/// sentence holds a handful of keys, so a lookup of an absent key is still almost always answered
+/// by a clear bit.
 #[derive(Clone, Copy, Default)]
-struct KeySet([u64; KEY_WORDS]);
-
-const KEY_WORDS: usize = AttributeKey::ALL.len().div_ceil(64);
+struct KeySet(u64);
 
 impl KeySet {
     fn of_entries(entries: &BTreeMap<String, Value>) -> Self {
@@ -114,22 +117,35 @@ impl KeySet {
     }
 
     #[inline]
-    fn contains(self, key: AttributeKey) -> bool {
-        let index = key as usize;
-        self.0[index / 64] & (1 << (index % 64)) != 0
+    fn bit(key: AttributeKey) -> u64 {
+        1 << (key as usize % 64)
+    }
+
+    /// Whether `key` may be held; `false` means it is not.
+    #[inline]
+    fn may_contain(self, key: AttributeKey) -> bool {
+        self.0 & Self::bit(key) != 0
     }
 
     fn note_inserted(&mut self, name: &str) {
         if let Some(key) = AttributeKey::from_name(name) {
-            let index = key as usize;
-            self.0[index / 64] |= 1 << (index % 64);
+            self.0 |= Self::bit(key);
         }
     }
 
-    fn note_removed(&mut self, name: &str) {
+    /// Restores the summary after `name` left `entries`: its bit is cleared unless a remaining key
+    /// shares it.
+    fn note_removed(&mut self, name: &str, entries: &BTreeMap<String, Value>) {
         if let Some(key) = AttributeKey::from_name(name) {
-            let index = key as usize;
-            self.0[index / 64] &= !(1 << (index % 64));
+            let bit = Self::bit(key);
+            if self.0 & bit != 0
+                && !entries
+                    .keys()
+                    .filter_map(|name| AttributeKey::from_name(name))
+                    .any(|other| Self::bit(other) == bit)
+            {
+                self.0 &= !bit;
+            }
         }
     }
 }
@@ -189,7 +205,7 @@ impl Attributes {
         {
             attributes
                 .present
-                .note_removed(AttributeKey::InputAddresses.as_str());
+                .note_removed(AttributeKey::InputAddresses.as_str(), &attributes.entries);
             attributes.insert(AttributeKey::InputAddresses.as_str(), value);
         }
         attributes
@@ -299,7 +315,7 @@ impl Attributes {
             AttributeKey::InputAddresses if self.inputs.is_some() => {
                 self.inputs.as_deref().map(InputAddresses::value)
             }
-            key if self.present.contains(key) => self.entries.get(key.as_str()),
+            key if self.present.may_contain(key) => self.entries.get(key.as_str()),
             _ => None,
         }
     }
@@ -337,7 +353,7 @@ impl Attributes {
                 .take()
                 .map(|inputs| inputs.value().clone())
                 .or_else(|| self.entries.remove(&key));
-            self.present.note_removed(&key);
+            self.present.note_removed(&key, &self.entries);
             match InputAddresses::from_value(&value) {
                 Some(inputs) => self.inputs = Some(Arc::new(inputs)),
                 None => {
@@ -358,8 +374,9 @@ impl Attributes {
         } else if key == AttributeKey::InputAddresses.as_str() && self.inputs.is_some() {
             self.inputs.take().map(|inputs| inputs.value().clone())
         } else {
-            self.present.note_removed(key);
-            self.entries.remove(key)
+            let removed = self.entries.remove(key);
+            self.present.note_removed(key, &self.entries);
+            removed
         }
     }
 
