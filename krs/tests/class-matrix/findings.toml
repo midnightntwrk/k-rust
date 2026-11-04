@@ -157,7 +157,7 @@ what = "an entry naming a cell below a `?` or `*` ancestor by its path (readable
 ["S5-U1"]
 owner = "S5"
 kind = "bug"
-what = "an initializer's record update on a group or a collection-of-group cell (`frame: G { a: 0, ..base }`, an instance template `Gl { la: 0, ..base }`) is refused `krs::syntax::unsupported-initializer-body` (\"nested cell initialization requires a complete plain struct literal\"), though P5 reads `..base` as the base the record updates, so the record names its fields through it and uses the configuration variable (S5.0g item 3a fixes, ruling 2 and F-1); on a leaf stack the same refusal stands where the lattice's sort class is the answer"
+what = "an initializer's record update on a group or a collection-of-group cell (`frame: G { a: 0, ..base }`, an instance template `Gl { la: 0, ..base }`) is refused `krs::syntax::unsupported-initializer-body` (\"nested cell initialization requires a complete plain struct literal\"), though P5 reads `..base` as the base the record updates, so the record names its fields through it and uses the configuration variable (S5.0g item 3a fixes, ruling 2 and F-1); on a leaf stack the same refusal stands where the lattice's sort class is the answer. Deferred (ruling R-N2, 2026-11-05): its lowering needs a projection out of `base` for each child the record leaves unnamed, which rests on a question the principles do not settle: may a `*` collection's instance template read a configuration variable? No real code writes `..base`"
 
 ["S5-V2"]
 owner = "S5"
