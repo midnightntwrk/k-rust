@@ -21,6 +21,17 @@
 //! a configuration), so no Rust item is its author, and it is left as kink-flow names it; the
 //! embedded k-rust-fuzz reports of a `fuzz` document are kink-flow's evidence and are left so.
 //!
+//! A mutation a command refuses before running it (a run row of status `invalid-mutation`, a check
+//! row's refusal with no `rule`) names its offending edit by index (`edit`), and a refusal of a
+//! stale anchor, such as `find-not-found` after the specification changed the text the edit
+//! replaces, names the rule only inside its `detail`, by its label. Where the edit's anchor alone
+//! (its `rule` and `line`, without the text it finds) still names one rule of the baseline, the
+//! front end names that rule as resolution's first step addresses it: `anchor`
+//! (`{module, index, label}`) on the run row and `rule` on the check row's refusal, each with its
+//! `krs` object as above, so that a stale patch is reported with the KRS item and the Rust position
+//! its anchor names, whatever the rule's label spells. An edit anchored by the text it finds alone
+//! names no rule once that text is gone, and is left as kink-flow reports it.
+//!
 //! The table and the K are the same emission, so a labelled baseline rule with no table entry
 //! means the front end cannot name it: such rules are listed under the document's
 //! `krs.unnamed_rules` rather than named by a guess. That holds only of a document of this
@@ -28,13 +39,22 @@
 //! (and named), does not annotate it again.
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use kink_flow::{FlowManifest, RuleRef};
+use kink_flow::{EditAction, EditSpec, FlowManifest, MutationList, RuleRef};
+use serde_json::{Map, Value, json};
 
 /// The labels of the loaded definition's rules by `(module, index)`.
 type LoadedLabels = BTreeMap<(String, u32), String>;
-use serde_json::{Map, Value, json};
+
+/// The rule each edit of each listed mutation names by its anchor alone, by mutation id and then
+/// by edit index: the sentence's module and index and its label, `None` for an edit whose anchor
+/// names no one rule.
+type Anchors = BTreeMap<String, Vec<Option<Anchor>>>;
+
+/// A rule an anchor names: its module, its index in the module and its label.
+type Anchor = (String, u32, Option<String>);
 
 use crate::{EmittedDefinition, EmittedRule};
 
@@ -86,30 +106,69 @@ pub(crate) struct Annotator {
     /// document object that names a sentence without its label, when no other object of the
     /// document gives it.
     loaded_labels: OnceLock<LoadedLabels>,
+    /// Reads the anchors of the command's mutation list, for [`Self::anchors`].
+    load_anchors: Box<dyn Fn() -> Anchors + Send + Sync>,
+    /// The anchors of the command's mutation list, read on first need: a row of a mutation the
+    /// command refused, which names its offending edit.
+    anchors: OnceLock<Anchors>,
 }
 
 impl Annotator {
     /// The annotator of `emitted`'s documents on the corpus `manifest` binds, which loads the
-    /// emitted definition when a document names a sentence by position alone.
-    pub(crate) fn new(emitted: &EmittedDefinition, manifest: FlowManifest) -> Self {
-        Self::from_rules(&emitted.rules, move || {
-            let source = kink_flow::admit::corpus_source(&manifest);
-            kink_corpus::load_source(&source)
-                .map(|loaded| {
-                    kink_flow::rule_texts(&manifest, &loaded)
-                        .into_iter()
-                        .filter_map(|text| Some(((text.at.module, text.at.index), text.label?)))
-                        .collect()
-                })
-                .unwrap_or_default()
-        })
+    /// emitted definition when a document names a sentence by position alone, and, when a
+    /// document refuses a mutation of the list at `mutations` (the command's), the edits'
+    /// anchors.
+    pub(crate) fn new(
+        emitted: &EmittedDefinition,
+        manifest: FlowManifest,
+        mutations: Option<PathBuf>,
+    ) -> Self {
+        let anchored = manifest.clone();
+        Self::from_rules(
+            &emitted.rules,
+            move || {
+                let source = kink_flow::admit::corpus_source(&manifest);
+                kink_corpus::load_source(&source)
+                    .map(|loaded| {
+                        kink_flow::rule_texts(&manifest, &loaded)
+                            .into_iter()
+                            .filter_map(|text| Some(((text.at.module, text.at.index), text.label?)))
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            },
+            move || {
+                let Some(list) = mutations
+                    .as_deref()
+                    .and_then(|path| MutationList::read(path).ok())
+                else {
+                    return Anchors::new();
+                };
+                let source = kink_flow::admit::corpus_source(&anchored);
+                let Ok(loaded) = kink_corpus::load_source(&source) else {
+                    return Anchors::new();
+                };
+                list.mutations
+                    .iter()
+                    .map(|mutation| {
+                        let anchors = mutation
+                            .edits
+                            .iter()
+                            .map(|edit| anchored_rule(&anchored, &loaded, edit))
+                            .collect();
+                        (mutation.id.clone(), anchors)
+                    })
+                    .collect()
+            },
+        )
     }
 
     /// The annotator of the table `rules`, reading the loaded definition's labels with
-    /// `load_labels` on first need.
+    /// `load_labels` and the mutation list's anchors with `load_anchors`, each on first need.
     fn from_rules(
         rules: &[EmittedRule],
         load_labels: impl Fn() -> LoadedLabels + Send + Sync + 'static,
+        load_anchors: impl Fn() -> Anchors + Send + Sync + 'static,
     ) -> Self {
         let mut by_qualified = BTreeMap::new();
         let mut by_label = BTreeMap::new();
@@ -123,6 +182,8 @@ impl Annotator {
             by_label,
             load_labels: Box::new(load_labels),
             loaded_labels: OnceLock::new(),
+            load_anchors: Box::new(load_anchors),
+            anchors: OnceLock::new(),
         }
     }
 
@@ -147,9 +208,56 @@ impl Annotator {
             .cloned()
     }
 
+    /// The rule edit `edit` of the mutation `id` names by its anchor alone, as a document object
+    /// names a sentence.
+    fn anchor(&self, id: &str, edit: u64) -> Option<Value> {
+        let anchors = self.anchors.get_or_init(|| (self.load_anchors)());
+        let edit = usize::try_from(edit).ok()?;
+        let (module, index, label) = anchors.get(id)?.get(edit)?.as_ref()?;
+        Some(json!({"module": module, "index": index, "label": label}))
+    }
+
+    /// Name the rule of each refused mutation's offending edit by its anchor (module
+    /// documentation): a run row's `anchor`, a check row's refusal's `rule` where it has none.
+    fn anchor_refused_edits(&self, document: &mut Value) {
+        let Some(Value::Array(rows)) = document.get_mut("mutations") else {
+            return;
+        };
+        for row in rows {
+            let Some(row) = row.as_object_mut() else {
+                continue;
+            };
+            let Some(id) = row.get("id").and_then(Value::as_str).map(str::to_owned) else {
+                continue;
+            };
+            let edit_of = |object: &Map<String, Value>| object.get("edit").and_then(Value::as_u64);
+            if row.get("status").and_then(Value::as_str)
+                == Some(kink_flow::search::INVALID_MUTATION)
+                && !row.contains_key("anchor")
+                && let Some(anchor) = edit_of(row).and_then(|edit| self.anchor(&id, edit))
+            {
+                row.insert("anchor".into(), anchor);
+            }
+            if let Some(Value::Array(refusals)) = row.get_mut("refusals") {
+                for refusal in refusals {
+                    let Some(refusal) = refusal.as_object_mut() else {
+                        continue;
+                    };
+                    if refusal.get("rule") == Some(&Value::Null)
+                        && let Some(anchor) =
+                            edit_of(refusal).and_then(|edit| self.anchor(&id, edit))
+                    {
+                        refusal.insert("rule".into(), anchor);
+                    }
+                }
+            }
+        }
+    }
+
     /// Add the KRS names to every rule `document` names (module documentation). Applying it
     /// twice gives what applying it once does.
     pub(crate) fn annotate(&self, document: &mut Value) {
+        self.anchor_refused_edits(document);
         let mut unnamed = Vec::new();
         kink_flow::visit_rules(document, &mut |rule: &RuleRef, object| {
             let label = rule
@@ -249,6 +357,24 @@ impl Annotator {
     }
 }
 
+/// The rule `edit` names by its anchor alone, its `rule` and `line` without the text it finds:
+/// `None` for an edit anchored by that text alone, or whose anchor names no one rule.
+fn anchored_rule(
+    manifest: &FlowManifest,
+    loaded: &kink_corpus::LoadedSource,
+    edit: &EditSpec,
+) -> Option<Anchor> {
+    if edit.rule.is_none() && edit.line.is_none() {
+        return None;
+    }
+    let anchor = EditSpec {
+        action: EditAction::Delete,
+        ..edit.clone()
+    };
+    let (at, label) = kink_flow::addressed_rule(manifest, loaded, &anchor)?;
+    Some((at.module, at.index, label))
+}
+
 #[cfg(test)]
 mod tests {
     use super::Annotator;
@@ -272,6 +398,8 @@ mod tests {
 
     /// The annotator of the story's two equations; the loaded definition's labels name the
     /// sentence `NAT#7` `nat--plus_succ`.
+    /// The mutation list's anchors name, for `plus/c`, edit 0 by its rule `NAT#7` and edit 1 by
+    /// nothing (an edit anchored by the text it finds alone).
     fn annotator() -> Annotator {
         Annotator::from_rules(
             &[
@@ -279,6 +407,15 @@ mod tests {
                 rule("nat--plus_succ", "plus_succ", 38),
             ],
             || BTreeMap::from([(("NAT".to_owned(), 7), "nat--plus_succ".to_owned())]),
+            || {
+                BTreeMap::from([(
+                    "plus/c".to_owned(),
+                    vec![
+                        Some(("NAT".to_owned(), 7, Some("nat--plus_succ".to_owned()))),
+                        None,
+                    ],
+                )])
+            },
         )
     }
 
@@ -341,6 +478,42 @@ mod tests {
             document["krs"],
             json!({"unnamed_rules": [{"sentence": "NAT#9", "label": "nat--gone"}]})
         );
+        let once = document.clone();
+        annotator.annotate(&mut document);
+        assert_eq!(document, once);
+    }
+
+    /// A refused mutation's offending edit is named by the rule its anchor names, with its item:
+    /// on a run row as `anchor`, on a check row's refusal as its `rule`.
+    #[test]
+    fn a_refused_edit_is_named_by_its_anchor() {
+        let stale = |edit: u64| {
+            json!({
+                "id": "plus/c",
+                "status": "invalid-mutation",
+                "reason": "find-not-found",
+                "edit": edit,
+                "refusals": [
+                    {"reason": "find-not-found", "edit": edit, "rule": null},
+                    {"reason": "generated-only", "edit": edit, "rule": {"module": "NAT", "index": 3, "label": "nat--plus_zero"}},
+                ],
+            })
+        };
+        let mut document = json!({
+            "mutations": [stale(0), stale(1), {"id": "plus/a", "status": "killed", "edit": 0}],
+        });
+        let annotator = annotator();
+        annotator.annotate(&mut document);
+        let rows = &document["mutations"];
+        assert_eq!(item(&rows[0]["anchor"]), "plus_succ");
+        assert_eq!(rows[0]["anchor"]["label"], "nat--plus_succ");
+        assert_eq!(item(&rows[0]["refusals"][0]["rule"]), "plus_succ");
+        // A refusal that names its rule keeps it.
+        assert_eq!(item(&rows[0]["refusals"][1]["rule"]), "plus_zero");
+        // An edit whose anchor names no rule, and a mutation that ran, gain nothing.
+        assert!(rows[1].get("anchor").is_none());
+        assert_eq!(rows[1]["refusals"][0]["rule"], Value::Null);
+        assert!(rows[2].get("anchor").is_none());
         let once = document.clone();
         annotator.annotate(&mut document);
         assert_eq!(document, once);

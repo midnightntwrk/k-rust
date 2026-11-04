@@ -23,8 +23,9 @@ use serde_json::Value;
 const STORY: &str = include_str!("../../../../docs-site/story/plus/src/lib.rs");
 /// The story's corpus (`docs-site/story/plus/kink`), the one the introduction's pages show:
 /// its manifest and four cases (story.toml `[[test]]`). The expectations below are what the
-/// pages show for these programs: the coverage the docs-site derives from its recorded
-/// `krs kink results`, and story.toml's `caught_by`.
+/// pages show for these programs, which the docs-site derives from its recorded outputs: the
+/// coverage from `krs kink results` (story-kink-results), and the tests that catch each edit from
+/// `krs kink run --full` (story-kink-run).
 const STORY_FLOW: &str = include_str!("../../../../docs-site/story/plus/kink/FLOW.toml");
 const STORY_CASES: [(&str, &str); 4] = [
     (
@@ -87,35 +88,11 @@ impl Machine {
 }
 "#;
 
-/// The story's three edits (story.toml `a`, `b`, `c`) as K patches of the emitted rules,
-/// anchored by the Rust item names, each with the story's `why` as its misunderstanding.
-const STORY_MUTATIONS: &str = r#"[[mutation]]
-id = "a"
-misunderstanding = "forgets what the base case returns"
-
-  [[mutation.edit]]
-  rule = "plus_zero"
-  find = "=> N:Nat"
-  replace = "=> zero"
-
-[[mutation]]
-id = "b"
-misunderstanding = "loses one at every step"
-
-  [[mutation.edit]]
-  rule = "plus_succ"
-  find = "=> s ( plus ( M:Nat , N:Nat ) )"
-  replace = "=> plus ( M:Nat , N:Nat )"
-
-[[mutation]]
-id = "c"
-misunderstanding = "stops recursing after one step"
-
-  [[mutation.edit]]
-  rule = "plus_succ"
-  find = "=> s ( plus ( M:Nat , N:Nat ) )"
-  replace = "=> s ( N:Nat )"
-"#;
+/// The story's three edits (`docs-site/story/plus/kink/mutations/plus.toml`), the K patches the
+/// introduction's mutation scenes make, each anchored by its Rust item and with the
+/// misunderstanding the scenes quote.
+const STORY_MUTATIONS: &str =
+    include_str!("../../../../docs-site/story/plus/kink/mutations/plus.toml");
 
 /// A package in a fresh directory, shared by the tests that overlap in this process: its
 /// manifest path keys the collector's directory, so the tests that share it build it once, and
@@ -381,8 +358,13 @@ fn results_name_each_rule_by_its_rust_item_and_position() {
 }
 
 /// `run` kills the story's three edits, written as K patches anchored by the Rust items, and a
-/// full run finds exactly the killers the story's pages show (story.toml `caught_by`).
+/// full run finds exactly the killers the story's pages show (the docs-site takes them from its
+/// recorded full run, story-kink-run).
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One story: its three patches, their kills and their pinned Rust locations."
+)]
 fn run_kills_the_story_edits() {
     let project = story();
     project.write("kink/mutations/plus.toml", STORY_MUTATIONS);
@@ -496,6 +478,89 @@ fn run_kills_the_story_edits() {
             rust[0]["end_column"].as_u64(),
             Some(u64::try_from(column + text.len()).unwrap()),
             "{edit:#}"
+        );
+    }
+}
+
+/// After an edit of the specification, the command builds the edited package once and runs
+/// every patch whose anchored text the edit left unchanged, with no build of its own; a patch
+/// whose anchored text changed is reported stale, naming the KRS item and the Rust position of
+/// the rule its anchor names, and runs nothing.
+#[test]
+fn an_edit_of_the_specification_leaves_patches_running_or_stale() {
+    // plus_succ is restated: `s(m) + n` is `m + s(n)`. The K it emits no longer holds the text
+    // plus/b and plus/c replace; plus/a's anchor, plus_zero, is unchanged.
+    let edited = STORY.replace("NatSyntax::Succ(Plus(m, n))", "Plus(m, NatSyntax::Succ(n))");
+    assert_ne!(edited, STORY);
+    let mut files = story_files();
+    files[0].1 = edited.as_bytes().to_vec();
+    files.push((
+        "kink/mutations/plus.toml".to_owned(),
+        STORY_MUTATIONS.as_bytes().to_vec(),
+    ));
+    let project = project_of("story-plus-respec", "NAT", &files);
+    let timings = project.path().join("timings.json");
+    let output = project.kink("run", &["--full", "--timings", timings.to_str().unwrap()]);
+    // A mutation that does not resolve makes the run fail, after every other mutation ran.
+    assert_status(&output, 1);
+    let document = json(&output);
+    assert_eq!(document["definition"]["status"], "written", "{document:#}");
+    let rows = document["mutations"].as_array().unwrap();
+    let statuses = rows
+        .iter()
+        .map(|row| (row["id"].as_str().unwrap(), row["status"].as_str().unwrap()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        statuses,
+        [
+            ("plus/a", "killed"),
+            ("plus/b", "invalid-mutation"),
+            ("plus/c", "invalid-mutation"),
+        ],
+        "{document:#}"
+    );
+    for row in &rows[1..] {
+        assert_eq!(row["reason"], "find-not-found", "{row:#}");
+        assert_eq!(row["edit"], 0, "{row:#}");
+        let anchor = &row["anchor"];
+        assert_eq!(anchor["label"], "nat--plus_succ", "{row:#}");
+        assert_eq!(anchor["krs"]["item"], "plus_succ", "{row:#}");
+        assert_eq!(anchor["krs"]["file"], "src/lib.rs", "{row:#}");
+        assert_eq!(
+            anchor["krs"]["line"],
+            line_of(&edited, "fn plus_succ("),
+            "{row:#}"
+        );
+    }
+    // The command's one krs build is the edited package's own; the patches run on its K.
+    let timings: Value = serde_json::from_str(&fs::read_to_string(&timings).unwrap()).unwrap();
+    let runs = timings["spans"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|span| span["id"] == "collector.run")
+        .count();
+    assert_eq!(runs, 1, "{timings:#}");
+
+    // `check` refuses the stale patches with the same rule, and resolves the other.
+    let output = project.kink("check", &[]);
+    assert_status(&output, 1);
+    let check = json(&output);
+    let outcomes = check["mutations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["outcome"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(outcomes, ["ok", "refused", "refused"], "{check:#}");
+    for row in &check["mutations"].as_array().unwrap()[1..] {
+        let refusal = &row["refusals"][0];
+        assert_eq!(refusal["reason"], "find-not-found", "{row:#}");
+        assert_eq!(refusal["rule"]["krs"]["item"], "plus_succ", "{row:#}");
+        assert_eq!(
+            refusal["rule"]["krs"]["line"],
+            line_of(&edited, "fn plus_succ("),
+            "{row:#}"
         );
     }
 }

@@ -359,6 +359,15 @@ fn judges_mutations(command: &FlowCommand) -> bool {
     }
 }
 
+/// The mutation list `command` judges (`check --mutations`, `run`, a `fuzz` kill job), whose
+/// refused edits its document names by their anchors.
+fn judged_list(command: &FlowCommand) -> Option<PathBuf> {
+    match command {
+        FlowCommand::Check(options) => options.mutations.clone(),
+        command => checks::run_list(command).map(|run| run.path.to_path_buf()),
+    }
+}
+
 /// The lowering an emission is emitted from, kept in process for the front end's checks.
 struct KeptLowering {
     retained: krs_compiler::RetainedLowering,
@@ -404,7 +413,7 @@ fn run_flow(
         manifest
     };
     resolve_rule(&mut command, emitted);
-    let annotator = annotate::Annotator::new(emitted, manifest.clone());
+    let annotator = annotate::Annotator::new(emitted, manifest.clone(), judged_list(&command));
     let sources = outcome.sources.clone();
     let baseline = kept.as_ref().map(|kept| checks::Baseline {
         emitted,
