@@ -1,7 +1,8 @@
 //! The contract of `k_rust::backend::ExecutionRole`: removing the `Origin` attributes, the
 //! `RuleName` attributes of axioms that carry a `UNIQUE_ID`, and exactly equal axioms keeps what
-//! `execute` and `search` answer to a request that names no rule and sets no bound that counts
-//! branches, paths, witnesses or work. The requests outside the contract are pinned here too.
+//! `execute_kore` and `search_kore` answer to a request that names no rule and sets no bound that
+//! counts branches, paths, witnesses or work. The requests outside the contract are pinned here
+//! too.
 
 use std::collections::BTreeSet;
 
@@ -159,14 +160,19 @@ fn reduce(mut definition: Definition) -> Definition {
 
 type Leaves = BTreeSet<(String, String)>;
 
+/// A leaf state as its KORE JSON text, which the assertions below read.
+fn state_json(state: &Pattern) -> String {
+    serde_json::to_string(state).unwrap()
+}
+
 /// The (state, halt reason) leaves of a run, and how many there are.
 fn leaves(backend: &mut Backend, request: ExecuteRequest) -> (Leaves, usize) {
-    let result = backend.execute(request).unwrap();
+    let result = backend.execute_kore(request).unwrap();
     let count = result.leaves.len();
     let set = result
         .leaves
         .into_iter()
-        .map(|leaf| (leaf.state.to_string(), format!("{:?}", leaf.reason)))
+        .map(|leaf| (state_json(&leaf.state), format!("{:?}", leaf.reason)))
         .collect();
     (set, count)
 }
@@ -174,7 +180,7 @@ fn leaves(backend: &mut Backend, request: ExecuteRequest) -> (Leaves, usize) {
 /// The states a search reaches within `depth` steps.
 fn reachable(backend: &mut Backend, initial: &Pattern, depth: u64) -> BTreeSet<String> {
     let response = backend
-        .search(SearchRequest {
+        .search_kore(SearchRequest {
             search_type: SearchTypeArg::All,
             max_depth: Some(depth),
             ..SearchRequest::new(initial.clone())
@@ -242,13 +248,13 @@ fn assert_roles_keep_execution(
 /// The (state, halt reason, depth) leaves of a run, in order.
 fn leaf_list(backend: &mut Backend, request: ExecuteRequest) -> Vec<(String, String, u64)> {
     backend
-        .execute(request)
+        .execute_kore(request)
         .unwrap()
         .leaves
         .into_iter()
         .map(|leaf| {
             (
-                leaf.state.to_string(),
+                state_json(&leaf.state),
                 format!("{:?}", leaf.reason),
                 leaf.depth,
             )
@@ -361,7 +367,7 @@ endmodule
     let mut reduced = selected.backend(selected.reduced());
     let summary = |backend: &mut Backend, request: ExecuteRequest| {
         backend
-            .execute(request)
+            .execute_kore(request)
             .unwrap()
             .leaves
             .into_iter()
@@ -456,7 +462,7 @@ fn bounds_that_count_paths_are_outside_the_contract() {
     // A search under `max_breadth` reaches fewer states in D.
     let search_breadth = |backend: &mut Backend| {
         backend
-            .search(SearchRequest {
+            .search_kore(SearchRequest {
                 search_type: SearchTypeArg::All,
                 max_breadth: Some(1),
                 ..SearchRequest::new(initial.clone())
@@ -475,7 +481,7 @@ fn bounds_that_count_paths_are_outside_the_contract() {
     let initial = branching.initial("KItem", "a()");
     let witnesses = |backend: &mut Backend| {
         backend
-            .search_paths(SearchRequest {
+            .search_paths_kore(SearchRequest {
                 search_type: SearchTypeArg::Final,
                 max_results: Some(2),
                 ..SearchRequest::new(initial.clone())

@@ -11,13 +11,17 @@
 #![cfg(feature = "z3-inference")]
 
 use k_rust::{
-    backend::{Backend, BackendOptions, ProofLeafOutcomeOutput, ProofResultOutput, ProveRequest},
+    backend::{Backend, BackendOptions, KoreProofResult, ProofLeafOutcomeOutput, ProveRequest},
     builtin::embedded,
     definition::CheckMode,
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
-    kore::{codec, printer::Printer},
+    kore::{ast::Pattern, printer::Printer},
     outer::{LoadOptions, ResolvedSource, load_with_options},
 };
+
+#[path = "support/wire_answers.rs"]
+mod wire_answers;
+use wire_answers::WireAnswers;
 
 #[path = "support/proof_sources.rs"]
 mod proof_sources;
@@ -62,21 +66,21 @@ fn compile(source: &str, spec: &str, definition: &str) -> String {
 }
 
 /// The prover's result for the claim `claim` (a label or `#index`) of `spec`.
-fn prove(kore: &str, spec: &str, claim: &str, request: ProveRequest) -> ProofResultOutput {
+fn prove(kore: &str, spec: &str, claim: &str, request: ProveRequest) -> KoreProofResult {
     let mut backend = Backend::new(kore, spec, BackendOptions::default()).unwrap();
     backend
-        .prove(ProveRequest {
+        .prove_kore(ProveRequest {
             claim: Some(claim.to_owned()),
             ..request
         })
         .unwrap_or_else(|error| panic!("{claim}: {error:?}"))
 }
 
-fn leaf_text(result: &ProofResultOutput) -> Vec<String> {
+fn leaf_text(result: &KoreProofResult) -> Vec<String> {
     result
         .leaves
         .iter()
-        .map(|leaf| Printer::compact().print_pattern(&codec::from_value(&leaf.state).unwrap()))
+        .map(|leaf| Printer::compact().print_pattern(&leaf.state.clone()))
         .collect()
 }
 
@@ -1203,7 +1207,7 @@ endmodule
         let mut backend = Backend::new(&kore, "ORD-SPEC", BackendOptions::default()).unwrap();
         ["ORD-SPEC.text-order", "ORD-SPEC.some-list"].map(|claim| {
             backend
-                .prove(ProveRequest {
+                .prove_kore(ProveRequest {
                     claim: Some(claim.to_owned()),
                     ..ProveRequest::default()
                 })
@@ -1523,7 +1527,7 @@ fn a_claim_through_a_discarded_operand_never_evaluates_it() {
             },
         )
     };
-    let has = |result: &ProofResultOutput, outcome: ProofLeafOutcomeOutput| {
+    let has = |result: &KoreProofResult, outcome: ProofLeafOutcomeOutput| {
         result.leaves.iter().any(|leaf| leaf.outcome == outcome)
     };
     for claim in ["fact3", "bloop", "bboth"] {
@@ -2519,10 +2523,9 @@ endmodule
 /// The instances of a proof leaf's state as KORE text over the claim's `N`: its constraints, and
 /// with `definedness` the definedness of its term too, with every other variable existentially
 /// closed; `None` when the state is `\bottom`.
-fn leaf_condition(state: &serde_json::Value, definedness: bool) -> Option<String> {
-    let pattern = codec::from_value(state).unwrap();
+fn leaf_condition(pattern: &Pattern, definedness: bool) -> Option<String> {
     let (mut terms, mut predicates) = (Vec::new(), Vec::new());
-    if !leaf_conjuncts(&pattern, &mut terms, &mut predicates) {
+    if !leaf_conjuncts(pattern, &mut terms, &mut predicates) {
         return None;
     }
     let printer = Printer::compact();
@@ -2580,10 +2583,9 @@ fn leaf_conjuncts<'p>(
 }
 
 /// The configuration of a proof leaf's state as KORE text, without its constraints.
-fn leaf_term(state: &serde_json::Value) -> String {
-    let pattern = codec::from_value(state).unwrap();
+fn leaf_term(pattern: &Pattern) -> String {
     let (mut terms, mut predicates) = (Vec::new(), Vec::new());
-    leaf_conjuncts(&pattern, &mut terms, &mut predicates);
+    leaf_conjuncts(pattern, &mut terms, &mut predicates);
     let printer = Printer::compact();
     terms
         .iter()
@@ -2603,12 +2605,12 @@ fn has_instance(backend: &mut Backend, condition: &str) -> Result<bool, String> 
     let pattern = parse_pattern(&format!("\\and{{{TOP}}}({configuration}, {condition})"))
         .map_err(|error| format!("{error:?}"))?;
     let model = backend
-        .get_model(PatternRequest::new(pattern))
+        .model_answer(PatternRequest::new(pattern))
         .map_err(|error| format!("{error:?}"))?;
-    match model.satisfiable.as_str() {
-        "sat" => Ok(true),
-        "unsat" => Ok(false),
-        other => Err(format!("{other}: {:?}", model.reason)),
+    match model["satisfiable"].as_str() {
+        Some("sat") => Ok(true),
+        Some("unsat") => Ok(false),
+        other => Err(format!("{other:?}: {:?}", model.get("reason"))),
     }
 }
 
@@ -2678,7 +2680,7 @@ fn the_leaves_of_a_symbolic_proof_partition_its_instances() {
             let one_path = claim.starts_with("o-");
             // Every leaf, not only the first counterexample: the leaves are the partition.
             let result = backend
-                .prove(ProveRequest {
+                .prove_kore(ProveRequest {
                     claim: Some(format!("FU42-SPEC.{claim}")),
                     max_counterexamples: 100,
                     ..ProveRequest::default()
@@ -2871,7 +2873,7 @@ endmodule
     let mut backend = Backend::new(&kore, "DISJ-SPEC", BackendOptions::default()).unwrap();
     let selector = "DISJ-SPEC.disj";
     let error = backend
-        .prove(ProveRequest {
+        .prove_kore(ProveRequest {
             claim: Some(selector.to_owned()),
             ..ProveRequest::default()
         })
@@ -3018,7 +3020,7 @@ fn defprobe_result(
         None => (None, format!("DEFPROBE-SPEC.{claim}")),
     };
     let result = backend
-        .prove(ProveRequest {
+        .prove_kore(ProveRequest {
             module_name,
             claim: Some(claim.clone()),
             max_depth: Some(8),
@@ -3129,14 +3131,14 @@ fn a_claim_whose_constraints_have_no_explicit_form_is_refused_alone() {
     let mut backend =
         Backend::new(&kore, "DEFPROBE-REFUSED-SPEC", BackendOptions::default()).unwrap();
     let proven = backend
-        .prove(ProveRequest {
+        .prove_kore(ProveRequest {
             claim: Some("DEFPROBE-REFUSED-SPEC.cposctl".into()),
             ..ProveRequest::default()
         })
         .unwrap();
     assert_eq!(proven.status, "proven");
     let refused = backend
-        .prove(ProveRequest {
+        .prove_kore(ProveRequest {
             claim: Some("DEFPROBE-REFUSED-SPEC.crefused".into()),
             ..ProveRequest::default()
         })
@@ -3175,7 +3177,7 @@ fn a_claim_with_an_equality_reading_a_term_as_a_predicate_is_refused() {
         .unwrap();
     for claim in ["HAND.eqtop", "HAND.andterm", "HAND.lhseqtop"] {
         let refused = backend
-            .prove(ProveRequest {
+            .prove_kore(ProveRequest {
                 module_name: Some(module.clone()),
                 claim: Some(claim.into()),
                 max_depth: Some(8),
@@ -3706,7 +3708,7 @@ fn literal_equation_rows_apply_only_when_the_complete_condition_is_established()
         ("true-row", true),
     ] {
         let result = backend
-            .prove(ProveRequest {
+            .prove_kore(ProveRequest {
                 claim: Some(format!("LITERAL-CONDITIONS-SPEC.{label}")),
                 max_depth: Some(4),
                 ..ProveRequest::default()
@@ -3751,7 +3753,7 @@ fn scalar_equalities_compose_through_pure_functions_injections_and_symbolic_writ
         ("negative-truncation", false),
     ] {
         let result = backend
-            .prove(ProveRequest {
+            .prove_kore(ProveRequest {
                 claim: Some(format!("CONTEXTUAL-EQUALITY-SPEC.{label}")),
                 max_depth: Some(4),
                 ..ProveRequest::default()
@@ -3861,7 +3863,7 @@ endmodule
         allow_vacuous: true,
         ..ProveRequest::default()
     };
-    let result = backend.prove(request.clone()).unwrap();
+    let result = backend.prove_kore(request.clone()).unwrap();
     assert_eq!(result.status, "proven");
     assert_eq!(result.trusted_claims, ["PROOF-EVIDENCE-SPEC.assumed"]);
     let leaf = result
@@ -3894,7 +3896,7 @@ endmodule
             .any(|leaf| leaf.get("contradictedTotal").is_some())
     );
     let assumed = backend
-        .prove(ProveRequest {
+        .prove_kore(ProveRequest {
             claim: Some("PROOF-EVIDENCE-SPEC.assumed".into()),
             ..ProveRequest::default()
         })

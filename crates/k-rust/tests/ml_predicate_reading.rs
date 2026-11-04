@@ -16,14 +16,14 @@
 
 use k_rust::{
     backend::{
-        Backend, BackendOptions, ExecuteRequest, HaltReasonOutput, ImplicationRequest,
-        ProveRequest, ResultModalityOutput,
+        Backend, BackendOptions, ExecuteRequest, HaltReasonOutput, ProveRequest,
+        ResultModalityOutput,
     },
     builtin::embedded,
     definition::CheckMode,
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
     kore::{
-        ast::Pattern as KorePattern, codec, parser::parse_definition, parser::parse_pattern,
+        ast::Pattern as KorePattern, parser::parse_definition, parser::parse_pattern,
         printer::Printer,
     },
     outer::{LoadOptions, ResolvedSource, load_for_compilation},
@@ -179,7 +179,7 @@ fn configuration(head: &str, argument: i64) -> String {
 fn leaves(backend: &mut Backend, head: &str, argument: i64) -> Vec<(HaltReasonOutput, String)> {
     let state = parse_pattern(&configuration(head, argument)).unwrap();
     backend
-        .execute(ExecuteRequest {
+        .execute_kore(ExecuteRequest {
             result_modality: ResultModalityOutput::PathSet,
             max_depth: Some(4),
             ..ExecuteRequest::new(state)
@@ -190,7 +190,7 @@ fn leaves(backend: &mut Backend, head: &str, argument: i64) -> Vec<(HaltReasonOu
         .map(|leaf| {
             (
                 leaf.reason,
-                Printer::compact().print_pattern(&codec::from_value(&leaf.state).unwrap()),
+                Printer::compact().print_pattern(&leaf.state.clone()),
             )
         })
         .collect()
@@ -594,7 +594,7 @@ fn a_claim_whose_equality_has_a_connective_operand_is_refused() {
         spec("  claim [s]: <k> go(X) => done(X) ... </k> requires (X ==Int 1) #Or (X ==Int 2)");
     let mut backend = Backend::new(&kore, "MLP-SPEC", BackendOptions::default())
         .unwrap_or_else(|error| panic!("the spec loads: {error}"));
-    let read = backend.prove(ProveRequest {
+    let read = backend.prove_kore(ProveRequest {
         claim: Some("MLP-SPEC.s".into()),
         max_depth: Some(4),
         ..ProveRequest::default()
@@ -611,7 +611,7 @@ fn a_claim_whose_equality_has_a_connective_operand_is_refused() {
 /// (its debug form, so that this file builds against a backend without the reason's variant).
 fn prove(backend: &mut Backend, claim: &str) -> Result<String, String> {
     backend
-        .prove(ProveRequest {
+        .prove_kore(ProveRequest {
             claim: Some(format!("MLP-SPEC.{claim}")),
             max_depth: Some(4),
             ..ProveRequest::default()
@@ -693,8 +693,8 @@ fn configuration_of(program: &str) -> String {
     )
 }
 
-/// A `simplify` request (the library route of `krust kore-simplify`) that states no term is read
-/// as a predicate only when no term stands in a predicate position of it. `#Not(true)` and
+/// A `simplify_kore` request (the library route of `krust kore-simplify`) that states no term is
+/// read as a predicate only when no term stands in a predicate position of it. `#Not(true)` and
 /// `true #Implies false` over Bool are the set `{false}`, and `#Not(B #And {B #Equals true})` is
 /// `{false}` where `B` is `true`: each is refused, not answered with its terms read as `t = true`
 /// (`\bottom`, `\bottom` and `\not(B)`). The predicate `#Not({B #Equals true})` is simplified.
@@ -728,7 +728,7 @@ fn a_simplify_request_with_no_term_reads_no_term_as_a_predicate() {
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
-/// A `simplify` response to a predicate states its meaning: a Boolean term `t` the simplifier
+/// A `simplify_kore` response to a predicate states its meaning: a Boolean term `t` the simplifier
 /// keeps as a predicate is printed as `true = t`, not as the bare term (which, as a pattern, is
 /// the value `t`, and at a result sort other than Bool is ill-sorted). Sent back, the response is
 /// read as the same predicate and simplifies to itself.
@@ -797,12 +797,16 @@ fn an_implication_request_reads_its_predicates_as_written() {
     let test_true = configuration_of("Lbltest{}(\\dv{SortBool{}}(\"true\"))");
     let mut wrong = Vec::new();
     for (antecedent, consequent) in [(&go_one, &go_conjoined), (&test_negated, &test_true)] {
-        let request = ImplicationRequest::new(
-            parse_pattern(antecedent).unwrap(),
-            parse_pattern(consequent).unwrap(),
-        );
-        if let Ok(result) = backend.implies(request) {
-            wrong.push(format!("{antecedent} => {consequent}: {}", result.status));
+        if let Ok((verdict, _)) = backend.implies_kore(
+            None,
+            &parse_pattern(antecedent).unwrap(),
+            &parse_pattern(consequent).unwrap(),
+            Admission::Unverified,
+        ) {
+            wrong.push(format!(
+                "{antecedent} => {consequent}: {:?}",
+                verdict.status()
+            ));
         }
     }
     assert!(wrong.is_empty(), "{wrong:#?}");

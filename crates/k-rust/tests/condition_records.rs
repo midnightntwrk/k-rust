@@ -549,7 +549,7 @@ fn records_change_nothing_else_and_are_deterministic() {
 fn conditions_need_coverage_and_are_read_from_the_wire() {
     let mut refused = ExecuteRequest::new(imp().state("int x; x = 1;"));
     refused.collect_conditions = Some(ConditionCollection::new(["IMP.decl"]));
-    let error = imp().backend().execute(refused).unwrap_err();
+    let error = imp().backend().execute_kore(refused).unwrap_err();
     assert!(
         error
             .to_string()

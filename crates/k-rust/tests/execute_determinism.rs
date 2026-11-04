@@ -7,8 +7,8 @@
 //! configuration, so the state-set result merges them; a sum evaluates a strict operator over
 //! integers; and a symbolic integer branches on its sign, which the Z3 build decides with the
 //! solver and the portable build leaves undecided. Every result is compared as its serialized
-//! JSON text, for strategy `all`, in path-set and state-set modality, through `execute`,
-//! `execute_observed` and `execute_observed_to_writer`. The cross-process test detects a
+//! JSON text, for strategy `all`, in path-set and state-set modality, through `execute_kore`,
+//! `execute_observed_kore` and `execute_observed_to_writer`. The cross-process test detects a
 //! dependence on the hash seed or on addresses only with some probability (two processes and
 //! this one may agree by chance), so one passing run is evidence, not proof.
 
@@ -199,10 +199,12 @@ fn run(backend: &mut Backend, request: Request) -> String {
         rules: None,
     };
     let serialized = match request.entry {
-        Entry::Execute => serde_json::to_string(&backend.execute(execute).expect("it executes")),
+        Entry::Execute => {
+            serde_json::to_string(&backend.execute_kore(execute).expect("it executes"))
+        }
         Entry::Observed => serde_json::to_string(
             &backend
-                .execute_observed(observed)
+                .execute_observed_kore(observed)
                 .expect("it executes observed"),
         ),
         Entry::Writer => {
@@ -236,7 +238,7 @@ fn fresh_results() -> Vec<String> {
 /// history it leaves in the backend would show in the next round.
 fn another_request(backend: &mut Backend) {
     backend
-        .execute(ExecuteRequest {
+        .execute_kore(ExecuteRequest {
             strategy: ExecutionStrategy::Any,
             max_depth: Some(1),
             ..ExecuteRequest::new(compiled().states[GO].clone())

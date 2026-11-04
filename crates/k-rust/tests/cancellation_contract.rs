@@ -1,15 +1,16 @@
 //! The cancellation contract of `k_rust::backend` ("Bounding an operation"), in both builds:
 //! a request cancelled before its operation starts does not run and answers
 //! `Err(e)` with `e.stop_cause() == Some(&StopCause::Cancelled)`; a cancellation observed during
-//! an `execute` or `search` run is reported in-band, and during a proof as the same error.
+//! an execution or search run is reported in-band, and during a proof as the same error.
 
 use std::{sync::mpsc, thread, time::Duration};
 
 use k_rust::backend::{
     Backend, BackendError, BackendOptions, CancellationToken, CancelledResultOutput,
-    ExecuteRequest, HaltReasonOutput, IncompleteSearchOutput, PatternRequest, ProveRequest,
-    ResultModalityOutput, SearchRequest, StopCause,
+    ExecuteRequest, HaltReasonOutput, IncompleteSearchOutput, ProveRequest, ResultModalityOutput,
+    SearchRequest, StopCause,
 };
+use k_rust::k_rust_backend::definition::Admission;
 use k_rust::kore::{ast::Pattern, parser::parse_pattern};
 
 /// A counter that never stops: `count(I) => count(I +Int 1)`, and a claim that it reaches
@@ -84,15 +85,15 @@ fn an_operation_cancelled_before_it_starts_does_not_run() {
     let token = CancellationToken::new();
     token.cancel();
     let execute = token
-        .scope(|| backend.execute(ExecuteRequest::new(start())))
+        .scope(|| backend.execute_kore(ExecuteRequest::new(start())))
         .unwrap_err();
     assert_cancelled(&execute);
     let search = token
-        .scope(|| backend.search(SearchRequest::new(start())))
+        .scope(|| backend.search_kore(SearchRequest::new(start())))
         .unwrap_err();
     assert_cancelled(&search);
     let simplify = token
-        .scope(|| backend.simplify(PatternRequest::new(start())))
+        .scope(|| backend.simplify_kore(None, &start(), Admission::Unverified))
         .unwrap_err();
     assert_cancelled(&simplify);
 }
@@ -115,7 +116,7 @@ fn a_cancelled_execution_reports_the_stopped_state_as_its_one_cancelled_leaf() {
     ] {
         let mut backend = backend();
         let outcome = with_watchdog(|| {
-            backend.execute(ExecuteRequest {
+            backend.execute_kore(ExecuteRequest {
                 result_modality: modality,
                 ..ExecuteRequest::new(start())
             })
@@ -142,7 +143,7 @@ fn a_cancelled_execution_reports_the_stopped_state_as_its_one_cancelled_leaf() {
 fn a_cancelled_search_reports_the_stopped_state_as_a_cancelled_entry() {
     let mut backend = backend();
     // As for execution, a cancellation before the entry poll is the entry error.
-    let response = match with_watchdog(|| backend.search(SearchRequest::new(start()))) {
+    let response = match with_watchdog(|| backend.search_kore(SearchRequest::new(start()))) {
         Ok(response) => response,
         Err(error) => return assert_cancelled(&error),
     };
@@ -160,7 +161,7 @@ fn a_cancelled_search_reports_the_stopped_state_as_a_cancelled_entry() {
 #[test]
 fn a_proof_cancelled_while_it_runs_answers_the_cancellation() {
     let mut backend = backend();
-    let error = with_watchdog(|| backend.prove(ProveRequest::default())).unwrap_err();
+    let error = with_watchdog(|| backend.prove_kore(ProveRequest::default())).unwrap_err();
     assert_cancelled(&error);
 }
 
@@ -210,7 +211,7 @@ fn a_proof_cancelled_after_a_certified_refutation_keeps_its_verdict() {
     // allows (the proof had decided nothing yet), and the test retries with a longer delay.
     for delay in [300, 1_200, 4_800] {
         match with_watchdog_after(Duration::from_millis(delay), || {
-            backend.prove(request.clone())
+            backend.prove_kore(request.clone())
         }) {
             Ok(result) => {
                 assert_eq!(result.status, "disproved");
@@ -238,7 +239,7 @@ fn a_proof_that_reached_its_counterexample_limit_keeps_its_verdict() {
     let mut backend = Backend::new(REFUTED, "REFUTED", BackendOptions::default()).unwrap();
     for delay in [100, 400, 1_600, 6_400] {
         match with_watchdog_reporting(Duration::from_millis(delay), || {
-            backend.prove(ProveRequest::default())
+            backend.prove_kore(ProveRequest::default())
         }) {
             (Ok(result), fired) => {
                 assert_eq!(result.status, "disproved");
@@ -252,7 +253,7 @@ fn a_proof_that_reached_its_counterexample_limit_keeps_its_verdict() {
     panic!("the proof never ended at its counterexample limit before the cancellation");
 }
 
-/// Under `cancelledResult: error` a cancellation that ends a running `execute` answers `Err` with
+/// Under `cancelledResult: error` a cancellation that ends a running execution answers `Err` with
 /// the `Cancelled` cause; under `partial` the same request answers `Ok` with the stopped state as
 /// its one `cancelled` leaf, or the entry error when the cancellation lands before the boundary's
 /// entry poll (point 4). The counter never ends, so the exploration's own poll observes the
@@ -268,7 +269,7 @@ fn an_error_shaped_cancellation_of_a_running_exploration_answers_the_cancellatio
     ] {
         let mut executor = backend();
         let error = with_watchdog(|| {
-            executor.execute(ExecuteRequest {
+            executor.execute_kore(ExecuteRequest {
                 result_modality: modality,
                 cancelled_result: CancelledResultOutput::Error,
                 ..ExecuteRequest::new(start())
@@ -279,7 +280,7 @@ fn an_error_shaped_cancellation_of_a_running_exploration_answers_the_cancellatio
 
         let mut executor = backend();
         let outcome = with_watchdog(|| {
-            executor.execute(ExecuteRequest {
+            executor.execute_kore(ExecuteRequest {
                 result_modality: modality,
                 cancelled_result: CancelledResultOutput::Partial,
                 ..ExecuteRequest::new(start())

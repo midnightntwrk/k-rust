@@ -8,9 +8,9 @@
 //! the run only, on no leaf. An operand that is defined, or one that no such reading skips,
 //! lists nothing.
 //!
-//! Every run goes through the facade (`Backend::execute`, `Backend::execute_observed`, the four
-//! searches) in both result modalities and both strategies, and the list is read from the JSON a
-//! consumer reads.
+//! Every run goes through the facade (`Backend::execute_kore`, `Backend::execute_observed_kore`,
+//! the four searches) in both result modalities and both strategies, and the list is read from
+//! the JSON a consumer reads.
 
 use k_rust::{
     backend::{
@@ -191,8 +191,8 @@ fn heads(result: &Value) -> Vec<Option<String>> {
         .collect()
 }
 
-/// The run of `initial` in every combination of strategy and modality, each through `execute`
-/// and `execute_observed`, which list alike.
+/// The run of `initial` in every combination of strategy and modality, each through
+/// `execute_kore` and `execute_observed_kore`, which list alike.
 fn runs(kore: &str, initial: &Pattern) -> Vec<(String, Value)> {
     let mut runs = Vec::new();
     for strategy in STRATEGIES {
@@ -202,10 +202,11 @@ fn runs(kore: &str, initial: &Pattern) -> Vec<(String, Value)> {
                 strategy,
                 ..ExecuteRequest::new(initial.clone())
             };
-            let plain = serde_json::to_value(backend(kore).execute(request()).unwrap()).unwrap();
+            let plain =
+                serde_json::to_value(backend(kore).execute_kore(request()).unwrap()).unwrap();
             let observed = serde_json::to_value(
                 backend(kore)
-                    .execute_observed(ObservedRequest {
+                    .execute_observed_kore(ObservedRequest {
                         request: request(),
                         rules: None,
                     })
@@ -494,10 +495,10 @@ fn search_responses_list_readings() {
         };
         let mut backend = backend(&kore);
         for response in [
-            serde_json::to_value(backend.search(search.clone()).unwrap()).unwrap(),
-            serde_json::to_value(backend.search_paths(search).unwrap()).unwrap(),
-            serde_json::to_value(backend.search_pattern(pattern.clone()).unwrap()).unwrap(),
-            serde_json::to_value(backend.search_pattern_paths(pattern).unwrap()).unwrap(),
+            serde_json::to_value(backend.search_kore(search.clone()).unwrap()).unwrap(),
+            serde_json::to_value(backend.search_paths_kore(search).unwrap()).unwrap(),
+            serde_json::to_value(backend.search_pattern_kore(pattern.clone()).unwrap()).unwrap(),
+            serde_json::to_value(backend.search_pattern_paths_kore(pattern).unwrap()).unwrap(),
         ] {
             assert_eq!(entries(&response), expected, "{response:#}");
             if expected.is_empty() {

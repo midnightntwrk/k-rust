@@ -46,7 +46,6 @@ use k_rust::{
     kompile::{CompileOptions, compile_loaded_definition},
     kore::{
         ast::{Pattern, Sentence as KoreSentence, Variable},
-        codec,
         parser::{parse_definition, parse_pattern},
         printer::Printer,
     },
@@ -451,13 +450,13 @@ fn run(backend: &mut Backend, n: i64) -> Result<Vec<(String, String, bool)>, Str
         ..ExecuteRequest::new(initial_state(n))
     };
     let result = backend
-        .execute(request)
+        .execute_kore(request)
         .map_err(|error| error.to_string())?;
     Ok(result
         .leaves
         .iter()
         .map(|leaf| {
-            let state = codec::from_value(&leaf.state).expect("a result state is KORE JSON");
+            let state = leaf.state.clone();
             let term = k_cell(&state).map_or_else(|| text(&state), render);
             let constrained = !matches!(
                 &state,

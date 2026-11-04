@@ -107,7 +107,7 @@ fn the_reexports_are_the_backend_items() {
     assert!(matches!(error, HostError::Stopped(StopCause::Cancelled)));
 }
 
-/// An `execute` under a token cancelled before the call does not run, in either build, and its
+/// An `execute_kore` under a token cancelled before the call does not run, in either build, and its
 /// error carries the cause.
 #[test]
 fn an_execute_cancelled_before_it_starts_reports_the_cancelled_cause() {
@@ -118,7 +118,7 @@ fn an_execute_cancelled_before_it_starts_reports_the_cancelled_cause() {
     let token = CancellationToken::new();
     token.cancel();
     let request = ExecuteRequest::new(parse_pattern("value{}()").unwrap());
-    let error = token.scope(|| backend.execute(request)).unwrap_err();
+    let error = token.scope(|| backend.execute_kore(request)).unwrap_err();
     assert_eq!(error.stop_cause(), Some(&StopCause::Cancelled), "{error}");
     assert_eq!(error.to_string(), "Request cancelled");
 }

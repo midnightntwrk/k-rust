@@ -1278,23 +1278,6 @@ pub(super) trait WireKore: Sized {
     fn encoded_len(&self) -> Option<usize>;
 }
 
-impl WireKore for Value {
-    fn from_source<'a, S: k_rust_kore::kore::node::PatternSource<'a>>(
-        source: S,
-    ) -> Result<Self, BackendError> {
-        kore_json::to_value_source(source)
-            .map_err(|error| BackendError::new(format!("could not encode KORE JSON: {error}")))
-    }
-
-    #[cfg(feature = "measure")]
-    const WRITES_JSON: bool = true;
-
-    #[cfg(feature = "measure")]
-    fn encoded_len(&self) -> Option<usize> {
-        serde_json::to_vec(self).ok().map(|bytes| bytes.len())
-    }
-}
-
 impl WireKore for Box<RawValue> {
     fn from_source<'a, S: k_rust_kore::kore::node::PatternSource<'a>>(
         source: S,
@@ -2619,14 +2602,14 @@ mod tests {
 
         CONVERTED_LEAVES.with(|converted| converted.set(0));
         let error = token
-            .scope(|| execution_response::<Value>(result.clone(), true))
+            .scope(|| execution_response::<KorePattern>(result.clone(), true))
             .unwrap_err();
         assert_eq!(error.stop_cause(), Some(&StopCause::Cancelled), "{error}");
         assert_eq!(CONVERTED_LEAVES.with(std::cell::Cell::get), 0);
 
         CONVERTED_LEAVES.with(|converted| converted.set(0));
         let converted = token
-            .scope(|| execution_response::<Value>(result, false))
+            .scope(|| execution_response::<KorePattern>(result, false))
             .unwrap();
         assert_eq!(converted.leaves.len(), 3);
         assert_eq!(CONVERTED_LEAVES.with(std::cell::Cell::get), 3);
@@ -2645,7 +2628,7 @@ mod tests {
 
         CONVERTED_LEAVES.with(|converted| converted.set(0));
         let error = token
-            .scope(|| execute_answer::<Value>(CancelledResultOutput::Error, result.clone()))
+            .scope(|| execute_answer::<KorePattern>(CancelledResultOutput::Error, result.clone()))
             .unwrap_err();
         assert_eq!(error.stop_cause(), Some(&StopCause::Cancelled), "{error}");
         assert_eq!(CONVERTED_LEAVES.with(std::cell::Cell::get), 0);
@@ -2654,12 +2637,13 @@ mod tests {
             stopped: Some(StopCause::Cancelled),
             ..result.clone()
         };
-        let error = execute_answer::<Value>(CancelledResultOutput::Error, stopped).unwrap_err();
+        let error =
+            execute_answer::<KorePattern>(CancelledResultOutput::Error, stopped).unwrap_err();
         assert_eq!(error.stop_cause(), Some(&StopCause::Cancelled), "{error}");
         assert_eq!(CONVERTED_LEAVES.with(std::cell::Cell::get), 0);
 
         let converted = token
-            .scope(|| execute_answer::<Value>(CancelledResultOutput::Partial, result))
+            .scope(|| execute_answer::<KorePattern>(CancelledResultOutput::Partial, result))
             .unwrap();
         assert_eq!(converted.leaves.len(), 3);
         assert_eq!(CONVERTED_LEAVES.with(std::cell::Cell::get), 3);
@@ -2958,11 +2942,12 @@ mod tests {
             }],
             observations: Vec::new(),
         };
-        let (candidates, remainder) = execution_candidates_output::<Value>(HaltReason::Branch {
-            branches: Vec::new(),
-            remainder: Some(remainder),
-        })
-        .unwrap();
+        let (candidates, remainder) =
+            execution_candidates_output::<KorePattern>(HaltReason::Branch {
+                branches: Vec::new(),
+                remainder: Some(remainder),
+            })
+            .unwrap();
         assert!(candidates.unwrap().is_empty());
         let value = serde_json::to_value(remainder.unwrap()).unwrap();
         assert_eq!(value["ruleIds"], serde_json::json!(["r"]));
@@ -3046,13 +3031,13 @@ mod tests {
                 },
                 serde_json::json!({
                     "kind":"smt-predicate",
-                    "predicate":encode_predicate::<Value>(&Predicate::True, &sort).unwrap(),
+                    "predicate":encode_predicate::<KorePattern>(&Predicate::True, &sort).unwrap(),
                     "error":{"kind":"unavailable"}
                 }),
             ),
         ];
         for (failure, encoded) in cases {
-            let output = diagnostic_output::<Value>(
+            let output = diagnostic_output::<KorePattern>(
                 BackendDiagnostic::RuleConditionFailed {
                     rule_id: "guarded".into(),
                     origin: None,
@@ -3066,8 +3051,8 @@ mod tests {
                 value,
                 serde_json::json!({"kind":"rule-condition-failed","ruleId":"guarded","failure":encoded})
             );
-            let decoded: BackendDiagnosticOutput = serde_json::from_value(value).unwrap();
-            assert_eq!(decoded, output);
+            let decoded: BackendDiagnosticOutput = serde_json::from_value(value.clone()).unwrap();
+            assert_eq!(serde_json::to_value(decoded).unwrap(), value);
         }
         assert_typescript_variant_fields(
             "BackendDiagnostic",
@@ -3081,8 +3066,10 @@ mod tests {
         use k_rust_backend::rule::Predicate;
 
         let sort = Sort::simple("SortS");
-        let expected = encode_predicate::<Value>(&Predicate::True, &sort).unwrap();
-        let condition = diagnostic_output::<Value>(
+        let expected =
+            serde_json::to_value(encode_predicate::<KorePattern>(&Predicate::True, &sort).unwrap())
+                .unwrap();
+        let condition = diagnostic_output::<KorePattern>(
             BackendDiagnostic::UndecidedCondition {
                 rule_id: "r".into(),
                 origin: None,
@@ -3093,7 +3080,7 @@ mod tests {
             &sort,
         )
         .unwrap();
-        let predicate = diagnostic_output::<Value>(
+        let predicate = diagnostic_output::<KorePattern>(
             BackendDiagnostic::UndecidedPredicate {
                 predicate: Predicate::True,
                 reason: ConditionIndeterminacy::NoSolver,
@@ -3123,7 +3110,7 @@ mod tests {
 
         let sort = Sort::simple("SortS");
         let variable = |name: &str| Term::variable(Variable::new(name, sort));
-        let output = diagnostic_output::<Value>(
+        let output = diagnostic_output::<KorePattern>(
             BackendDiagnostic::UndecidedCondition {
                 rule_id: "r".into(),
                 origin: None,
@@ -3165,7 +3152,7 @@ mod tests {
         );
         assert_eq!(names(&value["predicates"][1]), ["Eq-hVarZ", "Eq-hVarW"]);
         let decoded: BackendDiagnosticOutput = serde_json::from_value(value.clone()).unwrap();
-        assert_eq!(decoded, output);
+        assert_eq!(serde_json::to_value(decoded).unwrap(), value);
 
         let mut without = value;
         without.as_object_mut().unwrap().remove("ruleVariables");
@@ -3191,7 +3178,7 @@ mod tests {
 
         let sort = Sort::simple("SortS");
         let condition = |origin| {
-            diagnostic_output::<Value>(
+            diagnostic_output::<KorePattern>(
                 BackendDiagnostic::UndecidedCondition {
                     rule_id: "UNKNOWN".into(),
                     origin,
@@ -3218,8 +3205,11 @@ mod tests {
             })
         );
         assert_eq!(
-            serde_json::from_value::<BackendDiagnosticOutput>(value).unwrap(),
-            located
+            serde_json::to_value(
+                serde_json::from_value::<BackendDiagnosticOutput>(value.clone()).unwrap()
+            )
+            .unwrap(),
+            value
         );
         let unlocated = serde_json::to_value(condition(None)).unwrap();
         assert!(unlocated.get("origin").is_none(), "{unlocated}");
@@ -3289,7 +3279,7 @@ mod tests {
             };
         for diagnostic in [unsimplified, failed] {
             let located =
-                diagnostic_output::<Value>(diagnostic(Some(origin.clone())), &sort).unwrap();
+                diagnostic_output::<KorePattern>(diagnostic(Some(origin.clone())), &sort).unwrap();
             let value = serde_json::to_value(&located).unwrap();
             assert_eq!(
                 value["origin"],
@@ -3300,12 +3290,16 @@ mod tests {
                 })
             );
             assert_eq!(
-                serde_json::from_value::<BackendDiagnosticOutput>(value).unwrap(),
-                located
+                serde_json::to_value(
+                    serde_json::from_value::<BackendDiagnosticOutput>(value.clone()).unwrap()
+                )
+                .unwrap(),
+                value
             );
-            let unlocated =
-                serde_json::to_value(diagnostic_output::<Value>(diagnostic(None), &sort).unwrap())
-                    .unwrap();
+            let unlocated = serde_json::to_value(
+                diagnostic_output::<KorePattern>(diagnostic(None), &sort).unwrap(),
+            )
+            .unwrap();
             assert!(unlocated.get("origin").is_none(), "{unlocated}");
         }
         assert_typescript_variant_fields(
@@ -3324,7 +3318,7 @@ mod tests {
     #[test]
     fn an_implementation_chosen_value_round_trips_on_the_wire() {
         let sort = Sort::simple("SortS");
-        let output = diagnostic_output::<Value>(
+        let output = diagnostic_output::<KorePattern>(
             BackendDiagnostic::ImplementationChosenValue {
                 hook: "MAP.keys_list".into(),
                 class: k_rust_backend::builtin::ChosenClass::Order,
@@ -3342,8 +3336,11 @@ mod tests {
             })
         );
         assert_eq!(
-            serde_json::from_value::<BackendDiagnosticOutput>(value).unwrap(),
-            output
+            serde_json::to_value(
+                serde_json::from_value::<BackendDiagnosticOutput>(value.clone()).unwrap()
+            )
+            .unwrap(),
+            value
         );
         assert_typescript_variant_fields(
             "BackendDiagnostic",
@@ -3498,7 +3495,7 @@ mod tests {
     fn instantiation_failure_preserves_rule_and_missing_variables_on_the_wire() {
         let sort = Sort::simple("SortS");
         let variable = k_rust_backend::term::Variable::new("Rule#E", sort);
-        let failure = indeterminate_failure_output(
+        let failure = indeterminate_failure_output::<KorePattern>(
             IndeterminateReason::Instantiation {
                 rule_id: "heat".into(),
                 missing_variables: [variable.clone()].into_iter().collect(),
@@ -3511,7 +3508,7 @@ mod tests {
         assert_eq!(value["rule"], "heat");
         assert_eq!(
             value["missingVariables"],
-            serde_json::json!([encode_variable::<Value>(&variable).unwrap()])
+            serde_json::json!([encode_variable::<KorePattern>(&variable).unwrap()])
         );
         assert!(value.get("missing_variables").is_none());
         assert_typescript_variant_fields(
@@ -3520,8 +3517,11 @@ mod tests {
             &["rule", "missingVariables"],
         );
         assert_eq!(
-            serde_json::from_value::<SearchFailureOutput>(value).unwrap(),
-            failure
+            serde_json::to_value(
+                serde_json::from_value::<SearchFailureOutput>(value.clone()).unwrap()
+            )
+            .unwrap(),
+            value
         );
     }
 
@@ -3605,9 +3605,10 @@ mod tests {
                 &solver,
             )
         });
-        let response =
-            serde_json::to_value(search_response::<Value>(result, BACKEND_SCHEMA_VERSION).unwrap())
-                .unwrap();
+        let response = serde_json::to_value(
+            search_response::<KorePattern>(result, BACKEND_SCHEMA_VERSION).unwrap(),
+        )
+        .unwrap();
 
         assert_eq!(response["states"], serde_json::json!([]), "{response:#}");
         let incomplete = response["incomplete"].as_array().unwrap();
@@ -3683,9 +3684,10 @@ mod tests {
                 &solver,
             )
         });
-        let response =
-            serde_json::to_value(search_response::<Value>(result, BACKEND_SCHEMA_VERSION).unwrap())
-                .unwrap();
+        let response = serde_json::to_value(
+            search_response::<KorePattern>(result, BACKEND_SCHEMA_VERSION).unwrap(),
+        )
+        .unwrap();
 
         assert_eq!(response["states"], serde_json::json!([]), "{response:#}");
         let incomplete = response["incomplete"].as_array().unwrap();
@@ -3736,7 +3738,7 @@ endmodule []"#;
             diagnostics: Vec::new(),
         };
         let cause = StopCause::SolverPrelude(k_rust_backend::stop::PreludeFailure::Inconsistent);
-        let error = stopped_search_output::<Value>(state, cause.clone()).unwrap_err();
+        let error = stopped_search_output::<KorePattern>(state, cause.clone()).unwrap_err();
         assert_eq!(error.stop_cause(), Some(&cause));
         assert_eq!(error.to_string(), cause.to_string());
     }

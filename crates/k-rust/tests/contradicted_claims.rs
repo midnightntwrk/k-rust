@@ -115,7 +115,7 @@ fn a_discharged_rule_does_not_claim_preservation() {
 /// without the records.
 ///
 /// Every run goes through the facade, under both strategies and both result modalities, and is
-/// compared with `execute_observed`; the records are read from the JSON a consumer reads.
+/// compared with `execute_observed_kore`; the records are read from the JSON a consumer reads.
 mod observed {
     use std::collections::BTreeSet;
 
@@ -302,8 +302,8 @@ endmodule
         found[0]
     }
 
-    /// The result of `execute` as JSON, checked equal to `execute_observed`'s in each leaf's
-    /// state, reason and records and in the result's list.
+    /// The result of `execute_kore` as JSON, checked equal to `execute_observed_kore`'s in each
+    /// leaf's state, reason and records and in the result's list.
     pub(super) fn execute(
         kore: &str,
         initial: &Pattern,
@@ -315,9 +315,9 @@ endmodule
             strategy,
             ..ExecuteRequest::new(initial.clone())
         };
-        let plain = backend(kore).execute(request()).unwrap();
+        let plain = backend(kore).execute_kore(request()).unwrap();
         let observed = backend(kore)
-            .execute_observed(ObservedRequest {
+            .execute_observed_kore(ObservedRequest {
                 request: request(),
                 rules: None,
             })
@@ -818,10 +818,11 @@ endmodule
             };
             let mut backend = super::observed::backend(&kore);
             for response in [
-                serde_json::to_value(backend.search(search.clone()).unwrap()).unwrap(),
-                serde_json::to_value(backend.search_paths(search.clone()).unwrap()).unwrap(),
-                serde_json::to_value(backend.search_pattern(pattern.clone()).unwrap()).unwrap(),
-                serde_json::to_value(backend.search_pattern_paths(pattern).unwrap()).unwrap(),
+                serde_json::to_value(backend.search_kore(search.clone()).unwrap()).unwrap(),
+                serde_json::to_value(backend.search_paths_kore(search.clone()).unwrap()).unwrap(),
+                serde_json::to_value(backend.search_pattern_kore(pattern.clone()).unwrap())
+                    .unwrap(),
+                serde_json::to_value(backend.search_pattern_paths_kore(pattern).unwrap()).unwrap(),
             ] {
                 let listed = entries(&response, field)
                     .into_iter()
@@ -995,7 +996,7 @@ fn a_bound_or_a_stop_rule_puts_every_record_of_the_run_on_every_leaf() {
             ..ExecuteRequest::new(initial.clone())
         };
         adjust(&mut request);
-        let result = observed::backend(&kore).execute(request).unwrap();
+        let result = observed::backend(&kore).execute_kore(request).unwrap();
         serde_json::to_value(&result).unwrap()
     };
     for modality in observed::MODALITIES {
@@ -1050,10 +1051,10 @@ fn every_search_response_lists_the_records() {
         };
         let mut backend = observed::backend(&kore);
         [
-            serde_json::to_value(backend.search(search.clone()).unwrap()).unwrap(),
-            serde_json::to_value(backend.search_paths(search).unwrap()).unwrap(),
-            serde_json::to_value(backend.search_pattern(pattern.clone()).unwrap()).unwrap(),
-            serde_json::to_value(backend.search_pattern_paths(pattern).unwrap()).unwrap(),
+            serde_json::to_value(backend.search_kore(search.clone()).unwrap()).unwrap(),
+            serde_json::to_value(backend.search_paths_kore(search).unwrap()).unwrap(),
+            serde_json::to_value(backend.search_pattern_kore(pattern.clone()).unwrap()).unwrap(),
+            serde_json::to_value(backend.search_pattern_paths_kore(pattern).unwrap()).unwrap(),
         ]
     };
     for response in responses(CONTRADICTIONS, "sib(0)") {
@@ -1105,8 +1106,8 @@ fn a_search_successor_s_normalization_names_its_rule() {
             ..SearchRequest::new(initial.clone())
         };
         let mut backend = observed::backend(&kore);
-        let graph = serde_json::to_value(backend.search(search.clone()).unwrap()).unwrap();
-        let paths = serde_json::to_value(backend.search_paths(search).unwrap()).unwrap();
+        let graph = serde_json::to_value(backend.search_kore(search.clone()).unwrap()).unwrap();
+        let paths = serde_json::to_value(backend.search_paths_kore(search).unwrap()).unwrap();
         for (states, response) in [("states", &graph), ("witnesses", &paths)] {
             let val = response[states]
                 .as_array()
@@ -1397,8 +1398,8 @@ endmodule
             };
             let mut backend = backend(&kore);
             for response in [
-                serde_json::to_value(backend.search(search.clone()).unwrap()).unwrap(),
-                serde_json::to_value(backend.search_paths(search).unwrap()).unwrap(),
+                serde_json::to_value(backend.search_kore(search.clone()).unwrap()).unwrap(),
+                serde_json::to_value(backend.search_paths_kore(search).unwrap()).unwrap(),
             ] {
                 assert_eq!(
                     run_records(&response),
@@ -2042,7 +2043,7 @@ endmodule
         let run = || {
             let before = snapshot();
             let result = super::observed::backend(&kore)
-                .execute(ExecuteRequest {
+                .execute_kore(ExecuteRequest {
                     strategy: ExecutionStrategy::All,
                     ..ExecuteRequest::new(initial.clone())
                 })
@@ -2267,7 +2268,7 @@ endmodule
                 let run = || {
                     let before = snapshot();
                     let result = super::observed::backend(&kore)
-                        .execute(ExecuteRequest {
+                        .execute_kore(ExecuteRequest {
                             strategy,
                             ..ExecuteRequest::new(initial.clone())
                         })
@@ -2474,6 +2475,11 @@ mod checks_off {
         }
     }
 
+    /// [`json`] of an answer the facade wrote as JSON text.
+    fn json_text(response: Result<String, k_rust::backend::BackendError>) -> Value {
+        json(response.map(|text| serde_json::from_str::<Value>(&text).unwrap()))
+    }
+
     /// Run `work` on a thread of its own, with the claim checks on or off, and count it.
     fn counted<T: Send + 'static>(
         checks: bool,
@@ -2550,30 +2556,30 @@ mod checks_off {
             };
             let mut backend = backend_in(&kore, &main);
             let mut responses = vec![
-                json(backend.execute(request())),
-                json(backend.execute(ExecuteRequest {
+                json(backend.execute_kore(request())),
+                json(backend.execute_kore(ExecuteRequest {
                     stop_at_branch: true,
                     ..request()
                 })),
-                json(backend.execute(ExecuteRequest {
+                json(backend.execute_kore(ExecuteRequest {
                     collect_coverage: true,
                     ..request()
                 })),
-                json(backend.execute(ExecuteRequest {
+                json(backend.execute_kore(ExecuteRequest {
                     max_breadth: Some(1),
                     ..request()
                 })),
-                json(backend.execute(ExecuteRequest {
+                json(backend.execute_kore(ExecuteRequest {
                     assume_state_defined: true,
                     ..request()
                 })),
-                json(backend.execute_observed(ObservedRequest {
+                json(backend.execute_observed_kore(ObservedRequest {
                     request: request(),
                     rules: None,
                 })),
-                json(backend.search(search(SearchTypeArg::Final))),
-                json(backend.search(search(SearchTypeArg::All))),
-                json(backend.search_paths(search(SearchTypeArg::Final))),
+                json(backend.search_kore(search(SearchTypeArg::Final))),
+                json(backend.search_kore(search(SearchTypeArg::All))),
+                json(backend.search_paths_kore(search(SearchTypeArg::Final))),
             ];
             if console {
                 use k_rust_backend::{
@@ -2620,16 +2626,19 @@ mod checks_off {
     }
 
     /// Simplify `initial`, ask whether it implies itself and ask for a model of it, with the
-    /// claim checks on or off: the routes that do not depend on a strategy.
+    /// claim checks on or off: the routes that do not depend on a strategy, each answer as its
+    /// JSON text form writes it.
     fn requests(kore: &str, main: &str, initial: &Pattern, checks: bool) -> Outputs {
         use k_rust::backend::{ImplicationRequest, PatternRequest};
         let (kore, main, initial) = (kore.to_owned(), main.to_owned(), initial.clone());
         let (mut responses, counters) = counted(checks, move || {
             let mut backend = backend_in(&kore, &main);
             vec![
-                json(backend.simplify(PatternRequest::new(initial.clone()))),
-                json(backend.implies(ImplicationRequest::new(initial.clone(), initial.clone()))),
-                json(backend.get_model(PatternRequest::new(initial.clone()))),
+                json_text(backend.simplify_json(PatternRequest::new(initial.clone()))),
+                json_text(
+                    backend.implies_json(ImplicationRequest::new(initial.clone(), initial.clone())),
+                ),
+                json_text(backend.get_model_json(PatternRequest::new(initial.clone()))),
             ]
         });
         responses.iter_mut().for_each(without_records);
@@ -3419,7 +3428,7 @@ endmodule
                         let kore = kore.clone();
                         let (response, counters) = counted(checks, move || {
                             let mut backend = backend_in(&kore, "MAIN-SPEC");
-                            json(backend.prove(ProveRequest {
+                            json(backend.prove_kore(ProveRequest {
                                 claim: Some(format!("MAIN-SPEC.{claim}")),
                                 allow_vacuous,
                                 ..ProveRequest::default()

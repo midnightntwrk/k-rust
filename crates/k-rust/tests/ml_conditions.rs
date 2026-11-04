@@ -17,7 +17,7 @@ use k_rust::{
         CompilationBackend, CompileOptions, CompileSearchPatternError, CompiledKoreArtifacts,
         compile_loaded_definition, compile_search_pattern,
     },
-    kore::{ast::Pattern, codec, parser::parse_pattern, printer::Printer},
+    kore::{ast::Pattern, parser::parse_pattern, printer::Printer},
     outer::{LoadOptions, ResolvedSource, load_for_compilation, load_with_options},
     provenance::{GeneratingPass, ProvenanceLink},
 };
@@ -358,7 +358,7 @@ fn run_kore_states(kore: &str, n: i64) -> Vec<(String, String, String)> {
     ))
     .unwrap();
     let result = backend
-        .execute(ExecuteRequest {
+        .execute_kore(ExecuteRequest {
             max_depth: Some(5),
             ..ExecuteRequest::new(state)
         })
@@ -367,7 +367,7 @@ fn run_kore_states(kore: &str, n: i64) -> Vec<(String, String, String)> {
         .leaves
         .iter()
         .map(|leaf| {
-            let state = codec::from_value(&leaf.state).unwrap();
+            let state = leaf.state.clone();
             (
                 format!("{:?}", leaf.reason),
                 k_cell(&state),
@@ -1106,7 +1106,7 @@ fn run_with_flag(sentences: &str, n: i64, flag: i64) -> Vec<(String, String)> {
     ))
     .unwrap();
     let result = backend
-        .execute(ExecuteRequest {
+        .execute_kore(ExecuteRequest {
             max_depth: Some(5),
             ..ExecuteRequest::new(state)
         })
@@ -1115,7 +1115,7 @@ fn run_with_flag(sentences: &str, n: i64, flag: i64) -> Vec<(String, String)> {
         .leaves
         .iter()
         .map(|leaf| {
-            let state = codec::from_value(&leaf.state).unwrap();
+            let state = leaf.state.clone();
             (format!("{:?}", leaf.reason), k_cell(&state))
         })
         .collect();
@@ -1426,7 +1426,7 @@ fn prove(rules: &str, claims: &str, claim: &str) -> String {
 fn prove_kore(kore: &str, claim: &str) -> String {
     let mut backend = Backend::new(kore, "P-SPEC", BackendOptions::default()).unwrap();
     backend
-        .prove(ProveRequest {
+        .prove_kore(ProveRequest {
             claim: Some(format!("P-SPEC.{claim}")),
             max_depth: Some(20),
             ..ProveRequest::default()

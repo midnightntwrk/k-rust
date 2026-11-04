@@ -143,7 +143,7 @@ fn request(initial: &Pattern, strategy: ExecutionStrategy, offered: bool) -> Exe
 
 /// The leaves of a response, without their diagnostics; an error as its message.
 fn leaves(
-    response: Result<k_rust::backend::ExecutionResult, k_rust::backend::BackendError>,
+    response: Result<k_rust::backend::KoreExecutionResult, k_rust::backend::BackendError>,
 ) -> Value {
     let response = match response {
         Ok(response) => serde_json::to_value(&response).unwrap(),
@@ -440,7 +440,9 @@ fn assert_unlisted_axioms_of_kore_are_inert(
     for (input, initial) in initials {
         let mut backend = Backend::new(kore, main, BackendOptions::default()).unwrap();
         for strategy in STRATEGIES {
-            let response = backend.execute(request(initial, strategy, true)).unwrap();
+            let response = backend
+                .execute_kore(request(initial, strategy, true))
+                .unwrap();
             let coverage = response.coverage.as_ref().unwrap();
             let listed = coverage
                 .applied
@@ -497,8 +499,11 @@ fn assert_unlisted_axioms_of_kore_are_inert(
             };
             for original in &affected {
                 tally.runs += 1;
-                let mutated =
-                    leaves(backend.execute(request(&original.initial, original.strategy, false)));
+                let mutated = leaves(backend.execute_kore(request(
+                    &original.initial,
+                    original.strategy,
+                    false,
+                )));
                 if mutated != original.leaves {
                     changed.push(format!(
                         "{case}: {} under {:?}: {mutation:?} {} ({id}) changes the leaves\n  original {}\n  mutant   {}",

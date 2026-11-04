@@ -18,51 +18,54 @@
 //! # Bounding an operation
 //!
 //! A host bounds a request with a [`CancellationToken`]: it runs the request inside the token's
-//! scope on the thread that performs it (`token.scope(|| backend.execute(request))`) and calls
-//! [`CancellationToken::cancel`] from any thread.
+//! scope on the thread that performs it (`token.scope(|| backend.execute_kore(request))`) and
+//! calls [`CancellationToken::cancel`] from any thread.
 //! An operation that stops does so for a [`StopCause`], and an error it returns for a stop names
 //! that cause ([`BackendError::stop_cause`]).
 //!
-//! 1. The operations that link to this section ([`Backend::execute`], [`Backend::search`] and
-//!    their variants, [`Backend::simplify`], [`Backend::implies`], [`Backend::get_model`],
-//!    [`Backend::prove`]), [`Backend::match_patterns`] and any operation run through
+//! 1. The operations that link to this section ([`Backend::execute_kore`],
+//!    [`Backend::search_kore`] and their variants, [`Backend::prove_kore`], the `_json` form of
+//!    each, [`Backend::simplify_json`], [`Backend::implies_json`] and
+//!    [`Backend::get_model_json`]), [`Backend::match_patterns`] and any operation run through
 //!    [`Backend::with_solver`] run inside one operation boundary, in both builds. A request
 //!    cancelled before its operation starts does not run: the operation returns `Err(e)` with
 //!    `e.stop_cause() == Some(&StopCause::Cancelled)`. Constructing a [`Backend`] inside the
 //!    token's scope fails the same way. An error the request has before the boundary is reported
 //!    instead: an unsupported schema version, an operation this build does not provide
-//!    ([`Backend::get_model`] without the `z3-inference` feature, step timeouts on wasm32), an
-//!    unknown module or a module that fails to load, and a state too deep for the backend.
+//!    ([`Backend::get_model_json`] without the `z3-inference` feature, step timeouts on wasm32),
+//!    an unknown module or a module that fails to load, and a state too deep for the backend.
 //!    [`Backend::add_module`], [`Backend::rule_catalog`], [`Backend::select_definition`] and the
 //!    internalizing constructors ([`Backend::internalize_definition`],
 //!    [`Backend::internalize_source_definition`]) have no boundary and never answer `Cancelled`;
 //!    those that load a definition (`select_definition`, the internalizing constructors) do not
 //!    read the token, as point 6 says.
-//! 2. A cancellation observed while [`Backend::execute`] or a search ([`Backend::search`] and its
-//!    path and pattern variants) explores ends the whole run, and the run reports it in its
-//!    result. `execute` returns `Ok` with the leaves completed before the cancellation and the
-//!    stopped state as a `cancelled` leaf ([`HaltReasonOutput::Cancelled`]); it does not list the
-//!    states still pending. A search returns `Ok` with a `cancelled` incomplete entry
-//!    ([`IncompleteSearchOutput::Cancelled`]) for the stopped state. Such a result is incomplete
-//!    and makes no coverage claim. An `execute` whose request sets
-//!    [`ExecuteRequest::cancelled_result`] to `error` answers such a cancellation as
-//!    `Err(e)` with `e.stop_cause() == Some(&StopCause::Cancelled)` instead, whichever phase
-//!    observed it (the exploration, the passes after it, or the conversion of the leaves), and
-//!    builds no leaf beyond the stopped state's own, which the observing poll builds and the run
-//!    discards; point 3's rule then holds for that `execute` too.
-//! 3. [`Backend::simplify`], [`Backend::implies`] and [`Backend::get_model`] report a
+//! 2. A cancellation observed while [`Backend::execute_kore`] or a search
+//!    ([`Backend::search_kore`] and its path and pattern variants) explores ends the whole run, and
+//!    the run reports it in its result. An execution returns `Ok` with the leaves completed before
+//!    the cancellation and the stopped state as a `cancelled` leaf
+//!    ([`HaltReasonOutput::Cancelled`]); it does not list the states still pending. A search
+//!    returns `Ok` with a `cancelled` incomplete entry ([`IncompleteSearchOutput::Cancelled`]) for
+//!    the stopped state. Such a result is incomplete and makes no coverage claim. An execution
+//!    whose request sets [`ExecuteRequest::cancelled_result`] to `error` answers such a
+//!    cancellation as `Err(e)` with `e.stop_cause() == Some(&StopCause::Cancelled)` instead,
+//!    whichever phase observed it (the exploration, the passes after it, or the conversion of the
+//!    leaves), and builds no leaf beyond the stopped state's own, which the observing poll builds
+//!    and the run discards; point 3's rule then holds for that execution too.
+//! 3. The simplification, implication and model operations ([`Backend::simplify_json`],
+//!    [`Backend::implies_json`], [`Backend::get_model_json`] and their pattern forms
+//!    [`Backend::simplify_kore`], [`Backend::implies_kore`] and `Backend::model_for`) report a
 //!    cancellation observed at any point, including one a refinement observed and set aside, as
-//!    `Err(e)` with `e.stop_cause() == Some(&StopCause::Cancelled)`: each polls once more after
-//!    its work returns. [`Backend::prove`] reports a cancellation as that `Err` unless the proof's
+//!    `Err(e)` with `e.stop_cause() == Some(&StopCause::Cancelled)`: each polls once more after its
+//!    work returns. [`Backend::prove_kore`] reports a cancellation as that `Err` unless the proof's
 //!    verdict no longer depends on the work the cancellation prevented: it keeps `Ok` when the
-//!    status is `disproved` (a certified refutation, which further exploration cannot change),
-//!    when no state was left unexplored, or when the leaves that are not proven reached
+//!    status is `disproved` (a certified refutation, which further exploration cannot change), when
+//!    no state was left unexplored, or when the leaves that are not proven reached
 //!    `max_counterexamples`. Any other cancelled proof (`indeterminate`, `depth-bound`,
-//!    `breadth-bound`, or `failed` below the limit) could change status if it went on, so it is
-//!    the `Err`. A failed solver prelude is always an `Err`.
-//!    So a cancelled operation answers `Err` with the `Cancelled` cause, except a cancellation
-//!    observed during an `execute` (under the default `cancelledResult: partial`) or search run,
-//!    which is a `cancelled` leaf or entry, and a proof whose verdict it could not change.
+//!    `breadth-bound`, or `failed` below the limit) could change status if it went on, so it is the
+//!    `Err`. A failed solver prelude is always an `Err`. So a cancelled operation answers `Err`
+//!    with the `Cancelled` cause, except a cancellation observed during an execution (under the
+//!    default `cancelledResult: partial`) or search run, which is a `cancelled` leaf or entry, and
+//!    a proof whose verdict it could not change.
 //! 4. A cancellation that lands after the boundary's entry poll and before the run's first poll
 //!    still gives, under `cancelledResult: partial` (the default), `Ok` with a depth-0 `cancelled`
 //!    leaf (a search: a `cancelled` entry for its initial state), in both builds; under `error` the
@@ -134,7 +137,7 @@
 //!         token.cancel();
 //!     })
 //! };
-//! let outcome = token.scope(|| backend.execute(ExecuteRequest::new(start)));
+//! let outcome = token.scope(|| backend.execute_kore(ExecuteRequest::new(start)));
 //! watchdog.join().unwrap();
 //!
 //! // Both shapes are a cancellation (points 1, 2 and 4): which one a run gives depends on when
@@ -316,6 +319,9 @@ pub fn z3_version() -> Option<&'static str> {
     }
 }
 
+/// What this build of the backend supports. An execution below is [`Backend::execute_kore`] or
+/// [`Backend::execute_observed_kore`], or a form that writes the same result as text (their
+/// `_json` forms and [`Backend::execute_observed_to_writer`]).
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BackendCapabilities {
@@ -329,60 +335,56 @@ pub struct BackendCapabilities {
     pub step_timeouts: bool,
     pub search: bool,
     pub observation: bool,
-    /// `execute` and `execute_observed` report the run's coverage when the request sets
-    /// `collect_coverage` ([`ExecuteRequest::collect_coverage`]).
+    /// An execution reports the run's coverage when the request sets `collect_coverage`
+    /// ([`ExecuteRequest::collect_coverage`]).
     pub coverage: bool,
-    /// `execute` and `execute_observed` also report the offered level of the run's coverage
+    /// An execution also reports the offered level of the run's coverage
     /// ([`RunCoverageOutput::offered`]) when the request sets `collect_offered` beside
     /// `collect_coverage` ([`ExecuteRequest::collect_offered`]).
     pub coverage_offered: bool,
-    /// `execute` and `execute_observed` also report how many times the run applied each rule and
-    /// equation of `applied` ([`RunCoverageOutput::applied_counts`]) when the request sets
-    /// `collect_counts` beside `collect_coverage` ([`ExecuteRequest::collect_counts`]).
+    /// An execution also reports how many times the run applied each rule and equation of
+    /// `applied` ([`RunCoverageOutput::applied_counts`]) when the request sets `collect_counts`
+    /// beside `collect_coverage` ([`ExecuteRequest::collect_counts`]).
     pub coverage_counts: bool,
-    /// `execute` and `execute_observed` also report the condition records of the run's coverage
+    /// An execution also reports the condition records of the run's coverage
     /// ([`RunCoverageOutput::conditions`]) when the request sets `collect_conditions` beside
     /// `collect_coverage` ([`ExecuteRequest::collect_conditions`]).
     pub coverage_conditions: bool,
-    /// `execute` and `execute_observed` accept `collect_committed` beside `collect_coverage`
+    /// An execution accepts `collect_committed` beside `collect_coverage`
     /// ([`RunCoverageOutput::committed`]).
     pub coverage_committed: bool,
-    /// `execute` and `execute_observed` accept `match_states` ([`ExecuteRequest::match_states`])
-    /// and report [`ExecutionResult::state_matches`].
+    /// An execution accepts `match_states` ([`ExecuteRequest::match_states`]) and reports
+    /// [`ExecutionResult::state_matches`].
     pub state_matches: bool,
-    /// `execute` and `execute_observed` report the stack stops the run met
-    /// ([`ExecutionResult::stack_stops`]).
+    /// An execution reports the stack stops the run met ([`ExecutionResult::stack_stops`]).
     pub stack_stops: bool,
-    /// `execute` and `execute_observed` report the undecided solver answers the run's decisions
-    /// were taken from ([`ExecutionResult::smt_unknowns`]); in a build without a solver the count
-    /// is always zero.
+    /// An execution reports the undecided solver answers the run's decisions were taken from
+    /// ([`ExecutionResult::smt_unknowns`]); in a build without a solver the count is always zero.
     pub smt_unknowns: bool,
-    /// `execute` and `execute_observed` mark each leaf whose path read a value the definition
-    /// leaves open (`BackendDiagnosticOutput::ImplementationChosenValue`) and list every such
-    /// value the run read ([`ExecutionResult::implementation_chosen_values`]); a search marks its
-    /// states, witnesses and matches alike and lists every such value it read
+    /// An execution marks each leaf whose path read a value the definition leaves open
+    /// (`BackendDiagnosticOutput::ImplementationChosenValue`) and lists every such value the run
+    /// read ([`ExecutionResult::implementation_chosen_values`]); a search marks its states,
+    /// witnesses and matches alike and lists every such value it read
     /// (`SearchResponse::implementation_chosen_values` and the other search responses').
     pub implementation_chosen_values: bool,
-    /// `execute` and `execute_observed` mark each leaf whose path's decisions rest on a
-    /// contradicted claim the run observed (`BackendDiagnosticOutput::ContradictedClaim`), a
-    /// `total` attribute or a rule's `preserves-definedness`, and list every such record the run
-    /// and its definition's load observed ([`ExecutionResult::contradicted_claims`]); every search
-    /// marks its states, witnesses and matches alike and lists the records
-    /// (`SearchResponse::contradicted_claims` and the other search responses'). Proofs name a
-    /// contradicted total on their empty leaves only (docs/compatibility.md, "A contradicted
-    /// `preserves-definedness` attribute is named, not repaired").
+    /// An execution marks each leaf whose path's decisions rest on a contradicted claim the run
+    /// observed (`BackendDiagnosticOutput::ContradictedClaim`), a `total` attribute or a rule's
+    /// `preserves-definedness`, and lists every such record the run and its definition's load
+    /// observed ([`ExecutionResult::contradicted_claims`]); every search marks its states,
+    /// witnesses and matches alike and lists the records (`SearchResponse::contradicted_claims`
+    /// and the other search responses'). Proofs name a contradicted total on their empty leaves
+    /// only (docs/compatibility.md, "A contradicted `preserves-definedness` attribute is named,
+    /// not repaired").
     pub contradicted_claims: bool,
-    /// `execute`, `execute_observed` and every search list every `Bytes` result the memory
-    /// allowance refused ([`ExecutionResult::allowance_refusals`]), whatever became of the work
-    /// that met it.
+    /// An execution and every search list every `Bytes` result the memory allowance refused
+    /// ([`ExecutionResult::allowance_refusals`]), whatever became of the work that met it.
     pub allowance_refusals: bool,
-    /// `execute`, `execute_observed` and every search list every application left unevaluated
-    /// as an unsupported hook ([`ExecutionResult::unsupported_hooks`]), whatever became of the
-    /// work that met it.
+    /// An execution and every search list every application left unevaluated as an unsupported
+    /// hook ([`ExecutionResult::unsupported_hooks`]), whatever became of the work that met it.
     pub unsupported_hooks: bool,
-    /// `execute`, `execute_observed` and every search list every place where the run used the
-    /// strict definedness of an operand a short-circuiting reading skips and did not find it
-    /// defined ([`ExecutionResult::short_circuit_readings`]), whatever became of the work.
+    /// An execution and every search list every place where the run used the strict definedness
+    /// of an operand a short-circuiting reading skips and did not find it defined
+    /// ([`ExecutionResult::short_circuit_readings`]), whatever became of the work.
     pub short_circuit_readings: bool,
 }
 
@@ -632,7 +634,7 @@ pub type KoreProofResult = ProofResultOutput<KorePattern>;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ExecutionResult<K = Value> {
+pub struct ExecutionResult<K> {
     /// Whether `leaves` is a state set (equal configurations merged) or a path set (one leaf
     /// per explored path), as selected by `ExecuteRequest::result_modality`.
     pub modality: ResultModalityOutput,
@@ -897,9 +899,9 @@ impl From<&k_rust_backend::builtin::ChosenValue> for ChosenValueOutput {
 ///   discharge began to decide.
 ///
 /// The lists cover every state the run explored, including leaves a `state-set` result merges
-/// away, and are equal for `execute` and `execute_observed`, for both result modalities, and
-/// for every earlier request to the backend. They are a deterministic function of the
-/// definition, the request, the solver profile and the k-rust version. They never name a
+/// away, and are equal for `execute_kore` and `execute_observed_kore`, for both result
+/// modalities, and for every earlier request to the backend. They are a deterministic function
+/// of the definition, the request, the solver profile and the k-rust version. They never name a
 /// builtin hook, an `smt-lemma`, macro or alias rule, a claim, or an equation that only the
 /// load-time confluence check uses. A run that a stop, a timeout or a bound cut short reports
 /// what it collected before it ended, which depends on where it stopped.
@@ -1284,8 +1286,8 @@ fn is_zero(count: &usize) -> bool {
 /// over a term-level `\and` is covered: its instance states the conjunction's definedness beside
 /// the atom); a definition whose axioms hold an `\equals` that reads a term as a predicate is
 /// refused when it loads (docs/compatibility.md, "Solver decisions over partial operations").
-/// For a state a client writes itself, [`Backend::implies`] with a `\bottom` consequent decides
-/// whether it has an instance.
+/// For a state a client writes itself, [`Backend::implies_kore`] with a `\bottom` consequent
+/// decides whether it has an instance.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(bound(deserialize = "K: Deserialize<'de>"))]
@@ -1617,7 +1619,7 @@ impl Default for ProveRequest {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProofResultOutput<K = Value> {
+pub struct ProofResultOutput<K> {
     pub claim: String,
     pub status: String,
     pub explored_states: u64,
@@ -1631,7 +1633,7 @@ pub struct ProofResultOutput<K = Value> {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProofLeafOutput<K = Value> {
+pub struct ProofLeafOutput<K> {
     pub state: K,
     /// Semantic and claim transitions; equation normalization does not increment it.
     pub depth: u64,
@@ -2079,7 +2081,8 @@ impl Backend {
     }
 
     /// Execute without observation; every leaf's `branch` and `observations` are empty.
-    /// `execute_observed` returns the same non-observation leaf fields in the same order.
+    /// [`Self::execute_observed_kore`] returns the same non-observation leaf fields in the same
+    /// order.
     ///
     /// Coverage. The leaves' constraints cover the initial state: take any ground instance of
     /// the initial state that satisfies its constraint. Some leaf's constraint is satisfied by
@@ -2097,7 +2100,7 @@ impl Backend {
     ///
     /// The execution runs a program ([`EvaluationMode::Execution`]): it lists the items of `keys_list`,
     /// `values` and `Set2List` in k-rust's order, which the definition does not fix, so its
-    /// states must not decide a claim; prove through [`Self::prove`]
+    /// states must not decide a claim; prove through [`Self::prove_kore`]
     /// (docs/compatibility.md, "Implementation-chosen hook values").
     ///
     /// The result is a function of the backend's inputs and the request, the same on a fresh
@@ -2107,32 +2110,9 @@ impl Backend {
     /// made refuse a result, a load-time check or discharge stopped for lack of stack, and in
     /// builds with Z3 a result whose `smt_unknowns` is nonzero).
     ///
-    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::execute_json`] writes the same result as text inside the operation, and [`Self::execute_kore`] holds it as patterns. See docs/backend-port.md#stack-bounds.
-    ///
-    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
-    pub fn execute(&mut self, request: ExecuteRequest) -> Result<ExecutionResult, BackendError> {
-        self.execute_using(request, None)
-    }
-
-    /// Execute with observation without changing the leaves or their order.
-    /// For the same request, leaves match `execute` after clearing `branch` and `observations`.
-    /// Branch identities are independent of the rule filter; `rules: Some(vec![])` returns
-    /// every identity and no observation events.
-    ///
-    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::execute_observed_json`] writes the same result as text inside the operation, and [`Self::execute_observed_kore`] holds it as patterns. See docs/backend-port.md#stack-bounds.
-    ///
-    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
-    pub fn execute_observed(
-        &mut self,
-        request: ObservedRequest<ExecuteRequest>,
-    ) -> Result<ExecutionResult, BackendError> {
-        self.execute_using(request.request, Some(request.rules))
-    }
-
-    /// [`Self::execute`], with the result's KORE as patterns.
-    /// Each is built from the operation's terms inside the operation, and its holder clones,
-    /// compares, drops and prints it with explicit stacks; the result serializes as
-    /// [`Self::execute`]'s does.
+    /// The result's KORE is held as patterns, each built from the operation's terms inside the
+    /// operation, which its holder clones, compares, drops and prints with explicit stacks.
+    /// The result serialized with serde is the JSON text [`Self::execute_json`] writes.
     ///
     /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn execute_kore(
@@ -2142,7 +2122,14 @@ impl Backend {
         self.execute_using(request, None)
     }
 
-    /// [`Self::execute_observed`], with the result's KORE as patterns, as [`Self::execute_kore`].
+    /// Execute with observation without changing the leaves or their order.
+    /// For the same request, leaves match [`Self::execute_kore`] after clearing `branch` and
+    /// `observations`.
+    /// Branch identities are independent of the rule filter; `rules: Some(vec![])` returns
+    /// every identity and no observation events.
+    ///
+    /// The result's KORE is held as patterns, as [`Self::execute_kore`]'s; serialized with serde,
+    /// it is the JSON text [`Self::execute_observed_json`] writes.
     ///
     /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn execute_observed_kore(
@@ -2203,7 +2190,7 @@ impl Backend {
                     "invalid executable state",
                     BackendErrorKind::InvalidState,
                 ))?;
-            // `execute` runs a program, which takes k-rust's element of a literal the definition
+            // An execution runs a program, which takes k-rust's element of a literal the definition
             // leaves open and marks every leaf with it, the state-match target's included.
             let literals = k_rust_backend::definition::RequestLiterals::new();
             let initial = definition
@@ -2214,8 +2201,8 @@ impl Backend {
                     "could not internalize execution state",
                     BackendErrorKind::StateNotInternalized,
                 ))?;
-            // The target is internalized as `search_pattern` internalizes its pattern. It is not
-            // added to the run's request names: the matcher matches only states without
+            // The target is internalized as `search_pattern_kore` internalizes its pattern. It is
+            // not added to the run's request names: the matcher matches only states without
             // variables, so no name of the run can meet one of the target's, and the run mints
             // the names it would mint without the option.
             let match_states = match_request
@@ -2256,7 +2243,7 @@ impl Backend {
                 // The state as received, before its aliases are unfolded: none here, since an
                 // executable state has none, but every path names its request the same way.
                 request_names: RequestNames::of_received(&[&syntax]),
-                // `execute` runs a program, so it lists collections in k-rust's order.
+                // An execution runs a program, so it lists collections in k-rust's order.
                 evaluation: EvaluationMode::Execution,
                 // The backend opens the collection inside its execute entry, after this
                 // operation has selected (and possibly built) the module, so the sets never hold
@@ -2284,27 +2271,11 @@ impl Backend {
 
     /// The search runs a program ([`EvaluationMode::Execution`]): it lists the items of `keys_list`,
     /// `values` and `Set2List` in k-rust's order, which the definition does not fix, so its
-    /// states must not decide a claim; prove through [`Self::prove`]
+    /// states must not decide a claim; prove through [`Self::prove_kore`]
     /// (docs/compatibility.md, "Implementation-chosen hook values").
     ///
-    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_json`] writes the same result as text inside the operation, and [`Self::search_kore`] holds it as patterns. See docs/backend-port.md#stack-bounds.
-    ///
-    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
-    pub fn search(&mut self, request: SearchRequest) -> Result<SearchResponse, BackendError> {
-        self.search_using(request, None)
-    }
-
-    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_observed_json`] writes the same result as text inside the operation, and [`Self::search_observed_kore`] holds it as patterns. See docs/backend-port.md#stack-bounds.
-    ///
-    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
-    pub fn search_observed(
-        &mut self,
-        request: ObservedRequest<SearchRequest>,
-    ) -> Result<SearchResponse, BackendError> {
-        self.search_using(request.request, Some(request.rules))
-    }
-
-    /// [`Self::search`], with the response's KORE as patterns, as [`Self::execute_kore`].
+    /// The response's KORE is held as patterns, as [`Self::execute_kore`]'s; serialized with
+    /// serde, it is the JSON text [`Self::search_json`] writes.
     ///
     /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn search_kore(
@@ -2314,8 +2285,9 @@ impl Backend {
         self.search_using(request, None)
     }
 
-    /// [`Self::search_observed`], with the response's KORE as patterns, as
-    /// [`Self::execute_kore`].
+    /// [`Self::search_kore`] with observation, as [`Self::execute_observed_kore`] is
+    /// [`Self::execute_kore`] with observation; serialized with serde, the response is the JSON
+    /// text [`Self::search_observed_json`] writes.
     ///
     /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn search_observed_kore(
@@ -2379,30 +2351,11 @@ impl Backend {
 
     /// The search runs a program ([`EvaluationMode::Execution`]): it lists the items of `keys_list`,
     /// `values` and `Set2List` in k-rust's order, which the definition does not fix, so its
-    /// states must not decide a claim; prove through [`Self::prove`]
+    /// states must not decide a claim; prove through [`Self::prove_kore`]
     /// (docs/compatibility.md, "Implementation-chosen hook values").
     ///
-    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_paths_json`] writes the same result as text inside the operation, and [`Self::search_paths_kore`] holds it as patterns. See docs/backend-port.md#stack-bounds.
-    ///
-    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
-    pub fn search_paths(
-        &mut self,
-        request: SearchRequest,
-    ) -> Result<PathSearchResponse, BackendError> {
-        self.search_paths_using(request, None)
-    }
-
-    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_paths_observed_json`] writes the same result as text inside the operation, and [`Self::search_paths_observed_kore`] holds it as patterns. See docs/backend-port.md#stack-bounds.
-    ///
-    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
-    pub fn search_paths_observed(
-        &mut self,
-        request: ObservedRequest<SearchRequest>,
-    ) -> Result<PathSearchResponse, BackendError> {
-        self.search_paths_using(request.request, Some(request.rules))
-    }
-
-    /// [`Self::search_paths`], with the response's KORE as patterns, as [`Self::execute_kore`].
+    /// The response's KORE is held as patterns, as [`Self::execute_kore`]'s; serialized with
+    /// serde, it is the JSON text [`Self::search_paths_json`] writes.
     ///
     /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn search_paths_kore(
@@ -2412,8 +2365,9 @@ impl Backend {
         self.search_paths_using(request, None)
     }
 
-    /// [`Self::search_paths_observed`], with the response's KORE as patterns, as
-    /// [`Self::execute_kore`].
+    /// [`Self::search_paths_kore`] with observation, as [`Self::execute_observed_kore`] is
+    /// [`Self::execute_kore`] with observation; serialized with serde, the response is the JSON
+    /// text [`Self::search_paths_observed_json`] writes.
     ///
     /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn search_paths_observed_kore(
@@ -2477,30 +2431,11 @@ impl Backend {
 
     /// The search runs a program ([`EvaluationMode::Execution`]): it lists the items of `keys_list`,
     /// `values` and `Set2List` in k-rust's order, which the definition does not fix, so its
-    /// states must not decide a claim; prove through [`Self::prove`]
+    /// states must not decide a claim; prove through [`Self::prove_kore`]
     /// (docs/compatibility.md, "Implementation-chosen hook values").
     ///
-    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_pattern_json`] writes the same result as text inside the operation, and [`Self::search_pattern_kore`] holds it as patterns. See docs/backend-port.md#stack-bounds.
-    ///
-    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
-    pub fn search_pattern(
-        &mut self,
-        request: SearchPatternRequest,
-    ) -> Result<PatternSearchResponse, BackendError> {
-        self.search_pattern_using(request, None)
-    }
-
-    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_pattern_observed_json`] writes the same result as text inside the operation, and [`Self::search_pattern_observed_kore`] holds it as patterns. See docs/backend-port.md#stack-bounds.
-    ///
-    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
-    pub fn search_pattern_observed(
-        &mut self,
-        request: ObservedRequest<SearchPatternRequest>,
-    ) -> Result<PatternSearchResponse, BackendError> {
-        self.search_pattern_using(request.request, Some(request.rules))
-    }
-
-    /// [`Self::search_pattern`], with the response's KORE as patterns, as [`Self::execute_kore`].
+    /// The response's KORE is held as patterns, as [`Self::execute_kore`]'s; serialized with
+    /// serde, it is the JSON text [`Self::search_pattern_json`] writes.
     ///
     /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn search_pattern_kore(
@@ -2510,8 +2445,9 @@ impl Backend {
         self.search_pattern_using(request, None)
     }
 
-    /// [`Self::search_pattern_observed`], with the response's KORE as patterns, as
-    /// [`Self::execute_kore`].
+    /// [`Self::search_pattern_kore`] with observation, as [`Self::execute_observed_kore`] is
+    /// [`Self::execute_kore`] with observation; serialized with serde, the response is the JSON
+    /// text [`Self::search_pattern_observed_json`] writes.
     ///
     /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn search_pattern_observed_kore(
@@ -2586,28 +2522,8 @@ impl Backend {
         })
     }
 
-    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_pattern_paths_json`] writes the same result as text inside the operation, and [`Self::search_pattern_paths_kore`] holds it as patterns. See docs/backend-port.md#stack-bounds.
-    ///
-    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
-    pub fn search_pattern_paths(
-        &mut self,
-        request: SearchPatternRequest,
-    ) -> Result<PathPatternSearchResponse, BackendError> {
-        self.search_pattern_paths_using(request, None)
-    }
-
-    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::search_pattern_paths_observed_json`] writes the same result as text inside the operation, and [`Self::search_pattern_paths_observed_kore`] holds it as patterns. See docs/backend-port.md#stack-bounds.
-    ///
-    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
-    pub fn search_pattern_paths_observed(
-        &mut self,
-        request: ObservedRequest<SearchPatternRequest>,
-    ) -> Result<PathPatternSearchResponse, BackendError> {
-        self.search_pattern_paths_using(request.request, Some(request.rules))
-    }
-
-    /// [`Self::search_pattern_paths`], with the response's KORE as patterns, as
-    /// [`Self::execute_kore`].
+    /// The response's KORE is held as patterns, as [`Self::execute_kore`]'s; serialized with
+    /// serde, it is the JSON text [`Self::search_pattern_paths_json`] writes.
     ///
     /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn search_pattern_paths_kore(
@@ -2617,8 +2533,9 @@ impl Backend {
         self.search_pattern_paths_using(request, None)
     }
 
-    /// [`Self::search_pattern_paths_observed`], with the response's KORE as patterns, as
-    /// [`Self::execute_kore`].
+    /// [`Self::search_pattern_paths_kore`] with observation, as [`Self::execute_observed_kore`] is
+    /// [`Self::execute_kore`] with observation; serialized with serde, the response is the JSON
+    /// text [`Self::search_pattern_paths_observed_json`] writes.
     ///
     /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn search_pattern_paths_observed_kore(
@@ -2775,14 +2692,11 @@ impl Backend {
         )
     }
 
-    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::simplify_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    /// Simplify the request's pattern, as [`Self::simplify_kore`] does with
+    /// [`Admission::Unverified`], and write the simplified pattern as KORE JSON text, inside the
+    /// operation, on the stack it runs on.
     ///
     /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
-    pub fn simplify(&mut self, request: PatternRequest) -> Result<Value, BackendError> {
-        self.simplify_with(request, |pattern| encode_pattern(&pattern))
-    }
-
-    /// [`Self::simplify`] as JSON text, written inside the operation, on the stack it runs on.
     pub fn simplify_json(&mut self, request: PatternRequest) -> Result<String, BackendError> {
         self.simplify_with(request, |pattern| {
             serialize_wire(&encode_pattern(&pattern)?)
@@ -2803,17 +2717,11 @@ impl Backend {
         self.simplify_associated(definition, &syntax, Admission::Unverified, finish)
     }
 
-    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::implies_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    /// Decide whether the request's antecedent implies its consequent, as [`Self::implies_kore`]
+    /// does with [`Admission::Unverified`], and write the answer as an [`ImplicationResult`] in
+    /// JSON text, inside the operation, on the stack it runs on.
     ///
     /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
-    pub fn implies(
-        &mut self,
-        request: ImplicationRequest,
-    ) -> Result<ImplicationResult, BackendError> {
-        self.implies_with(request, Ok)
-    }
-
-    /// [`Self::implies`] as JSON text, written inside the operation, on the stack it runs on.
     pub fn implies_json(&mut self, request: ImplicationRequest) -> Result<String, BackendError> {
         self.implies_with(request, |result| serialize_wire(&result))
     }
@@ -2855,17 +2763,12 @@ impl Backend {
         )
     }
 
-    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::get_model_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    /// Ask for a model of the request's predicate, as `Backend::model_for` does with
+    /// [`Admission::Unverified`] in builds with the `z3-inference` feature, and write the answer as
+    /// a [`ModelResultOutput`] in JSON text, inside the operation, on the stack it runs on; a build
+    /// without that feature refuses every request.
     ///
     /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
-    pub fn get_model(
-        &mut self,
-        request: PatternRequest,
-    ) -> Result<ModelResultOutput, BackendError> {
-        self.get_model_with(request, Ok)
-    }
-
-    /// [`Self::get_model`] as JSON text, written inside the operation, on the stack it runs on.
     pub fn get_model_json(&mut self, request: PatternRequest) -> Result<String, BackendError> {
         self.get_model_with(request, |result| serialize_wire(&result))
     }
@@ -2949,21 +2852,15 @@ impl Backend {
     /// disjunction is proven one disjunct per request, each selected by its `#index`; it holds
     /// only if every disjunct is proven, and a label or unique id that names it is refused.
     ///
-    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::prove_json`] writes the same result as text inside the operation, and [`Self::prove_kore`] holds it as patterns. See docs/backend-port.md#stack-bounds.
-    ///
-    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
-    pub fn prove(&mut self, request: ProveRequest) -> Result<ProofResultOutput, BackendError> {
-        self.prove_using(request)
-    }
-
-    /// [`Self::prove`], with each leaf's KORE as patterns, as [`Self::execute_kore`].
+    /// Each leaf's KORE is held as patterns, as [`Self::execute_kore`]'s; serialized with serde,
+    /// the result is the JSON text [`Self::prove_json`] writes.
     ///
     /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn prove_kore(&mut self, request: ProveRequest) -> Result<KoreProofResult, BackendError> {
         self.prove_using(request)
     }
 
-    /// [`Self::prove`] as JSON text: each leaf's KORE is written as text inside the operation,
+    /// [`Self::prove_kore`] as JSON text: each leaf's KORE is written as text inside the operation,
     /// on the stack it runs on.
     pub fn prove_json(&mut self, request: ProveRequest) -> Result<String, BackendError> {
         serialize_wire(&self.prove_using::<Box<RawValue>>(request)?)
@@ -3333,8 +3230,8 @@ fn bounded_search_options(
         max_results,
         max_simplification_iterations,
         request_names: RequestNames::default(),
-        // `search`, `search_paths` and `search_pattern*` explore the runs of a program, so they
-        // list collections in k-rust's order.
+        // Every search (`search_kore`, `search_paths_kore`, `search_pattern*` and their other
+        // forms) explores the runs of a program, so it lists collections in k-rust's order.
         evaluation: EvaluationMode::Execution,
         // Each search sets the open literals its patterns hold.
         request_literals: Vec::new(),
@@ -4376,7 +4273,9 @@ mod tests {
         let mut causes = Vec::new();
         for (definition, state) in cases {
             let mut backend = Backend::new(definition, "MAIN", BackendOptions::default()).unwrap();
-            let result = backend.execute(ExecuteRequest::new(kore(state))).unwrap();
+            let result = backend
+                .execute_kore(ExecuteRequest::new(kore(state)))
+                .unwrap();
             assert_eq!(result.leaves.len(), 1, "{state}");
             let leaf = &result.leaves[0];
             assert_eq!(
@@ -4431,7 +4330,7 @@ mod tests {
             endmodule []"#;
         let mut backend = Backend::new(DEFINITION, "MAIN", BackendOptions::default()).unwrap();
         let result = backend
-            .execute(ExecuteRequest::new(kore(r#"go{}(\dv{SortInt{}}("5"))"#)))
+            .execute_kore(ExecuteRequest::new(kore(r#"go{}(\dv{SortInt{}}("5"))"#)))
             .unwrap();
         let encoded = serde_json::to_value(&result.leaves[0]).unwrap();
         let error = &encoded["cause"]["error"];
@@ -4450,7 +4349,7 @@ mod tests {
         for (definition, state, kind) in cases {
             let mut backend = Backend::new(definition, "MAIN", BackendOptions::default()).unwrap();
             let leaf = backend
-                .execute(ExecuteRequest::new(kore(state)))
+                .execute_kore(ExecuteRequest::new(kore(state)))
                 .unwrap()
                 .leaves
                 .remove(0);
@@ -4466,7 +4365,7 @@ mod tests {
             assert_eq!(serde_json::to_value(decoded).unwrap(), encoded);
         }
         let leaf = backend()
-            .execute(ExecuteRequest::new(kore("a{}()")))
+            .execute_kore(ExecuteRequest::new(kore("a{}()")))
             .unwrap()
             .leaves
             .remove(0);
@@ -4517,7 +4416,7 @@ mod tests {
     fn refused_requests_are_stated_in_words() {
         let mut backend = backend();
         let filter = backend
-            .execute_observed(ObservedRequest {
+            .execute_observed_kore(ObservedRequest {
                 request: ExecuteRequest::new(kore("a{}()")),
                 rules: Some(vec!["missing".into()]),
             })
@@ -4539,7 +4438,7 @@ mod tests {
              declares 'SortNew'"
         );
         let predicate = backend
-            .execute(ExecuteRequest::new(kore(r"\top{SortS{}}()")))
+            .execute_kore(ExecuteRequest::new(kore(r"\top{SortS{}}()")))
             .unwrap_err();
         assert_eq!(
             predicate.message(),
@@ -4551,7 +4450,7 @@ mod tests {
             Some(BackendErrorKind::StateNotInternalized)
         );
         let disjunction = backend
-            .execute(ExecuteRequest::new(kore(r"\or{SortS{}}(a{}(), b{}())")))
+            .execute_kore(ExecuteRequest::new(kore(r"\or{SortS{}}(a{}(), b{}())")))
             .unwrap_err();
         assert_eq!(
             disjunction.message(),
@@ -4560,7 +4459,7 @@ mod tests {
         );
         let rewrite = r"\and{SortS{}}(a{}(), \rewrites{SortS{}}(a{}(), b{}()))";
         let rewrite = backend
-            .execute(ExecuteRequest::new(kore(rewrite)))
+            .execute_kore(ExecuteRequest::new(kore(rewrite)))
             .unwrap_err();
         assert_eq!(
             rewrite.message(),
@@ -4602,7 +4501,7 @@ mod tests {
     }
 
     #[test]
-    fn json_text_paths_match_value_responses() {
+    fn json_text_paths_match_pattern_responses() {
         let execute = || ExecuteRequest::new(kore("a{}()"));
         let search = || SearchRequest::new(kore("a{}()"));
         let pattern = || SearchPatternRequest::new(kore("a{}()"), kore("c{}()"));
@@ -4620,34 +4519,65 @@ mod tests {
         };
 
         macro_rules! same_json {
-            ($value_method:ident, $json_method:ident, $request:expr) => {{
+            ($kore_method:ident, $json_method:ident, $request:expr) => {{
                 let expected =
-                    serde_json::to_string(&backend().$value_method($request).unwrap()).unwrap();
+                    serde_json::to_string(&backend().$kore_method($request).unwrap()).unwrap();
                 let actual = backend().$json_method($request).unwrap();
                 assert_eq!(actual, expected, stringify!($json_method));
             }};
         }
-        same_json!(execute, execute_json, execute());
-        same_json!(execute_observed, execute_observed_json, observed_execute());
-        same_json!(search, search_json, search());
-        same_json!(search_observed, search_observed_json, observed_search());
-        same_json!(search_paths, search_paths_json, search());
+        same_json!(execute_kore, execute_json, execute());
         same_json!(
-            search_paths_observed,
+            execute_observed_kore,
+            execute_observed_json,
+            observed_execute()
+        );
+        same_json!(search_kore, search_json, search());
+        same_json!(
+            search_observed_kore,
+            search_observed_json,
+            observed_search()
+        );
+        same_json!(search_paths_kore, search_paths_json, search());
+        same_json!(
+            search_paths_observed_kore,
             search_paths_observed_json,
             observed_search()
         );
-        same_json!(search_pattern, search_pattern_json, pattern());
+        same_json!(search_pattern_kore, search_pattern_json, pattern());
         same_json!(
-            search_pattern_observed,
+            search_pattern_observed_kore,
             search_pattern_observed_json,
             observed_pattern()
         );
-        same_json!(search_pattern_paths, search_pattern_paths_json, pattern());
         same_json!(
-            search_pattern_paths_observed,
+            search_pattern_paths_kore,
+            search_pattern_paths_json,
+            pattern()
+        );
+        same_json!(
+            search_pattern_paths_observed_kore,
             search_pattern_paths_observed_json,
             observed_pattern()
+        );
+        let proof = || ProveRequest {
+            claim: Some("reaches-c".into()),
+            ..ProveRequest::default()
+        };
+        same_json!(prove_kore, prove_json, proof());
+        // The simplification route's pattern form takes the request's pattern and module, and
+        // its pattern serializes as the KORE JSON the text form writes.
+        assert_eq!(
+            backend()
+                .simplify_json(PatternRequest::new(kore("a{}()")))
+                .unwrap(),
+            serde_json::to_string(
+                &backend()
+                    .simplify_kore(None, &kore("a{}()"), Admission::Unverified)
+                    .unwrap()
+            )
+            .unwrap(),
+            "simplify_json"
         );
 
         let mut written = Vec::new();
@@ -4680,31 +4610,31 @@ mod tests {
 
         assert_invalid(
             backend()
-                .execute(ExecuteRequest::new(alias.clone()))
+                .execute_kore(ExecuteRequest::new(alias.clone()))
                 .unwrap_err(),
             "weakExistsFinally",
         );
         assert_invalid(
             backend()
-                .search(SearchRequest::new(nested_macro.clone()))
+                .search_kore(SearchRequest::new(nested_macro.clone()))
                 .unwrap_err(),
             "macroValue",
         );
         assert_invalid(
             backend()
-                .search_paths(SearchRequest::new(alias.clone()))
+                .search_paths_kore(SearchRequest::new(alias.clone()))
                 .unwrap_err(),
             "weakExistsFinally",
         );
         assert_invalid(
             backend()
-                .search_pattern(SearchPatternRequest::new(nested_macro, kore("a{}()")))
+                .search_pattern_kore(SearchPatternRequest::new(nested_macro, kore("a{}()")))
                 .unwrap_err(),
             "macroValue",
         );
         assert_invalid(
             backend()
-                .search_pattern_paths(SearchPatternRequest::new(alias, kore("a{}()")))
+                .search_pattern_paths_kore(SearchPatternRequest::new(alias, kore("a{}()")))
                 .unwrap_err(),
             "weakExistsFinally",
         );
@@ -4718,8 +4648,8 @@ mod tests {
         encode_pattern(&kore(source)).unwrap()
     }
 
-    fn text(value: Value) -> String {
-        Printer::compact().print_pattern(&kore_codec::from_value(&value).unwrap())
+    fn text(pattern: KorePattern) -> String {
+        Printer::compact().print_pattern(&pattern)
     }
 
     #[test]
@@ -4819,7 +4749,7 @@ mod tests {
         assert!(serde_json::from_str::<ProveRequest>(r#"{"bogus":1}"#).is_err());
 
         let error = backend()
-            .execute(ExecuteRequest {
+            .execute_kore(ExecuteRequest {
                 schema_version: 99,
                 ..ExecuteRequest::new(kore("a{}()"))
             })
@@ -4974,7 +4904,7 @@ mod tests {
 
         let mut backend = Backend::new(definition, "MAIN", BackendOptions::default()).unwrap();
         let default = backend
-            .prove(ProveRequest {
+            .prove_kore(ProveRequest {
                 claim: Some("ca".into()),
                 ..ProveRequest::default()
             })
@@ -4982,7 +4912,7 @@ mod tests {
         assert_eq!(default.status, "proven");
 
         let isolated = backend
-            .prove(ProveRequest {
+            .prove_kore(ProveRequest {
                 claim: Some("ca".into()),
                 circularities: Some(vec!["ca".into()]),
                 ..ProveRequest::default()
@@ -5015,7 +4945,7 @@ mod tests {
             endmodule []"#;
         let mut backend = Backend::new(definition, "MAIN", BackendOptions::default()).unwrap();
         let result = backend
-            .prove(ProveRequest {
+            .prove_kore(ProveRequest {
                 claim: Some("goal".into()),
                 ..ProveRequest::default()
             })
@@ -5038,7 +4968,7 @@ mod tests {
     fn persistent_backend_executes_and_proves() {
         let mut backend = backend();
         let execution = backend
-            .execute(ExecuteRequest {
+            .execute_kore(ExecuteRequest {
                 max_depth: Some(2),
                 ..ExecuteRequest::new(kore("a{}()"))
             })
@@ -5052,17 +4982,20 @@ mod tests {
         );
 
         let implication = backend
-            .implies(ImplicationRequest {
-                antecedent: kore("X:S"),
-                consequent: kore("X:S"),
-                module_name: None,
-                schema_version: BACKEND_SCHEMA_VERSION,
-            })
+            .implies_with(
+                ImplicationRequest {
+                    antecedent: kore("X:S"),
+                    consequent: kore("X:S"),
+                    module_name: None,
+                    schema_version: BACKEND_SCHEMA_VERSION,
+                },
+                Ok,
+            )
             .unwrap();
         assert_eq!(implication.status, "valid");
 
         let proof = backend
-            .prove(ProveRequest {
+            .prove_kore(ProveRequest {
                 claim: Some("reaches-c".into()),
                 ..ProveRequest::default()
             })
@@ -5079,7 +5012,7 @@ mod tests {
         )
         .unwrap();
         let result = backend
-            .execute(ExecuteRequest {
+            .execute_kore(ExecuteRequest {
                 max_simplification_iterations: 3,
                 ..ExecuteRequest::new(kore("start{}()"))
             })
@@ -5107,7 +5040,7 @@ mod tests {
         )
         .unwrap();
         let result = backend
-            .execute(ExecuteRequest {
+            .execute_kore(ExecuteRequest {
                 stop_at_branch: true,
                 ..ExecuteRequest::new(kore("start{}()"))
             })
@@ -5134,7 +5067,7 @@ mod tests {
         )
         .unwrap();
         let result = backend
-            .execute(ExecuteRequest {
+            .execute_kore(ExecuteRequest {
                 max_simplification_iterations: 3,
                 stop_at_branch: true,
                 ..ExecuteRequest::new(kore("start{}()"))
@@ -5165,7 +5098,10 @@ mod tests {
             .find(|candidate| candidate["label"] == "to-b")
             .unwrap();
         assert!(plain.get("diagnostics").is_none());
-        assert_eq!(text(plain["state"].clone()), "b{}()");
+        assert_eq!(
+            text(kore_codec::from_value(&plain["state"]).unwrap()),
+            "b{}()"
+        );
     }
 
     #[test]
@@ -5177,7 +5113,7 @@ mod tests {
         )
         .unwrap();
         let result = backend
-            .execute(ExecuteRequest {
+            .execute_kore(ExecuteRequest {
                 max_simplification_iterations: 3,
                 cut_point_rules: vec!["to-g".into()],
                 ..ExecuteRequest::new(kore("start{}()"))
@@ -5244,7 +5180,7 @@ mod tests {
             .iter()
             .find(|entry| {
                 let entry = field.map_or(*entry, |field| &entry[field]);
-                text(entry["state"].clone()).starts_with(state)
+                text(kore_codec::from_value(&entry["state"]).unwrap()).starts_with(state)
             })
             .unwrap_or_else(|| panic!("no entry at {state}: {entries:#}"))
     }
@@ -5257,8 +5193,8 @@ mod tests {
             ..SearchRequest::new(kore("start{}()"))
         };
 
-        let states = serde_json::to_value(backend.search(request.clone()).unwrap()).unwrap();
-        let paths = serde_json::to_value(backend.search_paths(request).unwrap()).unwrap();
+        let states = serde_json::to_value(backend.search_kore(request.clone()).unwrap()).unwrap();
+        let paths = serde_json::to_value(backend.search_paths_kore(request).unwrap()).unwrap();
 
         assert_eq!(states["states"].as_array().unwrap().len(), 3, "{states:#}");
         assert_eq!(states["incomplete"], serde_json::json!([]));
@@ -5305,8 +5241,9 @@ mod tests {
         };
 
         let states =
-            serde_json::to_value(backend.search_pattern(request.clone()).unwrap()).unwrap();
-        let paths = serde_json::to_value(backend.search_pattern_paths(request).unwrap()).unwrap();
+            serde_json::to_value(backend.search_pattern_kore(request.clone()).unwrap()).unwrap();
+        let paths =
+            serde_json::to_value(backend.search_pattern_paths_kore(request).unwrap()).unwrap();
 
         for (response, field) in [(&states, "state"), (&paths, "witness")] {
             let on_b = entry_at(&response["matches"], Some(field), "b{}()");
@@ -5340,12 +5277,15 @@ mod tests {
             ),
         ] {
             let result = backend
-                .implies(ImplicationRequest {
-                    antecedent: kore("a{}()"),
-                    consequent: kore(consequent),
-                    module_name: None,
-                    schema_version: BACKEND_SCHEMA_VERSION,
-                })
+                .implies_with(
+                    ImplicationRequest {
+                        antecedent: kore("a{}()"),
+                        consequent: kore(consequent),
+                        module_name: None,
+                        schema_version: BACKEND_SCHEMA_VERSION,
+                    },
+                    Ok,
+                )
                 .unwrap();
             let result = serde_json::to_value(result).unwrap();
             assert_eq!(result["status"], "invalid", "{result:#}");
@@ -5370,12 +5310,15 @@ mod tests {
 
         for (antecedent, consequent, status, predicate) in cases {
             let result = backend
-                .implies(ImplicationRequest {
-                    antecedent: kore(antecedent),
-                    consequent: kore(consequent),
-                    module_name: None,
-                    schema_version: BACKEND_SCHEMA_VERSION,
-                })
+                .implies_with(
+                    ImplicationRequest {
+                        antecedent: kore(antecedent),
+                        consequent: kore(consequent),
+                        module_name: None,
+                        schema_version: BACKEND_SCHEMA_VERSION,
+                    },
+                    Ok,
+                )
                 .unwrap_or_else(|error| panic!("{antecedent} => {consequent} returned {error}"));
             let result = serde_json::to_value(result).unwrap();
             assert_eq!(result["status"], status, "{result:#}");
@@ -5395,12 +5338,15 @@ mod tests {
 
         for consequent in [bottom, top, regular] {
             let error = backend
-                .implies(ImplicationRequest {
-                    antecedent: kore(top),
-                    consequent: kore(consequent),
-                    module_name: None,
-                    schema_version: BACKEND_SCHEMA_VERSION,
-                })
+                .implies_with(
+                    ImplicationRequest {
+                        antecedent: kore(top),
+                        consequent: kore(consequent),
+                        module_name: None,
+                        schema_version: BACKEND_SCHEMA_VERSION,
+                    },
+                    Ok,
+                )
                 .expect_err("a top antecedent must be rejected");
             assert!(error.to_string().contains("function-like"), "{error}");
         }
@@ -5409,12 +5355,15 @@ mod tests {
     #[test]
     fn persistent_backend_short_circuits_a_not_consequent() {
         let result = backend()
-            .implies(ImplicationRequest {
-                antecedent: kore("a{}()"),
-                consequent: kore(r#"\not{SortS{}}(a{}())"#),
-                module_name: None,
-                schema_version: BACKEND_SCHEMA_VERSION,
-            })
+            .implies_with(
+                ImplicationRequest {
+                    antecedent: kore("a{}()"),
+                    consequent: kore(r#"\not{SortS{}}(a{}())"#),
+                    module_name: None,
+                    schema_version: BACKEND_SCHEMA_VERSION,
+                },
+                Ok,
+            )
             .unwrap();
         assert_eq!(result.status, "invalid");
         assert!(result.condition.is_none());
@@ -5423,12 +5372,15 @@ mod tests {
     #[test]
     fn implies_rejects_internalized_sort_mismatch() {
         let error = backend()
-            .implies(ImplicationRequest {
-                antecedent: kore("a{}()"),
-                consequent: kore("t{}()"),
-                module_name: None,
-                schema_version: BACKEND_SCHEMA_VERSION,
-            })
+            .implies_with(
+                ImplicationRequest {
+                    antecedent: kore("a{}()"),
+                    consequent: kore("t{}()"),
+                    module_name: None,
+                    schema_version: BACKEND_SCHEMA_VERSION,
+                },
+                Ok,
+            )
             .unwrap_err();
         // The sorts are named as KORE sorts, as the request wrote them.
         assert_eq!(
@@ -5483,12 +5435,15 @@ mod tests {
     #[test]
     fn persistent_implication_results_advertise_schema_version_two() {
         let result = backend()
-            .implies(ImplicationRequest {
-                antecedent: kore("a{}()"),
-                consequent: kore("a{}()"),
-                module_name: None,
-                schema_version: BACKEND_SCHEMA_VERSION,
-            })
+            .implies_with(
+                ImplicationRequest {
+                    antecedent: kore("a{}()"),
+                    consequent: kore("a{}()"),
+                    module_name: None,
+                    schema_version: BACKEND_SCHEMA_VERSION,
+                },
+                Ok,
+            )
             .unwrap();
         let result = serde_json::to_value(result).unwrap();
 
@@ -5505,7 +5460,9 @@ mod tests {
         )
         .unwrap();
 
-        let execution = backend.execute(ExecuteRequest::new(state.clone())).unwrap();
+        let execution = backend
+            .execute_kore(ExecuteRequest::new(state.clone()))
+            .unwrap();
         assert_eq!(
             execution.leaves[0].reason,
             HaltReasonOutput::UnsupportedHook
@@ -5521,7 +5478,7 @@ mod tests {
             execution.leaves[0]
         );
 
-        let search = backend.search(SearchRequest::new(state)).unwrap();
+        let search = backend.search_kore(SearchRequest::new(state)).unwrap();
         let encoded = serde_json::to_value(search).unwrap();
         let encoded = encoded.to_string();
         assert!(
@@ -5534,7 +5491,9 @@ mod tests {
     #[test]
     fn persistent_backend_searches_states_and_reports_bounds() {
         let mut backend = backend();
-        let result = backend.search(SearchRequest::new(kore("a{}()"))).unwrap();
+        let result = backend
+            .search_kore(SearchRequest::new(kore("a{}()")))
+            .unwrap();
         assert_eq!(result.schema_version, BACKEND_SCHEMA_VERSION);
         assert_eq!(result.modality, ResultModalityOutput::StateSet);
         assert_eq!(result.states.len(), 1);
@@ -5542,7 +5501,7 @@ mod tests {
         assert!(result.incomplete.is_empty());
 
         let bounded = backend
-            .search(SearchRequest {
+            .search_kore(SearchRequest {
                 max_results: Some(0),
                 ..SearchRequest::new(kore("a{}()"))
             })
@@ -5556,8 +5515,8 @@ mod tests {
         let request = SearchRequest::new(kore("initial{}()"));
         let mut backend =
             Backend::new(DIAMOND_DEFINITION, "DIAMOND", BackendOptions::default()).unwrap();
-        let first = backend.search_paths(request.clone()).unwrap();
-        let second = backend.search_paths(request).unwrap();
+        let first = backend.search_paths_kore(request.clone()).unwrap();
+        let second = backend.search_paths_kore(request).unwrap();
 
         assert_eq!(first.modality, ResultModalityOutput::PathSet);
         assert_eq!(first.witnesses.len(), 2);
@@ -5581,7 +5540,7 @@ mod tests {
     fn persistent_backend_searches_patterns_in_both_modalities() {
         let mut backend = backend();
         let state_set = backend
-            .search_pattern(SearchPatternRequest::new(kore("a{}()"), kore("c{}()")))
+            .search_pattern_kore(SearchPatternRequest::new(kore("a{}()"), kore("c{}()")))
             .unwrap();
         assert_eq!(state_set.modality, ResultModalityOutput::StateSet);
         assert_eq!(state_set.matches.len(), 1);
@@ -5590,7 +5549,7 @@ mod tests {
         let mut diamond =
             Backend::new(DIAMOND_DEFINITION, "DIAMOND", BackendOptions::default()).unwrap();
         let path_set = diamond
-            .search_pattern_paths(SearchPatternRequest::new(
+            .search_pattern_paths_kore(SearchPatternRequest::new(
                 kore("initial{}()"),
                 kore("merged{}()"),
             ))
@@ -5629,8 +5588,9 @@ endmodule []"#;
             kore("pair{}(W:S{}, ignore{}(Ex-hY-b0:S{}))"),
         );
         let states =
-            serde_json::to_string(&backend.search_pattern(request.clone()).unwrap()).unwrap();
-        let paths = serde_json::to_string(&backend.search_pattern_paths(request).unwrap()).unwrap();
+            serde_json::to_string(&backend.search_pattern_kore(request.clone()).unwrap()).unwrap();
+        let paths =
+            serde_json::to_string(&backend.search_pattern_paths_kore(request).unwrap()).unwrap();
         for response in [states, paths] {
             assert!(response.contains("Ex-hY-b"), "{response}");
             assert!(!response.contains("Ex-hY-b0"), "{response}");
@@ -5642,7 +5602,7 @@ endmodule []"#;
         let request = SearchRequest::new(kore("a{}()"));
         let mut backend = backend();
         let observed = backend
-            .search_observed(ObservedRequest {
+            .search_observed_kore(ObservedRequest {
                 request: request.clone(),
                 rules: Some(vec!["a-to-b".into()]),
             })
@@ -5656,7 +5616,7 @@ endmodule []"#;
         assert_eq!(id.rule, "a-to-b");
 
         let error = backend
-            .search_observed(ObservedRequest {
+            .search_observed_kore(ObservedRequest {
                 request,
                 rules: Some(vec!["a-to-b".into(), "missing".into()]),
             })
@@ -5671,7 +5631,7 @@ endmodule []"#;
     fn execute_preserves_effects_and_observed_execution_attributes_them() {
         let request = ExecuteRequest::new(kore(r#"log{}(\dv{SortString{}}("one line"))"#));
         let mut backend = Backend::new(LOG_DEFINITION, "MAIN", BackendOptions::default()).unwrap();
-        let ordinary = backend.execute(request.clone()).unwrap();
+        let ordinary = backend.execute_kore(request.clone()).unwrap();
         assert_eq!(
             ordinary.effects,
             [EffectOutput::UserLog {
@@ -5683,7 +5643,7 @@ endmodule []"#;
         assert!(ordinary.leaves[0].observations.is_empty());
 
         let observed = backend
-            .execute_observed(ObservedRequest {
+            .execute_observed_kore(ObservedRequest {
                 request,
                 rules: None,
             })
@@ -5716,7 +5676,7 @@ endmodule []"#;
             BackendOptions::default(),
         )
         .unwrap();
-        let ordinary = backend.execute(request.clone()).unwrap();
+        let ordinary = backend.execute_kore(request.clone()).unwrap();
         assert_eq!(ordinary.leaves.len(), 2);
         assert!(ordinary.effects.is_empty());
         assert!(
@@ -5725,7 +5685,7 @@ endmodule []"#;
                 .iter()
                 .all(|leaf| leaf.observations.is_empty())
         );
-        let branch_effects = |result: &ExecutionResult| {
+        let branch_effects = |result: &KoreExecutionResult| {
             let mut effects = result
                 .leaves
                 .iter()
@@ -5753,7 +5713,7 @@ endmodule []"#;
         );
 
         let observed = backend
-            .execute_observed(ObservedRequest {
+            .execute_observed_kore(ObservedRequest {
                 request,
                 rules: None,
             })
@@ -5770,7 +5730,7 @@ endmodule []"#;
             BackendOptions::default(),
         )
         .unwrap();
-        let erase = |mut result: ExecutionResult| {
+        let erase = |mut result: KoreExecutionResult| {
             for leaf in &mut result.leaves {
                 leaf.branch.clear();
                 leaf.observations.clear();
@@ -5786,21 +5746,21 @@ endmodule []"#;
                 result_modality: modality,
                 ..ExecuteRequest::new(kore("initial{}()"))
             };
-            let plain = backend.execute(request.clone()).unwrap();
+            let plain = backend.execute_kore(request.clone()).unwrap();
             let all = backend
-                .execute_observed(ObservedRequest {
+                .execute_observed_kore(ObservedRequest {
                     request: request.clone(),
                     rules: None,
                 })
                 .unwrap();
             let selected = backend
-                .execute_observed(ObservedRequest {
+                .execute_observed_kore(ObservedRequest {
                     request: request.clone(),
                     rules: Some(vec!["left".into()]),
                 })
                 .unwrap();
             let none = backend
-                .execute_observed(ObservedRequest {
+                .execute_observed_kore(ObservedRequest {
                     request,
                     rules: Some(vec![]),
                 })
@@ -5848,7 +5808,7 @@ endmodule []"#;
             }))
             .unwrap()
         };
-        let labels = |leaf: &ExecutionLeaf| {
+        let labels = |leaf: &KoreExecutionLeaf| {
             leaf.observations
                 .iter()
                 .filter_map(|event| match event {
@@ -5861,7 +5821,7 @@ endmodule []"#;
             Backend::new(DIAMOND_DEFINITION, "DIAMOND", BackendOptions::default()).unwrap();
 
         let state_set = backend
-            .execute_observed(ObservedRequest {
+            .execute_observed_kore(ObservedRequest {
                 request: request("state-set"),
                 rules: None,
             })
@@ -5874,7 +5834,7 @@ endmodule []"#;
         );
 
         let path_set = backend
-            .execute_observed(ObservedRequest {
+            .execute_observed_kore(ObservedRequest {
                 request: request("path-set"),
                 rules: None,
             })
@@ -5897,7 +5857,7 @@ endmodule []"#;
         assert_eq!(labels(right), ["initial-right", "right-merged"]);
 
         let default = backend
-            .execute(ExecuteRequest::new(kore("initial{}()")))
+            .execute_kore(ExecuteRequest::new(kore("initial{}()")))
             .unwrap();
         assert_eq!(default.modality, ResultModalityOutput::StateSet);
         assert_eq!(default.leaves.len(), 1);
@@ -5927,10 +5887,10 @@ endmodule []"#;
         let mut backend =
             Backend::new(EVALUATING_DEFINITION, "MAIN", BackendOptions::default()).unwrap();
         let request = ExecuteRequest::new(kore("start{}()"));
-        let ordinary = backend.execute(request.clone()).unwrap();
+        let ordinary = backend.execute_kore(request.clone()).unwrap();
 
         let observed = backend
-            .execute_observed(ObservedRequest {
+            .execute_observed_kore(ObservedRequest {
                 request,
                 rules: None,
             })
@@ -5971,8 +5931,11 @@ endmodule []"#;
         assert_eq!(wire["ruleLabel"], "value-equation");
         assert_eq!(wire["anchor"], 1);
         assert_eq!(
-            serde_json::from_value::<ObservationEventOutput>(wire).unwrap(),
-            leaf.observations[1]
+            serde_json::to_value(
+                serde_json::from_value::<ObservationEventOutput>(wire.clone()).unwrap()
+            )
+            .unwrap(),
+            wire
         );
     }
 
@@ -6007,7 +5970,7 @@ endmodule []"#;
         let mut backend = Backend::new(DEFINITION, "MAIN", BackendOptions::default()).unwrap();
         let request = ExecuteRequest::new(kore("start{}()"));
         let selected = backend
-            .execute_observed(ObservedRequest {
+            .execute_observed_kore(ObservedRequest {
                 request: request.clone(),
                 rules: Some(vec!["is-zero-z".into()]),
             })
@@ -6037,7 +6000,7 @@ endmodule []"#;
         );
 
         let selected = backend
-            .execute_observed(ObservedRequest {
+            .execute_observed_kore(ObservedRequest {
                 request,
                 rules: Some(vec!["step".into(), "is-zero-z".into()]),
             })
@@ -6159,7 +6122,7 @@ endmodule
         for definition in [single, duplicated] {
             let mut backend =
                 Backend::from_internalized(definition, BackendOptions::default()).expect("backend");
-            let result = backend.execute(request.clone()).unwrap();
+            let result = backend.execute_kore(request.clone()).unwrap();
             let [leaf] = result.leaves.as_slice() else {
                 panic!("expected one leaf: {:?}", result.leaves);
             };
@@ -6168,7 +6131,7 @@ endmodule
             assert_eq!(leaf.depth, 1);
 
             let observed = backend
-                .execute_observed(ObservedRequest {
+                .execute_observed_kore(ObservedRequest {
                     request: request.clone(),
                     rules: Some(vec![id.clone()]),
                 })
@@ -6259,7 +6222,7 @@ endmodule
         let mut backend = Backend::new(&definition, "MAIN", BackendOptions::default()).unwrap();
 
         let result = backend
-            .prove(ProveRequest {
+            .prove_kore(ProveRequest {
                 max_simplification_iterations: 1,
                 ..ProveRequest::default()
             })
@@ -6286,7 +6249,7 @@ endmodule
             }
         }
         let completed = backend
-            .prove(ProveRequest {
+            .prove_kore(ProveRequest {
                 max_simplification_iterations: 256,
                 ..ProveRequest::default()
             })
@@ -6306,7 +6269,7 @@ endmodule
         endmodule []"#;
         backend.add_module(module, true).unwrap();
         let execution = backend
-            .execute(ExecuteRequest {
+            .execute_kore(ExecuteRequest {
                 module_name: Some("EXTRA".into()),
                 max_depth: Some(1),
                 ..ExecuteRequest::new(kore("c{}()"))
@@ -6439,7 +6402,9 @@ endmodule
                 }
             }
             // The backend still serves ordinary requests.
-            let execution = backend.execute(ExecuteRequest::new(kore("a{}()"))).unwrap();
+            let execution = backend
+                .execute_kore(ExecuteRequest::new(kore("a{}()")))
+                .unwrap();
             assert_eq!(text(execution.leaves[0].state.clone()), "c{}()");
         });
     }
@@ -6472,7 +6437,9 @@ endmodule
                     );
                 }
             }
-            let execution = backend.execute(ExecuteRequest::new(kore("a{}()"))).unwrap();
+            let execution = backend
+                .execute_kore(ExecuteRequest::new(kore("a{}()")))
+                .unwrap();
             assert_eq!(text(execution.leaves[0].state.clone()), "c{}()");
         });
     }
@@ -6524,14 +6491,16 @@ endmodule
                 .expect("a deep well-formed module is added");
             // An operation in the extended definition runs on the stack its deep rule needs.
             let execution = backend
-                .execute(ExecuteRequest {
+                .execute_kore(ExecuteRequest {
                     module_name: Some(id),
                     max_depth: Some(1),
                     ..ExecuteRequest::new(kore("c{}()"))
                 })
                 .unwrap();
             assert_eq!(text(execution.leaves[0].state.clone()), "a{}()");
-            let execution = backend.execute(ExecuteRequest::new(kore("a{}()"))).unwrap();
+            let execution = backend
+                .execute_kore(ExecuteRequest::new(kore("a{}()")))
+                .unwrap();
             assert_eq!(text(execution.leaves[0].state.clone()), "c{}()");
         });
     }
@@ -6652,9 +6621,9 @@ endmodule
         )
     }
 
-    /// A caller's stack on which a proof result held as `serde_json::Value` (`prove`) overflows
-    /// when it is serialized there from about 800 levels of its leaf (the `dev` profile,
-    /// opt-level 1), while `prove` itself completes on it at 2,000.
+    /// A caller's stack on which a proof result held as a `serde_json::Value` overflows when it is
+    /// serialized there from about 800 levels of its leaf (the `dev` profile, opt-level 1), while
+    /// `prove_json` completes on it at 2,000.
     const SMALL_STACK: usize = 256 << 10;
 
     /// Levels of a proof's leaf beyond what `SMALL_STACK` holds for the leaf as a value.
@@ -6679,7 +6648,7 @@ endmodule
         assert!(same_kore(&leaf, &wrap_json(DEEP_PROOF_LEVELS + 1, true)));
     }
 
-    /// `prove_json` writes the result `prove` returns.
+    /// `prove_json` writes the result `prove_kore` returns.
     #[test]
     fn prove_json_writes_the_proof_result() {
         let mut backend =
@@ -6689,7 +6658,7 @@ endmodule
             ..ProveRequest::default()
         };
         let text = backend.prove_json(request.clone()).unwrap();
-        let value = backend.prove(request).unwrap();
+        let value = backend.prove_kore(request).unwrap();
         let json = serde_json::from_str::<Value>(&text).unwrap();
         assert_eq!(json, serde_json::to_value(&value).unwrap());
         assert_eq!(value.leaves.len(), 1, "{value:#?}");
@@ -6915,7 +6884,7 @@ endmodule
     #[test]
     fn portable_model_generation_reports_the_capability_boundary() {
         let error = backend()
-            .get_model(PatternRequest::new(kore("a{}()")))
+            .get_model_with(PatternRequest::new(kore("a{}()")), Ok)
             .unwrap_err();
         assert!(error.to_string().contains("no Z3"));
     }

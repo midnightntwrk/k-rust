@@ -351,8 +351,10 @@ status = "untested"
 note = "The counterpart is kore-rpc-booster on a reference definition with the same request sent by kore-rpc-client; it needs a step that starts the server and stops it after the response."
 
 # The standalone driver (crates/k-rust/examples/observed-execute.rs) calls
-# Backend::execute_observed on the initial state with depth n, so every duplication transition is
-# observed, including the last one whose before and after patterns hold the large shared tree.
+# Backend::execute_observed_to_writer (or execute_observed_json) on the
+# initial state with depth n, so every duplication transition is observed,
+# including the last one whose before and after patterns hold the large
+# shared tree.
 # It is a separate example binary, not a krust subcommand; the prepare step
 # observed-execute-binary builds it.
 [[workload]]

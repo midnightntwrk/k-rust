@@ -13,14 +13,19 @@ use k_rust_kore::measure::{self, Counter};
 
 use k_rust::{
     backend::{
-        Backend, BackendOptions, ExecuteRequest, ExecutionLeaf, ExecutionResult, ExecutionStrategy,
-        HaltReasonOutput, ObservedRequest, PatternRequest, ResultModalityOutput,
+        Backend, BackendOptions, ExecuteRequest, ExecutionStrategy, HaltReasonOutput,
+        KoreExecutionLeaf, KoreExecutionResult, ObservedRequest, PatternRequest,
+        ResultModalityOutput,
     },
     builtin::embedded,
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
-    kore::{codec, parser::parse_pattern, printer::Printer},
+    kore::{ast::Pattern, codec, parser::parse_pattern, printer::Printer},
     outer::{LoadOptions, ResolvedSource, load_with_options},
 };
+
+#[path = "support/wire_answers.rs"]
+mod wire_answers;
+use wire_answers::WireAnswers;
 
 #[path = "support/shared.rs"]
 mod shared;
@@ -175,15 +180,15 @@ fn request(program: &str) -> ExecuteRequest {
     }
 }
 
-fn execute(backend: &mut Backend, program: &str) -> ExecutionResult {
-    backend.execute(request(program)).unwrap()
+fn execute(backend: &mut Backend, program: &str) -> KoreExecutionResult {
+    backend.execute_kore(request(program)).unwrap()
 }
 
-fn text(leaf: &ExecutionLeaf) -> String {
-    Printer::compact().print_pattern(&codec::from_value(&leaf.state).unwrap())
+fn text(leaf: &KoreExecutionLeaf) -> String {
+    Printer::compact().print_pattern(&leaf.state.clone())
 }
 
-fn summary(result: &ExecutionResult) -> Vec<(HaltReasonOutput, u64, String)> {
+fn summary(result: &KoreExecutionResult) -> Vec<(HaltReasonOutput, u64, String)> {
     result
         .leaves
         .iter()
@@ -191,11 +196,11 @@ fn summary(result: &ExecutionResult) -> Vec<(HaltReasonOutput, u64, String)> {
         .collect()
 }
 
-fn reasons(result: &ExecutionResult) -> Vec<HaltReasonOutput> {
+fn reasons(result: &KoreExecutionResult) -> Vec<HaltReasonOutput> {
     result.leaves.iter().map(|leaf| leaf.reason).collect()
 }
 
-fn trivial_leaves(result: &ExecutionResult) -> Vec<&ExecutionLeaf> {
+fn trivial_leaves(result: &KoreExecutionResult) -> Vec<&KoreExecutionLeaf> {
     result
         .leaves
         .iter()
@@ -203,7 +208,7 @@ fn trivial_leaves(result: &ExecutionResult) -> Vec<&ExecutionLeaf> {
         .collect()
 }
 
-fn assert_trivial_rule(backend: &Backend, leaf: &ExecutionLeaf, label: &str) {
+fn assert_trivial_rule(backend: &Backend, leaf: &KoreExecutionLeaf, label: &str) {
     let compiled_label = format!("UNDEF.{label}");
     let catalog = backend.rule_catalog(None).unwrap();
     let rule = catalog
@@ -216,22 +221,24 @@ fn assert_trivial_rule(backend: &Backend, leaf: &ExecutionLeaf, label: &str) {
     let wire = serde_json::to_value(leaf).unwrap();
     assert_eq!(wire["ruleId"], rule.id);
     assert_eq!(wire["ruleLabel"], compiled_label);
-    let decoded: ExecutionLeaf = serde_json::from_value(wire.clone()).unwrap();
+    let decoded: k_rust::backend::ExecutionLeaf = serde_json::from_value(wire.clone()).unwrap();
     assert_eq!(serde_json::to_value(decoded).unwrap(), wire);
 }
 
 /// The solver's verdict on a leaf's state (`sat`, `unsat` or `unknown`), with Z3 only.
-fn satisfiable(backend: &mut Backend, leaf: &ExecutionLeaf) -> Option<String> {
+fn satisfiable(backend: &mut Backend, leaf: &KoreExecutionLeaf) -> Option<String> {
     backend.capabilities().smt.then(|| {
         backend
-            .get_model(PatternRequest::new(codec::from_value(&leaf.state).unwrap()))
-            .unwrap()
-            .satisfiable
+            .model_answer(PatternRequest::new(leaf.state.clone()))
+            .unwrap()["satisfiable"]
+            .as_str()
+            .expect("a satisfiability answer")
+            .to_owned()
     })
 }
 
 /// A leaf whose state is the pre-step configuration `program`, under a constraint.
-fn is_pre_step(leaf: &ExecutionLeaf, program_head: &str) -> bool {
+fn is_pre_step(leaf: &KoreExecutionLeaf, program_head: &str) -> bool {
     text(leaf).contains(program_head)
 }
 
@@ -297,7 +304,7 @@ fn observation_does_not_change_the_leaves_and_rolls_back_the_undefined_part() {
     let program = format!("Lblapart{{}}({X}, {Y})");
     let plain = execute(&mut backend, &program);
     let observed = backend
-        .execute_observed(ObservedRequest {
+        .execute_observed_kore(ObservedRequest {
             request: request(&program),
             rules: None,
         })
@@ -509,7 +516,7 @@ fn an_assumed_initial_definedness_leaves_no_undefined_step() {
         int(10)
     ));
     assumed.assume_state_defined = true;
-    let result = backend.execute(assumed).unwrap();
+    let result = backend.execute_kore(assumed).unwrap();
     assert_eq!(
         reasons(&result),
         [HaltReasonOutput::Stuck],
@@ -528,7 +535,7 @@ fn stopping_at_branches_a_carried_step_goes_on_as_one_successor() {
     let mut backend = backend();
     let mut stopped = request(&format!("Lblhz{{}}({X})"));
     stopped.stop_at_branch = true;
-    let result = backend.execute(stopped).unwrap();
+    let result = backend.execute_kore(stopped).unwrap();
     assert_eq!(
         result
             .leaves
@@ -577,7 +584,7 @@ fn stop_rules_apply_to_a_one_candidate_step_beside_a_refuted_sibling() {
     ] {
         let mut cut = request(&program);
         cut.cut_point_rules = vec!["UNDEF.cutok".into()];
-        let result = backend.execute(cut).unwrap();
+        let result = backend.execute_kore(cut).unwrap();
         assert_eq!(
             result
                 .leaves
@@ -590,7 +597,7 @@ fn stop_rules_apply_to_a_one_candidate_step_beside_a_refuted_sibling() {
         );
         let mut terminal = request(&program);
         terminal.terminal_rules = vec!["UNDEF.cutok".into()];
-        let result = backend.execute(terminal).unwrap();
+        let result = backend.execute_kore(terminal).unwrap();
         assert_eq!(
             result
                 .leaves
@@ -616,7 +623,7 @@ fn under_strategy_any_a_later_rule_of_the_priority_takes_the_undefined_instances
     assert!(trivial_leaves(&all).is_empty(), "{:#?}", summary(&all));
     let mut any = request(&program);
     any.strategy = ExecutionStrategy::Any;
-    let any = backend.execute(any).unwrap();
+    let any = backend.execute_kore(any).unwrap();
     assert!(trivial_leaves(&any).is_empty(), "{:#?}", summary(&any));
     for result in [&all, &any] {
         let mut ends = result
@@ -644,7 +651,7 @@ fn under_strategy_any_a_later_rule_of_the_priority_takes_the_undefined_instances
 
     let mut ground = request(&format!("Lblsel{{}}({})", int(0)));
     ground.strategy = ExecutionStrategy::Any;
-    let ground = backend.execute(ground).unwrap();
+    let ground = backend.execute_kore(ground).unwrap();
     assert_eq!(
         reasons(&ground),
         [HaltReasonOutput::Stuck],
@@ -667,7 +674,7 @@ fn an_undefined_instance_is_not_offered_to_a_lower_priority() {
     for strategy in [ExecutionStrategy::All, ExecutionStrategy::Any] {
         let mut symbolic = request(&format!("Lbllow{{}}({X})"));
         symbolic.strategy = strategy;
-        let result = backend.execute(symbolic).unwrap();
+        let result = backend.execute_kore(symbolic).unwrap();
         let mut found = reasons(&result);
         found.sort_by_key(|reason| format!("{reason:?}"));
         assert_eq!(
@@ -692,7 +699,7 @@ fn an_undefined_instance_is_not_offered_to_a_lower_priority() {
 
         let mut ground = request(&format!("Lbllow{{}}({})", int(0)));
         ground.strategy = strategy;
-        let ground = backend.execute(ground).unwrap();
+        let ground = backend.execute_kore(ground).unwrap();
         assert_eq!(
             reasons(&ground),
             [HaltReasonOutput::Trivial],
@@ -741,9 +748,7 @@ fn a_ground_undefined_step_through_a_total_function_names_the_contradicted_attri
     assert_eq!(contradicted.rule_id, equation.id);
     assert_eq!(contradicted.rule_label.as_deref(), Some("UNDEF.tdeq"));
     assert_eq!(contradicted.origin.as_ref(), equation.origins.first());
-    let kore = |value: &serde_json::Value| {
-        Printer::compact().print_pattern(&codec::from_value(value).unwrap())
-    };
+    let kore = |value: &Pattern| Printer::compact().print_pattern(value);
     assert_eq!(
         kore(&contradicted.application),
         format!("Lbltd{{}}({})", int(0))
@@ -772,7 +777,7 @@ fn a_ground_undefined_step_through_a_total_function_names_the_contradicted_attri
         Some(1),
         "{run:#}"
     );
-    let decoded: ExecutionLeaf = serde_json::from_value(wire.clone()).unwrap();
+    let decoded: k_rust::backend::ExecutionLeaf = serde_json::from_value(wire.clone()).unwrap();
     assert_eq!(serde_json::to_value(decoded).unwrap(), wire);
 
     let symbolic = execute(&mut backend, &format!("Lbltdiv{{}}({X})"));
@@ -839,7 +844,7 @@ fn a_repeated_key_built_by_a_total_function_is_a_trivial_step_of_the_pre_step_co
     for strategy in [ExecutionStrategy::All, ExecutionStrategy::Any] {
         let mut ground = request(&format!("Lblpdup{{}}({})", int(1)));
         ground.strategy = strategy;
-        let ground = backend.execute(ground).unwrap();
+        let ground = backend.execute_kore(ground).unwrap();
         assert_eq!(
             reasons(&ground),
             [HaltReasonOutput::Trivial],
@@ -946,15 +951,15 @@ fn request_with(program: &str, configure: impl FnOnce(&mut ExecuteRequest)) -> E
 
 /// The leaves of `request`, with their observations, after checking that observing the run
 /// changes no leaf's state, depth, reason, rule or trace.
-fn execute_both(backend: &mut Backend, request: ExecuteRequest) -> ExecutionResult {
-    let plain = backend.execute(request.clone()).unwrap();
+fn execute_both(backend: &mut Backend, request: ExecuteRequest) -> KoreExecutionResult {
+    let plain = backend.execute_kore(request.clone()).unwrap();
     let observed = backend
-        .execute_observed(ObservedRequest {
+        .execute_observed_kore(ObservedRequest {
             request,
             rules: None,
         })
         .unwrap();
-    let key = |result: &ExecutionResult| {
+    let key = |result: &KoreExecutionResult| {
         result
             .leaves
             .iter()
@@ -1030,7 +1035,7 @@ fn under_strategy_any_a_candidate_undefined_after_the_step_leaves_its_instances_
 
 /// The symbolic `sibr(X)` run: one `Trivial` leaf of `sibrtd` over `sibr(X)` at depth 0 under
 /// `not (X >Int 0)`, the instances where `sibrok` does not apply, and `done` beside it.
-fn assert_sibr_symbolic(backend: &Backend, result: &ExecutionResult) {
+fn assert_sibr_symbolic(backend: &Backend, result: &KoreExecutionResult) {
     let [trivial] = trivial_leaves(result)[..] else {
         panic!("one Trivial leaf: {:#?}", summary(result));
     };
@@ -1138,7 +1143,7 @@ fn stopping_at_branches_reports_a_candidate_undefined_after_the_step() {
     cut.strategy = ExecutionStrategy::Any;
     cut.cut_point_rules = vec!["UNDEF.sibok".into()];
     assert_eq!(
-        reasons(&backend.execute(cut).unwrap()),
+        reasons(&backend.execute_kore(cut).unwrap()),
         [HaltReasonOutput::CutPoint]
     );
 
@@ -1271,7 +1276,7 @@ fn strategy_any_normalizes_each_committed_successor_once() {
     let mut equations = |strategy| {
         let before = measure::snapshot();
         let result = backend
-            .execute(request_with(
+            .execute_kore(request_with(
                 &format!("Lblcnt{{}}({}, {})", int(10), int(0)),
                 |request| request.strategy = strategy,
             ))
@@ -1494,7 +1499,7 @@ mod matrix {
                 request.stop_at_branch = stop;
             }
         }
-        let result = backend.execute(request).unwrap();
+        let result = backend.execute_kore(request).unwrap();
         result
             .leaves
             .iter()
@@ -2242,7 +2247,7 @@ endmodule
                                 request.terminal_rules = vec![rule(letter)];
                             }
                         }
-                        let result = backend.execute(request).unwrap();
+                        let result = backend.execute_kore(request).unwrap();
                         let context = format!("{program} {strategy:?} {modality:?} {stops:?}");
                         for &sample in &samples {
                             let mut holding = Vec::new();
@@ -2257,12 +2262,11 @@ endmodule
                                 };
                                 let instance = printed.replace("N:SortInt{}", &int(value));
                                 let verdict = backend
-                                    .get_model(PatternRequest::new(
+                                    .model_answer(PatternRequest::new(
                                         parse_pattern(&instance).unwrap(),
                                     ))
-                                    .unwrap()
-                                    .satisfiable;
-                                match verdict.as_str() {
+                                    .unwrap();
+                                match verdict["satisfiable"].as_str().unwrap_or_default() {
                                     "unsat" => {}
                                     "sat" => holding.push(leaf),
                                     other => wrong.push(format!(
@@ -2382,7 +2386,8 @@ endmodule
                 ),
             ] {
                 let found = states(
-                    serde_json::to_value(backend.search(request(search_type)).unwrap()).unwrap(),
+                    serde_json::to_value(backend.search_kore(request(search_type)).unwrap())
+                        .unwrap(),
                     "states",
                 );
                 if found != expected {
@@ -2393,8 +2398,12 @@ endmodule
                 }
             }
             let found = states(
-                serde_json::to_value(backend.search_paths(request(SearchTypeArg::Final)).unwrap())
-                    .unwrap(),
+                serde_json::to_value(
+                    backend
+                        .search_paths_kore(request(SearchTypeArg::Final))
+                        .unwrap(),
+                )
+                .unwrap(),
                 "witnesses",
             );
             let expected = if covering {

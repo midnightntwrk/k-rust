@@ -12,7 +12,7 @@ use k_rust::{
     builtin::embedded,
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
-    kore::{codec, parser::parse_pattern, printer::Printer},
+    kore::{parser::parse_pattern, printer::Printer},
     outer::{LoadOptions, LoadedDefinition, ResolvedSource, load_with_options},
 };
 
@@ -295,7 +295,7 @@ fn a_match_pattern_variable_is_its_own_variable_and_a_free_map_key_is_refused() 
     ))
     .unwrap();
     let result = backend
-        .execute(ExecuteRequest {
+        .execute_kore(ExecuteRequest {
             max_depth: Some(5),
             ..ExecuteRequest::new(initial)
         })
@@ -303,11 +303,7 @@ fn a_match_pattern_variable_is_its_own_variable_and_a_free_map_key_is_refused() 
     let leaves = result
         .leaves
         .iter()
-        .map(|leaf| {
-            Printer::compact().print_pattern(
-                &codec::from_value(&leaf.state).expect("a result state is KORE JSON"),
-            )
-        })
+        .map(|leaf| Printer::compact().print_pattern(&leaf.state.clone()))
         .collect::<Vec<_>>();
     let done = "Lbldone'LParUndsRParUnds'P'Unds'KItem'Unds'Int{}(\\dv{SortInt{}}(\"1\"))";
     assert!(

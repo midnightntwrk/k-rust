@@ -212,20 +212,20 @@ fn run(
         };
         let mut backend = Backend::new(&kore, &main, SOLVER_OPTIONS).unwrap();
         let mut responses = vec![
-            json(backend.execute(request())),
-            json(backend.execute(ExecuteRequest {
+            json(backend.execute_kore(request())),
+            json(backend.execute_kore(ExecuteRequest {
                 stop_at_branch: true,
                 ..request()
             })),
-            json(backend.execute(ExecuteRequest {
+            json(backend.execute_kore(ExecuteRequest {
                 max_breadth: Some(1),
                 ..request()
             })),
-            json(backend.execute(ExecuteRequest {
+            json(backend.execute_kore(ExecuteRequest {
                 assume_state_defined: true,
                 ..request()
             })),
-            json(backend.execute_observed(ObservedRequest {
+            json(backend.execute_observed_kore(ObservedRequest {
                 request: request(),
                 rules: None,
             })),
@@ -541,7 +541,7 @@ fn measure_offered_cost() {
                     let mut backend =
                         Backend::new(&kore, &main, BackendOptions::default()).unwrap();
                     backend
-                        .execute(ExecuteRequest {
+                        .execute_kore(ExecuteRequest {
                             strategy,
                             collect_coverage: true,
                             collect_offered: offered,

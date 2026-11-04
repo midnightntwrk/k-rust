@@ -1,4 +1,4 @@
-//! An execute request (`Backend::execute`) has no console and evaluates no hook this backend
+//! An execute request (`Backend::execute_kore`) has no console and evaluates no hook this backend
 //! has no evaluator for: an application of such a hook on constructor-like arguments that the
 //! run needs the value of is on the result's `unsupportedHooks`, whichever position of a rule or
 //! equation holds it (docs/compatibility.md, "Backend scope", the paragraph after the console
@@ -236,7 +236,7 @@ fn assert_each_case_listed(position: Position) {
             ResultModalityOutput::StateSet,
         ] {
             let result = backend
-                .execute(ExecuteRequest {
+                .execute_kore(ExecuteRequest {
                     result_modality: modality,
                     strategy: ExecutionStrategy::All,
                     ..ExecuteRequest::new(initial.clone())
@@ -261,7 +261,7 @@ fn assert_each_case_listed(position: Position) {
                 "{position:?} {application} {modality:?}"
             );
             for leaf in &result.leaves {
-                let state = leaf.state.to_string();
+                let state = serde_json::to_string(&leaf.state).unwrap();
                 let held = match position {
                     Position::RightHandSide => true,
                     // The rule did not apply: `go` is still in `<k>`.
@@ -398,7 +398,7 @@ endmodule
         );
         assembler.program(&Sort::new("Pgm"), program).unwrap();
         let result = backend
-            .execute(ExecuteRequest {
+            .execute_kore(ExecuteRequest {
                 strategy: ExecutionStrategy::All,
                 ..ExecuteRequest::new(assembler.finish().unwrap())
             })

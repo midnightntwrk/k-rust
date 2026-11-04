@@ -76,7 +76,7 @@ fn a_module_first_loaded_by_a_cancelled_request_is_cached_with_its_rules_dischar
         "MAIN is loaded only when a request names it"
     );
     let _cancelled = cancelled().scope(|| {
-        backend.execute(ExecuteRequest {
+        backend.execute_kore(ExecuteRequest {
             module_name: Some("MAIN".into()),
             ..ExecuteRequest::new(state.clone())
         })

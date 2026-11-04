@@ -174,7 +174,7 @@ fn catalog_rewrite_identities_install_as_observation_filters() {
         entry.kind == CompiledRuleKind::Rewrite && entry.executable && !entry.shared_identity
     }) {
         backend
-            .execute_observed(ObservedRequest {
+            .execute_observed_kore(ObservedRequest {
                 request: request.clone(),
                 rules: Some(vec![entry.id.clone()]),
             })
@@ -186,7 +186,7 @@ fn catalog_rewrite_identities_install_as_observation_filters() {
         .find(|entry| entry.label.as_deref() == Some("collision-a"))
         .unwrap();
     let error = backend
-        .execute_observed(ObservedRequest {
+        .execute_observed_kore(ObservedRequest {
             request: request.clone(),
             rules: Some(vec![ambiguous.id.clone()]),
         })
@@ -199,7 +199,7 @@ fn catalog_rewrite_identities_install_as_observation_filters() {
     );
 
     let observed = backend
-        .execute_observed(ObservedRequest {
+        .execute_observed_kore(ObservedRequest {
             request,
             rules: None,
         })
@@ -243,7 +243,10 @@ fn an_undecided_condition_of_an_unnamed_equation_names_its_catalog_entry() {
     let mut backend = Backend::new(definition, "MAIN", BackendOptions::default()).unwrap();
     let catalog = backend.rule_catalog(None).unwrap();
     let state = parse_pattern("c{}(f{}(a{}()), g{}(a{}()))").unwrap();
-    let leaves = backend.execute(ExecuteRequest::new(state)).unwrap().leaves;
+    let leaves = backend
+        .execute_kore(ExecuteRequest::new(state))
+        .unwrap()
+        .leaves;
     let named: Vec<_> = leaves
         .iter()
         .flat_map(|leaf| &leaf.diagnostics)
@@ -299,7 +302,10 @@ fn an_undecided_condition_of_an_unnamed_unlocated_equation_names_its_catalog_ent
     let mut backend = Backend::new(definition, "MAIN", BackendOptions::default()).unwrap();
     let catalog = backend.rule_catalog(None).unwrap();
     let state = parse_pattern("c{}(f{}(a{}()), g{}(a{}()))").unwrap();
-    let leaves = backend.execute(ExecuteRequest::new(state)).unwrap().leaves;
+    let leaves = backend
+        .execute_kore(ExecuteRequest::new(state))
+        .unwrap()
+        .leaves;
     let named: Vec<_> = leaves
         .iter()
         .flat_map(|leaf| &leaf.diagnostics)

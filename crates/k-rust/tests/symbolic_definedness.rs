@@ -16,14 +16,13 @@
 
 use k_rust::{
     backend::{
-        Backend, BackendOptions, ExecuteRequest, ExecutionLeaf, HaltReasonOutput,
-        ImplicationRequest, ResultModalityOutput,
+        Backend, BackendOptions, ExecuteRequest, HaltReasonOutput, ImplicationRequest,
+        KoreExecutionLeaf, ResultModalityOutput,
     },
     builtin::embedded,
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
     kore::{
         ast::{Pattern as KorePattern, VariableKind},
-        codec,
         parser::parse_pattern,
         printer::Printer,
     },
@@ -32,6 +31,10 @@ use k_rust::{
 
 #[path = "support/shared.rs"]
 mod shared;
+
+#[path = "support/wire_answers.rs"]
+mod wire_answers;
+use wire_answers::WireAnswers;
 
 #[path = "support/proof_sources.rs"]
 #[allow(dead_code)]
@@ -180,8 +183,8 @@ impl std::fmt::Debug for Leaf {
     }
 }
 
-fn leaf(leaf: ExecutionLeaf) -> Leaf {
-    let pattern = codec::from_value(&leaf.state).unwrap();
+fn leaf(leaf: KoreExecutionLeaf) -> Leaf {
+    let pattern = leaf.state.clone();
     Leaf {
         depth: leaf.depth,
         reason: leaf.reason,
@@ -192,7 +195,7 @@ fn leaf(leaf: ExecutionLeaf) -> Leaf {
 fn execute(backend: &mut Backend, program: &str, assume_state_defined: bool) -> Vec<Leaf> {
     let state = parse_pattern(&top(program)).unwrap();
     backend
-        .execute(ExecuteRequest {
+        .execute_kore(ExecuteRequest {
             assume_state_defined,
             result_modality: ResultModalityOutput::PathSet,
             max_depth: Some(4),
@@ -265,12 +268,11 @@ fn implies_nonzero(leaf: &Leaf) -> bool {
 fn refuted_at_zero(backend: &mut Backend, leaf: &Leaf) -> bool {
     let antecedent = format!("\\and{{SortGeneratedTopCell{{}}}}({}, {X_ZERO})", leaf.text);
     backend
-        .implies(ImplicationRequest::new(
+        .implies_answer(ImplicationRequest::new(
             parse_pattern(&antecedent).unwrap(),
             parse_pattern("\\bottom{SortGeneratedTopCell{}}()").unwrap(),
         ))
-        .unwrap()
-        .status
+        .unwrap()["status"]
         == "valid"
 }
 
@@ -700,13 +702,14 @@ mod request_constraints {
             Backend, BackendError, ExecuteRequest, HaltReasonOutput, ImplicationRequest,
             PatternRequest, ResultModalityOutput, SearchRequest,
         },
-        kore::{ast::Pattern as KorePattern, codec, parser::parse_pattern, printer::Printer},
+        kore::{ast::Pattern as KorePattern, parser::parse_pattern, printer::Printer},
     };
     use k_rust_backend::{
-        externalize, smt::Satisfiability, stop::StopCause, substitution::Substitution,
+        definition::Admission, externalize, smt::Satisfiability, stop::StopCause,
+        substitution::Substitution,
     };
 
-    use super::shared;
+    use super::{WireAnswers, shared};
 
     /// The probe definition of the request (`UNSATDEF`), named as `super::compile` expects.
     const SOURCE: &str = r#"module DEFPROBE-SYNTAX
@@ -888,7 +891,7 @@ endmodule
 
     fn execute(backend: &mut Backend, pattern: &str, assume_state_defined: bool) -> Vec<Leaf> {
         backend
-            .execute(ExecuteRequest {
+            .execute_kore(ExecuteRequest {
                 assume_state_defined,
                 result_modality: ResultModalityOutput::PathSet,
                 max_depth: Some(4),
@@ -900,19 +903,21 @@ endmodule
             .map(|leaf| Leaf {
                 depth: leaf.depth,
                 reason: leaf.reason,
-                state: codec::from_value(&leaf.state).unwrap(),
+                state: leaf.state.clone(),
             })
             .collect()
     }
 
     fn implies_bottom(backend: &mut Backend, antecedent: &str) -> String {
         backend
-            .implies(ImplicationRequest::new(
+            .implies_answer(ImplicationRequest::new(
                 parse(antecedent),
                 parse(&format!("\\bottom{{{SORT}}}()")),
             ))
-            .unwrap()
-            .status
+            .unwrap()["status"]
+            .as_str()
+            .expect("a status")
+            .to_owned()
     }
 
     /// `pattern` executed with both `assume_state_defined` values is one Stuck leaf at depth 0
@@ -948,13 +953,13 @@ endmodule
             return;
         }
         let response = backend
-            .search(SearchRequest::new(parse(&caller_pattern())))
+            .search_kore(SearchRequest::new(parse(&caller_pattern())))
             .unwrap();
         assert!(
             response.states.len() == 1 && response.incomplete.is_empty(),
             "expected one final state and no incomplete entry: {response:#?}"
         );
-        let state: KorePattern = codec::from_value(&response.states[0].state).unwrap();
+        let state: KorePattern = response.states[0].state.clone();
         assert!(
             response.states[0].depth == 0 && print(&state).contains("Lblpos{}"),
             "expected the stuck pos(X, Y): {}",
@@ -985,9 +990,8 @@ endmodule
             return;
         }
         let simplified = backend
-            .simplify(PatternRequest::new(parse(&caller_pattern())))
+            .simplify_kore(None, &parse(&caller_pattern()), Admission::Unverified)
             .unwrap();
-        let simplified: KorePattern = codec::from_value(&simplified).unwrap();
         assert!(
             !matches!(simplified, KorePattern::Bottom { .. }),
             "the pattern has instances where Y = 0: {}",
@@ -997,8 +1001,8 @@ endmodule
 
     /// The value the model `model` gives the variable `name`, from its substitution's
     /// equalities.
-    fn model_value(model: &k_rust::backend::ModelResultOutput, name: &str) -> Option<String> {
-        let substitution = model.substitution.as_ref()?;
+    fn model_value(model: &serde_json::Value, name: &str) -> Option<String> {
+        let substitution = model.get("substitution")?;
         let term = &substitution["term"];
         let equalities = match term["tag"].as_str() {
             Some("And") => term["patterns"].as_array()?.clone(),
@@ -1024,9 +1028,9 @@ endmodule
             ("predicate", negated_atoms()),
         ] {
             let model = backend
-                .get_model(PatternRequest::new(parse(&pattern)))
+                .model_answer(PatternRequest::new(parse(&pattern)))
                 .unwrap();
-            assert_eq!(model.satisfiable, "sat", "{case}: {model:?}");
+            assert_eq!(model["satisfiable"], "sat", "{case}: {model:?}");
             assert_eq!(
                 model_value(&model, "Y").as_deref(),
                 Some("0"),
@@ -1058,9 +1062,9 @@ endmodule
         }
         let consequent = not(&and(&pos(), &undefined_equality()));
         let result = backend
-            .implies(ImplicationRequest::new(parse(&pos()), parse(&consequent)))
+            .implies_answer(ImplicationRequest::new(parse(&pos()), parse(&consequent)))
             .unwrap();
-        assert_ne!(result.status, "valid", "{result:?}");
+        assert_ne!(result["status"], "valid", "{result:?}");
     }
 
     #[test]
@@ -1155,28 +1159,28 @@ endmodule
                 }
             };
             let simplify = backend
-                .simplify(PatternRequest::new(parse(&simplified)))
+                .simplify_kore(None, &parse(&simplified), Admission::Unverified)
                 .map(drop);
             assert_eq!(outcome(simplify), refused, "simplify {p}");
             let implies = backend
-                .implies(ImplicationRequest::new(parse(&simplified), parse(&pos())))
+                .implies_answer(ImplicationRequest::new(parse(&simplified), parse(&pos())))
                 .map(drop);
             assert_eq!(outcome(implies), refused, "implies {p}");
             let implied = backend
-                .implies(ImplicationRequest::new(parse(&pos()), parse(&simplified)))
+                .implies_answer(ImplicationRequest::new(parse(&pos()), parse(&simplified)))
                 .map(drop);
             assert_eq!(outcome(implied), refused, "implies, consequent {p}");
             let execute = backend
-                .execute(ExecuteRequest::new(parse(&simplified)))
+                .execute_kore(ExecuteRequest::new(parse(&simplified)))
                 .map(drop);
             assert_eq!(outcome(execute), refused, "execute {p}");
             if backend.capabilities().smt {
-                let model = backend.get_model(PatternRequest::new(parse(&model)));
+                let model = backend.model_answer(PatternRequest::new(parse(&model)));
                 if refused {
                     assert!(outcome(model.map(drop)), "get-model {p}");
                 } else {
                     let model = model.unwrap();
-                    assert_eq!(model.satisfiable, "unsat", "{model:?}");
+                    assert_eq!(model["satisfiable"], "unsat", "{model:?}");
                 }
             }
         }
@@ -1223,12 +1227,9 @@ endmodule
         let pattern = and(&pos3(), &one_side_shown());
         assert_ne!(implies_bottom(&mut backend, &pattern), "valid");
         assert_one_stuck_initial_leaf(&mut backend, "pos3 under one side shown", &pattern);
-        let simplified: KorePattern = codec::from_value(
-            &backend
-                .simplify(PatternRequest::new(parse(&pattern)))
-                .unwrap(),
-        )
-        .unwrap();
+        let simplified = backend
+            .simplify_kore(None, &parse(&pattern), Admission::Unverified)
+            .unwrap();
         assert!(
             !matches!(simplified, KorePattern::Bottom { .. }),
             "{}",
@@ -1237,9 +1238,9 @@ endmodule
         // The negated equality holds exactly where `Z` is nonzero and `Y` is 0, and the query
         // is exact (GAP K29): its model is such an instance.
         let model = backend
-            .get_model(PatternRequest::new(parse(&pattern)))
+            .model_answer(PatternRequest::new(parse(&pattern)))
             .unwrap();
-        assert_eq!(model.satisfiable, "sat", "{model:?}");
+        assert_eq!(model["satisfiable"], "sat", "{model:?}");
         assert_eq!(model_value(&model, "Y").as_deref(), Some("0"), "{model:?}");
         assert_ne!(model_value(&model, "Z").as_deref(), Some("0"), "{model:?}");
         // Under a disjunction: the instances where `Z` is 1 and `Y` is 0 lie outside `Y = 5`.
@@ -1249,21 +1250,21 @@ endmodule
             &format!("\\or{{{SORT}}}({five}, {})", one_side_shown()),
         );
         let result = backend
-            .implies(ImplicationRequest::new(
+            .implies_answer(ImplicationRequest::new(
                 parse(&disjunction),
                 parse(&and(&pos3(), &five)),
             ))
             .unwrap();
-        assert_ne!(result.status, "valid", "{result:?}");
+        assert_ne!(result["status"], "valid", "{result:?}");
         // As the argument of a `\not` consequent: `pos3(X, 0, 1)` lies inside it.
         let instance = and(&and(&pos3(), &equals(Y, &int(0))), &equals(Z, &int(1)));
         let result = backend
-            .implies(ImplicationRequest::new(
+            .implies_answer(ImplicationRequest::new(
                 parse(&instance),
                 parse(&not(&pattern)),
             ))
             .unwrap();
-        assert_ne!(result.status, "valid", "{result:?}");
+        assert_ne!(result["status"], "valid", "{result:?}");
     }
 
     /// `X /Int D ==Int 3` is undefined exactly where `D` is 0, so
@@ -1383,11 +1384,11 @@ endmodule
         let atom = positive(&format!("\\and{{SortInt{{}}}}({l}, {r})"));
         let mut implies = |antecedent: &str, consequent: &str| {
             backend
-                .implies(ImplicationRequest::new(
+                .implies_answer(ImplicationRequest::new(
                     parse(&and(&pos3(), antecedent)),
                     parse(&and(&pos3(), consequent)),
                 ))
-                .map(|result| result.status)
+                .map(|result| result["status"].as_str().expect("a status").to_owned())
         };
         for (case, antecedent, consequent) in [
             ("the atom implies l > 0", atom.clone(), positive(&l)),
@@ -1416,7 +1417,7 @@ endmodule
 
     /// GAP K30: `B /\ true ==Bool true` holds exactly where `B` is `true`, where the intersection
     /// is `true`; elsewhere the intersection is `\bottom` and the atom is false. A request with
-    /// it is admitted, and `implies` decides it as `B = true` both ways, and its negation as
+    /// it is admitted, and `implies_json` decides it as `B = true` both ways, and its negation as
     /// `B = false` both ways: since GAP K35 the solver reads the intersection as defined exactly
     /// where `B = true` (its sides' equality) with `B`'s value there, so the negation, which
     /// holds exactly where the intersection is undefined, implies `B = false` (before, the
@@ -1438,11 +1439,11 @@ endmodule
         };
         let mut implies = |antecedent: &str, consequent: &str| {
             backend
-                .implies(ImplicationRequest::new(
+                .implies_answer(ImplicationRequest::new(
                     parse(&and(&pos(), antecedent)),
                     parse(&and(&pos(), consequent)),
                 ))
-                .map(|result| result.status)
+                .map(|result| result["status"].as_str().expect("a status").to_owned())
         };
         for (case, antecedent, consequent) in [
             ("the atom implies B = true", atom.clone(), is("true")),
@@ -1461,7 +1462,8 @@ endmodule
     /// operands taken as predicates, with a term read as `t = true`. That is not what
     /// `\equals(B1 /\ B2, false)` (the intersection of two Boolean values, `\bottom` where they
     /// differ) or `\equals(B, \top)` (false, since `Bool` has two elements) mean, so in both
-    /// builds such a request is refused, by `execute`, `simplify` and `implies` alike.
+    /// builds such a request is refused, by `execute_kore`, `simplify_kore` and `implies_json`
+    /// alike.
     #[test]
     fn a_request_that_equates_a_term_read_as_a_predicate_is_refused() {
         let mut backend = backend();
@@ -1487,16 +1489,16 @@ endmodule
         };
         for (case, pattern) in cases {
             let implies = backend
-                .implies(ImplicationRequest::new(
+                .implies_answer(ImplicationRequest::new(
                     parse(&pattern),
                     parse(&format!("\\bottom{{{SORT}}}()")),
                 ))
-                .map(|result| result.status);
+                .map(|result| result["status"].as_str().expect("a status").to_owned());
             let execute = backend
-                .execute(ExecuteRequest::new(parse(&pattern)))
+                .execute_kore(ExecuteRequest::new(parse(&pattern)))
                 .map(|result| format!("{} leaves", result.leaves.len()));
             let simplify = backend
-                .simplify(PatternRequest::new(parse(&pattern)))
+                .simplify_kore(None, &parse(&pattern), Admission::Unverified)
                 .map(|result| result.to_string());
             for (route, result) in [
                 ("implies", implies),
@@ -1511,8 +1513,8 @@ endmodule
 
     /// An alias applied in a request is read as its body. With `both(X, Y) := X /\ Y` and
     /// `eqfalse(X, Y) := \equals(X /\ Y, false)` added to the definition, a request whose alias
-    /// unfolds to an `\equals` that reads a term as a predicate is refused by `simplify` and
-    /// `get_model`, the routes that accept aliases, as the unfolded request is.
+    /// unfolds to an `\equals` that reads a term as a predicate is refused by `simplify_kore` and
+    /// `get_model_json`, the routes that accept aliases, as the unfolded request is.
     #[test]
     fn a_request_whose_alias_unfolds_to_a_term_read_as_a_predicate_is_refused() {
         static KORE: shared::Shared<String> = shared::Shared::new();
@@ -1544,13 +1546,13 @@ endmodule
         ] {
             let pattern = and(&facts, &constraint);
             let simplify = backend
-                .simplify(PatternRequest::new(parse(&pattern)))
+                .simplify_kore(None, &parse(&pattern), Admission::Unverified)
                 .map(|result| result.to_string());
             let mut routes = vec![("simplify", simplify)];
-            // Without a solver `get_model` answers no request.
+            // Without a solver `get_model_json` answers no request.
             if backend.capabilities().smt {
                 let model = backend
-                    .get_model(PatternRequest::new(parse(&pattern)))
+                    .model_answer(PatternRequest::new(parse(&pattern)))
                     .map(|result| format!("{result:?}"));
                 routes.push(("get_model", model));
             }
@@ -1582,7 +1584,7 @@ endmodule
         assume_state_defined: bool,
     ) -> Vec<(Route, KorePattern)> {
         backend
-            .execute(ExecuteRequest {
+            .execute_kore(ExecuteRequest {
                 assume_state_defined,
                 result_modality: ResultModalityOutput::PathSet,
                 max_depth: Some(4),
@@ -1606,7 +1608,7 @@ endmodule
                         rewrites,
                         rule_id: leaf.rule_id.clone(),
                     },
-                    codec::from_value(&leaf.state).unwrap(),
+                    leaf.state.clone(),
                 )
             })
             .collect()
@@ -1701,7 +1703,7 @@ endmodule
         }
     }
 
-    /// The leaf contract (docs/backend-port.md, `ExecutionLeaf`): the constraints of every leaf
+    /// The leaf contract (docs/backend-port.md, `KoreExecutionLeaf`): the constraints of every leaf
     /// are definedness-explicit, so a solver `Unsat` on them would show that the leaf has no
     /// instance. For the rule-produced programs and the requests above, every leaf has an
     /// instance (a ground run at `X = 7` and `Y` in {0, 1, -1} reaches the same halt through the
@@ -1776,7 +1778,7 @@ endmodule
 mod symwrap {
     use k_rust::{
         backend::{Backend, ExecuteRequest, HaltReasonOutput, ResultModalityOutput},
-        kore::{ast::Pattern as KorePattern, codec, parser::parse_pattern, printer::Printer},
+        kore::{ast::Pattern as KorePattern, parser::parse_pattern, printer::Printer},
     };
 
     use super::shared;
@@ -1836,7 +1838,7 @@ endmodule
 
     fn execute(backend: &mut Backend, pattern: &str, assume_state_defined: bool) -> Vec<Leaf> {
         backend
-            .execute(ExecuteRequest {
+            .execute_kore(ExecuteRequest {
                 assume_state_defined,
                 result_modality: ResultModalityOutput::PathSet,
                 max_depth: Some(8),
@@ -1848,7 +1850,7 @@ endmodule
             .map(|leaf| Leaf {
                 depth: leaf.depth,
                 reason: leaf.reason,
-                state: codec::from_value(&leaf.state).unwrap(),
+                state: leaf.state.clone(),
                 diagnostics: leaf
                     .diagnostics
                     .iter()
@@ -1977,7 +1979,7 @@ mod claim_constraints {
             "cdiv",
         ] {
             let result = backend
-                .prove(ProveRequest {
+                .prove_kore(ProveRequest {
                     claim: Some(format!("DEFPROBE-SPEC.{claim}")),
                     max_depth: Some(8),
                     ..ProveRequest::default()

@@ -24,7 +24,7 @@ fn public_observed_transition_ids_are_ordered_hash_keys() {
     let mut backend = Backend::new(DEFINITION, "MAIN", BackendOptions::default()).unwrap();
     let state = parse_pattern("a{}()").unwrap();
     let result = backend
-        .search_observed(ObservedRequest {
+        .search_observed_kore(ObservedRequest {
             request: SearchRequest::new(state),
             rules: None,
         })

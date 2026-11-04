@@ -97,7 +97,6 @@ use k_rust::{
     },
     kore::{
         ast::{Pattern, Sentence as KoreSentence},
-        codec,
         parser::parse_definition,
     },
     outer::{
@@ -689,12 +688,11 @@ fn k_cells<'a>(pattern: &'a Pattern, found: &mut Vec<&'a Pattern>) {
     }
 }
 
-fn observe_state(state: &serde_json::Value, halt: String) -> ObservedLeaf {
-    let pattern = codec::from_value(state).expect("a result state is KORE JSON");
+fn observe_state(pattern: &Pattern, halt: String) -> ObservedLeaf {
     let mut found = Vec::new();
-    k_cells(&pattern, &mut found);
+    k_cells(pattern, &mut found);
     let term = if found.is_empty() {
-        format!("<no k cell: {}>", render(&pattern))
+        format!("<no k cell: {}>", render(pattern))
     } else {
         found
             .into_iter()
@@ -703,7 +701,7 @@ fn observe_state(state: &serde_json::Value, halt: String) -> ObservedLeaf {
             .join(" | ")
     };
     let constrained = !matches!(
-        &pattern,
+        pattern,
         Pattern::Application { symbol, .. } if symbol.name == TOP_CELL
     );
     ObservedLeaf {
@@ -720,7 +718,7 @@ fn prove(backend: &mut Backend, claim: &str) -> Result<String, String> {
         max_depth: Some(20),
         ..ProveRequest::default()
     };
-    match backend.prove(request(format!("P-SPEC.{claim}"))) {
+    match backend.prove_kore(request(format!("P-SPEC.{claim}"))) {
         Ok(result) => Ok(result.status.to_string()),
         Err(error) => {
             let message = error.to_string();
@@ -733,7 +731,7 @@ fn prove(backend: &mut Backend, claim: &str) -> Result<String, String> {
             for index in indices.split(", ") {
                 let index = index.trim().trim_end_matches('.');
                 let result = backend
-                    .prove(request(index.to_owned()))
+                    .prove_kore(request(index.to_owned()))
                     .map_err(|error| error.to_string())?;
                 statuses.push(result.status.to_string());
             }
@@ -930,7 +928,7 @@ fn observe_unguarded(
                     ..SearchPatternRequest::new(initial_state(&program), compiled.pattern.clone())
                 };
                 let result = backend
-                    .search_pattern(request)
+                    .search_pattern_kore(request)
                     .map(|response| {
                         response
                             .matches
@@ -978,7 +976,7 @@ fn observe_unguarded(
                     ..ExecuteRequest::new(initial_state(&program))
                 };
                 let result = backend
-                    .execute(request)
+                    .execute_kore(request)
                     .map(|result| {
                         result
                             .leaves

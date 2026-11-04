@@ -516,7 +516,8 @@ input = "dup(${n})\n"
 stdout = ['"result"']
 files = ["${run}/response.json", "${run}/rpc-metrics.json"]
 
-# The standalone driver calls Backend::execute_observed on the initial state.
+# The standalone driver calls Backend::execute_observed_to_writer (or execute_observed_json) on the
+# initial state.
 # Its depth is n: every duplication transition is observed, including the last
 # one whose before/after patterns contain the large shared tree.
 [[workload]]

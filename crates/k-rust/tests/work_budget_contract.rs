@@ -15,7 +15,7 @@
 
 use k_rust::{
     backend::{
-        Backend, BackendOptions, ExecuteRequest, ExecutionResult, HaltReasonOutput,
+        Backend, BackendOptions, ExecuteRequest, HaltReasonOutput, KoreExecutionResult,
         ObservedRequest, ResultModalityOutput,
     },
     builtin::embedded,
@@ -24,7 +24,7 @@ use k_rust::{
         CompilationBackend, CompileOptions, ConfigurationAssembler, ProgramGrammar,
         compile_loaded_definition,
     },
-    kore::{ast::Pattern, codec, printer::Printer},
+    kore::{ast::Pattern, printer::Printer},
     outer::{LoadOptions, ResolvedSource, load_with_options},
 };
 use serde_json::Value;
@@ -91,7 +91,7 @@ fn compile(source: &str, main: &str, program: &str) -> (String, Pattern) {
 struct Shape {
     max_depth: Option<u64>,
     max_breadth: Option<usize>,
-    /// Run through `execute_observed` with every rule observed.
+    /// Run through `execute_observed_kore` with every rule observed.
     observed: bool,
 }
 
@@ -101,7 +101,7 @@ fn run(
     modality: ResultModalityOutput,
     max_depth: Option<u64>,
     max_work: Option<u64>,
-) -> ExecutionResult {
+) -> KoreExecutionResult {
     let shape = Shape {
         max_depth,
         ..Shape::default()
@@ -115,7 +115,7 @@ fn run_shaped(
     modality: ResultModalityOutput,
     shape: Shape,
     max_work: Option<u64>,
-) -> ExecutionResult {
+) -> KoreExecutionResult {
     let request = ExecuteRequest {
         max_depth: shape.max_depth,
         max_breadth: shape.max_breadth,
@@ -125,18 +125,18 @@ fn run_shaped(
     };
     if shape.observed {
         backend
-            .execute_observed(ObservedRequest {
+            .execute_observed_kore(ObservedRequest {
                 request,
                 rules: None,
             })
             .unwrap()
     } else {
-        backend.execute(request).unwrap()
+        backend.execute_kore(request).unwrap()
     }
 }
 
 /// A leaf as JSON without its diagnostics.
-fn stripped(leaf: &k_rust::backend::ExecutionLeaf) -> Value {
+fn stripped(leaf: &k_rust::backend::KoreExecutionLeaf) -> Value {
     let mut stripped = leaf.clone();
     stripped.diagnostics.clear();
     serde_json::to_value(stripped).unwrap()
@@ -150,7 +150,7 @@ fn is_path_fact(diagnostic: &Value) -> bool {
 }
 
 /// A leaf's diagnostics, split into those that are not path facts and the path facts.
-fn diagnostics(leaf: &k_rust::backend::ExecutionLeaf) -> (Vec<Value>, Vec<Value>) {
+fn diagnostics(leaf: &k_rust::backend::KoreExecutionLeaf) -> (Vec<Value>, Vec<Value>) {
     leaf.diagnostics
         .iter()
         .map(|diagnostic| serde_json::to_value(diagnostic).unwrap())
@@ -159,7 +159,7 @@ fn diagnostics(leaf: &k_rust::backend::ExecutionLeaf) -> (Vec<Value>, Vec<Value>
 
 /// The path facts a run noted, as the diagnostics a leaf carries them as: its marks and the
 /// contradicted claims it observed (not those of its definition's load, which no leaf carries).
-fn run_path_facts(result: &ExecutionResult) -> Vec<Value> {
+fn run_path_facts(result: &KoreExecutionResult) -> Vec<Value> {
     let result = serde_json::to_value(result).unwrap();
     let marks = result["implementationChosenValues"]
         .as_array()
@@ -184,7 +184,7 @@ fn run_path_facts(result: &ExecutionResult) -> Vec<Value> {
 }
 
 /// The result without its leaves' diagnostics.
-fn without_diagnostics(result: &ExecutionResult) -> Value {
+fn without_diagnostics(result: &KoreExecutionResult) -> Value {
     let mut result = result.clone();
     for leaf in &mut result.leaves {
         leaf.diagnostics.clear();
@@ -200,7 +200,7 @@ fn assert_prefix_contract(
     initial: &Pattern,
     modality: ResultModalityOutput,
     max_depth: Option<u64>,
-) -> ExecutionResult {
+) -> KoreExecutionResult {
     let shape = Shape {
         max_depth,
         ..Shape::default()
@@ -223,7 +223,7 @@ fn assert_shaped_prefix_contract(
     initial: &Pattern,
     modality: ResultModalityOutput,
     shape: Shape,
-) -> ExecutionResult {
+) -> KoreExecutionResult {
     let context = format!("{name}, {modality:?}, {shape:?}");
     let unbounded = run_shaped(backend, initial, modality, shape, None);
     assert!(
@@ -311,7 +311,7 @@ fn assert_shaped_prefix_contract(
     unbounded
 }
 
-fn reasons(result: &ExecutionResult) -> Vec<HaltReasonOutput> {
+fn reasons(result: &KoreExecutionResult) -> Vec<HaltReasonOutput> {
     result.leaves.iter().map(|leaf| leaf.reason).collect()
 }
 
@@ -412,7 +412,7 @@ fn a_clean_stuck_leaf_that_applies_a_function_is_not_a_final_configuration() {
         };
         assert_eq!(leaf.depth, 1, "{modality:?}");
         assert!(leaf.diagnostics.is_empty(), "{modality:?}: {leaf:#?}");
-        let state = codec::from_value(&leaf.state).unwrap();
+        let state = leaf.state.clone();
         let text = Printer::compact().print_pattern(&state);
         assert!(
             !matches!(state, Pattern::And { .. }),
@@ -428,12 +428,12 @@ fn a_clean_stuck_leaf_that_applies_a_function_is_not_a_final_configuration() {
 }
 
 /// A leaf as the absorb tests read it: halt reason, depth and the compact KORE of its state.
-fn shape(result: &ExecutionResult) -> Vec<(HaltReasonOutput, u64, String)> {
+fn shape(result: &KoreExecutionResult) -> Vec<(HaltReasonOutput, u64, String)> {
     result
         .leaves
         .iter()
         .map(|leaf| {
-            let state = codec::from_value(&leaf.state).unwrap();
+            let state = leaf.state.clone();
             (
                 leaf.reason,
                 leaf.depth,
@@ -483,7 +483,7 @@ fn a_stuck_leaf_absorbs_a_later_bound_leaf_and_the_state_set_is_complete() {
             path_shape[0].2.contains("Lbld'"),
             "{variant}: {path_shape:#?}"
         );
-        let reasons = |result: &ExecutionResult| {
+        let reasons = |result: &KoreExecutionResult| {
             shape(result)
                 .into_iter()
                 .map(|(reason, depth, _)| (reason, depth))
@@ -675,7 +675,7 @@ endmodule
 "#;
     let (kore, initial) = compile(FACTS, "FACTS", "g2(0)");
     let mut backend = Backend::new(&kore, "FACTS", BackendOptions::default()).unwrap();
-    let kinds = |leaf: &k_rust::backend::ExecutionLeaf| {
+    let kinds = |leaf: &k_rust::backend::KoreExecutionLeaf| {
         let (_, facts) = diagnostics(leaf);
         let mut kinds = facts
             .iter()

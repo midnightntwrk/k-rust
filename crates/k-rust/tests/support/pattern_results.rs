@@ -1,6 +1,7 @@
-//! The facade's pattern result forms (`Backend::execute_kore` and the others) against its
-//! `serde_json::Value` forms: for one request, each pair serializes to the same JSON, each run on
-//! a fresh backend.
+//! The facade's pattern result forms (`Backend::execute_kore` and the others) against its JSON
+//! text forms (`Backend::execute_json` and the others), which the bindings, the RPC server and the
+//! CLI hand out: for one request, the pattern result serialized with serde is the text, byte for
+//! byte, each form run on a fresh backend.
 //!
 //! Test binaries include this file with
 //! `#[path = "support/pattern_results.rs"] mod pattern_results;`.
@@ -21,20 +22,21 @@ fn json<T: serde::Serialize, E: std::fmt::Display>(
     (value, text)
 }
 
-/// Assert that `$kore` and `$value`, called on fresh backends with `$request`, serialize alike,
-/// as a JSON value and as JSON text, and push the JSON onto `$seen`.
+/// Assert that `$kore`, called on a fresh backend with `$request`, serializes to the JSON text
+/// `$text` writes on another, and push its JSON onto `$seen`.
 macro_rules! alike {
-    ($fresh:expr, $seen:expr, $value:ident, $kore:ident, $request:expr) => {{
-        let (expected, expected_text) = json(stringify!($value), $fresh().$value($request));
+    ($fresh:expr, $seen:expr, $text:ident, $kore:ident, $request:expr) => {{
+        let expected = $fresh()
+            .$text($request)
+            .unwrap_or_else(|error| panic!("{}: {error}", stringify!($text)));
         let (actual, actual_text) = json(stringify!($kore), $fresh().$kore($request));
-        assert_eq!(actual, expected, "{}", stringify!($kore));
-        assert_eq!(actual_text, expected_text, "{}", stringify!($kore));
-        $seen.push(expected);
+        assert_eq!(actual_text, expected, "{}", stringify!($kore));
+        $seen.push(actual);
     }};
 }
 
 /// Assert that `execute_kore` and `execute_observed_kore` (observing every rule) serialize as
-/// `execute` and `execute_observed` for `request`; the four results' JSON.
+/// `execute_json` and `execute_observed_json` write for `request`; the two results' JSON.
 #[allow(dead_code)]
 pub fn executions_alike(fresh: impl Fn() -> Backend, request: &ExecuteRequest) -> Vec<Value> {
     let observed = || ObservedRequest {
@@ -42,11 +44,11 @@ pub fn executions_alike(fresh: impl Fn() -> Backend, request: &ExecuteRequest) -
         rules: None,
     };
     let mut seen = Vec::new();
-    alike!(fresh, seen, execute, execute_kore, request.clone());
+    alike!(fresh, seen, execute_json, execute_kore, request.clone());
     alike!(
         fresh,
         seen,
-        execute_observed,
+        execute_observed_json,
         execute_observed_kore,
         observed()
     );
@@ -54,7 +56,7 @@ pub fn executions_alike(fresh: impl Fn() -> Backend, request: &ExecuteRequest) -
 }
 
 /// Assert that `search_kore`, `search_paths_kore` and their observed forms (observing every
-/// rule) serialize as their `Value` forms for `request`; the responses' JSON.
+/// rule) serialize as their `_json` forms write for `request`; the responses' JSON.
 #[allow(dead_code)]
 pub fn searches_alike(fresh: impl Fn() -> Backend, request: &SearchRequest) -> Vec<Value> {
     let observed = || ObservedRequest {
@@ -62,25 +64,25 @@ pub fn searches_alike(fresh: impl Fn() -> Backend, request: &SearchRequest) -> V
         rules: None,
     };
     let mut seen = Vec::new();
-    alike!(fresh, seen, search, search_kore, request.clone());
+    alike!(fresh, seen, search_json, search_kore, request.clone());
     alike!(
         fresh,
         seen,
-        search_observed,
+        search_observed_json,
         search_observed_kore,
         observed()
     );
     alike!(
         fresh,
         seen,
-        search_paths,
+        search_paths_json,
         search_paths_kore,
         request.clone()
     );
     alike!(
         fresh,
         seen,
-        search_paths_observed,
+        search_paths_observed_json,
         search_paths_observed_kore,
         observed()
     );
@@ -88,7 +90,8 @@ pub fn searches_alike(fresh: impl Fn() -> Backend, request: &SearchRequest) -> V
 }
 
 /// Assert that `search_pattern_kore`, `search_pattern_paths_kore` and their observed forms
-/// (observing every rule) serialize as their `Value` forms for `request`; the responses' JSON.
+/// (observing every rule) serialize as their `_json` forms write for `request`; the responses'
+/// JSON.
 #[allow(dead_code)]
 pub fn pattern_searches_alike(
     fresh: impl Fn() -> Backend,
@@ -102,28 +105,28 @@ pub fn pattern_searches_alike(
     alike!(
         fresh,
         seen,
-        search_pattern,
+        search_pattern_json,
         search_pattern_kore,
         request.clone()
     );
     alike!(
         fresh,
         seen,
-        search_pattern_observed,
+        search_pattern_observed_json,
         search_pattern_observed_kore,
         observed()
     );
     alike!(
         fresh,
         seen,
-        search_pattern_paths,
+        search_pattern_paths_json,
         search_pattern_paths_kore,
         request.clone()
     );
     alike!(
         fresh,
         seen,
-        search_pattern_paths_observed,
+        search_pattern_paths_observed_json,
         search_pattern_paths_observed_kore,
         observed()
     );

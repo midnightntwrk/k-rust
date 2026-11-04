@@ -104,7 +104,7 @@ impl Compiled {
             (ExecutionStrategy::All, ResultModalityOutput::PathSet),
         ] {
             let result = backend
-                .execute(ExecuteRequest {
+                .execute_kore(ExecuteRequest {
                     strategy,
                     result_modality: modality,
                     max_depth: Some(10),

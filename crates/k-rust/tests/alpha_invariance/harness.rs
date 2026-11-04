@@ -26,7 +26,7 @@ use k_rust::{
         CompilationBackend, CompileOptions, CompiledKoreArtifacts, ConfigurationAssembler,
         ProgramGrammar, compile_loaded_definition, compile_search_pattern,
     },
-    kore::{ast::Pattern, codec, parser::parse_definition},
+    kore::{ast::Pattern, parser::parse_definition},
     outer::{LoadOptions, LoadedDefinition, ResolvedSource, load_for_compilation},
 };
 
@@ -613,7 +613,7 @@ fn runs(
                         format!("from_internalized: {}", one_line(&error.to_string()))
                     })?;
                 let result = backend
-                    .execute(ExecuteRequest {
+                    .execute_kore(ExecuteRequest {
                         max_depth: Some(case.depth),
                         strategy,
                         ..ExecuteRequest::new(initial.clone())
@@ -623,8 +623,7 @@ fn runs(
                     .leaves
                     .iter()
                     .map(|leaf| {
-                        let state =
-                            codec::from_value(&leaf.state).expect("a result state is KORE JSON");
+                        let state = leaf.state.clone();
                         format!("{:?} {}", leaf.reason, normal_pattern(&state))
                     })
                     .collect();

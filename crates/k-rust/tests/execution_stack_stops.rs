@@ -1,6 +1,6 @@
 //! An execution reports every stop for lack of native stack it met (`stackStops`, absent when
 //! zero), and a leaf a stack stop ended carries the structured cause `stack-exhausted`, through
-//! `execute`, `execute_observed`, their JSON forms and the writer
+//! `execute_kore`, `execute_observed_kore`, their JSON forms and the writer
 //! (`docs/compatibility.md`, "Determinism and concurrency").
 
 use k_rust::{
@@ -52,11 +52,11 @@ fn results(budget: Option<usize>) -> Vec<serde_json::Value> {
                 .execute_observed_to_writer(observed(), &mut written)
                 .expect("it writes");
             let texts = [
-                serde_json::to_string(&backend.execute(request()).expect("it executes"))
+                serde_json::to_string(&backend.execute_kore(request()).expect("it executes"))
                     .expect("it serializes"),
                 serde_json::to_string(
                     &backend
-                        .execute_observed(observed())
+                        .execute_observed_kore(observed())
                         .expect("it executes observed"),
                 )
                 .expect("it serializes"),

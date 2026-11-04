@@ -9,18 +9,18 @@
 //! keeps the state as given. Keys or elements that are neither equal nor apart split the step on
 //! their definedness condition.
 //! Every run goes through the facade as a consumer does: strategy `all`, the path-set modality,
-//! and `execute` and `execute_observed` giving the same leaves.
+//! and `execute_kore` and `execute_observed_kore` giving the same leaves.
 
 use std::sync::Arc;
 
 use k_rust::{
     backend::{
-        Backend, BackendOptions, ExecuteRequest, ExecutionLeaf, ExecutionResult, ExecutionStrategy,
-        HaltReasonOutput, ObservedRequest, ResultModalityOutput,
+        Backend, BackendOptions, ExecuteRequest, ExecutionStrategy, HaltReasonOutput,
+        KoreExecutionLeaf, KoreExecutionResult, ObservedRequest, ResultModalityOutput,
     },
     builtin::embedded,
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
-    kore::{ast::Pattern as KorePattern, codec, parser::parse_pattern, printer::Printer},
+    kore::{ast::Pattern as KorePattern, parser::parse_pattern, printer::Printer},
     outer::{LoadOptions, ResolvedSource, load_with_options},
 };
 use k_rust_backend::{
@@ -138,17 +138,17 @@ fn request(state: &str, assume_state_defined: bool, bound: Bound) -> ExecuteRequ
 /// A change to a request that bounds its run.
 type Bound = fn(&mut ExecuteRequest);
 
-fn text(leaf: &ExecutionLeaf) -> String {
+fn text(leaf: &KoreExecutionLeaf) -> String {
     Printer::compact().print_pattern(&state(leaf))
 }
 
-fn state(leaf: &ExecutionLeaf) -> KorePattern {
-    codec::from_value(&leaf.state).unwrap()
+fn state(leaf: &KoreExecutionLeaf) -> KorePattern {
+    leaf.state.clone()
 }
 
 type Summary = Vec<(HaltReasonOutput, u64, Option<String>, String)>;
 
-fn summary(result: &ExecutionResult) -> Summary {
+fn summary(result: &KoreExecutionResult) -> Summary {
     result
         .leaves
         .iter()
@@ -156,9 +156,13 @@ fn summary(result: &ExecutionResult) -> Summary {
         .collect()
 }
 
-/// The leaves of `state` under strategy `all` and the path-set modality, which `execute` and
-/// `execute_observed` must give alike.
-fn run_state(backend: &mut Backend, state: &str, assume_state_defined: bool) -> ExecutionResult {
+/// The leaves of `state` under strategy `all` and the path-set modality, which `execute_kore`
+/// and `execute_observed_kore` must give alike.
+fn run_state(
+    backend: &mut Backend,
+    state: &str,
+    assume_state_defined: bool,
+) -> KoreExecutionResult {
     run_bounded(backend, state, assume_state_defined, |_| {})
 }
 
@@ -168,12 +172,12 @@ fn run_bounded(
     state: &str,
     assume_state_defined: bool,
     bound: Bound,
-) -> ExecutionResult {
+) -> KoreExecutionResult {
     let plain = backend
-        .execute(request(state, assume_state_defined, bound))
+        .execute_kore(request(state, assume_state_defined, bound))
         .unwrap();
     let observed = backend
-        .execute_observed(ObservedRequest {
+        .execute_observed_kore(ObservedRequest {
             request: request(state, assume_state_defined, bound),
             rules: Some(Vec::new()),
         })
@@ -182,7 +186,7 @@ fn run_bounded(
     plain
 }
 
-fn run(backend: &mut Backend, number: u32) -> ExecutionResult {
+fn run(backend: &mut Backend, number: u32) -> KoreExecutionResult {
     run_state(backend, &program(number), false)
 }
 
@@ -241,7 +245,7 @@ fn collections(term: &Term) -> Vec<Term> {
 
 /// The outermost collection in a leaf's configuration: a collection term, or an application of
 /// a collection's concat symbol that holds two opaque parts.
-fn done_collection(definition: &BackendDefinition, leaf: &ExecutionLeaf) -> Term {
+fn done_collection(definition: &BackendDefinition, leaf: &KoreExecutionLeaf) -> Term {
     let pattern = internalized(definition, &state(leaf));
     let mut pending = std::collections::VecDeque::from([pattern.term.clone()]);
     while let Some(term) = pending.pop_front() {
@@ -262,7 +266,7 @@ fn done_collection(definition: &BackendDefinition, leaf: &ExecutionLeaf) -> Term
     panic!("no collection in {}", text(leaf))
 }
 
-fn leaf(result: &ExecutionResult, reason: HaltReasonOutput) -> &ExecutionLeaf {
+fn leaf(result: &KoreExecutionResult, reason: HaltReasonOutput) -> &KoreExecutionLeaf {
     let mut found = result.leaves.iter().filter(|leaf| leaf.reason == reason);
     let leaf = found
         .next()

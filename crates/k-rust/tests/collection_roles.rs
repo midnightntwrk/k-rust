@@ -9,7 +9,7 @@
 
 use k_rust::{
     backend::{Backend, BackendOptions, ExecuteRequest},
-    kore::{codec, parser::parse_pattern, printer::Printer},
+    kore::{parser::parse_pattern, printer::Printer},
 };
 
 const DEFINITION: &str = r#"[]
@@ -63,15 +63,12 @@ fn an_element_symbol_of_another_result_sort_is_refused_at_load() {
             let request =
                 ExecuteRequest::new(parse_pattern(r#"start{}(\dv{SortInt{}}("5"))"#).unwrap());
             let leaves = backend
-                .execute(request)
+                .execute_kore(request)
                 .map(|result| {
                     result
                         .leaves
                         .iter()
-                        .map(|leaf| {
-                            Printer::compact()
-                                .print_pattern(&codec::from_value(&leaf.state).unwrap())
-                        })
+                        .map(|leaf| Printer::compact().print_pattern(&leaf.state.clone()))
                         .collect::<Vec<_>>()
                 })
                 .map_err(|error| error.to_string());

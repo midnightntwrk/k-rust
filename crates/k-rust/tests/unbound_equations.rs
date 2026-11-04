@@ -11,11 +11,11 @@
 use k_rust::{
     backend::{
         Backend, BackendDiagnosticOutput, BackendOptions, ConditionIndeterminacyOutput,
-        ExecuteRequest, ExecutionLeaf, ResultModalityOutput, RuleVariableOutput,
+        ExecuteRequest, KoreExecutionLeaf, ResultModalityOutput, RuleVariableOutput,
     },
     builtin::embedded,
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
-    kore::{codec, parser::parse_pattern, printer::Printer},
+    kore::{parser::parse_pattern, printer::Printer},
     outer::{LoadOptions, ResolvedSource, load_with_options},
 };
 
@@ -77,20 +77,18 @@ fn int(value: i64) -> String {
 fn run(backend: &mut Backend, argument: &str) -> Vec<String> {
     run_leaves(backend, argument)
         .iter()
-        .map(|leaf: &ExecutionLeaf| {
-            Printer::compact().print_pattern(&codec::from_value(&leaf.state).unwrap())
-        })
+        .map(|leaf: &KoreExecutionLeaf| Printer::compact().print_pattern(&leaf.state.clone()))
         .collect()
 }
 
 /// The leaves of running `run(argument)` from the top configuration.
-fn run_leaves(backend: &mut Backend, argument: &str) -> Vec<ExecutionLeaf> {
+fn run_leaves(backend: &mut Backend, argument: &str) -> Vec<KoreExecutionLeaf> {
     let top = format!(
         "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{SortProg{{}}, SortKItem{{}}}}(Lblrun{{}}({argument})), dotk{{}}())), Lbl'-LT-'generatedCounter'-GT-'{{}}(\\dv{{SortInt{{}}}}(\"0\")))"
     );
     let state = parse_pattern(&top).unwrap();
     backend
-        .execute(ExecuteRequest {
+        .execute_kore(ExecuteRequest {
             result_modality: ResultModalityOutput::PathSet,
             max_depth: Some(4),
             ..ExecuteRequest::new(state)
@@ -102,7 +100,7 @@ fn run_leaves(backend: &mut Backend, argument: &str) -> Vec<ExecutionLeaf> {
 /// The diagnostics of `leaf` that report an equation instance left unused because its result
 /// has variables its left-hand side does not bind: the variables, and the equation variables its
 /// predicates name.
-fn unbound_reports(leaf: &ExecutionLeaf) -> Vec<(Vec<String>, Vec<RuleVariableOutput>)> {
+fn unbound_reports(leaf: &KoreExecutionLeaf) -> Vec<(Vec<String>, Vec<RuleVariableOutput>)> {
     leaf.diagnostics
         .iter()
         .filter_map(|diagnostic| match diagnostic {

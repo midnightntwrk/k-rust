@@ -1,6 +1,7 @@
-//! The facade hands a result's KORE either as a `serde_json::Value` (`Backend::execute` and
-//! the others) or as a pattern (`Backend::execute_kore` and the others); both are built from the
-//! same terms, and an output holding patterns serializes as the output holding values.
+//! The facade hands a result's KORE either as JSON text (`Backend::execute_json` and the others,
+//! which the bindings, the RPC server and the CLI hand out) or as a pattern
+//! (`Backend::execute_kore` and the others); both are built from the same terms, and an output
+//! holding patterns serializes with serde to the text.
 //! Each fixture here runs both forms of every execution and search, or of a proof, on fresh
 //! backends and compares their JSON, and checks that its own JSON shows what it is meant to: builtin
 //! collections, observation events, effects, coverage with condition records, diagnostics,
@@ -398,8 +399,8 @@ fn diagnostics_candidates_and_remainders_serialize_alike() {
     assert_shows("the pattern search", &pattern, &["diagnostics", "matches"]);
 }
 
-/// `prove_kore` serializes as `prove`: a refuted proof's stuck leaf and the leaves at its depth
-/// bound, each with its state.
+/// `prove_kore` serializes as the JSON text `prove_json` writes: a refuted proof's stuck leaf and
+/// the leaves at its depth bound, each with its state.
 #[test]
 fn proofs_serialize_alike() {
     let fresh = fresh(REFUTED_CLAIM);
@@ -408,14 +409,9 @@ fn proofs_serialize_alike() {
         max_counterexamples: 2,
         ..ProveRequest::default()
     };
-    let expected = fresh().prove(request.clone()).unwrap();
+    let expected = fresh().prove_json(request.clone()).unwrap();
     let actual = fresh().prove_kore(request).unwrap();
-    let expected_json = serde_json::to_value(&expected).unwrap();
-    assert_eq!(serde_json::to_value(&actual).unwrap(), expected_json);
-    assert_eq!(
-        serde_json::to_string(&actual).unwrap(),
-        serde_json::to_string(&expected).unwrap()
-    );
+    assert_eq!(serde_json::to_string(&actual).unwrap(), expected);
     let states = actual
         .leaves
         .iter()

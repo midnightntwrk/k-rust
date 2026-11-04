@@ -6,13 +6,13 @@
 
 use k_rust::{
     backend::{
-        Backend, BackendOptions, ExecuteRequest, ExecutionResult, ResultModalityOutput,
+        Backend, BackendOptions, ExecuteRequest, KoreExecutionResult, ResultModalityOutput,
         SearchPatternRequest, SearchTypeArg, StateMatchOutput, StateMatchRequest,
         StateMatchesOutput, UndecidedMatchReasonOutput,
     },
     builtin::embedded,
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
-    kore::{json, parser::parse_pattern},
+    kore::{ast::Pattern, json, parser::parse_pattern},
     outer::{LoadOptions, ResolvedSource, load_with_options},
 };
 
@@ -136,14 +136,14 @@ fn matching(
     }
 }
 
-fn matches(result: &ExecutionResult) -> &StateMatchesOutput {
+fn matches(result: &KoreExecutionResult) -> &StateMatchesOutput<Pattern> {
     result
         .state_matches
         .as_ref()
         .expect("the request matched states")
 }
 
-fn diagnostic_kinds(found: &StateMatchOutput) -> Vec<String> {
+fn diagnostic_kinds(found: &StateMatchOutput<Pattern>) -> Vec<String> {
     found
         .diagnostics
         .iter()
@@ -192,7 +192,7 @@ fn a_state_set_run_matches_each_distinct_state_once() {
         (ResultModalityOutput::PathSet, 5),
     ] {
         let result = backend
-            .execute(matching(("go", 5), modality, &head("c", 6, false), false))
+            .execute_kore(matching(("go", 5), modality, &head("c", 6, false), false))
             .unwrap();
         let found = matches(&result);
         assert_eq!(
@@ -205,7 +205,7 @@ fn a_state_set_run_matches_each_distinct_state_once() {
     }
     // A pattern of the end reaches it at depth 2, on a clean prefix, and matching stops there.
     let result = backend
-        .execute(matching(
+        .execute_kore(matching(
             ("go", 5),
             ResultModalityOutput::StateSet,
             &done(5),
@@ -218,7 +218,7 @@ fn a_state_set_run_matches_each_distinct_state_once() {
     assert_eq!(matches(&result).matched, 3);
 }
 
-/// Whether some state of the run reaches `pattern` agrees with `search_pattern` over every
+/// Whether some state of the run reaches `pattern` agrees with `search_pattern_kore` over every
 /// reachable state (`--search-all`): a search match with empty constraints exists exactly when
 /// the state matches report a reach (clean or not), on every program and pattern of the
 /// fixture, in both modalities; and a clean reach's state is one of the search's matched states.
@@ -230,7 +230,7 @@ fn state_matches_agree_with_search_pattern() {
     for program in PROGRAMS {
         for pattern in patterns() {
             let search = backend
-                .search_pattern(SearchPatternRequest {
+                .search_pattern_kore(SearchPatternRequest {
                     search_type: SearchTypeArg::All,
                     max_depth: Some(50),
                     ..SearchPatternRequest::new(
@@ -247,7 +247,7 @@ fn state_matches_agree_with_search_pattern() {
                 .collect();
             for modality in MODALITIES {
                 let result = backend
-                    .execute(matching(program, modality, &pattern, true))
+                    .execute_kore(matching(program, modality, &pattern, true))
                     .unwrap();
                 let found = matches(&result);
                 let reached =
@@ -271,7 +271,7 @@ fn state_matches_agree_with_search_pattern() {
 }
 
 /// The parity on constrained states: from `go(N)` under `N >Int 0`, every reached state holds `N`
-/// and the constraint, so `search_pattern` has no match of the end `<out> 5 </out>` with empty
+/// and the constraint, so `search_pattern_kore` has no match of the end `<out> 5 </out>` with empty
 /// constraints, and the state matches report no reach either; they report every state as
 /// `undecided-state`, never refuted, since such a state may stand for a configuration that
 /// matches (where `N = 5`).
@@ -284,7 +284,7 @@ fn a_constrained_state_is_undecided_on_both_sides() {
         int(0)
     );
     let search = backend
-        .search_pattern(SearchPatternRequest {
+        .search_pattern_kore(SearchPatternRequest {
             search_type: SearchTypeArg::All,
             max_depth: Some(50),
             ..SearchPatternRequest::new(
@@ -304,7 +304,7 @@ fn a_constrained_state_is_undecided_on_both_sides() {
     );
     for modality in MODALITIES {
         let result = backend
-            .execute(ExecuteRequest {
+            .execute_kore(ExecuteRequest {
                 result_modality: modality,
                 max_depth: Some(50),
                 match_states: Some(StateMatchRequest::new(parse_pattern(&done(5)).unwrap())),
@@ -376,7 +376,7 @@ fn a_cleaner_merged_arrival_is_reported_as_the_clean_reach() {
     let mut backend = backend();
     for modality in MODALITIES {
         let result = backend
-            .execute(matching(("mark", 5), modality, &done(5), false))
+            .execute_kore(matching(("mark", 5), modality, &done(5), false))
             .unwrap();
         let found = matches(&result);
         let dirty = found.first_dirty_reach.as_ref().expect("a dirty reach");
@@ -410,7 +410,7 @@ fn a_cleaner_merged_arrival_is_reported_as_the_clean_reach() {
 fn a_verdict_only_execution_mode_gives_is_undecided_under_proof_agreement() {
     let mut backend = backend();
     let execution_only = backend
-        .execute(matching(
+        .execute_kore(matching(
             ("go", 5),
             ResultModalityOutput::StateSet,
             &open_requires(),
@@ -420,7 +420,7 @@ fn a_verdict_only_execution_mode_gives_is_undecided_under_proof_agreement() {
     let found = matches(&execution_only);
     assert_eq!((found.matched, found.refuted), (4, 4), "{found:?}");
     let agreed = backend
-        .execute(matching(
+        .execute_kore(matching(
             ("go", 5),
             ResultModalityOutput::StateSet,
             &open_requires(),
@@ -446,7 +446,7 @@ fn the_configuration_of_an_undefined_step_is_matched_decided() {
     let mut backend = backend();
     for modality in MODALITIES {
         let result = backend
-            .execute(matching(
+            .execute_kore(matching(
                 ("undef", 0),
                 modality,
                 &head("undef", 0, true),
@@ -489,7 +489,7 @@ fn committed_leaves_out_rolled_back_candidates_and_keeps_merged_ones() {
     };
     let coverage = |backend: &mut Backend, program, modality| {
         backend
-            .execute(ExecuteRequest {
+            .execute_kore(ExecuteRequest {
                 collect_coverage: true,
                 collect_committed: true,
                 ..request(program, modality)
@@ -514,14 +514,14 @@ fn committed_leaves_out_rolled_back_candidates_and_keeps_merged_ones() {
         }
     }
     let plain = backend
-        .execute(ExecuteRequest {
+        .execute_kore(ExecuteRequest {
             collect_coverage: true,
             ..request(("go", 5), ResultModalityOutput::StateSet)
         })
         .unwrap();
     assert!(plain.coverage.unwrap().committed.is_none());
     let refused = backend
-        .execute(ExecuteRequest {
+        .execute_kore(ExecuteRequest {
             collect_committed: true,
             ..request(("go", 5), ResultModalityOutput::StateSet)
         })

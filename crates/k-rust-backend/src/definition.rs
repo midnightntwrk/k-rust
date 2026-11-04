@@ -120,9 +120,9 @@ use crate::{
 /// `Backend::internalize_definition`) answer the requests below alike, up to a renaming of the
 /// variables the backend mints (existentials and fresh variables are numbered by a counter that
 /// extra paths advance):
-/// - `execute` and `execute_observed` give the same set of (leaf state, halt reason) pairs under
-///   strategy `all`, and the same leaves under strategy `any`;
-/// - `search` and `search_pattern` give the same set of result states.
+/// - `execute_kore` and `execute_observed_kore` give the same set of (leaf state, halt reason)
+///   pairs under strategy `all`, and the same leaves under strategy `any`;
+/// - `search_kore` and `search_pattern_kore` give the same set of result states.
 ///
 /// The requests covered are those whose `cut_point_rules` and `terminal_rules` are empty, whose
 /// observation rule list, if any, names no rule, with `stop_at_branch` false, no `max_breadth`,
@@ -132,8 +132,10 @@ use crate::{
 /// fields count branches, paths, witnesses or work, or stop on the clock, and identifying equal
 /// axioms changes how many paths reach a state, so they may stop D and D' at different states.
 /// The same holds for any other bound that counts states visited or work done. The path-search
-/// routes (`search_paths`, `search_pattern_paths`), which report a witness per path, and `prove`,
-/// whose claims are selected by label, are outside the contract.
+/// routes (`search_paths_kore`, `search_pattern_paths_kore`), which report a witness per path,
+/// and `prove_kore`, whose claims are selected by label, are outside the contract.
+/// Every form of these requests that writes its result as JSON text (`execute_json`,
+/// `search_json`, ...) answers alike when its pattern form does.
 /// Within it, D and D' may differ in rule names (trace labels, a leaf's `rule_label`, observation
 /// events), in the origins and texts of diagnostics, in the rule catalog's origins and entry
 /// count, and in the multiplicity and order of path-set leaves.

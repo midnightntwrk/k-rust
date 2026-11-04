@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 
 use k_rust::{
     backend::{
-        Backend, BackendOptions, ExecuteRequest, ExecutionResult, HaltReasonOutput,
+        Backend, BackendOptions, ExecuteRequest, HaltReasonOutput, KoreExecutionResult,
         ObservedRequest, ResultModalityOutput, RunCoverageOutput,
     },
     builtin::embedded,
@@ -127,7 +127,7 @@ fn names(list: &[&str]) -> BTreeSet<String> {
 /// The `COVER` labels of a run's (applied, matched) sets.
 fn covered(
     catalog: &[(String, String)],
-    result: &ExecutionResult,
+    result: &KoreExecutionResult,
 ) -> (BTreeSet<String>, BTreeSet<String>) {
     let coverage = result
         .coverage
@@ -139,8 +139,12 @@ fn covered(
     )
 }
 
-fn run(backend: &mut Backend, program: &str, modality: ResultModalityOutput) -> ExecutionResult {
-    backend.execute(request(program, modality)).unwrap()
+fn run(
+    backend: &mut Backend,
+    program: &str,
+    modality: ResultModalityOutput,
+) -> KoreExecutionResult {
+    backend.execute_kore(request(program, modality)).unwrap()
 }
 
 /// (1) The requires-equation reproducer: the rule and the equation its `requires` used are
@@ -244,7 +248,7 @@ fn collecting_coverage_changes_nothing_else() {
         ] {
             let mut with = run(&mut backend, &program, modality);
             let without = backend
-                .execute(ExecuteRequest {
+                .execute_kore(ExecuteRequest {
                     collect_coverage: false,
                     ..request(&program, modality)
                 })
@@ -295,13 +299,16 @@ fn the_sets_do_not_depend_on_observation_or_request_history() {
     assert_eq!(fresh, expected, "a fresh backend");
     for rules in [None, Some(Vec::new())] {
         let observed = first
-            .execute_observed(ObservedRequest {
+            .execute_observed_kore(ObservedRequest {
                 request: request(&program, ResultModalityOutput::PathSet),
                 rules: rules.clone(),
             })
             .unwrap()
             .coverage;
-        assert_eq!(observed, expected, "execute_observed with rules {rules:?}");
+        assert_eq!(
+            observed, expected,
+            "execute_observed_kore with rules {rules:?}"
+        );
     }
 
     // A backend whose default module is another one builds `COVER` on the first request that
@@ -311,14 +318,14 @@ fn the_sets_do_not_depend_on_observation_or_request_history() {
         module_name: Some("COVER".to_owned()),
         ..request(&program, ResultModalityOutput::PathSet)
     };
-    let built = lazy.execute(in_module()).unwrap().coverage;
-    let reused = lazy.execute(in_module()).unwrap().coverage;
+    let built = lazy.execute_kore(in_module()).unwrap().coverage;
+    let reused = lazy.execute_kore(in_module()).unwrap().coverage;
     assert_eq!(built, expected, "the request that builds the module");
     assert_eq!(reused, expected, "a later request");
     let rv = seq("rv", -1);
     let mut lazy = Backend::new(&definition_kore(), "K", BackendOptions::default()).unwrap();
     let built = lazy
-        .execute(ExecuteRequest {
+        .execute_kore(ExecuteRequest {
             module_name: Some("COVER".to_owned()),
             ..request(&rv, ResultModalityOutput::PathSet)
         })
@@ -401,7 +408,7 @@ mod offered {
 
     use k_rust::{
         backend::{
-            Backend, BackendOptions, ExecuteRequest, ExecutionResult, ExecutionStrategy,
+            Backend, BackendOptions, ExecuteRequest, ExecutionStrategy, KoreExecutionResult,
             ObservedRequest, ResultModalityOutput,
         },
         kore::{codec, parser::parse_pattern},
@@ -450,7 +457,7 @@ mod offered {
     /// The `OFFER` labels of a run's (applied, matched, offered) lists.
     type Levels = (BTreeSet<String>, BTreeSet<String>, BTreeSet<String>);
 
-    fn levels(catalog: &[(String, String)], result: &ExecutionResult) -> Levels {
+    fn levels(catalog: &[(String, String)], result: &KoreExecutionResult) -> Levels {
         let coverage = result.coverage.as_ref().expect("coverage was asked for");
         let offered = coverage.offered.as_ref().expect("offered was asked for");
         let contracts = selector_contracts();
@@ -592,9 +599,9 @@ mod offered {
         program: &str,
         strategy: ExecutionStrategy,
         modality: ResultModalityOutput,
-    ) -> ExecutionResult {
+    ) -> KoreExecutionResult {
         backend
-            .execute(request(program, strategy, modality, true))
+            .execute_kore(request(program, strategy, modality, true))
             .unwrap()
     }
 
@@ -804,7 +811,7 @@ mod offered {
     }
 
     /// (g) `applied` within `matched` within `offered` on every fixture, the same lists under
-    /// both result modalities, and for `execute` and `execute_observed`.
+    /// both result modalities, and for `execute_kore` and `execute_observed_kore`.
     #[test]
     fn the_levels_nest_and_do_not_depend_on_modality_or_observation() {
         let mut backend = backend();
@@ -839,7 +846,7 @@ mod offered {
             );
             for rules in [None, Some(Vec::new())] {
                 let observed = backend
-                    .execute_observed(ObservedRequest {
+                    .execute_observed_kore(ObservedRequest {
                         request: request(&program, strategy, ResultModalityOutput::PathSet, true),
                         rules,
                     })
@@ -896,7 +903,7 @@ mod offered {
                         "{text}"
                     );
                     let result = backend
-                        .execute(request(&program, strategy, modality, true))
+                        .execute_kore(request(&program, strategy, modality, true))
                         .unwrap();
                     let (_, matched, offered) = levels(&catalog, &result);
                     let own = |labels: BTreeSet<String>| {
@@ -928,7 +935,7 @@ mod offered {
         }))
         .unwrap();
         assert!(alone.collect_offered && !alone.collect_coverage);
-        let error = backend.execute(alone).unwrap_err();
+        let error = backend.execute_kore(alone).unwrap_err();
         assert!(
             error.message().contains("collectOffered")
                 && error.message().contains("collectCoverage"),
@@ -1015,7 +1022,7 @@ mod probes {
         let module = format!("{main}.");
         let mut answers = [ExecutionStrategy::All, ExecutionStrategy::Any].map(|strategy| {
             let result = backend
-                .execute(ExecuteRequest {
+                .execute_kore(ExecuteRequest {
                     result_modality: ResultModalityOutput::PathSet,
                     strategy,
                     collect_coverage: true,
@@ -1176,7 +1183,7 @@ endmodule
     /// The `COUNT` labels of a run's applied counts, and of its `applied` set.
     fn counted(
         backend: &Backend,
-        result: &ExecutionResult,
+        result: &KoreExecutionResult,
     ) -> (BTreeMap<String, u64>, BTreeSet<String>) {
         let catalog = catalog(backend);
         let coverage = result
@@ -1204,8 +1211,8 @@ endmodule
     #[test]
     fn a_loop_counts_each_application_where_the_set_does_not_change() {
         let mut backend = backend();
-        let five = backend.execute(counting(5)).unwrap();
-        let three = backend.execute(counting(3)).unwrap();
+        let five = backend.execute_kore(counting(5)).unwrap();
+        let three = backend.execute_kore(counting(3)).unwrap();
         let (five_counts, five_applied) = counted(&backend, &five);
         let (three_counts, three_applied) = counted(&backend, &three);
         assert_eq!(five_applied, three_applied);
@@ -1238,16 +1245,16 @@ endmodule
     }
 
     /// The counts are a function of the request: the same on a fresh backend, after other
-    /// requests, and through `execute_observed`.
+    /// requests, and through `execute_observed_kore`.
     #[test]
     fn the_counts_do_not_depend_on_request_history() {
-        let expected = backend().execute(counting(5)).unwrap().coverage;
+        let expected = backend().execute_kore(counting(5)).unwrap().coverage;
         let mut used = backend();
-        used.execute(counting(3)).unwrap();
-        used.execute(counting(7)).unwrap();
-        assert_eq!(used.execute(counting(5)).unwrap().coverage, expected);
+        used.execute_kore(counting(3)).unwrap();
+        used.execute_kore(counting(7)).unwrap();
+        assert_eq!(used.execute_kore(counting(5)).unwrap().coverage, expected);
         let observed = used
-            .execute_observed(ObservedRequest {
+            .execute_observed_kore(ObservedRequest {
                 request: counting(5),
                 rules: None,
             })
@@ -1261,9 +1268,9 @@ endmodule
     #[test]
     fn asking_for_counts_changes_nothing_else_and_the_wire_form_has_them_only_when_asked() {
         let mut backend = backend();
-        let mut counted = backend.execute(counting(4)).unwrap();
+        let mut counted = backend.execute_kore(counting(4)).unwrap();
         let plain = backend
-            .execute(ExecuteRequest {
+            .execute_kore(ExecuteRequest {
                 collect_counts: false,
                 ..counting(4)
             })
@@ -1387,7 +1394,7 @@ endmodule
                 int(0)
             );
             let result = backend
-                .execute(ExecuteRequest {
+                .execute_kore(ExecuteRequest {
                     collect_coverage: true,
                     collect_counts: true,
                     ..ExecuteRequest::new(parse_pattern(&state).unwrap())

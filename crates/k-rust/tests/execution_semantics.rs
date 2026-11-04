@@ -14,10 +14,11 @@ mod execution_sources;
 use execution_sources::{NO_EVALUATOR, SEARCH_BOUND, SIZE_BOUND};
 use execution_sources::{PINNED_PLUGIN_BN128, SEARCH_EXISTS};
 
+use k_rust::k_rust_backend::definition::Admission;
 use k_rust::{
     backend::{
-        Backend, BackendDiagnosticOutput, BackendOptions, ExecuteRequest, ExecutionResult,
-        HaltReasonOutput, SearchPatternRequest, SearchRequest, SearchTypeArg,
+        Backend, BackendDiagnosticOutput, BackendOptions, ExecuteRequest, HaltReasonOutput,
+        KoreExecutionResult, SearchPatternRequest, SearchRequest, SearchTypeArg,
     },
     builtin::embedded,
     definition::ResolvedDefinition,
@@ -104,21 +105,21 @@ fn compile_bound(
     }
 }
 
-fn execute(compiled: &Compiled, main: &str, max_depth: Option<u64>) -> ExecutionResult {
+fn execute(compiled: &Compiled, main: &str, max_depth: Option<u64>) -> KoreExecutionResult {
     let mut backend = Backend::new(&compiled.kore, main, BackendOptions::default()).unwrap();
     backend
-        .execute(ExecuteRequest {
+        .execute_kore(ExecuteRequest {
             max_depth,
             ..ExecuteRequest::new(compiled.initial.clone())
         })
         .unwrap()
 }
 
-fn text(result: &ExecutionResult) -> Vec<String> {
+fn text(result: &KoreExecutionResult) -> Vec<String> {
     result
         .leaves
         .iter()
-        .map(|leaf| Printer::compact().print_pattern(&codec::from_value(&leaf.state).unwrap()))
+        .map(|leaf| Printer::compact().print_pattern(&leaf.state.clone()))
         .collect()
 }
 
@@ -144,13 +145,11 @@ fn a_search_match_has_an_empty_condition_only_when_its_state_has_an_instance() {
     let initial = |program: &str| {
         parse_pattern(&compiled_initial.replace(compiled_program, program)).unwrap()
     };
-    let print = |pattern: &serde_json::Value| {
-        Printer::compact().print_pattern(&codec::from_value(pattern).unwrap())
-    };
+    let print = |pattern: &Pattern| Printer::compact().print_pattern(pattern);
     // Each final match's state and printed condition.
     let mut search = |initial: Pattern| {
         let response = backend
-            .search_pattern(SearchPatternRequest {
+            .search_pattern_kore(SearchPatternRequest {
                 search_type: SearchTypeArg::Final,
                 ..SearchPatternRequest::new(
                     initial,
@@ -350,7 +349,7 @@ fn a_search_finds_the_renamings_of_one_state_once() {
         let mut backend = Backend::new(&compiled.kore, "T", BackendOptions::default()).unwrap();
         let target = parse_pattern("VarResult:SortGeneratedTopCell{}").unwrap();
         let response = backend
-            .search_pattern(SearchPatternRequest {
+            .search_pattern_kore(SearchPatternRequest {
                 search_type,
                 ..SearchPatternRequest::new(compiled.initial.clone(), target)
             })
@@ -360,8 +359,7 @@ fn a_search_finds_the_renamings_of_one_state_once() {
             .matches
             .iter()
             .map(|found| {
-                let text = Printer::compact()
-                    .print_pattern(&codec::from_value(&found.state.state).unwrap());
+                let text = Printer::compact().print_pattern(&found.state.state.clone());
                 let [counter] = counter
                     .captures_iter(&text)
                     .map(|found| found[1].to_owned())
@@ -379,7 +377,7 @@ fn a_search_finds_the_renamings_of_one_state_once() {
     let states = |search_type| {
         let mut backend = Backend::new(&compiled.kore, "T", BackendOptions::default()).unwrap();
         let response = backend
-            .search(SearchRequest {
+            .search_kore(SearchRequest {
                 search_type,
                 ..SearchRequest::new(compiled.initial.clone())
             })
@@ -389,8 +387,7 @@ fn a_search_finds_the_renamings_of_one_state_once() {
             .states
             .iter()
             .map(|found| {
-                let text =
-                    Printer::compact().print_pattern(&codec::from_value(&found.state).unwrap());
+                let text = Printer::compact().print_pattern(&found.state.clone());
                 let [counter] = counter
                     .captures_iter(&text)
                     .map(|found| found[1].to_owned())
@@ -604,7 +601,7 @@ fn a_search_condition_on_a_result_above_the_size_bound_is_decided_only_by_an_int
         let mut backend =
             Backend::new(&compiled.kore, "SEARCH-BOUND", BackendOptions::default()).unwrap();
         backend
-            .search_pattern(SearchPatternRequest {
+            .search_pattern_kore(SearchPatternRequest {
                 search_type: SearchTypeArg::All,
                 ..SearchPatternRequest::new(compiled.initial, target)
             })
@@ -666,7 +663,9 @@ endmodule
     ))
     .unwrap();
     let mut backend = Backend::new(&compiled.kore, "MAIN", BackendOptions::default()).unwrap();
-    let result = backend.execute(ExecuteRequest::new(constrained)).unwrap();
+    let result = backend
+        .execute_kore(ExecuteRequest::new(constrained))
+        .unwrap();
     let [leaf] = result.leaves.as_slice() else {
         panic!("{result:?}");
     };
@@ -690,7 +689,7 @@ fn fresh_remainder_variables_are_kore_identifiers() {
         parse_pattern(include_str!("fixtures/reference/matching/map/pgm-map.kore")).unwrap();
     let mut backend = Backend::new(&compiled.kore, "TEST", BackendOptions::default()).unwrap();
     let result = backend
-        .execute(ExecuteRequest {
+        .execute_kore(ExecuteRequest {
             max_depth: Some(1),
             ..ExecuteRequest::new(initial)
         })
@@ -736,7 +735,7 @@ fn a_run_reports_an_inconsistent_solver_prelude() {
     let mut backend =
         Backend::new(&compiled.kore, "LIVENESS-KRUN", BackendOptions::default()).unwrap();
     let error = backend
-        .execute(ExecuteRequest {
+        .execute_kore(ExecuteRequest {
             max_depth: Some(10),
             ..ExecuteRequest::new(compiled.initial)
         })
@@ -779,7 +778,7 @@ endmodule
     )
     .unwrap();
     let error = backend
-        .search(SearchRequest {
+        .search_kore(SearchRequest {
             max_depth: Some(10),
             ..SearchRequest::new(compiled.initial)
         })
@@ -953,7 +952,7 @@ fn an_ensures_some_value_satisfies_leaves_no_undefined_instances() {
         let mut backend =
             Backend::new(&compiled.kore, "CAPTURED-OUTPUT", BackendOptions::default()).unwrap();
         let result = backend
-            .execute(ExecuteRequest {
+            .execute_kore(ExecuteRequest {
                 strategy,
                 ..ExecuteRequest::new(compiled.initial.clone())
             })
@@ -1059,9 +1058,7 @@ fn aliased_instance_outcomes(collection: &str, programs: &[&str]) -> Vec<(String
             .replace("LblhasA'", "Lblhas'")
             .replace("LblhasAR'", "LblhasR'")
     };
-    let print = |pattern: &serde_json::Value| {
-        rename(Printer::compact().print_pattern(&codec::from_value(pattern).unwrap()))
-    };
+    let print = |pattern: &Pattern| rename(Printer::compact().print_pattern(pattern));
     programs
         .iter()
         .map(|program| {
@@ -1079,7 +1076,7 @@ fn aliased_instance_outcomes(collection: &str, programs: &[&str]) -> Vec<(String
                 BackendOptions::default(),
             )
             .unwrap();
-            let run = match backend.execute(ExecuteRequest::new(initial.clone())) {
+            let run = match backend.execute_kore(ExecuteRequest::new(initial.clone())) {
                 Ok(result) => result
                     .leaves
                     .iter()
@@ -1089,7 +1086,7 @@ fn aliased_instance_outcomes(collection: &str, programs: &[&str]) -> Vec<(String
                 Err(error) => format!("error: {error:?}"),
             };
             let target = parse_pattern("VarResult:SortGeneratedTopCell{}").unwrap();
-            let mut finals = match backend.search_pattern(SearchPatternRequest {
+            let mut finals = match backend.search_pattern_kore(SearchPatternRequest {
                 search_type: SearchTypeArg::Final,
                 ..SearchPatternRequest::new(initial, target)
             }) {
@@ -1299,9 +1296,7 @@ fn a_search_pattern_variable_of_a_collection_cell_sort_matches_one_instance() {
         ),
         ("<rs> R:RCell </rs>", format!("<rs> {written} </rs>")),
     ];
-    let print = |value: &serde_json::Value| {
-        Printer::compact().print_pattern(&codec::from_value(value).unwrap())
-    };
+    let print = |value: &Pattern| Printer::compact().print_pattern(value);
     for collection in ["Map", "Set", "List"] {
         let source = ALIASED_INSTANCES.replace("COLLECTION", collection);
         for (instances, program) in [(1, "mk(1,10)"), (3, "mk(1,10) ; mk(2,20) ; mk(3,30)")] {
@@ -1314,7 +1309,7 @@ fn a_search_pattern_variable_of_a_collection_cell_sort_matches_one_instance() {
                 let mut backend =
                     Backend::new(&compiled.kore, "TEST", BackendOptions::default()).unwrap();
                 let response = backend
-                    .search_pattern(SearchPatternRequest {
+                    .search_pattern_kore(SearchPatternRequest {
                         search_type: SearchTypeArg::Final,
                         ..SearchPatternRequest::new(compiled.initial.clone(), target)
                     })
@@ -1376,9 +1371,7 @@ fn a_search_pattern_variable_of_a_collection_cell_sort_matches_one_instance() {
 fn a_search_pattern_that_matches_a_state_in_several_ways_reports_each_way() {
     let one = "<r> <rid> I </rid> <v> V </v> </r>";
     let two = "<r> <rid> J </rid> <v> W </v> </r>";
-    let print = |value: &serde_json::Value| {
-        Printer::compact().print_pattern(&codec::from_value(value).unwrap())
-    };
+    let print = |value: &Pattern| Printer::compact().print_pattern(value);
     let int = |value: u32| format!("\\dv{{SortInt{{}}}}(\"{value}\")");
     for collection in ["Map", "Set"] {
         let source = ALIASED_INSTANCES.replace("COLLECTION", collection);
@@ -1390,7 +1383,7 @@ fn a_search_pattern_that_matches_a_state_in_several_ways_reports_each_way() {
                 let mut backend =
                     Backend::new(&compiled.kore, "TEST", BackendOptions::default()).unwrap();
                 let response = backend
-                    .search_pattern(SearchPatternRequest {
+                    .search_pattern_kore(SearchPatternRequest {
                         search_type: SearchTypeArg::Final,
                         max_results,
                         ..SearchPatternRequest::new(compiled.initial.clone(), target)
@@ -1552,16 +1545,14 @@ fn a_list_cell_frame_stands_for_the_rest_of_the_list_where_it_is_written() {
         let mut backend = Backend::new(&compiled.kore, MAIN, BackendOptions::default()).unwrap();
         let target = parse_pattern("VarResult:SortGeneratedTopCell{}").unwrap();
         let finals = backend
-            .search_pattern(SearchPatternRequest {
+            .search_pattern_kore(SearchPatternRequest {
                 search_type: SearchTypeArg::Final,
                 ..SearchPatternRequest::new(compiled.initial.clone(), target)
             })
             .unwrap()
             .matches
             .iter()
-            .map(|found| {
-                Printer::compact().print_pattern(&codec::from_value(&found.state.state).unwrap())
-            })
+            .map(|found| Printer::compact().print_pattern(&found.state.state.clone()))
             .collect::<Vec<_>>();
         assert_eq!(finals, states, "{program}: search-final");
         (
@@ -1777,16 +1768,14 @@ fn a_list_cell_variable_stands_for_the_part_of_the_list_where_it_is_written() {
         let mut backend = Backend::new(&compiled.kore, MAIN, BackendOptions::default()).unwrap();
         let target = parse_pattern("VarResult:SortGeneratedTopCell{}").unwrap();
         let finals = backend
-            .search_pattern(SearchPatternRequest {
+            .search_pattern_kore(SearchPatternRequest {
                 search_type: SearchTypeArg::Final,
                 ..SearchPatternRequest::new(compiled.initial.clone(), target)
             })
             .unwrap()
             .matches
             .iter()
-            .map(|found| {
-                Printer::compact().print_pattern(&codec::from_value(&found.state.state).unwrap())
-            })
+            .map(|found| Printer::compact().print_pattern(&found.state.state.clone()))
             .collect::<Vec<_>>();
         assert_eq!(finals, states, "{program}: search-final");
         let state = states.into_iter().next().unwrap();
@@ -2052,7 +2041,7 @@ fn an_undefined_instance_of_the_initial_configuration_has_no_result() {
             let mut backend =
                 Backend::new(&compiled.kore, "UD", BackendOptions::default()).unwrap();
             let result = backend
-                .execute(ExecuteRequest {
+                .execute_kore(ExecuteRequest {
                     strategy,
                     ..ExecuteRequest::new(initial.clone())
                 })
@@ -2091,7 +2080,7 @@ fn an_undefined_instance_of_the_initial_configuration_has_no_result() {
             let mut backend =
                 Backend::new(&compiled.kore, "UD", BackendOptions::default()).unwrap();
             let result = backend
-                .execute(ExecuteRequest::new(initial.clone()))
+                .execute_kore(ExecuteRequest::new(initial.clone()))
                 .unwrap();
             let stuck = text(&result)
                 .into_iter()
@@ -2101,7 +2090,7 @@ fn an_undefined_instance_of_the_initial_configuration_has_no_result() {
         }
         let mut backend = Backend::new(&compiled.kore, "UD", BackendOptions::default()).unwrap();
         let response = backend
-            .search(SearchRequest {
+            .search_kore(SearchRequest {
                 search_type: SearchTypeArg::Final,
                 ..SearchRequest::new(initial.clone())
             })
@@ -2110,9 +2099,7 @@ fn an_undefined_instance_of_the_initial_configuration_has_no_result() {
         let mut found = response
             .states
             .iter()
-            .flat_map(|found| {
-                heads(&Printer::compact().print_pattern(&codec::from_value(&found.state).unwrap()))
-            })
+            .flat_map(|found| heads(&Printer::compact().print_pattern(&found.state.clone())))
             .collect::<Vec<_>>();
         found.sort();
         assert_eq!(&found, results, "{program} search");
@@ -2178,7 +2165,7 @@ fn a_first_step_that_consumes_a_partial_boolean_reaches_nothing_from_its_undefin
             let mut backend =
                 Backend::new(&compiled.kore, "CB", BackendOptions::default()).unwrap();
             let result = backend
-                .execute(ExecuteRequest {
+                .execute_kore(ExecuteRequest {
                     strategy,
                     ..ExecuteRequest::new(initial.clone())
                 })
@@ -2199,7 +2186,7 @@ fn a_first_step_that_consumes_a_partial_boolean_reaches_nothing_from_its_undefin
         }
         let mut backend = Backend::new(&compiled.kore, "CB", BackendOptions::default()).unwrap();
         let response = backend
-            .search(SearchRequest {
+            .search_kore(SearchRequest {
                 search_type: SearchTypeArg::Final,
                 ..SearchRequest::new(initial.clone())
             })
@@ -2208,9 +2195,7 @@ fn a_first_step_that_consumes_a_partial_boolean_reaches_nothing_from_its_undefin
         let found = response
             .states
             .iter()
-            .map(|found| {
-                Printer::compact().print_pattern(&codec::from_value(&found.state).unwrap())
-            })
+            .map(|found| Printer::compact().print_pattern(&found.state.clone()))
             .collect::<Vec<_>>();
         assert!(
             found.iter().all(|state| !state.contains("Lblbad{}("))
@@ -2247,7 +2232,7 @@ fn constraints_that_settle_the_initial_definedness_leave_no_undefined_instance_t
             let mut backend =
                 Backend::new(&compiled.kore, "UD", BackendOptions::default()).unwrap();
             let result = backend
-                .execute(ExecuteRequest {
+                .execute_kore(ExecuteRequest {
                     strategy,
                     ..ExecuteRequest::new(initial(condition))
                 })
@@ -2282,8 +2267,8 @@ fn constraints_that_settle_the_initial_definedness_leave_no_undefined_instance_t
             search_type: SearchTypeArg::Final,
             ..SearchRequest::new(initial(condition))
         };
-        let states = backend.search(request.clone()).unwrap();
-        let paths = backend.search_paths(request).unwrap();
+        let states = backend.search_kore(request.clone()).unwrap();
+        let paths = backend.search_paths_kore(request).unwrap();
         assert_eq!(
             (
                 states.states.is_empty(),
@@ -2319,10 +2304,10 @@ module ORDREQ
 endmodule
 "#;
 
-/// The facade's `execute` and `search_pattern` are executions: they evaluate every listing in
-/// k-rust's documented order (decimal text order for Int keys, -1 10 2), also in the conditions
-/// they decide, so a rule `requires` (on 1) and a function equation's `requires` (on 2) that hold
-/// in that order are taken.
+/// The facade's `execute_kore` and `search_pattern_kore` are executions: they evaluate every
+/// listing in k-rust's documented order (decimal text order for Int keys, -1 10 2), also in the
+/// conditions they decide, so a rule `requires` (on 1) and a function equation's `requires` (on
+/// 2) that hold in that order are taken.
 #[test]
 fn backend_execute_and_search_keep_the_order_in_conditions() {
     for (program, expected) in [
@@ -2352,7 +2337,7 @@ fn backend_execute_and_search_keep_the_order_in_conditions() {
             Backend::new(&compiled.kore, "ORDREQ", BackendOptions::default()).unwrap();
         let target = parse_pattern("VarResult:SortGeneratedTopCell{}").unwrap();
         let response = backend
-            .search_pattern(SearchPatternRequest {
+            .search_pattern_kore(SearchPatternRequest {
                 search_type: SearchTypeArg::Final,
                 ..SearchPatternRequest::new(compiled.initial.clone(), target)
             })
@@ -2360,14 +2345,12 @@ fn backend_execute_and_search_keep_the_order_in_conditions() {
         let found = response
             .matches
             .iter()
-            .map(|found| {
-                Printer::compact().print_pattern(&codec::from_value(&found.state.state).unwrap())
-            })
+            .map(|found| Printer::compact().print_pattern(&found.state.state.clone()))
             .collect::<Vec<_>>();
         assert!(
             matches!(found.as_slice(), [state]
                 if state.contains(expected) && !state.contains("Lblkeys")),
-            "search_pattern {program}: {found:?}"
+            "search_pattern_kore {program}: {found:?}"
         );
     }
 }
@@ -2386,7 +2369,7 @@ module MIXED
 endmodule
 "#;
 
-/// The facade's `execute`, the route KRS runs programs through, is an execution: a Float
+/// The facade's `execute_kore`, the route KRS runs programs through, is an execution: a Float
 /// operation over a binary32 and a binary64 operand is the exact result rounded to binary64.
 #[test]
 fn backend_execute_rounds_float_arithmetic_over_two_formats() {
@@ -2405,7 +2388,7 @@ fn backend_execute_rounds_float_arithmetic_over_two_formats() {
     );
 }
 
-/// The facade's `execute` reports a Float operation of a format the backend does not compute
+/// The facade's `execute_kore` reports a Float operation of a format the backend does not compute
 /// (p113x15) as the capability gap it is, the unsupported-hook halt naming the hook and the
 /// format, not as a simplification error; so does an operation over binary64 and p113x15, whose
 /// destination format p113x15 contains binary64.
@@ -2430,7 +2413,7 @@ fn backend_execute_reports_a_float_format_it_does_not_compute_as_an_unsupported_
     }
 }
 
-/// The facade's `search_pattern` is an execution too: the condition over the mixed quotient is
+/// The facade's `search_pattern_kore` is an execution too: the condition over the mixed quotient is
 /// decided, so the search reaches `true` and nothing else.
 #[test]
 fn backend_search_rounds_float_arithmetic_over_two_formats() {
@@ -2444,7 +2427,7 @@ fn backend_search_rounds_float_arithmetic_over_two_formats() {
     let mut backend = Backend::new(&compiled.kore, "MIXED", BackendOptions::default()).unwrap();
     let target = parse_pattern("VarResult:SortGeneratedTopCell{}").unwrap();
     let response = backend
-        .search_pattern(SearchPatternRequest {
+        .search_pattern_kore(SearchPatternRequest {
             search_type: SearchTypeArg::Final,
             ..SearchPatternRequest::new(compiled.initial.clone(), target)
         })
@@ -2452,9 +2435,7 @@ fn backend_search_rounds_float_arithmetic_over_two_formats() {
     let found = response
         .matches
         .iter()
-        .map(|found| {
-            Printer::compact().print_pattern(&codec::from_value(&found.state.state).unwrap())
-        })
+        .map(|found| Printer::compact().print_pattern(&found.state.state.clone()))
         .collect::<Vec<_>>();
     assert!(
         matches!(found.as_slice(), [state]
@@ -2464,11 +2445,10 @@ fn backend_search_rounds_float_arithmetic_over_two_formats() {
 }
 
 /// The facade's proof routes evaluate only consequences of the definition, also when the caller
-/// runs them inside an `Execution` scope: `simplify` leaves `keys_list` of a map of three keys
-/// unevaluated there, while `execute` in the same definition lists them.
+/// runs them inside an `Execution` scope: `simplify_kore` leaves `keys_list` of a map of three
+/// keys unevaluated there, while `execute_kore` in the same definition lists them.
 #[test]
 fn backend_simplify_stays_a_proof_route_inside_an_execution_scope() {
-    use k_rust::backend::PatternRequest;
     use k_rust_backend::evaluation::{EvaluationMode, with_evaluation};
     let compiled = compile(
         KEYS_LIST_ORDER_IN_CONDITIONS,
@@ -2491,7 +2471,9 @@ fn backend_simplify_stays_a_proof_route_inside_an_execution_scope() {
     .unwrap();
     let mut backend = Backend::new(&compiled.kore, "ORDREQ", BackendOptions::default()).unwrap();
     let simplified = with_evaluation(EvaluationMode::Execution, || {
-        backend.simplify(PatternRequest::new(listing)).unwrap()
+        backend
+            .simplify_kore(None, &listing, Admission::Unverified)
+            .unwrap()
     });
     assert!(simplified.to_string().contains("Lblkeys"), "{simplified}");
     let executed = text(&execute(&compiled, "ORDREQ", None));
@@ -2590,7 +2572,7 @@ fn assert_ends_in_okb(source: &str, main: &str, program: &str, expected: bool) {
     assert_no_unevaluated_kequal(program, &result);
 }
 
-fn assert_no_unevaluated_kequal(program: &str, result: &ExecutionResult) {
+fn assert_no_unevaluated_kequal(program: &str, result: &KoreExecutionResult) {
     for leaf in &result.leaves {
         assert!(
             !leaf.diagnostics.iter().any(|diagnostic| matches!(
@@ -2850,14 +2832,14 @@ endmodule
         .unwrap();
         let mut run = |result_modality| {
             backend
-                .execute(ExecuteRequest {
+                .execute_kore(ExecuteRequest {
                     max_simplification_iterations: 3,
                     result_modality,
                     ..ExecuteRequest::new(compiled.initial.clone())
                 })
                 .unwrap()
         };
-        let exhausted = |leaf: &k_rust::backend::ExecutionLeaf| {
+        let exhausted = |leaf: &k_rust::backend::KoreExecutionLeaf| {
             let budget = leaf.diagnostics.iter().any(|diagnostic| {
                 matches!(
                     diagnostic,
@@ -2913,7 +2895,7 @@ endmodule
     let mut backend = Backend::new(&compiled.kore, "LOOP", BackendOptions::default()).unwrap();
 
     let budgeted = backend
-        .execute(ExecuteRequest {
+        .execute_kore(ExecuteRequest {
             max_work: Some(5),
             ..ExecuteRequest::new(compiled.initial.clone())
         })
@@ -2943,7 +2925,7 @@ endmodule
     let finished = compile(SOURCE, "LOOP", "LOOP", "Pgm", "done(0)");
     let mut backend = Backend::new(&finished.kore, "LOOP", BackendOptions::default()).unwrap();
     let unbounded = backend
-        .execute(ExecuteRequest::new(finished.initial.clone()))
+        .execute_kore(ExecuteRequest::new(finished.initial.clone()))
         .unwrap();
     assert_eq!(unbounded.work, 1);
     assert_eq!(unbounded.expanded, 1, "the stuck state's step answered");
@@ -2975,7 +2957,7 @@ endmodule
 "#;
 
 /// The leaves of `result` as JSON, each without its `trace`, and whether every trace is empty.
-fn leaves_without_traces(result: &ExecutionResult) -> (Vec<serde_json::Value>, bool) {
+fn leaves_without_traces(result: &KoreExecutionResult) -> (Vec<serde_json::Value>, bool) {
     let mut all_empty = true;
     let leaves = result
         .leaves
@@ -3014,12 +2996,12 @@ fn an_execution_without_traces_keeps_the_halt_metadata() {
                         ..ExecuteRequest::new(compiled.initial.clone())
                     };
                     if observed {
-                        backend.execute_observed(ObservedRequest {
+                        backend.execute_observed_kore(ObservedRequest {
                             request,
                             rules: None,
                         })
                     } else {
-                        backend.execute(request)
+                        backend.execute_kore(request)
                     }
                     .unwrap()
                 };
@@ -3033,7 +3015,7 @@ fn an_execution_without_traces_keeps_the_halt_metadata() {
                     with_leaves, without_leaves,
                     "{modality:?}, observed {observed}"
                 );
-                let trivial = |result: &ExecutionResult| {
+                let trivial = |result: &KoreExecutionResult| {
                     let leaf = result
                         .leaves
                         .iter()
@@ -3337,7 +3319,7 @@ fn a_state_set_run_of_a_strict_loop_is_linear_in_its_iterations() {
         let mut backend = Backend::new(&compiled.kore, "IMP", BackendOptions::default()).unwrap();
         let before = snapshot();
         let result = backend
-            .execute(ExecuteRequest {
+            .execute_kore(ExecuteRequest {
                 result_modality,
                 ..ExecuteRequest::new(compiled.initial.clone())
             })
@@ -3420,9 +3402,9 @@ endmodule
 fn smt_unknowns_run(
     backend: &mut Backend,
     initial: &Pattern,
-) -> (ExecutionResult, serde_json::Value) {
+) -> (KoreExecutionResult, serde_json::Value) {
     let result = backend
-        .execute(ExecuteRequest::new(initial.clone()))
+        .execute_kore(ExecuteRequest::new(initial.clone()))
         .unwrap();
     let json = serde_json::from_str(
         &backend
@@ -3506,7 +3488,7 @@ fn a_run_whose_answers_are_all_decided_gives_one_result_on_any_backend() {
     }
     assert_eq!(texts[0], texts[1]);
     assert_eq!(texts[0], texts[2]);
-    assert_eq!(reused.execute(request()).unwrap().smt_unknowns, 0);
+    assert_eq!(reused.execute_kore(request()).unwrap().smt_unknowns, 0);
 }
 
 /// A context alias's variables are its own. Strictness resolution places the production's

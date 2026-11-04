@@ -8,14 +8,18 @@
 //! agrees). Strategy `any` follows one match of `pick`, but the instances the other match
 //! covers are still blocked from `low`.
 
+#[path = "support/wire_answers.rs"]
+mod wire_answers;
+use wire_answers::WireAnswers;
+
 use k_rust::{
     backend::{
-        Backend, BackendOptions, ExecuteRequest, ExecutionLeaf, ExecutionResult, ExecutionStrategy,
-        HaltReasonOutput, PatternRequest, ResultModalityOutput,
+        Backend, BackendOptions, ExecuteRequest, ExecutionStrategy, HaltReasonOutput,
+        KoreExecutionLeaf, KoreExecutionResult, PatternRequest, ResultModalityOutput,
     },
     builtin::embedded,
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
-    kore::{codec, parser::parse_pattern, printer::Printer},
+    kore::{parser::parse_pattern, printer::Printer},
     outer::{LoadOptions, ResolvedSource, load_with_options},
 };
 
@@ -86,11 +90,11 @@ fn request(program: &str, strategy: ExecutionStrategy) -> ExecuteRequest {
     request
 }
 
-fn text(leaf: &ExecutionLeaf) -> String {
-    Printer::compact().print_pattern(&codec::from_value(&leaf.state).unwrap())
+fn text(leaf: &KoreExecutionLeaf) -> String {
+    Printer::compact().print_pattern(&leaf.state.clone())
 }
 
-fn summary(result: &ExecutionResult) -> Vec<(HaltReasonOutput, u64, String)> {
+fn summary(result: &KoreExecutionResult) -> Vec<(HaltReasonOutput, u64, String)> {
     result
         .leaves
         .iter()
@@ -109,14 +113,16 @@ fn not_positive(variable: &str) -> String {
 }
 
 /// The solver's verdict on the instances of `leaf` that also satisfy every `condition`.
-fn verdict(backend: &mut Backend, leaf: &ExecutionLeaf, conditions: &[String]) -> String {
+fn verdict(backend: &mut Backend, leaf: &KoreExecutionLeaf, conditions: &[String]) -> String {
     let pattern = conditions.iter().fold(text(leaf), |pattern, condition| {
         format!("\\and{{SortGeneratedTopCell{{}}}}({pattern}, {condition})")
     });
     backend
-        .get_model(PatternRequest::new(parse_pattern(&pattern).unwrap()))
-        .unwrap()
-        .satisfiable
+        .model_answer(PatternRequest::new(parse_pattern(&pattern).unwrap()))
+        .unwrap()["satisfiable"]
+        .as_str()
+        .expect("a satisfiability answer")
+        .to_owned()
 }
 
 fn backend() -> Backend {
@@ -124,9 +130,12 @@ fn backend() -> Backend {
 }
 
 /// The leaves of `go(X, Y)` under `strategy` whose state is a successor of the step.
-fn symbolic_successors(backend: &mut Backend, strategy: ExecutionStrategy) -> Vec<ExecutionLeaf> {
+fn symbolic_successors(
+    backend: &mut Backend,
+    strategy: ExecutionStrategy,
+) -> Vec<KoreExecutionLeaf> {
     let result = backend
-        .execute(request(&program("X:SortInt{}", "Y:SortInt{}"), strategy))
+        .execute_kore(request(&program("X:SortInt{}", "Y:SortInt{}"), strategy))
         .unwrap();
     // `X = Y` makes the set undefined: that instance has no successor.
     assert!(
@@ -182,7 +191,7 @@ fn a_ground_instance_follows_the_match_that_applies() {
     for strategy in [ExecutionStrategy::All, ExecutionStrategy::Any] {
         for (first, second) in [("-1", "1"), ("1", "-1")] {
             let ground = backend
-                .execute(request(
+                .execute_kore(request(
                     &program(
                         &format!("\\dv{{SortInt{{}}}}(\"{first}\")"),
                         &format!("\\dv{{SortInt{{}}}}(\"{second}\")"),
@@ -254,7 +263,7 @@ fn a_ground_instance_skips_a_match_whose_result_is_undefined() {
     for strategy in [ExecutionStrategy::All, ExecutionStrategy::Any] {
         for (first, second) in [("0", "5"), ("5", "0")] {
             let result = backend
-                .execute(request(&program(&ground(first), &ground(second)), strategy))
+                .execute_kore(request(&program(&ground(first), &ground(second)), strategy))
                 .unwrap();
             let [leaf] = &result.leaves[..] else {
                 panic!("{strategy:?}: one leaf: {:#?}", summary(&result));
@@ -267,7 +276,7 @@ fn a_ground_instance_skips_a_match_whose_result_is_undefined() {
             );
         }
         let result = backend
-            .execute(request(&program(&ground("0"), &ground("-1")), strategy))
+            .execute_kore(request(&program(&ground("0"), &ground("-1")), strategy))
             .unwrap();
         let [leaf] = &result.leaves[..] else {
             panic!("{strategy:?}: one leaf: {:#?}", summary(&result));

@@ -5,9 +5,9 @@
 //! ended on no reported leaf. A mark never changes what the run explores: leaves, their order and
 //! the work counts are those of an unmarked run.
 //!
-//! Every run goes through the facade (`Backend::execute`, `Backend::execute_observed`,
-//! `Backend::search`), which runs programs in `Execution` mode, in both result modalities unless a
-//! test says otherwise. The marks are read from the JSON a consumer reads.
+//! Every run goes through the facade (`Backend::execute_kore`, `Backend::execute_observed_kore`,
+//! `Backend::search_kore`), which runs programs in `Execution` mode, in both result modalities
+//! unless a test says otherwise. The marks are read from the JSON a consumer reads.
 
 use std::collections::BTreeSet;
 
@@ -80,8 +80,8 @@ fn request(
     }
 }
 
-/// The result of `execute` as JSON, checked equal to `execute_observed`'s in every field the
-/// marks are part of: each leaf's state, reason and diagnostics, and the result's list.
+/// The result of `execute_kore` as JSON, checked equal to `execute_observed_kore`'s in every
+/// field the marks are part of: each leaf's state, reason and diagnostics, and the result's list.
 fn execute_with(
     kore: &str,
     initial: &Pattern,
@@ -104,9 +104,9 @@ fn execute_edited(
         edit(&mut request);
         request
     };
-    let plain = backend(kore).execute(edited()).unwrap();
+    let plain = backend(kore).execute_kore(edited()).unwrap();
     let observed = backend(kore)
-        .execute_observed(ObservedRequest {
+        .execute_observed_kore(ObservedRequest {
             request: edited(),
             rules: None,
         })
@@ -850,7 +850,7 @@ endmodule
 fn a_search_duplicate_that_carries_a_mark_gives_it_to_the_kept_state() {
     let (kore, initial) = compile(SEARCH, "s(1 |-> 0 2 |-> 0)");
     let response = backend(&kore)
-        .search(SearchRequest {
+        .search_kore(SearchRequest {
             search_type: SearchTypeArg::All,
             ..SearchRequest::new(initial)
         })
@@ -1155,7 +1155,8 @@ fn a_search_duplicates_marks_reach_the_kept_states_descendants_and_every_search_
         search_type: SearchTypeArg::All,
         ..SearchRequest::new(initial.clone())
     };
-    let response = serde_json::to_value(backend(&kore).search(search.clone()).unwrap()).unwrap();
+    let response =
+        serde_json::to_value(backend(&kore).search_kore(search.clone()).unwrap()).unwrap();
     let states = response["states"].as_array().unwrap();
     assert_eq!(
         state_marks(states, "Lblc'LPar"),
@@ -1173,7 +1174,7 @@ fn a_search_duplicates_marks_reach_the_kept_states_descendants_and_every_search_
         "{response:#}"
     );
     // A path search keeps both paths: only those through `a` are marked.
-    let paths = serde_json::to_value(backend(&kore).search_paths(search).unwrap()).unwrap();
+    let paths = serde_json::to_value(backend(&kore).search_paths_kore(search).unwrap()).unwrap();
     let witnesses = paths["witnesses"].as_array().unwrap();
     let mut e = state_marks(witnesses, "Lble'LPar");
     e.sort();
@@ -1189,7 +1190,7 @@ fn a_search_duplicates_marks_reach_the_kept_states_descendants_and_every_search_
         ..SearchPatternRequest::new(initial, target)
     };
     let matched =
-        serde_json::to_value(backend(&kore).search_pattern(pattern.clone()).unwrap()).unwrap();
+        serde_json::to_value(backend(&kore).search_pattern_kore(pattern.clone()).unwrap()).unwrap();
     assert_eq!(
         run_marks(&matched),
         [mark("MAP.keys_list", "order")],
@@ -1211,7 +1212,7 @@ fn a_search_duplicates_marks_reach_the_kept_states_descendants_and_every_search_
         );
     }
     let matched_paths =
-        serde_json::to_value(backend(&kore).search_pattern_paths(pattern).unwrap()).unwrap();
+        serde_json::to_value(backend(&kore).search_pattern_paths_kore(pattern).unwrap()).unwrap();
     assert_eq!(
         run_marks(&matched_paths),
         [mark("MAP.keys_list", "order")],
@@ -1246,7 +1247,7 @@ fn a_pattern_match_dropped_as_the_same_solution_gives_its_marks_to_the_kept_matc
         search_type: SearchTypeArg::All,
         ..SearchRequest::new(initial.clone())
     };
-    let response = serde_json::to_value(backend(&kore).search(search).unwrap()).unwrap();
+    let response = serde_json::to_value(backend(&kore).search_kore(search).unwrap()).unwrap();
     let mut found = response["states"]
         .as_array()
         .unwrap()
@@ -1271,7 +1272,8 @@ fn a_pattern_match_dropped_as_the_same_solution_gives_its_marks_to_the_kept_matc
         search_type: SearchTypeArg::All,
         ..SearchPatternRequest::new(initial, target)
     };
-    let matched = serde_json::to_value(backend(&kore).search_pattern(pattern).unwrap()).unwrap();
+    let matched =
+        serde_json::to_value(backend(&kore).search_pattern_kore(pattern).unwrap()).unwrap();
     let matches = matched["matches"].as_array().unwrap();
     assert_eq!(matches.len(), 1, "{matched:#}");
     assert_eq!(matches[0]["state"]["depth"], 1, "{matched:#}");
@@ -1297,7 +1299,7 @@ fn the_end_of_a_bounded_search_rests_on_its_list() {
     let (kore, initial) = compile(SEARCH_END, "go(1 |-> 0 2 |-> 0)");
     let response = serde_json::to_value(
         backend(&kore)
-            .search(SearchRequest {
+            .search_kore(SearchRequest {
                 search_type: SearchTypeArg::All,
                 max_results: Some(1),
                 ..SearchRequest::new(initial)
@@ -1336,7 +1338,7 @@ fn a_run_without_open_values_has_main_s_diagnostics_and_no_list() {
     let (kore, initial) = compile(PLAIN, "s(1.0)");
     for modality in MODALITIES {
         let result = backend(&kore)
-            .execute(request(&initial, modality, ExecutionStrategy::All))
+            .execute_kore(request(&initial, modality, ExecutionStrategy::All))
             .unwrap();
         let result = serde_json::to_value(&result).unwrap();
         assert!(
@@ -1640,7 +1642,8 @@ fn an_open_literal_of_the_request_is_marked_with_its_text() {
         search_type: SearchTypeArg::All,
         ..SearchRequest::new(initial)
     };
-    let response = serde_json::to_value(backend(&kore).search(search.clone()).unwrap()).unwrap();
+    let response =
+        serde_json::to_value(backend(&kore).search_kore(search.clone()).unwrap()).unwrap();
     let states = response["states"].as_array().unwrap();
     assert!(!states.is_empty(), "{response:#}");
     for state in states {
@@ -1651,7 +1654,7 @@ fn an_open_literal_of_the_request_is_marked_with_its_text() {
         );
     }
     assert_eq!(run_marks(&response), literal, "{response:#}");
-    let paths = serde_json::to_value(backend(&kore).search_paths(search).unwrap()).unwrap();
+    let paths = serde_json::to_value(backend(&kore).search_paths_kore(search).unwrap()).unwrap();
     assert_eq!(run_marks(&paths), literal, "{paths:#}");
 }
 
