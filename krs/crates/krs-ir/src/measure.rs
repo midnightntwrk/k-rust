@@ -160,7 +160,8 @@ pub const COUNTERS_SCHEMA: &str = "krs-counters/1";
 /// Schema identifier of [`CollectorMeasureDocument`].
 pub const COLLECTOR_MEASURE_SCHEMA: &str = "krs-collector-measure/1";
 /// Environment variable naming the collector diagnostic JSON-lines sidecar path.
-/// Located collection failures use schema-versioned analysis envelopes.
+/// A collection failure and a successful collection's warnings use schema-versioned analysis
+/// envelopes, one per line.
 pub const COLLECTOR_DIAGNOSTIC_ENV: &str = "KRS_COLLECTOR_DIAGNOSTIC";
 
 /// Environment variable naming the collector measurement sidecar path.

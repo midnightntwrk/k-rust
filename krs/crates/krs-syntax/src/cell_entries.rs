@@ -1552,6 +1552,9 @@ impl<C: PartialEq> Sentence<'_, C> {
     /// The sorts are the compiler's, after. Within a step the first refusal in source order is
     /// the sentence's: one diagnostic, at one entry.
     ///
+    /// An admitted sentence gives the lints its entries owe, each with its entry's index, in
+    /// source order: the sentence's warnings, whatever its form.
+    ///
     /// # Errors
     ///
     /// The refused entry's index and its refusal.
