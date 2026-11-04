@@ -2884,11 +2884,11 @@ deviation = "krs::analysis::invalid-record-update @ item"
 
 ["cells/g1-restore/kinds/frame/k::fragment![crate::G { a: x, ..saved }]"]
 finding = "S5-G1"
-deviation = "krs::analysis::invalid-record-update @ item"
+deviation = "krs::analysis::invalid-record-update @ spelling"
 
 ["cells/g1-restore/kinds/stack/k::configuration::Cell([saved @ k::fragment![crate::G { a: z, .. }], rest @ ..])"]
 finding = "S5-G1"
-deviation = "krs::analysis::invalid-record-update @ spelling"
+deviation = "krs::analysis::invalid-record-update @ item"
 
 ["cells/g3-a/kinds/account/{ k::fragment![crate::Acct { id: z, acounter: Some(y), .. }], .. }"]
 finding = "S5-G3"
