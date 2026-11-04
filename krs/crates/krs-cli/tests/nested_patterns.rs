@@ -213,7 +213,7 @@ k::rules! {{
         k: [..],
         stack: list::concat(list::item({pushed}), list::concat(list::item(f), s)),
     }};
-    unhold: {{ k: [{held}, ..], frame: Frame {{ gas: g }} }} => {{
+    unhold: {{ k: [{held}, ..], frame: Frame {{ gas: g, .. }} }} => {{
         k: [..],
         frame: Frame {{ pc: p, gas: g }},
     }};
@@ -279,10 +279,9 @@ fn a_pattern_needs_no_wrapper_and_a_group_record_is_its_cell_term() {
 }
 
 /// A group record as a value is a complete cell term: a pattern leaves a
-/// child unconstrained only with `..`, while a record at a configuration
-/// cell's own position (`frame: Frame { gas: g }` above, or a group nested
-/// in one, see [`a_group_record_may_omit_children_where_it_matches_a_configuration_cell`])
-/// may omit children silently.
+/// child unconstrained only with `..`, as a record at a configuration
+/// cell's own position does (`frame: Frame { gas: g, .. }` above, or a group
+/// nested in one, see [`a_group_record_at_a_configuration_cell_leaves_children_out_only_with_rest`]).
 #[test]
 fn a_nested_group_record_names_every_child_or_ends_in_rest() {
     let target = shared_fixture_target();
@@ -503,67 +502,100 @@ impl Machine {
 "#;
 
 /// Rules and a claim that read `outer`'s nested `frame` through `outer`,
-/// naming only `pc`; with `rest`, the inner record ends in `..`.
-fn omitting(rest: bool) -> String {
-    let frame = if rest {
-        "Frame { pc: p, .. }"
-    } else {
-        "Frame { pc: p }"
-    };
-    format!(
-        r"
-k::rules! {{
+/// naming only `pc`, each record ending in `..` where it leaves children out.
+const LEAVING_OUT: &str = r"
+k::rules! {
     for Machine;
     use Cmd::*;
 
-    look: {{ k: [Look(), ..], outer: Outer {{ frame: {frame}, flag: f }} }} => {{ k: [int::add(p, f), ..] }};
-    report: {{ k: [Report(), ..], stack: s, outer: o @ Outer {{ frame: {frame} }} }} => {{ k: [p, ..], stack: [o, ..s] }};
-}}
+    look: { k: [Look(), ..], outer: Outer { frame: Frame { pc: p, .. }, flag: f } } => { k: [int::add(p, f), ..] };
+    report: { k: [Report(), ..], stack: s, outer: o @ Outer { frame: Frame { pc: p, .. }, .. } } => { k: [p, ..], stack: [o, ..s] };
+}
 
-k::claims! {{
+k::claims! {
     for Machine;
     use Cmd::*;
 
     #[k::claim(all_paths)]
-    looks: {{ k: [Look()], outer: Outer {{ frame: {frame}, flag: f }} }} => {{ k: [int::add(p, f)] }};
-}}
-"
-    )
+    looks: { k: [Look()], outer: Outer { frame: Frame { pc: p, .. }, flag: f } } => { k: [int::add(p, f)] };
+}
+";
+
+/// A group record at a configuration position that names some of its
+/// children and no `..` is refused as `record-missing-children` (L4), in a
+/// rule and in a claim, whether it is the entry's own record or a group
+/// child's record inside it.
+#[test]
+fn a_group_record_at_a_configuration_cell_naming_some_children_and_no_rest_is_refused() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let missing = [
+        (
+            "inner",
+            "rules",
+            "look: { k: [Look(), ..], outer: Outer { frame: Frame { pc: p }, flag: f } } => { k: [int::add(p, f), ..] };",
+            None,
+        ),
+        (
+            "outer",
+            "rules",
+            "report: { k: [Report(), ..], stack: s, outer: o @ Outer { frame: Frame { pc: p, .. } } } => { k: [p, ..], stack: [o, ..s] };",
+            Some("`outer`"),
+        ),
+        (
+            "claim",
+            "claims",
+            "#[k::claim(all_paths)]\n    looks: { k: [Look()], outer: Outer { frame: Frame { pc: p }, flag: f } } => { k: [int::add(p, f)] };",
+            None,
+        ),
+    ];
+    // The refusal of a record nested in an entry names the entry's cell (`outer`), not the
+    // record's (`frame`): the cell is checked only where the two agree (S5.2a3 ruling 3).
+    for (label, block, clause, cell) in missing {
+        let manifest = library_package(
+            temporary.path(),
+            &format!("missing-{label}"),
+            &format!(
+                "{TWO_LEVEL}k::{block}! {{\n    for Machine;\n    use Cmd::*;\n    {clause}\n}}\n"
+            ),
+        );
+        let error = check_errors(target.path(), &manifest);
+        assert!(
+            error.contains("krs::analysis::record-missing-children")
+                && cell.is_none_or(|cell| error.contains(cell)),
+            "{label}: {error}"
+        );
+    }
 }
 
 /// Where a group record matches a cell of the running configuration, it
-/// may omit children: the value of the entry that names the group, and
-/// each fixed group child of a record there (`frame` inside `outer`), which
-/// is the configuration's `<frame>` reached through `outer`. Everywhere
-/// else (a `KItem` leaf cell's content, a list element, a group nested in
-/// a value) the record is a value and complete, and `k::fragment!` is
-/// exact at every position (U5).
+/// leaves children unconstrained only with `..` (L4), as a Rust struct
+/// pattern does: the value of the entry that names the group, and each
+/// fixed group child of a record there (`frame` inside `outer`), which is
+/// the configuration's `<frame>` reached through `outer`. Everywhere else (a
+/// `KItem` leaf cell's content, a list element, a group nested in a value)
+/// the record is a value and complete, and `k::fragment!` is exact at every
+/// position (U5).
 #[test]
-fn a_group_record_may_omit_children_where_it_matches_a_configuration_cell() {
+fn a_group_record_at_a_configuration_cell_leaves_children_out_only_with_rest() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
-    let emitted = |name: &str, rest: bool| {
-        let manifest = library_package(
-            temporary.path(),
-            name,
-            &format!("{TWO_LEVEL}{}", omitting(rest)),
-        );
-        let output = manifest.with_file_name("emitted");
-        let (success, _, stderr) = krs(
-            target.path(),
-            &manifest,
-            "emit-k",
-            &["--output", output.to_str().unwrap()],
-        );
-        assert!(success, "{stderr}");
-        ["definition.k", "spec.k"].map(|file| {
-            krs_test_support::without_source_comments(
-                &fs::read_to_string(output.join(file)).unwrap(),
-            )
-        })
-    };
-    let lenient = emitted("omitting", false);
-    assert_eq!(lenient, emitted("rest", true));
+    let manifest = library_package(
+        temporary.path(),
+        "leaving-out",
+        &format!("{TWO_LEVEL}{LEAVING_OUT}"),
+    );
+    let output = manifest.with_file_name("emitted");
+    let (success, _, stderr) = krs(
+        target.path(),
+        &manifest,
+        "emit-k",
+        &["--output", output.to_str().unwrap()],
+    );
+    assert!(success, "{stderr}");
+    let definition = krs_test_support::without_source_comments(
+        &fs::read_to_string(output.join("definition.k")).unwrap(),
+    );
     expect_test::expect![[r"
         rule [look]:
             <k> look => P:Int +Int F:Int ... </k>
@@ -572,27 +604,41 @@ fn a_group_record_may_omit_children_where_it_matches_a_configuration_cell() {
             <k> report => P:Int ... </k>
             <stack> S:List => ListItem(<outer> <frame> <pc> P:Int </pc> <gas> Krs_UpdateOFrameGas:Int </gas> </frame> <flag> Krs_UpdateOFlag:Int </flag> </outer>) S:List </stack>
             <outer> <frame> <pc> P:Int </pc> <gas> Krs_UpdateOFrameGas:Int </gas> </frame> <flag> Krs_UpdateOFlag:Int </flag> </outer>"]]
-    .assert_eq(&format!("{}\n{}", rule(&lenient[0], "look"), rule(&lenient[0], "report")));
+    .assert_eq(&format!("{}\n{}", rule(&definition, "look"), rule(&definition, "report")));
 
-    let errors = [
-        "slot: { k: [Look(), ..], slot: Frame { pc: p } } => { k: [p, ..] };",
-        "value: { k: [Look(), ..], stack: [Outer { frame: Frame { pc: p }, .. }, ..] } => { k: [p, ..] };",
-        "fragment: { k: [Look(), ..], frame: k::fragment![Frame { pc: p }] } => { k: [p, ..] };",
-    ]
-    .map(|clause| {
+    // A record as a value (a `KItem` leaf's content, a list element) is a complete term; a
+    // fragment at a configuration position is that position's record, so L4's class answers it.
+    let strict = [
+        (
+            "slot: { k: [Look(), ..], slot: Frame { pc: p } } => { k: [p, ..] };",
+            "invalid-term",
+        ),
+        (
+            "value: { k: [Look(), ..], stack: [Outer { frame: Frame { pc: p }, .. }, ..] } => { k: [p, ..] };",
+            "invalid-term",
+        ),
+        (
+            "fragment: { k: [Look(), ..], frame: k::fragment![Frame { pc: p }] } => { k: [p, ..] };",
+            "record-missing-children",
+        ),
+    ];
+    for (clause, code) in strict {
         let label = &clause[..clause.find(':').unwrap()];
         let manifest = library_package(
             temporary.path(),
             &format!("strict-{label}"),
-            &format!("{TWO_LEVEL}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    {clause}\n}}\n"),
+            &format!(
+                "{TWO_LEVEL}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    {clause}\n}}\n"
+            ),
         );
-        check_errors(target.path(), &manifest)
-    });
-    for error in &errors {
+        let error = check_errors(target.path(), &manifest);
+        let explains = match code {
+            "invalid-term" => "must name every child field exactly once",
+            _ => "names some of its children and no `..`",
+        };
         assert!(
-            error.contains("krs::analysis::invalid-term")
-                && error.contains("must name every child field exactly once"),
-            "{error}"
+            error.contains(&format!("krs::analysis::{code}")) && error.contains(explains),
+            "{label}: {error}"
         );
     }
     let manifest = library_package(
@@ -622,7 +668,7 @@ k::rules! {
     pop: { k: [Pop(), ..], stack: [fr, s @ ..], outer: Outer { frame: _, flag: x } } => { k: [..], stack: s, outer: Outer { frame: fr, flag: x } };
     bump: { k: [Bump(), ..], outer: o @ Outer { frame: fr @ Frame { pc: p, .. }, .. } } => { k: [..], outer: Outer { frame: Frame { pc: int::add(p, 1), ..fr }, ..o } };
     look: { k: [Look(), ..], stack: s, outer: Outer { frame: fr @ Frame { pc: 1, .. }, flag: _ } } => { k: [..], stack: [fr, ..s] };
-    report: { k: [Report(), ..], stack: [Frame { pc: p, gas: g }, ..], outer: Outer { frame: Frame { pc: q }, flag: f } } => { k: [int::add(int::add(p, q), int::add(g, f)), ..] };
+    report: { k: [Report(), ..], stack: [Frame { pc: p, gas: g }, ..], outer: Outer { frame: Frame { pc: q, .. }, flag: f } } => { k: [int::add(int::add(p, q), int::add(g, f)), ..] };
 }
 ";
 
@@ -631,7 +677,7 @@ k::rules! {
 /// `<frame>` cell, a result writes it back, and an update of a group may
 /// nest inside an update of its parent. An alias over a group child names
 /// the matched child and is rebuilt where it is used (N7); one bound twice
-/// is rejected. `krs expand` writes an omitted group child as `frame: _`,
+/// is rejected. `krs expand` writes a group child that a record leaves out with `..` as `frame: _`,
 /// which checks to the same rule.
 #[test]
 fn a_group_child_may_be_a_binder_or_wildcard() {
@@ -702,7 +748,7 @@ fn a_group_child_may_be_a_binder_or_wildcard() {
         temporary.path(),
         "omitted",
         &format!(
-            "{TWO_LEVEL}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    look: {{ k: [Look(), ..], outer: Outer {{ flag: f }} }} => {{ k: [f, ..] }};\n}}\n"
+            "{TWO_LEVEL}k::rules! {{\n    for Machine;\n    use Cmd::*;\n    look: {{ k: [Look(), ..], outer: Outer {{ flag: f, .. }} }} => {{ k: [f, ..] }};\n}}\n"
         ),
     );
     let (success, expanded, stderr) = krs(target.path(), &omitted, "expand", &[]);
