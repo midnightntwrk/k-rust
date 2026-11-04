@@ -1,10 +1,10 @@
 //! `krs-exec` configures a state whose bus log holds a million entries on an 8 MiB thread, a main
-//! thread's default on Linux, and reads back there the end of a run from a state whose log holds
-//! 200,000.
-//! The run itself is made on a larger stack, and the test that also runs on 8 MiB is ignored:
-//! the run holds the backend's results as `serde_json::Value`, which serializing and dropping walk
-//! one stack frame per level, and the backend sizes the stack of one operation from the depth of
-//! its request, which it refuses beyond about 700,000 levels in the `dev` profile.
+//! thread's default on Linux, runs from it there and reads back the run's end; so it does from a
+//! log of 200,000 entries.
+//! The run holds the backend's results as KORE patterns, which the backend builds and the run
+//! reads, clones and drops with stacks of their own, and the backend sizes an operation's stack
+//! for its request with each builtin collection associated, so the log's length adds no level to
+//! what it asks.
 //!
 //! The fixture has the shape of a machine that logs its bus: a builtin `List` cell to which every
 //! step appends one cycle, as Foldiboy's SM83 logs one entry per machine cycle.
@@ -211,53 +211,34 @@ fn configure(semantics: &mut Semantics, log: Value) -> krs_exec::State {
         .unwrap()
 }
 
-/// Configuring converts the log to KAST and to KORE and checks its entries against the cell's
-/// declared element sort.
-#[test]
-fn a_million_entry_log_configures_on_an_8_mib_thread() {
-    on_an_8_mib_thread(entries(1_000_000), |semantics, log, _| {
-        let state = configure(semantics, log);
-        let k_rust::kore::ast::Pattern::Application { symbol, .. } = state.kore() else {
-            panic!("an initial state applies initGeneratedTopCell");
-        };
-        assert_eq!(symbol.name, "LblinitGeneratedTopCell");
-    });
-}
-
-/// The end of a run from a state whose log holds 200,000 entries reads back on an 8 MiB thread:
-/// its conversion to KAST and the view of its cells read the log there.
+/// A run from a state whose log holds 200,000 entries, and the view of its end, on an 8 MiB
+/// thread: the backend's operations, the reading of the end's condition, its conversion to KAST
+/// and the view of its cells read the log there.
 ///
 /// That is fifty times the length at which a walk taking 2 KiB per level overflows 8 MiB, and
 /// leaves 42 bytes of the thread's stack per level, about what a call's return address and saved
-/// registers take, so a walk that recursed per level would overflow here; the run that makes the
-/// end takes about 40 s and 4 GiB of memory at that length.
-/// The run is made by a semantics of its own on a thread with a stack of 4 GiB, of which it touches
-/// what it uses, because the run is not bounded on 8 MiB
-/// ([`a_million_entry_log_runs_and_reads_back_on_an_8_mib_thread`]).
+/// registers take, so a walk that recursed per level would overflow here.
 #[test]
-fn the_end_of_a_run_from_a_long_log_reads_back_on_an_8_mib_thread() {
-    on_an_8_mib_thread(entries(200_000), |semantics, log, entries| {
-        let state = configure(semantics, log);
-        let report = std::thread::scope(|scope| {
-            std::thread::Builder::new()
-                .stack_size(4 << 30)
-                .spawn_scoped(scope, || {
-                    semantics_of(compiled())
-                        .run(&state, RunOptions::default())
-                        .unwrap()
-                })
-                .unwrap()
-                .join()
-                .unwrap()
-        });
-        drop(state);
-        assert_eq!(report.halt, Halt::Stuck);
-        assert_eq!(report.steps, 3);
-        assert!(report.valueless.is_empty());
-        let end = semantics.term(report.state.kore().clone()).unwrap();
-        drop(report);
-        assert_read_back(semantics, &end, entries);
-    });
+fn a_run_from_a_long_log_reads_back_on_an_8_mib_thread() {
+    on_an_8_mib_thread(entries(200_000), runs_and_reads_back);
+}
+
+/// A run from the state with `log`, of `entries` entries, and the view of its end.
+///
+/// Configuring converts the log to KAST and to KORE and checks its entries against the cell's
+/// declared element sort.
+fn runs_and_reads_back(semantics: &mut Semantics, log: Value, entries: usize) {
+    let state = configure(semantics, log);
+    let k_rust::kore::ast::Pattern::Application { symbol, .. } = state.kore() else {
+        panic!("an initial state applies initGeneratedTopCell");
+    };
+    assert_eq!(symbol.name, "LblinitGeneratedTopCell");
+    let report = semantics.run(&state, RunOptions::default()).unwrap();
+    drop(state);
+    assert_eq!(report.halt, Halt::Stuck);
+    assert_eq!(report.steps, 3);
+    assert!(report.valueless.is_empty());
+    assert_read_back(semantics, &report.state, entries);
 }
 
 /// The view of `end`, the end of a run from the state with a log of `entries` entries: the
@@ -285,26 +266,11 @@ fn assert_read_back(semantics: &Semantics, end: &krs_exec::Term, entries: usize)
     }
 }
 
-/// A run from a state whose log holds a million entries, and the view of its end, on an 8 MiB
-/// thread: the run reads the log in the backend's result and in the reading of its condition, and
-/// converts its end to KAST.
-///
-/// It is ignored for two reasons.
-/// The run holds the backend's results as `serde_json::Value`, which serializing and dropping walk
-/// one stack frame per level: at 200,000 entries the run overflows 8 MiB while encoding the end as
-/// text to decode it.
-/// And the backend sizes the stack of one operation from its request's depth, 6 KiB per level in
-/// the `dev` profile under a 4 GiB segment: it refuses a request a million levels deep as too deep
-/// for it, on any thread.
+/// A million-entry log configures, runs and reads back on an 8 MiB thread, as
+/// [`a_run_from_a_long_log_reads_back_on_an_8_mib_thread`] at 200,000.
+/// The run's request holds the log nested a million levels deep, which the backend would refuse
+/// as too deep for the stack of one operation in the `dev` profile had it not associated the log.
 #[test]
-#[ignore = "the run is not bounded on 8 MiB (it holds the backend's results as `serde_json::Value`), and the backend refuses a request a million levels deep in the `dev` profile"]
 fn a_million_entry_log_runs_and_reads_back_on_an_8_mib_thread() {
-    on_an_8_mib_thread(entries(1_000_000), |semantics, log, entries| {
-        let state = configure(semantics, log);
-        let report = semantics.run(&state, RunOptions::default()).unwrap();
-        assert_eq!(report.halt, Halt::Stuck);
-        assert_eq!(report.steps, 3);
-        assert!(report.valueless.is_empty());
-        assert_read_back(semantics, &report.state, entries);
-    });
+    on_an_8_mib_thread(entries(1_000_000), runs_and_reads_back);
 }

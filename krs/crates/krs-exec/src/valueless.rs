@@ -123,6 +123,24 @@ pub(crate) fn split(state: &Pattern) -> Split<'_> {
     }
 }
 
+/// The configuration of `state` that [`split`] finds, moved out of `state`; `None` where it finds
+/// none.
+pub(crate) fn into_configuration(state: Pattern) -> Option<Pattern> {
+    let mut configurations = Vec::new();
+    let mut pending = vec![state];
+    while let Some(mut pattern) = pending.pop() {
+        if let Pattern::And { arguments, .. } = &mut pattern {
+            pending.extend(std::mem::take(arguments).into_iter().rev());
+        } else if !is_predicate(&pattern) {
+            configurations.push(pattern);
+        }
+    }
+    match <[_; 1]>::try_from(configurations) {
+        Ok([configuration]) => Some(configuration),
+        Err(_) => None,
+    }
+}
+
 /// What a leaf's path condition says, read with the witnesses as having no value.
 #[derive(Debug, PartialEq)]
 pub(crate) enum Reading<'a> {

@@ -40,17 +40,19 @@ use std::{collections::HashMap, fmt};
 use k_rust::{
     backend::{
         Backend, BackendOptions, EffectOutput, ExecuteRequest, ExecutionCandidateOutput,
-        ExecutionLeaf, ExecutionResult, ExecutionStrategy, HaltReasonOutput, PatternRequest,
-        ProveRequest, RunCoverageOutput, SearchRequest, SearchResponse, SearchTypeArg, TraceEntry,
+        ExecutionStrategy, HaltReasonOutput, KoreExecutionLeaf, KoreExecutionResult,
+        KoreSearchResponse, ProveRequest, RunCoverageOutput, SearchRequest, SearchTypeArg,
+        TraceEntry,
     },
     inner::{ParseError, ProgramError, ProgramParseError},
+    k_rust_backend::definition::Admission,
     kast::{
         Sort as KastSort,
         convert::{Converter, sort_hooks},
         json as kast_json,
         printer::Printer,
     },
-    kore::{ast::Pattern, json as kore_json},
+    kore::ast::Pattern,
 };
 use krs_ir::{SourceFileId, measure::Timings};
 use krs_ir_levels::DefinitionIr;
@@ -1604,13 +1606,15 @@ impl Semantics {
         stops: &StopIds,
         taken: Option<&TakenStep>,
     ) -> Result<RunReport, ExecError> {
-        let ExecutionResult {
+        let KoreExecutionResult {
             leaves,
             implementation_chosen_values,
             unsupported_hooks,
             coverage,
             ..
-        } = self.backend.execute(run_request(start, options, stops))?;
+        } = self
+            .backend
+            .execute_kore(run_request(start, options, stops))?;
         // A hook the backend left unevaluated may leave an equation's condition open, so no
         // application is decided to have no value ([`decided`]).
         let decides = unsupported_hooks.is_empty();
@@ -1667,8 +1671,8 @@ impl Semantics {
             )
         });
         let stop = self.stop(&leaf, stops, &trace);
-        let reached = term(&leaf.state, &self.sort_hooks)?;
         let halt = Halt::from_backend(leaf.reason);
+        let reached = term(leaf.state, &self.sort_hooks)?;
         let stdout = if self.console.stdout {
             console::stdout_buffer(reached.kore())
         } else {
@@ -1761,7 +1765,7 @@ impl Semantics {
     /// candidate's; a terminal leaf names it only in its `detail` text, which is no stable
     /// encoding, so the rule is the one identity the stop rules select, or the last step of the
     /// trace.
-    fn stop(&mut self, leaf: &ExecutionLeaf, stops: &StopIds, trace: &[Step]) -> Option<Stop> {
+    fn stop(&mut self, leaf: &KoreExecutionLeaf, stops: &StopIds, trace: &[Step]) -> Option<Stop> {
         let (at, rule_id) = match leaf.reason {
             HaltReasonOutput::CutPoint => (
                 StopAt::Before,
@@ -1803,7 +1807,7 @@ impl Semantics {
     /// committed and gains it.
     fn coverage(
         &mut self,
-        coverage: RunCoverageOutput,
+        coverage: RunCoverageOutput<Pattern>,
         offered: bool,
         taken: Option<&str>,
         proposed: Option<&str>,
@@ -1890,11 +1894,11 @@ impl Semantics {
     fn before_valueless(
         &mut self,
         start: &Pattern,
-        mut leaf: ExecutionLeaf,
+        mut leaf: KoreExecutionLeaf,
         decides: bool,
         trace: bool,
         stops: &StopIds,
-    ) -> Result<ExecutionLeaf, ExecError> {
+    ) -> Result<KoreExecutionLeaf, ExecError> {
         let mut depth = leaf.depth;
         while depth > 0 {
             depth -= 1;
@@ -1907,7 +1911,7 @@ impl Semantics {
                 },
                 stops,
             );
-            let leaves = self.backend.execute(request)?.leaves;
+            let leaves = self.backend.execute_kore(request)?.leaves;
             let earlier = match one_path(leaves, self.heads(decides)) {
                 Ok(earlier) => earlier,
                 Err(error) => return Err(self.path_error(error)),
@@ -1973,12 +1977,10 @@ impl Semantics {
         let Some(request) = console::exit_code_request(state.kore()) else {
             return Ok(None);
         };
-        let simplified = self.backend.simplify(PatternRequest::new(request))?;
-        let source = serde_json::to_string(&simplified)
-            .map_err(|error| ExecError::Result(error.to_string()))?;
-        let pattern =
-            kore_json::from_str(&source).map_err(|error| ExecError::Result(error.to_string()))?;
-        Ok(console::exit_value(&pattern))
+        let simplified = self
+            .backend
+            .simplify_kore(None, &request, Admission::Unverified)?;
+        Ok(console::exit_value(&simplified))
     }
 
     /// Return the set of reachable states that match the search mode, as `krun --search` does.
@@ -2012,12 +2014,17 @@ impl Semantics {
             && options
                 .max_solutions
                 .is_none_or(|limit| response.states.len() < limit);
-        let solutions = response
-            .states
-            .iter()
+        let KoreSearchResponse {
+            states,
+            effects,
+            implementation_chosen_values,
+            ..
+        } = response;
+        let solutions = states
+            .into_iter()
             .map(|solution| {
                 Ok(Solution {
-                    state: self.krun_floats(term(&solution.state, &self.sort_hooks)?)?,
+                    state: self.krun_floats(term(solution.state, &self.sort_hooks)?)?,
                     depth: solution.depth,
                     trace: if options.trace {
                         self.steps(&solution.trace)
@@ -2030,8 +2037,8 @@ impl Semantics {
         Ok(SearchReport {
             complete,
             solutions,
-            log: log_lines(&response.effects),
-            implementation_chosen_values: response.implementation_chosen_values,
+            log: log_lines(&effects),
+            implementation_chosen_values,
         })
     }
 
@@ -2110,10 +2117,7 @@ impl Semantics {
     ///
     /// Returns [`ExecError::Result`] when the pattern has no KAST form.
     pub fn term(&self, kore: Pattern) -> Result<Term, ExecError> {
-        let kast = Converter::new(&self.sort_hooks)
-            .convert(&kore)
-            .map_err(|error| ExecError::Result(error.to_string()))?;
-        Ok(Term::new(kore, kast))
+        term(kore, &self.sort_hooks)
     }
 
     /// Render a term. Only a [`PrintStyle::Pretty`] print can carry warnings (what
@@ -2296,17 +2300,18 @@ fn run_request(start: &Pattern, options: &RunOptions, stops: &StopIds) -> Execut
 /// the step reaches no state, and the leaf, at the state the rule would rewrite, is then
 /// undefined (`vacuous`), with the terms with no value (`Err`); otherwise it stays the stop.
 fn read_proposal(
-    mut leaf: ExecutionLeaf,
+    mut leaf: KoreExecutionLeaf,
     heads: &dyn valueless::Heads,
-) -> Result<(ExecutionLeaf, Result<Proposal, Vec<Pattern>>), PathError> {
+) -> Result<(KoreExecutionLeaf, Result<Proposal, Vec<Pattern>>), PathError> {
     let candidate = cut_point_candidate(&leaf).map_err(PathError::Unread)?;
-    let (proposed, rule_id, label) = (
+    let (successor, rule_id, label) = (
         candidate.state.clone(),
         candidate.unique_id.clone(),
         candidate.label.clone(),
     );
-    let successor = kore_pattern(&proposed).map_err(PathError::Unread)?;
-    let at = std::mem::replace(&mut leaf.state, proposed);
+    // The leaf is read at the successor, which its reading may replace by its configuration;
+    // the proposal keeps the successor as the backend proposed it.
+    let at = std::mem::replace(&mut leaf.state, successor.clone());
     let read = one_path(vec![leaf], heads)?;
     let mut leaf = read.leaf;
     leaf.state = at;
@@ -2327,7 +2332,9 @@ fn read_proposal(
 
 /// The one candidate of a cut-point leaf: the stop rule's step, its successor normalized by the
 /// backend as any successor is.
-fn cut_point_candidate(leaf: &ExecutionLeaf) -> Result<&ExecutionCandidateOutput, ExecError> {
+fn cut_point_candidate(
+    leaf: &KoreExecutionLeaf,
+) -> Result<&ExecutionCandidateOutput<Pattern>, ExecError> {
     match leaf.candidates.as_deref() {
         Some([candidate]) => Ok(candidate),
         candidates => Err(ExecError::Result(format!(
@@ -2421,7 +2428,7 @@ fn prove_claims(
         let mut leaves = Vec::new();
         let mut trusted_claims = std::collections::BTreeSet::new();
         for selector in selectors {
-            let result = backend.prove(ProveRequest {
+            let result = backend.prove_kore(ProveRequest {
                 claim: Some(selector),
                 max_depth: options.depth,
                 ..ProveRequest::default()
@@ -2431,27 +2438,26 @@ fn prove_claims(
             })?;
             verdict = verdict.weakest(disjunct);
             trusted_claims.extend(result.trusted_claims);
-            for leaf in &result.leaves {
+            for leaf in result.leaves {
                 leaves.push(ProofLeaf {
-                    state: term(&leaf.state, sort_hooks)?,
+                    state: term(leaf.state, sort_hooks)?,
                     depth: leaf.depth,
                     outcome: leaf.outcome.name().to_owned(),
-                    detail: leaf.detail.clone(),
+                    detail: leaf.detail,
                     certified: leaf.certified,
                     vacuous: leaf.vacuous,
-                    claim_steps: leaf.claim_steps.clone(),
+                    claim_steps: leaf.claim_steps,
                     contradicted_total: leaf
                         .contradicted_total
-                        .as_ref()
                         .map(|record| {
                             Ok::<_, ExecError>(k_rust::backend::ContradictedTotalOutput {
-                                symbol: record.symbol.clone(),
-                                k_label: record.k_label.clone(),
-                                rule_id: record.rule_id.clone(),
-                                rule_label: record.rule_label.clone(),
-                                origin: record.origin.clone(),
-                                application: term(&record.application, sort_hooks)?,
-                                undefined: term(&record.undefined, sort_hooks)?,
+                                symbol: record.symbol,
+                                k_label: record.k_label,
+                                rule_id: record.rule_id,
+                                rule_label: record.rule_label,
+                                origin: record.origin,
+                                application: term(record.application, sort_hooks)?,
+                                undefined: term(record.undefined, sort_hooks)?,
                             })
                         })
                         .transpose()?,
@@ -2500,31 +2506,25 @@ fn log_lines(effects: &[EffectOutput]) -> Vec<String> {
 fn check_final_state(
     backend: &mut Backend,
     heads: &dyn valueless::Heads,
-    state: &serde_json::Value,
+    state: &Pattern,
     what: &str,
 ) -> Result<(), ExecError> {
-    let source =
-        serde_json::to_string(state).map_err(|error| ExecError::Result(error.to_string()))?;
-    let pattern =
-        kore_json::from_str(&source).map_err(|error| ExecError::Result(error.to_string()))?;
-    let mut request = ExecuteRequest::new(pattern);
+    let mut request = ExecuteRequest::new(state.clone());
     request.strategy = ExecutionStrategy::All;
     request.max_depth = Some(1);
     request.trace = false;
-    let again = backend.execute(request)?.leaves;
+    let again = backend.execute_kore(request)?.leaves;
     let mut states = Vec::new();
     for end in &again {
-        let pattern = kore_pattern(&end.state)?;
-        let split = valueless::split(&pattern);
+        let split = valueless::split(&end.state);
         let mut read = Vec::new();
         match valueless::read(&split.predicates, heads, &mut read) {
             valueless::Reading::Fails => {}
             reading => {
                 let decided = reading == valueless::Reading::Holds && !read.is_empty();
                 let reached = match split.configuration {
-                    Some(configuration) if decided => kore_json::to_value(configuration)
-                        .map_err(|error| ExecError::Result(error.to_string()))?,
-                    _ => end.state.clone(),
+                    Some(configuration) if decided => configuration,
+                    _ => &end.state,
                 };
                 states.push((end, reached));
             }
@@ -2532,7 +2532,7 @@ fn check_final_state(
     }
     let holds = matches!(
         states.as_slice(),
-        [(end, reached)] if end.depth == 0 && end.reason == HaltReasonOutput::Stuck && reached == state
+        [(end, reached)] if end.depth == 0 && end.reason == HaltReasonOutput::Stuck && *reached == state
     );
     if holds {
         return Ok(());
@@ -2577,7 +2577,7 @@ fn check_ends() -> bool {
 /// Either way the path names the terms with no value. Several leaves that remain are a split
 /// over terms that may have values, which the run does not decide ([`PathError::Undecided`]).
 fn one_path(
-    leaves: Vec<ExecutionLeaf>,
+    leaves: Vec<KoreExecutionLeaf>,
     heads: &dyn valueless::Heads,
 ) -> Result<OnePath, PathError> {
     let (undefined, defined): (Vec<_>, Vec<_>) = leaves.into_iter().partition(|leaf| {
@@ -2602,38 +2602,33 @@ fn one_path(
     let mut failed = None;
     let mut over = Vec::<Pattern>::new();
     for leaf in defined {
-        let state = kore_pattern(&leaf.state).map_err(PathError::Unread)?;
-        let split = valueless::split(&state);
+        let split = valueless::split(&leaf.state);
         let mut read = Vec::new();
         let reading = valueless::read(&split.predicates, heads, &mut read);
         let read = read.into_iter().cloned().collect::<Vec<_>>();
-        let configuration = split.configuration.cloned();
         match reading {
             valueless::Reading::Fails => {
                 if failed.is_none() {
-                    failed = Some((leaf, configuration, read));
+                    failed = Some((leaf, read));
                 }
             }
-            valueless::Reading::Holds => kept.push((leaf, configuration, read, true)),
+            valueless::Reading::Holds => kept.push((leaf, read, true)),
             valueless::Reading::Open { over: open } => {
                 for term in open {
                     if !over.contains(term) {
                         over.push(term.clone());
                     }
                 }
-                kept.push((leaf, configuration, read, false));
+                kept.push((leaf, read, false));
             }
         }
     }
-    let (mut leaf, configuration, read, holds) = match <[_; 1]>::try_from(kept) {
+    let (mut leaf, read, holds) = match <[_; 1]>::try_from(kept) {
         Ok([kept]) => kept,
         Err(kept) if kept.is_empty() => {
             // Every leaf gives a term with no value a value: the step has no state.
-            let (mut leaf, configuration, read) = failed.expect("a defined leaf");
-            if let Some(configuration) = configuration {
-                leaf.state = kore_json::to_value(&configuration)
-                    .map_err(|error| PathError::Unread(ExecError::Result(error.to_string())))?;
-            }
+            let (leaf, read) = failed.expect("a defined leaf");
+            let mut leaf = configured(leaf);
             leaf.reason = HaltReasonOutput::Vacuous;
             return Ok(OnePath {
                 leaf,
@@ -2652,15 +2647,11 @@ fn one_path(
         }
     };
     // A condition the reading decided holds is the state's: the state is its configuration.
-    if holds
-        && !read.is_empty()
-        && let Some(configuration) = &configuration
-    {
-        leaf.state = kore_json::to_value(configuration)
-            .map_err(|error| PathError::Unread(ExecError::Result(error.to_string())))?;
+    if holds && !read.is_empty() {
+        leaf = configured(leaf);
     }
     let mut held = Vec::new();
-    if let Some(configuration) = &configuration {
+    if let Some(configuration) = valueless::split(&leaf.state).configuration {
         valueless::witnesses(configuration, heads, &mut held);
     }
     if held.is_empty() {
@@ -2679,11 +2670,22 @@ fn one_path(
     })
 }
 
+/// `leaf` at its state's configuration, where its state has one ([`valueless::split`]), moved
+/// out of the state; otherwise `leaf` as it is.
+fn configured(leaf: KoreExecutionLeaf) -> KoreExecutionLeaf {
+    if valueless::split(&leaf.state).configuration.is_none() {
+        return leaf;
+    }
+    let state = valueless::into_configuration(leaf.state)
+        .expect("a state `split` finds a configuration in has one");
+    KoreExecutionLeaf { state, ..leaf }
+}
+
 /// The path of a one-path run ([`one_path`]): its leaf, and the terms with no value it holds
 /// or its condition read.
 #[derive(Debug)]
 struct OnePath {
-    leaf: ExecutionLeaf,
+    leaf: KoreExecutionLeaf,
     valueless: Vec<Pattern>,
     /// Whether the leaf's state has no value: it holds such a term, or its condition gives one a
     /// value; the run is then undefined.
@@ -2699,27 +2701,21 @@ enum PathError {
     Several(usize),
     /// `states` leaves remain under conditions over the terms `over`, which may have values.
     Undecided { states: usize, over: Vec<Pattern> },
-    /// A leaf's state is no KORE pattern.
+    /// A leaf is not what the run asked for: a stop before a rule that proposes no one
+    /// successor ([`cut_point_candidate`]).
     Unread(ExecError),
-}
-
-/// The KORE pattern of a backend result's JSON.
-fn kore_pattern(value: &serde_json::Value) -> Result<Pattern, ExecError> {
-    let source =
-        serde_json::to_string(value).map_err(|error| ExecError::Result(error.to_string()))?;
-    kore_json::from_str(&source).map_err(|error| ExecError::Result(error.to_string()))
 }
 
 fn search_backend(
     backend: &mut Backend,
     state: Pattern,
     options: SearchOptions,
-) -> Result<SearchResponse, ExecError> {
+) -> Result<KoreSearchResponse, ExecError> {
     let mut request = SearchRequest::new(state);
     request.search_type = options.mode.backend();
     request.max_depth = options.depth;
     request.max_results = options.max_solutions;
-    Ok(backend.search(request)?)
+    Ok(backend.search_kore(request)?)
 }
 
 /// The sort hooks of the definition `backend` runs, by KAST sort name: a result's domain value
@@ -2734,15 +2730,8 @@ fn result_sort_hooks(backend: &mut Backend) -> Result<HashMap<String, String>, E
     )))
 }
 
-/// A backend result's term, converted to KAST with its definition's `sort_hooks`.
-fn term(
-    value: &serde_json::Value,
-    sort_hooks: &HashMap<String, String>,
-) -> Result<Term, ExecError> {
-    let source =
-        serde_json::to_string(value).map_err(|error| ExecError::Result(error.to_string()))?;
-    let kore =
-        kore_json::from_str(&source).map_err(|error| ExecError::Result(error.to_string()))?;
+/// A backend result's pattern as a term, converted to KAST with its definition's `sort_hooks`.
+fn term(kore: Pattern, sort_hooks: &HashMap<String, String>) -> Result<Term, ExecError> {
     let kast = Converter::new(sort_hooks)
         .convert(&kore)
         .map_err(|error| ExecError::Result(error.to_string()))?;

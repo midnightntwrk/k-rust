@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use k_rust::{
     backend::{
-        Backend, BackendOptions, EffectOutput, ExecuteRequest, ExecutionLeaf, ExecutionStrategy,
-        HaltReasonOutput,
+        Backend, BackendOptions, EffectOutput, ExecuteRequest, ExecutionStrategy, HaltReasonOutput,
+        KoreExecutionLeaf,
     },
     kast::Sort as KastSort,
     kore::parser::parse_pattern,
@@ -12,8 +12,8 @@ use k_rust::{
 
 use super::{
     ConfigVariable, ExecError, Halt, OnePath, PathError, RunOptions, SearchMode, SearchOptions,
-    StopIds, check_final_state, config_variables, cut_point_candidate, kore_pattern, log_lines,
-    one_path, read_proposal, result_sort_hooks, run_request, search_backend, term, valueless,
+    StopIds, check_final_state, config_variables, cut_point_candidate, log_lines, one_path,
+    read_proposal, result_sort_hooks, run_request, search_backend, term, valueless,
 };
 
 /// A raw KORE definition with one initial state and two rules leaving it.
@@ -48,7 +48,12 @@ fn search_returns_both_final_states() {
     let mut states = response
         .states
         .iter()
-        .map(|state| term(&state.state, &hooks).unwrap().kore().to_string())
+        .map(|state| {
+            term(state.state.clone(), &hooks)
+                .unwrap()
+                .kore()
+                .to_string()
+        })
         .collect::<Vec<_>>();
     states.sort();
     assert_eq!(states, ["left{}()", "right{}()"]);
@@ -92,7 +97,7 @@ fn search_bounds_solutions_and_depth() {
     assert_eq!(depth_zero.states.len(), 1);
     assert_eq!(
         term(
-            &depth_zero.states[0].state,
+            depth_zero.states[0].state.clone(),
             &result_sort_hooks(&mut backend).unwrap()
         )
         .unwrap()
@@ -110,9 +115,12 @@ fn a_stuck_end_holds_only_where_no_rule_applies() {
     let mut backend = branching_backend();
     let mut request = ExecuteRequest::new(parse_pattern("initial{}()").unwrap());
     request.strategy = ExecutionStrategy::Any;
-    let end = one_path(backend.execute(request).unwrap().leaves, &Named::default())
-        .unwrap()
-        .leaf;
+    let end = one_path(
+        backend.execute_kore(request).unwrap().leaves,
+        &Named::default(),
+    )
+    .unwrap()
+    .leaf;
     assert_eq!(end.reason, HaltReasonOutput::Stuck);
     check_final_state(
         &mut backend,
@@ -124,10 +132,13 @@ fn a_stuck_end_holds_only_where_no_rule_applies() {
 
     let mut request = ExecuteRequest::new(parse_pattern("initial{}()").unwrap());
     request.max_depth = Some(0);
-    let start = one_path(backend.execute(request).unwrap().leaves, &Named::default())
-        .unwrap()
-        .leaf;
-    let reported = ExecutionLeaf {
+    let start = one_path(
+        backend.execute_kore(request).unwrap().leaves,
+        &Named::default(),
+    )
+    .unwrap()
+    .leaf;
+    let reported = KoreExecutionLeaf {
         reason: HaltReasonOutput::Stuck,
         ..start
     };
@@ -166,9 +177,9 @@ fn a_run_requests_the_backend_trace_only_when_it_reports_one() {
     assert!(traced.trace);
     assert_eq!(traced.max_depth, Some(3));
     let mut backend = branching_backend();
-    let leaves = backend.execute(untraced).unwrap().leaves;
+    let leaves = backend.execute_kore(untraced).unwrap().leaves;
     assert!(leaves.iter().all(|leaf| leaf.trace.is_empty()));
-    let leaves = backend.execute(traced).unwrap().leaves;
+    let leaves = backend.execute_kore(traced).unwrap().leaves;
     assert!(leaves.iter().any(|leaf| !leaf.trace.is_empty()));
 }
 
@@ -203,7 +214,7 @@ fn stop_rules_end_a_run_before_or_after_the_rule_s_step() {
         after: Vec::new(),
     };
     let leaves = backend
-        .execute(run_request(&state, &RunOptions::default(), &before))
+        .execute_kore(run_request(&state, &RunOptions::default(), &before))
         .unwrap()
         .leaves;
     let [leaf] = leaves.as_slice() else {
@@ -221,7 +232,7 @@ fn stop_rules_end_a_run_before_or_after_the_rule_s_step() {
         after: vec!["ab".to_owned()],
     };
     let leaves = backend
-        .execute(run_request(&state, &RunOptions::default(), &after))
+        .execute_kore(run_request(&state, &RunOptions::default(), &after))
         .unwrap()
         .leaves;
     let [leaf] = leaves.as_slice() else {
@@ -236,7 +247,7 @@ fn stop_rules_end_a_run_before_or_after_the_rule_s_step() {
         after: Vec::new(),
     };
     let leaves = backend
-        .execute(run_request(&state, &RunOptions::default(), &first))
+        .execute_kore(run_request(&state, &RunOptions::default(), &first))
         .unwrap()
         .leaves;
     assert_eq!(leaves[0].reason, HaltReasonOutput::CutPoint);
@@ -244,15 +255,12 @@ fn stop_rules_end_a_run_before_or_after_the_rule_s_step() {
     assert_eq!(proposed(&leaves[0]), "b{}()");
 }
 
-fn proposed(leaf: &ExecutionLeaf) -> String {
-    kore_pattern(&cut_point_candidate(leaf).unwrap().state)
-        .unwrap()
-        .to_string()
+fn proposed(leaf: &KoreExecutionLeaf) -> String {
+    cut_point_candidate(leaf).unwrap().state.to_string()
 }
 
-fn pattern_text(state: &serde_json::Value) -> String {
-    let source = serde_json::to_string(state).unwrap();
-    k_rust::kore::json::from_str(&source).unwrap().to_string()
+fn pattern_text(state: &k_rust::kore::ast::Pattern) -> String {
+    state.to_string()
 }
 
 #[test]
@@ -260,7 +268,7 @@ fn strategy_any_follows_one_path_and_depth_zero_stays_put() {
     let mut backend = branching_backend();
     let mut request = ExecuteRequest::new(parse_pattern("initial{}()").unwrap());
     request.strategy = ExecutionStrategy::Any;
-    let result = backend.execute(request).unwrap();
+    let result = backend.execute_kore(request).unwrap();
     assert_eq!(result.leaves.len(), 1);
     assert_eq!(result.leaves[0].depth, 1);
     assert_eq!(Halt::from_backend(result.leaves[0].reason), Halt::Stuck);
@@ -268,7 +276,7 @@ fn strategy_any_follows_one_path_and_depth_zero_stays_put() {
     let mut request = ExecuteRequest::new(parse_pattern("initial{}()").unwrap());
     request.strategy = ExecutionStrategy::Any;
     request.max_depth = Some(0);
-    let result = backend.execute(request).unwrap();
+    let result = backend.execute_kore(request).unwrap();
     assert_eq!(result.leaves.len(), 1);
     assert_eq!(
         Halt::from_backend(result.leaves[0].reason),
@@ -276,7 +284,7 @@ fn strategy_any_follows_one_path_and_depth_zero_stays_put() {
     );
     assert_eq!(
         term(
-            &result.leaves[0].state,
+            result.leaves[0].state.clone(),
             &result_sort_hooks(&mut backend).unwrap()
         )
         .unwrap()
@@ -305,9 +313,9 @@ fn results_render_domain_values_with_the_definitions_sort_hooks() {
     let mut backend = Backend::new(definition, "MAIN", BackendOptions::default()).unwrap();
     let hooks = result_sort_hooks(&mut backend).unwrap();
     let result = backend
-        .execute(ExecuteRequest::new(parse_pattern("initial{}()").unwrap()))
+        .execute_kore(ExecuteRequest::new(parse_pattern("initial{}()").unwrap()))
         .unwrap();
-    let state = term(&result.leaves[0].state, &hooks).unwrap();
+    let state = term(result.leaves[0].state.clone(), &hooks).unwrap();
     assert_eq!(
         k_rust::kast::printer::Printer::new().print_term(state.kast()),
         r#"done(#token("b\"\\x80\\xff\"","Bytes"),#token("\"a\"","String"))"#
@@ -412,13 +420,7 @@ fn unknown_variable_errors_list_every_variable() {
 #[test]
 fn terms_serialize_as_the_kast_json_envelope() {
     let value = term(
-        &serde_json::to_value(
-            serde_json::from_str::<serde_json::Value>(
-                &k_rust::kore::json::to_string(&parse_pattern("left{}()").unwrap()).unwrap(),
-            )
-            .unwrap(),
-        )
-        .unwrap(),
+        parse_pattern("left{}()").unwrap(),
         &std::collections::HashMap::new(),
     )
     .unwrap();
@@ -636,10 +638,14 @@ fn partial_backend() -> Backend {
     Backend::new(definition, "MAIN", BackendOptions::default()).unwrap()
 }
 
-fn leaves(backend: &mut Backend, state: &str, strategy: ExecutionStrategy) -> Vec<ExecutionLeaf> {
+fn leaves(
+    backend: &mut Backend,
+    state: &str,
+    strategy: ExecutionStrategy,
+) -> Vec<KoreExecutionLeaf> {
     let mut request = ExecuteRequest::new(parse_pattern(state).unwrap());
     request.strategy = strategy;
-    backend.execute(request).unwrap().leaves
+    backend.execute_kore(request).unwrap().leaves
 }
 
 #[test]
@@ -658,7 +664,10 @@ fn a_run_follows_the_defined_leaf_of_a_definedness_split() {
     assert_eq!(Halt::from_backend(path.leaf.reason), Halt::Stuck);
     assert_eq!(path.leaf.depth, 1);
     assert_eq!(
-        term(&path.leaf.state, &hooks).unwrap().kore().to_string(),
+        term(path.leaf.state.clone(), &hooks)
+            .unwrap()
+            .kore()
+            .to_string(),
         "wrap{}(undef{}())"
     );
     assert!(path.valueless.is_empty());
@@ -704,7 +713,7 @@ fn a_stop_before_a_rule_whose_successor_has_no_value_is_an_undefined_step() {
     let partial = Named::partial(&["undef"]);
     let stopped = |backend: &mut Backend, heads: &Named| {
         let leaves = backend
-            .execute(run_request(&start, &RunOptions::default(), &stops))
+            .execute_kore(run_request(&start, &RunOptions::default(), &stops))
             .unwrap()
             .leaves;
         one_path(leaves, heads).unwrap()
@@ -868,20 +877,20 @@ fn pattern(text: &str) -> k_rust::kore::ast::Pattern {
 }
 
 /// A defined leaf at `depth` holding `state`, from a run of the partial backend.
-fn leaf(state: &str, depth: u64) -> ExecutionLeaf {
+fn leaf(state: &str, depth: u64) -> KoreExecutionLeaf {
     let mut backend = partial_backend();
     let mut leaf = leaves(&mut backend, "initial{}()", ExecutionStrategy::Any)
         .into_iter()
         .find(|leaf| leaf.reason == HaltReasonOutput::Stuck)
         .expect("a stuck leaf");
-    leaf.state = k_rust::kore::json::to_value(&pattern(state)).unwrap();
+    leaf.state = pattern(state);
     leaf.depth = depth;
     leaf.trace.clear();
     leaf
 }
 
 fn state(path: &OnePath) -> String {
-    super::kore_pattern(&path.leaf.state).unwrap().to_string()
+    path.leaf.state.to_string()
 }
 
 const F_TRUE: &str = r#"f{}(\dv{SortBool{}}("true"))"#;
@@ -890,7 +899,7 @@ const F_TRUE: &str = r#"f{}(\dv{SortBool{}}("true"))"#;
 /// of a partial function defined by its equations alone, none of which applies at `true`
 /// (finding NT-37-2): the rule applied where `f(true)` is defined and `true`, and the state left
 /// where it is not `true`.
-fn split_over(term: &str, held: &str) -> Vec<ExecutionLeaf> {
+fn split_over(term: &str, held: &str) -> Vec<KoreExecutionLeaf> {
     vec![
         leaf(
             &format!(
