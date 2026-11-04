@@ -264,6 +264,26 @@ fn brackets_on_a_cell_whose_kind_they_mark_nothing_in_are_the_table_s_refusal_at
             "[0]",
             "krs::analysis::invalid-list-notation",
         ),
+        // Brackets mark nothing in a plain cell whatever they hold: an item that is an
+        // operator's application is a term, and the brackets around it are still refused.
+        (
+            "pc",
+            "[0 + 1]",
+            "[0 + 1]",
+            "krs::analysis::invalid-list-notation",
+        ),
+        (
+            "counter",
+            "Some([0 + 1])",
+            "[0 + 1]",
+            "krs::analysis::invalid-list-notation",
+        ),
+        (
+            "shelf",
+            "Shelf { bag: [0 + 1] }",
+            "[0 + 1]",
+            "krs::analysis::invalid-list-notation",
+        ),
     ];
     for (index, (cell, value, at, code)) in cases.into_iter().enumerate() {
         let name = format!("kinds-refused-{index}");

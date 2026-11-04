@@ -8,13 +8,16 @@
 //! The reading depends on the form only where the forms spell a mark differently: in a `cells!`
 //! entry, brackets and braces at the entry's head are an instance list and an instance set,
 //! while inside `Cell(..)` brackets are the leaf's own; a readable `{ k -> v, .. }` is a map
-//! read; an initializer names its configuration variables.
+//! read; an initializer names its configuration variables, and a value inside one of its entries
+//! that is no entry (an operator's application, `0 + 1`) is a term it builds, read as an
+//! application whose arguments are not read.
 //!
 //! The shape rules hold here: a sequence or map has at most one rest, `Some(..)` holds one
 //! entry, and a map read names each key once.
 
 use proc_macro2::TokenStream;
 use syn::ext::IdentExt;
+use syn::parse::discouraged::Speculative;
 use syn::parse::{ParseStream, Parser};
 use syn::{Ident, Lit, Path, Token, braced, bracketed, parenthesized};
 
@@ -320,7 +323,7 @@ impl<'a> EntryReading<'a> {
             _ => {
                 let mut arguments = Vec::new();
                 while !content.is_empty() {
-                    arguments.push(self.parse(content, false)?);
+                    arguments.push(self.inner(content)?);
                     if content.is_empty() {
                         break;
                     }
@@ -385,6 +388,26 @@ impl<'a> EntryReading<'a> {
         Ok(None)
     }
 
+    /// A value inside an entry, followed by a `,` or by nothing: an item, an argument or a
+    /// record field's value. Inside an initializer's entry every such value is a term the
+    /// initializer builds, so one that is no entry (an operator's application, `0 + 1`) is read
+    /// as an application whose arguments are not read: the marks around it are still the entry's
+    /// to judge, and what it holds is the term's.
+    fn inner(self, input: ParseStream<'_>) -> syn::Result<EntrySpelling> {
+        if self.form != EntryForm::Initializer {
+            return self.parse(input, false);
+        }
+        let ahead = input.fork();
+        if let Ok(spelling) = self.parse(&ahead, false)
+            && (ahead.is_empty() || ahead.peek(Token![,]))
+        {
+            input.advance_to(&ahead);
+            return Ok(spelling);
+        }
+        input.parse::<syn::Expr>()?;
+        Ok(EntrySpelling::Call(Vec::new()))
+    }
+
     /// Comma-separated items with at most one rest.
     fn seq(self, content: ParseStream<'_>) -> syn::Result<EntrySeq> {
         let mut items = Vec::new();
@@ -406,7 +429,7 @@ impl<'a> EntryReading<'a> {
                 };
                 rest = Some((found, place));
             } else {
-                items.push(self.parse(content, false)?);
+                items.push(self.inner(content)?);
             }
             if content.is_empty() {
                 break;
@@ -491,7 +514,7 @@ impl<'a> EntryReading<'a> {
             let name = content.call(Ident::parse_any)?.unraw().to_string();
             let value = if content.peek(Token![:]) {
                 content.parse::<Token![:]>()?;
-                self.parse(content, false)?
+                self.inner(content)?
             } else {
                 EntrySpelling::Binder(name.clone())
             };
@@ -565,6 +588,25 @@ fn read_fields(tokens: &TokenStream, reading: EntryReading<'_>) -> Option<Vec<Ce
                 && is_at(part.get(1))
                 && is_dot(part.get(2)))
         {
+            continue;
+        }
+        // An initializer's shorthand field `name` is `name: name`, the variable it names.
+        if form == EntryForm::Initializer
+            && let [TokenTree::Ident(name)] = part
+        {
+            let value = TokenStream::from(TokenTree::Ident(name.clone()));
+            let range = crate::TokenRange::for_tokens(&value).ok();
+            let spelling = reading.value(value).ok();
+            fields.push(CellsField {
+                key: Path::from(name.clone()),
+                located: range
+                    .filter(|_| spelling.is_some())
+                    .map(|range| (Vec::new(), range))
+                    .into_iter()
+                    .collect(),
+                spelling,
+                value: range,
+            });
             continue;
         }
         if form.is_readable()
@@ -893,6 +935,53 @@ mod cells_fields_tests {
             Some(EntrySpelling::MapRead(_))
         ));
         assert!(fields.iter().all(|field| field.value.is_some()));
+    }
+
+    #[test]
+    fn an_initializer_s_inner_value_that_is_no_entry_is_a_term_and_its_shorthand_its_variable() {
+        let tokens = "pc: [0 + 1, x], shelf: Shelf { n: 0 + 1, bag: [f(0 + 1)] }, pgm, k: 0 + 1"
+            .parse()
+            .expect("lexes");
+        let variables = ["pgm".to_owned()];
+        let fields = super::EntryReading::new(super::EntryForm::Initializer, &variables)
+            .fields(&tokens)
+            .expect("fields");
+        let term = || EntrySpelling::Call(Vec::new());
+        assert_eq!(
+            fields[0].spelling,
+            Some(EntrySpelling::Brackets(super::EntrySeq {
+                items: vec![term(), EntrySpelling::Binder("x".to_owned())],
+                rest: None,
+            }))
+        );
+        assert_eq!(
+            fields[1].spelling,
+            Some(EntrySpelling::Record(super::EntryRecord {
+                head: "Shelf".to_owned(),
+                fields: vec![
+                    ("n".to_owned(), term()),
+                    (
+                        "bag".to_owned(),
+                        EntrySpelling::Brackets(super::EntrySeq {
+                            items: vec![EntrySpelling::Call(vec![term()])],
+                            rest: None,
+                        })
+                    ),
+                ],
+                tail: super::RecordTail::Exact,
+            }))
+        );
+        assert_eq!(
+            fields[2].spelling,
+            Some(EntrySpelling::ConfigVar("pgm".to_owned()))
+        );
+        // At the entry's head an operator is still no entry: its cell's wrapper is its own.
+        assert_eq!(fields[3].spelling, None);
+        let located = super::located_spellings(
+            &"[0 + 1, x]".parse().expect("lexes"),
+            fields[0].spelling.as_ref().expect("read"),
+        );
+        assert_eq!(located.len(), 3);
     }
 
     #[test]
