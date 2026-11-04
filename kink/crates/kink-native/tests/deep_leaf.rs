@@ -8,7 +8,8 @@
 //! concatenations), so a long run ends at a leaf as deep as its number of steps, while the
 //! definition thread has a fixed stack. The run here starts with the whole list in its `<log>`
 //! cell, written as one associative application, which k-rust reads into its list without
-//! nesting; one rewrite later the leaf comes back as the chain.
+//! nesting; one rewrite later the leaf comes back as the chain, and kink admits it to k-rust
+//! with its collections associated again, so its length adds no level to the admission.
 
 #[path = "../../../testdata/k/support.rs"]
 mod support;
@@ -42,15 +43,23 @@ use kink_pattern::{
     ExecutionTerminalKind, PathStop, RelationDecider, RelationDecision, SymbolSorts,
 };
 
-/// The entries of the list: more levels than the definition thread's stack holds of k-rust's
-/// recursive internalization of a pattern (about 230,000 at 1,152 bytes per level in a release
-/// build, fewer in the test build), which the adapter's feasibility ran on that stack before it
-/// ran on one sized for the leaf, and fewer than the largest stack k-rust provides holds
-/// (`nesting::max_depth`), so the leaf is admitted, not refused. A million entries, the depth of
-/// a million-step run, still overflows the thread in a clone of the leaf's `serde_json::Value`,
-/// the form k-rust's facade hands a result in and the bridge keeps its branches in, or in its
-/// decoding.
-const ENTRIES: usize = 250_000;
+/// The entries of the list, the depth of a million-step run: as a right-nested chain, the form
+/// k-rust's facade hands the leaf in, more levels than the definition thread's stack holds of
+/// k-rust's recursive internalization of a pattern (about 230,000 at 1,152 bytes per level in a
+/// release build, fewer in the test build) and more than the largest stack k-rust provides
+/// holds in the test build (`nesting::max_depth`, 700,000 levels), so the leaf would be refused
+/// for its depth if kink admitted it as it is handed. kink admits the leaf with its collections
+/// associated, whose depth does not grow with the list's length, and holds it as a
+/// `kore::Pattern`, whose clone, comparison and drop keep their work on the heap.
+const ENTRIES: usize = 1_000_000;
+
+/// The entries the list holds: [`ENTRIES`], or one more than `nesting::max_depth` where that is
+/// more (a release build, whose largest stack holds about a million levels), so that in every
+/// build the leaf as handed is deeper than the largest stack k-rust provides, and the test shows
+/// what association admits rather than a leaf k-rust could admit as handed.
+fn entries() -> usize {
+    ENTRIES.max(nesting::max_depth() + 1)
+}
 
 /// The levels of the chains the walks are run on in [`deep_walks_keep_their_work_off_the_stack`]:
 /// far more than an 8 MiB thread holds of any recursion that takes a frame per level.
@@ -143,7 +152,22 @@ fn log_content(pattern: &Pattern) -> Option<&Pattern> {
     None
 }
 
+/// The content of the `<log>` cell of `pattern`, to replace.
+fn log_content_mut(pattern: &mut Pattern) -> Option<&mut Pattern> {
+    let mut pending = vec![pattern];
+    while let Some(node) = pending.pop() {
+        if let Pattern::Application { symbol, arguments } = node {
+            if symbol.name == LOG_CELL {
+                return arguments.first_mut();
+            }
+            pending.extend(arguments);
+        }
+    }
+    None
+}
+
 fn judge_the_deep_leaf() {
+    let entries = entries();
     let validator = NativeValidator::bind(
         support::load_path(&Path::new(support::DIR).join("collstore.k"), "COLLSTORE"),
         CompileOptions::default(),
@@ -190,7 +214,7 @@ fn judge_the_deep_leaf() {
             name: LIST_CONCAT.into(),
             sort_parameters: Vec::new(),
         },
-        arguments: (0..ENTRIES).map(element).collect(),
+        arguments: (0..entries).map(element).collect(),
     });
     with_log(&mut initial, &mut list);
     assert!(list.is_none(), "the configuration has a <log> cell");
@@ -209,9 +233,10 @@ fn judge_the_deep_leaf() {
         HaltClass::Stuck,
         "halt() rewrites once and stops"
     );
-    // The adapter admitted the leaf on a stack sized for it: the leaf is within the depth k-rust
-    // provides a stack for, so the admission was not refused for its depth, and a host's refusal
-    // would have failed the execution above. So `Unknown` is the admission's own answer.
+    // The adapter admitted the leaf, associated, on a stack sized for that form, which is within
+    // the depth k-rust provides a stack for, so the admission was not refused for its depth, and
+    // a host's refusal would have failed the execution above. So `Unknown` is the admission's
+    // own answer.
     assert_eq!(
         leaf.feasibility,
         LeafFeasibility::Unknown,
@@ -234,14 +259,39 @@ fn judge_the_deep_leaf() {
             let raw = leaf.branch.state.clone();
             assert_eq!(
                 log_content(&raw).and_then(chain_length),
-                Some(ENTRIES),
+                Some(entries),
                 "the leaf's list is the right-nested chain of every entry"
             );
             let depth = definition.operation_depth(&[&raw]);
             assert!(
-                ENTRIES < depth && depth <= nesting::max_depth(),
-                "the leaf is as deep as its list, within what k-rust provides a stack for: {depth}"
+                entries < depth,
+                "the leaf as k-rust hands it is deeper than its list: {depth}"
             );
+            assert!(
+                nesting::max_depth() < depth,
+                "the leaf as k-rust hands it is deeper than the largest stack k-rust provides \
+                 ({}), so admitting it as handed would be refused: {depth}",
+                nesting::max_depth()
+            );
+            // The leaf with a three-entry list in place of its own: associated, the two are
+            // equally deep, so the admitted form's depth does not depend on the list's length.
+            let mut short = raw.clone();
+            *log_content_mut(&mut short).expect("the leaf has a <log> cell") =
+                (0..2).rev().fold(element(2), |rest, value| {
+                    app(LIST_CONCAT, vec![element(value), rest])
+                });
+            let associated = definition.associated_collections(&raw);
+            let associated_depth = definition.operation_depth(&[associated.as_ref()]);
+            assert_eq!(
+                associated_depth,
+                definition.operation_depth(&[definition.associated_collections(&short).as_ref()]),
+                "the associated leaf is as deep as with a three-entry list"
+            );
+            assert!(
+                associated_depth <= nesting::max_depth(),
+                "the associated leaf is within what k-rust provides a stack for: {associated_depth}"
+            );
+            drop((associated, short));
             assert_eq!(
                 decider.terminal_value(&raw).as_ref(),
                 Some(&raw),
@@ -277,10 +327,10 @@ fn judge_the_deep_leaf() {
                 Some(RelationDecision::Equal),
                 "the list admits to one internal term, related to itself"
             );
-            assert_eq!(
+            assert!(
                 exists,
-                depth <= nesting::max_depth(),
-                "the leaf is shown to exist exactly where k-rust provides the stack for it"
+                "the leaf is shown to exist: its associated form is within what k-rust provides a \
+                 stack for"
             );
             assert_eq!(
                 shared,
@@ -402,10 +452,11 @@ fn deep_walks_keep_their_work_off_the_stack() {
 }
 
 mod kink_tier {
-    /// The run, the adapter's feasibility and the bridge on a leaf with a quarter-million-entry
-    /// list, on the definition thread's stack: every walk kink makes over the leaf either keeps
-    /// its work on the heap or runs on a stack k-rust sizes for the leaf, so none overflows.
-    /// About 30 s and 4 GiB in the test build, which is why it is not a light test.
+    /// The run, the adapter's feasibility and the bridge on a leaf with a million-entry list, on
+    /// the definition thread's stack: every walk kink makes over the leaf either keeps its work
+    /// on the heap or runs on a stack k-rust sizes for the leaf's associated form, so none
+    /// overflows and none is refused for the leaf's depth.
+    /// About 90 s and 8 GiB in the test build, which is why it is not a light test.
     #[test]
     #[ignore = "kink"]
     fn a_deep_list_leaf_is_judged_on_the_definition_stack() {
