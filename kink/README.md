@@ -29,6 +29,9 @@ This section is written for the LLM that drives the loop;
 Build the portable profile for the loop, from the root of k-rust's checkout: `cargo build --release -p kink-flow --no-default-features`.
 The default build is the Z3 profile ("Gate", below), under which the outcome and pattern caches are off and some `no` answers of `kink-flow query` are `unknown`, until adoption A-5 and k-rust's KINK-28; the walkthrough below is written for the portable build.
 
+For a KRS specification, `krs kink <verb>` is the same loop over a KRS package: it builds the package, keeps the K it emits as `kink/definition.k`, runs these verbs with these options over it, and names every rule a document names by its Rust item and position (`krs = {item, file, line, ..}`).
+Its corpus is `<package>/kink/`, with a `FLOW.toml` whose `[spec]` is `krs = { definition = "main" }`, and mutations are K patches of the emitted rules anchored by the item's name (`rule = "plus_zero"`); KRS's workflow reference, "The corpus loop" (`docs-site/src/pages/reference/workflow.mdx`), is its reference.
+
 ### The loop
 
 1. **Specification.** Start from a K specification: an entry file, its main module and its syntax module.

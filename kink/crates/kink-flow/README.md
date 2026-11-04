@@ -20,7 +20,7 @@ the mutations directory, anchors by a suffix of a label's components and the req
 the resolve-only check of a mutation list, `check --mutations` (CF-18; "Checking mutations" below),
 the definition exclusions read at admission, each named with its causes by one formatter for every command, with `check` failing when a fact known before any mutant runs makes a verdict impossible (CF-02; "When `check` fails" below),
 the compared cells: the specification's unobservable cells left out of every comparison, a manifest's narrowing, and every document naming the cells compared ("Which cells are compared" below),
-and the library for both front ends, kink-flow's command line and the krs front end (`krs kink <verb>`, not yet built): one manifest schema with a K or a KRS `[spec]`, one command layer, and the deterministic `--output verdicts` rendering (CF-40; "Front ends" and "Verdicts" below).
+and the library for both front ends, kink-flow's command line and the krs front end (`krs kink <verb>`): one manifest schema with a K or a KRS `[spec]`, one command layer, and the deterministic `--output verdicts` rendering (CF-40; "Front ends" and "Verdicts" below).
 
 ## Building
 
@@ -63,7 +63,7 @@ start_sort = "Exp"            # optional; only with file or text
 variables = { N = "42" }      # optional; configuration variable $N = 42
 ```
 
-A KRS corpus declares its specification as the K a KRS package emits, which the krs front end (`krs kink <verb>`, not yet built) binds:
+A KRS corpus declares its specification as the K a KRS package emits, which the krs front end (`krs kink <verb>`) binds:
 
 ```toml
 [spec]
@@ -73,7 +73,7 @@ assume_joined = []             # optional, as above
 
 With `krs`, `[spec]` takes no other key but `assume_joined`: `entry`, `main_module`, `syntax_module`, `include_dirs` and `md_selector` are each the error `spec.<key>: not allowed with spec.krs: the krs front end supplies it`, and `krs` takes exactly the key `definition`.
 Every other table is the same for both kinds of corpus.
-kink-flow refuses a KRS corpus (``spec.krs: a KRS corpus: run `krs kink <command>` in the package``, stage `manifest`); the krs front end is to refuse a K corpus.
+kink-flow refuses a KRS corpus (``spec.krs: a KRS corpus: run `krs kink <command>` in the package``, stage `manifest`); the krs front end refuses a K corpus (`spec.entry: a K corpus`, naming `kink-flow`) and a KRS corpus of another definition facet than its `--definition` (`spec.krs.definition`, naming both).
 
 Every path is relative to the manifest's directory and must stay inside it.
 Unknown keys, values of the wrong type, duplicate or empty program ids,
@@ -1170,7 +1170,8 @@ Version 4 (fz26 round 4, FZ-REPLAY-WHOLE) embeds k-rust-fuzz reports of version 
 
 ## Front ends
 
-kink-flow's manifest, command layer and documents are a library (`kink_flow`) for two front ends: kink-flow's own command line over a K specification, and the krs front end (`krs kink <verb>`, not yet built), which is to build a KRS package, write the K it emits next to the corpus and run kink-flow's commands over that K.
+kink-flow's manifest, command layer and documents are a library (`kink_flow`) for two front ends: kink-flow's own command line over a K specification, and the krs front end (`krs kink <verb>`, in krs-cli), which builds a KRS package, keeps the K it emits as `definition.k` in the corpus directory and runs kink-flow's commands over that K.
+The krs front end's commands, its corpus layout (`<package>/kink/`) and what it adds to the documents (a `krs` object on every rule, the `definition` object) are stated in KRS's workflow reference (`docs-site/src/pages/reference/workflow.mdx`, "The corpus loop").
 Both decode `FLOW.toml` with `ManifestFile::decode` and run the engine unchanged, so a KRS corpus has the K corpus's admission, kill definition, caches, documents and statuses.
 
 - `ManifestFile` is a decoded `FLOW.toml` whose `[spec]` is a `SpecDecl`: `K` (as written) or `Krs`.

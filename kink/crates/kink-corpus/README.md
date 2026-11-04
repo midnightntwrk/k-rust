@@ -6,7 +6,7 @@ kink's admission-and-input library and kink's corpus harness.
 
 The crate has two roles.
 
-It is the library every kink front end builds on: kink-flow, and through kink-flow the krs front end (`krs kink`, not yet built).
+It is the library every kink front end builds on: kink-flow, and through kink-flow the krs front end (`krs kink`, in krs-cli).
 The library is:
 
 - `resolver`: loading a K definition under a root, recording every file the load reads (`load_source`, `load_source_with_overlay`, `CorpusSource`, `LoadedSource`, `SourceFile`).
@@ -24,7 +24,7 @@ keeps a digest-checked store with resume, aggregates a summary and re-derives a 
 ## Not a user tool
 
 The harness serves kink's own tests and its maintainers.
-To test a K specification, use kink-flow ([`../kink-flow/README.md`](../kink-flow/README.md)); for a KRS package, the krs front end (`krs kink`, not yet built).
+To test a K specification, use kink-flow ([`../kink-flow/README.md`](../kink-flow/README.md)); for a KRS package, the krs front end (`krs kink <verb>`, in krs-cli; KRS's workflow reference, "The corpus loop", `docs-site/src/pages/reference/workflow.mdx`).
 One manifest schema, kink-flow's `FLOW.toml`, and one status set, kink-flow's (`kink_flow::search::STATUSES`), serve users.
 A capability of the harness manifest reaches users only as a form of `FLOW.toml` stated in the specification's own terms: its declared inputs, its cell names, K text edits of it.
 

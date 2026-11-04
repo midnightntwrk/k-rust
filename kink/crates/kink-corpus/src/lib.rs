@@ -3,7 +3,7 @@
 //! The crate has two roles.
 //!
 //! It is the library every kink front end builds on: kink-flow, and through kink-flow the krs
-//! front end (`krs kink`, not yet built). The library is
+//! front end (`krs kink`, in krs-cli). The library is
 //! [`resolver`] (loading a K definition under a root, recording every file the load reads),
 //! [`input`] (assembling a program's initial configuration from its program text and its
 //! configuration variables),
