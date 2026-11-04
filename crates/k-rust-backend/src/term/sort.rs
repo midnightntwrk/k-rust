@@ -7,7 +7,7 @@
 //! type = "k_rust_backend::term::Sort"
 //! sites = ["Sort", "SortNode", "Sorts", "Sort::application", "Sort::simple", "Sort::variable",
 //!     "Sort::builtin", "Sort::of_node", "Sorts::new", "Sort::eq", "Sort::cmp", "Sort::hash",
-//!     "Sorts::eq", "Sorts::cmp", "order_key"]
+//!     "Sorts::eq", "Sorts::cmp", "order_key", "Sort::id"]
 //! invariant = """\
 //! The interner's initialization interns the builtin sorts first; after it, Sort::of_node is the \
 //! only place a Sort is built, and it returns the node the interner holds for the content \
@@ -22,8 +22,10 @@
 //! two names as their bytes do whenever the keys differ, and compares the full names only when \
 //! the keys agree. Hash and Debug of Sort and Sorts are those of the node and of the slice, so \
 //! they write the same bytes and text as a derived enum Sort { Application { name, arguments: \
-//! Vec<Sort> }, Variable(name) }. Nodes are never freed: their number is that of the distinct \
-//! sorts the process builds."""
+//! Vec<Sort> }, Variable(name) }. Each node carries an id, assigned once when it is interned from a \
+//! process-wide counter, so distinct sorts have distinct ids and Sort::id indexes dense tables of \
+//! sorts (matching's DenseBelow); the id takes no part in Eq, Ord or Hash. Nodes are never freed: \
+//! their number is that of the distinct sorts the process builds."""
 //! tests = ["crates/k-rust-backend/tests/backend/term_order.rs"]
 //! ```
 
@@ -34,7 +36,10 @@ use std::{
     hash::{Hash, Hasher},
     ops::Deref,
     ptr,
-    sync::{Arc, LazyLock, PoisonError, RwLock},
+    sync::{
+        Arc, LazyLock, PoisonError, RwLock,
+        atomic::{AtomicU32, Ordering as AtomicOrdering},
+    },
 };
 
 use k_rust_domain::DomainSort;
@@ -68,7 +73,13 @@ struct SortData {
     builtin: Option<u8>,
     /// True when a sort variable occurs anywhere in the sort.
     has_variable: bool,
+    /// The position of this node in the order the process interned its nodes: distinct nodes
+    /// have distinct ids, so a table indexed by id holds one slot per sort ([`Sort::id`]).
+    id: u32,
 }
+
+/// The id the next interned node receives.
+static NEXT_SORT_ID: AtomicU32 = AtomicU32::new(0);
 
 /// The first 16 bytes of `name`, big-endian, zero-padded. When the keys of two names differ,
 /// they order as the names do: at the first byte where the keys differ, either both names have a
@@ -149,11 +160,14 @@ fn leak(node: SortNode, builtin: Option<u8>) -> &'static SortData {
         SortNode::Variable(name) => (name, true),
     };
     let key = order_key(name);
+    let id = NEXT_SORT_ID.fetch_add(1, AtomicOrdering::Relaxed);
+    assert!(id != u32::MAX, "fewer than u32::MAX distinct sorts");
     Box::leak(Box::new(SortData {
         node,
         key,
         builtin,
         has_variable,
+        id,
     }))
 }
 
@@ -255,6 +269,13 @@ impl Sort {
     #[inline]
     pub(crate) fn shared_builtin_index(&self) -> Option<usize> {
         self.0.builtin.map(usize::from)
+    }
+
+    /// A small integer naming this sort among the sorts of the process: equal sorts have equal
+    /// ids and distinct sorts distinct ones, so it indexes dense tables of sorts.
+    #[inline]
+    pub(crate) fn id(self) -> u32 {
+        self.0.id
     }
 
     /// True when a sort variable occurs anywhere in the sort.

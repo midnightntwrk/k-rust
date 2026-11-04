@@ -31,8 +31,8 @@
 //! span = "none"
 //!
 //! [[cost]]
-//! mode = "SortGraph::check_subsort"
-//! bound = "O(c x log |S|)"
+//! mode = "SortGraph::check_subsort, SortGraph::known_overlap"
+//! bound = "O(1) when the supersort (for known_overlap, both sorts) is a node of the closure: array reads and one bit of DenseBelow (known_overlap: an AND of two rows of |S|/64 words); otherwise O(c x log |S|)"
 //!
 //! [[cost]]
 //! mode = "OverloadGraph::is_overloading, OverloadGraph::overloaded_by"
@@ -48,9 +48,11 @@
 //! problem for p bounded by |pattern| plus subject-side `And` duplications and one `map_queue`
 //! postponement per map pair, each pop O(arity) plus an eager composition of the substitution per
 //! binding and the card's structural and instance-normality scan costs;
-//! `Counter::MatchingProblems`, `Counter::MatchingPairs`. Subsort and overload membership
-//! queries over the closures `definition.rs` builds, O(log |S|) sort comparisons per query, each
-//! linear in the compared sorts, and a linear scan of the overload closure for `common_overloads`.
+//! `Counter::MatchingProblems`, `Counter::MatchingPairs`. Subsort membership queries read the
+//! closure `definition.rs` builds as bit rows indexed by dense sort ids (`DenseBelow`) when the
+//! supersort is a node of it, and otherwise search it, O(log |S|) sort comparisons each linear in
+//! the compared sorts; overload membership queries search their closure, with a linear scan of it
+//! for `common_overloads`.
 //! AC and A collection matching is `collections`, re-exported here so every entry
 //! point of `crate::matching` keeps its path.
 
@@ -76,6 +78,7 @@ use collections::{
 
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
+    fmt,
     sync::Arc,
 };
 
@@ -410,6 +413,103 @@ pub struct SortGraph {
     constructors: BTreeSet<Name>,
     /// Head projection of `below` (I2), reflexive on every constructor.
     heads_below: BTreeMap<Name, BTreeSet<Name>>,
+    /// `below` as bit rows over dense indices, rebuilt whenever `below` changes.
+    dense: DenseBelow,
+}
+
+/// The closure `below` of a [`SortGraph`] as one bit row per node over dense indices of the
+/// sorts it names, so that "is `sub` in the down-set of `sup`" is one bit read instead of two
+/// ordered-tree searches. A function of `below` alone, so it takes no part in equality.
+#[derive(Clone, Default)]
+struct DenseBelow {
+    /// For a sort's [`Sort::id`], its index among the sorts `below` names, or [`DenseBelow::NONE`].
+    index: Vec<u32>,
+    /// For an index, the row of its down-set when that sort is a node of `below`, or `NONE`.
+    row: Vec<u32>,
+    /// The `u64` words of one row.
+    words: usize,
+    bits: Vec<u64>,
+}
+
+impl DenseBelow {
+    const NONE: u32 = u32::MAX;
+
+    fn of(below: &BTreeMap<ClosedSort, BTreeSet<ClosedSort>>) -> Self {
+        let mut index = Vec::new();
+        let mut count = 0_u32;
+        let mut assign = |sort: &Sort| {
+            let id = sort.id() as usize;
+            if index.len() <= id {
+                index.resize(id + 1, Self::NONE);
+            }
+            if index[id] == Self::NONE {
+                index[id] = count;
+                count += 1;
+            }
+        };
+        for (sup, subs) in below {
+            assign(sup.sort());
+            subs.iter().for_each(|sub| assign(sub.sort()));
+        }
+        let words = (count as usize).div_ceil(64);
+        let mut row = vec![Self::NONE; count as usize];
+        let mut bits = vec![0_u64; below.len() * words];
+        for (position, (sup, subs)) in below.iter().enumerate() {
+            row[index[sup.sort().id() as usize] as usize] =
+                u32::try_from(position).expect("fewer than u32::MAX sorts");
+            for sub in subs {
+                let bit = index[sub.sort().id() as usize] as usize;
+                bits[position * words + bit / 64] |= 1 << (bit % 64);
+            }
+        }
+        Self {
+            index,
+            row,
+            words,
+            bits,
+        }
+    }
+
+    /// The dense index of `sort`, when `below` names it.
+    #[inline]
+    fn index(&self, sort: &Sort) -> Option<usize> {
+        match self.index.get(sort.id() as usize) {
+            Some(&index) if index != Self::NONE => Some(index as usize),
+            _ => None,
+        }
+    }
+
+    /// The down-set row of `sort`: `Some` exactly when `below` has `sort` as a node.
+    #[inline]
+    fn row(&self, sort: &Sort) -> Option<&[u64]> {
+        let row = self.row[self.index(sort)?];
+        (row != Self::NONE).then(|| {
+            let start = row as usize * self.words;
+            &self.bits[start..start + self.words]
+        })
+    }
+
+    /// Whether `sort` is in the down-set `row`: the down-set's `contains`.
+    #[inline]
+    fn holds(&self, row: &[u64], sort: &Sort) -> bool {
+        self.index(sort)
+            .is_some_and(|bit| row[bit / 64] >> (bit % 64) & 1 == 1)
+    }
+}
+
+impl PartialEq for DenseBelow {
+    /// Always equal: the table is a function of the `below` its graph compares.
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for DenseBelow {}
+
+impl fmt::Debug for DenseBelow {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("DenseBelow")
+    }
 }
 
 impl SortGraph {
@@ -429,10 +529,12 @@ impl SortGraph {
             heads.insert(sup.head().clone());
             heads.extend(subs.iter().map(|sub| sub.head().clone()));
         }
+        let dense = DenseBelow::of(&below);
         Self {
             below,
             constructors,
             heads_below,
+            dense,
         }
     }
 
@@ -445,6 +547,7 @@ impl SortGraph {
             .insert(ClosedSort::simple(supersort.clone()), below);
         self.heads_below.insert(supersort.clone(), heads);
         self.constructors.insert(supersort);
+        self.dense = DenseBelow::of(&self.below);
     }
 
     pub fn check_subsort(&self, sub: &Sort, sup: &Sort) -> Result<bool, SortError> {
@@ -466,11 +569,11 @@ impl SortGraph {
         };
         // A node's down-set states every declared path to that whole sort, without covariance.
         // A closed sub absent from that complete set has no path to sup, so the answer is false.
-        if let Some(set) = self.below.get(sup) {
-            if set.contains(sub) {
+        if let Some(row) = self.dense.row(sup) {
+            if self.dense.holds(row, sub) {
                 return Ok(true);
             }
-            if first_sort_variable(sub).is_none() {
+            if !sub.has_variable() {
                 return Ok(false);
             }
         }
@@ -517,6 +620,11 @@ impl SortGraph {
     /// Whether two closed sorts with known heads have a common subsort in the exact order.
     /// A closed sort absent from the axioms has the singleton down-set containing itself.
     pub(crate) fn known_overlap(&self, left: &Sort, right: &Sort) -> Option<bool> {
+        // Two nodes of `below` are closed and have known heads (every node's head is a key of
+        // `heads_below`), so the checks below pass and the answer is their rows' intersection.
+        if let (Some(a), Some(b)) = (self.dense.row(left), self.dense.row(right)) {
+            return Some(a.iter().zip(b).any(|(a, b)| a & b != 0));
+        }
         let (
             SortNode::Application {
                 name: left_head, ..
@@ -536,10 +644,10 @@ impl SortGraph {
         {
             return None;
         }
-        Some(match (self.below.get(left), self.below.get(right)) {
-            (Some(a), Some(b)) => !a.is_disjoint(b),
-            (Some(a), None) => a.contains(right),
-            (None, Some(b)) => b.contains(left),
+        Some(match (self.dense.row(left), self.dense.row(right)) {
+            (Some(a), Some(b)) => a.iter().zip(b).any(|(a, b)| a & b != 0),
+            (Some(a), None) => self.dense.holds(a, right),
+            (None, Some(b)) => self.dense.holds(b, left),
             (None, None) => left == right,
         })
     }
@@ -3963,6 +4071,216 @@ mod tests {
                 counts.contains_key(&pair),
                 "{pair:?} not reached: {counts:?}"
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod dense_below_tests {
+    //! `DenseBelow` against the ordered-tree reading of the closure it replaced.
+
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use proptest::prelude::*;
+
+    use super::*;
+
+    /// `SortGraph::check_subsort` as it read `below` before `DenseBelow`.
+    fn check_subsort_by_closure(
+        graph: &SortGraph,
+        sub: &Sort,
+        sup: &Sort,
+    ) -> Result<bool, SortError> {
+        if sub == sup {
+            return Ok(true);
+        }
+        let SortNode::Application { name: sub_head, .. } = sub.node() else {
+            let SortNode::Variable(name) = sub.node() else {
+                unreachable!()
+            };
+            return Err(SortError::FoundSortVariable(name.clone()));
+        };
+        let SortNode::Application { name: sup_head, .. } = sup.node() else {
+            let SortNode::Variable(name) = sup.node() else {
+                unreachable!()
+            };
+            return Err(SortError::FoundSortVariable(name.clone()));
+        };
+        if let Some(set) = graph.below.get(sup) {
+            if set.contains(sub) {
+                return Ok(true);
+            }
+            if first_sort_variable(sub).is_none() {
+                return Ok(false);
+            }
+        }
+        if !graph.constructors.contains(sup_head) && !graph.heads_below.contains_key(sup_head) {
+            return Err(SortError::FoundUnknownSort(*sup));
+        }
+        let variable = first_sort_variable(sub).or_else(|| first_sort_variable(sup));
+        let Some(variable) = variable else {
+            return Ok(false);
+        };
+        if sub_head != sup_head
+            && !graph
+                .heads_below
+                .get(sup_head)
+                .is_some_and(|heads| heads.contains(sub_head))
+        {
+            return Ok(false);
+        }
+        Err(SortError::FoundSortVariable(variable.clone()))
+    }
+
+    /// `SortGraph::known_overlap` as it read `below` before `DenseBelow`.
+    fn known_overlap_by_closure(graph: &SortGraph, left: &Sort, right: &Sort) -> Option<bool> {
+        let (
+            SortNode::Application {
+                name: left_head, ..
+            },
+            SortNode::Application {
+                name: right_head, ..
+            },
+        ) = (left.node(), right.node())
+        else {
+            return None;
+        };
+        if first_sort_variable(left).is_some()
+            || first_sort_variable(right).is_some()
+            || (!graph.constructors.contains(left_head)
+                && !graph.heads_below.contains_key(left_head))
+            || (!graph.constructors.contains(right_head)
+                && !graph.heads_below.contains_key(right_head))
+        {
+            return None;
+        }
+        Some(match (graph.below.get(left), graph.below.get(right)) {
+            (Some(a), Some(b)) => !a.is_disjoint(b),
+            (Some(a), None) => a.contains(right),
+            (None, Some(b)) => b.contains(left),
+            (None, None) => left == right,
+        })
+    }
+
+    /// Every pair of `queries` answers as the closure does, both questions.
+    fn assert_agrees(graph: &SortGraph, queries: &[Sort]) {
+        for left in queries {
+            for right in queries {
+                assert_eq!(
+                    graph.check_subsort(left, right),
+                    check_subsort_by_closure(graph, left, right),
+                    "check_subsort({left:?}, {right:?})"
+                );
+                assert_eq!(
+                    graph.known_overlap(left, right),
+                    known_overlap_by_closure(graph, left, right),
+                    "known_overlap({left:?}, {right:?})"
+                );
+            }
+        }
+    }
+
+    /// The sorts of `graph` plus sorts it does not name: a declared constructor of no node, an
+    /// undeclared head, a closed instance of a node's head that is no node, and open sorts.
+    fn queries(graph: &SortGraph) -> Vec<Sort> {
+        let mut queries = graph
+            .below
+            .iter()
+            .flat_map(|(sup, subs)| std::iter::once(sup).chain(subs))
+            .map(|sort| *sort.sort())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        let parameter = Sort::variable("S");
+        queries.extend([
+            Sort::simple("SortLoose"),
+            Sort::simple("SortUndeclared"),
+            Sort::application("SortBox", vec![Sort::simple("SortLoose")]),
+            parameter,
+            Sort::application("SortBox", vec![parameter]),
+            Sort::application("SortS0", vec![parameter]),
+        ]);
+        queries
+    }
+
+    /// The closure of `edges` (sub, sup) over `nodes`, each node below itself.
+    fn closure(
+        nodes: &[Sort],
+        edges: &[(usize, usize)],
+    ) -> BTreeMap<ClosedSort, BTreeSet<ClosedSort>> {
+        let mut below = (0..nodes.len())
+            .map(|node| BTreeSet::from([node]))
+            .collect::<Vec<_>>();
+        // Edges go from a lower to a higher index, so one pass in index order closes them.
+        let mut sorted = edges.to_vec();
+        sorted.sort_by_key(|&(_, sup)| sup);
+        for sup in 0..nodes.len() {
+            for &(sub, _) in sorted.iter().filter(|&&(_, edge_sup)| edge_sup == sup) {
+                let reached = below[sub].clone();
+                below[sup].extend(reached);
+            }
+        }
+        below
+            .into_iter()
+            .enumerate()
+            .map(|(sup, subs)| {
+                let closed = |node: usize| ClosedSort::new(nodes[node]).expect("closed node");
+                (closed(sup), subs.into_iter().map(closed).collect())
+            })
+            .collect()
+    }
+
+    fn graph_of(nodes: &[Sort], edges: &[(usize, usize)]) -> SortGraph {
+        let constructors = nodes
+            .iter()
+            .map(|sort| sort.name().clone())
+            .chain([Name::from("SortLoose"), Name::from("SortBox")])
+            .collect::<Vec<_>>();
+        SortGraph::from_closure(constructors, closure(nodes, edges))
+    }
+
+    #[test]
+    fn a_diamond_with_parametric_nodes_answers_as_the_closure() {
+        let int = Sort::simple("SortInt");
+        let nodes = [
+            int,
+            Sort::simple("SortExp"),
+            Sort::simple("SortKResult"),
+            Sort::simple("SortKItem"),
+            Sort::application("SortBox", vec![int]),
+        ];
+        let graph = graph_of(&nodes, &[(0, 1), (0, 2), (1, 3), (2, 3), (4, 3)]);
+        assert_agrees(&graph, &queries(&graph));
+    }
+
+    #[test]
+    fn inserted_nodes_answer_as_the_closure() {
+        let mut graph = SortGraph::default();
+        graph.insert("SomeSort", [Name::from("ASubsort")]);
+        graph.insert("ASubsort", []);
+        graph.insert("Other", []);
+        let mut queries = queries(&graph);
+        queries.push(Sort::simple("Other"));
+        assert_agrees(&graph, &queries);
+    }
+
+    proptest! {
+        /// Random orders of up to 80 sorts, more than one 64-bit word of a row.
+        #[test]
+        fn random_orders_answer_as_the_closure(
+            count in 1_usize..80,
+            edges in proptest::collection::vec((0_usize..80, 0_usize..80), 0..240),
+        ) {
+            let nodes = (0..count)
+                .map(|node| Sort::simple(format!("SortS{node}")))
+                .collect::<Vec<_>>();
+            let edges = edges
+                .into_iter()
+                .map(|(a, b)| (a % count, b % count))
+                .filter(|(a, b)| a < b)
+                .collect::<Vec<_>>();
+            let graph = graph_of(&nodes, &edges);
+            assert_agrees(&graph, &queries(&graph));
         }
     }
 }

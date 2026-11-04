@@ -3189,8 +3189,8 @@ file = "crates/k-rust-backend/src/matching/mod.rs"
 symbol = "SortGraph::check_subsort"
 
 [[node.cost]]
-mode = "SortGraph::check_subsort"
-bound = "O(c x log |S|)"
+mode = "SortGraph::check_subsort, SortGraph::known_overlap"
+bound = "O(1) when the supersort (for known_overlap, both sorts) is a node of the closure: array reads and one bit of DenseBelow (known_overlap: an AND of two rows of |S|/64 words); otherwise O(c x log |S|)"
 
 [[node.cost]]
 mode = "OverloadGraph::is_overloading, OverloadGraph::overloaded_by"
@@ -11473,7 +11473,7 @@ id = "representation.backend.sort"
 provenance = "declared"
 area = "backend"
 name = "hash-consed backend sort with a pointer equality and a name-prefix order key"
-invariant = "The interner's initialization interns the builtin sorts first; after it, Sort::of_node is the only place a Sort is built, and it returns the node the interner holds for the content (variant, name text, argument handles), leaking a new one only when there is none; Sorts::new likewise returns the interned slice of the given handles. The arguments of an interned node are interned handles, so by induction on depth two handles are the same pointer exactly when their sorts are structurally equal: Eq for Sort is pointer equality, and Eq for Sorts is pointer equality of nonempty slices (all empty ones are equal). Ord for Sort is the order of the variants (Application before Variable), then of the names as byte strings, then of the arguments lexicographically; it decides equal pointers as Equal and otherwise compares the order key first, the first 16 bytes of the name big-endian and zero-padded, which orders two names as their bytes do whenever the keys differ, and compares the full names only when the keys agree. Hash and Debug of Sort and Sorts are those of the node and of the slice, so they write the same bytes and text as a derived enum Sort { Application { name, arguments: Vec<Sort> }, Variable(name) }. Nodes are never freed: their number is that of the distinct sorts the process builds."
+invariant = "The interner's initialization interns the builtin sorts first; after it, Sort::of_node is the only place a Sort is built, and it returns the node the interner holds for the content (variant, name text, argument handles), leaking a new one only when there is none; Sorts::new likewise returns the interned slice of the given handles. The arguments of an interned node are interned handles, so by induction on depth two handles are the same pointer exactly when their sorts are structurally equal: Eq for Sort is pointer equality, and Eq for Sorts is pointer equality of nonempty slices (all empty ones are equal). Ord for Sort is the order of the variants (Application before Variable), then of the names as byte strings, then of the arguments lexicographically; it decides equal pointers as Equal and otherwise compares the order key first, the first 16 bytes of the name big-endian and zero-padded, which orders two names as their bytes do whenever the keys differ, and compares the full names only when the keys agree. Hash and Debug of Sort and Sorts are those of the node and of the slice, so they write the same bytes and text as a derived enum Sort { Application { name, arguments: Vec<Sort> }, Variable(name) }. Each node carries an id, assigned once when it is interned from a process-wide counter, so distinct sorts have distinct ids and Sort::id indexes dense tables of sorts (matching's DenseBelow); the id takes no part in Eq, Ord or Hash. Nodes are never freed: their number is that of the distinct sorts the process builds."
 type_path = "k_rust_backend::term::Sort"
 
 [node.anchor]
@@ -11555,6 +11555,11 @@ symbol = "Sorts::cmp"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/term/sort.rs"
 symbol = "order_key"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/sort.rs"
+symbol = "Sort::id"
 
 [[node]]
 kind = "invariant"

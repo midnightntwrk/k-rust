@@ -278,10 +278,29 @@ fn alpha_normalize(predicate: &Predicate, next: &mut usize) -> Predicate {
     }
 }
 
+/// The length below which [`extend_unique`] looks for a duplicate by scanning the list rather
+/// than through a hash index. Both find a duplicate exactly when some held predicate equals the
+/// added one, so the result is the same; the scan builds nothing, and on the lists a rewrite
+/// step carries (a few predicates) it compares fewer terms than hashing all of them does.
+const EXTEND_UNIQUE_SCAN: usize = 16;
+
 pub(super) fn extend_unique(
     predicates: &mut Vec<Predicate>,
     added: impl IntoIterator<Item = Predicate>,
 ) {
+    let mut added = added.into_iter();
+    while predicates.len() < EXTEND_UNIQUE_SCAN {
+        let Some(predicate) = added.next() else {
+            return;
+        };
+        if !predicates.contains(&predicate) {
+            predicates.push(predicate);
+        }
+    }
+    extend_unique_indexed(predicates, added);
+}
+
+fn extend_unique_indexed(predicates: &mut Vec<Predicate>, added: impl Iterator<Item = Predicate>) {
     let hash = |predicate: &Predicate| {
         let mut hasher = FxHasher::default();
         predicate.hash(&mut hasher);
