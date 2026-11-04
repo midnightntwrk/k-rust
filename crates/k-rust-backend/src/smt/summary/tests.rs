@@ -1059,6 +1059,82 @@ fn actual_scalar_emission_shares_dependencies_and_keeps_actual_operand_admission
     );
 }
 
+/// The SMT trace records each query preparation of finite summaries, with whether the query has
+/// a congruence policy and how many calls it offers, and each call it offers, with the catalog's
+/// verdict.
+#[cfg(feature = "z3")]
+#[test]
+fn the_smt_trace_records_summary_admissions() {
+    use crate::smt::trace::{
+        tests::{Scratch, of_kind},
+        with_directory,
+    };
+    let outer = equation(
+        "outer{}(X:SortInt{})",
+        "plus{}(bit{}(\\dv{SortBool{}}(\"true\")),X:SortInt{})",
+        None,
+        "",
+    );
+    let d = definition(&(bit_rows() + &outer));
+    let partial = Predicate::Equals(
+        term(&d, "partialTable{}(X:SortInt{})"),
+        term(&d, r#"\dv{SortInt{}}("1")"#),
+    );
+    let checked = Predicate::Equals(
+        term(&d, "outer{}(X:SortInt{})"),
+        term(&d, r#"plus{}(X:SortInt{},\dv{SortInt{}}("1"))"#),
+    );
+    let scratch = Scratch::new("admission");
+    with_directory(Some(scratch.path()), false, || {
+        emission_state(&d, &[], &[checked.clone(), partial]);
+    });
+    let records = scratch.records();
+    let preparations = of_kind(&records, "summary_preparation");
+    assert_eq!(preparations.len(), 1, "{records:?}");
+    assert_eq!(preparations[0]["congruence"], true, "{records:?}");
+    assert!(
+        preparations[0]["calls"].as_u64().unwrap() >= 2,
+        "{records:?}"
+    );
+    let admissions = of_kind(&records, "summary_admission");
+    let verdict = |head: &str| {
+        admissions
+            .iter()
+            .find(|record| record["head"] == head)
+            .map(|record| (record["eligible"].clone(), record["verdict"].clone()))
+    };
+    assert_eq!(
+        verdict("outer"),
+        Some((serde_json::json!(true), serde_json::json!("accepted"))),
+        "{records:?}"
+    );
+    let (_, partial) = verdict("partialTable").expect("partialTable is offered or refused");
+    assert_ne!(partial, serde_json::json!("accepted"), "{records:?}");
+
+    // Without a congruence policy a query prepares no summary, and the trace says why.
+    let scratch = Scratch::new("no-congruence");
+    with_directory(Some(scratch.path()), false, || {
+        super::prepare(
+            &super::Source::new(&d),
+            &mut super::super::TranslationState::new(),
+            &[],
+            &crate::substitution::Substitution::new(),
+            &[checked],
+        )
+        .unwrap()
+        .unwrap();
+    });
+    let records = scratch.records();
+    let preparations = of_kind(&records, "summary_preparation");
+    assert_eq!(preparations.len(), 1, "{records:?}");
+    assert_eq!(preparations[0]["congruence"], false, "{records:?}");
+    assert!(preparations[0]["calls"].is_null(), "{records:?}");
+    assert!(
+        of_kind(&records, "summary_admission").is_empty(),
+        "{records:?}"
+    );
+}
+
 #[cfg(feature = "z3")]
 #[test]
 fn scalar_function_parameters_are_local_under_nested_quantifiers() {

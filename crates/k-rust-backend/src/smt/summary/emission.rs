@@ -403,16 +403,30 @@ fn prepare_stated(
 ) -> Stoppable<Result<(), TranslationError>> {
     stop::check()?;
     if state.congruence.is_none() {
+        #[cfg(feature = "z3")]
+        crate::smt::trace::summary_preparation(false, None);
         return Ok(Ok(()));
     }
     let Some(calls) = calls(known, substitution, checked)? else {
+        #[cfg(feature = "z3")]
+        crate::smt::trace::summary_preparation(true, None);
         return Ok(Ok(()));
     };
+    #[cfg(feature = "z3")]
+    crate::smt::trace::summary_preparation(true, Some(calls.len()));
     let mut catalog = Catalog::new(&source.0);
     for call in calls {
         stop::check()?;
         if state.eligible_operand(call) {
-            let _ = catalog.admit(call)?;
+            // The catalog keeps what it admitted; the verdict itself is only traced.
+            let verdict = catalog.admit(call)?;
+            #[cfg(feature = "z3")]
+            crate::smt::trace::summary_admission(call, Some(verdict.map(|_| ())));
+            #[cfg(not(feature = "z3"))]
+            let _ = verdict;
+        } else {
+            #[cfg(feature = "z3")]
+            crate::smt::trace::summary_admission(call, None);
         }
     }
     // The catalog's accepted graph is acyclic. Emit a key only after every dependency has

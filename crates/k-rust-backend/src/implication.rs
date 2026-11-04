@@ -882,6 +882,62 @@ enum Established {
     Unprepared,
 }
 
+impl Established {
+    /// The variant and its evidence's shape, as the SMT trace records them.
+    fn traced(&self) -> crate::smt::trace::Established {
+        let origin = |origin: &Origin| match origin {
+            Origin::ConsequentCondition => "ConsequentCondition",
+            Origin::MatchRemainder => "MatchRemainder",
+        };
+        let (variant, origin, refuter, obligations) = match self {
+            Self::Holds(_) => ("Holds", None, None, None),
+            Self::AntecedentEmpty => ("AntecedentEmpty", None, None, None),
+            Self::TermMismatch => ("TermMismatch", None, None, None),
+            Self::Refuted {
+                by,
+                origin: from,
+                obligations,
+                ..
+            } => (
+                "Refuted",
+                Some(origin(from)),
+                Some(match by {
+                    Refuter::Simplifier => "Simplifier",
+                    Refuter::Solver => "Solver",
+                }),
+                Some(obligations.len()),
+            ),
+            Self::Contingent {
+                origin: from,
+                obligations,
+                ..
+            } => (
+                "Contingent",
+                Some(origin(from)),
+                None,
+                Some(obligations.len()),
+            ),
+            Self::Undecided {
+                origin: from,
+                obligations,
+                ..
+            } => (
+                "Undecided",
+                Some(origin(from)),
+                None,
+                Some(obligations.len()),
+            ),
+            Self::Unprepared => ("Unprepared", None, None, None),
+        };
+        crate::smt::trace::Established {
+            variant,
+            origin,
+            refuter,
+            obligations,
+        }
+    }
+}
+
 /// Which procedure refuted the obligations.
 #[derive(Clone, Copy)]
 enum Refuter {
@@ -1102,6 +1158,7 @@ pub(crate) fn check_disjunctive_implication_of(
     .and_then(|(established, antecedent)| {
         let established =
             empty_unless_consistent(definition, &antecedent, established, options, solver)?;
+        crate::smt::trace::implication(consequents.len(), || established.traced());
         Ok(grade_coverage(Checked {
             established,
             antecedent,
@@ -1149,6 +1206,9 @@ fn establish_disjunction(
 
     // Invariant: `antecedent` is the last round's result; the loop repeats only while it changes.
     loop {
+        // The round's discharge of the matched destinations, up to the simplification of the
+        // antecedent, is the consequent's, as `discharge_consequent` is for one destination.
+        let consequent_scope = crate::smt::trace::label("implication.consequent");
         let mut branches = Vec::new();
         // One refutation per matched branch whose obligation simplified to `false`, and the
         // obligations they refute.
@@ -1342,6 +1402,7 @@ fn establish_disjunction(
                 open.get_or_insert(combined_open);
             }
         }
+        consequent_scope.end();
 
         if let Some(open) = open {
             let simplified = simplify_with_solver(
@@ -1513,6 +1574,7 @@ fn check_established(
     };
     let established =
         empty_unless_consistent(definition, &antecedent, established, options, solver)?;
+    crate::smt::trace::implication(1, || established.traced());
     Ok(Checked {
         established,
         antecedent,
@@ -2029,8 +2091,31 @@ fn rename_existentials_apart(
 
 /// Discharge the obligations of a match of the consequent against the antecedent: the match's
 /// remainder equations, the bindings of universal consequent variables, and the consequent's
-/// constraints, with the consequent's existential witnesses eliminated.
+/// constraints, with the consequent's existential witnesses eliminated. The SMT trace labels the
+/// solver's work here `implication.consequent`.
 fn discharge_consequent(
+    definition: &BackendDefinition,
+    antecedent: &Pattern,
+    destination: &Destination,
+    substitution: Substitution,
+    remainder: Vec<(crate::term::Term, crate::term::Term)>,
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> CheckResult<Established> {
+    crate::smt::trace::with_label("implication.consequent", || {
+        discharge_consequent_obligations(
+            definition,
+            antecedent,
+            destination,
+            substitution,
+            remainder,
+            options,
+            solver,
+        )
+    })
+}
+
+fn discharge_consequent_obligations(
     definition: &BackendDefinition,
     antecedent: &Pattern,
     destination: &Destination,
@@ -3217,6 +3302,101 @@ mod tests {
             condition.substitution.get(&x),
             Some(&int(&definition, "1")),
             "{condition:#?}"
+        );
+    }
+
+    /// The SMT trace records what a check established, and labels the solver work of
+    /// discharging the consequent: `pair(Y, 1) ⇒ pair(X, 1)` holds where the antecedent states
+    /// `X = Y`, which it leaves open.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn the_smt_trace_records_what_a_check_established() {
+        use crate::smt::trace::{
+            tests::{Scratch, of_kind},
+            with_directory,
+        };
+        let definition = definition();
+        let x = crate::term::Variable::new("X", Sort::simple("SortInt"));
+        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let consequent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
+        let antecedent = Pattern {
+            term: term(&definition, r#"pair{}(Y:SortInt{}, \dv{SortInt{}}("1"))"#),
+            constraints: vec![Predicate::Equals(
+                Term::variable(x.clone()),
+                Term::variable(x),
+            )],
+        };
+        let scratch = Scratch::new("implication");
+        let result = with_directory(Some(scratch.path()), false, || {
+            check_implication(&definition, &antecedent, &consequent, &solver)
+        })
+        .expect("implication should be checked");
+        assert!(matches!(result, Coverage::Contingent(_)), "{result:#?}");
+        let records = scratch.records();
+        let implications = of_kind(&records, "implication");
+        assert_eq!(implications.len(), 1, "{records:?}");
+        assert_eq!(implications[0]["established"], "Contingent");
+        assert_eq!(implications[0]["destinations"], 1);
+        assert_eq!(implications[0]["obligations"], 1);
+        assert!(implications[0]["origin"].is_string());
+        assert!(implications[0]["label"].is_null());
+        assert!(
+            of_kind(&records, "check")
+                .iter()
+                .any(|check| check["label"] == "implication.consequent"),
+            "{records:?}"
+        );
+    }
+
+    /// A check over several destinations is traced as one over a single destination is: one
+    /// record of what it established, and the solver work of discharging the matched
+    /// destinations labelled. `pair(Y, 1) ⇒ pair(X, 1) ∨ pair(X, 2)` matches only the first
+    /// disjunct, which holds where the antecedent states `X = Y`.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn the_smt_trace_records_what_a_disjunctive_check_established() {
+        use crate::smt::trace::{
+            tests::{Scratch, of_kind},
+            with_directory,
+        };
+        let definition = definition();
+        let x = crate::term::Variable::new("X", Sort::simple("SortInt"));
+        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let consequents = [
+            pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#),
+            pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("2"))"#),
+        ];
+        let antecedent = Pattern {
+            term: term(&definition, r#"pair{}(Y:SortInt{}, \dv{SortInt{}}("1"))"#),
+            constraints: vec![Predicate::Equals(
+                Term::variable(x.clone()),
+                Term::variable(x),
+            )],
+        };
+        let scratch = Scratch::new("disjunctive-implication");
+        let result = with_directory(Some(scratch.path()), false, || {
+            check_disjunctive_implication_with_existentials(
+                &definition,
+                &antecedent,
+                &consequents,
+                &BTreeSet::new(),
+                SimplificationOptions::default(),
+                &solver,
+            )
+        })
+        .expect("disjunctive implication should be checked");
+        assert!(matches!(result, Coverage::Contingent(_)), "{result:#?}");
+        let records = scratch.records();
+        let implications = of_kind(&records, "implication");
+        assert_eq!(implications.len(), 1, "{records:?}");
+        assert_eq!(implications[0]["established"], "Contingent");
+        assert_eq!(implications[0]["destinations"], 2);
+        assert!(implications[0]["label"].is_null());
+        assert!(
+            of_kind(&records, "check")
+                .iter()
+                .any(|check| check["label"] == "implication.consequent"),
+            "{records:?}"
         );
     }
 

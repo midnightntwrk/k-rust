@@ -74,6 +74,7 @@
 
 #[cfg(test)]
 mod alias_tests;
+pub mod trace;
 mod typed_cache;
 
 use std::num::NonZeroU32;
@@ -82,6 +83,7 @@ use std::{
     ffi::CStr,
     str::FromStr,
     sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 
 #[cfg(test)]
@@ -107,7 +109,8 @@ use crate::{
     term::{DomainKind, Sort, Term, Variable},
 };
 
-#[cfg(feature = "measure")]
+/// The resource units `solver`'s context has consumed so far: Z3 counts them per context, across
+/// its solvers' checks.
 fn rlimit_count(solver: &Solver) -> u64 {
     match solver.get_statistics().value("rlimit count") {
         Some(z3::StatisticsValue::UInt(value)) => u64::from(value),
@@ -115,19 +118,73 @@ fn rlimit_count(solver: &Solver) -> u64 {
     }
 }
 
-fn measured_check(solver: &Solver) -> SatResult {
-    #[cfg(feature = "measure")]
-    let before = rlimit_count(solver);
+/// What one check answered and, when observed, the resource units and the wall time it took.
+struct Checked {
+    result: SatResult,
+    rlimit_used: Option<u64>,
+    wall: Option<Duration>,
+}
+
+/// Check `solver`, observing the resource units and the time the check takes when `observe` is
+/// set or the build measures its work. The observation reads the context's statistics before and
+/// after the check: it copies counters out and adds nothing the search reads.
+fn measured_check(solver: &Solver, observe: bool) -> Checked {
+    let observe = observe || cfg!(feature = "measure");
+    let before = observe.then(|| rlimit_count(solver));
+    let started = observe.then(Instant::now);
     let result = {
         let _span = measure::algorithm_span(Algorithm::BackendSmtCheck);
         solver.check()
     };
+    let wall = started.map(|started| started.elapsed());
+    let rlimit_used = before.map(|before| rlimit_count(solver).saturating_sub(before));
     #[cfg(feature = "measure")]
-    measure::add(
-        Counter::SmtRlimitCount,
-        rlimit_count(solver).saturating_sub(before),
-    );
-    result
+    if let Some(used) = rlimit_used {
+        measure::add(Counter::SmtRlimitCount, used);
+    }
+    Checked {
+        result,
+        rlimit_used,
+        wall,
+    }
+}
+
+/// An attempt whose check answered: its solver, still on the attempt's context, and the check's
+/// answer. With the SMT trace on, the attempt's in-flight script stays on disk until this is
+/// dropped, so a caller holds it while Z3 still works on the attempt (reading a model, say).
+struct Attempted {
+    solver: Solver,
+    checked: Checked,
+    _traced: Option<trace::Answered>,
+}
+
+/// Run attempt `attempt` of `script`, with `limit`, on the thread's current Z3 context: a fresh
+/// solver with the attempt's parameters, loaded with the script and checked. With the SMT trace
+/// on ([`trace`]), the script is on disk before Z3 reads it and the attempt is recorded after its
+/// check; `observe` asks for the check's resource units and time without the trace.
+fn run_attempt(
+    script: &str,
+    ladder: &Ladder,
+    attempt: u32,
+    limit: AttemptLimit,
+    observe: bool,
+) -> Result<Attempted, RejectedScript> {
+    let solver = Solver::new();
+    solver.set_params(&parameters(limit));
+    let traced = trace::Attempt::begin(script, ladder, attempt, limit);
+    if let Err(rejected) = load(&solver, script) {
+        if let Some(traced) = traced {
+            traced.rejected(&rejected);
+        }
+        return Err(rejected);
+    }
+    let checked = measured_check(&solver, observe || traced.is_some());
+    let traced = traced.map(|traced| traced.finish(&solver, &checked));
+    Ok(Attempted {
+        solver,
+        checked,
+        _traced: traced,
+    })
 }
 
 /// Why Z3 did not load a script: its own message, or the reason the script never reached it.
@@ -263,9 +320,40 @@ pub fn z3_version() -> &'static str {
     z3::full_version()
 }
 
-/// One attempt's wall-clock timeout (`None`: no clock) and resource limit, as tests read them.
-#[cfg(test)]
+/// One attempt's wall-clock timeout (`None`: no clock) and resource limit (0: none).
 pub(crate) type AttemptLimit = (Option<u32>, u32);
+
+/// A query's attempt ladder: its options, and whether Z3's clock bounds its attempts.
+#[derive(Clone, Copy, Debug)]
+struct Ladder {
+    options: Z3Options,
+    clocked: bool,
+}
+
+impl Ladder {
+    /// The limits of the attempt numbered `attempt` (0 first) whose clocked timeout is
+    /// `timeout`: the timeout and its resource limit, or under [`Z3Options::resource_limit`]
+    /// that limit doubled per retry and no timeout.
+    fn limit(&self, timeout: u32, attempt: u32) -> AttemptLimit {
+        match self.options.resource_limit {
+            Some(units) => {
+                let scale = 1_u32.checked_shl(attempt).unwrap_or(u32::MAX);
+                (None, units.get().saturating_mul(scale))
+            }
+            None => (self.clocked.then_some(timeout), resource_limit(timeout)),
+        }
+    }
+}
+
+/// The Z3 parameters of an attempt with `limit`.
+fn parameters((clock, units): AttemptLimit) -> Params {
+    let mut parameters = Params::new();
+    parameters.set_u32("rlimit", units);
+    if let Some(timeout) = clock {
+        parameters.set_u32("timeout", timeout);
+    }
+    parameters
+}
 
 #[derive(Clone, Debug)]
 pub struct Z3Solver {
@@ -458,34 +546,31 @@ impl Z3Solver {
         self
     }
 
-    /// The parameters of the attempt numbered `attempt` (0 first) with the given timeout: the
-    /// timeout and its resource limit, or under [`Z3Options::resource_limit`] that limit doubled
-    /// per retry and no timeout.
-    fn attempt_parameters(&self, timeout: u32, attempt: u32) -> Params {
-        let mut parameters = Params::new();
-        let (clock, units) = match self.options.resource_limit {
-            Some(units) => {
-                let scale = 1_u32.checked_shl(attempt).unwrap_or(u32::MAX);
-                (None, units.get().saturating_mul(scale))
-            }
-            None => {
-                #[cfg(test)]
-                let clocked = !self.without_clock;
-                #[cfg(not(test))]
-                let clocked = true;
-                (clocked.then_some(timeout), resource_limit(timeout))
-            }
-        };
-        parameters.set_u32("rlimit", units);
-        if let Some(timeout) = clock {
-            parameters.set_u32("timeout", timeout);
-        }
+    /// This solver's attempt ladder.
+    fn ladder(&self) -> Ladder {
         #[cfg(test)]
-        self.attempt_limits
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .push((clock, units));
-        parameters
+        let clocked = !self.without_clock;
+        #[cfg(not(test))]
+        let clocked = true;
+        Ladder {
+            options: self.options,
+            clocked,
+        }
+    }
+
+    /// The limits of the attempt numbered `attempt` (0 first) with the given timeout
+    /// ([`Ladder::limit`]); a test build records them.
+    fn attempt_limit(&self, ladder: &Ladder, timeout: u32, attempt: u32) -> AttemptLimit {
+        let limit = ladder.limit(timeout, attempt);
+        #[cfg(test)]
+        {
+            self.record_attempt(timeout);
+            self.attempt_limits
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(limit);
+        }
+        limit
     }
 
     /// Every attempt's wall-clock timeout (`None`: no clock) and resource limit, in order.
@@ -659,24 +744,25 @@ impl Z3Solver {
         self.uncached_solve_count.fetch_add(1, Ordering::Relaxed);
 
         on_own_context(|| {
+            let ladder = self.ladder();
             let mut timeout = self.options.timeout_ms;
             for attempt in 0..=self.options.retry_limit {
                 stop::check()?;
-                let solver = Solver::new();
-                solver.set_params(&self.attempt_parameters(timeout, attempt));
-                #[cfg(test)]
-                self.record_attempt(timeout);
-                if let Err(rejected) = load(&solver, script) {
-                    return Ok(Err(rejected));
-                }
-                match measured_check(&solver) {
+                let limit = self.attempt_limit(&ladder, timeout, attempt);
+                let attempted = match run_attempt(script, &ladder, attempt, limit, false) {
+                    Ok(attempted) => attempted,
+                    Err(rejected) => return Ok(Err(rejected)),
+                };
+                match attempted.checked.result {
                     SatResult::Sat => return Ok(Ok(Satisfiability::Sat)),
                     SatResult::Unsat => return Ok(Ok(Satisfiability::Unsat)),
                     SatResult::Unknown if attempt < self.options.retry_limit => {
                         timeout = timeout.saturating_mul(2);
                     }
                     SatResult::Unknown => {
-                        return Ok(Ok(Satisfiability::Unknown(reason_unknown(&solver))));
+                        return Ok(Ok(Satisfiability::Unknown(reason_unknown(
+                            &attempted.solver,
+                        ))));
                     }
                 }
             }
@@ -716,18 +802,20 @@ impl Z3Solver {
         // The model is read on the query's own context, the only place its values exist; the
         // answer is confirmed against the prelude after the context is gone.
         let outcome = on_own_context(|| {
+            let ladder = self.ladder();
             let mut timeout = self.options.timeout_ms;
             for attempt in 0..=self.options.retry_limit {
                 stop::check()?;
                 measure::bump(Counter::SmtSolverRuns);
-                let solver = Solver::new();
-                solver.set_params(&self.attempt_parameters(timeout, attempt));
-                #[cfg(test)]
-                self.record_attempt(timeout);
-                if let Err(rejected) = load(&solver, query.base()) {
-                    return Ok(Err(rejected));
-                }
-                match measured_check(&solver) {
+                let limit = self.attempt_limit(&ladder, timeout, attempt);
+                // Held until the attempt's model is read: Z3 works on the attempt's context until
+                // then.
+                let attempted = match run_attempt(query.base(), &ladder, attempt, limit, false) {
+                    Ok(attempted) => attempted,
+                    Err(rejected) => return Ok(Err(rejected)),
+                };
+                let solver = &attempted.solver;
+                match attempted.checked.result {
                     SatResult::Sat => {
                         let model = match query.model_mappings() {
                             None => Ok(ModelResult::Unknown(APPROXIMATE_MODEL_REASON.into())),
@@ -743,7 +831,7 @@ impl Z3Solver {
                         timeout = timeout.saturating_mul(2);
                     }
                     SatResult::Unknown => {
-                        return Ok(Ok(ModelAttempt::Unknown(reason_unknown(&solver))));
+                        return Ok(Ok(ModelAttempt::Unknown(reason_unknown(solver))));
                     }
                 }
             }
@@ -1147,8 +1235,6 @@ impl SmtSolver for Z3Solver {
 mod tests {
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
-    use std::time::Duration;
-
     use super::*;
     use crate::{
         definition::BackendDefinition,
@@ -1176,7 +1262,7 @@ mod tests {
         assert_eq!(resource_limit(u32::MAX), 0);
     }
 
-    fn definition() -> BackendDefinition {
+    pub(super) fn definition() -> BackendDefinition {
         let syntax = parse_definition(
             r#"[]
             module MAIN
@@ -1194,7 +1280,7 @@ mod tests {
         BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
     }
 
-    fn term(definition: &BackendDefinition, source: &str) -> crate::term::Term {
+    pub(super) fn term(definition: &BackendDefinition, source: &str) -> crate::term::Term {
         definition
             .internalize_term(&parse_pattern(source).expect("term should parse"), &[])
             .expect("term should internalize")
@@ -4531,7 +4617,7 @@ mod tests {
     /// satisfiable (`X = -1`, with the power outside the integers equal to 3), and Z3 either
     /// decides it in a few thousand resource units or takes a path on which it never decides it;
     /// which path it takes depends on everything the Z3 context it runs in has seen.
-    const PATH_SENSITIVE_QUERY: &str = r#"(declare-sort |SortFloat| 0)
+    pub(super) const PATH_SENSITIVE_QUERY: &str = r#"(declare-sort |SortFloat| 0)
 (declare-sort |SortGeneratedCounterCell| 0)
 (declare-sort |SortGeneratedCounterCellOpt| 0)
 (declare-sort |SortGeneratedTopCell| 0)
@@ -4575,12 +4661,12 @@ mod tests {
     /// A nonlinear integer query Z3 does not decide within [`PATH_SENSITIVE_OPTIONS`]: one such
     /// check on a context is enough to change the path Z3 later takes on
     /// [`PATH_SENSITIVE_QUERY`] there.
-    const NONLINEAR_QUERY: &str = "(declare-const x Int)\n(declare-const y Int)\n\
+    pub(super) const NONLINEAR_QUERY: &str = "(declare-const x Int)\n(declare-const y Int)\n\
         (declare-const z Int)\n(assert (> x 1))\n(assert (> y 1))\n(assert (> z 1))\n\
         (assert (= (+ (* x x x) (* y y y)) (* z z z)))";
 
     /// The answers of `count` uncached checks of `script` by `solver`, as `S`, `U` or `?`.
-    fn answers(solver: &Z3Solver, script: &str, count: usize) -> String {
+    pub(super) fn answers(solver: &Z3Solver, script: &str, count: usize) -> String {
         (0..count)
             .map(|_| match cause(solver.solve_uncached(script)) {
                 Ok(Ok(Satisfiability::Sat)) => 'S',
@@ -4665,7 +4751,7 @@ mod tests {
     /// decide it. The text is kept: with the current prelude's power declarations, which the
     /// check does not use, Z3 4.16.0 takes another path and one attempt of 1,000,000 units
     /// decides it, so the script would no longer show a retry's path.
-    const FACTORING_QUERY: &str = r#"(declare-sort |SortACell| 0)
+    pub(super) const FACTORING_QUERY: &str = r#"(declare-sort |SortACell| 0)
 (declare-sort |SortACellOpt| 0)
 (declare-sort |SortBCell| 0)
 (declare-sort |SortBCellOpt| 0)

@@ -18,6 +18,7 @@ num-traits.workspace = true
 petgraph.workspace = true
 ripemd.workspace = true
 rustc-hash.workspace = true
+serde_json = { workspace = true, optional = true }
 sha2.workspace = true
 sha3.workspace = true
 substrate-bn.workspace = true
@@ -54,6 +55,11 @@ lean-conformance.workspace = true
 proptest.workspace = true
 serde_json.workspace = true
 
+# Replays a script of the SMT trace (`smt::trace`) on the linked Z3.
+[[example]]
+name = "smt_replay"
+required-features = ["z3"]
+
 [features]
 # Panic when a term marked evaluated or minted instance-normal is matched at its root by some
 # term equation of the definition (`term::head::check`), and when a simplification a proof's
@@ -73,5 +79,5 @@ choice-sampling = []
 # For tests; off in every normal build, where every domain value is built with its sort's kind.
 raw-domain-values = []
 measure = ["k-rust-kore/measure"]
-z3 = ["dep:z3", "dep:z3-sys"]
+z3 = ["dep:z3", "dep:z3-sys", "dep:serde_json"]
 z3-gh-release = ["z3", "z3/gh-release"]

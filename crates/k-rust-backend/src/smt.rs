@@ -51,7 +51,41 @@ mod summary;
 use query::TranslatedQuery;
 
 #[cfg(feature = "z3")]
-pub use z3::{Z3Options, Z3Solver, z3_version};
+pub use z3::{Z3Options, Z3Solver, trace, z3_version};
+
+/// The SMT trace's hooks outside the solver. Without the in-process solver there is no trace, and
+/// they only run what they wrap.
+#[cfg(not(feature = "z3"))]
+pub(crate) mod trace {
+    /// What an implication check established, as the trace would record it.
+    #[expect(
+        dead_code,
+        reason = "built for the trace, which this build does not have"
+    )]
+    pub(crate) struct Established {
+        pub variant: &'static str,
+        pub origin: Option<&'static str>,
+        pub refuter: Option<&'static str>,
+        pub obligations: Option<usize>,
+    }
+
+    /// A label's scope, which labels nothing in this build.
+    pub(crate) struct LabelScope;
+
+    impl LabelScope {
+        pub(crate) fn end(self) {}
+    }
+
+    pub(crate) fn label(_label: &'static str) -> LabelScope {
+        LabelScope
+    }
+
+    pub(crate) fn with_label<R>(_label: &'static str, body: impl FnOnce() -> R) -> R {
+        body()
+    }
+
+    pub(crate) fn implication(_destinations: usize, _describe: impl FnOnce() -> Established) {}
+}
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SmtType {
