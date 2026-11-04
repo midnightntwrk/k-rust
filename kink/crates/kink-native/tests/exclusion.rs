@@ -1304,6 +1304,11 @@ fn the_run_list_hooks_are_k_rusts_unevaluated_open_hooks() {
 /// and points to k-rust's console contract; the sentences `RUN_LIST_HOOKS` rests on (an execute
 /// request has no console, evaluates none of these hooks, and lists an application whose value
 /// the run needs on `unsupportedHooks`) are byte-identical, so the run list reads the same.
+///
+/// Re-pin (text only, 997e7ef8 -> 98181af8): the execute request is named by the facade method
+/// that remains, `Backend::execute_kore`, where it was named `Backend::execute`, which the facade
+/// no longer has; the sentences `RUN_LIST_HOOKS` rests on are otherwise byte-identical, so the
+/// run list reads the same.
 #[test]
 fn the_console_passage_the_run_list_rests_on_is_pinned() {
     passage::assert_pinned(
@@ -1313,7 +1318,7 @@ fn the_console_passage_the_run_list_rests_on_is_pinned() {
             anchor: "## Backend scope",
             opening: "Given the files the request's console presents (k-rust's console contract",
             lines: 1,
-            digest: "997e7ef84f55532a8cb0ea2a7e2af9b2b49ec05ee4a4123b27d4942f5fd4f20c",
+            digest: "98181af829b0d9f0f5fe7f46fb0ef631c2391d283dc486ae1b22d2676c28efe9",
         }],
     );
 }
@@ -1359,6 +1364,12 @@ fn the_console_passage_the_run_list_rests_on_is_pinned() {
 /// form of `Backend::prove`, is named among the proof routes and among the routes that open a
 /// `Proof` scope themselves. It is one more proof route, which kink does not call, and the
 /// passage's evaluation modes are unchanged, so the census reads the same.
+///
+/// Re-pin of the third passage (text only, 03833fe2 -> ace409e2): the facade's proof routes are
+/// named by the methods that remain (`prove_kore` and `prove_json`, the simplification,
+/// implication and model functions by their pattern and JSON forms), where the passage named
+/// `Backend::prove` and `get_model`, which the facade no longer has. No route changes mode, so
+/// the census reads the same.
 #[test]
 fn the_passages_the_census_leaves_to_the_run_list_are_pinned() {
     let passage = |anchor, opening, lines, digest| passage::Passage {
@@ -1387,7 +1398,7 @@ fn the_passages_the_census_leaves_to_the_run_list_are_pinned() {
                 "## Implementation-chosen hook values",
                 "The mode belongs to the request",
                 5,
-                "03833fe2e53216cce8e43223de0d9ad5126034febd0d7da33aeb1a658212e584",
+                "ace409e293581ea1e92a299c3b8a7ef5c701be6ddf154fe40730efaf705186b6",
             ),
             passage(
                 "### Marks in executions",
