@@ -18,7 +18,10 @@ ${all_shards[*]}; a shard's test is its name with \`_\` for \`-\`). Each worker 
 reused across its batches; --workers defaults to what the host's memory has room for now: the
 available memory over 3 GiB, at least 1 and at most the CPU count (or the cgroup's quota). CPU load
 is not consulted: it fluctuates far more than memory, and an oversubscribed CPU only slows a run. The workers' targets and packages live in one scratch
-directory, removed when the run ends, failure included. KRS_CLASS_TARGET_DIR selects the target the
+directory, removed when the run ends, failure included, unless KRS_CLASS_KEEP_SCRATCH names one the
+caller keeps: its workers' targets then keep the dependencies' builds across runs, and each run prunes
+what no later run reuses (a cold worker builds the KRS crates, about 345 CPU-seconds; a 519-case shard
+took 330 s cold and 46 s kept). KRS_CLASS_TARGET_DIR selects the target the
 test binary is built in (default target/gates), KRS_CLASS_OUT a directory for one TSV line per case
 and the pending entries of each unrecorded deviation (see the test's documentation). --record writes
 the K of every accepted case that no refusal rule covers into krs/tests/class-matrix/expected.toml,
@@ -84,14 +87,39 @@ if [[ -z $workers ]]; then
   echo "[krs-class] $workers workers ($((available_kib / 1024 / 1024)) GiB available)" >&2
 fi
 
-# The test removes the scratch of a run whose owner (owner.pid) is gone, an interrupted one.
-scratch=$(mktemp -d "${TMPDIR:-/tmp}/krs-class-XXXXXX")
-echo $$ >"$scratch/owner.pid"
-report_and_remove() {
-  echo "[krs-class] scratch at its end: $(du -sh "$scratch" 2>/dev/null | cut -f1)" >&2
-  rm -rf "$scratch"
-}
-trap report_and_remove EXIT
+# KRS_CLASS_KEEP_SCRATCH names a scratch the caller keeps across runs, so each worker's target keeps the
+# KRS crates' builds and a later run rebuilds only what changed (Cargo's fingerprints decide). Runs
+# sharing one must not overlap: their workers would share package directories. Its name must not
+# start with krs-class- in the temporary directory, whose abandoned scratches the test removes.
+# Without it, the scratch is fresh, and the test removes the scratch of a run whose owner
+# (owner.pid) is gone, an interrupted one.
+if [[ -n ${KRS_CLASS_KEEP_SCRATCH:-} ]]; then
+  scratch=$KRS_CLASS_KEEP_SCRATCH
+  mkdir -p "$scratch"
+  echo "[krs-class] kept scratch $scratch: $(du -sh "$scratch" 2>/dev/null | cut -f1) at its start" >&2
+  # A run leaves outputs no later run reuses: each batch package's library and generated collector, and
+  # the krs crates' incremental state (a later run's crates differ or rebuild without it). The dependencies' builds stay.
+  prune_kept() {
+    local target
+    for target in "$scratch"/worker-*/target "$scratch"/k5-worker-*/target; do
+      [[ -d $target ]] || continue
+      rm -rf "$target/krs" "$target"/debug/incremental "$target"/*/debug/incremental \
+        "$target"/debug/krs-generated-collector-* "$target"/*/debug/krs-generated-collector-* \
+        "$target"/debug/deps/*generated_collector* "$target"/*/debug/deps/*generated_collector* \
+        "$target"/*/debug/deps/*krs_class_* "$target"/*/debug/.fingerprint/krs_class_*
+    done
+    echo "[krs-class] kept scratch at its end, pruned: $(du -sh "$scratch" 2>/dev/null | cut -f1)" >&2
+  }
+  trap prune_kept EXIT
+else
+  scratch=$(mktemp -d "${TMPDIR:-/tmp}/krs-class-XXXXXX")
+  echo $$ >"$scratch/owner.pid"
+  report_and_remove() {
+    echo "[krs-class] scratch at its end: $(du -sh "$scratch" 2>/dev/null | cut -f1)" >&2
+    rm -rf "$scratch"
+  }
+  trap report_and_remove EXIT
+fi
 
 # K6 judges what `krs check` judges, k-rust's native compile included, so the test builds with the
 # solver profile krs/Krs.lock pins and links its Z3 release, as the other KRS gates do
