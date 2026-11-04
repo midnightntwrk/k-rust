@@ -29,6 +29,8 @@ Usage:
              [--color auto|always|never]
   krs prove  --package P --definition D [--spec-module NAME] [--claim LABEL]... [--depth N]
              [--output pretty|kast|json|kore] [--color auto|always|never]
+  krs kink <emit|check|results|run|report|query|fuzz> --package P --definition D [OPTIONS]
+             (krs kink --help lists the corpus loop's options)
   krs fmt [--check] [--manifest-path PATH] [PATH ...]
   krs fmt --stdin [--edition YEAR]
 
@@ -44,6 +46,8 @@ Commands:
   run                       Run a program on one path (krun)
   search                    Return the set of reachable final states (krun --search)
   prove                     Prove the definition's claims (kprove)
+  kink                      The corpus loop over the package's kink/ corpus: results and
+                            coverage per case, mutations killed or survived, query and fuzz
   fmt                       Format Rust and KRS rules! bodies using the package's facade aliases
 
 Options:
@@ -89,6 +93,50 @@ Options:
   -h, --help                 Show this help
 ";
 
+/// `krs kink --help`.
+#[cfg(feature = "kink")]
+const KINK_USAGE: &str = "\
+krs kink: the corpus loop over a KRS package, with kink as its engine
+
+Usage:
+  krs kink emit    --package P --definition D [--check]
+  krs kink check   --package P --definition D [--mutations PATH] [--locked]
+  krs kink results --package P --definition D [--verify] [--mutations PATH] [--cache DIR]
+                   [--output json|verdicts] [--locked]
+  krs kink run     --package P --definition D [--mutations PATH] [--only ID]... [--verify]
+                   [--order cost|corpus] [--full] [--compile-workers N] [--no-memo]
+                   [--cache DIR] [--output json|verdicts] [--locked]
+  krs kink report  --package P --definition D [--cache DIR]
+  krs kink query   --package P --definition D [--patterns PATH] [--only ID]... [--verify]
+                   [--cache DIR] [--locked]
+  krs kink fuzz    --package P --definition D [--templates PATH] --template ID
+                   (--kill MUTATION | --reach RULE [--fired] | --pattern ID) [kink-flow's
+                   fuzz options] [--locked]
+
+The corpus is <package>/kink (or --corpus DIR):
+  FLOW.toml         [spec] krs = { definition = \"D\" }, [budget], and the cases, as
+                    kink-flow's manifest; a case's paths stay inside the corpus directory
+  cases/            the cases' program files and typed-input documents
+  mutations/        <topic>.toml mutation lists, K patches anchored by `rule = <label or
+                    suffix>` (else MUTATIONS.toml)
+  PATTERNS.toml     patterns of interest, for query
+  TEMPLATES.toml    case templates with holes, for fuzz
+  definition.k      the package's emitted K, which kink judges; written by krs kink
+  .kink-flow/       kink-flow's caches
+
+Every verb but emit builds the package, writes kink/definition.k when it differs from the
+emission (the document's `definition.status` says `written`), and runs kink-flow's verb on
+it; every rule a document names gains `krs = {item, package, file, line, column, kind,
+claim_helper}`. --locked refuses a stale definition.k instead of writing it, and
+emit --check exits 1 when it is stale: the gate a CI runs.
+
+Exit status: 0, 1 when anything is refused (the document says what and why), 2 on a usage
+error. The selection options (--manifest-path, --package, --package-id, --definition,
+--dependency, --cfg, --profile, --registration, --message-format, --timings, --counters)
+are krs's, before or after the verb; every other option is the kink-flow verb's own. Every
+command builds the package, so krs kink takes no --no-reuse.
+";
+
 fn main() {
     match parse(std::env::args_os().skip(1).collect()) {
         Ok(ParseResult::Help) => print!("{USAGE}"),
@@ -100,6 +148,15 @@ fn main() {
                 std::process::exit(1);
             }
         },
+        #[cfg(feature = "kink")]
+        Ok(ParseResult::KinkHelp) => print!("{KINK_USAGE}"),
+        #[cfg(feature = "kink")]
+        Ok(ParseResult::Kink(request, measure)) => {
+            let status = execute_kink(&request, &measure);
+            if status != 0 {
+                std::process::exit(status);
+            }
+        }
         Ok(ParseResult::Run(request, measure)) => {
             let mut measurement =
                 Measurement::new(measure.timings.is_some(), measure.counters.is_some());
@@ -107,7 +164,7 @@ fn main() {
             let measured = write_measurement(
                 &measure,
                 &measurement,
-                request.command.kind(),
+                request.command.kind().as_str(),
                 result.is_ok(),
             );
             let status = report_outcome(result, request.message_format, &sources);
@@ -118,10 +175,47 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        #[cfg(feature = "kink")]
+        Err(UsageError::Kink(message)) => {
+            eprintln!("krs kink: {message}\n\n{KINK_USAGE}");
+            std::process::exit(2);
+        }
         Err(error) => {
             eprintln!("krs: {error}\n\n{USAGE}");
             std::process::exit(2);
         }
+    }
+}
+
+/// Run `krs kink`: krs's warnings and refusal on stderr, then the document on stdout, then the
+/// command's notes on stderr; returns the exit status.
+#[cfg(feature = "kink")]
+fn execute_kink(request: &krs_cli::KinkRequest, measure: &MeasureOptions) -> i32 {
+    let mut measurement = Measurement::new(measure.timings.is_some(), measure.counters.is_some());
+    let outcome = krs_cli::execute_kink(request, &mut measurement);
+    let measured = write_measurement(measure, &measurement, "kink", outcome.status == 0);
+    report_diagnostics(
+        &outcome.warnings.envelopes,
+        request.message_format,
+        &outcome.sources,
+    );
+    if let Some(error) = &outcome.error {
+        report_error(error, request.message_format, &outcome.sources);
+    }
+    if let Err(error) = io::stdout().lock().write_all(&outcome.stdout) {
+        eprintln!("krs: could not write stdout: {error}");
+        return 1;
+    }
+    let _ = io::stdout().lock().flush();
+    for note in &outcome.notes {
+        eprintln!("{note}");
+    }
+    if outcome.status == krs_cli::kink::EXIT_USAGE {
+        eprintln!("\n{KINK_USAGE}");
+    }
+    match outcome.status {
+        0 if !measured => 1,
+        status => i32::from(status),
     }
 }
 
@@ -135,7 +229,7 @@ struct MeasureOptions {
 fn write_measurement(
     options: &MeasureOptions,
     measurement: &Measurement,
-    command: CommandKind,
+    command: &str,
     succeeded: bool,
 ) -> bool {
     let mut ok = true;
@@ -152,11 +246,11 @@ fn write_measurement(
         }
     };
     if let Some(path) = &options.timings {
-        let document = measurement.timings.document(command.as_str(), succeeded);
+        let document = measurement.timings.document(command, succeeded);
         write(path, serde_json::to_vec_pretty(&document));
     }
     if let Some(path) = &options.counters {
-        let document = measurement.counters.document(command.as_str(), succeeded);
+        let document = measurement.counters.document(command, succeeded);
         write(path, serde_json::to_vec_pretty(&document));
     }
     ok
@@ -186,18 +280,22 @@ fn report_outcome(
             outcome.exit_code()
         }
         Err(error) => {
-            // The warnings of the stages that completed come first, as on
-            // success; the error is the verdict and comes last.
-            if let Some(warnings) = error.warnings() {
-                report_diagnostics(&warnings.envelopes, format, sources);
-            }
-            if let Some(diagnostics) = error.diagnostics() {
-                report_diagnostics(&diagnostics, format, sources);
-            } else {
-                eprintln!("krs: {error}");
-            }
+            report_error(&error, format, sources);
             error.exit_code()
         }
+    }
+}
+
+/// Print a command's refusal: the warnings of the stages that completed first, as on success;
+/// the error is the verdict and comes last.
+fn report_error(error: &krs_cli::CommandError, format: MessageFormat, sources: &DiagnosticSources) {
+    if let Some(warnings) = error.warnings() {
+        report_diagnostics(&warnings.envelopes, format, sources);
+    }
+    if let Some(diagnostics) = error.diagnostics() {
+        report_diagnostics(&diagnostics, format, sources);
+    } else {
+        eprintln!("krs: {error}");
     }
 }
 
@@ -240,6 +338,10 @@ enum ParseResult {
     Help,
     Format(FormatRequest),
     Run(Box<CommandRequest>, MeasureOptions),
+    #[cfg(feature = "kink")]
+    KinkHelp,
+    #[cfg(feature = "kink")]
+    Kink(Box<krs_cli::KinkRequest>, MeasureOptions),
 }
 
 struct FormatRequest {
@@ -302,6 +404,9 @@ struct RunOptions {
 enum UsageError {
     Argument(lexopt::Error),
     Message(String),
+    /// A usage error of `krs kink`, shown with its own usage.
+    #[cfg(feature = "kink")]
+    Kink(String),
 }
 
 impl fmt::Display for UsageError {
@@ -309,6 +414,8 @@ impl fmt::Display for UsageError {
         match self {
             Self::Argument(error) => error.fmt(formatter),
             Self::Message(message) => message.fmt(formatter),
+            #[cfg(feature = "kink")]
+            Self::Kink(message) => message.fmt(formatter),
         }
     }
 }
@@ -344,6 +451,14 @@ fn parse(arguments: Vec<OsString>) -> Result<ParseResult, UsageError> {
     };
     if command == "fmt" {
         return parse_format(&mut parser);
+    }
+    if command == "kink" {
+        #[cfg(feature = "kink")]
+        return parse_kink(parser.raw_args()?.collect());
+        #[cfg(not(feature = "kink"))]
+        return Err(usage(
+            "this krs was built without the `kink` feature, which `krs kink` needs",
+        ));
     }
     let kind = match command.as_str() {
         "check" => CommandKind::Check,
@@ -798,6 +913,223 @@ fn finish_run(kind: CommandKind, options: RunOptions) -> Result<ParseResult, Usa
     ))
 }
 
+/// The options of `krs kink` that are krs's own and take a value, as `--name`.
+#[cfg(feature = "kink")]
+const KINK_VALUE_OPTIONS: [&str; 12] = [
+    "--manifest-path",
+    "--package",
+    "--package-id",
+    "--definition",
+    "--dependency",
+    "--cfg",
+    "--profile",
+    "--message-format",
+    "--registration",
+    "--corpus",
+    "--timings",
+    "--counters",
+];
+
+/// Parse `krs kink`'s arguments: krs's selection options and `--corpus`, `--locked`, before or
+/// after the verb; the verb (`emit`, or one of kink-flow's); and, for a kink-flow verb, every
+/// other argument in order, which kink-flow's parser reads. Before the verb only krs's options
+/// may appear, so the verb is the first argument that is neither one of them nor a value of one.
+#[cfg(feature = "kink")]
+fn parse_kink(arguments: Vec<OsString>) -> Result<ParseResult, UsageError> {
+    let kink = |message: String| UsageError::Kink(message);
+    let arguments = arguments
+        .into_iter()
+        .map(|argument| {
+            argument
+                .into_string()
+                .map_err(|_| kink("an argument is not valid UTF-8".into()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut options = RunOptions::default();
+    let mut corpus = None;
+    let mut locked = false;
+    let mut check = false;
+    let mut verb: Option<String> = None;
+    let mut rest = Vec::new();
+    let mut arguments = arguments.into_iter();
+    while let Some(argument) = arguments.next() {
+        if matches!(argument.as_str(), "-h" | "--help") {
+            return Ok(ParseResult::KinkHelp);
+        }
+        let (name, inline) = match argument.split_once('=') {
+            Some((name, value)) if name.starts_with("--") => {
+                (name.to_owned(), Some(value.to_owned()))
+            }
+            _ => (argument.clone(), None),
+        };
+        if KINK_VALUE_OPTIONS.contains(&name.as_str()) {
+            let value = match inline {
+                Some(value) => value,
+                None => arguments
+                    .next()
+                    .ok_or_else(|| kink(format!("{name} needs a value")))?,
+            };
+            kink_selection(&mut options, &mut corpus, &name, value)
+                .map_err(|error| kink(error.to_string()))?;
+            continue;
+        }
+        match name.as_str() {
+            "--no-reuse" => {
+                return Err(kink(
+                    "--no-reuse does not apply to krs kink, which reuses no earlier result: \
+                     every command builds the package"
+                        .into(),
+                ));
+            }
+            "--locked" if inline.is_none() => locked = true,
+            "--check" if inline.is_none() && verb.as_deref() == Some("emit") => check = true,
+            _ if verb.is_none() => {
+                if argument.starts_with('-') {
+                    return Err(kink(format!(
+                        "{argument} before the verb: give the verb first (emit, {})",
+                        kink_verbs()
+                    )));
+                }
+                if argument != "emit" && kink_flow::Verb::parse(&argument).is_none() {
+                    return Err(kink(format!(
+                        "unknown verb `{argument}`; expected emit, {}",
+                        kink_verbs()
+                    )));
+                }
+                verb = Some(argument);
+            }
+            _ => rest.push(argument),
+        }
+    }
+    let verb = verb.ok_or_else(|| kink(format!("missing verb: emit, {}", kink_verbs())))?;
+    kink_request(options, corpus, locked, check, &verb, rest)
+}
+
+/// The request of `krs kink VERB` with the options `parse_kink` read, and `rest`, the
+/// arguments that are not krs's.
+#[cfg(feature = "kink")]
+fn kink_request(
+    options: RunOptions,
+    corpus: Option<PathBuf>,
+    locked: bool,
+    check: bool,
+    verb: &str,
+    rest: Vec<String>,
+) -> Result<ParseResult, UsageError> {
+    let kink = |message: String| UsageError::Kink(message);
+    let verb = if verb == "emit" {
+        if let Some(argument) = rest.first() {
+            return Err(kink(format!("krs kink emit takes no {argument}")));
+        }
+        if locked {
+            return Err(kink(
+                "--locked does not apply to emit; emit --check writes nothing and fails on a \
+                 stale definition.k"
+                    .into(),
+            ));
+        }
+        krs_cli::KinkVerb::Emit { check }
+    } else {
+        krs_cli::KinkVerb::Flow {
+            verb: kink_flow::Verb::parse(verb).expect("the verb was checked"),
+            options: rest,
+        }
+    };
+    if options.package.is_some() && options.package_id.is_some() {
+        return Err(kink("--package and --package-id cannot be combined".into()));
+    }
+    let root = FacetSelector {
+        package: match (options.package, options.package_id) {
+            (Some(name), None) => PackageSelector::Name(name),
+            (None, Some(id)) => PackageSelector::Id(id),
+            _ => return Err(kink("missing --package or --package-id".into())),
+        },
+        definition: options
+            .definition
+            .ok_or_else(|| kink("missing --definition".into()))?,
+    };
+    Ok(ParseResult::Kink(
+        Box::new(krs_cli::KinkRequest {
+            manifest_path: options
+                .manifest_path
+                .unwrap_or_else(|| PathBuf::from("Cargo.toml")),
+            root,
+            dependencies: options.dependencies,
+            cfg: options.cfg,
+            registration: options.registration.unwrap_or(RegistrationMode::Inventory),
+            profile: options.profile,
+            message_format: options.message_format.unwrap_or_default(),
+            corpus,
+            locked,
+            verb,
+        }),
+        options.measure,
+    ))
+}
+
+/// kink-flow's verbs, as a usage message lists them.
+#[cfg(feature = "kink")]
+fn kink_verbs() -> String {
+    kink_flow::Verb::ALL
+        .iter()
+        .map(|verb| verb.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// One of `krs kink`'s value options ([`KINK_VALUE_OPTIONS`]), read as the other commands read
+/// it.
+#[cfg(feature = "kink")]
+fn kink_selection(
+    options: &mut RunOptions,
+    corpus: &mut Option<PathBuf>,
+    name: &str,
+    value: String,
+) -> Result<(), UsageError> {
+    match name {
+        "--manifest-path" => set_once(&mut options.manifest_path, PathBuf::from(value), name),
+        "--package" => set_once(&mut options.package, value, name),
+        "--package-id" => set_once(&mut options.package_id, value, name),
+        "--definition" => set_once(&mut options.definition, value, name),
+        "--dependency" => {
+            options.dependencies.push(parse_dependency(value.into())?);
+            Ok(())
+        }
+        "--cfg" => {
+            options.cfg.push(parse_cfg(value.into())?);
+            Ok(())
+        }
+        "--profile" => {
+            let selected = krs_ir::RawKProfile::from_metadata(&value).ok_or_else(|| {
+                usage(format!(
+                    "unknown profile `{value}`; expected standard or strict"
+                ))
+            })?;
+            set_once(&mut options.profile, selected, name)
+        }
+        "--message-format" => {
+            let selected = match value.as_str() {
+                "human" => MessageFormat::Human,
+                "json" => MessageFormat::Json,
+                _ => return Err(usage(format!("unknown message format `{value}`"))),
+            };
+            set_once(&mut options.message_format, selected, name)
+        }
+        "--registration" => {
+            let selected = match value.as_str() {
+                "inventory" => RegistrationMode::Inventory,
+                "explicit" => RegistrationMode::Explicit,
+                _ => return Err(usage(format!("unknown registration mode `{value}`"))),
+            };
+            set_once(&mut options.registration, selected, name)
+        }
+        "--corpus" => set_once(corpus, PathBuf::from(value), name),
+        "--timings" => set_once(&mut options.measure.timings, PathBuf::from(value), name),
+        "--counters" => set_once(&mut options.measure.counters, PathBuf::from(value), name),
+        _ => unreachable!("kink_selection is called only for KINK_VALUE_OPTIONS"),
+    }
+}
+
 fn parse_format(parser: &mut lexopt::Parser) -> Result<ParseResult, UsageError> {
     let mut stdin = false;
     let mut edition = None;
@@ -1044,6 +1376,104 @@ mod tests {
             Err(error) => error.to_string(),
             Ok(_) => panic!("expected error for {args:?}"),
         }
+    }
+
+    #[cfg(feature = "kink")]
+    fn kink(args: &[&str]) -> krs_cli::KinkRequest {
+        match parse_args(args).unwrap() {
+            ParseResult::Kink(request, _) => *request,
+            _ => panic!("expected a kink command for {args:?}"),
+        }
+    }
+
+    /// `krs kink` takes krs's selection before or after the verb and hands every other option
+    /// to kink-flow's parser in order; `emit` takes `--check` and nothing of kink-flow's.
+    #[cfg(feature = "kink")]
+    #[test]
+    fn kink_separates_krs_options_from_the_verbs() {
+        let request = kink(&[
+            "kink",
+            "--package",
+            "p",
+            "run",
+            "--only",
+            "a",
+            "--definition=main",
+            "--full",
+            "--locked",
+            "--corpus",
+            "c",
+            "--output",
+            "verdicts",
+        ]);
+        assert_eq!(request.root.definition, "main");
+        assert_eq!(request.corpus, Some(PathBuf::from("c")));
+        assert!(request.locked);
+        assert_eq!(
+            request.verb,
+            krs_cli::KinkVerb::Flow {
+                verb: kink_flow::Verb::Run,
+                options: ["--only", "a", "--full", "--output", "verdicts"]
+                    .map(String::from)
+                    .to_vec(),
+            }
+        );
+        let emit = kink(&[
+            "kink",
+            "emit",
+            "--check",
+            "--package",
+            "p",
+            "--definition",
+            "d",
+        ]);
+        assert_eq!(emit.verb, krs_cli::KinkVerb::Emit { check: true });
+        for (args, message) in [
+            (&["kink", "--full", "run"][..], "--full before the verb"),
+            (
+                &["kink", "walk", "--package", "p"][..],
+                "unknown verb `walk`",
+            ),
+            (
+                &[
+                    "kink",
+                    "emit",
+                    "--full",
+                    "--package",
+                    "p",
+                    "--definition",
+                    "d",
+                ][..],
+                "takes no --full",
+            ),
+            (
+                &[
+                    "kink",
+                    "emit",
+                    "--locked",
+                    "--package",
+                    "p",
+                    "--definition",
+                    "d",
+                ][..],
+                "--locked does not apply",
+            ),
+            (
+                &["kink", "run", "--definition", "d"][..],
+                "missing --package",
+            ),
+            (
+                &["kink", "--package", "p", "--definition", "d"][..],
+                "missing verb",
+            ),
+        ] {
+            let error = error(args);
+            assert!(error.contains(message), "{args:?}: {error}");
+        }
+        assert!(matches!(
+            parse_args(&["kink", "--help"]),
+            Ok(ParseResult::KinkHelp)
+        ));
     }
 
     fn run(args: &[&str]) -> (CommandRequest, MeasureOptions) {

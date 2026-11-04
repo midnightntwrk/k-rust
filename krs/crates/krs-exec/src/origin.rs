@@ -8,21 +8,28 @@ use krs_k_rust::{Author, EmittedProvenance, InputSentenceKind};
 use crate::{SourceText, report::SourceSpan, report::StepOrigin};
 
 /// Positions authored ranges in source text supplied by the caller, caching one line index per file.
-pub(crate) struct Origins {
+///
+/// It is the one positioning of an authored origin: `krs run --trace` and the claims of a report
+/// place a step's rule by it, and `krs kink` places every rule a document names by it, so the
+/// two cannot place a sentence differently.
+pub struct Origins {
     sources: Option<SourceText>,
     lines: BTreeMap<SourceFileId, Option<LineIndex>>,
 }
 
 impl Origins {
-    pub(crate) fn new(sources: Option<SourceText>) -> Self {
+    /// Origins positioned in the text `sources` returns, or only named by file without it.
+    #[must_use]
+    pub fn new(sources: Option<SourceText>) -> Self {
         Self {
             sources,
             lines: BTreeMap::new(),
         }
     }
 
-    /// The authored span of a KRS origin, positioned when its source text is available.
-    pub(crate) fn span(&mut self, origin: &NodeOrigin) -> Option<SourceSpan> {
+    /// The authored span of a KRS origin (its first authored frame), positioned at the range's
+    /// start when its source text is available; `None` when no frame is authored.
+    pub fn span(&mut self, origin: &NodeOrigin) -> Option<SourceSpan> {
         let range = authored_range(origin)?;
         let (line, column) = self.position(range).unzip();
         Some(SourceSpan {

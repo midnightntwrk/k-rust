@@ -227,7 +227,8 @@ impl Verb {
     /// at stage `manifest` with the error, under the verb's schema (`fuzz`: its input refusal).
     /// A run's document also names its schedule, which only the parsed command knows
     /// ([`FlowCommand::manifest_refused`]).
-    fn manifest_refused(self, error: &ManifestError) -> Value {
+    #[must_use]
+    pub fn manifest_refused(self, error: &ManifestError) -> Value {
         let schema = match self {
             Self::Check => return manifest_refused(error),
             Self::Fuzz => return crate::fuzz::input_refused("FLOW.toml", error),

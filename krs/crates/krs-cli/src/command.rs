@@ -131,7 +131,9 @@ pub enum Command {
     Prove(ProveRequest),
 }
 
-pub use collected::{CollectedDefinition, EmittedDefinition, collect_descriptors};
+pub use collected::{CollectedDefinition, EmittedDefinition, EmittedRule, collect_descriptors};
+#[cfg(feature = "kink")]
+pub(crate) use collected::{PlannedCollection, plan_collection};
 pub use exec::{
     ColorChoice, ParseRequest, ProgramSource, ProveRequest, RunRequest, SearchRequest, TermOutput,
 };
@@ -780,7 +782,7 @@ fn route_limited(
 }
 
 /// A visit of the definition the run commands load, made where the check loads it on the
-/// `native-rust` route ([`exec::judge`]), on its worker, once the load succeeds: the class tests
+/// `native-rust` route (`exec::judge`), on its worker, once the load succeeds: the class tests
 /// run programs on it (K7), so a program runs on the compile the check judged. `krs check` makes
 /// none.
 pub type LoadVisit<'a> = &'a (dyn Fn(&mut krs_exec::Semantics) + Sync);

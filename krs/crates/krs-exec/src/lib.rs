@@ -70,6 +70,7 @@ pub use k_rust::backend::{BackendError, ChosenValueOutput};
 /// The printer crate, for callers that print a term through [`Semantics::unparser`].
 pub use krs_unparse as unparse;
 pub use krs_unparse::{Mode as UnparseMode, Printed, Warning as UnparseWarning};
+pub use origin::Origins;
 pub use read_back::{PrintedCell, ReadBack};
 pub use report::{
     Capabilities, ClaimInfo, ConfigVariable, Coverage, CoveredRule, Halt, Modality, NamedRule,

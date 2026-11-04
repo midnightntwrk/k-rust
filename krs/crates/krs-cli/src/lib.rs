@@ -17,6 +17,8 @@ mod command;
 mod diagnostic;
 mod format;
 mod generate;
+#[cfg(feature = "kink")]
+pub mod kink;
 mod metadata;
 mod plan;
 mod process;
@@ -24,9 +26,9 @@ mod render;
 
 pub use command::{
     CollectedDefinition, ColorChoice, Command, CommandError, CommandKind, CommandOutcome,
-    CommandRequest, EmittedDefinition, LoadVisit, MessageFormat, ParseRequest, ProgramSource,
-    ProveRequest, RunRequest, SearchRequest, TermOutput, collect_descriptors, execute_command,
-    execute_command_measured, execute_command_reported,
+    CommandRequest, EmittedDefinition, EmittedRule, LoadVisit, MessageFormat, ParseRequest,
+    ProgramSource, ProveRequest, RunRequest, SearchRequest, TermOutput, collect_descriptors,
+    execute_command, execute_command_measured, execute_command_reported,
 };
 pub use diagnostic::{
     DIAGNOSTIC_SCHEMA_VERSION, DiagnosticEnvelope, DiagnosticGeneratedRange, DiagnosticLabel,
@@ -48,3 +50,6 @@ pub use plan::{
 };
 
 pub use render::DiagnosticSources;
+
+#[cfg(feature = "kink")]
+pub use kink::{KinkOutcome, KinkRequest, KinkVerb, execute_kink};

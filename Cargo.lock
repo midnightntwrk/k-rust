@@ -1386,6 +1386,8 @@ dependencies = [
  "annotate-snippets",
  "expect-test",
  "k-rust",
+ "kink-corpus",
+ "kink-flow",
  "krs",
  "krs-collector",
  "krs-compiler",
@@ -1407,6 +1409,7 @@ dependencies = [
  "sha2 0.10.9",
  "syn 2.0.119",
  "tempfile",
+ "toml",
  "toml_edit 0.25.15+spec-1.1.0",
 ]
 

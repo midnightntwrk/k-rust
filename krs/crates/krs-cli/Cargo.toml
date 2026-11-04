@@ -13,8 +13,13 @@ path = "src/main.rs"
 doc = false
 
 [features]
-default = ["z3-inference"]
-z3-inference = ["krs-exec/z3-inference", "krs-k-rust/z3-inference"]
+default = ["z3-inference", "kink"]
+# kink's Z3 solver profile is on exactly when k-rust's `z3-inference` is (kink-native asserts it
+# at compile time), so the solver feature forwards to kink-flow's `z3`; `--no-default-features`
+# builds both portable.
+z3-inference = ["krs-exec/z3-inference", "krs-k-rust/z3-inference", "kink-flow?/z3"]
+# `krs kink <verb>`: the corpus loop over kink-flow as a library (src/kink).
+kink = ["dep:kink-flow", "dep:kink-corpus", "dep:k-rust", "dep:toml"]
 
 [dependencies]
 annotate-snippets = "0.12.16"
@@ -28,6 +33,12 @@ krs-ir = { path = "../krs-ir" }
 krs-ir-levels = { path = "../krs-ir-levels" }
 krs-k-rust = { path = "../krs-k-rust", default-features = false }
 krs-syntax = { path = "../krs-syntax" }
+# The KAST term kink binds a typed input to; k-rust's features follow krs-exec's.
+k-rust = { version = "=0.8.0", path = "../../../crates/k-rust", default-features = false, optional = true }
+# kink's crates by path and without default features (the workspace's kink-flow entry keeps
+# them), so that `z3-inference` alone selects kink's solver profile.
+kink-corpus = { path = "../../../kink/crates/kink-corpus", default-features = false, optional = true }
+kink-flow = { path = "../../../kink/crates/kink-flow", default-features = false, optional = true }
 lexopt = "0.3.2"
 proc-macro2 = { workspace = true }
 quote.workspace = true
@@ -36,6 +47,7 @@ serde_json.workspace = true
 sha2 = "0.10.9"
 syn = { workspace = true, features = ["full", "parsing", "printing"] }
 tempfile = "3.27.0"
+toml = { workspace = true, optional = true }
 toml_edit = { workspace = true, features = ["display", "parse"] }
 
 [dev-dependencies]
