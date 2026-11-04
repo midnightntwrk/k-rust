@@ -62,6 +62,8 @@ Options:
   --output DIRECTORY         Required for emit-k and build; with expand, an absent or empty
                              directory for the changed module files, whose paths stdout lists
   --output FORMAT            Result format: pretty (default of run, search, prove), program (parse), kast (default of parse), json, kore, none (run)
+  FILE|-                     With run and search, bind the main parameter: the file's bytes
+                             when its type is exactly Bytes, else its text, parsed at its sort
   --case FILE                Bind the inputs a case document (.toml or .json) gives by
                              parameter name; its file paths are relative to FILE's directory
   --input NAME=JSON          Bind input NAME to a JSON document of the typed encoding; file
@@ -116,7 +118,8 @@ Usage:
 The corpus is <package>/kink (or --corpus DIR):
   FLOW.toml         [spec] krs = { definition = \"D\" }, [budget], and the cases, as
                     kink-flow's manifest; a case's paths stay inside the corpus directory
-  cases/            the cases' program files and typed-input documents
+  cases/            the cases' program files and typed-input documents; a program file
+                    binds the main parameter, as krs run FILE does
   mutations/        <topic>.toml mutation lists, K patches anchored by `rule = <label or
                     suffix>` (else MUTATIONS.toml)
   PATTERNS.toml     patterns of interest, for query

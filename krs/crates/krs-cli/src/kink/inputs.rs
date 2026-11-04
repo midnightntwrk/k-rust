@@ -5,23 +5,35 @@
 //! KAST term krs-exec's own configuration would bind ([`krs_exec::Semantics::input_term`]); kink
 //! types the term in `definition.k`'s grammar and refuses it if a name does not resolve there,
 //! so a disagreement between the two routes fails closed. The decoder needs the native compile
-//! of the Definition IR, which is made on first use, only for a corpus with typed inputs, once
-//! per thread that decodes (krs-exec's compiled definition is not shared across threads).
+//! of the Definition IR, which is made on first use, only where a typed input or a program needs
+//! it, once per thread that decodes (krs-exec's compiled definition is not shared across
+//! threads).
+//!
+//! A program file binds the main parameter of the `#[k::init]`, whatever its K name, as `krs run
+//! FILE` binds it ([`krs_exec::Semantics::program_file`]): the file's bytes where its type is
+//! exactly `Bytes`, and its text otherwise. Text needs only the Definition IR, so a corpus of
+//! text programs compiles nothing; the bytes, the message for a file that is not text, and a
+//! parameter type the Definition IR alone does not give ([`krs_exec::MainVariable`]) need the
+//! native compile.
 
 use std::cell::RefCell;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use k_rust::kast::Term;
-use kink_flow::InputDecoder;
-use krs_exec::{ConfigValue, Semantics};
+use kink_flow::{InputDecoder, ProgramBinding};
+use krs_exec::{ConfigValue, ExecError, MainVariable, ProgramFile, Semantics};
 use krs_ir_levels::DefinitionIr;
 
-/// The decoder of one emission's typed inputs.
+/// The decoder of one emission's typed inputs and program files.
 pub(crate) struct KrsInputs {
     /// Tells this decoder's compile apart from another's in a thread's cache.
     id: u64,
     definition: Arc<DefinitionIr>,
+    /// The main parameter, read from the Definition IR.
+    main: Option<MainVariable>,
+    /// Whether a parameter's configuration variable is `$PGM`, read from the Definition IR.
+    declares_pgm: bool,
 }
 
 impl KrsInputs {
@@ -29,8 +41,35 @@ impl KrsInputs {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         Self {
             id: NEXT.fetch_add(1, Ordering::Relaxed),
+            main: krs_exec::main_variable(&definition),
+            declares_pgm: krs_exec::declares_variable(&definition, "PGM"),
             definition: Arc::new(definition),
         }
+    }
+
+    /// `body` with this decoder's native compile on this thread, made on first use; `need` says
+    /// what the compile is for, in the message of a compile that fails.
+    fn with_semantics<T>(
+        &self,
+        need: &str,
+        body: impl FnOnce(&Semantics) -> Result<T, String>,
+    ) -> Result<T, String> {
+        COMPILED.with(|compiled| {
+            let mut compiled = compiled.borrow_mut();
+            let position =
+                if let Some(position) = compiled.iter().position(|(id, _)| *id == self.id) {
+                    position
+                } else {
+                    let semantics =
+                        Semantics::compile(&self.definition).map_err(|error| error.to_string());
+                    compiled.push((self.id, semantics));
+                    compiled.len() - 1
+                };
+            let semantics = compiled[position].1.as_ref().map_err(|error| {
+                format!("krs cannot compile the definition natively, which {need} needs: {error}")
+            })?;
+            body(semantics)
+        })
     }
 }
 
@@ -57,22 +96,7 @@ impl InputDecoder for KrsInputs {
         files: &mut dyn kink_flow::admit::InputFiles,
     ) -> Result<(String, Term), String> {
         let document = krs_exec::toml_document(document).map_err(|error| error.to_string())?;
-        COMPILED.with(|compiled| {
-            let mut compiled = compiled.borrow_mut();
-            let position =
-                if let Some(position) = compiled.iter().position(|(id, _)| *id == self.id) {
-                    position
-                } else {
-                    let semantics = Semantics::compile(&self.definition).map_err(|error| {
-                        format!(
-                            "krs cannot compile the definition natively, which reading a typed \
-                         input needs: {error}"
-                        )
-                    });
-                    compiled.push((self.id, semantics));
-                    compiled.len() - 1
-                };
-            let semantics = compiled[position].1.as_ref().map_err(Clone::clone)?;
+        self.with_semantics("reading a typed input", |semantics| {
             let value = semantics
                 .decode_input(name, &document, &mut ManifestFiles(files))
                 .map_err(|error| error.to_string())?;
@@ -88,4 +112,86 @@ impl InputDecoder for KrsInputs {
                 .map_err(|error| error.to_string())
         })
     }
+
+    /// The main parameter's binding of a program: kink's own (`None`) where that parameter is
+    /// `$PGM` and reads UTF-8 text, the text bound to it by name where it reads text under
+    /// another name, and the file's bytes as the term `krs run FILE` binds where its type is
+    /// exactly `Bytes`. Inline text under a `Bytes` main parameter is refused: a `Bytes` value has
+    /// no text reading, and a case gives bytes inline as a typed input (`$hex`). Without a main
+    /// parameter `krs run` refuses FILE, and so does kink's rule (`stray-program`) where no
+    /// variable is `$PGM`; a `$PGM` that is not main would take the text under kink's rule, and
+    /// is refused with `krs run`'s message instead.
+    fn program(&self, name: Option<&str>, bytes: &[u8]) -> Option<Result<ProgramBinding, String>> {
+        const NEED: &str = "binding a program to the main parameter";
+        let Some(main) = &self.main else {
+            return self.declares_pgm.then(|| {
+                self.with_semantics(NEED, |semantics| {
+                    // The compiled definition's parameters are the IR's, main included, so the
+                    // main parameter is missing there too: krs-exec's message lists every
+                    // parameter, typed, to bind by name instead.
+                    Err(semantics.program_parameter().map_or_else(
+                        |error| error.to_string(),
+                        |parameter| format!("the main parameter is `{}`", parameter.name),
+                    ))
+                })
+            });
+        };
+        let text = std::str::from_utf8(bytes).ok();
+        match (main.reads_file_bytes, text) {
+            (Some(false), Some(_)) if main.variable == "PGM" => None,
+            (Some(false), Some(text)) => Some(Ok(ProgramBinding::Text {
+                variable: main.variable.clone(),
+                text: text.to_owned(),
+            })),
+            (Some(true), _) if name.is_none() => {
+                Some(Err(inline_bytes_refusal(&main.name, &main.variable)))
+            }
+            _ => Some(self.with_semantics(NEED, |semantics| {
+                let file = match semantics
+                    .program_file(name.unwrap_or("the program text"), bytes.to_vec())
+                {
+                    Ok(file) => file,
+                    // The program's file is named by the refusal kink-flow writes.
+                    Err(ExecError::ProgramNotText { parameter, .. }) => {
+                        return Err(format!(
+                            "not UTF-8 text, and {}",
+                            parameter.reads_file_text()
+                        ));
+                    }
+                    Err(error) => return Err(error.to_string()),
+                };
+                match file {
+                    ProgramFile::Bytes { parameter, .. } if name.is_none() => {
+                        let variable = &semantics
+                            .program_parameter()
+                            .map_err(|error| error.to_string())?
+                            .variable;
+                        Err(inline_bytes_refusal(&parameter, variable))
+                    }
+                    ProgramFile::Bytes { parameter, value } => semantics
+                        .input_term(&parameter, &value)
+                        .map(|(variable, term)| ProgramBinding::Term { variable, term })
+                        .map_err(|error| error.to_string()),
+                    ProgramFile::Text(program) => Ok(ProgramBinding::Text {
+                        variable: semantics
+                            .program_parameter()
+                            .map_err(|error| error.to_string())?
+                            .variable
+                            .clone(),
+                        text: program.text,
+                    }),
+                }
+            })),
+        }
+    }
+}
+
+/// The refusal of inline program text under the main parameter `name` (`$variable`), whose type
+/// is exactly `Bytes`.
+fn inline_bytes_refusal(name: &str, variable: &str) -> String {
+    format!(
+        "the main parameter `{name}` (${variable}: Bytes) takes a file's bytes, and inline text \
+         has no reading as bytes; give the program as a file, or bind its bytes under `inputs` \
+         instead: `{name} = {{ \"$hex\" = \"..\" }}`"
+    )
 }

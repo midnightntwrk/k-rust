@@ -518,22 +518,17 @@ fn with_front_end_facts(
     manifest: kink_flow::FlowManifest,
     emitted: &EmittedDefinition,
 ) -> kink_flow::FlowManifest {
-    let manifest = if manifest
-        .programs
-        .iter()
-        .any(|program| !program.inputs.is_empty())
-    {
-        manifest.with_input_decoder(Arc::new(inputs::KrsInputs::new(emitted.ir.clone())))
-    } else {
-        manifest
-    };
-    manifest.with_claim_helpers(
-        emitted
-            .rules
-            .iter()
-            .filter(|rule| rule.claim_helper)
-            .map(|rule| (rule.module.clone(), rule.label.clone())),
-    )
+    // The decoder reads typed inputs and binds programs, and fuzz templates' own, to the main
+    // parameter; it compiles nothing until one needs it.
+    manifest
+        .with_input_decoder(Arc::new(inputs::KrsInputs::new(emitted.ir.clone())))
+        .with_claim_helpers(
+            emitted
+                .rules
+                .iter()
+                .filter(|rule| rule.claim_helper)
+                .map(|rule| (rule.module.clone(), rule.label.clone())),
+        )
 }
 
 /// The command request every stage before kink runs on: `request`'s selection, judged as

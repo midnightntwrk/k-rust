@@ -153,6 +153,107 @@ pub struct Parameter {
     pub main: bool,
 }
 
+impl Parameter {
+    /// Whether a program file binds this parameter as the file's bytes: its declared type is
+    /// exactly `Bytes`, the one type whose values are any bytes. Every other type, a sort `Bytes`
+    /// is a subsort of included, reads a file as text, parsed at its sort, since only a parse
+    /// says which of its values a file denotes.
+    #[must_use]
+    pub fn reads_file_bytes(&self) -> bool {
+        self.ty.sort == SortRef::Builtin(BuiltinSort::Bytes) && self.ty.arguments.is_empty()
+    }
+
+    /// Why a program file that is not UTF-8 text binds this main parameter to nothing, where it
+    /// does not read a file's bytes: the end of [`crate::ExecError::ProgramNotText`]'s message,
+    /// for a caller that names the file itself.
+    #[must_use]
+    pub fn reads_file_text(&self) -> String {
+        format!(
+            "the main parameter `{}` (${}: {}) reads a file as text, parsed at its sort; only a main parameter of type exactly `Bytes` takes a file's bytes",
+            self.name, self.variable, self.ty
+        )
+    }
+}
+
+/// The main input of a definition as its Definition IR declares it, read without compiling the
+/// definition: what a front end needs to bind a program file that is text.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MainVariable {
+    /// The Rust binding (`entry`).
+    pub name: String,
+    /// The K name of its configuration variable, without `$` (`PGM`, `ENTRY`).
+    pub variable: String,
+    /// Whether a program file binds it as the file's bytes ([`Parameter::reads_file_bytes`]),
+    /// where the Definition IR alone says so; `None` where only the compiled definition does.
+    pub reads_file_bytes: Option<bool>,
+}
+
+/// The configuration variables of `definition`'s `#[k::init]`, in declaration order.
+fn configuration_variables(
+    definition: &DefinitionIr,
+) -> impl Iterator<Item = &krs_ir::FixedConfigurationVariable<DefinitionSortRef>> {
+    definition
+        .modules()
+        .iter()
+        .flat_map(krs_ir_levels::DefinitionModule::sentences)
+        .filter_map(|sentence| match sentence {
+            DefinitionSentence::Configuration(configuration) => Some(configuration),
+            _ => None,
+        })
+        .flat_map(|configuration| configuration.variables())
+}
+
+/// Whether a program file binds a parameter of the IR sort `sort` applied to `arguments` as the
+/// file's bytes, as [`Parameter::reads_file_bytes`] says of the parameter [`parameters`] types
+/// from it; `None` where that type is not a function of the IR sort.
+///
+/// [`parameters`] maps a builtin sort to itself with its arguments, and a declared sort to a
+/// declared KRS sort or, for one no KRS declaration names, to the compiled definition's K sort of
+/// the variable, which is that declared sort's own: K's `Bytes` is the builtin's sort, and a
+/// definition declares each sort name once. Only where the sort, or one of its arguments, is a
+/// cell sort or a sort parameter is the compiled K sort another than the IR names, and it can be
+/// K's `Bytes`. So the type is exactly `Bytes` exactly when the IR sort is the builtin `Bytes`
+/// with no arguments, except under a cell sort or a sort parameter, where only the compiled
+/// definition answers.
+fn file_reading(
+    sort: &DefinitionSortRef,
+    arguments: &[CellSortArgument<DefinitionSortRef>],
+) -> Option<bool> {
+    fn ir_typed(
+        sort: &DefinitionSortRef,
+        arguments: &[CellSortArgument<DefinitionSortRef>],
+    ) -> bool {
+        matches!(
+            sort,
+            DefinitionSortRef::Builtin(_) | DefinitionSortRef::Declared(_)
+        ) && arguments
+            .iter()
+            .all(|argument| ir_typed(&argument.sort, &argument.arguments))
+    }
+    ir_typed(sort, arguments)
+        .then(|| *sort == DefinitionSortRef::Builtin(BuiltinSort::Bytes) && arguments.is_empty())
+}
+
+/// The main parameter of `definition`'s `#[k::init]` ([`Parameter::main`]), from the Definition
+/// IR alone; `None` when it has none.
+#[must_use]
+pub fn main_variable(definition: &DefinitionIr) -> Option<MainVariable> {
+    configuration_variables(definition)
+        .find(|variable| variable.is_main())
+        .map(|variable| MainVariable {
+            name: variable.id().as_str().to_owned(),
+            variable: variable.external_name().to_owned(),
+            reads_file_bytes: file_reading(variable.sort(), variable.arguments()),
+        })
+}
+
+/// Whether `definition`'s `#[k::init]` has a parameter whose configuration variable's K name is
+/// `variable` (without `$`), main or not, from the Definition IR alone.
+#[must_use]
+pub fn declares_variable(definition: &DefinitionIr, variable: &str) -> bool {
+    configuration_variables(definition).any(|declared| declared.external_name() == variable)
+}
+
 impl fmt::Display for Parameter {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "{}: {}", self.name, self.ty)
@@ -1673,6 +1774,41 @@ fn describe(document: &Json) -> String {
 mod tests {
     use super::{Case, InputError, Json, json_document, parse_hex, parse_int, toml_document};
     use num_bigint::BigInt;
+
+    /// The Definition IR says that a main parameter reads a file's bytes where its sort is the
+    /// builtin `Bytes` with no arguments, and that it reads text under any other builtin or
+    /// declared sort; under a cell sort or a sort parameter, at any depth, the compiled definition
+    /// types the parameter and the IR gives no answer.
+    #[test]
+    fn the_ir_reads_a_file_as_bytes_only_for_exactly_the_builtin_bytes() {
+        use krs_ir::{BuiltinSort, CellSortArgument};
+        use krs_ir_levels::{DefinitionSortRef, SortParameterId, SymbolId};
+
+        let symbol = |id: &str| SymbolId::new(id).unwrap();
+        let argument = |sort: DefinitionSortRef| CellSortArgument {
+            sort,
+            arguments: Vec::new(),
+        };
+        let bytes = DefinitionSortRef::Builtin(BuiltinSort::Bytes);
+        let int = DefinitionSortRef::Builtin(BuiltinSort::Int);
+        let map = DefinitionSortRef::Builtin(BuiltinSort::Map);
+        let declared = DefinitionSortRef::Declared(symbol("sort.op"));
+        let cell = DefinitionSortRef::Cell(symbol("cell.rom"));
+        let parameter = DefinitionSortRef::Parameter(SortParameterId::new("S"));
+        assert_eq!(super::file_reading(&bytes, &[]), Some(true));
+        assert_eq!(super::file_reading(&int, &[]), Some(false));
+        assert_eq!(super::file_reading(&declared, &[]), Some(false));
+        assert_eq!(
+            super::file_reading(&map, &[argument(int.clone()), argument(bytes.clone())]),
+            Some(false)
+        );
+        assert_eq!(super::file_reading(&cell, &[]), None);
+        assert_eq!(super::file_reading(&parameter, &[]), None);
+        assert_eq!(
+            super::file_reading(&map, &[argument(int), argument(cell)]),
+            None
+        );
+    }
 
     #[test]
     fn the_integer_grammar_reads_decimal_and_prefixed_digits_and_nothing_else() {

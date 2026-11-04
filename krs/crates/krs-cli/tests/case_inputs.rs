@@ -6,6 +6,7 @@
 //! (`Map<Int, Int>`, `Bytes`, `Int` and a declared sort) into its own cell, so a run of depth 0
 //! shows the values its inputs were given. `fixtures/inferred-main` has one parameter, `entry`,
 //! whose configuration variable is `$ENTRY`, made main by being read in the computation cell.
+//! `fixtures/bytes-main`'s main parameter is a `Bytes`, `rom` (`$ROM`), beside an `Int`.
 
 use std::fmt::Write as _;
 use std::fs;
@@ -20,6 +21,7 @@ use serde_json::Value;
 
 const INPUTS: &str = include_str!("fixtures/inputs/src/lib.rs");
 const INFERRED_MAIN: &str = include_str!("fixtures/inferred-main/src/lib.rs");
+const BYTES_MAIN: &str = include_str!("fixtures/bytes-main/src/lib.rs");
 
 /// A fixture materialized as a package, shared by the tests that overlap in this process: its
 /// manifest path keys the collector's directory and result cache, so the tests that share it
@@ -84,6 +86,11 @@ impl Project {
             .turn
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.command(verb, arguments).output().unwrap()
+    }
+
+    /// The process [`Self::krs`] runs, for a caller that holds the turn and sets more of it.
+    fn command(&self, verb: &str, arguments: &[&str]) -> std::process::Command {
         let mut process = krs_command!();
         fixture_build_env(&mut process, &self.target);
         process
@@ -91,7 +98,7 @@ impl Project {
             .arg(verb)
             .args(["--package", self.package, "--definition", "main"])
             .args(arguments);
-        process.output().unwrap()
+        process
     }
 }
 
@@ -103,6 +110,11 @@ fn inputs() -> Arc<Project> {
 fn inferred_main() -> Arc<Project> {
     static PROJECT: Mutex<Weak<Project>> = Mutex::new(Weak::new());
     Project::shared(&PROJECT, "krs-cli-inferred-main-fixture", INFERRED_MAIN)
+}
+
+fn bytes_main() -> Arc<Project> {
+    static PROJECT: Mutex<Weak<Project>> = Mutex::new(Weak::new());
+    Project::shared(&PROJECT, "krs-cli-bytes-main-fixture", BYTES_MAIN)
 }
 
 fn stdout(output: &Output) -> String {
@@ -280,6 +292,88 @@ fn file_binds_the_main_parameter() {
         stderr(&unbound).lines().next(),
         Some(
             "error[krs::exec::program]: the main parameter `entry` ($ENTRY: Op) is unbound; pass FILE, `-` for standard input, or bind `entry` by name"
+        )
+    );
+}
+
+/// A file that is not UTF-8 text is refused for a main parameter that reads text, naming the
+/// parameter and its type: only a parse at the parameter's sort says what the file denotes, and
+/// text that is not UTF-8 has none.
+#[test]
+fn a_text_main_parameter_refuses_a_file_that_is_not_text() {
+    let project = inferred_main();
+    project.write("prog.bin", [0x67, 0x6f, 0xff, 0x0a]);
+    let run = project.krs("run", &["prog.bin"]);
+    assert_eq!(run.status.code(), Some(1), "{}", stderr(&run));
+    assert_eq!(
+        stderr(&run).lines().next(),
+        Some(
+            "error[krs::exec::program]: `prog.bin` is not UTF-8 text, and the main parameter `entry` ($ENTRY: Op) reads a file as text, parsed at its sort; only a main parameter of type exactly `Bytes` takes a file's bytes"
+        ),
+        "{}",
+        stderr(&run)
+    );
+}
+
+/// On a definition whose main parameter is a `Bytes`, FILE is its value: the file's bytes,
+/// unchanged, here every byte, so the file is no UTF-8 text. The state is the one the same file
+/// bound by name as `{"$file": ..}` gives, standard input gives the same bytes, and FILE together
+/// with a binding of `rom` by name binds it twice.
+#[test]
+fn a_bytes_main_parameter_takes_the_files_bytes() {
+    let project = bytes_main();
+    project.write("rom.bin", (0..=255_u8).collect::<Vec<_>>());
+    let file = project.krs("run", &["rom.bin", "--input", "pc=256", "--depth", "0"]);
+    assert_eq!(file.status.code(), Some(0), "{}", stderr(&file));
+    assert_eq!(
+        stdout(&file),
+        format!(
+            "<generatedTop>\n  <k>\n    .K\n  </k>\n  <rom>\n    {}\n  </rom>\n  <pc>\n    256\n  </pc>\n</generatedTop>\n",
+            every_byte_literal()
+        )
+    );
+
+    let by_name = project.krs(
+        "run",
+        &[
+            "--input",
+            r#"rom={"$file": "rom.bin"}"#,
+            "--input",
+            "pc=256",
+            "--depth",
+            "0",
+        ],
+    );
+    assert_eq!(by_name.status.code(), Some(0), "{}", stderr(&by_name));
+    assert_eq!(stdout(&by_name), stdout(&file));
+
+    let stdin = {
+        let _turn = project
+            .turn
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut process = project.command("run", &["-", "--input", "pc=256", "--depth", "0"]);
+        process.stdin(fs::File::open(project.path().join("rom.bin")).unwrap());
+        process.output().unwrap()
+    };
+    assert_eq!(stdin.status.code(), Some(0), "{}", stderr(&stdin));
+    assert_eq!(stdout(&stdin), stdout(&file));
+
+    let twice = project.krs(
+        "run",
+        &[
+            "rom.bin",
+            "--input",
+            r#"rom={"$hex": "00"}"#,
+            "--input",
+            "pc=256",
+        ],
+    );
+    assert_eq!(twice.status.code(), Some(1), "{}", stderr(&twice));
+    assert_eq!(
+        stderr(&twice).lines().next(),
+        Some(
+            "error[krs::exec::variable]: configuration variable `$ROM` (init parameter rom) is bound twice"
         )
     );
 }

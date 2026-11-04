@@ -66,7 +66,8 @@ pub use stage::{CompiledStage, SPEC_STAGE_FORMAT, STAGE_FORMAT, SpecStage};
 
 pub use configuration::Configuration;
 pub use inputs::{
-    Case, InputError, InputFiles, InputType, NoFiles, Parameter, json_document, toml_document,
+    Case, InputError, InputFiles, InputType, MainVariable, NoFiles, Parameter, declares_variable,
+    json_document, main_variable, toml_document,
 };
 pub use k_rust::backend::{BackendError, ChosenValueOutput};
 /// The printer crate, for callers that print a term through [`Semantics::unparser`].
@@ -244,6 +245,20 @@ pub struct ProgramInput {
     pub text: String,
 }
 
+/// What a program file binds to the main parameter ([`Semantics::program_file`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ProgramFile {
+    /// The file's text, which [`ConfigInputs::program`] binds.
+    Text(ProgramInput),
+    /// The file's bytes, the `Bytes` value of the main parameter.
+    Bytes {
+        /// The main parameter's Rust name, which binds it by name.
+        parameter: String,
+        /// The file's bytes, unchanged.
+        value: Value,
+    },
+}
+
 /// The value of one configuration variable.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ConfigValue {
@@ -277,7 +292,9 @@ impl From<Value> for ConfigValue {
 /// The inputs of one initial configuration.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ConfigInputs {
-    /// FILE, bound to the main parameter ([`Parameter::main`]), whatever its K name.
+    /// FILE's text, bound to the main parameter ([`Parameter::main`]), whatever its K name. A
+    /// main parameter of type exactly `Bytes` takes the file's bytes instead, bound by name
+    /// ([`Semantics::program_file`]).
     pub program: Option<ProgramInput>,
     /// Bindings by name, as `-c NAME=TEXT` gives them in command-line order. NAME is a
     /// `#[k::init]` parameter's Rust name (`env`) or its configuration variable's K name (`ENV`
@@ -406,6 +423,13 @@ pub enum ExecError {
     StrayProgram {
         /// Every parameter, in declaration order, to bind by name instead.
         parameters: Vec<Parameter>,
+    },
+    /// FILE is not UTF-8 text, and the main parameter reads a file as text.
+    ProgramNotText {
+        /// The file name, or `<stdin>`.
+        file: String,
+        /// The main parameter.
+        parameter: Parameter,
     },
     /// The main parameter was bound neither by FILE nor by name.
     MissingProgram {
@@ -544,6 +568,11 @@ impl fmt::Display for ExecError {
                 }
                 Ok(())
             }
+            Self::ProgramNotText { file, parameter } => write!(
+                formatter,
+                "`{file}` is not UTF-8 text, and {}",
+                parameter.reads_file_text()
+            ),
             Self::MissingProgram { parameter } => write!(
                 formatter,
                 "the main parameter `{}` (${}: {}) is unbound; pass FILE, `-` for standard input, or bind `{}` by name",
@@ -1063,6 +1092,33 @@ impl Semantics {
             .ok_or_else(|| ExecError::StrayProgram {
                 parameters: self.parameters.clone(),
             })
+    }
+
+    /// What the program file `name`, whose bytes are `bytes`, binds to the main parameter: the
+    /// bytes, unchanged, where the parameter's type is exactly `Bytes`
+    /// ([`Parameter::reads_file_bytes`]), and the file's text, parsed at the parameter's sort as
+    /// [`Self::configure`] parses [`ConfigInputs::program`], otherwise.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecError::StrayProgram`] when there is no main parameter, and
+    /// [`ExecError::ProgramNotText`] when the parameter reads text and `bytes` are not UTF-8.
+    pub fn program_file(&self, name: &str, bytes: Vec<u8>) -> Result<ProgramFile, ExecError> {
+        let main = self.program_parameter()?;
+        if main.reads_file_bytes() {
+            return Ok(ProgramFile::Bytes {
+                parameter: main.name.clone(),
+                value: Value::Bytes(bytes),
+            });
+        }
+        let text = String::from_utf8(bytes).map_err(|_| ExecError::ProgramNotText {
+            file: name.to_owned(),
+            parameter: main.clone(),
+        })?;
+        Ok(ProgramFile::Text(ProgramInput {
+            name: name.to_owned(),
+            text,
+        }))
     }
 
     /// The parameter `written` names: its Rust name (`env`) or its configuration variable's K

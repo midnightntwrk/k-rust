@@ -15,9 +15,9 @@ use std::path::{Path, PathBuf};
 use krs_diagnostic::{Code, codes};
 use krs_exec::{
     Case, CompiledStage, ConfigInputs, ConfigValue, Coverage, CoverageOptions, ExecError, Halt,
-    InputError, InputFiles, PrintStyle, Printed, ProgramInput, ProveOptions, REPORT_SCHEMA,
-    ReadBack, RunOptions, SearchMode, SearchOptions, Semantics, SourceText, SpecStage, Step,
-    StepOrigin, Term, Verdict, json_document,
+    InputError, InputFiles, PrintStyle, Printed, ProgramFile, ProgramInput, ProveOptions,
+    REPORT_SCHEMA, ReadBack, RunOptions, SearchMode, SearchOptions, Semantics, SourceText,
+    SpecStage, Step, StepOrigin, Term, Verdict, json_document,
 };
 use krs_ir::measure::Measurement;
 use serde_json::json;
@@ -345,26 +345,31 @@ impl From<serde_json::Error> for Failure {
     }
 }
 
+/// FILE's name and text, for `parse`, which reads it as a program.
 fn read_program(source: &ProgramSource) -> Result<ProgramInput, Failure> {
+    let (name, bytes) = read_program_bytes(source)?;
+    let text = String::from_utf8(bytes)
+        .map_err(|error| Failure::Read(format!("could not read `{name}`: {error}")))?;
+    Ok(ProgramInput { name, text })
+}
+
+/// FILE's name and bytes, read whole, for the main parameter to read as its type says
+/// ([`Semantics::program_file`]).
+fn read_program_bytes(source: &ProgramSource) -> Result<(String, Vec<u8>), Failure> {
     match source {
         ProgramSource::Stdin => {
-            let mut text = String::new();
-            std::io::stdin()
-                .read_to_string(&mut text)
-                .map_err(|error| {
-                    Failure::Read(format!("could not read standard input: {error}"))
-                })?;
-            Ok(ProgramInput {
-                name: "<stdin>".to_owned(),
-                text,
-            })
+            let mut bytes = Vec::new();
+            std::io::stdin().read_to_end(&mut bytes).map_err(|error| {
+                Failure::Read(format!("could not read standard input: {error}"))
+            })?;
+            Ok(("<stdin>".to_owned(), bytes))
         }
-        ProgramSource::File(path) => Ok(ProgramInput {
-            name: path.display().to_string(),
-            text: std::fs::read_to_string(path).map_err(|error| {
+        ProgramSource::File(path) => Ok((
+            path.display().to_string(),
+            std::fs::read(path).map_err(|error| {
                 Failure::Read(format!("could not read `{}`: {error}", path.display()))
             })?,
-        }),
+        )),
     }
 }
 
@@ -534,7 +539,21 @@ fn configure(
             "FILE `-` and the stdin stream cell both read standard input".into(),
         ));
     }
-    let program = input.map(read_program).transpose()?;
+    // FILE binds the main parameter as its type reads a file: as text, which `configure`
+    // parses, or, for exactly `Bytes`, as the file's bytes, bound by name before every other
+    // binding, so that a second binding of it is bound twice.
+    let (program, file_bytes) = match input {
+        None => (None, None),
+        Some(source) => {
+            let (name, bytes) = read_program_bytes(source)?;
+            match semantics.program_file(&name, bytes)? {
+                ProgramFile::Text(program) => (Some(program), None),
+                ProgramFile::Bytes { parameter, value } => {
+                    (None, Some((parameter, ConfigValue::Value(value))))
+                }
+            }
+        }
+    };
     let stdin = if console_input
         && semantics
             .variables()
@@ -547,7 +566,8 @@ fn configure(
     };
     // Every binding goes through `configure`'s one resolver, so a parameter that any two of
     // FILE, the case, `--input` and `-c` bind is bound twice.
-    let mut bindings = match case {
+    let mut bindings = file_bytes.into_iter().collect::<Vec<_>>();
+    bindings.extend(match case {
         Some(path) => {
             let mut files = CaseFiles {
                 base: path.parent().map_or_else(PathBuf::new, Path::to_path_buf),
@@ -557,7 +577,7 @@ fn configure(
                 .variables
         }
         None => Vec::new(),
-    };
+    });
     let mut files = CaseFiles {
         base: PathBuf::new(),
     };
@@ -1099,7 +1119,9 @@ fn write_coverage(output: &mut String, coverage: &Coverage) {
 pub(super) const fn diagnostic_code(error: &ExecError) -> Code {
     match error {
         ExecError::Compile(_) | ExecError::Backend(_) => codes::exec::BACKEND,
-        ExecError::StrayProgram { .. } | ExecError::MissingProgram { .. } => codes::exec::PROGRAM,
+        ExecError::StrayProgram { .. }
+        | ExecError::MissingProgram { .. }
+        | ExecError::ProgramNotText { .. } => codes::exec::PROGRAM,
         ExecError::UnknownVariable { .. }
         | ExecError::StreamInput { .. }
         | ExecError::DuplicateVariable(_)

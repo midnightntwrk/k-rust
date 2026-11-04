@@ -155,7 +155,9 @@ An entry is keyed by the digest of the Definition IR's canonical JSON and the `k
 `prove --spec-module NAME` also keeps the proof definition it compiles for that author spec module, under the same key plus NAME (the Definition IR digest covers the spec module's content), so a second proof of an unchanged spec module compiles neither.
 `--no-reuse` or `KRS_NO_REUSE=1` compiles again and replaces the entry.
 A cache directory inside the package's Cargo workspace is never used, so an entry is never committed with the package: each command then warns (`krs::exec::stage-cache`) and compiles the definition again, and setting `KRS_STAGE_CACHE_DIR` to a directory outside the workspace restores reuse.
-FILE (or `-` for standard input) binds the main parameter of the `#[k::init]` (the one marked `#[k::config_var(.., main)]`, or the one the computation cell reads when none is marked), whatever its K name: as a program, at the start position of its sort, where that parameter is `$PGM`, and as `-c` text of that parameter otherwise; a definition without a main parameter refuses FILE, naming every parameter to bind by name instead ([inputs by name](#inputs-by-name)).
+FILE (or `-` for standard input) binds the main parameter of the `#[k::init]` (the one marked `#[k::config_var(.., main)]`, or the one the computation cell reads when none is marked), whatever its K name; a definition without a main parameter refuses FILE, naming every parameter to bind by name instead ([inputs by name](#inputs-by-name)).
+Where the main parameter's type is exactly `Bytes`, FILE is its value: the file's bytes, unchanged, as `{"$file": ..}` gives them.
+Otherwise FILE is text, parsed at the parameter's sort: as a program, at the start position of its sort, where that parameter is `$PGM`, and as `-c` text of that parameter otherwise; a file that is not UTF-8 text is refused, naming the parameter and its type.
 `-c NAME=TEXT` binds a parameter by its Rust name (`env`) or its configuration variable's K name (`ENVIRONMENT` or `$ENVIRONMENT`); FILE together with a binding of the main parameter by name binds it twice and is refused.
 `run` follows one path, choosing one successor per step as krun does, and `search` returns the set of reachable final states; `--mode` selects `all`, `one-step`, or `one-or-more-steps` instead.
 `prove` proves every claim, or each `--claim` label given as the exact label or a unique suffix; `--spec-module NAME` proves the claims of an author spec module (`kprove --spec-module`) instead of the generated `<MAIN>-SPEC` ([spec modules](/verification/reachability-claims#spec-modules)).
@@ -349,6 +351,8 @@ A function nothing applies is reached by no program text either, but no claim ac
 `--output verdicts` (for `results`, `run` and `report`) prints kink-flow's deterministic rendering, which names each rule by its item and gives each case the rules that list it as `matched` and `fired`.
 `fuzz --matched RULE` and `fuzz --fired RULE` take the rule's label or a suffix of whole components of it (`plus_zero` for `nat--plus_zero`), as a mutation's `rule` anchor does.
 A case's typed inputs are read by the encoding `run --case` reads, except `$text` and `$text-file`, which are K text and are written under the case's `variables` instead.
+A case's program file binds the main parameter as `run FILE` binds it, whatever the parameter's K name, so `[[program]] files = "roms/*.gb"` with the other parameters under `inputs` is one case per ROM; inline `text` under a `Bytes` main parameter is refused, since a `Bytes` value has no text reading (`$hex` under `inputs` gives bytes inline).
+A case's digest holds the SHA-256 of its program's bytes, whichever way they bind.
 
 The selection options are those of the other commands and may come before or after the verb; every other option is the kink-flow verb's own.
 Every command that builds the package builds it in process, so `krs kink` takes no `--no-reuse`.

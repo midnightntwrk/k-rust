@@ -5,10 +5,11 @@
 //! story's pages claim, each rule named by its Rust item and position, and kill the story's
 //! three edits written as K patches anchored by `plus_zero` and `plus_succ`. A small counter
 //! definition, which has rewrite rules, gives `fuzz --matched` and a query witness rules to name;
-//! `fixtures/inputs` gives a case of typed inputs. A definition of guarded transitions, a nondet
-//! group, a branching function, a division in a condition and a claim helper gives the front
-//! end's own mutation checks something to refuse, each checked against `krs check` of a Rust
-//! source that emits the mutant.
+//! `fixtures/inputs` gives a case of typed inputs, and `fixtures/inferred-main` and
+//! `fixtures/bytes-main` program files bound to a main parameter that is not `$PGM`. A
+//! definition of guarded transitions, a nondet group, a branching function, a division in a
+//! condition and a claim helper gives the front end's own mutation checks something to refuse,
+//! each checked against `krs check` of a Rust source that emits the mutant.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -46,6 +47,8 @@ const STORY_CASES: [(&str, &str); 4] = [
     ),
 ];
 const INPUTS: &str = include_str!("fixtures/inputs/src/lib.rs");
+const INFERRED_MAIN: &str = include_str!("fixtures/inferred-main/src/lib.rs");
+const BYTES_MAIN: &str = include_str!("fixtures/bytes-main/src/lib.rs");
 
 /// A definition with rewrite rules: `count(n)` steps down to `count(0)`, which stops.
 const COUNTER: &str = r#"use k::builtin::{Int, KSequence, int};
@@ -1548,4 +1551,170 @@ impl Machine {
         "{record:#}"
     );
     assert!(document.get("krs").is_none(), "{:#}", document["krs"]);
+}
+
+/// A program file binds the main parameter as `krs run FILE` does: on a definition whose main
+/// parameter is a `Bytes` (`$ROM`), each file a `files` pattern matches is one program, the
+/// file's bytes, with the entry's typed inputs for the other parameter, so a corpus of ROMs
+/// needs no case document per ROM. A file whose bytes are UTF-8 text is bytes too. The bound
+/// value is the file's bytes, which `query` shows by a hit of the pattern of that literal, and
+/// `krs run` of the file binds the same. The program digest is a function of the file's bytes
+/// and the inputs, not of the file's name: a copy of a ROM under another name has its digest.
+/// Inline text has no reading as bytes, and is refused, pointing at `$hex`.
+#[test]
+fn a_program_file_binds_a_bytes_main_parameter() {
+    let project = project_of(
+        "krs-cli-kink-bytes-main",
+        "ORG-KRS-CLI-KINK-BYTES-MAIN",
+        &[
+            ("src/lib.rs".to_owned(), BYTES_MAIN.as_bytes().to_vec()),
+            (
+                "kink/FLOW.toml".to_owned(),
+                b"[spec]\nkrs = { definition = \"main\" }\n\n[[program]]\nfiles = \"roms/*.bin\"\ninputs = { pc = 256 }\n\n[[program]]\nid = \"inline\"\ntext = \"ab\"\ninputs = { pc = 256 }\n"
+                    .to_vec(),
+            ),
+            (
+                "kink/PATTERNS.toml".to_owned(),
+                br#"[[pattern]]
+id = "text-rom"
+pattern = '<rom> b"ab" </rom> <pc> 256 </pc>'
+programs = ["roms/u.bin"]
+
+[[pattern]]
+id = "binary-rom"
+pattern = '<rom> b"\xff\x00" </rom> <pc> 256 </pc>'
+programs = ["roms/b.bin"]
+"#
+                .to_vec(),
+            ),
+            ("kink/roms/a.bin".to_owned(), (0..=255_u8).collect()),
+            ("kink/roms/b.bin".to_owned(), vec![0xff, 0x00]),
+            ("kink/roms/c.bin".to_owned(), (0..=255_u8).collect()),
+            ("kink/roms/u.bin".to_owned(), b"ab".to_vec()),
+        ],
+    );
+    let output = project.kink("results", &[]);
+    assert_status(&output, 1);
+    let document = json(&output);
+    let programs = document["programs"].as_array().unwrap();
+    let program = |id: &str| {
+        programs
+            .iter()
+            .find(|program| program["id"] == id)
+            .unwrap_or_else(|| panic!("no program {id}: {document:#}"))
+    };
+    for id in ["roms/a.bin", "roms/b.bin", "roms/c.bin", "roms/u.bin"] {
+        assert_eq!(program(id)["class"], "comparable", "{document:#}");
+    }
+    assert_eq!(
+        program("roms/a.bin")["digest"],
+        program("roms/c.bin")["digest"]
+    );
+    assert_ne!(
+        program("roms/a.bin")["digest"],
+        program("roms/b.bin")["digest"]
+    );
+    let inline = program("inline");
+    assert_eq!(inline["class"], "refused", "{document:#}");
+    assert_eq!(
+        inline["cause"],
+        "inputs/input-value: the program text: the main parameter `rom` ($ROM: Bytes) takes a \
+         file's bytes, and inline text has no reading as bytes; give the program as a file, or \
+         bind its bytes under `inputs` instead: `rom = { \"$hex\" = \"..\" }`",
+        "{document:#}"
+    );
+
+    let output = project.kink("query", &[]);
+    let document = json(&output);
+    let rows = document["rows"]
+        .as_array()
+        .unwrap_or_else(|| panic!("the query has rows: {document:#}"))
+        .iter()
+        .map(|row| {
+            (
+                row["pattern"].as_str().unwrap(),
+                row["program"].as_str().unwrap(),
+                row["answer"].as_str().unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rows,
+        [
+            ("text-rom", "roms/u.bin", "hit"),
+            ("binary-rom", "roms/b.bin", "hit")
+        ],
+        "{document:#}"
+    );
+
+    let run = project.krs(&[
+        "run",
+        "kink/roms/u.bin",
+        "--input",
+        "pc=256",
+        "--depth",
+        "0",
+    ]);
+    assert_status(&run, 0);
+    assert!(
+        stdout(&run).contains("  <rom>\n    b\"ab\"\n  </rom>\n"),
+        "{}",
+        stdout(&run)
+    );
+}
+
+/// On a definition with no main parameter and no `$PGM`, a program file is stray, as `krs run
+/// FILE` refuses it, and the refusal is kink's own (`stray-program`), with no native compile.
+#[test]
+fn a_program_file_is_stray_without_a_main_parameter() {
+    let project = project_of(
+        "krs-cli-kink-stray-program",
+        "ORG-KRS-CLI-KINK-STRAY-PROGRAM",
+        &[
+            ("src/lib.rs".to_owned(), INPUTS.as_bytes().to_vec()),
+            (
+                "kink/FLOW.toml".to_owned(),
+                b"[spec]\nkrs = { definition = \"main\" }\n\n[[program]]\nid = \"x\"\nfile = \"cases/x.txt\"\n"
+                    .to_vec(),
+            ),
+            ("kink/cases/x.txt".to_owned(), b"go\n".to_vec()),
+        ],
+    );
+    let output = project.kink("results", &[]);
+    assert_status(&output, 1);
+    let document = json(&output);
+    assert_eq!(document["programs"][0]["class"], "refused", "{document:#}");
+    assert!(
+        document["programs"][0]["cause"]
+            .as_str()
+            .is_some_and(|cause| cause.starts_with("inputs/stray-program: ")),
+        "{document:#}"
+    );
+}
+
+/// A program file binds a main parameter that reads text whatever its K name: on a definition
+/// whose main parameter is `$ENTRY`, the file is `entry`'s text, not a stray `$PGM` program.
+#[test]
+fn a_program_file_binds_a_text_main_parameter_not_named_pgm() {
+    let project = project_of(
+        "krs-cli-kink-inferred-main",
+        "ORG-KRS-CLI-KINK-INFERRED-MAIN",
+        &[
+            ("src/lib.rs".to_owned(), INFERRED_MAIN.as_bytes().to_vec()),
+            (
+                "kink/FLOW.toml".to_owned(),
+                b"[spec]\nkrs = { definition = \"main\" }\n\n[[program]]\nid = \"go\"\nfile = \"cases/go.txt\"\n"
+                    .to_vec(),
+            ),
+            ("kink/cases/go.txt".to_owned(), b"go\n".to_vec()),
+        ],
+    );
+    let output = project.kink("results", &[]);
+    assert_status(&output, 0);
+    let document = json(&output);
+    assert_eq!(document["programs"][0]["id"], "go", "{document:#}");
+    assert_eq!(
+        document["programs"][0]["class"], "comparable",
+        "{document:#}"
+    );
 }
