@@ -1354,6 +1354,11 @@ fn the_console_passage_the_run_list_rests_on_is_pinned() {
 /// definedness. What the census rests on is unchanged, and stronger: outside `Execution` every
 /// class that is a value is withheld, so no class value enters the fold, the load, a proof route or
 /// kink's feasibility checks.
+///
+/// Re-pin of the third passage (cbe2700b -> 03833fe2): the facade's `prove_kore`, the pattern
+/// form of `Backend::prove`, is named among the proof routes and among the routes that open a
+/// `Proof` scope themselves. It is one more proof route, which kink does not call, and the
+/// passage's evaluation modes are unchanged, so the census reads the same.
 #[test]
 fn the_passages_the_census_leaves_to_the_run_list_are_pinned() {
     let passage = |anchor, opening, lines, digest| passage::Passage {
@@ -1382,7 +1387,7 @@ fn the_passages_the_census_leaves_to_the_run_list_are_pinned() {
                 "## Implementation-chosen hook values",
                 "The mode belongs to the request",
                 5,
-                "cbe2700b8c44f4f9c86d4ea5d92d1785d251ab7c6045462891d53ec9cc7aa02c",
+                "03833fe2e53216cce8e43223de0d9ad5126034febd0d7da33aeb1a658212e584",
             ),
             passage(
                 "### Marks in executions",
