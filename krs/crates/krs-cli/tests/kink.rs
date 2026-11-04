@@ -454,19 +454,50 @@ fn run_kills_the_story_edits() {
         assert_eq!(row["refusals"], serde_json::json!([]), "{row:#}");
         assert_eq!(row["warnings"], serde_json::json!([]), "{row:#}");
     }
-    let edit = &check["mutations"][0]["krs"]["edits"][0];
-    assert_eq!(edit["label"], "nat--plus_zero", "{edit:#}");
-    assert_eq!(edit["item"], "plus_zero", "{edit:#}");
-    assert_eq!(edit["judged"], "authored", "{edit:#}");
-    let rust = &edit["rust"][0];
-    assert_eq!(rust["file"], "src/lib.rs", "{edit:#}");
-    assert_eq!(rust["text"], "n", "{edit:#}");
-    assert_eq!(
-        rust["line"].as_u64(),
-        // The body of `plus_zero`, the line after its signature, is the `n` it returns.
-        Some(line_of(STORY, "fn plus_zero") + 1),
-        "{edit:#}"
-    );
+    // The Rust each patch stands for is the whole construct its K edit replaces: the `n` that
+    // plus_zero returns, the `NatSyntax::Succ(..)` call plus/b unwraps, and the `Plus(m, n)` call
+    // plus/c replaces by `n`, each in the body of its function, the line after its signature.
+    for (row, (label, item, function, text)) in check["mutations"].as_array().unwrap().iter().zip([
+        ("nat--plus_zero", "plus_zero", "fn plus_zero(", "n"),
+        (
+            "nat--plus_succ",
+            "plus_succ",
+            "fn plus_succ(",
+            "NatSyntax::Succ(Plus(m, n))",
+        ),
+        ("nat--plus_succ", "plus_succ", "fn plus_succ(", "Plus(m, n)"),
+    ]) {
+        let edits = row["krs"]["edits"].as_array().unwrap();
+        assert_eq!(edits.len(), 1, "{row:#}");
+        let edit = &edits[0];
+        assert_eq!(edit["label"], label, "{edit:#}");
+        assert_eq!(edit["item"], item, "{edit:#}");
+        assert_eq!(edit["judged"], "authored", "{edit:#}");
+        let rust = edit["rust"].as_array().unwrap();
+        assert_eq!(rust.len(), 1, "{edit:#}");
+        let line = line_of(STORY, function) + 1;
+        let column = STORY
+            .lines()
+            .nth(usize::try_from(line).unwrap() - 1)
+            .unwrap()
+            .find(text)
+            .unwrap()
+            + 1;
+        assert_eq!(rust[0]["file"], "src/lib.rs", "{edit:#}");
+        assert_eq!(rust[0]["text"], text, "{edit:#}");
+        assert_eq!(rust[0]["line"].as_u64(), Some(line), "{edit:#}");
+        assert_eq!(rust[0]["end_line"].as_u64(), Some(line), "{edit:#}");
+        assert_eq!(
+            rust[0]["column"].as_u64(),
+            Some(u64::try_from(column).unwrap()),
+            "{edit:#}"
+        );
+        assert_eq!(
+            rust[0]["end_column"].as_u64(),
+            Some(u64::try_from(column + text.len()).unwrap()),
+            "{edit:#}"
+        );
+    }
 }
 
 /// `query` and `fuzz` run through the front end and print kink-flow's documents, with the

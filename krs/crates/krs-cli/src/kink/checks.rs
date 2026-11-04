@@ -232,22 +232,42 @@ impl RustSpan {
     }
 }
 
+/// One package source: its text, its line index, and its Rust tokens when it lexes.
+struct SourceText {
+    text: String,
+    index: LineIndex,
+    tokens: Option<proc_macro2::TokenStream>,
+}
+
 /// The package sources, read on demand and indexed by line, as `krs run --trace` reads them.
 struct Positions<'a> {
     sources: &'a DiagnosticSources,
-    files: RefCell<BTreeMap<SourceFileId, Option<(String, LineIndex)>>>,
+    files: RefCell<BTreeMap<SourceFileId, Option<SourceText>>>,
 }
 
 impl Positions<'_> {
-    fn span(&self, range: &SourceRange) -> RustSpan {
+    /// The Rust construct whose source-map range is `range`, positioned: the range itself, or,
+    /// for an application whose `arguments` (the authored ranges of the nodes below it in
+    /// `definition.k`) are written in the group after it, through that group
+    /// ([`construct_end`]).
+    fn span(&self, range: &SourceRange, arguments: &[Range<usize>]) -> RustSpan {
         let mut files = self.files.borrow_mut();
         let indexed = files.entry(range.file.clone()).or_insert_with(|| {
             self.sources
                 .source_text(&range.file)
-                .map(|text| (text.clone(), LineIndex::new(&text)))
+                .map(|text| SourceText {
+                    index: LineIndex::new(&text),
+                    tokens: text.parse().ok(),
+                    text: text.clone(),
+                })
         });
         let file = range.file.package_relative_path().to_owned();
-        let Some((text, index)) = indexed.as_ref() else {
+        let Some(SourceText {
+            text,
+            index,
+            tokens,
+        }) = indexed.as_ref()
+        else {
             return RustSpan {
                 file,
                 line: None,
@@ -262,11 +282,20 @@ impl Positions<'_> {
                 .ok()
                 .and_then(|byte| index.byte_to_position(byte).ok())
         };
-        let start = position(range.start_byte);
-        let end = position(range.end_byte);
         let bytes = usize::try_from(range.start_byte)
             .ok()
-            .zip(usize::try_from(range.end_byte).ok());
+            .zip(usize::try_from(range.end_byte).ok())
+            .map(|(start, end)| {
+                let end = tokens
+                    .as_ref()
+                    .and_then(|tokens| construct_end(tokens, &(start..end), arguments))
+                    .unwrap_or(end);
+                (start, end)
+            });
+        let start = position(range.start_byte);
+        let end = bytes
+            .and_then(|(_, end)| u32::try_from(end).ok())
+            .and_then(position);
         RustSpan {
             file,
             line: start.map(krs_ir::Position::line),
@@ -277,6 +306,80 @@ impl Positions<'_> {
                 .and_then(|(start, end)| text.get(start..end))
                 .map(quote),
         }
+    }
+}
+
+/// The end of the Rust construct whose source-map range is `range` of the source `tokens` lexes,
+/// when it extends past `range`.
+///
+/// The source map names an application by its head path, since the head is the token an
+/// application is keyed by, and the application is that path with the argument group written
+/// after it (`Plus(m, n)`, `NatSyntax::Succ(n)`, `Ctor { f: e }`): K renders the whole call as
+/// one node, and an edit of that node replaces the whole call. Whether a node is an application
+/// with arguments is what K says, not the Rust tokens: `arguments` are the authored ranges of
+/// the nodes below it in `definition.k`, empty for a variable or a token. So a range that is
+/// exactly a path (identifiers and `::`) ends with the parenthesized or braced group written
+/// after it only when one of `arguments` begins inside that group; any other range is the
+/// construct itself (`None`). A variable followed by a block, such as the operand `limit` of
+/// `if value < limit { value }` or the scrutinee of `match value { .. }`, is therefore its own
+/// construct.
+fn construct_end(
+    tokens: &proc_macro2::TokenStream,
+    range: &Range<usize>,
+    arguments: &[Range<usize>],
+) -> Option<usize> {
+    use proc_macro2::{Delimiter, TokenTree};
+    let trees = tokens.clone().into_iter().collect::<Vec<_>>();
+    let first = trees
+        .iter()
+        .position(|tree| tree.span().byte_range().end > range.start)?;
+    let held = trees[first].span().byte_range();
+    if held.start > range.start {
+        return None;
+    }
+    if held.start < range.start {
+        // The range lies inside this tree, which must then be a group holding all of it.
+        return match &trees[first] {
+            TokenTree::Group(group) if range.end <= held.end => {
+                construct_end(&group.stream(), range, arguments)
+            }
+            _ => None,
+        };
+    }
+    // The range must begin the path, not continue one (`Succ` of `NatSyntax::Succ`).
+    if first > 0 && matches!(&trees[first - 1], TokenTree::Punct(punct) if punct.as_char() == ':') {
+        return None;
+    }
+    let mut last = first;
+    loop {
+        let is_path = match &trees[last] {
+            TokenTree::Ident(_) => true,
+            TokenTree::Punct(punct) => punct.as_char() == ':',
+            _ => false,
+        };
+        let end = trees[last].span().byte_range().end;
+        if !is_path || end > range.end {
+            return None;
+        }
+        if end == range.end {
+            break;
+        }
+        last += 1;
+        if last == trees.len() {
+            return None;
+        }
+    }
+    match trees.get(last + 1) {
+        Some(TokenTree::Group(group))
+            if matches!(group.delimiter(), Delimiter::Parenthesis | Delimiter::Brace) =>
+        {
+            let held = group.span().byte_range();
+            arguments
+                .iter()
+                .any(|argument| held.start < argument.start && argument.end <= held.end)
+                .then_some(held.end)
+        }
+        _ => None,
     }
 }
 
@@ -582,6 +685,41 @@ impl<'a> KrsChecks<'a> {
             .collect()
     }
 
+    /// The Rust construct the node `key` renders, whose authored range is `authored`
+    /// ([`Positions::span`]); `None` names no emitted node, so `authored` is its own construct.
+    fn rust(&self, key: Option<&SourceMapKey>, authored: &SourceRange) -> RustSpan {
+        let arguments = key
+            .map(|key| self.arguments(key, authored))
+            .unwrap_or_default();
+        self.positions.span(authored, &arguments)
+    }
+
+    /// The authored ranges, in `authored`'s file, of the nodes KRS did not insert below the node
+    /// `key` in `definition.k`: an application's arguments and their subterms, and nothing for a
+    /// variable or a token, which the emitted K renders with no node below it.
+    fn arguments(&self, key: &SourceMapKey, authored: &SourceRange) -> Vec<Range<usize>> {
+        let Some(node) = self.nodes.get(key) else {
+            return Vec::new();
+        };
+        self.nodes
+            .values()
+            .filter(|below| {
+                below.depth > node.depth
+                    && !below.inserted
+                    && node.range.start <= below.range.start
+                    && below.range.end <= node.range.end
+            })
+            .filter_map(|below| below.authored.as_ref())
+            .filter(|range| range.file == authored.file)
+            .filter_map(|range| {
+                Some(
+                    usize::try_from(range.start_byte).ok()?
+                        ..usize::try_from(range.end_byte).ok()?,
+                )
+            })
+            .collect()
+    }
+
     /// The sentence `key` as a detail names it: `label (item, file:line)`.
     fn describe(&self, key: &SourceMapKey) -> String {
         self.sentences
@@ -788,7 +926,11 @@ impl<'a> KrsChecks<'a> {
                 None => text.push_str("not rendered in this sentence"),
             }
             if let Some(source) = &authored.source {
-                _ = write!(text, " at {}", self.positions.span(source).described());
+                _ = write!(
+                    text,
+                    " at {}",
+                    self.rust(authored.key.as_ref(), source).described()
+                );
             }
         }
         text
@@ -1104,7 +1246,7 @@ impl<'a> KrsChecks<'a> {
                 })
                 .or_insert(rendering);
         }
-        let rust = self.positions.span(authored);
+        let rust = self.rust(Some(&container.key), authored);
         let renderings = outermost
             .into_iter()
             .map(|(holder, rendering)| {
@@ -1251,7 +1393,7 @@ impl<'a> KrsChecks<'a> {
                             .filter(|container| container.edits.contains(&index))
                             .filter_map(|container| {
                                 let range = self.nodes.get(&container.key)?.authored.as_ref()?;
-                                Some(self.positions.span(range).value())
+                                Some(self.rust(Some(&container.key), range).value())
                             })
                             .collect(),
                     ),
@@ -1263,8 +1405,11 @@ impl<'a> KrsChecks<'a> {
                         "inserted",
                         nodes
                             .iter()
-                            .filter_map(|node| node.nearest_authored.as_ref()?.source.as_ref())
-                            .map(|range| self.positions.span(range).value())
+                            .filter_map(|node| {
+                                let authored = node.nearest_authored.as_ref()?;
+                                let range = authored.source.as_ref()?;
+                                Some(self.rust(authored.key.as_ref(), range).value())
+                            })
                             .collect(),
                     ),
                     _ => ("no-node", item_span()),
@@ -1342,7 +1487,7 @@ pub(crate) fn run_list(command: &kink_flow::FlowCommand) -> Option<RunList<'_>> 
 mod tests {
     use krs_diagnostic::codes::static_spelling;
 
-    use super::{KEdit, changed_range, krs_next, quote, touches};
+    use super::{KEdit, changed_range, construct_end, krs_next, quote, touches};
 
     #[test]
     fn a_changed_range_drops_the_common_prefix_and_suffix() {
@@ -1360,6 +1505,63 @@ mod tests {
         assert!(!touches(&(5..5), &(1..5)));
         assert!(touches(&(4..6), &(1..5)));
         assert!(!touches(&(5..6), &(1..5)));
+    }
+
+    /// An application's head path extends through the argument group written after it, in a
+    /// Rust expression and inside a term macro, when K places its arguments there; any other
+    /// range is its own construct, including a variable K renders with no node below it that is
+    /// followed by a block, as an `if` condition's operand and a `match` scrutinee are.
+    #[test]
+    fn an_application_head_extends_through_its_arguments() {
+        let source = "fn plus_succ(k::term![Plus(NatSyntax::Succ(m), n)]: Term<Nat>) -> Term<Nat> {\n    \
+                      NatSyntax::Succ(Plus(m, n))\n}\n\
+                      fn below(value: Term<Int>, limit: Term<Int>) -> Term<Int> {\n    \
+                      if value < limit { value } else { limit }\n}\n\
+                      fn zero(value: Term<Int>) -> Term<Int> {\n    \
+                      match value { 0 => 1, _ => value }\n}\n";
+        let tokens = source.parse().unwrap();
+        // `len` bytes at `offset` into the `nth` occurrence of `text`.
+        let inside = |text: &str, nth: usize, offset: usize, len: usize| {
+            let start = source.match_indices(text).nth(nth).unwrap().0 + offset;
+            start..start + len
+        };
+        let at = |text: &str, nth: usize| inside(text, nth, 0, text.len());
+        let construct = |range: std::ops::Range<usize>, arguments: &[std::ops::Range<usize>]| {
+            let end = construct_end(&tokens, &range, arguments).unwrap_or(range.end);
+            &source[range.start..end]
+        };
+        // Applications, with the arguments K's nodes below them place in the group.
+        assert_eq!(
+            construct(
+                at("Plus", 0),
+                &[at("NatSyntax::Succ", 0), inside("), n)", 0, 3, 1)]
+            ),
+            "Plus(NatSyntax::Succ(m), n)"
+        );
+        assert_eq!(
+            construct(at("NatSyntax::Succ", 0), &[inside("Succ(m)", 0, 5, 1)]),
+            "NatSyntax::Succ(m)"
+        );
+        assert_eq!(
+            construct(at("NatSyntax::Succ", 1), &[at("Plus", 1)]),
+            "NatSyntax::Succ(Plus(m, n))"
+        );
+        let arguments = [inside("Plus(m, n)", 0, 5, 1), inside("Plus(m, n)", 0, 8, 1)];
+        assert_eq!(construct(at("Plus", 1), &arguments), "Plus(m, n)");
+        // An `if` condition's operand and a `match` scrutinee are variables, with no node below
+        // them in K, so the block written after them is not theirs.
+        let limit = inside("limit {", 0, 0, "limit".len());
+        assert_eq!(construct(limit.clone(), &[]), "limit");
+        let value = inside("match value {", 0, "match ".len(), "value".len());
+        assert_eq!(construct(value, &[]), "value");
+        // Nor is a group that holds none of the node's arguments.
+        assert_eq!(construct_end(&tokens, &limit, &[at("value", 0)]), None);
+        // A reference, a part of a path and a type path followed by no group are their own.
+        let reference = arguments[0].clone();
+        assert_eq!(construct_end(&tokens, &reference, &arguments), None);
+        let succ = inside("Succ(m)", 0, 0, "Succ".len());
+        assert_eq!(construct_end(&tokens, &succ, &arguments), None);
+        assert_eq!(construct_end(&tokens, &at("Term", 0), &arguments), None);
     }
 
     #[test]
