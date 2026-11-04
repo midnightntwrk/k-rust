@@ -8,7 +8,8 @@
 //! The shards are ignored tests, one per family group: `readable` (readable records and claims),
 //! `cells`, `runs` (the readable records and `cells!` rules on the run base, which K7 runs), `init`,
 //! `sweep` (one case per root cell of the cells oracle's sweep, `class_matrix::sweep`),
-//! `terms`, `import`, `notation` (the collection notation at the term
+//! `sweep-paths` (one per rule-form cell of its main tables below a `?` and a `*` ancestor,
+//! `class_matrix::sweep::paths`; its test is `sweep_paths`), `terms`, `import`, `notation` (the collection notation at the term
 //! positions), and `attrs` (every sentence attribute on every sentence form), each of which also
 //! judges its accepted cases by K3
 //! ([`closure`]) unless `KRS_CLASS_CLOSURE=0`, by K6 (the definition an accepted case emits
@@ -1517,6 +1518,12 @@ fn attrs() {
 #[ignore = "the full tier builds packages; run it through scripts/krs-class.sh"]
 fn sweep() {
     shard("sweep", &[Family::Sweep]);
+}
+
+#[test]
+#[ignore = "the full tier builds packages; run it through scripts/krs-class.sh"]
+fn sweep_paths() {
+    shard("sweep-paths", &[Family::SweepPaths]);
 }
 
 #[test]

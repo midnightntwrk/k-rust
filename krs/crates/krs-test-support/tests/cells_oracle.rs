@@ -7084,7 +7084,7 @@ fn the_kinds_cases_outcomes_print_on_request() {
     };
     let mut out = String::new();
     for (case, entry) in ENTRIES.iter() {
-        if !matches!(case.base, Base::Kinds | Base::Sweep) {
+        if !matches!(case.base, Base::Kinds | Base::Sweep | Base::SweepPaths) {
             continue;
         }
         let (got, own) = ANSWERS[&case.id];

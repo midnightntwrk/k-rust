@@ -630,9 +630,10 @@ pub const UNCHECKED: &[Unchecked] = &[
             r"`account: \{ k::fragment![crate::Acct \{ {acode,aolist,aomap}: v\, ..me \}]\, .. \}`",
             r"`bag: \{ k::fragment![crate::Obj \{ key: v\, ..me \}]\, .. \}`",
             r"`job: [k::fragment![crate::Job \{ payload: v\, ..me \}]\, ..]`",
+            r"`line: [k::fragment![crate::L \{ {lcounter,lenv,lframe,logroup,lolist,lomap,lpc,lprog,lseq,lset,lstack}: v\, ..me \}]\, ..]`",
         ],
-        shards: &["cells"],
-        reason: "the advice is the update of the instance whose child the case's result names by its path (P-R6), at that child, which only a case updating that child of that collection writes; the class's advised case writes the update of another child (`aframe`) of the Map collection `account`'s instance",
+        shards: &["cells", "sweep-paths"],
+        reason: "the advice is the update of the instance whose child the case's result names by its path (P-R6), at that child, which only a case updating that child of that collection writes (the path sweep's results name each child of the List collection `line`'s instance, and no case updates one); the class's advised case writes the update of another child (`aframe`) of the Map collection `account`'s instance",
     },
     Unchecked {
         class: "configuration-variable-sort",
@@ -663,6 +664,12 @@ pub const UNCHECKED: &[Unchecked] = &[
         forms: &["`cell: rest`"],
         shards: &["sweep"],
         reason: "the advice is S5-Q1's no-effect refusal of a written `[..]` on a collection (its own red), binding the whole content with a binder at the cell's name; the sweep's whole-binder column writes it as `x`, and the class's advised case writes the instances",
+    },
+    Unchecked {
+        class: "instance-list-shape",
+        forms: &[r"`{ljob,qjob}: [ .. ]`", r"`{lacct,lbag,qacct,qbag}: \{ .. \}`"],
+        shards: &["sweep-paths"],
+        reason: "the advice writes the instance mark of the collection's own order at a collection below a marked ancestor, which no case writes there: the cell's own kind is judged before its path (P3, S1 (b)), so the author meets the ancestor's refusal next, whose advice writes the entry inside the ancestor's mark; the class's advised case writes the instances at the record's level",
     },
     Unchecked {
         class: "island-at-subject-root",

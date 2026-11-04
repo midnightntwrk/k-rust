@@ -5353,6 +5353,1289 @@ match = 'sweep/cells/result/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc
 class = "wildcard-outside-pattern"
 at = "spelling"
 
+# S5.3 part 5: the path sweep (refusals), every row from the cells oracle's `outcome` (`class_matrix::sweep::paths`;
+# tests/cells_oracle.rs `the_kinds_cases_outcomes_print_on_request`), but the cells the sweep marks
+# `A|product:B`, the product's answer B, each departure a [cell-exception].
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result}/{lacct,lbag,lcounter,lenv,lframe,ljob,logroup,lolist,lomap,lpc,lprog,lseq,lset,lstack,qacct,qbag,qcounter,qenv,qframe,qjob,qogroup,qolist,qomap,qpc,qprog,qseq,qset,qstack}/[x\, r @ ..]'
+class = "alias-outside-pattern"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lacct,lbag,lcounter,lenv,lframe,ljob,logroup,lolist,lomap,lpc,lprog,lseq,lset,lstack,qacct,qbag,qcounter,qenv,qframe,qjob,qogroup,qolist,qomap,qpc,qprog,qseq,qset,qstack}/map![y -> x\, ..]'
+class = "anonymous-rest-in-map-literal"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result}/{lacct,lbag,lcounter,lenv,lframe,ljob,logroup,lolist,lomap,lpc,lprog,lseq,lset,lstack,qacct,qbag,qcounter,qenv,qframe,qjob,qogroup,qolist,qomap,qpc,qprog,qseq,qset,qstack}/k::configuration::Cell(k::map![y -> x\, ..])'
+class = "anonymous-rest-in-map-literal"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lcounter,logroup,lomap,qcounter,qogroup,qomap}/Some([..])'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lcounter,lenv,lframe,logroup,lomap,lpc,lset,qcounter,qenv,qframe,qogroup,qomap,qpc,qset}/[..\, x]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lcounter,lenv,lframe,logroup,lomap,lpc,lset,qcounter,qenv,qframe,qogroup,qomap,qpc,qset}/[..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lcounter,lenv,lomap,lpc,lset,qcounter,qenv,qomap,qpc,qset}/[G \{ a: x\, .. \}\, ..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/lframe/[Lg \{ la: x\, .. \}\, ..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/logroup/[Lgp \{ lpa: x\, .. \}\, ..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qframe/[Qg \{ qa: x\, .. \}\, ..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qogroup/[Qgp \{ qpa: x\, .. \}\, ..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lcounter,lenv,lframe,logroup,lomap,lpc,lset,qcounter,qenv,qframe,qogroup,qomap,qpc,qset}/[x\, ..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/subject/{lcounter,lenv,lframe,logroup,lomap,lpc,lset,qcounter,qenv,qframe,qogroup,qomap,qpc,qset}/[x\, r @ ..]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lcounter,lenv,lframe,logroup,lomap,lpc,lset,qcounter,qenv,qframe,qogroup,qomap,qpc,qset}/[x]'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{lcounter,lenv,lomap,lpc,lset,qcounter,qenv,qomap,qpc,qset}/k::configuration::Cell([..\, x])'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{lcounter,lenv,lomap,lpc,lset,qcounter,qenv,qomap,qpc,qset}/k::configuration::Cell([x\, ..])'
+class = "bracket-reading"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lprog,qprog}/0'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lprog,qprog}/G \{ a: x \}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/subject/{lprog,qprog}/G \{ a: x\, .. \}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lprog,qprog}/G \{ a: x\, b: y\, .. \}'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{logroup,qogroup}/Some(k::configuration::Cell(x))'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/subject/{lenv,lpc,lseq,lset,lstack,qenv,qpc,qseq,qset,qstack}/_'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{cells,claim,readable}/subject/{lprog,qprog}/_'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{lacct,lbag,lframe,ljob,logroup,lprog,qacct,qbag,qframe,qjob,qogroup,qprog}/k::configuration::Cell([..\, x])'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{lacct,lbag,lframe,ljob,logroup,lprog,qacct,qbag,qframe,qjob,qogroup,qprog}/k::configuration::Cell([x\, ..])'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/subject/{lacct,lbag,lframe,ljob,logroup,lprog,qacct,qbag,qframe,qjob,qogroup,qprog}/k::configuration::Cell(_)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/subject/{lacct,lbag,lframe,ljob,logroup,lprog,qacct,qbag,qframe,qjob,qogroup,qprog}/k::configuration::Cell(k::map![y -> x\, ..])'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{lacct,lbag,lframe,ljob,logroup,lprog,qacct,qbag,qframe,qjob,qogroup,qprog}/k::configuration::Cell(x)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{lacct,lbag,lcounter,lenv,lframe,ljob,logroup,lolist,lomap,lpc,lseq,lset,lstack,qacct,qbag,qcounter,qenv,qframe,qjob,qogroup,qolist,qomap,qpc,qseq,qset,qstack}/k::configuration::KCell(..\, x)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{lacct,lbag,lcounter,lenv,lframe,ljob,logroup,lolist,lomap,lpc,lseq,lset,lstack,qacct,qbag,qcounter,qenv,qframe,qjob,qogroup,qolist,qomap,qpc,qseq,qset,qstack}/k::configuration::KCell(x)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{lacct,lbag,lcounter,lenv,lframe,ljob,logroup,lolist,lomap,lpc,lseq,lset,lstack,qacct,qbag,qcounter,qenv,qframe,qjob,qogroup,qolist,qomap,qpc,qseq,qset,qstack}/k::configuration::KCell(x\, ..)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{lacct,lbag,lcounter,lenv,lframe,ljob,logroup,lolist,lomap,lpc,lseq,lset,lstack,qacct,qbag,qcounter,qenv,qframe,qjob,qogroup,qolist,qomap,qpc,qseq,qset,qstack}/k::configuration::KCell(x\, ..\, y)'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{lenv,lpc,lprog,lseq,lset,lstack,qenv,qpc,qprog,qseq,qset,qstack}/k::fragment![crate::G \{ a: x \}]'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/subject/{lenv,lpc,lprog,lseq,lset,lstack,qenv,qpc,qprog,qseq,qset,qstack}/k::fragment![crate::G \{ a: x\, .. \}]'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{lenv,lpc,lprog,lseq,lset,lstack,qenv,qpc,qprog,qseq,qset,qstack}/k::fragment![crate::G \{ a: x\, b: y\, .. \}]'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{lenv,lpc,lseq,lset,lstack,qenv,qpc,qseq,qset,qstack}/x'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{cells,claim,readable}/{overwrite,result,subject}/{lprog,qprog}/x'
+class = "cell-wrapper"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lacct,lbag,lenv,lframe,ljob,lpc,lseq,lset,lstack,qacct,qbag,qjob}/0'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lenv,lpc,lseq,lset,lstack}/G \{ a: x \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/subject/{lenv,lpc,lseq,lset,lstack}/G \{ a: x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lenv,lpc,lseq,lset,lstack}/G \{ a: x\, b: y\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/lframe/Lg \{ la: x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/lframe/Lg \{ la: x\, lb: y\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/ljob/Lgl \{ lla: x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/ljob/Lgl \{ lla: x\, llb: y\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/lacct/Lgm \{ lma: x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/lacct/Lgm \{ lma: x\, lmb: y\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/lbag/Lgs \{ lsa: x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/lbag/Lgs \{ lsa: x\, lsb: y\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{cells,claim,readable}/{overwrite,result,subject}/{lcounter,logroup,lolist,lomap}/None'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qjob/Qgl \{ qla: x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qjob/Qgl \{ qla: x\, qlb: y\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qacct/Qgm \{ qma: x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qacct/Qgm \{ qma: x\, qmb: y\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qbag/Qgs \{ qsa: x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qbag/Qgs \{ qsa: x\, qsb: y\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/subject/{lcounter,lolist,lomap}/Some(G \{ .. \})'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/logroup/Some(Lgp \{ .. \})'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/lolist/Some([..])'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/subject/{lcounter,logroup,lolist,lomap}/Some(_)'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{lcounter,lolist,lomap}/Some(k::configuration::Cell(x))'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lcounter,logroup,lolist,lomap}/Some(x)'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{ljob,lstack}/[..\, x]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{ljob,lprog,lseq,lstack}/[..]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/subject/{lprog,lseq,lstack}/[G \{ a: x\, .. \}\, ..]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/ljob/[Lgl \{ lla: x\, .. \}\, ..]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/ljob/[k::fragment![crate::Lgl \{ lla: x\, .. \}]\, ..]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{ljob,lprog,lseq,lstack}/[x\, ..]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/subject/{ljob,lseq,lstack}/[x\, r @ ..]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{ljob,lprog,lseq,lstack}/[x]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{cells,claim,readable}/subject/{lacct,lbag,lframe,ljob,qacct,qbag,qjob}/_'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/subject/{lenv,lpc,lseq,lset,lstack}/_'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/lstack/k::configuration::Cell([..\, x])'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{lseq,lstack}/k::configuration::Cell([x\, ..])'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/subject/{lenv,lpc,lseq,lset,lstack}/k::configuration::Cell(_)'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/subject/lenv/k::configuration::Cell(k::map![y -> x\, ..])'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{lenv,lpc,lseq,lset,lstack}/k::configuration::Cell(x)'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/lprog/k::configuration::KCell(x)'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/lprog/k::configuration::KCell(x\, ..)'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/lframe/k::fragment![crate::Lg \{ la: x\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/lframe/k::fragment![crate::Lg \{ la: x\, lb: y\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/ljob/k::fragment![crate::Lgl \{ lla: x\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/ljob/k::fragment![crate::Lgl \{ lla: x\, llb: y\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/lacct/k::fragment![crate::Lgm \{ lma: x\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/lacct/k::fragment![crate::Lgm \{ lma: x\, lmb: y\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/lbag/k::fragment![crate::Lgs \{ lsa: x\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/lbag/k::fragment![crate::Lgs \{ lsa: x\, lsb: y\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qjob/k::fragment![crate::Qgl \{ qla: x\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qjob/k::fragment![crate::Qgl \{ qla: x\, qlb: y\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qacct/k::fragment![crate::Qgm \{ qma: x\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qacct/k::fragment![crate::Qgm \{ qma: x\, qmb: y\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qbag/k::fragment![crate::Qgs \{ qsa: x\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qbag/k::fragment![crate::Qgs \{ qsa: x\, qsb: y\, .. \}]'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{cells,claim,readable}/{overwrite,result,subject}/{lacct,lbag,lframe,ljob,qacct,qbag,qjob}/x'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lenv,lpc,lseq,lset,lstack}/x'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/lacct/\{ Lgm \{ lma: x\, .. \}\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/lacct/\{ Lgm \{ lma: x\, lmb: y \} \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/lacct/\{ Lgm \{ lmb: x\, .. \}\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/lbag/\{ Lgs \{ lsa: x\, .. \}\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/lbag/\{ Lgs \{ lsa: x\, lsb: y \} \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/lbag/\{ Lgs \{ lsb: x\, .. \}\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/lacct/\{ k::fragment![crate::Lgm \{ lma: x\, .. \}]\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/lbag/\{ k::fragment![crate::Lgs \{ lsa: x\, .. \}]\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/subject/lenv/\{ y -> x\, .. \}'
+class = "collection-without-instances"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lprog,qprog}/[..\, x]'
+class = "computation-back-item"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{lprog,qprog}/k::configuration::KCell(..\, x)'
+class = "computation-back-item"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{lprog,qprog}/k::configuration::KCell(x\, ..\, y)'
+class = "computation-back-item"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lseq,qseq}/[..\, x]'
+class = "cons-list-back-item"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{lseq,qseq}/k::configuration::Cell([..\, x])'
+class = "cons-list-back-item"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/subject/{lprog,qprog}/[x\, r @ ..]'
+class = "continuation-in-readable"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lacct,lbag,qacct,qbag}/[..\, x]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lacct,lbag,qacct,qbag}/[..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/lacct/[Lgm \{ lma: x\, .. \}\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/lbag/[Lgs \{ lsa: x\, .. \}\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qacct/[Qgm \{ qma: x\, .. \}\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qbag/[Qgs \{ qsa: x\, .. \}\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/lacct/[k::fragment![crate::Lgm \{ lma: x\, .. \}]\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/lbag/[k::fragment![crate::Lgs \{ lsa: x\, .. \}]\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qacct/[k::fragment![crate::Qgm \{ qma: x\, .. \}]\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qbag/[k::fragment![crate::Qgs \{ qsa: x\, .. \}]\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lacct,lbag,qacct,qbag}/[x\, ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/subject/{lacct,lbag,qacct,qbag}/[x\, r @ ..]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lacct,lbag,qacct,qbag}/[x]'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/ljob/\{ Lgl \{ lla: x\, .. \}\, .. \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/ljob/\{ Lgl \{ lla: x\, llb: y \} \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/ljob/\{ Lgl \{ llb: x\, .. \}\, .. \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qjob/\{ Qgl \{ qla: x\, .. \}\, .. \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qjob/\{ Qgl \{ qla: x\, qlb: y \} \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qjob/\{ Qgl \{ qlb: x\, .. \}\, .. \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/ljob/\{ k::fragment![crate::Lgl \{ lla: x\, .. \}]\, .. \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qjob/\{ k::fragment![crate::Qgl \{ qla: x\, .. \}]\, .. \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lacct,lbag,ljob,qacct,qbag,qjob}/\{ x\, .. \}'
+class = "instance-list-shape"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{lcounter,lenv,lolist,lomap,lpc,lprog,lseq,lset,lstack,qcounter,qenv,qolist,qomap,qpc,qprog,qseq,qset,qstack}/[k::fragment![crate::G \{ a: x\, .. \}]\, ..]'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/lframe/[k::fragment![crate::Lg \{ la: x\, .. \}]\, ..]'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/logroup/[k::fragment![crate::Lgp \{ lpa: x\, .. \}]\, ..]'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qframe/[k::fragment![crate::Qg \{ qa: x\, .. \}]\, ..]'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qogroup/[k::fragment![crate::Qgp \{ qpa: x\, .. \}]\, ..]'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lcounter,lenv,lolist,lomap,lpc,lprog,lseq,lset,lstack,qcounter,qenv,qolist,qomap,qpc,qprog,qseq,qset,qstack}/\{ G \{ a: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lcounter,lenv,lolist,lomap,lpc,lprog,lseq,lset,lstack,qcounter,qenv,qolist,qomap,qpc,qprog,qseq,qset,qstack}/\{ G \{ a: x\, b: y \} \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lcounter,lenv,lolist,lomap,lpc,lprog,lseq,lset,lstack,qcounter,qenv,qolist,qomap,qpc,qprog,qseq,qset,qstack}/\{ G \{ b: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/lframe/\{ Lg \{ la: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/lframe/\{ Lg \{ la: x\, lb: y \} \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/lframe/\{ Lg \{ lb: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/logroup/\{ Lgp \{ lpa: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/logroup/\{ Lgp \{ lpa: x\, lpb: y \} \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/logroup/\{ Lgp \{ lpb: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qframe/\{ Qg \{ qa: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qframe/\{ Qg \{ qa: x\, qb: y \} \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qframe/\{ Qg \{ qb: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qogroup/\{ Qgp \{ qpa: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qogroup/\{ Qgp \{ qpa: x\, qpb: y \} \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qogroup/\{ Qgp \{ qpb: x\, .. \}\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{lcounter,lenv,lolist,lomap,lpc,lprog,lseq,lset,lstack,qcounter,qenv,qolist,qomap,qpc,qprog,qseq,qset,qstack}/\{ k::fragment![crate::G \{ a: x\, .. \}]\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/lframe/\{ k::fragment![crate::Lg \{ la: x\, .. \}]\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/logroup/\{ k::fragment![crate::Lgp \{ lpa: x\, .. \}]\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qframe/\{ k::fragment![crate::Qg \{ qa: x\, .. \}]\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qogroup/\{ k::fragment![crate::Qgp \{ qpa: x\, .. \}]\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lcounter,lenv,lframe,logroup,lolist,lomap,lpc,lprog,lseq,lset,lstack,qcounter,qenv,qframe,qogroup,qolist,qomap,qpc,qprog,qseq,qset,qstack}/\{ x\, .. \}'
+class = "instances-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/subject/{lcounter,lolist,lpc,lseq,lset,lstack,qcounter,qolist,qpc,qseq,qset,qstack}/k::configuration::Cell(k::map![y -> x\, ..])'
+class = "map-notation-at-non-map"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lacct,lbag,lcounter,lframe,ljob,logroup,lolist,lpc,lprog,lseq,lset,lstack,qacct,qbag,qcounter,qframe,qjob,qogroup,qolist,qpc,qprog,qseq,qset,qstack}/\{ y -> x\, .. \}'
+class = "map-notation-at-non-map"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result}/{lenv,lomap,qenv,qomap}/\{ y -> x\, .. \}'
+class = "map-read-in-result"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result}/{lcounter,lenv,lolist,lomap,lpc,lprog,lseq,lset,lstack,qcounter,qenv,qolist,qomap,qpc,qprog,qseq,qset,qstack}/G \{ a: x\, .. \}'
+class = "open-record-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result}/{lcounter,lolist,lomap,qcounter,qolist,qomap}/Some(G \{ .. \})'
+class = "open-record-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result}/{lolist,lprog,lseq,lstack,qolist,qprog,qseq,qstack}/[G \{ a: x\, .. \}\, ..]'
+class = "open-record-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result}/{lcounter,lenv,lolist,lomap,lpc,lprog,lseq,lset,lstack,qcounter,qenv,qolist,qomap,qpc,qprog,qseq,qset,qstack}/k::fragment![crate::G \{ a: x\, .. \}]'
+class = "open-record-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lcounter,logroup,lolist,lomap,qcounter,qenv,qframe,qogroup,qolist,qomap,qpc,qseq,qset,qstack}/0'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lcounter,lolist,lomap,qcounter,qenv,qolist,qomap,qpc,qseq,qset,qstack}/G \{ a: x \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/subject/{lcounter,lolist,lomap,qcounter,qenv,qolist,qomap,qpc,qseq,qset,qstack}/G \{ a: x\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lcounter,lolist,lomap,qcounter,qenv,qolist,qomap,qpc,qseq,qset,qstack}/G \{ a: x\, b: y\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/logroup/Lgp \{ lpa: x\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/logroup/Lgp \{ lpa: x\, lpb: y\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{cells,claim,readable}/{overwrite,result,subject}/{qcounter,qogroup,qolist,qomap}/None'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qframe/Qg \{ qa: x\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qframe/Qg \{ qa: x\, qb: y\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qogroup/Qgp \{ qpa: x\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qogroup/Qgp \{ qpa: x\, qpb: y\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/subject/{qcounter,qolist,qomap}/Some(G \{ .. \})'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qogroup/Some(Qgp \{ .. \})'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qolist/Some([..])'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/subject/{qcounter,qogroup,qolist,qomap}/Some(_)'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{qcounter,qolist,qomap}/Some(k::configuration::Cell(x))'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{qcounter,qogroup,qolist,qomap}/Some(x)'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lolist,qjob,qolist,qstack}/[..\, x]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lolist,qjob,qolist,qprog,qseq,qstack}/[..]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/subject/{lolist,qolist,qprog,qseq,qstack}/[G \{ a: x\, .. \}\, ..]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qjob/[Qgl \{ qla: x\, .. \}\, ..]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qjob/[k::fragment![crate::Qgl \{ qla: x\, .. \}]\, ..]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lolist,qjob,qolist,qprog,qseq,qstack}/[x\, ..]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/subject/{lolist,qjob,qolist,qseq,qstack}/[x\, r @ ..]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lolist,qjob,qolist,qprog,qseq,qstack}/[x]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{cells,claim,readable}/subject/{lcounter,logroup,lolist,lomap,qcounter,qframe,qogroup,qolist,qomap}/_'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/subject/{qenv,qpc,qseq,qset,qstack}/_'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{lolist,qolist,qstack}/k::configuration::Cell([..\, x])'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{lolist,qolist,qseq,qstack}/k::configuration::Cell([x\, ..])'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/subject/{lcounter,lolist,lomap,qcounter,qenv,qolist,qomap,qpc,qseq,qset,qstack}/k::configuration::Cell(_)'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/subject/{lomap,qenv,qomap}/k::configuration::Cell(k::map![y -> x\, ..])'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{lcounter,lolist,lomap,qcounter,qenv,qolist,qomap,qpc,qseq,qset,qstack}/k::configuration::Cell(x)'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qprog/k::configuration::KCell(x)'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qprog/k::configuration::KCell(x\, ..)'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{lcounter,lolist,lomap,qcounter,qolist,qomap}/k::fragment![crate::G \{ a: x \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/subject/{lcounter,lolist,lomap,qcounter,qolist,qomap}/k::fragment![crate::G \{ a: x\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{lcounter,lolist,lomap,qcounter,qolist,qomap}/k::fragment![crate::G \{ a: x\, b: y\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/logroup/k::fragment![crate::Lgp \{ lpa: x\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/logroup/k::fragment![crate::Lgp \{ lpa: x\, lpb: y\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qframe/k::fragment![crate::Qg \{ qa: x\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qframe/k::fragment![crate::Qg \{ qa: x\, qb: y\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qogroup/k::fragment![crate::Qgp \{ qpa: x\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qogroup/k::fragment![crate::Qgp \{ qpa: x\, qpb: y\, .. \}]'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{cells,claim,readable}/{overwrite,result,subject}/{lcounter,logroup,lolist,lomap,qcounter,qframe,qogroup,qolist,qomap}/x'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{qenv,qpc,qseq,qset,qstack}/x'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qacct/\{ Qgm \{ qma: x\, .. \}\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qacct/\{ Qgm \{ qma: x\, qmb: y \} \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qacct/\{ Qgm \{ qmb: x\, .. \}\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qbag/\{ Qgs \{ qsa: x\, .. \}\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qbag/\{ Qgs \{ qsa: x\, qsb: y \} \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qbag/\{ Qgs \{ qsb: x\, .. \}\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qacct/\{ k::fragment![crate::Qgm \{ qma: x\, .. \}]\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qbag/\{ k::fragment![crate::Qgs \{ qsa: x\, .. \}]\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/subject/{lomap,qenv,qomap}/\{ y -> x\, .. \}'
+class = "optional-without-presence"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{cells,claim,readable}/{overwrite,result,subject}/{lacct,lbag,lenv,lframe,ljob,lpc,lprog,lseq,lset,lstack,qacct,qbag,qenv,qframe,qjob,qpc,qprog,qseq,qset,qstack}/None'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lenv,lpc,lprog,lseq,lset,lstack,qenv,qpc,qprog,qseq,qset,qstack}/Some(G \{ .. \})'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/lframe/Some(Lg \{ .. \})'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/ljob/Some(Lgl \{ .. \})'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/lacct/Some(Lgm \{ .. \})'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/lbag/Some(Lgs \{ .. \})'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qframe/Some(Qg \{ .. \})'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qjob/Some(Qgl \{ .. \})'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qacct/Some(Qgm \{ .. \})'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qbag/Some(Qgs \{ .. \})'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lacct,lbag,lenv,lframe,ljob,lpc,lprog,lseq,lset,lstack,qacct,qbag,qenv,qframe,qjob,qpc,qprog,qseq,qset,qstack}/Some([..])'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/subject/{lacct,lbag,lenv,lframe,ljob,lpc,lprog,lseq,lset,lstack,qacct,qbag,qenv,qframe,qjob,qpc,qprog,qseq,qset,qstack}/Some(_)'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/{lacct,lbag,lenv,lframe,ljob,lpc,lprog,lseq,lset,lstack,qacct,qbag,qenv,qframe,qjob,qpc,qprog,qseq,qset,qstack}/Some(k::configuration::Cell(x))'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/{lacct,lbag,lenv,lframe,ljob,lpc,lprog,lseq,lset,lstack,qacct,qbag,qenv,qframe,qjob,qpc,qprog,qseq,qset,qstack}/Some(x)'
+class = "presence-on-plain-cell"
+at = "entry"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/lframe/Lg \{ la: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/ljob/Lgl \{ lla: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/lacct/Lgm \{ lma: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/logroup/Lgp \{ lpa: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/lbag/Lgs \{ lsa: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qframe/Qg \{ qa: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qjob/Qgl \{ qla: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qacct/Qgm \{ qma: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qogroup/Qgp \{ qpa: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result,subject}/qbag/Qgs \{ qsa: x \}'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/lframe/k::fragment![crate::Lg \{ la: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/ljob/k::fragment![crate::Lgl \{ lla: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/lacct/k::fragment![crate::Lgm \{ lma: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/logroup/k::fragment![crate::Lgp \{ lpa: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/lbag/k::fragment![crate::Lgs \{ lsa: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qframe/k::fragment![crate::Qg \{ qa: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qjob/k::fragment![crate::Qgl \{ qla: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qacct/k::fragment![crate::Qgm \{ qma: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qogroup/k::fragment![crate::Qgp \{ qpa: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result,subject}/qbag/k::fragment![crate::Qgs \{ qsa: x \}]'
+class = "record-missing-children"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{claim,readable}/{overwrite,result}/{lacct,lbag,lcounter,lenv,lframe,ljob,logroup,lolist,lomap,lpc,lprog,lseq,lset,lstack,qacct,qbag,qcounter,qenv,qframe,qjob,qogroup,qolist,qomap,qpc,qprog,qseq,qset,qstack}/Some(_)'
+class = "wildcard-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/{cells,claim,readable}/{overwrite,result}/{lacct,lbag,lcounter,lenv,lframe,ljob,logroup,lolist,lomap,lpc,lprog,lseq,lset,lstack,qacct,qbag,qcounter,qenv,qframe,qjob,qogroup,qolist,qomap,qpc,qprog,qseq,qset,qstack}/_'
+class = "wildcard-outside-pattern"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep-paths/cells/{overwrite,result}/{lacct,lbag,lcounter,lenv,lframe,ljob,logroup,lolist,lomap,lpc,lprog,lseq,lset,lstack,qacct,qbag,qcounter,qenv,qframe,qjob,qogroup,qolist,qomap,qpc,qprog,qseq,qset,qstack}/k::configuration::Cell(_)'
+class = "wildcard-outside-pattern"
+at = "spelling"
+
 # S5.0g item 3b: the kinds base's groups (refusals), every row from the cells oracle's `outcome`
 # (`class_matrix::kinds::groups`; tests/cells_oracle.rs `the_kinds_cases_outcomes_print_on_request`): the
 # listed groups the compiled sweep does not reach at its root, and the multi-entry gaps G1, G3, G4, G5.
@@ -14744,3 +16027,9 @@ principle = "C-lim: a List collection's back instance kept in place is not lower
 
 [cell-exception.'sweep/init/init/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,seq,set,stack}/k::k![Cmd::Go()\, ..pgm]']
 principle = "E3: a stated exception, a spelling rule applied before P3: an initializer's `k![..]` takes no `..pgm` on any cell, so the product answers `initializer-remainder` at the form, where `outcome`, which leaves E3 out by design, judges the value by the stack (P3b: the computation's mark off the computation)"
+
+[cell-exception.'sweep-paths/cells/{overwrite,result}/*/k::configuration::Cell(k::map![y -> x\, ..])']
+principle = "C-lim: a `cells!` result's map literal with a rest is refused at the form until M3 (design:M3), at a content root too and below a marked ancestor too, where P6 judges the entry by its kind and then its path (S1 (b)); the form's refusal comes first"
+
+[cell-exception.'sweep-paths/{claim,readable}/{overwrite,result}/{lenv,lomap,qenv,qomap}/\{ y -> x\, .. \}']
+principle = "C-lim: a map read has no result side until M3, below a marked ancestor too; P6 reads `{ k -> v, .. }` in a result as the frame write `Cell(k::map![k -> v, ..])`, judged by its kind and then its path (S1 (b)), and the limitation, a refusal of the form, comes first"

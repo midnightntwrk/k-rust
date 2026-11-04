@@ -175,6 +175,10 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // another family's case already writes in the same form, side, stack, spelling and
             // subject entry.
             (Family::Sweep, 4_008 - 15 - 434),
+            // The path sweep (S5.3): the main tables' 7,168 rule-form cells below a `?` and below
+            // a `*` ancestor (64 columns × 4 sides × 2 paths × 14 stacks), less the 1,792 written
+            // subjects no case can be compiled for (`sweep::WRITTEN_BELOW_ANCESTOR`).
+            (Family::SweepPaths, 64 * 4 * 2 * 14 - 1_792),
         ])
     );
     for shard in class_matrix::FRONT_SHARDS {
@@ -1398,8 +1402,17 @@ fn a_reviewed_entry_matches_each_listed_form_alone() {
 /// reason.
 #[test]
 fn every_reviewed_unchecked_advice_names_a_class_its_shards_and_a_reason() {
-    const CASE_SHARDS: [&str; 9] = [
-        "attrs", "cells", "import", "init", "notation", "readable", "runs", "sweep", "terms",
+    const CASE_SHARDS: [&str; 10] = [
+        "attrs",
+        "cells",
+        "import",
+        "init",
+        "notation",
+        "readable",
+        "runs",
+        "sweep",
+        "sweep-paths",
+        "terms",
     ];
     let table = Table::parse_with_term_accepts(
         &read_class_matrix("expected.toml"),

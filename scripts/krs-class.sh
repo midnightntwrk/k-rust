@@ -7,14 +7,14 @@
 set -euo pipefail
 
 workspace=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-all_shards=(readable cells runs init sweep terms import notation attrs k4 k5)
+all_shards=(readable cells runs init sweep sweep-paths terms import notation attrs k4 k5)
 
 usage() {
   cat <<EOF
 usage: scripts/krs-class.sh [--workers N] [--shard NAME]... [--record]
 
 Run the shards of krs/crates/krs-cli/tests/class_matrix.rs (every shard by default; NAME is one of
-${all_shards[*]}). Each worker builds the batch packages of its cases in a Cargo target of its own,
+${all_shards[*]}; a shard's test is its name with \`_\` for \`-\`). Each worker builds the batch packages of its cases in a Cargo target of its own,
 reused across its batches; --workers defaults to what the host's memory has room for now: the
 available memory over 3 GiB, at least 1 and at most the CPU count (or the cgroup's quota). CPU load
 is not consulted: it fluctuates far more than memory, and an oversubscribed CPU only slows a run. The workers' targets and packages live in one scratch
@@ -117,4 +117,4 @@ KRS_CLASS_WORKERS=$workers KRS_CLASS_SCRATCH=$scratch KRS_CLASS_RECORD=$record R
   cargo test --locked --manifest-path "$workspace/Cargo.toml" \
   --target-dir "${KRS_CLASS_TARGET_DIR:-$workspace/target/gates}" \
   -p krs-cli --no-default-features --features z3-inference --test class_matrix -- \
-  --ignored --exact --test-threads=1 --show-output "${shards[@]}"
+  --ignored --exact --test-threads=1 --show-output "${shards[@]//-/_}"

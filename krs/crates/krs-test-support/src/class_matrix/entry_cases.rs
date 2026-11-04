@@ -417,6 +417,9 @@ fn base_groups(base: Base) -> Vec<Group> {
     if base == Base::Sweep {
         return super::sweep::groups();
     }
+    if base == Base::SweepPaths {
+        return super::sweep::paths::groups();
+    }
     let stacks = if base == Base::Typed {
         ["leaf", "stmt", "any", "list", "map", "boxed", "opt", "slot"]
             .map(typed_stack)
@@ -441,6 +444,9 @@ fn base_entry_case(case: &Case) -> Option<EntryCase> {
     }
     if case.base == Base::Sweep {
         return Some(super::sweep::entry_case(case));
+    }
+    if case.base == Base::SweepPaths {
+        return Some(super::sweep::paths::entry_case(case));
     }
     let segments = case.id.split('/').collect::<Vec<_>>();
     match case.family {
@@ -874,6 +880,7 @@ pub fn declares(case: &Case, cell: &str) -> bool {
         Base::MainCell | Base::MainK => matches!(cell, "prog" | "k" | "code"),
         Base::Kinds => cell == "k" || super::kinds::declares(cell),
         Base::Sweep => super::sweep::declares(cell),
+        Base::SweepPaths => super::sweep::paths::declares(cell),
         _ => machine_stack_of(cell).is_some(),
     }
 }
@@ -886,6 +893,8 @@ pub fn declared_stack(case: &Case, cell: &str) -> Vec<Layer> {
         super::kinds::stack(cell)
     } else if case.base == Base::Sweep {
         super::sweep::stack(cell)
+    } else if case.base == Base::SweepPaths {
+        super::sweep::paths::stack(cell)
     } else if case.base == Base::Typed && cell != "k" {
         typed_stack(cell)
     } else {

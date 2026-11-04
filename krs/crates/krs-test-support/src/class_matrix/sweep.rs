@@ -4,6 +4,8 @@
 //! named at its record's level (path `-`), rendered on [`Base::Sweep`], whose `krs-class` shard
 //! `sweep` makes the compiler a witness of `outcome` on every such cell.
 
+pub mod paths;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::sync::LazyLock;
@@ -1016,6 +1018,9 @@ pub struct Cell {
     pub written: bool,
     /// The stack's name, as [`stacks`], [`children_stack`] or [`nested_collection_stack`] name it.
     pub stack: &'static str,
+    /// The path's name, as the sweep's rows name it: `-` (the record's level), `?` (below a `?`
+    /// ancestor) or `*` (below a `*` ancestor).
+    pub path: &'static str,
     /// The entry, as the sweep writes it.
     pub text: &'static str,
     /// For a result, the subject's entry of the cell, as the sweep writes it.
@@ -1078,6 +1083,7 @@ pub fn cells() -> Vec<Cell> {
                         side: *side,
                         written: *written,
                         stack,
+                        path: "-",
                         text,
                         other: matched.then(|| subject(form, &layers)),
                         bound: match side {
@@ -1120,6 +1126,7 @@ pub fn cells() -> Vec<Cell> {
                     side: Side::Result,
                     written: false,
                     stack,
+                    path: "-",
                     text: result[spelled],
                     other,
                     bound,
@@ -1148,6 +1155,7 @@ pub fn cells() -> Vec<Cell> {
                 side: if subject { Side::Subject } else { Side::Result },
                 written: false,
                 stack,
+                path: "-",
                 text: entry[spelled],
                 other,
                 bound: if subject { &[] } else { UNBASED_BOUND },
@@ -1167,6 +1175,7 @@ pub fn cells() -> Vec<Cell> {
             side: Side::Initializer,
             written: false,
             stack,
+            path: "-",
             text,
             other: None,
             bound: &["pgm"],
@@ -1604,13 +1613,6 @@ const SLOTS: [Slot; 23] = [
     ),
 ];
 
-fn slot(stack: &str) -> (&'static str, &'static [(&'static str, &'static str)]) {
-    SLOTS.iter().find(|(name, ..)| *name == stack).map_or_else(
-        || panic!("the sweep base has no cell of the stack {stack}"),
-        |(_, cell, renames)| (*cell, *renames),
-    )
-}
-
 /// The sweep base's configuration: a cell of every stack the sweep names ([`SLOTS`]), and the
 /// main computation `k`, whose command each rule case matches.
 fn configuration() -> Vec<Decl> {
@@ -1712,15 +1714,113 @@ fn configuration() -> Vec<Decl> {
 
 static CONFIGURATION: LazyLock<Vec<Decl>> = LazyLock::new(configuration);
 
+/// Where the compiled sweep renders a cell's case: the base, its configuration, its cell of each
+/// stack ([`Slot`]s), and, below a marked ancestor, the subject entry that matches the ancestor.
+pub(super) struct Layout {
+    configuration: &'static LazyLock<Vec<Decl>>,
+    slots: &'static [Slot],
+    family: Family,
+    base: Base,
+    /// The cell's outermost marked ancestor and the subject entry, readable then `cells!`, that
+    /// matches it whole, for a layout below one; `None` at the record's level.
+    ancestor: Option<(&'static str, [&'static str; 2])>,
+    /// Why no K7 plan runs the layout's cases.
+    unrun: &'static str,
+}
+
+impl Layout {
+    fn slot(&self, stack: &str) -> (&'static str, &'static [(&'static str, &'static str)]) {
+        self.slots
+            .iter()
+            .find(|(name, ..)| *name == stack)
+            .map_or_else(
+                || panic!("the {:?} base has no cell of the stack {stack}", self.base),
+                |(_, cell, renames)| (*cell, *renames),
+            )
+    }
+
+    fn find(&self, cell: &str) -> (&'static Decl, Vec<Layer>, Option<&'static str>) {
+        kinds::find_in(self.configuration, cell)
+            .unwrap_or_else(|| panic!("the {:?} base has no cell `{cell}`", self.base))
+    }
+
+    fn declares(&self, cell: &str) -> bool {
+        kinds::find_in(self.configuration, cell).is_some_and(|(decl, ..)| !kinds::wrapper(decl))
+    }
+
+    fn groups(&self) -> Vec<Group> {
+        let mut groups = Vec::new();
+        for decl in self.configuration.iter() {
+            collect_groups(&kinds::own(decl), &mut groups);
+        }
+        groups
+    }
+
+    /// The `cells!` key of `cell`: a top-level cell by its name, a nested one through its
+    /// parent's type.
+    fn cells_key(&self, cell: &str) -> String {
+        match self.find(cell) {
+            (_, _, Some(parent)) => format!("crate::{parent}::{cell}"),
+            _ => cell.to_owned(),
+        }
+    }
+
+    /// The base's declarations after the commands: its structs and its configuration.
+    fn after_commands(&self) -> String {
+        let mut out = String::from("}\n\n");
+        kinds::structs(self.configuration, &mut out);
+        out.push_str("#[k::configuration]\npub struct Machine {\n");
+        for decl in self.configuration.iter() {
+            let _ = write!(
+                out,
+                "    {}\n    pub {}: {},\n",
+                kinds::attribute(decl),
+                decl.name,
+                kinds::type_name(decl)
+            );
+        }
+        out.push_str("}\n\n");
+        out
+    }
+
+    /// The base's own initializer.
+    fn initializer(&self) -> String {
+        let mut item = ItemBuilder::new();
+        item.push(kinds::HEADER);
+        kinds::initializer_fields_in(self.configuration, None, &mut item);
+        item.push(kinds::FOOTER);
+        item.text
+    }
+}
+
+/// The root sweep's layout: [`Base::Sweep`], every cell at its record's level.
+static ROOT: Layout = Layout {
+    configuration: &CONFIGURATION,
+    slots: &SLOTS,
+    family: Family::Sweep,
+    base: Base::Sweep,
+    ancestor: None,
+    unrun: UNRUN,
+};
+
+/// The layout of a cell at the path `path` (`-`, `?` or `*`).
+fn layout(path: &str) -> &'static Layout {
+    match path {
+        "-" => &ROOT,
+        "?" => &paths::BELOW_OPTIONAL,
+        "*" => &paths::BELOW_INSTANCES,
+        other => panic!("the sweep has no path {other}"),
+    }
+}
+
 fn find(cell: &str) -> (&'static Decl, Vec<Layer>, Option<&'static str>) {
-    kinds::find_in(&CONFIGURATION, cell)
-        .unwrap_or_else(|| panic!("the sweep base has no cell `{cell}`"))
+    ROOT.find(cell)
 }
 
 /// Whether the sweep base declares `cell` as a cell of its own.
 #[must_use]
 pub fn declares(cell: &str) -> bool {
-    kinds::find_in(&CONFIGURATION, cell).is_some_and(|(decl, ..)| !kinds::wrapper(decl))
+    ROOT.declares(cell)
 }
 
 /// The sweep base's cell `cell`'s own layers.
@@ -1736,37 +1836,12 @@ pub fn stack(cell: &str) -> Vec<Layer> {
 /// The sweep base's groups, at any depth.
 #[must_use]
 pub fn groups() -> Vec<Group> {
-    let mut groups = Vec::new();
-    for decl in CONFIGURATION.iter() {
-        collect_groups(&kinds::own(decl), &mut groups);
-    }
-    groups
+    ROOT.groups()
 }
 
-static AFTER_COMMANDS: LazyLock<String> = LazyLock::new(|| {
-    let mut out = String::from("}\n\n");
-    kinds::structs(&CONFIGURATION, &mut out);
-    out.push_str("#[k::configuration]\npub struct Machine {\n");
-    for decl in CONFIGURATION.iter() {
-        let _ = write!(
-            out,
-            "    {}\n    pub {}: {},\n",
-            kinds::attribute(decl),
-            decl.name,
-            kinds::type_name(decl)
-        );
-    }
-    out.push_str("}\n\n");
-    out
-});
+static AFTER_COMMANDS: LazyLock<String> = LazyLock::new(|| ROOT.after_commands());
 
-static INITIALIZER: LazyLock<String> = LazyLock::new(|| {
-    let mut item = ItemBuilder::new();
-    item.push(kinds::HEADER);
-    kinds::initializer_fields_in(&CONFIGURATION, None, &mut item);
-    item.push(kinds::FOOTER);
-    item.text
-});
+static INITIALIZER: LazyLock<String> = LazyLock::new(|| ROOT.initializer());
 
 pub(super) fn base() -> BaseText {
     BaseText {
@@ -2027,6 +2102,9 @@ pub const NO_WRITTEN_RESULT: &str = "unbuilt: no result entry of the form writes
 /// configuration P1 describes and K cannot declare.
 pub const UNDECLARABLE: &str = "unbuilt: the stack cannot be declared, by K's declaration rule (not P1's stack, which admits it): a `*` cell's instances are its parent's whole content, one collection term, so the `*` cell is its parent's only child (`krs::analysis::collection-siblings`), and `js` stands beside `id`; no case of this stack compiles";
 
+/// Why a written subject below a marked ancestor (the path sweep's, [`paths`]) has no case.
+pub const WRITTEN_BELOW_ANCESTOR: &str = "unbuilt: below a marked ancestor no result entry of the form writes the cell and is admitted (each is refused for the ancestor, S1 (b)), so the sentence would hold a second refused entry; the row's answer is the subject row's, since the path is judged before the pairing that alone reads whether the result writes the cell";
+
 /// Why a children row whose update `..me` reads a value the sentence matches elsewhere has no
 /// case of its own here.
 pub const ME_ELSEWHERE: &str = "unbuilt: the update's base `me` is bound by another entry of the sentence than the cell's subject, a case of two entries (S5.0g item 3b's G1 and F-7)";
@@ -2047,11 +2125,30 @@ pub(super) fn build(cell: &Cell) -> Built {
     if cell.stack == "* Map of Q" {
         return Built::Unbuilt(UNDECLARABLE);
     }
-    let (name, renames) = slot(cell.stack);
+    let layout = layout(cell.path);
+    let (name, renames) = layout.slot(cell.stack);
     let text = renamed(cell.text, renames);
     let spelling = read(cell.form, &text);
-    let other = cell.other.as_deref().map(|other| renamed(other, renames));
+    // The subject's entry a matched result stands over, and the cell it names: at the record's
+    // level the sweep's entry of the cell itself; below a marked ancestor the entry that matches
+    // the ancestor whole, as the kinds base matches its path cells: an entry naming the cell
+    // itself would be refused for the ancestor (S1 (b)), a second refused entry, and the
+    // sentence's answer would not be the case's own (P4 over a sentence). The cell's own
+    // subject entry (`Context::other`) is then none.
+    let (other_cell, other, own_other) = match (cell.other.as_deref(), layout.ancestor) {
+        (Some(_), Some((ancestor, texts))) => (
+            ancestor,
+            Some(texts[usize::from(cell.form == Form::Cells)].to_owned()),
+            None,
+        ),
+        (Some(other), None) => {
+            let other = renamed(other, renames);
+            (name, Some(other.clone()), Some(other))
+        }
+        (None, _) => (name, None, None),
+    };
     let other_spelling = other.as_deref().map(|other| read(cell.form, other));
+    let own_other = own_other.as_deref().map(|other| read(cell.form, other));
     let held = bound_by(&spelling);
     if cell.side == Side::Result
         && held.contains("me")
@@ -2062,7 +2159,7 @@ pub(super) fn build(cell: &Cell) -> Built {
     {
         return Built::Unbuilt(ME_ELSEWHERE);
     }
-    let (decl, path, _) = find(name);
+    let (decl, path, _) = layout.find(name);
     let stack = kinds::own(decl);
     // What the names bound outside the entry bind: the subject's entry of the cell's aliases,
     // and, for the children sweep's `me` its subject does not show, a record of its update's
@@ -2076,9 +2173,9 @@ pub(super) fn build(cell: &Cell) -> Built {
     let context = Context {
         bound: cell.bound.iter().map(|name| (*name).to_owned()).collect(),
         records,
-        other: other_spelling.clone(),
+        other: own_other,
         written: cell.written,
-        groups: groups(),
+        groups: layout.groups(),
     };
     let written = if cell.written {
         let admitted = |candidate: &&str, other: Option<Spelling>| {
@@ -2089,7 +2186,7 @@ pub(super) fn build(cell: &Cell) -> Built {
                 records: records_by(&spelling),
                 other,
                 written: false,
-                groups: groups(),
+                groups: layout.groups(),
             };
             matches!(
                 outcome(cell.form, Side::Result, &path, &stack, &result, &context),
@@ -2117,6 +2214,7 @@ pub(super) fn build(cell: &Cell) -> Built {
             });
         match found {
             Some(found) => Some(found),
+            None if layout.ancestor.is_some() => return Built::Unbuilt(WRITTEN_BELOW_ANCESTOR),
             None => return Built::Unbuilt(NO_WRITTEN_RESULT),
         }
     } else {
@@ -2129,15 +2227,15 @@ pub(super) fn build(cell: &Cell) -> Built {
         None => name.to_owned(),
     });
     let spec = CaseSpec {
-        family: Family::Sweep,
-        base: Base::Sweep,
+        family: layout.family,
+        base: layout.base,
         side: cell.side,
         kind: None,
         slot,
         construct: text.clone(),
     };
     let entry = |cell: &str, side: Side, spelling: Spelling| {
-        let (decl, path, _) = find(cell);
+        let (decl, path, _) = layout.find(cell);
         Entry {
             cell: cell.to_owned(),
             side,
@@ -2150,9 +2248,11 @@ pub(super) fn build(cell: &Cell) -> Built {
         init_case(spec, name, &text, spelling.clone())
     } else {
         let mut sentence = Sentence {
+            layout,
             spec,
             cell: name,
             text: &text,
+            other_cell,
             other: other.as_deref(),
             other_spelling: other_spelling.clone(),
             written: written.as_ref().map(|(text, _)| text.as_str()),
@@ -2171,7 +2271,7 @@ pub(super) fn build(cell: &Cell) -> Built {
         if let Some(other) = &other_spelling {
             sentence
                 .entries
-                .push(entry(name, Side::Subject, untexted(other)));
+                .push(entry(other_cell, Side::Subject, untexted(other)));
         }
         if cell.form == Form::Cells {
             sentence.cells()
@@ -2185,7 +2285,7 @@ pub(super) fn build(cell: &Cell) -> Built {
         generated.entry.context.groups = Vec::new();
         generated.entry.entry.stack = init_stack(name);
     }
-    generated.case.k7 = super::k7::K7::skip(super::k7::SkipKind::Form, UNRUN);
+    generated.case.k7 = super::k7::K7::skip(super::k7::SkipKind::Form, layout.unrun);
     Built::Case(Box::new(generated))
 }
 
@@ -2201,9 +2301,12 @@ fn init_stack(cell: &str) -> Vec<Layer> {
 
 /// A rule case's parts.
 struct Sentence<'s> {
+    layout: &'static Layout,
     spec: CaseSpec,
     cell: &'static str,
     text: &'s str,
+    /// The cell the subject's entry `other` names: the case's cell, or its marked ancestor.
+    other_cell: &'static str,
     other: Option<&'s str>,
     other_spelling: Option<Spelling>,
     written: Option<&'s str>,
@@ -2232,11 +2335,11 @@ impl Sentence<'_> {
             .collect()
     }
 
-    fn k_entries(form: Form, arguments: &[&str]) -> [Entry; 2] {
+    fn k_entries(&self, form: Form, arguments: &[&str]) -> [Entry; 2] {
         let call =
             super::cells_oracle::build::call(arguments.iter().map(|name| bind(name)).collect());
         let entry = |side, spelling| {
-            let (decl, path, _) = find("k");
+            let (decl, path, _) = self.layout.find("k");
             Entry {
                 cell: "k".to_owned(),
                 side,
@@ -2294,13 +2397,13 @@ impl Sentence<'_> {
             item.push(" };\n}\n");
         } else {
             if let Some(other) = self.other {
-                item.push(&format!("{cell}: {other} "));
+                item.push(&format!("{}: {other} ", self.other_cell));
             }
             item.push("} => { k: [..], ")
                 .entry(cell, self.text)
                 .push(" };\n}\n");
         }
-        let mut entries = Self::k_entries(form, &arguments).to_vec();
+        let mut entries = self.k_entries(form, &arguments).to_vec();
         entries.extend(self.entries.iter().cloned());
         self.finish(sentence, Packaging::Shared(command), &item, entries, form)
     }
@@ -2317,7 +2420,8 @@ impl Sentence<'_> {
             binder_types(self.spelling, self.stack, &mut parameters);
         }
         if let Some(other) = &self.other_spelling {
-            binder_types(other, self.stack, &mut parameters);
+            let stack = kinds::own(self.layout.find(self.other_cell).0);
+            binder_types(other, &stack, &mut parameters);
         }
         let mut item = ItemBuilder::new();
         item.push(&format!(
@@ -2326,7 +2430,7 @@ impl Sentence<'_> {
         for (name, ty) in &parameters {
             item.push(&format!("    {name}: {ty},\n"));
         }
-        let key = cells_key(self.cell);
+        let key = self.layout.cells_key(self.cell);
         item.push(&format!(
             "    k::cells! {{ k: k::configuration::KCell(crate::Cmd::{}({}), tail @ ..), ",
             command.name,
@@ -2341,13 +2445,16 @@ impl Sentence<'_> {
             item.push("..state }\n}\n");
         } else {
             if let Some(other) = self.other {
-                item.push(&format!("{key}: {other}, "));
+                item.push(&format!(
+                    "{}: {other}, ",
+                    self.layout.cells_key(self.other_cell)
+                ));
             }
             item.push(result)
                 .entry(&key, self.text)
                 .push(", ..state }\n}\n");
         }
-        let mut entries = Self::k_entries(Form::Cells, &arguments).to_vec();
+        let mut entries = self.k_entries(Form::Cells, &arguments).to_vec();
         entries.extend(self.entries.iter().cloned());
         self.finish(
             TemplateSentence::Rule,
@@ -2381,15 +2488,6 @@ impl Sentence<'_> {
                 },
             },
         }
-    }
-}
-
-/// The `cells!` key of `cell`: a top-level cell by its name, a nested one through its parent's
-/// type.
-fn cells_key(cell: &str) -> String {
-    match find(cell) {
-        (_, _, Some(parent)) => format!("crate::{parent}::{cell}"),
-        _ => cell.to_owned(),
     }
 }
 
