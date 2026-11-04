@@ -86,7 +86,7 @@ use crate::{
     cli::{CommandSpelling, Verb},
     manifest::{Budget, FlowManifest},
     mutation::{EditedRule, InvalidReason, RuleText},
-    results::{ResultClass, cache_directory, kebab, non_value_text},
+    results::{ResultClass, corpus_cache_directory, kebab, non_value_text},
     search::REPORT_FILE,
 };
 use kink_campaign::{
@@ -946,7 +946,18 @@ pub fn report_spelled(
     options: &ReportOptions,
     spelling: &dyn CommandSpelling,
 ) -> (Value, bool) {
-    let path = cache_directory(manifest, options.cache.as_deref()).join(REPORT_FILE);
+    stored_report(&manifest.directory, options, spelling)
+}
+
+/// [`report_spelled`] for the corpus whose manifest is in `directory`: the stored report is a
+/// file of the cache, and the cache directory is a function of the manifest's directory and
+/// `--cache` alone, so a front end prints it without loading or building the specification.
+pub fn stored_report(
+    directory: &Path,
+    options: &ReportOptions,
+    spelling: &dyn CommandSpelling,
+) -> (Value, bool) {
+    let path = corpus_cache_directory(directory, options.cache.as_deref()).join(REPORT_FILE);
     match read_report(&path, spelling) {
         Ok(document) => (document, true),
         Err((outcome, detail)) => (

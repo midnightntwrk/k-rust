@@ -36,7 +36,9 @@
 //! mutation list its `outcome` under `[mutation_list]` (a run document of a list that does not
 //! decode has no `[spec]`), with no case or mutation; the refusal's text is not rendered, since
 //! it explains a refusal rather than records a verdict ([`refusal_details`] gives it, and
-//! `kink-flow` prints it on stderr).
+//! `kink-flow` prints it on stderr). `report --output verdicts` renders the stored run document,
+//! so it prints what `run --output verdicts` printed; when there is no stored run document to
+//! render, the reason is the error ([`verdicts`]).
 //!
 //! Left out, each because it is not a function of the specification, the corpus and the budget:
 //! timings, digests, the build's identity (its solver profile is in the header) and the cache's
@@ -62,12 +64,28 @@ pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// lock that moves from one name to the other shows a new version, not a moved verdict.
 pub const VERDICTS_VERSION: u64 = 3;
 
-/// The rendering of a `results` or `run` document (module documentation); the error names what
-/// the document is when it is neither.
+/// The rendering of a `results` or `run` document (module documentation). The error names what
+/// the document is when it is neither: for `report`'s document saying why there is no stored run
+/// document (`kink-flow-report`), why there is none, so that `report --output verdicts` states
+/// the reason where the rendering would have been.
 pub fn verdicts(document: &Value) -> Result<String, String> {
     let kind = match document["schema"].as_str() {
         Some("kink-flow-results") => "results",
         Some(crate::report::RUN_SCHEMA) => "run",
+        Some(crate::report::MISSING_SCHEMA) => {
+            return Err(match document["outcome"].as_str() {
+                Some(outcome) => format!(
+                    "{outcome} run report {}: {}",
+                    document["path"].as_str().unwrap_or("?"),
+                    document["detail"].as_str().unwrap_or("no detail")
+                ),
+                // The manifest, or what a front end needs before it, was refused.
+                None => format!(
+                    "no run report is read: {}",
+                    refusal_details(document).join("; ")
+                ),
+            });
+        }
         other => {
             return Err(format!(
                 "--output verdicts renders a results or run document, not {}",

@@ -937,7 +937,7 @@ the end, in pre-order, that fails its own test there, as a refused baseline's ca
 
 ## Verdicts: `--output verdicts`
 
-`results` and `run` print, with `--output verdicts`, a TOML rendering of their document instead of the JSON, with the same exit status.
+`results` and `run` print, with `--output verdicts`, a TOML rendering of their document instead of the JSON, with the same exit status; `report --output verdicts` renders the stored run document.
 It holds what the specification, the corpus and the budget decide and nothing that depends on the host, the build's identity, the cache or the order the work was done in (it names the build's solver profile, below),
 so an unchanged corpus renders the same bytes on a cold and on a warm cache and under either `--order`.
 It is meant as the format of recorded outputs and of a corpus's optional committed `verdicts.lock`, which no command writes or checks yet, so that a moved verdict shows in review.
@@ -977,11 +977,16 @@ A corpus's `verdicts.lock`, which records each mutation's status and killers, is
 The `profile` line is there because under Z3 a class, a status and a cell can move between `killed`, `unknown` and `survived` with the order and the solver's timing, so a diff of two renderings across profiles shows why.
 Version 2 (CF-23) added `schedule`, `profile` and `killed_by`, and version 3 (CF-40c2) renders the status version 2 rendered `invalid` as `not-admitted`, as the run document names it since its version 18; the rendering's shape is unchanged, and a lock recorded at version 2 differs from a version 3 rendering of the same verdicts in its `version` line and in that status's name only.
 
-## `kink-flow report FLOW.toml [--cache DIR]`
+## `kink-flow report FLOW.toml [--cache DIR] [--output json|verdicts]`
 
 Prints the stored run document again, byte for byte as `run` printed it.
+It reads only the cache's `report.json`, whose place depends on the manifest's directory and `--cache` alone, so it loads no specification and runs nothing.
 When there is none, or it is not a run document of the current version, it prints
 `{schema: "kink-flow-report", version: 1, k_rust_revision, profile, outcome: "missing" | "unreadable", path, detail}`.
+
+With `--output verdicts` it prints the rendering of the stored run document ("Verdicts: `--output verdicts`"), which is what `run --output verdicts` printed, since the rendering is a function of the document alone.
+When there is no stored run document to render, it prints nothing on stdout and the reason on stderr (`missing run report PATH: DETAIL`, `unreadable run report PATH: DETAIL`).
+Under `--output json` that reason is the `kink-flow-report` document on stdout, as every refusal of a kink-flow command is a document.
 
 Exit status: 0 when it printed a report; 1 when there is none, it is unreadable, or the manifest does not decode; 2 on a usage error.
 
@@ -1196,6 +1201,7 @@ Both decode `FLOW.toml` with `ManifestFile::decode` and run the engine unchanged
 
 - `ManifestFile` is a decoded `FLOW.toml` whose `[spec]` is a `SpecDecl`: `K` (as written) or `Krs`.
   `ManifestFile::bind` gives the `FlowManifest` every command runs on; a front end binds a KRS declaration to the `SpecSection` of the K it emitted (the declaration's `assume_joined` is kept), and a K declaration binds to itself.
+- `report::stored_report(directory, options, spelling)` is `report` for the corpus whose manifest is in `directory`, so a front end prints the stored run document without building the specification.
 - `FlowCommand::parse(verb, files, options)` reads a verb's options exactly as `kink-flow <verb>` does, the corpus's files given by the front end (`CommandFiles`: kink-flow's operands, or the front end's layout), and `dispatch(manifest, command, front)` runs it on the large stack kink's definitions need.
 - `FrontEnd` is what a front end adds: `spelling`, how next steps spell its commands, with whatever selects its corpus (the trait `CommandSpelling`; kink-flow's own is `KinkFlowSpelling`); `refused`, the mutations its own checks refused, each with an `InvalidReason::External { name, next }`; and `annotate`, applied to every document before it is printed and, for `run`, before each write of the report.
   A refused mutation's `run` row has status `invalid-mutation`, the front end's reason, detail and next step (`action`), and nothing is resolved, compiled or run for it, so no outcome record, hint or memo record is written; `check --mutations` adds the refusal to its row, and a `fuzz` kill job of it is refused.

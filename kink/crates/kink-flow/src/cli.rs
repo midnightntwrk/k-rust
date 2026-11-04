@@ -56,7 +56,7 @@ pub const USAGE: &str = "usage: kink-flow --version | kink-flow check FLOW.toml 
                          FLOW.toml MUTATIONS [--only ID]... [--verify] [--order cost|corpus] \
                          [--full] [--compile-workers N] [--no-memo] [--cache DIR] [--output \
                          json|verdicts] | kink-flow report \
-                         FLOW.toml [--cache DIR] | kink-flow query FLOW.toml PATTERNS.toml \
+                         FLOW.toml [--cache DIR] [--output json|verdicts] | kink-flow query FLOW.toml PATTERNS.toml \
                          [--only ID]... [--verify] [--cache DIR] | kink-flow fuzz FLOW.toml \
                          TEMPLATES.toml --template ID (--kill MUTATION --mutations MUTATIONS \
                          | --matched RULE | --fired RULE | --pattern ID --patterns PATTERNS.toml) \
@@ -324,7 +324,10 @@ pub enum FlowCommand {
         mode: RunMode,
         output: OutputFormat,
     },
-    Report(ReportOptions),
+    Report {
+        options: ReportOptions,
+        output: OutputFormat,
+    },
     Query {
         patterns: PathBuf,
         options: QueryOptions,
@@ -382,7 +385,10 @@ impl FlowCommand {
                     output,
                 })
             }
-            Verb::Report => Ok(Self::Report(report_options(options)?)),
+            Verb::Report => {
+                let (options, output) = report_options(options)?;
+                Ok(Self::Report { options, output })
+            }
             Verb::Query => {
                 let patterns = files.patterns.ok_or("query needs a pattern list")?;
                 if !patterns.is_file() {
@@ -452,7 +458,7 @@ impl FlowCommand {
             Self::Check(_) => Verb::Check,
             Self::Results { .. } => Verb::Results,
             Self::Run { .. } => Verb::Run,
-            Self::Report(_) => Verb::Report,
+            Self::Report { .. } => Verb::Report,
             Self::Query { .. } => Verb::Query,
             Self::Fuzz { .. } => Verb::Fuzz,
         }
@@ -472,11 +478,14 @@ impl FlowCommand {
         document
     }
 
-    /// What the command prints: `--output` of `results` and `run`, the JSON document otherwise.
+    /// What the command prints: `--output` of `results`, `run` and `report`, the JSON document
+    /// otherwise.
     #[must_use]
     pub const fn output(&self) -> OutputFormat {
         match self {
-            Self::Results { output, .. } | Self::Run { output, .. } => *output,
+            Self::Results { output, .. }
+            | Self::Run { output, .. }
+            | Self::Report { output, .. } => *output,
             _ => OutputFormat::Json,
         }
     }
@@ -608,7 +617,7 @@ pub fn run_command(
                 }
             };
         }
-        FlowCommand::Report(options) => {
+        FlowCommand::Report { options, .. } => {
             let (document, ok) = crate::report::report_spelled(manifest, options, front.spelling);
             (document, exit(ok))
         }
@@ -1050,11 +1059,13 @@ fn fuzz_options(args: &[String], files: &CommandFiles) -> Result<FuzzRequest, St
     })
 }
 
-fn report_options(args: &[String]) -> Result<ReportOptions, String> {
+fn report_options(args: &[String]) -> Result<(ReportOptions, OutputFormat), String> {
     let mut options = ReportOptions::default();
+    let mut output = None;
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            "--output" if output.is_none() => output = Some(output_format(args.next())?),
             "--cache" if options.cache.is_none() => {
                 let directory = args.next().ok_or("--cache needs a directory")?;
                 options.cache = Some(PathBuf::from(directory));
@@ -1062,7 +1073,7 @@ fn report_options(args: &[String]) -> Result<ReportOptions, String> {
             _ => return Err(format!("unexpected argument {arg:?}")),
         }
     }
-    Ok(options)
+    Ok((options, output.unwrap_or_default()))
 }
 
 /// `kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID (--kill MUTATION --mutations
@@ -1099,12 +1110,18 @@ pub fn query(manifest: &Path, patterns: &Path, options: &QueryOptions) -> (Value
     )
 }
 
-/// `kink-flow report FLOW.toml [--cache DIR]`: the run document the last `run` wrote, as `run`
-/// printed it, and [`EXIT_OK`]; or a `kink-flow-report` document saying why there is none
-/// (`missing`, `unreadable`) and [`EXIT_CORPUS`], which is also the status when the manifest
-/// does not decode.
+/// `kink-flow report FLOW.toml [--cache DIR] [--output json|verdicts]`: the run document the last
+/// `run` wrote, as `run` printed it, and [`EXIT_OK`]; or a `kink-flow-report` document saying why
+/// there is none (`missing`, `unreadable`) and [`EXIT_CORPUS`], which is also the status when the
+/// manifest does not decode. `--output verdicts` renders the same document ([`crate::verdicts`]).
 pub fn report(manifest: &Path, options: &ReportOptions) -> (Value, u8) {
-    on_manifest(manifest, &FlowCommand::Report(options.clone()))
+    on_manifest(
+        manifest,
+        &FlowCommand::Report {
+            options: options.clone(),
+            output: OutputFormat::Json,
+        },
+    )
 }
 
 /// `kink-flow run FLOW.toml MUTATIONS [--only ID]... [--verify] [--cache DIR]`: the run

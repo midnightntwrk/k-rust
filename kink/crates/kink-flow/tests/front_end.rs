@@ -156,6 +156,17 @@ fn kink_flow_options_parse_with_the_front_end_files() {
     };
     assert_eq!(options.mutations, Some(statuses));
     assert_eq!(output, OutputFormat::Json);
+    // report takes `--output` as results and run do: it renders the stored run document.
+    let parsed = FlowCommand::parse(
+        "report",
+        CommandFiles::default(),
+        &strings(&["--output", "verdicts"]),
+    )
+    .unwrap();
+    assert_eq!(
+        (parsed.verb(), parsed.output()),
+        (Verb::Report, OutputFormat::Verdicts)
+    );
     // A fuzz kill job takes the front end's list when `--mutations` is not given (FLOW.toml
     // stands for the template list: one that does not decode is the command's refusal, so the
     // template id is not checked here).

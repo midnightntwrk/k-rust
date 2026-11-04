@@ -1739,10 +1739,13 @@ impl ResultsUpdate {
 
 /// The cache directory of a manifest: `options.cache`, else `.kink-flow` next to it.
 pub fn cache_directory(manifest: &FlowManifest, cache: Option<&Path>) -> PathBuf {
-    cache.map_or_else(
-        || manifest.directory.join(CACHE_DIRECTORY),
-        Path::to_path_buf,
-    )
+    corpus_cache_directory(&manifest.directory, cache)
+}
+
+/// [`cache_directory`] of the corpus whose manifest is in `directory`: a function of that
+/// directory and `cache` alone.
+pub fn corpus_cache_directory(directory: &Path, cache: Option<&Path>) -> PathBuf {
+    cache.map_or_else(|| directory.join(CACHE_DIRECTORY), Path::to_path_buf)
 }
 
 /// The refusal of a specification whose baseline runner cannot be built.

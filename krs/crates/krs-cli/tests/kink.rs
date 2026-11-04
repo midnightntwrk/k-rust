@@ -368,9 +368,9 @@ fn results_name_each_rule_by_its_rust_item_and_position() {
 fn run_kills_the_story_edits() {
     let project = story();
     project.write("kink/mutations/plus.toml", STORY_MUTATIONS);
-    let output = project.kink("run", &["--full"]);
-    assert_status(&output, 0);
-    let document = json(&output);
+    let ran = project.kink("run", &["--full"]);
+    assert_status(&ran, 0);
+    let document = json(&ran);
     let rows = document["mutations"].as_array().unwrap();
     let verdicts = rows
         .iter()
@@ -391,16 +391,85 @@ fn run_kills_the_story_edits() {
         ],
         "{document:#}"
     );
-    // `report` prints the stored run document as `run` printed it, named by the emission the
-    // run judged; only the `definition` object is this command's.
-    let output = project.kink("report", &[]);
+    // `report` prints the stored run document byte for byte as `run` printed it, named by the
+    // emission the run judged and with the run's `definition` object, and builds nothing.
+    let timings = project.path().join("report-timings.json");
+    let output = project.kink("report", &["--timings", timings.to_str().unwrap()]);
     assert_status(&output, 0);
-    let mut reported = json(&output);
-    assert_eq!(reported["definition"]["status"], "unchanged");
-    let mut printed = document.clone();
-    reported.as_object_mut().unwrap().remove("definition");
-    printed.as_object_mut().unwrap().remove("definition");
-    assert_eq!(reported, printed);
+    assert_eq!(stdout(&output), stdout(&ran));
+    assert_eq!(json(&output), document);
+    let built = |timings: &Path| {
+        let timings: Value = serde_json::from_str(&fs::read_to_string(timings).unwrap()).unwrap();
+        let ids = timings["spans"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|span| span["id"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        assert!(ids.iter().any(|id| id == "kink.report"), "{ids:?}");
+        ids.into_iter()
+            .filter(|id| {
+                [
+                    "collector.build",
+                    "collector.run",
+                    "semantic.",
+                    "spec_stage.",
+                    "protocol.",
+                    "definition.",
+                    "emit_k.",
+                    "kink.definition",
+                ]
+                .iter()
+                .any(|built| id.starts_with(built))
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(built(&timings), Vec::<String>::new());
+    // `report --output verdicts` prints what `run --output verdicts` printed.
+    let rendered = project.kink("run", &["--full", "--output", "verdicts"]);
+    assert_status(&rendered, 0);
+    assert!(
+        stdout(&rendered).contains("schedule = \"full\""),
+        "{}",
+        stdout(&rendered)
+    );
+    let output = project.kink(
+        "report",
+        &[
+            "--output",
+            "verdicts",
+            "--timings",
+            timings.to_str().unwrap(),
+        ],
+    );
+    assert_status(&output, 0);
+    assert_eq!(stdout(&output), stdout(&rendered));
+    assert_eq!(built(&timings), Vec::<String>::new());
+    // A missing or unreadable stored report: the reason on stderr, nothing rendered.
+    let empty = project.path().join("target/empty-kink-cache");
+    fs::create_dir_all(&empty).unwrap();
+    let cache = empty.to_str().unwrap();
+    let output = project.kink("report", &["--cache", cache, "--output", "verdicts"]);
+    assert_status(&output, 1);
+    assert_eq!(stdout(&output), "");
+    assert!(
+        stderr(&output).contains("missing run report") && stderr(&output).contains("no run report"),
+        "{}",
+        stderr(&output)
+    );
+    // Under `--output json` the reason is the refusal document, as every kink-flow refusal is.
+    let output = project.kink("report", &["--cache", cache]);
+    assert_status(&output, 1);
+    assert_eq!(json(&output)["outcome"], "missing");
+    fs::write(empty.join("report.json"), "{").unwrap();
+    let output = project.kink("report", &["--cache", cache, "--output", "verdicts"]);
+    assert_status(&output, 1);
+    assert_eq!(stdout(&output), "");
+    assert!(
+        stderr(&output).contains("unreadable run report") && stderr(&output).contains("not JSON"),
+        "{}",
+        stderr(&output)
+    );
     // `check` resolves the layout's mutations, runs nothing, and names each edited rule by its
     // item (a run row lists its edited rules only for a mutation that is not killed).
     let output = project.kink("check", &[]);

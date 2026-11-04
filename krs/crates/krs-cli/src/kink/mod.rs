@@ -16,11 +16,17 @@
 //!
 //! Every verb but `emit` prints one kink-flow document (or, with `--output verdicts`, its
 //! deterministic rendering) with one more key, `definition`: the path of `kink/definition.k`
-//! and whether this command found it `unchanged` or `written` it. A stale file is rewritten,
-//! since a mutation is re-resolved against the K on every command and refused when the text it
-//! replaces changed, so a rewrite can make a mutation stale but never change what it means;
+//! and whether the command that made the document found it `unchanged` or `written` it. A
+//! stale file is rewritten, since a mutation is re-resolved against the K on every command and
+//! refused when the text it replaces changed, so a rewrite can make a mutation stale but never
+//! change what it means;
 //! under `--locked` the command is refused instead (stage `definition`, reason
 //! `definition-stale`), and `krs kink emit --check` is the gate a CI runs.
+//!
+//! `report` builds nothing. The stored run document is a file of the corpus's cache, whose place
+//! depends on the corpus directory and `--cache` alone, so `report` reads the corpus manifest and
+//! prints that document as the run printed it; its `definition` is the run's, since the run
+//! stores the document with it. It judges no `definition.k`, so it takes no `--locked`.
 //!
 //! A package krs refuses, from its selection (an unknown package or facet, a manifest Cargo
 //! cannot read) to its emission, is answered by krs's diagnostics on stderr and the verb's
@@ -290,6 +296,15 @@ fn flow_command(
             return finish(outcome, &document, EXIT_CORPUS, output);
         }
     };
+    // `report` prints the stored run document, which needs nothing the build makes: no package is
+    // built, and nothing is lowered or emitted.
+    if let FlowCommand::Report { options, .. } = &command {
+        let (document, ok) = measurement.timings.span("kink.report", |_| {
+            kink_flow::report::stored_report(&declared.directory, options, &spelling)
+        });
+        let status = if ok { EXIT_OK } else { EXIT_CORPUS };
+        return finish(outcome, &document, status, output);
+    }
     let retain = judges_mutations(&command);
     let (emitted, kept) = match build(planned, &mut outcome, measurement, retain) {
         Ok(built) => built,
@@ -477,21 +492,22 @@ fn run_flow(
     // Every check that reads the lowering is made: the dispatch, which can hold a kill search's
     // mutants for minutes, runs without the retained theory and its second Definition IR.
     drop(kept);
-    let annotate = |document: &mut Value| annotator.annotate(document);
-    // `report` prints the stored run document as the run wrote it, its rules already named by
-    // the emission that run judged. This command's emission may be another one (the sources
-    // changed since), whose table would name the run's rules by the current items and
-    // positions, or not at all; so the stored document is not annotated again.
+    // The annotation also sets `definition`, so that a run stores its document with it and
+    // `report` prints what the run printed; both parts are idempotent.
+    let annotate = |document: &mut Value| {
+        annotator.annotate(document);
+        document["definition"] = definition.clone();
+    };
     let front = FrontEnd {
         spelling,
         refused: refused_mutations,
-        annotate: (verb != Verb::Report).then_some(&annotate as &(dyn Fn(&mut Value) + Sync)),
+        annotate: Some(&annotate as &(dyn Fn(&mut Value) + Sync)),
     };
     let span = format!("kink.{}", verb.as_str());
     let dispatched = measurement
         .timings
         .span(&span, |_| kink_flow::dispatch(manifest, command, front));
-    let (mut document, status_code) = match dispatched {
+    let (document, status_code) = match dispatched {
         Ok(result) => result,
         Err(panicked) => {
             outcome.notes.push(format!("krs kink: {panicked}"));
@@ -499,7 +515,6 @@ fn run_flow(
             return outcome;
         }
     };
-    document["definition"] = definition;
     finish(outcome, &document, status_code, output)
 }
 

@@ -106,7 +106,7 @@ Usage:
   krs kink run     --package P --definition D [--mutations PATH] [--only ID]... [--verify]
                    [--order cost|corpus] [--full] [--compile-workers N] [--no-memo]
                    [--cache DIR] [--output json|verdicts] [--locked]
-  krs kink report  --package P --definition D [--cache DIR]
+  krs kink report  --package P --definition D [--cache DIR] [--output json|verdicts]
   krs kink query   --package P --definition D [--patterns PATH] [--only ID]... [--verify]
                    [--cache DIR] [--locked]
   krs kink fuzz    --package P --definition D [--templates PATH] --template ID
@@ -124,17 +124,19 @@ The corpus is <package>/kink (or --corpus DIR):
   definition.k      the package's emitted K, which kink judges; written by krs kink
   .kink-flow/       kink-flow's caches
 
-Every verb but emit builds the package, writes kink/definition.k when it differs from the
-emission (the document's `definition.status` says `written`), and runs kink-flow's verb on
-it; every rule a document names gains `krs = {item, package, file, line, column, kind,
-claim_helper}`. --locked refuses a stale definition.k instead of writing it, and
-emit --check exits 1 when it is stale: the gate a CI runs.
+Every verb but emit and report builds the package, writes kink/definition.k when it differs
+from the emission (the document's `definition.status` says `written`), and runs kink-flow's
+verb on it; every rule a document names gains `krs = {item, package, file, line, column,
+kind, claim_helper}`. --locked refuses a stale definition.k instead of writing it, and
+emit --check exits 1 when it is stale: the gate a CI runs. report builds nothing: it prints
+the last run's stored document (or its verdicts) as that run printed it, and takes no
+--locked.
 
 Exit status: 0, 1 when anything is refused (the document says what and why), 2 on a usage
 error. The selection options (--manifest-path, --package, --package-id, --definition,
 --dependency, --cfg, --profile, --registration, --message-format, --timings, --counters)
 are krs's, before or after the verb; every other option is the kink-flow verb's own. Every
-command builds the package, so krs kink takes no --no-reuse.
+command that builds the package builds it in process, so krs kink takes no --no-reuse.
 ";
 
 fn main() {
@@ -976,8 +978,8 @@ fn parse_kink(arguments: Vec<OsString>) -> Result<ParseResult, UsageError> {
         match name.as_str() {
             "--no-reuse" => {
                 return Err(kink(
-                    "--no-reuse does not apply to krs kink, which reuses no earlier result: \
-                     every command builds the package"
+                    "--no-reuse does not apply to krs kink: every command that builds the \
+                     package builds it in process, and reuses no earlier build"
                         .into(),
                 ));
             }
@@ -1030,8 +1032,16 @@ fn kink_request(
         }
         krs_cli::KinkVerb::Emit { check }
     } else {
+        let verb = kink_flow::Verb::parse(verb).expect("the verb was checked");
+        if locked && verb == kink_flow::Verb::Report {
+            return Err(kink(
+                "--locked does not apply to report, which builds nothing and only prints the \
+                 stored run; emit --check fails on a stale definition.k"
+                    .into(),
+            ));
+        }
         krs_cli::KinkVerb::Flow {
-            verb: kink_flow::Verb::parse(verb).expect("the verb was checked"),
+            verb,
             options: rest,
         }
     };
@@ -1457,6 +1467,30 @@ mod tests {
                     "d",
                 ][..],
                 "--locked does not apply",
+            ),
+            (
+                &[
+                    "kink",
+                    "report",
+                    "--locked",
+                    "--package",
+                    "p",
+                    "--definition",
+                    "d",
+                ][..],
+                "--locked does not apply to report",
+            ),
+            (
+                &[
+                    "kink",
+                    "report",
+                    "--no-reuse",
+                    "--package",
+                    "p",
+                    "--definition",
+                    "d",
+                ][..],
+                "every command that builds the package",
             ),
             (
                 &["kink", "run", "--definition", "d"][..],

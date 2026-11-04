@@ -213,6 +213,26 @@ fn report_reprints_the_same_bytes() {
     assert_eq!(document["outcome"], "missing");
     // GUIDE-USABILITY 5 (KINK-R4 fix round): k-rust's build identity, as every document names it.
     assert_eq!(document["k_rust_revision"], k_rust::build_identity());
+    // CF-44: under `--output verdicts` the reason goes to stderr, and nothing is rendered.
+    let output = binary(&["report", "FLOW.toml", "--output", "verdicts"], &dir);
+    assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("missing run report") && stderr.contains("no run report"),
+        "{stderr}"
+    );
+    // A manifest that does not decode names no cache to read: the refusal's stage, reason and
+    // detail go to stderr.
+    fs::write(dir.join("BROKEN.toml"), "[spec\n").unwrap();
+    let output = binary(&["report", "BROKEN.toml", "--output", "verdicts"], &dir);
+    assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("no run report is read: spec: manifest invalid-manifest: invalid TOML"),
+        "{stderr}"
+    );
 
     let ran = binary(
         &[
@@ -233,6 +253,28 @@ fn report_reprints_the_same_bytes() {
         serde_json::from_str(&fs::read_to_string(cache.join(REPORT_FILE)).unwrap()).unwrap();
     assert_eq!(stored, document);
     assert_eq!(document["survivors"], json!(["add-swaps-operands"]));
+    // CF-44: `report --output verdicts` renders the stored document, which is what `run
+    // --output verdicts` prints.
+    let rendered = kink_flow::verdicts(&document).unwrap();
+    let reported = binary(&["report", "FLOW.toml", "--output", "verdicts"], &dir);
+    assert_eq!(reported.status.code(), Some(i32::from(EXIT_OK)));
+    assert_eq!(String::from_utf8(reported.stdout).unwrap(), rendered);
+    let ran = binary(
+        &[
+            "run",
+            "FLOW.toml",
+            "MUTATIONS.toml",
+            "--only",
+            "add-swaps-operands",
+            "--output",
+            "verdicts",
+        ],
+        &dir,
+    );
+    assert_eq!(ran.status.code(), Some(i32::from(EXIT_OK)));
+    let reported = binary(&["report", "FLOW.toml", "--output", "verdicts"], &dir);
+    assert_eq!(reported.stdout, ran.stdout);
+    assert_eq!(String::from_utf8(ran.stdout).unwrap(), rendered);
 
     // The report is the last run's: a run that selects no mutation replaces it too.
     fs::write(dir.join("EMPTY.toml"), "").unwrap();
@@ -269,11 +311,39 @@ fn report_reprints_the_same_bytes() {
         &dir,
     );
     assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+    let output = binary(
+        &[
+            "report",
+            "FLOW.toml",
+            "--cache",
+            other.to_str().unwrap(),
+            "--output",
+            "verdicts",
+        ],
+        &dir,
+    );
+    assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains("unreadable run report") && stderr.contains("not JSON"),
+        "{stderr}"
+    );
     for args in [
         vec!["report"],
         vec!["report", "missing.toml"],
         vec!["report", "FLOW.toml", "--cache"],
         vec!["report", "FLOW.toml", "--verify"],
+        vec!["report", "FLOW.toml", "--output"],
+        vec!["report", "FLOW.toml", "--output", "toml"],
+        vec![
+            "report",
+            "FLOW.toml",
+            "--output",
+            "json",
+            "--output",
+            "json",
+        ],
     ] {
         let output = binary(&args, &dir);
         assert_eq!(

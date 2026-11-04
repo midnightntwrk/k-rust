@@ -36,7 +36,7 @@
 //! means the front end cannot name it: such rules are listed under the document's
 //! `krs.unnamed_rules` rather than named by a guess. That holds only of a document of this
 //! command's emission, which is why `report`, which prints a document an earlier `run` wrote
-//! (and named), does not annotate it again.
+//! (and named), neither builds the package nor annotates the document again.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
