@@ -271,6 +271,18 @@ pub(super) fn judge_readable(
             spelling: entry.field.spelling.as_ref(),
         })
         .collect::<Vec<_>>();
+    // The form step is the macro's and the term walker's, which locate a misplaced construct
+    // where it stands inside the entry (design §2.4): a sentence with a form mistake is theirs to
+    // answer first, and the kinds are not asked before it is. A record left open outside a
+    // pattern is placed by the term walker too, at the record, wherever the entry holds it; the
+    // collector knows only the entry's value, so it leaves that refusal to the walker.
+    if sentence.iter().any(|entry| {
+        entry.spelling.is_some_and(|spelling| {
+            cell_entries::admit_form(authored.form, entry.side, spelling).is_err()
+        })
+    }) {
+        return Ok(());
+    }
     let judged = Sentence {
         form: authored.form,
         entries: &sentence,
@@ -279,15 +291,17 @@ pub(super) fn judge_readable(
         groups: target.groups(),
     }
     .judge();
-    if let Err((at, refusal)) = judged {
-        let entry = subject
-            .iter()
-            .chain(&result)
-            .nth(at)
-            .expect("the refused entry is the sentence's");
-        return Err(refused(entry, refusal, None));
+    match judged {
+        Err((_, Refusal::OpenRecordOutsidePattern)) | Ok(_) => Ok(()),
+        Err((at, refusal)) => {
+            let entry = subject
+                .iter()
+                .chain(&result)
+                .nth(at)
+                .expect("the refused entry is the sentence's");
+            Err(refused(entry, refusal, None))
+        }
     }
-    Ok(())
 }
 
 /// The entries of one side of a readable clause, each field beside the one cell its name names;
