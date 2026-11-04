@@ -9,8 +9,8 @@
 //!   sliced from the file's K view by the sentence's span (F-04's [`EditedRule`], F-10's view),
 //!   so no K printer is involved and the text is exactly what the specification and the
 //!   mutation list say;
-//! - `reaching`: the comparable programs whose cached coverage witnesses the mutant's compiled
-//!   edit (kink-campaign `CompiledEdit`, [`crate::search`] step 2): programs that reached a
+//! - `witnesses`: the comparable programs whose cached coverage witnesses the mutant's compiled
+//!   edit (kink-campaign `CompiledEdit`, [`crate::search`] step 2): programs that matched a
 //!   removed axiom's sentence (k-rust `matched`) when its edit changed its `requires`, alone or
 //!   with its right-hand side or `ensures`, programs that applied it (`applied`) otherwise, every
 //!   program for an edit that is not site-local; read from the command's live call, or from the
@@ -35,7 +35,7 @@
 //! Re-pin R0c-fix-3 (version 5): every resolved mutation's row carries `inconsistent_pairs`,
 //! each `{first, second, position, reason}`: the pairs of equations k-rust's critical-pair check
 //! does not show to join, which refuse a mutant that is not a theory with models (status
-//! `invalid`, reason `inconsistent-mutant`, kink-native `consistency`); empty otherwise.
+//! `not-admitted`, reason `inconsistent-mutant`, kink-native `consistency`); empty otherwise.
 //!
 //! Re-pin L2-2-fix-1 (version 6): every row whose patch applies carries `typing_diagnostics`
 //! ([`typing_diagnostics_value`]): the edited rules' errors in compilation's typing view, which
@@ -128,8 +128,10 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// coverage is not complete witnessing every edit as kink-campaign's coverage selection counts
 /// it, `[]` on a `no-comparable-program` row (no program of an empty set witnesses an edit) and
 /// otherwise `null` on a row with neither, and each call's `programs` are listed in the order the
-/// call ran them.
-pub const RUN_VERSION: u64 = 17;
+/// call ran them; 18 since CF-40c2 named each row's `reaching` `witnesses` and the runner status
+/// `invalid` `not-admitted`, so that each coverage predicate and each status has one name in every
+/// kink-flow document (README, "Coverage predicates").
+pub const RUN_VERSION: u64 = 18;
 
 /// k-rust's contradicted-claim records of one run as specification diagnostics (re-pin adoption
 /// A-1): each `{claim, symbol, k_label, rule_id, rule_label, application, undefined,
@@ -312,7 +314,7 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
     Some(match status {
         "killed" => return None,
         "survived" => {
-            "write a program that reaches an edited rule and whose final configuration the edit \
+            "write a program that matches an edited rule and whose final configuration the edit \
              changes outside the cells result.not_compared lists: every executed program \
              reached a comparable result and agreed"
         }
@@ -344,7 +346,7 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
              execution can tell them apart (weakening); change a right-hand side or a rewrite \
              rule, or drop the mutation"
         }
-        "invalid" if reason == Some("inconsistent-mutant") => {
+        "not-admitted" if reason == Some("inconsistent-mutant") => {
             "fix the mutation: two equations of one function are not shown to agree where both \
              apply, so the mutant may have no model (inconsistent_pairs). If the edit widened a \
              guard, make the guards exclusive or the results equal; if it only narrowed one (the \
@@ -354,7 +356,7 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
              right-hand side or a rewrite rule instead; a narrowing ranked before another \
              equation of its function widens that one, and the mutant may have no model"
         }
-        "invalid" => "fix the mutation: the mutant does not compile (reason)",
+        "not-admitted" => "fix the mutation: the mutant does not compile (reason)",
         "invalid-mutation" => "fix the mutation: it does not resolve (reason, edit, detail)",
         "error" if reason == Some("host-stack-refused") => {
             "rerun where the host grants more address space: the system refused the native stack \

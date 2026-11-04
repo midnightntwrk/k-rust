@@ -42,8 +42,13 @@ pub enum MutantStatus {
     Survived,
     /// The mutant compiled to the baseline's executable compiler output.
     Equivalent,
-    /// Validation or compilation rejected the mutant.
-    Invalid,
+    /// kink did not admit the mutant for judging: validation or compilation rejected it, its
+    /// lowering does not terminate, or kink's consistency gate
+    /// ([`kink_native::consistency::admit_mutant`]) did not admit it
+    /// ([`MutantScopeFailure::InconsistentMutant`]). Reported as `not-admitted`, a name apart
+    /// from the compile-stage [`MutantScopeFailure::Rejected`] that is one of its causes and
+    /// from the generation stage's rejected origins.
+    NotAdmitted,
     /// A time limit prevented a conclusion.
     Timeout,
     /// Another declared limit or indeterminate evidence prevented a conclusion.
@@ -84,8 +89,8 @@ pub enum MutantScopeFailure {
     /// The claim-free mutant is not shown to be a theory with models (`inconsistent-mutant`,
     /// re-pin R0c-fix-3): k-rust's critical-pair check does not show some pair of equations of a
     /// symbol the edit can change to join, or could not run ([`MutantPlan::inconsistent_pairs`]
-    /// names them; [`kink_native::consistency`]). Invalid like a compile failure: outside the
-    /// score, never killed or survived.
+    /// names them; [`kink_native::consistency`]). [`MutantStatus::NotAdmitted`] like a compile
+    /// failure: outside the score, never killed or survived.
     InconsistentMutant,
     /// The baseline's full critical-pair check has a finding no `assume_joined` name assumes
     /// (`baseline-findings`, fz26 KINK-BASELINE-FINDINGS): the definition may identify any two
@@ -110,7 +115,7 @@ impl MutantScopeFailure {
         match self {
             Self::EquivalentCompilation => MutantStatus::Equivalent,
             Self::Rejected | Self::LoweringNontermination | Self::InconsistentMutant => {
-                MutantStatus::Invalid
+                MutantStatus::NotAdmitted
             }
             Self::LoweringTimeLimit => MutantStatus::Timeout,
             Self::LoweringResourceLimit
@@ -351,7 +356,7 @@ const fn fold_rank(status: MutantStatus) -> u8 {
         MutantStatus::Error => 3,
         MutantStatus::Killed => 4,
         // Never produced by a slot or a failed test.
-        MutantStatus::Invalid | MutantStatus::Equivalent => 5,
+        MutantStatus::NotAdmitted | MutantStatus::Equivalent => 5,
     }
 }
 
@@ -604,7 +609,7 @@ pub struct Rational {
 }
 
 /// Ratio over decided (`Killed`, `Survived`) mutants only. What it leaves out,
-/// `Equivalent`, `Invalid`, `Timeout`, `Unknown` and `Error` mutants and rejected origins, is counted by
+/// `Equivalent`, `NotAdmitted`, `Timeout`, `Unknown` and `Error` mutants and rejected origins, is counted by
 /// [`crate::tally`]; show the tally beside the ratio.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Score {
@@ -619,7 +624,7 @@ pub struct Score {
 }
 
 /// Ratio over decided (`Killed`, `Survived`) mutants only. What it leaves out,
-/// `Equivalent`, `Invalid`, `Timeout`, `Unknown` and `Error` mutants and rejected origins, is counted by
+/// `Equivalent`, `NotAdmitted`, `Timeout`, `Unknown` and `Error` mutants and rejected origins, is counted by
 /// [`crate::tally`]; show the tally beside the ratio.
 #[must_use]
 pub fn score(statuses: &[MutantStatus]) -> Score {

@@ -4,7 +4,7 @@
 //! its corpus, `kink/FLOW.toml` and the story's four cases: the tool must report what the
 //! story's pages claim, each rule named by its Rust item and position, and kill the story's
 //! three edits written as K patches anchored by `plus_zero` and `plus_succ`. A small counter
-//! definition, which has rewrite rules, gives `fuzz --reach` and a query witness rules to name;
+//! definition, which has rewrite rules, gives `fuzz --matched` and a query witness rules to name;
 //! `fixtures/inputs` gives a case of typed inputs.
 
 use std::fs;
@@ -357,20 +357,24 @@ fn results_name_each_rule_by_its_rust_item_and_position() {
     let output = project.kink("results", &["--output", "verdicts"]);
     assert_status(&output, 0);
     let verdicts = stdout(&output);
-    let fired = verdicts
-        .lines()
-        .filter(|line| line.starts_with("fired = "))
-        .collect::<Vec<_>>();
-    assert_eq!(
-        fired,
-        [
-            "fired = [\"plus_zero\"]",
-            "fired = [\"plus_zero\"]",
-            "fired = [\"plus_succ\", \"plus_zero\"]",
-            "fired = [\"plus_succ\", \"plus_zero\"]",
-        ],
-        "{verdicts}"
-    );
+    // The story's rules are equations, each fired where it applies, and each case matches
+    // exactly the rules it fires.
+    for predicate in ["fired", "matched"] {
+        let lines = verdicts
+            .lines()
+            .filter_map(|line| line.strip_prefix(predicate)?.strip_prefix(" = "))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            lines,
+            [
+                "[\"plus_zero\"]",
+                "[\"plus_zero\"]",
+                "[\"plus_succ\", \"plus_zero\"]",
+                "[\"plus_succ\", \"plus_zero\"]",
+            ],
+            "{predicate}: {verdicts}"
+        );
+    }
 }
 
 /// `run` kills the story's three edits, written as K patches anchored by the Rust items, and a
@@ -472,13 +476,13 @@ fn query_and_fuzz_name_rules_by_their_items() {
     );
     let output = project.kink(
         "fuzz",
-        &["--template", "count", "--reach", "stop", "--cases", "4"],
+        &["--template", "count", "--matched", "stop", "--cases", "4"],
     );
     let document = json(&output);
     assert_eq!(document["schema"], "kink-flow-fuzz", "{document:#}");
     assert_eq!(
         document["job"]["rule"]["krs"]["item"], "stop",
-        "the reach target is named by its item: {document:#}"
+        "the rule job's target is named by its item: {document:#}"
     );
     assert_status(&output, 0);
 }

@@ -11,19 +11,23 @@
 //! [`TestCoverage`] is the coverage of one run, read from k-rust's run coverage
 //! (`collect_coverage`, [`crate::execution::RunCoverage`]), which every adapter run collects. Since
 //! re-pin lane 2 (L2-1, [`COVERAGE_DOMAIN`] `kink/coverage/v2`; v3 since L2-1-tail) it holds
-//! every compiled id k-rust records, rewrite rules and equations alike:
-//! - `rule_ids` (reached) are k-rust's `matched` ids, which include `applied`: every rule and
-//!   equation whose condition the run began to decide for an instance whose left-hand side
-//!   matched, whatever the verdict, and every one the run applied;
-//! - `applied_ids` (fired) are k-rust's `applied` ids: every rule for which a step built a
-//!   successor or found the step undefined, and every equation whose instance gave a result.
+//! every compiled id k-rust records, rewrite rules and equations alike. Each set is named by the
+//! predicate it holds, as in k-rust, kink-flow and krs (kink-flow README, "Coverage
+//! predicates"):
+//! - `rule_ids` are k-rust's `matched` ids, which include `applied`: every rule and equation
+//!   whose condition the run began to decide for an instance whose left-hand side matched,
+//!   whatever the verdict, and every one the run applied; `sentences` are the baseline sentences
+//!   behind them, which kink-flow's `matched_by` lists;
+//! - `applied_ids` are k-rust's `applied` ids: every rule for which a step built a successor or
+//!   found the step undefined, and every equation whose instance gave a result;
+//!   `applied_sentences` are the baseline sentences behind them.
 //!
-//! `fired_sentences` (KINK-R4) are the baseline sentences behind the fired ids: a rewrite rule
-//! among k-rust's `committed` ids, whose step some explored path takes (a successor the step's
-//! own normalization showed defined), and an equation among `applied`, whose instance gave a
-//! result. A rewrite candidate rolled back because its successor was undefined, and an undefined
-//! step's rule, are applied but not committed: no path takes them, so they are not fired.
-//! kink-flow's `fired_by` reads them; they are not part of the canonical value
+//! `fired_sentences` (KINK-R4) are the baseline sentences the run fired, kink-flow's derived
+//! predicate: a rewrite rule among k-rust's `committed` ids, whose step some explored path takes
+//! (a successor the step's own normalization showed defined), and an equation among `applied`,
+//! whose instance gave a result. A rewrite candidate rolled back because its successor was
+//! undefined, and an undefined step's rule, are applied but not committed: no path takes them,
+//! so they are not fired. kink-flow's `fired_by` reads them; they are not part of the canonical value
 //! ([`TestCoverage::value`]), which schedules read, so [`COVERAGE_DOMAIN`] did not move.
 //!
 //! Both cover every state the run explored, the states a state-set result merges away included.
@@ -228,18 +232,18 @@ pub struct TestCoverage {
     /// depth-bound or undecided leaf, a diagnostic) covers only what it explored before it
     /// stopped, which depends on where it stopped.
     pub complete: bool,
-    /// The reached compiled ids (README corpus-scale 4.5): k-rust's `matched`, which includes
+    /// The matched compiled ids (README corpus-scale 4.5): k-rust's `matched`, which includes
     /// `applied`.
     pub rule_ids: BTreeSet<String>,
-    /// The fired compiled ids: k-rust's `applied`, a subset of `rule_ids`.
+    /// The applied compiled ids: k-rust's `applied`, a subset of `rule_ids`.
     pub applied_ids: BTreeSet<String>,
-    /// The baseline sentences behind `rule_ids`.
+    /// The baseline sentences behind `rule_ids`, the matched ones.
     pub sentences: BTreeSet<SentenceRef>,
     /// The baseline sentences behind `applied_ids`.
     pub applied_sentences: BTreeSet<SentenceRef>,
-    /// The baseline sentences behind the fired ids, a subset of `applied_sentences`: the rewrite
-    /// rules whose step some explored path takes (k-rust `committed`) and the equations among
-    /// `applied_ids` (module docs). Not in [`Self::value`].
+    /// The fired baseline sentences, a subset of `applied_sentences`: the rewrite rules whose
+    /// step some explored path takes (k-rust `committed`) and the equations behind `applied_ids`
+    /// (module docs). Not in [`Self::value`].
     pub fired_sentences: BTreeSet<SentenceRef>,
     /// The ids of `rule_ids` with no baseline sentence, with the reason (generating pass or an
     /// `UNMAPPED_*` value).

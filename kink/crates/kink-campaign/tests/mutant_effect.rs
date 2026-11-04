@@ -233,7 +233,7 @@ fn named(baseline: &Baseline, module: &str, claims: &[Claim]) -> Vec<(String, St
 /// The mutant is refused as inconsistent before any test runs, in both schedules alike, and its
 /// report names exactly the pair `first`/`second` (either order).
 fn assert_inconsistent(mutant: &MutantRun, first: &str, second: &str) {
-    assert_eq!(mutant.report.status, MutantStatus::Invalid);
+    assert_eq!(mutant.report.status, MutantStatus::NotAdmitted);
     assert_eq!(
         mutant.plan.mutant_failure,
         Some(MutantScopeFailure::InconsistentMutant)
@@ -263,7 +263,7 @@ fn start() -> TestCase {
 /// matches one subject in several ways, with a result that reads the choice): `equation`, or a
 /// generated lambda's (`None`; it has no label or position, so it is named by its unique id).
 fn assert_self_pair(mutant: &MutantRun, equation: Option<&str>) {
-    assert_eq!(mutant.report.status, MutantStatus::Invalid);
+    assert_eq!(mutant.report.status, MutantStatus::NotAdmitted);
     assert_eq!(
         mutant.plan.mutant_failure,
         Some(MutantScopeFailure::InconsistentMutant)

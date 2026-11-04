@@ -106,7 +106,7 @@ fn calc_is_admitted_with_every_program_ok_and_the_document_is_exact() {
         })
     );
     assert_eq!(document["schema"], "kink-flow-check");
-    assert_eq!(document["version"], 7);
+    assert_eq!(document["version"], 8);
     // Without --mutations no list is checked.
     for key in ["mutation_list", "mutations", "coverage"] {
         assert!(document[key].is_null(), "{key}");
@@ -681,10 +681,10 @@ fn check_resolves_every_mutation_and_runs_no_program() {
     );
     let (document, status) = check_list(&manifest, &mutations, None);
     assert_eq!(status, EXIT_CORPUS, "{document:#}");
-    assert_eq!(document["version"], 7);
+    assert_eq!(document["version"], 8);
     assert_eq!(document["spec"]["outcome"], "admitted");
     assert_eq!(document["mutation_list"]["outcome"], "ok");
-    // Nothing ran and nothing was written: no cache, so no unreached-rule warning.
+    // Nothing ran and nothing was written: no cache, so no unmatched-rule warning.
     assert!(!dir.join(".kink-flow").exists());
     assert_eq!(document["coverage"]["decides"], false);
     assert_eq!(
@@ -940,7 +940,7 @@ fn a_flagged_definition_names_its_cause_chains_and_passes_check() {
     assert!(exclusions.short_circuit_flagged());
     assert_eq!(exclusions.definition_exclusion(), None);
     assert_eq!(status, EXIT_OK, "{document:#}");
-    assert_eq!(document["version"], 7);
+    assert_eq!(document["version"], 8);
     assert_eq!(document["spec"]["outcome"], "admitted");
     assert!(document["spec"]["exclusion"].is_null(), "{document:#}");
     for program in document["programs"].as_array().unwrap() {
@@ -1861,7 +1861,7 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
         // competitors'), so every program witnesses the compiled edit, though none reaches the
         // rule. Before the witness was read from the compiled mutant: `[]`, from the rule's text.
         assert_eq!(
-            row["reaching"],
+            row["witnesses"],
             serde_json::json!(["fetch", "again"]),
             "{row:#}"
         );
@@ -1963,7 +1963,7 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
             assert_eq!(
                 document["coverage"]["detail"],
                 format!(
-                    "no unreached-rule or unapplied-rule warning is given: it needs a current \
+                    "no unmatched-rule or unapplied-rule warning is given: it needs a current \
                      result record of every program, and {}",
                     kink_flow::results::RESULT_CACHE_Z3
                 )
@@ -2004,7 +2004,7 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
             serde_json::json!([])
         );
         let unreached = &row(document, "mul-becomes-add")["warnings"];
-        assert_eq!(reasons(unreached), ["unreached-rule"], "{document:#}");
+        assert_eq!(reasons(unreached), ["unmatched-rule"], "{document:#}");
         assert_eq!(unreached[0]["rule"]["module"], "CALC");
         // A comment and blank lines at the top of the specification keep every record: coverage
         // still decides, from the same records, and gives the same warning.
@@ -2016,7 +2016,7 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
         assert_eq!(commented["coverage"], document["coverage"], "{commented:#}");
         assert_eq!(
             reasons(&row(&commented, "mul-becomes-add")["warnings"]),
-            ["unreached-rule"]
+            ["unmatched-rule"]
         );
         // Another cache holds no record: the warning is not given.
         let other = scratch("check-unreached-other-cache");
@@ -2025,7 +2025,7 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
     }
 
     /// A timeout is never cached, so a corpus with a program that times out has no record of it
-    /// and `check` gives no unreached-rule warning, however often `results` runs; its detail says
+    /// and `check` gives no unmatched-rule warning, however often `results` runs; its detail says
     /// why and names the remedy. Bounded by `[budget] baseline_max_work` instead, the program is a
     /// cached `unknown`, which is not comparable, and the coverage decides from the comparable
     /// programs' records.
@@ -2115,7 +2115,7 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
         assert_eq!(checked["coverage"]["decides"], true, "{checked:#}");
         assert_eq!(
             reasons(&row(&checked, "unused-adds-one")["warnings"]),
-            ["unreached-rule"],
+            ["unmatched-rule"],
             "{checked:#}"
         );
     }

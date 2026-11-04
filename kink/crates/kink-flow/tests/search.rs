@@ -472,7 +472,7 @@ mod kink_tier {
         );
         // get-offset reaches the get rule through increment and double only, so store runs last.
         assert_eq!(
-            mutation(&document, "get-offset")["reaching"],
+            mutation(&document, "get-offset")["witnesses"],
             json!(["increment", "double"])
         );
         assert_eq!(
@@ -487,7 +487,7 @@ mod kink_tier {
         );
     }
 
-    /// Re-pin L2-1-tail (review L2-1-1, D2): the first tier of O and the row's `reaching` are the
+    /// Re-pin L2-1-tail (review L2-1-1, D2): the first tier of O and the row's `witnesses` are the
     /// programs whose coverage witnesses the edit. `by-zero` (`1 / 0`) matches the division rule
     /// and refutes its guard, so it reached the rule without firing it: it witnesses an edit of the
     /// `requires` (alone or with the right-hand side), never one of the right-hand side alone.
@@ -531,7 +531,7 @@ note = "requires and right-hand side"
             ("operands-swapped", json!(["quotient"])),
             ("both", json!(["quotient", "by-zero"])),
         ] {
-            assert_eq!(mutation(&document, id)["reaching"], reaching, "{id}");
+            assert_eq!(mutation(&document, id)["witnesses"], reaching, "{id}");
         }
         assert_eq!(
             verdicts(&document),
@@ -553,7 +553,11 @@ note = "requires and right-hand side"
             assert_eq!(row["status"], "killed", "{id}");
             assert_eq!(row["killer_source"], "outcome-cache", "{id}");
             assert_eq!(row["calls"], json!([]), "{id}");
-            assert_eq!(row["reaching"], mutation(&document, id)["reaching"], "{id}");
+            assert_eq!(
+                row["witnesses"],
+                mutation(&document, id)["witnesses"],
+                "{id}"
+            );
         }
     }
 
@@ -741,10 +745,10 @@ note = "requires and right-hand side"
             mutation(&document, "countdown-escapes")["reason"],
             json!("no-comparable-program")
         );
-        // O is empty, so no program of it witnesses the edit, whatever the edit: `reaching` is
+        // O is empty, so no program of it witnesses the edit, whatever the edit: `witnesses` is
         // exactly empty, not unknown.
         assert_eq!(
-            mutation(&document, "countdown-escapes")["reaching"],
+            mutation(&document, "countdown-escapes")["witnesses"],
             json!([])
         );
         assert_eq!(
@@ -828,7 +832,7 @@ note = "requires and right-hand side"
                 ("add-becomes-sub", "killed", Some("add"), false),
                 ("add-commutes", "survived", None, false),
                 ("add-in-a-group", "equivalent", None, false),
-                ("add-unbound", "invalid", None, false),
+                ("add-unbound", "not-admitted", None, false),
                 ("add-ill-sorted", "invalid-mutation", None, false),
             ])
         );
@@ -856,7 +860,7 @@ note = "requires and right-hand side"
         );
         assert_eq!(
             document["counts"],
-            json!({"killed": 1, "survived": 1, "equivalent": 1, "unkillable": 0, "invalid": 1,
+            json!({"killed": 1, "survived": 1, "equivalent": 1, "unkillable": 0, "not-admitted": 1,
                    "timeout": 0, "unknown": 0, "error": 0, "invalid-mutation": 2})
         );
     }
@@ -882,15 +886,16 @@ note = "requires and right-hand side"
         // CF-02: version 13 adds `spec.exclusion`; version 14 adds `result`, the compared cells;
         // CF-03: version 15 adds `short_circuit_readings`, the step that excluded a run; CF-23:
         // version 16 adds `schedule`, `matrix` and a row's `killed_by`; version 17 reads a row's
-        // `reaching` from the compiled mutant.
-        assert_eq!(document["version"], 17);
+        // `reaching` from the compiled mutant; CF-40c2: version 18 names it `witnesses` and the
+        // status `invalid` `not-admitted`.
+        assert_eq!(document["version"], 18);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
         assert_eq!(
             verdicts(&document),
             expect(&[
-                ("pos-widened", "invalid", None, false),
+                ("pos-widened", "not-admitted", None, false),
                 ("sgn-plus-one", "killed", Some("minus-one"), false),
             ])
         );
@@ -898,7 +903,7 @@ note = "requires and right-hand side"
         assert_eq!(refused["reason"], "inconsistent-mutant");
         assert_eq!(
             refused["calls"],
-            json!([{"programs": ["minus-one"], "status": "invalid"}])
+            json!([{"programs": ["minus-one"], "status": "not-admitted"}])
         );
         assert_eq!(refused["executed"], json!([]));
         let pairs = refused["inconsistent_pairs"].as_array().unwrap();
@@ -1079,7 +1084,7 @@ note = "requires and right-hand side"
             pairs(&[("add", "distinguish")])
         );
         assert_eq!(
-            mutation(&first, "add-becomes-sub")["reaching"],
+            mutation(&first, "add-becomes-sub")["witnesses"],
             json!(["add", "nested", "inline"])
         );
         // The killer cache holds exactly the killed mutations, each with its first killing test
@@ -1111,7 +1116,7 @@ note = "requires and right-hand side"
         assert_eq!(report, first);
         assert_eq!(
             first["counts"],
-            json!({"killed": 4, "survived": 1, "equivalent": 0, "unkillable": 0, "invalid": 0,
+            json!({"killed": 4, "survived": 1, "equivalent": 0, "unkillable": 0, "not-admitted": 0,
                    "timeout": 0, "unknown": 0, "error": 0, "invalid-mutation": 0})
         );
 

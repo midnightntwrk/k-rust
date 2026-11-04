@@ -6,7 +6,7 @@
 //!
 //! ```toml
 //! schema = "kink-flow-verdicts"
-//! version = 2
+//! version = 3
 //! document = "results"
 //! profile = "no-z3"
 //!
@@ -26,7 +26,7 @@
 //! timing, so a diff of two renderings across profiles shows why.
 //!
 //! A `results` document gives each program (`[[case]]`, in manifest order) its class and the
-//! rules its run fires (a rule's `fired_by`) and reaches (`reached_by`, k-rust `matched`), each
+//! rules its run fires (a rule's `fired_by`) and matches (`matched_by`, k-rust `matched`), each
 //! rule named by its KRS item when a front end annotated it (`krs.item`), else its label, else
 //! its `file:line`, ordered by module name, then by position in the module. A `run` document
 //! gives each mutation it judged (`[[mutation]]`, in list order) its status, under `full` a
@@ -57,8 +57,10 @@ use std::fmt::Write as _;
 /// The `schema` of the rendering.
 pub const VERDICTS_SCHEMA: &str = "kink-flow-verdicts";
 /// The version of the rendering: 1, the first; 2 since CF-23 added the header's `schedule` (run
-/// documents) and `profile`, and a full run's `killed_by`.
-pub const VERDICTS_VERSION: u64 = 2;
+/// documents) and `profile`, and a full run's `killed_by`; 3 since a mutation's `status` names
+/// the runner status version 2 rendered `invalid` `not-admitted` (run document version 18), so a
+/// lock that moves from one name to the other shows a new version, not a moved verdict.
+pub const VERDICTS_VERSION: u64 = 3;
 
 /// The rendering of a `results` or `run` document (module documentation); the error names what
 /// the document is when it is neither.
@@ -186,7 +188,7 @@ fn cases(text: &mut String, document: &Value) {
             &string(program["class"].as_str().unwrap_or("refused")),
         );
         line(text, "fired", &strings(&names("fired_by", id)));
-        line(text, "matched", &strings(&names("reached_by", id)));
+        line(text, "matched", &strings(&names("matched_by", id)));
     }
 }
 

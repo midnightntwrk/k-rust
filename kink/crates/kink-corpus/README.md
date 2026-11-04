@@ -65,7 +65,8 @@ What resume and the summary trust, and why replay is the check across builds, is
 
 ## The summary's tally
 
-The summary's tally keys are a campaign report's tally keys (`summary::TALLY_KEYS`): the runner's seven mutant statuses, `killed`, `survived`, `equivalent`, `invalid`, `timeout`, `unknown` and `error`, each named as kink-flow's run document names it, then `rejected_origins`.
+The summary's tally keys are a campaign report's tally keys (`summary::TALLY_KEYS`): the runner's seven mutant statuses, `killed`, `survived`, `equivalent`, `not-admitted`, `timeout`, `unknown` and `error`, each named as kink-flow's run document names it, then `rejected_origins`.
+Summary version 2 names the status version 1 counted under `invalid` `not-admitted`, as campaign report version 5 does.
 
 - The harness has no `unkillable`.
   That status is kink-flow's judgement, made at resolution, of a text edit that only weakens the specification: every model of the specification is then a model of the mutant, so no program can kill it.

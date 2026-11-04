@@ -23,8 +23,13 @@ use serde_json::{Value, json};
 /// (`[{first, second, position, reason}]`, the pairs of equations that refuse an
 /// `InconsistentMutant`; empty otherwise) without a new version, as R0c-fix-2 added `claims`:
 /// the SI-04 replay row `malformed_reports_and_digest_mismatches_fail_in_check_order` forges
-/// version 5 as a foreign one, and replay compares rows by status, killers and tests only.
-pub const CAMPAIGN_REPORT_VERSION: u64 = 4;
+/// the next version as a foreign one, and replay compares rows by status, killers and tests only.
+/// Version 5 names the status of a mutant kink did not admit for judging
+/// `not-admitted`, in a mutant's `status` and as the tally key, where version 4 named it
+/// `invalid`, a name a reader could not tell from kink-flow's `invalid-mutation` (a mutation
+/// that does not resolve);
+/// a stored version 4 report is foreign, as for any change of the report's names.
+pub const CAMPAIGN_REPORT_VERSION: u64 = 5;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CampaignReport {
@@ -256,7 +261,7 @@ pub fn campaign_report_multi(
             crate::MutantStatus::Killed => counts.killed += 1,
             crate::MutantStatus::Survived => counts.survived += 1,
             crate::MutantStatus::Equivalent => counts.equivalent += 1,
-            crate::MutantStatus::Invalid => counts.invalid += 1,
+            crate::MutantStatus::NotAdmitted => counts.not_admitted += 1,
             crate::MutantStatus::Timeout => counts.timeout += 1,
             crate::MutantStatus::Unknown => counts.unknown += 1,
             crate::MutantStatus::Error => counts.error += 1,
@@ -411,7 +416,7 @@ pub fn report_status_name(status: crate::MutantStatus) -> String {
 /// it: one key per mutant status, then `rejected_origins`.
 #[must_use]
 pub fn report_tally(counts: crate::Tally) -> Value {
-    json!({"killed":counts.killed,"survived":counts.survived,"equivalent":counts.equivalent,"invalid":counts.invalid,"timeout":counts.timeout,"unknown":counts.unknown,"error":counts.error,"rejected_origins":counts.rejected_origins})
+    json!({"killed":counts.killed,"survived":counts.survived,"equivalent":counts.equivalent,"not-admitted":counts.not_admitted,"timeout":counts.timeout,"unknown":counts.unknown,"error":counts.error,"rejected_origins":counts.rejected_origins})
 }
 fn score_value(score: Option<crate::Score>) -> Value {
     score.map(|s| json!({"killed":s.killed,"survived":s.survived,"denominator":s.denominator,"ratio":s.ratio.map(|r| json!({"numerator":r.numerator,"denominator":r.denominator}))})).unwrap_or(Value::Null)

@@ -110,7 +110,7 @@ Usage:
   krs kink query   --package P --definition D [--patterns PATH] [--only ID]... [--verify]
                    [--cache DIR] [--locked]
   krs kink fuzz    --package P --definition D [--templates PATH] --template ID
-                   (--kill MUTATION | --reach RULE [--fired] | --pattern ID) [kink-flow's
+                   (--kill MUTATION | --matched RULE | --fired RULE | --pattern ID) [kink-flow's
                    fuzz options] [--locked]
 
 The corpus is <package>/kink (or --corpus DIR):

@@ -590,7 +590,7 @@ mod kink_tier {
         let (document, status) = run(&manifest, false);
         assert_eq!(status, EXIT_OK, "{document:#}");
         assert_eq!(rows(&document), expect(&[("store", "comparable", false)]));
-        assert_eq!(document["rules"][0]["reached_by"], json!(["store"]));
+        assert_eq!(document["rules"][0]["matched_by"], json!(["store"]));
         if let Some(record) = stored_record(&manifest, &document, "store") {
             assert_eq!(record["class"], "comparable");
             assert!(
@@ -741,12 +741,12 @@ text = 'h(opaque(1), 2)'
         let row = rules.last().unwrap();
         assert_eq!(row["start_line"], 20);
         assert_eq!(
-            (&row["reached_by"], &row["fired_by"]),
+            (&row["matched_by"], &row["fired_by"]),
             (&json!([]), &json!([]))
         );
         assert_eq!(
             row["reason"],
-            "a non-executable rule: k-rust never runs it, so no program can reach it"
+            "a non-executable rule: k-rust never runs it, so no program can match it"
         );
         assert_eq!(
             document["summary"],
@@ -798,7 +798,7 @@ text = 'h(opaque(1), 2)'
         };
         let lists = |label: &str| {
             let rule = rule(label);
-            (rule["reached_by"].clone(), rule["fired_by"].clone())
+            (rule["matched_by"].clone(), rule["fired_by"].clone())
         };
         assert_eq!(
             lists("PICK.bad"),
@@ -956,7 +956,7 @@ text = 'h(opaque(1), 2)'
                     r["file"].as_str().unwrap().to_owned(),
                     r["start_line"].as_u64().unwrap(),
                     r["status"].as_str().unwrap().to_owned(),
-                    r["reached_by"]
+                    r["matched_by"]
                         .as_array()
                         .unwrap()
                         .iter()
@@ -991,7 +991,7 @@ text = 'h(opaque(1), 2)'
         assert!(document["rules"][2]["reason"].is_null());
         // KINK-R4 fix round (review N7): 3, since `fired_by`'s meaning changed; 5 adds `result`;
         // 6 (CF-03) takes the short-circuit reading out of `spec.exclusion`.
-        assert_eq!(document["version"], 6);
+        assert_eq!(document["version"], 7);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
@@ -1010,7 +1010,7 @@ text = 'h(opaque(1), 2)'
                 .map(|r| (
                     r["label"].clone(),
                     r["status"].clone(),
-                    r["reached_by"].clone()
+                    r["matched_by"].clone()
                 ))
                 .collect::<Vec<_>>(),
             [
@@ -1388,7 +1388,7 @@ endmodule
         assert_eq!(rows(&document), expect(&[("store", "comparable", false)]));
         assert!(document["programs"][0]["cause"].is_null());
         assert_eq!(document["rules"][0]["status"], "covered");
-        assert_eq!(document["rules"][0]["reached_by"], json!(["store"]));
+        assert_eq!(document["rules"][0]["matched_by"], json!(["store"]));
         let path = record_path(&manifest, &document, "store");
         if let Some(mut record) = stored_record(&manifest, &document, "store") {
             assert_eq!(record["class"], "comparable");
@@ -1445,7 +1445,7 @@ endmodule
         assert_eq!(
             searched["counts"],
             json!({
-                "killed": 3, "survived": 1, "equivalent": 0, "unkillable": 0, "invalid": 0,
+                "killed": 3, "survived": 1, "equivalent": 0, "unkillable": 0, "not-admitted": 0,
                 "timeout": 0, "unknown": 0, "error": 0, "invalid-mutation": 0,
             })
         );

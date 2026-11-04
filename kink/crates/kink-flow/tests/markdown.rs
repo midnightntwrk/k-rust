@@ -766,7 +766,7 @@ mod kink_tier {
             document["survivors"],
             serde_json::json!(["twice-adds-two-at-once"])
         );
-        assert_eq!(survivor["reaching"], serde_json::json!(["twice"]));
+        assert_eq!(survivor["witnesses"], serde_json::json!(["twice"]));
         let rule = &survivor["rules"][0];
         let view = fs::read_to_string(dir.join("spec-view.k")).unwrap();
         let line = view.lines().nth(45).unwrap();

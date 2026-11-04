@@ -65,7 +65,7 @@ pub const STATUSES: [MutantStatus; 7] = [
     MutantStatus::Killed,
     MutantStatus::Survived,
     MutantStatus::Equivalent,
-    MutantStatus::Invalid,
+    MutantStatus::NotAdmitted,
     MutantStatus::Timeout,
     MutantStatus::Unknown,
     MutantStatus::Error,
@@ -177,7 +177,7 @@ pub struct Contribution {
     pub multi_generation: bool,
     /// The Full run holds several mutants (the compile-worker comparison's minimum).
     pub several: bool,
-    /// A mutant refused before any test ran (Invalid or Equivalent).
+    /// A mutant refused before any test ran (NotAdmitted or Equivalent).
     pub refused: bool,
 }
 
@@ -204,7 +204,7 @@ impl Contribution {
             contribution.coupled |= mutant.written_sentences.len() > 1;
             contribution.refused |= matches!(
                 mutant.report.status,
-                MutantStatus::Invalid | MutantStatus::Equivalent
+                MutantStatus::NotAdmitted | MutantStatus::Equivalent
             );
         }
         contribution.several = run.mutants.len() > 1;
@@ -236,9 +236,9 @@ impl Contribution {
             symbolic: ran && symbolic_tests(case),
             multi_generation: ran && case.generations.len() > 1,
             several: statuses.len() > 1,
-            refused: statuses
-                .iter()
-                .any(|status| matches!(status, MutantStatus::Invalid | MutantStatus::Equivalent)),
+            refused: statuses.iter().any(|status| {
+                matches!(status, MutantStatus::NotAdmitted | MutantStatus::Equivalent)
+            }),
         }
     }
 }
@@ -323,7 +323,7 @@ pub const CASES: [&str; 19] = [
     "G: ground test",
     "digit audit",
     "EI-D2=b",
-    "Invalid, Killed, Survived: counter final result",
+    "NotAdmitted, Killed, Survived: counter final result",
     "Equivalent: anonymous clone",
     "Error: crash against a normal result",
     "multi-generation: counter catalogue and code",
@@ -1355,7 +1355,7 @@ fn attribute_code(b: &Baseline) -> CandidateGeneration<'_> {
 }
 
 fn counter_cases(want: &dyn Fn(&str) -> bool, visit: &mut dyn FnMut(&Case<'_>)) {
-    use MutantStatus::{Equivalent, Error, Invalid, Killed, Survived};
+    use MutantStatus::{Equivalent, Error, Killed, NotAdmitted, Survived};
     let validator = NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
     let baseline = validator.baseline();
     let specs = step_support::counter(true);
@@ -1415,7 +1415,7 @@ fn counter_cases(want: &dyn Fn(&str) -> bool, visit: &mut dyn FnMut(&Case<'_>)) 
         },
     );
 
-    // Invalid, Killed and Survived in one campaign.
+    // NotAdmitted, Killed and Survived in one campaign.
     let t1_t2 = [
         case(
             "t1",
@@ -1451,20 +1451,20 @@ fn counter_cases(want: &dyn Fn(&str) -> bool, visit: &mut dyn FnMut(&Case<'_>)) 
         want,
         visit,
         Case {
-            name: "Invalid, Killed, Survived: counter final result".into(),
+            name: "NotAdmitted, Killed, Survived: counter final result".into(),
             origin: "end_to_end.rs::counter_campaign_kills_by_final_result_and_not_by_rule_identity",
             protected: None,
             campaign: counter_campaign(&validator, &specs, &normal, &t1_t2),
             generations: vec![generation(baseline, &mutants)],
             expected: Expected::Run {
                 full: vec![
-                    (Invalid, vec![]),
+                    (NotAdmitted, vec![]),
                     (Killed, vec!["t1"]),
                     (Survived, vec![]),
                     (Survived, vec![]),
                 ],
                 first_kill: Some(vec![
-                    (Invalid, vec![]),
+                    (NotAdmitted, vec![]),
                     (Killed, vec!["t1"]),
                     (Survived, vec![]),
                     (Survived, vec![]),
@@ -1570,7 +1570,14 @@ fn counter_cases(want: &dyn Fn(&str) -> bool, visit: &mut dyn FnMut(&Case<'_>)) 
             // Measured at 47e9285 in both profiles (THROWAWAY_STATUS census, handoff F-01):
             // cond-true, cond-false and delete-rule over counter.k, then the rejected attribute.
             expected: Expected::Statuses(vec![
-                Survived, Killed, Survived, Survived, Killed, Survived, Survived, Invalid,
+                Survived,
+                Killed,
+                Survived,
+                Survived,
+                Killed,
+                Survived,
+                Survived,
+                NotAdmitted,
             ]),
             wall_clock_bound: false,
         },

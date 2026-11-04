@@ -4,9 +4,9 @@
 //! The command takes a template, a program of the flow with some of its literals marked as holes
 //! (`TEMPLATES.toml`, [`TemplateList`]), and one job ([`FuzzJob`]). T3a builds the kill job: look
 //! for hole values that make the template kill one mutation of the flow's list, so that the
-//! program can join the corpus and kink's own `run` proves the kill. T5 adds the reach job (a
-//! program `results` would list in a rule's `reached_by` or `fired_by`: its all-paths run must
-//! be comparable, since kink counts only comparable programs) and the pattern job (a program
+//! program can join the corpus and kink's own `run` proves the kill. T5 adds the rule jobs (a
+//! program `results` would list in a rule's `matched_by`, `--matched`, or `fired_by`, `--fired`:
+//! its all-paths run must be comparable, since kink counts only comparable programs) and the pattern job (a program
 //! whose run reaches a configuration matching a pattern of `PATTERNS.toml`, as a `query` hit:
 //! matched at any state, with the facts a complete search could stop at refused). Both run on
 //! the baseline alone.
@@ -48,9 +48,9 @@
 //! is one input to both. Each candidate's program is then assembled by kink exactly as a
 //! `[[program]]` ([`check_assembly`]), and each side's initial configuration must be that
 //! configuration, or the candidate is not offered (`assembly-mismatch`). The last `run` document,
-//! only read, gives the template program's class and the mutation's `reaching` programs (suggested
+//! only read, gives the template program's class and the mutation's `witnesses` (suggested
 //! as templates), and the document warns about an unusable template, a template outside the
-//! reaching programs, and the scope of `--time-limit-ms`.
+//! witnesses, and the scope of `--time-limit-ms`.
 //!
 //! **Witness filter** (fz26 FZ-COMPARABLE-B). Unless `--no-filter` is given
 //! ([`FuzzOptions::filter`]), the campaign runs with kink's own rules as a k-rust-fuzz witness
@@ -78,7 +78,7 @@
 //! **Confirmation** (T4). Unless `--no-confirm` is given ([`FuzzOptions::confirm`]), kink's own
 //! code confirms the candidate on an overlay of the flow held in memory, with the fragment as its
 //! only program and a scratch cache removed on every path (`confirm`): `run` for a kill,
-//! `results` for a reach, `query` for a pattern. When kink refuses the shrunk case and the first
+//! `results` for a rule job, `query` for a pattern. When kink refuses the shrunk case and the first
 //! is another program, the first is confirmed too; there is no seed retry. A candidate kink
 //! refuses is not offered (`stopped: unconfirmed`). Nothing under the flow's directory or the
 //! cache is written.
@@ -152,9 +152,18 @@ pub const FUZZ_SCHEMA: &str = "kink-flow-fuzz";
 /// `witness-not-terminating` (FZ-ENGINE-R4), and the embedded totals' `domain`, `diverging` and
 /// `coverage-last-grew`. Version 5 adds the warning `reaching-not-computed`: the last run's
 /// `reaching` is null for a mutation whose compiled edit it neither computed nor found in the
-/// outcome cache, and so is `template.last_run.mutation.reaching`. `tests/formats.rs` ties the version to the document's
-/// shape.
-pub const FUZZ_VERSION: u32 = 5;
+/// outcome cache, and so is `template.last_run.mutation.reaching`. Version 6 (CF-40c2) names each
+/// coverage predicate as every kink-flow document does: the rule jobs are `--matched RULE` and
+/// `--fired RULE` (job kinds `matched` and `fired`, refusal stage `rule`) in place of `--reach RULE
+/// [--fired]` (kind `reach`), whose `job.rule.mode` (k-rust-fuzz's goal name, `condition-reached`
+/// or `covered`, which `job.kind` says again) is gone, a rule job's confirmation status is
+/// `matched` or `not-matched` (`fired`, `not-fired`) for a comparable program and `not-comparable`
+/// for any other, in place of `reached` or `unreached`, the last run's `mutation.reaching` is
+/// `mutation.witnesses`, and the warnings `reaching-not-computed`, `no-reaching-program` and
+/// `template-not-reaching` are `witnesses-not-computed`, `no-witness` and `template-not-a-witness`;
+/// a version 5 document's names are the old ones. `tests/formats.rs` ties the version to the
+/// document's shape.
+pub const FUZZ_VERSION: u32 = 6;
 /// The cases of a campaign that names neither `--cases` nor `--work`.
 pub const DEFAULT_CASES: u64 = 1000;
 /// The `max_work` of every case when `--max-work` is not given.
@@ -477,7 +486,7 @@ pub struct FuzzOptions {
     /// All paths, or one with `--one-path`.
     pub paths: PathMode,
     /// `--cache DIR`: where the last `run` document is read from (default `.kink-flow` beside
-    /// `FLOW.toml`); only read, for the template's class and the mutation's reaching programs.
+    /// `FLOW.toml`); only read, for the template's class and the mutation's witnesses.
     pub cache: Option<PathBuf>,
     /// Confirm each candidate with kink's own code (KF-T4; the command line's default, off with
     /// `--no-confirm`). Off in [`FuzzOptions::default`], so a library caller asks for it.
@@ -1116,7 +1125,7 @@ fn push_warning(document: &mut Value, warning: Value) {
 /// What the last `run` document (`report.json` in the cache directory, read as `report` reads
 /// it: this build's, this kink identity's, and of the current specification) says about the
 /// template and the mutation: the template program's class (found by its program digest), the
-/// mutation's status and its `reaching` programs, each suggested as a template; and the
+/// mutation's status and its `witnesses`, each suggested as a template; and the
 /// warnings these facts give. Nothing is run or written.
 #[allow(clippy::too_many_arguments)]
 fn last_run(
@@ -1148,7 +1157,7 @@ fn last_run(
             "stale-run-document",
             format!(
                 "the last run document is of another specification (its digest differs): run \
-                 `{}` again for the template's class and the mutation's reaching programs",
+                 `{}` again for the template's class and the mutation's witnesses",
                 spelling.verb(Verb::Run)
             ),
         ));
@@ -1197,8 +1206,8 @@ fn last_run(
     };
     // Null when the last run had no compiled edit for the row (it compiled no mutant for it and
     // the outcome cache kept none), so nothing says which programs witness it.
-    let known = !entry["reaching"].is_null();
-    let reaching = entry["reaching"]
+    let known = !entry["witnesses"].is_null();
+    let witnesses = entry["witnesses"]
         .as_array()
         .into_iter()
         .flatten()
@@ -1225,7 +1234,7 @@ fn last_run(
     } else if !known {
         if crate::report::SURVIVOR_STATUSES.contains(&status) {
             warnings.push(warning(
-                "reaching-not-computed",
+                "witnesses-not-computed",
                 format!(
                     "the last run neither compiled this mutation's mutant nor found its compiled \
                      edit in the outcome cache (reason {}), so it names no program whose coverage \
@@ -1234,25 +1243,27 @@ fn last_run(
                 ),
             ));
         }
-    } else if reaching.is_empty() {
+    } else if witnesses.is_empty() {
         if crate::report::SURVIVOR_STATUSES.contains(&status) {
             warnings.push(warning(
-                "no-reaching-program",
-                "in the last run no comparable program reaches the edited rule: a template \
-                 whose run reaches it is needed, or holes that make the run reach it",
+                "no-witness",
+                "in the last run no comparable program's coverage witnesses the mutant's \
+                 compiled edit: a template whose run matches or applies the edited rule is \
+                 needed, or holes that make the run do so",
             ));
         }
-    } else if template_id.is_none_or(|id| !reaching.iter().any(|r| r == id)) {
+    } else if template_id.is_none_or(|id| !witnesses.iter().any(|r| r == id)) {
         warnings.push(warning(
-            "template-not-reaching",
+            "template-not-a-witness",
             format!(
-                "the template's program is not among the programs whose coverage reaches the \
-                 edited rule in the last run ({}); a template built on one of them is suggested",
-                reaching.join(", ")
+                "the template's program is not among the programs whose coverage witnesses the \
+                 mutant's compiled edit in the last run ({}); a template built on one of them is \
+                 suggested",
+                witnesses.join(", ")
             ),
         ));
     }
-    let suggested = reaching
+    let suggested = witnesses
         .iter()
         .map(|id| {
             json!({
@@ -1271,14 +1282,14 @@ fn last_run(
         "mutation": {
             "status": entry["status"],
             "reason": entry["reason"],
-            "reaching": if known { json!(reaching) } else { Value::Null },
+            "witnesses": if known { json!(witnesses) } else { Value::Null },
         },
         "suggested_templates": suggested,
     })
 }
 
 // ---------------------------------------------------------------------------------------------
-// Jobs: kill, reach, pattern
+// Jobs: kill, matched, fired, pattern
 // ---------------------------------------------------------------------------------------------
 
 /// The job of one `kink-flow fuzz` command.
@@ -1289,10 +1300,11 @@ pub enum FuzzJob<'a> {
         list: &'a MutationList,
         mutation: &'a str,
     },
-    /// `--reach RULE [--fired]`: hole values whose program's all-paths baseline run is comparable
-    /// and reaches the rule's condition (kink's `reached_by`), or with `fired` takes the rule's
-    /// step on some path (`fired_by`, k-rust `committed`).
-    Reach { rule: &'a str, fired: bool },
+    /// `--matched RULE` (`fired` false) or `--fired RULE`: hole values whose program's all-paths
+    /// baseline run is comparable and matches the rule (begins to decide its condition: a rule's
+    /// `matched_by`, k-rust `matched`), or with `fired` takes the rule's step on some path
+    /// (`fired_by`, k-rust `committed`).
+    Rule { rule: &'a str, fired: bool },
     /// `--pattern ID --patterns PATTERNS.toml`: hole values whose program reaches a configuration
     /// matching the pattern (a `hit` of kink's `query`).
     Pattern { list: &'a PatternList, id: &'a str },
@@ -1302,7 +1314,8 @@ impl FuzzJob<'_> {
     const fn kind(&self) -> &'static str {
         match self {
             Self::Kill { .. } => "kill",
-            Self::Reach { .. } => "reach",
+            Self::Rule { fired: false, .. } => "matched",
+            Self::Rule { fired: true, .. } => "fired",
             Self::Pattern { .. } => "pattern",
         }
     }
@@ -1407,7 +1420,7 @@ pub fn fuzz_front(
             };
             Some(entry)
         }
-        FuzzJob::Reach { .. } | FuzzJob::Pattern { .. } => None,
+        FuzzJob::Rule { .. } | FuzzJob::Pattern { .. } => None,
     };
     let pattern_entry = match job {
         FuzzJob::Pattern { list, id } => {
@@ -1418,7 +1431,7 @@ pub fn fuzz_front(
             };
             Some(entry)
         }
-        FuzzJob::Kill { .. } | FuzzJob::Reach { .. } => None,
+        FuzzJob::Kill { .. } | FuzzJob::Rule { .. } => None,
     };
     let (record, admitted) = admit_spec(manifest);
     let Some((spec, mut inputs)) = admitted else {
@@ -1491,17 +1504,17 @@ pub fn fuzz_front(
     }
     document["warnings"] = json!(warnings);
 
-    // The job's own target, resolved against the baseline before any campaign; a reach's
+    // The job's own target, resolved against the baseline before any campaign; a rule job's
     // authored rule is the one whose `results` entry its confirmation reads.
-    let mut reach_at = None;
+    let mut rule_at = None;
     let kind = match job {
         FuzzJob::Kill { .. } => None,
-        FuzzJob::Reach { rule, fired } => match resolve_reach(manifest, &spec, rule, fired) {
-            Ok(reach) => {
-                document["job"]["rule"] = reach.value();
-                reach_at = Some(reach.at.at.clone());
+        FuzzJob::Rule { rule, fired } => match resolve_rule(manifest, &spec, rule) {
+            Ok(target) => {
+                document["job"]["rule"] = target.value();
+                rule_at = Some(target.at.at.clone());
                 Some(TargetKind::Rule(RuleTarget {
-                    rule: RuleRef::UniqueId(reach.id),
+                    rule: RuleRef::UniqueId(target.id),
                     mode: if fired {
                         RuleMode::Covered
                     } else {
@@ -1629,7 +1642,7 @@ pub fn fuzz_front(
     // kink's definition exclusions (design 3.2.4): one on the mutant makes every test of the
     // mutation unknown in kink's run; one on the baseline makes every program's baseline result
     // unknown (excluded), so no program is comparable and nothing can kill, reach or hit. Either
-    // way no witness could be confirmed. A reach or pattern job has the baseline alone.
+    // way no witness could be confirmed. A rule or pattern job has the baseline alone.
     let module = k_rust::kast::identifier::encode(&manifest.spec.main_module);
     let mut exclusions = serde_json::Map::new();
     let mut sides_to_check = vec![("baseline", &spec.compiled)];
@@ -1737,7 +1750,7 @@ pub fn fuzz_front(
             comparable: false,
             query_confirmable: false,
         },
-        // Reach: kink counts a program in `reached_by` (`fired_by`) only when its all-paths
+        // A rule job: kink counts a program in `matched_by` (`fired_by`) only when its all-paths
         // baseline run is comparable, so the hit's run of every path must be (`comparable`),
         // which also needs data ends.
         Some(kind @ TargetKind::Rule(_)) => Target {
@@ -1905,7 +1918,7 @@ pub fn fuzz_front(
         let mut loads = loads.into_iter();
         let job_kind = match job {
             FuzzJob::Kill { .. } => FilterJob::Kill,
-            FuzzJob::Reach { .. } => FilterJob::Reach,
+            FuzzJob::Rule { .. } => FilterJob::Reach,
             FuzzJob::Pattern { .. } => FilterJob::Pattern,
         };
         let baseline = loads
@@ -2032,7 +2045,7 @@ pub fn fuzz_front(
         FuzzJob::Kill { .. } => {
             "choose a template whose run reaches the edited rule and ends on both sides"
         }
-        FuzzJob::Reach { .. } => {
+        FuzzJob::Rule { .. } => {
             "choose a template whose run comes near the rule, and ends on every path with values"
         }
         FuzzJob::Pattern { .. } => "choose a template whose run comes near the pattern",
@@ -2099,7 +2112,7 @@ pub fn fuzz_front(
                     break;
                 }
                 let mut confirmation =
-                    confirm(manifest, options, job, reach_at.as_ref(), &fragment.program);
+                    confirm(manifest, options, job, rule_at.as_ref(), &fragment.program);
                 confirmation["case"] = json!(which);
                 let confirmed = confirmation["confirmed"] == true;
                 attempt["candidate"] = candidate;
@@ -2132,7 +2145,7 @@ pub fn fuzz_front(
                      Try another template, seed or hole range",
                     match job {
                         FuzzJob::Kill { .. } => "run",
-                        FuzzJob::Reach { .. } => "results",
+                        FuzzJob::Rule { .. } => "results",
                         FuzzJob::Pattern { .. } => "query",
                     },
                     last["status"].as_str().unwrap_or("refused"),
@@ -2145,8 +2158,8 @@ pub fn fuzz_front(
             };
             // A witness whose run of every path a bound or a clock cut may not terminate: as a
             // corpus program it runs to the budget in every `run` and `results`, and is never
-            // comparable (final review ux S8). Only a pattern witness can be one: a reach
-            // witness's run is comparable, and a kill's two runs end.
+            // comparable (final review ux S8). Only a pattern witness can be one: a rule
+            // job's witness's run is comparable, and a kill's two runs end.
             if let Some(comparable) = offered_case.and_then(|case| case.comparable.as_ref()) {
                 let cuts = comparable
                     .reasons
@@ -2201,7 +2214,7 @@ pub fn fuzz_front(
                     "{append}: kink's own {} confirmed it on the flow with this program alone",
                     match job {
                         FuzzJob::Kill { .. } => "run (killed, with the fragment as killer)",
-                        FuzzJob::Reach { .. } => "results (comparable, and listed for the rule)",
+                        FuzzJob::Rule { .. } => "results (comparable, and listed for the rule)",
                         FuzzJob::Pattern { .. } => "query (the claim is confirmed)",
                     }
                 )
@@ -2212,11 +2225,11 @@ pub fn fuzz_front(
                          whether it kills, and writes the hint when it does",
                         spelling.command(Verb::Run)
                     ),
-                    FuzzJob::Reach { fired, .. } => format!(
+                    FuzzJob::Rule { fired, .. } => format!(
                         "{append}, then run `{}`: the rule's {} lists the program once kink's \
                          own run of it is comparable",
                         spelling.command(Verb::Results),
-                        if fired { "fired_by" } else { "reached_by" }
+                        if fired { "fired_by" } else { "matched_by" }
                     ),
                     FuzzJob::Pattern { id: pattern, .. } => format!(
                         "{append}, add {id:?} to the `programs` of pattern {pattern:?} in \
@@ -2336,7 +2349,7 @@ pub fn fuzz_front(
             document["action"] = json!(format!(
                 "not comparable (the fuzz report's outcome explains the verdicts); findings no \
                  name assumes: {}. Under such a finding the definition may identify the ends a \
-                 test compares, so a kill would hold in no model and a reaching program would be \
+                 test compares, so a kill would hold in no model and a matching program would be \
                  no comparable test; kink refuses kills too (baseline-findings) unless FLOW.toml's \
                  [spec] assume_joined names them. Fix the definition, or name each finding you \
                  accept as a premise with --assume-joined NAME and in [spec] assume_joined (a \
@@ -2380,18 +2393,17 @@ pub fn fuzz_front(
     (document, ok)
 }
 
-/// One reach job's rule, resolved on the baseline.
-struct ReachRule {
+/// One rule job's rule, resolved on the baseline.
+struct TargetRule {
     /// The targeted rewrite id.
     id: String,
     /// The authored rule the id belongs to: `results` lists programs under authored rules only.
     at: RuleText,
     /// Equation ids of the same sentence, which the target does not read.
     untargeted: Vec<String>,
-    fired: bool,
 }
 
-impl ReachRule {
+impl TargetRule {
     fn value(&self) -> Value {
         json!({
             "module": self.at.at.module,
@@ -2400,13 +2412,12 @@ impl ReachRule {
             "start_line": self.at.start_line,
             "label": self.at.label,
             "id": self.id,
-            "mode": if self.fired { "covered" } else { "condition-reached" },
             "untargeted_ids": self.untargeted,
         })
     }
 }
 
-/// The most rules a reach refusal lists as the ones the reference may have meant.
+/// The most rules a rule job's refusal lists as the ones the reference may have meant.
 const NEAREST_RULES: usize = 5;
 
 /// Whether `text` is a compiled rule id (64 lowercase hex digits).
@@ -2450,17 +2461,16 @@ fn rewrite_ids(validated: &ValidatedDefinition) -> BTreeSet<String> {
         .collect()
 }
 
-/// Resolve `--reach RULE` on the baseline: `FILE:LINE` (a line inside an authored rule of
-/// `FILE`), a label (bare or `MODULE.x`, as a mutation edit's), or a compiled id. The rule's ids
-/// with a coverage signal (kink's coverage domain) must hold exactly one rewrite id, which is
-/// targeted; the sentence's equation ids are listed as untargeted.
-fn resolve_reach(
+/// Resolve the rule of `--matched RULE` or `--fired RULE` on the baseline: `FILE:LINE` (a line
+/// inside an authored rule of `FILE`), a label (bare or `MODULE.x`, as a mutation edit's), or a
+/// compiled id. The rule's ids with a coverage signal (kink's coverage domain) must hold exactly
+/// one rewrite id, which is targeted; the sentence's equation ids are listed as untargeted.
+fn resolve_rule(
     manifest: &FlowManifest,
     spec: &AdmittedSpec,
     rule: &str,
-    fired: bool,
-) -> Result<ReachRule, Refusal> {
-    let refused = |reason: &str, detail: String| Refusal::new("reach", reason, detail);
+) -> Result<TargetRule, Refusal> {
+    let refused = |reason: &str, detail: String| Refusal::new("rule", reason, detail);
     let authors = RuleAuthors::of(&spec.compiled);
     let domain = coverage_domain(&spec.compiled);
     let rewrites = rewrite_ids(&spec.compiled);
@@ -2478,7 +2488,7 @@ fn resolve_reach(
             .cloned()
         else {
             // `results` lists programs under the specification's authored rules only, so no
-            // program is ever listed for this id and no reach of it can be confirmed.
+            // program is ever listed for this id and no rule job on it can be confirmed.
             return Err(refused(
                 "no-authored-rule",
                 format!(
@@ -2517,7 +2527,7 @@ fn resolve_reach(
                 })
                 .collect(),
         };
-        // A rule as a refusal lists it: its position, its label, and the ids a reach of it can
+        // A rule as a refusal lists it: its position, its label, and the ids a rule job on it can
         // target (its rewrite ids with a coverage signal), so the author can name it by any of
         // them (final review ux S9: the refusal said "listed" ids and listed none).
         let describe = |text: &RuleText| {
@@ -2536,7 +2546,7 @@ fn resolve_reach(
                     .as_deref()
                     .map_or_else(String::new, |label| format!(", label {label}")),
                 if ids.is_empty() {
-                    "no rewrite id a reach can target".to_owned()
+                    "no rewrite id a rule job can target".to_owned()
                 } else {
                     format!("id {}", ids.join(", "))
                 }
@@ -2646,7 +2656,7 @@ fn resolve_reach(
             format!(
                 "{rule:?} compiles to no axiom k-rust's run coverage can name (a macro, a claim, \
                  an smt-lemma or non-executable axiom, or nothing), so kink lists it in no \
-                 reached_by"
+                 matched_by"
             ),
         ));
     }
@@ -2656,21 +2666,20 @@ fn resolve_reach(
         [] => Err(refused(
             "equation-target",
             format!(
-                "{rule:?} compiles to equations only ({}): a reach job targets a rewrite rule, \
-                 whose condition a run reaches",
+                "{rule:?} compiles to equations only ({}): a rule job targets a rewrite rule, \
+                 whose condition a run matches",
                 untargeted.join(", ")
             ),
         )),
-        [id] => Ok(ReachRule {
+        [id] => Ok(TargetRule {
             id: id.clone(),
             at,
             untargeted,
-            fired,
         }),
         several => Err(refused(
             "several-rewrite-ids",
             format!(
-                "{rule:?} compiles to several rewrite axioms: {}; give one of them with --reach ID",
+                "{rule:?} compiles to several rewrite axioms: {}; give one of them by its id",
                 several.join(", ")
             ),
         )),
@@ -2719,7 +2728,7 @@ impl Drop for Scratch {
 }
 
 /// kink's own verdict on `program` for `job`, as the fuzz confirms a candidate ([`confirm`]):
-/// the seam for checking a program written by hand, or one the fuzz did not find. A reach job's
+/// the seam for checking a program written by hand, or one the fuzz did not find. A rule job's
 /// rule is resolved on the admitted baseline as the fuzz resolves it; a specification kink does
 /// not admit, or a rule that does not resolve, gives `{confirmed: false, status: "refused",
 /// reason, cause}`.
@@ -2730,8 +2739,8 @@ pub fn confirm_program(
     program: &Program,
 ) -> Value {
     let refused = |reason: &str, cause: String| json!({"confirmed": false, "status": "refused", "reason": reason, "cause": cause});
-    let reach_at = match job {
-        FuzzJob::Reach { rule, fired } => {
+    let rule_at = match job {
+        FuzzJob::Rule { rule, .. } => {
             let (record, admitted) = admit_spec(manifest);
             let Some((spec, _)) = admitted else {
                 return record.refusal.as_ref().map_or_else(
@@ -2739,23 +2748,23 @@ pub fn confirm_program(
                     |r| refused(&r.reason, format!("{}: {}", r.stage, r.detail)),
                 );
             };
-            match resolve_reach(manifest, &spec, rule, fired) {
-                Ok(reach) => Some(reach.at.at),
+            match resolve_rule(manifest, &spec, rule) {
+                Ok(target) => Some(target.at.at),
                 Err(refusal) => return refused(&refusal.reason, refusal.detail),
             }
         }
         FuzzJob::Kill { .. } | FuzzJob::Pattern { .. } => None,
     };
-    confirm(manifest, options, job, reach_at.as_ref(), program)
+    confirm(manifest, options, job, rule_at.as_ref(), program)
 }
 
 /// kink's own verdict on a candidate (KF-T4), by kink's code on an overlay of the flow: its
 /// `[spec]` with the flow's names and the command line's assumed (sorted, without repeats), its
 /// `[budget]`, and `program` (the candidate's fragment) as the only `[[program]]`, with a fresh
 /// scratch cache removed on every path, so nothing under the flow's directory or `--cache`
-/// changes. A kill is confirmed when `run` kills the mutation with the program as killer; a reach
-/// when `results` gives the program class `comparable` and lists it in the `reached_by`
-/// (`fired_by`) of the targeted rule, `reach_at`, the authored rule the job resolved (final
+/// changes. A kill is confirmed when `run` kills the mutation with the program as killer; a rule
+/// job when `results` gives the program class `comparable` and lists it in the `matched_by`
+/// (`fired_by`) of the targeted rule, `rule_at`, the authored rule the job resolved (final
 /// review S1: a listing under any other rule confirms nothing about the target); a pattern when
 /// `query`, asked with `programs = [program]`, confirms the claim. The value is `{confirmed,
 /// status, reason, cause}` and the job's `killer`, `class` or `answer`.
@@ -2763,7 +2772,7 @@ fn confirm(
     manifest: &FlowManifest,
     options: &FuzzOptions,
     job: FuzzJob<'_>,
-    reach_at: Option<&SentenceRef>,
+    rule_at: Option<&SentenceRef>,
     program: &Program,
 ) -> Value {
     let scratch = match Scratch::new() {
@@ -2835,7 +2844,7 @@ fn confirm(
                 "cause": cause,
             })
         }
-        FuzzJob::Reach { fired, .. } => {
+        FuzzJob::Rule { fired, .. } => {
             let (document, _) = crate::results::results(
                 &overlay,
                 &crate::results::ResultsOptions {
@@ -2848,10 +2857,10 @@ fn confirm(
                 .and_then(|rows| rows.iter().find(|row| row["id"] == id))
                 .cloned()
                 .unwrap_or(Value::Null);
-            let key = if fired { "fired_by" } else { "reached_by" };
+            let key = if fired { "fired_by" } else { "matched_by" };
             // The targeted rule's own entry: `results` lists each authored rule once, by its
             // `(module, index)`. Without the resolved rule nothing is listed for the target.
-            let listed = reach_at.is_some_and(|at| {
+            let listed = rule_at.is_some_and(|at| {
                 document["rules"].as_array().is_some_and(|rules| {
                     rules.iter().any(|rule| {
                         rule["module"] == at.module.as_str()
@@ -2863,9 +2872,17 @@ fn confirm(
                 })
             });
             let comparable = program["class"] == "comparable";
+            // `results` lists no program that is not comparable under any rule, whatever its run
+            // matched or fired, so such a program's status says only that it is not counted.
             json!({
                 "confirmed": comparable && listed,
-                "status": if comparable && listed { "reached" } else { "unreached" },
+                "status": match (fired, comparable, listed) {
+                    (_, false, _) => "not-comparable",
+                    (false, true, true) => "matched",
+                    (false, true, false) => "not-matched",
+                    (true, true, true) => "fired",
+                    (true, true, false) => "not-fired",
+                },
                 "reason": if !comparable {
                     "not-comparable"
                 } else if listed {

@@ -873,8 +873,8 @@ mod kink_tier {
                 .iter()
                 .map(|mutant| mutant.report.status)
                 .collect::<Vec<_>>();
-            use MutantStatus::{Invalid, Killed, Survived};
-            assert_eq!(statuses, [Invalid, Killed, Survived, Survived]);
+            use MutantStatus::{Killed, NotAdmitted, Survived};
+            assert_eq!(statuses, [NotAdmitted, Killed, Survived, Survived]);
             #[rustfmt::skip]
             let expected: [&[(&str, Vec<OracleOutcome>)]; 3] = [
                 &[("t1", vec![Distinguish, Distinguish]), ("t2", vec![Agree, Agree])],

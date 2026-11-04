@@ -294,7 +294,7 @@ fn drop_owise(baseline: &Baseline, rule: &str) -> Patch {
 /// The mutant is refused as inconsistent before any test runs, in both schedules alike, and its
 /// report names exactly the pair `first`/`second` (either order).
 fn assert_inconsistent(mutant: &MutantRun, first: &str, second: &str) {
-    assert_eq!(mutant.report.status, MutantStatus::Invalid);
+    assert_eq!(mutant.report.status, MutantStatus::NotAdmitted);
     assert_eq!(
         mutant.plan.mutant_failure,
         Some(MutantScopeFailure::InconsistentMutant)
@@ -321,7 +321,7 @@ fn assert_inconsistent(mutant: &MutantRun, first: &str, second: &str) {
 fn an_inconsistent_mutant_is_invalid() {
     assert_eq!(
         MutantScopeFailure::InconsistentMutant.status(),
-        MutantStatus::Invalid
+        MutantStatus::NotAdmitted
     );
 }
 

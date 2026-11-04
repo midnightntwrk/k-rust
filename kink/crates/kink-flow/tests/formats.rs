@@ -5,7 +5,7 @@
 //! The document is built as JSON values in `src/fuzz.rs`, not from types, so its shape is read
 //! from that source's JSON literals: every object key a `json!` literal writes (`"stopped":`),
 //! every key the code sets or reads by index (`document["stopped"]`), and every string the code
-//! writes as a whole value (`json!("client-refused")`, `"kind": "reach"`), comments left out. A key, a `stopped`
+//! writes as a whole value (`json!("client-refused")`, `"outcome": "admitted"`), comments left out. A key, a `stopped`
 //! value, a warning kind or a refusal reason added, renamed or removed moves it; a message's
 //! wording does not. The document embeds a k-rust-fuzz report and k-rust-fuzz's hole
 //! declarations, so the pin also names the report version and the witness version (which names
@@ -193,10 +193,10 @@ fn the_fuzz_document_version_names_its_shape() {
 fn the_shape_reader_takes_keys_and_values() {
     let found = literals(
         "let d = json!({\"stopped\": null, \"kind\": \"kill\", \"action\": format!(\"no witness: {x}\")});\n\
-         d[\"job\"][\"kind\"] = json!(\"reach\"); // \"commented\": 1\n\
+         d[\"job\"][\"kind\"] = json!(\"matched\"); // \"commented\": 1\n\
          let path = \"a::b\"; let s = json!(\"Not a token\");\n",
     );
-    let expected: BTreeSet<String> = ["stopped:", "kind:", "=kill", "action:", "job:", "=reach"]
+    let expected: BTreeSet<String> = ["stopped:", "kind:", "=kill", "action:", "job:", "=matched"]
         .into_iter()
         .map(str::to_owned)
         .collect();

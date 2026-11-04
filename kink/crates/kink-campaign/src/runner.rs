@@ -630,8 +630,8 @@ pub struct Tally {
     pub survived: u64,
     /// Candidates whose compiled definitions equal the baseline.
     pub equivalent: u64,
-    /// Invalid candidate mutants.
-    pub invalid: u64,
+    /// Candidate mutants kink did not admit.
+    pub not_admitted: u64,
     /// Timed out candidate mutants.
     pub timeout: u64,
     /// Unknown candidate mutants.
@@ -658,7 +658,7 @@ pub fn tally(generation: &CandidateGeneration<'_>, run: &CampaignRun) -> Option<
             MutantStatus::Killed => tally.killed += 1,
             MutantStatus::Survived => tally.survived += 1,
             MutantStatus::Equivalent => tally.equivalent += 1,
-            MutantStatus::Invalid => tally.invalid += 1,
+            MutantStatus::NotAdmitted => tally.not_admitted += 1,
             MutantStatus::Timeout => tally.timeout += 1,
             MutantStatus::Unknown => tally.unknown += 1,
             MutantStatus::Error => tally.error += 1,

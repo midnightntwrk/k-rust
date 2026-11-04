@@ -1420,7 +1420,7 @@ fn stored_sentence(spec: &AdmittedSpec, at: &SentenceRef) -> Value {
 }
 
 /// A record's coverage (kink-native `TestCoverage`, coverage v2 since re-pin L2-1): `sentences`
-/// are the baseline sentences the run reached (k-rust `matched`), `applied_sentences` those it
+/// are the baseline sentences the run matched (k-rust `matched`), `applied_sentences` those it
 /// applied (`applied`: a step built a successor or found the step undefined, which orders a run's
 /// programs), and `fired_sentences` (result schema v6, KINK-R4) those it fired, which a rule's
 /// `fired_by` lists: a rewrite rule whose step some explored path takes (k-rust `committed`), an
@@ -1944,17 +1944,18 @@ fn program_row(
 }
 
 /// Every authored rule of the specification, with the comparable programs whose coverage
-/// reaches it (`reached_by`, k-rust `matched`) and fires it (`fired_by`, the record's
+/// matches it (`matched_by`, k-rust `matched`, the record's `sentences`) and fires it
+/// (`fired_by`, the record's
 /// `fired_sentences`: for a rewrite rule k-rust `committed`, some path of the run takes the
 /// rule's step; since KINK-R4, before which it read `applied`, which also holds a candidate
 /// rolled back because its successor was undefined and an undefined step's rule, neither of which
 /// any path takes, and which `kink-flow fuzz --fired` never offered): uncovered
 /// rules first, then covered rules, then the rules with no coverage signal (no compiled id in
 /// kink-native's `coverage_domain`: a rule that compiles to no axiom, a `non-executable` rule
-/// (re-pin L2-1-tail: k-rust never runs one, so no program can reach it), a macro or alias rule,
+/// (re-pin L2-1-tail: k-rust never runs one, so no program can match it), a macro or alias rule,
 /// an `smt-lemma`; re-pin L2-1, before which every equation was `not-observable`).
 fn rules(spec: &AdmittedSpec, manifest: &FlowManifest, rows: &[ProgramRow]) -> Vec<Value> {
-    let mut reached = BTreeMap::<(String, u64), Vec<&str>>::new();
+    let mut matched = BTreeMap::<(String, u64), Vec<&str>>::new();
     let mut fired = BTreeMap::<(String, u64), Vec<&str>>::new();
     for (program, row) in manifest.programs.iter().zip(rows) {
         let Some(record) = &row.record else {
@@ -1963,7 +1964,7 @@ fn rules(spec: &AdmittedSpec, manifest: &FlowManifest, rows: &[ProgramRow]) -> V
         if record["class"] != ResultClass::Comparable.as_str() {
             continue;
         }
-        for (key, into) in [("sentences", &mut reached), ("fired_sentences", &mut fired)] {
+        for (key, into) in [("sentences", &mut matched), ("fired_sentences", &mut fired)] {
             for sentence in record["coverage"][key].as_array().into_iter().flatten() {
                 if let (Some(module), Some(index)) =
                     (sentence["module"].as_str(), sentence["index"].as_u64())
@@ -1983,7 +1984,7 @@ fn rules(spec: &AdmittedSpec, manifest: &FlowManifest, rows: &[ProgramRow]) -> V
         }
         let mut value = sentence_value(spec, &at);
         let key = (at.module.clone(), u64::from(at.index));
-        let programs = reached.get(&key).cloned().unwrap_or_default();
+        let programs = matched.get(&key).cloned().unwrap_or_default();
         let (group, status) = if no_signal.contains_key(&at) {
             (2, NO_COVERAGE_SIGNAL)
         } else if programs.is_empty() {
@@ -1992,7 +1993,7 @@ fn rules(spec: &AdmittedSpec, manifest: &FlowManifest, rows: &[ProgramRow]) -> V
             (1, "covered")
         };
         value["status"] = json!(status);
-        value["reached_by"] = json!(programs);
+        value["matched_by"] = json!(programs);
         value["fired_by"] = json!(fired.get(&key).cloned().unwrap_or_default());
         if let Some(reason) = no_signal.get(&at) {
             value["reason"] = json!(reason);
@@ -2003,7 +2004,7 @@ fn rules(spec: &AdmittedSpec, manifest: &FlowManifest, rows: &[ProgramRow]) -> V
 }
 
 /// The authored rules none of whose compiled ids k-rust's run coverage can name (status
-/// `no-coverage-signal`), each with the reason: no program can be shown to reach them.
+/// `no-coverage-signal`), each with the reason: no program can be shown to match them.
 pub fn no_coverage_signal(spec: &AdmittedSpec) -> BTreeMap<SentenceRef, &'static str> {
     let domain = coverage_domain(&spec.compiled);
     let non_executable = non_executable_ids(&spec.compiled);
@@ -2020,7 +2021,7 @@ pub fn no_coverage_signal(spec: &AdmittedSpec) -> BTreeMap<SentenceRef, &'static
             let reason = if ids.is_empty() {
                 "compiles to no rule"
             } else if ids.iter().all(|id| non_executable.contains(*id)) {
-                "a non-executable rule: k-rust never runs it, so no program can reach it"
+                "a non-executable rule: k-rust never runs it, so no program can match it"
             } else {
                 "a macro, alias or smt-lemma rule: k-rust's run coverage has no recording site for it"
             };
@@ -2051,7 +2052,7 @@ pub fn current_record(
 }
 
 /// The status of a rule none of whose compiled ids k-rust's run coverage can name: never
-/// `uncovered`, since no program can reach it in coverage's sense.
+/// `uncovered`, since no program can match it in coverage's sense.
 const NO_COVERAGE_SIGNAL: &str = "no-coverage-signal";
 
 fn document(
@@ -2076,6 +2077,10 @@ fn document(
     });
     json!({
         "schema": "kink-flow-results",
+        // 7 since CF-40c2: a rule's `reached_by` is named `matched_by`, the name of the predicate
+        // it lists (k-rust `matched`), so that each coverage predicate has one name in every
+        // kink-flow document, flag and krs output (README, "Coverage predicates"); the reason of
+        // a non-executable rule says `match` for `reach`. Nothing else moved.
         // 6 since CF-03: `spec.exclusion` no longer names the short-circuit reading, `spec` gains
         // `short_circuit`, the rules the short-circuit analysis flags, and a row gains
         // `short_circuit_readings`, the readings that excluded its run; each run of a definition
@@ -2101,7 +2106,7 @@ fn document(
         // 2 since re-pin L2-1: a rule's status `no-coverage-signal` (summary
         // `no_coverage_signal`) replaced `not-observable`, equations are covered, and every rule
         // carries `fired_by`.
-        "version": 6,
+        "version": 7,
         "k_rust_revision": crate::k_rust_revision(),
         "profile": SolverProfile::BUILD.name(),
         "result_schema_version": RESULT_SCHEMA_VERSION,

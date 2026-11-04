@@ -24,7 +24,7 @@
 //!   definition a template binding `$W` and the `K` variable `$V` to `word` (a `Word` only the
 //!   syntax module's grammar reads) assembles as kink's before any case (light), and is fuzzed,
 //!   its witness matching kink's assembly and confirmed;
-//! - the last `run` document gives the template's class, the mutation's reaching programs as
+//! - the last `run` document gives the template's class, the mutation's witnesses as
 //!   suggested templates, and the warnings.
 
 use kink_corpus::ProgramSource;
@@ -207,7 +207,7 @@ fn the_command_line_refuses_what_t3a_does_not_build() {
     // Confirmation (KF-T4) is the default; --no-confirm turns it off, and there is no seed retry.
     for extra in [
         // One job per command.
-        &["--no-confirm", "--reach", "imp.k:47"][..],
+        &["--no-confirm", "--matched", "imp.k:47"][..],
         &["--no-confirm", "--attempts", "3"],
         &["--no-confirm", "--cases", "0"],
         &["--no-confirm", "--cases", "3", "--work", "9"],
@@ -215,7 +215,8 @@ fn the_command_line_refuses_what_t3a_does_not_build() {
         let args = base.iter().chain(extra).copied().collect::<Vec<_>>();
         assert_eq!(run_cli(&args), EXIT_USAGE, "{extra:?}");
     }
-    // The reach and pattern jobs (T5) parse; a pattern job takes no assumed name.
+    // The rule and pattern jobs (T5) parse; a pattern job takes no assumed name (front_end.rs
+    // pins the rule job each flag parses to, and the usage errors of `--reach` and of two jobs).
     let patterns = scratch("cli-patterns").join("PATTERNS.toml");
     fs::write(
         &patterns,
@@ -243,7 +244,7 @@ fn the_command_line_refuses_what_t3a_does_not_build() {
     assert_eq!(job(&["--pattern", "q", "--patterns", patterns]), EXIT_USAGE);
     assert_eq!(job(&["--pattern", "p"]), EXIT_USAGE);
     assert_eq!(
-        job(&["--reach", "imp.k:47", "--fired", "--mutations", mutations]),
+        job(&["--fired", "imp.k:47", "--mutations", mutations]),
         EXIT_USAGE
     );
     assert_eq!(job(&["--fired"]), EXIT_USAGE);
@@ -298,7 +299,7 @@ fn listing(dir: &Path) -> Vec<(PathBuf, u64)> {
     entries
 }
 
-/// A small definition for the reach and pattern jobs (T5): `run(X)` steps to `step(dbl(X))`,
+/// A small definition for the rule and pattern jobs (T5): `run(X)` steps to `step(dbl(X))`,
 /// which writes `X` to `<out>` above 10 (rule `big`) and `0` otherwise (`small`), ending
 /// naturally; `dbl` is a function (an equation) and `seven` a macro.
 const STEPS_K: &str = "module STEPS-SYNTAX
@@ -354,11 +355,11 @@ fn run_job(
     let templates = TemplateList::decode(templates, dir).unwrap();
     let template = template.to_owned();
     on_stack(move || match &job {
-        Job::Reach(rule, fired) => fuzz_job(
+        Job::Rule(rule, fired) => fuzz_job(
             &manifest,
             &templates,
             &template,
-            FuzzJob::Reach {
+            FuzzJob::Rule {
                 rule,
                 fired: *fired,
             },
@@ -376,7 +377,7 @@ fn run_job(
 
 /// [`run_job`]'s job.
 enum Job {
-    Reach(String, bool),
+    Rule(String, bool),
     Pattern(PatternList, String),
 }
 
@@ -512,7 +513,7 @@ fn a_template_whose_variables_only_the_syntax_module_reads_assembles_as_kinks() 
         &dir,
         TOKENS_TEMPLATES,
         "run-holes",
-        Job::Reach("go".into(), true),
+        Job::Rule("go".into(), true),
         FuzzOptions {
             filter: false,
             ..imp_options(0)
@@ -560,7 +561,7 @@ endmodule
             &dir,
             templates,
             "at-holes",
-            Job::Reach("at".into(), true),
+            Job::Rule("at".into(), true),
             FuzzOptions {
                 filter,
                 ..imp_options(0)
@@ -590,12 +591,12 @@ endmodule
              {value}, max = {value} }}\n"
         )
     };
-    let reach = |templates: &str| {
+    let rule_job = |templates: &str| {
         run_job(
             &dir,
             templates,
             "at-holes",
-            Job::Reach("at".into(), false),
+            Job::Rule("at".into(), false),
             FuzzOptions {
                 confirm: true,
                 ..imp_options(4)
@@ -603,10 +604,10 @@ endmodule
         )
         .0
     };
-    let undefined = reach(&only(0));
+    let undefined = rule_job(&only(0));
     assert_eq!(undefined["stopped"], "domain-exhausted", "{undefined:#}");
     assert_eq!(undefined["program"], Value::Null, "{undefined:#}");
-    let confirmed = reach(&only(2));
+    let confirmed = rule_job(&only(2));
     assert_eq!(confirmed["stopped"], Value::Null, "{confirmed:#}");
     assert_eq!(confirmed["program"]["confirmed"], true, "{confirmed:#}");
 }
@@ -628,7 +629,7 @@ fn a_template_with_typed_inputs_is_refused() {
         &dir,
         "[[template]]\nid = \"t\"\nprogram = \"typed\"\n",
         "t",
-        Job::Reach("big".into(), true),
+        Job::Rule("big".into(), true),
         FuzzOptions::default(),
     );
     assert!(!ok, "{document:#}");
@@ -897,7 +898,7 @@ mod kink_tier {
         for (mutation, status, reason) in [
             ("no-such-rule", "invalid-mutation", "unknown-label"),
             ("add-in-a-group", "equivalent", "equivalent-compilation"),
-            ("add-unbound", "invalid", "rejected"),
+            ("add-unbound", "not-admitted", "rejected"),
         ] {
             let (document, ok) = fuzz_kill(
                 &flow("calc"),
@@ -930,7 +931,7 @@ mod kink_tier {
             FuzzOptions::default(),
         );
         assert!(!ok);
-        assert_eq!(document["job"]["status"], "invalid");
+        assert_eq!(document["job"]["status"], "not-admitted");
         assert_eq!(document["job"]["reason"], "inconsistent-mutant");
         assert!(
             !document["job"]["inconsistent_pairs"]
@@ -1668,7 +1669,7 @@ endmodule
     /// The campaign reads a configuration variable's text as kink does (k-rust
     /// `variable_reading_modules`, krun's `-c` reading too): on the `tokens.k`-shaped
     /// [`TOKENS_K`] the template binds `$W` and `$V` to `word`, which is the `Word` `word` in
-    /// both, so the job runs (no assembly refusal), the reach job finds a program that fires `go`
+    /// both, so the job runs (no assembly refusal), the rule job finds a program that fires `go`
     /// (`X >= 6`), its initial configuration is kink's assembly on both counts, and kink confirms
     /// it.
     #[test]
@@ -1679,7 +1680,7 @@ endmodule
             &dir,
             TOKENS_TEMPLATES,
             "run-holes",
-            Job::Reach("go".into(), true),
+            Job::Rule("go".into(), true),
             FuzzOptions {
                 confirm: true,
                 ..imp_options(40)
@@ -1700,23 +1701,23 @@ endmodule
         assert!(x.parse::<i64>().is_ok_and(|x| x >= 6), "{candidate:#}");
         let confirmation = &attempt["confirmation"];
         assert_eq!(confirmation["confirmed"], true, "{confirmation:#}");
-        assert_eq!(confirmation["status"], "reached", "{confirmation:#}");
+        assert_eq!(confirmation["status"], "fired", "{confirmation:#}");
     }
 
-    /// The reach job (T5) finds a program whose comparable all-paths run applies `big` (`--fired`:
+    /// The rule job (T5) finds a program whose comparable all-paths run applies `big` (`--fired`:
     /// `dbl(X) > 10`, so `X >= 6`), and kink's own `results`, with the fragment appended, lists
     /// it in the rule's `fired_by`; without `--fired` any program reaches `big`'s condition. The
     /// same seed gives the same document.
     #[test]
     #[ignore = "kink"]
-    fn reach_finds_a_program_kinks_results_confirm() {
-        let dir = steps_flow("reach");
+    fn a_rule_job_finds_a_program_kinks_results_confirm() {
+        let dir = steps_flow("rule-job");
         let fired = || {
             run_job(
                 &dir,
                 STEPS_TEMPLATES,
                 "run-holes",
-                Job::Reach("big".into(), true),
+                Job::Rule("big".into(), true),
                 imp_options(40),
             )
         };
@@ -1726,7 +1727,7 @@ endmodule
             &dir,
             STEPS_TEMPLATES,
             "run-holes",
-            Job::Reach("big".into(), true),
+            Job::Rule("big".into(), true),
             FuzzOptions {
                 confirm: true,
                 ..imp_options(40)
@@ -1734,7 +1735,7 @@ endmodule
         );
         let confirmation = &confirmed["attempts"][0]["confirmation"];
         assert_eq!(confirmation["confirmed"], true, "{confirmation:#}");
-        assert_eq!(confirmation["status"], "reached");
+        assert_eq!(confirmation["status"], "fired");
         assert_eq!(confirmation["class"], "comparable");
         assert_eq!(
             document["stopped"],
@@ -1743,8 +1744,11 @@ endmodule
             document["attempts"][0]["fuzz"]["totals"],
             document["attempts"][0]["fuzz"]["outcome"]
         );
-        assert_eq!(document["job"]["kind"], "reach");
-        assert_eq!(document["job"]["rule"]["mode"], "covered");
+        assert_eq!(document["job"]["kind"], "fired");
+        assert!(
+            document["job"]["rule"].get("mode").is_none(),
+            "{document:#}"
+        );
         assert_eq!(
             document["job"]["rule"]["label"], "STEPS.big",
             "{document:#}"
@@ -1760,12 +1764,12 @@ endmodule
             &dir,
             STEPS_TEMPLATES,
             "run-holes",
-            Job::Reach(format!("steps.k:{}", steps_line("rule [small]")), false),
+            Job::Rule(format!("steps.k:{}", steps_line("rule [small]")), false),
             imp_options(5),
         );
         assert!(by_line.1, "{:#}", by_line.0);
         assert_eq!(by_line.0["job"]["rule"]["label"], "STEPS.small");
-        assert_eq!(by_line.0["job"]["rule"]["mode"], "condition-reached");
+        assert_eq!(by_line.0["job"]["kind"], "matched");
 
         append_fragment(&dir, &document);
         let id = document["program"]["id"].as_str().unwrap().to_owned();
@@ -1797,14 +1801,14 @@ endmodule
         );
     }
 
-    /// Final review S1: a reach confirmation reads the targeted rule's own `results` entry.
+    /// Final review S1: a rule job's confirmation reads the targeted rule's own `results` entry.
     /// `run(1)` steps to `step(2)`, so `small` fires and `big` never does; the program is
     /// comparable and listed under `go`, `small` and others, yet `big --fired` must not confirm
     /// it. Before the fix a listing under any rule confirmed it (`listed`).
     #[test]
     #[ignore = "kink"]
-    fn a_reach_confirmation_reads_the_targeted_rules_entry_only() {
-        let dir = steps_flow("reach-target");
+    fn a_rule_jobs_confirmation_reads_the_targeted_rules_entry_only() {
+        let dir = steps_flow("rule-target");
         let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
         let confirm = |rule: &'static str, fired: bool| {
             let manifest = manifest.clone();
@@ -1820,34 +1824,35 @@ endmodule
                 confirm_program(
                     &manifest,
                     &FuzzOptions::default(),
-                    FuzzJob::Reach { rule, fired },
+                    FuzzJob::Rule { rule, fired },
                     &program,
                 )
             })
         };
         let big = confirm("big", true);
         assert_eq!(big["confirmed"], false, "{big:#}");
-        assert_eq!(big["status"], "unreached", "{big:#}");
+        assert_eq!(big["status"], "not-fired", "{big:#}");
         assert_eq!(big["reason"], "not-listed", "{big:#}");
         assert_eq!(big["class"], "comparable", "{big:#}");
         let small = confirm("small", true);
         assert_eq!(small["confirmed"], true, "{small:#}");
         assert_eq!(small["reason"], "listed", "{small:#}");
-        // Without --fired the target is `big`'s condition, which `step(2)` reaches.
-        let reached = confirm("big", false);
-        assert_eq!(reached["confirmed"], true, "{reached:#}");
+        // With --matched the target is `big`'s condition, which `step(2)` matches.
+        let matched = confirm("big", false);
+        assert_eq!(matched["confirmed"], true, "{matched:#}");
+        assert_eq!(matched["status"], "matched", "{matched:#}");
         let unknown = confirm("nothing", false);
         assert_eq!(unknown["status"], "refused", "{unknown:#}");
         assert_eq!(unknown["reason"], "unknown-label", "{unknown:#}");
     }
 
-    /// The reach job refuses a rule it cannot target before any campaign: a macro has no
+    /// The rule job refuses a rule it cannot target before any campaign: a macro has no
     /// coverage signal, a function rule compiles to equations, a line between rules and an
     /// unknown label name no rule.
     #[test]
     #[ignore = "kink"]
-    fn reach_refuses_what_kink_cannot_list() {
-        let dir = steps_flow("reach-refusals");
+    fn a_rule_job_refuses_what_kink_cannot_list() {
+        let dir = steps_flow("rule-refusals");
         for (rule, reason) in [
             (
                 format!("steps.k:{}", steps_line("rule seven()")),
@@ -1867,7 +1872,7 @@ endmodule
                 &dir,
                 STEPS_TEMPLATES,
                 "run-holes",
-                Job::Reach(rule.clone(), false),
+                Job::Rule(rule.clone(), false),
                 imp_options(5),
             );
             assert!(!ok, "{rule}");
@@ -1882,13 +1887,13 @@ endmodule
             );
         }
         // Final review ux S9: a refusal lists the rules nearest the reference with the ids a
-        // reach can target, so the action's "its 64-hex id" can be followed; before, it pointed
-        // at "listed" ids and listed none.
+        // rule job can target, so the action's "its 64-hex id" can be followed; before, it
+        // pointed at "listed" ids and listed none.
         let (found, _) = run_job(
             &dir,
             STEPS_TEMPLATES,
             "run-holes",
-            Job::Reach("big".into(), false),
+            Job::Rule("big".into(), false),
             imp_options(1),
         );
         let big = found["job"]["rule"]["id"].as_str().unwrap().to_owned();
@@ -1903,7 +1908,7 @@ endmodule
                 &dir,
                 STEPS_TEMPLATES,
                 "run-holes",
-                Job::Reach(rule.clone(), false),
+                Job::Rule(rule.clone(), false),
                 imp_options(1),
             );
             let detail = document["job"]["refusal"]["detail"].as_str().unwrap();
@@ -1917,13 +1922,13 @@ endmodule
         }
     }
 
-    /// A reach job on a definition with an unnamed finding is not comparable, as a kill is
+    /// A rule job on a definition with an unnamed finding is not comparable, as a kill is
     /// (Sebastien, D33); naming the findings gives a witness.
     #[test]
     #[ignore = "kink"]
-    fn reach_on_a_findings_repro_needs_its_names() {
+    fn a_rule_job_on_a_findings_repro_needs_its_names() {
         let dir = flow("findings/r3-plainq");
-        let rule = || Job::Reach("spec.k:11".into(), false);
+        let rule = || Job::Rule("spec.k:11".into(), false);
         let (strict, ok) = run_job(&dir, REPRO_TEMPLATE, "go", rule(), FuzzOptions::default());
         assert!(!ok);
         assert_eq!(strict["stopped"], "not-comparable", "{strict:#}");
@@ -2088,7 +2093,7 @@ endmodule
                 &dir,
                 templates,
                 "wide",
-                Job::Reach("big".into(), true),
+                Job::Rule("big".into(), true),
                 imp_options(cases),
             )
         };
@@ -2212,12 +2217,12 @@ endmodule
     }
 
     /// The last `run` document (read from `--cache`, never written by `fuzz`): no document, then
-    /// the mutation's reaching programs suggested as templates with a warning for a template outside
+    /// the mutation's witnesses suggested as templates with a warning for a template outside
     /// them, and a warning for a template whose program is not comparable; `--time-limit-ms` warns
     /// that it does not bound the campaign's setup.
     #[test]
     #[ignore = "kink"]
-    fn the_last_run_suggests_reaching_templates_and_warns() {
+    fn the_last_run_suggests_witness_templates_and_warns() {
         let dir = flow("fuzz/imp");
         let cache = scratch("imp-cache");
         let options = |cases| FuzzOptions {
@@ -2253,12 +2258,16 @@ endmodule
         let row = &run["mutations"][0];
         // primes's run on the mutant is not comparable (the `unknown` survivor TRIAL2 killed).
         assert_eq!(row["status"], "unknown", "{run:#}");
-        let reaching = row["reaching"].clone();
+        let witnesses = row["witnesses"].clone();
         assert!(
-            reaching.as_array().unwrap().iter().any(|id| id == "primes"),
+            witnesses
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|id| id == "primes"),
             "{row:#}"
         );
-        // straight.imp divides nothing: the reaching programs are suggested instead.
+        // straight.imp divides nothing: the witnesses are suggested instead.
         let (document, _) = fuzz_kill(
             &dir,
             "MUTATIONS.toml",
@@ -2270,14 +2279,14 @@ endmodule
         let last_run = &document["template"]["last_run"];
         assert_eq!(last_run["current"], true, "{last_run:#}");
         assert_eq!(last_run["mutation"]["status"], "unknown");
-        assert_eq!(last_run["mutation"]["reaching"], reaching);
+        assert_eq!(last_run["mutation"]["witnesses"], witnesses);
         assert!(
             last_run["suggested_templates"][0]["template"]
                 .as_str()
                 .unwrap()
                 .starts_with("[[template]]\n")
         );
-        assert_eq!(warning_kinds(&document), ["template-not-reaching"]);
+        assert_eq!(warning_kinds(&document), ["template-not-a-witness"]);
         // primes reaches the rule; read as a timeout, its template is warned as unusable.
         let path = cache.join("report.json");
         let mut stored: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
@@ -2310,10 +2319,10 @@ endmodule
         );
         // A row for which the last run had no compiled edit (it compiled no mutant for the row and
         // the outcome file kept no `witness`, as for a `baseline-findings` row; a row tier 1
-        // decided keeps the outcome file's) has no `reaching`, doctored here: nothing is
+        // decided keeps the outcome file's) has no `witnesses`, doctored here: nothing is
         // suggested, and the warning says why, with the row's reason.
         for row in stored["mutations"].as_array_mut().unwrap() {
-            row["reaching"] = Value::Null;
+            row["witnesses"] = Value::Null;
         }
         fs::write(&path, serde_json::to_string(&stored).unwrap()).unwrap();
         let (document, _) = fuzz_kill(
@@ -2326,7 +2335,7 @@ endmodule
         );
         let last_run = &document["template"]["last_run"];
         assert_eq!(
-            last_run["mutation"]["reaching"],
+            last_run["mutation"]["witnesses"],
             Value::Null,
             "{last_run:#}"
         );
@@ -2337,7 +2346,7 @@ endmodule
         );
         assert_eq!(
             warning_kinds(&document),
-            ["reaching-not-computed"],
+            ["witnesses-not-computed"],
             "{document:#}"
         );
     }
@@ -2646,19 +2655,19 @@ endmodule
             let templates = "[[template]]\nid = \"one-holes\"\nprogram = \"one\"\n\
                          [[template.hole]]\nname = \"N\"\nsort = \"Int\"\nfind = \"g(1)\"\n\
                          literal = \"1\"\nrange = { min = 0, max = 3 }\n";
-            let reach = |filter| {
+            let rule_job = |filter| {
                 run_job(
                     &dir,
                     templates,
                     "one-holes",
-                    Job::Reach("SC.run".into(), false),
+                    Job::Rule("SC.run".into(), false),
                     FuzzOptions {
                         filter,
                         ..imp_options(5)
                     },
                 )
             };
-            let (document, ok) = reach(true);
+            let (document, ok) = rule_job(true);
             assert!(!ok, "{document:#}");
             assert_eq!(document["job"]["outcome"], "refused", "{document:#}");
             assert_eq!(
@@ -2672,7 +2681,7 @@ endmodule
                     .contains("short-circuit-reading"),
                 "{document:#}"
             );
-            let (unfiltered, _) = reach(false);
+            let (unfiltered, _) = rule_job(false);
             assert_eq!(unfiltered["job"]["outcome"], "fuzzed", "{unfiltered:#}");
         }
 

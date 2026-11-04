@@ -40,7 +40,7 @@ note = "equivalent: the group attribute does not reach the compiled definition"
 
 [[mutation]]
 id = "add-unbound"
-note = "invalid: I3 is bound nowhere, so the mutant does not compile"
+note = "not-admitted: I3 is bound nowhere, so the mutant does not compile"
 
   [[mutation.edit]]
   rule = "add"

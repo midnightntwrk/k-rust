@@ -13,7 +13,7 @@
 //!   whether some reached configuration matches;
 //! - (c) on the programs of k-rust-fuzz's `COMPARABLE_ENDS` (`tests/support/mod.rs`), a run the
 //!   fuzz judges comparable is `comparable` in kink's `results`; and on those programs kink-flow's
-//!   witness filter accepts a reach candidate exactly when kink's own confirmation lists it;
+//!   witness filter accepts a rule-job candidate exactly when kink's own confirmation lists it;
 //! - (d) an undefined step is no end (finding KINK-UNDEFINED-END; kink's `README.md`, "What a kill
 //!   trusts"): its configuration is reached, but its outcome is undefinedness, which is no
 //!   configuration, and neither tool takes a verdict from undefinedness itself. So two definitions
@@ -32,7 +32,7 @@
 //!
 //! The kill job's agreement of the filter and kink's confirmation on a non-ASCII end is pinned in
 //! `tests/fuzz.rs` (`a_witness_kink_refuses_is_unconfirmed_with_kinks_cause`, and `comparable_b`
-//! for String holes); this file adds the reach job.
+//! for String holes); this file adds the rule job.
 //!
 //! Every flow is written under `CARGO_TARGET_TMPDIR`; the `COMPARABLE_ENDS` definitions are read
 //! from `crates/k-rust-fuzz/tests/data`, so both tools judge the same sources.
@@ -294,7 +294,7 @@ fn witness(report: &Value) -> &Value {
 #[derive(Clone, Copy)]
 enum Job {
     Kill(&'static str),
-    Reach(&'static str),
+    Rule(&'static str),
     Pattern(&'static str),
 }
 
@@ -317,7 +317,7 @@ fn kink_flow_fuzz(
                 list: &list,
                 mutation,
             },
-            Job::Reach(rule) => FuzzJob::Reach { rule, fired: false },
+            Job::Rule(rule) => FuzzJob::Rule { rule, fired: false },
             Job::Pattern(pattern) => {
                 patterns = PatternList::decode(&format!(
                     "[[pattern]]\nid = \"p\"\npattern = '''{pattern}'''\n"
@@ -695,7 +695,7 @@ endmodule
     ///
     /// Fails on any change of either column (a fuzz condition added, dropped or reordered, a kink
     /// class moved), and the implication fails first if the fuzz judges comparable a run kink does
-    /// not (the fuzz would then offer reach witnesses kink does not list).
+    /// not (the fuzz would then offer rule-job witnesses kink does not list).
     #[test]
     #[ignore = "kink"]
     fn a_run_the_fuzz_judges_comparable_is_comparable_in_kinks_results() {
@@ -754,10 +754,10 @@ endmodule
         assert_eq!(measured, expected);
     }
 
-    /// (c) The witness filter agrees with kink's confirmation on the reach candidates of the
+    /// (c) The witness filter agrees with kink's confirmation on the rule-job candidates of the
     /// comparable `COMPARABLE_ENDS` programs: the fuzz judges the run comparable, the filter
     /// accepts it, and kink's `results` (T4's confirmation) lists it, comparable, for the rule.
-    /// The programs the fuzz judges not comparable give no candidate (the reach target requires a
+    /// The programs the fuzz judges not comparable give no candidate (the rule target requires a
     /// comparable run), so the filter never judges them, and `cond.k` is refused before any case
     /// (`known_divergence_kink_lists_cond_zero_which_the_fuzz_refuses`).
     ///
@@ -765,7 +765,7 @@ endmodule
     /// from kink's runner), or if kink stops listing the run.
     #[test]
     #[ignore = "kink"]
-    fn the_witness_filter_accepts_the_reach_candidates_kink_confirms() {
+    fn the_witness_filter_accepts_the_rule_job_candidates_kink_confirms() {
         for (file, main, id, rule) in [
             ("imp/imp.k", "IMP", "le", "IMP.if-true"),
             ("coin/coin.k", "COIN", "flip", "COIN.heads"),
@@ -783,7 +783,7 @@ endmodule
                 .unwrap();
             let entry = Path::new(file).file_name().unwrap().to_str().unwrap();
             let dir = flow(
-                &format!("reach-{id}"),
+                &format!("rule-{id}"),
                 entry,
                 &fuzz_data(file),
                 main,
@@ -795,7 +795,7 @@ endmodule
                 &dir,
                 &plain_template(id),
                 "t",
-                Job::Reach(rule),
+                Job::Rule(rule),
                 options(1, true, true),
             );
             assert!(ok, "{id}: {document:#}");
@@ -810,7 +810,7 @@ endmodule
             let confirmation = &attempt["confirmation"];
             assert_eq!(
                 (&confirmation["status"], &confirmation["class"]),
-                (&json!("reached"), &json!("comparable")),
+                (&json!("matched"), &json!("comparable")),
                 "{id}: {confirmation:#}"
             );
         }
@@ -821,8 +821,8 @@ endmodule
     /// end of the definition to be data and refuses every campaign that reads data ends before any
     /// case (`not-comparable`); a decided finding cannot be named. kink's `results` classifies
     /// `cond(0)` by its own end check, which accepts the end `1`, and lists it in the `cond`
-    /// rule's `reached_by`, although a kill on the definition needs the finding named
-    /// (`baseline-findings`). So the reach job refuses a program kink lists.
+    /// rule's `matched_by`, although a kill on the definition needs the finding named
+    /// (`baseline-findings`). So the rule job refuses a program kink lists.
     ///
     /// Fails if kink's `results` starts reading the definition's data facts (cond(0) no longer
     /// comparable or listed), or if the fuzz judges ends of a definition with a decided finding.
@@ -852,17 +852,17 @@ endmodule
             .iter()
             .find(|rule| rule["label"] == "COMPARABLE-COND.cond")
             .unwrap_or_else(|| panic!("{document:#}"));
-        assert_eq!(cond["reached_by"], json!(["cond-zero"]), "{cond:#}");
-        let (reach, ok) = kink_flow_fuzz(
+        assert_eq!(cond["matched_by"], json!(["cond-zero"]), "{cond:#}");
+        let (rule_job, ok) = kink_flow_fuzz(
             &dir,
             &plain_template("cond-zero"),
             "t",
-            Job::Reach("COMPARABLE-COND.cond"),
+            Job::Rule("COMPARABLE-COND.cond"),
             options(1, true, true),
         );
         assert!(!ok);
-        assert_eq!(reach["stopped"], "not-comparable", "{reach:#}");
-        let findings = reach["findings"].as_array().unwrap();
+        assert_eq!(rule_job["stopped"], "not-comparable", "{rule_job:#}");
+        let findings = rule_job["findings"].as_array().unwrap();
         assert_eq!(findings.len(), 1, "{findings:#?}");
         assert_eq!(findings[0]["verdict"], "decided");
     }
@@ -886,7 +886,7 @@ endmodule
     /// judgement accepts every String domain value, so the library judges the run comparable;
     /// kink's end check gives a String a value only when it is ASCII, so the class is `unknown`
     /// for the domain value. kink-flow's witness filter applies kink's end check to every
-    /// candidate, so the reach job refuses each case inside the campaign
+    /// candidate, so the rule job refuses each case inside the campaign
     /// (`domain-value-not-ascii`; the hole is an integer, so no repair applies) and stops
     /// `client-refused`; without the filter the candidate reaches kink's confirmation, which
     /// refuses it for the same domain value. The kill job's agreement is pinned in `tests/fuzz.rs`
@@ -928,16 +928,16 @@ endmodule
             "{one:#}"
         );
 
-        let reach = |filter| {
+        let rule_job = |filter| {
             kink_flow_fuzz(
                 &dir,
                 HOLE_TEMPLATE,
                 "h",
-                Job::Reach("NA.go"),
+                Job::Rule("NA.go"),
                 options(6, true, filter),
             )
         };
-        let (filtered, ok) = reach(true);
+        let (filtered, ok) = rule_job(true);
         assert!(ok, "{filtered:#}");
         assert_eq!(filtered["stopped"], "client-refused", "{filtered:#}");
         assert_eq!(
@@ -945,7 +945,7 @@ endmodule
             json!({"refused": {"domain-value-not-ascii": 6}}),
             "{filtered:#}"
         );
-        let (unfiltered, ok) = reach(false);
+        let (unfiltered, ok) = rule_job(false);
         assert!(ok, "{unfiltered:#}");
         assert_eq!(unfiltered["stopped"], "unconfirmed", "{unfiltered:#}");
         let attempt = &unfiltered["attempts"][0];
@@ -953,7 +953,7 @@ endmodule
         let confirmation = &attempt["confirmation"];
         assert_eq!(
             (&confirmation["status"], &confirmation["class"]),
-            (&json!("unreached"), &json!("unknown")),
+            (&json!("not-comparable"), &json!("unknown")),
             "{confirmation:#}"
         );
         assert!(

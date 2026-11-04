@@ -26,7 +26,7 @@ use kink_patch::{
     derive_sites, select,
 };
 
-use MutantStatus::{Equivalent, Error, Invalid, Killed, Survived, Timeout, Unknown};
+use MutantStatus::{Equivalent, Error, Killed, NotAdmitted, Survived, Timeout, Unknown};
 use OracleOutcome::{Agree, Distinguish};
 
 const KINDS: [OracleKind; 3] = [
@@ -176,8 +176,8 @@ fn mutant_status_is_derived_from_validation_then_oracle_outcomes() {
     let rows: [StatusRow; 10] = [
         ("ordinary-result-kill", None, Compared(&[O::Distinguish, O::Agree]), Killed, None),
         ("complete-survival", None, Compared(&[O::Agree, O::Agree]), Survived, None),
-        ("ill-sorted-invalid", Some(S::Rejected), NotExecuted, Invalid, Some(Invalid)),
-        ("lowering-nontermination-is-invalid", Some(S::LoweringNontermination), NotExecuted, Invalid, Some(Invalid)),
+        ("ill-sorted-invalid", Some(S::Rejected), NotExecuted, NotAdmitted, Some(NotAdmitted)),
+        ("lowering-nontermination-is-invalid", Some(S::LoweringNontermination), NotExecuted, NotAdmitted, Some(NotAdmitted)),
         ("lowering-time-limit-is-timeout", Some(S::LoweringTimeLimit), NotExecuted, Timeout, Some(Timeout)),
         ("lowering-resource-limit-is-unknown", Some(S::LoweringResourceLimit), NotExecuted, Unknown, Some(Unknown)),
         ("time-limit-is-timeout", None, Failed(E::TimeLimit), Timeout, Some(Timeout)),
@@ -234,8 +234,8 @@ fn mutant_status_is_derived_from_validation_then_oracle_outcomes() {
 /// failure, and no conclusive status can be supplied as one.
 ///
 /// The source row paired a validation rejection with a kill and expected
-/// `Invalid`. A rejected mutant never ran, so that plan is now refused as
-/// inconsistent; `Invalid` is what the rejection alone derives. A failure that
+/// `NotAdmitted`. A rejected mutant never ran, so that plan is now refused as
+/// inconsistent; `NotAdmitted` is what the rejection alone derives. A failure that
 /// can follow execution (`Infrastructure`) still decides the status over a
 /// kill.
 ///
@@ -273,7 +273,7 @@ fn killed_cannot_fail_validation() {
             "{schedule:?}"
         );
         let actual = report(&rejected, &declared, schedule);
-        assert_eq!(actual.status, Invalid, "{schedule:?}");
+        assert_eq!(actual.status, NotAdmitted, "{schedule:?}");
         assert!(actual.killing_test_ids.is_empty(), "{schedule:?}");
         let actual = report(&corrupted, &declared, schedule);
         assert_eq!(actual.status, Error, "{schedule:?}");
@@ -291,8 +291,8 @@ fn every_failure_kind_maps_to_one_status() {
     use ExecutionFailureKind as E;
     use MutantScopeFailure as S;
     let scope_rows = [
-        (S::Rejected, Invalid),
-        (S::LoweringNontermination, Invalid),
+        (S::Rejected, NotAdmitted),
+        (S::LoweringNontermination, NotAdmitted),
         (S::LoweringTimeLimit, Timeout),
         (S::LoweringResourceLimit, Unknown),
         (S::Infrastructure, Error),
@@ -707,7 +707,7 @@ fn score_is_exact_and_excluded_statuses_do_not_count() {
     for (statuses, expected) in rows {
         assert_eq!(score(statuses), expected, "{statuses:?}");
         let mut padded = statuses.to_vec();
-        padded.extend([Equivalent, Invalid, Timeout, Unknown, Error]);
+        padded.extend([Equivalent, NotAdmitted, Timeout, Unknown, Error]);
         assert_eq!(score(&padded), expected, "{statuses:?} with exclusions");
     }
 }
@@ -730,7 +730,7 @@ fn plan_for(status: MutantStatus, id: usize) -> MutantPlan {
                 inconsistent_pairs: Vec::new(),
             };
         }
-        Invalid => {
+        NotAdmitted => {
             return MutantPlan {
                 selection: None,
                 mutant_id: MutantId(id),
@@ -811,7 +811,13 @@ fn baseline_admission_gates_mutants_and_score() {
     // source row are candidate dispositions that never reach a `MutantPlan`.
     let (reports, counted) = run_campaign(BaselineAdmission::Accepted, ScheduleMode::Full, || {
         let plans = [
-            Killed, Survived, Equivalent, Invalid, Timeout, Unknown, Error,
+            Killed,
+            Survived,
+            Equivalent,
+            NotAdmitted,
+            Timeout,
+            Unknown,
+            Error,
         ]
         .into_iter()
         .zip(0..)
@@ -823,7 +829,13 @@ fn baseline_admission_gates_mutants_and_score() {
     assert_eq!(
         statuses(&reports),
         [
-            Killed, Survived, Equivalent, Invalid, Timeout, Unknown, Error
+            Killed,
+            Survived,
+            Equivalent,
+            NotAdmitted,
+            Timeout,
+            Unknown,
+            Error
         ]
     );
     assert_eq!(

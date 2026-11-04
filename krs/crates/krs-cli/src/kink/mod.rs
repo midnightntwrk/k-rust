@@ -376,7 +376,7 @@ fn run_flow(
     } else {
         manifest
     };
-    resolve_reach(&mut command, emitted);
+    resolve_rule(&mut command, emitted);
     let refused_mutations = checks::refused(&checks::all(), emitted, &manifest, &command);
     let annotator = annotate::Annotator::new(emitted, manifest.clone());
     let annotate = |document: &mut Value| annotator.annotate(document);
@@ -563,16 +563,16 @@ fn bound_spec(emitted: &EmittedDefinition) -> SpecSection {
     }
 }
 
-/// `fuzz --reach RULE` takes a label or a suffix of whole components of one, as a mutation's
-/// `rule` anchor does: a `RULE` that names exactly one emitted rule this way is given to
-/// kink-flow as that rule's module-qualified label; anything else (`FILE:LINE`, a compiled id,
-/// a name that matches no rule or several) is given unchanged, and kink-flow resolves or refuses
-/// it with its own listing.
-fn resolve_reach(command: &mut FlowCommand, emitted: &EmittedDefinition) {
+/// `fuzz --matched RULE` and `fuzz --fired RULE` take a label or a suffix of whole components of
+/// one, as a mutation's `rule` anchor does: a `RULE` that names exactly one emitted rule this way
+/// is given to kink-flow as that rule's module-qualified label; anything else (`FILE:LINE`, a
+/// compiled id, a name that matches no rule or several) is given unchanged, and kink-flow resolves
+/// or refuses it with its own listing.
+fn resolve_rule(command: &mut FlowCommand, emitted: &EmittedDefinition) {
     let FlowCommand::Fuzz { request, .. } = command else {
         return;
     };
-    let FuzzJobRequest::Reach { rule, .. } = &mut request.job else {
+    let FuzzJobRequest::Rule { rule, .. } = &mut request.job else {
         return;
     };
     let matches = emitted

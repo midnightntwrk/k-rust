@@ -550,7 +550,7 @@ cases! {
     g_ground: "G: ground test", Workers(5);
     digit_audit: "digit audit", Workers(2);
     ei_d2_b: "EI-D2=b", Prioritize(Coupled::Union);
-    invalid_killed_survived: "Invalid, Killed, Survived: counter final result", SharingOff;
+    invalid_killed_survived: "NotAdmitted, Killed, Survived: counter final result", SharingOff;
     equivalent_clone: "Equivalent: anonymous clone", Prioritize(Coupled::AllSites);
     error_crash: "Error: crash against a normal result", Workers(5);
     multi_generation: "multi-generation: counter catalogue and code", Workers(2);

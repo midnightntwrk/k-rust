@@ -59,7 +59,7 @@ pub const USAGE: &str = "usage: kink-flow --version | kink-flow check FLOW.toml 
                          FLOW.toml [--cache DIR] | kink-flow query FLOW.toml PATTERNS.toml \
                          [--only ID]... [--verify] [--cache DIR] | kink-flow fuzz FLOW.toml \
                          TEMPLATES.toml --template ID (--kill MUTATION --mutations MUTATIONS \
-                         | --reach RULE [--fired] | --pattern ID --patterns PATTERNS.toml) \
+                         | --matched RULE | --fired RULE | --pattern ID --patterns PATTERNS.toml) \
                          [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] \
                          [--assume-joined NAME]... [--one-path] [--cache DIR] [--no-confirm] \
                          [--no-filter]; MUTATIONS is a MUTATIONS.toml or a directory of \
@@ -668,11 +668,11 @@ fn fuzz_command(
                 front,
             )
         }
-        FuzzJobRequest::Reach { rule, fired } => crate::fuzz::fuzz_front(
+        FuzzJobRequest::Rule { rule, fired } => crate::fuzz::fuzz_front(
             manifest,
             &templates,
             &request.template,
-            FuzzJob::Reach {
+            FuzzJob::Rule {
                 rule,
                 fired: *fired,
             },
@@ -717,7 +717,7 @@ fn on_manifest(path: &Path, command: &FlowCommand) -> (Value, u8) {
 pub struct CheckOptions {
     /// A mutation list to resolve against the specification ([`crate::check`]).
     pub mutations: Option<PathBuf>,
-    /// The cache directory whose result records decide `unreached-rule` and `unapplied-rule`;
+    /// The cache directory whose result records decide `unmatched-rule` and `unapplied-rule`;
     /// default `<directory of FLOW.toml>/.kink-flow`. Nothing is written to it.
     pub cache: Option<PathBuf>,
 }
@@ -870,8 +870,8 @@ pub enum FuzzJobRequest {
         mutation: String,
         mutations: PathBuf,
     },
-    /// `--reach RULE [--fired]`.
-    Reach { rule: String, fired: bool },
+    /// `--matched RULE` (`fired` false) or `--fired RULE`: a rule's `matched_by` or `fired_by`.
+    Rule { rule: String, fired: bool },
     /// `--pattern ID --patterns PATTERNS.toml`.
     Pattern { id: String, patterns: PathBuf },
 }
@@ -883,12 +883,15 @@ fn number(flag: &str, value: Option<&String>) -> Result<u64, String> {
         .map_err(|_| format!("{flag} {value:?}: expected a nonnegative integer"))
 }
 
+/// The usage error of a `fuzz` command line that names more than one job.
+const ONE_JOB: &str = "give one job: --kill, --matched, --fired or --pattern";
+
 /// `kink-flow fuzz`'s options; a job's list is `--mutations` or `--patterns`, else the front
 /// end's `files`.
 fn fuzz_options(args: &[String], files: &CommandFiles) -> Result<FuzzRequest, String> {
     let mut options = FuzzOptions::default();
     let (mut template, mut mutation, mut mutations) = (None, None, None);
-    let (mut reach, mut pattern, mut patterns, mut fired) = (None, None, None, false);
+    let (mut rule, mut pattern, mut patterns, mut fired) = (None, None, None, false);
     let (mut budget, mut seed, mut max_work, mut time_limit) = (None, None, None, None);
     let (mut one_path, mut no_confirm, mut no_filter) = (false, false, false);
     let mut args = args.iter();
@@ -905,10 +908,26 @@ fn fuzz_options(args: &[String], files: &CommandFiles) -> Result<FuzzRequest, St
                     args.next().ok_or("--mutations needs a file or directory")?,
                 ));
             }
-            "--reach" if reach.is_none() => {
-                reach = Some(args.next().ok_or("--reach needs a rule")?.clone());
+            // No rule is spelled with a leading `--` (a `FILE:LINE`, a label or a compiled id),
+            // so an option there is a missing rule, not a rule kink-flow would then refuse.
+            flag @ ("--matched" | "--fired") => {
+                if rule.is_some() {
+                    return Err(ONE_JOB.into());
+                }
+                let value = args
+                    .next()
+                    .filter(|value| !value.starts_with("--"))
+                    .ok_or_else(|| format!("{flag} needs a rule"))?;
+                rule = Some(value.clone());
+                fired = flag == "--fired";
             }
-            "--fired" if !fired => fired = true,
+            "--reach" => {
+                return Err(
+                    "--reach RULE is --matched RULE, and --reach RULE --fired is --fired \
+                            RULE: each names the predicate its job targets"
+                        .into(),
+                );
+            }
             "--pattern" if pattern.is_none() => {
                 pattern = Some(args.next().ok_or("--pattern needs a pattern id")?.clone());
             }
@@ -969,10 +988,10 @@ fn fuzz_options(args: &[String], files: &CommandFiles) -> Result<FuzzRequest, St
         }
     }
     let template = template.ok_or("give --template ID")?;
-    let job = match (mutation, reach, pattern) {
+    let job = match (mutation, rule, pattern) {
         (Some(mutation), None, None) => {
-            if fired || patterns.is_some() {
-                return Err("--fired and --patterns belong to --reach and --pattern".into());
+            if patterns.is_some() {
+                return Err("--patterns belongs to --pattern".into());
             }
             let mutations = mutations
                 .or_else(|| files.mutations.clone())
@@ -986,11 +1005,11 @@ fn fuzz_options(args: &[String], files: &CommandFiles) -> Result<FuzzRequest, St
             if mutations.is_some() || patterns.is_some() {
                 return Err("--mutations and --patterns belong to --kill and --pattern".into());
             }
-            FuzzJobRequest::Reach { rule, fired }
+            FuzzJobRequest::Rule { rule, fired }
         }
         (None, None, Some(id)) => {
-            if mutations.is_some() || fired {
-                return Err("--mutations and --fired belong to --kill and --reach".into());
+            if mutations.is_some() {
+                return Err("--mutations belongs to --kill".into());
             }
             if !options.assume_joined.is_empty() {
                 return Err(
@@ -1006,12 +1025,12 @@ fn fuzz_options(args: &[String], files: &CommandFiles) -> Result<FuzzRequest, St
         }
         (None, None, None) => {
             return Err(
-                "give the job: --kill MUTATION --mutations MUTATIONS.toml, --reach RULE \
-                        [--fired], or --pattern ID --patterns PATTERNS.toml"
+                "give the job: --kill MUTATION --mutations MUTATIONS.toml, --matched RULE, \
+                        --fired RULE, or --pattern ID --patterns PATTERNS.toml"
                     .into(),
             );
         }
-        _ => return Err("give one job: --kill, --reach or --pattern".into()),
+        _ => return Err(ONE_JOB.into()),
     };
     options.confirm = !no_confirm;
     options.filter = !no_filter;
@@ -1047,7 +1066,7 @@ fn report_options(args: &[String]) -> Result<ReportOptions, String> {
 }
 
 /// `kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID (--kill MUTATION --mutations
-/// MUTATIONS.toml | --reach RULE [--fired] | --pattern ID --patterns PATTERNS.toml) [options]
+/// MUTATIONS.toml | --matched RULE | --fired RULE | --pattern ID --patterns PATTERNS.toml) [options]
 /// [--no-confirm] [--no-filter]`: the fuzz document ([`crate::fuzz`]) and the exit
 /// status: [`EXIT_OK`] when the job reached a verdict (`stopped` is `null`, `budget`,
 /// `client-refused`, `unconfirmed`, `assembly-mismatch`, `equivalent`, `rejected-out` or
@@ -1092,7 +1111,7 @@ pub fn report(manifest: &Path, options: &ReportOptions) -> (Value, u8) {
 /// document (README 5.6, 7.5) and the exit status: [`EXIT_OK`] when every selected mutation got
 /// its status (survivors and timeouts included) and none is invalid; [`EXIT_CORPUS`] when the
 /// manifest, the mutation list, the specification or a program is refused, a selected mutation
-/// is invalid (`invalid-mutation` or `invalid`: [`invalid_mutations`]), a run failed, a
+/// is invalid (`invalid-mutation` or `not-admitted`: [`invalid_mutations`]), a run failed, a
 /// cache file could not be written, no program is comparable, a baseline run no longer matches
 /// its cached result (the run then stops), or `--verify` found a cached outcome that differs
 /// from a live run.
@@ -1120,11 +1139,11 @@ pub fn run_mode(
 }
 
 /// The number of a run document's rows whose mutation its author must fix before it is judged:
-/// status `invalid-mutation` (it does not resolve, or a front end refused it) or `invalid` (its
+/// status `invalid-mutation` (it does not resolve, or a front end refused it) or `not-admitted` (its
 /// mutant does not compile, or may have no model: `inconsistent-mutant`). Every other status is a
 /// verdict about the corpus or a fault of the tool or the host, not of the mutation.
 pub fn invalid_mutations(document: &Value) -> u64 {
-    [crate::search::INVALID_MUTATION, "invalid"]
+    [crate::search::INVALID_MUTATION, "not-admitted"]
         .iter()
         .map(|status| document["counts"][*status].as_u64().unwrap_or(0))
         .sum()
@@ -1159,7 +1178,7 @@ pub fn check_with(manifest: &Path, options: &CheckOptions) -> (Value, u8) {
 
 /// `check --mutations` before it is rendered: the admission of the specification and the
 /// programs, the mutation list, and, when the specification is admitted and the list decodes, the
-/// check of every mutation ([`MutationCheck`]) and the coverage that decided `unreached-rule` and
+/// check of every mutation ([`MutationCheck`]) and the coverage that decided `unmatched-rule` and
 /// `unapplied-rule`. A front end adds its own findings to [`Self::mutations`] (the admitted
 /// specification is `admission.spec`) and renders with [`check_mutations_document`].
 #[derive(Debug)]
@@ -1287,8 +1306,10 @@ fn check_admission(manifest: &FlowManifest) -> (Value, u8) {
 /// whatever the edit (before, an edit that left the `requires` alone was warned about when no
 /// program applied the rule), and adds `unapplied-rule` for one some program reached and none
 /// applied (`applied`), since `check` compiles no mutant and so cannot read `run`'s witness rule
-/// ([`crate::check`]).
-pub const CHECK_VERSION: u64 = 7;
+/// ([`crate::check`]); 8 (CF-40c2) names the first `unmatched-rule`, after the predicate it
+/// reads (k-rust `matched`), so that each coverage predicate has one name in every kink-flow
+/// document, and says `matches` for `reaches` in both warnings' text.
+pub const CHECK_VERSION: u64 = 8;
 
 fn header(spec: Value, programs: Vec<Value>, data: Value, result: Value) -> Value {
     json!({

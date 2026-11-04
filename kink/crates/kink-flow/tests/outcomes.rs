@@ -929,7 +929,7 @@ fn macro_after_cold(test: &str) -> (PathBuf, Value) {
                 "killed".into(),
                 Some("sum".into())
             ),
-            ("plus-unbound".into(), "invalid".into(), None),
+            ("plus-unbound".into(), "not-admitted".into(), None),
         ]
     );
     assert_eq!(

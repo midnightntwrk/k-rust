@@ -185,7 +185,7 @@ fn walkthrough() -> Vec<Step> {
 #[test]
 fn the_inconsistent_mutant_action_states_the_rank_condition() {
     assert_eq!(
-        kink_flow::report::action("invalid", Some("inconsistent-mutant")),
+        kink_flow::report::action("not-admitted", Some("inconsistent-mutant")),
         Some(
             "fix the mutation: two equations of one function are not shown to agree where both \
              apply, so the mutant may have no model (inconsistent_pairs). If the edit widened a \
@@ -394,7 +394,7 @@ mod kink_tier {
         );
         for (id, status, action) in [
             ("add-in-a-group", "equivalent", "nothing can kill it"),
-            ("add-unbound", "invalid", "fix the mutation"),
+            ("add-unbound", "not-admitted", "fix the mutation"),
         ] {
             let row = mutation(&document, id);
             assert_eq!(row["status"], status, "{id}");
@@ -590,7 +590,7 @@ mod kink_tier {
                 "after": "rule [add]: I1:Int + I2:Int => I2 +Int I1",
             }])
         );
-        assert_eq!(survivor["reaching"], json!(["add", "nested", "inline"]));
+        assert_eq!(survivor["witnesses"], json!(["add", "nested", "inline"]));
         assert_eq!(
             executed(&document, "add-swaps-operands"),
             triples(&[
@@ -604,7 +604,7 @@ mod kink_tier {
             survivor["action"]
                 .as_str()
                 .unwrap()
-                .starts_with("write a program that reaches an edited rule")
+                .starts_with("write a program that matches an edited rule")
         );
         // A killed row names its killer and carries no survivor fields.
         for id in [
@@ -635,7 +635,7 @@ mod kink_tier {
         assert_eq!(document["survivors"], json!(["no-mul"]));
         let row = mutation(&document, "no-mul");
         assert_eq!(row["status"], "survived");
-        assert_eq!(row["reaching"], json!([]));
+        assert_eq!(row["witnesses"], json!([]));
         assert_eq!(
             row["rules"],
             json!([{

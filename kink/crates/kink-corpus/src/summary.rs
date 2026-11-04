@@ -30,7 +30,7 @@ pub const TALLY_KEYS: [&str; 8] = [
     "killed",
     "survived",
     "equivalent",
-    "invalid",
+    "not-admitted",
     "timeout",
     "unknown",
     "error",
@@ -200,7 +200,9 @@ pub fn summarize(
         "no"
     };
     Ok(CorpusSummary {
-        value: json!({"schema":"kink-corpus-summary","version":1,
+        // Version 2: the tally key version 1 named `invalid` is `not-admitted` (TALLY_KEYS), as
+        // the campaign reports it counts name it since CAMPAIGN_REPORT_VERSION 5.
+        value: json!({"schema":"kink-corpus-summary","version":2,
         "corpus_manifest_sha256":corpus_manifest_sha256,"profile":profile,"definitions":definitions,
         "totals":{"definitions":{"listed":manifest.definitions().len(),"admitted":admitted,"exposed":0,
             "refused":refused,"error":errors},"tally":tally_value(&total_tally),"unknown_causes":total_causes,

@@ -12,7 +12,7 @@
 //! The check compiles no mutant, so `ok` means that the mutation resolves, not that `run` will
 //! judge it: a mutant that kink does not compile (an unbound variable in the replacement, say) or
 //! whose equations may have no model (`inconsistent-mutant`) is found only by `run`, as the status
-//! `invalid`.
+//! `not-admitted`.
 //!
 //! Warnings change no status:
 //! - `line-anchor`: an edit addressed by `line`, and `text-anchor`: one addressed by `find` alone.
@@ -21,22 +21,22 @@
 //!   rule's label when it has one (the rule the edit alone is addressed to, also when its
 //!   mutation is refused for another reason).
 //! - `no-coverage-signal`: an edited rule k-rust's coverage cannot record, so no program can be
-//!   shown to reach it.
-//! - `unreached-rule`: an edited rule no comparable program reached (k-rust `matched`: began to
+//!   shown to match it.
+//! - `unmatched-rule`: an edited rule no comparable program matched (k-rust `matched`: began to
 //!   decide a matched instance's condition) in the cached results, so no program exercises it.
 //!   Which programs witness the mutant's edit is read from the compiled mutant (`run`'s program
 //!   order), and `check` compiles none: a program can still witness it through what else the
 //!   edit changes, such as a widened left-hand side or a claim it withdraws.
-//! - `unapplied-rule`: an edited rule some comparable program reached but none applied (k-rust
-//!   `applied`: built a candidate of it, defined or rolled back), so every program that reaches
+//! - `unapplied-rule`: an edited rule some comparable program matched but none applied (k-rust
+//!   `applied`: built a candidate of it, defined or rolled back), so every program that matches
 //!   it refutes its `requires`. An edit of only the rule's right-hand side or `ensures` keeps its
 //!   left-hand side, condition and attributes, so each program's run of the mutant refutes the
 //!   edited rule where its baseline run refuted the rule, and no program of the corpus can kill
 //!   the edit except through a claim it withdraws or another rule the mutation edits. The
 //!   warning is about the edited rule, not the edit, which `check` does not compile: an edit of
-//!   the `requires` can still be killed by a program that reaches the rule.
+//!   the `requires` can still be killed by a program that matches the rule.
 //!
-//! The two coverage warnings, `unreached-rule` and `unapplied-rule`, are given only when every
+//! The two coverage warnings, `unmatched-rule` and `unapplied-rule`, are given only when every
 //! program has a current result record and every comparable program's coverage is complete;
 //! otherwise the document's `coverage` says why there is no such warning. A program whose result
 //! is never cached (a timeout, an error, an `unknown` the host caused, or every program under the
@@ -78,7 +78,7 @@ pub struct Finding {
     /// Whether the finding refuses the mutation (a front end's check); kink-flow's own findings
     /// are warnings, and its refusals are the resolution's.
     pub refusal: bool,
-    /// A kebab-case name (`line-anchor`, `unreached-rule`, ...).
+    /// A kebab-case name (`line-anchor`, `unmatched-rule`, ...).
     pub reason: String,
     /// The index of the edit the finding is about, when one is.
     pub edit: Option<usize>,
@@ -253,16 +253,16 @@ pub struct CorpusCoverage {
     /// The comparable programs whose recorded coverage is incomplete (their run stopped before
     /// it explored everything, so it may use rules it does not list).
     pub incomplete: Vec<String>,
-    /// The rules some comparable program reached (k-rust `matched`).
-    pub reached: BTreeSet<SentenceRef>,
-    /// The rules some comparable program applied (k-rust `applied`), a subset of `reached`.
+    /// The rules some comparable program matched (k-rust `matched`).
+    pub matched: BTreeSet<SentenceRef>,
+    /// The rules some comparable program applied (k-rust `applied`), a subset of `matched`.
     pub applied: BTreeSet<SentenceRef>,
     /// The rules k-rust's coverage cannot record, with the reason.
     pub no_signal: BTreeMap<SentenceRef, &'static str>,
 }
 
 impl CorpusCoverage {
-    /// Whether the coverage decides that a rule is unreached: every program has a current
+    /// Whether the coverage decides that a rule is unmatched: every program has a current
     /// record and every comparable program's coverage is complete.
     pub fn decides(&self) -> bool {
         self.without_record.is_empty() && self.incomplete.is_empty()
@@ -275,12 +275,12 @@ impl CorpusCoverage {
             Value::Null
         } else if let Some(reason) = self.cache_off {
             json!(format!(
-                "no unreached-rule or unapplied-rule warning is given: it needs a current result \
+                "no unmatched-rule or unapplied-rule warning is given: it needs a current result \
                  record of every program, and {reason}"
             ))
         } else {
             json!(format!(
-                "no unreached-rule or unapplied-rule warning is given: it needs a current result \
+                "no unmatched-rule or unapplied-rule warning is given: it needs a current result \
                  record of every program and complete coverage of every comparable program. A \
                  program without a record has not run under this specification (run `{}`), or its result is never \
                  cached (a timeout, an error, or an unknown the host caused; its row in `results` \
@@ -328,7 +328,7 @@ pub fn corpus_coverage(
             coverage.incomplete.push(program.id.clone());
         }
         for (key, into) in [
-            ("sentences", &mut coverage.reached),
+            ("sentences", &mut coverage.matched),
             ("applied_sentences", &mut coverage.applied),
         ] {
             for sentence in record["coverage"][key].as_array().into_iter().flatten() {
@@ -347,7 +347,7 @@ pub fn corpus_coverage(
 }
 
 /// Resolve every mutation of `list` against the specification `loaded` (as `run` does; nothing
-/// is compiled or run) and add kink-flow's warnings, with `coverage` deciding `unreached-rule` and `unapplied-rule`.
+/// is compiled or run) and add kink-flow's warnings, with `coverage` deciding `unmatched-rule` and `unapplied-rule`.
 pub fn check_mutations(
     manifest: &FlowManifest,
     loaded: &LoadedSource,
@@ -447,7 +447,7 @@ fn warnings(
                 "no-coverage-signal",
                 rule.edits.first().copied(),
                 Some(rule.at.clone()),
-                format!("{name}: {reason}, so no program can be shown to reach it"),
+                format!("{name}: {reason}, so no program can be shown to match it"),
                 None,
             ));
             continue;
@@ -456,21 +456,21 @@ fn warnings(
             continue;
         }
         let others = if resolved.rules.len() > 1 {
-            " (a program that reaches another edited rule of the mutation may still kill it)"
+            " (a program that matches another edited rule of the mutation may still kill it)"
         } else {
             ""
         };
-        if !coverage.reached.contains(&rule.at) {
+        if !coverage.matched.contains(&rule.at) {
             findings.push(Finding::warning(
-                "unreached-rule",
+                "unmatched-rule",
                 rule.edits.first().copied(),
                 Some(rule.at.clone()),
                 format!(
-                    "no comparable program reaches {name} (begins to decide its requires) in the \
+                    "no comparable program matches {name} (begins to decide its requires) in the \
                      cached results, so no program of the corpus exercises this rule{others}"
                 ),
                 Some(format!(
-                    "write a program that reaches {name}, or edit a rule the corpus uses"
+                    "write a program that matches {name}, or edit a rule the corpus uses"
                 )),
             ));
         } else if !coverage.applied.contains(&rule.at) {
@@ -479,7 +479,7 @@ fn warnings(
                 rule.edits.first().copied(),
                 Some(rule.at.clone()),
                 format!(
-                    "every comparable program that reaches {name} refutes its requires in the \
+                    "every comparable program that matches {name} refutes its requires in the \
                      cached results (none applies it), so no program of the corpus can kill an \
                      edit of only its right-hand side or ensures, except through a claim the edit \
                      withdraws{others}"

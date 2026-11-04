@@ -5953,7 +5953,7 @@ mod kink_tier {
         });
     }
 
-    /// AT11: a simplification headed by a constructor is Invalid; an anywhere axiom changes the signature, making every pattern slot Unknown.
+    /// AT11: a simplification headed by a constructor is NotAdmitted; an anywhere axiom changes the signature, making every pattern slot Unknown.
     /// Precision loss (VI-03F, k-rust 4d80cea6): the anywhere variant is [[U,U,U]] in both profiles because value-production definedness is withheld; status stays Unknown.
     #[test]
     #[ignore = "kink"]
@@ -5980,7 +5980,7 @@ mod kink_tier {
                 &oracles,
             )];
             for (key, status) in [
-                (AttributeKey::Simplification, MutantStatus::Invalid),
+                (AttributeKey::Simplification, MutantStatus::NotAdmitted),
                 (AttributeKey::Anywhere, MutantStatus::Unknown),
             ] {
                 let mut sentence = lemma.clone();
@@ -5999,7 +5999,7 @@ mod kink_tier {
                 let mutant = &run.mutants[0];
                 assert_eq!(mutant.report.status, status, "{key:?}");
                 assert!(mutant.report.killing_test_ids.is_empty());
-                if status == MutantStatus::Invalid {
+                if status == MutantStatus::NotAdmitted {
                     assert_eq!(
                         mutant.plan.mutant_failure,
                         Some(kink_campaign::MutantScopeFailure::Rejected)

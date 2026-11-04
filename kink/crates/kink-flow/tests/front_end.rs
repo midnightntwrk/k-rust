@@ -165,7 +165,7 @@ fn kink_flow_options_parse_with_the_front_end_files() {
     };
     let FlowCommand::Fuzz { request, .. } = FlowCommand::parse(
         "fuzz",
-        templates,
+        templates.clone(),
         &strings(&["--template", "t", "--kill", "no-mul"]),
     )
     .unwrap() else {
@@ -175,6 +175,46 @@ fn kink_flow_options_parse_with_the_front_end_files() {
         request.job,
         FuzzJobRequest::Kill { ref mutations, .. } if *mutations == dir.join("MUTATIONS.toml")
     ));
+    // A rule job is named by the predicate it targets: `--matched RULE` a rule's `matched_by`,
+    // `--fired RULE` its `fired_by`.
+    let rule_job = |flag: &str| {
+        FlowCommand::parse(
+            "fuzz",
+            templates.clone(),
+            &strings(&["--template", "t", flag, "calc.k:3"]),
+        )
+        .map(|command| match command {
+            FlowCommand::Fuzz { request, .. } => request.job,
+            other => panic!("{other:?}"),
+        })
+    };
+    for (flag, fired) in [("--matched", false), ("--fired", true)] {
+        assert_eq!(
+            rule_job(flag).unwrap(),
+            FuzzJobRequest::Rule {
+                rule: "calc.k:3".to_owned(),
+                fired
+            },
+            "{flag}"
+        );
+    }
+    assert_eq!(
+        rule_job("--reach").unwrap_err(),
+        "--reach RULE is --matched RULE, and --reach RULE --fired is --fired RULE: each names the \
+         predicate its job targets"
+    );
+    for jobs in [
+        ["--matched", "calc.k:3", "--fired", "calc.k:4"],
+        ["--kill", "no-mul", "--fired", "calc.k:4"],
+    ] {
+        let mut options = vec!["--template", "t"];
+        options.extend(jobs);
+        assert_eq!(
+            FlowCommand::parse("fuzz", templates.clone(), &strings(&options)).unwrap_err(),
+            "give one job: --kill, --matched, --fired or --pattern",
+            "{jobs:?}"
+        );
+    }
     assert_eq!(
         FlowCommand::parse("nope", CommandFiles::default(), &[]).unwrap_err(),
         "unknown command \"nope\""
@@ -549,6 +589,7 @@ fn the_annotation_reaches_the_printed_and_the_stored_run_document() {
     let (results, _) = command(&dir, "results", CommandFiles::default(), &[], front());
     let rendered = verdicts(&results).unwrap();
     assert!(rendered.contains("fired = [\"item-"), "{rendered}");
+    assert!(rendered.contains("matched = [\"item-"), "{rendered}");
 }
 
 /// A front end's spelling: its program, then its selection of the corpus.
@@ -701,7 +742,7 @@ fn verdicts_do_not_depend_on_the_cache_or_the_order() {
     // CF-23: version 2 names the schedule and the solver profile.
     assert!(
         cold.starts_with(&format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 2\ndocument = \"run\"\nschedule = \
+            "schema = \"kink-flow-verdicts\"\nversion = 3\ndocument = \"run\"\nschedule = \
              \"first-kill\"\nprofile = \"{}\"\n\n[spec]\noutcome = \"admitted\"\n",
             kink_native::execution::SolverProfile::BUILD.name()
         )),
@@ -765,7 +806,7 @@ fn the_command_line_prints_verdicts() {
     assert_eq!(
         printed,
         format!(
-            "schema = \"kink-flow-verdicts\"\nversion = 2\ndocument = \"run\"\nschedule = \
+            "schema = \"kink-flow-verdicts\"\nversion = 3\ndocument = \"run\"\nschedule = \
              \"first-kill\"\nprofile = \"{}\"\n\n[mutation_list]\noutcome = \"refused\"\n",
             kink_native::execution::SolverProfile::BUILD.name()
         )

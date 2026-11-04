@@ -44,10 +44,10 @@
 //! It is a function of the key: the claim-free mutant is compiled from the mutation's patch under
 //! the context's kink identity, and the baseline's rule authors from the definition the
 //! execution digest names, so it rests on the compile determinism every record rests on.
-//! A row tier 1 decides with no compile reads it for its `reaching` and for which of several
+//! A row tier 1 decides with no compile reads it for its `witnesses` and for which of several
 //! cached killers it names; it decides no status and orders no call (a live call orders its
 //! programs by its own compiled edit), so it is outside every record digest, and a file whose
-//! `witness` does not decode gives no `reaching` and names the first cached killer in O.
+//! `witness` does not decode gives no `witnesses` and names the first cached killer in O.
 //! `run --verify` compares it with the cold call's compiled edit and reports a difference in the
 //! run document's `mismatches`.
 //!

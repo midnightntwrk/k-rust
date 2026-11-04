@@ -1471,7 +1471,7 @@ fn runner_mapping_is_exhaustive() {
     .expect("one edit");
     let patch_failure = apply(&counter, &stale).expect_err("the precondition is stale");
     assert_eq!(patch_failure.kind(), PatchFailureKind::StalePrecondition);
-    // New row (VI-03F): a loaded-stage relink refusal is Rejected / Invalid.
+    // New row (VI-03F): a loaded-stage relink refusal is Rejected / NotAdmitted.
     let rejections = [
         MutantRejection::Relink(k_rust::outer::LoadError::MissingSyntaxModule(
             "missing".into(),
@@ -1486,7 +1486,7 @@ fn runner_mapping_is_exhaustive() {
     for rejection in &rejections {
         let failure = MutantScopeFailure::from(rejection);
         assert_eq!(failure, MutantScopeFailure::Rejected, "{rejection:?}");
-        assert_eq!(failure.status(), MutantStatus::Invalid, "{rejection:?}");
+        assert_eq!(failure.status(), MutantStatus::NotAdmitted, "{rejection:?}");
     }
 
     // Pattern outcomes.
