@@ -184,16 +184,31 @@ pub fn temp_dir() -> TempDir {
         .expect("test temporary directory is created")
 }
 
-/// A generated-fixture target removed when its last guard is dropped.
+/// Environment variable naming a persistent target directory that [`shared_fixture_target`] returns instead of a per-process temporary one.
+///
+/// It lets separate test processes reuse the generated fixtures' dependency builds.
+/// The directory is never removed by the tests; whoever sets the variable owns its lifetime.
+/// Every generated fixture adds outputs no later fixture reuses (its collector under `krs/collectors`, the collector executable, incremental state), so the owner must prune or remove the directory between runs.
+pub const FIXTURE_TARGET_DIR: &str = "KRS_TEST_FIXTURE_TARGET";
+
+/// A generated-fixture target removed when its last guard is dropped, unless [`FIXTURE_TARGET_DIR`] named it.
 pub struct SharedFixtureTarget {
-    directory: Arc<TempDir>,
+    directory: FixtureTargetDirectory,
+}
+
+enum FixtureTargetDirectory {
+    Temporary(Arc<TempDir>),
+    Persistent(PathBuf),
 }
 
 impl SharedFixtureTarget {
     /// Return the target directory held by this guard.
     #[must_use]
     pub fn path(&self) -> &Path {
-        self.directory.path()
+        match &self.directory {
+            FixtureTargetDirectory::Temporary(directory) => directory.path(),
+            FixtureTargetDirectory::Persistent(directory) => directory,
+        }
     }
 }
 
@@ -203,6 +218,7 @@ impl SharedFixtureTarget {
 /// Cargo's build-directory lock serializes concurrent nested builds.
 /// Each generated fixture must still live in its own fresh directory: its manifest path keys the collector directory and result cache, so fixtures must not share collector or cache state.
 /// Tests that do not overlap, including `--test-threads=1`, receive new directories and must rebuild.
+/// When [`FIXTURE_TARGET_DIR`] is set, every test in every process receives that directory instead; distinct fixture paths keep collector and cache state apart there too.
 ///
 /// # Panics
 ///
@@ -210,13 +226,21 @@ impl SharedFixtureTarget {
 #[must_use]
 pub fn shared_fixture_target() -> SharedFixtureTarget {
     static TARGET: Mutex<Weak<TempDir>> = Mutex::new(Weak::new());
+    if let Some(directory) = std::env::var_os(FIXTURE_TARGET_DIR).filter(|value| !value.is_empty())
+    {
+        return SharedFixtureTarget {
+            directory: FixtureTargetDirectory::Persistent(PathBuf::from(directory)),
+        };
+    }
     let mut target = TARGET.lock().expect("fixture target mutex is not poisoned");
     let directory = target.upgrade().unwrap_or_else(|| {
         let directory = Arc::new(temp_dir());
         *target = Arc::downgrade(&directory);
         directory
     });
-    SharedFixtureTarget { directory }
+    SharedFixtureTarget {
+        directory: FixtureTargetDirectory::Temporary(directory),
+    }
 }
 
 /// Set the fixture target, compile the generated collector's optimized packages unoptimized, and disable the environment or Cargo-configured rustc wrapper.
