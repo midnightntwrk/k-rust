@@ -1,7 +1,8 @@
 // The introduction's running example: the `plus` specification in story/plus, its corpus and
-// its edits (story/story.toml, through the generated story data), and the krs outputs recorded
-// for them. A scene that states a fact about these reads it from here, and the helpers throw
-// when the source no longer has what a scene shows, so the site build fails instead of drifting.
+// its edits (story/story.toml and story/plus/kink, through the generated story data), and the
+// krs outputs recorded for them. A scene that states a fact about these reads it from here, and
+// the helpers throw when the source no longer has what a scene shows, so the site build fails
+// instead of drifting.
 
 import manifest from '../../../story/plus/Cargo.toml?raw'
 import source from '../../../story/plus/src/lib.rs?raw'
@@ -43,7 +44,8 @@ export function result(variant: string, testId: string): string {
   return lines[cell + 1].trim().replace(/ ~> \.K$/, '')
 }
 
-export const caught = (mutation: Mutation, test: Test) => result(mutation.id, test.id) !== result('base', test.id)
+/** Whether the test catches the edit: kink kills the edit's mutation with it (its `killed_by`). */
+export const caught = (mutation: Mutation, test: Test) => (mutation.caughtBy as readonly string[]).includes(test.id)
 
 /** A `// [!region NAME]` of the specification's source, without its markers. */
 export function region(name: string): string {

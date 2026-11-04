@@ -217,6 +217,30 @@ args = ["emit-k", "--output", "target/krs-k"]
 show = "target/krs-k/definition.k"
 
 [[output]]
+id = "story-emit-k-a"
+fixture = "story/mutants/a"
+package = "story-plus-mutant-a"
+definition = "main"
+args = ["emit-k", "--output", "target/krs-k"]
+show = "target/krs-k/definition.k"
+
+[[output]]
+id = "story-emit-k-b"
+fixture = "story/mutants/b"
+package = "story-plus-mutant-b"
+definition = "main"
+args = ["emit-k", "--output", "target/krs-k"]
+show = "target/krs-k/definition.k"
+
+[[output]]
+id = "story-emit-k-c"
+fixture = "story/mutants/c"
+package = "story-plus-mutant-c"
+definition = "main"
+args = ["emit-k", "--output", "target/krs-k"]
+show = "target/krs-k/definition.k"
+
+[[output]]
 id = "story-prove"
 fixture = "story"
 package = "story-plus-claims"
@@ -229,6 +253,13 @@ fixture = "story/plus"
 package = "story-plus"
 definition = "main"
 args = ["kink", "results", "--output", "verdicts", "--locked"]
+
+[[output]]
+id = "story-kink-run"
+fixture = "story/plus"
+package = "story-plus"
+definition = "main"
+args = ["kink", "run", "--full", "--output", "verdicts", "--locked"]
 
 [[output]]
 id = "story-base-t1"

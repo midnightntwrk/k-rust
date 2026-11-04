@@ -2,23 +2,34 @@
 """Generate the introduction's mutants and story data, and check them against krs.
 
 `story/story.toml` lists the corpus and the edits the introduction makes to the `plus`
-specification in `story/plus/`, whose corpus is `story/plus/kink/` (`FLOW.toml` and the cases
-it names). `--write` generates `story/mutants/<id>/` (the specification with one edit and the
-same cases), `src/generated/story.ts` (the data the scene components read), and the story
-block of `recorded-outputs.toml`. Without an option, the script fails when any of them is
-stale, or when an edit's `caught_by` differs from the results krs recorded for the corpus.
+specification in `story/plus/`, whose corpus is `story/plus/kink/` (`FLOW.toml`, the cases it
+names, and the edits as K patches in `mutations/plus.toml`). `--write` generates
+`story/mutants/<id>/` (the specification with one edit of its Rust source and the same cases),
+`src/generated/story.ts` (the data the scene components read), and the story block of
+`recorded-outputs.toml`. Without an option, the script fails when any of them is stale.
 
-The rules each test fires are not written by hand: they are the `fired` lists of the recorded
-`krs kink results --output verdicts` (`story-kink-results`), named by KRS item and put in the
-order of the scenes' `ruleNames`. A story test with no case there, a case that is not
-`comparable`, or a case or a fired rule the story does not know fails the script, naming it,
-as does a FLOW.toml that lists its cases in another order than story.toml's tests.
-`--write` needs that recorded output; on a fresh corpus run `record-outputs.py --write` after
-it and then `--write` again.
+Neither the rules each test fires nor the tests that catch each edit are written by hand.
+A test's rules are the `fired` list of its case in the recorded `krs kink results --output
+verdicts` (`story-kink-results`), named by KRS item and put in the order of the scenes'
+`ruleNames`; a story test with no case there, a case that is not `comparable`, or a case or a
+fired rule the story does not know fails the script, naming it, as does a FLOW.toml that lists
+its cases in another order than story.toml's tests. The tests that catch an edit are the
+`killed_by` of its mutation in the recorded `krs kink run --full --output verdicts`
+(`story-kink-run`), and its misunderstanding, which the scenes quote, is the mutation's own;
+an edit whose mutation is neither killed nor survived, a mutation the story does not know, and
+a mutations directory with other edits than story.toml's, in its order, fail the script.
+The edit's Rust form in story.toml generates the package whose recorded `krs run` outputs the
+scenes show per test. The two forms of an edit must be one edit: the script fails unless that
+package's recorded `krs emit-k` (`story-emit-k-<id>`) is `kink/definition.k` with the mutation's
+patch applied, its package name aside, and unless the tests whose `krs run` result changes there
+are exactly the mutation's killers.
+`--write` needs those recorded outputs; on a fresh corpus run `record-outputs.py --write`
+after it and then `--write` again.
 """
 
 from __future__ import annotations
 
+import difflib
 import json
 from pathlib import Path
 import re
@@ -31,7 +42,11 @@ STORY = SITE / "story"
 BASE = STORY / "plus"
 CORPUS = BASE / "kink"
 DATA = SITE / "src" / "components" / "story" / "data.ts"
+MUTATIONS = CORPUS / "mutations"
+# The edits are the mutations of mutations/<TOPIC>.toml; kink qualifies their ids as <TOPIC>/<id>.
+TOPIC = "plus"
 VERDICTS = "story-kink-results"
+RUN = "story-kink-run"
 OUTPUTS = SITE / "src" / "snippets" / "outputs"
 MANIFEST = SITE / "recorded-outputs.toml"
 GENERATED = SITE / "src" / "generated" / "story.ts"
@@ -47,12 +62,57 @@ def fail(message: str) -> None:
     raise Failure(message)
 
 
+# A story edit's keys: the tool decides the rest (its misunderstanding is the mutation's own and
+# the tests that catch it are its killers), so story.toml may not state them again.
+EDIT_KEYS = {"id", "rule", "label", "old", "new", "display_old", "display_new"}
+
+
 def load() -> dict:
     story = tomllib.loads((STORY / "story.toml").read_text(encoding="utf-8"))
     ids = [mutation["id"] for mutation in story["mutation"]]
     if len(set(ids)) != len(ids) or "base" in ids:
         fail("mutation ids must be unique and must not be `base`")
+    for mutation in story["mutation"]:
+        unknown = sorted(set(mutation) - EDIT_KEYS)
+        if unknown:
+            fail(f"edit {mutation['id']}: story.toml may not set {unknown}; an edit's misunderstanding is its "
+                 f"mutation's in plus/kink/mutations/{TOPIC}.toml, and the tests that catch it are its killers "
+                 f"in the recorded output {RUN}")
+        missing = sorted(EDIT_KEYS - set(mutation))
+        if missing:
+            fail(f"edit {mutation['id']}: story.toml does not set {missing}")
     return story
+
+
+def misunderstandings(story: dict) -> dict[str, str]:
+    """Each story edit's misunderstanding, from its mutation in `mutations/<TOPIC>.toml`.
+
+    The mutations directory must hold that one topic file (kink reads every `<topic>.toml` there,
+    and the scenes know no other edit), whose mutations are story.toml's edits in its order,
+    every edit of each anchored by the story edit's `rule`.
+    """
+
+    topics = sorted(path.name for path in MUTATIONS.iterdir() if path.is_file() and path.name.endswith(".toml")
+                    and not path.name.startswith(".")) if MUTATIONS.is_dir() else []
+    if topics != [f"{TOPIC}.toml"]:
+        fail(f"plus/kink/mutations must hold exactly {TOPIC}.toml, the story's edits; it holds {topics}")
+    mutations = tomllib.loads((MUTATIONS / f"{TOPIC}.toml").read_text(encoding="utf-8")).get("mutation", [])
+    listed = [mutation.get("id") for mutation in mutations]
+    ids = [mutation["id"] for mutation in story["mutation"]]
+    if listed != ids:
+        fail(f"plus/kink/mutations/{TOPIC}.toml lists the mutations {listed}; story.toml lists the edits {ids}, "
+             "and both must list the same, in the same order")
+    found = {}
+    for edit, mutation in zip(story["mutation"], mutations):
+        prose = mutation.get("misunderstanding", mutation.get("note"))
+        if not isinstance(prose, str) or not prose:
+            fail(f"mutation {TOPIC}/{edit['id']} has no misunderstanding")
+        anchors = [part.get("rule") for part in mutation.get("edit", [])]
+        if not anchors or any(anchor != edit["rule"] for anchor in anchors):
+            fail(f"mutation {TOPIC}/{edit['id']} anchors its edits by {anchors}; story.toml's edit is of "
+                 f"{edit['rule']!r}, and every edit of the mutation must be anchored by `rule = {edit['rule']!r}`")
+        found[edit["id"]] = prose
+    return found
 
 
 def cases(story: dict) -> dict[str, str]:
@@ -127,10 +187,17 @@ def manifest_block(story: dict, corpus: dict[str, str]) -> str:
     entry("story-parse", "story/plus", "story-plus", ["parse", corpus["t3"]])
     entry("story-search", "story/plus", "story-plus", ["search", corpus["t3"]])
     entry("story-emit-k", "story/plus", "story-plus", ["emit-k", "--output", "target/krs-k"], "target/krs-k/definition.k")
+    # Each edited copy's K, which must be the base K with the edit's mutation applied.
+    for variant, fixture, package in variants(story)[1:]:
+        entry(f"story-emit-k-{variant}", fixture, package, ["emit-k", "--output", "target/krs-k"],
+              "target/krs-k/definition.k")
     entry("story-prove", "story", "story-plus-claims", ["prove", "--dependency", "story-plus:main", "--claim", "add-one"])
     # --locked: recording must not write into its fixture, so a stale kink/definition.k is
     # recorded as refused (and fails this script) instead of being rewritten by the recording.
     entry(VERDICTS, "story/plus", "story-plus", ["kink", "results", "--output", "verdicts", "--locked"])
+    # --full: every program runs on every mutant, so killed_by names every test that catches an
+    # edit, independently of the order the programs ran in (a first-kill run names none).
+    entry(RUN, "story/plus", "story-plus", ["kink", "run", "--full", "--output", "verdicts", "--locked"])
     for variant, fixture, package in variants(story):
         for test in story["test"]:
             entry(f"story-{variant}-{test['id']}", fixture, package, ["run", corpus[test["id"]]])
@@ -152,29 +219,36 @@ def rule_names() -> list[str]:
     return re.findall(r"'([^']+)'", found.group(1))
 
 
-def fired_rules(story: dict) -> dict[str, list[str]]:
-    """Each story test's rules: its case's `fired` in the recorded verdicts, in `ruleNames` order."""
+def recorded_verdicts(identifier: str, verb: str) -> dict:
+    """The recorded `krs kink <verb> --output verdicts` of `identifier`, with an admitted spec."""
 
-    path = OUTPUTS / f"{VERDICTS}.txt"
+    path = OUTPUTS / f"{identifier}.txt"
     if not path.is_file():
-        fail(f"no recorded output {VERDICTS}; run python3 scripts/record-outputs.py --write")
+        fail(f"no recorded output {identifier}; run python3 scripts/record-outputs.py --write")
     command, _, rendering = path.read_text(encoding="utf-8").partition("\n")
     exits = [line for line in rendering.splitlines() if line.startswith("exit status ")]
     if exits:
-        fail(f"recorded output {VERDICTS}: krs kink results ended with {exits[-1]}; it reads:\n{rendering}")
+        fail(f"recorded output {identifier}: krs kink {verb} ended with {exits[-1]}; it reads:\n{rendering}")
     words = command.split()
-    if words[:3] != ["$", "krs", "kink"] or "results" not in words:
-        fail(f"recorded output {VERDICTS} does not start with its `$ krs kink ... results` line")
+    if words[:3] != ["$", "krs", "kink"] or verb not in words:
+        fail(f"recorded output {identifier} does not start with its `$ krs kink ... {verb}` line")
     try:
         verdicts = tomllib.loads(rendering)
     except tomllib.TOMLDecodeError as error:
-        fail(f"recorded output {VERDICTS} is not a verdicts rendering ({error}); it reads:\n{rendering}")
-    if verdicts.get("schema") != "kink-flow-verdicts" or verdicts.get("document") != "results":
-        fail(f"recorded output {VERDICTS} is not the verdicts rendering of a results document")
+        fail(f"recorded output {identifier} is not a verdicts rendering ({error}); it reads:\n{rendering}")
+    if verdicts.get("schema") != "kink-flow-verdicts" or verdicts.get("document") != verb:
+        fail(f"recorded output {identifier} is not the verdicts rendering of a {verb} document")
     spec = verdicts.get("spec", {})
     if spec.get("outcome") != "admitted":
-        fail(f"recorded output {VERDICTS}: the specification is {spec.get('outcome')} "
+        fail(f"recorded output {identifier}: the specification is {spec.get('outcome')} "
              f"(stage {spec.get('stage')}, reason {spec.get('reason')})")
+    return verdicts
+
+
+def fired_rules(story: dict) -> dict[str, list[str]]:
+    """Each story test's rules: its case's `fired` in the recorded verdicts, in `ruleNames` order."""
+
+    verdicts = recorded_verdicts(VERDICTS, "results")
     recorded = {case["id"]: case for case in verdicts.get("case", [])}
     tests = [test["id"] for test in story["test"]]
     extra = sorted(set(recorded) - set(tests))
@@ -198,7 +272,50 @@ def fired_rules(story: dict) -> dict[str, list[str]]:
     return rules
 
 
-def generated_data(story: dict, corpus: dict[str, str], rules: dict[str, list[str]]) -> str:
+def killers(story: dict) -> dict[str, list[str]]:
+    """Each story edit's catching tests: its mutation's `killed_by` in the recorded full run.
+
+    A full run judges every test on every mutation, so `killed_by` is every test whose result
+    kink proves differs, in corpus order (story.toml's test order); a survived mutation has none.
+    Any other status decides nothing about the edit and fails, naming it.
+    """
+
+    verdicts = recorded_verdicts(RUN, "run")
+    if verdicts.get("schedule") != "full":
+        fail(f"recorded output {RUN} is a {verdicts.get('schedule')} run; the story needs `--full`, "
+             "which names every test that catches an edit")
+    listing = verdicts.get("mutation_list", {"outcome": "ok"})
+    if listing.get("outcome") != "ok":
+        fail(f"recorded output {RUN}: the mutation list is {listing.get('outcome')}")
+    if "stopped" in verdicts:
+        stopped = verdicts["stopped"]
+        fail(f"recorded output {RUN}: the run stopped at {stopped.get('mutation')} ({stopped.get('reason')})")
+    tests = [test["id"] for test in story["test"]]
+    rows = verdicts.get("mutation", [])
+    qualified = [f"{TOPIC}/{mutation['id']}" for mutation in story["mutation"]]
+    if [row.get("id") for row in rows] != qualified:
+        fail(f"recorded output {RUN} judges the mutations {[row.get('id') for row in rows]}; "
+             f"the story's edits are {qualified}")
+    found = {}
+    for mutation, row in zip(story["mutation"], rows):
+        status = row.get("status")
+        if status == "survived":
+            found[mutation["id"]] = []
+            continue
+        if status != "killed":
+            fail(f"edit {mutation['id']}: its mutation {row['id']} is {status} in {RUN}, neither killed nor survived")
+        caught = row.get("killed_by")
+        if not isinstance(caught, list) or not caught:
+            fail(f"edit {mutation['id']}: its mutation {row['id']} is killed with no `killed_by` in {RUN}")
+        unknown = [test for test in caught if test not in tests]
+        if unknown:
+            fail(f"edit {mutation['id']} is killed by {unknown}, which story.toml has no test for")
+        found[mutation["id"]] = [test for test in tests if test in caught]
+    return found
+
+
+def generated_data(story: dict, corpus: dict[str, str], rules: dict[str, list[str]],
+                   caught_by: dict[str, list[str]], why: dict[str, str]) -> str:
     ids = output_ids(story)
     tests = [
         {
@@ -210,15 +327,17 @@ def generated_data(story: dict, corpus: dict[str, str], rules: dict[str, list[st
         for test in story["test"]
     ]
     mutations = [
-        {key: mutation[key] for key in ("id", "rule", "label", "why")}
-        | {"displayOld": mutation["display_old"], "displayNew": mutation["display_new"]}
+        {key: mutation[key] for key in ("id", "rule", "label")}
+        | {"why": why[mutation["id"]], "displayOld": mutation["display_old"],
+           "displayNew": mutation["display_new"], "caughtBy": caught_by[mutation["id"]]}
         for mutation in story["mutation"]
     ]
     imports = [f"import output{index} from '../snippets/outputs/{name}.txt?raw'" for index, name in enumerate(ids)]
     table = ",\n".join(f"  {json.dumps(name)}: output{index}" for index, name in enumerate(ids))
     return "\n".join([
-        "// Generated by scripts/sync-story.py from story/story.toml, the cases of story/plus/kink/ and",
-        f"// the recorded output {VERDICTS} (each test's rules). Do not edit.",
+        "// Generated by scripts/sync-story.py from story/story.toml, the cases and mutations of",
+        f"// story/plus/kink/, and the recorded outputs {VERDICTS} (each test's rules) and",
+        f"// {RUN} (the tests that catch each edit). Do not edit.",
         *imports,
         "",
         f"export const storyTests = {json.dumps(tests, indent=2)} as const",
@@ -242,17 +361,89 @@ def run_result(identifier: str) -> str:
     return lines[lines.index("<k>") + 1].strip().removesuffix(" ~> .K")
 
 
-def check_expectations(story: dict) -> None:
+def label_components(label: str) -> list[str]:
+    """A K label's components, separated by `--` or `.`, as kink reads an anchor's."""
+
+    return [part for chunk in label.split(".") for part in chunk.split("--")]
+
+
+def patched(definition: str, mutation: dict) -> str:
+    """`definition` with the K patch `mutation` applied, as kink resolves it for the story.
+
+    Each edit is anchored by `rule` (a label or a whole-component suffix of one) and replaces the
+    one occurrence of `find` in that rule's sentence, which KRS emits on one line. An edit of
+    another form is not one the story writes, and fails.
+    """
+
+    lines = definition.split("\n")
+    for edit in mutation.get("edit", []):
+        if set(edit) != {"rule", "find", "replace"}:
+            fail(f"mutation {TOPIC}/{mutation['id']}: an edit of the story is `rule`, `find` and `replace`; "
+                 f"it has {sorted(edit)}")
+        anchor = label_components(edit["rule"])
+        held = []
+        for index, line in enumerate(lines):
+            found = re.search(r"\[label\(([^)]*)\)\]", line)
+            if line.lstrip().startswith("rule ") and found:
+                components = label_components(found.group(1))
+                if components[-len(anchor):] == anchor:
+                    held.append(index)
+        if len(held) != 1:
+            fail(f"mutation {TOPIC}/{mutation['id']}: `rule = {edit['rule']!r}` names {len(held)} one-line rules "
+                 "of plus/kink/definition.k, not one")
+        line = lines[held[0]]
+        if line.count(edit["find"]) != 1:
+            fail(f"mutation {TOPIC}/{mutation['id']}: {edit['find']!r} occurs {line.count(edit['find'])} times "
+                 f"in its rule, not once: {line.strip()}")
+        lines[held[0]] = line.replace(edit["find"], edit["replace"])
+    return "\n".join(lines)
+
+
+def emitted_k(identifier: str) -> str:
+    """The `definition.k` the recorded `krs emit-k` output `identifier` shows."""
+
+    path = OUTPUTS / f"{identifier}.txt"
+    if not path.is_file():
+        fail(f"no recorded output {identifier}; run python3 scripts/record-outputs.py --write")
+    text = path.read_text(encoding="utf-8")
+    marker = "\n$ cat target/krs-k/definition.k\n"
+    if "exit status" in text.split(marker, 1)[0] or marker not in text:
+        fail(f"recorded output {identifier} does not show an emitted definition.k; it reads:\n{text}")
+    return text.split(marker, 1)[1]
+
+
+def check_expectations(story: dict, caught_by: dict[str, list[str]]) -> None:
     proof = (OUTPUTS / "story-prove.txt").read_text(encoding="utf-8")
     if "NAT-CLAIMS-SPEC.add-one: proven" not in proof.splitlines() or "exit status" in proof:
         fail("the introduction's add-one claim must have a recorded proven result")
+    # The scenes show each edit in its Rust form, and kink judges its K patch: the Rust edit must
+    # emit exactly the K the patch writes. KRS names the package in the K's comments, and the
+    # edited copy is another package.
+    base = (CORPUS / "definition.k").read_text(encoding="utf-8")
+    patches = {mutation.get("id"): mutation for mutation in
+               tomllib.loads((MUTATIONS / f"{TOPIC}.toml").read_text(encoding="utf-8")).get("mutation", [])}
     for mutation in story["mutation"]:
-        caught = [
+        package = f"story-plus-mutant-{mutation['id']}"
+        emitted = emitted_k(f"story-emit-k-{mutation['id']}").replace(package, "story-plus")
+        expected = patched(base, patches[mutation["id"]])
+        if emitted != expected:
+            diff = "\n".join(difflib.unified_diff(expected.splitlines(), emitted.splitlines(),
+                                                  f"plus/kink/definition.k with {TOPIC}/{mutation['id']}",
+                                                  f"story/mutants/{mutation['id']}", lineterm=""))
+            fail(f"edit {mutation['id']}: story/mutants/{mutation['id']} emits other K than its mutation "
+                 f"{TOPIC}/{mutation['id']} writes; the Rust edit in story.toml and the K patch must be the same "
+                 f"edit:\n{diff}")
+    # The scenes show each cell's result from the Rust edit's package and mark it caught from
+    # kink's verdict on the K patch; the two must agree on every test.
+    for mutation in story["mutation"]:
+        changed = [
             test["id"] for test in story["test"]
             if run_result(f"story-{mutation['id']}-{test['id']}") != run_result(f"story-base-{test['id']}")
         ]
-        if caught != mutation["caught_by"]:
-            fail(f"edit {mutation['id']} is caught by {caught}, but story.toml says {mutation['caught_by']}")
+        if changed != caught_by[mutation["id"]]:
+            fail(f"edit {mutation['id']}: krs run of story/mutants/{mutation['id']} changes the result of {changed}, "
+                 f"but kink kills its mutation {TOPIC}/{mutation['id']} with {caught_by[mutation['id']]} ({RUN}); "
+                 "the Rust edit in story.toml and the K patch must be the same edit")
 
 
 def sync(write: bool) -> None:
@@ -266,11 +457,12 @@ def sync(write: bool) -> None:
         fail(f"{MANIFEST.name} must contain one {START} / {END} block")
     start, end = manifest.index(START), manifest.index(END) + len(END)
     expected[MANIFEST] = manifest[:start] + manifest_block(story, corpus) + manifest[end:]
-    # The rules come from a recorded output of the manifest block above, so --write writes the
-    # rest first when that output is missing or does not decide them.
+    # The rules and the killers come from recorded outputs of the manifest block above, so
+    # --write writes the rest first when an output is missing or does not decide them.
+    why = misunderstandings(story)
     underived = None
     try:
-        expected[GENERATED] = generated_data(story, corpus, fired_rules(story))
+        expected[GENERATED] = generated_data(story, corpus, fired_rules(story), killers(story), why)
     except Failure as failure:
         if not write:
             raise
@@ -308,8 +500,8 @@ def sync(write: bool) -> None:
     if stale or leftover:
         names = ", ".join(str(path.relative_to(SITE)) for path in stale + leftover)
         fail(f"stale: {names}; run python3 scripts/sync-story.py --write")
-    check_expectations(story)
-    print(f"PASS story: {len(story['mutation'])} edits, {len(story['test'])} tests, expectations match krs")
+    check_expectations(story, killers(story))
+    print(f"PASS story: {len(story['mutation'])} edits, {len(story['test'])} tests, the data agree with krs")
 
 
 def main() -> None:

@@ -1,0 +1,31 @@
+# The edits the introduction's mutation scenes make to the `plus` specification, as K patches
+# of kink/definition.k anchored by the KRS items `plus_zero` and `plus_succ`. `krs kink run`
+# judges each against the corpus of ../FLOW.toml; the recorded output story-kink-run gives
+# each edit's killers, which scripts/sync-story.py writes into the story data.
+
+[[mutation]]
+id = "a"
+misunderstanding = "forgets what the base case returns"
+
+  [[mutation.edit]]
+  rule = "plus_zero"
+  find = "=> N:Nat"
+  replace = "=> zero"
+
+[[mutation]]
+id = "b"
+misunderstanding = "loses one at every step"
+
+  [[mutation.edit]]
+  rule = "plus_succ"
+  find = "s ( plus ( M:Nat , N:Nat ) )"
+  replace = "plus ( M:Nat , N:Nat )"
+
+[[mutation]]
+id = "c"
+misunderstanding = "stops recursing after one step"
+
+  [[mutation.edit]]
+  rule = "plus_succ"
+  find = "s ( plus ( M:Nat , N:Nat ) )"
+  replace = "s ( N:Nat )"

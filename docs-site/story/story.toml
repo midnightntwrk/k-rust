@@ -2,9 +2,9 @@
 # AI writes for it, and the edits the mutation scenes make to it.
 #
 # `python3 scripts/sync-story.py --write` generates mutants/<id>/ (plus/ with one edit) and
-# src/generated/story.ts from this file; without --write it checks that both are current and
-# that every expectation below matches the krs outputs recorded for the story
-# (recorded-outputs.toml, ids story-<variant>-<test>).
+# src/generated/story.ts from this file, the corpus in plus/kink/ and the krs outputs recorded
+# for the story (recorded-outputs.toml, ids story-*); without --write it checks that both are
+# current and that each edit's two forms below are one edit.
 
 # The corpus, in the order the AI writes it. A test is a case of plus/kink/FLOW.toml, with the
 # same id; the rules it fires are those `krs kink results` reports for it (the recorded output
@@ -23,37 +23,39 @@ id = "t4"
 # Written during the climb, to catch the edit that t1 to t3 miss.
 climb = true
 
-# Edits to the specification. `old` must occur exactly once in plus/src/lib.rs; `display_old`
-# and `display_new` are the same edit in the paper notation the scenes use.
+# The edits, in the order of plus/kink/mutations/plus.toml. Each is the mutation of that file
+# with the same id, a K patch of plus/kink/definition.k anchored by `rule`, whose
+# misunderstanding the scenes quote; the tests that catch it are its `killed_by` in the recorded
+# `krs kink run --full` (story-kink-run), which sync-story.py writes into the story data.
+# `display_old` and `display_new` are the edit in the paper notation the scenes use.
+# `old` and `new` are the same edit of plus/src/lib.rs, from which sync-story.py generates
+# mutants/<id>/, the package whose `krs run` outputs the scenes show in each cell; `old` must
+# occur exactly once in plus/src/lib.rs, mutants/<id>/ must emit plus/kink/definition.k with
+# the mutation's patch applied, and the tests whose result changes there must be exactly the
+# edit's killers.
 [[mutation]]
 id = "a"
 rule = "plus_zero"
 label = "plus_zero returns zero"
-why = "forgets what the base case returns"
 old = "    n\n}"
 new = "    NatSyntax::Zero()\n}"
 display_old = "n"
 display_new = "zero"
-caught_by = ["t2", "t3", "t4"]
 
 [[mutation]]
 id = "b"
 rule = "plus_succ"
 label = "plus_succ drops s"
-why = "loses one at every step"
 old = "    NatSyntax::Succ(Plus(m, n))\n"
 new = "    Plus(m, n)\n"
 display_old = "s(plus(m, n))"
 display_new = "plus(m, n)"
-caught_by = ["t3", "t4"]
 
 [[mutation]]
 id = "c"
 rule = "plus_succ"
 label = "plus_succ ignores m"
-why = "stops recursing after one step"
 old = "    NatSyntax::Succ(Plus(m, n))\n"
 new = "    NatSyntax::Succ(n)\n"
 display_old = "s(plus(m, n))"
 display_new = "s(n)"
-caught_by = ["t4"]
