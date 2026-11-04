@@ -56,7 +56,7 @@
 //! readable record's top-level map read has no result side and reads its value as a fresh
 //! binder.
 
-use krs_ir::cell_kind::{GroupKind, Layer, Notation, Order};
+use krs_ir::cell_kind::{CellKind, GroupKind, Layer, Notation, Order};
 
 pub use krs_ir::cell_kind::EntryKind;
 
@@ -214,6 +214,24 @@ impl Refusal {
             Self::MapCollectionKey => "map-collection-key",
             Self::MapReadValueBinder => "map-read-value-binder",
         }
+    }
+}
+
+impl Refusal {
+    /// Whether the refusal is the form step's ([`admit_form`]): what the spelling and its side
+    /// alone refuse, judged without the cell's declaration. Whether a record the entry writes
+    /// is a group's, and so whether its fields are cells, is the declaration's, so a form
+    /// refusal is about the entry's own cell, at the construct it refuses.
+    #[must_use]
+    pub const fn is_form(self) -> bool {
+        matches!(
+            self,
+            Self::WildcardOutsidePattern
+                | Self::AliasOutsidePattern
+                | Self::NoneInInitializer
+                | Self::InitializerRemainder
+                | Self::AnonymousRestInMapLiteral
+        )
     }
 }
 
@@ -425,6 +443,93 @@ impl Refusal {
             ),
         }
     }
+}
+
+/// The step from a sequence or a map to its rest (`..`, `name @ ..`, `..name`), which is no
+/// spelling of its own: [`Located::at`]'s last step where a rest is refused.
+pub const REST: usize = usize::MAX;
+
+/// A refusal and where inside the entry's spelling it is raised.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Located {
+    /// The refusal.
+    pub refusal: Refusal,
+    /// The path from the entry's value to the spelling the refusal is raised at, each step the
+    /// index of a spelling among those directly inside the one before (a record's fields, a
+    /// sequence's items, a map's keys and values in turn, an application's arguments, and the one
+    /// spelling inside `Some(..)`, `Cell(..)`, `k::absent!(..)` or `name @ ..`), or [`REST`]:
+    /// empty at the entry's value.
+    pub at: Vec<usize>,
+}
+
+/// A cell whose entry stands inside another entry's spelling: a child of a group record or of an
+/// instance record at a configuration position (P1).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NestedCell<'k> {
+    /// The child's name.
+    pub name: &'k str,
+    /// The child's kind.
+    pub kind: &'k CellKind,
+    /// How many steps of the path lead from the outer entry's value to the child's.
+    pub depth: usize,
+}
+
+/// The spelling at `at` ([`Located::at`]) inside `spelling`; `None` where the path leads to a
+/// rest or to no spelling.
+#[must_use]
+pub fn spelling_at<'s>(spelling: &'s EntrySpelling, at: &[usize]) -> Option<&'s EntrySpelling> {
+    at.iter().try_fold(spelling, |spelling, &step| {
+        inner(spelling).get(step).copied()
+    })
+}
+
+/// The innermost cell whose entry holds the spelling at `at` ([`Located::at`]) inside the entry
+/// `spelling` of a cell of the layers `stack`; `None` where that is the entry's own cell. The
+/// children of the group and instance records the entry writes are entries of their own cells
+/// (P1): a refusal raised inside one is about that cell's content, and names it.
+#[must_use]
+pub fn nested_cell<'k>(
+    stack: &'k [Layer],
+    spelling: &EntrySpelling,
+    at: &[usize],
+) -> Option<NestedCell<'k>> {
+    let mut layers = stack;
+    let mut spelling = spelling;
+    let mut found = None;
+    for (depth, &step) in at.iter().enumerate() {
+        let Some(&next) = inner(spelling).get(step) else {
+            break;
+        };
+        match (layers, spelling) {
+            (_, EntrySpelling::Alias(..)) => {}
+            (
+                [Layer::Optional, below @ ..],
+                EntrySpelling::Present(_) | EntrySpelling::Absent(_),
+            ) => layers = below,
+            ([Layer::Instances(_), below @ ..], _) if sequence(spelling).is_some() => {
+                layers = below;
+            }
+            (
+                [Layer::Group(group), ..],
+                EntrySpelling::Record(record) | EntrySpelling::Fragment(record),
+            ) if record.head == group.name => {
+                let (name, _) = &record.fields[step];
+                let Some((name, kind)) = group.children.iter().find(|(child, _)| child == name)
+                else {
+                    break;
+                };
+                layers = &kind.layers;
+                found = Some(NestedCell {
+                    name,
+                    kind,
+                    depth: depth + 1,
+                });
+            }
+            _ => break,
+        }
+        spelling = next;
+    }
+    found
 }
 
 /// The content of a cell of the layers `layers`, outermost first, in words with its article (a
@@ -679,13 +784,60 @@ struct Admission<'b> {
     sorted: bool,
     /// Whether the entry being judged is inside a collection's instance record.
     in_instance: bool,
+    /// Where the spelling being judged stands inside the entry ([`Located::at`]). A step is
+    /// pushed before the spelling it leads to is judged and popped once that spelling is
+    /// admitted, so a refusal leaves the path at the spelling it is raised at.
+    path: Vec<usize>,
 }
 
 impl Admission<'_> {
+    fn new<'b>(
+        form: EntryForm,
+        side: EntrySide,
+        bound: &'b dyn Fn(&str) -> Option<Bound>,
+        groups: &'b [GroupKind],
+    ) -> Admission<'b> {
+        Admission {
+            form,
+            side,
+            bound,
+            groups,
+            sorted: false,
+            in_instance: false,
+            path: Vec::new(),
+        }
+    }
+
+    /// `judge` over the spelling at the step `step` inside the one being judged.
+    fn within<T>(
+        &mut self,
+        step: usize,
+        judge: impl FnOnce(&mut Self) -> Result<T, Refusal>,
+    ) -> Result<T, Refusal> {
+        self.path.push(step);
+        let judged = judge(self)?;
+        self.path.pop();
+        Ok(judged)
+    }
+
+    /// The refusal `refusal`, raised at the spelling the path reaches.
+    fn located(&self, refusal: Refusal) -> Located {
+        Located {
+            refusal,
+            at: self.path.clone(),
+        }
+    }
+
     /// Step 1, over the whole spelling.
-    fn form(&self, spelling: &EntrySpelling) -> Result<(), Refusal> {
+    fn form(&mut self, spelling: &EntrySpelling) -> Result<(), Refusal> {
         let pattern = self.side == EntrySide::Subject;
         let initializer = self.side == EntrySide::Initializer;
+        let named_rest = matches!(
+            sequence(spelling)
+                .and_then(|seq| seq.rest.as_ref().map(|(rest, _)| rest))
+                .or_else(|| map_entries(spelling).and_then(|map| map.rest.as_ref())),
+            Some(EntryRest::Named(_))
+        );
         match spelling {
             EntrySpelling::Wild if !pattern => return Err(Refusal::WildcardOutsidePattern),
             EntrySpelling::Missing if initializer => return Err(Refusal::NoneInInitializer),
@@ -693,15 +845,9 @@ impl Admission<'_> {
             // result keeps the subject's anonymous rest with `..` and puts a named one back with
             // `..name`; the subject drops a rest by naming it `_rest @ ..` and not putting it
             // back. An initializer is a result with no subject: nothing in it is a pattern.
-            _ if !pattern
-                && (matches!(spelling, EntrySpelling::Alias(..))
-                    || matches!(
-                        sequence(spelling)
-                            .and_then(|seq| seq.rest.as_ref().map(|(rest, _)| rest))
-                            .or_else(|| map_entries(spelling).and_then(|map| map.rest.as_ref())),
-                        Some(EntryRest::Named(_))
-                    )) =>
-            {
+            EntrySpelling::Alias(..) if !pattern => return Err(Refusal::AliasOutsidePattern),
+            _ if !pattern && named_rest => {
+                self.path.push(REST);
                 return Err(Refusal::AliasOutsidePattern);
             }
             // An initializer's value is the whole initial content: it keeps no unwritten rest
@@ -709,6 +855,7 @@ impl Admission<'_> {
             EntrySpelling::KMacro(seq) | EntrySpelling::Brackets(seq)
                 if initializer && matches!(seq.rest, Some((EntryRest::Anonymous, _))) =>
             {
+                self.path.push(REST);
                 return Err(Refusal::InitializerRemainder);
             }
             // Its computation splices no configuration variable's, `k::k![x, ..pgm]`: an
@@ -716,6 +863,7 @@ impl Admission<'_> {
             EntrySpelling::KMacro(seq)
                 if initializer && matches!(seq.rest, Some((EntryRest::Splice(_), _))) =>
             {
+                self.path.push(REST);
                 return Err(Refusal::InitializerRemainder);
             }
             // `..` names the rest of a map only where a `cells!` pattern frames one. A `cells!`
@@ -730,9 +878,10 @@ impl Admission<'_> {
             }
             _ => {}
         }
-        inner(spelling)
-            .into_iter()
-            .try_for_each(|one| self.form(one))
+        for (step, one) in inner(spelling).into_iter().enumerate() {
+            self.within(step, |admission| admission.form(one))?;
+        }
+        Ok(())
     }
 
     /// Step 2 against `stack`, outermost layer first.
@@ -743,7 +892,7 @@ impl Admission<'_> {
         head: bool,
     ) -> Result<(), Refusal> {
         if let EntrySpelling::Alias(_, pattern) = spelling {
-            return self.kind(stack, pattern, head);
+            return self.within(0, |admission| admission.kind(stack, pattern, head));
         }
         let Some((outer, below)) = stack.split_first() else {
             return self.value(spelling);
@@ -767,10 +916,12 @@ impl Admission<'_> {
         }
         match (outer, spelling) {
             (Layer::Optional, EntrySpelling::Present(content) | EntrySpelling::Absent(content)) => {
-                self.kind(below, content, head)
+                self.within(0, |admission| admission.kind(below, content, head))
             }
             (Layer::Optional, _) => Ok(()),
-            (Layer::Leaf(notation), EntrySpelling::Cell(content)) => self.leaf(*notation, content),
+            (Layer::Leaf(notation), EntrySpelling::Cell(content)) => {
+                self.within(0, |admission| admission.leaf(*notation, content))
+            }
             (Layer::Instances(order), _) => self.instances(*order, below, spelling),
             (Layer::Leaf(_), EntrySpelling::MapRead(map)) => {
                 // Both limitations are the readable record's top-level route's; inside an
@@ -795,13 +946,18 @@ impl Admission<'_> {
             (Layer::Computation, _) => self.computation(spelling),
             (Layer::Leaf(notation), EntrySpelling::Brackets(seq)) => {
                 cons_front(*notation, seq)?;
-                seq.items.iter().try_for_each(|item| self.value(item))
+                self.items(seq)
             }
-            _ => sequence(spelling)
-                .into_iter()
-                .flat_map(|seq| &seq.items)
-                .try_for_each(|item| self.value(item)),
+            _ => sequence(spelling).map_or(Ok(()), |seq| self.items(seq)),
         }
+    }
+
+    /// Each item of `seq`, a value.
+    fn items(&mut self, seq: &EntrySeq) -> Result<(), Refusal> {
+        for (step, item) in seq.items.iter().enumerate() {
+            self.within(step, |admission| admission.value(item))?;
+        }
+        Ok(())
     }
 
     /// Whether an entry whose head carries `mark` lacks the layer `outer`, above `below`: a value
@@ -845,7 +1001,7 @@ impl Admission<'_> {
                     return Err(Refusal::BracketReading);
                 }
                 cons_front(notation, seq)?;
-                seq.items.iter().try_for_each(|item| self.value(item))
+                self.items(seq)
             }
             EntrySpelling::MapLiteral(map) => {
                 if notation != Notation::Map {
@@ -868,26 +1024,35 @@ impl Admission<'_> {
         let seq = sequence(spelling).expect("an instance mark is a sequence");
         // A List collection's items after its rest are its back instances (P2): which ends a
         // rule changes is the pairing's ([`list_ends`]).
-        for item in &seq.items {
-            let item = match item {
-                EntrySpelling::Alias(_, pattern) => pattern,
-                other => other,
-            };
-            match (item, below.first()) {
-                (
-                    EntrySpelling::Record(_) | EntrySpelling::Fragment(_),
-                    Some(Layer::Group(group)),
-                ) => {
-                    let outer = std::mem::replace(&mut self.in_instance, true);
-                    let judged = self.group(group, item);
-                    self.in_instance = outer;
-                    judged?;
+        for (step, item) in seq.items.iter().enumerate() {
+            self.within(step, |admission| {
+                let (item, aliased) = match item {
+                    EntrySpelling::Alias(_, pattern) => (&**pattern, true),
+                    other => (other, false),
+                };
+                if aliased {
+                    admission.path.push(0);
                 }
-                // One instance of an ordered collection is its front one.
-                _ if order == Order::List => self.value(item)?,
-                // An unordered collection's instance is chosen by a written record.
-                _ => return Err(Refusal::InstanceListShape),
-            }
+                match (item, below.first()) {
+                    (
+                        EntrySpelling::Record(_) | EntrySpelling::Fragment(_),
+                        Some(Layer::Group(group)),
+                    ) => {
+                        let outer = std::mem::replace(&mut admission.in_instance, true);
+                        let judged = admission.group(group, item);
+                        admission.in_instance = outer;
+                        judged?;
+                    }
+                    // One instance of an ordered collection is its front one.
+                    _ if order == Order::List => admission.value(item)?,
+                    // An unordered collection's instance is chosen by a written record.
+                    _ => return Err(Refusal::InstanceListShape),
+                }
+                if aliased {
+                    admission.path.pop();
+                }
+                Ok(())
+            })?;
         }
         Ok(())
     }
@@ -895,7 +1060,7 @@ impl Admission<'_> {
     /// Brackets, `KCell(..)` or `k::k![..]` on a computation.
     fn computation(&mut self, spelling: &EntrySpelling) -> Result<(), Refusal> {
         let seq = sequence(spelling).expect("a computation's mark is a sequence");
-        seq.items.iter().try_for_each(|item| self.value(item))?;
+        self.items(seq)?;
         // A readable rule never drops or captures the continuation.
         if self.form.is_readable()
             && matches!(
@@ -903,11 +1068,13 @@ impl Admission<'_> {
                 Some((EntryRest::Named(_) | EntryRest::Splice(_), _))
             )
         {
+            self.path.push(REST);
             return Err(Refusal::ContinuationInReadable);
         }
         // The computation is read from its front, where the next step is, in every form: `..`
         // ends it and no item follows (E1).
         if !seq.back().is_empty() {
+            self.path.push(seq.items.len() - seq.back().len());
             return Err(Refusal::ComputationBackItem);
         }
         Ok(())
@@ -927,34 +1094,48 @@ impl Admission<'_> {
             }
             _ => return self.value(spelling),
         };
-        for (name, value) in &record.fields {
+        for (step, (name, value)) in record.fields.iter().enumerate() {
             let child = group.child(name).map_or(&[][..], |kind| &kind.layers[..]);
-            self.kind(child, value, false)?;
+            self.within(step, |admission| admission.kind(child, value, false))?;
         }
         names_every_child(record, group)
     }
 
     fn entries(&mut self, map: &EntryMap) -> Result<(), Refusal> {
-        map.entries.iter().try_for_each(|(key, value)| {
-            self.value(key)?;
-            self.value(value)
-        })
+        for (index, (key, value)) in map.entries.iter().enumerate() {
+            self.within(2 * index, |admission| admission.value(key))?;
+            self.within(2 * index + 1, |admission| admission.value(value))?;
+        }
+        Ok(())
     }
 
     /// A value position: `_` and a fresh readable name take the position's sort. In a result
     /// the value is a built term, and a record in it whose bare `..` leaves a field open is
-    /// refused: a bare `..` in a result is Rust's default fields, which only a created instance
-    /// has, and a term's record is no instance. A `..` after every field defaults none.
+    /// refused, at that record: a bare `..` in a result is Rust's default fields, which only a
+    /// created instance has, and a term's record is no instance. A `..` after every field
+    /// defaults none.
     fn value(&mut self, spelling: &EntrySpelling) -> Result<(), Refusal> {
         match spelling {
             EntrySpelling::Wild => {}
             EntrySpelling::Binder(name) => {
                 self.sorted |= self.form == EntryForm::Cells || (self.bound)(name).is_some();
             }
-            EntrySpelling::Alias(_, pattern) => return self.value(pattern),
+            EntrySpelling::Alias(_, pattern) => {
+                return self.within(0, |admission| admission.value(pattern));
+            }
             _ => self.sorted = true,
         }
-        if self.side == EntrySide::Result && open_record(spelling, self.groups) {
+        if self.side == EntrySide::Result {
+            self.term(spelling)?;
+        }
+        Ok(())
+    }
+
+    /// A built term takes no record whose bare `..` leaves a field open: refused at the first
+    /// such record ([`open_record`]).
+    fn term(&mut self, spelling: &EntrySpelling) -> Result<(), Refusal> {
+        if let Some(at) = open_record(spelling, self.groups) {
+            self.path.extend(at);
             return Err(Refusal::OpenRecordOutsidePattern);
         }
         Ok(())
@@ -963,45 +1144,57 @@ impl Admission<'_> {
     /// The terms inside a result's fragment of `group`: a child's own group record (or
     /// fragment), a `?` child's `Some(..)` and a collection child's instance records are its
     /// cell's records, whose `..` pairing judges; every other value is a term, which takes no
-    /// bare `..` that leaves a field open ([`Self::value`]).
-    fn fragment_terms(&self, group: &GroupKind, record: &EntryRecord) -> Result<(), Refusal> {
+    /// bare `..` that leaves a field open ([`Self::term`]).
+    fn fragment_terms(&mut self, group: &GroupKind, record: &EntryRecord) -> Result<(), Refusal> {
         if self.side != EntrySide::Result {
             return Ok(());
         }
-        record.fields.iter().try_for_each(|(name, value)| {
-            group
-                .child(name)
-                .map_or(Ok(()), |kind| self.cell_terms(&kind.layers, value))
-        })
+        for (step, (name, value)) in record.fields.iter().enumerate() {
+            if let Some(kind) = group.child(name) {
+                self.within(step, |admission| admission.cell_terms(&kind.layers, value))?;
+            }
+        }
+        Ok(())
     }
 
-    fn cell_terms(&self, stack: &[Layer], spelling: &EntrySpelling) -> Result<(), Refusal> {
-        let spelling = unaliased(spelling);
-        let term = |spelling: &EntrySpelling| {
-            if open_record(spelling, self.groups) {
-                Err(Refusal::OpenRecordOutsidePattern)
-            } else {
-                Ok(())
-            }
-        };
+    fn cell_terms(&mut self, stack: &[Layer], spelling: &EntrySpelling) -> Result<(), Refusal> {
+        if let EntrySpelling::Alias(_, pattern) = spelling {
+            return self.within(0, |admission| admission.cell_terms(stack, pattern));
+        }
         match (stack, spelling) {
-            ([Layer::Group(group), ..], _) => record_of(spelling, group).map_or_else(
-                || term(spelling),
-                |record| self.fragment_terms(group, record),
-            ),
+            ([Layer::Group(group), ..], _) => match record_of(spelling, group) {
+                Some(record) => self.fragment_terms(group, record),
+                None => self.term(spelling),
+            },
             ([Layer::Optional, below @ ..], EntrySpelling::Present(content)) => {
-                self.cell_terms(below, content)
+                self.within(0, |admission| admission.cell_terms(below, content))
             }
-            ([Layer::Instances(_), Layer::Group(group), ..], _) => sequence(spelling).map_or_else(
-                || term(spelling),
-                |seq| {
-                    seq.items.iter().try_for_each(|item| {
-                        record_of(item, group)
-                            .map_or_else(|| term(item), |record| self.fragment_terms(group, record))
-                    })
-                },
-            ),
-            _ => term(spelling),
+            ([Layer::Instances(_), Layer::Group(group), ..], _) => match sequence(spelling) {
+                Some(seq) => {
+                    for (step, item) in seq.items.iter().enumerate() {
+                        self.within(step, |admission| {
+                            let (item, aliased) = match item {
+                                EntrySpelling::Alias(_, pattern) => (&**pattern, true),
+                                other => (other, false),
+                            };
+                            if aliased {
+                                admission.path.push(0);
+                            }
+                            match record_of(item, group) {
+                                Some(record) => admission.fragment_terms(group, record)?,
+                                None => admission.term(item)?,
+                            }
+                            if aliased {
+                                admission.path.pop();
+                            }
+                            Ok(())
+                        })?;
+                    }
+                    Ok(())
+                }
+                None => self.term(spelling),
+            },
+            _ => self.term(spelling),
         }
     }
 }
@@ -1026,19 +1219,38 @@ pub fn admit(
     bound: &dyn Fn(&str) -> Option<Bound>,
     groups: &[GroupKind],
 ) -> Result<Admitted, Refusal> {
-    let mut admission = Admission {
-        form,
-        side,
-        bound,
-        groups,
-        sorted: false,
-        in_instance: false,
+    admit_located(form, side, path, stack, spelling, bound, groups)
+        .map_err(|located| located.refusal)
+}
+
+/// [`admit`], with where inside the spelling the refusal is raised.
+///
+/// # Errors
+///
+/// The refusal of the first step that refuses the entry, located.
+pub fn admit_located(
+    form: EntryForm,
+    side: EntrySide,
+    path: &[Layer],
+    stack: &[Layer],
+    spelling: &EntrySpelling,
+    bound: &dyn Fn(&str) -> Option<Bound>,
+    groups: &[GroupKind],
+) -> Result<Admitted, Located> {
+    let mut admission = Admission::new(form, side, bound, groups);
+    admission
+        .form(spelling)
+        .map_err(|refusal| admission.located(refusal))?;
+    admission
+        .kind(stack, spelling, true)
+        .map_err(|refusal| admission.located(refusal))?;
+    let at = |refusal| Located {
+        refusal,
+        at: Vec::new(),
     };
-    admission.form(spelling)?;
-    admission.kind(stack, spelling, true)?;
     match path.first() {
-        Some(Layer::Optional) => return Err(Refusal::BelowOptionalAncestor),
-        Some(_) => return Err(Refusal::BelowCollectionAncestor),
+        Some(Layer::Optional) => return Err(at(Refusal::BelowOptionalAncestor)),
+        Some(_) => return Err(at(Refusal::BelowCollectionAncestor)),
         None => {}
     }
     Ok(Admitted {
@@ -1160,10 +1372,11 @@ enum Other<'s> {
     Created,
 }
 
-/// Whether `spelling`, a term, holds a record (itself included) whose bare `..` leaves a field
-/// open ([`leaves_open`]). A record's fields are those of the group of `groups` its head names;
-/// a head that names none has no fields the record is known to name, so its `..` is open.
-fn open_record(spelling: &EntrySpelling, groups: &[GroupKind]) -> bool {
+/// Where `spelling`, a term, holds a record (itself included) whose bare `..` leaves a field
+/// open ([`leaves_open`]): the path to the first such record, in reading order. A record's
+/// fields are those of the group of `groups` its head names; a head that names none has no
+/// fields the record is known to name, so its `..` is open.
+fn open_record(spelling: &EntrySpelling, groups: &[GroupKind]) -> Option<Vec<usize>> {
     let open = match spelling {
         EntrySpelling::Record(record) | EntrySpelling::Fragment(record) => {
             record.tail == RecordTail::Open
@@ -1174,9 +1387,18 @@ fn open_record(spelling: &EntrySpelling, groups: &[GroupKind]) -> bool {
         }
         _ => false,
     };
-    open || inner(spelling)
+    if open {
+        return Some(Vec::new());
+    }
+    inner(spelling)
         .into_iter()
-        .any(|one| open_record(one, groups))
+        .enumerate()
+        .find_map(|(step, one)| {
+            open_record(one, groups).map(|mut at| {
+                at.insert(0, step);
+                at
+            })
+        })
 }
 
 /// `spelling` below an alias.
@@ -1308,6 +1530,7 @@ fn pair_content(
     spelling: &EntrySpelling,
     other: Other<'_>,
     bound: &dyn Fn(&str) -> Option<Bound>,
+    path: &mut Vec<usize>,
 ) -> Result<(), Refusal> {
     let anonymous = |root: Root<'_>| root == Root::Rest(&EntryRest::Anonymous);
     match other {
@@ -1333,7 +1556,7 @@ fn pair_content(
             }
         }
     }
-    pair_records(form, stack, spelling, other, bound)
+    pair_records(form, stack, spelling, other, bound, path)
 }
 
 /// The group and instance records a result's content writes: a group that exists takes no bare
@@ -1344,77 +1567,120 @@ fn pair_records(
     spelling: &EntrySpelling,
     other: Other<'_>,
     bound: &dyn Fn(&str) -> Option<Bound>,
+    path: &mut Vec<usize>,
 ) -> Result<(), Refusal> {
-    let fields = |group: &GroupKind, record: &EntryRecord, other: Other<'_>| {
-        record.fields.iter().try_for_each(|(name, value)| {
-            group.child(name).map_or(Ok(()), |kind| {
-                pair_content(form, &kind.layers, value, other.child(group, name), bound)
-            })
-        })
-    };
+    let fields =
+        |group: &GroupKind, record: &EntryRecord, other: Other<'_>, path: &mut Vec<usize>| {
+            for (step, (name, value)) in record.fields.iter().enumerate() {
+                if let Some(kind) = group.child(name) {
+                    path.push(step);
+                    pair_content(
+                        form,
+                        &kind.layers,
+                        value,
+                        other.child(group, name),
+                        bound,
+                        path,
+                    )?;
+                    path.pop();
+                }
+            }
+            Ok(())
+        };
     match (stack, spelling) {
         ([Layer::Optional, below @ ..], EntrySpelling::Present(content)) => {
-            pair_records(form, below, content, other.present(), bound)
+            path.push(0);
+            pair_records(form, below, content, other.present(), bound, path)?;
+            path.pop();
+            Ok(())
         }
         ([Layer::Group(group), ..], _) => {
             let Some(record) = record_of(spelling, group) else {
                 return Ok(());
             };
+            let aliased = matches!(spelling, EntrySpelling::Alias(..));
+            if aliased {
+                path.push(0);
+            }
             if leaves_open(record, group) && other != Other::Created {
                 return Err(Refusal::OpenRecordOutsidePattern);
             }
-            fields(group, record, other)
+            fields(group, record, other, path)?;
+            if aliased {
+                path.pop();
+            }
+            Ok(())
         }
-        ([Layer::Instances(order), Layer::Group(group), ..], _) => sequence(spelling)
-            .map_or(&[][..], |seq| &seq.items[..])
-            .iter()
-            .filter_map(|item| record_of(item, group))
-            .try_for_each(|record| {
+        ([Layer::Instances(order), Layer::Group(group), ..], _) => {
+            let items = sequence(spelling).map_or(&[][..], |seq| &seq.items[..]);
+            for (step, item) in items.iter().enumerate() {
+                let Some(record) = record_of(item, group) else {
+                    continue;
+                };
+                path.push(step);
+                if matches!(item, EntrySpelling::Alias(..)) {
+                    path.push(0);
+                }
                 let other = other
                     .instance(record, bound)
                     .ok_or(Refusal::RecordUpdateBase)?;
                 if !keyed(*order, group, record, other) {
                     return Err(Refusal::MapCollectionKey);
                 }
-                fields(group, record, other)
-            }),
+                fields(group, record, other, path)?;
+                if matches!(item, EntrySpelling::Alias(..)) {
+                    path.pop();
+                }
+                path.pop();
+            }
+            Ok(())
+        }
         _ => Ok(()),
     }
 }
 
-/// Whether `subject`, a subject's content on `stack`, tests a `?` child absent (`None`, inside a
+/// Where `subject`, a subject's content on `stack`, tests a `?` child absent (`None`, inside a
 /// group or instance record it writes) that `result`, the result's content of the same place
-/// (`None`: the result does not write it), does not create. K tests absence only by creating
-/// the cell, and a record's child is an entry of its own cell, so the result's same child must
-/// be present: the same group's record, the same `?` cell's content, or, in a collection, the
-/// result's update `..label` of the instance the subject labels `label`.
+/// (`None`: the result does not write it), does not create: the path to the first such `None`.
+/// K tests absence only by creating the cell, and a record's child is an entry of its own cell,
+/// so the result's same child must be present: the same group's record, the same `?` cell's
+/// content, or, in a collection, the result's update `..label` of the instance the subject
+/// labels `label`.
 fn absence_uncreated(
     stack: &[Layer],
     subject: &EntrySpelling,
     result: Option<&EntrySpelling>,
-) -> bool {
-    match (stack, unaliased(subject)) {
+) -> Option<Vec<usize>> {
+    let within = |step: usize, at: Option<Vec<usize>>| {
+        at.map(|mut at| {
+            at.insert(0, step);
+            at
+        })
+    };
+    if let EntrySpelling::Alias(_, pattern) = subject {
+        return within(0, absence_uncreated(stack, pattern, result));
+    }
+    match (stack, subject) {
         // P5 at the entry's own root as at a child: a `None` the result writes the cell over
         // creates it only as `Some(..)`, so a result `None` leaves the absence test without the
         // creation K tests absence by.
         ([Layer::Optional, ..], EntrySpelling::Missing) => result
-            .is_some_and(|result| !matches!(unaliased(result), EntrySpelling::Present(_))),
+            .is_some_and(|result| !matches!(unaliased(result), EntrySpelling::Present(_)))
+            .then(Vec::new),
         ([Layer::Optional, below @ ..], EntrySpelling::Present(inner)) => {
             let result = result.and_then(|result| match unaliased(result) {
                 EntrySpelling::Present(inner) => Some(&**inner),
                 _ => None,
             });
-            absence_uncreated(below, inner, result)
+            within(0, absence_uncreated(below, inner, result))
         }
-        ([Layer::Group(group), ..], _) => record_of(subject, group).is_some_and(|record| {
+        ([Layer::Group(group), ..], _) => record_of(subject, group).and_then(|record| {
             fields_uncreated(group, record, result.and_then(|result| record_of(result, group)))
         }),
         ([Layer::Instances(_), Layer::Group(group), ..], inner) => {
-            sequence(inner).is_some_and(|seq| {
-                seq.items.iter().any(|item| {
-                    let Some(record) = record_of(item, group) else {
-                        return false;
-                    };
+            sequence(inner).and_then(|seq| {
+                seq.items.iter().enumerate().find_map(|(step, item)| {
+                    let record = record_of(item, group)?;
                     let updated = match item {
                         EntrySpelling::Alias(label, _) => result
                             .and_then(|result| sequence(unaliased(result)))
@@ -1428,31 +1694,54 @@ fn absence_uncreated(
                             }),
                         _ => None,
                     };
-                    fields_uncreated(group, record, updated)
+                    let at = fields_uncreated(group, record, updated);
+                    let at = if matches!(item, EntrySpelling::Alias(..)) {
+                        within(0, at)
+                    } else {
+                        at
+                    };
+                    within(step, at)
                 })
             })
         }
-        _ => false,
+        _ => None,
     }
 }
 
 /// [`absence_uncreated`] over each child a subject's `record` of `group` names, with `result`
 /// the result's record of the same place.
-fn fields_uncreated(group: &GroupKind, record: &EntryRecord, result: Option<&EntryRecord>) -> bool {
-    record.fields.iter().any(|(name, value)| {
-        let Some(kind) = group.child(name) else {
-            return false;
-        };
-        let written = result
-            .and_then(|result| result.fields.iter().find(|(field, _)| field == name))
-            .map(|(_, value)| value);
-        if kind.layers.first() == Some(&Layer::Optional)
-            && *unaliased(value) == EntrySpelling::Missing
-        {
-            return !matches!(written.map(unaliased), Some(EntrySpelling::Present(_)));
-        }
-        absence_uncreated(&kind.layers, value, written)
-    })
+fn fields_uncreated(
+    group: &GroupKind,
+    record: &EntryRecord,
+    result: Option<&EntryRecord>,
+) -> Option<Vec<usize>> {
+    record
+        .fields
+        .iter()
+        .enumerate()
+        .find_map(|(step, (name, value))| {
+            let kind = group.child(name)?;
+            let written = result
+                .and_then(|result| result.fields.iter().find(|(field, _)| field == name))
+                .map(|(_, value)| value);
+            let at = if kind.layers.first() == Some(&Layer::Optional)
+                && *unaliased(value) == EntrySpelling::Missing
+            {
+                (!matches!(written.map(unaliased), Some(EntrySpelling::Present(_)))).then(|| {
+                    if matches!(value, EntrySpelling::Alias(..)) {
+                        vec![0]
+                    } else {
+                        Vec::new()
+                    }
+                })
+            } else {
+                absence_uncreated(&kind.layers, value, written)
+            };
+            at.map(|mut at| {
+                at.insert(0, step);
+                at
+            })
+        })
 }
 
 /// Which ends of a List collection an entry's instances name: the front (items before the rest,
@@ -1570,30 +1859,54 @@ pub fn pair(
     written: bool,
     bound: &dyn Fn(&str) -> Option<Bound>,
 ) -> Result<Option<Lint>, Refusal> {
+    pair_located(form, side, stack, spelling, other, written, bound)
+        .map_err(|located| located.refusal)
+}
+
+/// [`pair`], with where inside the spelling the refusal is raised.
+///
+/// # Errors
+///
+/// As [`pair`], located.
+pub fn pair_located(
+    form: EntryForm,
+    side: EntrySide,
+    stack: &[Layer],
+    spelling: &EntrySpelling,
+    other: Option<&EntrySpelling>,
+    written: bool,
+    bound: &dyn Fn(&str) -> Option<Bound>,
+) -> Result<Option<Lint>, Located> {
+    let root = |refusal| Located {
+        refusal,
+        at: Vec::new(),
+    };
     match side {
-        EntrySide::Subject if absence_uncreated(stack, spelling, other) => {
-            Err(Refusal::AbsenceTestWithoutCreation)
-        }
-        EntrySide::Subject if written => {
-            list_ends(side, stack, spelling, other, written)?;
-            Ok(None)
-        }
         EntrySide::Subject => {
-            if *spelling == EntrySpelling::Missing {
-                return Err(Refusal::AbsenceTestWithoutCreation);
+            if let Some(at) = absence_uncreated(stack, spelling, other) {
+                return Err(Located {
+                    refusal: Refusal::AbsenceTestWithoutCreation,
+                    at,
+                });
             }
-            list_ends(side, stack, spelling, other, written)?;
-            Ok(no_effect(spelling, stack))
+            if !written && *spelling == EntrySpelling::Missing {
+                return Err(root(Refusal::AbsenceTestWithoutCreation));
+            }
+            list_ends(side, stack, spelling, other, written).map_err(root)?;
+            Ok((!written).then(|| no_effect(spelling, stack)).flatten())
         }
         EntrySide::Result => {
+            let mut path = Vec::new();
             pair_content(
                 form,
                 stack,
                 spelling,
                 other.map_or(Other::Unmatched, Other::Matched),
                 bound,
-            )?;
-            list_ends(side, stack, spelling, other, written)?;
+                &mut path,
+            )
+            .map_err(|refusal| Located { refusal, at: path })?;
+            list_ends(side, stack, spelling, other, written).map_err(root)?;
             Ok(None)
         }
         EntrySide::Initializer => Ok(None),
@@ -1621,8 +1934,23 @@ pub fn pair_kept(
     as_rule: bool,
     bound: &dyn Fn(&str) -> Option<Bound>,
 ) -> Result<Option<Lint>, Refusal> {
+    pair_kept_located(form, stack, spelling, as_rule, bound).map_err(|located| located.refusal)
+}
+
+/// [`pair_kept`], with where inside the spelling the refusal is raised.
+///
+/// # Errors
+///
+/// As [`pair_kept`], located.
+pub fn pair_kept_located(
+    form: EntryForm,
+    stack: &[Layer],
+    spelling: &EntrySpelling,
+    as_rule: bool,
+    bound: &dyn Fn(&str) -> Option<Bound>,
+) -> Result<Option<Lint>, Located> {
     if as_rule {
-        return pair(
+        return pair_located(
             form,
             EntrySide::Subject,
             stack,
@@ -1632,8 +1960,16 @@ pub fn pair_kept(
             bound,
         );
     }
-    if *spelling == EntrySpelling::Missing || absence_uncreated(stack, spelling, None) {
-        return Err(Refusal::AbsenceTestWithoutCreation);
+    let at = if *spelling == EntrySpelling::Missing {
+        Some(Vec::new())
+    } else {
+        absence_uncreated(stack, spelling, None)
+    };
+    if let Some(at) = at {
+        return Err(Located {
+            refusal: Refusal::AbsenceTestWithoutCreation,
+            at,
+        });
     }
     Ok(no_effect(spelling, stack))
 }
@@ -1648,15 +1984,24 @@ pub fn admit_form(
     side: EntrySide,
     spelling: &EntrySpelling,
 ) -> Result<(), Refusal> {
-    Admission {
-        form,
-        side,
-        bound: &|_| None,
-        groups: &[],
-        sorted: false,
-        in_instance: false,
-    }
-    .form(spelling)
+    admit_form_located(form, side, spelling).map_err(|located| located.refusal)
+}
+
+/// [`admit_form`], with where inside the spelling the refusal is raised: at the construct the
+/// form refuses (`_`, `name @ P`, a named rest's [`REST`], a map literal).
+///
+/// # Errors
+///
+/// The form's refusal, located.
+pub fn admit_form_located(
+    form: EntryForm,
+    side: EntrySide,
+    spelling: &EntrySpelling,
+) -> Result<(), Located> {
+    let mut admission = Admission::new(form, side, &|_| None, &[]);
+    admission
+        .form(spelling)
+        .map_err(|refusal| admission.located(refusal))
 }
 
 /// One entry of a [`Sentence`]: its side, its cell (`C`, which pairs it with the other side's
@@ -1762,6 +2107,20 @@ impl<C: PartialEq> Sentence<'_, C> {
     ///
     /// The refused entry's index and its refusal.
     pub fn judge(&self) -> Result<Vec<(usize, Lint)>, (usize, Refusal)> {
+        self.judge_located()
+            .map_err(|(at, located)| (at, located.refusal))
+    }
+
+    /// [`Self::judge`], with where inside the refused entry's spelling the refusal is raised.
+    ///
+    /// # Errors
+    ///
+    /// The refused entry's index and its located refusal.
+    pub fn judge_located(&self) -> Result<Vec<(usize, Lint)>, (usize, Located)> {
+        let root = |refusal| Located {
+            refusal,
+            at: Vec::new(),
+        };
         let bound = |name: &str| self.bound(name);
         let entries = || {
             self.entries
@@ -1770,10 +2129,10 @@ impl<C: PartialEq> Sentence<'_, C> {
                 .filter_map(|(at, entry)| Some((at, entry, entry.spelling?)))
         };
         for (at, entry, spelling) in entries() {
-            admit_form(self.form, entry.side, spelling).map_err(|refusal| (at, refusal))?;
+            admit_form_located(self.form, entry.side, spelling).map_err(|located| (at, located))?;
         }
         for (at, entry, spelling) in entries() {
-            admit(
+            admit_located(
                 self.form,
                 entry.side,
                 &entry.kind.path.layers,
@@ -1782,13 +2141,14 @@ impl<C: PartialEq> Sentence<'_, C> {
                 &bound,
                 self.groups,
             )
-            .map_err(|refusal| (at, refusal))?;
+            .map_err(|located| (at, located))?;
         }
         let mut lints = Vec::new();
         if let Rewrite::Kept { as_rule } = self.rewrite {
             for (at, entry, spelling) in entries() {
-                let lint = pair_kept(self.form, &entry.kind.own.layers, spelling, as_rule, &bound)
-                    .map_err(|refusal| (at, refusal))?;
+                let lint =
+                    pair_kept_located(self.form, &entry.kind.own.layers, spelling, as_rule, &bound)
+                        .map_err(|located| (at, located))?;
                 lints.extend(lint.map(|lint| (at, lint)));
             }
             return Ok(lints);
@@ -1796,7 +2156,7 @@ impl<C: PartialEq> Sentence<'_, C> {
         if self.rewrite == Rewrite::InPlace {
             for (at, entry, spelling) in entries() {
                 list_ends(entry.side, &entry.kind.own.layers, spelling, None, false)
-                    .map_err(|refusal| (at, refusal))?;
+                    .map_err(|refusal| (at, root(refusal)))?;
             }
             return Ok(lints);
         }
@@ -1809,7 +2169,7 @@ impl<C: PartialEq> Sentence<'_, C> {
             if other.is_some_and(|other| other.spelling.is_none()) {
                 continue;
             }
-            let lint = pair(
+            let lint = pair_located(
                 self.form,
                 entry.side,
                 &entry.kind.own.layers,
@@ -1818,7 +2178,7 @@ impl<C: PartialEq> Sentence<'_, C> {
                 entry.side == EntrySide::Subject && other.is_some(),
                 &bound,
             )
-            .map_err(|refusal| (at, refusal))?;
+            .map_err(|located| (at, located))?;
             lints.extend(lint.map(|lint| (at, lint)));
         }
         Ok(lints)

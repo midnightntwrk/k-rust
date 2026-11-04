@@ -799,6 +799,86 @@ fn parse_machine_result_record(
     Ok(cells)
 }
 
+/// The form step over a readable clause's entries (design S5 §2.3, step 1; §2.4: the macro's):
+/// what each entry's spelling and side alone refuse, `_` and `name @ P` outside a pattern and an
+/// anonymous rest in a map literal, over every entry of the subject and then the result before
+/// anything else of the clause is read, the first in source order. It is reported with the
+/// class's code and its reason ([`crate::cell_entries::Refusal::reason`]), at the construct it
+/// refuses. A record whose parts are no fields, or a value the entry reader does not read, is
+/// left to the clause's own reading.
+fn readable_form_step(
+    input: ParseStream<'_>,
+    sentence: ReadableSentence,
+) -> Result<(), ParseError> {
+    use crate::cell_entries::{EntrySide, Refusal, admit_form_located};
+    use crate::cell_entry::{EntryForm, entry_fields};
+    let ahead = input.fork();
+    let record = |input: ParseStream<'_>| match input.parse::<TokenTree>() {
+        Ok(TokenTree::Group(group)) if group.delimiter() == proc_macro2::Delimiter::Brace => {
+            Some(group.stream())
+        }
+        _ => None,
+    };
+    let Some(subject) = record(&ahead) else {
+        return Ok(());
+    };
+    if ahead.parse::<Token![=>]>().is_err() {
+        return Ok(());
+    }
+    let Some(result) = record(&ahead) else {
+        return Ok(());
+    };
+    let form = match sentence {
+        ReadableSentence::Rule => EntryForm::Readable,
+        ReadableSentence::Claim => EntryForm::Claim,
+    };
+    for (side, tokens) in [(EntrySide::Subject, &subject), (EntrySide::Result, &result)] {
+        for field in entry_fields(tokens, form).unwrap_or_default() {
+            let Some(spelling) = &field.spelling else {
+                continue;
+            };
+            let Err(located) = admit_form_located(form, side, spelling) else {
+                continue;
+            };
+            let cell = field
+                .key
+                .segments
+                .last()
+                .map(|segment| segment.ident.unraw().to_string())
+                .unwrap_or_default();
+            let reason = located.refusal.reason(
+                form,
+                &cell,
+                &crate::cell_entries::EntryKind::default(),
+                None,
+            );
+            // The construct refused: its first token (an alias's name, a rest's `..` or its
+            // name, a map literal's path).
+            let span = field
+                .located
+                .iter()
+                .find(|(path, _)| *path == located.at)
+                .or_else(|| field.located.first())
+                .map_or_else(|| input.span(), |(_, range)| range.first());
+            let kind = match located.refusal {
+                Refusal::WildcardOutsidePattern => {
+                    crate::SyntaxErrorKind::UnsupportedTermExpression {
+                        reason: reason.into(),
+                    }
+                }
+                Refusal::AliasOutsidePattern => crate::SyntaxErrorKind::InvalidPatternAs { reason },
+                Refusal::AnonymousRestInMapLiteral => {
+                    crate::SyntaxErrorKind::InvalidExpressionNotation { reason }
+                }
+                // An initializer's refusals: a rule or a claim has no initializer.
+                _ => continue,
+            };
+            return Err(crate::SyntaxError::new(kind, span).into());
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn parse_machine_clause(
     input: ParseStream<'_>,
     attributes: &[Attribute],
@@ -807,6 +887,7 @@ pub(super) fn parse_machine_clause(
     clause_start: proc_macro2::Span,
     sentence: ReadableSentence,
 ) -> Result<RuleClause, ParseError> {
+    readable_form_step(input, sentence)?;
     let pattern_record: TokenTree = input.fork().parse()?;
     let subject_cells = parse_machine_pattern_record(input, sentence)?;
     if subject_cells.is_empty() {
@@ -1778,18 +1859,9 @@ fn assemble_machine_clause(
                     }
                     None => {
                         // A cell the result leaves out keeps its content: the
-                        // rule only reads it. Read as `_`, it constrains and
-                        // binds nothing, so the entry would say nothing.
-                        if matches!(before_tree.as_ref(), TermTree::Wildcard(_)) {
-                            return Err(syn::Error::new(
-                                cell.span(),
-                                format!(
-                                    "`{}: _` matches any content and the result leaves the cell unchanged, so the entry has no effect; leave the cell out of the pattern",
-                                    cell.unraw()
-                                ),
-                            )
-                            .into());
-                        }
+                        // rule only reads it. An entry that constrains and binds
+                        // nothing there (`x: _`) is admitted, and its lint is the
+                        // collector's, as every form's is (`no-effect-entry`).
                         extra_bindings.extend(pattern.bindings().iter().cloned());
                         extras.push(RuleExtra::RewriteCell {
                             cell: cell.clone(),

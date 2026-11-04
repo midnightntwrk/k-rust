@@ -498,6 +498,7 @@ fn resolve_pending_descriptors(
     let mut provenance_seconds = 0.0;
     let mut payload_seconds = 0.0;
     let mut loop_failure = None;
+    let mut readable_warnings = Vec::new();
     for pending in pending {
         let started = timings.now();
         let provenance = materialize_descriptor_provenance(
@@ -516,14 +517,19 @@ fn resolve_pending_descriptors(
                 break;
             }
         };
-        // A readable record clause's entries are judged before its payload is resolved.
+        // A readable record clause's entries are judged before its payload is resolved; an
+        // admitted clause's lints are its warnings.
         if let (Some(authored), krs_ir::HostDescriptorPayload::HeadRule(rule)) =
             (&cells, &pending.host.payload)
             && let Ok(target) = resolve::select_head_rule_target(rule, &head_targets, &declarations)
-            && let Err(error) = cell_entries::judge_readable(target, authored)
         {
-            loop_failure = Some(("collector.resolve.payload", error));
-            break;
+            match cell_entries::judge_readable(&pending.id, target, authored) {
+                Ok(lints) => readable_warnings.extend(lints),
+                Err(error) => {
+                    loop_failure = Some(("collector.resolve.payload", error));
+                    break;
+                }
+            }
         }
         let started = timings.now();
         let payload = resolve_payload_reading(
@@ -593,7 +599,8 @@ fn resolve_pending_descriptors(
                 )
             })?;
         check_cell_kinds(&bundle, &cell_kinds)?;
-        let warnings = cell_entries::judge(&bundle, &authored_cells)?;
+        let mut warnings = readable_warnings;
+        warnings.extend(cell_entries::judge(&bundle, &authored_cells)?);
         Ok(Collected { bundle, warnings })
     })
 }

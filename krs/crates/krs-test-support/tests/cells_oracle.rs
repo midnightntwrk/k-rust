@@ -7248,6 +7248,221 @@ fn a_root_absence_test_needs_the_result_to_create_the_cell() {
     ]);
 }
 
+/// Check 7n (S5.2a3 ruling 3, P1, P7): a refusal raised inside the content of a child of a group
+/// record names that child, the cell whose content is wrong, at that content. Every entry class's
+/// machine-read example (`examples`) is written again as the child `c` of a group `W` (beside an
+/// `Int` child `d`) whose record the entry writes: `W { c: ENTRY, .. }` in a subject, the exact
+/// `W { c: ENTRY, d: 0 }` in a result (a bare `..` there is Rust's default fields), and the
+/// group's fragment in `cells!`. Where the product refuses the outer entry with the example's
+/// class, the refusal's place ([`cell_entries::Located::at`]) lies in `c`'s content: the cell
+/// it names ([`cell_entries::nested_cell`]) is `c` (or the cell inside `c`'s content the example
+/// itself nests), whose reason then names it, and the tokens it stands at
+/// ([`krs_syntax::cell_entry::locate`]) are inside that content. A form refusal names the
+/// entry's own cell and is only placed.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One pass writes each example inside a record and checks where it is refused."
+)]
+fn check_7n_a_refusal_inside_a_childs_content_names_the_child_there() {
+    let mut failures = Vec::new();
+    let mut located = BTreeSet::new();
+    for class in ENTRY_CLASSES {
+        let Some(declared) = TABLE.classes.get(class) else {
+            continue;
+        };
+        for example in &declared.examples {
+            let parts = example.split(" ; ").collect::<Vec<_>>();
+            let [form, side, "-", stack, entry, other] = parts[..] else {
+                continue;
+            };
+            let form = match form {
+                "readable" => EntryForm::Readable,
+                "claim" => EntryForm::Claim,
+                "cells" => EntryForm::Cells,
+                _ => continue,
+            };
+            let (side, written) = match side {
+                "subject" => (EntrySide::Subject, false),
+                "subject, written" => (EntrySide::Subject, true),
+                "result" => (EntrySide::Result, false),
+                _ => continue,
+            };
+            let child = named_stack(stack)
+                .iter()
+                .map(product_layer)
+                .collect::<Vec<_>>();
+            let child_stack = child.clone();
+            let wrapper = cell_kind::GroupKind {
+                name: "W".to_owned(),
+                children: vec![
+                    ("c".to_owned(), CellKind { layers: child }),
+                    (
+                        "d".to_owned(),
+                        CellKind {
+                            layers: vec![cell_kind::Layer::Leaf(cell_kind::Notation::Plain)],
+                        },
+                    ),
+                ],
+            };
+            let stack = vec![cell_kind::Layer::Group(wrapper)];
+            let record = |content: &str, exact: bool| {
+                let fields = if exact {
+                    format!("c: {content}, d: 0")
+                } else {
+                    format!("c: {content}, ..")
+                };
+                if form == EntryForm::Cells {
+                    format!("k::fragment![crate::W {{ {fields} }}]")
+                } else {
+                    format!("W {{ {fields} }}")
+                }
+            };
+            let result = side == EntrySide::Result;
+            let text = record(entry, result);
+            let other = (other != "-").then(|| record(other, !result));
+            let reading = EntryReading::new(form, &[]);
+            let read = |text: &str| {
+                let tokens = text.parse().expect("a wrapped example lexes");
+                let spelling = reading
+                    .value(Clone::clone(&tokens))
+                    .expect("a wrapped example reads");
+                let whole = krs_syntax::cell_entry::locate(&tokens, &spelling, &[])
+                    .expect("a value is located at its own tokens");
+                (tokens, spelling, whole.to_string())
+            };
+            let (tokens, spelling, _) = read(&text);
+            let other = other.map(|other| read(&other).1);
+            let bound = |name: &str| {
+                (result && ["x", "y", "z", "old"].contains(&name)).then_some(Bound::Value)
+            };
+            let mut groups = Vec::new();
+            cell_entries::collect_groups(&stack, &mut groups);
+            cell_entries::collect_groups(&[product_layer(&group_g())], &mut groups);
+            let refused =
+                cell_entries::admit_located(form, side, &[], &stack, &spelling, &bound, &groups)
+                    .err()
+                    .or_else(|| {
+                        cell_entries::pair_located(
+                            form,
+                            side,
+                            &stack,
+                            &spelling,
+                            other.as_ref(),
+                            written,
+                            &bound,
+                        )
+                        .err()
+                    });
+            let Some(refused) = refused.filter(|refused| refused.refusal.class() == class) else {
+                continue;
+            };
+            // A form refusal is judged without the declaration, so it names the entry's own
+            // cell ([`cell_entries::Refusal::is_form`]); its place is still inside `c`'s content.
+            let form_step = refused.refusal.is_form();
+            if form_step {
+                let at = krs_syntax::cell_entry::locate(&tokens, &spelling, &refused.at)
+                    .map(|tokens| tokens.to_string());
+                let (_, _, whole) = read(entry);
+                if refused.at.first() == Some(&0) && at.is_some_and(|at| whole.contains(&at)) {
+                    located.insert(class);
+                } else {
+                    failures.push(format!(
+                        "{class}: `{text}` stands outside `c`'s content, at {:?}",
+                        refused.at
+                    ));
+                }
+                continue;
+            }
+            let Some(nested) = cell_entries::nested_cell(&stack, &spelling, &refused.at) else {
+                failures.push(format!(
+                    "{class}: `{text}` is refused at {:?}, in no child's content",
+                    refused.at
+                ));
+                continue;
+            };
+            let content =
+                krs_syntax::cell_entry::locate(&tokens, &spelling, &refused.at[..nested.depth])
+                    .map(|tokens| tokens.to_string());
+            // The cell the example's own refusal is about: `c`, or a child inside `c`'s content
+            // where the example is itself nested.
+            let (entry_tokens, entry_spelling, _) = read(entry);
+            let below = refused.at.get(1..).unwrap_or_default();
+            let (want, written_child) =
+                match cell_entries::nested_cell(&child_stack, &entry_spelling, below) {
+                    Some(inner) => (
+                        inner.name,
+                        krs_syntax::cell_entry::locate(
+                            &entry_tokens,
+                            &entry_spelling,
+                            &below[..inner.depth],
+                        )
+                        .map(|tokens| tokens.to_string())
+                        .unwrap_or_default(),
+                    ),
+                    None => ("c", read(entry).2),
+                };
+            let kind = cell_kind::EntryKind {
+                path: CellKind::default(),
+                own: nested.kind.clone(),
+            };
+            let reason = refused.refusal.reason(form, nested.name, &kind, None);
+            let at = krs_syntax::cell_entry::locate(&tokens, &spelling, &refused.at)
+                .map(|tokens| tokens.to_string());
+            if refused.at.first() != Some(&0)
+                || nested.name != want
+                || content.as_deref() != Some(written_child.as_str())
+            {
+                failures.push(format!(
+                    "{class}: `{text}` names `{}` at {content:?}, not `{want}` at `{written_child}`",
+                    nested.name
+                ));
+            } else if !reason.contains(&format!("`{want}`")) {
+                failures.push(format!(
+                    "{class}: `{text}`'s reason names no `{want}`: {reason}"
+                ));
+            } else if !at.is_some_and(|at| written_child.contains(&at)) {
+                failures.push(format!(
+                    "{class}: `{text}` stands outside `c`'s content, at {:?}",
+                    refused.at
+                ));
+            } else {
+                located.insert(class);
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+    // The classes a child's content is refused with here; a class that leaves the list no longer
+    // keeps its class inside a record, and is looked at again.
+    assert_eq!(
+        located.into_iter().collect::<Vec<_>>(),
+        [
+            "absence-test-without-creation",
+            "alias-outside-pattern",
+            "anonymous-rest-in-map-literal",
+            "bracket-reading",
+            "cell-wrapper",
+            "collection-without-instances",
+            "computation-back-item",
+            "cons-list-back-item",
+            "continuation-in-readable",
+            "instance-list-shape",
+            "instances-on-plain-cell",
+            "map-collection-key",
+            "map-notation-at-non-map",
+            "open-record-outside-pattern",
+            "optional-without-presence",
+            "presence-on-plain-cell",
+            "record-missing-children",
+            "record-update-base",
+            "rest-mismatch",
+            "unmatched-optional-result",
+            "wildcard-outside-pattern",
+        ],
+        "the classes located in a child's content"
+    );
+}
+
 /// Check 7: every refusal the product's table can answer with explains itself (P7, design §2.7).
 /// The classes are the oracle's entry classes: each is a product refusal's, so a class the table
 /// gains has a refusal, whose `reason` its exhaustive match makes it write. Each refusal's reason,

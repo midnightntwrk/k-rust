@@ -603,10 +603,6 @@ fn malformed_blocks_fail_at_the_local_construct() {
             "a machine-rule map pattern is `{ key -> value, .. }`",
         ),
         (
-            "for Machine; x: { computation: [a, ..], stack: _ } => { computation: [a, ..] };",
-            "`stack: _` matches any content and the result leaves the cell unchanged, so the entry has no effect; leave the cell out of the pattern",
-        ),
-        (
             "for Machine; x: { computation: [a, ..], stack: s } => { computation: [a, ..], stack: [a, ..] };",
             "an anonymous `..` keeps the rest only in a readable record cell",
         ),

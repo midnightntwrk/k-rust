@@ -2222,7 +2222,7 @@ fn pattern_only_entry(tokens: &TokenStream) -> Option<SyntaxError> {
     if syn::parse2::<Token![_]>(tokens.clone()).is_ok() {
         return Some(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
-                reason: Class::WildcardOutsidePattern.summary(),
+                reason: Class::WildcardOutsidePattern.summary().into(),
             },
             tokens.span(),
         ));

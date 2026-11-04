@@ -1135,7 +1135,7 @@ fn whole_configuration_rule_patterns_retain_nested_wildcards() {
             "fn bad(x: Term<Id>, cells! { k: KCell(x, tail @ ..), state @ .. }: Machine) -> Machine { cells! { k: KCell(_, ..tail), ..state } }",
         ),
         error if error.kind() == &SyntaxErrorKind::UnsupportedTermExpression {
-            reason: "the root must be a named path/call/record or an Int/Bool literal",
+            reason: "the root must be a named path/call/record or an Int/Bool literal".into(),
         }
     );
 }

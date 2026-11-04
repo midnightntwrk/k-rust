@@ -515,6 +515,9 @@ pub struct CellsField {
     pub spelling: Option<EntrySpelling>,
     /// The range of the value's tokens.
     pub value: Option<crate::TokenRange>,
+    /// The range of each spelling inside the value, by its path ([`located_spellings`]); empty
+    /// where the value is no entry the reading knows.
+    pub located: Vec<(Vec<usize>, crate::TokenRange)>,
 }
 
 /// The fields of a `cells!` payload, each `key: value`, in authored order; the configuration's
@@ -554,10 +557,12 @@ pub fn entry_fields(tokens: &TokenStream, form: EntryForm) -> Option<Vec<CellsFi
             && let [TokenTree::Ident(name)] = part
         {
             let value = TokenStream::from(TokenTree::Ident(name.clone()));
+            let range = crate::TokenRange::for_tokens(&value).ok();
             fields.push(CellsField {
                 key: Path::from(name.clone()),
                 spelling: Some(EntrySpelling::Binder(name.unraw().to_string())),
-                value: crate::TokenRange::for_tokens(&value).ok(),
+                value: range,
+                located: range.map(|range| (Vec::new(), range)).into_iter().collect(),
             });
             continue;
         }
@@ -584,13 +589,243 @@ pub fn entry_fields(tokens: &TokenStream, form: EntryForm) -> Option<Vec<CellsFi
             .parse2(part[..colon].iter().cloned().collect())
             .ok()?;
         let value = part[colon + 1..].iter().cloned().collect::<TokenStream>();
+        let spelling = EntryReading::new(form, &[]).value(value.clone()).ok();
         fields.push(CellsField {
             key,
-            spelling: EntryReading::new(form, &[]).value(value.clone()).ok(),
+            located: spelling
+                .as_ref()
+                .map_or_else(Vec::new, |spelling| located_spellings(&value, spelling)),
+            spelling,
             value: crate::TokenRange::for_tokens(&value).ok(),
         });
     }
     Some(fields)
+}
+
+/// The tokens of the spelling at `at` inside `spelling`, an entry's value read from `tokens`
+/// ([`crate::cell_entries::Located::at`]: a step is the index of a spelling among those directly
+/// inside the one before, or [`crate::cell_entries::REST`] for a sequence's or a map's rest).
+/// `None` where the path leads to no spelling the tokens hold. The tokens are walked as the
+/// reader read them, so a refusal raised inside an entry is placed at what it refuses.
+#[must_use]
+pub fn locate(tokens: &TokenStream, spelling: &EntrySpelling, at: &[usize]) -> Option<TokenStream> {
+    let Some((&step, below)) = at.split_first() else {
+        return Some(tokens.clone());
+    };
+    let (tokens, child) = child_tokens(tokens, spelling, step)?;
+    match child {
+        Some(child) => locate(&tokens, child, below),
+        None => below.is_empty().then_some(tokens),
+    }
+}
+
+/// Every spelling inside `spelling`, read from `tokens`, with its path and its tokens' range
+/// ([`locate`]), the value itself first with the empty path, and each rest with its
+/// [`crate::cell_entries::REST`] step.
+#[must_use]
+pub fn located_spellings(
+    tokens: &TokenStream,
+    spelling: &EntrySpelling,
+) -> Vec<(Vec<usize>, crate::TokenRange)> {
+    fn walk(
+        tokens: &TokenStream,
+        spelling: &EntrySpelling,
+        path: &mut Vec<usize>,
+        out: &mut Vec<(Vec<usize>, crate::TokenRange)>,
+    ) {
+        if let Ok(range) = crate::TokenRange::for_tokens(tokens) {
+            out.push((path.clone(), range));
+        }
+        let steps = (0..spelling_children(spelling))
+            .chain(has_rest(spelling).then_some(crate::cell_entries::REST));
+        for step in steps {
+            let Some((child_tokens, child)) = child_tokens(tokens, spelling, step) else {
+                continue;
+            };
+            path.push(step);
+            match child {
+                Some(child) => walk(&child_tokens, child, path, out),
+                None => {
+                    if let Ok(range) = crate::TokenRange::for_tokens(&child_tokens) {
+                        out.push((path.clone(), range));
+                    }
+                }
+            }
+            path.pop();
+        }
+    }
+    let mut out = Vec::new();
+    walk(tokens, spelling, &mut Vec::new(), &mut out);
+    out
+}
+
+/// How many spellings stand directly inside `spelling`.
+fn spelling_children(spelling: &EntrySpelling) -> usize {
+    match spelling {
+        EntrySpelling::Present(_)
+        | EntrySpelling::Absent(_)
+        | EntrySpelling::Cell(_)
+        | EntrySpelling::Alias(..) => 1,
+        EntrySpelling::Record(record) | EntrySpelling::Fragment(record) => record.fields.len(),
+        EntrySpelling::Call(arguments) => arguments.len(),
+        EntrySpelling::Brackets(seq)
+        | EntrySpelling::Braces(seq)
+        | EntrySpelling::KCell(seq)
+        | EntrySpelling::InstanceList(seq)
+        | EntrySpelling::InstanceSet(seq)
+        | EntrySpelling::KMacro(seq) => seq.items.len(),
+        EntrySpelling::MapRead(map) | EntrySpelling::MapLiteral(map) => 2 * map.entries.len(),
+        _ => 0,
+    }
+}
+
+fn has_rest(spelling: &EntrySpelling) -> bool {
+    match spelling {
+        EntrySpelling::Brackets(seq)
+        | EntrySpelling::Braces(seq)
+        | EntrySpelling::KCell(seq)
+        | EntrySpelling::InstanceList(seq)
+        | EntrySpelling::InstanceSet(seq)
+        | EntrySpelling::KMacro(seq) => seq.rest.is_some(),
+        EntrySpelling::MapRead(map) | EntrySpelling::MapLiteral(map) => map.rest.is_some(),
+        _ => false,
+    }
+}
+
+/// The tokens of the spelling at `step` directly inside `spelling` (read from `tokens`), with
+/// that spelling; a rest's tokens, with none.
+#[expect(
+    clippy::too_many_lines,
+    reason = "One match walks the tokens of every spelling as the reader reads them."
+)]
+fn child_tokens<'s>(
+    tokens: &TokenStream,
+    spelling: &'s EntrySpelling,
+    step: usize,
+) -> Option<(TokenStream, Option<&'s EntrySpelling>)> {
+    use proc_macro2::{Delimiter, TokenTree};
+    let trees = tokens.clone().into_iter().collect::<Vec<_>>();
+    // The first group after the head's path (and a macro's `!`), delimited by `delimiter` where
+    // one is given.
+    let group = |delimiter: Option<Delimiter>| {
+        trees.iter().find_map(|tree| match tree {
+            TokenTree::Group(group)
+                if delimiter.is_none_or(|wanted| group.delimiter() == wanted) =>
+            {
+                Some(group.stream())
+            }
+            _ => None,
+        })
+    };
+    let parts = |stream: TokenStream| {
+        let trees = stream.into_iter().collect::<Vec<_>>();
+        trees
+            .split(|tree| matches!(tree, TokenTree::Punct(punct) if punct.as_char() == ','))
+            .filter(|part| !part.is_empty())
+            .map(<[TokenTree]>::to_vec)
+            .collect::<Vec<_>>()
+    };
+    let is_punct = |tree: Option<&TokenTree>, wanted: char| matches!(tree, Some(TokenTree::Punct(punct)) if punct.as_char() == wanted);
+    let is_rest = |part: &[TokenTree]| {
+        is_punct(part.first(), '.')
+            || (matches!(part.first(), Some(TokenTree::Ident(_)))
+                && is_punct(part.get(1), '@')
+                && is_punct(part.get(2), '.'))
+    };
+    let stream = |part: &[TokenTree]| part.iter().cloned().collect::<TokenStream>();
+    let in_order = |stream_of: TokenStream, items: &'s [EntrySpelling]| {
+        let parts = parts(stream_of);
+        if step == crate::cell_entries::REST {
+            return parts
+                .iter()
+                .find(|part| is_rest(part))
+                .map(|part| (stream(part), None));
+        }
+        let part = parts.iter().filter(|part| !is_rest(part)).nth(step)?;
+        Some((stream(part), Some(items.get(step)?)))
+    };
+    match spelling {
+        EntrySpelling::Alias(_, inner) if step == 0 => {
+            Some((stream(trees.get(2..)?), Some(&**inner)))
+        }
+        EntrySpelling::Present(inner) | EntrySpelling::Absent(inner) if step == 0 => {
+            Some((group(None)?, Some(&**inner)))
+        }
+        EntrySpelling::Cell(inner) if step == 0 => {
+            let content = parts(group(Some(Delimiter::Parenthesis))?);
+            Some((stream(content.first()?), Some(&**inner)))
+        }
+        EntrySpelling::Call(arguments) => {
+            let part = parts(group(Some(Delimiter::Parenthesis))?)
+                .into_iter()
+                .nth(step)?;
+            Some((stream(&part), Some(arguments.get(step)?)))
+        }
+        EntrySpelling::Record(record) | EntrySpelling::Fragment(record) => {
+            let fields = match spelling {
+                EntrySpelling::Fragment(_) => {
+                    let inside = group(None)?.into_iter().collect::<Vec<_>>();
+                    inside.iter().find_map(|tree| match tree {
+                        TokenTree::Group(group) if group.delimiter() == Delimiter::Brace => {
+                            Some(group.stream())
+                        }
+                        _ => None,
+                    })?
+                }
+                _ => group(Some(Delimiter::Brace))?,
+            };
+            let part = parts(fields)
+                .into_iter()
+                .filter(|part| !is_punct(part.first(), '.'))
+                .nth(step)?;
+            let (_, value) = record.fields.get(step)?;
+            // The value follows the first `:` that is no path separator; a shorthand field is
+            // its name alone.
+            let mut index = 0;
+            while index < part.len() {
+                if let TokenTree::Punct(punct) = &part[index]
+                    && punct.as_char() == ':'
+                {
+                    if punct.spacing() == proc_macro2::Spacing::Joint
+                        && is_punct(part.get(index + 1), ':')
+                    {
+                        index += 2;
+                        continue;
+                    }
+                    return Some((stream(&part[index + 1..]), Some(value)));
+                }
+                index += 1;
+            }
+            Some((stream(&part), Some(value)))
+        }
+        EntrySpelling::Brackets(seq)
+        | EntrySpelling::Braces(seq)
+        | EntrySpelling::InstanceList(seq)
+        | EntrySpelling::InstanceSet(seq)
+        | EntrySpelling::KMacro(seq) => in_order(group(None)?, &seq.items),
+        EntrySpelling::KCell(seq) => in_order(group(Some(Delimiter::Parenthesis))?, &seq.items),
+        EntrySpelling::MapRead(map) | EntrySpelling::MapLiteral(map) => {
+            let parts = parts(group(None)?);
+            if step == crate::cell_entries::REST {
+                return parts
+                    .iter()
+                    .find(|part| is_rest(part))
+                    .map(|part| (stream(part), None));
+            }
+            let part = parts.iter().filter(|part| !is_rest(part)).nth(step / 2)?;
+            let arrow = (0..part.len()).find(|&index| {
+                matches!(&part[index], TokenTree::Punct(punct) if punct.as_char() == '-' && punct.spacing() == proc_macro2::Spacing::Joint)
+                    && is_punct(part.get(index + 1), '>')
+            })?;
+            let (key, value) = map.entries.get(step / 2)?;
+            Some(if step.is_multiple_of(2) {
+                (stream(&part[..arrow]), Some(key))
+            } else {
+                (stream(&part[arrow + 2..]), Some(value))
+            })
+        }
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -644,6 +879,49 @@ mod cells_fields_tests {
             Some(EntrySpelling::MapRead(_))
         ));
         assert!(fields.iter().all(|field| field.value.is_some()));
+    }
+
+    #[test]
+    fn a_spelling_inside_a_value_is_located_at_its_own_tokens() {
+        use crate::cell_entries::REST;
+        let read = |text: &str| {
+            let tokens: proc_macro2::TokenStream = text.parse().expect("lexes");
+            let spelling = super::EntryReading::new(super::EntryForm::Readable, &[])
+                .value(tokens.clone())
+                .expect("reads");
+            (tokens, spelling)
+        };
+        let at = |text: &str, path: &[usize]| {
+            let (tokens, spelling) = read(text);
+            super::locate(&tokens, &spelling, path).map(|found| found.to_string())
+        };
+        assert_eq!(
+            at("Outer { frame: Frame { pc: p }, flag: f }", &[0]).as_deref(),
+            Some("Frame { pc : p }")
+        );
+        assert_eq!(
+            at("Outer { frame: Frame { pc: p }, flag }", &[1]).as_deref(),
+            Some("flag")
+        );
+        assert_eq!(at("[x, r @ ..]", &[REST]).as_deref(), Some("r @ .."));
+        assert_eq!(at("[x, r @ ..]", &[0]).as_deref(), Some("x"));
+        assert_eq!(at("{ a -> x, .. }", &[1]).as_deref(), Some("x"));
+        assert_eq!(at("Some(_)", &[0]).as_deref(), Some("_"));
+        assert_eq!(at("y @ Cmd::Hold(_)", &[0, 0]).as_deref(), Some("_"));
+        assert_eq!(
+            at("{ Job { payload: map![y -> x, ..] }, .. }", &[0, 0]).as_deref(),
+            Some("map ! [y -> x , ..]")
+        );
+        assert_eq!(at("[x, ..]", &[1]), None);
+        let (tokens, spelling) = read("Some(G { a: [x, ..] })");
+        let paths = super::located_spellings(&tokens, &spelling)
+            .into_iter()
+            .map(|(path, _)| path)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            paths,
+            [vec![], vec![0], vec![0, 0], vec![0, 0, 0], vec![0, 0, REST]]
+        );
     }
 
     #[test]

@@ -76,7 +76,9 @@ fn syntax_categories_have_distinct_registered_codes() {
         SyntaxErrorKind::UnexpectedMacro {
             path: String::from("example"),
         },
-        SyntaxErrorKind::UnsupportedTermExpression { reason: "example" },
+        SyntaxErrorKind::UnsupportedTermExpression {
+            reason: "example".into(),
+        },
         SyntaxErrorKind::MissingTokenEndpoint,
         SyntaxErrorKind::TooManyProvenanceOccurrences { role: "example" },
         SyntaxErrorKind::RepeatedProvenanceKey {

@@ -534,36 +534,51 @@ fn a_group_record_at_a_configuration_cell_naming_some_children_and_no_rest_is_re
             "inner",
             "rules",
             "look: { k: [Look(), ..], outer: Outer { frame: Frame { pc: p }, flag: f } } => { k: [int::add(p, f), ..] };",
-            None,
+            ("`frame`", "Frame { pc: p }"),
         ),
         (
             "outer",
             "rules",
             "report: { k: [Report(), ..], stack: s, outer: o @ Outer { frame: Frame { pc: p, .. } } } => { k: [p, ..], stack: [o, ..s] };",
-            Some("`outer`"),
+            ("`outer`", "Outer { frame: Frame { pc: p, .. } }"),
         ),
         (
             "claim",
             "claims",
             "#[k::claim(all_paths)]\n    looks: { k: [Look()], outer: Outer { frame: Frame { pc: p }, flag: f } } => { k: [int::add(p, f)] };",
-            None,
+            ("`frame`", "Frame { pc: p }"),
         ),
     ];
-    // The refusal of a record nested in an entry names the entry's cell (`outer`), not the
-    // record's (`frame`): the cell is checked only where the two agree (S5.2a3 ruling 3).
-    for (label, block, clause, cell) in missing {
-        let manifest = library_package(
-            temporary.path(),
-            &format!("missing-{label}"),
-            &format!(
-                "{TWO_LEVEL}k::{block}! {{\n    for Machine;\n    use Cmd::*;\n    {clause}\n}}\n"
-            ),
+    // The refusal names the cell whose record leaves children out, at that record: `Outer`
+    // names both of `outer`'s children, and it is `frame`'s record that leaves `gas` out, a
+    // child of `outer`'s record being an entry of its own cell (P1, P7).
+    for (label, block, clause, (cell, record)) in missing {
+        let source = format!(
+            "{TWO_LEVEL}k::{block}! {{\n    for Machine;\n    use Cmd::*;\n    {clause}\n}}\n"
         );
-        let error = check_errors(target.path(), &manifest);
+        let manifest = library_package(temporary.path(), &format!("missing-{label}"), &source);
+        let (success, _, stderr) = krs(target.path(), &manifest, "check", &[]);
         assert!(
-            error.contains("krs::analysis::record-missing-children")
-                && cell.is_none_or(|cell| error.contains(cell)),
-            "{label}: {error}"
+            !success,
+            "{label}: krs check unexpectedly passed:\n{stderr}"
+        );
+        assert!(
+            stderr.contains(&format!(
+                "error[krs::analysis::record-missing-children]: the group record of the cell {cell} "
+            )),
+            "{label}: {stderr}"
+        );
+        // At the record, line and column, 1-based.
+        let offset = source.find(record).expect("the clause holds the record");
+        let line = source[..offset].matches('\n').count() + 1;
+        let column = offset
+            - source[..offset]
+                .rfind('\n')
+                .map_or(0, |newline| newline + 1)
+            + 1;
+        assert!(
+            stderr.contains(&format!("src/lib.rs:{line}:{column}")),
+            "{label}: the refusal stands at `{record}` ({line}:{column}):\n{stderr}"
         );
     }
 }

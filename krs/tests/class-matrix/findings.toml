@@ -142,8 +142,7 @@ what = "a result list holding only a named rest put back (`olist: Some([..r])`, 
 ["S5-O1"]
 owner = "S5"
 kind = "bug"
-what = "a record with a bare `..` that leaves a field open, as an element of a result's list (`stack: [G { a: x, .. }, ..]`), is accepted, where it is `open-record-outside-pattern` (P6: a bare `..` in a result is Rust's default fields, which only a created instance has; S5.0g R4); S5.2's"
-risk = "KRS builds the element with the unnamed field `b` left as an unbound variable or a frame (I: the case's K is not recorded while its row refuses it), so the rule writes a `G` term whose `b` nothing determines, while the Rust spelling reads as defaults"
+what = "a record with a bare `..` that leaves a field open, as an element of a result's list (`stack: [G { a: x, .. }, ..]`), was accepted, where it is `open-record-outside-pattern` (P6: a bare `..` in a result is Rust's default fields, which only a created instance has; S5.0g R4); refused at the record since S5.2 part a, finished (the collector places its refusal there); what is left is `krs expand`'s print of the case, S5.2's"
 
 ["S5-P1"]
 owner = "S5"

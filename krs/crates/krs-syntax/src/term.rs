@@ -1433,7 +1433,8 @@ impl TermExpression {
             other => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::UnsupportedTermExpression {
-                        reason: "the root must be a named path/call/record or an Int/Bool literal",
+                        reason: "the root must be a named path/call/record or an Int/Bool literal"
+                            .into(),
                     },
                     other.span(),
                 ));
@@ -2138,7 +2139,9 @@ fn unsupported_pattern_form(pattern: &Pat) -> SyntaxError {
         }
     };
     SyntaxError::new(
-        SyntaxErrorKind::UnsupportedTermExpression { reason },
+        SyntaxErrorKind::UnsupportedTermExpression {
+            reason: reason.into(),
+        },
         pattern.span(),
     )
 }
@@ -2412,7 +2415,7 @@ pub(crate) fn read_pattern(
             if adorned {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::UnsupportedTermExpression {
-                        reason: "`ref` and `mut` bindings are not term patterns",
+                        reason: "`ref` and `mut` bindings are not term patterns".into(),
                     },
                     identifier.span(),
                 ));
@@ -2634,13 +2637,17 @@ fn validate_field_patterns(
     for field in &record.fields {
         let Member::Named(name) = &field.member else {
             return Err(SyntaxError::new(
-                SyntaxErrorKind::UnsupportedTermExpression { reason },
+                SyntaxErrorKind::UnsupportedTermExpression {
+                    reason: reason.into(),
+                },
                 field.span(),
             ));
         };
         if !field.attrs.is_empty() {
             return Err(SyntaxError::new(
-                SyntaxErrorKind::UnsupportedTermExpression { reason },
+                SyntaxErrorKind::UnsupportedTermExpression {
+                    reason: reason.into(),
+                },
                 field.span(),
             ));
         }
@@ -2726,7 +2733,8 @@ fn validate_expression(
         }
         _ => Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
-                reason: "expected paths, named calls/records, parentheses, or literal arguments",
+                reason: "expected paths, named calls/records, parentheses, or literal arguments"
+                    .into(),
             },
             expression.span(),
         )),
@@ -2768,7 +2776,7 @@ fn unsupported_root_macro(path: &Path, span: Span) -> SyntaxError {
     }
     SyntaxError::new(
         SyntaxErrorKind::UnsupportedTermExpression {
-            reason: "the root must be a named path/call/record or an Int/Bool literal",
+            reason: "the root must be a named path/call/record or an Int/Bool literal".into(),
         },
         span,
     )
@@ -2835,7 +2843,7 @@ fn validate_special_macro(
             if !valid_extended_id(&text) {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::UnsupportedTermExpression {
-                        reason: "invalid builtin `Id` token; expected `$` followed by ASCII letters, digits, or `_`",
+                        reason: "invalid builtin `Id` token; expected `$` followed by ASCII letters, digits, or `_`".into(),
                     },
                     literal.span(),
                 ));
@@ -2871,7 +2879,7 @@ fn validate_special_macro(
             {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::UnsupportedTermExpression {
-                        reason: "anonymous spelling must begin with `_` and contain only ASCII letters, digits, or `_`",
+                        reason: "anonymous spelling must begin with `_` and contain only ASCII letters, digits, or `_`".into(),
                     },
                     spelling.span(),
                 ));
@@ -2889,7 +2897,7 @@ fn validate_special_macro(
                 .map_err(|_| {
                     SyntaxError::new(
                         SyntaxErrorKind::UnsupportedTermExpression {
-                            reason: "or_bool! requires at least two object-Bool operands",
+                            reason: "or_bool! requires at least two object-Bool operands".into(),
                         },
                         value.span(),
                     )
@@ -2923,7 +2931,7 @@ fn validate_special_macro(
         }
         None => Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
-                reason: "macros are not terms unless they are compiler-owned `fragment!`, `id!`, `bytes!`, `anonymous!`, `lexeme!`, `is!`, `project!`, `matches!`, `or_bool!`, or `rewrite!` islands",
+                reason: "macros are not terms unless they are compiler-owned `fragment!`, `id!`, `bytes!`, `anonymous!`, `lexeme!`, `is!`, `project!`, `matches!`, `or_bool!`, or `rewrite!` islands".into(),
             },
             value.span(),
         )),
@@ -3811,7 +3819,9 @@ pub fn parse_sort_test_arguments(
     };
     let (sort, operand) = parser.parse2(tokens).map_err(|error| {
         SyntaxError::new(
-            SyntaxErrorKind::UnsupportedTermExpression { reason },
+            SyntaxErrorKind::UnsupportedTermExpression {
+                reason: reason.into(),
+            },
             error.span(),
         )
     })?;
@@ -3895,7 +3905,7 @@ fn validate_cell_term(
         let Member::Named(name) = &field.member else {
             return Err(SyntaxError::new(
                 SyntaxErrorKind::UnsupportedTermExpression {
-                    reason: "complete cell terms require unadorned named fields",
+                    reason: "complete cell terms require unadorned named fields".into(),
                 },
                 field.span(),
             ));
@@ -3903,7 +3913,7 @@ fn validate_cell_term(
         if !field.attrs.is_empty() {
             return Err(SyntaxError::new(
                 SyntaxErrorKind::UnsupportedTermExpression {
-                    reason: "complete cell terms require unadorned named fields",
+                    reason: "complete cell terms require unadorned named fields".into(),
                 },
                 field.span(),
             ));
@@ -3920,7 +3930,7 @@ fn validate_cell_term(
     if fields.is_empty() && update.is_none() {
         return Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
-                reason: "complete cell terms require at least one child field",
+                reason: "complete cell terms require at least one child field".into(),
             },
             record.span(),
         ));
@@ -3948,7 +3958,7 @@ fn validate_cell_pattern(
     else {
         return Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
-                reason: "fragment! requires one nominal cell record",
+                reason: "fragment! requires one nominal cell record".into(),
             },
             value.mac.tokens.span(),
         ));
@@ -3983,7 +3993,7 @@ fn validate_cell_pattern(
     if fields.is_empty() && !open {
         return Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
-                reason: "complete cell terms require at least one child field",
+                reason: "complete cell terms require at least one child field".into(),
             },
             record.span(),
         ));
@@ -4045,7 +4055,7 @@ fn validate_call(
     let Expr::Path(head) = &*call.func else {
         return Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
-                reason: "a term call must have a plain named path as its head",
+                reason: "a term call must have a plain named path as its head".into(),
             },
             call.func.span(),
         ));
@@ -4188,7 +4198,7 @@ fn validate_record(
         let Member::Named(name) = &field.member else {
             return Err(SyntaxError::new(
                 SyntaxErrorKind::UnsupportedTermExpression {
-                    reason: "record terms require unadorned named fields",
+                    reason: "record terms require unadorned named fields".into(),
                 },
                 field.span(),
             ));
@@ -4196,7 +4206,7 @@ fn validate_record(
         if !field.attrs.is_empty() {
             return Err(SyntaxError::new(
                 SyntaxErrorKind::UnsupportedTermExpression {
-                    reason: "record terms require unadorned named fields",
+                    reason: "record terms require unadorned named fields".into(),
                 },
                 field.span(),
             ));
@@ -4304,7 +4314,7 @@ fn negative_integer(unary: &ExprUnary) -> Result<IntegerLiteral, SyntaxError> {
     let UnOp::Neg(minus) = unary.op else {
         return Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
-                reason: UNARY_MINUS,
+                reason: UNARY_MINUS.into(),
             },
             unary.span(),
         ));
@@ -4312,7 +4322,7 @@ fn negative_integer(unary: &ExprUnary) -> Result<IntegerLiteral, SyntaxError> {
     let Expr::Lit(literal) = &*unary.expr else {
         return Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
-                reason: UNARY_MINUS,
+                reason: UNARY_MINUS.into(),
             },
             unary.span(),
         ));
@@ -4321,21 +4331,23 @@ fn negative_integer(unary: &ExprUnary) -> Result<IntegerLiteral, SyntaxError> {
     let Lit::Int(integer) = &literal.lit else {
         return Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
-                reason: "only Int and Bool Rust literals are term values",
+                reason: "only Int and Bool Rust literals are term values".into(),
             },
             literal.span(),
         ));
     };
     if !is_unsuffixed_integer(integer) {
         return Err(SyntaxError::new(
-            SyntaxErrorKind::UnsupportedTermExpression { reason: INT_SUFFIX },
+            SyntaxErrorKind::UnsupportedTermExpression {
+                reason: INT_SUFFIX.into(),
+            },
             literal.span(),
         ));
     }
     if is_zero(integer) {
         return Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
-                reason: NEGATIVE_ZERO,
+                reason: NEGATIVE_ZERO.into(),
             },
             unary.span(),
         ));
@@ -4375,7 +4387,12 @@ fn float_error(error: krs_ir::float_token::FloatLiteralError, span: Span) -> Syn
         krs_ir::float_token::FloatLiteralError::NegatedNegInfinity => FLOAT_NEGATED_NEG_INFINITY,
         krs_ir::float_token::FloatLiteralError::Digits => FLOAT_DIGITS,
     };
-    SyntaxError::new(SyntaxErrorKind::UnsupportedTermExpression { reason }, span)
+    SyntaxError::new(
+        SyntaxErrorKind::UnsupportedTermExpression {
+            reason: reason.into(),
+        },
+        span,
+    )
 }
 
 /// The reason given for a float suffix K has no spelling for.
@@ -4455,7 +4472,7 @@ pub(crate) fn float_constant_path(
         krs_ir::float_token::FloatConstant::from_name(&name).ok_or_else(|| {
             SyntaxError::new(
                 SyntaxErrorKind::UnsupportedTermExpression {
-                    reason: FLOAT_CONSTANT,
+                    reason: FLOAT_CONSTANT.into(),
                 },
                 path.span(),
             )
@@ -4526,7 +4543,7 @@ pub(crate) fn string_literal(literal: &LitStr) -> Result<LitStr, SyntaxError> {
     if !literal.suffix().is_empty() {
         return Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
-                reason: "String literals take no suffix",
+                reason: "String literals take no suffix".into(),
             },
             literal.span(),
         ));
@@ -4538,7 +4555,7 @@ pub(crate) fn string_literal(literal: &LitStr) -> Result<LitStr, SyntaxError> {
     {
         return Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
-                reason: STRING_OUT_OF_RANGE,
+                reason: STRING_OUT_OF_RANGE.into(),
             },
             literal.span(),
         ));
@@ -4555,7 +4572,9 @@ pub(crate) fn unsupported_literal(literal: &Lit) -> SyntaxError {
         _ => "only Int, Bool, String, and Float Rust literals are term values",
     };
     SyntaxError::new(
-        SyntaxErrorKind::UnsupportedTermExpression { reason },
+        SyntaxErrorKind::UnsupportedTermExpression {
+            reason: reason.into(),
+        },
         literal.span(),
     )
 }
@@ -4576,7 +4595,9 @@ fn validate_literal(literal: &ExprLit, nodes: &mut Vec<TermNode>) -> Result<Term
         }
         Lit::Int(_) => {
             return Err(SyntaxError::new(
-                SyntaxErrorKind::UnsupportedTermExpression { reason: INT_SUFFIX },
+                SyntaxErrorKind::UnsupportedTermExpression {
+                    reason: INT_SUFFIX.into(),
+                },
                 literal.span(),
             ));
         }
@@ -4629,7 +4650,7 @@ pub(crate) fn reject_attributes(
     } else {
         Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
-                reason: "expression attributes are not supported in term payloads",
+                reason: "expression attributes are not supported in term payloads".into(),
             },
             span,
         ))

@@ -65,8 +65,8 @@ k::rules! {
 const GOOD_EQUATION: &str = "bytes::length(b)\n";
 const BAD_EQUATION: &str = "bytes::length(k::anonymous!())\n";
 const GOOD_ROW: &str = "{ k: [Foo(), ..], acc: n }";
-/// `seen: _` has no effect, which KRS rejects.
-const BAD_ROW: &str = "{ k: [Foo(), ..], acc: n, seen: _ }";
+/// A record that names `seen` twice is no record of cells, which KRS rejects.
+const BAD_ROW: &str = "{ k: [Foo(), ..], acc: n, seen: s, seen: s }";
 const GOOD_INIT: &str = "        Self {\n            k:";
 const BAD_INIT: &str = "        let x = 1;\n        Self {\n            k:";
 
@@ -154,8 +154,8 @@ fn imports_only_a_failed_item_names_are_not_reported_and_every_other_is() {
                 "seen: set::empty()",
                 "seen: k::builtin::set::empty()",
             ),
-            "acc: n, seen: _ }",
-            "acc: set, seen: _ }",
+            "acc: n, seen: s, seen: s }",
+            "acc: set, seen: s, seen: s }",
         ),
         "acc: int::add(n, 1) } where n: Int;",
         "acc: int::add(set, 1) } where set: Int;",
@@ -169,8 +169,8 @@ fn imports_only_a_failed_item_names_are_not_reported_and_every_other_is() {
             "use k::builtin::{Bytes",
             "use k::builtin::list;\nuse k::builtin::{Bytes",
         ),
-        "k::rules! {\n    for Machine;\n    use ObjectSyntax::*;\n\n    step: { k: [Foo(), ..], acc: n, seen: _ } => { k: [Bar(), ..], acc: int::add(n, 1) } where n: Int;\n}\n",
-        "mod inner {\n    use super::{Int, Machine, ObjectSyntax, int};\n\n    k::rules! {\n        for Machine;\n        use ObjectSyntax::*;\n\n        step: { k: [Foo(), ..], acc: n, seen: _ } => { k: [Bar(), ..], acc: int::add(n, list::size(n)) } where n: Int;\n    }\n}\n",
+        "k::rules! {\n    for Machine;\n    use ObjectSyntax::*;\n\n    step: { k: [Foo(), ..], acc: n, seen: s, seen: s } => { k: [Bar(), ..], acc: int::add(n, 1) } where n: Int;\n}\n",
+        "mod inner {\n    use super::{Int, Machine, ObjectSyntax, int};\n\n    k::rules! {\n        for Machine;\n        use ObjectSyntax::*;\n\n        step: { k: [Foo(), ..], acc: n, seen: s, seen: s } => { k: [Bar(), ..], acc: int::add(n, list::size(n)) } where n: Int;\n    }\n}\n",
     );
     let syntax = "error[krs::syntax::rust-syntax]";
     let unused = |name: &str| format!("error[unused_imports]: unused import: `{name}`");

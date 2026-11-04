@@ -269,7 +269,7 @@ pub enum SyntaxErrorKind {
     /// A Rust expression is outside the closed named-term grammar.
     UnsupportedTermExpression {
         /// Specific expression restriction.
-        reason: &'static str,
+        reason: std::borrow::Cow<'static, str>,
     },
     /// A `name @ pattern` (K's `#as`) is malformed or outside a left-hand
     /// side (KF-029).

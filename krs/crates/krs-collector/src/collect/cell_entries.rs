@@ -35,6 +35,9 @@ pub(super) struct ParsedField<R> {
     name: String,
     spelling: Option<EntrySpelling>,
     range: Option<R>,
+    /// Where each spelling inside the value is, by its path
+    /// ([`krs_syntax::cell_entry::located_spellings`]).
+    located: Vec<(Vec<usize>, R)>,
 }
 
 /// A `cells!` sentence's authored fields: its subject's, its result's (none for a single-body
@@ -115,6 +118,13 @@ fn read_fields(
                 range: field
                     .value
                     .and_then(|range| super::provenance::token_coordinates(range).ok()),
+                located: field
+                    .located
+                    .into_iter()
+                    .filter_map(|(path, range)| {
+                        Some((path, super::provenance::token_coordinates(range).ok()?))
+                    })
+                    .collect(),
             })
         })
         .collect()
@@ -182,6 +192,13 @@ impl ParsedCells<Coordinates> {
                         .range
                         .as_ref()
                         .and_then(|coordinates| coordinates.range_in(document)),
+                    located: field
+                        .located
+                        .iter()
+                        .filter_map(|(path, coordinates)| {
+                            Some((path.clone(), coordinates.range_in(document)?))
+                        })
+                        .collect(),
                 })
                 .collect()
         };
@@ -234,32 +251,36 @@ pub(super) fn judge(
     Ok(warnings)
 }
 
-/// Judges the entries of a readable record clause or claim against the configuration `target`
-/// it names, before its payload is resolved: the table's answer is the first one an author meets,
-/// ahead of the readable route's own readings of the entries (a bracketed value read as a list,
-/// a braced one as instances), which assume the kinds the table checks. A clause whose fields the
-/// reader does not read, or which names a cell no single cell of the configuration has, is left
-/// to the rule's resolution, which reports the name.
+/// Judges the entries of the readable record clause or claim `id` against the configuration
+/// `target` it names, before its payload is resolved: the table's answer is the first one an
+/// author meets, ahead of the readable route's own readings of the entries (a bracketed value
+/// read as a list, a braced one as instances), which assume the kinds the table checks. A clause
+/// whose fields the reader does not read, or which names a cell no single cell of the
+/// configuration has, is left to the rule's resolution, which reports the name.
+///
+/// Returns the warnings of the admitted entries' lints, in source order, each at its entry's
+/// value ([`linted`]), as [`judge`] gives a `cells!` sentence's.
 ///
 /// # Errors
 ///
-/// The first refused entry, with its class's code, at its value.
+/// The first refused entry, with its class's code, at what it refuses.
 pub(super) fn judge_readable(
+    id: &StableItemId,
     target: &super::resolve::HeadRuleTarget,
     authored: &LocatedCells,
-) -> Result<(), CollectionError> {
+) -> Result<Vec<Diagnostic>, CollectionError> {
     if !authored.form.is_readable() {
-        return Ok(());
+        return Ok(Vec::new());
     }
     let Some(subject) = readable_entries(target, &authored.subject) else {
-        return Ok(());
+        return Ok(Vec::new());
     };
     let Some(result) = authored
         .result
         .as_deref()
         .map_or(Some(Vec::new()), |fields| readable_entries(target, fields))
     else {
-        return Ok(());
+        return Ok(Vec::new());
     };
     let sentence = subject
         .iter()
@@ -272,18 +293,6 @@ pub(super) fn judge_readable(
             spelling: entry.field.spelling.as_ref(),
         })
         .collect::<Vec<_>>();
-    // The form step is the macro's and the term walker's, which locate a misplaced construct
-    // where it stands inside the entry (design §2.4): a sentence with a form mistake is theirs to
-    // answer first, and the kinds are not asked before it is. A record left open outside a
-    // pattern is placed by the term walker too, at the record, wherever the entry holds it; the
-    // collector knows only the entry's value, so it leaves that refusal to the walker.
-    if sentence.iter().any(|entry| {
-        entry.spelling.is_some_and(|spelling| {
-            cell_entries::admit_form(authored.form, entry.side, spelling).is_err()
-        })
-    }) {
-        return Ok(());
-    }
     let judged = Sentence {
         form: authored.form,
         entries: &sentence,
@@ -291,9 +300,24 @@ pub(super) fn judge_readable(
         parameters: &authored.parameters,
         groups: target.groups(),
     }
-    .judge();
+    .judge_located();
     match judged {
-        Err((_, Refusal::OpenRecordOutsidePattern)) | Ok(_) => Ok(()),
+        Ok(lints) => Ok(lints
+            .into_iter()
+            .map(|(at, lint)| {
+                let entry = subject
+                    .iter()
+                    .chain(&result)
+                    .nth(at)
+                    .expect("a judged entry is the sentence's");
+                linted(
+                    id,
+                    unraw(&entry.cell.field),
+                    entry.field.range.clone(),
+                    lint,
+                )
+            })
+            .collect()),
         Err((at, refusal)) => {
             let side = if at < subject.len() {
                 EntrySide::Subject
@@ -309,7 +333,7 @@ pub(super) fn judge_readable(
                 authored.form,
                 entry,
                 side,
-                refusal,
+                &refusal,
                 target.groups(),
             ))
         }
@@ -446,7 +470,7 @@ fn judge_sentence(
         parameters: &authored.parameters,
         groups: &tree.groups,
     }
-    .judge();
+    .judge_located();
     let entry = |at: usize| {
         subject
             .iter()
@@ -476,7 +500,7 @@ fn judge_sentence(
                 EntryForm::Cells,
                 entry(at),
                 side,
-                refusal,
+                &refusal,
                 &tree.groups,
             ))
         }
@@ -678,13 +702,13 @@ impl<'i, 'a> Tree<'i, 'a> {
 /// - `record-update-base`: the label its subject gives the instance the update keeps.
 fn advice(
     form: EntryForm,
-    entry: &Entry<'_>,
+    entry: &RefusedCell<'_>,
     side: EntrySide,
     refusal: Refusal,
     groups: &[GroupKind],
 ) -> Option<String> {
-    let name = unraw(&entry.cell.field);
-    let own = &entry.kind.own.layers;
+    let name = entry.name;
+    let own = entry.layers;
     match refusal {
         Refusal::CellWrapper | Refusal::InstanceListShape => {
             Some(format!("write its entry as `{}`", spelled(form, own)))
@@ -697,28 +721,28 @@ fn advice(
             Some("write its entry inside `Some(..)`, or as `None` for its absence".to_owned())
         }
         Refusal::BelowOptionalAncestor | Refusal::BelowCollectionAncestor => {
-            below_ancestor(form, name, entry.ancestor.as_ref()?, side, groups)
+            below_ancestor(form, name, entry.ancestor?, side, groups)
         }
         Refusal::RestMismatch => Some(
             "write `..` on both sides to keep the rest, or name it in the subject (`rest @ ..`) to drop or move it"
                 .to_owned(),
         ),
         Refusal::MapCollectionKey => {
-            if entry.field.spelling.as_ref().and_then(update_label).is_some() {
+            if entry.spelling.and_then(update_label).is_some() {
                 return Some(
                     "leave the key out of the update, which keeps it, or write it as its subject matched it"
                         .to_owned(),
                 );
             }
-            let key = match own.as_slice() {
+            let key = match own {
                 [Layer::Instances(order), Layer::Group(group), ..] => group.key(*order)?,
                 _ => return None,
             };
             Some(format!("write its key first, `{key}: ..`"))
         }
         Refusal::RecordUpdateBase => {
-            let label = entry.field.spelling.as_ref().and_then(update_label)?;
-            let group = match own.as_slice() {
+            let label = entry.spelling.and_then(update_label)?;
+            let group = match own {
                 [Layer::Instances(_), Layer::Group(group), ..] => group.name.as_str(),
                 _ => return None,
             };
@@ -870,27 +894,83 @@ fn spelled(form: EntryForm, layers: &[Layer]) -> String {
     }
 }
 
-/// The refusal `refusal` of the entry `entry`, on the side `side` of a sentence written in
+/// The cell a refusal is about: the refused entry's own, or the child of a group or instance
+/// record inside it whose content the refusal is raised in ([`cell_entries::nested_cell`]).
+struct RefusedCell<'a> {
+    /// The cell's name.
+    name: &'a str,
+    /// The cell's own layers.
+    layers: &'a [Layer],
+    /// Its outermost `?` or `*` ancestor above the record's level (the refused entry's own).
+    ancestor: Option<&'a Ancestor>,
+    /// The cell's content as written.
+    spelling: Option<&'a EntrySpelling>,
+}
+
+/// The refusal `located` of the entry `entry`, on the side `side` of a sentence written in
 /// `form`: why ([`Refusal::reason`]), then what to write instead where its class advises it
-/// ([`advice`]), at the entry's value.
+/// ([`advice`]). A refusal raised inside the content of a child of a group or instance record
+/// the entry writes names that child, the cell whose content is wrong (P1, P7), but for a form
+/// refusal, which is judged without the declaration and names the entry's cell
+/// ([`Refusal::is_form`]); it stands at the spelling it is raised at, or at the entry's value
+/// where that spelling has no range.
 fn refused(
     form: EntryForm,
     entry: &Entry<'_>,
     side: EntrySide,
-    refusal: Refusal,
+    located: &cell_entries::Located,
     groups: &[GroupKind],
 ) -> CollectionError {
-    let mut detail = refusal.reason(
-        form,
-        unraw(&entry.cell.field),
-        &entry.kind,
-        entry.sort.as_deref(),
-    );
-    if let Some(advice) = advice(form, entry, side, refusal, groups) {
+    let refusal = located.refusal;
+    let spelling = entry.field.spelling.as_ref();
+    let nested = spelling
+        .filter(|_| !refusal.is_form())
+        .and_then(|spelling| {
+            cell_entries::nested_cell(&entry.kind.own.layers, spelling, &located.at)
+        });
+    let nested_kind = nested.map(|nested| EntryKind {
+        path: CellKind::default(),
+        own: nested.kind.clone(),
+    });
+    let (cell, kind, sort) = match (nested, &nested_kind) {
+        (Some(nested), Some(kind)) => (
+            RefusedCell {
+                name: unraw(nested.name),
+                layers: &nested.kind.layers,
+                ancestor: None,
+                spelling: spelling.and_then(|spelling| {
+                    cell_entries::spelling_at(spelling, &located.at[..nested.depth])
+                }),
+            },
+            kind,
+            None,
+        ),
+        _ => (
+            RefusedCell {
+                name: unraw(&entry.cell.field),
+                layers: &entry.kind.own.layers,
+                ancestor: entry.ancestor.as_ref(),
+                spelling,
+            },
+            &entry.kind,
+            entry.sort.as_deref(),
+        ),
+    };
+    let mut detail = refusal.reason(form, cell.name, kind, sort);
+    if let Some(advice) = advice(form, &cell, side, refusal, groups) {
         detail = format!("{detail}; {advice}");
     }
     let error = CollectionError::new(CollectionErrorKind::CellEntry(refusal), detail);
-    match &entry.field.range {
+    // The spelling the refusal is raised at, or the nearest one around it that has a range.
+    let range = (0..=located.at.len()).rev().find_map(|depth| {
+        entry
+            .field
+            .located
+            .iter()
+            .find(|(path, _)| path[..] == located.at[..depth])
+            .map(|(_, range)| range)
+    });
+    match range.or(entry.field.range.as_ref()) {
         Some(range) => error.with_source_range(range.clone()),
         None => error,
     }
