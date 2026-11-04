@@ -6,24 +6,20 @@
 # that every expectation below matches the krs outputs recorded for the story
 # (recorded-outputs.toml, ids story-<variant>-<test>).
 
-# The corpus, in the order the AI writes it. A test is a program in plus/programs/.
+# The corpus, in the order the AI writes it. A test is a case of plus/kink/FLOW.toml, with the
+# same id; the rules it fires are those `krs kink results` reports for it (the recorded output
+# story-kink-results), which sync-story.py writes into the story data.
 [[test]]
 id = "t1"
-# The equations the program's run applies, which `krs run --coverage` reports as `applied` (they
-# take no rewrite step, so no trace shows them); this list is still maintained by hand.
-rules = ["plus_zero"]
 
 [[test]]
 id = "t2"
-rules = ["plus_zero"]
 
 [[test]]
 id = "t3"
-rules = ["plus_succ", "plus_zero"]
 
 [[test]]
 id = "t4"
-rules = ["plus_succ", "plus_zero"]
 # Written during the climb, to catch the edit that t1 to t3 miss.
 climb = true
 

@@ -1,0 +1,22 @@
+# The introduction's corpus for the `plus` specification: the tests an AI writes, in that
+# order, each a program of `cases/`. `krs kink results` reports the rules each one fires,
+# which the coverage scenes show (scripts/sync-story.py reads the recorded output).
+
+[spec]
+krs = { definition = "main" }
+
+[[program]]
+id = "t1"
+file = "cases/t1.nat"
+
+[[program]]
+id = "t2"
+file = "cases/t2.nat"
+
+[[program]]
+id = "t3"
+file = "cases/t3.nat"
+
+[[program]]
+id = "t4"
+file = "cases/t4.nat"

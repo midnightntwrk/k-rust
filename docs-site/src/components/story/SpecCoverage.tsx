@@ -1,7 +1,8 @@
 'use client'
 
-// Scene: coverage of the specification. Which rules each test makes fire comes from
-// story/story.toml (read off the rewrite steps; krs does not report run coverage yet).
+// Scene: coverage of the specification. Which rules each test makes fire comes from the
+// recorded `krs kink results --output verdicts` of the story's corpus (story-kink-results),
+// which scripts/sync-story.py writes into src/generated/story.ts.
 
 import { corpus, paperRules, type RuleName, ruleNames } from './data'
 import { Stage, usePlayer } from './player'

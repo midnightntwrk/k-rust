@@ -1,7 +1,7 @@
 //! `krs kink <verb>`: the corpus loop over a KRS package, with kink-flow as its engine.
 //!
 //! The main fixture is a copy of the introduction's story package (`docs-site/story/plus`) with
-//! `kink/FLOW.toml` and the story's four programs as cases: the tool must report what the
+//! its corpus, `kink/FLOW.toml` and the story's four cases: the tool must report what the
 //! story's pages claim, each rule named by its Rust item and position, and kill the story's
 //! three edits written as K patches anchored by `plus_zero` and `plus_succ`. A small counter
 //! definition, which has rewrite rules, gives `fuzz --reach` and a query witness rules to name;
@@ -18,14 +18,28 @@ use krs_test_support::{
 use serde_json::Value;
 
 const STORY: &str = include_str!("../../../../docs-site/story/plus/src/lib.rs");
-/// The story's four tests (story.toml `[[test]]`), written here rather than read from the
-/// story's directory, whose layout is the docs-site's to change; the expectations below are
-/// story.toml's for these programs.
-const STORY_PROGRAMS: [(&str, &str); 4] = [
-    ("t1", "plus(zero, zero)\n"),
-    ("t2", "plus(zero, s(zero))\n"),
-    ("t3", "plus(s(zero), s(zero))\n"),
-    ("t4", "plus(s(s(zero)), s(zero))\n"),
+/// The story's corpus (`docs-site/story/plus/kink`), the one the introduction's pages show:
+/// its manifest and four cases (story.toml `[[test]]`). The expectations below are what the
+/// pages show for these programs: the coverage the docs-site derives from its recorded
+/// `krs kink results`, and story.toml's `caught_by`.
+const STORY_FLOW: &str = include_str!("../../../../docs-site/story/plus/kink/FLOW.toml");
+const STORY_CASES: [(&str, &str); 4] = [
+    (
+        "t1",
+        include_str!("../../../../docs-site/story/plus/kink/cases/t1.nat"),
+    ),
+    (
+        "t2",
+        include_str!("../../../../docs-site/story/plus/kink/cases/t2.nat"),
+    ),
+    (
+        "t3",
+        include_str!("../../../../docs-site/story/plus/kink/cases/t3.nat"),
+    ),
+    (
+        "t4",
+        include_str!("../../../../docs-site/story/plus/kink/cases/t4.nat"),
+    ),
 ];
 const INPUTS: &str = include_str!("fixtures/inputs/src/lib.rs");
 
@@ -68,27 +82,6 @@ impl Machine {
         Self { k: k::k![pgm] }
     }
 }
-"#;
-
-/// The story's corpus manifest: the four programs as cases.
-const STORY_FLOW: &str = r#"[spec]
-krs = { definition = "main" }
-
-[[program]]
-id = "t1"
-file = "cases/t1.nat"
-
-[[program]]
-id = "t2"
-file = "cases/t2.nat"
-
-[[program]]
-id = "t3"
-file = "cases/t3.nat"
-
-[[program]]
-id = "t4"
-file = "cases/t4.nat"
 "#;
 
 /// The story's three edits (story.toml `a`, `b`, `c`) as K patches of the emitted rules,
@@ -217,7 +210,7 @@ fn story_files() -> Vec<(String, Vec<u8>)> {
         ("src/lib.rs".to_owned(), STORY.as_bytes().to_vec()),
         ("kink/FLOW.toml".to_owned(), STORY_FLOW.as_bytes().to_vec()),
     ];
-    for (id, text) in STORY_PROGRAMS {
+    for (id, text) in STORY_CASES {
         files.push((format!("kink/cases/{id}.nat"), text.as_bytes().to_vec()));
     }
     files
@@ -359,7 +352,8 @@ fn results_name_each_rule_by_its_rust_item_and_position() {
         document["krs"]
     );
 
-    // The verdicts rendering names the rules by the same items: story.toml's `rules`.
+    // The verdicts rendering names the rules by the same items, as the docs-site's recorded
+    // `story-kink-results` does.
     let output = project.kink("results", &["--output", "verdicts"]);
     assert_status(&output, 0);
     let verdicts = stdout(&output);
