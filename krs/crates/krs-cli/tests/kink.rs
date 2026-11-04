@@ -1424,3 +1424,40 @@ fn a_refused_mutants_rust_source_is_refused_by_krs_check() {
         }
     }
 }
+
+/// A claim helper is no program's coverage: `results` gives the equation of `Expected`, which
+/// only the claim applies, the status `claim-helper` (summary `claim_helper`), not `uncovered`,
+/// so the uncovered rules are the ones a case can reach.
+#[test]
+fn results_give_a_claim_helper_its_own_status() {
+    let project = checked();
+    let output = project.kink("results", &[]);
+    assert_status(&output, 0);
+    let document = json(&output);
+    let rules = document["rules"].as_array().unwrap();
+    let helpers = rules
+        .iter()
+        .filter(|rule| rule["krs"]["claim_helper"] == true)
+        .map(|rule| {
+            (
+                rule["krs"]["item"].as_str().unwrap(),
+                rule["status"].as_str().unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(helpers, [("Expected", "claim-helper")], "{document:#}");
+    for rule in rules {
+        if rule["status"] == "claim-helper" {
+            assert_eq!(rule["krs"]["claim_helper"], true, "{rule:#}");
+            assert_eq!(rule["matched_by"], serde_json::json!([]), "{rule:#}");
+        }
+    }
+    let count = |status: &str| rules.iter().filter(|rule| rule["status"] == status).count();
+    assert_eq!(
+        document["summary"]["claim_helper"], 1,
+        "{:#}",
+        document["summary"]
+    );
+    assert_eq!(document["summary"]["uncovered"], count("uncovered"));
+    assert_eq!(document["version"], 8);
+}

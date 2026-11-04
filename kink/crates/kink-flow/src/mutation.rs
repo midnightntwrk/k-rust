@@ -1915,7 +1915,7 @@ pub fn label_match(stored: &str, module: &str, anchor: &str) -> Option<LabelMatc
 
 /// The module-qualified form of the label `stored` of a sentence of module `module`: K's
 /// `rule [x]:` label as stored (`MODULE.x`), a bare `[label(x)]` qualified (`MODULE.x`).
-fn qualified_label(stored: &str, module: &str) -> String {
+pub(crate) fn qualified_label(stored: &str, module: &str) -> String {
     if stored.contains('.') {
         stored.to_owned()
     } else {

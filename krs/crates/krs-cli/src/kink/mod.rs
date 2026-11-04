@@ -418,15 +418,7 @@ fn run_flow(
             return finish(outcome, &document, EXIT_CORPUS, output);
         }
     };
-    let manifest = if manifest
-        .programs
-        .iter()
-        .any(|program| !program.inputs.is_empty())
-    {
-        manifest.with_input_decoder(Arc::new(inputs::KrsInputs::new(emitted.ir.clone())))
-    } else {
-        manifest
-    };
+    let manifest = with_front_end_facts(manifest, emitted);
     resolve_rule(&mut command, emitted);
     let annotator = annotate::Annotator::new(emitted, manifest.clone(), judged_list(&command));
     let sources = outcome.sources.clone();
@@ -516,6 +508,32 @@ fn run_flow(
         }
     };
     finish(outcome, &document, status_code, output)
+}
+
+/// `manifest` with what only the front end knows of `emitted`: how its programs' typed inputs are
+/// read, when one has any, and which sentences are claim helpers. Only claims apply a claim
+/// helper, and the claims are not in the K kink loads, so the emission, which wrote both, names
+/// them.
+fn with_front_end_facts(
+    manifest: kink_flow::FlowManifest,
+    emitted: &EmittedDefinition,
+) -> kink_flow::FlowManifest {
+    let manifest = if manifest
+        .programs
+        .iter()
+        .any(|program| !program.inputs.is_empty())
+    {
+        manifest.with_input_decoder(Arc::new(inputs::KrsInputs::new(emitted.ir.clone())))
+    } else {
+        manifest
+    };
+    manifest.with_claim_helpers(
+        emitted
+            .rules
+            .iter()
+            .filter(|rule| rule.claim_helper)
+            .map(|rule| (rule.module.clone(), rule.label.clone())),
+    )
 }
 
 /// The command request every stage before kink runs on: `request`'s selection, judged as

@@ -1032,6 +1032,79 @@ text = 'h(opaque(1), 2)'
         );
     }
 
+    /// CF-45: a claim helper (an equation of a function only claims apply, named by the front end
+    /// that sees the claims) that no comparable program matched has status `claim-helper` and
+    /// leaves the program-coverage denominator; one that some program matched stays `covered`.
+    /// The loop fixture's `double` equation, which `twice` reaches, stands in for the matched one,
+    /// and `unused` and `spin`, which no program reaches, for unmatched ones. A sentence may write
+    /// its label bare or as `MODULE.x`, so the unmatched helpers are named once in each form
+    /// (`unused` bare, `LOOP.spin` qualified), and each form must reach the `claim-helper` status;
+    /// a name that is no sentence's label changes nothing.
+    #[test]
+    #[ignore = "kink"]
+    fn a_claim_helper_leaves_the_denominator() {
+        let dir = fixture("loop", "rules-claim-helper");
+        let source = dir.join("loop.k");
+        let text = fs::read_to_string(&source).unwrap();
+        let equation = "  rule double(I) => I *Int 2\n";
+        assert!(text.contains(equation));
+        fs::write(
+            &source,
+            text.replace(equation, "  rule [double]: double(I) => I *Int 2\n"),
+        )
+        .unwrap();
+        let manifest = FlowManifest::read(&dir.join("FLOW.toml"))
+            .unwrap()
+            .with_claim_helpers([
+                ("LOOP".to_owned(), "unused".to_owned()),
+                ("LOOP".to_owned(), "LOOP.spin".to_owned()),
+                ("LOOP".to_owned(), "LOOP.double".to_owned()),
+                ("LOOP".to_owned(), "nothing".to_owned()),
+            ]);
+        let (document, ok) = kink_flow::results::results(
+            &manifest,
+            &ResultsOptions {
+                verify: false,
+                cache: None,
+                mutations: None,
+            },
+        );
+        assert!(ok, "{document:#}");
+        let listed = document["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| {
+                (
+                    r["label"].clone(),
+                    r["status"].clone(),
+                    r["matched_by"].clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            listed,
+            [
+                (json!("LOOP.double"), json!("covered"), json!(["twice"])),
+                (
+                    json!("LOOP.countdown"),
+                    json!("covered"),
+                    json!(["countdown"])
+                ),
+                (json!("LOOP.done"), json!("covered"), json!(["countdown"])),
+                (json!("LOOP.twice"), json!("covered"), json!(["twice"])),
+                (json!("LOOP.spin"), json!("claim-helper"), json!([])),
+                (json!("LOOP.unused"), json!("claim-helper"), json!([])),
+            ]
+        );
+        assert_eq!(
+            document["summary"],
+            json!({"programs": 2, "comparable": 2, "computed": 2, "rules": 6, "uncovered": 0,
+                   "covered": 4, "claim_helper": 2, "no_coverage_signal": 0, "mismatches": 0})
+        );
+        assert_eq!(document["version"], 8);
+    }
+
     #[test]
     #[ignore = "kink"]
     fn the_run_digest_depends_on_neither_the_program_id_nor_the_other_tests() {

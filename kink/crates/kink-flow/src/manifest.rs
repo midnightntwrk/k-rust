@@ -30,7 +30,7 @@ use crate::admit::InputDecoder;
 use case_pattern::CasePattern;
 use kink_corpus::ProgramSource;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fmt, fs,
     path::{Component, Path, PathBuf},
     sync::Arc,
@@ -67,6 +67,14 @@ pub struct FlowManifest {
     /// has none: kink reads K text only, and admission refuses a program with `inputs` without
     /// a decoder (`typed-inputs`).
     pub input_decoder: Decoder,
+    /// The claim helpers among the specification's sentences, each by its K module and its
+    /// label as the sentence writes it (bare, or `MODULE.x`): equations of a function that, within
+    /// the definition, only claims apply. Claims are proof obligations outside the executable
+    /// definition, so only a front end that sees the claims beside the definition knows which
+    /// sentences these are, and sets them ([`Self::with_claim_helpers`]); a decoded `FLOW.toml`
+    /// has none. `results` gives such a sentence that no comparable program matched the status
+    /// `claim-helper`, outside the program-coverage denominator.
+    pub claim_helpers: BTreeSet<(String, String)>,
 }
 
 /// A front end's [`InputDecoder`], or none. Two manifests' decoders are equal when both are
@@ -363,6 +371,7 @@ impl ManifestFile {
             programs: self.programs,
             result: self.result,
             input_decoder: Decoder::default(),
+            claim_helpers: BTreeSet::new(),
         })
     }
 }
@@ -403,6 +412,18 @@ impl FlowManifest {
     #[must_use]
     pub fn with_input_decoder(mut self, decoder: Arc<dyn InputDecoder + Send + Sync>) -> Self {
         self.input_decoder = Decoder(Some(decoder));
+        self
+    }
+
+    /// This manifest with `helpers` as its claim helpers ([`Self::claim_helpers`]), each a
+    /// `(module, label)`: the front end that sees the definition's claims (the krs front end) sets
+    /// them on the manifest it decoded.
+    #[must_use]
+    pub fn with_claim_helpers(
+        mut self,
+        helpers: impl IntoIterator<Item = (String, String)>,
+    ) -> Self {
+        self.claim_helpers = helpers.into_iter().collect();
         self
     }
 }
