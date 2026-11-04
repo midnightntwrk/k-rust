@@ -1,4 +1,4 @@
-$ krs run --package story-plus-mutant-a --definition main programs/t3.nat
+$ krs run --package story-plus-mutant-a --definition main kink/cases/t3.nat
 <k>
   s(zero) ~> .K
 </k>

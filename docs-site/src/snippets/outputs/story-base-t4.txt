@@ -1,4 +1,4 @@
-$ krs run --package story-plus --definition main programs/t4.nat
+$ krs run --package story-plus --definition main kink/cases/t4.nat
 <k>
   s(s(s(zero))) ~> .K
 </k>

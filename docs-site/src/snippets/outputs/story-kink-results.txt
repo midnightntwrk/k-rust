@@ -1,0 +1,32 @@
+$ krs kink --package story-plus --definition main results --output verdicts --locked
+schema = "kink-flow-verdicts"
+version = 2
+document = "results"
+profile = "z3"
+
+[spec]
+outcome = "admitted"
+
+[[case]]
+id = "t1"
+class = "comparable"
+fired = ["plus_zero"]
+matched = ["plus_zero"]
+
+[[case]]
+id = "t2"
+class = "comparable"
+fired = ["plus_zero"]
+matched = ["plus_zero"]
+
+[[case]]
+id = "t3"
+class = "comparable"
+fired = ["plus_succ", "plus_zero"]
+matched = ["plus_succ", "plus_zero"]
+
+[[case]]
+id = "t4"
+class = "comparable"
+fired = ["plus_succ", "plus_zero"]
+matched = ["plus_succ", "plus_zero"]

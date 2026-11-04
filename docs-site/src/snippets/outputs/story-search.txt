@@ -1,4 +1,4 @@
-$ krs search --package story-plus --definition main programs/t3.nat
+$ krs search --package story-plus --definition main kink/cases/t3.nat
 <k>
   s(s(zero)) ~> .K
 </k>
