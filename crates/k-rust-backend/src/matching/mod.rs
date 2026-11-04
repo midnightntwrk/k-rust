@@ -932,7 +932,7 @@ pub(crate) fn match_term_pairs_in_definition(
         mode,
         definition.sort_graph(),
         Some(definition),
-        pairs.iter().cloned().collect(),
+        pairs.iter().cloned(),
     );
     matcher.finish(|| pairs)
 }
@@ -968,7 +968,7 @@ pub(crate) fn match_with_settled_evidence(
         MatchMode::Evaluate,
         definition.sort_graph(),
         Some(definition),
-        VecDeque::from([(pattern.clone(), subject.clone())]),
+        [(pattern.clone(), subject.clone())],
     );
     matcher.normal_forms.settled = Some(settled);
     matcher.normal_forms.given.equation_root(subject.clone());
@@ -1126,7 +1126,7 @@ fn match_terms_reporting_bindings(
         mode,
         sorts,
         definition,
-        VecDeque::from([(pattern.clone(), subject.clone())]),
+        [(pattern.clone(), subject.clone())],
     );
     matcher.unread_frames = unread_frames;
     if equation_root {
@@ -1137,6 +1137,52 @@ fn match_terms_reporting_bindings(
 
 static NO_FRAMES: BTreeSet<Variable> = BTreeSet::new();
 
+/// A matcher's queue of pairs to solve, taken from a small per-thread pool of empty queues and
+/// returned to it empty, so that a match reuses a buffer an earlier match grew instead of
+/// allocating and growing one of its own. The pool is only a store of spare capacity: a queue
+/// is empty when taken and when returned (its pairs are dropped on return, when an unpooled
+/// queue would have dropped them), so no match sees another's pairs. Matches nest (overload
+/// resolution and equation evidence match inside a match), and each takes its own queue.
+struct PairQueue(VecDeque<(Term, Term)>);
+
+/// The spare queues one thread keeps, and the largest capacity it keeps: a queue grown past it
+/// by an exceptional match is freed rather than held for the rest of the thread.
+const POOLED_QUEUES: usize = 8;
+const POOLED_QUEUE_CAPACITY: usize = 1024;
+
+thread_local! {
+    static PAIR_QUEUES: std::cell::RefCell<Vec<VecDeque<(Term, Term)>>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+impl PairQueue {
+    fn take() -> Self {
+        let spare = PAIR_QUEUES
+            .try_with(|pool| pool.borrow_mut().pop())
+            .ok()
+            .flatten();
+        Self(spare.unwrap_or_default())
+    }
+}
+
+impl Drop for PairQueue {
+    fn drop(&mut self) {
+        // The pairs are dropped here, before the pool is borrowed: dropping a term never matches,
+        // but this keeps the borrow free of any work the drops do.
+        self.0.clear();
+        if self.0.capacity() == 0 || self.0.capacity() > POOLED_QUEUE_CAPACITY {
+            return;
+        }
+        let queue = std::mem::take(&mut self.0);
+        let _ = PAIR_QUEUES.try_with(|pool| {
+            let mut pool = pool.borrow_mut();
+            if pool.len() < POOLED_QUEUES {
+                pool.push(queue);
+            }
+        });
+    }
+}
+
 struct Matcher<'a> {
     mode: MatchMode,
     sorts: &'a SortGraph,
@@ -1146,7 +1192,7 @@ struct Matcher<'a> {
     /// substitution: it sets this when it binds a value with a variable and never clears it, so
     /// while it is false every value is ground and no value can mention a variable being bound.
     symbolic_values: bool,
-    queue: VecDeque<(Term, Term)>,
+    queue: PairQueue,
     map_queue: VecDeque<(Term, Term)>,
     indeterminate: Vec<(Term, Term)>,
     /// The first pair the matcher could not decide ([`Matcher::undecided`]). Matching goes on
@@ -1271,8 +1317,10 @@ impl<'a> Matcher<'a> {
         mode: MatchMode,
         sorts: &'a SortGraph,
         definition: Option<&'a BackendDefinition>,
-        queue: VecDeque<(Term, Term)>,
+        pairs: impl IntoIterator<Item = (Term, Term)>,
     ) -> Self {
+        let mut queue = PairQueue::take();
+        queue.0.extend(pairs);
         Self {
             mode,
             sorts,
@@ -1359,6 +1407,7 @@ impl<'a> Matcher<'a> {
         // Invariant: `substitution` matches every popped pair; queued pairs are still unchecked.
         while let Some((pattern, subject)) = self
             .queue
+            .0
             .pop_front()
             .or_else(|| self.map_queue.pop_front())
         {
@@ -1573,7 +1622,7 @@ impl<'a> Matcher<'a> {
                     rest: right_rest,
                 },
             ) if left == right => {
-                if !self.queue.is_empty() {
+                if !self.queue.0.is_empty() {
                     self.map_queue.push_back((pattern, subject));
                     Ok(())
                 } else {
@@ -2164,7 +2213,7 @@ impl<'a> Matcher<'a> {
             }
         };
         problems.append(&mut rest_problems);
-        self.queue.extend(problems);
+        self.queue.0.extend(problems);
         Ok(())
     }
 
@@ -2260,7 +2309,7 @@ impl<'a> Matcher<'a> {
                     if self.unread_frames.contains(variable))
             })
         {
-            self.queue.extend(found.values);
+            self.queue.0.extend(found.values);
             return Ok(());
         }
         // A constructor-like pattern key that no subject entry binds syntactically, while the
@@ -2292,7 +2341,7 @@ impl<'a> Matcher<'a> {
         let subject = MapRemainder::new(subject_only, subject_rest);
         let mut rest = self.match_map_remainders(&definition, pattern, subject)?;
         values.append(&mut rest);
-        self.queue.extend(values);
+        self.queue.0.extend(values);
         Ok(())
     }
 
@@ -2667,7 +2716,7 @@ impl<'a> Matcher<'a> {
     }
 
     fn enqueue(&mut self, pattern: Term, subject: Term) {
-        self.queue.push_back((pattern, subject));
+        self.queue.0.push_back((pattern, subject));
     }
 
     fn defer(&mut self, pattern: Term, subject: Term) -> Result<(), FailReason> {
