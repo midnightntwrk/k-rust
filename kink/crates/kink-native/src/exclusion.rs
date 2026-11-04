@@ -1616,7 +1616,7 @@ impl DefinitionExclusions {
     pub fn counting_short_circuit_readings<'f>(
         &self,
         facts: &'f RunFacts,
-    ) -> Vec<&'f ShortCircuitReadingOutput> {
+    ) -> Vec<&'f ShortCircuitReadingOutput<Pattern>> {
         if !self.short_circuit_flagged() {
             return Vec::new();
         }
@@ -1637,7 +1637,7 @@ impl DefinitionExclusions {
     pub fn state_short_circuit_readings<'f>(
         &self,
         facts: &'f RunFacts,
-    ) -> Vec<&'f ShortCircuitReadingOutput> {
+    ) -> Vec<&'f ShortCircuitReadingOutput<Pattern>> {
         let ground = facts.ground && self.existential_rules.is_empty();
         let flagged = |name: &str| {
             self.short_circuit_rules.contains(name)

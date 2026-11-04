@@ -126,10 +126,7 @@ fn ground_leaf(leaf: &AdaptedLeaf, path: &PathInput) -> bool {
     let Pattern::Top { sort } = &path.path_predicate else {
         return false;
     };
-    let Ok(state) = codec::from_value(&leaf.branch.state) else {
-        return false;
-    };
-    let conjuncts = state.into_conjuncts_at(sort);
+    let conjuncts = leaf.branch.state.conjuncts_at(sort);
     matches!(conjuncts.as_slice(), [term] if matches!(term,
         Pattern::Application { .. }
         | Pattern::AssociativeApplication { .. }
@@ -395,7 +392,7 @@ mod tests {
             halt: HaltClass::Stuck,
             branch: AdaptedBranch {
                 identity: vec![transition.clone()],
-                state: term(&state),
+                state: state.clone(),
                 depth: 1,
                 trace: Vec::new(),
             },
@@ -683,7 +680,7 @@ mod tests {
     #[test]
     fn report_renders_bounded_feasibility_and_unknown() {
         let (mut execution, mut bridged, mut evaluation) = fixture();
-        execution.leaves[0].branch.state = term(&pattern("X:SortS{}"));
+        execution.leaves[0].branch.state = pattern("X:SortS{}");
         bridged.paths[0].complete = false;
         bridged.paths[0].stop = PathStop::DepthLimit;
         bridged.paths[0].execution_stop = ExecutionStop::DepthLimit;
@@ -744,7 +741,7 @@ mod tests {
         vacuous.halt = HaltClass::Vacuous;
         vacuous.branch.identity.clear();
         vacuous.branch.depth = 0;
-        vacuous.branch.state = term(&pattern(r"\bottom{SortS{}}()"));
+        vacuous.branch.state = pattern(r"\bottom{SortS{}}()");
         let mut refuted = execution.leaves[0].clone();
         refuted.feasibility = LeafFeasibility::Unsat;
         refuted.branch.identity[0].target = "u".to_owned();

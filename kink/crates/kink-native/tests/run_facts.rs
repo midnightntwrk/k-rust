@@ -114,10 +114,21 @@ fn path_facts(leaf: &AdaptedLeaf) -> usize {
 
 /// Whether the leaf's configuration holds the symbol `symbol`.
 fn holds(leaf: &AdaptedLeaf, symbol: &str) -> bool {
-    leaf.branch
-        .state
-        .to_string()
-        .contains(&format!("\"name\":\"{symbol}\""))
+    let mut found = false;
+    k_rust::kore::walk::for_each_post_order(&leaf.branch.state, |node| {
+        found |=
+            matches!(node, Pattern::Application { symbol: applied, .. } if applied.name == symbol);
+    });
+    found
+}
+
+/// Whether the leaf's state holds a domain value whose text is `value`.
+fn holds_value(leaf: &AdaptedLeaf, value: &str) -> bool {
+    let mut found = false;
+    k_rust::kore::walk::for_each_post_order(&leaf.branch.state, |node| {
+        found |= matches!(node, Pattern::DomainValue { value: held, .. } if held.as_bytes() == value.as_bytes());
+    });
+    found
 }
 
 /// Each record of the run's list, every one a `total` record.
@@ -515,7 +526,7 @@ fn the_run_facts_carry_the_short_circuit_readings_as_recorded() {
             operator: Some("BOOL.and".into()),
             outcome: ReadingOutcomeOutput::Undefined,
             head: None,
-            operand: serde_json::Value::Null,
+            operand: support::int(0),
             rewrite_rule_id: None,
             rewrite_rule_label: None,
             rewrite_rule_origin: None,
@@ -835,10 +846,7 @@ mod kink_tier {
                     panic!("{list}: one leaf: {execution:?}")
                 };
                 assert!(leaf.diagnostics.is_empty(), "{list}: {leaf:?}");
-                assert!(
-                    leaf.branch.state.to_string().contains(r#""value":"2""#),
-                    "{list}"
-                );
+                assert!(holds_value(leaf, "2"), "{list}");
                 assert_eq!(
                     exclusions.run_exclusion(&execution),
                     Some(exclusion),

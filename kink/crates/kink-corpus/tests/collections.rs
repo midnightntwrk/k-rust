@@ -3,7 +3,7 @@
 use k_rust::{
     backend::{Backend, BackendOptions},
     kompile::CompileOptions,
-    kore::{ast::Pattern, codec::from_value, parser::parse_definition},
+    kore::{ast::Pattern, parser::parse_definition},
 };
 use kink_campaign::{
     Campaign, CampaignOptions, CrashPolicy, OracleDeclaration, Projection, ScheduleMode,
@@ -250,7 +250,7 @@ fn external(imp: bool) {
             let distinct: std::collections::BTreeSet<Pattern> = execution
                 .leaves()
                 .iter()
-                .map(|leaf| from_value(&leaf.branch.state).unwrap())
+                .map(|leaf| leaf.branch.state.clone())
                 .collect();
             let bridged = backend
                 .with_solver(None, |definition, solver| {

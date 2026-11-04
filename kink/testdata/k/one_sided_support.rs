@@ -46,17 +46,18 @@ fn diagnosed(leaf: &AdaptedLeaf) -> bool {
     // record as a diagnostic. The record restates the leaf's own `contradicted_total`, which the
     // explanation reads as that leaf's offence, so it is not read as another diagnosis; any other
     // diagnostic, a record of another claim or symbol included, still is.
-    let restates_contradicted_total = |diagnostic: &k_rust::backend::BackendDiagnosticOutput| {
-        matches!(
-            diagnostic,
-            k_rust::backend::BackendDiagnosticOutput::ContradictedClaim(record)
-                if record.claim == k_rust::backend::ContradictedClaimKind::Total
-                    && leaf
-                        .contradicted_total
-                        .as_ref()
-                        .is_some_and(|total| record.symbol.as_ref() == Some(&total.symbol))
-        )
-    };
+    let restates_contradicted_total =
+        |diagnostic: &k_rust::backend::BackendDiagnosticOutput<k_rust::kore::ast::Pattern>| {
+            matches!(
+                diagnostic,
+                k_rust::backend::BackendDiagnosticOutput::ContradictedClaim(record)
+                    if record.claim == k_rust::backend::ContradictedClaimKind::Total
+                        && leaf
+                            .contradicted_total
+                            .as_ref()
+                            .is_some_and(|total| record.symbol.as_ref() == Some(&total.symbol))
+            )
+        };
     leaf.diagnostics
         .iter()
         .any(|diagnostic| !restates_contradicted_total(diagnostic))

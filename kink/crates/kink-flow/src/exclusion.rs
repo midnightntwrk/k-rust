@@ -259,7 +259,7 @@ pub fn short_circuit(spec: &AdmittedSpec, reader: &EndReader) -> Value {
 /// null for work of no rule (the initial state's normalization, a step's remainder, a leaf's
 /// constraints, the load); and `observed_in` `run` or `load`.
 #[must_use]
-pub fn readings_value(readings: &[ShortCircuitReadingOutput]) -> Value {
+pub fn readings_value(readings: &[ShortCircuitReadingOutput<Pattern>]) -> Value {
     Value::Array(
         readings
             .iter()
@@ -287,7 +287,7 @@ pub fn readings_value(readings: &[ShortCircuitReadingOutput]) -> Value {
 /// read it (the rule, else where the work was), the operator, the outcome and the operand (cut at
 /// [`HEAD_CAP`]); at most [`DETAIL_CAUSES`], then how many more.
 #[must_use]
-pub fn readings_text(readings: &[ShortCircuitReadingOutput]) -> String {
+pub fn readings_text(readings: &[ShortCircuitReadingOutput<Pattern>]) -> String {
     let mut text = readings
         .iter()
         .take(DETAIL_CAUSES)
@@ -329,7 +329,7 @@ pub fn readings_text(readings: &[ShortCircuitReadingOutput]) -> String {
 
 /// The rule of a reading as text: its label, else its id, then its source position; `None` for
 /// work of no rule.
-fn reading_rule(reading: &ShortCircuitReadingOutput) -> Option<String> {
+fn reading_rule(reading: &ShortCircuitReadingOutput<Pattern>) -> Option<String> {
     let name = reading
         .rewrite_rule_label
         .clone()
@@ -351,16 +351,8 @@ fn reading_rule(reading: &ShortCircuitReadingOutput) -> Option<String> {
 }
 
 /// The operand of a reading as KORE text cut at `cap` characters, and whether it was cut.
-fn operand_text(reading: &ShortCircuitReadingOutput, cap: usize) -> (String, bool) {
-    let envelope = if reading.operand.get("format").is_some() {
-        reading.operand.clone()
-    } else {
-        json!({"format": "KORE", "version": 1, "term": reading.operand})
-    };
-    let text = k_rust::kore::codec::from_value(&envelope).map_or_else(
-        |_| reading.operand.to_string(),
-        |pattern| pattern.to_string(),
-    );
+fn operand_text(reading: &ShortCircuitReadingOutput<Pattern>, cap: usize) -> (String, bool) {
+    let text = reading.operand.to_string();
     if text.chars().count() > cap {
         (text.chars().take(cap).collect(), true)
     } else {

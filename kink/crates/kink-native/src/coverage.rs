@@ -249,8 +249,8 @@ pub struct TestCoverage {
 /// Whether one leaf leaves its run complete, for observed and unobserved leaves alike.
 fn leaf_complete(
     halt: HaltClass,
-    diagnostics: [&[BackendDiagnosticOutput]; 2],
-    candidate_diagnostics: &[Vec<BackendDiagnosticOutput>],
+    diagnostics: [&[BackendDiagnosticOutput<Pattern>]; 2],
+    candidate_diagnostics: &[Vec<BackendDiagnosticOutput<Pattern>>],
 ) -> bool {
     matches!(
         halt,

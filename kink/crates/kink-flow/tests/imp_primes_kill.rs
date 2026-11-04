@@ -27,7 +27,7 @@ use k_rust::backend::{
     BACKEND_SCHEMA_VERSION, Backend, CancelledResultOutput, ExecuteRequest, ExecutionStrategy,
     HaltReasonOutput, ResultModalityOutput,
 };
-use k_rust::kore::{ast::Pattern, codec};
+use k_rust::kore::ast::Pattern;
 use kink_campaign::{
     Campaign, CampaignOptions, MutantStatus, RunOptions, ScheduleMode, TestCase, run_campaign_with,
 };
@@ -48,10 +48,8 @@ fn imp() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/imp")
 }
 
-fn text(value: &serde_json::Value) -> String {
-    codec::from_value(value)
-        .map(|state: Pattern| state.to_string())
-        .unwrap_or_else(|_| value.to_string())
+fn text(state: &Pattern) -> String {
+    state.to_string()
 }
 
 /// The `s` binding of an IMP final configuration's text.
@@ -80,7 +78,7 @@ fn complete_finals(label: &str, execution: &AdaptedExecution) -> BTreeSet<String
 /// One concrete path of `state`: strategy `any`, a path set, no merge, no work budget.
 fn single_path(backend: &mut Backend, state: &Pattern, budget: ExecutionBudget) -> String {
     let result = backend
-        .execute(ExecuteRequest {
+        .execute_kore(ExecuteRequest {
             state: state.clone(),
             module_name: None,
             max_depth: Some(100_000),

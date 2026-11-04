@@ -15,7 +15,7 @@ use k_rust::{
             kore_sort, program_start_position,
         },
     },
-    kore::{ast::Pattern, codec::from_value, parser::parse_definition},
+    kore::{ast::Pattern, parser::parse_definition},
 };
 use k_rust_backend::{definition::BackendDefinition, term::CollectionMetadata};
 use kink_native::{
@@ -171,7 +171,7 @@ fn execute_rows(
                     "STOP {id}: {new:?}"
                 );
                 for leaf in execution.leaves() {
-                    let raw = from_value(&leaf.branch.state).expect("leaf KORE");
+                    let raw = leaf.branch.state.clone();
                     assert!(
                         !decider.definition_independent(&raw),
                         "{id}: collection independent before"
@@ -332,7 +332,7 @@ fn stuck_state(fixture: &Fixture, backend: &mut Backend, program: &str) -> Patte
         .filter(|leaf| leaf.halt == HaltClass::Stuck)
         .collect::<Vec<_>>();
     assert_eq!(stuck.len(), 1, "{program}: one stuck leaf");
-    from_value(&stuck[0].branch.state).expect("leaf KORE")
+    stuck[0].branch.state.clone()
 }
 
 /// `term` with every `SortInt` domain value `from` replaced by `to`.
@@ -550,7 +550,7 @@ fn collection_permutations_repeats_and_position_rows() {
         .expect("execution");
     assert!(!execution.timed_out());
     assert_eq!(execution.leaves().len(), 1);
-    let raw = from_value(&execution.leaves()[0].branch.state).expect("leaf KORE");
+    let raw = execution.leaves()[0].branch.state.clone();
     backend
         .with_solver(None, |definition, solver| {
             let decider =
@@ -868,7 +868,7 @@ mod kink_tier {
             assert!(!execution.timed_out());
             assert_eq!(execution.leaves().len(), 1);
             assert_eq!(execution.leaves()[0].halt, HaltClass::Stuck);
-            let raw = from_value(&execution.leaves()[0].branch.state).expect("leaf KORE");
+            let raw = execution.leaves()[0].branch.state.clone();
             backend
                 .with_solver(None, |definition, solver| {
                     let decider = ObservationDecider::new(

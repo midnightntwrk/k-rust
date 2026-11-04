@@ -3013,11 +3013,8 @@ endmodule []"#,
 #[test]
 fn a_mutant_leaf_is_admitted_under_the_mutant_definition() {
     use kink_native::feasibility::LeafFeasibility;
-    let state = k_rust::kore::codec::to_value(
-        &parse_pattern(
-            r#"\and{SortS{}}(done{}(VarX:SortInt{}), \equals{SortInt{}, SortS{}}(mydiv{}(VarX:SortInt{}, \dv{SortInt{}}("0")), \dv{SortInt{}}("1")))"#,
-        )
-        .unwrap(),
+    let state = parse_pattern(
+        r#"\and{SortS{}}(done{}(VarX:SortInt{}), \equals{SortInt{}, SortS{}}(mydiv{}(VarX:SortInt{}, \dv{SortInt{}}("0")), \dv{SortInt{}}("1")))"#,
     )
     .unwrap();
     let mut baseline = Backend::new(&division(false), "MAIN", BackendOptions::default()).unwrap();
@@ -3267,7 +3264,7 @@ mod kink_tier {
                 let [leaf] = execution.leaves() else {
                     panic!("{name}: {execution:?}")
                 };
-                let state = k_rust::kore::codec::from_value(&leaf.branch.state).unwrap();
+                let state = leaf.branch.state.clone();
                 let term = match &state {
                     Pattern::And { arguments, .. } => arguments[0].clone(),
                     term => term.clone(),

@@ -362,14 +362,14 @@ pub struct RunNotes {
     /// included (`observedIn: load`): each says that a claim of the specification is false at an
     /// application (when `ground`), which the author can act on. Any record excludes the run
     /// (`contradicted-claim`, kink-native `exclusion`); a reader reports them.
-    pub contradicted_claims: Vec<k_rust::backend::ContradictedClaimOutput>,
+    pub contradicted_claims: Vec<k_rust::backend::ContradictedClaimOutput<Pattern>>,
     /// The entries of k-rust's `shortCircuitReadings` list of the run that count against it on
     /// the judging definition (kink-native
     /// `DefinitionExclusions::counting_short_circuit_readings`): each names the rewrite rule whose
     /// work read the definedness of an operand a short-circuiting backend may skip, the operator,
     /// whether k-rust found the operand undefined or left it undecided, and the operand. Any entry
     /// excludes the run (`short-circuit-reading`); a reader reports them as the step that did.
-    pub short_circuit_readings: Vec<k_rust::backend::ShortCircuitReadingOutput>,
+    pub short_circuit_readings: Vec<k_rust::backend::ShortCircuitReadingOutput<Pattern>>,
     /// k-rust's count of the undecided solver answers the run's decisions took (`smtUnknowns`;
     /// always 0 without Z3). Reported only (decision D-7 (a1)): never an exclusion.
     pub smt_unknowns: usize,
@@ -2508,9 +2508,7 @@ struct RunCache {
 
 fn step_failure_side(failure: &StepRunFailure) -> OracleSide {
     match failure {
-        StepRunFailure::AmbiguousRule(_)
-        | StepRunFailure::Unobservable
-        | StepRunFailure::Decode(_) => OracleSide::Unknown,
+        StepRunFailure::AmbiguousRule(_) | StepRunFailure::Unobservable => OracleSide::Unknown,
     }
 }
 
@@ -3296,34 +3294,30 @@ impl Runtime {
                         Some(exclusion) => SideRun::Failed(exclusion.into()),
                         None => {
                             terminals = one_sided;
-                            // An undefined step's pre-step term is no end (kink27 R1-UNDEF).
+                            let sides = test
+                                .oracles
+                                .iter()
+                                .map(|declaration| match declaration.projection() {
+                                    Projection::State(projection) => {
+                                        state_side(projection, &bridged)
+                                    }
+                                    Projection::Pattern { .. } => executed.pattern_failure.clone(),
+                                })
+                                .collect();
+                            // An undefined step's pre-step term is no end (kink27 R1-UNDEF). The
+                            // sides have read the paths, so their ends move into the evidence.
                             let complete = bridged
                                 .paths
-                                .iter()
-                                .filter_map(|path| path.execution_terminal.as_ref());
-                            undefined_steps = complete.clone().any(|terminal| {
-                                terminal.kind == ExecutionTerminalKind::UndefinedStep
-                            });
-                            ends = complete
-                                .filter(|terminal| {
-                                    terminal.kind != ExecutionTerminalKind::UndefinedStep
-                                })
-                                .map(|terminal| terminal.state.clone())
-                                .collect();
-                            SideRun::Sides {
-                                sides: test
-                                    .oracles
-                                    .iter()
-                                    .map(|declaration| match declaration.projection() {
-                                        Projection::State(projection) => {
-                                            state_side(projection, &bridged)
-                                        }
-                                        Projection::Pattern { .. } => {
-                                            executed.pattern_failure.clone()
-                                        }
-                                    })
-                                    .collect(),
+                                .into_iter()
+                                .filter_map(|path| path.execution_terminal);
+                            for terminal in complete {
+                                if terminal.kind == ExecutionTerminalKind::UndefinedStep {
+                                    undefined_steps = true;
+                                } else {
+                                    ends.insert(terminal.state);
+                                }
                             }
+                            SideRun::Sides { sides }
                         }
                     }
                 }
@@ -4065,7 +4059,7 @@ mod tests {
                     short_circuit_readings: Vec::new(),
                     state_matches: None,
                 };
-                let executed = |result: k_rust::backend::ExecutionResult| {
+                let executed = |result: k_rust::backend::KoreExecutionResult| {
                     let feasibility = vec![LeafFeasibility::Syntactic; result.leaves.len()];
                     Executed {
                         execution: Ok(ExecutionAdapter::adapt_result(
@@ -4104,8 +4098,8 @@ mod tests {
                     rule_id: "tdeq".into(),
                     rule_label: Some("COUNTER.tdeq".into()),
                     origin: None,
-                    application: serde_json::Value::Null,
-                    undefined: serde_json::Value::Null,
+                    application: k_rust::kore::parser::parse_pattern(r"\top{SortBool{}}()").unwrap(),
+                    undefined: k_rust::kore::parser::parse_pattern(r"\top{SortBool{}}()").unwrap(),
                     rewrite_rule_id: None,
                     rewrite_rule_label: None,
                     rewrite_rule_origin: None,
@@ -4337,18 +4331,18 @@ mod tests {
                     operator: Some("BOOL.andThen".into()),
                     outcome: ReadingOutcomeOutput::Undefined,
                     head: Some("Lbl'Unds'divInt'Unds'".into()),
-                    operand: serde_json::Value::Null,
+                    operand: k_rust::kore::parser::parse_pattern(r"\top{SortBool{}}()").unwrap(),
                     rewrite_rule_id: rule.map(str::to_owned),
                     rewrite_rule_label: rule.map(|rule| format!("COUNTER.{rule}")),
                     rewrite_rule_origin: None,
                     observed_in,
                 };
-                let listing = |readings: Vec<ShortCircuitReadingOutput>| {
+                let listing = |readings: Vec<ShortCircuitReadingOutput<Pattern>>| {
                     let mut result = raw();
                     result.short_circuit_readings = readings;
                     result
                 };
-                let executed = |result: k_rust::backend::ExecutionResult, recorded: RecordedRun| {
+                let executed = |result: k_rust::backend::KoreExecutionResult, recorded: RecordedRun| {
                     let feasibility = vec![LeafFeasibility::Syntactic; result.leaves.len()];
                     Executed {
                         execution: Ok(ExecutionAdapter::adapt_result(
@@ -4621,7 +4615,7 @@ mod tests {
                     .iter()
                     .map(|leaf| leaf.feasibility)
                     .collect::<Vec<_>>();
-                let executed = |result: ExecutionResult| Executed {
+                let executed = |result: ExecutionResult<Pattern>| Executed {
                     execution: Ok(ExecutionAdapter::adapt_bounded_result(
                         result,
                         false,
@@ -5090,7 +5084,6 @@ mod tests {
         for failure in [
             StepRunFailure::AmbiguousRule("duplicate".into()),
             StepRunFailure::Unobservable,
-            StepRunFailure::Decode("state".into()),
         ] {
             assert_eq!(step_failure_side(&failure), OracleSide::Unknown);
             let test = TestCase {

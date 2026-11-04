@@ -64,7 +64,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use k_rust::backend::{Backend, SearchFailureOutput};
 use k_rust::kore::{
     ast::{Pattern, Sort, VariableKind},
-    codec, walk,
+    walk,
 };
 use k_rust::names::BuiltinSort;
 use k_rust_backend::definition::BackendDefinition;
@@ -487,7 +487,7 @@ pub const fn halt_stop(halt: HaltClass) -> Result<Option<PathStop>, BridgeFailur
 /// The stop of an `Indeterminate` leaf with `cause`: `SolverUnknown` when the stopped step needed
 /// an SMT solver that the build lacks, and `BackendLimit` for any other cause or none.
 #[must_use]
-pub fn indeterminate_stop(cause: Option<&SearchFailureOutput>) -> PathStop {
+pub fn indeterminate_stop(cause: Option<&SearchFailureOutput<Pattern>>) -> PathStop {
     if cause.is_some_and(SearchFailureOutput::solver_unavailable) {
         PathStop::SolverUnknown
     } else {
@@ -559,7 +559,7 @@ fn complete_term(
     value: &dyn Fn(&Pattern) -> Option<Pattern>,
     exists: &dyn Fn(&Pattern) -> bool,
 ) -> Option<Pattern> {
-    let [term] = split.terms.as_slice() else {
+    let &[term] = split.terms.as_slice() else {
         return None;
     };
     if halt != HaltClass::Trivial {
@@ -573,11 +573,11 @@ fn complete_term(
     (feasible || valued.is_some() || exists(term)).then(|| valued.unwrap_or_else(|| term.clone()))
 }
 
-/// A decoded leaf state split at its sort into term and predicate conjuncts.
-struct SplitState {
+/// A leaf state split at its sort into term and predicate conjuncts, borrowed from the state.
+struct SplitState<'s> {
     sort: Sort,
-    terms: Vec<Pattern>,
-    predicates: Vec<Pattern>,
+    terms: Vec<&'s Pattern>,
+    predicates: Vec<&'s Pattern>,
 }
 
 /// An application of a function that an indeterminate leaf holds unreduced
@@ -592,7 +592,7 @@ pub struct OpenApplication {
 
 /// The functions applied in the state of an [`HaltClass::Indeterminate`] leaf, each once, in
 /// pre-order of the state's terms (its path predicates aside), among the symbols of `functions`;
-/// empty for every other leaf, an undecodable state, or a state without one (kink27
+/// empty for every other leaf, or a state without one (kink27
 /// R5-WEAKENING).
 ///
 /// k-rust's states are normal forms, so a function application left in one is an application
@@ -606,12 +606,9 @@ pub fn open_applications(leaf: &AdaptedLeaf, functions: &BTreeSet<String>) -> Ve
     if leaf.halt != HaltClass::Indeterminate {
         return Vec::new();
     }
-    let Ok(state) = codec::from_value(&leaf.branch.state) else {
-        return Vec::new();
-    };
     // The state's term conjuncts, left to right, through its top conjunctions.
     let mut terms = Vec::new();
-    let mut conjuncts = vec![state.strip_exists()];
+    let mut conjuncts = vec![leaf.branch.state.strip_exists()];
     while let Some(conjunct) = conjuncts.pop() {
         match conjunct {
             Pattern::And { arguments, .. } => conjuncts.extend(arguments.iter().rev()),
@@ -638,21 +635,15 @@ pub fn open_applications(leaf: &AdaptedLeaf, functions: &BTreeSet<String>) -> Ve
     open
 }
 
-fn split_state(
-    value: &serde_json::Value,
+/// `state` split at its sort into its term and predicate conjuncts, borrowed from it.
+fn split_state<'s>(
+    state: &'s Pattern,
     sorts: &SymbolSorts,
-) -> Result<SplitState, BridgeFailure> {
-    let state = codec::from_value(value)
-        .map_err(|error| BridgeFailure::UndecodableState(error.to_string()))?;
-    split_pattern(state, sorts)
-}
-
-/// [`split_state`] of a state already decoded.
-fn split_pattern(state: Pattern, sorts: &SymbolSorts) -> Result<SplitState, BridgeFailure> {
+) -> Result<SplitState<'s>, BridgeFailure> {
     let sort = sorts
-        .sort_of(&state)
+        .sort_of(state)
         .ok_or(BridgeFailure::UndecidedStateSort)?;
-    let (terms, predicates) = partition_conjuncts(state.into_conjuncts_at(&sort));
+    let (terms, predicates) = partition_conjuncts(state.conjuncts_at(&sort));
     Ok(SplitState {
         sort,
         terms,
@@ -661,11 +652,13 @@ fn split_pattern(state: Pattern, sorts: &SymbolSorts) -> Result<SplitState, Brid
 }
 
 /// Separates term conjuncts from path predicates using the bridge's state classification.
-pub(crate) fn partition_conjuncts(conjuncts: Vec<Pattern>) -> (Vec<Pattern>, Vec<Pattern>) {
-    conjuncts.into_iter().partition(term_head)
+pub(crate) fn partition_conjuncts(conjuncts: Vec<&Pattern>) -> (Vec<&Pattern>, Vec<&Pattern>) {
+    conjuncts
+        .into_iter()
+        .partition(|conjunct| term_head(conjunct))
 }
 
-impl SplitState {
+impl SplitState<'_> {
     /// The decided state: one definition-independent term, no predicate, and no free variable.
     /// Anything else is neither complete terminal evidence nor a real prefix.
     /// Whether the leaf whose state this is, of feasibility `feasibility`, is feasible. The
@@ -685,8 +678,8 @@ impl SplitState {
     /// free variable) or `feasible`.
     fn valued_term(&self, feasible: bool) -> Option<&Pattern> {
         match (self.terms.as_slice(), self.predicates.is_empty()) {
-            ([term], true) if term.free_variables().is_empty() => Some(term),
-            ([term], _) if feasible => Some(term),
+            ([term], true) if term.free_variables().is_empty() => Some(*term),
+            ([term], _) if feasible => Some(*term),
             _ => None,
         }
     }
@@ -703,10 +696,13 @@ impl SplitState {
             [] => Pattern::Top {
                 sort: self.sort.clone(),
             },
-            [predicate] => predicate.clone(),
+            [predicate] => (*predicate).clone(),
             predicates => Pattern::And {
                 sort: self.sort.clone(),
-                arguments: predicates.to_vec(),
+                arguments: predicates
+                    .iter()
+                    .map(|&predicate| predicate.clone())
+                    .collect(),
             },
         }
     }
@@ -776,8 +772,8 @@ pub enum LeafTerm {
 /// The [`LeafTerm`] of each of `leaves`, as `PathSet::push` selects it, their symbol sorts read
 /// from `definition` (the parsed KORE of the definition that ran them).
 ///
-/// A leaf's entry is an error when its halt is outside the bridge's contract, or its state does
-/// not decode or has no decided sort (as [`paths_from_execution_values`] fails).
+/// A leaf's entry is an error when its halt is outside the bridge's contract, or its state has
+/// no decided sort (as [`paths_from_execution_values`] fails).
 #[must_use]
 pub fn leaf_terms(
     leaves: &[crate::execution::AdaptedLeaf],
@@ -799,7 +795,7 @@ pub fn leaf_terms(
         .collect()
 }
 
-/// The [`LeafTerm`] of one leaf known by its decoded `state` and its `halt` alone, its symbol
+/// The [`LeafTerm`] of one leaf known by its `state` and its `halt` alone, its symbol
 /// sorts `sorts` read from the definition that ran it: a client that holds a leaf's configuration
 /// as KORE text and its halt, without the adapter's feasibility or diagnostics (kink-flow's
 /// in-campaign witness filter, fz26 FZ-COMPARABLE-B).
@@ -824,21 +820,22 @@ pub fn leaf_term(
     if halt == HaltClass::Vacuous {
         return Ok(LeafTerm::Discarded);
     }
-    let split = split_pattern(state.clone(), sorts)?;
+    let split = split_state(state, sorts)?;
     Ok(split
         .valued_term(false)
         .map_or(LeafTerm::Undecided, |term| LeafTerm::Term(term.clone())))
 }
 
-/// State-slot paths under construction, keyed by the raw leaf ordinal.
-struct PathSet<'a> {
+/// State-slot paths under construction, keyed by the raw leaf ordinal. Each entry refers to its
+/// leaf's branch, which a later entry of the same key must equal.
+struct PathSet<'a, 'e> {
     context: &'a BridgeContext<'a>,
-    entries: Vec<(String, AdaptedBranch, PathInput)>,
+    entries: Vec<(String, &'e AdaptedBranch, PathInput)>,
     /// Incomplete stops of every item, including items that add no path.
     incomplete: Vec<PathStop>,
 }
 
-impl<'a> PathSet<'a> {
+impl<'a, 'e> PathSet<'a, 'e> {
     const fn new(context: &'a BridgeContext<'a>) -> Self {
         Self {
             context,
@@ -849,7 +846,7 @@ impl<'a> PathSet<'a> {
 
     fn push(
         &mut self,
-        leaf: &crate::execution::AdaptedLeaf,
+        leaf: &'e crate::execution::AdaptedLeaf,
         key: String,
         value: &dyn Fn(&Pattern) -> Option<Pattern>,
         exists: &dyn Fn(&Pattern) -> bool,
@@ -906,14 +903,14 @@ impl<'a> PathSet<'a> {
     fn insert(
         &mut self,
         key: String,
-        branch: &AdaptedBranch,
+        branch: &'e AdaptedBranch,
         complete: bool,
         stop: PathStop,
         execution_terminal: Option<ExecutionTerminal>,
         path_predicate: Pattern,
     ) -> Result<(), BridgeFailure> {
         if let Some((_, existing, path)) = self.entries.iter().find(|(other, ..)| *other == key) {
-            return if existing == branch && path.stop == stop {
+            return if *existing == branch && path.stop == stop {
                 Ok(())
             } else {
                 Err(BridgeFailure::DuplicatePathIdentity(key))
@@ -932,7 +929,7 @@ impl<'a> PathSet<'a> {
             equivalences: Vec::new(),
             inequalities: Vec::new(),
         };
-        self.entries.push((key, branch.clone(), path));
+        self.entries.push((key, branch, path));
         Ok(())
     }
 
@@ -1080,15 +1077,15 @@ pub fn work_bound_stuck_terminals(
     }
     bridged
         .paths
-        .iter()
+        .into_iter()
         .filter_map(|path| {
-            let terminal = path.execution_terminal.as_ref()?;
             let ordinal = path
                 .path_key
                 .as_deref()?
                 .strip_prefix("leaf:")?
                 .parse::<usize>()
                 .ok()?;
+            let terminal = path.execution_terminal?;
             let leaf = explored.get(ordinal)?;
             if leaf.halt != HaltClass::Stuck || leaf.contradicted_total.is_some() {
                 return None;
@@ -1101,7 +1098,7 @@ pub fn work_bound_stuck_terminals(
                     terminal.kind,
                     ExecutionTerminalKind::Normal | ExecutionTerminalKind::Stuck
                 ))
-            .then(|| terminal.clone())
+            .then_some(terminal)
         })
         .collect()
 }
@@ -1160,18 +1157,7 @@ fn paths_from_judged_steps(
         {
             continue;
         }
-        let state = codec::from_value(&leaf.branch.state)
-            .map_err(|error| BridgeFailure::UndecodableState(error.to_string()))?;
-        let sort = context
-            .sorts
-            .sort_of(&state)
-            .ok_or(BridgeFailure::UndecidedStateSort)?;
-        let (terms, predicates) = partition_conjuncts(state.into_conjuncts_at(&sort));
-        let split = SplitState {
-            sort: sort.clone(),
-            terms,
-            predicates,
-        };
+        let split = split_state(&leaf.branch.state, context.sorts)?;
         let feasible = match feasibility {
             LeafFeasibility::Syntactic => split.predicates.is_empty(),
             LeafFeasibility::Solver => true,
@@ -1384,18 +1370,7 @@ fn tree_from_judged_steps(
         {
             continue;
         }
-        let state = codec::from_value(&leaf.branch.state)
-            .map_err(|error| BridgeFailure::UndecodableState(error.to_string()))?;
-        let sort = context
-            .sorts
-            .sort_of(&state)
-            .ok_or(BridgeFailure::UndecidedStateSort)?;
-        let (terms, predicates) = partition_conjuncts(state.into_conjuncts_at(&sort));
-        let split = SplitState {
-            sort: sort.clone(),
-            terms,
-            predicates,
-        };
+        let split = split_state(&leaf.branch.state, context.sorts)?;
         let feasible = match feasibility {
             LeafFeasibility::Syntactic => split.predicates.is_empty(),
             LeafFeasibility::Solver => true,
@@ -1600,9 +1575,9 @@ fn canonicalize_step_paths(paths: &mut Vec<PathInput>) {
 
 fn term_conjunct(state: &Pattern, sorts: &SymbolSorts) -> Option<Pattern> {
     let sort = sorts.sort_of(state)?;
-    let (terms, _) = partition_conjuncts(state.clone().into_conjuncts_at(&sort));
+    let (terms, _) = partition_conjuncts(state.conjuncts_at(&sort));
     match terms.as_slice() {
-        [term] => Some(term.clone()),
+        [term] => Some((*term).clone()),
         _ => None,
     }
 }
@@ -1610,16 +1585,14 @@ fn term_conjunct(state: &Pattern, sorts: &SymbolSorts) -> Option<Pattern> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::execution::{AdaptedLeaf, ExecutionBudget};
     use crate::feasibility::TestInitialState;
     use k_rust::backend::TransitionIdOutput;
-    use k_rust::kore::{json as kore_json, parser::parse_pattern};
+    use k_rust::kore::parser::parse_pattern;
     use kink_pattern::{
         Atom, Constructor, EvaluationContext, EvaluationOptions, EventVocabulary, ExecutionBounds,
         PatternArm, PatternOutcome, PatternPlan, SearchPolicy, evaluate,
     };
-    use serde_json::Value;
-
-    use crate::execution::{AdaptedLeaf, ExecutionBudget};
 
     use HaltClass as H;
     use LeafFeasibility::{Syntactic as F, Unknown as U};
@@ -1758,8 +1731,8 @@ mod tests {
         assert_eq!(paths[1].events[0].constructor, "b");
     }
 
-    fn kore(source: &str) -> Value {
-        kore_json::to_value(&parse_pattern(source).expect("test KORE")).expect("KORE JSON")
+    fn kore(source: &str) -> Pattern {
+        parse_pattern(source).expect("test KORE")
     }
 
     fn sorts() -> SymbolSorts {
@@ -2028,7 +2001,8 @@ mod tests {
             });
         }
         // The path predicate keeps the constrained leaf's condition.
-        let split = split_state(&kore(CONSTRAINED), &sorts).expect("split");
+        let constrained = kore(CONSTRAINED);
+        let split = split_state(&constrained, &sorts).expect("split");
         assert_eq!(
             split.decided_term(&|t| independent(t).then(|| t.clone())),
             None

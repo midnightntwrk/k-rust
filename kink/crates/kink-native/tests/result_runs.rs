@@ -76,7 +76,7 @@ fn state(symbol: &str, argument: i64) -> Pattern {
     )
 }
 
-fn halts(execution: &AdaptedExecution) -> Vec<(HaltClass, serde_json::Value)> {
+fn halts(execution: &AdaptedExecution) -> Vec<(HaltClass, Pattern)> {
     execution
         .leaves()
         .iter()

@@ -62,7 +62,7 @@ use std::time::Duration;
 
 use k_rust::kast::{Sort, Term};
 use k_rust::kompile::CompileOptions;
-use k_rust::kore::{ast::Pattern, codec, parser::parse_definition, walk};
+use k_rust::kore::{ast::Pattern, parser::parse_definition, walk};
 use kink_campaign::{
     Campaign, CampaignOptions, RunOptions, ScheduleMode, TestCase, run_campaign_multi,
 };
@@ -132,9 +132,7 @@ fn mutation_lists(manifest: &Path) -> Vec<PathBuf> {
 type Classifier = dyn Fn(&Pattern) -> ExecutionTerminalKind;
 
 fn state_text(leaf: &AdaptedLeaf) -> String {
-    codec::from_value(&leaf.branch.state)
-        .map(|state: Pattern| state.to_string())
-        .unwrap_or_else(|_| leaf.branch.state.to_string())
+    leaf.branch.state.to_string()
 }
 
 /// A complete leaf as the differential compares it: its terminal class (a stuck leaf's is the
@@ -157,9 +155,7 @@ fn leaf_sets(
         let state = state_text(leaf);
         match leaf.halt {
             HaltClass::Stuck => {
-                let class = codec::from_value(&leaf.branch.state)
-                    .map(|term: Pattern| format!("{:?}", classify(&term)))
-                    .unwrap_or_else(|_| "undecodable".into());
+                let class = format!("{:?}", classify(&leaf.branch.state));
                 complete.insert((class, None, state, None, None));
             }
             HaltClass::Trivial | HaltClass::Vacuous => {

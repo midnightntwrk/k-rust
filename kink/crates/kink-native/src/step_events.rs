@@ -763,9 +763,10 @@ impl<'a> ObservationDecider<'a> {
     /// decider's judgements needed while `work` ran.
     ///
     /// A judgement over a leaf, or over a subterm of it, runs on the stack k-rust sizes for an
-    /// operation over that term ([`crate::feasibility::on_stack_for`]). When the term is too deep
-    /// for the largest stack k-rust provides, the judgement is its one-sided answer (unknown
-    /// feasibility, not shown to exist, not data), a function of the term. When the host refuses
+    /// operation over that term with its builtin collections associated
+    /// ([`crate::feasibility::on_stack_for`]). When that associated form is too deep for the
+    /// largest stack k-rust provides, the judgement is its one-sided answer (unknown feasibility,
+    /// not shown to exist, not data), a function of the term. When the host refuses
     /// to map the stack (an address-space limit such as `ulimit -v`), the judgement answers the
     /// same way, so that its caller goes on as before, and the refusal is recorded here instead,
     /// since it is a fact about the host and must not become an answer about the term: a caller
@@ -776,14 +777,15 @@ impl<'a> ObservationDecider<'a> {
         self.relations.host_refusal_during(work)
     }
 
-    /// `work` on the stack k-rust gives an operation over `patterns` on `definition`, or
-    /// `refused` when that stack is not provided, the host's refusal recorded
-    /// ([`Self::host_refusal_during`]).
+    /// `work` on the stack k-rust gives an operation over `patterns` on `definition`, handed
+    /// `patterns` with their builtin collections associated
+    /// ([`crate::feasibility::on_stack_for`]), or `refused` when that stack is not provided, the
+    /// host's refusal recorded ([`Self::host_refusal_during`]).
     fn on_stack_for<R>(
         &self,
         definition: &BackendDefinition,
         patterns: &[&Pattern],
-        work: impl FnOnce() -> R,
+        work: impl FnOnce(&[&Pattern]) -> R,
         refused: R,
     ) -> R {
         self.relations
@@ -936,7 +938,7 @@ impl<'a> ObservationDecider<'a> {
             self.on_stack_for(
                 definition,
                 &[application],
-                || ends.overload_application_is_data(definition, application),
+                |associated| ends.overload_application_is_data(definition, associated[0]),
                 false,
             )
         };
@@ -1013,9 +1015,9 @@ impl<'a> ObservationDecider<'a> {
             && self.on_stack_for(
                 definition,
                 &[term],
-                || {
+                |associated| {
                     definition
-                        .admit_unverified(term, &[])
+                        .admit_unverified(associated[0], &[])
                         .internalize_term()
                         .is_ok_and(|internal| definition.ground_defined(&internal))
                 },
@@ -1386,13 +1388,10 @@ impl<'a> ObservationDecider<'a> {
         Some(out)
     }
 
-    /// The feasibility of a leaf state (KORE JSON) of the leaf definition's run, decided on the
-    /// leaf definition and its solver (re-pin finding A-12); `Unknown` when the host refuses the
+    /// The feasibility of a leaf state of the leaf definition's run, decided on the leaf
+    /// definition and its solver (re-pin finding A-12); `Unknown` when the host refuses the
     /// stack the leaf needs, the refusal recorded ([`Self::host_refusal_during`]).
-    pub fn shared_leaf_feasibility(
-        &self,
-        state: &serde_json::Value,
-    ) -> crate::feasibility::LeafFeasibility {
+    pub fn shared_leaf_feasibility(&self, state: &Pattern) -> crate::feasibility::LeafFeasibility {
         crate::feasibility::shared_leaf_feasibility(
             self.leaf_definition,
             self.leaf_solver,

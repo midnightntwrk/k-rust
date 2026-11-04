@@ -1091,8 +1091,7 @@ mod kink_tier {
             )
             .execute(&mut backend, &initial(START), BUDGET)
             .unwrap();
-            let state: Pattern =
-                k_rust::kore::codec::from_value(&execution.leaves()[0].branch.state).unwrap();
+            let state: Pattern = execution.leaves()[0].branch.state.clone();
             let done = path_to(&state, "Lbldone").expect("a done(_) subterm");
             let tests = test(vec![StateProjection::TermPaths(vec![done])]);
             let term_paths = campaign(&validator, &tests, &normal);

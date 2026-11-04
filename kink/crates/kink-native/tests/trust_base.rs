@@ -27,7 +27,7 @@ use k_rust::definition::{AttributeKey, Sentence};
 use k_rust::kast::{Sort, Term};
 use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::kore_sort;
-use k_rust::kore::{ast::Pattern, codec};
+use k_rust::kore::ast::Pattern;
 use kink_native::bridge::{self, DiscardReason};
 use kink_native::execution::{
     AdaptedLeaf, ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile,
@@ -74,7 +74,7 @@ fn diagnosed(leaf: &AdaptedLeaf) -> bool {
 }
 
 fn state(leaf: &AdaptedLeaf) -> Pattern {
-    codec::from_value(&leaf.branch.state).expect("leaf KORE reads")
+    leaf.branch.state.clone()
 }
 
 fn contains_symbol(pattern: &Pattern, name: &str) -> bool {

@@ -140,12 +140,9 @@ pub const RUN_VERSION: u64 = 17;
 /// which shows nothing. Every record excludes its run (`contradicted-claim`); none is ever
 /// evidence for a kill.
 pub fn specification_diagnostics_value(
-    records: &[k_rust::backend::ContradictedClaimOutput],
+    records: &[k_rust::backend::ContradictedClaimOutput<k_rust::kore::ast::Pattern>],
 ) -> Value {
-    let text = |term: &Value| {
-        k_rust::kore::codec::from_value(term)
-            .map_or_else(|_| term.to_string(), |pattern| pattern.to_string())
-    };
+    let text = |term: &k_rust::kore::ast::Pattern| term.to_string();
     Value::Array(
         records
             .iter()

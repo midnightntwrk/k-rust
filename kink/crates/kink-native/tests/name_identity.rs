@@ -176,7 +176,7 @@ fn decoded_leaf_and_step_names_round_trip() {
     let leaves = execution
         .leaves()
         .iter()
-        .map(|leaf| codec::from_value(&leaf.branch.state).expect("leaf KORE reads"))
+        .map(|leaf| leaf.branch.state.clone())
         .collect::<Vec<_>>();
     backend
         .with_solver(None, |definition, _| {

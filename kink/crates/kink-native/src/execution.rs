@@ -36,12 +36,12 @@ use std::{
 use k_rust::backend::{
     BACKEND_SCHEMA_VERSION, Backend, BackendDiagnosticOutput, BackendError, CancelledResultOutput,
     ChosenValueOutput, ContradictedClaimOutput, ContradictedTotalOutput, EffectOutput,
-    ExecuteRequest, ExecutionLeaf, ExecutionResult, ExecutionStrategy, HaltReasonOutput,
+    ExecuteRequest, ExecutionStrategy, HaltReasonOutput, KoreExecutionLeaf, KoreExecutionResult,
     ObservationEventOutput, ObservedInOutput, ObservedRequest, ResultModalityOutput,
     RunCoverageOutput, SearchFailureOutput, ShortCircuitReadingOutput, TraceEntry,
     TransitionClassOutput, TransitionIdOutput, UnevaluatedHookOutput,
 };
-use k_rust::kore::{ast::Pattern, codec};
+use k_rust::kore::ast::Pattern;
 use k_rust_backend::stop::{CancellationToken, StopCause};
 use kink_pattern::ExecutionBounds;
 
@@ -284,7 +284,7 @@ pub struct RunCoverage {
 }
 
 impl RunCoverage {
-    fn of(output: RunCoverageOutput, rewrites: &BTreeSet<String>) -> Self {
+    fn of(output: RunCoverageOutput<Pattern>, rewrites: &BTreeSet<String>) -> Self {
         let applied = output.applied.into_iter().collect::<BTreeSet<_>>();
         let applied_rewrites = applied.intersection(rewrites).cloned().collect();
         Self {
@@ -318,7 +318,7 @@ pub struct RunFacts {
     pub implementation_chosen_values: Vec<ChosenValueOutput>,
     /// Every distinct contradicted claim the run or its definition's load observed
     /// (`contradictedClaims`), ground or not.
-    pub contradicted_claims: Vec<ContradictedClaimOutput>,
+    pub contradicted_claims: Vec<ContradictedClaimOutput<Pattern>>,
     /// Every distinct `Bytes` result the memory allowance refused in the run or its load
     /// (`allowanceRefusals`), kept or dropped work alike.
     pub allowance_refusals: Vec<UnevaluatedHookOutput>,
@@ -334,7 +334,7 @@ pub struct RunFacts {
     /// (its `short_circuit_readings` capability is off): the result's absent field is then no
     /// list, and a run that listed nothing cannot be told from one that was never asked
     /// ([`RecordedRun`]).
-    pub short_circuit_readings: Option<Vec<ShortCircuitReadingOutput>>,
+    pub short_circuit_readings: Option<Vec<ShortCircuitReadingOutput<Pattern>>>,
     /// Whether the run started from a state without free variables ([`RecordedRun::ground`]).
     pub ground: bool,
 }
@@ -368,7 +368,7 @@ impl RecordedRun {
 
 impl RunFacts {
     /// The facts of `result`, taken out of it, as `recorded` was recorded.
-    fn take(result: &mut ExecutionResult, recorded: RecordedRun) -> Self {
+    fn take(result: &mut KoreExecutionResult, recorded: RecordedRun) -> Self {
         let short_circuit_readings = std::mem::take(&mut result.short_circuit_readings);
         Self {
             smt_unknowns: result.smt_unknowns,
@@ -385,7 +385,7 @@ impl RunFacts {
 
     /// The contradicted-claim records the definition's load observed (`observedIn: load`): facts
     /// about the definition, on every run's list (decision D-6).
-    pub fn load_records(&self) -> impl Iterator<Item = &ContradictedClaimOutput> {
+    pub fn load_records(&self) -> impl Iterator<Item = &ContradictedClaimOutput<Pattern>> {
         self.contradicted_claims
             .iter()
             .filter(|record| record.observed_in == ObservedInOutput::Load)
@@ -402,13 +402,13 @@ impl RunFacts {
 pub struct AdaptedLeaf {
     pub halt: HaltClass,
     pub branch: AdaptedBranch,
-    /// `Unknown` for every leaf of a timed-out run, whose states are not decoded.
+    /// `Unknown` for every leaf of a timed-out run, whose states are not read.
     pub feasibility: LeafFeasibility,
     /// Why the step stopped, exactly for an `Indeterminate` halt.
-    pub cause: Option<SearchFailureOutput>,
-    pub diagnostics: Vec<BackendDiagnosticOutput>,
-    pub candidate_diagnostics: Vec<Vec<BackendDiagnosticOutput>>,
-    pub remainder_diagnostics: Vec<BackendDiagnosticOutput>,
+    pub cause: Option<SearchFailureOutput<Pattern>>,
+    pub diagnostics: Vec<BackendDiagnosticOutput<Pattern>>,
+    pub candidate_diagnostics: Vec<Vec<BackendDiagnosticOutput<Pattern>>>,
+    pub remainder_diagnostics: Vec<BackendDiagnosticOutput<Pattern>>,
     /// The rule responsible for the undefined step of a `Trivial` leaf, when k-rust names one;
     /// `None` for every other halt.
     pub undefined_rule: Option<UndefinedStepRule>,
@@ -416,7 +416,7 @@ pub struct AdaptedLeaf {
     /// names one (`contradictedTotal`, a `Trivial` or `Vacuous` leaf): the definition is
     /// inconsistent there, so the run is no evidence (re-pin decision 2, finding A-13;
     /// [`crate::exclusion::Exclusion::ContradictedClaim`]).
-    pub contradicted_total: Option<ContradictedTotalOutput>,
+    pub contradicted_total: Option<ContradictedTotalOutput<Pattern>>,
 }
 
 /// The rule whose application a `Trivial` leaf's undefined step is: it applies to every
@@ -472,7 +472,6 @@ pub struct AdaptedExecution {
 pub enum StepRunFailure {
     AmbiguousRule(String),
     Unobservable,
-    Decode(String),
 }
 
 /// One observed run's leaves and configuration sequence for each leaf.
@@ -504,18 +503,18 @@ pub struct UnobservedExecution {
 #[derive(Clone, Debug, PartialEq)]
 pub struct BaselineLeaf {
     pub halt: HaltClass,
-    pub state: serde_json::Value,
+    pub state: Pattern,
     pub depth: u64,
     pub trace: Vec<TraceEntry>,
-    pub cause: Option<SearchFailureOutput>,
-    pub diagnostics: Vec<BackendDiagnosticOutput>,
-    pub candidate_diagnostics: Vec<Vec<BackendDiagnosticOutput>>,
-    pub remainder_diagnostics: Vec<BackendDiagnosticOutput>,
+    pub cause: Option<SearchFailureOutput<Pattern>>,
+    pub diagnostics: Vec<BackendDiagnosticOutput<Pattern>>,
+    pub candidate_diagnostics: Vec<Vec<BackendDiagnosticOutput<Pattern>>>,
+    pub remainder_diagnostics: Vec<BackendDiagnosticOutput<Pattern>>,
     /// The transition identities of the branch. Empty for an unobserved leaf: k-rust's
     /// unobserved execution does not compute them.
     pub branch: Vec<TransitionIdOutput>,
     pub undefined_rule: Option<UndefinedStepRule>,
-    pub contradicted_total: Option<ContradictedTotalOutput>,
+    pub contradicted_total: Option<ContradictedTotalOutput<Pattern>>,
 }
 
 impl AdaptedExecution {
@@ -554,7 +553,7 @@ impl AdaptedExecution {
     }
 
     /// The run timed out: the watchdog fired, or k-rust reports the run cancelled (an error whose
-    /// stop cause is `Cancelled`, or a `Cancelled` leaf). Its leaf states must not be decoded: a
+    /// stop cause is `Cancelled`, or a `Cancelled` leaf). Its leaf states must not be read: a
     /// cancelled run can leave an arbitrarily deep term.
     #[must_use]
     pub const fn timed_out(&self) -> bool {
@@ -791,7 +790,7 @@ impl ExecutionAdapter {
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         let recorded = RecordedRun::of(backend, state);
         let (result, timed_out) =
-            execute_with_watchdog(backend, state.clone(), budget, run, Backend::execute)?;
+            execute_with_watchdog(backend, state.clone(), budget, run, Backend::execute_kore)?;
         let feasibility = if timed_out {
             vec![LeafFeasibility::Unknown; result.leaves.len()]
         } else {
@@ -847,7 +846,7 @@ impl ExecutionAdapter {
         let recorded = RecordedRun::of(backend, state);
         let (result, timed_out) =
             execute_with_watchdog(backend, encoded, budget, STEPPED, |backend, request| {
-                backend.execute_observed(ObservedRequest {
+                backend.execute_observed_kore(ObservedRequest {
                     request,
                     rules: Some(ids),
                 })
@@ -871,9 +870,10 @@ impl ExecutionAdapter {
                 states: Vec::new(),
             }));
         }
+        let mut result = result;
         let states = match result
             .leaves
-            .iter()
+            .iter_mut()
             .map(step_states)
             .collect::<Result<Vec<_>, _>>()
         {
@@ -890,11 +890,7 @@ impl ExecutionAdapter {
                 })
                 .collect::<Result<Vec<_>, _>>()
         })?;
-        // Step observations are consumed only by the configuration sequence.
-        let mut result = result;
-        for leaf in &mut result.leaves {
-            leaf.observations.clear();
-        }
+        // Step observations are consumed only by the configuration sequence, which took them.
         let adapted = Self::adapt(
             result,
             false,
@@ -919,7 +915,7 @@ impl ExecutionAdapter {
         let encoded = state.clone();
         let recorded = RecordedRun::of(backend, state);
         let (result, timed_out) =
-            execute_with_watchdog(backend, encoded, budget, STEPPED, Backend::execute)?;
+            execute_with_watchdog(backend, encoded, budget, STEPPED, Backend::execute_kore)?;
         let mut result = result;
         // A timed-out run has no facts: it is a timeout before it is anything else.
         let facts = if timed_out {
@@ -969,7 +965,7 @@ impl ExecutionAdapter {
     }
 
     fn adapt(
-        result: ExecutionResult,
+        result: KoreExecutionResult,
         timed_out: bool,
         budget: &ExecutionBudget,
         max_work: Option<u64>,
@@ -1045,7 +1041,7 @@ impl ExecutionAdapter {
     /// and tools that hold a result k-rust returned; a value built here is no more evidence than
     /// the result it is built from.
     pub fn adapt_result(
-        result: ExecutionResult,
+        result: KoreExecutionResult,
         timed_out: bool,
         budget: &ExecutionBudget,
         feasibility: Vec<LeafFeasibility>,
@@ -1058,7 +1054,7 @@ impl ExecutionAdapter {
     /// admitted exactly when `max_work` is set ([`HaltClass::admitted_by`]; re-pin L1-2: tests of
     /// the one-sided kill hold a work-bound result).
     pub fn adapt_bounded_result(
-        result: ExecutionResult,
+        result: KoreExecutionResult,
         timed_out: bool,
         budget: &ExecutionBudget,
         max_work: Option<u64>,
@@ -1082,8 +1078,8 @@ fn execute_with_watchdog(
     state: Pattern,
     budget: ExecutionBudget,
     run: ResultRun,
-    execute: impl FnOnce(&mut Backend, ExecuteRequest) -> Result<ExecutionResult, BackendError>,
-) -> Result<(ExecutionResult, bool), ExecutionAdapterFailure> {
+    execute: impl FnOnce(&mut Backend, ExecuteRequest) -> Result<KoreExecutionResult, BackendError>,
+) -> Result<(KoreExecutionResult, bool), ExecutionAdapterFailure> {
     let token = CancellationToken::new();
     let fired = Arc::new(AtomicBool::new(false));
     // A zero budget has already expired; do not race the solver's entry poll against
@@ -1118,13 +1114,13 @@ fn execute_with_watchdog(
 /// portable build answers a token already cancelled at entry that way, section_2_2_summary
 /// (5)), or an `Ok` result with a `Cancelled` leaf (which the request excludes; the adapter then
 /// refuses the leaf, [`HaltClass::admitted_by`]). A timed-out run publishes no completed state:
-/// after an error it has no leaves, and its leaves are never decoded. Every other error, a stack
+/// after an error it has no leaves, and its leaves are never read. Every other error, a stack
 /// or deadline stop included, is an infrastructure failure, never a timeout.
 fn settle(
-    outcome: Result<ExecutionResult, BackendError>,
+    outcome: Result<KoreExecutionResult, BackendError>,
     fired: bool,
     modality: ResultModality,
-) -> Result<(ExecutionResult, bool), ExecutionAdapterFailure> {
+) -> Result<(KoreExecutionResult, bool), ExecutionAdapterFailure> {
     match outcome {
         Ok(result) => {
             let cancelled = result
@@ -1134,7 +1130,7 @@ fn settle(
             Ok((result, fired || cancelled))
         }
         Err(error) if fired || matches!(error.stop_cause(), Some(StopCause::Cancelled)) => Ok((
-            ExecutionResult {
+            KoreExecutionResult {
                 modality: modality.output(),
                 leaves: Vec::new(),
                 effects: Vec::new(),
@@ -1144,7 +1140,7 @@ fn settle(
                 expanded: 0,
                 stack_stops: 0,
                 // A timed-out run publishes nothing (k-rust 58720d2e5 added these lists,
-                // KINK-19/1, KINK-17/1, KINK-18/2); its leaves are never decoded.
+                // KINK-19/1, KINK-17/1, KINK-18/2); its leaves are never read.
                 smt_unknowns: 0,
                 implementation_chosen_values: Vec::new(),
                 contradicted_claims: Vec::new(),
@@ -1224,22 +1220,21 @@ fn rewrite_ids(
     Ok(selected.into_iter().collect())
 }
 
-/// Decode only committed rewrites; every reported id must equal its branch entry.
-fn step_states(leaf: &ExecutionLeaf) -> Result<Vec<Pattern>, StepRunFailure> {
+/// The configuration sequence of `leaf`: the state before each committed rewrite, taken out of
+/// its observations (which only this sequence consumes), then the leaf's own state; every
+/// reported id must equal its branch entry.
+fn step_states(leaf: &mut KoreExecutionLeaf) -> Result<Vec<Pattern>, StepRunFailure> {
     let mut reported = Vec::new();
     let mut states = Vec::new();
-    for event in &leaf.observations {
+    for event in std::mem::take(&mut leaf.observations) {
         if let ObservationEventOutput::Transition {
             id, class, before, ..
         } = event
         {
             match class {
                 TransitionClassOutput::Rewrite => {
-                    reported.push(id.clone());
-                    states.push(
-                        codec::from_value(before)
-                            .map_err(|error| StepRunFailure::Decode(error.to_string()))?,
-                    );
+                    reported.push(id);
+                    states.push(before);
                 }
                 TransitionClassOutput::Remainder | TransitionClassOutput::Claim => {
                     return Err(StepRunFailure::Unobservable);
@@ -1257,10 +1252,8 @@ fn step_states(leaf: &ExecutionLeaf) -> Result<Vec<Pattern>, StepRunFailure> {
     {
         return Err(StepRunFailure::Unobservable);
     }
-    states.push(
-        codec::from_value(&leaf.state)
-            .map_err(|error| StepRunFailure::Decode(error.to_string()))?,
-    );
+    // The leaf keeps its state as its branch's end; the sequence's last configuration is a copy.
+    states.push(leaf.state.clone());
     Ok(states)
 }
 
@@ -1303,14 +1296,20 @@ mod tests {
 
     #[test]
     fn stepped_run_failure_is_reported_as_step_run_failure() {
-        let state = codec::to_value(&Pattern::Application {
+        let state = Pattern::Application {
             symbol: Symbol {
                 name: "Lblunit".into(),
                 sort_parameters: Vec::new(),
             },
             arguments: Vec::new(),
-        })
-        .expect("encode state");
+        };
+        let before = Pattern::Application {
+            symbol: Symbol {
+                name: "Lblstart".into(),
+                sort_parameters: Vec::new(),
+            },
+            arguments: Vec::new(),
+        };
         let id = TransitionIdOutput {
             rule: "rewrite".into(),
             target: "target".into(),
@@ -1325,7 +1324,7 @@ mod tests {
             after: state.clone(),
             effects: Vec::new(),
         };
-        let mut leaf = ExecutionLeaf {
+        let mut leaf = KoreExecutionLeaf {
             state: state.clone(),
             diagnostics: Vec::new(),
             candidates: None,
@@ -1342,16 +1341,16 @@ mod tests {
             effects: Vec::new(),
             observations: vec![event(TransitionClassOutput::Remainder, state.clone())],
         };
-        assert_eq!(step_states(&leaf), Err(StepRunFailure::Unobservable));
+        assert_eq!(step_states(&mut leaf), Err(StepRunFailure::Unobservable));
         leaf.observations = vec![event(TransitionClassOutput::Rewrite, state.clone())];
         leaf.branch[0].target = "other".into();
-        assert_eq!(step_states(&leaf), Err(StepRunFailure::Unobservable));
+        assert_eq!(step_states(&mut leaf), Err(StepRunFailure::Unobservable));
+        // A committed rewrite's state before it, then the leaf's state; the observations are
+        // taken out of the leaf.
         leaf.branch[0] = id.clone();
-        leaf.observations = vec![event(
-            TransitionClassOutput::Rewrite,
-            serde_json::Value::Null,
-        )];
-        assert!(matches!(step_states(&leaf), Err(StepRunFailure::Decode(_))));
+        leaf.observations = vec![event(TransitionClassOutput::Rewrite, before.clone())];
+        assert_eq!(step_states(&mut leaf), Ok(vec![before, state]));
+        assert!(leaf.observations.is_empty());
     }
 
     #[test]
@@ -1554,8 +1553,8 @@ mod tests {
         // An `Err` whose stop cause is `Cancelled`, with the watchdog not fired: Timeout.
         let token = CancellationToken::new();
         token.cancel();
-        let cancelled =
-            token.scope(|| backend.execute(request(state.clone(), budget, ResultRun::default())));
+        let cancelled = token
+            .scope(|| backend.execute_kore(request(state.clone(), budget, ResultRun::default())));
         let error = cancelled
             .as_ref()
             .expect_err("a cancelled entry answers Err");
@@ -1572,7 +1571,7 @@ mod tests {
             },
             arguments: Vec::new(),
         };
-        let failed = backend.execute(request(unknown.clone(), budget, ResultRun::default()));
+        let failed = backend.execute_kore(request(unknown.clone(), budget, ResultRun::default()));
         let error = failed.as_ref().expect_err("an unknown symbol fails");
         assert_eq!(error.stop_cause(), None);
         assert!(matches!(
@@ -1581,7 +1580,7 @@ mod tests {
         ));
         assert!(
             settle(
-                backend.execute(request(unknown, budget, ResultRun::default())),
+                backend.execute_kore(request(unknown, budget, ResultRun::default())),
                 true,
                 ResultModality::StateSet
             )
@@ -1589,7 +1588,7 @@ mod tests {
         );
         // An `Ok` result: a timeout exactly when the watchdog fired or a leaf is `Cancelled`.
         let complete = backend
-            .execute(request(state.clone(), budget, ResultRun::default()))
+            .execute_kore(request(state.clone(), budget, ResultRun::default()))
             .unwrap();
         assert!(
             complete
@@ -1688,15 +1687,14 @@ mod tests {
     /// `work_bound_leaf_never_yields_distinguish`).
     #[test]
     fn work_bound_leaf_is_a_contract_violation_under_every_budget() {
-        let state = codec::to_value(&Pattern::Application {
+        let state = Pattern::Application {
             symbol: Symbol {
                 name: "Lblunit".into(),
                 sort_parameters: Vec::new(),
             },
             arguments: Vec::new(),
-        })
-        .expect("encode state");
-        let leaf = |reason| ExecutionLeaf {
+        };
+        let leaf = |reason| KoreExecutionLeaf {
             state: state.clone(),
             diagnostics: Vec::new(),
             candidates: None,
@@ -1713,7 +1711,7 @@ mod tests {
             effects: Vec::new(),
             observations: Vec::new(),
         };
-        let result = |leaves: Vec<ExecutionLeaf>| ExecutionResult {
+        let result = |leaves: Vec<KoreExecutionLeaf>| KoreExecutionResult {
             modality: ResultModalityOutput::PathSet,
             leaves,
             effects: Vec::new(),

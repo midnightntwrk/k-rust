@@ -491,10 +491,7 @@ fn observation_erasure_preserves_live_leaves() {
                     rewrites + 1,
                     "{fixture} {row} leaf {index}: Rewrite positions; Remainder adds none"
                 );
-                assert_eq!(
-                    states.last(),
-                    Some(&codec::from_value(&leaf.branch.state).expect("decoded last state"))
-                );
+                assert_eq!(states.last(), Some(&leaf.branch.state));
                 reached_three |= states.len() >= 3;
                 reached_remainder |= remainders > 0;
                 if fixture == "guardedmem.k" && row != "G3" && !cfg!(feature = "z3") {

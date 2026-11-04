@@ -335,18 +335,26 @@ fn constructor_term(term: &Term, inhabitation: &Inhabitation) -> bool {
     true
 }
 
-/// `work`, run on the stack k-rust gives an operation over `patterns` on `definition`
-/// (`BackendDefinition::with_stack_for`): `Ok(Some(_))` with its result, `Ok(None)` when the
-/// patterns are too deep for the largest stack k-rust provides (`InsufficientStack`, a function
-/// of the patterns and the build, refused before `work` runs), or the host's refusal to map the
-/// stack (`StackSegmentRefused`, a fact about the host and never about the patterns, also before
-/// `work` runs).
+/// `work`, run on the stack k-rust gives an operation over `patterns` on `definition` with their
+/// builtin collections associated (`BackendDefinition::with_stack_for_associated`), and handed
+/// those associated patterns, in the order of `patterns`: `Ok(Some(_))` with its result,
+/// `Ok(None)` when the associated patterns are too deep for the largest stack k-rust provides
+/// (`InsufficientStack`, a function of the patterns and the build, refused before `work` runs),
+/// or the host's refusal to map the stack (`StackSegmentRefused`, a fact about the host and never
+/// about the patterns, also before `work` runs).
+///
+/// The stack is sized for the associated patterns, so `work` must read those and not the
+/// patterns it was asked about: a collection written as a right-nested chain is one level per
+/// element, its associated form one level above its deepest element. Association rewrites a
+/// spine of a collection's concatenation into the associative application KORE defines as that
+/// spine, so each associated pattern denotes the pattern it replaces, and k-rust internalizes
+/// both to the same internal term, refusals included; only the syntax `work` walks differs.
 pub(crate) fn on_stack_for<R>(
     definition: &BackendDefinition,
     patterns: &[&Pattern],
-    work: impl FnOnce() -> R,
+    work: impl FnOnce(&[&Pattern]) -> R,
 ) -> Result<Option<R>, SegmentRefused> {
-    match definition.with_stack_for(patterns, work) {
+    match definition.with_stack_for_associated(patterns, work) {
         Ok(result) => Ok(Some(result)),
         Err(DefinitionError::StackSegmentRefused { refused, .. }) => Err(refused),
         // `InsufficientStack`, the one other refusal `with_stack_for` makes.
@@ -354,20 +362,17 @@ pub(crate) fn on_stack_for<R>(
     }
 }
 
-/// The feasibility of a leaf state (KORE JSON) per the module documentation. Only the solver's
-/// `Sat` and `Unsat` are used, and `Sat` only when the query translates exactly; `NoSolver`
-/// contributes nothing. `Err` is the host's refusal of the stack the leaf needs
+/// The feasibility of a leaf state per the module documentation. Only the solver's `Sat` and
+/// `Unsat` are used, and `Sat` only when the query translates exactly; `NoSolver` contributes
+/// nothing. `Err` is the host's refusal of the stack the leaf needs
 /// ([`admitted_leaf_feasibility`]), which is no answer about the leaf.
 pub(crate) fn leaf_feasibility(
     definition: &BackendDefinition,
     solver: &dyn SmtSolver,
     inhabitation: &Inhabitation,
-    state: &serde_json::Value,
+    state: &Pattern,
 ) -> Result<LeafFeasibility, SegmentRefused> {
-    let Ok(pattern) = k_rust::kore::codec::from_value(state) else {
-        return Ok(LeafFeasibility::Unknown);
-    };
-    admitted_leaf_feasibility(definition, solver, inhabitation, &pattern, |_| true)
+    admitted_leaf_feasibility(definition, solver, inhabitation, state, |_| true)
 }
 
 /// Leaf feasibility under the observation decider's definition-independent query policy, on
@@ -380,17 +385,14 @@ pub(crate) fn shared_leaf_feasibility(
     definition: &BackendDefinition,
     solver: &dyn SmtSolver,
     inhabitation: &Inhabitation,
-    state: &serde_json::Value,
+    state: &Pattern,
 ) -> Result<LeafFeasibility, SegmentRefused> {
-    let Ok(pattern) = k_rust::kore::codec::from_value(state) else {
-        return Ok(LeafFeasibility::Unknown);
-    };
-    if contains_non_strict_injection(definition, &pattern)
-        || contains_untrusted_domain_value(definition, &pattern)
+    if contains_non_strict_injection(definition, state)
+        || contains_untrusted_domain_value(definition, state)
     {
         return Ok(LeafFeasibility::Unknown);
     }
-    admitted_leaf_feasibility(definition, solver, inhabitation, &pattern, |constraints| {
+    admitted_leaf_feasibility(definition, solver, inhabitation, state, |constraints| {
         constraints
             .iter()
             .all(|predicate| shared_predicate_interpreted(definition, predicate))
@@ -400,11 +402,13 @@ pub(crate) fn shared_leaf_feasibility(
 /// The feasibility of the leaf state `pattern` once admitted to `definition`, where the solver is
 /// asked only about constraints that `askable` accepts (otherwise the answer is `Unknown`).
 ///
-/// The leaf is as deep as the run made it (a list a step appends to is one level deeper per
-/// step), while the operation it is decoded in was given the stack the definition needs, not the
-/// leaf. So the admission and everything done over the internal terms built from it, the walk of
-/// [`constructor_term`], the solver's translation and the drops of those terms, run on the stack
-/// k-rust gives an operation over the leaf ([`on_stack_for`]). A leaf too deep for the largest
+/// The leaf is as deep as the run made it (k-rust writes a builtin collection as a right-nested
+/// chain, one level per element, and any other term a step nests is one level deeper per step),
+/// while the operation that judges it was given the stack the definition needs, not the leaf. So
+/// the leaf is admitted with its builtin collections associated, and the admission and everything
+/// done over the internal terms built from it, the walk of [`constructor_term`], the solver's
+/// translation and the drops of those terms, run on the stack k-rust gives an operation over the
+/// associated leaf ([`on_stack_for`]). A leaf whose associated form is too deep for the largest
 /// stack k-rust provides is refused there, before any of that work, and is `Unknown`, a function
 /// of the leaf; a stack the host refuses to map is `Err`, so that it never becomes an answer
 /// about the leaf.
@@ -426,9 +430,9 @@ fn admitted_leaf_feasibility(
     pattern: &Pattern,
     askable: impl FnOnce(&[Predicate]) -> bool,
 ) -> Result<LeafFeasibility, SegmentRefused> {
-    on_stack_for(definition, &[pattern], || {
+    on_stack_for(definition, &[pattern], |associated| {
         let Ok(internal) = definition
-            .admit_unverified(pattern, &[])
+            .admit_unverified(associated[0], &[])
             .internalize_pattern()
         else {
             return LeafFeasibility::Unknown;
@@ -764,9 +768,9 @@ fn pairs_decompose_freely<'t>(pairs: impl IntoIterator<Item = &'t (Term, Term)>)
 ///
 /// A payload or a bound value is a subterm of a step configuration, so it can be as deep as a
 /// leaf; each decision runs, with its admissions and everything done over the internal terms they
-/// build, on the stack k-rust gives an operation over the terms it reads ([`on_stack_for`]).
-/// Terms too deep for the largest stack k-rust provides are `Indeterminate` and `Unknown`, a
-/// function of the terms. A stack the host refuses to map gives the same answers, and the refusal
+/// build, on the stack k-rust gives an operation over the terms it reads, with their builtin
+/// collections associated ([`on_stack_for`]). Terms whose associated form is too deep for the
+/// largest stack k-rust provides are `Indeterminate` and `Unknown`, a function of the terms. A stack the host refuses to map gives the same answers, and the refusal
 /// is recorded ([`Self::host_refusal_during`]), since it is a fact about the host and must not
 /// become an answer that a result could carry.
 pub struct BackendRelations<'a> {
@@ -820,14 +824,14 @@ impl<'a> BackendRelations<'a> {
         }
     }
 
-    /// `work` on the stack k-rust gives an operation over `patterns` on this definition, or
-    /// `refused` when that stack is not provided, the host's refusal recorded
-    /// ([`Self::host_refusal_during`]).
+    /// `work` on the stack k-rust gives an operation over `patterns` on this definition, handed
+    /// `patterns` with their builtin collections associated ([`on_stack_for`]), or `refused` when
+    /// that stack is not provided, the host's refusal recorded ([`Self::host_refusal_during`]).
     pub(crate) fn on_stack_for<R>(
         &self,
         definition: &BackendDefinition,
         patterns: &[&Pattern],
-        work: impl FnOnce() -> R,
+        work: impl FnOnce(&[&Pattern]) -> R,
         refused: R,
     ) -> R {
         match on_stack_for(definition, patterns, work) {
@@ -855,20 +859,26 @@ impl<'a> BackendRelations<'a> {
         stable.then_some(term)
     }
 
-    /// The internalized pairs of `relations`, each of one sort.
-    fn pairs(&self, relations: &[TermRelation]) -> Option<Vec<(Term, Term)>> {
-        relations
+    /// The internalized pairs of relations whose sides are `sides`, left and right in turn
+    /// ([`relation_patterns`]), each of one sort.
+    fn pairs(&self, sides: &[&Pattern]) -> Option<Vec<(Term, Term)>> {
+        sides
+            .as_chunks::<2>()
+            .0
             .iter()
-            .map(|relation| {
-                let left = self.term(&relation.left)?;
-                let right = self.term(&relation.right)?;
+            .map(|&[left, right]| {
+                let left = self.term(left)?;
+                let right = self.term(right)?;
                 (left.sort() == right.sort()).then_some((left, right))
             })
             .collect()
     }
 
     /// `substitution` as relations with the variable on the left, when each side externalizes
-    /// to KORE that internalizes back to the same term.
+    /// to KORE that internalizes back to the same term. A side is written as k-rust writes a
+    /// term, its collections right-nested, and internalized with them associated, as the
+    /// patterns an operation's stack is sized for are ([`on_stack_for`]); both internalize to the
+    /// same term.
     fn relations(&self, substitution: &Substitution) -> Option<Vec<TermRelation>> {
         substitution
             .iter()
@@ -876,18 +886,20 @@ impl<'a> BackendRelations<'a> {
                 let variable = Term::variable(variable.clone());
                 let left = externalize::term(&variable);
                 let right = externalize::term(value);
-                (self.term(&left)? == variable && self.term(&right)? == *value)
+                let internal =
+                    |side: &Pattern| self.term(&self.definition.associated_collections(side));
+                (internal(&left)? == variable && internal(&right)? == *value)
                     .then_some(TermRelation { left, right })
             })
             .collect()
     }
 
-    /// The solver query of the relation query of `path` under the solved form `solved` (see
-    /// the module documentation): the path predicate unless it is `\top`, the residual
-    /// constraints, and `x = t` for every binding that is not eliminated. `None` when the path
-    /// predicate does not internalize.
-    fn relation_query(&self, path: &PathInput, solved: Unification) -> Option<Vec<Predicate>> {
-        let mut query = match &path.path_predicate {
+    /// The solver query of the relation query of a path whose path predicate is `predicate`
+    /// under the solved form `solved` (see the module documentation): the path predicate unless
+    /// it is `\top`, the residual constraints, and `x = t` for every binding that is not
+    /// eliminated. `None` when the path predicate does not internalize.
+    fn relation_query(&self, predicate: &Pattern, solved: Unification) -> Option<Vec<Predicate>> {
+        let mut query = match predicate {
             Pattern::Top { .. } => Vec::new(),
             predicate => vec![
                 self.definition
@@ -912,8 +924,9 @@ impl<'a> BackendRelations<'a> {
         Some(query)
     }
 
-    /// Decides the relation query of `path` under `solved` (see the module documentation).
-    fn decide(&self, path: &PathInput, solved: Unification) -> Feasibility {
+    /// Decides the relation query of a path whose path predicate is `predicate` under `solved`
+    /// (see the module documentation).
+    fn decide(&self, predicate: &Pattern, solved: Unification) -> Feasibility {
         // The eliminated bindings are defined from the other variables only if no bound
         // variable occurs in a value; `unify_term_pairs` promises that, and it is checked.
         let bound = solved.substitution.keys().cloned().collect::<BTreeSet<_>>();
@@ -921,7 +934,7 @@ impl<'a> BackendRelations<'a> {
             .substitution
             .values()
             .all(|value| value.attributes().variables.is_disjoint(&bound));
-        let Some(query) = self.relation_query(path, solved) else {
+        let Some(query) = self.relation_query(predicate, solved) else {
             return Feasibility::Unknown;
         };
         if query.is_empty() {
@@ -974,7 +987,12 @@ impl RelationDecider for BackendRelations<'_> {
         self.on_stack_for(
             self.definition,
             &read,
-            || self.relate_here(path, assumed, left, right),
+            |read| {
+                let [left, right, predicate, sides @ ..] = read else {
+                    unreachable!("the read patterns begin with the pair and the path predicate")
+                };
+                self.relate_here(predicate, assumed, sides, left, right)
+            },
             RelationDecision::Indeterminate,
         )
     }
@@ -990,7 +1008,12 @@ impl RelationDecider for BackendRelations<'_> {
         self.on_stack_for(
             self.definition,
             &read,
-            || self.feasible_here(path, assumptions),
+            |read| {
+                let [predicate, sides @ ..] = read else {
+                    unreachable!("the read patterns begin with the path predicate")
+                };
+                self.feasible_here(path, predicate, sides)
+            },
             Feasibility::Unknown,
         )
     }
@@ -1004,31 +1027,31 @@ fn relation_patterns(relations: &[TermRelation]) -> impl Iterator<Item = &Patter
 }
 
 impl BackendRelations<'_> {
-    /// [`RelationDecider::relate`], on a stack that holds its recursion over the terms it reads.
+    /// [`RelationDecider::relate`], on a stack that holds its recursion over the terms it reads:
+    /// `left`, `right`, the path predicate `predicate` and the sides of `assumed` (`sides`, as
+    /// [`relation_patterns`] lists them) with their builtin collections associated
+    /// ([`on_stack_for`]). `assumed` itself is read only to tell which relations the decision
+    /// adds, which compares relations as k-rust writes terms.
     fn relate_here(
         &self,
-        path: &PathInput,
+        predicate: &Pattern,
         assumed: &[TermRelation],
+        sides: &[&Pattern],
         left: &Pattern,
         right: &Pattern,
     ) -> RelationDecision {
-        if contains_non_strict_injection(self.definition, left)
-            || contains_non_strict_injection(self.definition, right)
-            || contains_non_strict_injection(self.definition, &path.path_predicate)
-            || contains_untrusted_domain_value(self.definition, left)
-            || contains_untrusted_domain_value(self.definition, right)
-            || contains_untrusted_domain_value(self.definition, &path.path_predicate)
-            || assumed.iter().any(|relation| {
-                contains_non_strict_injection(self.definition, &relation.left)
-                    || contains_non_strict_injection(self.definition, &relation.right)
-                    || contains_untrusted_domain_value(self.definition, &relation.left)
-                    || contains_untrusted_domain_value(self.definition, &relation.right)
+        if [left, right, predicate]
+            .into_iter()
+            .chain(sides.iter().copied())
+            .any(|pattern| {
+                contains_non_strict_injection(self.definition, pattern)
+                    || contains_untrusted_domain_value(self.definition, pattern)
             })
         {
             return RelationDecision::Indeterminate;
         }
         let (Some(mut pairs), Some(left), Some(right)) =
-            (self.pairs(assumed), self.term(left), self.term(right))
+            (self.pairs(sides), self.term(left), self.term(right))
         else {
             return RelationDecision::Indeterminate;
         };
@@ -1085,15 +1108,20 @@ impl BackendRelations<'_> {
     }
 
     /// [`RelationDecider::feasible`], on a stack that holds its recursion over the terms it
-    /// reads.
-    fn feasible_here(&self, path: &PathInput, assumptions: &[TermRelation]) -> Feasibility {
-        if contains_non_strict_injection(self.definition, &path.path_predicate)
-            || contains_untrusted_domain_value(self.definition, &path.path_predicate)
-            || assumptions.iter().any(|relation| {
-                contains_non_strict_injection(self.definition, &relation.left)
-                    || contains_non_strict_injection(self.definition, &relation.right)
-                    || contains_untrusted_domain_value(self.definition, &relation.left)
-                    || contains_untrusted_domain_value(self.definition, &relation.right)
+    /// reads: the path predicate `predicate` and the sides of the assumptions (`sides`, as
+    /// [`relation_patterns`] lists them) with their builtin collections associated
+    /// ([`on_stack_for`]).
+    fn feasible_here(
+        &self,
+        path: &PathInput,
+        predicate: &Pattern,
+        sides: &[&Pattern],
+    ) -> Feasibility {
+        if std::iter::once(predicate)
+            .chain(sides.iter().copied())
+            .any(|pattern| {
+                contains_non_strict_injection(self.definition, pattern)
+                    || contains_untrusted_domain_value(self.definition, pattern)
             })
         {
             return Feasibility::Unknown;
@@ -1101,10 +1129,10 @@ impl BackendRelations<'_> {
         if !path.stop.has_real_prefix() {
             return Feasibility::Unknown;
         }
-        if assumptions.is_empty() {
+        if sides.is_empty() {
             return Feasibility::Sat;
         }
-        let Some(pairs) = self.pairs(assumptions) else {
+        let Some(pairs) = self.pairs(sides) else {
             return Feasibility::Unknown;
         };
         if !pairs_decompose_freely(&pairs) {
@@ -1116,7 +1144,7 @@ impl BackendRelations<'_> {
             {
                 Feasibility::Unsat
             }
-            UnificationResult::Unified(solved) => self.decide(path, solved),
+            UnificationResult::Unified(solved) => self.decide(predicate, solved),
             UnificationResult::Bottom(_) | UnificationResult::Unsupported { .. } => {
                 Feasibility::Unknown
             }
@@ -1129,7 +1157,7 @@ mod tests {
     use super::*;
     use k_rust::backend::{Backend, BackendError, BackendOptions};
     use k_rust::kompile::CompileOptions;
-    use k_rust::kore::{codec, parser::parse_definition};
+    use k_rust::kore::parser::parse_definition;
     use k_rust_backend::smt::{SmtError, Validity};
     use k_rust_backend::stop::Stoppable;
     use kink_pattern::{ExecutionStop, PathStop};
@@ -1260,13 +1288,8 @@ mod tests {
             .with_solver(None, |definition, solver| {
                 let inhabitation = Inhabitation::of(definition);
                 let feasibility = |pattern: &Pattern| {
-                    leaf_feasibility(
-                        definition,
-                        solver,
-                        &inhabitation,
-                        &codec::to_value(pattern).expect("state JSON"),
-                    )
-                    .expect("the host maps the stack")
+                    leaf_feasibility(definition, solver, &inhabitation, pattern)
+                        .expect("the host maps the stack")
                 };
                 Ok::<_, BackendError>((
                     feasibility(&state),
@@ -1315,13 +1338,8 @@ mod tests {
                     "SortProg",
                 );
                 Ok::<_, BackendError>(
-                    leaf_feasibility(
-                        definition,
-                        solver,
-                        &Inhabitation::of(definition),
-                        &codec::to_value(&state).expect("state JSON"),
-                    )
-                    .expect("the host maps the stack"),
+                    leaf_feasibility(definition, solver, &Inhabitation::of(definition), &state)
+                        .expect("the host maps the stack"),
                 )
             })
             .expect("definition");
@@ -1337,6 +1355,60 @@ mod tests {
             symbol Lblwrap{}(SortEmpty{}) : SortWrapped{} [constructor{}()]
             symbol Lblpair{}(SortS{}, SortWrapped{}) : SortS{} [constructor{}()]
         endmodule []";
+
+    /// A builtin list, whose concatenation k-rust writes as a right-nested chain.
+    const LIST: &str = r#"[]
+        module MAIN
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-sort SortList{}
+                [hook{}("LIST.List"), unit{}(Lbl'Stop'List{}()), element{}(LblListItem{}()), concat{}(Lbl'Unds'List'Unds'{}())]
+            hooked-symbol Lbl'Stop'List{}() : SortList{} [function{}(), total{}(), hook{}("LIST.unit")]
+            hooked-symbol LblListItem{}(SortInt{}) : SortList{} [function{}(), total{}(), hook{}("LIST.element")]
+            hooked-symbol Lbl'Unds'List'Unds'{}(SortList{}, SortList{}) : SortList{} [function{}(), total{}(), hook{}("LIST.concat"), assoc{}()]
+        endmodule []"#;
+
+    /// `on_stack_for` hands its work the patterns it sized the stack for, associated: a
+    /// three-entry list written as a right-nested chain arrives as one associative application,
+    /// shallower than the chain, and a pattern with no collection arrives as it was given.
+    /// Every admission of a leaf reads what it is handed, so a work that read the patterns it
+    /// was asked about would read a deeper form than its stack was sized for.
+    #[test]
+    fn work_on_a_sized_stack_is_handed_its_patterns_associated() {
+        let definition =
+            BackendDefinition::internalize(&parse_definition(LIST).expect("KORE"), "MAIN")
+                .expect("definition");
+        let concat = "Lbl'Unds'List'Unds'";
+        let item = |value| support::app("LblListItem", vec![support::int(value)]);
+        let chain = support::app(
+            concat,
+            vec![item(0), support::app(concat, vec![item(1), item(2)])],
+        );
+        let plain = support::int(7);
+        let handed = on_stack_for(&definition, &[&chain, &plain], |handed| {
+            handed
+                .iter()
+                .map(|&pattern| pattern.clone())
+                .collect::<Vec<_>>()
+        })
+        .expect("the host maps the stack")
+        .expect("the patterns are within the largest stack");
+        let [associated, unchanged] = handed.as_slice() else {
+            panic!("one pattern handed per pattern given, not {}", handed.len());
+        };
+        let Pattern::AssociativeApplication {
+            symbol, arguments, ..
+        } = associated
+        else {
+            panic!("the chain is handed associated: {associated:?}");
+        };
+        assert_eq!(symbol.name, concat);
+        assert_eq!(arguments, &vec![item(0), item(1), item(2)]);
+        assert!(
+            definition.operation_depth(&[associated]) < definition.operation_depth(&[&chain]),
+            "the associated list is shallower than its chain"
+        );
+        assert_eq!(unchanged, &plain);
+    }
 
     #[test]
     fn uninhabited_variable_sorts_are_found_by_fixpoint() {
@@ -1367,7 +1439,7 @@ mod tests {
                 &definition,
                 &k_rust_backend::smt::NoSolver,
                 &inhabitation,
-                &codec::to_value(&state).expect("state JSON")
+                &state
             ),
             Ok(LeafFeasibility::Unknown)
         );
@@ -1981,12 +2053,7 @@ mod tests {
                         .map(|(id, state)| {
                             (
                                 format!("{answer:?} {id}"),
-                                leaf_feasibility(
-                                    definition,
-                                    &solver,
-                                    &inhabitation,
-                                    &codec::to_value(state).expect("state JSON"),
-                                ),
+                                leaf_feasibility(definition, &solver, &inhabitation, state),
                             )
                         })
                         .collect::<Vec<_>>()
@@ -2035,12 +2102,7 @@ mod tests {
                 ] {
                     let state = constrained(guarded_state(x.clone()), constraint);
                     assert_eq!(
-                        leaf_feasibility(
-                            definition,
-                            solver,
-                            &inhabitation,
-                            &codec::to_value(&state).unwrap()
-                        ),
+                        leaf_feasibility(definition, solver, &inhabitation, &state),
                         Ok(expected)
                     );
                 }
@@ -2474,12 +2536,7 @@ mod tests {
                             .collect::<Vec<_>>(),
                         ["Ex-hW-b0", "V"]
                     );
-                    let row = leaf_feasibility(
-                        definition,
-                        solver,
-                        &inhabitation,
-                        &codec::to_value(&printed).expect("printed state encodes"),
-                    );
+                    let row = leaf_feasibility(definition, solver, &inhabitation, &printed);
                     Ok::<_, BackendError>((binders, row))
                 })
                 .expect("binder row");
@@ -2604,12 +2661,7 @@ mod tests {
                                 body: Box::new(equals("SortInt", w.clone(), support::int(2))),
                             },
                         );
-                        rows.push(leaf_feasibility(
-                            definition,
-                            solver,
-                            &inhabitation,
-                            &codec::to_value(&state).expect("decoded state encodes"),
-                        ));
+                        rows.push(leaf_feasibility(definition, solver, &inhabitation, &state));
                     }
                     Ok::<_, BackendError>(rows)
                 })
@@ -2787,7 +2839,7 @@ mod tests {
                             definition,
                             solver,
                             &Inhabitation::of(definition),
-                            &codec::to_value(&invalid_state).expect("state JSON"),
+                            &invalid_state,
                         ),
                         Ok(LeafFeasibility::Unknown)
                     );

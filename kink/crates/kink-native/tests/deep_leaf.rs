@@ -27,7 +27,6 @@ use k_rust::{
     },
     kore::{
         ast::{Associativity, Pattern, Symbol},
-        codec::from_value,
         parser::parse_definition,
     },
 };
@@ -184,7 +183,7 @@ fn judge_the_deep_leaf() {
     let [configured] = configured.leaves() else {
         panic!("one initialized configuration");
     };
-    let mut initial = from_value(&configured.branch.state).expect("configuration KORE");
+    let mut initial = configured.branch.state.clone();
     let mut list = Some(Pattern::AssociativeApplication {
         associativity: Associativity::Right,
         symbol: Symbol {
@@ -232,7 +231,7 @@ fn judge_the_deep_leaf() {
         .with_solver(None, |definition, solver| {
             let decider =
                 ObservationDecider::new(definition, solver, TestInitialState::of_test(&initial));
-            let raw = from_value(&leaf.branch.state).expect("leaf KORE");
+            let raw = leaf.branch.state.clone();
             assert_eq!(
                 log_content(&raw).and_then(chain_length),
                 Some(ENTRIES),

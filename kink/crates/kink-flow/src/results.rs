@@ -65,7 +65,6 @@ use k_rust::{
     kast::identifier::{decode_sort_name, label_or_name},
     kore::{
         ast::{Definition as KoreDefinition, Pattern},
-        codec::from_value,
         parser::parse_definition,
         printer::Printer,
     },
@@ -961,11 +960,12 @@ impl<'a> BaselineRunner<'a> {
         } else {
             "a path did not end".to_owned()
         };
-        let final_configuration = leaves
-            .iter()
-            .map(|leaf| from_value(&leaf.branch.state).map(|state| state.to_string()))
-            .collect::<Result<Vec<_>, _>>()
-            .ok();
+        let final_configuration = Some(
+            leaves
+                .iter()
+                .map(|leaf| leaf.branch.state.to_string())
+                .collect::<Vec<_>>(),
+        );
         ProgramResult {
             class,
             cause: Some(format!(

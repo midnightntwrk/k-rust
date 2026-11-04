@@ -993,7 +993,7 @@ fn outcome(
     lowered: &LoweredPattern,
     rule_names: &BTreeMap<String, String>,
     defined: &dyn Fn(&Value) -> Result<(), String>,
-    readings: &dyn Fn(Vec<ShortCircuitReadingOutput>) -> Option<String>,
+    readings: &dyn Fn(Vec<ShortCircuitReadingOutput<Pattern>>) -> Option<String>,
 ) -> SearchOutcome {
     let clock = || {
         SearchOutcome::Incomplete(format!(
@@ -1101,7 +1101,10 @@ fn outcome(
     let listed = match response.get("shortCircuitReadings") {
         None => Vec::new(),
         Some(list) => {
-            match serde_json::from_value::<Vec<ShortCircuitReadingOutput>>(list.clone()) {
+            match serde_json::from_value::<Vec<ShortCircuitReadingOutput>>(list.clone())
+                .map_err(|error| error.to_string())
+                .and_then(|list| list.into_iter().map(reading_pattern).collect())
+            {
                 Ok(list) => list,
                 Err(error) => {
                     return SearchOutcome::Failed(format!(
@@ -1121,6 +1124,29 @@ fn outcome(
     SearchOutcome::Complete
 }
 
+/// `reading` with its operand, KORE JSON in the search response, as a pattern, as the run-level
+/// lists of an execution hold it (kink-native `RunFacts`); `Err` when the operand is not KORE.
+fn reading_pattern(
+    reading: ShortCircuitReadingOutput,
+) -> Result<ShortCircuitReadingOutput<Pattern>, String> {
+    let envelope = if reading.operand.get("format").is_some() {
+        reading.operand
+    } else {
+        json!({"format": "KORE", "version": 1, "term": reading.operand})
+    };
+    let operand = from_value(&envelope).map_err(|error| format!("an operand: {error}"))?;
+    Ok(ShortCircuitReadingOutput {
+        operator: reading.operator,
+        outcome: reading.outcome,
+        head: reading.head,
+        operand,
+        rewrite_rule_id: reading.rewrite_rule_id,
+        rewrite_rule_label: reading.rewrite_rule_label,
+        rewrite_rule_origin: reading.rewrite_rule_origin,
+        observed_in: reading.observed_in,
+    })
+}
+
 /// The cause a `no` is refused for when the search read an operand a short-circuiting backend
 /// may skip.
 const SHORT_CIRCUIT_READING: &str = "short-circuit-reading";
@@ -1135,7 +1161,7 @@ const SHORT_CIRCUIT_READING: &str = "short-circuit-reading";
 /// so the search is excluded exactly where a run of it would be.
 fn readings_cause(
     exclusions: &DefinitionExclusions,
-    readings: Vec<ShortCircuitReadingOutput>,
+    readings: Vec<ShortCircuitReadingOutput<Pattern>>,
     listed: bool,
     ground: bool,
     state: &dyn Fn() -> bool,

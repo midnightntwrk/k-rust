@@ -68,10 +68,6 @@ fn backend(validator: &NativeValidator, patch: Option<&Patch>, module: &str) -> 
     .expect("backend")
 }
 
-fn state_of(value: &serde_json::Value) -> Pattern {
-    codec::from_value(value).expect("leaf KORE reads")
-}
-
 fn summaries(backend: &mut Backend, initial: &Pattern) -> Vec<Summary> {
     ExecutionAdapter::with_profile(SolverProfile::BUILD)
         .execute(backend, initial, BUDGET)
@@ -81,7 +77,7 @@ fn summaries(backend: &mut Backend, initial: &Pattern) -> Vec<Summary> {
         .map(|leaf| {
             (
                 (leaf.halt, leaf.feasibility, bridge::discarded(leaf)),
-                state_of(&leaf.branch.state).free_variables().len(),
+                leaf.branch.state.free_variables().len(),
             )
         })
         .collect()

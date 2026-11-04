@@ -1,13 +1,13 @@
 //! Branch-local execution states retained by the execution adapter.
 
 use k_rust::backend::{TraceEntry, TransitionIdOutput};
-use serde_json::Value;
+use k_rust::kore::ast::Pattern;
 
 /// One branch-local adapted execution state.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AdaptedBranch {
     pub identity: Vec<TransitionIdOutput>,
-    pub state: Value,
+    pub state: Pattern,
     pub depth: u64,
     pub trace: Vec<TraceEntry>,
 }
@@ -16,7 +16,7 @@ pub struct AdaptedBranch {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ErasedBranch {
     pub identity: Vec<TransitionIdOutput>,
-    pub state: Value,
+    pub state: Pattern,
     pub depth: u64,
     pub trace: Vec<TraceEntry>,
 }

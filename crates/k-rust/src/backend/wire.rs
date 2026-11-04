@@ -970,7 +970,7 @@ pub enum SearchFailureOutput<K = Value> {
     },
 }
 
-impl SearchFailureOutput {
+impl<K> SearchFailureOutput<K> {
     /// Whether the stopped step needed an SMT solver that this build lacks.
     ///
     /// This is sufficient, not necessary, for a solver-enabled build to decide the path:

@@ -39,7 +39,6 @@ use std::path::{Path, PathBuf};
 
 use k_rust::backend::BackendDiagnosticOutput;
 use k_rust::k_rust_backend::choice_sampling;
-use k_rust::kore::{ast::Pattern, codec};
 use kink_corpus::{admission::input_backend, runner::all_normal};
 use kink_flow::{admit::admit, manifest::FlowManifest, results::execution_budget};
 use kink_native::execution::{
@@ -74,9 +73,7 @@ fn flow_manifests() -> Vec<PathBuf> {
 }
 
 fn state_text(leaf: &AdaptedLeaf) -> String {
-    codec::from_value(&leaf.branch.state)
-        .map(|state: Pattern| state.to_string())
-        .unwrap_or_else(|_| leaf.branch.state.to_string())
+    leaf.branch.state.to_string()
 }
 
 /// modality.rs's complete-leaf key: terminal class, depth for undefined steps and vacuous
@@ -93,9 +90,7 @@ fn leaf_sets(execution: &AdaptedExecution) -> LeafSets {
         let state = state_text(leaf);
         match leaf.halt {
             HaltClass::Stuck => {
-                let class = codec::from_value(&leaf.branch.state)
-                    .map(|term: Pattern| format!("{:?}", all_normal(&term)))
-                    .unwrap_or_else(|_| "undecodable".into());
+                let class = format!("{:?}", all_normal(&leaf.branch.state));
                 complete.insert((class, None, state, None, None));
             }
             HaltClass::Trivial | HaltClass::Vacuous => {
