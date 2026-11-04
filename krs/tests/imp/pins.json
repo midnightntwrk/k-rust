@@ -1,12 +1,12 @@
 {
   "artifact_sha256": {
-    "definition-ir.json": "93edf1445e12a3744e9170d699774e40466b386bf1e9df4c2287c66baeceef20",
+    "definition-ir.json": "3dad16724f6ec73bea06e7864d7e25950f10824994097714afbebd56362ff9e3",
     "definition.k": "122ee5ed3ff2783ba8cca54304cefc6c8831396037c16ae01914c6238ab11d10",
-    "descriptor-bundle.json": "3347f80ac37edf814fdbf11ecc2dc39f5e31f0ef97736480ad31dec44113c5ff",
+    "descriptor-bundle.json": "0989ac8367375ee29594384e94c33cc5930989dfcba345e86e4f9dad9da705f3",
     "native-source.txt": "c7155e1734bdb10f22a172e151839158808a035182b708a4e13fcf3c2f7302ee",
-    "semantic-ir.json": "4bf91f71055426ec9a659acf3f1e123a3847300019c7b6d9c3722afd8644c090",
-    "sources.json": "36bdcbb75bcd4068dae6b1a6ba6ac9224be1612383129f755b5e17a34f351bfa",
-    "symbols.json": "30ccd4acab4782b3c36043c626ef65119cfb9d40840e32dfabf06b82acbb76db",
+    "semantic-ir.json": "51337fb18b2b87dbca6ee9620bf05b4b271eaeb37f817fd861500df851a39dcb",
+    "sources.json": "956a286721c6a1b42c8733b635108425c0f5bfdbc2683b2feb4f2ce62f17f1c8",
+    "symbols.json": "dfb6778c9bf4ec49600fa16e8cbb763673da71a3581d86f171340a6a135087db",
     "spec.k": "6dfc7298b0607c89534a7221f5ca413e9ea4df5247bc8e4e7262e7794135a772"
   },
   "behavior": {
