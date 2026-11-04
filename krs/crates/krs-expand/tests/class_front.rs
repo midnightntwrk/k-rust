@@ -950,9 +950,9 @@ code = "krs::analysis::invalid-term"
 doc = "another mistake"
 advice = "none"
 
-[class.no-effect]
+[class.optional-result]
 code = "krs::syntax::rust-syntax"
-doc = "a subject entry that matches any content of a cell the result leaves out"
+doc = "an optional cell's result that is neither `Some(..)` nor `None`"
 advice = "none"
 
 [[refuse]]
@@ -966,8 +966,8 @@ class = "other"
 at = "spelling"
 
 [[refuse]]
-match = "readable/subject/pc/_"
-class = "no-effect"
+match = "readable/deep-b/kinds/hpay/x"
+class = "optional-result"
 at = "spelling"
 
 [accept."terms/init/item/1"]
@@ -1004,9 +1004,11 @@ k = ""
     ] {
         assert_eq!(verdict(id), "conforms", "{id}");
     }
-    // The class's code, but outside the spelling.
+    // The class's code, but outside the spelling. The witness is a refusal the readable macro
+    // still raises at the entry, one of its kind guesses (an optional cell's result); when the
+    // collector answers it instead, take another case the front refuses at the entry.
     assert_eq!(
-        verdict("readable/subject/pc/_"),
+        verdict("readable/deep-b/kinds/hpay/x"),
         "K2 front: krs::syntax::rust-syntax @ entry"
     );
     // Located, but with another class's code.
