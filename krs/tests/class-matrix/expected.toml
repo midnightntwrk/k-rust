@@ -2394,6 +2394,25 @@ match = 'sweep/cells/overwrite/frame/x'
 class = "binder-sort"
 at = "spelling"
 
+# S5.2a5 (ruling 2): the readable and claim overwrite of a cell the subject does not match takes
+# its value's sort as its `cells!` twin and its neighboring readable families do. The overwrite's
+# `x` is the command's `Int` binder, no `Map`, cons list, `Set`, `List` or group; `0` is an `Int`
+# and `G { .. }` a `GCell`, neither below the cells named here.
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{env,frame,seq,set,stack}/x'
+class = "binder-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{frame,seq,set,stack}/0'
+class = "content-sort"
+at = "spelling"
+
+[[refuse]]
+match = 'sweep/{claim,readable}/overwrite/{env,pc,seq,set,stack}/{G \{ a: x \},G \{ a: x\, b: y\, .. \}}'
+class = "content-sort"
+at = "spelling"
+
 [[refuse]]
 match = 'sweep/{claim,readable}/overwrite/{counter,ogroup,omap}/Some([..])'
 class = "bracket-reading"
@@ -12761,14 +12780,6 @@ claim [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
-[accept."sweep/claim/overwrite/env/G { a: x }"]
-
-[accept."sweep/claim/overwrite/env/G { a: x, b: y, .. }"]
-
-[accept."sweep/claim/overwrite/env/x"]
-
-[accept."sweep/claim/overwrite/frame/0"]
-
 [accept."sweep/claim/overwrite/frame/G { a: x, b: y, .. }"]
 k = """
 claim [case-TAG]:
@@ -12778,13 +12789,7 @@ claim [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
-[accept."sweep/claim/overwrite/frame/x"]
-
 [accept."sweep/claim/overwrite/job/[x]"]
-
-[accept."sweep/claim/overwrite/pc/G { a: x }"]
-
-[accept."sweep/claim/overwrite/pc/G { a: x, b: y, .. }"]
 
 [accept."sweep/claim/overwrite/pc/x"]
 k = """
@@ -12795,12 +12800,6 @@ claim [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
-[accept."sweep/claim/overwrite/seq/0"]
-
-[accept."sweep/claim/overwrite/seq/G { a: x }"]
-
-[accept."sweep/claim/overwrite/seq/G { a: x, b: y, .. }"]
-
 [accept."sweep/claim/overwrite/seq/[x]"]
 k = """
 claim [case-TAG]:
@@ -12810,22 +12809,6 @@ claim [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
-[accept."sweep/claim/overwrite/seq/x"]
-
-[accept."sweep/claim/overwrite/set/0"]
-
-[accept."sweep/claim/overwrite/set/G { a: x }"]
-
-[accept."sweep/claim/overwrite/set/G { a: x, b: y, .. }"]
-
-[accept."sweep/claim/overwrite/set/x"]
-
-[accept."sweep/claim/overwrite/stack/0"]
-
-[accept."sweep/claim/overwrite/stack/G { a: x }"]
-
-[accept."sweep/claim/overwrite/stack/G { a: x, b: y, .. }"]
-
 [accept."sweep/claim/overwrite/stack/[x]"]
 k = """
 claim [case-TAG]:
@@ -12834,8 +12817,6 @@ claim [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
-
-[accept."sweep/claim/overwrite/stack/x"]
 
 [accept."sweep/claim/result/acct/{ Gm { ma: x, .. }, .. }"]
 k = """
@@ -14506,14 +14487,6 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
-[accept."sweep/readable/overwrite/env/G { a: x }"]
-
-[accept."sweep/readable/overwrite/env/G { a: x, b: y, .. }"]
-
-[accept."sweep/readable/overwrite/env/x"]
-
-[accept."sweep/readable/overwrite/frame/0"]
-
 [accept."sweep/readable/overwrite/frame/G { a: x, b: y, .. }"]
 k = """
 rule [case-TAG]:
@@ -14523,13 +14496,7 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
-[accept."sweep/readable/overwrite/frame/x"]
-
 [accept."sweep/readable/overwrite/job/[x]"]
-
-[accept."sweep/readable/overwrite/pc/G { a: x }"]
-
-[accept."sweep/readable/overwrite/pc/G { a: x, b: y, .. }"]
 
 [accept."sweep/readable/overwrite/pc/x"]
 k = """
@@ -14540,12 +14507,6 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
-[accept."sweep/readable/overwrite/seq/0"]
-
-[accept."sweep/readable/overwrite/seq/G { a: x }"]
-
-[accept."sweep/readable/overwrite/seq/G { a: x, b: y, .. }"]
-
 [accept."sweep/readable/overwrite/seq/[x]"]
 k = """
 rule [case-TAG]:
@@ -14555,22 +14516,6 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
-[accept."sweep/readable/overwrite/seq/x"]
-
-[accept."sweep/readable/overwrite/set/0"]
-
-[accept."sweep/readable/overwrite/set/G { a: x }"]
-
-[accept."sweep/readable/overwrite/set/G { a: x, b: y, .. }"]
-
-[accept."sweep/readable/overwrite/set/x"]
-
-[accept."sweep/readable/overwrite/stack/0"]
-
-[accept."sweep/readable/overwrite/stack/G { a: x }"]
-
-[accept."sweep/readable/overwrite/stack/G { a: x, b: y, .. }"]
-
 [accept."sweep/readable/overwrite/stack/[x]"]
 k = """
 rule [case-TAG]:
@@ -14579,8 +14524,6 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
-
-[accept."sweep/readable/overwrite/stack/x"]
 
 [accept."sweep/readable/result/acct/{ Gm { ma: x, .. }, .. }"]
 k = """

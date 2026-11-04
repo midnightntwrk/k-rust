@@ -3808,85 +3808,9 @@ deviation = "krs::analysis::collection-entry @ spelling"
 finding = "S5-A1"
 deviation = "krs::analysis::collection-entry @ spelling"
 
-["sweep/claim/overwrite/env/G { a: x }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/claim/overwrite/env/G { a: x, b: y, .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/claim/overwrite/env/x"]
-finding = "S5-Q1"
-deviation = "krs::analysis::incompatible-binder @ spelling"
-
-["sweep/claim/overwrite/frame/0"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/claim/overwrite/frame/x"]
-finding = "S5-Q1"
-deviation = "krs::analysis::incompatible-binder @ spelling"
-
 ["sweep/claim/overwrite/job/[x]"]
 finding = "S5-A1"
 deviation = "krs::analysis::collection-entry @ spelling"
-
-["sweep/claim/overwrite/pc/G { a: x }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/claim/overwrite/pc/G { a: x, b: y, .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/claim/overwrite/seq/0"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/claim/overwrite/seq/G { a: x }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/claim/overwrite/seq/G { a: x, b: y, .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/claim/overwrite/seq/x"]
-finding = "S5-Q1"
-deviation = "krs::analysis::incompatible-binder @ spelling"
-
-["sweep/claim/overwrite/set/0"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/claim/overwrite/set/G { a: x }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/claim/overwrite/set/G { a: x, b: y, .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/claim/overwrite/set/x"]
-finding = "S5-Q1"
-deviation = "krs::analysis::incompatible-binder @ spelling"
-
-["sweep/claim/overwrite/stack/0"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/claim/overwrite/stack/G { a: x }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/claim/overwrite/stack/G { a: x, b: y, .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/claim/overwrite/stack/x"]
-finding = "S5-Q1"
-deviation = "krs::analysis::incompatible-binder @ spelling"
 
 ["sweep/claim/result/c17-acc/{ A { al: [x], ..me }, .. }"]
 finding = "S5-V2"
@@ -3928,85 +3852,9 @@ deviation = "krs::analysis::collection-entry @ spelling"
 finding = "S5-A1"
 deviation = "krs::analysis::collection-entry @ spelling"
 
-["sweep/readable/overwrite/env/G { a: x }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/readable/overwrite/env/G { a: x, b: y, .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/readable/overwrite/env/x"]
-finding = "S5-Q1"
-deviation = "krs::analysis::incompatible-binder @ spelling"
-
-["sweep/readable/overwrite/frame/0"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/readable/overwrite/frame/x"]
-finding = "S5-Q1"
-deviation = "krs::analysis::incompatible-binder @ spelling"
-
 ["sweep/readable/overwrite/job/[x]"]
 finding = "S5-A1"
 deviation = "krs::analysis::collection-entry @ spelling"
-
-["sweep/readable/overwrite/pc/G { a: x }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/readable/overwrite/pc/G { a: x, b: y, .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/readable/overwrite/seq/0"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/readable/overwrite/seq/G { a: x }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/readable/overwrite/seq/G { a: x, b: y, .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/readable/overwrite/seq/x"]
-finding = "S5-Q1"
-deviation = "krs::analysis::incompatible-binder @ spelling"
-
-["sweep/readable/overwrite/set/0"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/readable/overwrite/set/G { a: x }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/readable/overwrite/set/G { a: x, b: y, .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/readable/overwrite/set/x"]
-finding = "S5-Q1"
-deviation = "krs::analysis::incompatible-binder @ spelling"
-
-["sweep/readable/overwrite/stack/0"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/readable/overwrite/stack/G { a: x }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/readable/overwrite/stack/G { a: x, b: y, .. }"]
-finding = "S5-Q1"
-deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/readable/overwrite/stack/x"]
-finding = "S5-Q1"
-deviation = "krs::analysis::incompatible-binder @ spelling"
 
 ["sweep/readable/result/c17-acc/{ A { al: [x], ..me }, .. }"]
 finding = "S5-V2"
