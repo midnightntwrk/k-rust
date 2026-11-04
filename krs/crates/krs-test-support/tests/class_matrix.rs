@@ -104,9 +104,10 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // 7 kinds × (13 subject + 13 result spellings), the kinds base's 15 stacks × 9
             // marks, S5-F1's result fragment with a bare `..` (and its machine-base twin on the
             // one-child group), the 2-child group's fragment naming one child on each side, and
-            // item 3b's groups (44 entries: 2 lints are `cells!`-only), and G6's 12 entries in a
-            // function context, a context alias and a context (`cells!`-only).
-            (Family::Cells, 182 + 15 * 9 + 2 + 2 + 44 + 12 * 3),
+            // item 3b's groups (44 entries: 2 lints are `cells!`-only), G6's 12 entries in a
+            // function context, a context alias and a context (`cells!`-only), and the
+            // computation cell's 6 results that write a rest (`cells::computation_results`).
+            (Family::Cells, 182 + 15 * 9 + 2 + 2 + 44 + 12 * 3 + 6),
             // 7 kinds × 19 values, the computation cell's remainder, 3 field orders and the
             // nested group's, the optional cell declared `initial` written present, the 4 main-cell
             // shapes × 3 forms of a sentence that names no cell, 8 typed cells × 4 contents, and
@@ -167,9 +168,10 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // The readable records and the `cells!` rules on the run base, and the Set collection's
             // spellings: 7 subject (a map literal with an anonymous rest among them) and 5 result
             // spellings in a readable record, 6 and 5 in a `cells!` rule; and 8 map results over a
-            // framed `cells!` subject (finding NT-9-1).
+            // framed `cells!` subject (finding NT-9-1); and the computation cell's 6 `cells!`
+            // results that write a rest.
             (Family::ReadableRun, 182 + 7 + 5),
-            (Family::CellsRun, 182 + 6 + 5 + 8),
+            (Family::CellsRun, 182 + 6 + 5 + 8 + 6),
             // The compiled sweep (S5.0g item 3a): the 4,008 root cells of the cells oracle's
             // sweep, less the 15 no case can be compiled for (`sweep::unbuilt`) and the 434
             // another family's case already writes in the same form, side, stack, spelling and
@@ -1715,8 +1717,9 @@ fn every_run_case_is_expected_what_its_twin_is() {
             case.id
         );
     }
-    // Every readable record and `cells!` rule of the machine base has its twin.
-    assert_eq!(twins, 182 + 182);
+    // Every readable record and `cells!` rule of the machine base has its twin, and so do the
+    // computation cell's 6 `cells!` results that write a rest.
+    assert_eq!(twins, 182 + 182 + 6);
 }
 
 #[test]

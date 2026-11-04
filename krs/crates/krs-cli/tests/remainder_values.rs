@@ -449,3 +449,66 @@ pub fn moved(
     "#]]
     .assert_debug_eq(&errors);
 }
+
+/// A result's anonymous `..` at a `KCell(..)` entry is the subject's unnamed rest of the
+/// computation, kept (P6, D2): a rule and a claim that write `..` on both sides mean what the
+/// same sentences mean with the rest named in the subject, `tail @ ..`, and put back, `..tail`.
+#[test]
+fn an_anonymous_result_rest_keeps_the_subjects_computation_rest() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let sentences = |subject: &str, result: &str| {
+        format!(
+            r#"
+#[k::rule(label = "keep")]
+pub fn keep(
+    k::cells! {{ k: k::configuration::KCell(crate::Cmd::Keep(), {subject}), state @ .. }}: crate::Machine,
+) -> crate::Machine {{
+    k::cells! {{ k: k::configuration::KCell(crate::Cmd::Bump(), {result}), ..state }}
+}}
+
+#[k::claim(all_paths, label = "reported")]
+pub fn reported(
+    k::cells! {{ k: k::configuration::KCell(crate::Cmd::Report(), {subject}), state @ .. }}: crate::Machine,
+) -> crate::Machine {{
+    k::cells! {{ k: k::configuration::KCell(5, {result}), ..state }}
+}}
+"#
+        )
+    };
+    let emitted =
+        [("kept", "..", ".."), ("named", "tail @ ..", "..tail")].map(|(name, subject, result)| {
+            let manifest = package(
+                temporary.path(),
+                name,
+                &format!("{PREAMBLE}{}", sentences(subject, result)),
+            );
+            let output = manifest.with_file_name("emitted");
+            let (success, _, stderr) = krs(
+                target.path(),
+                &manifest,
+                "emit-k",
+                &["--output", output.to_str().unwrap()],
+            );
+            assert!(success, "{name}:\n{stderr}");
+            let k = krs_test_support::without_source_comments(
+                &fs::read_to_string(output.join("definition.k")).unwrap(),
+            );
+            let spec = krs_test_support::without_source_comments(
+                &fs::read_to_string(output.join("spec.k")).unwrap(),
+            );
+            let claim = spec
+                .lines()
+                .map(str::trim)
+                .skip_while(|line| !line.starts_with("claim [reported]:"))
+                .take(2);
+            let lines = rule(&k, "keep").lines().map(str::trim).chain(claim);
+            format!("{name}: {}", lines.collect::<Vec<_>>().join(" "))
+        });
+    // K's `...` closing a cell is the rest of its content on both sides of the rewrite: the
+    // same rule as `~> Tail:K` on both sides, a variable no other term names.
+    expect_test::expect![[r"
+        kept: rule [keep]: <k> keep => bump ... </k> claim [reported]: <k> report => 5 ... </k>
+        named: rule [keep]: <k> keep ~> Tail:K => bump ~> Tail:K </k> claim [reported]: <k> report ~> Tail:K => 5 ~> Tail:K </k>"]]
+    .assert_eq(&emitted.join("\n"));
+}

@@ -137,7 +137,7 @@ what = "a readable result writing an updated instance's Map child with a map rea
 ["S5-K1"]
 owner = "S5"
 kind = "bug"
-what = "a result's anonymous `..` that keeps the subject's anonymous rest at a content root is refused outside a readable record's top-level cell (`an anonymous `..` keeps the rest only in a readable record cell`): a `cells!` result (`Cell([x, ..])`, `KCell(x, ..)`) and a readable result below presence or in a group record's child (`Some([..])`, `H { hl: [x, ..], hb: 0 }`), though P6 reads `..` in a result as the subject's unnamed rest kept, at every content root and in every form (design D2); S5.5's"
+what = "a result's anonymous `..` that keeps the subject's anonymous rest at a content root is refused outside a readable record's top-level cell (`an anonymous `..` keeps the rest only in a readable record cell`): a `cells!` result's list (`Cell([x, ..])`, a fragment's or instance's child `hl: [x, ..]`) and a readable result below presence or in a group record's child (`Some([..])`, `H { hl: [x, ..], hb: 0 }`), though P6 reads `..` in a result as the subject's unnamed rest kept, at every content root and in every form (design D2); a `KCell(..)` entry's `..` keeps it (K1), a list's needs the subject's anonymous rest named and shared with the result at each content root; S5.5's"
 
 ["S5-M1"]
 owner = "S5"

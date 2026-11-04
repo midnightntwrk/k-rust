@@ -2155,6 +2155,18 @@ fn state_frames_compatible(subject: RuleStateFrame<'_>, result: RuleStateFrame<'
             },
             RuleStateFrame::Exact,
         ) => true,
+        // A result's `..` is the subject's unnamed rest of the cell, kept (P6): the clause's
+        // frame is the subject's, as for a result that writes no rest over it.
+        (
+            RuleStateFrame::Framed {
+                family: subject_family,
+                frame: AssociativeStateFrame::Anonymous { .. },
+            },
+            RuleStateFrame::Framed {
+                family: result_family,
+                frame: AssociativeStateFrame::Anonymous { .. },
+            },
+        ) => subject_family == result_family,
         (
             RuleStateFrame::Framed {
                 family: subject_family,

@@ -91,7 +91,8 @@ pub enum StateMacroContext {
 pub enum StateMacroRemainder {
     /// No content is omitted.
     Exact,
-    /// Anonymous pattern remainder (`..`).
+    /// Anonymous remainder (`..`): a pattern's unnamed rest, or, at a
+    /// `cells!` result's `KCell(..)`, that rest kept.
     Anonymous(TokenRange),
     /// Pattern remainder binding (`name @ ..`).
     Bind {
@@ -1295,7 +1296,27 @@ pub(crate) fn parse_k_sequence(
     context: StateMacroContext,
     invocation: Option<TokenRange>,
 ) -> Result<KSequence, SyntaxError> {
-    parse_unkeyed_k_sequence(tokens, context)
+    parse_keyed_k_sequence(tokens, context, invocation, false)
+}
+
+/// Parses a `KCell(..)` entry's K sequence, the whole content of its cell: a content root, where
+/// a result's anonymous `..` is the subject's unnamed rest of the cell, kept (P6, D2), as it is
+/// in a pattern. Whether the subject has such a rest is the entry's pairing.
+fn parse_cell_k_sequence(
+    tokens: TokenStream,
+    context: StateMacroContext,
+    invocation: Option<TokenRange>,
+) -> Result<KSequence, SyntaxError> {
+    parse_keyed_k_sequence(tokens, context, invocation, true)
+}
+
+fn parse_keyed_k_sequence(
+    tokens: TokenStream,
+    context: StateMacroContext,
+    invocation: Option<TokenRange>,
+    content_root: bool,
+) -> Result<KSequence, SyntaxError> {
+    parse_unkeyed_k_sequence(tokens, context, content_root)
         .map(|sequence| sequence.invoked_at(invocation))
         .and_then(KSequence::keyed_standalone)
 }
@@ -1307,6 +1328,7 @@ pub(crate) fn parse_k_sequence(
 fn parse_unkeyed_k_sequence(
     tokens: TokenStream,
     context: StateMacroContext,
+    content_root: bool,
 ) -> Result<KSequence, SyntaxError> {
     // A trailing comma ends the list; it is no element.
     let tokens = crate::parse::strip_trailing_comma(tokens);
@@ -1323,7 +1345,7 @@ fn parse_unkeyed_k_sequence(
                 ));
             }
             if starts_remainder(input) {
-                let tail = parse_remainder(input, context, "k")?;
+                let tail = parse_remainder_kept(input, context, "k", content_root)?;
                 if !input.is_empty() {
                     return Err(state_error(
                         "k",
@@ -1361,7 +1383,7 @@ fn parse_unkeyed_k_sequence(
             let mut notation = None;
             loop {
                 if starts_remainder(input) {
-                    tail = parse_remainder(input, context, "k")?;
+                    tail = parse_remainder_kept(input, context, "k", content_root)?;
                     break;
                 }
                 items.push(parse_state_item(input, context)?);
@@ -1794,10 +1816,13 @@ fn parse_entry_value(
     let wrapper_name = last.ident.to_string();
     let value = match wrapper_name.as_str() {
         // `KCell(..)`'s parentheses hold the K sequence, as `k::k![..]`'s
-        // brackets do; the wrapper path is a node of its own.
-        "KCell" => {
-            StateTerm::KSequence(parse_k_sequence(value_tokens, context, Some(parentheses))?)
-        }
+        // brackets do, as the cell's whole content; the wrapper path is a
+        // node of its own.
+        "KCell" => StateTerm::KSequence(parse_cell_k_sequence(
+            value_tokens,
+            context,
+            Some(parentheses),
+        )?),
         "Cell" => {
             let leaf = crate::parse::strip_trailing_comma(value_tokens);
             match named_rest_alone(&leaf, context) {
@@ -2312,7 +2337,18 @@ fn parse_remainder(
     context: StateMacroContext,
     macro_name: &'static str,
 ) -> Result<StateMacroRemainder, SyntaxError> {
-    let remainder = parse_remainder_tokens(input, context, macro_name)?;
+    parse_remainder_kept(input, context, macro_name, false)
+}
+
+/// A remainder, where `content_root` tells whether an expression's anonymous `..` keeps the
+/// subject's rest ([`parse_cell_k_sequence`]).
+fn parse_remainder_kept(
+    input: ParseStream<'_>,
+    context: StateMacroContext,
+    macro_name: &'static str,
+    content_root: bool,
+) -> Result<StateMacroRemainder, SyntaxError> {
+    let remainder = parse_remainder_tokens(input, context, macro_name, content_root)?;
     if input.peek(Token![|]) {
         // K's #Or combines terms; a remainder is a frame (KF-030).
         return Err(SyntaxError::new(
@@ -2329,6 +2365,7 @@ fn parse_remainder_tokens(
     input: ParseStream<'_>,
     context: StateMacroContext,
     macro_name: &'static str,
+    content_root: bool,
 ) -> Result<StateMacroRemainder, SyntaxError> {
     if input.peek(Token![..]) {
         let dots: Token![..] = input.parse().map_err(SyntaxError::from)?;
@@ -2346,7 +2383,7 @@ fn parse_remainder_tokens(
                 binding,
             });
         }
-        if context == StateMacroContext::Expression {
+        if context == StateMacroContext::Expression && !content_root {
             if macro_name == "map" {
                 return Err(crate::collection_literal::anonymous_map_rest(dots.spans[0]));
             }

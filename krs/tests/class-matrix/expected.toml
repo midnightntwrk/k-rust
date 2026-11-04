@@ -1085,6 +1085,11 @@ match = '{claim,readable}/result/{job,k}/[]'
 class = "rest-mismatch"
 at = "entry"
 
+[[refuse]]
+match = 'cells/result/k/{k::configuration::KCell(x\, ..),named/k::configuration::KCell(x\, ..)}'
+class = "rest-mismatch"
+at = "entry"
+
 # unbound-name
 [[refuse]]
 match = 'import/constant/value/Hold(x)'
@@ -7008,6 +7013,40 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept."cells/result/k/named/k::configuration::KCell(..r)"]
+same_k_as = ["cells/result/k/rest/k::configuration::KCell(..)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells/result/k/named/k::configuration::KCell(x, ..r)"]
+same_k_as = ["cells/result/k/rest/k::configuration::KCell(x, ..)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => V0:Int ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells/result/k/rest/k::configuration::KCell(..)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells/result/k/rest/k::configuration::KCell(x, ..)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => V0:Int ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."cells/result/pc/k::configuration::Cell(0)"]
 k = """
 rule [case-TAG]:
@@ -10946,6 +10985,7 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
+same_k_as = ["cells/result/k/rest/k::configuration::KCell(..)"]
 
 [accept."readable/result/k/[Job { payload: x, .. }, ..]"]
 k = """
@@ -10962,6 +11002,7 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
+same_k_as = ["cells/result/k/rest/k::configuration::KCell(x, ..)"]
 
 [accept."readable/result/kinds/code/[x, ..]"]
 
@@ -11943,6 +11984,40 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
+[accept."cells-run/result/k/named/k::configuration::KCell(..r)"]
+same_k_as = ["cells-run/result/k/rest/k::configuration::KCell(..)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells-run/result/k/named/k::configuration::KCell(x, ..r)"]
+same_k_as = ["cells-run/result/k/rest/k::configuration::KCell(x, ..)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => V0:Int ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells-run/result/k/rest/k::configuration::KCell(..)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => .K ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
+[accept."cells-run/result/k/rest/k::configuration::KCell(x, ..)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int , V1:Int ) => V0:Int ... </k>
+
+syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
+"""
+
 [accept."cells-run/result/pc/k::configuration::Cell(0)"]
 k = """
 rule [case-TAG]:
@@ -12277,6 +12352,7 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
+same_k_as = ["cells-run/result/k/rest/k::configuration::KCell(..)"]
 
 [accept."readable-run/result/k/[Job { payload: x, .. }, ..]"]
 k = """
@@ -12293,6 +12369,7 @@ rule [case-TAG]:
 
 syntax Stmt ::= "cTAG" "(" Int "," Int ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
+same_k_as = ["cells-run/result/k/rest/k::configuration::KCell(x, ..)"]
 
 [accept."readable-run/result/pc/0"]
 same_k_as = ["cells-run/result/pc/k::configuration::Cell(0)"]
@@ -12882,6 +12959,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/cells/result/prog/k::configuration::KCell(x, ..)"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<prog> V1:KItem => V0:Int ... </prog>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/cells/result/seq/k::configuration::Cell([x, ..])"]
 
@@ -13230,6 +13314,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/cells/written/prog/k::configuration::KCell(x, ..)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<prog> V0:KItem => .K ... </prog>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/cells/written/seq/k::configuration::Cell([x, ..])"]
 

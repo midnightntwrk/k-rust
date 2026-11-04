@@ -396,6 +396,26 @@ pub(super) fn cells(
     }
 }
 
+/// K7's plan for the computation cell's `cells!` result `spelling` over a subject with a rest
+/// (`cells::KEPT_COMPUTATION_RESULTS`), `KCell(C(x, y), ..)` after `then(cNAME(1, 2), go)`: the
+/// rest, `go`, is what a result's `..` or `..r` keeps.
+pub(super) fn kept_computation(spelling: &str, command: Option<&Command>) -> Plans {
+    let Some(command) = command else {
+        unreachable!("a computation result case binds the command")
+    };
+    let rest = || go().program;
+    let written = match spelling {
+        "k::configuration::KCell(x, ..)" | "k::configuration::KCell(x, ..r)" => {
+            Ok(Written::value(Ground::Seq(vec![int(1), rest()])))
+        }
+        "k::configuration::KCell(..)" | "k::configuration::KCell(..r)" => {
+            Ok(Written::value(Ground::Seq(vec![rest()])))
+        }
+        _ => Err(NOTATION),
+    };
+    computation_result(&apply(command, 2).then(go()), written)
+}
+
 /// The collections a run family's subject case reads, each with the items its witness and its
 /// counter-witnesses write there (as [`Reading`]s), or why it reads none; `None` for a result case,
 /// whose plan checks the value its sentence writes, and for a case K7 does not run.

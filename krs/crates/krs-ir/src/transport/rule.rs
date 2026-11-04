@@ -2271,7 +2271,13 @@ fn validate_rule_state<S: RuleValidationStage>(
                 walk.k_item_root = false;
                 validated?;
             }
-            if sequence.notation == DescriptorKSequenceNotation::DotK {
+            if sequence.notation == DescriptorKSequenceNotation::DotK
+                // A result's anonymous tail at a `KCell(..)` entry is the subject's unnamed rest
+                // of the computation, kept (P6); whether the subject has one pairs the result
+                // with the subject, which the collector judges after each entry's kind.
+                || (side == RuleSide::Right
+                    && matches!(sequence.tail, ProtocolRuleFrame::Anonymous { .. }))
+            {
                 Ok(())
             } else {
                 validate_frame(

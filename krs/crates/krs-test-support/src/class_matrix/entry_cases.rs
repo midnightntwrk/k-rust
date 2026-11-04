@@ -105,6 +105,11 @@ pub fn declared(construct: &str) -> Option<Spelling> {
         "k::configuration::Cell([x, ..])" => cell(brackets(vec![x()], open())),
         // `cells!` result entries (`cells::RESULT_SPELLINGS`).
         "k::configuration::KCell(x)" => kcell(vec![x()], exact()),
+        // The computation cell's results over a subject with a rest
+        // (`cells::KEPT_COMPUTATION_RESULTS`).
+        "k::configuration::KCell(..)" => kcell(vec![], open()),
+        "k::configuration::KCell(x, ..r)" => kcell(vec![x()], splice("r")),
+        "k::configuration::KCell(..r)" => kcell(vec![], splice("r")),
         "[k::fragment![crate::Job { payload: x, ..old }], ..instances0]" => {
             Spelling::InstList(seq(
                 vec![frag(
@@ -576,7 +581,17 @@ fn cells_rule(case: &Case, cell: &str) -> EntryCase {
             Context::default(),
         ),
         ("k", _) => {
-            let other = command(vec![bind("x"), bind("y")], exact());
+            // The subject's rest after the command, by the slot's segment after the cell.
+            let slot = case
+                .id
+                .strip_suffix(case.construct.as_str())
+                .unwrap_or_default();
+            let rest = match slot.rsplit('/').nth(1) {
+                Some("rest") => open(),
+                Some("named") => named("r"),
+                _ => exact(),
+            };
+            let other = command(vec![bind("x"), bind("y")], rest);
             (
                 vec![entry("k", Side::Subject, k(), other.clone())],
                 result_context(other),

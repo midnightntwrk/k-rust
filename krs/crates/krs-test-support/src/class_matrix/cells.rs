@@ -71,6 +71,31 @@ const RESULT_SPELLINGS: [&str; 13] = [
     "k::configuration::Cell([x, y])",
 ];
 
+/// The computation cell's results over a subject that writes a rest after the command, by the
+/// ID segment that names the subject's rest and the rest it writes: `..`, which a result's `..`
+/// keeps, and a named rest, which a result's `..r` puts back (P6, D2). The two kept pairs have
+/// the same meaning, so the same K; a result `..` over the named rest keeps no rest the subject
+/// left unnamed (`rest-mismatch`), as does the exact subject's ([`cases`]).
+pub(super) const KEPT_COMPUTATION_RESULTS: [(&str, &str, &[&str]); 2] = [
+    (
+        "rest",
+        "..",
+        &[
+            "k::configuration::KCell(x, ..)",
+            "k::configuration::KCell(..)",
+        ],
+    ),
+    (
+        "named",
+        "r @ ..",
+        &[
+            "k::configuration::KCell(x, ..r)",
+            "k::configuration::KCell(..r)",
+            "k::configuration::KCell(x, ..)",
+        ],
+    ),
+];
+
 /// The Set collection's subject spellings on the run base, as the readable family's
 /// (`machine::READABLE_BAG_SUBJECTS`): an instance whose map cell is exact, one whose key is
 /// computed, two whose exact map computes its value or its key, one whose map writes `..` and an
@@ -227,6 +252,8 @@ fn old(kind: CellKind, construct: &str) -> (&'static str, Vec<(&'static str, &'s
 ///
 /// And a result fragment of the one-child group with a bare `..` after its one child, over the
 /// matched group: the `..` leaves no field open, so it is the exact record (S5.0g, P6, P0).
+///
+/// And the computation cell's results that write a rest ([`computation_results`]).
 pub(super) fn cases(cases: &mut Vec<Case>) {
     family(cases, Family::Cells, Base::Machine);
     let at = Placement {
@@ -239,6 +266,56 @@ pub(super) fn cases(cases: &mut Vec<Case>) {
         "k::fragment![crate::Frame { ret: x, .. }]",
         &[],
     ));
+    computation_results(cases, Family::Cells, Base::Machine);
+}
+
+/// The computation cell's result `KCell(x, ..)` over the exact subject, and its results over a
+/// subject with a rest ([`KEPT_COMPUTATION_RESULTS`]), slot `result/k/SEGMENT`.
+fn computation_results(cases: &mut Vec<Case>, family: Family, base: Base) {
+    let at = Placement {
+        family,
+        base,
+        kind: CellKind::KSequence,
+    };
+    cases.push(at.case(Side::Result, "k::configuration::KCell(x, ..)", &[]));
+    for (segment, rest, results) in KEPT_COMPUTATION_RESULTS {
+        for construct in results {
+            cases.push(computation_result(&at, segment, rest, construct));
+        }
+    }
+}
+
+/// The computation cell's result `construct` over the subject `KCell(C(x, y), REST)`, at slot
+/// `result/k/SEGMENT`, with K7's plan where the base has drivers.
+fn computation_result(at: &Placement, segment: &str, rest: &str, construct: &str) -> Case {
+    let spec = CaseSpec {
+        family: at.family,
+        base: at.base,
+        side: Side::Result,
+        kind: Some(CellKind::KSequence),
+        slot: vec![
+            Side::Result.name().to_owned(),
+            cell(CellKind::KSequence).to_owned(),
+            segment.to_owned(),
+        ],
+        construct: construct.to_owned(),
+    };
+    let tag = spec.tag();
+    let command = Command::for_case(&spec.id(), 2);
+    let name = command.name.clone();
+    let mut item = ItemBuilder::new();
+    item.push(&format!(
+        "#[k::rule(label = \"case-{tag}\")]\npub fn case_{tag}(\n    x: k::Term<k::builtin::Int>,\n    y: k::Term<k::builtin::Int>,\n    k::cells! {{ k: k::configuration::KCell(crate::Cmd::{name}(x, y), {rest}), state @ .. }}: crate::Machine,\n) -> crate::Machine {{\n    k::cells! {{ "
+    ))
+    .entry(key(CellKind::KSequence), construct)
+    .push(", ..state }\n}\n");
+    let mut case = spec.finish(Packaging::Shared(command), &item);
+    if at.base == Base::Run {
+        let plans = config_drivers::kept_computation(construct, case.command());
+        case.k7 = plans.k7;
+        case.k7_counters = plans.counters.unwrap_or_default();
+    }
+    case
 }
 
 /// The `cells!` rules again on the run base, each with K7's plan ([`config_drivers::cells`]), and
@@ -263,6 +340,7 @@ pub(super) fn runs(cases: &mut Vec<Case>) {
     for (_, construct) in FRAMED_MAP_RESULTS {
         cases.push(at.case(Side::Result, construct, &[]));
     }
+    computation_results(cases, Family::CellsRun, Base::Run);
 }
 
 fn family(cases: &mut Vec<Case>, family: Family, base: Base) {

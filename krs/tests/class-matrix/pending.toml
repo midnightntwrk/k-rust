@@ -1431,7 +1431,7 @@ match = 'sweep/{claim,readable}/result/env/{None,x}'
 finding = "S5-H1"
 kind = "diagnostic+rust-syntax"
 
-# S5-K1, diagnostic: 28 reds
+# S5-K1, diagnostic: 26 reds
 
 # sweep: 4
 [[family]]
@@ -1454,12 +1454,6 @@ kind = "diagnostic"
 # sweep: 2
 [[family]]
 match = 'sweep/cells/written/{prog,seq}/k::configuration::Cell(k::map![y -> x\, ..])'
-finding = "S5-K1"
-kind = "diagnostic"
-
-# sweep-paths: 2
-[[family]]
-match = 'sweep-paths/cells/result/{lprog,qprog}/k::configuration::KCell(x\, ..)'
 finding = "S5-K1"
 kind = "diagnostic"
 
@@ -3169,10 +3163,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 finding = "S5-K1"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
 
-["sweep/cells/result/prog/k::configuration::KCell(x, ..)"]
-finding = "S5-K1"
-deviation = "krs::syntax::invalid-state-macro @ spelling"
-
 ["sweep/cells/result/seq/k::configuration::Cell([x, ..])"]
 finding = "S5-K1"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
@@ -3184,10 +3174,6 @@ deviation = "krs::syntax::invalid-list-notation @ spelling"
 ["sweep/cells/result/stack/k::configuration::Cell([x, ..])"]
 finding = "S5-K1"
 deviation = "krs::syntax::invalid-list-notation @ spelling"
-
-["sweep/cells/written/prog/k::configuration::KCell(x, ..)"]
-finding = "S5-K1"
-deviation = "krs::syntax::invalid-state-macro @ item"
 
 ["sweep/cells/written/seq/k::configuration::Cell([x, ..])"]
 finding = "S5-K1"
