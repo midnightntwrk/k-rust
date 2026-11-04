@@ -86,8 +86,17 @@ pub fn spec_digest(manifest: &FlowManifest, files: &[SourceFile]) -> Sha256Diges
 }
 
 /// The payload of a program digest: the sha256 of the program's bytes (its file's bytes, or
-/// its inline text) when it has a program text, its start sort, its configuration variables'
+/// its inline text) when it has a program, its start sort, its configuration variables'
 /// texts sorted by name, and, when it has typed inputs, each one's decoded term.
+///
+/// The program enters by its bytes whichever way the front end binds them
+/// ([`crate::admit::InputDecoder::program`]: `$PGM` text, another variable's text, or a term),
+/// so a program bound as `$PGM` text has the digest it had before front ends could bind
+/// programs. A program bound as `$PGM` text enters by that text's bytes, which are the file's
+/// bytes under kink's rule and under a front end that binds them unchanged; a front end that
+/// rewrites the text it binds to `$PGM` keys the program by what it binds. How the bytes bind is
+/// a function of the definition and of the build that read them, which the result and outcome
+/// keys name beside the program digest.
 ///
 /// A typed input enters by what it denotes, not by how it is written: `{name, kast_sha256}`,
 /// the variable's K name and the sha256 of the KAST JSON of its decoded term (k-rust
@@ -108,6 +117,8 @@ pub fn program_payload(program: &Program, inputs: &CaseInputs) -> Value {
     });
     if let Some(text) = &inputs.text {
         payload["program_sha256"] = json!(sha256(text.as_bytes()).to_string());
+    } else if let Some(bound) = &inputs.bound {
+        payload["program_sha256"] = json!(bound.sha256.to_string());
     }
     if !inputs.typed.is_empty() {
         let mut typed = inputs

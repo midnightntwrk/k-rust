@@ -377,6 +377,7 @@ fn a_program_digest_changes_with_its_text_start_sort_and_variables_only() {
     let bare = CaseInputs {
         text: None,
         typed: Vec::new(),
+        bound: None,
     };
     assert_ne!(
         program_digest(&program("p"), &bare),

@@ -723,6 +723,216 @@ variables = { ENTRY = "go", N = "1", ROM = 'b"\x01"' }
     assert_eq!(initial("cases/b/case.toml"), initial("b-as-text"));
 }
 
+/// A test front end that binds programs as the krs front end binds them to a main parameter
+/// that is not `$PGM`: a `.bin` file is the bytes of `$ROM`, as a term; any other file, and
+/// inline text, is the text of `$ENTRY`; a file named `bad.*` is refused. Typed inputs are
+/// [`TestDecoder`]'s.
+struct MainDecoder;
+
+impl kink_flow::InputDecoder for MainDecoder {
+    fn decode(
+        &self,
+        name: &str,
+        document: &toml::Value,
+        files: &mut dyn kink_flow::InputFiles,
+    ) -> Result<(String, k_rust::kast::Term), String> {
+        TestDecoder.decode(name, document, files)
+    }
+
+    fn program(
+        &self,
+        name: Option<&str>,
+        bytes: &[u8],
+    ) -> Option<Result<kink_flow::ProgramBinding, String>> {
+        Some(match name {
+            Some(name) if name.starts_with("bad.") => Err("no reading of this file".into()),
+            Some(name) if name.ends_with(".bin") => Ok(kink_flow::ProgramBinding::Term {
+                variable: "ROM".into(),
+                term: k_rust::kast::Term::Token {
+                    token: format!(
+                        "b\"{}\"",
+                        bytes
+                            .iter()
+                            .map(|b| format!("\\x{b:02x}"))
+                            .collect::<String>()
+                    ),
+                    sort: k_rust::kast::Sort::new("Bytes"),
+                },
+            }),
+            _ => Ok(kink_flow::ProgramBinding::Text {
+                variable: "$ENTRY".into(),
+                text: String::from_utf8(bytes.to_vec()).unwrap(),
+            }),
+        })
+    }
+}
+
+/// A front end that knows the definition's main input binds a program to it
+/// (`InputDecoder::program`): on a definition without `$PGM`, a file binds `$ENTRY` as text and
+/// a binary file binds `$ROM` as a term, and each gives the initial configuration the same
+/// values written under `variables` give. The program digest holds the SHA-256 of the program's
+/// bytes whichever way they bind, so a program bound as `$PGM` text keeps its digest. A variable
+/// the program and `variables` or an input both bind, a start sort beside a binding that is not
+/// `$PGM` text, and a program the decoder refuses are refused (`inputs`/`input-value`). Without a
+/// decoder the program is `$PGM` text, which this definition refuses (`stray-program`).
+#[test]
+fn a_front_end_binds_a_program_to_its_main_input() {
+    let dir = scratch("program-binding");
+    write(&dir.join("cases.k"), CASES_K);
+    write(&dir.join("go.txt"), "go");
+    write(&dir.join("bad.txt"), "go");
+    fs::write(dir.join("rom.bin"), [0x00, 0xff]).unwrap();
+    write(
+        &dir.join("FLOW.toml"),
+        r#"[spec]
+entry = "cases.k"
+main_module = "CASES"
+
+[[program]]
+id = "entry-file"
+file = "go.txt"
+variables = { N = "1", ROM = 'b"\x00\xff"' }
+
+[[program]]
+id = "entry-text"
+text = "go"
+variables = { N = "1", ROM = 'b"\x00\xff"' }
+
+[[program]]
+id = "rom-file"
+file = "rom.bin"
+variables = { ENTRY = "go", N = "1" }
+
+[[program]]
+id = "as-text"
+variables = { ENTRY = "go", N = "1", ROM = 'b"\x00\xff"' }
+
+[[program]]
+id = "twice-by-variables"
+file = "go.txt"
+variables = { ENTRY = "go", N = "1", ROM = 'b"\x00\xff"' }
+
+[[program]]
+id = "twice-by-input"
+file = "rom.bin"
+variables = { ENTRY = "go", N = "1" }
+inputs = { rom = { "$file" = "rom.bin" } }
+
+[[program]]
+id = "start-sort"
+file = "go.txt"
+start_sort = "KItem"
+variables = { N = "1", ROM = 'b"\x00\xff"' }
+
+[[program]]
+id = "refused"
+file = "bad.txt"
+variables = { N = "1", ROM = 'b"\x00\xff"' }
+"#,
+    );
+    let k_level = read(&dir).unwrap();
+    let manifest = k_level
+        .clone()
+        .with_input_decoder(std::sync::Arc::new(MainDecoder));
+    let digests = {
+        let manifest = manifest.clone();
+        on_stack(move || {
+            let (_, admitted) = kink_flow::admit_spec(&manifest);
+            let (_, inputs) = admitted.expect("the specification is admitted");
+            manifest
+                .programs
+                .iter()
+                .take(3)
+                .map(|program| {
+                    let read = inputs.read(program).unwrap();
+                    (
+                        kink_flow::digest::program_payload(program, &read)["program_sha256"]
+                            .clone(),
+                        read.bound.map(|bound| bound.variable),
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+    };
+    let sha256 = |bytes: &[u8]| serde_json::json!(kink_patch::sha256(bytes).to_string());
+    assert_eq!(
+        digests,
+        [
+            (sha256(b"go"), Some("ENTRY".to_owned())),
+            (sha256(b"go"), Some("ENTRY".to_owned())),
+            (sha256(&[0x00, 0xff]), Some("ROM".to_owned())),
+        ]
+    );
+    let admission = on_stack(move || admit(&manifest));
+    let value = Some(("inputs".to_owned(), "input-value".to_owned()));
+    assert_eq!(
+        outcomes(&admission),
+        [
+            ("entry-file".to_owned(), None),
+            ("entry-text".to_owned(), None),
+            ("rom-file".to_owned(), None),
+            ("as-text".to_owned(), None),
+            ("twice-by-variables".to_owned(), value.clone()),
+            ("twice-by-input".to_owned(), value.clone()),
+            ("start-sort".to_owned(), value.clone()),
+            ("refused".to_owned(), value),
+        ]
+    );
+    // The configuration variables' values, by variable: the initial configuration's map, whose
+    // concatenation follows the binding order, as the set of its bindings.
+    fn bindings(pattern: &k_rust::kore::ast::Pattern, into: &mut Vec<String>) {
+        match pattern {
+            k_rust::kore::ast::Pattern::Application { symbol, arguments }
+                if symbol.name.as_str() == "Lbl'Unds'Map'Unds'"
+                    || symbol.name.as_str() == "LblinitGeneratedTopCell" =>
+            {
+                for argument in arguments {
+                    bindings(argument, into);
+                }
+            }
+            other => into.push(format!("{other:?}")),
+        }
+    }
+    let initial = |id: &str| {
+        let program = admission.programs.iter().find(|p| p.id == id).unwrap();
+        let mut found = Vec::new();
+        bindings(&program.outcome.as_ref().unwrap().initial_state, &mut found);
+        found.sort();
+        found
+    };
+    assert_eq!(initial("as-text").len(), 3);
+    assert_eq!(initial("entry-file"), initial("as-text"));
+    assert_eq!(initial("entry-text"), initial("as-text"));
+    assert_eq!(initial("rom-file"), initial("as-text"));
+    let detail = |id: &str| {
+        let program = admission.programs.iter().find(|p| p.id == id).unwrap();
+        program.outcome.as_ref().unwrap_err().detail.clone()
+    };
+    assert_eq!(
+        detail("twice-by-variables"),
+        "the program file go.txt binds $ENTRY, which `variables` binds too; bind it once"
+    );
+    assert_eq!(
+        detail("twice-by-input"),
+        "input `rom` binds $ROM, which the program binds too; bind it once"
+    );
+    assert_eq!(
+        detail("start-sort"),
+        "the program file go.txt binds $ENTRY, and a start_sort reads $PGM text only; give no \
+         start_sort"
+    );
+    assert_eq!(
+        detail("refused"),
+        "the program file bad.txt: no reading of this file"
+    );
+
+    let admission = on_stack(move || admit(&k_level));
+    let stray = Some(("inputs".to_owned(), "stray-program".to_owned()));
+    let outcomes = outcomes(&admission);
+    assert_eq!(outcomes[0], ("entry-file".to_owned(), stray.clone()));
+    assert_eq!(outcomes[1], ("entry-text".to_owned(), stray));
+}
+
 /// The calc fixture's programs, matched by a pattern in one directory and listed by id in
 /// another: `check`, `results` and `run` give the same documents (each program reported by its
 /// path id, in the ids' order), and a second command gives the same ids again.

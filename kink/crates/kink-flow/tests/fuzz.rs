@@ -648,6 +648,86 @@ fn a_template_with_typed_inputs_is_refused() {
     );
 }
 
+/// A template's own `file` or `text` is read as admission reads a program's, through the front
+/// end's decoder (`InputDecoder::program`), so it binds what the same text as a `[[program]]`
+/// binds: one the front end binds to another variable than `$PGM` is refused before any case,
+/// since fuzz varies `$PGM` text only.
+#[test]
+fn a_template_the_front_end_binds_otherwise_is_refused() {
+    struct EntryDecoder;
+    impl kink_flow::InputDecoder for EntryDecoder {
+        fn decode(
+            &self,
+            name: &str,
+            _: &toml::Value,
+            _: &mut dyn kink_flow::InputFiles,
+        ) -> Result<(String, k_rust::kast::Term), String> {
+            Err(format!("no typed input {name}"))
+        }
+
+        fn program(
+            &self,
+            _: Option<&str>,
+            bytes: &[u8],
+        ) -> Option<Result<kink_flow::ProgramBinding, String>> {
+            Some(Ok(kink_flow::ProgramBinding::Text {
+                variable: "ENTRY".into(),
+                text: String::from_utf8(bytes.to_vec()).unwrap(),
+            }))
+        }
+    }
+    let manifest = "[spec]\nentry = \"steps.k\"\nmain_module = \"STEPS\"\nsyntax_module = \
+                    \"STEPS-SYNTAX\"\n\n[[program]]\nid = \"one\"\ntext = \"run(1)\"\n";
+    let dir = scratch_flow("entry-template", "steps.k", STEPS_K, manifest, "");
+    fs::write(dir.join("t.txt"), "run(1)").unwrap();
+    let templates = TemplateList::decode(
+        "[[template]]\nid = \"text\"\ntext = \"run(1)\"\n\n[[template]]\nid = \"file\"\nfile = \
+         \"t.txt\"\n",
+        &dir,
+    )
+    .unwrap();
+    let manifest = FlowManifest::read(&dir.join("FLOW.toml"))
+        .unwrap()
+        .with_input_decoder(std::sync::Arc::new(EntryDecoder));
+    for (template, described) in [
+        ("text", "the template's text"),
+        ("file", "the template's file t.txt"),
+    ] {
+        let (document, ok) = {
+            let manifest = manifest.clone();
+            let templates = templates.clone();
+            on_stack(move || {
+                fuzz_job(
+                    &manifest,
+                    &templates,
+                    template,
+                    FuzzJob::Rule {
+                        rule: "big",
+                        fired: true,
+                    },
+                    &FuzzOptions::default(),
+                )
+            })
+        };
+        assert!(!ok, "{document:#}");
+        let refusal = &document["job"]["refusal"];
+        assert_eq!(
+            (&refusal["stage"], &refusal["reason"]),
+            (&Value::from("template"), &Value::from("template-refused")),
+            "{document:#}"
+        );
+        assert_eq!(
+            refusal["detail"],
+            format!(
+                "{described} binds $ENTRY as the front end reads its program, which fuzz does not \
+                 carry yet: fuzz varies $PGM text, so use a template that binds every input as K \
+                 text under `variables`"
+            ),
+            "{document:#}"
+        );
+    }
+}
+
 /// A hole inside a configuration variable's text decodes (KF-T3a refused it): the span is
 /// addressed in that binding, by `$NAME`.
 #[test]

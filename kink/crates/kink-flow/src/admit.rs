@@ -18,6 +18,9 @@
 //! A case is an assignment of a value to each configuration variable: the program text binds
 //! `$PGM` (a definition without `$PGM` takes none, and refuses one: `stray-program`), and each
 //! other variable is bound by name, from K text (`variables`) or from a typed input (`inputs`).
+//! Which variable a program binds is kink's convention, `$PGM`, only while no front end says
+//! otherwise: a front end that knows the definition's main input reads the program's bytes
+//! itself ([`InputDecoder::program`]) and says which variable they bind, as K text or as a term.
 //! kink reads K text only; a typed input is a document of a front end's encoding, which only the
 //! front end that knows the inputs' declared types can read, so kink asks that front end's
 //! decoder for the term it denotes and binds the term. Without a decoder (a `FLOW.toml` read at
@@ -71,6 +74,7 @@ use kink_native::{
 };
 use kink_patch::SemanticInput;
 use std::{
+    borrow::Cow,
     cell::OnceCell,
     collections::BTreeMap,
     fs,
@@ -94,6 +98,37 @@ pub trait InputDecoder {
         document: &toml::Value,
         files: &mut dyn InputFiles,
     ) -> Result<(String, Term), String>;
+
+    /// How a program's bytes bind, when the front end knows the definition's main input: the
+    /// variable they bind and its value, read from `bytes`, the program's file (`name`, its path
+    /// relative to the manifest's directory) or its inline text (`name` is `None`). `None` keeps
+    /// kink's rule, under which the bytes are UTF-8 text bound to `$PGM`, and is the default, so a
+    /// front end that does not implement this method binds every program as kink does. The
+    /// error is the reader's message, which admission reports as the refusal's detail
+    /// (`input-value`).
+    fn program(&self, name: Option<&str>, bytes: &[u8]) -> Option<Result<ProgramBinding, String>> {
+        let _ = (name, bytes);
+        None
+    }
+}
+
+/// What a program binds, as a front end reads its bytes ([`InputDecoder::program`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ProgramBinding {
+    /// K text, read at the variable's sort: as a program where the variable is `$PGM` (at the
+    /// program's `start_sort`, or the start position of `$PGM`'s sort), and as `variables` text
+    /// of the variable otherwise.
+    Text {
+        /// The configuration variable's K name, with or without `$`.
+        variable: String,
+        text: String,
+    },
+    /// A term built without the parser, which kink binds as it binds a decoded typed input.
+    Term {
+        /// The configuration variable's K name, with or without `$`.
+        variable: String,
+        term: Term,
+    },
 }
 
 /// Where a decoder reads the files a typed input names.
@@ -150,11 +185,26 @@ impl InputFiles for ManifestFiles<'_> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CaseInputs {
     /// The text bound to `$PGM`: its file's text, or its inline text; `None` for a program-less
-    /// case.
+    /// case and for a program the front end binds otherwise ([`Self::bound`]).
     pub text: Option<String>,
     /// Each typed input as the front end's decoder read it: the configuration variable's K name
     /// (without `$`) and the term it is bound to, sorted by name.
     pub typed: Vec<(String, Term)>,
+    /// The program, where the front end's decoder binds it otherwise than as `$PGM` text
+    /// ([`InputDecoder::program`]): to another variable, or as a term.
+    pub bound: Option<BoundProgram>,
+}
+
+/// A program the front end bound otherwise than as `$PGM` text.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BoundProgram {
+    /// The configuration variable's K name, without `$`.
+    pub variable: String,
+    /// Its value: K text read at the variable's sort, or a term.
+    pub value: VariableInput,
+    /// The SHA-256 of the program's bytes (its file's, or its inline text's), which the program
+    /// digest holds as a program text's ([`crate::digest::program_payload`]).
+    pub sha256: kink_patch::Sha256Digest,
 }
 
 impl CaseInputs {
@@ -164,6 +214,7 @@ impl CaseInputs {
         Self {
             text: Some(text.into()),
             typed: Vec::new(),
+            bound: None,
         }
     }
 }
@@ -412,22 +463,99 @@ impl ProgramInputs {
 /// reason `load-error`) or its inline text, and each of its typed inputs decoded by the
 /// manifest's decoder (stage `inputs`: reason `typed-inputs` without a decoder, `input-value`
 /// for a document the decoder refuses or a variable bound twice: by an input and `variables`, by
-/// two inputs, or `$PGM` by an input and the program text).
+/// two inputs, or the program's variable by an input or `variables`). A decoder that binds the
+/// program ([`InputDecoder::program`]) reads its bytes; one that refuses them, or binds them
+/// otherwise than as `$PGM` text on a program with a `start_sort` (which reads `$PGM` text
+/// only), refuses the program (`inputs`/`input-value`). Without a decoder, or where it keeps
+/// kink's rule, the bytes are UTF-8 text bound to `$PGM`.
 fn read_inputs(
     root: &Result<PathBuf, AdmissionRefusal>,
     decoder: &Decoder,
     program: &Program,
 ) -> Result<CaseInputs, AdmissionRefusal> {
     let root = root.clone()?;
-    let text = match &program.source {
-        None => None,
-        Some(ProgramSource::Text(text)) => Some(text.clone()),
-        Some(ProgramSource::File(name)) => Some(read_program(&root, name)?),
+    let value_refusal = |detail: String| AdmissionRefusal {
+        stage: "inputs".into(),
+        reason: "input-value".into(),
+        detail,
+    };
+    let (text, bound) = match &program.source {
+        None => (None, None),
+        Some(source) => {
+            let (name, bytes) = match source {
+                ProgramSource::Text(text) => (None, Cow::Borrowed(text.as_bytes())),
+                ProgramSource::File(name) => {
+                    (Some(name.as_str()), Cow::Owned(read_program(&root, name)?))
+                }
+            };
+            let described = || {
+                name.map_or_else(
+                    || "the program text".to_owned(),
+                    |name| format!("the program file {name}"),
+                )
+            };
+            match decoder
+                .get()
+                .and_then(|decoder| decoder.program(name, &bytes))
+            {
+                None => (Some(program_text(source, bytes)?), None),
+                Some(Err(message)) => {
+                    return Err(value_refusal(format!("{}: {message}", described())));
+                }
+                Some(Ok(binding)) => {
+                    let (variable, value) = match binding {
+                        ProgramBinding::Text { variable, text } => {
+                            (variable, VariableInput::Text(text))
+                        }
+                        ProgramBinding::Term { variable, term } => {
+                            (variable, VariableInput::Term(term))
+                        }
+                    };
+                    let variable = variable.strip_prefix('$').unwrap_or(&variable).to_owned();
+                    match value {
+                        VariableInput::Text(text) if variable == "PGM" => (Some(text), None),
+                        value => {
+                            if program.start_sort.is_some() {
+                                return Err(value_refusal(format!(
+                                    "{} binds ${variable}, and a start_sort reads $PGM text \
+                                     only; give no start_sort",
+                                    described(),
+                                )));
+                            }
+                            if program.variables.iter().any(|(written, _)| {
+                                written.strip_prefix('$').unwrap_or(written) == variable
+                            }) {
+                                return Err(value_refusal(format!(
+                                    "{} binds ${variable}, which `variables` binds too; bind it once",
+                                    described()
+                                )));
+                            }
+                            let sha256 = kink_patch::sha256(&bytes);
+                            (
+                                None,
+                                Some(BoundProgram {
+                                    variable,
+                                    value,
+                                    sha256,
+                                }),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    };
+    // The variable the program binds, with how a refusal names the program.
+    let program_variable = match (&text, &bound) {
+        (Some(_), _) => Some(("PGM", "the program text")),
+        (None, Some(bound)) => Some((bound.variable.as_str(), "the program")),
+        (None, None) => None,
     };
     if program.inputs.is_empty() {
         return Ok(CaseInputs {
             text,
             typed: Vec::new(),
+            bound,
         });
     }
     let Some(decoder) = decoder.get() else {
@@ -438,11 +566,6 @@ fn read_inputs(
                      (the krs front end, `krs kink`); at the K level bind K text under `variables`"
                 .into(),
         });
-    };
-    let value_refusal = |detail: String| AdmissionRefusal {
-        stage: "inputs".into(),
-        reason: "input-value".into(),
-        detail,
     };
     let mut files = ManifestFiles {
         root: &root,
@@ -455,9 +578,11 @@ fn read_inputs(
             .decode(name, document, &mut files)
             .map_err(|message| value_refusal(format!("input `{name}`: {message}")))?;
         let variable = variable.strip_prefix('$').unwrap_or(&variable).to_owned();
-        if variable == "PGM" && text.is_some() {
+        if let Some((bound, by)) = program_variable
+            && bound == variable
+        {
             return Err(value_refusal(format!(
-                "input `{name}` binds $PGM, which the program text binds too; bind it once"
+                "input `{name}` binds ${variable}, which {by} binds too; bind it once"
             )));
         }
         if program
@@ -482,6 +607,7 @@ fn read_inputs(
             .into_iter()
             .map(|(variable, (_, term))| (variable, term))
             .collect(),
+        bound,
     })
 }
 
@@ -614,12 +740,19 @@ impl<'a> InputSession<'a> {
     }
 }
 
-/// A program's bindings by name, in binding order: its text variables, then its typed inputs.
+/// A program's bindings by name, in binding order: the program where the front end binds it
+/// by name ([`CaseInputs::bound`]), its text variables, then its typed inputs.
 fn bindings(program: &Program, inputs: &CaseInputs) -> Vec<(String, VariableInput)> {
-    program
-        .variables
+    inputs
+        .bound
         .iter()
-        .map(|(name, text)| (name.clone(), VariableInput::Text(text.clone())))
+        .map(|bound| (bound.variable.clone(), bound.value.clone()))
+        .chain(
+            program
+                .variables
+                .iter()
+                .map(|(name, text)| (name.clone(), VariableInput::Text(text.clone()))),
+        )
         .chain(
             inputs
                 .typed
@@ -632,8 +765,9 @@ fn bindings(program: &Program, inputs: &CaseInputs) -> Vec<(String, VariableInpu
 /// The longest K text an `initial-undefined` refusal quotes in full.
 const QUOTED_TEXT_CHARS: usize = 60;
 
-/// Each input of a case, as an `initial-undefined` refusal names it: `$PGM` by its file or text,
-/// each text variable with its text, each typed input by its variable.
+/// Each input of a case, as an `initial-undefined` refusal names it: the program's variable by
+/// its file or text (by its file or as the program text, where the front end binds it), each text
+/// variable with its text, each typed input by its variable.
 fn named_inputs(program: &Program, inputs: &CaseInputs) -> String {
     let quote = |text: &str| {
         let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -644,10 +778,14 @@ fn named_inputs(program: &Program, inputs: &CaseInputs) -> String {
             format!("`{head}...`")
         }
     };
-    let program_text = match (&program.source, &inputs.text) {
-        (Some(ProgramSource::File(name)), Some(_)) => Some(format!("$PGM (the file {name})")),
-        (_, Some(text)) => Some(format!("$PGM = {}", quote(text))),
-        (_, None) => None,
+    let program_text = match (&program.source, &inputs.text, &inputs.bound) {
+        (Some(ProgramSource::File(name)), Some(_), _) => Some(format!("$PGM (the file {name})")),
+        (_, Some(text), _) => Some(format!("$PGM = {}", quote(text))),
+        (Some(ProgramSource::File(name)), None, Some(bound)) => {
+            Some(format!("${} (the file {name})", bound.variable))
+        }
+        (_, None, Some(bound)) => Some(format!("${} (the program text)", bound.variable)),
+        (_, None, None) => None,
     };
     program_text
         .into_iter()
@@ -901,10 +1039,10 @@ fn baseline_data(
     }
 }
 
-/// Read a program file inside the canonical manifest directory `root`, as kink-corpus
-/// reads corpus input files (`load` stage, `load-error` reason; the detail names the file
-/// as the manifest does, never by an absolute path).
-fn read_program(root: &Path, name: &str) -> Result<String, AdmissionRefusal> {
+/// The bytes of a program file inside the canonical manifest directory `root`, read as
+/// kink-corpus reads corpus input files (`load` stage, `load-error` reason; the detail names the
+/// file as the manifest does, never by an absolute path).
+fn read_program(root: &Path, name: &str) -> Result<Vec<u8>, AdmissionRefusal> {
     let path = fs::canonicalize(root.join(name))
         .map_err(|e| load_refusal(format!("cannot read {name}: {e}")))?;
     if !path.starts_with(root) {
@@ -912,6 +1050,15 @@ fn read_program(root: &Path, name: &str) -> Result<String, AdmissionRefusal> {
             "{name} escapes the manifest's directory"
         )));
     }
-    let bytes = fs::read(&path).map_err(|e| load_refusal(format!("cannot read {name}: {e}")))?;
-    String::from_utf8(bytes).map_err(|e| load_refusal(format!("{name} is not UTF-8: {e}")))
+    fs::read(&path).map_err(|e| load_refusal(format!("cannot read {name}: {e}")))
+}
+
+/// The program text of `source`, whose bytes are `bytes`, by kink's rule: a file must be UTF-8
+/// (`load` stage, `load-error` reason), and inline text is its text.
+fn program_text(source: &ProgramSource, bytes: Cow<'_, [u8]>) -> Result<String, AdmissionRefusal> {
+    match source {
+        ProgramSource::Text(text) => Ok(text.clone()),
+        ProgramSource::File(name) => String::from_utf8(bytes.into_owned())
+            .map_err(|e| load_refusal(format!("{name} is not UTF-8: {e}"))),
+    }
 }

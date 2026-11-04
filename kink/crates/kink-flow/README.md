@@ -92,7 +92,12 @@ A manifest read at the K level has no decoder, so a program with `inputs` is ref
 A typed input may bind `$PGM` on a program without `file` or `text`: kink binds the term as a program built without the parser.
 A document the decoder refuses, or a variable bound twice (by both `variables` and `inputs`, by two inputs, or `$PGM` by an input and the program's `file` or `text`), is refused (`inputs`/`input-value`, with the decoder's message or the two bindings).
 A file a document names is read as a program file is: its path is relative to the manifest's directory (or, for a file a decoder reads from another, to that file's directory), resolved by the operating system, links included, and an absolute path or one that resolves outside the manifest's directory is refused.
-`fuzz` refuses a template of a program with typed inputs: it varies and replays K text only.
+A front end that knows the definition's main input may also read each program's bytes itself (`InputDecoder::program`) and say which variable they bind, as K text read at the variable's sort or as a term: the krs front end binds a program file to the `#[k::init]` main parameter, whatever its K name, as the file's bytes where that parameter's type is exactly `Bytes`.
+Where the decoder gives no answer, or without a decoder, the program is UTF-8 text bound to `$PGM`, as above.
+A program the decoder refuses, one it binds otherwise than as `$PGM` text while the program gives a `start_sort` (which reads `$PGM` text only), and a variable the program and `variables` or an input both bind are refused (`inputs`/`input-value`).
+Whichever way a program binds, its digest holds the SHA-256 of its bytes (`program_sha256`), or, where a front end rewrites the text it binds to `$PGM`, of that text.
+`fuzz` reads a template's own `file` or `text` as admission reads a program's, so a template binds what the same text as a `[[program]]` binds.
+It refuses a template of a program with typed inputs, and one whose program (its own, or the `[[program]]` it names) the front end binds otherwise than as `$PGM` text: it varies and replays `$PGM` text only.
 
 ### Programs from a pattern
 
@@ -384,7 +389,7 @@ A definition with a sentence that has no fingerprint (a context alias) falls bac
 The specification digest covers the k-rust revision, the solver profile, how the
 specification is loaded and every source file the load reads, every byte; it names the specification in every document (`spec.digest`, beside `spec.execution_digest`) and keys the memos.
 The program digest covers the
-program's bytes (when it has a program text), start sort, variables and typed inputs, never its id.
+program's bytes (when it has a program, whichever variable the front end binds them to and however), start sort, variables and typed inputs, never its id.
 A typed input enters by what it denotes: the variable's K name and the SHA-256 of the KAST JSON of
 the term the decoder gave (`{name, kast_sha256}`), so editing a value in a file an input reads reruns
 the program and reformatting the file does not; a program with no typed inputs has the digest it

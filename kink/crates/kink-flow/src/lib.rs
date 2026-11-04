@@ -63,8 +63,8 @@ pub mod search;
 pub mod verdicts;
 
 pub use admit::{
-    AdmittedSpec, CaseInputs, FlowAdmission, InputDecoder, InputFiles, InputSession,
-    ProgramAdmission, ProgramExclusion, ProgramInputs, admit, admit_spec,
+    AdmittedSpec, BoundProgram, CaseInputs, FlowAdmission, InputDecoder, InputFiles, InputSession,
+    ProgramAdmission, ProgramBinding, ProgramExclusion, ProgramInputs, admit, admit_spec,
 };
 pub use check::{
     CorpusCoverage, Finding, MutationCheck, MutationCheckRow, check_mutations, corpus_coverage,

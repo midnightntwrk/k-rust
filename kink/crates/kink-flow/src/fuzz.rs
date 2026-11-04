@@ -85,7 +85,7 @@
 
 use crate::fuzz_filter::{FilterJob, FilterSide, KinkJudgement};
 use crate::{
-    admit::{AdmittedSpec, CaseInputs, InputSession, ProgramInputs, admit_spec},
+    admit::{AdmittedSpec, CaseInputs, InputSession, ProgramBinding, ProgramInputs, admit_spec},
     cli::{CommandSpelling, FrontEnd, Verb},
     digest::{program_digest, spec_digest},
     manifest::{FlowManifest, ManifestError, Program},
@@ -623,13 +623,52 @@ struct Instance {
     file: Option<String>,
 }
 
-fn read_inside(root: &Path, name: &str) -> Result<String, String> {
+fn read_inside(root: &Path, name: &str) -> Result<Vec<u8>, String> {
     let root = fs::canonicalize(root).map_err(|_| "the templates' directory is unavailable")?;
     let path = fs::canonicalize(root.join(name)).map_err(|e| format!("cannot read {name}: {e}"))?;
     if !path.starts_with(&root) {
         return Err(format!("{name} escapes the templates' directory"));
     }
-    fs::read_to_string(&path).map_err(|e| format!("cannot read {name}: {e}"))
+    fs::read(&path).map_err(|e| format!("cannot read {name}: {e}"))
+}
+
+/// The `$PGM` text of a template's own program, its file `name` or its inline text (`name` is
+/// `None`), whose bytes are `bytes`: read as admission reads a program's
+/// ([`crate::admit::InputDecoder::program`]), so that a template's text binds what the same text
+/// as a `[[program]]` binds. A program the front end binds otherwise than as `$PGM` text, or
+/// refuses, is refused: fuzz varies and replays `$PGM` text only.
+fn template_text(
+    manifest: &FlowManifest,
+    name: Option<&str>,
+    bytes: &[u8],
+) -> Result<String, String> {
+    let described = name.map_or_else(
+        || "the template's text".to_owned(),
+        |name| format!("the template's file {name}"),
+    );
+    match manifest
+        .input_decoder
+        .get()
+        .and_then(|decoder| decoder.program(name, bytes))
+    {
+        None => {
+            String::from_utf8(bytes.to_vec()).map_err(|e| format!("{described} is not UTF-8: {e}"))
+        }
+        Some(Err(message)) => Err(format!("{described}: {message}")),
+        Some(Ok(ProgramBinding::Text { variable, text }))
+            if variable.strip_prefix('$').unwrap_or(&variable) == "PGM" =>
+        {
+            Ok(text)
+        }
+        Some(Ok(ProgramBinding::Text { variable, .. } | ProgramBinding::Term { variable, .. })) => {
+            Err(format!(
+                "{described} binds ${} as the front end reads its program, which fuzz does not \
+                 carry yet: fuzz varies $PGM text, so use a template that binds every input as \
+                 K text under `variables`",
+                variable.strip_prefix('$').unwrap_or(&variable)
+            ))
+        }
+    }
 }
 
 fn instance(
@@ -656,10 +695,19 @@ fn instance(
                      under `variables`"
                 )));
             }
-            let text = inputs
+            let read = inputs
                 .read(program)
-                .map_err(|refusal| refused(format!("program {id:?}: {}", refusal.detail)))?
-                .text;
+                .map_err(|refusal| refused(format!("program {id:?}: {}", refusal.detail)))?;
+            // Likewise a program the front end binds otherwise than as `$PGM` text.
+            if let Some(bound) = &read.bound {
+                return Err(refused(format!(
+                    "program {id:?} binds ${} as the front end reads its program, which fuzz \
+                     does not carry yet: fuzz varies $PGM text, so use a template that binds \
+                     every input as K text under `variables`",
+                    bound.variable
+                )));
+            }
+            let text = read.text;
             let file = match &program.source {
                 Some(ProgramSource::File(name)) => Some(name.clone()),
                 None | Some(ProgramSource::Text(_)) => None,
@@ -671,14 +719,17 @@ fn instance(
                 file,
             )
         }
-        TemplateSource::File(name) => (
-            Some(read_inside(&templates.directory, name).map_err(refused)?),
-            template.start_sort.clone(),
-            template.variables.clone(),
-            Some(name.clone()),
-        ),
+        TemplateSource::File(name) => {
+            let bytes = read_inside(&templates.directory, name).map_err(&refused)?;
+            (
+                Some(template_text(manifest, Some(name), &bytes).map_err(&refused)?),
+                template.start_sort.clone(),
+                template.variables.clone(),
+                Some(name.clone()),
+            )
+        }
         TemplateSource::Text(text) => (
-            Some(text.clone()),
+            Some(template_text(manifest, None, text.as_bytes()).map_err(&refused)?),
             template.start_sort.clone(),
             template.variables.clone(),
             None,
@@ -882,6 +933,7 @@ fn fragment(template: &Template, instance: &Instance, case: &WitnessCase) -> Fra
     let inputs = CaseInputs {
         text,
         typed: Vec::new(),
+        bound: None,
     };
     let digest = program_digest(&program, &inputs).to_string();
     let id = format!("{}-fz-{}", template.id, &digest[..8]);
@@ -1109,6 +1161,7 @@ fn template_inputs(instance: &Instance) -> CaseInputs {
     CaseInputs {
         text: instance.text.clone(),
         typed: Vec::new(),
+        bound: None,
     }
 }
 
