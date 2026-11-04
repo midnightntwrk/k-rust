@@ -752,7 +752,7 @@ text = 'h(opaque(1), 2)'
         assert_eq!(
             document["summary"],
             json!({"programs": 2, "comparable": 2, "computed": 2, "rules": 7, "uncovered": 2,
-                   "covered": 4, "no_coverage_signal": 1, "mismatches": 0})
+                   "covered": 4, "claim_helper": 0, "no_coverage_signal": 1, "mismatches": 0})
         );
     }
 
@@ -993,15 +993,16 @@ text = 'h(opaque(1), 2)'
         assert_eq!(document["rules"][2]["fired_by"], json!(["twice"]));
         assert!(document["rules"][2]["reason"].is_null());
         // KINK-R4 fix round (review N7): 3, since `fired_by`'s meaning changed; 5 adds `result`;
-        // 6 (CF-03) takes the short-circuit reading out of `spec.exclusion`.
-        assert_eq!(document["version"], 7);
+        // 6 (CF-03) takes the short-circuit reading out of `spec.exclusion`; 8 (CF-45) gives an
+        // unmatched claim helper its own status.
+        assert_eq!(document["version"], 8);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
         assert_eq!(
             document["summary"],
             json!({"programs": 2, "comparable": 2, "computed": 2, "rules": 6, "uncovered": 2,
-                   "covered": 4, "no_coverage_signal": 0, "mismatches": 0})
+                   "covered": 4, "claim_helper": 0, "no_coverage_signal": 0, "mismatches": 0})
         );
         // calc: every rule is covered, the unlabelled one by `sub` alone.
         let (calc, _) = run(&fixture("calc", "rules-calc").join("FLOW.toml"), false);
