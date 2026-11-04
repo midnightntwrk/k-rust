@@ -10,12 +10,14 @@ use std::sync::OnceLock;
 
 use k_rust::kore::ast::{KoreString, Pattern, Sort, Symbol, Variable, VariableKind};
 use krs_exec::{
-    Case, CompiledStage, ConfigInputs, ConfigValue, ExecError, Float, InputFiles, NoFiles,
-    ProgramInput, RunOptions, Semantics, Value, ValueError, View,
+    Case, CompiledStage, ConfigInputs, ConfigValue, EncodeErrorKind, ExecError, Float, InputFiles,
+    InputType, NoFiles, ProgramInput, RunOptions, Semantics, SortRef, StateView, Value, ValueError,
+    View, canonical_text,
 };
 use krs_ir::measure::Timings;
 use krs_ir_levels::DefinitionIr;
 use krs_test_support::{fixture_build_env, krs_command, shared_fixture_target, temp_dir};
+use num_bigint::BigInt;
 use proptest::prelude::*;
 use serde_json::json;
 
@@ -1260,8 +1262,424 @@ fn cell_content(pattern: &Pattern, symbol: &str) -> Pattern {
     panic!("no cell {symbol}")
 }
 
+/// The run of depth 0 from `variables`, its state's view handed to `test`.
+fn with_initial_view(
+    semantics: &mut Semantics,
+    variables: Vec<(&str, ConfigValue)>,
+    test: impl FnOnce(&Semantics, &StateView<'_>),
+) {
+    let state = configure(semantics, variables).unwrap();
+    let report = semantics
+        .run(
+            &state,
+            RunOptions {
+                depth: Some(0),
+                ..RunOptions::default()
+            },
+        )
+        .unwrap();
+    let View::State(view) = semantics.view(&report.state).unwrap() else {
+        panic!("the initial state is defined");
+    };
+    test(semantics, &view);
+}
+
+/// Every leaf cell of `view` and of its repeated cells' instances, by path, with its value's
+/// canonical document, after checking that the document decodes back to the value at the cell's
+/// type and that a second encoding writes the same text. An absent optional cell is left out.
+fn leaf_documents(semantics: &Semantics, view: &StateView<'_>) -> Vec<(String, serde_json::Value)> {
+    fn walk(
+        semantics: &Semantics,
+        view: &StateView<'_>,
+        prefix: &str,
+        output: &mut Vec<(String, serde_json::Value)>,
+    ) {
+        for path in view.leaf_paths() {
+            let value = match view.value(&path) {
+                Ok(value) => value,
+                Err(krs_exec::CellError::Absent { .. }) => continue,
+                Err(error) => panic!("{path}: {error}"),
+            };
+            let ty = view.cell_type(&path).unwrap();
+            let document = semantics
+                .encode(&value, &ty)
+                .unwrap_or_else(|error| panic!("{path} ({ty}): {error}"));
+            assert_eq!(
+                krs_exec::decode(semantics.values(), &document, &ty),
+                Ok(value.clone()),
+                "{path} ({ty}): {document}"
+            );
+            assert_eq!(
+                canonical_text(&semantics.encode(&value, &ty).unwrap()),
+                canonical_text(&document)
+            );
+            output.push((format!("{prefix}{path}"), document));
+        }
+        for path in view.repeated_paths() {
+            for (index, instance) in view.instances(&path).unwrap().iter().enumerate() {
+                walk(
+                    semantics,
+                    instance,
+                    &format!("{prefix}{path}[{index}]."),
+                    output,
+                );
+            }
+        }
+    }
+    let mut output = Vec::new();
+    walk(semantics, view, "", &mut output);
+    output
+}
+
+fn document_of(semantics: &Semantics, value: &Value, ty: &InputType) -> serde_json::Value {
+    let document = semantics.encode(value, ty).unwrap();
+    assert_eq!(
+        krs_exec::decode(semantics.values(), &document, ty).as_ref(),
+        Ok(value),
+        "{ty}: {document}"
+    );
+    document
+}
+
+fn declared(semantics: &Semantics, sort: &str) -> InputType {
+    InputType::of(semantics.values().sort(sort).unwrap())
+}
+
+#[test]
+fn each_cell_value_has_one_canonical_document_that_reads_back() {
+    with_semantics(|semantics| {
+        let variables = values(semantics)
+            .into_iter()
+            .map(|(name, value)| (name, value.into()))
+            .collect();
+        with_initial_view(semantics, variables, |semantics, view| {
+            assert_eq!(
+                view.leaf_paths(),
+                [
+                    "k",
+                    "cpu.regs",
+                    "cpu.ei_pending",
+                    "bus",
+                    "conds",
+                    "name",
+                    "blob",
+                    "ratio",
+                    "label",
+                    "ident",
+                    "val",
+                    "timer"
+                ]
+            );
+            assert_eq!(view.repeated_paths(), ["threads.thread"]);
+            assert_eq!(
+                view.cell_type("cpu.regs").unwrap().to_string(),
+                "Map<Reg, Int>"
+            );
+            assert!(view.cell_type("k").unwrap().is_untyped());
+            assert!(matches!(
+                view.cell_type("cpu"),
+                Err(krs_exec::CellError::Kind { .. })
+            ));
+            let documents = leaf_documents(semantics, view);
+            let state = serde_json::Value::Object(documents.into_iter().collect());
+            // The canonical text of a fixed state is a function of the state alone: recorded.
+            assert_eq!(
+                canonical_text(&state),
+                concat!(
+                    r#"{"blob":{"$hex":"00ff0a22"},"bus":[{"Read":{"addr":1,"value":2}},"Idle"],"#,
+                    r#""conds":["C","Z"],"cpu.ei_pending":true,"cpu.regs":{"A":1,"C":-2},"#,
+                    r#""ident":"x","k":{"$seq":[]},"label":"@top","name":"héllo \"q\"\n","#,
+                    r#""ratio":"1.5e0","threads.thread[0].count":0,"threads.thread[0].id":0,"#,
+                    r#""val":{"V":{"n":7}}}"#
+                )
+            );
+        });
+    });
+}
+
+#[test]
+fn the_canonical_document_follows_the_position() {
+    with_semantics(|semantics| {
+        let index = semantics.values().clone();
+        let int = InputType::of(SortRef::Builtin(krs_ir::BuiltinSort::Int));
+        let val = declared(semantics, "Val");
+        // An integer that every reader holds is a number; beyond 64 bits, digits.
+        let max = BigInt::from(i64::MAX);
+        assert_eq!(
+            document_of(semantics, &Value::Int(max.clone()), &int),
+            json!(i64::MAX)
+        );
+        assert_eq!(
+            document_of(semantics, &Value::Int(max.clone() + 1), &int),
+            json!("9223372036854775808")
+        );
+        assert_eq!(
+            document_of(semantics, &Value::Int(BigInt::from(i64::MIN)), &val),
+            json!(i64::MIN)
+        );
+        assert_eq!(
+            document_of(semantics, &Value::Int(-max - 2), &val),
+            json!({"$int": "-9223372036854775809"})
+        );
+        // A string and a float at a declared sort are tagged.
+        assert_eq!(
+            document_of(semantics, &"12".into(), &val),
+            json!({"$string": "12"})
+        );
+        let r = index
+            .ctor("ValSyntax::R", [("x", Float::from_f64(1.5).into())])
+            .unwrap();
+        assert_eq!(
+            document_of(semantics, &r, &val),
+            json!({"R": {"x": {"$float": "1.5e0"}}})
+        );
+        // `Nothing` at `Val`, which `String` is at most, is no bare string.
+        assert_eq!(
+            document_of(semantics, &ctor(semantics, "ValSyntax::Nothing"), &val),
+            json!({"Nothing": []})
+        );
+        // At an untyped position, `C` names two constructors and a token its sort.
+        let untyped = InputType::untyped();
+        assert_eq!(
+            document_of(semantics, &ctor(semantics, "Register::C"), &untyped),
+            json!({"Register::C": []})
+        );
+        assert_eq!(
+            document_of(
+                semantics,
+                &Value::Token {
+                    sort: index.sort("Label").unwrap(),
+                    text: "@top".to_owned()
+                },
+                &untyped
+            ),
+            json!({"$token": {"sort": "Label", "text": "@top"}})
+        );
+        assert_eq!(
+            document_of(
+                semantics,
+                &Value::list([1.into(), Value::set([true.into()])]),
+                &untyped
+            ),
+            json!({"$list": [1, {"$set": [true]}]})
+        );
+        // A map whose keys read two ways at its key type is written in pairs, ordered by the
+        // canonical text of the keys.
+        let map_val_int = InputType {
+            sort: SortRef::Builtin(krs_ir::BuiltinSort::Map),
+            arguments: vec![val.clone(), int.clone()],
+        };
+        assert_eq!(
+            document_of(
+                semantics,
+                &Value::map([("a".into(), 2.into()), (12.into(), 1.into())]),
+                &map_val_int
+            ),
+            json!([[12, 1], [{"$string": "a"}, 2]])
+        );
+        let map_reg_int = InputType {
+            sort: SortRef::Builtin(krs_ir::BuiltinSort::Map),
+            arguments: vec![declared(semantics, "Reg"), int.clone()],
+        };
+        assert_eq!(
+            document_of(
+                semantics,
+                &Value::map([(ctor(semantics, "Register::C"), 1.into())]),
+                &map_reg_int
+            ),
+            json!({"C": 1})
+        );
+        // A function application is a `$call`, named as briefly as its position allows.
+        let call = index.call("ReadBack", [("addr", 3.into())]).unwrap();
+        assert_eq!(
+            document_of(semantics, &call, &declared(semantics, "Bus")),
+            json!({"$call": {"ReadBack": {"addr": 3}}})
+        );
+    });
+}
+
+#[test]
+fn an_object_with_a_second_reading_at_the_position_is_not_written() {
+    with_semantics(|semantics| {
+        let index = semantics.values().clone();
+        // An object key that starts with `$` would read as a tagged form: such a map is
+        // written in pairs, and one without such a key as an object.
+        let map_string_int = InputType {
+            sort: SortRef::Builtin(krs_ir::BuiltinSort::Map),
+            arguments: vec![
+                InputType::of(SortRef::Builtin(krs_ir::BuiltinSort::String)),
+                InputType::of(SortRef::Builtin(krs_ir::BuiltinSort::Int)),
+            ],
+        };
+        assert_eq!(
+            document_of(
+                semantics,
+                &Value::map([("$x".into(), 1.into()), ("y".into(), 2.into())]),
+                &map_string_int
+            ),
+            json!([["$x", 1], ["y", 2]])
+        );
+        assert_eq!(
+            document_of(
+                semantics,
+                &Value::map([("y".into(), 2.into())]),
+                &map_string_int
+            ),
+            json!({"y": 2})
+        );
+        // At a declared sort that `Map` is at most, a map is tagged and a constructor with
+        // fields has no document: its object form would read as a map too.
+        let store = declared(semantics, "Store");
+        assert_eq!(
+            document_of(semantics, &Value::map([(1.into(), 2.into())]), &store),
+            json!({"$map": [[1, 2]]})
+        );
+        let stored = index
+            .ctor("StoreSyntax::Stored", [("n", 1.into())])
+            .unwrap();
+        let error = semantics.encode(&stored, &store).unwrap_err();
+        assert_eq!(error.kind, EncodeErrorKind::MapReading);
+        assert_eq!(
+            error.to_string(),
+            "the constructor `krs_exec_values_fixture::StoreSyntax::Stored` at Store, where its object form also reads as a Map and a constructor has no tagged form, has no document in the typed encoding"
+        );
+    });
+}
+
+#[test]
+fn a_float_is_its_shortest_literal_at_float() {
+    with_semantics(|semantics| {
+        // One literal per value, NaN and the zero of each sign included.
+        let float = InputType::of(SortRef::Builtin(krs_ir::BuiltinSort::Float));
+        for (value, literal) in [
+            (f64::NAN, "NaN"),
+            (-0.0, "-0.0e0"),
+            (0.0, "0.0e0"),
+            (f64::NEG_INFINITY, "-Infinity"),
+            (0.1, "1.0e-1"),
+        ] {
+            assert_eq!(
+                document_of(semantics, &Float::from_f64(value).into(), &float),
+                json!(literal)
+            );
+        }
+    });
+}
+
+#[test]
+fn a_part_without_a_document_is_refused_naming_where_it_is() {
+    with_semantics(|semantics| {
+        let index = semantics.values().clone();
+        let bus = InputType {
+            sort: SortRef::Builtin(krs_ir::BuiltinSort::List),
+            arguments: vec![declared(semantics, "Bus")],
+        };
+        let opaque = Value::list([
+            ctor(semantics, "Cycle::Idle"),
+            index
+                .ctor(
+                    "Cycle::Read",
+                    [
+                        ("addr", 1.into()),
+                        ("value", Value::Opaque(variable("X", "SortInt"))),
+                    ],
+                )
+                .unwrap(),
+        ]);
+        let error = semantics.encode(&opaque, &bus).unwrap_err();
+        assert_eq!(error.position, "[1].Read.value");
+        assert_eq!(error.kind, EncodeErrorKind::Opaque);
+        assert_eq!(
+            error.to_string(),
+            "`[1].Read.value`: the variable `VarX` has no document in the typed encoding"
+        );
+        // A part that breaks its position's sort is named before an opaque part, wherever
+        // each lies: the opaque part does not hide it.
+        let var = Value::Opaque(variable("X", "SortBus"));
+        for (items, position) in [
+            ([1.into(), var.clone()], "[0]"),
+            ([var.clone(), 1.into()], "[1]"),
+        ] {
+            let error = semantics.encode(&Value::list(items), &bus).unwrap_err();
+            assert_eq!(
+                (error.position.as_str(), error.kind),
+                (position, EncodeErrorKind::Sort),
+                "{error}"
+            );
+        }
+        // A value outside its position's sort.
+        let error = semantics
+            .encode(&1.into(), &declared(semantics, "Bus"))
+            .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "a value of Int at a position of sort Bus, which it is not at most, has no document in the typed encoding"
+        );
+        // The application of a parametric constructor, as a run decodes it.
+        let mut variables = values(semantics)
+            .into_iter()
+            .map(|(name, value)| (name, ConfigValue::from(value)))
+            .collect::<Vec<_>>();
+        let val = variables.len() - 1;
+        variables[val].1 = "wrap(v(7))".into();
+        with_initial_view(semantics, variables, |semantics, view| {
+            let wrapped = view.value("val").unwrap();
+            let error = semantics
+                .encode(&wrapped, &view.cell_type("val").unwrap())
+                .unwrap_err();
+            assert_eq!(error.position, "");
+            assert_eq!(error.kind, EncodeErrorKind::Parametric);
+            assert!(
+                error
+                    .part
+                    .contains("parametric constructor `krs_exec_values_fixture::Wrap`"),
+                "{error}"
+            );
+        });
+    });
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(24))]
+
+    #[test]
+    fn every_generated_value_has_a_canonical_document_that_reads_back(
+        regs in proptest::collection::btree_map(any::<bool>(), any::<i64>(), 0..3),
+        bus in proptest::collection::vec(proptest::option::of((any::<i64>(), any::<i128>())), 0..4),
+        conds in proptest::collection::btree_set(any::<bool>(), 0..3),
+        name in ".{0,8}",
+        blob in proptest::collection::vec(any::<u8>(), 0..8),
+        ratio in any::<f64>(),
+        n in any::<i128>(),
+    ) {
+        with_semantics(|semantics| {
+            let register = |c: bool| ctor(semantics, if c { "Register::C" } else { "Register::A" });
+            let condition = |c: bool| ctor(semantics, if c { "Condition::C" } else { "Condition::Z" });
+            let index = semantics.values().clone();
+            let mut given = values(semantics);
+            given[0].1 = Value::map(regs.iter().map(|(key, value)| (register(*key), (*value).into())));
+            given[2].1 = Value::list(bus.iter().map(|cycle| match cycle {
+                Some((addr, value)) => index
+                    .ctor("Cycle::Read", [("addr", (*addr).into()), ("value", BigInt::from(*value).into())])
+                    .unwrap(),
+                None => ctor(semantics, "Cycle::Idle"),
+            }));
+            given[3].1 = Value::set(conds.iter().map(|c| condition(*c)));
+            given[4].1 = name.as_str().into();
+            given[5].1 = blob.clone().into();
+            given[6].1 = Float::from_f64(ratio).into();
+            given[9].1 = index.ctor("ValSyntax::V", [("n", BigInt::from(n).into())]).unwrap();
+            let variables = given.iter().map(|(name, value)| (*name, value.clone().into())).collect();
+            with_initial_view(semantics, variables, |semantics, view| {
+                let documents = leaf_documents(semantics, view);
+                assert_eq!(documents.len(), 13);
+                // The generated values themselves, at their cells' types.
+                for ((_, value), (_, path)) in given.iter().zip(CELLS) {
+                    document_of(semantics, value, &view.cell_type(path).unwrap());
+                }
+            });
+        });
+    }
 
     #[test]
     fn every_generated_value_reads_back_unchanged(

@@ -125,6 +125,100 @@
 //!
 //! Not in the encoding: `$text` inside a value, sort-parametric productions (refused as
 //! [`ValueIndex::ctor`] refuses them), and console input.
+//!
+//! ## The canonical document of a value
+//!
+//! Every value that has a document at a position has one *canonical document* there,
+//! which [`encode`](fn@crate::encode) writes and which decodes back to the value:
+//! `decode(encode(v, t), t) = v`.
+//! It is the spelling of a concrete value in every KRS-level report
+//! (the two sides of a difference, the result of a view),
+//! so that an expected value and an actual one read alike.
+//! Each rule writes the form a reader of this encoding writes for the value:
+//! a shorthand where the position's declared type decides it, a tagged form elsewhere.
+//! A shorthand is written only where it has exactly one reading at the position,
+//! by the decoder's own table:
+//! where the definition gives it a second
+//! (a constructor whose result sort is a token sort, named like a token's text,
+//! which a definition KRS emits does not have),
+//! the tagged form named below is written instead,
+//! so no canonical document is one the decoder refuses.
+//!
+//! - **Int**: at `Int`, an integer where it lies in `-2^63..2^63`
+//!   (every JSON and TOML reader holds it), otherwise the string of its decimal digits;
+//!   elsewhere an integer in that range, otherwise `{"$int": "<decimal>"}`.
+//! - **Bool**: `true` or `false`.
+//! - **String**: at `String`, the string;
+//!   elsewhere `{"$string": ..}`,
+//!   since a bare string at a declared sort may also read as a nullary constructor or a token.
+//! - **Float**: at `Float`, a string:
+//!   the K `Float` literal of the shortest decimal digits that read back to the value,
+//!   a significand with a `.` and at least one fractional digit and an exponent `e<n>`,
+//!   then `f` for binary32 and nothing for binary64
+//!   (`1.5e0`, `1.0e300`, `5.0e-324`, `1.5e0f`);
+//!   `NaN`, `Infinity`, `-Infinity` and `-0.0e0`, suffixed alike.
+//!   A value of another format is written as its canonical literal (`1e0p11x5`).
+//!   Elsewhere `{"$float": <that string>}`.
+//!   Never a JSON number: a reader may round one, and none holds a NaN.
+//! - **Bytes**: `{"$hex": "<lowercase digits>"}` at every position,
+//!   `{"$hex": ""}` for the empty value.
+//!   The array shorthand is read, never written, so a `Bytes` has one spelling.
+//! - **A token**: at its own token sort, its text,
+//!   or `{"$token": "<text>"}` where the bare text has another reading at that sort;
+//!   elsewhere `{"$token": {"sort": S, "text": ..}}`,
+//!   `S` the shortest `::`-aligned suffix of the sort's path that names it among the sorts.
+//!   A domain value of a sort that is no token sort has no document.
+//! - **List, Set**: at a position whose sort is the collection's,
+//!   the array of the elements' documents at the element type (untyped where none is declared);
+//!   elsewhere `{"$list": ..}` or `{"$set": ..}` with untyped elements.
+//!   A set's elements are ordered by the bytes of their canonical text.
+//! - **K sequence**: `{"$seq": [..]}`, its items untyped.
+//! - **Map**: at a `Map` position whose key type is declared,
+//!   where every key has a *key spelling* and none starts with `$`,
+//!   the object of the key spellings to the values' documents at the value type;
+//!   otherwise, at a `Map` position, the array of `[key, value]` pairs at the key and value types;
+//!   elsewhere `{"$map": [[key, value], ..]}` with untyped keys and values.
+//!   Pairs are ordered by the bytes of the key's canonical text.
+//!   A key spelling is a string whose only reading at the key type is the key:
+//!   an `Int` in decimal, a `Bool` as `true` or `false`, a `String` as itself,
+//!   a token as its text, a nullary constructor as its name.
+//!   `"12"` at `Val`, with `Int` and `String` subsorts of `Val`, reads two ways,
+//!   so a map with `Val` keys that holds the `Int` 12 is written in pairs.
+//!   An object key that starts with `$` would make the object a tagged form,
+//!   so a map with such a key is written in pairs too.
+//! - **A constructor**: `{"Name": fields}`,
+//!   `fields` the array of its fields in declaration order for a tuple variant (fields `0`, `1`, ..),
+//!   `[]` for none, and the object by field name otherwise,
+//!   each field's document at its declared sort with no element types.
+//!   A nullary constructor is the bare string `"Name"` at a declared sort where that string
+//!   has no other reading: one that neither `String` nor any token sort is at most.
+//!   `Name` is the shortest `::`-aligned suffix of the declaration's path
+//!   that selects exactly this declaration among the constructors the decoder resolves at the position
+//!   (among all constructors at an untyped position).
+//! - **A function application** (a value [`ValueIndex::call`] builds):
+//!   `{"$call": {"Name": arguments}}`,
+//!   named among the functions as a constructor is among the constructors.
+//! - **No document**:
+//!   an `Opaque` part (a variable, an unevaluated application,
+//!   a freezer or another constructor without a KRS declaration, a matching-logic connective);
+//!   the application of a parametric constructor, which no form of this encoding writes;
+//!   a value whose sort is not at most the position's;
+//!   and a constructor at a declared sort that `Map` is also at most,
+//!   where its object form reads as a map too and a constructor has no tagged form.
+//!   The refusal ([`EncodeError`](crate::EncodeError)) names the part's position,
+//!   in the notation of [`InputError`]'s positions
+//!   (`.Run.log$list[2]`; an element of a set and a key of a map by its index in the value's order),
+//!   what the part is, and the rule that refuses it.
+//!   An `Opaque` part and a parametric application are parts a state may hold by its nature;
+//!   a value with a part of another kind is refused naming that part, wherever they lie,
+//!   so that the first two never hide a part that says the value is not what its position admits.
+//!   A caller shows such a value as K text, marked as such,
+//!   never as a document with K text inside it.
+//!
+//! The *canonical text* of a document ([`canonical_text`](crate::canonical_text)) is its compact JSON,
+//! with the members of each object ordered by the bytes of their keys,
+//! written by this crate rather than by a JSON library's map,
+//! so that it is byte-identical across runs and hosts.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -297,7 +391,7 @@ impl InputType {
 
     /// The type of element `index` of a collection of this type: its declared element type,
     /// or the untyped position when the collection declares none.
-    fn element(&self, index: usize) -> Self {
+    pub(crate) fn element(&self, index: usize) -> Self {
         self.arguments
             .get(index)
             .cloned()
@@ -621,19 +715,6 @@ pub(crate) fn parameters(
     values: &ValueIndex,
     declared: &BTreeMap<String, KastSort>,
 ) -> Vec<Parameter> {
-    fn input_type(
-        values: &ValueIndex,
-        sort: &DefinitionSortRef,
-        arguments: &[CellSortArgument<DefinitionSortRef>],
-    ) -> Option<InputType> {
-        Some(InputType {
-            sort: values.sort_ref(sort)?,
-            arguments: arguments
-                .iter()
-                .map(|argument| input_type(values, &argument.sort, &argument.arguments))
-                .collect::<Option<_>>()?,
-        })
-    }
     let mut parameters = Vec::new();
     for sentence in definition
         .modules()
@@ -666,6 +747,22 @@ pub(crate) fn parameters(
         }
     }
     parameters
+}
+
+/// The declared type an IR sort and its element types name, when KRS names each of them: a
+/// builtin, or a declared sort with a KRS declaration.
+pub(crate) fn input_type(
+    values: &ValueIndex,
+    sort: &DefinitionSortRef,
+    arguments: &[CellSortArgument<DefinitionSortRef>],
+) -> Option<InputType> {
+    Some(InputType {
+        sort: values.sort_ref(sort)?,
+        arguments: arguments
+            .iter()
+            .map(|argument| input_type(values, &argument.sort, &argument.arguments))
+            .collect::<Option<_>>()?,
+    })
 }
 
 /// Why a document is no value at a position: where, and why; [`decode`]'s caller adds the input.
@@ -702,12 +799,7 @@ pub(crate) fn decode(
     document: &Json,
     ty: &InputType,
 ) -> Result<Decoded, Refusal> {
-    let mut decoder = Decoder {
-        values,
-        files,
-        includes: Vec::new(),
-        path: Vec::new(),
-    };
+    let mut decoder = Decoder::new(values, files);
     match tagged(document) {
         Ok(Some(("$text", body))) => {
             let Json::String(text) = body else {
@@ -724,6 +816,49 @@ pub(crate) fn decode(
         Ok(_) => decoder.decode(document, ty).map(Decoded::Value),
         Err(message) => Err(decoder.refuse(&format!("{message}{}", decoder.dollar_key_hint(ty)))),
     }
+}
+
+/// Decode `document` at `ty`, below a whole input: `$text` and `$text-file` are refused, and
+/// no file is read.
+pub(crate) fn decode_value(
+    values: &ValueIndex,
+    document: &Json,
+    ty: &InputType,
+) -> Result<Value, Refusal> {
+    let mut files = NoFiles;
+    Decoder::new(values, &mut files).decode(document, ty)
+}
+
+/// Whether the decoder resolves `name` at `ty` to exactly `decl`, among the functions
+/// (`function`) or the constructors: the encoder's choice of a name is the decoder's own
+/// resolution.
+pub(crate) fn names(
+    values: &ValueIndex,
+    name: &str,
+    ty: &InputType,
+    function: bool,
+    decl: &Decl,
+) -> bool {
+    let mut files = NoFiles;
+    Decoder::new(values, &mut files)
+        .resolve(name, ty, function)
+        .is_ok_and(|resolved| resolved == *decl)
+}
+
+/// Whether the shorthand `document` has exactly one reading at `ty`, by the decoder's own
+/// table: the readings of a string, a number, a boolean or an array depend on the document's
+/// JSON type and text, and an object's on its key, never on what it holds.
+pub(crate) fn sole_reading(values: &ValueIndex, document: &Json, ty: &InputType) -> bool {
+    let mut files = NoFiles;
+    Decoder::new(values, &mut files)
+        .readings(document, ty, false)
+        .is_ok_and(|readings| readings.len() == 1)
+}
+
+/// The key the object key `written` denotes at `ty`, when it has exactly one reading there.
+pub(crate) fn map_key(values: &ValueIndex, written: &str, ty: &InputType) -> Option<Value> {
+    let mut files = NoFiles;
+    Decoder::new(values, &mut files).map_key(written, ty).ok()
 }
 
 /// The tag and body of a tagged form; `None` for any other document. An object with a `$` key
@@ -913,7 +1048,16 @@ struct Decoder<'a> {
     path: Vec<String>,
 }
 
-impl Decoder<'_> {
+impl<'a> Decoder<'a> {
+    fn new(values: &'a ValueIndex, files: &'a mut dyn InputFiles) -> Self {
+        Self {
+            values,
+            files,
+            includes: Vec::new(),
+            path: Vec::new(),
+        }
+    }
+
     fn refuse(&self, message: &str) -> Refusal {
         Refusal {
             position: self.path.concat(),

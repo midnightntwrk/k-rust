@@ -21,6 +21,7 @@ mod claims;
 mod configuration;
 mod console;
 mod decided;
+mod encode;
 pub mod inputs;
 mod origin;
 mod overloads;
@@ -65,6 +66,7 @@ use krs_unparse::ListSpelling;
 pub use stage::{CompiledStage, SPEC_STAGE_FORMAT, STAGE_FORMAT, SpecStage};
 
 pub use configuration::Configuration;
+pub use encode::{EncodeError, EncodeErrorKind, canonical_text, decode, encode};
 pub use inputs::{
     Case, InputError, InputFiles, InputType, MainVariable, NoFiles, Parameter, declares_variable,
     json_document, main_variable, toml_document,
@@ -2136,6 +2138,15 @@ impl Semantics {
     #[must_use]
     pub const fn values(&self) -> &Arc<ValueIndex> {
         &self.values
+    }
+
+    /// The canonical document of `value` at the position `ty` ([`encode()`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EncodeError`] for a value with no document there.
+    pub fn encode(&self, value: &Value, ty: &InputType) -> Result<serde_json::Value, EncodeError> {
+        encode::encode(&self.values, value, ty)
     }
 
     /// The states of a result term, one for each disjunct of a `\or` (a run's or search

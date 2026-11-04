@@ -6,6 +6,7 @@ use std::sync::Arc;
 use k_rust::kore::{ast::Pattern, walk};
 use krs_ir::CellMultiplicity;
 
+use crate::inputs::InputType;
 use crate::values::{CellNode, Value, ValueError, ValueIndex};
 
 /// One state of a result, as [`crate::Semantics::views`] reads it.
@@ -170,6 +171,34 @@ fn paths(nodes: &[CellNode], prefix: &str, output: &mut Vec<String>) {
     }
 }
 
+/// The paths of the leaf cells of `nodes`, in declaration order, below no repeated cell.
+fn leaf_paths(nodes: &[CellNode], prefix: &str, output: &mut Vec<String>) {
+    for node in nodes {
+        if node.multiplicity == Some(CellMultiplicity::Star) {
+            continue;
+        }
+        let path = format!("{prefix}{}", node.field);
+        if node.children.is_empty() {
+            output.push(path);
+        } else {
+            leaf_paths(&node.children, &format!("{path}."), output);
+        }
+    }
+}
+
+/// The paths of the repeated cells of `nodes`, in declaration order, below no other repeated
+/// cell.
+fn repeated_paths(nodes: &[CellNode], prefix: &str, output: &mut Vec<String>) {
+    for node in nodes {
+        let path = format!("{prefix}{}", node.field);
+        if node.multiplicity == Some(CellMultiplicity::Star) {
+            output.push(path);
+        } else {
+            repeated_paths(&node.children, &format!("{path}."), output);
+        }
+    }
+}
+
 /// A located cell: its node, the positions from the configuration, and its term in the state.
 struct Located<'t, 'n> {
     node: &'n CellNode,
@@ -281,6 +310,47 @@ impl<'t> StateView<'t> {
             },
             _ => unreachable!("cells are found by their head"),
         }
+    }
+
+    /// The declared type of the leaf cell at `path`: its content sort and element types, the
+    /// position its value's canonical document is written at ([`crate::encode()`]). A sort no
+    /// KRS declaration names is the untyped position.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`CellError`] for an unknown path, a group cell, or a path through a repeated
+    /// cell.
+    pub fn cell_type(&self, path: &str) -> Result<InputType, CellError> {
+        let located = self.locate(path, false)?;
+        let Some((sort, arguments)) = &located.node.content else {
+            return Err(CellError::Kind {
+                path: path.to_owned(),
+                expected: "a leaf cell",
+            });
+        };
+        Ok(crate::inputs::input_type(&self.index, sort, arguments)
+            .unwrap_or_else(InputType::untyped))
+    }
+
+    /// The paths of the leaf cells below this view's root, in declaration order: every path
+    /// [`Self::value`] reads, the leaves inside an optional cell included. A repeated cell's
+    /// leaves are read through [`Self::instances`], and are not listed.
+    #[must_use]
+    pub fn leaf_paths(&self) -> Vec<String> {
+        let mut paths = Vec::new();
+        leaf_paths(self.root_nodes(), "", &mut paths);
+        paths
+    }
+
+    /// The paths of the repeated cells below this view's root, in declaration order, below no
+    /// other repeated cell: with [`Self::leaf_paths`], every cell a walk through
+    /// [`Self::instances`] reaches. A repeated cell inside a repeated cell is listed by its
+    /// instances' views.
+    #[must_use]
+    pub fn repeated_paths(&self) -> Vec<String> {
+        let mut paths = Vec::new();
+        repeated_paths(self.root_nodes(), "", &mut paths);
+        paths
     }
 
     /// The group cell at `path` as a view whose paths start below it.

@@ -163,8 +163,9 @@ impl Float {
     }
 }
 
-/// A K literal of an IEEE value whose Rust exponent form is `exponent_form`.
-fn ieee_literal(
+/// A K literal of an IEEE value: `NaN`, `Infinity` or `-Infinity`, or else `exponent_form`
+/// (an exponent form `Float::parse` reads), then the format's `suffix`.
+pub(crate) fn ieee_literal(
     nan: bool,
     infinite: bool,
     negative: bool,
@@ -607,6 +608,12 @@ pub(crate) struct CellNode {
     pub(crate) symbol: String,
     pub(crate) multiplicity: Option<krs_ir::CellMultiplicity>,
     pub(crate) children: Vec<CellNode>,
+    /// A leaf cell's declared content sort and its element types, as the Definition IR states
+    /// them; `None` for a group cell.
+    pub(crate) content: Option<(
+        DefinitionSortRef,
+        Vec<krs_ir::CellSortArgument<DefinitionSortRef>>,
+    )>,
 }
 
 /// The backend's symbol table as decoding and encoding read it.
@@ -1663,6 +1670,54 @@ impl ValueIndex {
         }))
     }
 
+    /// What an opaque part is, for a refusal that names it: a variable, an unevaluated function
+    /// application, a constructor application that is no value, a constructor no KRS
+    /// declaration names, a collection with a part that is no element, or a matching-logic
+    /// connective.
+    pub(crate) fn opaque_part(&self, pattern: &Pattern) -> String {
+        match strip_injections(pattern) {
+            Pattern::Variable(variable) => format!("the variable `{}`", variable.name),
+            Pattern::Application { symbol, .. }
+            | Pattern::AssociativeApplication { symbol, .. } => {
+                let name = symbol.name.as_str();
+                match self.ctors_by_symbol.get(name) {
+                    Some(info) if info.function => format!(
+                        "an unevaluated application of the function `{}`",
+                        info.decl
+                    ),
+                    Some(info) => format!(
+                        "an application of `{}` that is no value of the constructor (an equation still reduces it, or a sort argument has no KRS name)",
+                        info.decl
+                    ),
+                    None if self.collections.contains_key(name)
+                        || name == WellKnownSymbol::KSeq.as_str()
+                        || name == WellKnownSymbol::Append.as_str() =>
+                    {
+                        "a collection with a part that is neither an element nor a unit (a variable or an unevaluated application)".to_owned()
+                    }
+                    None => format!(
+                        "the application of `{name}`, a constructor no KRS declaration names (a strictness freezer, or one K generates)"
+                    ),
+                }
+            }
+            Pattern::DomainValue { sort, value } => format!(
+                "the domain value {:?} of `{sort}`, which no KRS value describes",
+                value.as_utf8().unwrap_or("<bytes>")
+            ),
+            Pattern::String(_) => "a string literal of the pattern language".to_owned(),
+            Pattern::Top { .. } => "the connective `\\top`".to_owned(),
+            Pattern::Bottom { .. } => "the connective `\\bottom`".to_owned(),
+            Pattern::And { .. } => "the connective `\\and`".to_owned(),
+            Pattern::Or { .. } => "the connective `\\or`".to_owned(),
+            Pattern::Not { .. } => "the connective `\\not`".to_owned(),
+            Pattern::Exists { .. } => "the quantifier `\\exists`".to_owned(),
+            Pattern::Forall { .. } => "the quantifier `\\forall`".to_owned(),
+            Pattern::Equals { .. } => "the predicate `\\equals`".to_owned(),
+            Pattern::Ceil { .. } => "the predicate `\\ceil`".to_owned(),
+            _ => "a matching-logic connective".to_owned(),
+        }
+    }
+
     /// The KAST term of a value, as the configuration assembler takes a value bound without
     /// the parser.
     pub(crate) fn to_kast(&self, value: &Value) -> Result<KastTerm, ValueError> {
@@ -1749,6 +1804,12 @@ fn cell_nodes(
                 krs_ir::FixedCellContent::Children { children } => cell_nodes(children),
                 krs_ir::FixedCellContent::Term { .. } => Vec::new(),
             },
+            content: match cell.content() {
+                krs_ir::FixedCellContent::Term { sort, arguments } => {
+                    Some((sort.clone(), arguments.clone()))
+                }
+                krs_ir::FixedCellContent::Children { .. } => None,
+            },
         })
         .collect()
 }
@@ -1757,6 +1818,28 @@ fn cell_nodes(
 /// constructors `ctors` (symbol, `t::S::` name, fields), and no sort or cell.
 #[cfg(test)]
 pub(crate) fn index_of(text: &str, ctors: &[(&str, &str, &[&str])]) -> ValueIndex {
+    index_at(text, ctors, None)
+}
+
+/// [`index_of`], with the declared sort `t::T` a token sort that is the result sort of every
+/// constructor in `ctors`: the index of a definition KRS refuses (a token sort has no
+/// constructors), for the checks that what the encoder writes stays one the decoder reads where
+/// a token's text has a second reading at its own sort.
+#[cfg(test)]
+pub(crate) fn token_sort_index(
+    text: &str,
+    ctors: &[(&str, &str, &[&str])],
+) -> (ValueIndex, SortRef) {
+    let sort = SortRef::Declared(Decl("t::T".into()));
+    let mut index = index_at(text, ctors, Some(&sort));
+    index.token_sorts.insert(sort.clone());
+    (index, sort)
+}
+
+/// The index of `text` with the KRS declarations `ctors`, each `(symbol, name, fields)` declared
+/// at `t::S::<name>` with the result sort `result`.
+#[cfg(test)]
+fn index_at(text: &str, ctors: &[(&str, &str, &[&str])], result: Option<&SortRef>) -> ValueIndex {
     use k_rust::backend::{Backend, BackendOptions};
 
     let mut backend = Backend::new(text, "MAIN", BackendOptions::default()).unwrap();
@@ -1770,7 +1853,7 @@ pub(crate) fn index_of(text: &str, ctors: &[(&str, &str, &[&str])]) -> ValueInde
             symbol: (*symbol).to_owned(),
             fields: fields.iter().map(|field| Arc::from(*field)).collect(),
             field_sorts: vec![None; fields.len()],
-            result: None,
+            result: result.cloned(),
             function: false,
             parameters: 0,
         });

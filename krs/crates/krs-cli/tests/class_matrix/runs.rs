@@ -192,14 +192,99 @@ pub fn run_case(semantics: &mut Semantics, run: &Run, limit: Duration, own: Opti
         .iter()
         .map(|(cell, expected)| (cell, expected, read(view, index, cell)))
         .collect::<Vec<_>>();
+    let documents = documents_read_back(index, view);
     match verdict(run, &report, &observed) {
-        Ran::Conforms(status) => {
-            printed_reads_back(semantics, &report.state, own, &run.forward_only)
-                .or_else(|| program_reads_back(semantics, &run.program, own))
-                .map_or(Ran::Conforms(status), Ran::Deviates)
-        }
+        Ran::Conforms(status) => documents
+            .or_else(|| printed_reads_back(semantics, &report.state, own, &run.forward_only))
+            .or_else(|| program_reads_back(semantics, &run.program, own))
+            .map_or(Ran::Conforms(status), Ran::Deviates),
         deviates @ Ran::Deviates(_) => deviates,
     }
+}
+
+/// Whether the value of every leaf cell of the state, the leaf cells of each instance of a
+/// repeated cell included, has a canonical document, written at the cell's declared type, that
+/// decodes back to the value ([`krs_exec::encode`]): `None` when each does; otherwise the first
+/// deviation, in the order of the cells' declaration and of the instances.
+///
+/// An absent optional cell has no value to write. A value refused for an inherent part only (an
+/// `Opaque` part, or the application of a parametric constructor, which the encoding states
+/// have no document) is no deviation: a report shows it as K text, and the encoder names a part
+/// of any other kind first, wherever it lies in the value. Any other refusal is a deviation,
+/// since it says the cell's content is not what its declared type admits, or that a value of it
+/// has no spelling in the encoding; so is a content that does not decode, or a repeated cell
+/// whose instances cannot be read.
+fn documents_read_back(index: &ValueIndex, view: &StateView<'_>) -> Option<String> {
+    documents_read_back_below(index, view, "")
+}
+
+/// [`documents_read_back`] for the cells below `view`'s root, their paths reported after
+/// `prefix`.
+fn documents_read_back_below(
+    index: &ValueIndex,
+    view: &StateView<'_>,
+    prefix: &str,
+) -> Option<String> {
+    for path in view.leaf_paths() {
+        let value = match view.value(&path) {
+            Ok(value) => value,
+            Err(CellError::Absent { .. }) => continue,
+            Err(error) => {
+                return Some(format!(
+                    "canonical document of {prefix}{path}: the content does not decode: {error}"
+                ));
+            }
+        };
+        let ty = match view.cell_type(&path) {
+            Ok(ty) => ty,
+            Err(error) => {
+                return Some(format!(
+                    "canonical document of {prefix}{path}: no type: {error}"
+                ));
+            }
+        };
+        let document = match krs_exec::encode(index, &value, &ty) {
+            Ok(document) => document,
+            Err(error) if error.kind.is_inherent() => continue,
+            Err(error) => {
+                return Some(format!(
+                    "canonical document of {prefix}{path} ({ty}) is refused: {error}"
+                ));
+            }
+        };
+        match krs_exec::decode(index, &document, &ty) {
+            Ok(read) if read == value => {}
+            Ok(read) => {
+                return Some(format!(
+                    "canonical document of {prefix}{path} ({ty}) does not read back: {} reads as {read:?}",
+                    krs_exec::canonical_text(&document)
+                ));
+            }
+            Err(error) => {
+                return Some(format!(
+                    "canonical document of {prefix}{path} ({ty}) does not read back: {}: {error}",
+                    krs_exec::canonical_text(&document)
+                ));
+            }
+        }
+    }
+    for path in view.repeated_paths() {
+        let instances = match view.instances(&path) {
+            Ok(instances) => instances,
+            Err(error) => {
+                return Some(format!(
+                    "canonical documents of {prefix}{path}: the instances cannot be read: {error}"
+                ));
+            }
+        };
+        for (position, instance) in instances.iter().enumerate() {
+            let below = format!("{prefix}{path}[{position}].");
+            if let Some(deviation) = documents_read_back_below(index, instance, &below) {
+                return Some(deviation);
+            }
+        }
+    }
+    None
 }
 
 /// Whether the state, as `krs run` prints it, is the state: the computation cell's first item and

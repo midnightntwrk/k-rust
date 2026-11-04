@@ -1,9 +1,10 @@
 //! A definition whose configuration variables and cells cover every kind of `krs-exec` value:
 //! enum variants (two named `C`, one of them spelled like the other), a struct variant, a
-//! parametric constructor, a token sort, the builtins, the collections, a declared sort with
-//! builtin subsorts and one whose only builtin subsort is `Float`, a renamed cell, a nested
-//! group, an optional cell, a repeated cell, a function a value may apply, and a parameter whose
-//! Rust name is not its K name. Every variable is copied into its own cell, so a run of depth 0
+//! parametric constructor, a token sort, the builtins, the
+//! collections, a declared sort with builtin subsorts, one whose only builtin subsort is `Float`
+//! and one whose only builtin subsort is `Map`, a renamed cell, a nested group, an optional
+//! cell, a repeated cell, a function a value may apply, and a parameter whose Rust name is not
+//! its K name. Every variable is copied into its own cell, so a run of depth 0
 //! shows the values the configuration was given.
 
 use k::builtin::{Bool, Bytes, Float, Id, Int, KSequence, List, Map, Set, String};
@@ -19,6 +20,8 @@ k::sorts! {
     impl Val for Float;
     Real: KResult;
     impl Real for Float;
+    Store;
+    impl Store for Map;
 }
 
 #[k::constructors(sort = Reg, result = KResult)]
@@ -76,6 +79,14 @@ pub struct Wrap<S: ?Sized> {
 /// `@`-prefixed names.
 #[k::token(regex = r"@[a-z]+")]
 pub struct Label(pub std::string::String);
+
+/// A store is a `Map` or a `stored(n)`: at `Store`, a one-member object reads as a map and as
+/// this constructor.
+#[k::constructors(sort = Store, result = KResult)]
+#[rustfmt::skip]
+pub enum StoreSyntax {
+    #[k::syntax("stored({n})")] Stored { n: Int },
+}
 
 #[k::cell]
 pub struct Cpu {
