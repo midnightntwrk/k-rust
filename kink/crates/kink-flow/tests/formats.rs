@@ -30,12 +30,17 @@ use kink_flow::fuzz::FUZZ_VERSION;
 /// FZ-ENGINE-R4, in the same wave: the `stopped` value `domain-exhausted` and the warning
 /// `witness-not-terminating`. Version 5 adds the warning `reaching-not-computed` and lets
 /// `template.last_run.mutation.reaching` be null; the digest is unchanged, since the reader takes
-/// neither a warning kind passed to `warning(..)` nor a value computed by an expression.
+/// neither a warning kind passed to `warning(..)` nor a value computed by an expression. Version 6
+/// renames the coverage names (`--matched`, `--fired`, `witnesses`); of the literals the reader
+/// takes, the key `reaching` became `witnesses` and the key `mode` of a rule job's `job.rule`
+/// (k-rust-fuzz's goal name, which `job.kind` says again) is gone, so the digest moved by those
+/// two alone (the job kinds, the confirmation statuses, `not-comparable` among them, the refusal
+/// stage and the warning kinds are values the reader does not take).
 const DOCUMENT_SHAPE: (u32, u32, u32, &str) = (
-    5,
+    6,
     10,
     2,
-    "f0c2d1b81763949b79df1699671e8bdf1e2f62617acaf5efb6d207f198a80728",
+    "354a34995bfb9adf32910561f811533ca6eb32c4739e94d4be12517a753b3734",
 );
 
 /// `source` without `//` comments, string literals kept whole.
