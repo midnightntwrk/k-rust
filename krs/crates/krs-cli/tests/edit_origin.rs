@@ -6,6 +6,13 @@
 //! judge never answers for; a mutation whose tokens are the baseline's, a change outside every
 //! sentence, an edit of a declaration and an edit inside a lookup-guard or local-function family
 //! are refused. A mutation is judged by the tokens it changes, however its find is written.
+//!
+//! The re-derivation then accepts a sentence the judge hands on only when it is what KRS emits
+//! for its edited authored content: every sentence is its own re-derivation, a derived test
+//! must follow the edited construct, the lift refuses what no authored syntax writes (a function
+//! KRS lifts out of a sentence, one equation of a function shorthand moved to another function),
+//! an edit beside a local function is accepted when the function derives as before, a
+//! mutation that changes nothing is refused, and the story's mutations are accepted.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -15,10 +22,15 @@ use krs_compiler::{
     SourceMap, judge_edits,
 };
 use krs_ir::InsertedNode;
+use krs_k_rust::lift::{Accepted, LiftRefusal, MutantChecker, MutationCheck, NotJudged, Refusal};
 use krs_test_support::{fixture_build_env, krs_command, shared_fixture_target, temp_dir};
 
 /// The package `inserted_nodes.rs` takes its census of.
 const PACKAGE: &str = include_str!("fixtures/inserted-nodes/src/lib.rs");
+
+/// The package of the edits beside a local function, of a machine-form map frame and of
+/// equation heads.
+const EDITS: &str = include_str!("fixtures/edit-origin/src/lib.rs");
 
 /// The introduction's specification.
 const STORY: &str = include_str!("../../../../docs-site/story/plus/src/lib.rs");
@@ -477,5 +489,469 @@ fn story_mutations_need_rederivation() {
         ),
     ] {
         assert_eq!(emitted.to_rederivation(item, &[edit]), [container]);
+    }
+}
+
+/// The in-process baseline of a package, as `krs emit-k` builds it
+/// ([`krs_cli::CollectedDefinition::emit_k_retained`]): its lowering with what the
+/// re-derivation keeps, its Definition IR and its K.
+struct Baseline {
+    retained: krs_compiler::RetainedLowering,
+    lowered: krs_compiler::LoweredDefinition,
+    emitted: krs_cli::EmittedDefinition,
+    view: Emitted,
+}
+
+/// Collects, lowers and emits the `main` definition of a package holding `library` in process.
+fn baseline(name: &str, namespace: &str, library: &'static str) -> Baseline {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(temporary.path(), name, namespace, library);
+    let request = krs_cli::CommandRequest {
+        command: krs_cli::Command::Check {
+            backend: None,
+            partition: false,
+        },
+        manifest_path: manifest,
+        root: krs_cli::FacetSelector {
+            package: krs_cli::PackageSelector::Name(name.into()),
+            definition: "main".into(),
+        },
+        dependencies: Vec::new(),
+        cfg: Vec::new(),
+        registration: krs_cli::RegistrationMode::Inventory,
+        no_reuse: true,
+        message_format: krs_cli::MessageFormat::Human,
+        profile: None,
+    };
+    let collected = krs_cli::collect_descriptors(&request, Some(target.path())).unwrap();
+    let krs_cli::RetainedEmission {
+        emitted,
+        retained,
+        lowered,
+    } = collected.emit_k_retained(collected.bundle.clone()).unwrap();
+    let view = Emitted {
+        definition: emitted.definition.clone(),
+        map: emitted.source_map.clone(),
+        library,
+    };
+    Baseline {
+        retained,
+        lowered,
+        emitted,
+        view,
+    }
+}
+
+impl Baseline {
+    fn checker(&self) -> MutantChecker<'_> {
+        let rederivation = krs_compiler::Rederivation::new(&self.retained, &self.lowered).unwrap();
+        MutantChecker::new(
+            rederivation,
+            &self.emitted.definition,
+            &self.emitted.source_map,
+        )
+        .unwrap()
+    }
+
+    /// The first line of the sentence `key`, which names it.
+    fn head(&self, key: &krs_ir::SourceMapKey) -> String {
+        let entry = self
+            .emitted
+            .source_map
+            .entries()
+            .iter()
+            .find(|entry| entry.key() == key)
+            .unwrap();
+        let generated = entry.generated().unwrap();
+        let start = usize::try_from(generated.start_byte()).unwrap();
+        let end = usize::try_from(generated.end_byte()).unwrap();
+        self.emitted.definition[start..end]
+            .trim()
+            .lines()
+            .next()
+            .unwrap()
+            .to_owned()
+    }
+
+    /// The check of one mutation of the sentence starting with `head`: each edit writes its
+    /// replacement in place of the one occurrence of its find.
+    fn check(&self, head: &str, edits: &[(&str, &str)]) -> MutationCheck {
+        let edits = edits
+            .iter()
+            .map(|(find, replacement)| self.view.edit(head, find, replacement))
+            .collect::<Vec<_>>();
+        self.checker().check(&edits).unwrap()
+    }
+}
+
+/// The one sentence a check judged, and its outcome.
+fn outcome(check: &MutationCheck) -> &Result<Accepted, Refusal> {
+    assert_eq!(
+        check.judgement.verdict(),
+        MutationVerdict::NeedsRederivation,
+        "{:#?}",
+        check.judgement
+    );
+    assert_eq!(check.sentences.len(), 1, "{check:#?}");
+    &check.sentences[0].outcome
+}
+
+fn accepted(check: &MutationCheck) -> &Accepted {
+    match outcome(check) {
+        Ok(accepted) => {
+            assert!(!accepted.unchanged, "{check:#?}");
+            assert!(check.accepted());
+            accepted
+        }
+        Err(refusal) => panic!("refused: {refusal}"),
+    }
+}
+
+/// The derived and the mutant's tests of a refusal for a derived node that does not follow the
+/// edit.
+fn mismatch(check: &MutationCheck) -> (Vec<String>, Vec<String>) {
+    assert!(!check.accepted());
+    match outcome(check) {
+        Err(Refusal::DerivedMismatch {
+            derived_tests,
+            mutant_tests,
+            ..
+        }) => (derived_tests.clone(), mutant_tests.clone()),
+        other => panic!("not a derived mismatch: {other:?}"),
+    }
+}
+
+/// Rendering one sentence alone, with the baseline's naming and index, gives the bytes `emit_k`
+/// wrote for it, for every sentence of the census fixture and of the story; and the in-process
+/// emission is the K `krs emit-k` writes.
+#[test]
+fn one_sentence_rendered_alone_is_emit_k_s_bytes() {
+    for (name, namespace, library) in [
+        ("inserted-nodes", "ORG-KRS-INSERTED", PACKAGE),
+        ("story-plus", "NAT", STORY),
+    ] {
+        let baseline = baseline(name, namespace, library);
+        assert_eq!(
+            baseline.emitted.definition,
+            emit(name, namespace, library).definition
+        );
+        let rederivation =
+            krs_compiler::Rederivation::new(&baseline.retained, &baseline.lowered).unwrap();
+        let mut rendered = 0;
+        for entry in baseline.emitted.source_map.entries() {
+            let Some(generated) = entry.generated() else {
+                continue;
+            };
+            if entry.depth() != 1 || generated.artifact() != DEFINITION_ARTIFACT {
+                continue;
+            }
+            let start = usize::try_from(generated.start_byte()).unwrap();
+            let end = usize::try_from(generated.end_byte()).unwrap();
+            assert_eq!(
+                rederivation.render_baseline(entry.key()).unwrap(),
+                baseline.emitted.definition[start..end],
+                "{name}: {:?}",
+                entry.key()
+            );
+            rendered += 1;
+        }
+        assert!(rendered > 10, "{name}: {rendered} sentences");
+    }
+}
+
+/// The fixed point: every rule sentence, read back from its own K with the whole sentence as the
+/// container, lifted and derived again, is the sentence itself; the sentences whose derivation
+/// reads more than the sentence (a lookup guard, a local function) or that read a stream cell are
+/// not judged.
+#[test]
+fn every_sentence_is_its_own_rederivation() {
+    for (name, namespace, library, not_judged) in [
+        (
+            "inserted-nodes",
+            "ORG-KRS-INSERTED",
+            PACKAGE,
+            &[
+                "rule [elem]:",
+                "rule [input]:",
+                "rule [key]:",
+                "rule krsLocal_f92565059015b62bf220ca46 ( A:Int ) => false",
+                "rule krsLocal_f92565059015b62bf220ca46 ( A:Int ) => true",
+                "rule pick A:Int => flag krsLocal_f92565059015b62bf220ca46 ( A:Int ) [label(org_krs_inserted--pick)]",
+                "rule [part]:",
+                "rule [proj]:",
+            ][..],
+        ),
+        ("story-plus", "NAT", STORY, &[][..]),
+        (
+            "edit-origin",
+            "ORG-KRS-EDITS",
+            EDITS,
+            &[
+                "rule krsLocal_635bd5991636fe175a0c35d6 ( A:Arg ) => true",
+                "rule krsLocal_635bd5991636fe175a0c35d6 ( A:Arg ) => false",
+                "rule [probe]:",
+            ][..],
+        ),
+    ] {
+        let baseline = baseline(name, namespace, library);
+        let checker = baseline.checker();
+        let mut refused = Vec::new();
+        let mut reasons = Vec::new();
+        let mut judged = 0;
+        for key in checker.rule_sentences() {
+            let head = baseline.head(&key);
+            match checker.fixed_point(&key) {
+                Ok(accepted) => {
+                    assert!(accepted.unchanged, "{name}: {head}");
+                    judged += 1;
+                }
+                Err(Refusal::NotJudged(reason)) => {
+                    reasons.push(format!("{head}: {reason}"));
+                    refused.push(head);
+                }
+                Err(refusal) => panic!("{name}: {head}: {refusal}"),
+            }
+        }
+        assert_eq!(refused, not_judged, "{name}: {reasons:#?}");
+        assert!(judged >= 2, "{name}");
+    }
+}
+
+/// The cases of a derived node that must follow the edit, on the census fixture's `div`
+/// (`requires (A:Int =/=Int 0) andThenBool ((10 /Int A:Int) >Int 1)`).
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One case per line of the design's table."
+)]
+fn derived_nodes_follow_the_edit() {
+    let baseline = baseline("inserted-nodes", "ORG-KRS-INSERTED", PACKAGE);
+    let div = "rule [div]";
+
+    // The divisor edited and its test kept: KRS derives the test of the new divisor.
+    let check = baseline.check(div, &[("10 /Int A:Int", "10 /Int (A:Int +Int 1)")]);
+    assert_eq!(
+        mismatch(&check),
+        (
+            vec!["(A:Int +Int 1) =/=Int 0".to_owned()],
+            vec!["A:Int =/=Int 0".to_owned()]
+        )
+    );
+    // With the derived test written in the same mutation: accepted.
+    accepted(&baseline.check(
+        div,
+        &[
+            ("(A:Int =/=Int 0)", "((A:Int +Int 1) =/=Int 0)"),
+            ("10 /Int A:Int", "10 /Int (A:Int +Int 1)"),
+        ],
+    ));
+    // Unbracketed, K reads `((10 /Int A) +Int 1) >Int 1`: the division and its test are unchanged.
+    accepted(&baseline.check(
+        div,
+        &[("(10 /Int A:Int) >Int 1", "(10 /Int A:Int +Int 1) >Int 1")],
+    ));
+    // A literal divisor decides the fact: KRS states no test, so the kept one is refused.
+    assert_eq!(
+        mismatch(&baseline.check(div, &[("10 /Int A:Int", "10 /Int 2")])),
+        (Vec::new(), vec!["A:Int =/=Int 0".to_owned()])
+    );
+    // An authored operator.
+    accepted(&baseline.check(div, &[(">Int 1", ">=Int 1")]));
+    // A frame the author wrote, deleted: the closed machine-form match.
+    accepted(&baseline.check(div, &[(".K ... </k>", ".K </k>")]));
+    // A frame KRS adds to a block-form rule, deleted with an authored edit in the same clause:
+    // the judge hands the clause on, and the lift keeps the frame KRS adds.
+    let check = baseline.check("rule [read]", &[("skip ...", "stop")]);
+    assert!(
+        matches!(
+            outcome(&check),
+            Err(Refusal::NotJudged(NotJudged::Skeleton(what))) if what == "a cell's frame"
+        ),
+        "{check:#?}"
+    );
+    // A new division written into a condition without its test: refused, showing the test.
+    let clamp = "rule clamp ( Value:Int ) => Value";
+    let (derived, kept) = mismatch(&baseline.check(
+        clamp,
+        &[(
+            "notBool (Value:Int <Int 0)",
+            "(notBool (Value:Int <Int 0)) andThenBool ((10 /Int Value:Int) >Int 0)",
+        )],
+    ));
+    assert_eq!(
+        (derived, kept),
+        (vec!["Value:Int =/=Int 0".to_owned()], Vec::new())
+    );
+    // A field read edited with a name the rule binds nowhere: refused by the lift.
+    let check = baseline.check(
+        "rule [bits]",
+        &[(
+            "read bitRangeInt(Krs_Bits0:Int, 0, 3)",
+            "read bitRangeInt(Y:Int, 0, 4)",
+        )],
+    );
+    assert!(
+        matches!(outcome(&check), Err(Refusal::Lift(LiftRefusal::Unbound(name))) if name == "Y"),
+        "{check:#?}"
+    );
+    // A name KRS made for a template's bits, read where KRS does not write it: refused by the
+    // lift, since no Rust spelling names it.
+    let check = baseline.check(
+        "rule [bits]",
+        &[(
+            "read bitRangeInt(Krs_Bits0:Int, 0, 3)",
+            "read Krs_Bits0:Int",
+        )],
+    );
+    assert!(
+        matches!(
+            outcome(&check),
+            Err(Refusal::Lift(LiftRefusal::NotAdmitted(_)))
+        ),
+        "{check:#?}"
+    );
+    // A function KRS lifts out of another sentence, applied where no source applies it: refused
+    // by the lift, which names only what a source names.
+    let check = baseline.check(
+        clamp,
+        &[(
+            "notBool (Value:Int <Int 0)",
+            "krsLocal_f92565059015b62bf220ca46 ( Value:Int )",
+        )],
+    );
+    assert!(
+        matches!(
+            outcome(&check),
+            Err(Refusal::Lift(LiftRefusal::UnknownLabel(label))) if label.starts_with("krsLocal_")
+        ),
+        "{check:#?}"
+    );
+    // A label no KRS construct renders: refused by the lift.
+    let check = baseline.check(div, &[("(10 /Int A:Int)", "(randInt(10) /Int A:Int)")]);
+    assert!(
+        matches!(
+            outcome(&check),
+            Err(Refusal::Lift(LiftRefusal::UnknownLabel(_)))
+        ),
+        "{check:#?}"
+    );
+    // A binder renamed at every occurrence changes nothing.
+    let check = baseline.check(
+        div,
+        &[
+            ("div A:Int", "div B:Int"),
+            ("(A:Int =/=Int 0)", "(B:Int =/=Int 0)"),
+            ("10 /Int A:Int", "10 /Int B:Int"),
+        ],
+    );
+    assert!(check.unchanged() && !check.accepted(), "{check:#?}");
+    // A label is aside: a mutation that changes only a label changes nothing.
+    let label = "rule clamp ( Value:Int ) => 0";
+    let check = baseline.check(
+        label,
+        &[(
+            "[label(org_krs_inserted--clamp_1)]",
+            "[label(org_krs_inserted--clamp_0)]",
+        )],
+    );
+    assert!(check.unchanged() && !check.accepted(), "{check:#?}");
+    // Another attribute's edit is not judged.
+    let check = baseline.check(
+        label,
+        &[(
+            "[label(org_krs_inserted--clamp_1)]",
+            "[label(org_krs_inserted--clamp_1), priority(40)]",
+        )],
+    );
+    assert!(
+        matches!(
+            outcome(&check),
+            Err(Refusal::NotJudged(NotJudged::Attributes))
+        ),
+        "{check:#?}"
+    );
+    // A whole rule deleted is the source without it, with no pre-derivation sentence.
+    let check = baseline.check(
+        "rule [stop]",
+        &[("rule [stop]:\n    <k> stop => .K </k>", "")],
+    );
+    let deleted = accepted(&check);
+    assert!(deleted.deleted && deleted.pre_derivation.is_none());
+    // An edit inside a local function's body is not judged.
+    let check = baseline.check(
+        "rule krsLocal_f92565059015b62bf220ca46 ( A:Int ) => true",
+        &[("5 :=K 10 /Int A:Int", "5 :=K 11 /Int A:Int")],
+    );
+    assert!(!check.accepted());
+    assert!(
+        check
+            .judgement
+            .sentences
+            .iter()
+            .any(|sentence| matches!(sentence.verdict, SentenceVerdict::FamilyNotJudged { .. })),
+        "{check:#?}"
+    );
+}
+
+/// An edit beside a local function, a deleted machine-form map frame, and equation heads: an
+/// equation item writes its head in its own pattern, so its head may move to another function,
+/// and a function shorthand writes every equation's head at the function's declaration, so one
+/// equation's head may not.
+#[test]
+fn edits_beside_local_functions_frames_and_heads() {
+    let baseline = baseline("edit-origin", "ORG-KRS-EDITS", EDITS);
+    // A frame the author wrote at a map read, deleted: the closed map match.
+    accepted(&baseline.check("rule [go]", &[("V:Int ... </mem>", "V:Int </mem>")]));
+    // An edit of another cell than the one whose result KRS lifts into a function: the function
+    // derives as the baseline's, and the sentence is accepted.
+    accepted(&baseline.check("rule [probe]", &[("_ => 1", "_ => 2")]));
+    // An equation item's head moved to another function of the same signature.
+    let check = baseline.check(
+        "rule double ( Value:Int )",
+        &[("double ( Value:Int )", "halve ( Value:Int )")],
+    );
+    let lifted = accepted(&check).pre_derivation.as_ref().unwrap();
+    assert_eq!(lifted.id().item_name(), "double_value");
+    // A function shorthand's equation moved to another function: refused by the lift.
+    let check = baseline.check(
+        "rule twice ( Value:Int )",
+        &[("twice ( Value:Int )", "double ( Value:Int )")],
+    );
+    assert!(
+        matches!(
+            outcome(&check),
+            Err(Refusal::Lift(LiftRefusal::NotAdmitted(what))) if what.contains("head of an equation")
+        ),
+        "{check:#?}"
+    );
+}
+
+/// The story's mutations a, b and c are accepted: each is the emission of the Rust edit the
+/// introduction describes.
+#[test]
+fn story_mutations_are_accepted() {
+    let baseline = baseline("story-plus", "NAT", STORY);
+    let zero = "rule plus ( zero , N:Nat )";
+    let succ = "rule plus ( s ( M:Nat ) , N:Nat )";
+    for (head, find, replacement) in [
+        (zero, "=> N:Nat", "=> zero"),
+        (
+            succ,
+            "s ( plus ( M:Nat , N:Nat ) )",
+            "plus ( M:Nat , N:Nat )",
+        ),
+        (succ, "s ( plus ( M:Nat , N:Nat ) )", "s ( N:Nat )"),
+    ] {
+        let check = baseline.check(head, &[(find, replacement)]);
+        let lifted = accepted(&check).pre_derivation.as_ref().unwrap();
+        assert_eq!(
+            lifted.id().item_name(),
+            if head == zero {
+                "plus_zero"
+            } else {
+                "plus_succ"
+            }
+        );
     }
 }

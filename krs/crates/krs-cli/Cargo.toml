@@ -31,7 +31,7 @@ krs-exec = { path = "../krs-exec", default-features = false }
 krs-fmt = { path = "../krs-fmt" }
 krs-ir = { path = "../krs-ir" }
 krs-ir-levels = { path = "../krs-ir-levels" }
-krs-k-rust = { path = "../krs-k-rust", default-features = false }
+krs-k-rust = { path = "../krs-k-rust", default-features = false, features = ["lift"] }
 krs-syntax = { path = "../krs-syntax" }
 # The KAST term kink binds a typed input to; k-rust's features follow krs-exec's.
 k-rust = { version = "=0.8.0", path = "../../../crates/k-rust", default-features = false, optional = true }

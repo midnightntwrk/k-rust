@@ -16,6 +16,7 @@ mod int_facts;
 mod lowering;
 mod overlap;
 pub mod partition;
+mod rederivation;
 mod reference;
 mod semantic;
 mod sidecar;
@@ -38,14 +39,18 @@ pub use emit::{
 };
 pub use error::{AnalysisError, AnalysisErrorKind};
 pub use lowering::{CollisionNamespace, LoweredDefinition, LoweringError, lower_semantic_theory};
+pub use rederivation::{
+    IndexedProduction, KLabelIndex, Rederivation, RederivationError, RederiveFailure, Rederived,
+    Site,
+};
 pub use reference::{
     ExpandedFile, PackageExpansion, ReferenceExpansionError, ReferenceSourceError,
     expand_package_reference_source, expand_reference_source, expand_reference_source_naming,
 };
 pub use semantic::{
     DescriptorLoweringError, FreshProblem, ImplicitPresentCell, LexicalProblem, NondetGroupProblem,
-    OpenSortAnalysis, OperatorProblem, RawKPolicy, analyze_open_sorts, guard_warnings,
-    lower_descriptor_bundle, raw_k_policy,
+    OpenSortAnalysis, OperatorProblem, RawKPolicy, RetainedLowering, analyze_open_sorts,
+    guard_warnings, lower_descriptor_bundle, lower_descriptor_bundle_retained, raw_k_policy,
 };
 pub use sidecar::{
     GeneratedRange, MappedIdentity, SourceMap, SourceMapEntry, SourceMapNodeKind, SymbolMap,

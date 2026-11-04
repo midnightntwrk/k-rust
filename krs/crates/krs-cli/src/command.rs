@@ -131,7 +131,9 @@ pub enum Command {
     Prove(ProveRequest),
 }
 
-pub use collected::{CollectedDefinition, EmittedDefinition, EmittedRule, collect_descriptors};
+pub use collected::{
+    CollectedDefinition, EmittedDefinition, EmittedRule, RetainedEmission, collect_descriptors,
+};
 #[cfg(feature = "kink")]
 pub(crate) use collected::{PlannedCollection, plan_collection};
 pub use exec::{
@@ -569,6 +571,25 @@ fn prepare_bundle(
     profile: Option<krs_ir::RawKProfile>,
     measurement: &mut Measurement,
 ) -> Result<PreparedDefinition, CommandError> {
+    prepare_bundle_with(
+        bundle,
+        collection_warnings,
+        profile,
+        measurement,
+        |bundle| lower_semantic(bundle).map(|semantic| (semantic, ())),
+    )
+    .map(|(prepared, ())| prepared)
+}
+
+/// [`prepare_bundle`] with the semantic theory lowered by `lower`, which may keep what it
+/// computes on the way beside the theory.
+fn prepare_bundle_with<Kept>(
+    bundle: DescriptorBundle,
+    collection_warnings: Vec<crate::DiagnosticEnvelope>,
+    profile: Option<krs_ir::RawKProfile>,
+    measurement: &mut Measurement,
+    lower: impl FnOnce(&DescriptorBundle) -> Result<(krs_ir_levels::SemanticTheory, Kept), CommandError>,
+) -> Result<(PreparedDefinition, Kept), CommandError> {
     let collected = crate::DiagnosticReports {
         envelopes: collection_warnings,
     };
@@ -591,9 +612,9 @@ fn prepare_bundle(
                 .collect(),
         )));
     }
-    let semantic = measurement
+    let (semantic, kept) = measurement
         .timings
-        .try_span("semantic.lower", |_| lower_semantic(&bundle))
+        .try_span("semantic.lower", |_| lower(&bundle))
         .map_err(warned)?;
     measurement
         .counters
@@ -606,18 +627,21 @@ fn prepare_bundle(
     let coverage = krs_compiler::coverage_warnings(semantic.modules())
         .into_iter()
         .chain(krs_compiler::guard_warnings(semantic.modules()));
-    Ok(PreparedDefinition {
-        collection_warnings: collected.envelopes,
-        raw_k_warnings: raw_k.warnings,
-        sort_test_warnings: krs_compiler::sort_test_warnings(lowered.definition())
-            .into_iter()
-            .chain(coverage)
-            .collect(),
-        bundle,
-        semantic,
-        lowered,
-        compiles: agreement::CompileMemo::new(),
-    })
+    Ok((
+        PreparedDefinition {
+            collection_warnings: collected.envelopes,
+            raw_k_warnings: raw_k.warnings,
+            sort_test_warnings: krs_compiler::sort_test_warnings(lowered.definition())
+                .into_iter()
+                .chain(coverage)
+                .collect(),
+            bundle,
+            semantic,
+            lowered,
+            compiles: agreement::CompileMemo::new(),
+        },
+        kept,
+    ))
 }
 
 fn lower_semantic(

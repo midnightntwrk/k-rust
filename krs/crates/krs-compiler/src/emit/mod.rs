@@ -726,6 +726,71 @@ fn collect_repeated_ancestors(
     }
 }
 
+/// Renders single Definition IR sentences of one definition as [`emit_k`] renders them in its
+/// `definition.k`: with the definition's naming, index and lexicon.
+pub(crate) struct SentenceRenderer<'a> {
+    context: EmitContext<'a>,
+}
+
+/// One sentence rendered alone: its text from its indentation to its newline, as `emit_k` writes
+/// it at the sentence's generated range, and the range of each node it renders within that text.
+pub(crate) struct RenderedSentence {
+    pub(crate) text: String,
+    pub(crate) ranges: Vec<(SourceMapKey, std::ops::Range<usize>)>,
+}
+
+impl<'a> SentenceRenderer<'a> {
+    /// The renderer of `definition`'s `definition.k` sentences.
+    pub(crate) fn new(definition: &'a DefinitionIr) -> Self {
+        Self {
+            context: EmitContext::new(definition),
+        }
+    }
+
+    /// Renders `sentence` alone.
+    pub(crate) fn render(
+        &self,
+        sentence: &DefinitionSentence,
+    ) -> Result<RenderedSentence, EmitError> {
+        let mut writer = Writer::default();
+        emit_sentence(sentence, &self.context, &mut writer)?;
+        let whole = writer
+            .ranges
+            .get(sentence.origin().key())
+            .copied()
+            .ok_or_else(|| {
+                EmitError::InvalidSidecar("a rendered sentence records its range".into())
+            })?;
+        let (start, end) = (whole.start(), whole.end());
+        Ok(RenderedSentence {
+            text: writer.source[start..end].to_owned(),
+            ranges: writer
+                .ranges
+                .iter()
+                .filter(|(_, range)| start <= range.start() && range.end() <= end)
+                .map(|(key, range)| (key.clone(), range.start() - start..range.end() - start))
+                .collect(),
+        })
+    }
+
+    /// The K name `emit_k` writes for `sort`.
+    pub(crate) fn sort_name(&self, sort: &DefinitionSortRef) -> Result<String, EmitError> {
+        self.context
+            .sort_name_ref(sort)
+            .map(std::borrow::Cow::into_owned)
+    }
+
+    /// The K name `emit_k` writes for the fixed cell `cell`.
+    pub(crate) fn cell_name(&self, cell: &SymbolId) -> Result<String, EmitError> {
+        self.context.cell_name(cell).map(str::to_owned)
+    }
+
+    /// The variable naming of the definition's sentences.
+    pub(crate) const fn naming(&self) -> &VariableNaming {
+        &self.context.naming
+    }
+}
+
 #[derive(Default)]
 struct Writer {
     source: String,

@@ -27,8 +27,8 @@ mod render;
 pub use command::{
     CollectedDefinition, ColorChoice, Command, CommandError, CommandKind, CommandOutcome,
     CommandRequest, EmittedDefinition, EmittedRule, LoadVisit, MessageFormat, ParseRequest,
-    ProgramSource, ProveRequest, RunRequest, SearchRequest, TermOutput, collect_descriptors,
-    execute_command, execute_command_measured, execute_command_reported,
+    ProgramSource, ProveRequest, RetainedEmission, RunRequest, SearchRequest, TermOutput,
+    collect_descriptors, execute_command, execute_command_measured, execute_command_reported,
 };
 pub use diagnostic::{
     DIAGNOSTIC_SCHEMA_VERSION, DiagnosticEnvelope, DiagnosticGeneratedRange, DiagnosticLabel,

@@ -83,6 +83,7 @@ fn lift_in_module(module: SemanticModule) -> Result<SemanticModule, DescriptorLo
     }) {
         return Ok(module);
     }
+    // The first claim that cannot be lifted is refused before any sentence is lifted.
     if module.is_spec()
         && let Some(claim) = module
             .rules()
@@ -94,55 +95,94 @@ fn lift_in_module(module: SemanticModule) -> Result<SemanticModule, DescriptorLo
     let mut productions = module.productions().to_vec();
     let mut rules = Vec::with_capacity(module.rules().len());
     for rule in module.rules() {
-        let host = holds_local_function(rule);
-        let keys = keys_hold_local_function(rule);
-        let results = results_hold_projected_test(rule);
-        if !host && !keys && !results {
-            rules.push(rule.clone());
-            continue;
-        }
-        let mut lifter = Lifter::new(rule);
-        let rewritten = if host {
-            rule.try_map_terms(&mut |term| lifter.term(term))?
-        } else {
-            // A pattern term is told by its node's source-map key, which names that node alone
-            // in the sentence, so a term `try_map_terms` hands over is the pattern's however it
-            // reaches the mapper; so is a condition's.
-            let patterns = pattern_terms(rule)
-                .into_iter()
-                .map(|pattern| pattern.origin().key().clone())
-                .collect::<BTreeSet<_>>();
-            let conditions = condition_terms(rule)
-                .into_iter()
-                .map(|condition| condition.origin().key().clone())
-                .collect::<BTreeSet<_>>();
-            rule.try_map_terms(&mut |term| {
-                let key = term.origin().key();
-                if conditions.contains(key) {
-                    Ok(term.clone())
-                } else if patterns.contains(key) {
-                    let term = if keys {
-                        lifter.pattern(term)?
-                    } else {
-                        term.clone()
-                    };
-                    lifter.built_in_pattern(&term)
-                } else {
-                    lifter.projected_tests(term)
-                }
-            })?
-        };
-        let variables = rule
-            .variables()
-            .iter()
-            .filter(|variable| !lifter.local.contains(variable.id()))
-            .cloned()
-            .collect();
-        rules.push(rewritten.with_variables(variables));
-        productions.extend(lifter.productions);
-        rules.extend(lifter.equations);
+        let lifted = lift_in_rule(&module, rule)?;
+        rules.push(lifted.rule);
+        productions.extend(lifted.productions);
+        rules.extend(lifted.equations);
     }
     Ok(module.with_productions(productions).with_rules(rules))
+}
+
+/// What [`lift_local_functions`] makes of one sentence of a module that may declare its local
+/// functions: the sentence with each lifted construct replaced by its function's application,
+/// and the functions' productions and equations, which the module declares beside it.
+#[derive(Clone, Debug)]
+pub(crate) struct LiftedRule {
+    /// The sentence.
+    pub(crate) rule: SemanticRule,
+    /// The lifted functions' productions.
+    pub(crate) productions: Vec<SemanticProduction>,
+    /// Their equations.
+    pub(crate) equations: Vec<SemanticRule>,
+}
+
+/// [`lift_local_functions`] of the one sentence `rule` of `module`: the pass lifts each sentence
+/// alone, from its own identity and terms, so the sentence lifts as it does among its module's
+/// others.
+///
+/// # Errors
+///
+/// [`DescriptorLoweringError::LocalFunctionInProofModule`] for a claim of an author spec module
+/// that holds a `let` block or `k::matches!`, and a lifted function's invalid identity.
+pub(crate) fn lift_in_rule(
+    module: &SemanticModule,
+    rule: &SemanticRule,
+) -> Result<LiftedRule, DescriptorLoweringError> {
+    let host = holds_local_function(rule);
+    let keys = keys_hold_local_function(rule);
+    let results = results_hold_projected_test(rule);
+    if !host && !keys && !results {
+        return Ok(LiftedRule {
+            rule: rule.clone(),
+            productions: Vec::new(),
+            equations: Vec::new(),
+        });
+    }
+    if module.is_spec() && host {
+        return Err(in_proof_module(module, rule));
+    }
+    let mut lifter = Lifter::new(rule);
+    let rewritten = if host {
+        rule.try_map_terms(&mut |term| lifter.term(term))?
+    } else {
+        // A pattern term is told by its node's source-map key, which names that node alone
+        // in the sentence, so a term `try_map_terms` hands over is the pattern's however it
+        // reaches the mapper; so is a condition's.
+        let patterns = pattern_terms(rule)
+            .into_iter()
+            .map(|pattern| pattern.origin().key().clone())
+            .collect::<BTreeSet<_>>();
+        let conditions = condition_terms(rule)
+            .into_iter()
+            .map(|condition| condition.origin().key().clone())
+            .collect::<BTreeSet<_>>();
+        rule.try_map_terms(&mut |term| {
+            let key = term.origin().key();
+            if conditions.contains(key) {
+                Ok(term.clone())
+            } else if patterns.contains(key) {
+                let term = if keys {
+                    lifter.pattern(term)?
+                } else {
+                    term.clone()
+                };
+                lifter.built_in_pattern(&term)
+            } else {
+                lifter.projected_tests(term)
+            }
+        })?
+    };
+    let variables = rule
+        .variables()
+        .iter()
+        .filter(|variable| !lifter.local.contains(variable.id()))
+        .cloned()
+        .collect();
+    Ok(LiftedRule {
+        rule: rewritten.with_variables(variables),
+        productions: lifter.productions,
+        equations: lifter.equations,
+    })
 }
 
 /// The refusal of `claim`, a claim of the author spec module `module` that holds a `let` block or

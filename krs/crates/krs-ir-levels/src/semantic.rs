@@ -1815,6 +1815,50 @@ impl SemanticRule {
             ..self.clone()
         })
     }
+    /// The same rule with its term rewrite replaced by `body`, every other part kept.
+    ///
+    /// # Errors
+    ///
+    /// [`SemanticValidationError::RuleBodyNotRewrite`] when the rule's body is not a term
+    /// rewrite.
+    pub fn with_term_body(
+        mut self,
+        body: crate::IrRewrite<crate::SemanticLevel>,
+    ) -> Result<Self, SemanticValidationError> {
+        match &mut self.content {
+            crate::ir_level::RuleContent::Term { body: own, .. } => {
+                *own = body;
+                Ok(self)
+            }
+            crate::ir_level::RuleContent::Configuration { .. }
+            | crate::ir_level::RuleContent::Predicate { .. } => Err(
+                SemanticValidationError::RuleBodyNotRewrite(Box::new(self.id.clone())),
+            ),
+        }
+    }
+
+    /// The same rule with its configuration rewrite replaced by `body`, every other part kept.
+    ///
+    /// # Errors
+    ///
+    /// [`SemanticValidationError::RuleBodyNotRewrite`] when the rule's body is not a
+    /// configuration rewrite.
+    pub fn with_configuration_body(
+        mut self,
+        body: FixedConfigurationRewrite<SemanticId, SemanticTerm>,
+    ) -> Result<Self, SemanticValidationError> {
+        match &mut self.content {
+            crate::ir_level::RuleContent::Configuration { body: own, .. } => {
+                *own = body;
+                Ok(self)
+            }
+            crate::ir_level::RuleContent::Term { .. }
+            | crate::ir_level::RuleContent::Predicate { .. } => Err(
+                SemanticValidationError::RuleBodyNotRewrite(Box::new(self.id.clone())),
+            ),
+        }
+    }
+
     /// Borrows the term rewrite, when present.
     #[must_use]
     pub fn body(&self) -> Option<&crate::IrRewrite<crate::SemanticLevel>> {

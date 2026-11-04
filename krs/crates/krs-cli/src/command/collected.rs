@@ -17,8 +17,9 @@ use krs_ir_levels::{DefinitionIr, DefinitionSentence};
 
 use super::collector::{build_collector_measured, generate_collector, run_collector};
 use super::{
-    CommandError, CommandRequest, LoadVisit, check_verdict, definition_warnings, emit_definition,
-    expansion, plan_collector, prepare_bundle, validate_request,
+    CommandError, CommandRequest, LoadVisit, PreparedDefinition, check_verdict,
+    definition_warnings, emit_definition, expansion, plan_collector, prepare_bundle,
+    prepare_bundle_with, validate_request,
 };
 use crate::metadata::cargo_metadata_in;
 use crate::{CollectorPlan, DiagnosticEnvelope, DiagnosticReports, DiagnosticSources};
@@ -51,6 +52,19 @@ pub struct EmittedDefinition {
     /// The source map of the emission, with the generated range of every node in
     /// `definition.k` and `spec.k`, as `krs emit-k` writes it to `sources.json`.
     pub source_map: SourceMap,
+}
+
+/// K emitted in memory as `krs emit-k` writes it ([`EmittedDefinition`]), with the lowering it is
+/// emitted from kept in process: the baseline a re-derivation of its sentences reads
+/// (`krs_compiler::Rederivation`).
+#[derive(Debug)]
+pub struct RetainedEmission {
+    /// The emission.
+    pub emitted: EmittedDefinition,
+    /// The semantic lowering, with the modules before the derivation passes.
+    pub retained: krs_compiler::RetainedLowering,
+    /// The Definition IR lowering the K is emitted from.
+    pub lowered: krs_compiler::LoweredDefinition,
 }
 
 /// One rule-like sentence of the emitted K (a rule, equation, simplification, alias, desugar,
@@ -257,8 +271,43 @@ impl CollectedDefinition {
         measurement: &mut Measurement,
     ) -> Result<EmittedDefinition, CommandError> {
         let prepared = self.prepare(bundle, measurement)?;
-        let warnings = definition_warnings(&prepared);
-        let emitted = emit_definition(&prepared, measurement)
+        self.emitted(&prepared, measurement)
+    }
+
+    /// [`Self::emit_k`], keeping the lowering the K is emitted from ([`RetainedEmission`]): the
+    /// same stages, so the K is the K `krs emit-k` writes for `bundle`.
+    ///
+    /// # Errors
+    ///
+    /// Fails as [`Self::emit_k`] fails.
+    pub fn emit_k_retained(
+        &self,
+        bundle: DescriptorBundle,
+    ) -> Result<RetainedEmission, CommandError> {
+        let mut measurement = Measurement::disabled();
+        let warnings = self.warnings_of(&bundle);
+        let (prepared, retained) =
+            prepare_bundle_with(bundle, warnings, self.profile, &mut measurement, |bundle| {
+                krs_compiler::lower_descriptor_bundle_retained(bundle)
+                    .map(|retained| (retained.theory().clone(), retained))
+                    .map_err(CommandError::DescriptorLowering)
+            })?;
+        let emitted = self.emitted(&prepared, &mut measurement)?;
+        Ok(RetainedEmission {
+            emitted,
+            retained,
+            lowered: prepared.lowered,
+        })
+    }
+
+    /// The emission of `prepared`, as `krs emit-k` emits it.
+    fn emitted(
+        &self,
+        prepared: &PreparedDefinition,
+        measurement: &mut Measurement,
+    ) -> Result<EmittedDefinition, CommandError> {
+        let warnings = definition_warnings(prepared);
+        let emitted = emit_definition(prepared, measurement)
             .map_err(|error| error.warned(warnings.clone()))?;
         let ir = prepared.lowered.definition();
         let rules = measurement.timings.span("emit_k.rules", |_| {

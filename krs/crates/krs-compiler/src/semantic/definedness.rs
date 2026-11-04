@@ -123,7 +123,10 @@ fn restated_ensures(rule: &SemanticRule) -> Option<&SemanticRuleCondition> {
     }
 }
 
-fn guard_rule(rule: &SemanticRule, sorts: &Sorts) -> Result<SemanticRule, DescriptorLoweringError> {
+pub(crate) fn guard_rule(
+    rule: &SemanticRule,
+    sorts: &Sorts,
+) -> Result<SemanticRule, DescriptorLoweringError> {
     let mut guards = Guards {
         rule,
         sorts,

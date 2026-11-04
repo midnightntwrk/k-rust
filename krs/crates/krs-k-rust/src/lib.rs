@@ -6,6 +6,8 @@
 
 mod adapter;
 mod error;
+#[cfg(feature = "lift")]
+pub mod lift;
 mod provenance;
 
 use std::collections::BTreeMap;

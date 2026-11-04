@@ -40,6 +40,8 @@ pub struct LoweredDefinition {
     symbol_map: SymbolMap,
     source_map: SourceMap,
     partition: Partition,
+    /// The semantic node each Definition IR node lowers from, by source-map key; in process only.
+    semantic_keys: BTreeMap<SourceMapKey, SourceMapKey>,
 }
 
 impl LoweredDefinition {
@@ -65,6 +67,18 @@ impl LoweredDefinition {
     #[must_use]
     pub const fn partition(&self) -> &Partition {
         &self.partition
+    }
+
+    /// The source-map key of the semantic node the Definition IR node `key` lowers from.
+    #[must_use]
+    pub fn semantic_key(&self, key: &SourceMapKey) -> Option<&SourceMapKey> {
+        self.semantic_keys.get(key)
+    }
+
+    /// Every Definition IR node's semantic node, by source-map key.
+    #[must_use]
+    pub const fn semantic_keys(&self) -> &BTreeMap<SourceMapKey, SourceMapKey> {
+        &self.semantic_keys
     }
 }
 
@@ -510,6 +524,7 @@ pub fn lower_semantic_theory(theory: &SemanticTheory) -> Result<LoweredDefinitio
         symbol_map,
         source_map,
         partition,
+        semantic_keys: origins.semantic_keys,
     })
 }
 
@@ -1088,7 +1103,8 @@ fn name_fixed_cells(
 
 #[derive(Default)]
 struct OriginPass {
-    keys: BTreeSet<SourceMapKey>,
+    /// Each Definition IR key this pass gave, with the semantic key it lowers from.
+    semantic_keys: BTreeMap<SourceMapKey, SourceMapKey>,
 }
 
 impl OriginPass {
@@ -1105,7 +1121,11 @@ impl OriginPass {
             seed.push_str(discriminator);
         }
         let key = SourceMapKey::new(format!("def.{role}.{}", short_hash(&seed)))?;
-        if !self.keys.insert(key.clone()) {
+        if self
+            .semantic_keys
+            .insert(key.clone(), semantic.key().clone())
+            .is_some()
+        {
             return Err(LoweringError::SourceMapCollision {
                 key,
                 item: item.cloned().map(Box::new),
@@ -1379,59 +1399,8 @@ fn lower_module(
 
     for rule in module.rules() {
         sentences.push(of_item(rule.id(), || {
-            // A claim keeps its stream cells as ordinary List cells (see `crate::console`).
-            let stdin = if rule.claim().is_some() {
-                &BTreeSet::new()
-            } else {
-                stdin
-            };
-            let dropped = match rule.relational_body() {
-                RuleBodyRef::Configuration { body, .. } => stdin_read_remainders(body, stdin),
-                RuleBodyRef::Term(_) | RuleBodyRef::Predicate(_) => BTreeSet::new(),
-            };
-            let kept = rule
-                .variables()
-                .iter()
-                .filter(|variable| !dropped.contains(variable.id()))
-                .cloned()
-                .collect::<Vec<_>>();
-            let variables = lower_variables(&kept, names)?;
-            let label = names.rules.get(rule.id()).cloned().ok_or_else(|| {
-                LoweringError::unsupported_shape(
-                    "rule",
-                    format!("no naming entry for {}", rule.id()),
-                )
-            })?;
-            let rule_origin = rule.label().map_or(rule.origin(), |value| value.origin());
-            let origin = origins.lower(rule_origin, "rule", Some(rule.id()), None)?;
-            let sentence = match rule.relational_body() {
-                RuleBodyRef::Term(body) => RuleSentence::new(
-                    origin,
-                    label,
-                    rule.kind(),
-                    variables,
-                    lower_rule_rewrite(body, names, origins)?,
-                )?,
-                RuleBodyRef::Configuration { kind, body } => RuleSentence::new_configuration(
-                    origin,
-                    label,
-                    kind,
-                    variables,
-                    lower_configuration_rewrite(body, names, origins, stdin)?,
-                ),
-                RuleBodyRef::Predicate(body) => RuleSentence::new_predicate(
-                    origin,
-                    label,
-                    variables,
-                    krs_ir_levels::IrPredicateRewrite::new(
-                        origins.lower(body.origin(), "predicate-rewrite", Some(rule.id()), None)?,
-                        lower_predicate(body.lhs(), rule.id(), names, origins)?,
-                        lower_predicate(body.rhs(), rule.id(), names, origins)?,
-                    ),
-                ),
-            };
-            Ok(DefinitionSentence::Rule(lower_rule_metadata(
-                sentence, rule, names, origins,
+            Ok(DefinitionSentence::Rule(lower_rule_sentence(
+                rule, names, origins, stdin,
             )?))
         })?);
     }
@@ -1465,6 +1434,112 @@ fn lower_module(
         production_groups,
         sentences,
     ))
+}
+
+/// Lowers one rule of the semantic theory to its Definition IR sentence, with the stream cells
+/// `stdin` read as stream cells unless the rule is a claim.
+fn lower_rule_sentence(
+    rule: &krs_ir_levels::SemanticRule,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+    stdin: &BTreeSet<krs_ir::SemanticId>,
+) -> Result<RuleSentence, LoweringError> {
+    // A claim keeps its stream cells as ordinary List cells (see `crate::console`).
+    let stdin = if rule.claim().is_some() {
+        &BTreeSet::new()
+    } else {
+        stdin
+    };
+    let dropped = match rule.relational_body() {
+        RuleBodyRef::Configuration { body, .. } => stdin_read_remainders(body, stdin),
+        RuleBodyRef::Term(_) | RuleBodyRef::Predicate(_) => BTreeSet::new(),
+    };
+    let kept = rule
+        .variables()
+        .iter()
+        .filter(|variable| !dropped.contains(variable.id()))
+        .cloned()
+        .collect::<Vec<_>>();
+    let variables = lower_variables(&kept, names)?;
+    let label = names.rules.get(rule.id()).cloned().ok_or_else(|| {
+        LoweringError::unsupported_shape("rule", format!("no naming entry for {}", rule.id()))
+    })?;
+    let rule_origin = rule.label().map_or(rule.origin(), |value| value.origin());
+    let origin = origins.lower(rule_origin, "rule", Some(rule.id()), None)?;
+    let sentence = match rule.relational_body() {
+        RuleBodyRef::Term(body) => RuleSentence::new(
+            origin,
+            label,
+            rule.kind(),
+            variables,
+            lower_rule_rewrite(body, names, origins)?,
+        )?,
+        RuleBodyRef::Configuration { kind, body } => RuleSentence::new_configuration(
+            origin,
+            label,
+            kind,
+            variables,
+            lower_configuration_rewrite(body, names, origins, stdin)?,
+        ),
+        RuleBodyRef::Predicate(body) => RuleSentence::new_predicate(
+            origin,
+            label,
+            variables,
+            krs_ir_levels::IrPredicateRewrite::new(
+                origins.lower(body.origin(), "predicate-rewrite", Some(rule.id()), None)?,
+                lower_predicate(body.lhs(), rule.id(), names, origins)?,
+                lower_predicate(body.rhs(), rule.id(), names, origins)?,
+            ),
+        ),
+    };
+    lower_rule_metadata(sentence, rule, names, origins)
+}
+
+/// The naming of a lowered theory, kept to lower one rule of it again: a rule lowered here is
+/// the sentence [`lower_semantic_theory`] gives it, under the same symbols, labels and keys.
+pub(crate) struct RuleLowering {
+    names: NamingPass,
+    stdin: BTreeSet<krs_ir::SemanticId>,
+}
+
+impl RuleLowering {
+    /// The naming of `theory`, as [`lower_semantic_theory`] computes it.
+    pub(crate) fn new(theory: &SemanticTheory) -> Result<Self, LoweringError> {
+        Ok(Self {
+            names: NamingPass::run(theory)?,
+            stdin: crate::console::stdin_cells(theory),
+        })
+    }
+
+    /// The Definition IR sentence of `rule`, and the semantic key of each of its nodes.
+    pub(crate) fn lower(
+        &self,
+        rule: &krs_ir_levels::SemanticRule,
+    ) -> Result<(RuleSentence, BTreeMap<SourceMapKey, SourceMapKey>), LoweringError> {
+        let mut origins = OriginPass::default();
+        let sentence = lower_rule_sentence(rule, &self.names, &mut origins, &self.stdin)?;
+        Ok((sentence, origins.semantic_keys))
+    }
+
+    /// The symbol of each production, by its declaration.
+    pub(crate) const fn productions(&self) -> &BTreeMap<StableItemId, SymbolIdentity> {
+        &self.names.productions
+    }
+
+    /// The cell sort symbol of each nested cell's declaration.
+    pub(crate) const fn group_cells(&self) -> &BTreeMap<StableItemId, SymbolId> {
+        &self.names.group_cells
+    }
+
+    /// The fixed cell of each cell identity.
+    pub(crate) const fn fixed_cells(&self) -> &BTreeMap<krs_ir::SemanticId, SymbolId> {
+        &self.names.fixed_cells
+    }
+
+    /// The lowered sort of `sort`.
+    pub(crate) fn sort(&self, sort: &SemanticSortRef) -> Result<DefinitionSortRef, LoweringError> {
+        lower_sort_ref(sort, &self.names)
+    }
 }
 
 /// Lowers the configured module's configuration into its own module

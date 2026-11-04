@@ -163,14 +163,105 @@ pub(crate) fn catalog_subsort_judge(
 /// Returns [`DescriptorLoweringError`] for duplicate or dangling identities,
 /// wrong descriptor shapes, parser/reference disagreement, malformed terms,
 /// invalid generated identities, or a failed whole-theory invariant.
+pub fn lower_descriptor_bundle(
+    bundle: &DescriptorBundle,
+) -> Result<SemanticTheory, DescriptorLoweringError> {
+    lower_bundle(bundle, false).map(|retained| retained.theory)
+}
+
+/// What lowering a descriptor bundle computes on the way to its semantic theory and keeps in
+/// process for a caller that judges edits of the emitted K: the modules before the derivation
+/// passes, from which a sentence is derived again, and what the rule-level admission checks
+/// read.
+#[derive(Clone, Debug)]
+pub struct RetainedLowering {
+    /// The modules after every rule-level check and the static rewriting, before
+    /// `lift_local_functions` and the definedness tests: each sentence's pre-derivation form.
+    pre_derivation: Vec<SemanticModule>,
+    /// The modules the rule-level admission checks take (after resolution, before the smtlib
+    /// symbol check), in their order.
+    admitted: Vec<SemanticModule>,
+    /// The descriptors lowering reads, in identity order, each constant inlined at its uses,
+    /// from which the admission checks' declaration index is built.
+    descriptors: Vec<Descriptor>,
+    /// The subsort parents of every sort, as the admission checks read them.
+    sort_parents:
+        BTreeMap<krs_ir_levels::SemanticSortRef, BTreeSet<krs_ir_levels::SemanticSortRef>>,
+    /// The checked theory [`lower_descriptor_bundle`] returns.
+    theory: SemanticTheory,
+}
+
+impl RetainedLowering {
+    /// The modules before the derivation passes, in theory order.
+    #[must_use]
+    pub fn pre_derivation(&self) -> &[SemanticModule] {
+        &self.pre_derivation
+    }
+
+    /// The modules the rule-level admission checks take.
+    #[must_use]
+    pub fn admitted(&self) -> &[SemanticModule] {
+        &self.admitted
+    }
+
+    /// The descriptors lowering reads, in identity order, constants inlined.
+    #[must_use]
+    pub fn descriptors(&self) -> &[Descriptor] {
+        &self.descriptors
+    }
+
+    /// The subsort parents the admission checks read.
+    #[must_use]
+    pub const fn sort_parents(
+        &self,
+    ) -> &BTreeMap<krs_ir_levels::SemanticSortRef, BTreeSet<krs_ir_levels::SemanticSortRef>> {
+        &self.sort_parents
+    }
+
+    /// The checked semantic theory.
+    #[must_use]
+    pub const fn theory(&self) -> &SemanticTheory {
+        &self.theory
+    }
+
+    /// The theory, consuming the rest.
+    #[must_use]
+    pub fn into_theory(self) -> SemanticTheory {
+        self.theory
+    }
+}
+
+/// [`lower_descriptor_bundle`], keeping what it computes on the way ([`RetainedLowering`]).
+///
+/// # Errors
+///
+/// As [`lower_descriptor_bundle`].
+pub fn lower_descriptor_bundle_retained(
+    bundle: &DescriptorBundle,
+) -> Result<RetainedLowering, DescriptorLoweringError> {
+    lower_bundle(bundle, true)
+}
+
+/// Lowers `bundle`; with `retain`, keeps what [`RetainedLowering`] holds beside the theory,
+/// which is otherwise left empty.
 #[expect(
     clippy::too_many_lines,
     reason = "Lowering keeps the whole-bundle checks in their fixed order."
 )]
-pub fn lower_descriptor_bundle(
+fn lower_bundle(
     bundle: &DescriptorBundle,
-) -> Result<SemanticTheory, DescriptorLoweringError> {
+    retain: bool,
+) -> Result<RetainedLowering, DescriptorLoweringError> {
     let inlined = ordered_descriptors(bundle)?;
+    let retained_descriptors = if retain {
+        inlined
+            .descriptors
+            .iter()
+            .map(|descriptor| descriptor.as_ref().clone())
+            .collect()
+    } else {
+        Vec::new()
+    };
     let descriptors = inlined
         .descriptors
         .iter()
@@ -347,6 +438,7 @@ pub fn lower_descriptor_bundle(
             )
         })
     })?;
+    let admitted = if retain { modules.clone() } else { Vec::new() };
     smt::check_smtlib_symbols(&modules)?;
     restriction::check_equation_restrictions(&modules)?;
     or_positions::check_or_pattern_positions(&modules)?;
@@ -457,10 +549,32 @@ pub fn lower_descriptor_bundle(
             second_head_range: range,
         });
     }
+    let pre_derivation = if retain { modules.clone() } else { Vec::new() };
     let modules = local_functions::lift_local_functions(modules)?;
     let modules = definedness::guard_conditions(modules)?;
-    // A validator failure is located at the innermost term the validator was checking, and
-    // names the item whose sentence it was checking.
+    let theory = checked_theory(modules)?;
+    Ok(RetainedLowering {
+        pre_derivation,
+        admitted,
+        descriptors: retained_descriptors,
+        sort_parents: if retain {
+            semantic_sort_parents
+        } else {
+            BTreeMap::new()
+        },
+        theory,
+    })
+}
+
+/// The theory of `modules`, after the semantic theory's validation.
+///
+/// # Errors
+///
+/// A validator failure, located at the innermost term the validator was checking and naming the
+/// item whose sentence it was checking.
+pub(crate) fn checked_theory(
+    modules: Vec<SemanticModule>,
+) -> Result<SemanticTheory, DescriptorLoweringError> {
     SemanticTheory::new_located(modules).map_err(|failure| {
         let krs_ir_levels::SemanticFailure { error, item, at } = *failure;
         DescriptorLoweringError::InvalidSemanticTheory {
@@ -470,6 +584,48 @@ pub fn lower_descriptor_bundle(
                 .map(Box::new),
             item: item.map(Box::new),
         }
+    })
+}
+
+/// One sentence derived as [`lower_descriptor_bundle`] derives it ([`derive_rule`]).
+#[derive(Clone, Debug)]
+pub(crate) struct DerivedRule {
+    /// The derived sentence.
+    pub(crate) rule: krs_ir_levels::SemanticRule,
+    /// The productions of the functions `lift_local_functions` lifts out of the sentence, which
+    /// its module declares beside it.
+    pub(crate) productions: Vec<krs_ir_levels::SemanticProduction>,
+    /// Their equations, derived too.
+    pub(crate) equations: Vec<krs_ir_levels::SemanticRule>,
+}
+
+/// The sentence `rule` of the pre-derivation module `module`, derived as
+/// [`lower_descriptor_bundle`] derives every sentence: `lift_local_functions`, which lifts each
+/// sentence alone, then the definedness tests over `sorts` (`None` when the definition has no
+/// framework `KItem`, where no test is stated) of the sentence and of each lifted function's
+/// equations.
+///
+/// # Errors
+///
+/// The refusal of `lift_local_functions` or of the definedness pass.
+pub(crate) fn derive_rule(
+    module: &SemanticModule,
+    rule: &krs_ir_levels::SemanticRule,
+    sorts: Option<&krs_ir_levels::definedness::Sorts>,
+) -> Result<DerivedRule, DescriptorLoweringError> {
+    let lifted = local_functions::lift_in_rule(module, rule)?;
+    let guard = |rule: krs_ir_levels::SemanticRule| match sorts {
+        Some(sorts) => definedness::guard_rule(&rule, sorts),
+        None => Ok(rule),
+    };
+    Ok(DerivedRule {
+        rule: guard(lifted.rule)?,
+        productions: lifted.productions,
+        equations: lifted
+            .equations
+            .into_iter()
+            .map(guard)
+            .collect::<Result<_, _>>()?,
     })
 }
 

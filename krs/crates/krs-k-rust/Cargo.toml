@@ -10,9 +10,13 @@ description = "Versioned KRS adapter for the pinned k-rust frontend"
 [features]
 default = ["z3-inference"]
 z3-inference = ["k-rust/z3-inference"]
+# The re-derivation check of a K mutation (`lift`), which reads the baseline's in-process
+# lowering and re-derives sentences with krs-compiler; the native route does not need it.
+lift = ["dep:krs-compiler"]
 
 [dependencies]
 k-rust = { version = "=0.8.0", path = "../../../crates/k-rust", default-features = false }
+krs-compiler = { path = "../krs-compiler", optional = true }
 krs-ir = { path = "../krs-ir" }
 krs-ir-levels = { path = "../krs-ir-levels" }
 krs-diagnostic = { path = "../krs-diagnostic" }
@@ -24,3 +28,4 @@ workspace = true
 
 [dev-dependencies]
 krs-ir = { path = "../krs-ir", features = ["test-support"] }
+krs-k-rust = { path = ".", default-features = false, features = ["lift"] }
