@@ -672,12 +672,6 @@ pub const UNCHECKED: &[Unchecked] = &[
         reason: "the advice narrows the case's own variable to the sort of the cell it fills; the class's advised case writes the projection at its own variable and sort (`k::project!(Int, x)`)",
     },
     Unchecked {
-        class: "function-in-pattern",
-        forms: &["`a.bit_or::<Int>(b)`"],
-        shards: &["notation"],
-        reason: "the advice spells an operator's method form at the placeholders `a` and `b`, and no case writes `bit_or` as a method",
-    },
-    Unchecked {
         class: "initializer-remainder",
         forms: &["`k::k![Cmd::Go(), pgm]`"],
         shards: &["init", "sweep"],

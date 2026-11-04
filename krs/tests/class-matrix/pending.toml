@@ -222,12 +222,6 @@ match = 'notation/readable/map-key/{as-body,or-branch}/{k::builtin::list::get(k:
 finding = "S0-14"
 kind = "diagnostic"
 
-# terms: 1
-[[family]]
-match = 'terms/readable/map-key/[x\, ..]'
-finding = "S0-14"
-kind = "diagnostic"
-
 # terms: 23
 [[family]]
 match = 'terms/readable/map-key/as-body/{Size(x),[x\, ..],k::anonymous!(Int\, "_V"),k::builtin::int::add(1\, 2),k::builtin::int::add(x\, 1),k::is!(Int\, x),k::map![x -> 1],k::matches!(x\, Cmd::Hold(_)),k::or_bool!(true\, false),k::project!(Int\, x),k::rewrite!(_ => 1),map![x -> 1],x % 2,x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x >> 1,x || true,x.add::<Int>(1),y @ Cmd::Hold(_)}'
@@ -253,12 +247,6 @@ finding = "S0-14"
 kind = "diagnostic"
 
 # S0-14, diagnostic+rust-syntax: 9 reds
-
-# terms: 8
-[[family]]
-match = 'terms/readable/map-key/as-body/{Cmd::Pair \{ a: x\, ..x \},k::ml::exists(|v: Int| k::ml::equals(v\, 0)),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let Cmd::Pair \{ a: _\, b \} = x; Cmd::Pair \{ a: 1\, b \} \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}'
-finding = "S0-14"
-kind = "diagnostic+rust-syntax"
 
 
 # S0-14, k8: 20 reds
@@ -1539,24 +1527,6 @@ kind = "diagnostic"
 
 # S5-S1, diagnostic: 291 reds
 
-# cells: 3
-[[family]]
-match = 'cells/subject/kinds/*/k::fragment![crate::G \{ a: x\, .. \}]'
-finding = "S5-S1"
-kind = "diagnostic"
-
-# cells: 1
-[[family]]
-match = 'cells/subject/kinds/aacct/k::fragment![crate::Aacct \{ aid: x\, .. \}]'
-finding = "S5-S1"
-kind = "diagnostic"
-
-# cells: 1
-[[family]]
-match = 'cells/subject/kinds/aogroup/k::fragment![crate::Ao \{ aoa: x\, .. \}]'
-finding = "S5-S1"
-kind = "diagnostic"
-
 # readable: 5
 [[family]]
 match = 'claim/overwrite/kinds/*/[x\, ..]'
@@ -1859,6 +1829,10 @@ deviation = "krs::syntax::invalid-pattern-or @ spelling"
 ["terms/readable/map-key/or-branch/y @ Cmd::Hold(_)"]
 finding = "S0-14"
 deviation = "krs::syntax::invalid-pattern-or @ entry"
+
+["k8/terms/readable/map-key/as-body/x / 2"]
+finding = "S0-14"
+deviation = "notation-in-pattern's refusal advises `requires`, which terms/simplification/subject/k::builtin::int::add(x, 1) does not write (attrs/cells-claim/#[k::requires(k::is!(Int, x))] does)"
 
 ["terms/readable/map-key/function-argument/Cmd::Go() | Cmd::Hold(_)"]
 finding = "K-2"
@@ -2864,23 +2838,23 @@ deviation = "krs::analysis::main-cell @ item"
 
 ["cells/g1-a/kinds/account/{ k::fragment![crate::Acct { acounter: Some(x), ..me }], ..instances0 }"]
 finding = "S5-G1"
-deviation = "krs::analysis::invalid-record-update @ item"
+deviation = "krs::expand::not-a-declaration @ spelling"
 
 ["cells/g1-a/kinds/stack/k::configuration::Cell([me @ k::fragment![crate::Acct { id: z, .. }], rest @ ..])"]
 finding = "S5-G1"
-deviation = "krs::analysis::invalid-record-update @ spelling"
+deviation = "krs::expand::not-a-declaration @ item"
 
 ["cells/g1-b/kinds/account/{ k::fragment![crate::Acct { aframe: Ag { aa: x }, ..me }], ..instances0 }"]
 finding = "S5-G1"
-deviation = "krs::analysis::invalid-record-update @ item"
+deviation = "krs::analysis::invalid-record-update @ spelling"
 
 ["cells/g1-c/kinds/account/{ k::fragment![crate::Acct { aprog: [x], ..me }], ..instances0 }"]
 finding = "S5-G1"
-deviation = "krs::analysis::invalid-record-update @ item"
+deviation = "krs::analysis::invalid-record-update @ spelling"
 
 ["cells/g1-e/kinds/account/{ k::fragment![crate::Acct { aenv: k::map![x -> 1], ..me }], ..instances0 }"]
 finding = "S5-G1"
-deviation = "krs::analysis::invalid-record-update @ item"
+deviation = "krs::analysis::invalid-record-update @ spelling"
 
 ["cells/g1-restore/kinds/frame/k::fragment![crate::G { a: x, ..saved }]"]
 finding = "S5-G1"
