@@ -2053,3 +2053,138 @@ fn a_created_instance_s_defaults_are_its_template_s_optional_cells_included() {
         assert!(!stderr.contains("internal error"), "{name}:\n{stderr}");
     }
 }
+
+/// A configuration whose initializer writes `k` and `stack` as given, with the configuration
+/// variables `parameters`, unmarked, so that which is main is inferred.
+fn bracket_source(parameters: &str, k: &str, stack: &str) -> String {
+    format!(
+        r#"
+use k::builtin::{{Int, KSequence, List}};
+
+k::sorts! {{
+    Stmt;
+}}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum StmtSyntax {{
+    #[k::syntax("skip")]
+    Skip(),
+    #[k::syntax("seq {{first}} ;")]
+    Seq {{ first: Stmt }},
+}}
+
+#[k::configuration]
+pub struct Machine {{
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub stack: List<Int>,
+}}
+
+impl Machine {{
+    #[k::init]
+    pub fn init({parameters}) -> Self {{
+        Self {{ k: {k}, stack: {stack} }}
+    }}
+}}
+"#
+    )
+}
+
+/// Brackets are the computation's mark on a `KSequence` cell and the list's on a `List` cell
+/// (P2/P3), read by the declared kind. On the computation, `[a, b]` is the sequence of its items,
+/// the computation `k::k![a, b]` denotes: the same K and the same main variable, the one the
+/// computation reads, so the program binds it. On the list, `[0]` and `[]` are the list's items.
+#[test]
+fn brackets_in_an_initializer_are_read_by_the_cell_s_kind() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let program = temporary.path().join("program.txt");
+    fs::write(&program, "skip").unwrap();
+    let run = |manifest: &Path, extra: &[&str]| {
+        let mut arguments = extra.to_vec();
+        arguments.push(program.to_str().unwrap());
+        let (success, stdout, stderr) = krs(target.path(), manifest, "run", &arguments);
+        assert!(success, "{stdout}\n{stderr}");
+        stdout.split_whitespace().collect::<Vec<_>>().join(" ")
+    };
+    // Each case is written with brackets and, as its twin, with `k::k![..]` and `list::..`.
+    let cases: [(&str, &str, [&str; 2], [&str; 2], &[&str]); 3] = [
+        (
+            "brackets",
+            "pgm: Stmt, input: Int",
+            ["[pgm, StmtSyntax::Seq(pgm)]", "[input]"],
+            ["k::k![pgm, StmtSyntax::Seq(pgm)]", "list::item(input)"],
+            &["-c", "INPUT=3"],
+        ),
+        (
+            "one",
+            "pgm: Stmt",
+            ["[pgm]", "[0]"],
+            ["k::k![pgm]", "list::item(0)"],
+            &[],
+        ),
+        (
+            "empty-list",
+            "pgm: Stmt",
+            ["[pgm]", "[]"],
+            ["k::k![pgm]", "list::empty()"],
+            &[],
+        ),
+    ];
+    let mut emitted = Vec::new();
+    let mut started = Vec::new();
+    for (name, parameters, [k, stack], [twin_k, twin_stack], extra) in cases {
+        let manifest = package(
+            temporary.path(),
+            name,
+            &bracket_source(parameters, k, stack),
+        );
+        let twin = package(
+            temporary.path(),
+            &format!("{name}-twin"),
+            &bracket_source(parameters, twin_k, &format!("k::builtin::{twin_stack}")),
+        );
+        let written = configuration(&emit(target.path(), &manifest));
+        assert_eq!(
+            written,
+            configuration(&emit(target.path(), &twin)),
+            "{name}"
+        );
+        // The program binds the main variable, `pgm`, the one the computation reads; `input`,
+        // which only the list reads, is given at start.
+        let state = run(&manifest, extra);
+        assert_eq!(state, run(&twin, extra), "{name}");
+        emitted.push(written);
+        started.push(state);
+    }
+    expect_test::expect![[r#"
+        [
+            "<k> $PGM:Stmt ~> seq $PGM:Stmt ; </k>\n<stack> ListItem($INPUT:Int) </stack>",
+            "<k> $PGM:Stmt </k>\n<stack> ListItem(0) </stack>",
+            "<k> $PGM:Stmt </k>\n<stack> .List </stack>",
+        ]
+    "#]]
+    .assert_debug_eq(&emitted);
+    let state = &started[0];
+    for cell in [
+        "<k> skip ~> seq skip ; ~> .K </k>",
+        "<stack> ListItem ( 3 ) </stack>",
+    ] {
+        assert!(state.contains(cell), "{cell}\n{state}");
+    }
+
+    // Empty brackets on the computation are the empty sequence, as `k::k![]` is.
+    let empty = package(temporary.path(), "empty", &bracket_source("", "[]", "[]"));
+    let twin = package(
+        temporary.path(),
+        "empty-twin",
+        &bracket_source("", "k::k![]", "k::builtin::list::empty()"),
+    );
+    let written = configuration(&emit(target.path(), &empty));
+    assert_eq!(written, configuration(&emit(target.path(), &twin)));
+    expect_test::expect![[r#"
+        <k> .K </k>
+        <stack> .List </stack>"#]]
+    .assert_eq(&written);
+}

@@ -777,9 +777,30 @@ fn initializer_typing(
                 // A stable descriptor holds no neutral leaf (its validation refuses one).
                 ProtocolInitializerCellContent::Leaf { value, .. }
                 | ProtocolInitializerCellContent::NeutralLeaf { value, .. } => {
-                    let ty =
-                        walker.cell_type(require_cell_field(&cell.field.cell, declarations)?)?;
+                    let declared = require_cell_field(&cell.field.cell, declarations)?;
+                    let ty = walker.cell_type(declared)?;
                     match value {
+                        // A computation in brackets is typed as its items, as `k::k![..]`'s
+                        // are ([`lower_initializer_state`]).
+                        ProtocolInitializerStateTerm::Term(term)
+                            if is_computation_cell(declared) =>
+                        {
+                            match bracket_items(&term.term) {
+                                Some(Ok(items)) => {
+                                    output.extend(items.into_iter().map(|item| Root::Term {
+                                        term: item,
+                                        ty: None,
+                                        subject: false,
+                                    }));
+                                }
+                                // Not brackets, or brackets with a rest: lowering refuses it.
+                                Some(Err(_)) | None => output.push(Root::Term {
+                                    term: &term.term,
+                                    ty,
+                                    subject: false,
+                                }),
+                            }
+                        }
                         ProtocolInitializerStateTerm::Term(term) => output.push(Root::Term {
                             term: &term.term,
                             ty,
@@ -1039,6 +1060,69 @@ fn in_declaration_order(
     }
 }
 
+/// Whether `field` is a computation cell, a `KSequence` cell, whose brackets are the
+/// computation's mark: the cells [`lower_initializer_state`] reads brackets on as a sequence.
+fn is_computation_cell(field: &DescriptorCellField) -> bool {
+    matches!(
+        &field.content,
+        ProtocolCellContent::Leaf { sort, .. }
+            if semantic_sort_ref(&sort.sort) == SemanticSortRef::k_sequence()
+    )
+}
+
+/// The items of `term` when it is written in brackets, `[a, b]`: the operands its levels list,
+/// in the order written, each level a head and the brackets after it, the last level the empty
+/// brackets. `None` when `term` is not brackets; an error when the brackets end in a rest
+/// (`[a, ..rest]`) or list from the back, which name a list, not the items of a sequence.
+fn bracket_items(term: &DescriptorTerm) -> Option<Result<Vec<&DescriptorTerm>, &'static str>> {
+    /// The notation of a bracket level and its operands.
+    fn level(
+        term: &DescriptorTerm,
+    ) -> Option<(
+        krs_ir::ListNotation,
+        &krs_ir::Arguments<krs_ir::DescriptorStage>,
+    )> {
+        match term {
+            DescriptorTerm::Application {
+                reference,
+                arguments,
+                instance,
+                update: None,
+                ..
+            } if instance.is_empty() => match reference.application {
+                krs_ir::DescriptorApplicationRef::ListNotation(notation) => {
+                    Some((notation, arguments))
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+    const REST: &str = "a computation in brackets lists its items: it has no rest";
+    let mut current = level(term)?;
+    let mut items = Vec::new();
+    loop {
+        match current {
+            (krs_ir::ListNotation::Empty, krs_ir::Arguments::Positional(operands))
+                if operands.is_empty() =>
+            {
+                return Some(Ok(items));
+            }
+            (krs_ir::ListNotation::Cons, krs_ir::Arguments::Positional(operands)) => {
+                let [head, tail] = operands.as_slice() else {
+                    return Some(Err("a bracket level has a head and the brackets after it"));
+                };
+                items.push(head.as_ref());
+                let Some(next) = level(tail) else {
+                    return Some(Err(REST));
+                };
+                current = next;
+            }
+            _ => return Some(Err(REST)),
+        }
+    }
+}
+
 fn lower_initializer_state(
     descriptor: &Descriptor,
     state: &DescriptorInitializerStateTerm,
@@ -1056,7 +1140,37 @@ fn lower_initializer_state(
             .element(term)
             .map(|site| site.sort.clone())
     };
+    // A computation's items, each lowered at no expected sort, as the sequence `key` spans.
+    let lower_sequence = |key: &krs_ir::ProvenanceKey, items: Vec<&DescriptorTerm>| {
+        let items = items
+            .into_iter()
+            .map(|item| lower_term(item, None))
+            .collect::<Result<Vec<_>, _>>()?;
+        let item_sort = common_sequence_item_sort(descriptor, &items, sort_parents, false)
+            .map_err(|error| error.within(descriptor.id(), key_range(descriptor, key).as_ref()))?;
+        Ok(SemanticTerm::k_sequence(
+            semantic_origin(descriptor, key.clone(), "initializer-k-sequence")?,
+            item_sort,
+            items,
+        ))
+    };
     match state {
+        // On a `KSequence` cell, brackets are the computation's mark: `[a, b]` is the sequence of
+        // its items in the order written, the computation `k::k![a, b]` denotes, so it is lowered
+        // as that sequence is.
+        ProtocolInitializerStateTerm::Term(term)
+            if *declared_sort == SemanticSortRef::k_sequence() =>
+        {
+            match bracket_items(&term.term) {
+                None => lower_term(&term.term, Some(declared_sort)),
+                Some(Err(detail)) => Err(DescriptorLoweringError::invalid_term(
+                    descriptor.id(),
+                    detail,
+                )
+                .within(descriptor.id(), key_range(descriptor, &term.key).as_ref())),
+                Some(Ok(items)) => lower_sequence(&term.key, items),
+            }
+        }
         ProtocolInitializerStateTerm::Term(term) => lower_term(&term.term, Some(declared_sort)),
         ProtocolInitializerStateTerm::KSequence(sequence) => {
             let key = &sequence.payload_key;
@@ -1067,20 +1181,10 @@ fn lower_initializer_state(
                 )
                 .within(descriptor.id(), key_range(descriptor, key).as_ref()));
             }
-            let items = sequence
-                .items
-                .iter()
-                .map(|item| lower_term(&item.value.term, None))
-                .collect::<Result<Vec<_>, _>>()?;
-            let item_sort = common_sequence_item_sort(descriptor, &items, sort_parents, false)
-                .map_err(|error| {
-                    error.within(descriptor.id(), key_range(descriptor, key).as_ref())
-                })?;
-            Ok(SemanticTerm::k_sequence(
-                semantic_origin(descriptor, key.clone(), "initializer-k-sequence")?,
-                item_sort,
-                items,
-            ))
+            lower_sequence(
+                key,
+                sequence.items.iter().map(|item| &item.value.term).collect(),
+            )
         }
         ProtocolInitializerStateTerm::Map(map) => {
             let key = &map.payload_key;
