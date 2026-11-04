@@ -28,7 +28,7 @@ enum MachinePatternCell {
     /// The computation cell's `[p1, .., pn, ..]` or `[p1, .., pn]`.
     KItems(Box<KPattern>),
     /// `{ k1 -> v1, k2 -> v2, .. }`: one or more entries of a map cell.
-    MapItems(Vec<(Expr, Ident)>, TokenRange),
+    MapItems(Vec<(TermExpression, Ident)>, TokenRange),
     Term {
         pattern: Box<RulePattern>,
         tree: Box<TermTree>,
@@ -624,36 +624,33 @@ fn parse_machine_pattern_record(
     Ok(cells)
 }
 
-/// Parses a readable map pattern, `{ k1 -> v1, ..., kn -> vn, .. }`: one
-/// or more entries of a map cell, each a key term (or `_`, any key) and a
-/// value binder.
 /// Reads a machine-rule map read `{ k1 -> v1, .., kn -> vn, .. }`: its
-/// entries and the range of its required `..`.
+/// entries, each a key read as every map read's key is
+/// ([`TermExpression::parse_key_pattern_tokens`]) and a value binder (or
+/// `_`), and the range of its required `..`.
 fn parse_machine_map_pattern(
     content: ParseStream<'_>,
-) -> Result<(Vec<(Expr, Ident)>, TokenRange), ParseError> {
+) -> Result<(Vec<(TermExpression, Ident)>, TokenRange), ParseError> {
     let map = content.call(|input| {
         let map;
         braced!(map in input);
         Ok(map)
     })?;
-    let mut entries: Vec<(Expr, Ident)> = Vec::new();
+    let mut entries: Vec<(TermExpression, Ident)> = Vec::new();
+    let mut spellings: Vec<String> = Vec::new();
     loop {
-        let key = parse_expression_before_arrow(&map)?;
+        let tokens = tokens_before_arrow(&map)?;
+        let text = tokens.to_string();
+        let key = TermExpression::parse_key_pattern_tokens(tokens.clone())?;
         map.parse::<Token![->]>()?;
         let value = parse_binder_or_wildcard(&map)?;
         validate_authored_binder(&value.to_string(), value.span())?;
         // The entries are distinct items of one map, so two keys
         // that are the same term can never both match; two `_` keys match
         // two distinct entries.
-        let text = key.to_token_stream().to_string();
-        if !matches!(key, Expr::Infer(_))
-            && entries
-                .iter()
-                .any(|(existing, _)| existing.to_token_stream().to_string() == text)
-        {
+        if key.root_kind() != crate::TermRootKind::Wildcard && spellings.contains(&text) {
             return Err(syn::Error::new_spanned(
-                &key,
+                &tokens,
                 format!(
                     "a machine-rule map pattern reads key `{text}` twice; \
                      its entries are distinct items of the map, so no map matches it"
@@ -661,6 +658,7 @@ fn parse_machine_map_pattern(
             )
             .into());
         }
+        spellings.push(text);
         entries.push((key, value));
         if map.is_empty() {
             break;
@@ -687,19 +685,9 @@ fn parse_machine_map_pattern(
     Ok((entries, TokenRange::for_tokens(&dots)?))
 }
 
-/// The key term of a readable map read: a term, or `_` for any key.
-fn map_read_key(key: &Expr) -> Result<TermExpression, ParseError> {
-    Ok(if matches!(key, Expr::Infer(_)) {
-        TermExpression::from_pattern_expression(key.clone())?
-    } else {
-        TermExpression::from_expression(key.clone())?
-    })
-}
-
-/// The reason a readable map read's key refuses `name @ pattern`.
-const ALIAS_IN_READABLE_KEY: &str = "`name @ pattern` (K's #as) is not supported in the key of a readable map read: the key is read as the term the entry is looked up by, which binds no name";
-
-pub(super) fn parse_expression_before_arrow(input: ParseStream<'_>) -> Result<Expr, ParseError> {
+/// The tokens of a map item's key, up to its `->`, which `input` is left
+/// at.
+pub(super) fn tokens_before_arrow(input: ParseStream<'_>) -> Result<TokenStream, ParseError> {
     let fork = input.fork();
     let mut tokens = TokenStream::new();
     while !fork.peek(Token![->]) {
@@ -717,32 +705,7 @@ pub(super) fn parse_expression_before_arrow(input: ParseStream<'_>) -> Result<Ex
         return Err(fork.error("a map item requires a key before `->`").into());
     }
     input.advance_to(&fork);
-    let error = match crate::term::parse_expression_tokens(&tokens) {
-        Ok(key) => return Ok(key),
-        Err(error) => error,
-    };
-    // A key is read as the term it looks its entry up by, so a key that
-    // matches, with alternatives at its root or an alias anywhere, is no key
-    // this reader reads (finding S0-14); the alias is refused at its own
-    // tokens. A `let` pattern in the key is the pattern it is
-    // ([`crate::recover`]).
-    if crate::recover::rooted_in_alternatives(&tokens) {
-        return Err(error.into());
-    }
-    let key = crate::recover::expression(&tokens).ok_or(error)?;
-    if let Some(alias) = crate::recover::first_alias(&key) {
-        return Err(crate::SyntaxError::new(
-            crate::SyntaxErrorKind::InvalidPatternAs {
-                reason: ALIAS_IN_READABLE_KEY.to_owned(),
-            },
-            alias
-                .into_iter()
-                .next()
-                .map_or_else(proc_macro2::Span::call_site, |tree| tree.span()),
-        )
-        .into());
-    }
-    Ok(key)
+    Ok(tokens)
 }
 
 fn parse_machine_result_record(
@@ -1867,10 +1830,7 @@ fn assemble_machine_clause(
                     entries: entries
                         .iter()
                         .map(|(key, value)| {
-                            Ok(RuleMapEntry::new(
-                                Box::new(map_read_key(key)?),
-                                value.clone(),
-                            ))
+                            Ok(RuleMapEntry::new(Box::new((*key).clone()), value.clone()))
                         })
                         .collect::<Result<_, ParseError>>()?,
                 });

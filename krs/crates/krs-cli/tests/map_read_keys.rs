@@ -269,6 +269,76 @@ fn a_free_map_read_key_matches_any_entry() {
     }
 }
 
+/// A map read's key is a pattern in every form, read by one reader: a bare
+/// name that resolves to a `#[k::constant]` is that constant's value, the
+/// lookup of one entry, never a fresh binder that would match any entry;
+/// `k @ P` names the key it matches and `A | B` matches either, in a
+/// readable map read as in a `cells!` one.
+#[test]
+fn a_constant_key_is_its_value_and_a_key_pattern_binds() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let rules = r#"
+#[k::constant]
+pub const PICKED: Stmt = StmtSyntax::Pick();
+
+k::rules! {
+    for Machine;
+    use StmtSyntax::*;
+
+    constant_key: { k: [Skip(), ..], raw: { PICKED -> rv, .. }, acc: _ } => { k: [..], acc: rv } where rv: Value;
+    aliased_key: { k: [Pick(), ..], raw: { s @ Seq(_) -> rv, .. } } => { k: [s, ..] } where rv: Value;
+    either_key: { k: [Two(), ..], raw: { Skip() | Pick() -> rv, .. }, acc: _ } => { k: [..], acc: rv } where rv: Value;
+}
+
+#[k::rule(label = "cells-constant-key")]
+pub fn cells_constant_key(
+    rv: Value,
+    k::cells! {
+        k: k::configuration::KCell(StmtSyntax::Seq(StmtSyntax::Skip()), tail @ ..),
+        raw: k::configuration::Cell(k::map![PICKED -> rv, rest @ ..]),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(..tail), ..state }
+}
+"#;
+    let manifest = package(
+        temporary.path(),
+        "map-read-patterns",
+        &format!("{PREAMBLE}{rules}"),
+    );
+    let (definition, _) = emit(target.path(), &manifest, &temporary.path().join("emitted"));
+    let rules = [
+        "constant-key",
+        "aliased-key",
+        "either-key",
+        "cells-constant-key",
+    ]
+    .map(|label| (label, sentence(&definition, label)));
+    expect_test::expect![[r#"
+        [
+            (
+                "constant-key",
+                "<k> skip => .K ... </k> <raw> pick |-> Rv:Value ... </raw> <acc> _ => Rv:Value </acc>",
+            ),
+            (
+                "aliased-key",
+                "<k> pick => S:Stmt ... </k> <raw> ( seq _ #as S:Stmt ) |-> Rv:Value ... </raw>",
+            ),
+            (
+                "either-key",
+                "<k> two => .K ... </k> <raw> ( skip #Or pick ) |-> Rv:Value ... </raw> <acc> _ => Rv:Value </acc>",
+            ),
+            (
+                "cells-constant-key",
+                "<k> seq (skip) ~> Tail:K => .K ~> Tail:K </k> <raw> pick |-> Rv:Value Rest:Map </raw>",
+            ),
+        ]
+    "#]]
+    .assert_debug_eq(&rules);
+}
+
 /// Two value `_`s are two binders: the rule reads two entries whatever
 /// values they hold, where one binder read twice would need equal values.
 #[test]

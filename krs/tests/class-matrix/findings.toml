@@ -42,6 +42,16 @@ owner = "S5"
 kind = "diagnostic"
 what = "`Some(..)`/`None` in a readable result on a cell that is not optional is `krs::expand::not-a-declaration` at the spelling, not the presence rule"
 
+["K-1"]
+owner = "S5"
+kind = "bug"
+what = "alternatives in a map read's key over a name the sentence binds elsewhere (`x | 1` beside `cTAG(x, _)`) are refused as binding unequally, though under P5's nonlinear binders `x` there is a use and no branch binds a new name; the table refuses the same spelling at every other subject position (expected.toml's `x | 1` glob) and accepts it in a readable key's or-branch: one ruling for every position is open (lane K stop)"
+
+["K-2"]
+owner = "S5"
+kind = "bug"
+what = "a readable map read's key below a function's application (`Wk(x | 1)`, `Wk([x, ..])`) is read as a pattern, so `|` there is alternatives and a list its pattern, though a function's argument is built and the table reads it so (the bitwise operator, accepted with K): the shared key reader cannot tell a function from a constructor before resolution (lane K stop)"
+
 ["NT-2-26"]
 owner = "kept: rustc parses the const item before any KRS attribute runs; the author sees rustc's error at the construct"
 kind = "diagnostic"

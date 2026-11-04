@@ -1364,6 +1364,12 @@ pub struct TermExpression {
     anchors: Vec<ProvenanceAnchor>,
 }
 
+thread_local! {
+    /// Whether the pattern being read is a map's key, whose leaves the pattern grammar does not
+    /// read are computed subterms ([`TermExpression::parse_key_pattern_tokens`]).
+    static READING_KEY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 impl TermExpression {
     /// Validates a previously parsed Rust expression as a term.
     ///
@@ -1512,20 +1518,30 @@ impl TermExpression {
     }
 
     /// Reads an expression where a pattern stands, refusing the notation no
-    /// pattern holds.
+    /// pattern holds, except in a map's key, where a computed subterm is the
+    /// value it computes ([`Self::parse_key_pattern_tokens`]).
     fn from_pattern_expression_checked(expression: Expr) -> Result<Self, SyntaxError> {
-        if let Some(error) = crate::notation::notation_in_pattern(&expression) {
+        if !READING_KEY.get()
+            && let Some(error) = crate::notation::notation_in_pattern(&expression)
+        {
             return Err(error);
         }
         Self::from_pattern_expression(expression)
     }
 
-    /// Parses and validates the key of a map a pattern reads: a pattern, or
-    /// else a term expression, notation included. A key is what the map is
-    /// looked up by, so a computed key is the value it computes, and
-    /// notation there is the builtin call it denotes, as in a readable map
-    /// read's key; the position table judges each construct by the reading
-    /// the key's construct gives (`crate::positions`, "Keys").
+    /// Parses and validates the key of a map a pattern reads, the one key
+    /// reader of every map read: a readable rule's map read, at any depth,
+    /// and a `cells!` map's. A subject's entry constrains and binds, so a key
+    /// is a pattern over the map's keys: `k @ P` names the key it matches,
+    /// `A | B` matches either, and a key that is ground under the sentence's
+    /// bindings is the lookup it denotes, since the map's keys are distinct.
+    /// A computed subterm is the value it computes, notation included, as no
+    /// pattern holds a function: the tokens are read as the pattern grammar
+    /// reads them, and else as the expression they are, unless a `|` stands
+    /// where the pattern's alternatives do, which joins them whatever its
+    /// operands are ([`crate::recover::holds_alternatives`]); the position
+    /// table judges each construct by the reading this gives
+    /// (`crate::positions`, "Keys").
     ///
     /// # Errors
     ///
@@ -1533,20 +1549,30 @@ impl TermExpression {
     /// named-term subset.
     pub(crate) fn parse_key_pattern_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
         let signs = crate::rule::NegativeLiteralSpans::scan(tokens.clone());
-        match Pat::parse_multi.parse2(tokens.clone()) {
-            Ok(pattern) => Self::from_pattern_at(pattern, tokens, signs, PatternRoot::Value),
-            Err(error) => match parse_expression_tokens(&tokens) {
-                Ok(expression) => Self::from_pattern_expression(expression),
-                Err(_) => match crate::recover::pattern(&tokens) {
-                    Some(pattern) => {
-                        Self::from_pattern_at(pattern, tokens, signs, PatternRoot::Value)
-                    }
-                    None => match crate::recover::expression(&tokens) {
-                        Some(expression) => Self::from_pattern_expression(expression),
-                        None => Err(error.into()),
-                    },
-                },
-            },
+        let error = match Pat::parse_multi.parse2(tokens.clone()) {
+            Ok(pattern) => {
+                return Self::from_pattern_at(pattern, tokens, signs, PatternRoot::Value);
+            }
+            Err(error) => error,
+        };
+        let expression = parse_expression_tokens(&tokens).ok();
+        if let Some(expression) = expression
+            .as_ref()
+            .filter(|expression| !crate::recover::holds_alternatives(expression))
+        {
+            return Self::from_pattern_expression(expression.clone());
+        }
+        if let Some(pattern) = crate::recover::pattern(&tokens) {
+            // The pattern's leaves the pattern grammar does not read are the
+            // key's computed subterms.
+            let enclosing = READING_KEY.replace(true);
+            let key = Self::from_pattern_at(pattern, tokens, signs, PatternRoot::Value);
+            READING_KEY.set(enclosing);
+            return key;
+        }
+        match expression.or_else(|| crate::recover::expression(&tokens)) {
+            Some(expression) => Self::from_pattern_expression(expression),
+            None => Err(error.into()),
         }
     }
 
@@ -2115,6 +2141,10 @@ fn pattern_root_kind(pattern: &Pat) -> Result<TermRootKind, SyntaxError> {
             Some(first) => return pattern_root_kind(first),
             None => return Err(unsupported_pattern_form(pattern)),
         },
+        // A leaf the pattern grammar does not read ([`crate::recover`]) is the term it denotes.
+        Pat::Verbatim(tokens) => {
+            return Ok(TermExpression::parse_pattern_tokens(tokens.clone())?.root_kind);
+        }
         Pat::Macro(value)
             if crate::collection_literal::literal_collection(&value.mac.path).is_some() =>
         {

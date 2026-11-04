@@ -256,15 +256,10 @@ kind = "diagnostic"
 
 # terms: 8
 [[family]]
-match = 'terms/readable/map-key/as-body/{!(x < 1),-(x + 1),Cmd::Pair \{ a: x\, ..x \},k::ml::exists(|v: Int| k::ml::equals(v\, 0)),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let Cmd::Pair \{ a: _\, b \} = x; Cmd::Pair \{ a: 1\, b \} \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}'
+match = 'terms/readable/map-key/as-body/{Cmd::Pair \{ a: x\, ..x \},k::ml::exists(|v: Int| k::ml::equals(v\, 0)),\{ let (Cmd::Go() | Cmd::Hold(_)) = x; x \},\{ let Cmd::Pair \{ a: _\, b \} = x; Cmd::Pair \{ a: 1\, b \} \},\{ let y = x; y \},\{ let y @ Cmd::Hold(_) = x; y \}}'
 finding = "S0-14"
 kind = "diagnostic+rust-syntax"
 
-# terms: 1
-[[family]]
-match = 'terms/readable/map-key/or-branch/y @ Cmd::Hold(_)'
-finding = "S0-14"
-kind = "diagnostic+rust-syntax"
 
 # S0-14, k8: 20 reds
 
@@ -277,6 +272,12 @@ kind = "k8"
 # terms: 1
 [[family]]
 match = 'k8/terms/readable/map-key/beside-fresh/x | 1'
+finding = "S0-14"
+kind = "k8"
+
+# terms: 12
+[[family]]
+match = 'k8/terms/readable/map-key/as-body/{!(x < 1),-(x + 1),x % 2,x & 1,x && true,x + 1,x < 1,x << 1,x == 1,x >> 1,x || true,x.add::<Int>(1)}'
 finding = "S0-14"
 kind = "k8"
 
@@ -1946,235 +1947,76 @@ deviation = "krs::analysis::collection-entry @ entry"
 finding = "S5-Q1"
 deviation = "krs::analysis::collection-entry @ entry"
 
+# K-1, K-2 (lane K): a readable map read's key read as every map read's key is, a pattern (R-K1)
+["terms/readable/map-key/as-body/!(x < 1)"]
+finding = "S0-14"
+deviation = "krs::analysis::function-in-pattern @ spelling"
+
+["terms/readable/map-key/as-body/-(x + 1)"]
+finding = "S0-14"
+deviation = "krs::analysis::function-in-pattern @ spelling"
+
+["terms/readable/map-key/as-body/x | 1"]
+finding = "K-1"
+deviation = "krs::syntax::invalid-pattern-or @ spelling"
+
+["terms/readable/map-key/beside-fresh/x | 1"]
+finding = "K-1"
+deviation = "krs::syntax::invalid-pattern-or @ spelling"
+
+["terms/readable/map-key/or-branch/Cmd::Hold(x)"]
+finding = "K-1"
+deviation = "krs::syntax::invalid-pattern-or @ entry"
+
+["terms/readable/map-key/or-branch/Cmd::Pair { a: x, .. }"]
+finding = "K-1"
+deviation = "krs::syntax::invalid-pattern-or @ entry"
+
+["terms/readable/map-key/or-branch/Wrap::<KItem>(x)"]
+finding = "K-1"
+deviation = "krs::syntax::invalid-pattern-or @ entry"
+
+["terms/readable/map-key/or-branch/k::builtin::set::item(x)"]
+finding = "K-1"
+deviation = "krs::syntax::invalid-pattern-or @ entry"
+
+["terms/readable/map-key/or-branch/x"]
+finding = "K-1"
+deviation = "krs::syntax::invalid-pattern-or @ entry"
+
+["terms/readable/map-key/or-branch/x | 1"]
+finding = "K-1"
+deviation = "krs::syntax::invalid-pattern-or @ spelling"
+
+["terms/readable/map-key/or-branch/y @ Cmd::Hold(_)"]
+finding = "S0-14"
+deviation = "krs::syntax::invalid-pattern-or @ entry"
+
+["terms/readable/map-key/function-argument/Cmd::Go() | Cmd::Hold(_)"]
+finding = "K-2"
+deviation = "krs::analysis::ambiguous-operator @ spelling"
+
+["terms/readable/map-key/function-argument/[x, ..]"]
+finding = "K-2"
+deviation = "krs::analysis::invalid-list-notation @ spelling"
+
+["terms/readable/map-key/function-argument/x | 1"]
+finding = "K-2"
+deviation = "krs::syntax::invalid-pattern-or @ spelling"
+
+["notation/readable/map-key/or-branch/k::builtin::set::item(x)"]
+finding = "K-1"
+deviation = "krs::syntax::invalid-pattern-or @ entry"
+
+["notation/readable/map-key/or-branch/set![x]"]
+finding = "K-1"
+deviation = "krs::syntax::invalid-pattern-or @ entry"
+
 # S0-14: a readable map read's key refuses the `@` and `|` patterns the reference documents for map keys
 # NT-3: a readable key beside a name bound nowhere else (`Cmd::Pair { a: HOLE, b: z }`) cannot spell
 # `_`, `@` or alternatives below its root, and reads `x | 1` as the operator.
 
-["terms/readable/map-key/Cmd::Go() | Cmd::Hold(_)"]
-finding = "S0-14"
-deviation = "krs::syntax::unsupported-term-expression @ spelling"
-
-["terms/readable/map-key/y @ Cmd::Hold(_)"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ spelling"
-
-["terms/readable/map-key/as-body/\"s\""]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ entry"
-
-["terms/readable/map-key/as-body/-1"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ entry"
-
-["terms/readable/map-key/as-body/1"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ entry"
-
-["terms/readable/map-key/as-body/1.5"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ entry"
-
-["terms/readable/map-key/as-body/Cmd::Go"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ entry"
-
-["terms/readable/map-key/as-body/Cmd::Go()"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ entry"
-
-["terms/readable/map-key/as-body/Cmd::Go() | Cmd::Hold(_)"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ entry"
-
-["terms/readable/map-key/as-body/Cmd::Hold(x)"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ entry"
-
-["terms/readable/map-key/as-body/Cmd::Pair { a: x, .. }"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ entry"
-
-["terms/readable/map-key/as-body/Wrap::<KItem>(x)"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ entry"
-
-["terms/readable/map-key/as-body/_"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ entry"
-
-["terms/readable/map-key/as-body/k::builtin::set::item(x)"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ entry"
-
-["terms/readable/map-key/as-body/k::bytes!(b\"ab\")"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ entry"
-
-["terms/readable/map-key/as-body/k::fragment![crate::Frame { ret: 1 }]"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ entry"
-
-["terms/readable/map-key/as-body/k::id!(\"$x\")"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ entry"
-
-["terms/readable/map-key/as-body/k::lexeme!(Word, \"word\")"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ entry"
-
-["terms/readable/map-key/as-body/true"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ entry"
-
-["terms/readable/map-key/as-body/x"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ entry"
-
-["terms/readable/map-key/or-branch/\"s\""]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-expression-notation @ entry"
-
-["terms/readable/map-key/or-branch/-1"]
-finding = "S0-14"
-deviation = "krs::analysis::invalid-term @ entry"
-
-["terms/readable/map-key/or-branch/1"]
-finding = "S0-14"
-deviation = "krs::analysis::invalid-term @ entry"
-
-["terms/readable/map-key/or-branch/1.5"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-expression-notation @ entry"
-
-["terms/readable/map-key/or-branch/Cmd::Go"]
-finding = "S0-14"
-deviation = "krs::analysis::ambiguous-operator @ entry"
-
-["terms/readable/map-key/or-branch/Cmd::Go()"]
-finding = "S0-14"
-deviation = "krs::analysis::ambiguous-operator @ entry"
-
-["terms/readable/map-key/or-branch/Cmd::Go() | Cmd::Hold(_)"]
-finding = "S0-14"
-deviation = "krs::syntax::unsupported-term-expression @ spelling"
-
-["terms/readable/map-key/or-branch/Cmd::Hold(x)"]
-finding = "S0-14"
-deviation = "krs::analysis::ambiguous-operator @ entry"
-
-["terms/readable/map-key/or-branch/Cmd::Pair { a: x, .. }"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-record-update @ spelling"
-
-["terms/readable/map-key/or-branch/Wrap::<KItem>(x)"]
-finding = "S0-14"
-deviation = "krs::analysis::ambiguous-operator @ entry"
-
-["terms/readable/map-key/or-branch/_"]
-finding = "S0-14"
-deviation = "krs::syntax::unsupported-term-expression @ spelling"
-
-["terms/readable/map-key/or-branch/k::builtin::set::item(x)"]
-finding = "S0-14"
-deviation = "krs::analysis::ambiguous-operator @ entry"
-
-["terms/readable/map-key/or-branch/k::bytes!(b\"ab\")"]
-finding = "S0-14"
-deviation = "krs::analysis::ambiguous-operator @ entry"
-
-["terms/readable/map-key/or-branch/k::fragment![crate::Frame { ret: 1 }]"]
-finding = "S0-14"
-deviation = "krs::analysis::ambiguous-operator @ entry"
-
-["terms/readable/map-key/or-branch/k::id!(\"$x\")"]
-finding = "S0-14"
-deviation = "krs::analysis::ambiguous-operator @ entry"
-
-["terms/readable/map-key/or-branch/k::lexeme!(Word, \"word\")"]
-finding = "S0-14"
-deviation = "krs::analysis::ambiguous-operator @ entry"
-
-["terms/readable/map-key/or-branch/true"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-expression-notation @ entry"
-
-["terms/readable/map-key/or-branch/x"]
-finding = "S0-14"
-deviation = "krs::analysis::ambiguous-operator @ entry"
-
-["terms/readable/map-key/as-body/x | 1"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ entry"
-
-["terms/readable/map-key/or-branch/x | 1"]
-finding = "S0-14"
-deviation = "krs::analysis::invalid-term @ entry"
-
-["terms/readable/map-key/beside-fresh/Cmd::Go() | Cmd::Hold(_)"]
-finding = "S0-14"
-deviation = "krs::syntax::unsupported-term-expression @ spelling"
-
-["terms/readable/map-key/beside-fresh/_"]
-finding = "S0-14"
-deviation = "krs::syntax::unsupported-term-expression @ spelling"
-
-["terms/readable/map-key/beside-fresh/x | 1"]
-finding = "S0-14"
-deviation = "krs::analysis::function-in-pattern @ spelling"
-
-["terms/readable/map-key/beside-fresh/y @ Cmd::Hold(_)"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ spelling"
-
 # NT-6: the collection literals and the calls they denote, at the same openers as NT-5's notation.
-
-["notation/readable/map-key/as-body/k::builtin::map::empty()"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ entry"
-
-["notation/readable/map-key/as-body/k::builtin::set::empty()"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ entry"
-
-["notation/readable/map-key/as-body/k::builtin::set::item(x)"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ entry"
-
-["notation/readable/map-key/as-body/map![]"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ entry"
-
-["notation/readable/map-key/as-body/set![]"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ entry"
-
-["notation/readable/map-key/as-body/set![x]"]
-finding = "S0-14"
-deviation = "krs::syntax::invalid-pattern-as @ entry"
-
-["notation/readable/map-key/or-branch/k::builtin::map::empty()"]
-finding = "S0-14"
-deviation = "krs::analysis::ambiguous-operator @ entry"
-
-["notation/readable/map-key/or-branch/k::builtin::set::empty()"]
-finding = "S0-14"
-deviation = "krs::analysis::ambiguous-operator @ entry"
-
-["notation/readable/map-key/or-branch/k::builtin::set::item(x)"]
-finding = "S0-14"
-deviation = "krs::analysis::ambiguous-operator @ entry"
-
-["notation/readable/map-key/or-branch/map![]"]
-finding = "S0-14"
-deviation = "krs::analysis::ambiguous-operator @ entry"
-
-["notation/readable/map-key/or-branch/set![]"]
-finding = "S0-14"
-deviation = "krs::analysis::ambiguous-operator @ entry"
-
-["notation/readable/map-key/or-branch/set![x]"]
-finding = "S0-14"
-deviation = "krs::analysis::ambiguous-operator @ entry"
 
 # S0-15: `job: []`, a List collection with no instance, is refused in a subject ("names no instance"), though the reference documents it
 

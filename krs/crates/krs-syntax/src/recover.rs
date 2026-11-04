@@ -621,32 +621,24 @@ mod tests {
     }
 
     #[test]
-    fn a_readable_keys_alias_is_refused_at_the_alias() {
+    fn a_readable_key_is_read_as_the_pattern_it_is() {
+        // A subject's key is a pattern over the map's keys (every map read's key reader,
+        // `TermExpression::parse_key_pattern_tokens`): an alias names the key it matches,
+        // at the root or below it, and the position table judges it where it stands.
         for key in [
-            "Wrap::<Stmt>(y @ Cmd::Hold(_))",
-            "Cmd::Pair { a: y @ Cmd::Hold(_), b: z }",
-            "{ let y = x; y @ Cmd::Hold(_) }",
-            "y @ Cmd::Hold(_)",
+            "Wrap::<Stmt>(w @ Cmd::Hold(_))",
+            "Cmd::Pair { a: w @ Cmd::Hold(_), b: z }",
+            "{ let w = y; w @ Cmd::Hold(_) }",
+            "w @ Cmd::Hold(_)",
+            "y | 1",
+            "y + 1 | 1",
         ] {
             let source = format!(
                 "for Machine; a: {{ k: [Cmd::C(y, _), ..], env: {{ {key} -> v, .. }} }} => {{ k: [..] }};"
             );
-            let Err(error) = crate::RuleBlock::parse_source(&source) else {
-                panic!("{key}: a readable key's alias is refused");
-            };
-            assert!(
-                matches!(
-                    error.kind(),
-                    crate::SyntaxErrorKind::InvalidPatternAs { reason }
-                        if reason.contains("key of a readable map read")
-                ),
-                "{key}: {error}"
-            );
-            assert_eq!(
-                error.span().start().column,
-                source.find("y @").unwrap(),
-                "{key}"
-            );
+            if let Err(error) = crate::RuleBlock::parse_source(&source) {
+                panic!("{key}: a readable key reads as a pattern: {error}");
+            }
         }
         // A `let` pattern in a key is the pattern it is, judged where it stands.
         crate::RuleBlock::parse_source(

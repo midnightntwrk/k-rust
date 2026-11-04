@@ -4,7 +4,7 @@ use syn::parse::ParseStream;
 use syn::spanned::Spanned;
 use syn::{Attribute, Expr, ExprCall, Ident, Meta, Token, bracketed};
 
-use super::machine::parse_expression_before_arrow;
+use super::machine::tokens_before_arrow;
 use super::pattern::{RulePattern, allocate_term_node_keys, push_term_reference_candidates};
 use crate::parse::{
     KeyAllocator, ParseError, unsupported_rule_signature as unsupported_signature,
@@ -333,7 +333,7 @@ pub(super) fn parse_have_extra(input: ParseStream<'_>) -> Result<HaveMapExtra, P
         bracketed!(content in input);
         Ok(content)
     })?;
-    let key = parse_expression_before_arrow(&content)?;
+    let key = have_key(&tokens_before_arrow(&content)?)?;
     content.parse::<Token![->]>()?;
     content.parse::<Token![let]>()?;
     let value = parse_binder_or_wildcard(&content)?;
@@ -348,6 +348,37 @@ pub(super) fn parse_have_extra(input: ParseStream<'_>) -> Result<HaveMapExtra, P
         key: Box::new(TermExpression::from_expression(key)?),
         value,
     })
+}
+
+/// The reason a `have` clause's key refuses `name @ pattern`.
+const ALIAS_IN_HAVE_KEY: &str = "`name @ pattern` (K's #as) is not supported in the key of a `have` clause: the key is read as the term the entry is looked up by, which binds no name";
+
+/// The key of a `have` clause, a condition that looks an entry up: the
+/// term it is looked up by, read as an expression. A `let` pattern in it is
+/// the pattern it is ([`crate::recover`]); a key with alternatives at its
+/// root or an alias anywhere matches, and is no key this clause reads.
+fn have_key(tokens: &TokenStream) -> Result<Expr, ParseError> {
+    let error = match crate::term::parse_expression_tokens(tokens) {
+        Ok(key) => return Ok(key),
+        Err(error) => error,
+    };
+    if crate::recover::rooted_in_alternatives(tokens) {
+        return Err(error.into());
+    }
+    let key = crate::recover::expression(tokens).ok_or(error)?;
+    if let Some(alias) = crate::recover::first_alias(&key) {
+        return Err(crate::SyntaxError::new(
+            crate::SyntaxErrorKind::InvalidPatternAs {
+                reason: ALIAS_IN_HAVE_KEY.to_owned(),
+            },
+            alias
+                .into_iter()
+                .next()
+                .map_or_else(proc_macro2::Span::call_site, |tree| tree.span()),
+        )
+        .into());
+    }
+    Ok(key)
 }
 
 pub(super) fn parse_update_extra(input: ParseStream<'_>) -> Result<MapUpdateExtra, ParseError> {
