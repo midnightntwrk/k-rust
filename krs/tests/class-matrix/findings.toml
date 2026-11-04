@@ -27,11 +27,6 @@
 # check) never under a `diagnostic`; a K2 red of a case the table does not decide only under a
 # `generator`.
 
-["B1"]
-owner = "S5"
-kind = "bug"
-what = "an initializer refuses bracket notation (`[]`, `[0]`, `[pgm]`) with the generic `unsupported-initializer-body`, also where it denotes a List or the computation"
-
 ["B2"]
 owner = "S5"
 kind = "diagnostic"

@@ -44,26 +44,6 @@
 # (see the header); the count is the reds each pended when
 # scripts/krs-class-collapse-pending.py last wrote this section.
 
-# B1, diagnostic: 28 reds
-
-# init: 11
-[[family]]
-match = 'init/kinds/{account,bag,counter,env,frame,job,ogroup,olist,omap,pc,set}/[0]'
-finding = "B1"
-kind = "diagnostic"
-
-# init: 12
-[[family]]
-match = 'init/{counter,env,frame,job,k,pc}/{[0],[]}'
-finding = "B1"
-kind = "diagnostic"
-
-# init: 5
-[[family]]
-match = 'init/{counter,env,frame,job,pc}/[pgm]'
-finding = "B1"
-kind = "diagnostic"
-
 # B2, diagnostic: 168 reds
 
 # init: 12
@@ -2391,24 +2371,6 @@ deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 finding = "S0-17"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
 
-# B1: an initializer refuses bracket notation (`[]`, `[0]`, `[pgm]`) with the generic `unsupported-initializer-body`, also where it denotes a List or the computation
-
-["init/k/[pgm]"]
-finding = "B1"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-
-["init/stack/[0]"]
-finding = "B1"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-
-["init/stack/[]"]
-finding = "B1"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-
-["init/stack/[pgm]"]
-finding = "B1"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-
 # B2: an initializer value of the wrong kind or sort is rustc E0308 at the entry's value (its inferred wrapper is spanned there), not a KRS error
 # The value's kind (a cell wrapper, map notation, presence, a group or instance record, a leaf
 # value) must be judged against the cell's declared kind, which the `#[k::init]` macro cannot see
@@ -2799,22 +2761,6 @@ deviation = "krs::analysis::invalid-list-notation @ entry"
 # refused with another code, S5-S1 (its K3, S6's); the overwrite and the subject lint, S5-Q1; the second
 # computation's brackets, S5-C2; own-level wrong codes S0-9 (cells! wrappers S5-A, `job: [x, ..]` S5-Q2,
 # initializers B1 and B2); K8 advice S0-9.
-["init/kinds/code/[0]"]
-finding = "B1"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-
-["init/kinds/prog/[0]"]
-finding = "B1"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-
-["init/kinds/seq/[0]"]
-finding = "B1"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-
-["init/kinds/stack/[0]"]
-finding = "B1"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
-
 ["claim/result/kinds/code/[x, ..]"]
 finding = "S5-C2"
 deviation = "krs::analysis::invalid-list-notation @ item"
@@ -3046,10 +2992,6 @@ deviation = "krs::analysis::collection-entry @ entry"
 # refusal, where readable answers `group-and-descendant`.
 # S5.0g item 3a: the compiled sweep's reds (shard `sweep`), each owned by the finding whose `what` covers its
 # pattern (the progress log's "Part (b), item 3a" lists the patterns and their kinds).
-
-["sweep/init/init/i09-acc/A { aid: 0, al: [0] }"]
-finding = "B1"
-deviation = "krs::syntax::unsupported-initializer-body @ spelling"
 
 ["sweep/claim/written/job/[.., x]"]
 finding = "S5-Q2"
