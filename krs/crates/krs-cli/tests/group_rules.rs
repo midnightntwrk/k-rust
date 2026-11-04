@@ -64,7 +64,7 @@ pub struct Core {
 
 /// The containing configuration and its initializer. The initializer writes
 /// the group as a record of the dependency's struct.
-const SMALL: &str = r#"
+const SMALL: &str = r"
 use k::builtin::{Int, Map, map};
 
 #[k::configuration]
@@ -84,7 +84,7 @@ impl Small {
         }
     }
 }
-"#;
+";
 
 /// Rules for `Small` that name the group's cells: readable rules, which name
 /// them flat, and a `cells!` rule, which names them as `lib::Core::<cell>`
@@ -143,14 +143,14 @@ pub fn load(
 "#;
 
 /// A readable rule typed by the group, as `small` writes it.
-const SMALL_GROUP_RULE: &str = r#"
+const SMALL_GROUP_RULE: &str = r"
 k::rules! {
     for lib::Core;
     use lib::Op::*;
 
     inc: { k: [Inc(), ..], pc, acc } => { k: [..], pc: k::builtin::int::add(pc, 1), acc: k::builtin::int::add(acc, 1) };
 }
-"#;
+";
 
 /// A `cells!` rule typed by the group, as `small` writes it.
 const SMALL_GROUP_CELLS_RULE: &str = r#"
@@ -172,14 +172,14 @@ pub fn inc(
 "#;
 
 /// The same readable rule as the library writes it, for its own group.
-const LIB_GROUP_RULE: &str = r#"
+const LIB_GROUP_RULE: &str = r"
 k::rules! {
     for Core;
     use Op::*;
 
     inc: { k: [Inc(), ..], pc, acc } => { k: [..], pc: k::builtin::int::add(pc, 1), acc: k::builtin::int::add(acc, 1) };
 }
-"#;
+";
 
 fn krs_path() -> String {
     let krs = Path::new(env!("CARGO_MANIFEST_DIR"))
