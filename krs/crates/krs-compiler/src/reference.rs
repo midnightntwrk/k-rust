@@ -51,7 +51,7 @@ pub struct PackageExpansion {
 /// Expands every module file of a package's library crate.
 ///
 /// The files are the crate's module tree, read from `crate_root` (the library target's root
-/// file) as rustc reads it ([`ModuleTree::read`]). Each file is printed at its own path, so a
+/// file) as rustc reads it (`ModuleTree::read`). Each file is printed at its own path, so a
 /// path an item resolves, `#[path]` and `include!` included, resolves in the printed file as in
 /// the authored one; only the readable forms are replaced by their long forms. A file every
 /// readable form of which is already long is printed unchanged and left out of
@@ -258,10 +258,10 @@ pub fn expand_reference_source(
 /// [`expand_reference_source`], where the source names each package of `crates` (a dependency
 /// it declares) by its crate name there.
 ///
-/// Another package's item prints by the path the printed clause writes to it ([`WrittenPaths`]),
+/// Another package's item prints by the path the printed clause writes to it (`WrittenPaths`),
 /// which the long form, standing in the clause's module, resolves as the clause does; elsewhere a
 /// dependency's item prints by its declaring path in that crate (`::semantic_base::Unit`) where
-/// that path is known to compile ([`dependency_path`]), and an item of a package the source does
+/// that path is known to compile (`dependency_path`), and an item of a package the source does
 /// not depend on directly has no path the source can print.
 ///
 /// # Errors
@@ -5107,11 +5107,11 @@ pub enum ReferenceExpansionError {
         binding: String,
     },
     /// An item of a package the printed package does not depend on directly, to which the
-    /// printed clause writes no path the long form can print ([`WrittenPaths`]).
+    /// printed clause writes no path the long form can print (`WrittenPaths`).
     ExternalDeclaration(Box<StableItemId>),
     /// A dependency's item declared below its crate root, to which the printed clause writes no
-    /// path the long form can print ([`WrittenPaths`]) and whose declaring path is not known to
-    /// compile ([`dependency_path`]).
+    /// path the long form can print (`WrittenPaths`) and whose declaring path is not known to
+    /// compile (`dependency_path`).
     DependencyPath {
         /// The item.
         item: Box<StableItemId>,
@@ -5120,7 +5120,7 @@ pub enum ReferenceExpansionError {
     },
     /// An item of the printed package that is not visible, or is in a module that is not, from
     /// the module the long form stands in, to which the printed clause writes no path the long
-    /// form can print ([`WrittenPaths`]).
+    /// form can print (`WrittenPaths`).
     PrivateModule {
         /// The item.
         item: Box<StableItemId>,

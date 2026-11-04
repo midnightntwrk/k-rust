@@ -27,6 +27,8 @@
 //! The tables belong to the artifact root. An [`OriginStack`] serialized on
 //! its own, outside any root, has no table to refer to and is written as the
 //! array of its frames.
+//!
+//! [`OriginStack`]: crate::provenance::OriginStack
 
 use std::cell::RefCell;
 use std::collections::HashMap;

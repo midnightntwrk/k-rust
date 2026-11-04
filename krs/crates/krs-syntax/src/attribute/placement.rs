@@ -77,7 +77,7 @@ impl Marker {
     ];
 
     /// The keys the marker takes, each one of [`SENTENCE_KEYS`]; every other key is
-    /// [`misplaced_key`]'s. The marker's parser reads exactly these ([`taken`]). (A key taken may
+    /// [`misplaced_key`]'s. The marker's parser reads exactly these (`taken`). (A key taken may
     /// still be refused beside another, or by its value: that is the marker's own refusal.)
     #[must_use]
     pub const fn keys(self) -> &'static [&'static str] {
@@ -181,7 +181,7 @@ pub(crate) const RESULT_WITHOUT_EVALUATION: &str = "`result` names the sort a he
 pub(crate) const RECURSIVE_ON_SENTENCE: &str = "`recursive` is a property of a static production, a key of its `#[k::alias]` or `#[k::desugar]` marker; a sentence has none";
 
 /// The refusal of `key`, written on `marker`, which does not take it: the mistake the key makes
-/// there ([module docs](self)), at the key.
+/// there (what the key means decides where it is misplaced), at the key.
 #[must_use]
 pub fn misplaced_key(marker: Marker, key: &Ident) -> SyntaxError {
     misplaced_key_named(marker, &key.to_string(), key.span())

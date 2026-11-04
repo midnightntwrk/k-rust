@@ -240,7 +240,7 @@ pub enum Base {
     /// The machine base, whose one case writes the declarations after the commands itself, its
     /// optional cell declared `initial`, before an initializer that writes it present
     /// (`counter: Some(0)`): the flag repeats what the initializer says, which
-    /// `redundant-initial` refuses ([`Base::case_writes_declarations`]).
+    /// `redundant-initial` refuses (`Base::case_writes_declarations`).
     Initial,
     /// The machine base's cells, with the same names and declarations, a Set collection whose
     /// instances hold a map cell (`shelf.bag` of `Obj { key, m }`), and K7's driver commands, which
@@ -959,7 +959,7 @@ pub fn applied_sibling<'c>(cases: &'c [Case], case: &Case) -> Option<&'c Case> {
 }
 
 /// Why K7 runs no counter-witness of a run family's case ([`Family::twin`]), `None` for a case that
-/// runs one or a case of another family ([`config_drivers`]).
+/// runs one or a case of another family (`config_drivers`).
 #[must_use]
 pub fn run_counterless(case: &Case) -> Option<&'static str> {
     let kind = case.kind?;
@@ -995,7 +995,7 @@ pub fn initializer_unread(case: &Case) -> Option<&'static str> {
 /// The collections a run family's subject case reads (`Obj { key: 1, m: map![1 -> 2] }` reads the
 /// Set collection's instances, open, and the instance's map, exact), each with the items its
 /// witness and its counter-witnesses write there, or why it reads none; `None` for a case of
-/// another family, a result case, or a case K7 does not run ([`config_drivers`]).
+/// another family, a result case, or a case K7 does not run (`config_drivers`).
 #[must_use]
 pub fn run_readings(case: &Case) -> Option<Result<Vec<Reading>, &'static str>> {
     let kind = case.kind?;

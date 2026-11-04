@@ -100,7 +100,9 @@ pub fn constructor(attributes: TokenStream, item: TokenStream) -> TokenStream {
 /// pub fn Byte(value: k::Term<Int>) -> k::Term<Int> {
 ///     int::rem_euclid(value, 256)
 /// }
-/// ``` `total` adds K's `total` attribute to the emitted `function`
+/// ```
+///
+/// `total` adds K's `total` attribute to the emitted `function`
 /// production, which promises that every application has a value: one that no
 /// equation covers still has some value, which the definition does not name.
 /// `partial` omits it, so an application that no equation covers is

@@ -273,7 +273,7 @@ fn list_of_parts(node: &Node, nodes: &[Node]) -> bool {
 /// Each node's refusal at its position in `nodes` at `hole`, the node's own entry
 /// ([`admits`]) read with its key's: a key that holds a selecting construct is a selection. A
 /// list of two or more parts below a static subject's root is one spelling of the list
-/// ([`concatenation`]), which its brackets' parts tell.
+/// (`concatenation`), which its brackets' parts tell.
 #[must_use]
 pub fn refusals(hole: Position, nodes: &[Node]) -> Vec<Option<Refusal>> {
     let selection = nodes

@@ -48,7 +48,7 @@
 //! sort the lattice must check (step 4, the compiler's). [`rule_outcome`] answers step 5, the
 //! rule-level classes, from the whole sentence, with the [`Template`] as its input.
 //!
-//! E1 (the computation is read from its front) is here, in every form ([`computation_front`]):
+//! E1 (the computation is read from its front) is here, in every form (`computation_front`):
 //! it is stated of the computation, and P3 is one judgement in every form. The other stated
 //! exceptions (E3 and the stated limitations) are not here: they are `[cell-exception."GLOB"]`
 //! entries of `expected.toml`, which check 1 (`tests/cells_oracle.rs`) reads, so an exception

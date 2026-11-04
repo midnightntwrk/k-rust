@@ -51,7 +51,7 @@
 //! Where the class matrix states a departure from these principles (`[cell-exception]`), the
 //! departure is written here as the table states it, with its reason: a List collection's rule
 //! changes instances at one end only and keeps no back instance in place (the product creates or
-//! removes instances at the back, and reads and updates them at the front: [`list_ends`]), an
+//! removes instances at the back, and reads and updates them at the front: `list_ends`), an
 //! initializer's `k::k![..]` splices no configuration variable's computation (`..pgm`), and a
 //! readable record's top-level map read has no result side and reads its value as a fresh
 //! binder.
@@ -1844,7 +1844,7 @@ fn list_ends(
 ///   and a root `..` keeps a rest the subject never matched, [`Refusal::RestMismatch`];
 /// - a created cell had no content, so a root `..` keeps nothing, [`Refusal::RestMismatch`].
 ///
-/// A List collection's entry is then judged by the ends its rule changes ([`list_ends`]).
+/// A List collection's entry is then judged by the ends its rule changes (`list_ends`).
 ///
 /// # Errors
 ///
@@ -1920,7 +1920,7 @@ pub fn pair_located(
 /// cell's root and at each `?` child of the records it writes
 /// ([`Refusal::AbsenceTestWithoutCreation`]), and an entry that constrains nothing owes
 /// [`Lint::NoEffectEntry`]. A context (`as_rule`) is lowered as a rule's pattern is, so a List
-/// collection's back instance it keeps meets the rule lowering's limit ([`list_ends`]); the
+/// collection's back instance it keeps meets the rule lowering's limit (`list_ends`); the
 /// other kept patterns are lowered by lowerings of their own, which reach no List lowering, so
 /// no such limit refuses them here.
 ///
@@ -2038,7 +2038,7 @@ pub enum Rewrite {
     /// as such a rule's subject entries are ([`pair_kept`]).
     Kept {
         /// Whether the sentence is lowered as a rule's pattern is (a context), so the rule
-        /// lowering's limits on a List collection's ends apply to it ([`list_ends`]). A function
+        /// lowering's limits on a List collection's ends apply to it (`list_ends`). A function
         /// context and a context alias are lowered by lowerings of their own, which reach none.
         as_rule: bool,
     },
@@ -2094,7 +2094,7 @@ impl<C: PartialEq> Sentence<'_, C> {
     ///    refusal needs only the declaration, as the cell's own kind does);
     /// 3. the pairing, of every entry, where the sentence has a result; without one, a
     ///    single-body rule rewrites its cells in place, so only a List collection's ends are
-    ///    judged, every instance it names being kept ([`list_ends`]), and a sentence that keeps
+    ///    judged, every instance it names being kept (`list_ends`), and a sentence that keeps
     ///    its pattern as it matched it ([`Rewrite::Kept`]) pairs each entry as a subject entry
     ///    over a cell the sentence keeps ([`pair_kept`]).
     ///

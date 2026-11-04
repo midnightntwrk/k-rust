@@ -190,7 +190,7 @@ impl Configuration {
     /// Prepare the program grammar, configuration parser modules, and macros once per session.
     ///
     /// The grammar is leaked so that the assembler, which borrows it, can live in the session: a session loads one definition, once, for the life of its process.
-    /// Values are typed over the frontend definition with the sort predicates and projections the definition generates in its main module ([`with_sort_helpers`]); text is parsed over the frontend definition.
+    /// Values are typed over the frontend definition with the sort predicates and projections the definition generates in its main module (`with_sort_helpers`); text is parsed over the frontend definition.
     ///
     /// # Errors
     ///

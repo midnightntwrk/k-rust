@@ -7,7 +7,7 @@
 //!
 //! The base holds the optional group `qopt` (`Q`) and the List collection `line` (`L`), each with
 //! one child per stack the main tables name ([`stacks`]), named and renamed per path as
-//! [`super::SLOTS`] names the root's: a group is the content of one cell only and a cell's name is
+//! `sweep::SLOTS` names the root's: a group is the content of one cell only and a cell's name is
 //! its own in the whole configuration. The collection's instance also holds `lid`, an `Int` of
 //! its own that the matched results' subject names; no sweep stack is a key, as a List collection
 //! has none. A `*` child stands in a plain group of its own, as at the record's level: a `*`

@@ -52,7 +52,7 @@ pub enum CapabilityFeature {
     /// A function's equation restricted by `concrete` or `symbolic` where
     /// not every equation of the function is restricted by the bare key:
     /// the key names some binders only (`concrete(x)`), or another equation
-    /// of the function lacks it ([`partial_restrictions`]).
+    /// of the function lacks it (`partial_restrictions`).
     PartialEquationRestriction,
 }
 

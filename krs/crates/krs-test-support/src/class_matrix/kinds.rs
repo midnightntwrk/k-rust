@@ -6,7 +6,7 @@
 //! the path are spread over the stack × mark grid by an orthogonal array, so each of their pairs
 //! with each other, with the stack and with the mark is met too.
 //!
-//! The configuration is one tree ([`configuration`]), from which the base's source, each cell's
+//! The configuration is one tree (`configuration`), from which the base's source, each cell's
 //! layers and path, and each case's text and spelling are written, so the rendered sentence and
 //! the oracle's reading of it come from one place (check 2's template agreement compares them).
 

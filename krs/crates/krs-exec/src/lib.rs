@@ -100,7 +100,7 @@ pub struct RunOptions {
     /// it holds nothing that grows with its length on that account.
     pub trace: bool,
     /// Check that a run reported stuck ended where no rule applies, at a state that is its own
-    /// value, as `KRS_CHECK_ENDS=1` asks of every run ([`check_final_state`]).
+    /// value, as `KRS_CHECK_ENDS=1` asks of every run (`check_final_state`).
     pub check_ends: bool,
     /// Report the run's coverage ([`RunReport::coverage`]): the rules and equations it matched,
     /// applied and committed, with how many times it applied each.
@@ -501,7 +501,7 @@ pub enum ExecError {
     /// The backend returned a result KRS cannot read.
     Result(String),
     /// A run reaches several states under conditions over terms that may have values, which it
-    /// cannot decide ([`one_path`]); the message names them.
+    /// cannot decide (`one_path`); the message names them.
     Undecided(String),
     /// A configuration value that is no term of the definition, or not of its variable's sort.
     Value {

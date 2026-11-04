@@ -1892,7 +1892,7 @@ enum TermExpressionContext {
 
 impl KrsSyntax for TermExpression {
     /// Parses a term at a position that builds one: an expression, or tokens
-    /// that hold `name @ pattern` ([`parse_term_expression`]).
+    /// that hold `name @ pattern` (`parse_term_expression`).
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
         let expression = parse_term_expression.parse2(tokens)?;
         Self::from_expression(expression)
@@ -2054,7 +2054,7 @@ pub(crate) fn tokens_between(
 
 /// Parses the `fn` item in `tokens`. A body that holds `name @ pattern`,
 /// which no Rust block holds, is read as one term with the pattern grammar
-/// ([`parse_term_expression`]), so that the position table refuses the alias
+/// (`parse_term_expression`), so that the position table refuses the alias
 /// in the result, at its own tokens.
 ///
 /// # Errors
