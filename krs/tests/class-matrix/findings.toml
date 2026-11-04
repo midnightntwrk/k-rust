@@ -147,7 +147,7 @@ what = "a `cells!` subject's map holding only a rest, `Cell(k::map![..])`, is a 
 ["S5-Q1"]
 owner = "S5"
 kind = "bug"
-what = "decision Q1, both halves: a subject entry that constrains nothing on a cell the result leaves out (`_`, `[..]`, `Cell(_)`) is a lint, not a refusal: readable refuses it (`cells!` accepted it without the warning until S5.2 part b, which reports it); and a result over a cell the subject does not match is the overwrite, which readable refuses (\"a machine-rule result cannot introduce an unmatched cell\") and `cells!` refuses under the internal `krs::analysis::unsupported-shape` (\"the result selects a fixed cell absent from the subject\"), so the class the table states is never reached. An internal code an author reaches is a KRS bug, hence `bug`"
+what = "decision Q1, both halves: a subject entry that constrains nothing on a cell the result leaves out (`_`, `[..]`, `Cell(_)`) is a lint, not a refusal (readable and `cells!` warn since S5.2 parts a and b; `[..]` on a List collection or the computation is still refused `collection-entry` by the compiler); and a result over a cell the subject does not match is the overwrite, which readable lowers since S5.2 part a (4) and `cells!` refuses under the internal `krs::analysis::unsupported-shape` (\"the result selects a fixed cell absent from the subject\"). Residue on the readable overwrite rows: a value of another sort (`env: x`, `pc: G { a: x }`, `frame: 0`) that the table leaves to the lattice and accepts is refused by the compiler (`invalid-term`, `incompatible-binder`), where the `cells!` twins are refused by a rule: the table's or the lattice's to state. An internal code an author reaches is a KRS bug, hence `bug`"
 
 ["S5-Q2"]
 owner = "S5"
