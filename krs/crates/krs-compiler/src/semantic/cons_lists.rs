@@ -654,25 +654,33 @@ impl StructuredTermBuilder<'_> {
         if constructors.cons.is_some() && !list.back.is_empty() {
             return Err(self.invalid_list_notation(&cell.key, CONS_LIST_BACK.to_owned()));
         }
-        let element = |builder: &mut Self, item: &krs_ir::DescriptorTerm| {
-            if constructors.cons.is_some() {
-                Some(constructors.element.clone())
-            } else {
-                builder.collection_operand_expected(item, CollectionOperandSort::Element)
-            }
-        };
         for item in &list.items {
-            let expected = element(self, item);
+            let expected = self.list_element_expected(item, constructors);
             self.infer(item, expected.as_ref(), subject)?;
         }
         if let ProtocolHeadRuleListRest::Term(rest) = &list.rest {
             self.infer(rest, Some(sort), subject)?;
         }
         for item in &list.back {
-            let expected = element(self, item);
+            let expected = self.list_element_expected(item, constructors);
             self.infer(item, expected.as_ref(), subject)?;
         }
         Ok(())
+    }
+
+    /// The sort an element `item` of a list built by `constructors` is inferred at: a cons
+    /// list's element sort, or, at the builtin `List`, the sort its typed collection declares
+    /// (`KItem` where none does).
+    pub(super) fn list_element_expected(
+        &mut self,
+        item: &krs_ir::DescriptorTerm,
+        constructors: &ConsListConstructors,
+    ) -> Option<SemanticSortRef> {
+        if constructors.cons.is_some() {
+            Some(constructors.element.clone())
+        } else {
+            self.collection_operand_expected(item, CollectionOperandSort::Element)
+        }
     }
 
     /// The variable an anonymous `..` of a list cell names: one rest of the

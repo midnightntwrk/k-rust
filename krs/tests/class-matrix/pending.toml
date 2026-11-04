@@ -3953,11 +3953,11 @@ finding = "S5-U1"
 deviation = "krs::syntax::unsupported-initializer-body @ spelling"
 
 ["sweep/claim/result/c19-acc/{ A { al: [x, ..], ..me }, .. }"]
-finding = "S5-V1"
+finding = "S5-V2"
 deviation = "krs::analysis::invalid-term @ item"
 
 ["sweep/readable/result/c19-acc/{ A { al: [x, ..], ..me }, .. }"]
-finding = "S5-V1"
+finding = "S5-V2"
 deviation = "krs::analysis::invalid-term @ item"
 
 ["sweep/claim/result/c20-acc/{ A { aid: 5, al: [x] }, .. }"]
@@ -3967,14 +3967,6 @@ deviation = "krs::analysis::invalid-term @ spelling"
 ["sweep/readable/result/c20-acc/{ A { aid: 5, al: [x] }, .. }"]
 finding = "S5-V2"
 deviation = "krs::analysis::invalid-term @ spelling"
-
-["sweep/claim/subject/ogroup/Some(_)"]
-finding = "S5-W1"
-deviation = "accepted, with other K than recorded"
-
-["sweep/readable/subject/ogroup/Some(_)"]
-finding = "S5-W1"
-deviation = "accepted, with other K than recorded"
 
 ["sweep/cells/result/c36-ogroup/Some(k::fragment![crate::Gp { pa: x, .. }])"]
 finding = "S5-X1"

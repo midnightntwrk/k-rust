@@ -164,21 +164,10 @@ owner = "S5"
 kind = "bug"
 what = "an initializer's record update on a group or a collection-of-group cell (`frame: G { a: 0, ..base }`, an instance template `Gl { la: 0, ..base }`) is refused `krs::syntax::unsupported-initializer-body` (\"nested cell initialization requires a complete plain struct literal\"), though P5 reads `..base` as the base the record updates, so the record names its fields through it and uses the configuration variable (S5.0g item 3a fixes, ruling 2 and F-1); on a leaf stack the same refusal stands where the lattice's sort class is the answer"
 
-["S5-V1"]
-owner = "S5"
-kind = "bug"
-what = "a Map collection's instance record whose List child the subject matches with a binder used nowhere (`acc: { A { aid: k, al: [y, ..], .. }, .. }`) fails in lowering with the internal \"variable `y` has no expected sort\" (`krs::analysis::unsupported-shape`), whatever the result writes, though the binder has its child's item sort (P1, P5) and the `cells!` twin is accepted (P7); the result entry's own mistake, where it has one, is never reached"
-
 ["S5-V2"]
 owner = "S5"
 kind = "bug"
-what = "a readable instance record's List child written with brackets (`acc: { A { aid: 5, al: [x] }, .. }`) is refused \"a `[..]` sequence occurs in a cell that is not the computation cell\": the compiler misreads the child's kind, reading the brackets of a List leaf as a K sequence, though P2 gives brackets inside a List leaf as its mark and the `cells!` twin is accepted with `<al> ListItem(V0:Int) </al>` (P7)"
-
-["S5-W1"]
-owner = "S5"
-kind = "bug"
-what = "a subject `Some(_)` on an optional group cell (`ogroup: Some(_)`) lowers to a bare untyped `_` in the rule's configuration, which names no `ogroup` cell, so the rule does not test the cell's presence, though P5 reads `Some` as the cell present (P0: an entry means its K). The principled K, `_:OgroupCell`, is the table's (written by hand; record mode keeps it while the pending entry is `accepted, with other K than recorded`); `Some(x)` and the written `Some(_)` emit the cell's sort and are right"
-risk = "the rule fires whether `ogroup` is present or absent: an author who wrote `Some(_)` to require the cell gets a rule that also applies to configurations without it, and nothing reports it"
+what = "a readable instance record's List child written with brackets, in a result or a subject (`acc: { A { aid: 5, al: [x] }, .. }`, the subject `al: [y, ..]` of `c19-acc`) is refused \"a `[..]` sequence occurs in a cell that is not the computation cell\": the compiler misreads the child's kind, reading the brackets of a List leaf as a K sequence, though P2 gives brackets inside a List leaf as its mark and the `cells!` twin is accepted with `<al> ListItem(V0:Int) </al>` (P7)"
 
 ["S5-X1"]
 owner = "S5"
