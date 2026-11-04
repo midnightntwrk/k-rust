@@ -511,6 +511,16 @@ fn a_plain_anywhere_head_is_a_data_head_and_admits_only_irreducible_applications
 /// one-sided, and a term such an equation used to keep unreduced is now instance-normal (more
 /// ends are data, none fewer). `instance_normal_doc` and `excluded` are re-pinned and the two new
 /// helpers are pinned; the rest is byte-identical.
+///
+/// Short-circuit readings (k-rust aaf320ee8; re-pinned later, as that commit's own checks did not
+/// run this test): `ceil_term_node` now binds the obligations `deferred_operand_obligations`
+/// states for a deferred operand to `stated` and, when they hold `\bottom`
+/// (`Predicate::False`), calls `path_facts::note_short_circuit_reading` before extending
+/// `before` with them as it did. That call only records a fact of the run, when a recording is
+/// open; it returns nothing, and the walk reads no recorded fact. The walk's value is unchanged:
+/// the same obligations in the same order, the same early returns, and no route to `\top` or to
+/// `no` added or removed. So `ground_defined` stays one-sided and kink's reading is unchanged.
+/// `ceil_term_node` is re-pinned; the rest is byte-identical.
 #[test]
 fn the_data_judgement_kink_reads_is_pinned() {
     const DATA_TERM: &str = include_str!("../../../../crates/k-rust-backend/src/data_term.rs");
@@ -760,7 +770,7 @@ fn the_data_judgement_kink_reads_is_pinned() {
             ),
             (
                 "ceil_term_node",
-                "2c6ce8744cefd65a910d195e48d7eb0e566c25e7caf066e06633634a115455e6"
+                "4e6f05e62e2155e0962c128dff45bfb6a4f8723edcb0db393e975110ee0a34d8"
             ),
             (
                 "apply_ceil_equation",
