@@ -12,6 +12,10 @@ use std::time::{Duration, SystemTime};
 use toml_edit::DocumentMut;
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One generated package, checked file by file, its profile included."
+)]
 fn production_collector_owns_the_complete_collection_entrypoint() {
     let metadata = CargoMetadata::from_json(
         &serde_json::to_vec(&json!({
@@ -70,7 +74,26 @@ fn production_collector_owns_the_complete_collection_entrypoint() {
 
     assert!(manifest.contains("__krs_host_runtime = { package = \"krs\""));
     assert!(manifest.contains("__krs_collector_runtime = { package = \"krs-collector\""));
-    assert!(manifest.ends_with("\n[workspace]\n\n[profile.dev]\ndebug = 0\n"));
+    // KRS's own crates and the libraries they call are optimized; the user's crates keep the
+    // development profile.
+    assert!(manifest.contains(
+        "\n[workspace]\n\n[profile.dev]\ndebug = 0\n\n[profile.dev.package.krs]\nopt-level = 3\n"
+    ));
+    for package in [
+        "krs-macros",
+        "krs-collector",
+        "krs-ir",
+        "krs-syntax",
+        "syn",
+        "serde_json",
+    ] {
+        assert!(manifest.contains(&format!(
+            "\n[profile.dev.package.{package}]\nopt-level = 3\n"
+        )));
+    }
+    assert!(!manifest.contains("[profile.dev.package.language]"));
+    assert!(!manifest.contains("[profile.dev.package.\"*\"]"));
+    assert!(manifest.ends_with("\n[profile.dev.package.equivalent]\nopt-level = 3\n"));
     let package_name = manifest
         .lines()
         .find(|line| line.starts_with("name = "))
@@ -261,6 +284,11 @@ fn explicit_registration_collector_reads_semantics_tables_without_inventory() {
     ));
     assert!(source.contains("__krs_host_runtime::host_descriptors_from(tables)"));
     assert!(!source.contains("host_descriptors()"));
+    // Explicit registration leaves `inventory` out of KRS's graph, so no override names it.
+    assert!(manifest.contains("\n[profile.dev.package.krs]\nopt-level = 3\n"));
+    assert!(!manifest.contains("[profile.dev.package.inventory]"));
+    let inventory_manifest = String::from_utf8(inventory.manifest.clone()).unwrap();
+    assert!(inventory_manifest.contains("\n[profile.dev.package.inventory]\nopt-level = 3\n"));
     assert_eq!(generated.canonical_selection, inventory.canonical_selection);
     assert_ne!(generated.main_source, inventory.main_source);
 }

@@ -153,8 +153,89 @@ fn render_manifest(plan: &CollectorPlan, package_name: &str) -> Result<String, G
     }
     output.push_str("\n[workspace]\n");
     output.push_str("\n[profile.dev]\ndebug = 0\n");
+    if let CollectorKind::Production { registration, .. } = &plan.kind {
+        for package in OPTIMIZED_RUNTIME_PACKAGES {
+            // Explicit registration is admitted only with `krs`'s `inventory` feature disabled,
+            // so KRS brings no `inventory` into the graph, and an override would match nothing.
+            if *package == "inventory" && *registration == RegistrationMode::Explicit {
+                continue;
+            }
+            output.push_str("\n[profile.dev.package.");
+            output.push_str(package);
+            output.push_str("]\nopt-level = ");
+            output.push_str(OPTIMIZED_RUNTIME_OPT_LEVEL);
+            output.push('\n');
+        }
+    }
     Ok(output)
 }
+
+/// The packages a production collector optimizes: KRS's own crates and the libraries they call.
+///
+/// A KRS user's edit-run cycle is a collector build after an edit, then a collector run.
+/// The build recompiles only the edited packages and what depends on them, so the packages
+/// named here are compiled once per collector directory: the collector directory is keyed by
+/// the generated package and the canonical selection, so a new selection starts a new directory
+/// with its own Cargo target, which compiles them again, as a new KRS does in whichever
+/// directory its selection keys.
+/// Their code is what runs in the cycle: the `k::*` macros that expand the user's crates during
+/// the build (`krs-macros`, `krs-expand`, `krs-syntax`, `syn`), and the collection that
+/// reparses and verifies every authored invocation, builds its provenance and serializes the
+/// descriptor bundle (`krs-collector`, `krs-ir`, `serde_json`, `sha2`, `toml_edit`).
+/// The definition's crates keep the generated development profile, since every edit recompiles
+/// them.
+/// An override names a package, not a version or a source, so a crate of the definition's own
+/// dependency graph that bears one of these names is optimized too.
+///
+/// Only the optimization level changes: debug assertions and overflow checks stay those of the
+/// development profile, so the optimized collector computes what the unoptimized one does.
+///
+/// The generated package carries no lock file, so Cargo resolves the collector's graph afresh,
+/// within the definition's version requirements.
+/// A unit test checks every name against the normal and build dependency graph of `krs` and
+/// `krs-collector` that the workspace lock file resolves, with the workspace's features unified.
+/// A resolution that differs, such as a definition that requires a release of a library from
+/// before one of these transitive dependencies existed, can lack a name; Cargo then warns about
+/// the override that matches nothing, and the crate that took its place stays at opt-level 0.
+/// Neither changes what the collector computes.
+const OPTIMIZED_RUNTIME_PACKAGES: &[&str] = &[
+    "krs",
+    "krs-macros",
+    "krs-expand",
+    "krs-collector",
+    "krs-ir",
+    "krs-syntax",
+    "krs-diagnostic",
+    "syn",
+    "proc-macro2",
+    "quote",
+    "unicode-ident",
+    "proc-macro-crate",
+    "inventory",
+    "serde",
+    "serde_core",
+    "serde_json",
+    "itoa",
+    "memchr",
+    "zmij",
+    "sha2",
+    "digest",
+    "block-buffer",
+    "crypto-common",
+    "generic-array",
+    "typenum",
+    "cpufeatures",
+    "toml_edit",
+    "toml_parser",
+    "toml_datetime",
+    "winnow",
+    "indexmap",
+    "hashbrown",
+    "equivalent",
+];
+
+/// The optimization level of [`OPTIMIZED_RUNTIME_PACKAGES`].
+const OPTIMIZED_RUNTIME_OPT_LEVEL: &str = "3";
 
 fn render_runtime_dependency(
     output: &mut String,
@@ -426,5 +507,104 @@ impl Error for GenerationError {
             Self::UnsafeOutput(_) => None,
             Self::Io { source, .. } => Some(source),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::OPTIMIZED_RUNTIME_PACKAGES;
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::path::Path;
+    use std::process::Command;
+
+    /// Every optimized package is in the normal or build dependency graph of `krs` or
+    /// `krs-collector` that the workspace lock file resolves.
+    ///
+    /// The graph is Cargo's resolve with each edge's dependency kinds, so a package reachable
+    /// only through a development dependency does not count. `cargo metadata` resolves features
+    /// unified across the workspace's members, so an edge that only another member's feature
+    /// enables counts too: the check is no finer than that resolution.
+    #[test]
+    fn optimized_runtime_packages_are_runtime_dependencies() {
+        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../Cargo.toml");
+        let output = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
+            .args([
+                "metadata",
+                "--format-version",
+                "1",
+                "--frozen",
+                "--manifest-path",
+            ])
+            .arg(&workspace)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "cargo metadata failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let metadata: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        let names = metadata["packages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|package| {
+                (
+                    package["id"].as_str().unwrap(),
+                    package["name"].as_str().unwrap(),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        let edges = metadata["resolve"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|node| {
+                let runtime = node["deps"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|dependency| {
+                        dependency["dep_kinds"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .any(|kind| kind["kind"].as_str() != Some("dev"))
+                    })
+                    .map(|dependency| dependency["pkg"].as_str().unwrap())
+                    .collect::<Vec<_>>();
+                (node["id"].as_str().unwrap(), runtime)
+            })
+            .collect::<BTreeMap<_, _>>();
+        let workspace_members = metadata["workspace_members"].as_array().unwrap();
+        let mut pending = workspace_members
+            .iter()
+            .map(|member| member.as_str().unwrap())
+            .filter(|id| matches!(names[id], "krs" | "krs-collector"))
+            .collect::<Vec<_>>();
+        assert_eq!(pending.len(), 2);
+        let mut reached = BTreeSet::new();
+        while let Some(id) = pending.pop() {
+            if reached.insert(id) {
+                pending.extend(edges[id].iter().copied());
+            }
+        }
+        let closure = reached.iter().map(|id| names[id]).collect::<BTreeSet<_>>();
+        let missing = OPTIMIZED_RUNTIME_PACKAGES
+            .iter()
+            .filter(|package| !closure.contains(**package))
+            .collect::<Vec<_>>();
+        assert!(missing.is_empty(), "not runtime dependencies: {missing:?}");
+        let distinct = OPTIMIZED_RUNTIME_PACKAGES.iter().collect::<BTreeSet<_>>();
+        assert_eq!(distinct.len(), OPTIMIZED_RUNTIME_PACKAGES.len());
+    }
+
+    /// KRS's fixture harness compiles exactly the optimized packages at opt-level 0.
+    #[test]
+    fn the_fixture_harness_names_the_optimized_packages() {
+        assert_eq!(
+            krs_test_support::COLLECTOR_OPTIMIZED_PACKAGES,
+            OPTIMIZED_RUNTIME_PACKAGES
+        );
     }
 }

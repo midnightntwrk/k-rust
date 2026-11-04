@@ -97,6 +97,9 @@ fn host_target_and_cfg_are_explicit_build_inputs() {
         ]
     );
     assert!(manifest.contains("host-only = true"));
+    // An entry-point collector's graph need not contain KRS's collector crates, so its manifest
+    // names no package override.
+    assert!(manifest.ends_with("\n[profile.dev]\ndebug = 0\n"));
 }
 
 #[test]

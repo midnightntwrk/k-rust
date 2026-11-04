@@ -175,7 +175,7 @@ python3 tests/perf/sample.py show <receipts>/profiles/<cell>.summary.json
 python3 tests/perf/sample.py fold PROFILE.samply.json.gz [--binary EXE]
 ```
 
-`--collector` selects the collector build through `--env` overrides of its `dev` profile: `as-is` (opt-level 0, full debuginfo, what `krs` runs), `line-tables` (`CARGO_PROFILE_DEV_DEBUG=line-tables-only`), or `optimized` (also `CARGO_PROFILE_DEV_OPT_LEVEL=3`).
+`--collector` selects the collector build through `--env` overrides of its `dev` profile: `as-is` (what `krs` runs: no debuginfo, KRS's crates and the libraries they call at opt-level 3, the definition's crates at opt-level 0), `line-tables` (`CARGO_PROFILE_DEV_DEBUG=line-tables-only`), or `optimized` (also `CARGO_PROFILE_DEV_OPT_LEVEL=3`, which optimizes the definition's crates too).
 The overrides reach every command of both runs, including the settle builds, and are recorded in the receipts.
 
 ## Scaling ladders

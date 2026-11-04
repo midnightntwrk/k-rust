@@ -119,6 +119,26 @@ A reused command returns the same stdout and restores any missing or modified ou
 Each command keeps one previous result, so alternating `emit-k` with and without `--ir` replaces it each time, and neither is reused after the other has run.
 Pass `--no-reuse`, or set `KRS_NO_REUSE=1`, to run the collector and later stages again.
 
+The generated collector compiles KRS's own crates and the libraries they call at opt-level 3, and the definition's crates unoptimized and without debug information.
+An override names a crate, so a dependency of the definition that shares one of those crates' names is optimized too.
+Each collector has its own directory, with its own Cargo target, under the project's target directory, keyed by the generated package and the selection: the definition, the root and dependency packages with their versions and features, the cfg and registration settings, and KRS's own paths.
+The first command with a new selection compiles KRS's crates once in a new collector directory, and the first after upgrading KRS compiles them again; after an edit, Cargo recompiles only the edited crates and the crates that depend on them.
+An earlier collector directory stays until the target directory is cleaned.
+
+The optimization repays its first compilation over the commands that follow it.
+A one-shot run in a fresh target directory, such as a CI job, can compile those crates unoptimized instead, as KRS's own fixture tests do: krs builds each collector from its directory under the target directory, Cargo reads the configuration files of that directory and of every directory above it, and a configuration's profile takes precedence over the manifest's, so a `<target>/.cargo/config.toml` that sets `opt-level = 0` for each crate the generated `Cargo.toml` optimizes applies to every collector under that target.
+The optimization level changes no output.
+
+```toml
+# <target>/.cargo/config.toml: one table for each [profile.dev.package.<name>] of
+# <target>/krs/collectors/<digest>/Cargo.toml
+[profile.dev.package.krs-collector]
+opt-level = 0
+
+[profile.dev.package.syn]
+opt-level = 0
+```
+
 ## Run, search, and prove
 
 ```console

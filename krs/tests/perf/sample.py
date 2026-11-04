@@ -597,8 +597,9 @@ def main_run(argv: Sequence[str]) -> int:
         "Run a bench.py selection twice with one profiling krs: unprofiled (the companion whose numbers "
         "are quoted), then under `--profile samply`. Other arguments pass through to bench.py."))
     parser.add_argument("--collector", choices=list(COLLECTOR_VARIANTS), default="as-is",
-                        help="collector build: as-is (dev, opt-level 0, full debuginfo), line-tables, or "
-                             "optimized (opt-level 3, line tables)")
+                        help="collector build: as-is (the generated dev profile: KRS's crates at opt-level 3, "
+                             "the definition's at 0, no debuginfo), line-tables, or optimized (every crate at "
+                             "opt-level 3, line tables)")
     parser.add_argument("--krs", type=Path, help="profile this krs instead of building the profiling krs")
     parser.add_argument("--label", default="samply")
     parser.add_argument("--no-companion", action="store_true", help="skip the unprofiled companion run")

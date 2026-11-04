@@ -219,13 +219,87 @@ pub fn shared_fixture_target() -> SharedFixtureTarget {
     SharedFixtureTarget { directory }
 }
 
-/// Set the fixture target and disable the environment or Cargo-configured rustc wrapper.
+/// Set the fixture target, compile the generated collector's optimized packages unoptimized, and disable the environment or Cargo-configured rustc wrapper.
 ///
 /// Nested fixture builds never go through the outer rustc wrapper: generated fixtures live in fresh paths where a caching wrapper only misses, and a shared wrapper server serializes the parallel test processes.
+///
+/// A production collector's manifest gives [`COLLECTOR_OPTIMIZED_PACKAGES`] opt-level 3.
+/// That profile changes only the optimization level, which does not change what a program computes, so no fixture test's verdict depends on it, while a fresh target compiles those packages with about five times the CPU of opt-level 0.
+/// The fixture target therefore holds a Cargo configuration that sets them back to opt-level 0: krs builds each collector from its directory under the target, Cargo discovers configuration from the working directory's ancestors, and a configuration's profile takes precedence over the manifest's.
+/// The generated manifest is unchanged, so tests still observe what krs generates; the repository gates build the shipped profile.
+///
+/// # Panics
+///
+/// Panics if the configuration cannot be written.
 pub fn fixture_build_env(command: &mut Command, target: &Path) {
+    write_unoptimized_collector_config(target);
     command
         .env("CARGO_TARGET_DIR", target)
         .env("RUSTC_WRAPPER", "");
+}
+
+/// The packages a generated production collector compiles at opt-level 3: KRS's own crates and the libraries they call.
+///
+/// krs-cli's generator holds the same list, and its unit test checks the two are equal.
+pub const COLLECTOR_OPTIMIZED_PACKAGES: &[&str] = &[
+    "krs",
+    "krs-macros",
+    "krs-expand",
+    "krs-collector",
+    "krs-ir",
+    "krs-syntax",
+    "krs-diagnostic",
+    "syn",
+    "proc-macro2",
+    "quote",
+    "unicode-ident",
+    "proc-macro-crate",
+    "inventory",
+    "serde",
+    "serde_core",
+    "serde_json",
+    "itoa",
+    "memchr",
+    "zmij",
+    "sha2",
+    "digest",
+    "block-buffer",
+    "crypto-common",
+    "generic-array",
+    "typenum",
+    "cpufeatures",
+    "toml_edit",
+    "toml_parser",
+    "toml_datetime",
+    "winnow",
+    "indexmap",
+    "hashbrown",
+    "equivalent",
+];
+
+/// Write `target/.cargo/config.toml`, which compiles [`COLLECTOR_OPTIMIZED_PACKAGES`] at opt-level 0.
+///
+/// Tests sharing a target call this concurrently, so the file is replaced by a rename and never observed partly written.
+/// A package the collector's graph lacks matches nothing; Cargo does not warn about a configuration's unmatched package.
+fn write_unoptimized_collector_config(target: &Path) {
+    static WRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let mut config =
+        String::from("# Written by krs-test-support: fixture collectors compile unoptimized.\n");
+    for package in COLLECTOR_OPTIMIZED_PACKAGES {
+        config.push_str("\n[profile.dev.package.");
+        config.push_str(package);
+        config.push_str("]\nopt-level = 0\n");
+    }
+    let directory = target.join(".cargo");
+    let path = directory.join("config.toml");
+    if fs::read_to_string(&path).is_ok_and(|existing| existing == config) {
+        return;
+    }
+    fs::create_dir_all(&directory).expect("fixture Cargo configuration directory is created");
+    let write = WRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let staging = directory.join(format!("config.toml.{}.{write}", std::process::id()));
+    fs::write(&staging, config).expect("fixture Cargo configuration is written");
+    fs::rename(&staging, &path).expect("fixture Cargo configuration is installed");
 }
 
 /// Select the stable target directory for a checked-in fixture manifest.
