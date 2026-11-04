@@ -667,7 +667,10 @@ pub const UNCHECKED: &[Unchecked] = &[
     },
     Unchecked {
         class: "instance-list-shape",
-        forms: &[r"`{ljob,qjob}: [ .. ]`", r"`{lacct,lbag,qacct,qbag}: \{ .. \}`"],
+        forms: &[
+            r"`{ljob,qjob}: [ .. ]`",
+            r"`{lacct,lbag,qacct,qbag}: \{ .. \}`",
+        ],
         shards: &["sweep-paths"],
         reason: "the advice writes the instance mark of the collection's own order at a collection below a marked ancestor, which no case writes there: the cell's own kind is judged before its path (P3, S1 (b)), so the author meets the ancestor's refusal next, whose advice writes the entry inside the ancestor's mark; the class's advised case writes the instances at the record's level",
     },
