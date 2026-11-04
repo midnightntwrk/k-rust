@@ -4,6 +4,8 @@
 //! Generated fixtures must use [`shared_fixture_target`], a guarded per-process target shared by overlapping tests.
 //! A test of fresh-target behavior must use its own guarded scratch target.
 //! Fixture builds must apply [`fixture_build_env`] unless the test observes rustc invocations through its own wrapper.
+//! Every target [`shared_fixture_target`] returns, and every target [`fixture_build_env`] sets, holds the configuration of [`write_unoptimized_collector_config`].
+//! A test that collects into a target of its own, in process or through its own wrapper, must call [`write_unoptimized_collector_config`] on that target unless it measures speed.
 
 use std::ffi::OsStr;
 use std::fs;
@@ -220,21 +222,26 @@ impl SharedFixtureTarget {
 /// Tests that do not overlap, including `--test-threads=1`, receive new directories and must rebuild.
 /// When [`FIXTURE_TARGET_DIR`] is set, every test in every process receives that directory instead; distinct fixture paths keep collector and cache state apart there too.
 ///
+/// The target holds the configuration of [`write_unoptimized_collector_config`] before the guard is returned, so a test that collects into it compiles its collector unoptimized whether it starts the build in process, through [`fixture_build_env`], or through a rustc wrapper of its own.
+///
 /// # Panics
 ///
-/// Panics if the target mutex is poisoned or the temporary directory cannot be created.
+/// Panics if the target mutex is poisoned, the temporary directory cannot be created, or the configuration cannot be written.
 #[must_use]
 pub fn shared_fixture_target() -> SharedFixtureTarget {
     static TARGET: Mutex<Weak<TempDir>> = Mutex::new(Weak::new());
     if let Some(directory) = std::env::var_os(FIXTURE_TARGET_DIR).filter(|value| !value.is_empty())
     {
+        let directory = PathBuf::from(directory);
+        write_unoptimized_collector_config(&directory);
         return SharedFixtureTarget {
-            directory: FixtureTargetDirectory::Persistent(PathBuf::from(directory)),
+            directory: FixtureTargetDirectory::Persistent(directory),
         };
     }
     let mut target = TARGET.lock().expect("fixture target mutex is not poisoned");
     let directory = target.upgrade().unwrap_or_else(|| {
         let directory = Arc::new(temp_dir());
+        write_unoptimized_collector_config(directory.path());
         *target = Arc::downgrade(&directory);
         directory
     });
@@ -250,7 +257,7 @@ pub fn shared_fixture_target() -> SharedFixtureTarget {
 /// A production collector's manifest gives [`COLLECTOR_OPTIMIZED_PACKAGES`] opt-level 3.
 /// That profile changes only the optimization level, which does not change what a program computes, so no fixture test's verdict depends on it, while a fresh target compiles those packages with about five times the CPU of opt-level 0.
 /// The fixture target therefore holds a Cargo configuration that sets them back to opt-level 0: krs builds each collector from its directory under the target, Cargo discovers configuration from the working directory's ancestors, and a configuration's profile takes precedence over the manifest's.
-/// The generated manifest is unchanged, so tests still observe what krs generates; the repository gates build the shipped profile.
+/// The generated manifest is unchanged, so tests still observe what krs generates; the perf harness, which measures speed, and the gates that run `krs` as a user does build the shipped profile.
 ///
 /// # Panics
 ///
@@ -303,9 +310,17 @@ pub const COLLECTOR_OPTIMIZED_PACKAGES: &[&str] = &[
 
 /// Write `target/.cargo/config.toml`, which compiles [`COLLECTOR_OPTIMIZED_PACKAGES`] at opt-level 0.
 ///
+/// [`shared_fixture_target`] calls this on each target it returns, and [`fixture_build_env`] on the target it sets.
+/// A test that collects into a target of its own, through a rustc wrapper it sets itself or in process through `krs_cli::collect_descriptors`, calls it directly on that target before the first collection: the configuration takes effect for any collector built under `target`, whoever starts the build.
+/// A test that measures speed must not call it, since it must build what users run.
+///
 /// Tests sharing a target call this concurrently, so the file is replaced by a rename and never observed partly written.
 /// A package the collector's graph lacks matches nothing; Cargo does not warn about a configuration's unmatched package.
-fn write_unoptimized_collector_config(target: &Path) {
+///
+/// # Panics
+///
+/// Panics if the configuration cannot be written.
+pub fn write_unoptimized_collector_config(target: &Path) {
     static WRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let mut config =
         String::from("# Written by krs-test-support: fixture collectors compile unoptimized.\n");

@@ -5,7 +5,9 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Output;
 
-use krs_test_support::{krs_command, temp_dir};
+use krs_test_support::{
+    COLLECTOR_OPTIMIZED_PACKAGES, krs_command, temp_dir, write_unoptimized_collector_config,
+};
 
 // Baselines: many-small-rules n=24 from tests/perf/synth.py. Bundle byte
 // headroom is 10%, rounded up to the next hundred bytes; zero pins the
@@ -90,11 +92,32 @@ fn medium_definition_counters_and_second_check_are_stable() {
     )
     .unwrap();
     fs::set_permissions(&wrapper, fs::Permissions::from_mode(0o755)).unwrap();
+    // The bounds are counts of what krs emits and the reuse check counts rustc invocations; no
+    // optimization level changes either, so the collector compiles unoptimized as the fixture
+    // tests' collectors do. The wrapper stays this test's own: it is how rustc is observed.
+    write_unoptimized_collector_config(&target);
 
     assert_success(&run_check(&fixture, &target, &wrapper, &log, &counters));
     let first_invocations = fs::read_to_string(&log).unwrap();
     assert!(first_invocations.contains("--crate-name krs_perf_synth"));
     assert!(first_invocations.contains("--crate-name krs_generated_collector_"));
+    // The fixture's own build keeps the default development profile, so only the collector's
+    // manifest asks for opt-level 3; an invocation at that level means the configuration
+    // above did not reach the collector build.
+    let optimized: Vec<&str> = first_invocations
+        .lines()
+        .filter(|line| {
+            line.contains("opt-level=3")
+                && COLLECTOR_OPTIMIZED_PACKAGES.iter().any(|package| {
+                    line.contains(&format!("--crate-name {} ", package.replace('-', "_")))
+                })
+        })
+        .collect();
+    assert!(
+        optimized.is_empty(),
+        "the collector compiled its optimized packages at the shipped level:\n{}",
+        optimized.join("\n")
+    );
 
     let document: serde_json::Value =
         serde_json::from_slice(&fs::read(&counters).unwrap()).unwrap();

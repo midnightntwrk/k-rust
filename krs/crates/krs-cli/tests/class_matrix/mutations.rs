@@ -121,21 +121,21 @@ fn check(root: &Path, id: &str, source: &str) -> Checked {
     let directory = root.join(&name);
     let manifest = write_package(&directory, &name, source);
     let target = root.join("target");
-    let krs = Command::new(env!("CARGO_BIN_EXE_krs"))
-        .args([
-            "check",
-            "--message-format",
-            "json",
-            "--no-reuse",
-            "--manifest-path",
-        ])
-        .arg(&manifest)
-        .args(["--package", &name, "--definition", "main"])
-        .env("CARGO_TARGET_DIR", &target)
-        .env("RUSTC_WRAPPER", "")
-        .env("NO_COLOR", "1")
-        .output()
-        .expect("krs runs");
+    let mut krs = Command::new(env!("CARGO_BIN_EXE_krs"));
+    krs.args([
+        "check",
+        "--message-format",
+        "json",
+        "--no-reuse",
+        "--manifest-path",
+    ])
+    .arg(&manifest)
+    .args(["--package", &name, "--definition", "main"])
+    .env("NO_COLOR", "1");
+    // The counts are of diagnostics, which no optimization level changes, so the collector
+    // compiles unoptimized, as the fixture tests' collectors do.
+    krs_test_support::fixture_build_env(&mut krs, &target);
+    let krs = krs.output().expect("krs runs");
     let cargo = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
         .args(["check", "--message-format", "json", "--manifest-path"])
         .arg(&manifest)

@@ -505,8 +505,13 @@ impl<'w> Worker<'w> {
         }
     }
 
+    /// The worker's Cargo target, holding the configuration that compiles every collector built
+    /// in it unoptimized: verdicts are diagnostics, classes, K text and runs, which no
+    /// optimization level changes.
     fn target(&self) -> PathBuf {
-        self.root.join("target")
+        let target = self.root.join("target");
+        krs_test_support::write_unoptimized_collector_config(&target);
+        target
     }
 
     /// [`rejudge`] for `case`, whose K2 verdict beside `neighbours` was `batched`: its judgement
