@@ -12,39 +12,39 @@
   },
   "emitted": {
     "krs-configuration-cells-framing": {
-      "definition.k": "42d9fe45531c07a655dd38845bed4fcc336810d5b19441931b81428deac95f0e"
+      "definition.k": "66f56074e5c3f8ba649be74335def3be6b960928b6ee7f97d30f98c9b5a1a3b8"
     },
     "krs-configuration-cells-groups": {
-      "definition.k": "c6a47061e2727e862acedcf30940eaa12b2a2455c5204f6e813808bc38cafb69"
+      "definition.k": "f2dbad5b762646cedf4398c263417c86e18879fbeb92bd0b7e023e14a3b5b578"
     },
     "krs-configuration-cells-optional": {
-      "definition.k": "32ae3e802104a18717ec45f7667fbd624e0bfd7590933ec67d3377da6d5ea442"
+      "definition.k": "9035618d94e66216217db0a4f2d9cdd7328c2777ff0a8580ad01dc457ce4cf71"
     },
     "krs-configuration-cells-threads": {
-      "definition.k": "7d8c004069631e56761441d5f0341131634d09be615166b76c3d0f0f89462399"
+      "definition.k": "a9eda5ad96b398a8edf293bfbf62d19da3c4f3170f821e73e67de5a12c82b172"
     },
     "krs-configuration-cells-objects": {
-      "definition.k": "f73af7dd7a6d14c0b4de76e183f40a31ecc9de20555bcdac1b0ffc3bd362dd0e"
+      "definition.k": "cb550845f2b7e095617bdce2388d0886ae193da709745a44a5ff740d2d390810"
     },
     "krs-configuration-cells-queue": {
-      "definition.k": "76e928eca911a6ae94d40a04c51a6e73210c126f7a0ca4a09c82a4ef046c66df"
+      "definition.k": "cd7769bed2ddafa4d670d3724fbeb92f640f833e8f3540c0e0695759ee636f12"
     },
     "krs-configuration-cells-optional-config-var-initial": {
-      "definition.k": "e08b9503421c82f014651e79236b0ecc1dae82e56e2e4316368ffba21be721b3"
+      "definition.k": "1dcca5ee37f2d46f9146bcdd77b7db59eb542eef596e703b79db5972b8fe3660"
     },
     "krs-configuration-cells-set-instances": {
-      "definition.k": "0da01ade86a24669afa8555d7dc4e516d717ab6a2d1ecb6509a9ed836381395e"
+      "definition.k": "500cd0bdbd5a65d73757e1906b64f03ec7ad47bd99dd3bae54a302e0973036af"
     }
   },
   "reference_sha256": {
-    "krs-configuration-cells-framing": "1d25e49093726825b81d54a6ada5fd854fc20d44cd0c47de89cdbad9f55fb6cd",
-    "krs-configuration-cells-groups": "8785d182cc21a611dbc0491f8861fade93cf764ca8e9f58c3f8ede8434d60bbb",
-    "krs-configuration-cells-optional": "3ba3518efb70e9b4ec985a03d6d53325108be9d5c2bb2ddd905e514bdf4487fc",
-    "krs-configuration-cells-objects": "ee55b73e078490923820b5bd8abfe9712f39e19308b6266a5a21ac9f18f59286",
-    "krs-configuration-cells-queue": "4b317808832163506f0859913b5a6a4a257e76b0bab7ece52232e891551a106d",
-    "krs-configuration-cells-optional-config-var-initial": "cf72e17bfd8065dec0ae6a81c07389aa76a455c215cdbee633adc13622798bfe",
-    "krs-configuration-cells-set-instances": "c9bb80d18f108bc4c0914a1d441291a103e68ed7ca0679b4a65b61612cb93a6a",
-    "krs-configuration-cells-threads": "1081c9c9e63f3f18050b9def2c3ef0b38e456b19d85d46cdac104c7c5e8202b7"
+    "krs-configuration-cells-framing": "e15b15718fa460eb33a0c0d0e1bdb225ca72346273047d3d4b6e44c8df7b6526",
+    "krs-configuration-cells-groups": "5125857d1e3e4b1c9c31438b9c79c86964bc5477d084d7a56899a556ce6bfd55",
+    "krs-configuration-cells-optional": "956f652f51e7cfc6595333587305b607aad71dcf48961ed84c8e789bff3363a4",
+    "krs-configuration-cells-objects": "328cc16da98fbbb80a18b05b2a9972ab91d7505f92b1905187160a2951451e9c",
+    "krs-configuration-cells-queue": "b7db00a509a1368f549eef7c0f29d4568a046f4b5c421ed2059724a61d7a6dee",
+    "krs-configuration-cells-optional-config-var-initial": "927678a7469786d3479d0f971ebf574fb9f7c12a24586291dc58399b4d026dce",
+    "krs-configuration-cells-set-instances": "7e1ab1bc23c589f969788d4ced5c8ae2e5b0ab90fb14597aacaa681825389ee2",
+    "krs-configuration-cells-threads": "7ddcacbefae7ab7383f99a7ac9edad13110d5dd1b93049d02e678c98279a4d7f"
   },
   "outcomes": {
     "krs-configuration-cells-framing": {

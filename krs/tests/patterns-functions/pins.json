@@ -11,44 +11,44 @@
   },
   "emitted": {
     "krs-patterns-functions-aliases": {
-      "definition.k": "704c78f6cb05b97fce0d36f2004f0d91f0727f8971740ce3b16a66eea12daa60"
+      "definition.k": "1fc564244cfe9e4ce603a34ced92221dd1cddf99ace671d65e52f2bd1321eaa1"
     },
     "krs-patterns-functions-alternatives": {
-      "definition.k": "6f20c89f494afde5eae541312fdc5928bb927d9ef7f029e03a7fc1263b82f5e6"
+      "definition.k": "d1f4db324ec4a25f07915078c46f717c7cd43b2b84d0b7a7c79993a9c635d2be"
     },
     "krs-patterns-functions-matches": {
-      "definition.k": "1775c715d5f46807395f621d6f0c16922e0b1d9b6a57dbf6316d120129235f7f"
+      "definition.k": "341e3a96134e9c0ae4a6482b4ecd1f04b13ad00f223c836ca6cdd9992b203e9d"
     },
     "krs-patterns-functions-lets": {
-      "definition.k": "626fb5f5afc0251e649eb182d2d6bc6f31297f4940f3469ea1e4847428062716"
+      "definition.k": "31c155fb2914d3a5ab0f6a9a2684837770a5d81323e746707b964f603e76bee3"
     },
     "krs-patterns-functions-contexts": {
-      "definition.k": "e20f6fe815fc8a580115921d100fc898c2b62413386cacfeb3869252709d6c82"
+      "definition.k": "d02ab55ac752557277ba11ef714f8c2299a5bf9f19c4d83af3322d49794d72d8"
     },
     "krs-patterns-functions-sugar": {
-      "definition.k": "0b16b0766b8a6873c1f1f1b78e96df0825f27dc1fa32619d404ae58d584911b0"
+      "definition.k": "e9df9ce18a2503351ea042cdf0aff73045cb42b9dffccd48219ea9fd704639ea"
     },
     "krs-patterns-functions-bits": {
-      "definition.k": "e8dc8d5d67f79211a919043ddf1ce5981a534a809e5ce3d4298d313e294fafc8"
+      "definition.k": "fb7488041657fe9bdb4a2078e377cf8a44d55749e55f36b2dfd6bfefddc5daa8"
     }
   },
   "reference_sha256": {
     "krs-patterns-functions-aliases-reference": "9a975a22f4eee36cedd871b9df5faff076809c214a53ff79b758a8b040b5a6a1",
-    "krs-patterns-functions-alternatives": "d5d6e4c2b0ff143bc9302536458380b6c000bbb90af143b16f04c35433bfdd16",
+    "krs-patterns-functions-alternatives": "a2af5e01e1ffd53101b615376a69ec66e56035bbb7677479afc767386a5c9337",
     "krs-patterns-functions-alternatives-reference": "3145e8c0f545cd877e4b12990233676f6181a07de30fba7fe4d97c061b6af7e4",
-    "krs-patterns-functions-alternatives-haskell": "30d2afad05068deb1f8efc6f888c74c2a7adbef299a5a81ffa783f68ef99c692",
-    "krs-patterns-functions-matches": "8392fe08fe131d073fdb2bfeb2627467653476666752cf3d157d5f76f28376a9",
+    "krs-patterns-functions-alternatives-haskell": "ba30e9cc91fcf12540b584573f8bd96c1c3c04ed5355c18c86e7f38d9723fc4d",
+    "krs-patterns-functions-matches": "ef1d951136d46d3e9fba116647df625a8d0d27cebc0653608b4314ba430dd1cd",
     "krs-patterns-functions-matches-reference": "c4a5e1108b5807aa9101369670cafe128b6e76ed18d08ac61202bdaf2fa3ef3a",
-    "krs-patterns-functions-matches-haskell": "acb1f645ede08653d0764939ee740a6949969461fbae18fd8e1cce5e78789301",
-    "krs-patterns-functions-lets": "b61811e4cb09b1ecf4c3de63663487d2c07580eea54591591259229002be2a93",
+    "krs-patterns-functions-matches-haskell": "7429cb780e83dd75345a20ab16011ad9999605324b2f83de321964b31cd7c65b",
+    "krs-patterns-functions-lets": "173c2a70e6b1612ca830552abbc56aadb39395dd95e37500916ceb670e250703",
     "krs-patterns-functions-lets-reference": "ed2b8722bab84511de7fc0a81e047fc548a708d572c6911f7c9afa3e2b38e76c",
-    "krs-patterns-functions-lets-haskell": "2bb5c9ed4797fdb8592f2f9063d0681ab9b3f35c36d52861da939064aeb90fbf",
-    "krs-patterns-functions-contexts": "191121012068669fb37fa1419892b0c068b3135eac1f5819f3848dd5d70ef9e4",
+    "krs-patterns-functions-lets-haskell": "24d46b5a9f54c40f97fc30667462489d6178bf0d8089df55f56bf36a04ceaebf",
+    "krs-patterns-functions-contexts": "9921e0d9b564ad2c23efc8835c3edc887923577e47da0e395af2bf5a6348d7de",
     "krs-patterns-functions-contexts-reference": "be6c0d3a52e322a849f9b3824d92a6df6c81b8bdf43ea8a3d4a922fb6776ad63",
-    "krs-patterns-functions-contexts-haskell": "a30542150013a6fe1ee9d09e6a631aee0f14a37382ff0221141d0a0a3d381532",
-    "krs-patterns-functions-aliases": "01ef05f286554855db11c5f559228fb25766eca01aaa2982aafdc02392512cf3",
-    "krs-patterns-functions-sugar": "8338cf34f3b53758162a5b5ef60fda04531c682ab00ac66766afb5859523fc94",
-    "krs-patterns-functions-bits": "aa624aeeac5f0435ed01633f19423698259cdef5c74c5e0a03794abb53600aa9"
+    "krs-patterns-functions-contexts-haskell": "fd3a0724494b00ce03c09fe01ea57459c766eb25eb206f93fc83bdfb2889f388",
+    "krs-patterns-functions-aliases": "3012480f062e95b3083eb4975da794391af986051ff21bb3f963849b5384d564",
+    "krs-patterns-functions-sugar": "37a9de3012d85aaa548fecab3cd5408149a9f6dc4eb5e7c598f8343ac3e828e4",
+    "krs-patterns-functions-bits": "437a738a4354da8edbb46d098cbbf7899389d355c67b16dc07899727973cfb8a"
   },
   "outcomes": {
     "krs-patterns-functions-aliases": {

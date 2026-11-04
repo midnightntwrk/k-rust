@@ -5,7 +5,7 @@
   },
   "definitions-compile-into-tools-emit-k": {
     "inputs": "44797d61aab2b21642af807c219dafef3e737f27dc182a11ffc2750526f068cc",
-    "output": "8d9f9703f603a620c2c32467301ffdaad7624537a039c1404a90ed06aebefb3c"
+    "output": "5e033a88088baa45b76b72361b844cbe67a805f7911a46d03ae5b691b7d7ed9a"
   },
   "definitions-compile-into-tools-parse-blue": {
     "inputs": "bf358c462c2530af5d11cf7211d1eedb0fdc056dd7a59b9837e59562e60d88a8",
@@ -33,7 +33,7 @@
   },
   "functions-defined-by-rules-emit-k": {
     "inputs": "4128ae601a8a7e120ce611672a6fc1526fc17cdfece51d7f9fdc5957094ec5ab",
-    "output": "e8c87546e8aaf7262d0e9bb9eb9f1838afd7b6c88f0fc77f50fc50a654a0402e"
+    "output": "1ee017860080c3bece23f71c34404b72738f647ec2d54b01ccaf4333157db9b9"
   },
   "functions-defined-by-rules-parse": {
     "inputs": "3761958842df66525c7090ffb824f76c7dd89e90e719de167bd38eaa8b6ca5fa",
@@ -53,7 +53,7 @@
   },
   "patterns-and-substitution-emit-k": {
     "inputs": "98efae637bf87783685f9615c6a23800ba18d45cdac53104900ab169dda1f26b",
-    "output": "352c0da888b16cdb232104322712bccbd0fa16d2db3f1cff837bd767bad186ba"
+    "output": "305f2c8199a5114949a014b0dfa8bc2778bbf208af82d8d1dd372fa17a9deb57"
   },
   "patterns-and-substitution-run-differ": {
     "inputs": "74eb791baa48f116acf1a38aa89f7124101b6ad280dc30a2d08c27ba235b849a",
@@ -69,7 +69,7 @@
   },
   "sorts-and-constructors-emit-k": {
     "inputs": "7fabbc6bf84d74c4f66f3a2ae3167db069ade6edd5fcb5e675283fe5ddaa9f27",
-    "output": "ba86f0384368239f6f49ad8284989cb1571524d3b30f4e9f61579f44e37e7527"
+    "output": "6197fcb006ea00be7a1b9167f79e087374b7f7fe5bc1023fe10f747b9eabbf15"
   },
   "sorts-and-constructors-parse": {
     "inputs": "a4bfd572dad3c9410ca2c87de1e01b65771361eb1bf71ba64946cf475189217d",
@@ -153,7 +153,7 @@
   },
   "story-emit-k": {
     "inputs": "6f0d421a06f048ac1f065866d28e7fb417570eaf47a3440724c453c3eaec082c",
-    "output": "f682c1717cc1ebc328bc790c9e76c24791388646cb7e4ab44ecba2a11c708c03"
+    "output": "9b4df7a8e0256a5fa77c48e9fdfdb25d40417da1a1335cb912d45f2c2089b23e"
   },
   "story-parse": {
     "inputs": "07b198a0cc36f6eacb741aaa99b2d0c2019daf9c3a852f04f31f907786ff4194",
@@ -168,15 +168,15 @@
     "output": "bf78c947c8de9d24bfc6e73fe7ed214b1542e64230f66b416ff85293ca46179f"
   },
   "tour-minimal-depth-0": {
-    "inputs": "cbdf23145b007416b19c42e4169e689649f524a503d30fe35fe4089a5e53ff6b",
+    "inputs": "1ac11a854aa07c7b1a535153fda883a817243e7ac9b15bf9b95cc5311a8bdef2",
     "output": "c8b4fdb588880c24c568efce9f52ae211c92bacb20ce704ac5ef87746e1b109f"
   },
   "tour-minimal-run": {
-    "inputs": "9547f8041ccebadc5b9101658a0e4045c7a1164c892974d1c0bc5e86bba733a5",
+    "inputs": "88cf7572f23c98bc17c07068323862be87b1a1d8dddb5f168626575f96f89efe",
     "output": "bb548b8301e527e87d5a9305f1e564e57e5d3b07d7517d55e8afb4312449b0c8"
   },
   "tour-minimal-trace": {
-    "inputs": "1c6a9ca7abe2834ac38630463db5a835509b9bc6f23ccbbc5ff6d1a58e51b25b",
+    "inputs": "2457e2ce1b0f12b29520d106be019168c94f56e6b4c47a9b8aa0584f3f5509db",
     "output": "e231b99cabb6341261079fc9630278b3c29dd0047d371e1a3b9f6d0b9d04a028"
   }
 }

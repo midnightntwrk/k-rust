@@ -1,13 +1,13 @@
 {
   "artifact_sha256": {
-    "definition-ir.json": "f9b316d731c9d8a49f804635338586a24fdea7705c516af326c501051a076dce",
-    "definition.k": "90259fd928b8822ea904fe76387cc8438c2b84c8eb75b681924264188cad0385",
-    "descriptor-bundle.json": "2c75da6947c569fb651bacf9e2a47299d9d51e0c9312c40bdb2dcdbe4d46ff59",
+    "definition-ir.json": "93edf1445e12a3744e9170d699774e40466b386bf1e9df4c2287c66baeceef20",
+    "definition.k": "122ee5ed3ff2783ba8cca54304cefc6c8831396037c16ae01914c6238ab11d10",
+    "descriptor-bundle.json": "3347f80ac37edf814fdbf11ecc2dc39f5e31f0ef97736480ad31dec44113c5ff",
     "native-source.txt": "c7155e1734bdb10f22a172e151839158808a035182b708a4e13fcf3c2f7302ee",
-    "semantic-ir.json": "67dc252576f4d50e87ffb506ae808df630ee4b5f63e41ce0234029081f16fa83",
-    "sources.json": "4870666598fd90ae0d73fd6a4fd2fe0d25d925ed54c935ac53c5829a113516c3",
-    "symbols.json": "8425d6eda6a237067ffcb448614002a23f7d9453304558c6d287a4d83dabd490",
-    "spec.k": "46ad9636a91feb24b3c1b18752e64d36922f702322b3ae586c66a700b0fc6133"
+    "semantic-ir.json": "4bf91f71055426ec9a659acf3f1e123a3847300019c7b6d9c3722afd8644c090",
+    "sources.json": "36bdcbb75bcd4068dae6b1a6ba6ac9224be1612383129f755b5e17a34f351bfa",
+    "symbols.json": "30ccd4acab4782b3c36043c626ef65119cfb9d40840e32dfabf06b82acbb76db",
+    "spec.k": "6dfc7298b0607c89534a7221f5ca413e9ea4df5247bc8e4e7262e7794135a772"
   },
   "behavior": {
     "allowed_unparse_pairs": {
@@ -355,7 +355,7 @@
   ],
   "compatibility": {
     "policy_version": 1,
-    "report_sha256": "6109f9267adb5c050b3f79e128c355f096c84f408fe984faac86a19926ed8c58"
+    "report_sha256": "5222dddddee0e5e644287911ab31c186ac350cd334997699bdff7f1bc8988be9"
   },
   "corpus_sha256": "011fcbdeae89f3b36a2386177c38c3e34bd14dbac2d0b53a00fd54d620e7d225",
   "milestone": "IMP",
@@ -2049,12 +2049,12 @@
     "status": "ready"
   },
   "reference_sha256": {
-    "kompile-tests": "3320acf165f6fe601602a58decb2ad7b76870644c3f8fd40678e7f7abdd4f066",
-    "source-definitions": "ba287dc9fb84941abd099a7696f9228ae58f679f2ffa1b12467fec5a48efc451",
-    "native-claims": "990848320621a215a00e09b1bc3f538958f8e74b853281b3a25a3ca35fad478f",
-    "behavior": "f8f15afa0e668ce6b369784d9bbbc0873100f05a8fdcf0133a5c7486d8a00629",
-    "proofs": "625c3892c421f1d4f6fc8c537d16cc94843d9c57b27bf1d409b074d7500346bc",
-    "frontend-diagnostic": "9a6c91aa4f67401b122aa2596d61f57bf798131fec9d6340a96ea603e76e6ba0"
+    "kompile-tests": "fc06dab66a779d6e418b14a916138b054e15b5a3558249524968b2b6b725cd6f",
+    "source-definitions": "ba99ddb32c79b524d46c4abd10d780d871a1f190066f9597695a49c67b1dc3c7",
+    "native-claims": "20534da652def037ee13db194f8ad86342752bcbc7c79d8173a4b0c46fcd8264",
+    "behavior": "f80aab62a7f44753c9912f2f9999d4d67158dae1aee7d42643defb995e5590a4",
+    "proofs": "2992e3f59896be9c919ff52ce064185278c6dd8994f92ef231b3f6947a25e89c",
+    "frontend-diagnostic": "c97f7a93634051d4ff7e47a32d671f280f09b198ec4cb0303b9ea7f20bf1120b"
   },
   "native_proof_divergences": {
     "bmc-loop-concrete": {

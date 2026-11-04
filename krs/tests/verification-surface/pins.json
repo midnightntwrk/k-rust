@@ -12,63 +12,63 @@
   },
   "emitted": {
     "krs-verification-surface-l21": {
-      "definition.k": "c9105336131c3f6684adc64b137e7314e584495c27b4f276ac994a7fa3248d3e",
-      "spec.k": "872d3b722049fe76dd49179d3882f4eb18b78123e0cf711e233491fc974f95c0"
+      "definition.k": "591748272c4cc08da97c4e2f905779492a6dc0319aaf730829c71c809dc782bc",
+      "spec.k": "d7c7058cb39831b026aa1aad7097de7160eb14afb4d44b683daf8d5e8a22d4a2"
     },
     "krs-verification-surface-l21-readable": {
-      "definition.k": "30e3619416868ceb9733c1aaa0c55406fa28e5d62ed35a61261d21c1d02aeb09"
+      "definition.k": "35fcf686054a2f22595afed8c5cafcdbd35dd4821011f50d6725b490df7251bf"
     },
     "krs-verification-surface-trusted": {
-      "definition.k": "8c5b70c217b7efea074d2e7429a7d5a05cb1b8a19a4d52f7f8d9d3699ca03fff",
-      "spec.k": "b8485b7024c6e1b8757ebbd1ff87a5af158249d4037810e8c72dba9bbe6de2ae"
+      "definition.k": "3287aaab14bc0e969f67a3666b2728b8bb48337b6c1ed008dc7abbdea97cf5b6",
+      "spec.k": "35d95ff3263558db3b695bfe4d885647abc9916cd23dff0af8948c69402c0aab"
     },
     "krs-verification-surface-trusted-ablation": {
-      "definition.k": "8c5b70c217b7efea074d2e7429a7d5a05cb1b8a19a4d52f7f8d9d3699ca03fff",
-      "spec.k": "8d5a60df347f29a95cc31eb7490285f64d4b93b9e0129ab58a2d5f544162064a"
+      "definition.k": "ef438b036d18538d88d51720efc2f940a17e83c4adfd505442f24fc32ab5cc9d",
+      "spec.k": "53fbfe6d1e333399612ac4040df5325077c8ebe923aff85f0a779797fd676c5d"
     },
     "krs-verification-surface-hook": {
-      "definition.k": "b3675c7ebe75b8270e6de260e70d8a82b59c3f7bb2467408f560e5ad6b43d864",
-      "spec.k": "700aac369146b160f8733e451717c6ba18c1d404d36aa8c0a65cf2d9d6071d7e"
+      "definition.k": "06bb79ea1bc1bb57f57c78ee061ed9fc7e12f0bd3cd6c5bbe32f8215456e290f",
+      "spec.k": "e1edf298d0350832537a1cf91f4cdbd8325c43e394b26a78ce4bbe452267d73c"
     },
     "krs-verification-surface-hook-ablation": {
-      "definition.k": "19e08202b212cfc5202cbb732a5a4eb52627316ef4436b46b42a5c75b09fd960",
-      "spec.k": "c1cc39d30dcc93ebd9e9a1bd4e10edf027f43f251ccaa67658a677ee4e8b5fed"
+      "definition.k": "b19f2ae27574c044899fbdef6ee82fad5788c4c91012e7a2b72db0a78f7d49c3",
+      "spec.k": "917e59ed10ce970baab4229c99a3fbb75c5cf5e4ca98a6784f9ad0b410904b54"
     },
     "krs-verification-surface-conc": {
-      "definition.k": "7e6433df284447d76aa6445771b878dc7ddafcaf47279dcafa64541eadfaadb6",
-      "spec.k": "342b1c165f15964d1dc7856eb8bda7ff3bff163766b08b65f180c01d8e6a4692"
+      "definition.k": "33ce8e97dd7f047b0739503794017cc4daf04364384440d06d8e4c1d67d6ec74",
+      "spec.k": "7addeb4f23dfbc6e774e1d4f9454eca8bd6d4e97aad0d1cbf53dadde3286633b"
     },
     "krs-verification-surface-conc-smt-lemma": {
-      "definition.k": "4893eb99107c2db0e7f2f0668ef5fa04cdb9eb2118f6bcc78a419def8083f566",
-      "spec.k": "52ff6921f00ff7b21e7d2c7dba112cafdcb6ecabb5593a301b4e26dec704e681"
+      "definition.k": "7a98b383c2f309a4ee98782c3bca17c99795b7273822f2ad2e2f106a0c0ae252",
+      "spec.k": "e7cf91b89dc9ad285087fa0629c42207b3e0c71ec0eeb9912a91c7bfb9d025d8"
     },
     "krs-verification-surface-imp-sum": {
-      "definition.k": "3bbcfb39a146d87aed3b499dade190d820d87b82d2b0fc863cbc86a70238983f",
-      "spec.k": "9382009f20cb91ed0ad063b1e7e94410788b290001ebd04a2ed0f5bd78204699"
+      "definition.k": "8bd2a57af83dd7e3cdf8d2dabd9cdf38a4fa56006ccb4251648ddc80b719a78a",
+      "spec.k": "f91cbee22a9abb9d8afa5fe4f45f2700a57ad652f51f581dc99e83753e37518a"
     },
     "krs-verification-surface-l22-verification": {
-      "definition.k": "3b16bbbe87cb86c40ff2b3f12868fb772ac7a402f4fd775d66268473bc363559",
-      "spec.k": "96826920f89758a31ed0c2320b3d9c7fd8ff7f78bf34aefacb822e7346ee61f6"
+      "definition.k": "a594cf4b7df4220b733463cd175e80ce0e2d1e5d8b0040902c3739c0b264f694",
+      "spec.k": "b5723412c918dbe8c6cb94f136c547a70621a4bcb2e4212892eaf86e485f9ed3"
     },
     "krs-verification-surface-l22-lesson": {
-      "definition.k": "ceaca9ae09084ee83528060b6d9508fe3a251f5b648ec17d0bd5f3a81fac847a",
-      "spec.k": "468c0248ecac21d91a67760cb8cfe046984ab633fcbf838a664f09840f72d149"
+      "definition.k": "e63af277a80ccdc3f0577e60d26016c12102ce3b8891340ad75f966a0323d193",
+      "spec.k": "67c1725b5b056495c79e0eac07c8c0ddeba7226cf710d9537684345406049556"
     },
     "krs-verification-surface-cell-maps": {
-      "definition.k": "90de377f587a05914ff723a146c557b34e6f3267c9a15246213140e5a9c5bc61",
-      "spec.k": "9e604df8a645efbdc407f96195251e172c058feb503e329131bb02484b6c23ac"
+      "definition.k": "06b2f6193940949e9f0528ce366bea8572d3fe0e4420a1d46288f65f1a1e4f98",
+      "spec.k": "64850034d30c311b28a7d507e8d7782fa75ff7968d2e71b473a33fb6622b5cf3"
     },
     "krs-verification-surface-set-instance-claims": {
-      "definition.k": "2158eb8e71eed3c90253ea650246e6e05742d845f9607d366a2d4ee3e57bdada",
-      "spec.k": "a817f845bca0e3d000026a94badea64347f03cba5a9411ed3de598b9402ef815"
+      "definition.k": "e7605a15df40f87859239b299a72107c61203a5aa10642f232c4c07c40b49a75",
+      "spec.k": "6cd32b6bbb8ce08f942af82542559846df13e0f9736a6d6ff2a0c3807a9bcff8"
     },
     "krs-verification-surface-local-function-claims": {
-      "definition.k": "b4ff6d1124e1fdd447a208b0740e592f00596bbca164b87f60be57a647bf869d",
-      "spec.k": "644c3190886a9aa9ad6846393f6fe5f0f877c01b44dd76018115fbace7f4cce4"
+      "definition.k": "7524f26ecf31e6ba9f6e4f9e56b43bab57e490fa409c71958b0ead2772e3f070",
+      "spec.k": "9d586a9333a9900b650f6dd59304808060f24065c21746945a0ed87b161025f9"
     },
     "krs-verification-surface-owise": {
-      "definition.k": "78006d7ec250299b315f06e23f6aa981095e91ebbbbdb6dd81a1a523f8f152dd",
-      "spec.k": "3709975ddcbc8867316ab5cddf6f92550ead4974a59f8782f6a502751cd4218c"
+      "definition.k": "93e2bde645e9fbd4d8255f1a3dfd2942ca6f516cf69a25d3ae77899fc029d9ba",
+      "spec.k": "05f10766841e63a70986795992462628290e203ec6b7bac8fd85e4e60c89256e"
     }
   },
   "capability_refusals": {
@@ -76,21 +76,21 @@
     "krs-verification-surface-l21-readable": "error[krs::capability::unavailable]: route `native-llvm` refuses this definition: definition contains rules that introduce symbolic values [zero-to-unknown]; concrete (LLVM) execution cannot run a rule whose result is a symbolic value; build with --backend haskell"
   },
   "reference_sha256": {
-    "krs-verification-surface-l21": "191374747854a428f95fcab88edcf1ac705429b99a21cb6444b8ab27ee6bb42d",
-    "krs-verification-surface-l21-readable": "a094c2f7bda03eac9f1df9ed0a0d080e7646aef4f2f958b0cc46ad5050d5b048",
-    "krs-verification-surface-trusted": "0e1b7806bfd3d52a09fc26d428b1069271e976ab24c66e05a2bbbaf302734c3b",
-    "krs-verification-surface-trusted-ablation": "9318189f18f240a5359a78f3ac642180d5e25e948e3749096185b0374e1adf31",
-    "krs-verification-surface-hook": "a4895d55617b217902fbe907172587c52d3963082dc51af79276c6e6bbf90267",
-    "krs-verification-surface-hook-ablation": "b14c9f07e5c0ad596090d4a0a88847158de8465ffb55fc97aae17df2b44508d7",
-    "krs-verification-surface-conc": "db12187703211ce0cca0453da1ba70c9eb8acbbcf7e3c7232a0c984bf52d605c",
-    "krs-verification-surface-conc-smt-lemma": "799dd42d38cb4aa4a6253058b88c3a088a82dcf0d1c4be5d3f0ebe224c9b5baf",
-    "krs-verification-surface-imp-sum": "ebfd3d47e9bf3f921ff4719fe9b4c31e450403975602d62cb7ba45bd71086507",
-    "krs-verification-surface-l22-verification": "cd79c4c001af31a1431aa45d0180724164d10f4e519f2e301a6b8fb004e70bb0",
-    "krs-verification-surface-l22-lesson": "91995cd230a02b4fd4928c93991d64028617fcb691e7f1388f5eb7e6181813bf",
-    "krs-verification-surface-set-instance-claims": "9a80530f5b7c17989a6a799ca77449908049ea67332656b1447fde6772b890b7",
-    "krs-verification-surface-local-function-claims": "ae5a9a52c08865896acc63ee6a1e2628dcf6d301b520369e687cdacef190a89f",
-    "krs-verification-surface-owise": "aacec5e9d797f8cec7d2517d030e53ec03a5a2fea4e9fe43463b356dcf4b42d4",
-    "krs-verification-surface-cell-maps": "1704bbaeea2efe1553ec70155e86afde69fea7f37081a679dc9e2698c8ab1db9"
+    "krs-verification-surface-l21": "a5b2d59e7f42ebffa70e84f6664999cabf6fa84506ae9c7ead7fe6248bfcb4ca",
+    "krs-verification-surface-l21-readable": "6c96d82a6ee8335e7b6ffd63f8f59ccf3cffb449f592e5a6034a470a69d64333",
+    "krs-verification-surface-trusted": "b548ae318302a99eb1ddda2542f78ee032eb1d7eecbfd9177635faf9d0b0fb63",
+    "krs-verification-surface-trusted-ablation": "875bc9a2758fe9150d05c56faadeabf5dd65b8ee0b4a1bf88d4138374c2e0881",
+    "krs-verification-surface-hook": "ac23baf7d8ad3f23762e26b1a01d459dd6f64a8f93c9b6b470aa03673ce0120b",
+    "krs-verification-surface-hook-ablation": "6bd9e856663faeb16a9340f3de4b274485525359e9ca50f975efdedb226078e4",
+    "krs-verification-surface-conc": "8f816c6b0e32cfa532c42e7709d93a457e41a42d5b353a5fca3f96d5e8b80f55",
+    "krs-verification-surface-conc-smt-lemma": "24284d3e1d51432170291fed848cec0e2ec550e824bbf4314e51cf08966dd8b4",
+    "krs-verification-surface-imp-sum": "6ebed5145dcb6e31228c2b478f9ba55ecc45db34765f63629f0ead3abb198b86",
+    "krs-verification-surface-l22-verification": "4ce1b3dce35900a96251d871f9aed92841392be52974cdc11841a0d490e12550",
+    "krs-verification-surface-l22-lesson": "dd96473fd269c056e6ee0a3702ca630ccb716ab14d5041ae83fda6c4be575251",
+    "krs-verification-surface-set-instance-claims": "a6889dc7cfc1f329fd8e705794ac547185794642a30d6bab06bf2d4088142b84",
+    "krs-verification-surface-local-function-claims": "f949b0a8f3bbe0ce42910f5b6d2fe8617742bf86e9ee5569b3726a430c2735a7",
+    "krs-verification-surface-owise": "33f5727be430348fe31322f09442efafb3348ae27bab848d7abc818d6d6348cb",
+    "krs-verification-surface-cell-maps": "ca4015dc126fc77128c330d8ea32e263fcba28f74af63770e0c56d115606196b"
   },
   "outcomes": {
     "krs-verification-surface-l21": {

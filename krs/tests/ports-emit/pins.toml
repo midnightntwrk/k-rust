@@ -12,8 +12,8 @@ source_map_sha256 = "d0311747638d623d913bb9dcd81fd18f963690f8079f0f9a72bb4355847
 refusal_sha256 = "b56ec1282fdb48a079f6f96835c41979b35727b016fd95f85c131682588c23ac"
 
 [macro_output.imp."tests/imp/rust-definition/src/imp.rs"]
-text_sha256 = "d424836f6b814eaf8f0a866dcad913e9410b13b1f2c473130e18601dd94e88aa"
-source_map_sha256 = "94186f3bca7e9a61ee87149dc79028a29f6debb9f905cd088134117b4c72e724"
+text_sha256 = "02a246353da32b06c24fac3e6879efd36e2b045e4bebc56a5e80fb791eaf309d"
+source_map_sha256 = "5db55cfd268b9286b91a6d7b87591ac843950a6a32f4fe942592570f119ed334"
 
 [macro_output.imp."tests/imp/rust-definition/src/lib.rs"]
 text_sha256 = "39715992111fe6c7c802d2fa710c67e95c17393478c6b89980d9383fb89fb6e7"
@@ -45,17 +45,17 @@ source_map_sha256 = "a808d91b775d05f7d0570c38cc06a2eb12f6a31f140e8b35d0f3aa39275
 [macro_output.kevm]
 
 [macro_output.kevm."semantics/kevm/src/lib.rs"]
-text_sha256 = "aa4ae843adffc57c270872f741d8d12ce93e1067b0b92fd2d2343825b9ba78e5"
-source_map_sha256 = "6b62a5417e5f24e9be69f5f22c5fd98c2d05c8c22713be3a0de98ca57f783199"
+text_sha256 = "f5f1c590cdd2ba501199b2ed361d05598b19c5d28b955a73437eca67b241494c"
+source_map_sha256 = "63baa35c6faec96ce23fa27f1afeb6f730dd40dec8194175445f5016e38e1bda"
 
 [macro_output.kmir]
 
 [macro_output.kmir."semantics/kmir/src/lib.rs"]
-text_sha256 = "ba5ece61f6ee07d769026859c001e7cfdb3d674414cb448b289138e233005331"
-source_map_sha256 = "f6fd0626413c8f483ad198484535e1a11494c690a2734fbf4d7e4d6dd35f7cab"
+text_sha256 = "c02931415c5db97a74eca6826ad35a928d1bd0abb815f9b2fa0e448bf68c7d7b"
+source_map_sha256 = "12dda573b2783f5f2c5f1e9986c7b22c65f0b333e045a49c1043881527c5f7e5"
 
 [macro_output.kwasm]
 
 [macro_output.kwasm."semantics/kwasm/src/lib.rs"]
-text_sha256 = "07d72f718ef43a2bd6d7adb0e4fb17266246946901c06c3cb0750a48fbfe19c0"
-source_map_sha256 = "ea25966afd6fc49306c7157b1f18c247d055efb164e7eea0b8829a5e7ada8c0c"
+text_sha256 = "9fd71d64dba8e71997fc4dfa2deb57f9d7629e559d1253ea17a5b8ab3e580a92"
+source_map_sha256 = "341ca4493ad9c613d990b26afd23fa60853d909f4b4d1d7f7834078925ed1d26"
