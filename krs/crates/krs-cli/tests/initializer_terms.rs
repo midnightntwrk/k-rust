@@ -2091,6 +2091,9 @@ impl Machine {{
     )
 }
 
+/// A bracket initializer case of `brackets_in_an_initializer_are_read_by_the_cell_s_kind`.
+type BracketCase<'a> = (&'a str, &'a str, [&'a str; 2], [&'a str; 2], &'a [&'a str]);
+
 /// Brackets are the computation's mark on a `KSequence` cell and the list's on a `List` cell
 /// (P2/P3), read by the declared kind. On the computation, `[a, b]` is the sequence of its items,
 /// the computation `k::k![a, b]` denotes: the same K and the same main variable, the one the
@@ -2108,8 +2111,10 @@ fn brackets_in_an_initializer_are_read_by_the_cell_s_kind() {
         assert!(success, "{stdout}\n{stderr}");
         stdout.split_whitespace().collect::<Vec<_>>().join(" ")
     };
-    // Each case is written with brackets and, as its twin, with `k::k![..]` and `list::..`.
-    let cases: [(&str, &str, [&str; 2], [&str; 2], &[&str]); 3] = [
+    // Each case is written with brackets and, as its twin, with `k::k![..]` and `list::..`:
+    // its name, the `#[k::init]` parameters, the bracket and twin initializers of `k` and
+    // `stack`, and the `krs run` arguments.
+    let cases: [BracketCase; 3] = [
         (
             "brackets",
             "pgm: Stmt, input: Int",
@@ -2183,8 +2188,8 @@ fn brackets_in_an_initializer_are_read_by_the_cell_s_kind() {
     );
     let written = configuration(&emit(target.path(), &empty));
     assert_eq!(written, configuration(&emit(target.path(), &twin)));
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         <k> .K </k>
-        <stack> .List </stack>"#]]
+        <stack> .List </stack>"]]
     .assert_eq(&written);
 }
