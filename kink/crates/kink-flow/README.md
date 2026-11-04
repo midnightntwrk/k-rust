@@ -472,8 +472,10 @@ an `uncovered` row can be a simplification, `symbolic` or ceil equation, which i
 and no field shows a `requires` that was matched and did not apply.
 
 `untargeted_rules` is the mutation-side analogue of rule coverage: with `--mutations MUTATIONS.toml`,
-every authored rule that no mutation of that list targets (only mutations that resolve count; an
-`invalid-mutation` targets nothing), in sentence order, as `{module, index, label, file, start_line,
+every authored rule that no mutation of that list targets (only mutations that resolve count, by
+kink-flow's own resolution: a mutation that does not resolve targets nothing, and one a front end
+refuses, such as `krs kink`, still targets the rules its edits resolve to, since its refusal asks
+for that mutation to be repaired, not for another one), in sentence order, as `{module, index, label, file, start_line,
 end_line, address, text}`: `address` is how an edit can address the rule (`{"rule": label}`, or
 `{"file", "line"}` for an unlabelled rule) and `text` its K text. Without `--mutations` it is null; a
 list that does not decode gives `mutation_list: {outcome: "refused", detail}` and exit 1. It is
@@ -869,7 +871,7 @@ Version 3 (F-13) names the oracle slots of an executed entry, versions 4 to 6 ad
 | `order` | `cost` or `corpus`: how the programs were ordered inside each group (step 3); `corpus` under `--full`. |
 | `schedule` | `first-kill`, or `full` for `run --full`; present on every run document, a refused one included (a manifest or a mutation list that does not decode). |
 | `matrix` | Null unless `schedule` is `full` and the specification was admitted; then `{programs: [{id, kills, sole_killer_of, undecided}]}`, one entry per `comparable` program in `FLOW.toml`'s order (a list, since a JSON object would order the ids by name): `kills` the mutations, in row order, whose `killed_by` holds the program; `sole_killer_of` those whose `killed_by` is exactly that program (the only proven killer: where another program's cell is undecided, that program might kill too); `undecided` those whose `executed` has an entry of the program with an outcome other than `agree` and `distinguish` (a timeout, unknown, incomparable, error or failed run), where the program might kill and the run could not tell. A row with no cell (`invalid-mutation`, `unkillable`, a corpus error, a mutant that failed as a whole) is in no list. It is computed from the rows, so the document written after each mutation holds the rows finished so far. It gives the facts a corpus minimization needs; choosing a subset also needs coverage and the survivors, and is the user's. |
-| `untargeted_rules` | The rules no resolving mutation of the whole list targets (`--only` limits the search, not this list), as in `results --mutations`. |
+| `untargeted_rules` | The rules no resolving mutation of the whole list targets (`--only` limits the search, not this list, and a mutation a front end refused counts by kink-flow's resolution), as in `results --mutations`. |
 
 A mutation row is `{id, note, digest, identity, removed_claims, inconsistent_pairs, typing_diagnostics, status, reason, killed_by, killer, killer_source, killer_from_cache, unusable_killer, witnesses, executed, calls, call_wall_ms, rules, action}` (version 4 added `removed_claims`, version 5 `inconsistent_pairs`, version 6 `typing_diagnostics`; version 18 named `reaching` `witnesses`):
 

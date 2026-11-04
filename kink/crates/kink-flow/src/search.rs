@@ -2305,7 +2305,12 @@ pub fn run_front(
     search.mismatches.extend(census_mismatch);
     // Every mutation of the list is resolved first (resolution only loads), so that the report
     // lists, from its first write on, the rules no resolving mutation of the list targets
-    // (flow F-13, informational only); `--only` limits the search, not this list.
+    // (flow F-13, informational only); `--only` limits the search, not this list. What a mutation
+    // targets is kink-flow's resolution alone: a mutation a front end refused gets the row of its
+    // refusal and is neither memoised nor run, but it still targets the rules its edits resolve
+    // to, since a rule with a refused mutation has one aimed at it, which the refusal row asks
+    // the user to repair. So the list is the same for a full run, under `--only` and in `results
+    // --mutations`, whichever mutations a front end judged.
     //
     // Re-pin L1-4: a mutation whose resolution memo record holds its facts under exactly the
     // current key, and that tier 1 decides with no call, is not resolved: its row is built from
@@ -2370,11 +2375,19 @@ pub fn run_front(
             Resolution::Live(live)
         })
         .collect::<Vec<_>>();
+    let refused_targets = list
+        .mutations
+        .iter()
+        .filter(|mutation| front.refused.contains_key(&mutation.id))
+        .filter_map(|mutation| resolve(manifest, &spec.loaded, mutation).ok())
+        .flat_map(|resolved| resolved.rules.into_iter().map(|rule| rule.at))
+        .collect::<Vec<_>>();
     let untargeted = Value::Array(untargeted_rules(
         &rule_texts(manifest, &spec.loaded),
         &resolutions
             .iter()
             .flat_map(|resolution| resolution.rules().iter().map(|rule| rule.at.clone()))
+            .chain(refused_targets)
             .collect(),
     ));
     let mut rows = Vec::new();
@@ -2547,7 +2560,8 @@ enum Resolution {
 }
 
 impl Resolution {
-    /// The rules the mutation edits; none when it does not resolve.
+    /// The rules the mutation edits; none when it does not resolve, or when a front end refused it
+    /// (whose targets the run's `untargeted_rules` takes from a resolution of its own).
     fn rules(&self) -> &[EditedRule] {
         match self {
             Self::Live(Ok(resolved)) => &resolved.rules,

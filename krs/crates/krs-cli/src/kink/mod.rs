@@ -37,8 +37,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use kink_flow::{
-    CommandFiles, FlowCommand, FrontEnd, KrsSpec, ManifestError, ManifestFile, OutputFormat,
-    SpecDecl, SpecSection, Verb, cli::FuzzJobRequest,
+    CommandFiles, FlowCommand, FrontEnd, KrsSpec, ManifestError, ManifestFile, MutationList,
+    OutputFormat, SpecDecl, SpecSection, Verb, cli::FuzzJobRequest,
 };
 use krs_ir::measure::Measurement;
 use serde_json::{Value, json};
@@ -290,8 +290,9 @@ fn flow_command(
             return finish(outcome, &document, EXIT_CORPUS, output);
         }
     };
-    let emitted = match build(planned, &mut outcome, measurement) {
-        Ok(emitted) => emitted,
+    let retain = judges_mutations(&command);
+    let (emitted, kept) = match build(planned, &mut outcome, measurement, retain) {
+        Ok(built) => built,
         Err(error) => {
             let document = refused(
                 &command,
@@ -338,7 +339,10 @@ fn flow_command(
     run_flow(
         command,
         declared,
-        &emitted,
+        Built {
+            emitted: &emitted,
+            kept,
+        },
         &spelling,
         definition,
         outcome,
@@ -346,17 +350,40 @@ fn flow_command(
     )
 }
 
+/// Whether `command` judges a mutation list, so that the front end's checks need the lowering
+/// the K is emitted from: `check --mutations`, `run`, a `fuzz` kill job.
+fn judges_mutations(command: &FlowCommand) -> bool {
+    match command {
+        FlowCommand::Check(options) => options.mutations.is_some(),
+        command => checks::run_list(command).is_some(),
+    }
+}
+
+/// The lowering an emission is emitted from, kept in process for the front end's checks.
+struct KeptLowering {
+    retained: krs_compiler::RetainedLowering,
+    lowered: krs_compiler::LoweredDefinition,
+}
+
+/// A command's emission and, when it judges mutations, the lowering kept with it, which
+/// [`run_flow`] releases once the front end's checks are made.
+struct Built<'a> {
+    emitted: &'a EmittedDefinition,
+    kept: Option<KeptLowering>,
+}
+
 /// Run the parsed `command` on the corpus `declared`, bound to the fresh `definition.k` of
 /// `emitted`; `definition` is the document's `definition` object.
 fn run_flow(
     mut command: FlowCommand,
     declared: ManifestFile,
-    emitted: &EmittedDefinition,
+    built: Built<'_>,
     spelling: &spelling::KrsSpelling,
     definition: Value,
     mut outcome: KinkOutcome,
     measurement: &mut Measurement,
 ) -> KinkOutcome {
+    let Built { emitted, kept } = built;
     let output = command.output();
     let verb = command.verb();
     let manifest = match declared.bind(Some(bound_spec(emitted))) {
@@ -377,8 +404,70 @@ fn run_flow(
         manifest
     };
     resolve_rule(&mut command, emitted);
-    let refused_mutations = checks::refused(&checks::all(), emitted, &manifest, &command);
     let annotator = annotate::Annotator::new(emitted, manifest.clone());
+    let sources = outcome.sources.clone();
+    let baseline = kept.as_ref().map(|kept| checks::Baseline {
+        emitted,
+        retained: &kept.retained,
+        lowered: &kept.lowered,
+        sources: &sources,
+    });
+    // `check --mutations`: kink-flow's check, with the front end's findings added to each row.
+    if let (FlowCommand::Check(options), Some(baseline)) = (&command, &baseline)
+        && let Some(path) = &options.mutations
+    {
+        let checked = measurement.timings.span("kink.check", |_| {
+            kink_flow::on_stack(|| {
+                let mut checked = kink_flow::cli::check_corpus_mutations(
+                    &manifest,
+                    MutationList::read(path),
+                    options.cache.as_deref(),
+                );
+                if let Some(rows) = checked.mutations.as_mut() {
+                    checks::KrsChecks::new(baseline, spelling).annotate_check(rows);
+                }
+                let (mut document, status) =
+                    kink_flow::cli::check_mutations_document(&checked, spelling);
+                annotator.annotate(&mut document);
+                (document, status)
+            })
+        });
+        let Some((mut document, status_code)) = checked else {
+            outcome
+                .notes
+                .push("krs kink: the check thread panicked".into());
+            outcome.status = EXIT_CORPUS;
+            return outcome;
+        };
+        document["definition"] = definition;
+        return finish(outcome, &document, status_code, output);
+    }
+    // `run` and a `fuzz` kill job: the mutations the front end refuses run nothing.
+    let refused_mutations = match (checks::run_list(&command), &baseline) {
+        (Some(run), Some(baseline)) => match MutationList::read(run.path) {
+            Ok(list) => {
+                let refusals = measurement.timings.span("kink.krs-checks", |_| {
+                    kink_flow::on_stack(|| {
+                        checks::KrsChecks::new(baseline, spelling).refusals(&manifest, &list, &run)
+                    })
+                });
+                let Some(refusals) = refusals else {
+                    outcome
+                        .notes
+                        .push("krs kink: the mutation check thread panicked".into());
+                    outcome.status = EXIT_CORPUS;
+                    return outcome;
+                };
+                refusals
+            }
+            // kink-flow refuses a list that does not decode.
+            Err(_) => std::collections::BTreeMap::new(),
+        },
+        _ => std::collections::BTreeMap::new(),
+    };
+    // Every check that reads the lowering is made: the dispatch, which can hold a kill search's
+    // mutants for minutes, runs without the retained theory and its second Definition IR.
+    drop(kept);
     let annotate = |document: &mut Value| annotator.annotate(document);
     // `report` prints the stored run document as the run wrote it, its rules already named by
     // the emission that run judged. This command's emission may be another one (the sources
@@ -425,17 +514,28 @@ fn selection_request(request: &KinkRequest) -> CommandRequest {
     }
 }
 
-/// Collect, lower and emit the planned package; `outcome` takes the definition's warnings.
+/// Collect, lower and emit the planned package; `outcome` takes the definition's warnings. With
+/// `retain`, the lowering the K is emitted from is kept beside the emission.
 fn build(
     planned: crate::command::PlannedCollection,
     outcome: &mut KinkOutcome,
     measurement: &mut Measurement,
-) -> Result<EmittedDefinition, CommandError> {
+    retain: bool,
+) -> Result<(EmittedDefinition, Option<KeptLowering>), CommandError> {
     let collected = planned.collect(measurement)?;
     let bundle = collected.bundle.clone();
-    let emitted = collected.emit_k_measured(bundle, measurement)?;
-    outcome.warnings = emitted.warnings.clone();
-    Ok(emitted)
+    let built = if retain {
+        let crate::RetainedEmission {
+            emitted,
+            retained,
+            lowered,
+        } = collected.emit_k_retained_measured(bundle, measurement)?;
+        (emitted, Some(KeptLowering { retained, lowered }))
+    } else {
+        (collected.emit_k_measured(bundle, measurement)?, None)
+    };
+    outcome.warnings = built.0.warnings.clone();
+    Ok(built)
 }
 
 /// `krs kink emit [--check]`.
@@ -450,8 +550,8 @@ fn emit_command(
     let definition_path = corpus.join(DEFINITION_FILE);
     let shown = emit::shown_path(&definition_path, root);
     let mut outcome = outcome;
-    let emitted = match build(planned, &mut outcome, measurement) {
-        Ok(emitted) => emitted,
+    let emitted = match build(planned, &mut outcome, measurement, false) {
+        Ok((emitted, _)) => emitted,
         Err(error) => {
             let document =
                 emit::emit_document(&shown, None, check, Some(&krs_refused_detail(&error)));

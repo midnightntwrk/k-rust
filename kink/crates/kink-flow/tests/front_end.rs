@@ -272,6 +272,25 @@ fn a_refused_mutation_runs_nothing_and_writes_nothing() {
         );
     }
     assert!(Hints::read(&cache).is_empty());
+    // The refused mutation still targets the rule its edit resolves to (the unlabelled `-` rule,
+    // which no other mutation of the list targets), so `untargeted_rules` is the list `results
+    // --mutations` gives, which no front end's refusal reaches.
+    let untargeted = document["untargeted_rules"].as_array().unwrap();
+    assert!(
+        !untargeted.iter().any(|rule| rule["start_line"] == 23),
+        "{untargeted:#?}"
+    );
+    let (results, _) = command(
+        &dir,
+        "results",
+        mutations(&dir),
+        &[],
+        refusing("sub-off-by-one"),
+    );
+    assert_eq!(
+        document["untargeted_rules"], results["untargeted_rules"],
+        "{results:#}"
+    );
 }
 
 /// A fuzz kill job of a mutation the front end refused is refused before anything runs, with the

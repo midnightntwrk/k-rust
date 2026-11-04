@@ -293,15 +293,28 @@ impl CollectedDefinition {
         &self,
         bundle: DescriptorBundle,
     ) -> Result<RetainedEmission, CommandError> {
-        let mut measurement = Measurement::disabled();
+        self.emit_k_retained_measured(bundle, &mut Measurement::disabled())
+    }
+
+    /// [`Self::emit_k_retained`] that records the stages' timings and counters in
+    /// `measurement`.
+    ///
+    /// # Errors
+    ///
+    /// Fails as [`Self::emit_k`] fails.
+    pub fn emit_k_retained_measured(
+        &self,
+        bundle: DescriptorBundle,
+        measurement: &mut Measurement,
+    ) -> Result<RetainedEmission, CommandError> {
         let warnings = self.warnings_of(&bundle);
         let (prepared, retained) =
-            prepare_bundle_with(bundle, warnings, self.profile, &mut measurement, |bundle| {
+            prepare_bundle_with(bundle, warnings, self.profile, measurement, |bundle| {
                 krs_compiler::lower_descriptor_bundle_retained(bundle)
                     .map(|retained| (retained.theory().clone(), retained))
                     .map_err(CommandError::DescriptorLowering)
             })?;
-        let emitted = self.emitted(&prepared, &mut measurement)?;
+        let emitted = self.emitted(&prepared, measurement)?;
         Ok(RetainedEmission {
             emitted,
             retained,

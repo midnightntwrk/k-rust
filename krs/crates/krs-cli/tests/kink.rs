@@ -5,7 +5,10 @@
 //! story's pages claim, each rule named by its Rust item and position, and kill the story's
 //! three edits written as K patches anchored by `plus_zero` and `plus_succ`. A small counter
 //! definition, which has rewrite rules, gives `fuzz --matched` and a query witness rules to name;
-//! `fixtures/inputs` gives a case of typed inputs.
+//! `fixtures/inputs` gives a case of typed inputs. A definition of guarded transitions, a nondet
+//! group, a branching function, a division in a condition and a claim helper gives the front
+//! end's own mutation checks something to refuse, each checked against `krs check` of a Rust
+//! source that emits the mutant.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -444,6 +447,26 @@ fn run_kills_the_story_edits() {
         ],
         "{check:#}"
     );
+    // The story's edits are each the emission of a Rust edit KRS admits: no finding, and each
+    // edit named by the Rust bytes it changes.
+    for row in check["mutations"].as_array().unwrap() {
+        assert_eq!(row["outcome"], "ok", "{row:#}");
+        assert_eq!(row["refusals"], serde_json::json!([]), "{row:#}");
+        assert_eq!(row["warnings"], serde_json::json!([]), "{row:#}");
+    }
+    let edit = &check["mutations"][0]["krs"]["edits"][0];
+    assert_eq!(edit["label"], "nat--plus_zero", "{edit:#}");
+    assert_eq!(edit["item"], "plus_zero", "{edit:#}");
+    assert_eq!(edit["judged"], "authored", "{edit:#}");
+    let rust = &edit["rust"][0];
+    assert_eq!(rust["file"], "src/lib.rs", "{edit:#}");
+    assert_eq!(rust["text"], "n", "{edit:#}");
+    assert_eq!(
+        rust["line"].as_u64(),
+        // The body of `plus_zero`, the line after its signature, is the `n` it returns.
+        Some(line_of(STORY, "fn plus_zero") + 1),
+        "{edit:#}"
+    );
 }
 
 /// `query` and `fuzz` run through the front end and print kink-flow's documents, with the
@@ -755,4 +778,484 @@ entry = { Load = { addr = 2, len = 3 } }
     let changed = program(&project.kink("results", &[]));
     assert_ne!(changed["digest"], first["digest"]);
     assert_eq!(changed["cached"], false, "{changed:#}");
+}
+
+/// The definition the front end's mutation checks judge (its module doc says what it holds).
+const CHECKED: &str = include_str!("fixtures/kink-checks/src/lib.rs");
+
+/// The corpus of [`CHECKED`]: one program for each of three heads.
+const CHECKED_FLOW: &str = "[spec]\nkrs = { definition = \"main\" }\n\n[[program]]\nid = \"s5\"\nfile = \"cases/s5.exp\"\n\n[[program]]\nid = \"o3\"\nfile = \"cases/o3.exp\"\n\n[[program]]\nid = \"h2\"\nfile = \"cases/h2.exp\"\n";
+
+fn checked_files(library: &str) -> Vec<(String, Vec<u8>)> {
+    vec![
+        ("src/lib.rs".to_owned(), library.as_bytes().to_vec()),
+        (
+            "kink/FLOW.toml".to_owned(),
+            CHECKED_FLOW.as_bytes().to_vec(),
+        ),
+        ("kink/cases/s5.exp".to_owned(), b"step(5)\n".to_vec()),
+        ("kink/cases/o3.exp".to_owned(), b"other(3)\n".to_vec()),
+        ("kink/cases/h2.exp".to_owned(), b"half(2)\n".to_vec()),
+    ]
+}
+
+fn checked() -> Arc<Project> {
+    static PROJECT: Mutex<Weak<Project>> = Mutex::new(Weak::new());
+    Project::shared(&PROJECT, || {
+        project_of("krs-cli-kink-checked", "CHECKS", &checked_files(CHECKED))
+    })
+}
+
+/// One mutation of one edit: `rule`'s `find` becomes `replace`.
+fn mutation(id: &str, rule: &str, find: &str, replace: &str) -> String {
+    format!(
+        "[[mutation]]\nid = \"{id}\"\nmisunderstanding = \"{id}\"\n\n  [[mutation.edit]]\n  rule = \"{rule}\"\n  find = {}\n  replace = {}\n\n",
+        serde_json::to_string(find).unwrap(),
+        serde_json::to_string(replace).unwrap()
+    )
+}
+
+/// The mutations the checks judge, by what they show.
+fn checked_mutations() -> String {
+    [
+        // Two transitions at one priority that now apply to one configuration.
+        mutation("overlap", "step_nonneg", "Value:Int >=Int 0", "Value:Int >=Int -1"),
+        // An if/else condition edited in its own branch only, then in every branch it renders.
+        mutation("branch-one", "clamp_1", "Value:Int <Int 0", "Value:Int <Int 5"),
+        format!(
+            "{}  [[mutation.edit]]\n  rule = \"clamp_2\"\n  find = \"Value:Int <Int 0\"\n  replace = \"Value:Int <Int 5\"\n\n  [[mutation.edit]]\n  rule = \"clamp_3\"\n  find = \"Value:Int <Int 0\"\n  replace = \"Value:Int <Int 5\"\n\n",
+            mutation("branch-all", "clamp_1", "Value:Int <Int 0", "Value:Int <Int 5")
+        ),
+        // The nondet group: an edit that keeps the overlap, one that leaves a member stale, one
+        // that makes it overlap a rule outside the group, and a deletion leaving one member.
+        mutation("toss-keeps", "toss_heads", "done ( 1 )", "done ( 2 )"),
+        mutation("toss-stale", "toss_heads", "toss ( Value:Int )", "go ( Value:Int )"),
+        mutation("toss-other", "toss_heads", "toss ( Value:Int )", "other ( Value:Int )"),
+        "[[mutation]]\nid = \"toss-single\"\nmisunderstanding = \"no tails\"\n\n  [[mutation.edit]]\n  rule = \"toss_tails\"\n  delete = true\n\n".to_owned(),
+        // The definedness test of a division: removed alone, kept for an edited divisor, and
+        // edited with it.
+        mutation("test-only", "half", "(Value:Int =/=Int 0) andThenBool ", ""),
+        mutation("divisor", "half", "10 /Int Value:Int", "10 /Int (Value:Int +Int 1)"),
+        format!(
+            "{}  [[mutation.edit]]\n  rule = \"half\"\n  find = \"(Value:Int =/=Int 0)\"\n  replace = \"((Value:Int +Int 1) =/=Int 0)\"\n\n",
+            mutation("divisor-both", "half", "10 /Int Value:Int", "10 /Int (Value:Int +Int 1)")
+        ),
+        // Layout only, and a renaming at every occurrence: neither changes what the rule says.
+        mutation("layout", "other", "done ( Value:Int )", "done (  Value:Int )"),
+        mutation(
+            "renamed",
+            "other",
+            "other ( Value:Int ) => done ( Value:Int )",
+            "other ( V:Int ) => done ( V:Int )",
+        ),
+        // A label only: kink's own refusal, which the front end never sees.
+        mutation(
+            "label",
+            "other",
+            "label(checks--other)",
+            "label(checks--other-renamed)",
+        ),
+        // An equation of a function only the claim applies.
+        mutation("helper", "expected", "+Int 1", "+Int 2"),
+        // A priority that orders two overlapping rules, removed: never judged with the
+        // specification's priority.
+        mutation("priority", "pick_first", "priority(40), ", ""),
+    ]
+    .concat()
+}
+
+/// The row of the mutation `id` of a check or run document.
+fn row<'d>(document: &'d Value, id: &str) -> &'d Value {
+    document["mutations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == id)
+        .unwrap_or_else(|| panic!("no row {id}: {document:#}"))
+}
+
+/// The reasons of a check row's refusals, then of its warnings.
+fn reasons(row: &Value) -> (Vec<&str>, Vec<&str>) {
+    let of = |key: &str| {
+        row[key]
+            .as_array()
+            .unwrap_or_else(|| panic!("{key} of {row:#}"))
+            .iter()
+            .map(|finding| finding["reason"].as_str().unwrap())
+            .collect::<Vec<_>>()
+    };
+    (of("refusals"), of("warnings"))
+}
+
+/// `check` refuses, with KRS's own code and next step, each mutation whose Rust source KRS
+/// refuses, and each edit KRS's emission does not follow; it accepts the rest, warns of a claim
+/// helper and an edited construct left in its other renderings, and names each edit's Rust.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One check document, read for each kind of refusal it shows."
+)]
+fn check_refuses_what_krs_refuses_of_the_mutations_source() {
+    let project = checked();
+    // Each test of this shared project reads a list of its own.
+    project.write("kink/check-mutations.toml", checked_mutations());
+    let output = project.kink("check", &["--mutations", "kink/check-mutations.toml"]);
+    assert_status(&output, 1);
+    let document = json(&output);
+    let expected: [(&str, &[&str], &[&str]); 15] = [
+        ("overlap", &["krs::analysis::overlapping-rule-heads"], &[]),
+        (
+            "branch-one",
+            &["krs::analysis::overlapping-match-arms"],
+            &["partial-rendering"],
+        ),
+        ("branch-all", &[], &[]),
+        ("toss-keeps", &[], &[]),
+        ("toss-stale", &["krs::analysis::nondet-group"], &[]),
+        (
+            "toss-other",
+            &["krs::analysis::overlapping-rule-heads"],
+            &[],
+        ),
+        ("toss-single", &["krs::analysis::nondet-group"], &[]),
+        ("test-only", &["generated-only"], &[]),
+        ("divisor", &["derived-mismatch"], &[]),
+        ("divisor-both", &[], &[]),
+        // kink-flow's own refusal: the texts are equal up to formatting.
+        ("layout", &["no-change"], &[]),
+        ("renamed", &["no-change"], &[]),
+        ("label", &["label-changed"], &[]),
+        ("helper", &[], &["claim-helper"]),
+        ("priority", &["not-judged"], &[]),
+    ];
+    for (id, refusals, warnings) in expected {
+        let row = row(&document, id);
+        assert_eq!(
+            reasons(row),
+            (refusals.to_vec(), warnings.to_vec()),
+            "{id}: {row:#}"
+        );
+        assert_eq!(
+            row["outcome"],
+            if refusals.is_empty() { "ok" } else { "refused" },
+            "{row:#}"
+        );
+    }
+    // A mutation that does not resolve gets no KRS judgement: no finding and no `krs` value.
+    assert_eq!(row(&document, "label")["krs"], Value::Null, "{document:#}");
+    // The overlap names both rules and says no Rust edit of the edited construct avoids it.
+    let overlap = &row(&document, "overlap")["refusals"][0];
+    let detail = overlap["detail"].as_str().unwrap();
+    for named in [
+        "`checks--step_neg` (step_neg",
+        "`checks--step_nonneg` (step_nonneg",
+    ] {
+        assert!(detail.contains(named), "{detail}");
+    }
+    assert!(
+        detail.contains("no Rust edit of these constructs avoids the refusal by itself"),
+        "{detail}"
+    );
+    assert!(
+        overlap["next"]
+            .as_str()
+            .unwrap()
+            .starts_with("KRS accepts these rules only if they cannot apply"),
+        "{overlap:#}"
+    );
+    // The edited branch condition is rendered, negated, in the later branches: they are the
+    // siblings, the one KRS names first.
+    let branch = row(&document, "branch-one");
+    let siblings = branch["krs"]["siblings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|sibling| {
+            (
+                sibling["label"].as_str().unwrap(),
+                sibling["named_by_krs"].as_bool().unwrap(),
+                sibling["changed"].as_bool().unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        siblings,
+        [
+            ("checks--clamp_3", true, false),
+            ("checks--clamp_2", false, false)
+        ],
+        "{branch:#}"
+    );
+    // The generated-only refusal names the authored construct and its Rust.
+    let generated = &row(&document, "test-only")["refusals"][0];
+    let detail = generated["detail"].as_str().unwrap();
+    assert!(
+        detail.contains("a definedness test KRS inserts"),
+        "{detail}"
+    );
+    let division = line_of(CHECKED, "10 / value");
+    assert!(
+        detail.contains(&format!("`10 /Int Value:Int` at src/lib.rs:{division}:")),
+        "{detail}"
+    );
+    // The derived mismatch shows the test KRS derives.
+    let derived = row(&document, "divisor")["refusals"][0]["detail"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(derived.contains("(Value:Int +Int 1) =/=Int 0"), "{derived}");
+    // Each edit's Rust: the guard's literal, the deleted rule's item.
+    let edit = &row(&document, "overlap")["krs"]["edits"][0];
+    assert_eq!(edit["judged"], "authored", "{edit:#}");
+    assert_eq!(edit["item"], "step_nonneg", "{edit:#}");
+    assert_eq!(edit["rust"][0]["text"], "0", "{edit:#}");
+    assert_eq!(
+        edit["rust"][0]["line"].as_u64(),
+        Some(line_of(CHECKED, "int::ge(value, 0)")),
+        "{edit:#}"
+    );
+    let edit = &row(&document, "toss-single")["krs"]["edits"][0];
+    assert_eq!(edit["judged"], "deleted", "{edit:#}");
+    assert_eq!(
+        edit["rust"][0]["line"].as_u64(),
+        Some(line_of(CHECKED, "fn toss_tails")),
+        "{edit:#}"
+    );
+    assert_eq!(
+        row(&document, "test-only")["krs"]["edits"][0]["judged"],
+        "inserted"
+    );
+}
+
+/// `run` gives each mutation the front end refuses its first refusal, runs nothing for it, runs
+/// the rest, and exits non-zero.
+#[test]
+fn run_refuses_what_check_refuses() {
+    let project = checked();
+    // `run` reads the layout's list; the check test of this shared project reads another.
+    project.write(
+        "kink/MUTATIONS.toml",
+        [
+            mutation(
+                "overlap",
+                "step_nonneg",
+                "Value:Int >=Int 0",
+                "Value:Int >=Int -1",
+            ),
+            mutation("toss-keeps", "toss_heads", "done ( 1 )", "done ( 2 )"),
+            mutation("test-only", "half", "(Value:Int =/=Int 0) andThenBool ", ""),
+            mutation(
+                "layout",
+                "other",
+                "done ( Value:Int )",
+                "done (  Value:Int )",
+            ),
+        ]
+        .concat(),
+    );
+    let refused = [
+        ("overlap", "krs::analysis::overlapping-rule-heads"),
+        ("test-only", "generated-only"),
+        ("layout", "no-change"),
+    ];
+    let output = project.kink("run", &["--full", "--cache", "kink/run-cache"]);
+    assert_status(&output, 1);
+    let document = json(&output);
+    for (id, reason) in refused {
+        let row = row(&document, id);
+        assert_eq!(row["status"], "invalid-mutation", "{row:#}");
+        assert_eq!(row["reason"], reason, "{row:#}");
+    }
+    // A refused mutation ran nothing, so it has no tier-1 record and no hint; the mutation
+    // that ran has its records wherever tier 1 is on (not under the Z3 profile).
+    let cached = cached_mutations(&project.path().join("kink/run-cache"));
+    for (id, _) in refused {
+        assert!(
+            !cached.contains(id),
+            "{id} has a record or a hint: {cached:?}"
+        );
+    }
+    if !cfg!(feature = "z3-inference") {
+        assert!(cached.contains("toss-keeps"), "{cached:?}");
+    }
+    let refused = row(&document, "overlap");
+    assert!(
+        refused["action"]
+            .as_str()
+            .unwrap()
+            .contains("KRS accepts these rules only if they cannot apply"),
+        "{refused:#}"
+    );
+    assert_ne!(
+        row(&document, "toss-keeps")["status"],
+        "invalid-mutation",
+        "{document:#}"
+    );
+    // `--only` judges the mutations it runs, and refuses them as the whole list does.
+    let output = project.kink("run", &["--only", "overlap", "--cache", "kink/only-cache"]);
+    assert_status(&output, 1);
+    let document = json(&output);
+    let rows = document["mutations"].as_array().unwrap();
+    assert_eq!(rows.len(), 1, "{document:#}");
+    assert_eq!(rows[0]["status"], "invalid-mutation", "{document:#}");
+    assert_eq!(
+        rows[0]["reason"], "krs::analysis::overlapping-rule-heads",
+        "{document:#}"
+    );
+}
+
+/// The mutation ids the cache at `cache` holds an outcome file or a hint for.
+fn cached_mutations(cache: &Path) -> std::collections::BTreeSet<String> {
+    let mut ids = std::collections::BTreeSet::new();
+    let mut directories = vec![cache.join("outcomes")];
+    while let Some(directory) = directories.pop() {
+        let Ok(entries) = fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                directories.push(path);
+            } else if let Ok(text) = fs::read_to_string(&path)
+                && let Ok(record) = serde_json::from_str::<Value>(&text)
+                && let Some(id) = record["mutation_id"].as_str()
+            {
+                ids.insert(id.to_owned());
+            }
+        }
+    }
+    if let Ok(text) = fs::read_to_string(cache.join("hints.json")) {
+        let hints: Value = serde_json::from_str(&text).unwrap();
+        for hint in hints["hints"]
+            .as_object()
+            .into_iter()
+            .flat_map(|map| map.values())
+        {
+            if let Some(id) = hint["mutation_id"].as_str() {
+                ids.insert(id.to_owned());
+            }
+        }
+    }
+    ids
+}
+
+/// A `fuzz` kill job of a mutation the front end refuses is refused before any case, with the
+/// front end's reason and next step.
+#[test]
+fn a_fuzz_kill_job_of_a_refused_mutation_runs_nothing() {
+    let project = checked();
+    project.write(
+        "kink/fuzz-mutations.toml",
+        [
+            mutation(
+                "overlap",
+                "step_nonneg",
+                "Value:Int >=Int 0",
+                "Value:Int >=Int -1",
+            ),
+            mutation("toss-keeps", "toss_heads", "done ( 1 )", "done ( 2 )"),
+        ]
+        .concat(),
+    );
+    project.write(
+        "kink/TEMPLATES.toml",
+        "[[template]]\nid = \"step\"\nprogram = \"s5\"\n\n  [[template.hole]]\n  name = \"N\"\n  \
+         sort = \"Int\"\n  find = \"5\"\n  literal = \"5\"\n  range = { min = 0, max = 9 }\n",
+    );
+    let output = project.kink(
+        "fuzz",
+        &[
+            "--template",
+            "step",
+            "--kill",
+            "overlap",
+            "--mutations",
+            "kink/fuzz-mutations.toml",
+        ],
+    );
+    let document = json(&output);
+    let job = &document["job"];
+    assert_eq!(job["outcome"], "refused", "{document:#}");
+    assert_eq!(job["status"], "invalid-mutation", "{document:#}");
+    assert_eq!(
+        job["reason"], "krs::analysis::overlapping-rule-heads",
+        "{document:#}"
+    );
+    assert!(
+        document["action"]
+            .as_str()
+            .unwrap()
+            .contains("KRS accepts these rules only if they cannot apply"),
+        "{document:#}"
+    );
+    assert!(!output.status.success(), "{document:#}");
+}
+
+/// The verdict of `krs check` on a Rust source that emits each refused mutant is the front
+/// end's: the same code, or `overlapping-equations` where the front end says
+/// `overlapping-match-arms`, since the source writing one branch's guard alone is three
+/// equations; and on a source that emits an accepted mutant, none.
+#[test]
+fn a_refused_mutants_rust_source_is_refused_by_krs_check() {
+    let sources = [
+        (
+            "overlap",
+            CHECKED.replace("int::ge(value, 0)", "int::ge(value, -1)"),
+            Some("krs::analysis::overlapping-rule-heads"),
+        ),
+        (
+            "toss-stale",
+            CHECKED.replace(
+                "fn toss_heads(k::term![ExpSyntax::Toss { value }]",
+                "fn toss_heads(k::term![ExpSyntax::Go { value }]",
+            ),
+            Some("krs::analysis::nondet-group"),
+        ),
+        (
+            "toss-other",
+            CHECKED.replace(
+                "fn toss_heads(k::term![ExpSyntax::Toss { value }]",
+                "fn toss_heads(k::term![ExpSyntax::Other { value }]",
+            ),
+            Some("krs::analysis::overlapping-rule-heads"),
+        ),
+        (
+            "toss-single",
+            CHECKED.replace(
+                "#[k::rule(nondet = toss)]\nfn toss_tails(k::term![ExpSyntax::Toss { value }]: Term<Exp>) -> Term<Exp> {\n    ExpSyntax::Done(0)\n}\n",
+                "",
+            ),
+            Some("krs::analysis::nondet-group"),
+        ),
+        (
+            "branch-one",
+            CHECKED.replace(
+                "#[k::function(total, internal)]\npub fn Clamp(value: Term<Int>) -> Term<Int> {\n    if value < 0 { 0 } else if value > 255 { 255 } else { value }\n}",
+                "#[k::function(total, sort = Int, syntax = \"clamp({value})\")]\npub struct Clamp {\n    pub value: Term<Int>,\n}\n\n#[k::requires(value < 5)]\n#[k::equation]\nfn clamp_1(k::term![Clamp(value)]: Term<Int>) -> Term<Int> {\n    0\n}\n\n#[k::requires(!(value < 0) && value > 255)]\n#[k::equation]\nfn clamp_2(k::term![Clamp(value)]: Term<Int>) -> Term<Int> {\n    255\n}\n\n#[k::requires(!(value < 0) && !(value > 255))]\n#[k::equation]\nfn clamp_3(k::term![Clamp(value)]: Term<Int>) -> Term<Int> {\n    value\n}",
+            ),
+            Some("krs::analysis::overlapping-equations"),
+        ),
+        (
+            "branch-all",
+            CHECKED.replace("if value < 0 {", "if value < 5 {"),
+            None,
+        ),
+    ];
+    for (id, source, code) in sources {
+        assert_ne!(source, CHECKED, "{id}: the source is edited");
+        let project = project_of(
+            "krs-cli-kink-checked-source",
+            "CHECKS",
+            &checked_files(&source),
+        );
+        let output = project.krs(&["check"]);
+        let stderr = stderr(&output);
+        match code {
+            Some(code) => {
+                assert!(!output.status.success(), "{id}: {stderr}");
+                assert!(stderr.contains(&format!("[{code}]")), "{id}: {stderr}");
+            }
+            None => assert!(output.status.success(), "{id}: {stderr}"),
+        }
+    }
 }
