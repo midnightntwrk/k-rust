@@ -448,7 +448,7 @@ pub const CODES: [(&str, &str); 29] = [
     ),
     (
         "continuation-in-readable",
-        "krs::syntax::continuation-in-readable",
+        "krs::analysis::continuation-in-readable",
     ),
     (
         "group-and-descendant",

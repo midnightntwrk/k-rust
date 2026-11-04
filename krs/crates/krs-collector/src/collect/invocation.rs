@@ -1245,7 +1245,13 @@ fn collect_rule_block(
             .partition(|(kind, _)| kind == "have");
         extras.extend(writes);
         let anchors = clause.descriptor_provenance().map_err(source_syntax)?;
-        output.push(parsed_invocation(
+        let form = if declaration == ProvenanceRole::ClaimDeclaration {
+            krs_syntax::cell_entry::EntryForm::Claim
+        } else {
+            krs_syntax::cell_entry::EntryForm::Readable
+        };
+        let cells = super::cell_entries::ParsedCells::of_readable(clause, form);
+        let mut invocation = parsed_invocation(
             declaration,
             rule.item()
                 .sig
@@ -1266,7 +1272,9 @@ fn collect_rule_block(
                 .to_owned(),
                 extras,
             },
-        )?);
+        )?;
+        invocation.cells = cells;
+        output.push(invocation);
     }
     Ok(())
 }

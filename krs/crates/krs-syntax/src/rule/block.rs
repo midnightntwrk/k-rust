@@ -368,6 +368,9 @@ pub struct RuleClause {
     pub(super) keys: ClauseKeys,
     /// The anchors of the clause's keying.
     pub(super) anchors: Vec<ProvenanceAnchor>,
+    /// A cell-record clause's authored subject and result records, the tokens inside their
+    /// braces, which the entry-admission table reads ([`crate::cell_entry::entry_fields`]).
+    pub(super) records: Option<(TokenStream, TokenStream)>,
 }
 
 /// The computation cell a cell-record clause names: its field in the
@@ -1002,6 +1005,15 @@ impl RuleClause {
         self.layout
     }
 
+    /// A cell-record clause's authored subject and result records, the tokens inside their
+    /// braces; `None` for a clause of a term table.
+    #[must_use]
+    pub fn records(&self) -> Option<(&TokenStream, &TokenStream)> {
+        self.records
+            .as_ref()
+            .map(|(subject, result)| (subject, result))
+    }
+
     /// Returns the exact descriptor provenance for the completed head rule:
     /// the anchors of the clause's keying.
     ///
@@ -1568,6 +1580,7 @@ impl RuleBlock {
                 claim: None,
                 keys: ClauseKeys::default(),
                 anchors: Vec::new(),
+                records: None,
             };
             clause.check_existentials()?;
             clauses.push(clause);

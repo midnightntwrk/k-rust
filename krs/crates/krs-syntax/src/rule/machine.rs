@@ -1992,9 +1992,18 @@ fn assemble_machine_clause(
         claim,
         keys: ClauseKeys::default(),
         anchors: Vec::new(),
+        records: Some((record_tokens(pattern_record), record_tokens(result_record))),
     };
     clause.check_existentials()?;
     Ok(clause)
+}
+
+/// The tokens inside a record's braces.
+fn record_tokens(record: &TokenTree) -> TokenStream {
+    match record {
+        TokenTree::Group(group) => group.stream(),
+        other => other.to_token_stream(),
+    }
 }
 
 /// The result cells with each bit-template field written as its value, as

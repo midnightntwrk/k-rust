@@ -188,8 +188,7 @@ examples = ["readable ; subject ; - ; * List of G ; x ; -", "readable ; subject 
 advice = ["cells/g4-b/kinds/account/{ k::fragment![crate::Acct { aframe: Ag { aa: x }, ..me }], ..instances0 }"]
 
 [class.continuation-in-readable]
-code = "krs::syntax::continuation-in-readable"
-proposed = true
+code = "krs::analysis::continuation-in-readable"
 doc = "a readable entry that captures or drops the computation's continuation (a named rest, `k: [x, rest @ ..]`, or a splice): a readable rule never does (Q3); `cells!` writes it with `KCell(.., rest @ ..)`"
 examples = ["readable ; subject ; - ; computation ; [x, r @ ..] ; -", "readable ; result ; - ; computation ; [x, ..r] ; [y, r @ ..]", "readable ; result ; - ; computation ; [x] ; -"]
 advice = "none"

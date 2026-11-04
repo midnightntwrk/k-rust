@@ -149,6 +149,10 @@ struct HeadRuleCellTarget {
     /// ([`krs_ir::cell_kind::CellKind::of`] over [`HostCell`]): presence or instances (KF-023),
     /// then a computation, a leaf, or a group, which a readable record names as a whole (KF-016).
     kind: CellKind,
+    /// The layers its `?` and `*` ancestors put above it, outermost first
+    /// ([`CellKind::path`]): what an entry naming the cell at a record's level is judged against
+    /// before its own layers (S1 (b)).
+    path: CellKind,
     /// The `#[k::cell]` struct of a nested (group) cell, by its resolved
     /// type: a record in the entry that names the cell stands for the
     /// running configuration's cell of that group (U5).
@@ -159,6 +163,7 @@ fn head_rule_cell_target(
     field: &HostCell<'_>,
     cell_fields: &HashMap<HostCellKey, krs_ir::DescriptorCellIdentity>,
     group: Option<TypeId>,
+    path: &[Layer],
 ) -> Result<HeadRuleCellTarget, CollectionError> {
     let kind = CellKind::of(field);
     let field = field.field;
@@ -195,6 +200,9 @@ fn head_rule_cell_target(
         names,
         k_name,
         kind,
+        path: CellKind {
+            layers: path.to_vec(),
+        },
         group,
     })
 }
@@ -461,6 +469,9 @@ pub(super) struct HeadRuleTarget {
     /// The children of each nested `#[k::cell]` struct, by its resolved
     /// type: a group record that names fewer leaves some out.
     group_children: HashMap<TypeId, GroupChildren>,
+    /// The configuration's groups ([`krs_syntax::cell_entries::collect_groups`]), whose records
+    /// the entry-admission table reads.
+    groups: Vec<krs_ir::cell_kind::GroupKind>,
 }
 
 /// The children of a nested `#[k::cell]` struct.
@@ -486,6 +497,37 @@ impl HeadRuleTarget {
         &self.configuration
     }
 
+    /// The configuration's groups, whose records the entry-admission table reads.
+    pub(super) fn groups(&self) -> &[krs_ir::cell_kind::GroupKind] {
+        &self.groups
+    }
+
+    /// The one cell a readable record entry `name` names, with what the entry is judged
+    /// against: the layers of its `?` and `*` ancestors and its own; `None` where no cell, or
+    /// more than one, has the name, which the rule's resolution reports.
+    pub(super) fn entry(
+        &self,
+        name: &str,
+    ) -> Option<(
+        &krs_ir::DescriptorCellIdentity,
+        krs_ir::cell_kind::EntryKind,
+    )> {
+        let mut named = self
+            .cells
+            .iter()
+            .filter(|cell| cell.names.iter().any(|candidate| candidate == name));
+        let (Some(cell), None) = (named.next(), named.next()) else {
+            return None;
+        };
+        Some((
+            &cell.identity,
+            krs_ir::cell_kind::EntryKind {
+                path: cell.path.clone(),
+                own: cell.kind.clone(),
+            },
+        ))
+    }
+
     /// Locates the configuration's main-cell refusal, where it has one, by `locate`.
     pub(super) fn locate_main_refusal(
         &mut self,
@@ -501,8 +543,11 @@ fn collect_head_rule_cells(
     views: &HostCellDeclarations<'_>,
     cell_fields: &HashMap<HostCellKey, krs_ir::DescriptorCellIdentity>,
     visiting: &mut HashSet<TypeId>,
-    cells: &mut Vec<HeadRuleCellTarget>,
-    group_children: &mut HashMap<TypeId, GroupChildren>,
+    (cells, group_children): (
+        &mut Vec<HeadRuleCellTarget>,
+        &mut HashMap<TypeId, GroupChildren>,
+    ),
+    path: &[Layer],
 ) -> Result<(), CollectionError> {
     for field in &declaration.fields {
         match &field.content {
@@ -511,18 +556,28 @@ fn collect_head_rule_cells(
                     &views.cell(field),
                     cell_fields,
                     None,
+                    path,
                 )?);
             }
             krs_ir::ProtocolCellContent::Nested { declaration } => {
-                // A group, an optional group, or a collection is named by a
-                // readable record entry; the leaves below a collection stay
-                // reachable as its implicit single instance (KF-023).
+                // A group, an optional group, or a collection is named by a readable record
+                // entry. Its descendants are collected too, so that a name resolving below an
+                // optional or collection ancestor is found and then refused at admission with
+                // that ancestor's class: an entry names the content of its own level, and below
+                // a `*` ancestor the instance is written as an instance record.
                 let key = declaration.declaration.key.resolve();
-                cells.push(head_rule_cell_target(
-                    &views.cell(field),
-                    cell_fields,
-                    Some(key),
-                )?);
+                let target =
+                    head_rule_cell_target(&views.cell(field), cell_fields, Some(key), path)?;
+                let mut below = path.to_vec();
+                below.extend(
+                    target
+                        .kind
+                        .layers
+                        .first()
+                        .filter(|layer| matches!(layer, Layer::Optional | Layer::Instances(_)))
+                        .cloned(),
+                );
+                cells.push(target);
                 if !visiting.insert(key) {
                     return Err(CollectionError::new(
                         CollectionErrorKind::InvalidConfiguration,
@@ -568,8 +623,8 @@ fn collect_head_rule_cells(
                     views,
                     cell_fields,
                     visiting,
-                    cells,
-                    group_children,
+                    (&mut *cells, &mut *group_children),
+                    &below,
                 )?;
                 visiting.remove(&key);
             }
@@ -622,8 +677,8 @@ pub(super) fn resolve_head_rule_targets(
                 views,
                 cell_fields,
                 &mut HashSet::new(),
-                &mut cells,
-                &mut group_children,
+                (&mut cells, &mut group_children),
+                &[],
             )?;
             let identity = |cell: &krs_ir::HostCellIdentity| {
                 cell_fields.get(&cell.resolve()).cloned().ok_or_else(|| {
@@ -675,16 +730,27 @@ pub(super) fn resolve_head_rule_targets(
             };
             Ok(HeadRuleTarget {
                 configuration: descriptor.id.clone(),
-                cells,
                 main,
                 main_refusal,
                 group_children,
+                groups: configuration_groups(&cells),
+                cells,
             })
         })
         .collect::<Result<Vec<_>, CollectionError>>()?;
     // Each rule that needs one configuration, or one computation cell, checks it as it is
     // resolved, so the error is located at that rule.
     Ok(targets)
+}
+
+/// The groups of a configuration whose cells are `cells`, which the entry-admission table reads:
+/// those its record-level cells' layers hold, at any depth.
+fn configuration_groups(cells: &[HeadRuleCellTarget]) -> Vec<krs_ir::cell_kind::GroupKind> {
+    let mut groups = Vec::new();
+    for cell in cells.iter().filter(|cell| cell.path.layers.is_empty()) {
+        krs_syntax::cell_entries::collect_groups(&cell.kind.layers, &mut groups);
+    }
+    groups
 }
 
 /// `a`, `b` and `c` for a message.
@@ -696,7 +762,7 @@ fn names<'a>(names: impl Iterator<Item = &'a str>) -> String {
 }
 
 /// The fixed configuration a head rule names, or the only one collected.
-fn select_head_rule_target<'a>(
+pub(super) fn select_head_rule_target<'a>(
     rule: &krs_ir::HostHeadRule,
     targets: &'a [HeadRuleTarget],
     declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
@@ -2387,9 +2453,11 @@ mod tests {
                 kind: CellKind {
                     layers: vec![Layer::Computation],
                 },
+                path: CellKind::default(),
                 group: None,
             }],
             group_children: HashMap::new(),
+            groups: Vec::new(),
         };
         let payload = |rule| HostDescriptorPayload::HeadRule(Box::new(rule));
         let error = payload_error(&payload(rule.clone()), &[]);
@@ -2950,6 +3018,7 @@ mod tests {
                     }])
                     .collect(),
             },
+            path: CellKind::default(),
             group: None,
         }
     }
@@ -2978,6 +3047,7 @@ mod tests {
             main,
             main_refusal: None,
             group_children: HashMap::new(),
+            groups: Vec::new(),
         }];
         let anchors = rule.carried_keys().unwrap();
         let (payload, discarded) = resolve_payload(

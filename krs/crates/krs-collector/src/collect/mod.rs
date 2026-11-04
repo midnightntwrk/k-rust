@@ -516,6 +516,15 @@ fn resolve_pending_descriptors(
                 break;
             }
         };
+        // A readable record clause's entries are judged before its payload is resolved.
+        if let (Some(authored), krs_ir::HostDescriptorPayload::HeadRule(rule)) =
+            (&cells, &pending.host.payload)
+            && let Ok(target) = resolve::select_head_rule_target(rule, &head_targets, &declarations)
+            && let Err(error) = cell_entries::judge_readable(target, authored)
+        {
+            loop_failure = Some(("collector.resolve.payload", error));
+            break;
+        }
         let started = timings.now();
         let payload = resolve_payload_reading(
             &pending.host.payload,

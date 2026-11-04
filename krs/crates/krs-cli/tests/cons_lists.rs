@@ -540,10 +540,10 @@ fn malformed_and_misplaced_lists_are_errors() {
             "error[krs::syntax::invalid-list-notation]: `[..]` and `[rest @ ..]` name no element: the first matches any list, so write `_`, and the second is the binder `rest` itself",
             "error[krs::syntax::invalid-list-notation]: an anonymous `..` keeps the rest only in a readable record cell, where the pattern's `..` matched it; elsewhere name it: `rest @ ..` in the pattern and `..rest` in the result",
             "error[krs::syntax::invalid-list-notation]: the pattern's `..` keeps the rest of the list, so the result holds `..` too; to drop or move the rest, name it: `rest @ ..`",
-            "error[krs::analysis::invalid-list-notation]: a cons list is matched and built from its front, so its back is no constructor pattern: `..` may only end its brackets; name the elements before the rest",
+            "error[krs::analysis::invalid-list-notation]: the entry of the cell `word_stack` is refused: cons-list-back-item",
             "error[krs::analysis::invalid-list-notation]: list notation builds a list, but this position has sort `Int`, which is not one: a list is the builtin `List`, a `#[k::syntax_list]` sort, or the sort of a `#[k::cons_list]` constructors enum",
-            "error[krs::analysis::invalid-list-notation]: the cell `gas` holds `Int`, which is not a list: a bracketed cell value is the computation cell's items, a List collection's instances, or the elements of a cell whose sort is the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's",
-            "error[krs::collect::invalid-configuration]: `k` is the computation cell, whose rest is the anonymous `..`; a named rest (`rest @ ..`, `..rest`) belongs to a list cell",
+            "error[krs::analysis::invalid-list-notation]: the entry of the cell `gas` is refused: bracket-reading",
+            "error[krs::analysis::continuation-in-readable]: the entry of the cell `k` is refused: continuation-in-readable",
         ]
     "#]].assert_debug_eq(&errors);
 }

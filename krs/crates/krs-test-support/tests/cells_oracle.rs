@@ -1421,8 +1421,10 @@ fn check_2_the_product_admits_as_the_table_says() {
     );
 }
 
-/// Check 2s (S5.3 part 2): the product's judgement of a whole `cells!` sentence against the
-/// oracle's. For every generated `cells!` case, the product reads every entry of the rendered
+/// Check 2s (S5.3 part 2; readable records and claims, S5.2 part a): the product's judgement of a
+/// whole `cells!`, readable or claim sentence against the oracle's, as the collector judges each
+/// before the compile path reads it. For every generated case of those forms, the product reads
+/// every entry of the rendered
 /// sentence (`krs_syntax::cell_entry`) and its cell's kind, and judges the sentence as the
 /// collector does ([`krs_syntax::cell_entries::Sentence::judge`]); its answer, the refused entry
 /// and its class or an admission, is [`sentence_outcome`]'s over the case's sentence. Check 2
@@ -1436,7 +1438,7 @@ fn check_2s_the_product_judges_a_sentence_as_the_table_says() {
     let mut failures = Vec::new();
     let mut counts = BTreeMap::<&str, usize>::new();
     for (case, entry) in ENTRIES.iter() {
-        if entry.form != Form::Cells {
+        if !matches!(entry.form, Form::Cells | Form::Readable | Form::Claim) {
             continue;
         }
         if !naming(&case.id, &exceptions).is_empty() {
@@ -1481,7 +1483,7 @@ fn check_2s_the_product_judges_a_sentence_as_the_table_says() {
         let parameters = rendered.parameters.iter().cloned().collect::<Vec<_>>();
         let groups = configuration.groups();
         let got = cell_entries::Sentence {
-            form: EntryForm::Cells,
+            form: entry_form(entry.form),
             entries: &entries,
             rewrite: product_rewrite(&rendered),
             parameters: &parameters,

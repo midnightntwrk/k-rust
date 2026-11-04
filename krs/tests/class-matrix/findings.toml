@@ -42,18 +42,6 @@ owner = "S5"
 kind = "diagnostic"
 what = "`Some(..)`/`None` in a readable result on a cell that is not optional is `krs::expand::not-a-declaration` at the spelling, not the presence rule"
 
-["B7"]
-owner = "S5"
-kind = "bug"
-what = "a bare entry on a `*` collection (`job: x`) is accepted with an undocumented one-instance meaning (decision D4: refuse it with the instance-list hint)"
-risk = "KRS writes `X:JobCell`, one instance, for the entry the reference reads as an instance list: what the rule matches over a collection of no or several instances is not what `job: x` says, and nothing tells the author"
-
-["B8"]
-owner = "S5"
-kind = "bug"
-what = "an optional cell's pattern accepts a leaf spelling (`counter: x`, `counter: 0`) as present (decision D5: require `Some(..)`/`None`)"
-risk = "KRS writes the presence pattern `<counter> X </counter>`, which `Some(x)` says: `counter: x` reads as \"whatever the counter holds\", but the rule never applies to an absent counter, silently"
-
 ["NT-2-26"]
 owner = "kept: rustc parses the const item before any KRS attribute runs; the author sees rustc's error at the construct"
 kind = "diagnostic"
@@ -136,22 +124,10 @@ owner = "S5"
 kind = "feature"
 what = "a readable result writing an updated instance's Map child with a map read and a rest (`{ Acct { aenv: { v -> x, .. }, ..me }, .. }`) is refused (\"in a term, `map![..]` is a literal\"): P6 reads it as the child's frame write over the subject's `aenv: { v -> y, .. }`, which the M3 limitation refuses at the record's level (design:M3); `cell_entries` admits it at an instance's child, so no `[cell-exception]` can name it until both depart alike (S5.0g item 3b, G4)"
 
-["S5-I1"]
-owner = "S5"
-kind = "bug"
-what = "instance braces on a plain group (`frame: { G { a: x, b: y } }` in a readable result, a group cell with no instances) are accepted, where they are `instances-on-plain-cell` (P2: braces mark instances; P3b); S5.2's"
-risk = "KRS writes the group's content as if the braces were the record alone (I: the case's K is not recorded while its row refuses it), so the result reads in KRS as an instance set of a cell that has none, and nothing tells the author the braces mean nothing there"
-
 ["S5-K1"]
 owner = "S5"
 kind = "bug"
 what = "a result's anonymous `..` that keeps the subject's anonymous rest at a content root is refused outside a readable record's top-level cell (`an anonymous `..` keeps the rest only in a readable record cell`): a `cells!` result (`Cell([x, ..])`, `KCell(x, ..)`) and a readable result below presence or in a group record's child (`Some([..])`, `H { hl: [x, ..], hb: 0 }`), though P6 reads `..` in a result as the subject's unnamed rest kept, at every content root and in every form (design D2); S5.5's"
-
-["S5-L4"]
-owner = "S5"
-kind = "bug"
-what = "a readable subject record that names some of its group's children and writes no `..` (`frame: G { a: x }` on `G { a, b }`) is accepted (L4: `record-missing-children`; P6, records follow Rust: without `..` a record names every field); S5.2's"
-risk = "KRS leaves the unnamed child `b` unconstrained, as `G { a: x, .. }` says: the rule matches whatever `b` holds, while the record without `..` reads in Rust as naming every field, so the missing `b` is a mistake nobody is told about"
 
 ["S5-M1"]
 owner = "S5"
@@ -162,12 +138,6 @@ what = "an initializer that also places the program in a second computation cell
 owner = "S5"
 kind = "bug"
 what = "a result list holding only a named rest put back (`olist: Some([..r])`, `Cell([..r])`) is refused (\"`[..rest]` has no element: it is the list `rest` itself, so write `rest`\", `invalid-list-notation`) with advice to write `r`: P6 reads `..name` as the named rest put back, and `[..r]` means what `r` means, so nothing is ambiguous (P0) and the spelling is admitted (S5.0g item 3b, G5): S5.2's readable, S5.3's `cells!`"
-
-["S5-O1"]
-owner = "S5"
-kind = "bug"
-what = "a record with a bare `..` that leaves a field open, as an element of a result's list (`stack: [G { a: x, .. }, ..]`), is accepted, where it is `open-record-outside-pattern` (P6: a bare `..` in a result is Rust's default fields, which only a created instance has; S5.0g R4); S5.2's"
-risk = "KRS builds the element with the unnamed field `b` left as an unbound variable or a frame (I: the case's K is not recorded while its row refuses it), so the rule writes a `G` term whose `b` nothing determines, while the Rust spelling reads as defaults"
 
 ["S5-P1"]
 owner = "S5"
@@ -184,17 +154,10 @@ owner = "S5"
 kind = "feature"
 what = "`job: [x, ..]` on a List collection binds its front instance and `job: [.., x]` its back instance (decision Q2), which readable refuses as bracket notation"
 
-["S5-R1"]
-owner = "S5"
-kind = "bug"
-what = "a result without `..` at a content root whose subject entry matched it with an anonymous rest is accepted, where it is `rest-mismatch` (P6: K reads keep and Rust reads drop, so the spelling must say which): a readable group record's child (`H { hl: [x], hb: 0 }` over `H { hl: [y, ..], .. }`, also below `Some`) and a `cells!` computation (`KCell(x)` over `KCell(y, ..)`); S5.2's and S5.5's"
-risk = "the one exact spelling gets a different meaning in each form, and nothing tells the author which (P7 makes the forms one notation): in a readable group record's child KRS rewrites the whole record cell, matching the subject's rest with `_` and writing the result's items alone, so the rest is dropped, the Rust reading; in a `cells!` computation (`KCell(x)` over `KCell(y, ..)`) it writes the result's items over the subject's `...` frame, so the rest of the computation is kept (as S5-D2 does for a `cells!` map)"
-
 ["S5-S1"]
 owner = "S5"
 kind = "bug"
 what = "an entry naming a cell below a `?` or `*` ancestor by its path (readable `hpc: x`, a claim's, a `cells!` key such as `crate::Acct::apc`) is admitted, or refused with another code than its class: the cell's own kind first (P3, as at the record's level), then the ancestor's (`optional-without-presence`, `collection-without-instances`; S1 (b), design §2.3): S5.2's for readable records and claims, S5.3's for `cells!` keys. Residue for S5.3 once S5.2 fixes the path: `{readable,claim}/subject/kinds/aacct/[x, ..]` and `{readable,claim}/overwrite/kinds/hbag/[x, ..]` are `instance-list-shape` by their own stack (brackets on a Set or Map collection, the instance mark of the wrong order: S5.0g pattern review P-R4), where the compiler answers `bracket-reading` (`invalid-list-notation`) on `aacct` and a `rust-syntax` error on `hbag`; the cell's own class is then theirs to name, a `br`/`ils` disagreement this finding's cause does not cover"
-risk = "below `*`, KRS reads the named cell as a child of one implicit instance, so the rule silently needs exactly the instance it picks and matches or writes that one; below `?`, it silently requires the optional ancestor to be present (B8's reason). The entry names one cell's content, which no single cell has"
 
 ["S5-U1"]
 owner = "S5"

@@ -522,6 +522,16 @@ pub struct CellsField {
 /// payload is neither, so that no field's neighbours are guessed.
 #[must_use]
 pub fn cells_fields(tokens: &TokenStream) -> Option<Vec<CellsField>> {
+    entry_fields(tokens, EntryForm::Cells)
+}
+
+/// The fields of a record of cell entries written in `form`, each `key: value`, in authored
+/// order: a `cells!` payload, or a readable record's or claim's subject or result (the tokens
+/// inside its braces), where a field written as its name alone binds that name (Rust's field
+/// shorthand). The configuration's frame (`..`, `..name`, `name @ ..`) names no cell and is left
+/// out. `None` when a part of the record is neither, so that no field's neighbours are guessed.
+#[must_use]
+pub fn entry_fields(tokens: &TokenStream, form: EntryForm) -> Option<Vec<CellsField>> {
     use proc_macro2::{Spacing, TokenTree};
     let trees = tokens.clone().into_iter().collect::<Vec<_>>();
     let mut fields = Vec::new();
@@ -538,6 +548,17 @@ pub fn cells_fields(tokens: &TokenStream) -> Option<Vec<CellsField>> {
                 && is_at(part.get(1))
                 && is_dot(part.get(2)))
         {
+            continue;
+        }
+        if form.is_readable()
+            && let [TokenTree::Ident(name)] = part
+        {
+            let value = TokenStream::from(TokenTree::Ident(name.clone()));
+            fields.push(CellsField {
+                key: Path::from(name.clone()),
+                spelling: Some(EntrySpelling::Binder(name.unraw().to_string())),
+                value: crate::TokenRange::for_tokens(&value).ok(),
+            });
             continue;
         }
         // The key ends at the first `:` that is no path separator.
@@ -565,9 +586,7 @@ pub fn cells_fields(tokens: &TokenStream) -> Option<Vec<CellsField>> {
         let value = part[colon + 1..].iter().cloned().collect::<TokenStream>();
         fields.push(CellsField {
             key,
-            spelling: EntryReading::new(EntryForm::Cells, &[])
-                .value(value.clone())
-                .ok(),
+            spelling: EntryReading::new(form, &[]).value(value.clone()).ok(),
             value: crate::TokenRange::for_tokens(&value).ok(),
         });
     }
@@ -598,6 +617,32 @@ mod cells_fields_tests {
         assert!(matches!(fields[1].spelling, Some(EntrySpelling::Cell(_))));
         // A term with an operator is no entry the reading knows: nothing judges it.
         assert_eq!(fields[2].spelling, None);
+        assert!(fields.iter().all(|field| field.value.is_some()));
+    }
+
+    #[test]
+    fn a_readable_records_fields_are_read_with_their_shorthand_and_its_frame_names_no_cell() {
+        let tokens = "k: [Go(), ..], pc, env: { a -> x, .. }, .."
+            .parse()
+            .expect("lexes");
+        let fields = super::entry_fields(&tokens, super::EntryForm::Readable).expect("fields");
+        let names = fields
+            .iter()
+            .map(|field| field.key.segments.last().expect("a name").ident.to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["k", "pc", "env"]);
+        assert!(matches!(
+            fields[0].spelling,
+            Some(EntrySpelling::Brackets(_))
+        ));
+        assert_eq!(
+            fields[1].spelling,
+            Some(EntrySpelling::Binder("pc".to_owned()))
+        );
+        assert!(matches!(
+            fields[2].spelling,
+            Some(EntrySpelling::MapRead(_))
+        ));
         assert!(fields.iter().all(|field| field.value.is_some()));
     }
 

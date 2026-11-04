@@ -41,6 +41,8 @@ pub(super) struct ParsedField<R> {
 /// subject frame of its kind, which is asked once the entries are admitted.
 #[derive(Clone, Debug)]
 pub(super) struct ParsedCells<R> {
+    /// The form the entries are written in: `cells!`, or a readable record or claim.
+    form: EntryForm,
     subject: Vec<ParsedField<R>>,
     result: Option<Vec<ParsedField<R>>>,
     parameters: Vec<String>,
@@ -96,7 +98,14 @@ pub(super) fn reuse_refused(rule: &krs_syntax::StateRuleItem) -> Result<(), Coll
 pub(super) type LocatedCells = ParsedCells<SourceRange>;
 
 fn fields(expression: &krs_syntax::CellsExpression) -> Option<Vec<ParsedField<Coordinates>>> {
-    krs_syntax::cell_entry::cells_fields(expression.tokens())?
+    read_fields(expression.tokens(), EntryForm::Cells)
+}
+
+fn read_fields(
+    tokens: &proc_macro2::TokenStream,
+    form: EntryForm,
+) -> Option<Vec<ParsedField<Coordinates>>> {
+    krs_syntax::cell_entry::entry_fields(tokens, form)?
         .into_iter()
         .map(|field| {
             Some(ParsedField {
@@ -119,6 +128,7 @@ impl ParsedCells<Coordinates> {
         parameters: impl IntoIterator<Item = String>,
     ) -> Option<Self> {
         Some(Self {
+            form: EntryForm::Cells,
             subject: fields(pattern)?,
             result: None,
             parameters: parameters.into_iter().collect(),
@@ -130,6 +140,7 @@ impl ParsedCells<Coordinates> {
     /// payload is no list of fields.
     pub(super) fn of_rule(rule: &krs_syntax::StateRuleItem) -> Option<Self> {
         Some(Self {
+            form: EntryForm::Cells,
             subject: fields(rule.subject())?,
             result: match rule.result() {
                 Some(result) => Some(fields(result)?),
@@ -141,6 +152,20 @@ impl ParsedCells<Coordinates> {
                 .map(|binding| binding.name().to_string())
                 .collect(),
             reuse: rule.reuse_refusal().as_ref().map(Reuse::of),
+        })
+    }
+
+    /// The fields of a readable cell-record clause, written in `form` (a readable record or a
+    /// claim): its subject record's and its result record's; `None` for a clause of a term table,
+    /// or where a record's part is no field.
+    pub(super) fn of_readable(clause: &krs_syntax::RuleClause, form: EntryForm) -> Option<Self> {
+        let (subject, result) = clause.records()?;
+        Some(Self {
+            form,
+            subject: read_fields(subject, form)?,
+            result: Some(read_fields(result, form)?),
+            parameters: Vec::new(),
+            reuse: None,
         })
     }
 
@@ -160,6 +185,7 @@ impl ParsedCells<Coordinates> {
                 .collect()
         };
         ParsedCells {
+            form: self.form,
             subject: locate(&self.subject),
             result: self.result.as_deref().map(locate),
             parameters: self.parameters.clone(),
@@ -195,12 +221,89 @@ pub(super) fn judge(
     let index = DescriptorIndex::new(bundle);
     let mut warnings = Vec::new();
     for (id, authored) in cells {
+        if authored.form.is_readable() {
+            // Judged before its payload is resolved ([`judge_readable`]).
+            continue;
+        }
         warnings.extend(judge_entries(&index, id, authored)?);
         if let Some(reuse) = &authored.reuse {
             return Err(reuse.refused());
         }
     }
     Ok(warnings)
+}
+
+/// Judges the entries of a readable record clause or claim against the configuration `target`
+/// it names, before its payload is resolved: the table's answer is the first one an author meets,
+/// ahead of the readable route's own readings of the entries (a bracketed value read as a list,
+/// a braced one as instances), which assume the kinds the table checks. A clause whose fields the
+/// reader does not read, or which names a cell no single cell of the configuration has, is left
+/// to the rule's resolution, which reports the name.
+///
+/// # Errors
+///
+/// The first refused entry, with its class's code, at its value.
+pub(super) fn judge_readable(
+    target: &super::resolve::HeadRuleTarget,
+    authored: &LocatedCells,
+) -> Result<(), CollectionError> {
+    if !authored.form.is_readable() {
+        return Ok(());
+    }
+    let Some(subject) = readable_entries(target, &authored.subject) else {
+        return Ok(());
+    };
+    let Some(result) = authored
+        .result
+        .as_deref()
+        .map_or(Some(Vec::new()), |fields| readable_entries(target, fields))
+    else {
+        return Ok(());
+    };
+    let sentence = subject
+        .iter()
+        .map(|entry| (EntrySide::Subject, entry))
+        .chain(result.iter().map(|entry| (EntrySide::Result, entry)))
+        .map(|(side, entry)| SentenceEntry {
+            side,
+            cell: entry.cell,
+            kind: &entry.kind,
+            spelling: entry.field.spelling.as_ref(),
+        })
+        .collect::<Vec<_>>();
+    let judged = Sentence {
+        form: authored.form,
+        entries: &sentence,
+        rewrite: Rewrite::Result,
+        parameters: &authored.parameters,
+        groups: target.groups(),
+    }
+    .judge();
+    if let Err((at, refusal)) = judged {
+        let entry = subject
+            .iter()
+            .chain(&result)
+            .nth(at)
+            .expect("the refused entry is the sentence's");
+        return Err(refused(entry, refusal, None));
+    }
+    Ok(())
+}
+
+/// The entries of one side of a readable clause, each field beside the one cell its name names;
+/// `None` where a name names no single cell.
+fn readable_entries<'a>(
+    target: &'a super::resolve::HeadRuleTarget,
+    fields: &'a [ParsedField<SourceRange>],
+) -> Option<Vec<Entry<'a>>> {
+    fields
+        .iter()
+        .map(|field| {
+            let name = field.name.strip_prefix("r#").unwrap_or(&field.name);
+            let (cell, kind) = target.entry(name)?;
+            Some(Entry { cell, kind, field })
+        })
+        .collect()
 }
 
 /// Judges the entries of the sentence `id`, where the bundle holds it as a sentence with

@@ -244,9 +244,8 @@ impl Refusal {
             Self::MapNotationAtNonMap => analysis::INVALID_TERM,
             Self::CellWrapper => analysis::CELL_WRAPPER,
             Self::RecordMissingChildren => analysis::RECORD_MISSING_CHILDREN,
-            Self::ContinuationInReadable | Self::MapReadInResult | Self::MapReadValueBinder => {
-                syntax::RUST_SYNTAX
-            }
+            Self::ContinuationInReadable => analysis::CONTINUATION_IN_READABLE,
+            Self::MapReadInResult | Self::MapReadValueBinder => syntax::RUST_SYNTAX,
             Self::RestMismatch => syntax::INVALID_LIST_NOTATION,
             Self::OpenRecordOutsidePattern => syntax::INVALID_RECORD_UPDATE,
             Self::ComputationBackItem => collect::INVALID_CONFIGURATION,
