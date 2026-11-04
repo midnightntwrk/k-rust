@@ -185,7 +185,8 @@ doc = "a `*` collection written without its instance list, the spellings of its 
 examples = ["readable ; subject ; - ; * List of G ; x ; -", "readable ; subject ; - ; * Set of G ; _ ; -", "readable ; subject ; - ; * Map of G ; 0 ; -", "readable ; subject ; - ; * List of G ; G { a: x, .. } ; -", "readable ; subject ; * ; leaf Int ; x ; -", "cells ; result ; * ; leaf Int ; k::configuration::Cell(x) ; k::configuration::Cell(old)"]
 # A `cells!` result's path refusal below `*` advises the update of the instance the subject names
 # (P-R6): `{ me @ k::fragment![T { .. }], .. }` => `{ k::fragment![T { child: v, ..me }], .. }`.
-advice = ["cells/g4-b/kinds/account/{ k::fragment![crate::Acct { aframe: Ag { aa: x }, ..me }], ..instances0 }"]
+# A kind refusal advises the cell's own instance list, an advised case per collection's form.
+advice = ["cells/g4-b/kinds/account/{ k::fragment![crate::Acct { aframe: Ag { aa: x }, ..me }], ..instances0 }", "readable/subject/job/[Job { payload: x, .. }, ..]", "claim/subject/kinds/bag/{ Obj { key: x, .. }, .. }", "claim/g4-a/kinds/account/{ Acct { id: x, aframe: Ag { aa: x }, .. }, .. }", "cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..]", "cells-run/subject/bag/{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> 2, ..] }], instances0 @ .. }", "cells/g4-a/kinds/account/{ k::fragment![crate::Acct { id: x, aframe: Ag { aa: x }, .. }], ..instances0 }", "sweep/claim/result/job/[..]", "sweep/claim/result/acct/{ Gm { ma: x, .. }, .. }", "sweep/claim/result/bag/{ Gs { sa: x, .. }, .. }"]
 
 [class.continuation-in-readable]
 code = "krs::analysis::continuation-in-readable"
@@ -330,7 +331,7 @@ advice = "init/k/k::k![pgm]"
 code = "krs::analysis::collection-entry"
 doc = "an instance list of the wrong shape for its collection's order (P2, P3b): braces on a List collection, or brackets on a Set or Map collection, whatever they hold (value items, rests, instance records: S5.0g pattern review P-R4); a value item in an unordered collection's braces (Q2: its instance is chosen by a written record); or, a stated limitation, a List collection rule the product does not lower: one that changes instances at both ends, or keeps a back instance in place (it creates or removes instances at the back, and reads and updates them at the front)"
 examples = ["readable ; subject ; - ; * List of G ; { G { a: x, .. }, .. } ; -", "readable ; subject ; - ; * Set of G ; [x, ..] ; -", "readable ; subject ; - ; * Set of G ; [..] ; -", "readable ; subject ; - ; * Map of G ; [G { a: x, .. }, ..] ; -", "readable ; subject ; - ; * Set of G ; { x, .. } ; -", "cells ; subject ; - ; * Set of G ; [k::fragment![crate::G { a: x, .. }], ..] ; -"]
-advice = "readable/subject/job/[Job { payload: x, .. }, ..]"
+advice = ["readable/subject/job/[Job { payload: x, .. }, ..]", "claim/subject/kinds/bag/{ Obj { key: x, .. }, .. }", "claim/g4-a/kinds/account/{ Acct { id: x, aframe: Ag { aa: x }, .. }, .. }", "cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..]", "cells-run/subject/bag/{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> 2, ..] }], instances0 @ .. }", "sweep/claim/result/job/[..]", "sweep/claim/result/acct/{ Gm { ma: x, .. }, .. }", "sweep/claim/result/bag/{ Gs { sa: x, .. }, .. }"]
 
 [class.instances-on-plain-cell]
 code = "krs::analysis::collection-entry"
@@ -377,7 +378,9 @@ advice = "init/main-k/k/k::k![pgm]"
 code = "krs::analysis::map-collection-key"
 doc = "a Map collection's instance that does not keep its key, its first child, which is its identity, written at creation and never changed by an update (§7): a created instance that does not write it (a bare `..` takes the template's fields, which state no identity, P5), or an instance update (`..me`) that writes it as anything but what is provably the key the subject matched (another literal, another name, a computed value, or a key the labelled instance does not name); written as the subject's own key binder, or as the same literal it matched, it is unchanged (P0)"
 examples = ["readable ; result ; - ; * Map of G ; { G { b: x, .. }, .. } ; { G { a: y, .. }, .. }", "readable ; result ; - ; * Map of A ; { A { id: 5, ..me }, .. } ; { me @ A { id: z, .. }, .. }"]
-advice = "none"
+# A created instance's refusal advises writing its key child (`id: ..`), which each advised case
+# writes for one Map collection's key; an update's advises in prose (keep or leave out the key).
+advice = ["claim/g4-a/kinds/account/{ Acct { id: x, aframe: Ag { aa: x }, .. }, .. }", "claim/subject/kinds/bag/{ Obj { key: x, .. }, .. }", "sweep/cells/result/c23-acc/{ k::fragment![crate::A { aid: 5, .. }], .. }", "sweep/cells/result/acct/{ k::fragment![crate::Gm { ma: x, .. }], .. }"]
 
 [class.map-notation-at-non-map]
 code = "krs::analysis::invalid-term"

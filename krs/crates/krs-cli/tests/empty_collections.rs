@@ -334,7 +334,7 @@ fn other_spellings_name_the_empty_collections() {
     );
     expect_test::expect![[r#"
         [
-            "error[krs::analysis::collection-entry]: the entry of the cell `functions` is refused: instances-on-plain-cell",
+            "error[krs::analysis::collection-entry]: the cell `functions` holds a `Map` leaf, not a collection: an instance list names the instances of a cell declared `#[k::cell(multiplicity = \"*\", cell_type = .., nested)]`; the empty Map or Set a leaf cell holds is `map::empty()` or `set::empty()`, and its empty List is `[]`",
             "--> src/lib.rs:63:42",
         ]
     "#]]

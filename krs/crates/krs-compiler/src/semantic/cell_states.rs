@@ -523,13 +523,15 @@ pub(super) fn lower_instances_clause(
                 let ProtocolInstanceRest::Update { label } = &instance.rest else {
                     continue;
                 };
+                // An update whose label no subject instance has has no base (the table's
+                // `record-update-base`), whatever form wrote it.
                 let Some(&index) = labels.get(label) else {
                     return Err(collection_error(
                         &descriptor,
-                        codes::analysis::UNKNOWN_INSTANCE_LABEL,
+                        codes::analysis::INVALID_RECORD_UPDATE,
                         &instance.key,
                         format!(
-                            "`..{label}` names no instance of `{name}` labelled `{label} @` in the pattern"
+                            "`..{label}` names no instance of `{name}` labelled `{label} @` in the pattern, so the update has no instance of the collection as its base: an instance update keeps an instance its pattern labels, in place"
                         ),
                     ));
                 };

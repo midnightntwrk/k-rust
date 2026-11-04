@@ -890,7 +890,7 @@ fn a_map_result_over_an_anonymous_rest_without_dots_is_an_error() {
     let error = check_error_in(target.path(), &text);
     expect_test::expect![[r#"
         (
-            "error[krs::syntax::invalid-list-notation]: the entry of the cell `env` is refused: rest-mismatch",
+            "error[krs::syntax::invalid-list-notation]: the entry of the cell `env` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest, or name it in the subject (`rest @ ..`) to drop or move it",
             "k::configuration::Cell(map![a -> 10, b -> v])",
         )
     "#]]

@@ -256,19 +256,223 @@ impl Refusal {
 }
 
 impl Refusal {
-    /// What the author is told about a refusal of an entry naming `cell` where the class's name
-    /// is not the whole reason: a stated limitation, in the words of the step that lowers it.
+    /// Every refusal, in declaration order (each at its discriminant): the refusals
+    /// [`Self::reason`] is checked over.
+    pub const ALL: [Self; 29] = [
+        Self::WildcardOutsidePattern,
+        Self::AliasOutsidePattern,
+        Self::NoneInInitializer,
+        Self::InitializerRemainder,
+        Self::AnonymousRestInMapLiteral,
+        Self::PresenceOnPlainCell,
+        Self::BracketReading,
+        Self::InstancesOnPlainCell,
+        Self::InstanceListShape,
+        Self::ListBothEnds,
+        Self::ListBackKept,
+        Self::MapNotationAtNonMap,
+        Self::CellWrapper,
+        Self::OptionalWithoutPresence,
+        Self::CollectionWithoutInstances,
+        Self::BelowOptionalAncestor,
+        Self::BelowCollectionAncestor,
+        Self::UnmatchedOptionalResult,
+        Self::RecordMissingChildren,
+        Self::ContinuationInReadable,
+        Self::AbsenceTestWithoutCreation,
+        Self::RestMismatch,
+        Self::OpenRecordOutsidePattern,
+        Self::ComputationBackItem,
+        Self::ConsListBackItem,
+        Self::RecordUpdateBase,
+        Self::MapReadInResult,
+        Self::MapCollectionKey,
+        Self::MapReadValueBinder,
+    ];
+
+    /// Why the entry of the cell `cell`, of the kind `kind` (a leaf of the sort `sort`, where
+    /// it is one and its sort is known), written in `form`, is refused: what its spelling means
+    /// against its cell, in the terms of the entry and the cell, whichever form wrote it (design
+    /// §2.7). It explains; what to write instead depends on the cell's declaration and the
+    /// form, and is the advice its reporter adds where the class has one.
     #[must_use]
-    pub fn reason(self, cell: &str) -> Option<String> {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One exhaustive match gives every refusal its reason."
+    )]
+    pub fn reason(
+        self,
+        form: EntryForm,
+        cell: &str,
+        kind: &EntryKind,
+        sort: Option<&str>,
+    ) -> String {
+        let own = &kind.own.layers;
+        let holds = described(own, sort);
         match self {
-            Self::ListBothEnds => Some(format!(
+            Self::WildcardOutsidePattern => format!(
+                "the entry of the cell `{cell}` holds `_`, which only a pattern can: `_` matches any content and gives none, while a result or an initializer gives the cell its content"
+            ),
+            Self::AliasOutsidePattern => format!(
+                "the entry of the cell `{cell}` names a term with `@` outside a pattern, where nothing was matched to name: a result keeps its subject's anonymous rest with `..` and puts a named one back with `..name`, and an initializer updates a record with `..base`"
+            ),
+            Self::NoneInInitializer => format!(
+                "the initial value of the optional cell `{cell}` is `None`, which gives it no template, and K needs one to know what a created cell looks like"
+            ),
+            Self::InitializerRemainder => format!(
+                "the initial value of the cell `{cell}` holds a rest (`..`), but an initializer's value is complete: it has no subject whose rest the `..` could keep, so it lists every item"
+            ),
+            Self::AnonymousRestInMapLiteral => format!(
+                "the entry of the cell `{cell}` holds a map literal with an anonymous `..`, which names no map here: the literal is not the cell's content, so there is no map whose other entries the `..` could stand for"
+            ),
+            Self::PresenceOnPlainCell => format!(
+                "the cell `{cell}` holds {holds} and is not optional (it is declared without `multiplicity = \"?\"`), so it is always there: `Some(..)` and `None` are the presence of an optional cell, which `{cell}` has none of"
+            ),
+            Self::BracketReading => format!(
+                "the cell `{cell}` holds {holds}, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)"
+            ),
+            Self::InstancesOnPlainCell => format!(
+                "the cell `{cell}` holds {holds}, not a collection: an instance list names the instances of a cell declared `#[k::cell(multiplicity = \"*\", cell_type = .., nested)]`; the empty Map or Set a leaf cell holds is `map::empty()` or `set::empty()`, and its empty List is `[]`"
+            ),
+            Self::InstanceListShape => match own.first() {
+                Some(Layer::Instances(Order::List)) => format!(
+                    "the cell `{cell}` is a List collection, whose instances are positional: they stand in brackets, at the front before `..` and at the back after it, not in braces"
+                ),
+                Some(Layer::Instances(order)) => format!(
+                    "the cell `{cell}` is a {} collection, whose instances are unordered: they stand in braces, each an instance record naming the instance it matches or writes, not in brackets or as a value",
+                    order_name(*order)
+                ),
+                _ => format!(
+                    "the entry of the cell `{cell}` writes instances in a shape its collection does not have"
+                ),
+            },
+            Self::ListBothEnds => format!(
                 "this entry names instances at both ends of the List collection `{cell}`; a KRS rule changes either the front (before `..`) or the back (after it), so split it into two rules"
-            )),
-            Self::ListBackKept => Some(format!(
+            ),
+            Self::ListBackKept => format!(
                 "a back instance of the List collection `{cell}` is matched in place; KRS creates or removes instances at the back, and reads and updates them at the front"
-            )),
-            _ => None,
+            ),
+            Self::MapNotationAtNonMap => format!(
+                "the cell `{cell}` holds {holds}, not a map: map notation ({}) denotes the entries of a cell whose sort is the builtin `Map`",
+                if form == EntryForm::Cells {
+                    "`k::map![..]`"
+                } else {
+                    "`{ k -> v, .. }`, `map![..]`"
+                }
+            ),
+            Self::CellWrapper => format!(
+                "the cell `{cell}` holds {holds}, and the entry's wrapper is not that content's: {}",
+                if form == EntryForm::Cells {
+                    "`KCell(..)` wraps a computation's items and `Cell(..)` a leaf's value, on the cell that holds one"
+                } else {
+                    "a computation's entry is its items in brackets, read from the front, and a value alone is no computation"
+                }
+            ),
+            Self::OptionalWithoutPresence => format!(
+                "the cell `{cell}` is optional (`multiplicity = \"?\"`), so its entry states whether it is there: `Some(..)` holds its content when it is, and `None` stands for its absence"
+            ),
+            Self::CollectionWithoutInstances => format!(
+                "the cell `{cell}` is {holds} (`multiplicity = \"*\"`), so its entry is a list of its instances, each an instance record, not one value: no single cell has the content a value would name"
+            ),
+            Self::BelowOptionalAncestor => format!(
+                "the cell `{cell}` is a cell of an optional (`?`) group, so an entry naming it at the record's level would silently require the group present: an entry names the content of its own level, and the group's presence is written at the group's"
+            ),
+            Self::BelowCollectionAncestor => format!(
+                "the cell `{cell}` is a cell of a collection's (`*`) instance, so no single cell has the content an entry naming it at the record's level would name: there is one `{cell}` per instance, and an entry names the instance through its instance record"
+            ),
+            Self::UnmatchedOptionalResult => format!(
+                "the result writes the optional cell `{cell}`, which the subject does not match, so the rule does not know whether the cell is there: the subject matches it with `Some(..)` or `None` first"
+            ),
+            Self::RecordMissingChildren => format!(
+                "the group record of the cell `{cell}` names some of its children and no `..`: a record without `..` names every child, as a Rust struct literal does, and `..` leaves the others as they are"
+            ),
+            Self::ContinuationInReadable => format!(
+                "the readable entry of the computation cell `{cell}` captures or drops its continuation (with a named rest, a splice, a whole binder, or a result without the subject's `..`): a readable rule keeps the rest of the computation with its anonymous `..`, and a `cells!` rule's `KCell(.., rest @ ..)` is what captures it"
+            ),
+            Self::AbsenceTestWithoutCreation => format!(
+                "the subject tests that the optional cell `{cell}` is absent (`None`), and the result does not create it: K tests a cell's absence only by creating the cell, so a subject's `None` stands where its result creates it with `Some(..)`"
+            ),
+            Self::RestMismatch => format!(
+                "the entry of the cell `{cell}` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader"
+            ),
+            Self::OpenRecordOutsidePattern => format!(
+                "the entry of the cell `{cell}` leaves a record open (`..`) outside a pattern, over a group that exists: in a built term `..` stands for Rust's default fields, which only a created instance has (its template), so the record names every child or updates the record its subject matched"
+            ),
+            Self::ComputationBackItem => format!(
+                "the entry of the computation cell `{cell}` has an item after its rest: a computation is read from its front, where its next step is, so `..` ends it"
+            ),
+            Self::ConsListBackItem => format!(
+                "the cell `{cell}` holds a cons list, which is matched and built from its front, so its back is no constructor pattern: `..` only ends its brackets, after the elements before the rest"
+            ),
+            Self::RecordUpdateBase => format!(
+                "the entry of the cell `{cell}` updates a record (`..base`) whose base the sentence does not match: an update takes the fields of a record of its own constructor that the subject names `base @ ..`, such as an instance its subject's instance list labels"
+            ),
+            Self::MapReadInResult => format!(
+                "the entry of the cell `{cell}` reads a map (`{{ k -> v, .. }}`) in a result: a map read is a pattern, and a readable record's result has no map write yet (a stated limitation; a `cells!` result has `Cell(k::map![k -> v, ..])`)"
+            ),
+            Self::MapCollectionKey => {
+                let key = match own.as_slice() {
+                    [Layer::Instances(order), Layer::Group(group), ..] => group.key(*order),
+                    _ => None,
+                };
+                format!(
+                    "an instance of the Map collection `{cell}` does not keep its key{}, its first child, which is its identity: a created instance states it, and an update keeps the key its subject matched, since another key is another entry of the map",
+                    key.map_or_else(String::new, |key| format!(" `{key}`"))
+                )
+            }
+            Self::MapReadValueBinder => format!(
+                "the map read of the cell `{cell}` maps a key to a value that is no fresh binder: at a readable record's top level the value names what the entry maps to (a stated limitation; inside an instance record the value is matched)"
+            ),
         }
+    }
+}
+
+/// The content of a cell of the layers `layers`, outermost first, in words with its article (a
+/// leaf's with its sort `sort` where it is known): "an optional leaf of sort `Int`", "a List
+/// collection of `Job` instances", "a computation".
+#[must_use]
+pub fn described(layers: &[Layer], sort: Option<&str>) -> String {
+    let noun = noun(layers, sort);
+    let article = if noun.starts_with(['o', 'a', 'e', 'i', 'u']) {
+        "an"
+    } else {
+        "a"
+    };
+    format!("{article} {noun}")
+}
+
+/// The content of a cell of the layers `layers`, in words.
+fn noun(layers: &[Layer], sort: Option<&str>) -> String {
+    match layers.split_first() {
+        Some((Layer::Optional, inner)) => format!("optional {}", noun(inner, sort)),
+        Some((Layer::Instances(order), inner)) => match inner.first() {
+            Some(Layer::Group(group)) => format!(
+                "{} collection of `{}` instances",
+                order_name(*order),
+                group.name
+            ),
+            _ => format!("{} collection of instances", order_name(*order)),
+        },
+        Some((Layer::Computation, _)) => "computation".to_owned(),
+        Some((Layer::Leaf(notation), _)) => match (notation, sort) {
+            (Notation::Plain | Notation::Cons, Some(sort)) => format!("leaf of sort `{sort}`"),
+            (Notation::Plain, None) => "leaf".to_owned(),
+            (Notation::Cons, None) => "cons-list leaf".to_owned(),
+            (Notation::List, _) => "`List` leaf".to_owned(),
+            (Notation::Map, _) => "`Map` leaf".to_owned(),
+            (Notation::Set, _) => "`Set` leaf".to_owned(),
+        },
+        Some((Layer::Group(group), _)) => format!("group `{}`", group.name),
+        None => "group".to_owned(),
+    }
+}
+
+/// A collection's order, as its `cell_type` names it.
+const fn order_name(order: Order) -> &'static str {
+    match order {
+        Order::List => "List",
+        Order::Set => "Set",
+        Order::Map => "Map",
     }
 }
 
@@ -1660,6 +1864,72 @@ mod tests {
         inner, pair,
     };
     use crate::cell_entry::{EntryForm, EntryReading, EntrySpelling, RecordTail};
+
+    /// Every refusal explains itself (design §2.7): its reason names the entry's cell and says
+    /// more than its class's name, in every form, and no two refusals of the same class read
+    /// alike unless they mean the same. [`Refusal::ALL`] lists every refusal at its
+    /// discriminant, so a refusal added without a place there fails here, and `reason` matches
+    /// every refusal, so one added without a reason does not compile.
+    #[test]
+    fn every_refusal_says_why_in_terms_of_its_entry() {
+        for (at, refusal) in Refusal::ALL.iter().enumerate() {
+            assert_eq!(
+                *refusal as usize, at,
+                "{refusal:?} stands at its discriminant"
+            );
+        }
+        assert_eq!(
+            Refusal::ALL.len(),
+            Refusal::MapReadValueBinder as usize + 1,
+            "the last refusal ends the list"
+        );
+        let group = GroupKind {
+            name: "Job".to_owned(),
+            children: vec![(
+                "id".to_owned(),
+                CellKind {
+                    layers: vec![Layer::Leaf(Notation::Plain)],
+                },
+            )],
+        };
+        let kinds = [
+            vec![Layer::Leaf(Notation::Plain)],
+            vec![Layer::Computation],
+            vec![Layer::Optional, Layer::Leaf(Notation::Plain)],
+            vec![Layer::Instances(Order::List), Layer::Group(group.clone())],
+            vec![Layer::Instances(Order::Map), Layer::Group(group)],
+        ];
+        for refusal in Refusal::ALL {
+            for form in [
+                EntryForm::Readable,
+                EntryForm::Claim,
+                EntryForm::Cells,
+                EntryForm::Initializer,
+            ] {
+                for layers in &kinds {
+                    let kind = super::EntryKind {
+                        path: CellKind::default(),
+                        own: CellKind {
+                            layers: layers.clone(),
+                        },
+                    };
+                    let reason = refusal.reason(form, "qcell", &kind, Some("Int"));
+                    assert!(
+                        reason.contains("`qcell`"),
+                        "{refusal:?} names its cell: {reason}"
+                    );
+                    assert!(
+                        !reason.contains(refusal.class()) && !reason.contains("is refused"),
+                        "{refusal:?} says why, not its class: {reason}"
+                    );
+                    assert!(
+                        reason.split_whitespace().count() >= 12,
+                        "{refusal:?} explains itself: {reason}"
+                    );
+                }
+            }
+        }
+    }
 
     /// The groups a test's configuration declares: those of the stack, and `Frame`.
     fn groups(stack: &[Layer]) -> Vec<GroupKind> {

@@ -157,6 +157,26 @@ struct HeadRuleCellTarget {
     /// type: a record in the entry that names the cell stands for the
     /// running configuration's cell of that group (U5).
     group: Option<TypeId>,
+    /// Its outermost `?` or `*` ancestor, which an entry naming the cell at a record's level is
+    /// refused for: what the refusal's advice writes the entry inside.
+    ancestor: Option<MarkedAncestor>,
+    /// A leaf's sort as its declaration names it (`Int`), which a refusal's reason names.
+    sort: Option<String>,
+}
+
+/// A cell's outermost `?` or `*` ancestor, as a refusal of an entry naming the cell below it
+/// advises writing the entry: inside the ancestor's presence or instance record.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) struct MarkedAncestor {
+    /// The ancestor's field name, as a readable record names it.
+    pub(super) name: String,
+    /// Its mark's layer: `?` or `*` (with its order).
+    pub(super) layer: Layer,
+    /// Its group's struct name, the head of its record.
+    pub(super) group: String,
+    /// Whether the cell is a child of the ancestor's own group, which a record of that group
+    /// names directly.
+    pub(super) direct: bool,
 }
 
 fn head_rule_cell_target(
@@ -164,9 +184,17 @@ fn head_rule_cell_target(
     cell_fields: &HashMap<HostCellKey, krs_ir::DescriptorCellIdentity>,
     group: Option<TypeId>,
     path: &[Layer],
+    ancestor: Option<&MarkedAncestor>,
 ) -> Result<HeadRuleCellTarget, CollectionError> {
     let kind = CellKind::of(field);
     let field = field.field;
+    let sort = match &field.content {
+        krs_ir::ProtocolCellContent::Leaf { sort, .. } => {
+            let path = &sort.target.authored_path;
+            Some(path.rsplit("::").next().unwrap_or(path).trim().to_owned())
+        }
+        krs_ir::ProtocolCellContent::Nested { .. } => None,
+    };
     let identity = cell_fields
         .get(&field.reference.cell.resolve())
         .cloned()
@@ -204,6 +232,8 @@ fn head_rule_cell_target(
             layers: path.to_vec(),
         },
         group,
+        ancestor: ancestor.cloned(),
+        sort,
     })
 }
 
@@ -511,6 +541,8 @@ impl HeadRuleTarget {
     ) -> Option<(
         &krs_ir::DescriptorCellIdentity,
         krs_ir::cell_kind::EntryKind,
+        Option<&MarkedAncestor>,
+        Option<&str>,
     )> {
         let mut named = self
             .cells
@@ -525,6 +557,8 @@ impl HeadRuleTarget {
                 path: cell.path.clone(),
                 own: cell.kind.clone(),
             },
+            cell.ancestor.as_ref(),
+            cell.sort.as_deref(),
         ))
     }
 
@@ -534,6 +568,36 @@ impl HeadRuleTarget {
         locate: impl FnOnce(CollectionError) -> CollectionError,
     ) {
         self.main_refusal = self.main_refusal.take().map(locate);
+    }
+}
+
+/// The outermost `?` or `*` ancestor of the cells below `target`, a group, an optional group or
+/// a collection whose own outermost `?` or `*` ancestor is `ancestor`: that ancestor, of which
+/// they are no direct children, or `target` itself where it is the first marked one, whose
+/// group's record names its children directly.
+fn below_ancestor(
+    ancestor: Option<&MarkedAncestor>,
+    target: &HeadRuleCellTarget,
+) -> Option<MarkedAncestor> {
+    match (ancestor, target.kind.layers.as_slice()) {
+        (Some(ancestor), _) => Some(MarkedAncestor {
+            direct: false,
+            ..ancestor.clone()
+        }),
+        (
+            None,
+            [
+                layer @ (Layer::Optional | Layer::Instances(_)),
+                Layer::Group(group),
+                ..,
+            ],
+        ) => Some(MarkedAncestor {
+            name: target.names[0].clone(),
+            layer: layer.clone(),
+            group: group.name.clone(),
+            direct: true,
+        }),
+        (None, _) => None,
     }
 }
 
@@ -547,7 +611,7 @@ fn collect_head_rule_cells(
         &mut Vec<HeadRuleCellTarget>,
         &mut HashMap<TypeId, GroupChildren>,
     ),
-    path: &[Layer],
+    (path, ancestor): (&[Layer], Option<&MarkedAncestor>),
 ) -> Result<(), CollectionError> {
     for field in &declaration.fields {
         match &field.content {
@@ -557,6 +621,7 @@ fn collect_head_rule_cells(
                     cell_fields,
                     None,
                     path,
+                    ancestor,
                 )?);
             }
             krs_ir::ProtocolCellContent::Nested { declaration } => {
@@ -566,8 +631,14 @@ fn collect_head_rule_cells(
                 // that ancestor's class: an entry names the content of its own level, and below
                 // a `*` ancestor the instance is written as an instance record.
                 let key = declaration.declaration.key.resolve();
-                let target =
-                    head_rule_cell_target(&views.cell(field), cell_fields, Some(key), path)?;
+                let target = head_rule_cell_target(
+                    &views.cell(field),
+                    cell_fields,
+                    Some(key),
+                    path,
+                    ancestor,
+                )?;
+                let below_ancestor = below_ancestor(ancestor, &target);
                 let mut below = path.to_vec();
                 below.extend(
                     target
@@ -624,7 +695,7 @@ fn collect_head_rule_cells(
                     cell_fields,
                     visiting,
                     (&mut *cells, &mut *group_children),
-                    &below,
+                    (&below, below_ancestor.as_ref()),
                 )?;
                 visiting.remove(&key);
             }
@@ -678,7 +749,7 @@ pub(super) fn resolve_head_rule_targets(
                 cell_fields,
                 &mut HashSet::new(),
                 (&mut cells, &mut group_children),
-                &[],
+                (&[], None),
             )?;
             let identity = |cell: &krs_ir::HostCellIdentity| {
                 cell_fields.get(&cell.resolve()).cloned().ok_or_else(|| {
@@ -2455,6 +2526,8 @@ mod tests {
                 },
                 path: CellKind::default(),
                 group: None,
+                ancestor: None,
+                sort: None,
             }],
             group_children: HashMap::new(),
             groups: Vec::new(),
@@ -3020,6 +3093,8 @@ mod tests {
             },
             path: CellKind::default(),
             group: None,
+            ancestor: None,
+            sort: None,
         }
     }
 

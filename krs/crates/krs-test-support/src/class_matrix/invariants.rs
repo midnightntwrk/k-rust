@@ -10,7 +10,9 @@
 //! 4. with no error whose kind is another than author (an internal or environment code is never
 //!    the answer to an author's mistake); the kind is the one the diagnostic was reported with,
 //!    since a forwarded native code's kind depends on who wrote the sentence it names;
-//! 5. without a panic, and without "internal error" in any message.
+//! 5. without a panic, and without "internal error" in any message;
+//! 6. with every message saying why: none ends in a bare class name (`..: cell-wrapper`), which
+//!    names the mistake and explains nothing (design S5, §2.7).
 //!
 //! None of them needs the expected-outcome table, so they hold before the table is reviewed.
 //!
@@ -138,6 +140,8 @@ pub enum Violation {
     Panic(String),
     /// Invariant 5: a message says "internal error".
     InternalErrorText(String),
+    /// Invariant 6: a message ends in a bare class name.
+    ClassNameOnly(String),
 }
 
 impl fmt::Display for Violation {
@@ -157,6 +161,9 @@ impl fmt::Display for Violation {
             Self::Panic(message) => write!(formatter, "a panic: {message}"),
             Self::InternalErrorText(message) => {
                 write!(formatter, "an internal error: {message}")
+            }
+            Self::ClassNameOnly(message) => {
+                write!(formatter, "a message naming a class, not why: {message}")
             }
         }
     }
@@ -283,8 +290,24 @@ pub fn violations(
         if diagnostic.message.to_lowercase().contains("internal error") {
             violations.push(Violation::InternalErrorText(diagnostic.message.clone()));
         }
+        if names_class_only(&diagnostic.message) {
+            violations.push(Violation::ClassNameOnly(diagnostic.message.clone()));
+        }
     }
     violations
+}
+
+/// Whether `message` ends in a bare class name after a colon (`..: cell-wrapper`): a kebab-case
+/// word of two words or more, which is how a class is named and no reason is written.
+#[must_use]
+pub fn names_class_only(message: &str) -> bool {
+    message.rsplit_once(": ").is_some_and(|(_, tail)| {
+        let words = tail.trim().split('-').collect::<Vec<_>>();
+        words.len() >= 2
+            && words
+                .iter()
+                .all(|word| !word.is_empty() && word.chars().all(|c| c.is_ascii_lowercase()))
+    })
 }
 
 /// The signature of what a case did, as `pending.toml` records a deviation: `accepted`, or

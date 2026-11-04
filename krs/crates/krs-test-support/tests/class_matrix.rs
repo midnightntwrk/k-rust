@@ -2862,6 +2862,40 @@ fn rustcs_parse_error_is_admitted_beside_krss_error_where_rustc_parses() {
     assert!(!front_stops_at_rustc_parse(&front_elsewhere, parsed));
 }
 
+/// Invariant 6: a message that ends in a bare class name names the mistake and says nothing of
+/// why, so it breaks the invariant; a message whose advice ends in a form does not.
+#[test]
+fn a_message_naming_only_its_class_breaks_invariant_six() {
+    let cases = class_matrix::cases();
+    let case = cases
+        .iter()
+        .find(|case| case.id == "readable/result/pc/Some(x)")
+        .expect("the case is generated");
+    let rendered = case.render();
+    let placed = &rendered.cases[0];
+    let judge = |observed: &Observed| violations(observed, &placed.entry, registry_kind);
+    let classed = Observed {
+        accepted: false,
+        diagnostics: vec![error(
+            Some("krs::analysis::cell-wrapper"),
+            Some(placed.entry.clone()),
+            "the entry of the cell `k` is refused: cell-wrapper",
+        )],
+        panic: None,
+    };
+    assert_eq!(
+        judge(&classed),
+        vec![Violation::ClassNameOnly(
+            "the entry of the cell `k` is refused: cell-wrapper".to_owned()
+        )]
+    );
+    assert!(
+        !krs_test_support::class_matrix::invariants::names_class_only(
+            "the cell `k` holds a computation: write its entry as `[x, ..]`"
+        )
+    );
+}
+
 #[test]
 fn the_table_free_invariants_judge_a_refusal_without_the_table() {
     let cases = class_matrix::cases();

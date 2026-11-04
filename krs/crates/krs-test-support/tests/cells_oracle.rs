@@ -7247,3 +7247,79 @@ fn a_root_absence_test_needs_the_result_to_create_the_cell() {
         ),
     ]);
 }
+
+/// Check 7: every refusal the product's table can answer with explains itself (P7, design §2.7).
+/// The classes are the oracle's entry classes: each is a product refusal's, so a class the table
+/// gains has a refusal, whose `reason` its exhaustive match makes it write. Each refusal's reason,
+/// over every form and a cell of each content, names the cell, says more than its class's name,
+/// and proposes no form (K8's reading, [`class_matrix::advice::read_message`]): what to write
+/// instead is the advice its reporter adds where the class's `advice` names a case, which K8
+/// checks against that case.
+#[test]
+fn check_7_every_entry_refusal_explains_itself() {
+    use cell_kind::{GroupKind, Layer as Kind, Notation as Leaf, Order as Instances};
+    let mut failures = Vec::new();
+    let refusals = cell_entries::Refusal::ALL;
+    for class in ENTRY_CLASSES {
+        if !refusals.iter().any(|refusal| refusal.class() == class) {
+            failures.push(format!(
+                "{class}: no refusal of the product answers with it"
+            ));
+        }
+    }
+    let group = GroupKind {
+        name: "Acct".to_owned(),
+        children: vec![(
+            "acode".to_owned(),
+            CellKind {
+                layers: vec![Kind::Leaf(Leaf::Plain)],
+            },
+        )],
+    };
+    let kinds = [
+        vec![Kind::Leaf(Leaf::Plain)],
+        vec![Kind::Leaf(Leaf::Cons)],
+        vec![Kind::Computation],
+        vec![Kind::Optional, Kind::Leaf(Leaf::List)],
+        vec![Kind::Group(group.clone())],
+        vec![Kind::Instances(Instances::List), Kind::Group(group.clone())],
+        vec![Kind::Instances(Instances::Map), Kind::Group(group)],
+    ];
+    let forms = [
+        EntryForm::Readable,
+        EntryForm::Claim,
+        EntryForm::Cells,
+        EntryForm::Initializer,
+    ];
+    for refusal in refusals {
+        let class = refusal.class();
+        if !TABLE.classes.contains_key(class) {
+            failures.push(format!("{refusal:?}: {class} is no class of expected.toml"));
+        }
+        for form in forms {
+            for layers in &kinds {
+                let kind = cell_kind::EntryKind {
+                    path: CellKind::default(),
+                    own: CellKind {
+                        layers: layers.clone(),
+                    },
+                };
+                let reason = refusal.reason(form, "qcell", &kind, None);
+                let proposed = class_matrix::advice::read_message(&reason)
+                    .forms()
+                    .map(|advice| advice.form.clone())
+                    .collect::<Vec<_>>();
+                if !reason.contains("`qcell`") {
+                    failures.push(format!("{refusal:?} ({form:?}): names no cell: {reason}"));
+                } else if reason.contains(class) || reason.split_whitespace().count() < 12 {
+                    failures.push(format!("{refusal:?} ({form:?}): says no why: {reason}"));
+                } else if !proposed.is_empty() {
+                    failures.push(format!(
+                        "{refusal:?} ({form:?}): its reason proposes {proposed:?}, which is advice: {reason}"
+                    ));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}

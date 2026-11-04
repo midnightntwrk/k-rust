@@ -540,10 +540,10 @@ fn malformed_and_misplaced_lists_are_errors() {
             "error[krs::syntax::invalid-list-notation]: `[..]` and `[rest @ ..]` name no element: the first matches any list, so write `_`, and the second is the binder `rest` itself",
             "error[krs::syntax::invalid-list-notation]: an anonymous `..` keeps the rest only in a readable record cell, where the pattern's `..` matched it; elsewhere name it: `rest @ ..` in the pattern and `..rest` in the result",
             "error[krs::syntax::invalid-list-notation]: the pattern's `..` keeps the rest of the list, so the result holds `..` too; to drop or move the rest, name it: `rest @ ..`",
-            "error[krs::analysis::invalid-list-notation]: the entry of the cell `word_stack` is refused: cons-list-back-item",
+            "error[krs::analysis::invalid-list-notation]: the cell `word_stack` holds a cons list, which is matched and built from its front, so its back is no constructor pattern: `..` only ends its brackets, after the elements before the rest",
             "error[krs::analysis::invalid-list-notation]: list notation builds a list, but this position has sort `Int`, which is not one: a list is the builtin `List`, a `#[k::syntax_list]` sort, or the sort of a `#[k::cons_list]` constructors enum",
-            "error[krs::analysis::invalid-list-notation]: the entry of the cell `gas` is refused: bracket-reading",
-            "error[krs::analysis::continuation-in-readable]: the entry of the cell `k` is refused: continuation-in-readable",
+            "error[krs::analysis::invalid-list-notation]: the cell `gas` holds a leaf of sort `Int`, which brackets do not denote: a bracketed entry is a computation's items, a List collection's instances, or the elements of a list (the builtin `List`, a `#[k::syntax_list]` sort, or a `#[k::cons_list]` enum's)",
+            "error[krs::analysis::continuation-in-readable]: the readable entry of the computation cell `k` captures or drops its continuation (with a named rest, a splice, a whole binder, or a result without the subject's `..`): a readable rule keeps the rest of the computation with its anonymous `..`, and a `cells!` rule's `KCell(.., rest @ ..)` is what captures it",
         ]
     "#]].assert_debug_eq(&errors);
 }

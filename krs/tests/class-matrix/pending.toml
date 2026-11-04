@@ -4277,11 +4277,11 @@ deviation = "krs::expand::not-a-declaration @ item"
 
 ["claim/g1-b/kinds/account/{ Acct { aframe: Ag { aa: x }, ..me }, .. }"]
 finding = "S5-G1"
-deviation = "krs::analysis::unknown-instance-label @ spelling"
+deviation = "krs::analysis::invalid-record-update @ spelling"
 
 ["claim/g1-c/kinds/account/{ Acct { aprog: [x], ..me }, .. }"]
 finding = "S5-G1"
-deviation = "krs::analysis::unknown-instance-label @ spelling"
+deviation = "krs::analysis::invalid-record-update @ spelling"
 
 ["claim/g1-e/kinds/account/{ Acct { aenv: { x -> 1 }, ..me }, .. }"]
 finding = "S5-B1"
@@ -4401,11 +4401,11 @@ deviation = "krs::expand::not-a-declaration @ item"
 
 ["readable/g1-b/kinds/account/{ Acct { aframe: Ag { aa: x }, ..me }, .. }"]
 finding = "S5-G1"
-deviation = "krs::analysis::unknown-instance-label @ spelling"
+deviation = "krs::analysis::invalid-record-update @ spelling"
 
 ["readable/g1-c/kinds/account/{ Acct { aprog: [x], ..me }, .. }"]
 finding = "S5-G1"
-deviation = "krs::analysis::unknown-instance-label @ spelling"
+deviation = "krs::analysis::invalid-record-update @ spelling"
 
 ["readable/g1-e/kinds/account/{ Acct { aenv: { x -> 1 }, ..me }, .. }"]
 finding = "S5-B1"
@@ -4756,11 +4756,11 @@ deviation = "presence-on-plain-cell advises none, and its refusal advises `_`"
 
 ["k8/sweep/claim/written/acct/[.., x]"]
 finding = "S0-9"
-deviation = "instance-list-shape's refusal advises `rest @ ..`, which readable/subject/job/[Job { payload: x, .. }, ..] does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
+deviation = "instance-list-shape's refusal advises `rest @ ..`, which readable/subject/job/[Job { payload: x, .. }, ..], claim/subject/kinds/bag/{ Obj { key: x, .. }, .. }, claim/g4-a/kinds/account/{ Acct { id: x, aframe: Ag { aa: x }, .. }, .. }, cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..], cells-run/subject/bag/{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> 2, ..] }], instances0 @ .. }, sweep/claim/result/job/[..], sweep/claim/result/acct/{ Gm { ma: x, .. }, .. }, sweep/claim/result/bag/{ Gs { sa: x, .. }, .. } does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
 
 ["k8/sweep/claim/written/acct/[x, ..]"]
 finding = "S0-9"
-deviation = "instance-list-shape's refusal advises `rest @ ..`, which readable/subject/job/[Job { payload: x, .. }, ..] does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
+deviation = "instance-list-shape's refusal advises `rest @ ..`, which readable/subject/job/[Job { payload: x, .. }, ..], claim/subject/kinds/bag/{ Obj { key: x, .. }, .. }, claim/g4-a/kinds/account/{ Acct { id: x, aframe: Ag { aa: x }, .. }, .. }, cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..], cells-run/subject/bag/{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> 2, ..] }], instances0 @ .. }, sweep/claim/result/job/[..], sweep/claim/result/acct/{ Gm { ma: x, .. }, .. }, sweep/claim/result/bag/{ Gs { sa: x, .. }, .. } does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
 
 ["k8/sweep/claim/written/bag/Some([..])"]
 finding = "S0-9"
@@ -4768,11 +4768,11 @@ deviation = "presence-on-plain-cell advises none, and its refusal advises `_`"
 
 ["k8/sweep/claim/written/bag/[.., x]"]
 finding = "S0-9"
-deviation = "instance-list-shape's refusal advises `rest @ ..`, which readable/subject/job/[Job { payload: x, .. }, ..] does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
+deviation = "instance-list-shape's refusal advises `rest @ ..`, which readable/subject/job/[Job { payload: x, .. }, ..], claim/subject/kinds/bag/{ Obj { key: x, .. }, .. }, claim/g4-a/kinds/account/{ Acct { id: x, aframe: Ag { aa: x }, .. }, .. }, cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..], cells-run/subject/bag/{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> 2, ..] }], instances0 @ .. }, sweep/claim/result/job/[..], sweep/claim/result/acct/{ Gm { ma: x, .. }, .. }, sweep/claim/result/bag/{ Gs { sa: x, .. }, .. } does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
 
 ["k8/sweep/claim/written/bag/[x, ..]"]
 finding = "S0-9"
-deviation = "instance-list-shape's refusal advises `rest @ ..`, which readable/subject/job/[Job { payload: x, .. }, ..] does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
+deviation = "instance-list-shape's refusal advises `rest @ ..`, which readable/subject/job/[Job { payload: x, .. }, ..], claim/subject/kinds/bag/{ Obj { key: x, .. }, .. }, claim/g4-a/kinds/account/{ Acct { id: x, aframe: Ag { aa: x }, .. }, .. }, cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..], cells-run/subject/bag/{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> 2, ..] }], instances0 @ .. }, sweep/claim/result/job/[..], sweep/claim/result/acct/{ Gm { ma: x, .. }, .. }, sweep/claim/result/bag/{ Gs { sa: x, .. }, .. } does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
 
 ["k8/sweep/claim/written/counter/Some([..])"]
 finding = "S0-9"
@@ -5148,11 +5148,11 @@ deviation = "presence-on-plain-cell advises none, and its refusal advises `_`"
 
 ["k8/sweep/readable/written/acct/[.., x]"]
 finding = "S0-9"
-deviation = "instance-list-shape's refusal advises `rest @ ..`, which readable/subject/job/[Job { payload: x, .. }, ..] does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
+deviation = "instance-list-shape's refusal advises `rest @ ..`, which readable/subject/job/[Job { payload: x, .. }, ..], claim/subject/kinds/bag/{ Obj { key: x, .. }, .. }, claim/g4-a/kinds/account/{ Acct { id: x, aframe: Ag { aa: x }, .. }, .. }, cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..], cells-run/subject/bag/{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> 2, ..] }], instances0 @ .. }, sweep/claim/result/job/[..], sweep/claim/result/acct/{ Gm { ma: x, .. }, .. }, sweep/claim/result/bag/{ Gs { sa: x, .. }, .. } does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
 
 ["k8/sweep/readable/written/acct/[x, ..]"]
 finding = "S0-9"
-deviation = "instance-list-shape's refusal advises `rest @ ..`, which readable/subject/job/[Job { payload: x, .. }, ..] does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
+deviation = "instance-list-shape's refusal advises `rest @ ..`, which readable/subject/job/[Job { payload: x, .. }, ..], claim/subject/kinds/bag/{ Obj { key: x, .. }, .. }, claim/g4-a/kinds/account/{ Acct { id: x, aframe: Ag { aa: x }, .. }, .. }, cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..], cells-run/subject/bag/{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> 2, ..] }], instances0 @ .. }, sweep/claim/result/job/[..], sweep/claim/result/acct/{ Gm { ma: x, .. }, .. }, sweep/claim/result/bag/{ Gs { sa: x, .. }, .. } does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
 
 ["k8/sweep/readable/written/bag/Some([..])"]
 finding = "S0-9"
@@ -5160,11 +5160,11 @@ deviation = "presence-on-plain-cell advises none, and its refusal advises `_`"
 
 ["k8/sweep/readable/written/bag/[.., x]"]
 finding = "S0-9"
-deviation = "instance-list-shape's refusal advises `rest @ ..`, which readable/subject/job/[Job { payload: x, .. }, ..] does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
+deviation = "instance-list-shape's refusal advises `rest @ ..`, which readable/subject/job/[Job { payload: x, .. }, ..], claim/subject/kinds/bag/{ Obj { key: x, .. }, .. }, claim/g4-a/kinds/account/{ Acct { id: x, aframe: Ag { aa: x }, .. }, .. }, cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..], cells-run/subject/bag/{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> 2, ..] }], instances0 @ .. }, sweep/claim/result/job/[..], sweep/claim/result/acct/{ Gm { ma: x, .. }, .. }, sweep/claim/result/bag/{ Gs { sa: x, .. }, .. } does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
 
 ["k8/sweep/readable/written/bag/[x, ..]"]
 finding = "S0-9"
-deviation = "instance-list-shape's refusal advises `rest @ ..`, which readable/subject/job/[Job { payload: x, .. }, ..] does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
+deviation = "instance-list-shape's refusal advises `rest @ ..`, which readable/subject/job/[Job { payload: x, .. }, ..], claim/subject/kinds/bag/{ Obj { key: x, .. }, .. }, claim/g4-a/kinds/account/{ Acct { id: x, aframe: Ag { aa: x }, .. }, .. }, cells/subject/job/[k::fragment![crate::Job { payload: x, .. }], instances0 @ ..], cells-run/subject/bag/{ k::fragment![crate::Obj { key: 1, m: k::map![1 -> 2, ..] }], instances0 @ .. }, sweep/claim/result/job/[..], sweep/claim/result/acct/{ Gm { ma: x, .. }, .. }, sweep/claim/result/bag/{ Gs { sa: x, .. }, .. } does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
 
 ["k8/sweep/readable/written/counter/Some([..])"]
 finding = "S0-9"

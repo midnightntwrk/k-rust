@@ -383,16 +383,16 @@
       "error[krs::syntax::unsupported-initializer-body]: unsupported declarative initializer body: `None` gives the `?` cell no template, which K needs to know what a created cell looks like; write `k::absent!(..)` with its template for a cell that starts absent, or `Some(..)` with its value for one that starts present"
     ],
     "unknown-instance-label": [
-      "error[krs::analysis::unknown-instance-label]: `..ghost` names no instance of `job` labelled `ghost @` in the pattern"
+      "error[krs::analysis::invalid-record-update]: the entry of the cell `job` updates a record (`..base`) whose base the sentence does not match: an update takes the fields of a record of its own constructor that the subject names `base @ ..`, such as an instance its subject's instance list labels; no subject instance is labelled `ghost @`; label the one the result updates where the subject matches it, `ghost @ Job { .. }`, or create the instance from a record of its own"
     ],
     "list-braces": [
-      "error[krs::analysis::collection-entry]: List collections are positional: write `job: [ .. ]`, with instances at the front before `..` and at the back after it"
+      "error[krs::analysis::collection-entry]: the cell `job` is a List collection, whose instances are positional: they stand in brackets, at the front before `..` and at the back after it, not in braces; write its entry as `[Job { .. }, ..]`"
     ],
     "list-both-ends": [
       "error[krs::analysis::collection-entry]: this entry names instances at both ends of the List collection `job`; a KRS rule changes either the front (before `..`) or the back (after it), so split it into two rules"
     ],
     "map-created-without-key": [
-      "error[krs::analysis::map-collection-key]: a new instance of the Map collection `job` states its key: write `id: ..`, its first child"
+      "error[krs::analysis::map-collection-key]: an instance of the Map collection `job` does not keep its key `id`, its first child, which is its identity: a created instance states it, and an update keeps the key its subject matched, since another key is another entry of the map; write its key first, `id: ..`"
     ],
     "stream-in-optional": [
       "error[krs::analysis::console-cell]: stream cell `output` is inside the repeated cell `console`; K connects a stream to one cell, so it must be outside every multiplicity cell"
