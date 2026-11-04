@@ -680,8 +680,9 @@ text = 'h(opaque(1), 2)'
         // `short_circuit_readings`, the step that excluded a run; CF-23: version 16 adds
         // `schedule`, `matrix` and a row's `killed_by`; version 17 reads a row's `reaching` from
         // the compiled mutant; CF-40c2: version 18 names it `witnesses` and the status `invalid`
-        // `not-admitted`.
-        assert_eq!(document["version"], 18);
+        // `not-admitted`; version 19 witnesses a rewrite rule edit that is not confined to its
+        // right-hand side or ensures by `matched`.
+        assert_eq!(document["version"], 19);
         assert_eq!(row["typing_diagnostics"], json!([]));
         assert_eq!(
             entry(&document, "guard-dropped", "by-zero")["slots"],

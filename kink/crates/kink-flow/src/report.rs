@@ -10,10 +10,10 @@
 //!   so no K printer is involved and the text is exactly what the specification and the
 //!   mutation list say;
 //! - `witnesses`: the comparable programs whose cached coverage witnesses the mutant's compiled
-//!   edit (kink-campaign `CompiledEdit`, [`crate::search`] step 2): programs that matched a
-//!   removed axiom's sentence (k-rust `matched`) when its edit changed its `requires`, alone or
-//!   with its right-hand side or `ensures`, programs that applied it (`applied`) otherwise, every
-//!   program for an edit that is not site-local; read from the command's live call, or from the
+//!   edit (kink-campaign `CompiledEdit`, [`crate::search`] step 2): programs that applied a
+//!   removed axiom's sentence (k-rust `applied`) when its edit is confined to its right-hand side
+//!   or `ensures`, programs that matched it (`matched`) otherwise, every program for an edit that
+//!   is not site-local; read from the command's live call, or from the
 //!   outcome file on a row tier 1 decided with no call, and `null` when there is neither;
 //! - `executed`: each program the mutant ran on, with its outcome and, when the outcome is
 //!   neither `agree` nor `distinguish`, a `cause` read from the runner's evidence for that run;
@@ -130,8 +130,11 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// otherwise `null` on a row with neither, and each call's `programs` are listed in the order the
 /// call ran them; 18 since CF-40c2 named each row's `reaching` `witnesses` and the runner status
 /// `invalid` `not-admitted`, so that each coverage predicate and each status has one name in every
-/// kink-flow document (README, "Coverage predicates").
-pub const RUN_VERSION: u64 = 18;
+/// kink-flow document (README, "Coverage predicates"); 19 since a rewrite rule edit that is not
+/// confined to its right-hand side or `ensures` (its left-hand side, an attribute, a deletion) is
+/// witnessed by `matched`, no longer by `applied`, so a row's `witnesses` and each call's program
+/// order can name more programs for the same mutation.
+pub const RUN_VERSION: u64 = 19;
 
 /// k-rust's contradicted-claim records of one run as specification diagnostics (re-pin adoption
 /// A-1): each `{claim, symbol, k_label, rule_id, rule_label, application, undefined,

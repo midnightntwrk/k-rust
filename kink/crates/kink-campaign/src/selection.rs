@@ -18,11 +18,38 @@
 //! `tests/selection.rs`'s Theorem 2 assumes that no wall-clock bound fires, and a Z3 query
 //! timeout is one).
 //!
-//! What witnesses an edit ([`CompiledEdit::between`], re-pin L2-1, findings D-01 and D-03):
-//! - a rewrite rule edit: a run that applied the rule (k-rust `applied`), or, when the rule's
-//!   `requires` changed (alone or with its right-hand side or `ensures`), one that began to
-//!   decide its condition (`matched`, which contains `applied`; re-pin L2-1-tail, review L2-1-1
-//!   D3);
+//! A run witnesses an edit when it could observe a difference the edit makes. What witnesses an
+//! edit ([`CompiledEdit::between`], re-pin L2-1, findings D-01 and D-03):
+//! - a rewrite rule edit confined to its right-hand side or `ensures`: a run that applied the
+//!   rule (k-rust `applied`). The rule keeps its left-hand side, `requires` and attributes, so it
+//!   is tried, matched and decided at every state as before, and only what it builds differs,
+//!   which a run sees only where the step built a candidate of it;
+//! - every other site-local rewrite rule edit (its `requires`, its left-hand side, an attribute,
+//!   a deletion, or one whose edited form cannot be paired with it): a run that began to decide
+//!   its condition (`matched`, which contains `applied`). Each changes whether the rule takes a
+//!   step from a state its left-hand side matches, not only what the step builds:
+//!   - an edit of the `requires` or the left-hand side changes the guard or the bindings it is
+//!     decided under, so a run that matched the rule and refuted its old guard can take the
+//!     edited rule's step;
+//!   - an attribute edit keeps the left-hand side and the guard, and a deletion only takes the
+//!     rule away. At a state where the guard was refuted, the rule takes no step and
+//!     blocks no lower priority group wherever it is placed, or whether it exists, so the run is
+//!     the same there; the runs that can observe the edit at a state the rule matched are those
+//!     that applied it and those that left its guard undecided (which blocks the lower priority
+//!     groups). k-rust's `matched` holds the rule whatever its guard's verdict, so it cannot
+//!     tell an undecided guard from a refuted one, and `matched` is the smallest recorded
+//!     superset of those runs;
+//!   - an edit that pairs no one removed axiom with one added axiom is not shown to keep the
+//!     left-hand side, so it is read as a left-hand side edit.
+//!
+//!   A widened left-hand side, or an attribute edit that raises the rule in its site's trial
+//!   order (a higher priority, a removed `owise`), can also observe a state where the old rule
+//!   was not tried or its match was left undecided, and a deletion, or an attribute edit that
+//!   lowers the rule (a lower priority, an added `owise`), a state where its match was left
+//!   undecided, since such a match blocks the lower priority groups of its site: k-rust's lists
+//!   reach no left-hand side edit there, and an attribute edit or a deletion only through
+//!   `offered`, which kink does not collect. Such a run is no witness, and runs after the
+//!   witnesses;
 //! - an equation edit confined to its `requires`, or to its `requires` and its right-hand side
 //!   or `ensures`: a run that matched the equation; confined to its right-hand side or
 //!   `ensures`: a run that applied it;
@@ -102,11 +129,12 @@ impl SelectionPolicy {
 pub struct CompiledEdit {
     pub removed_rule_ids: BTreeSet<String>,
     pub global: bool,
-    /// The removed ids whose edit changed their condition, alone or with their right-hand side
-    /// or `ensures` (and nothing else): a run witnesses them by `matched`
-    /// ([`TestCoverage::rule_ids`]); every other removed id by `applied`
+    /// The removed ids a run witnesses by `matched` ([`TestCoverage::rule_ids`]): every removed
+    /// rewrite rule id whose edit is not confined to its right-hand side or `ensures`, and every
+    /// removed equation id whose edit changed its condition, alone or with its right-hand side or
+    /// `ensures` (module doc). A run witnesses every other removed id by `applied`
     /// ([`TestCoverage::applied_ids`]). Empty when `global`.
-    pub condition_ids: BTreeSet<String>,
+    pub matched_ids: BTreeSet<String>,
 }
 
 impl CompiledEdit {
@@ -166,17 +194,18 @@ impl CompiledEdit {
         Self {
             removed_rule_ids,
             global: local.is_none(),
-            condition_ids: local.unwrap_or_default(),
+            matched_ids: local.unwrap_or_default(),
         }
     }
 
-    /// Which coverage predicate witnesses the removed id `id` (module doc): `matched` for an id
-    /// whose edit changed its condition, alone or with its right-hand side or `ensures`
-    /// ([`Self::condition_ids`]), `applied` for every other removed id. Meaningful only when the edit is not [`Self::global`], which every run
-    /// witnesses.
+    /// Which coverage predicate witnesses the removed id `id` (module doc): `matched` for an id of
+    /// [`Self::matched_ids`] (a rewrite rule edit that is not confined to its right-hand side or
+    /// `ensures`, an equation edit that changed its condition), `applied` for every other removed
+    /// id (an edit confined to its right-hand side or `ensures`). Meaningful only when the edit is
+    /// not [`Self::global`], which every run witnesses.
     #[must_use]
     pub fn witness(&self, id: &str) -> Witness {
-        if self.condition_ids.contains(id) {
+        if self.matched_ids.contains(id) {
             Witness::Matched
         } else {
             Witness::Applied
@@ -288,8 +317,9 @@ fn sentences_of(authors: &RuleAuthors) -> impl Fn(&str) -> Option<BTreeSet<Sente
     }
 }
 
-/// The removed ids whose edit is confined to their condition, when every change between the two
-/// definitions is site-local (module doc); `None` when the edit must select every test.
+/// The removed ids a run witnesses by `matched` ([`CompiledEdit::matched_ids`]), when every
+/// change between the two definitions is site-local (module doc); `None` when the edit must
+/// select every test.
 /// `baseline_author` and `side_author` give the baseline sentences behind a removed and an added
 /// id, which pair each changed equation with its edited form.
 fn site_local(
@@ -308,12 +338,17 @@ fn site_local(
     if left != right {
         return None;
     }
+    let mut matched = BTreeSet::new();
     // The changed axioms of each baseline sentence set: (removed, added).
     let mut groups = BTreeMap::<BTreeSet<SentenceRef>, (Vec<&str>, Vec<&str>)>::new();
     for id in removed {
         if let Some(sentences) = baseline_author(id) {
             groups.entry(sentences).or_default().0.push(id);
-        } else if !removed_axioms[id.as_str()].rewrite {
+        } else if removed_axioms[id.as_str()].rewrite {
+            // A rewrite rule with no baseline sentence has no edited form to pair it with, so
+            // its edit is not shown to be confined to its result.
+            matched.insert(id.clone());
+        } else {
             return None;
         }
     }
@@ -324,7 +359,6 @@ fn site_local(
             return None;
         }
     }
-    let mut condition = BTreeSet::new();
     for (old, new) in groups.values() {
         let pair = match (old.as_slice(), new.as_slice()) {
             ([old], [new]) => Some((&removed_axioms[*old], &added_axioms[*new])),
@@ -336,16 +370,16 @@ fn site_local(
             .chain(new.iter().map(|id| &added_axioms[*id]))
             .any(|axiom| !axiom.rewrite);
         if !equation {
-            // A rewrite rule edit stays site-local whatever it changed (witnessed by `applied`),
-            // and one that changed its `requires`, alone or with its right-hand side, is
-            // witnessed by `matched`, as an equation's (re-pin L2-1-tail, review L2-1-1 D3).
-            if let Some((old_axiom, new_axiom)) = pair
-                && matches!(
-                    change(old_axiom, new_axiom),
-                    Change::Condition | Change::Both
-                )
-            {
-                condition.insert(old[0].to_owned());
+            // A rewrite rule edit stays site-local whatever it changed. Only one paired with its
+            // edited form and confined to its right-hand side or `ensures` is witnessed by
+            // `applied`; every other (its `requires`, left-hand side or attributes, a deletion, an
+            // edit that pairs no one removed axiom with one added axiom) changes whether the rule
+            // takes a step from a state it matches, so it is witnessed by `matched` (module doc).
+            let result_only = pair.is_some_and(|(old_axiom, new_axiom)| {
+                change(old_axiom, new_axiom) == Change::Result
+            });
+            if !result_only {
+                matched.extend(old.iter().map(|id| (*id).to_owned()));
             }
             continue;
         }
@@ -356,12 +390,12 @@ fn site_local(
         match change(old_axiom, new_axiom) {
             Change::Result => {}
             Change::Condition | Change::Both if !old_axiom.sets_aside() => {
-                condition.insert(old[0].to_owned());
+                matched.insert(old[0].to_owned());
             }
             Change::Condition | Change::Both | Change::Other => return None,
         }
     }
-    Some(condition)
+    Some(matched)
 }
 
 impl Changed {
@@ -595,11 +629,42 @@ mod tests {
     const ECOND: &str = r#"\equals{SortBool{},R}(c{}(), \dv{SortBool{}}("true"))"#;
 
     #[test]
-    fn a_changed_rewrite_is_site_local_and_a_requires_change_is_witnessed_by_matched() {
+    fn a_changed_rewrite_is_site_local_and_only_a_result_only_change_is_witnessed_by_applied() {
         assert_eq!(
             local(&rewrite("old", "b{}()", TOP), &rewrite("new", "c{}()", TOP)),
             Some(BTreeSet::new()),
             "right-hand side: applied"
+        );
+        assert_eq!(
+            local(
+                &rewrite("old", "b{}()", COND),
+                &rewrite("new", &format!(r"\and{{S{{}}}}(b{{}}(), {COND})"), COND)
+            ),
+            Some(BTreeSet::new()),
+            "ensures: applied"
+        );
+        // A left-hand side edit changes the bindings the guard is decided under, so a run that
+        // matched the rule and refuted its guard can take the edited rule's step; an attribute
+        // edit is observed where the guard was left undecided, which `matched` holds and
+        // `applied` does not. Either is witnessed by `matched`, not `applied` alone.
+        let lhs = rewrite("new", "b{}()", COND).replace(r"(a{}(), ", r"(d{}(), ");
+        assert_eq!(
+            local(&rewrite("old", "b{}()", COND), &lhs),
+            Some(ids(&["old"])),
+            "left-hand side: matched"
+        );
+        let lhs_and_requires = rewrite("new", "b{}()", TOP).replace(r"(a{}(), ", r"(d{}(), ");
+        assert_eq!(
+            local(&rewrite("old", "b{}()", COND), &lhs_and_requires),
+            Some(ids(&["old"])),
+            "left-hand side and requires: matched"
+        );
+        let attribute =
+            rewrite("new", "b{}()", TOP).replace(r#"("new")]"#, r#"("new"), priority{}("40")]"#);
+        assert_eq!(
+            local(&rewrite("old", "b{}()", TOP), &attribute),
+            Some(ids(&["old"])),
+            "attribute: matched"
         );
         assert_eq!(
             local(
@@ -633,7 +698,8 @@ mod tests {
             site_local("malformed", &old, &removed, &added, &one, &one),
             None
         );
-        // An inserted rewrite rule beside a removed one stays site-local, as before L2-1.
+        // An inserted rewrite rule beside a removed one stays site-local, as before L2-1; the
+        // removed one has no edited form to pair it with, so `matched` witnesses it.
         assert_eq!(
             site_local(
                 &old,
@@ -643,7 +709,27 @@ mod tests {
                 &one,
                 &none
             ),
-            Some(BTreeSet::new())
+            Some(ids(&["old"]))
+        );
+        // A deleted rewrite rule: a run that left its guard undecided loses the group that
+        // blocked the lower ones, so `matched` witnesses it too.
+        assert_eq!(
+            site_local(&old, &kore(""), &removed, &BTreeSet::new(), &one, &one),
+            Some(ids(&["old"])),
+            "deletion: matched"
+        );
+        // A removed rewrite rule with no baseline sentence is not paired, so `matched`.
+        assert_eq!(
+            site_local(
+                &old,
+                &kore(&rewrite("new", "c{}()", TOP)),
+                &removed,
+                &added,
+                &none,
+                &none
+            ),
+            Some(ids(&["old"])),
+            "no baseline sentence: matched"
         );
     }
 

@@ -131,8 +131,9 @@ fn exact_keys_canonical_bytes_and_profile() {
     assert!(matches!(read(&unknown), Err(ManifestError::Schema(_))));
 }
 /// Re-pin L2-1-tail (review L2-1-1, D6): a prioritized selection must name this build's coverage
-/// reading; a retired one (v1 before L2-1, v2 before L2-1-tail) is refused with a message that
-/// says it is retired and what to declare.
+/// reading; a retired one (v1 before L2-1, v2 before L2-1-tail, v3 before the result-only
+/// `applied` rewrite witness) is refused with a message that says it is retired and what to
+/// declare.
 #[test]
 fn a_retired_coverage_declaration_is_refused_as_retired() {
     let coverage = kink_native::coverage::COVERAGE_DOMAIN;
@@ -149,7 +150,7 @@ fn a_retired_coverage_declaration_is_refused_as_retired() {
             coupled: kink_campaign::Coupled::Union
         })
     );
-    for retired in ["kink/coverage/v1", "kink/coverage/v2"] {
+    for retired in kink_native::coverage::RETIRED_COVERAGE_DOMAINS {
         failure(
             &declare(json!(retired)),
             ManifestError::Schema(format!(

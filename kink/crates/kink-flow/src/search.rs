@@ -17,9 +17,10 @@
 //!    mutant's edit, then the rest, each group in O's order: once the mutant's claim-free side
 //!    compiles, the runner gives its compiled edit (kink-campaign `CompiledEdit::between`, the
 //!    rule its coverage selection reads; `run_campaign_multi_ordered`), and a program witnesses
-//!    it as [`witnesses`] says (matched, k-rust `matched`, for an axiom whose edit changed its
-//!    `requires`, alone or with its right-hand side or `ensures`; applied, k-rust `applied`,
-//!    otherwise; every program for an edit that is not site-local; re-pin L2-1-tail), and a
+//!    it as [`witnesses`] says (applied, k-rust `applied`, for an axiom whose edit is confined to
+//!    its right-hand side or `ensures`; matched, k-rust `matched`, for every other axiom of a
+//!    site-local edit: a rewrite rule's `requires`, left-hand side or attribute, a deleted rewrite
+//!    rule, an equation's `requires`; every program for an edit that is not site-local), and a
 //!    program whose cached coverage is not complete witnesses every edit, since it covers only
 //!    what its run explored before it stopped. The row's `witnesses` lists the witnessing
 //!    programs of O, from a live call's compiled edit or, on a row tier 1 decides with no call,
@@ -2733,9 +2734,10 @@ fn finish(
 /// run on, the rule kink-campaign's coverage selection reads) read through the baseline's
 /// [`RuleAuthors`], since kink-flow's result records keep coverage by baseline sentence: the
 /// baseline sentences behind the removed compiled ids that a run witnesses by k-rust `matched`
-/// (an id whose edit changed its condition, alone or with its right-hand side or `ensures`;
-/// [`Witness::Matched`]) and those it witnesses by `applied` (every other removed id of a
-/// site-local edit). The outcome file keeps it (`witness`, [`crate::outcomes`]), so that a row
+/// (a rewrite rule id whose edit is not confined to its right-hand side or `ensures`, an equation
+/// id whose edit changed its condition; [`Witness::Matched`]) and those it witnesses by `applied`
+/// (an id whose edit is confined to its right-hand side or `ensures`). The outcome file keeps it
+/// (`witness`, [`crate::outcomes`]), so that a row
 /// tier 1 decides with no compile still has its `witnesses`.
 ///
 /// Reading by baseline sentence differs from kink-campaign's reading by compiled id in two ways,
@@ -2814,8 +2816,11 @@ impl EditWitness {
 /// matched (k-rust `matched`: began to decide the condition) a sentence of `matched`, or applied
 /// (`applied`: built a candidate, defined or rolled back) one of `applied`
 /// ([`CompiledEdit::witness`]). A program that only matched a rule whose guard it refuted cannot
-/// witness a change of what the rule does once it applies; one whose candidate was rolled back
-/// can, since an edit can make that candidate defined.
+/// witness a change of what the rule does once it applies, but can witness a change of its
+/// `requires` or left-hand side, under which that guard can hold; an attribute edit or a deletion
+/// it witnesses only where it left the guard undecided, which `matched` does not tell from a
+/// refuted guard (kink-campaign `selection`, module doc). One whose candidate was rolled back
+/// can witness any of these, since an edit can make that candidate defined.
 fn witnesses(candidate: &Candidate<'_>, witness: &EditWitness) -> bool {
     witness.global
         || !candidate.complete

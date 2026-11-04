@@ -10,10 +10,11 @@
 //!
 //! [`TestCoverage`] is the coverage of one run, read from k-rust's run coverage
 //! (`collect_coverage`, [`crate::execution::RunCoverage`]), which every adapter run collects. Since
-//! re-pin lane 2 (L2-1, [`COVERAGE_DOMAIN`] `kink/coverage/v2`; v3 since L2-1-tail) it holds
-//! every compiled id k-rust records, rewrite rules and equations alike. Each set is named by the
-//! predicate it holds, as in k-rust, kink-flow and krs (kink-flow README, "Coverage
-//! predicates"):
+//! re-pin lane 2 (L2-1, [`COVERAGE_DOMAIN`] `kink/coverage/v2`; v3 since L2-1-tail, v4 since
+//! a rewrite rule edit is witnessed by `applied` only when it is confined to its right-hand side
+//! or `ensures`) it holds every compiled id k-rust records, rewrite rules and equations alike.
+//! Each set is named by the predicate it holds, as in k-rust, kink-flow and krs (kink-flow
+//! README, "Coverage predicates"):
 //! - `rule_ids` are k-rust's `matched` ids, which include `applied`: every rule and equation
 //!   whose condition the run began to decide for an instance whose left-hand side matched,
 //!   whatever the verdict, and every one the run applied; `sentences` are the baseline sentences
@@ -74,13 +75,17 @@ use crate::execution::{
 /// `selection` witnesses a rewrite rule edit of its `requires` and its right-hand side by
 /// `matched` (v2: by `applied`), so under `FirstKill` such a mutant's first killing test can
 /// differ from v2's; [`coverage_domain`] leaves out `non-executable` axioms; kink-flow orders its
-/// programs by the edit's witness.
-pub const COVERAGE_DOMAIN: &str = "kink/coverage/v3";
+/// programs by the edit's witness. v4: kink-campaign's `selection` witnesses every rewrite rule
+/// edit that is not confined to its right-hand side or `ensures` (its left-hand side, an
+/// attribute, a deletion, one it cannot pair) by `matched` (v3: by `applied`), so under
+/// `FirstKill` such a mutant's first killing test can differ from v3's.
+pub const COVERAGE_DOMAIN: &str = "kink/coverage/v4";
 
 /// Every earlier [`COVERAGE_DOMAIN`], oldest first: a declaration naming one is refused as
 /// retired rather than malformed (kink-corpus manifests). A bump moves the old domain here; a
 /// unit test requires `v1` up to the version before the current one (review L2-1-tail-1 D4).
-pub const RETIRED_COVERAGE_DOMAINS: [&str; 2] = ["kink/coverage/v1", "kink/coverage/v2"];
+pub const RETIRED_COVERAGE_DOMAINS: [&str; 3] =
+    ["kink/coverage/v1", "kink/coverage/v2", "kink/coverage/v3"];
 
 /// Unmapped reason of an id whose every author is a sentence the mutant's patch inserted.
 pub const UNMAPPED_INSERTED: &str = "inserted";

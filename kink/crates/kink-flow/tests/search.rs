@@ -561,6 +561,54 @@ note = "requires and right-hand side"
         }
     }
 
+    /// On the diamonds fixture `end-guard-dropped` drops the `end` rule's guard, and the compiler
+    /// lifts the literal `0` the left-hand side and the guard share, so the compiled rule's
+    /// left-hand side changes with its `requires`. `by-zero` (`go(14, 0)`) matches `end` and
+    /// refutes its guard: it witnesses that edit, since the edited rule takes the step the guard
+    /// refused (and `by-zero` is the program that kills it). An edit of the right-hand side alone
+    /// keeps the guard, so only `equal-ends`, which applied `end`, witnesses it.
+    #[test]
+    #[ignore = "kink"]
+    fn an_edit_of_the_left_hand_side_is_witnessed_by_the_programs_that_matched_the_rule() {
+        let dir = fixture("diamonds", "witness-lhs");
+        let mutations = dir.join("MUTATIONS-witness.toml");
+        fs::write(
+            &mutations,
+            r#"
+[[mutation]]
+id = "end-guard-dropped"
+note = "left-hand side and requires"
+  [[mutation.edit]]
+  rule = "end"
+  find = " requires D =/=Int 0"
+  replace = ""
+
+[[mutation]]
+id = "end-result"
+note = "right-hand side"
+  [[mutation.edit]]
+  rule = "end"
+  find = "fin(100 /Int D)"
+  replace = "fin(200 /Int D)"
+"#,
+        )
+        .unwrap();
+        let (document, _) = search(&dir.join("FLOW.toml"), &mutations, &[]);
+        for (id, witnesses) in [
+            ("end-guard-dropped", json!(["equal-ends", "by-zero"])),
+            ("end-result", json!(["equal-ends"])),
+        ] {
+            assert_eq!(mutation(&document, id)["witnesses"], witnesses, "{id}");
+        }
+        assert_eq!(
+            verdicts(&document),
+            expect(&[
+                ("end-guard-dropped", "killed", Some("by-zero"), false),
+                ("end-result", "killed", Some("equal-ends"), false),
+            ])
+        );
+    }
+
     #[test]
     #[ignore = "kink"]
     fn only_runs_the_named_mutations() {
@@ -887,8 +935,9 @@ note = "requires and right-hand side"
         // CF-03: version 15 adds `short_circuit_readings`, the step that excluded a run; CF-23:
         // version 16 adds `schedule`, `matrix` and a row's `killed_by`; version 17 reads a row's
         // `reaching` from the compiled mutant; CF-40c2: version 18 names it `witnesses` and the
-        // status `invalid` `not-admitted`.
-        assert_eq!(document["version"], 18);
+        // status `invalid` `not-admitted`; version 19 witnesses a rewrite rule edit that is not
+        // confined to its right-hand side or ensures by `matched`.
+        assert_eq!(document["version"], 19);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());

@@ -493,9 +493,10 @@ fn the_identity_is_an_object_of_its_components() {
     // an identity written under v1 (f0fc3a1: every other component equal) differs at it, and
     // every store keyed on the identity misses or refuses it. Re-pin L2-1-tail: v3 (a rewrite
     // rule edit of its requires and right-hand side is witnessed by matched) differs from v2 as
-    // well (72503de: every other component equal).
-    assert_eq!(identity["coverage"], "kink/coverage/v3");
-    for retired in ["kink/coverage/v1", "kink/coverage/v2"] {
+    // well (72503de: every other component equal). v4 (every rewrite rule edit not confined to
+    // its right-hand side or ensures is witnessed by matched) differs from v3 as well.
+    assert_eq!(identity["coverage"], "kink/coverage/v4");
+    for retired in ["kink/coverage/v1", "kink/coverage/v2", "kink/coverage/v3"] {
         let mut old = identity.clone();
         old["coverage"] = json!(retired);
         assert_eq!(identity_difference(&old).as_deref(), Some("coverage"));

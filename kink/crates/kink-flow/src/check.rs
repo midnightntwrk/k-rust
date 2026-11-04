@@ -34,7 +34,14 @@
 //!   edited rule where its baseline run refuted the rule, and no program of the corpus can kill
 //!   the edit except through a claim it withdraws or another rule the mutation edits. The
 //!   warning is about the edited rule, not the edit, which `check` does not compile: an edit of
-//!   the `requires` can still be killed by a program that matches the rule.
+//!   the `requires` or the left-hand side can still be killed by a program that matches the
+//!   rule, since the edited guard, or the old guard under the edited bindings, can hold where
+//!   the old one was refuted. An attribute edit or a deletion keeps the guard wherever the rule
+//!   stays, and a rule whose guard is refuted takes no step and blocks no lower priority group
+//!   wherever it is placed, so no program's run of the mutant differs at a state where it
+//!   matched the rule: such an edit shows only at a state where the rule was a candidate whose
+//!   condition the run did not decide (k-rust `offered`, which kink does not collect), such as
+//!   one where a higher priority group took the step a raised priority now gives the rule.
 //!
 //! The two coverage warnings, `unmatched-rule` and `unapplied-rule`, are given only when every
 //! program has a current result record and every comparable program's coverage is complete;

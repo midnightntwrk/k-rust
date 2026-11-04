@@ -316,7 +316,7 @@ fn prioritize_replay_recomputes_coverage_and_order(killing: bool, schedule: Sche
         );
         assert_eq!(
             report.value()["manifest"]["selection"],
-            json!({"prioritize":{"key":"compiled-rule-ids","coupled":"union","coverage":"kink/coverage/v3"}})
+            json!({"prioritize":{"key":"compiled-rule-ids","coupled":"union","coverage":"kink/coverage/v4"}})
         );
         assert_eq!(
             report.value()["mutants"][0]["selection"]["order"],
@@ -603,7 +603,7 @@ mod kink_tier {
                 !edit.global,
                 "an equation's right-hand side edit is site-local"
             );
-            assert!(edit.condition_ids.is_empty());
+            assert!(edit.matched_ids.is_empty());
             assert_eq!(edit.removed_rule_ids.len(), 1);
 
             let validator =
