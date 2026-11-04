@@ -164,9 +164,20 @@ struct PendingDescriptor {
     context_index: usize,
 }
 
+/// A collected bundle, and the warnings its collection reports: the lints of admitted entries
+/// (a `cells!` entry with no effect, `krs::analysis::no-effect-entry`), which leave the bundle as
+/// it is.
+#[derive(Clone, Debug)]
+pub(crate) struct Collected {
+    pub(crate) bundle: DescriptorBundle,
+    pub(crate) warnings: Vec<krs_diagnostic::Diagnostic>,
+}
+
 /// Resolves unordered current-protocol host descriptor factory results into one stable bundle.
 ///
 /// Collection validates build-local `TypeId` producers and host paths, reparses authored nodes with `krs-syntax`, resolves references, and returns deterministically ordered, path-free data.
+/// The bundle is all this returns: the warnings the collection reports are written by the
+/// generated collector ([`run_collector`]), beside its bundle, for `krs` to report.
 ///
 /// # Errors
 ///
@@ -177,6 +188,7 @@ pub fn collect_host_descriptors(
     descriptors: impl IntoIterator<Item = Result<HostDescriptor, HostProvenanceError>>,
 ) -> Result<DescriptorBundle, CollectionError> {
     collect_host_descriptors_impl(contexts, descriptors, None, &mut Timings::disabled())
+        .map(|collected| collected.bundle)
 }
 
 /// Resolves host descriptor factory results with the complete compiler-provided builtin catalog.
@@ -214,6 +226,16 @@ pub fn collect_host_descriptors_with_builtins_timed(
     builtins: &HostBuiltinRegistry,
     timings: &mut Timings,
 ) -> Result<DescriptorBundle, CollectionError> {
+    collect_reported(contexts, descriptors, builtins, timings).map(|collected| collected.bundle)
+}
+
+/// [`collect_host_descriptors_with_builtins_timed`], with the warnings the collection reports.
+pub(crate) fn collect_reported(
+    contexts: impl IntoIterator<Item = PackageContext>,
+    descriptors: impl IntoIterator<Item = Result<HostDescriptor, HostProvenanceError>>,
+    builtins: &HostBuiltinRegistry,
+    timings: &mut Timings,
+) -> Result<Collected, CollectionError> {
     timings.try_span("collector.resolve.builtins", |_| {
         builtins.validate().map_err(|error| {
             CollectionError::new(
@@ -230,7 +252,7 @@ fn collect_host_descriptors_impl(
     descriptors: impl IntoIterator<Item = Result<HostDescriptor, HostProvenanceError>>,
     builtins: Option<&HostBuiltinRegistry>,
     timings: &mut Timings,
-) -> Result<DescriptorBundle, CollectionError> {
+) -> Result<Collected, CollectionError> {
     let (contexts, pending) = timings.try_span("collector.resolve.intake", |_| {
         let results = descriptors.into_iter().collect::<Vec<_>>();
         if let Some(error) = results
@@ -457,7 +479,7 @@ fn resolve_pending_descriptors(
     contexts: &[PreparedContext],
     builtins: Option<&HostBuiltinRegistry>,
     timings: &mut Timings,
-) -> Result<DescriptorBundle, CollectionError> {
+) -> Result<Collected, CollectionError> {
     let ResolutionTables {
         context_aliases,
         declarations,
@@ -562,8 +584,8 @@ fn resolve_pending_descriptors(
                 )
             })?;
         check_cell_kinds(&bundle, &cell_kinds)?;
-        cell_entries::judge(&bundle, &authored_cells)?;
-        Ok(bundle)
+        let warnings = cell_entries::judge(&bundle, &authored_cells)?;
+        Ok(Collected { bundle, warnings })
     })
 }
 

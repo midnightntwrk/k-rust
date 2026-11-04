@@ -433,8 +433,7 @@ advice = "none"
 
 [class.no-effect-entry]
 code = "krs::analysis::no-effect-entry"
-proposed = true
-doc = "a lint, never a refusal (Q1): a subject entry that matches every content its cell allows and binds nothing (`_`, `[..]`, `Cell(_)`, a group record whose children do), on a cell the result leaves out, so the rule is the same without it"
+doc = "a lint, never a refusal (Q1): a subject entry that matches every content its cell allows and binds nothing (`_`, `[..]`, `Cell(_)`, a group record whose children do), on a cell the result leaves out or in a pattern the sentence keeps (a context, a context alias, a function context), so the sentence is the same without it; `krs check` reports it as a warning at the entry"
 examples = ["readable ; subject ; - ; leaf Int ; _ ; -", "readable ; subject ; - ; leaf List ; [..] ; -", "readable ; subject ; - ; group G ; G { .. } ; -", "cells ; subject ; - ; leaf Int ; k::configuration::Cell(_) ; -"]
 advice = "none"
 

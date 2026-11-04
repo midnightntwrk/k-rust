@@ -263,6 +263,10 @@ impl CommandOutcome {
 }
 
 struct PreparedDefinition {
+    /// The warnings the collector reported for the bundle's sentences (an admitted `cells!`
+    /// entry with no effect, `krs::analysis::no-effect-entry`), reported by every command that
+    /// lowers the definition ([`definition_warnings`]).
+    collection_warnings: Vec<crate::DiagnosticEnvelope>,
     /// Allowed quoted hooks and `raw_k!` sentences, and functions only Z3
     /// can evaluate (`smt_hook` without equations), reported by every
     /// command that lowers the definition ([`definition_warnings`]).
@@ -371,8 +375,14 @@ fn execute_with_sources(
             return Ok(outcome);
         }
     }
-    let (stdout, read_set) = run_collector(&collector_directory, &executable, measurement)?;
-    let prepared = prepare(stdout, request.profile, measurement)?;
+    let collected = run_collector(&collector_directory, &executable, measurement)?;
+    let read_set = collected.read_set;
+    let prepared = prepare(
+        collected.stdout,
+        collected.warnings,
+        request.profile,
+        measurement,
+    )?;
     let warnings = definition_warnings(&prepared);
 
     let mut outcome = match &request.command {
@@ -524,6 +534,7 @@ fn validate_request(request: &CommandRequest) -> Result<(), CommandError> {
 
 fn prepare(
     stdout: Vec<u8>,
+    collection_warnings: Vec<crate::DiagnosticEnvelope>,
     profile: Option<krs_ir::RawKProfile>,
     measurement: &mut Measurement,
 ) -> Result<PreparedDefinition, CommandError> {
@@ -540,20 +551,29 @@ fn prepare(
             count_bundle(&mut measurement.counters, &bundle, bytes);
             bundle
         })?;
-    prepare_bundle(bundle, profile, measurement)
+    prepare_bundle(bundle, collection_warnings, profile, measurement)
 }
 
 /// Lower a decoded bundle as every command does: the raw-K policy, the semantic theory, the
-/// Definition IR, and the warnings of each.
+/// Definition IR, and the warnings of each, after `collection_warnings`, the collector's for
+/// the bundle's sentences.
 fn prepare_bundle(
     bundle: DescriptorBundle,
+    collection_warnings: Vec<crate::DiagnosticEnvelope>,
     profile: Option<krs_ir::RawKProfile>,
     measurement: &mut Measurement,
 ) -> Result<PreparedDefinition, CommandError> {
-    let raw_k =
-        krs_compiler::raw_k_policy(&bundle, profile).map_err(CommandError::DescriptorLowering)?;
-    // A failure from here on reports the raw-K warnings already established.
-    let warned = |error: CommandError| error.warned(analysis_warnings(&raw_k.warnings));
+    let collected = crate::DiagnosticReports {
+        envelopes: collection_warnings,
+    };
+    let raw_k = krs_compiler::raw_k_policy(&bundle, profile)
+        .map_err(|error| CommandError::DescriptorLowering(error).warned(collected.clone()))?;
+    // A failure from here on reports the collector's and the raw-K warnings already established.
+    let warned = |error: CommandError| {
+        let mut warnings = collected.clone();
+        extend_unique(&mut warnings, analysis_warnings(&raw_k.warnings));
+        error.warned(warnings)
+    };
     if !raw_k.errors.is_empty() {
         return Err(warned(CommandError::Diagnostics(
             raw_k
@@ -581,6 +601,7 @@ fn prepare_bundle(
         .into_iter()
         .chain(krs_compiler::guard_warnings(semantic.modules()));
     Ok(PreparedDefinition {
+        collection_warnings: collected.envelopes,
         raw_k_warnings: raw_k.warnings,
         sort_test_warnings: krs_compiler::sort_test_warnings(lowered.definition())
             .into_iter()
@@ -938,7 +959,8 @@ fn push_trusted_claim_warnings(
 }
 
 /// Returns the warnings about the definition itself, which every command
-/// that collects and lowers it reports (all but `fmt`): the
+/// that collects and lowers it reports (all but `fmt`): the collector's
+/// `krs::analysis::no-effect-entry` warnings of the entries it admitted, the
 /// `krs::expand::raw-hook` and `krs::semantic::raw-k` warnings of the
 /// package's allowed raw K, the `krs::analysis::trivial-sort-test`,
 /// `krs::analysis::uncovered-total-function`, and
@@ -950,11 +972,17 @@ fn push_trusted_claim_warnings(
 /// execution, trusted claims) are not among them: only the commands that
 /// judge that route report those.
 fn definition_warnings(prepared: &PreparedDefinition) -> crate::DiagnosticReports {
-    let mut reports = analysis_warnings(
-        prepared
-            .raw_k_warnings
-            .iter()
-            .chain(&prepared.sort_test_warnings),
+    let mut reports = crate::DiagnosticReports {
+        envelopes: prepared.collection_warnings.clone(),
+    };
+    reports.envelopes.extend(
+        analysis_warnings(
+            prepared
+                .raw_k_warnings
+                .iter()
+                .chain(&prepared.sort_test_warnings),
+        )
+        .envelopes,
     );
     for warning in prepared.lowered.partition().warnings() {
         reports.push(warning.to_diagnostic(), DiagnosticStage::Analysis);

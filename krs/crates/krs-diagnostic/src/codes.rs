@@ -290,6 +290,7 @@ register_codes! {
         UNUSED_CONFIGURATION_VARIABLE: "krs::analysis::unused-configuration-variable" => "A `#[k::config_var]` initializer parameter is read by no cell's initial content, so its input would have nowhere to go.",
         UNKNOWN_INSTANCE_LABEL: "krs::analysis::unknown-instance-label" => "A result instance updates `..label` without a subject instance `label`, or two result instances update the same label.",
         RECORD_MISSING_CHILDREN: "krs::analysis::record-missing-children" => "A group record at a configuration position names neither every child of its group nor `..`, so it does not say whether the children it leaves out are constrained.",
+        NO_EFFECT_ENTRY: "krs::analysis::no-effect-entry" => "A pattern's entry matches every content its cell can hold and binds nothing, on a cell the sentence keeps as it is, so the sentence means the same without it (a warning).",
         MAP_COLLECTION_KEY: "krs::analysis::map-collection-key" => "A created instance of a Map cell collection does not state its key (the first child), or an update changes the key.",
         NO_CELL_DEFAULT: "krs::analysis::no-cell-default" => "A created instance's `..` defaults a child whose template reads a configuration variable, so K has no default for it, or starts an optional cell present, which `..` does not write.",
         IMPLICIT_AND_EXPLICIT_INSTANCES: "krs::analysis::implicit-and-explicit-instances" => "A rule names a cell collection's instances and also a cell inside it as the collection's implicit single instance.",

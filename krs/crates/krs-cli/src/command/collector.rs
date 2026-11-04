@@ -1,8 +1,8 @@
 use super::CommandError;
 use super::failed_items;
 use crate::{
-    CargoMetadata, CollectorPlan, CollectorRuntime, DiagnosticEnvelope, DiagnosticStage,
-    GeneratedCollector, diagnostic_envelope, metadata::cargo_metadata,
+    CargoMetadata, CollectorPlan, CollectorRuntime, DiagnosticEnvelope, DiagnosticSeverity,
+    DiagnosticStage, GeneratedCollector, diagnostic_envelope, metadata::cargo_metadata,
 };
 use krs_diagnostic::{Code, Diagnostic, Location, codes, split_rustc_help, untag_rustc_message};
 use krs_ir::measure::{
@@ -56,17 +56,28 @@ fn collector_directory(target: &Path, collector: &GeneratedCollector) -> PathBuf
         .join(format!("{:x}", digest.finalize()))
 }
 
+/// What a collector run gives: the descriptor bundle's protocol bytes, the files it read, and
+/// the warnings its collection reported.
+pub(super) struct CollectorRun {
+    pub(super) stdout: Vec<u8>,
+    pub(super) read_set: CollectorReadSet,
+    pub(super) warnings: Vec<DiagnosticEnvelope>,
+}
+
 /// Build and run the generated collector.
 ///
 /// When measuring, the collector records its own phases in a sidecar file
 /// named by [`COLLECTOR_MEASURE_ENV`]; they are nested below `collector.run`
 /// after `collector.exec`, the time from spawning the executable until it
 /// started collecting.
+///
+/// The collector writes its diagnostics to the sidecar named by [`COLLECTOR_DIAGNOSTIC_ENV`]:
+/// a failure's error, which is the run's error, or a success's warnings, which the run gives.
 pub(super) fn run_collector(
     collector_directory: &Path,
     executable: &Path,
     measurement: &mut Measurement,
-) -> Result<(Vec<u8>, CollectorReadSet), CommandError> {
+) -> Result<CollectorRun, CommandError> {
     let read_set = scratch_file("krs-collector-read-set-")?;
     let diagnostics = scratch_file("krs-collector-diagnostics-")?;
     let mut command = ProcessCommand::new(executable);
@@ -100,31 +111,61 @@ pub(super) fn run_collector(
             }
         }
     }
-    let output = collector_result(output, diagnostics.path())?;
+    let (output, warnings) = collector_result(output, diagnostics.path())?;
     let bytes = fs::read(read_set.path()).map_err(|source| CommandError::Io {
         path: read_set.path().to_path_buf(),
         source,
     });
     let read_set = serde_json::from_slice(&bytes?).map_err(CommandError::Serialization)?;
-    Ok((output.stdout, read_set))
+    Ok(CollectorRun {
+        stdout: output.stdout,
+        read_set,
+        warnings,
+    })
 }
 
+/// The collector's output and the warnings of its collection, read from the diagnostic sidecar
+/// at `path`; on a failure, the sidecar's error. A failed run whose sidecar holds no error is
+/// the process's failure: warnings do not explain one. A successful run's sidecar holds only
+/// warnings, so an error there breaks the protocol.
 fn collector_result(
     output: Result<Output, CommandError>,
     path: &Path,
-) -> Result<Output, CommandError> {
-    if matches!(output, Err(CommandError::ProcessFailed { .. })) {
+) -> Result<(Output, Vec<DiagnosticEnvelope>), CommandError> {
+    let diagnostics = || {
         let text = fs::read_to_string(path).map_err(|source| CommandError::Io {
             path: path.to_path_buf(),
             source,
         })?;
-        let diagnostics =
-            DiagnosticEnvelope::from_json_lines(&text).map_err(CommandError::DiagnosticProtocol)?;
-        if !diagnostics.is_empty() {
-            return Err(CommandError::Diagnostics(diagnostics));
+        DiagnosticEnvelope::from_json_lines(&text).map_err(CommandError::DiagnosticProtocol)
+    };
+    match output {
+        Err(CommandError::ProcessFailed { .. }) => {
+            let diagnostics = diagnostics()?;
+            if diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error)
+            {
+                return Err(CommandError::Diagnostics(diagnostics));
+            }
+            output.map(|output| (output, Vec::new()))
         }
+        Ok(output) => {
+            let warnings = diagnostics()?;
+            if warnings
+                .iter()
+                .any(|warning| warning.severity != DiagnosticSeverity::Warning)
+            {
+                return Err(CommandError::DiagnosticProtocol(
+                    <serde_json::Error as serde::de::Error>::custom(
+                        "a collector that succeeded reported an error in its diagnostic sidecar",
+                    ),
+                ));
+            }
+            Ok((output, warnings))
+        }
+        Err(error) => Err(error),
     }
-    output
 }
 
 /// A JSON scratch file in the system temporary directory, removed on drop.
@@ -1141,5 +1182,53 @@ mod tests {
                 Err(CommandError::DiagnosticProtocol(_))
             ));
         }
+    }
+
+    #[test]
+    fn a_successful_collector_s_sidecar_gives_its_warnings_and_holds_no_error() {
+        let sidecar = tempfile::NamedTempFile::new().unwrap();
+        let success = || {
+            Ok(Output {
+                status: std::process::ExitStatus::default(),
+                stdout: b"bundle".to_vec(),
+                stderr: Vec::new(),
+            })
+        };
+        let (output, warnings) = collector_result(success(), sidecar.path()).unwrap();
+        assert_eq!(output.stdout, b"bundle");
+        assert!(warnings.is_empty());
+        let file = SourceFileId::new(
+            PackageId::new("diag", "diag", "0.1.0", "workspace").unwrap(),
+            "src/lib.rs",
+            Sha256Digest::new("11".repeat(32)).unwrap(),
+        )
+        .unwrap();
+        let mut warning = DiagnosticEnvelope::error(
+            DiagnosticStage::Analysis,
+            codes::analysis::NO_EFFECT_ENTRY,
+            "detail",
+            SourceRange::new(file, 7, 16).unwrap(),
+        );
+        warning.severity = DiagnosticSeverity::Warning;
+        fs::write(sidecar.path(), warning.to_json_line().unwrap()).unwrap();
+        let (_, warnings) = collector_result(success(), sidecar.path()).unwrap();
+        assert_eq!(warnings, [warning.clone()]);
+        // Warnings alone do not explain a failure: the process's failure stands.
+        let failure = Err(CommandError::ProcessFailed {
+            stage: "collector execution",
+            status: Some(1),
+            stderr: "human detail".to_owned(),
+        });
+        assert!(matches!(
+            collector_result(failure, sidecar.path()),
+            Err(CommandError::ProcessFailed { .. })
+        ));
+        let mut error = warning;
+        error.severity = DiagnosticSeverity::Error;
+        fs::write(sidecar.path(), error.to_json_line().unwrap()).unwrap();
+        assert!(matches!(
+            collector_result(success(), sidecar.path()),
+            Err(CommandError::DiagnosticProtocol(_))
+        ));
     }
 }

@@ -289,6 +289,24 @@ impl Lint {
             Self::NoEffectEntry => "no-effect-entry",
         }
     }
+
+    /// The registered code of the warning the lint is reported as.
+    #[must_use]
+    pub const fn code(self) -> krs_diagnostic::Code {
+        match self {
+            Self::NoEffectEntry => krs_diagnostic::codes::analysis::NO_EFFECT_ENTRY,
+        }
+    }
+
+    /// Why the entry of the cell `cell` owes the lint, and what to write instead.
+    #[must_use]
+    pub fn reason(self, cell: &str) -> String {
+        match self {
+            Self::NoEffectEntry => format!(
+                "the entry of the cell `{cell}` has no effect: it matches every content the cell can hold and binds nothing, and the sentence keeps the cell as it is, so it means the same without the entry; drop the entry, or bind or constrain the content it matches"
+            ),
+        }
+    }
 }
 
 /// An admitted entry.
@@ -868,6 +886,16 @@ fn root(spelling: &EntrySpelling) -> Root<'_> {
     }
 }
 
+/// The lint of a subject entry over a cell the sentence keeps as it is, judged against the cell's
+/// own layers `stack` (Q1, P5): [`Lint::NoEffectEntry`] where the entry matches every content the
+/// cell can hold ([`matches_all`], recursive over the marks) and binds nothing ([`binds`]), so the
+/// sentence means the same without it. It is asked only of an entry whose cell the sentence keeps:
+/// a subject entry of a cell the result leaves out ([`pair`]), or any entry of a kept pattern
+/// ([`pair_kept`]); where the result writes the cell, the entry is what the rewrite starts from.
+fn no_effect(spelling: &EntrySpelling, stack: &[Layer]) -> Option<Lint> {
+    (matches_all(spelling, stack) && !binds(spelling)).then_some(Lint::NoEffectEntry)
+}
+
 /// Whether `spelling` matches every content `stack` allows: `_`, a name, an alias or `Cell(..)`
 /// of one that does, a sequence or map with no item and a rest, or a record of the position's
 /// group whose named children all do. Presence, a literal, a call and an item constrain.
@@ -1352,7 +1380,7 @@ pub fn pair(
                 return Err(Refusal::AbsenceTestWithoutCreation);
             }
             list_ends(side, stack, spelling, other, written)?;
-            Ok((matches_all(spelling, stack) && !binds(spelling)).then_some(Lint::NoEffectEntry))
+            Ok(no_effect(spelling, stack))
         }
         EntrySide::Result => {
             pair_content(
@@ -1404,7 +1432,7 @@ pub fn pair_kept(
     if *spelling == EntrySpelling::Missing || absence_uncreated(stack, spelling, None) {
         return Err(Refusal::AbsenceTestWithoutCreation);
     }
-    Ok((matches_all(spelling, stack) && !binds(spelling)).then_some(Lint::NoEffectEntry))
+    Ok(no_effect(spelling, stack))
 }
 
 /// Step 1 alone for one entry: what its spelling and its side refuse, whatever its cell.

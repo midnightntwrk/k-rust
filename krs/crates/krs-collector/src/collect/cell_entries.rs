@@ -12,6 +12,7 @@
 
 use std::collections::BTreeMap;
 
+use krs_diagnostic::{Diagnostic, Location, Severity};
 use krs_ir::cell_kind::{
     CellKind, DescriptorCell, EntryKind, GroupKind, Layer, Multiplicity, Order,
 };
@@ -19,7 +20,7 @@ use krs_ir::{
     ConfigurationSentenceKind, DescriptorBundle, DescriptorCellDeclaration, DescriptorCellIdentity,
     DescriptorIndex, DescriptorPayload, ProtocolCellContent, SourceRange, StableItemId,
 };
-use krs_syntax::cell_entries::{self, EntrySide, Refusal, Rewrite, Sentence, SentenceEntry};
+use krs_syntax::cell_entries::{self, EntrySide, Lint, Refusal, Rewrite, Sentence, SentenceEntry};
 use krs_syntax::cell_entry::{EntryForm, EntrySpelling};
 
 use super::provenance::Coordinates;
@@ -180,6 +181,9 @@ impl ParsedCells<Coordinates> {
 /// a rule's entries are admitted, its result remainders, each against the subject frame it
 /// reuses: that pairs the result with the subject, after each entry's form and kind.
 ///
+/// Returns the warnings of the admitted entries' lints, in the sentences' order and each
+/// sentence's source order: one per entry that owes one, at its value ([`linted`]).
+///
 /// # Errors
 ///
 /// The first refused entry, with its class's code, at its value; else the first sentence's
@@ -187,26 +191,27 @@ impl ParsedCells<Coordinates> {
 pub(super) fn judge(
     bundle: &DescriptorBundle,
     cells: &BTreeMap<StableItemId, LocatedCells>,
-) -> Result<(), CollectionError> {
+) -> Result<Vec<Diagnostic>, CollectionError> {
     let index = DescriptorIndex::new(bundle);
+    let mut warnings = Vec::new();
     for (id, authored) in cells {
-        judge_entries(&index, id, authored)?;
+        warnings.extend(judge_entries(&index, id, authored)?);
         if let Some(reuse) = &authored.reuse {
             return Err(reuse.refused());
         }
     }
-    Ok(())
+    Ok(warnings)
 }
 
 /// Judges the entries of the sentence `id`, where the bundle holds it as a sentence with
-/// `cells!` entries.
+/// `cells!` entries, and gives the warnings of the lints its admitted entries owe.
 fn judge_entries(
     index: &DescriptorIndex<'_>,
     id: &StableItemId,
     authored: &LocatedCells,
-) -> Result<(), CollectionError> {
+) -> Result<Vec<Diagnostic>, CollectionError> {
     let Some(descriptor) = index.get(id) else {
-        return Ok(());
+        return Ok(Vec::new());
     };
     let (configuration, subject, result, rewrite) = match descriptor.payload() {
         DescriptorPayload::ConfigurationRule(rule) => (
@@ -227,7 +232,7 @@ fn judge_entries(
         ),
         DescriptorPayload::StructuredRule(rule) => {
             let Some(context) = &rule.function_context else {
-                return Ok(());
+                return Ok(Vec::new());
             };
             (
                 &context.configuration.configuration,
@@ -236,16 +241,36 @@ fn judge_entries(
                 Rewrite::Kept { as_rule: false },
             )
         }
-        _ => return Ok(()),
+        _ => return Ok(Vec::new()),
     };
-    judge_sentence(index, configuration, subject, result, rewrite, authored)
+    let lints = judge_sentence(index, configuration, subject, result, rewrite, authored)?;
+    Ok(lints
+        .into_iter()
+        .map(|(cell, range, lint)| linted(id, &cell, range, lint))
+        .collect())
+}
+
+/// The warning of `lint`, owed by the entry of the cell `cell` of the sentence `id`: at the
+/// entry's value, or naming the sentence where the value has no exact range.
+fn linted(id: &StableItemId, cell: &str, range: Option<SourceRange>, lint: Lint) -> Diagnostic {
+    let location = range.map_or(Location::None, Location::Source);
+    let mut warning = Diagnostic::error(lint.code(), lint.reason(cell), location);
+    warning.severity = Severity::Warning;
+    if matches!(warning.primary.location, Location::None) {
+        warning = warning.with_item(id.to_string());
+    }
+    warning
 }
 
 /// The cells of one side of a sentence, as the descriptor holds them.
 type DescriptorCells =
     [krs_ir::ProtocolRuleCell<krs_ir::DescriptorCellReference, krs_ir::DescriptorTerm>];
 
-/// Judges one sentence's entries over the configuration `configuration`.
+/// An admitted entry's lint: the entry's cell, where its value is, and the lint.
+type EntryLint = (String, Option<SourceRange>, Lint);
+
+/// Judges one sentence's entries over the configuration `configuration`, and gives the lints
+/// its admitted entries owe ([`Sentence::judge`]).
 fn judge_sentence(
     index: &DescriptorIndex<'_>,
     configuration: &StableItemId,
@@ -253,9 +278,9 @@ fn judge_sentence(
     result: Option<&DescriptorCells>,
     rewrite: Rewrite,
     authored: &LocatedCells,
-) -> Result<(), CollectionError> {
+) -> Result<Vec<EntryLint>, CollectionError> {
     let Ok(declaration) = index.configuration(configuration) else {
-        return Ok(());
+        return Ok(Vec::new());
     };
     let tree = Tree::new(configuration, &declaration.declaration, index);
     let subject = entries(&tree, subject, &authored.subject);
@@ -263,7 +288,7 @@ fn judge_sentence(
         .zip(authored.result.as_ref())
         .map(|(cells, authored)| entries(&tree, cells, authored));
     let (Some(subject), Some(result)) = (subject, result.unwrap_or(Some(Vec::new()))) else {
-        return Ok(());
+        return Ok(Vec::new());
     };
     let sentence = subject
         .iter()
@@ -284,20 +309,40 @@ fn judge_sentence(
         groups: &tree.groups,
     }
     .judge();
-    if let Err((at, refusal)) = judged {
-        let side = if at < subject.len() {
-            EntrySide::Subject
-        } else {
-            EntrySide::Result
-        };
-        let entry = subject
+    let entry = |at: usize| {
+        subject
             .iter()
             .chain(&result)
             .nth(at)
-            .expect("the refused entry is the sentence's");
-        return Err(refused(entry, refusal, advice(&tree, entry, side, refusal)));
+            .expect("a judged entry is the sentence's")
+    };
+    match judged {
+        Ok(lints) => Ok(lints
+            .into_iter()
+            .map(|(at, lint)| {
+                let entry = entry(at);
+                (
+                    unraw(&entry.cell.field).to_owned(),
+                    entry.field.range.clone(),
+                    lint,
+                )
+            })
+            .collect()),
+        Err((at, refusal)) => {
+            let side = if at < subject.len() {
+                EntrySide::Subject
+            } else {
+                EntrySide::Result
+            };
+            let entry = entry(at);
+            Err(refused(entry, refusal, advice(&tree, entry, side, refusal)))
+        }
     }
-    Ok(())
+}
+
+/// A field's name without its raw-identifier prefix.
+fn unraw(name: &str) -> &str {
+    name.strip_prefix("r#").unwrap_or(name)
 }
 
 /// One entry: its cell, the cell's kind, and its authored field.

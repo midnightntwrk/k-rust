@@ -20,13 +20,15 @@ use super::{
     expansion, plan_collector, prepare_bundle, validate_request,
 };
 use crate::metadata::cargo_metadata_in;
-use crate::{CollectorPlan, DiagnosticReports};
+use crate::{CollectorPlan, DiagnosticEnvelope, DiagnosticReports};
 
-/// A definition's collected descriptors, and the plan that collected them.
+/// A definition's collected descriptors, the warnings the collector reported for them, and the
+/// plan that collected them.
 #[derive(Clone, Debug)]
 pub struct CollectedDefinition {
     /// The descriptors, as every command decodes them before lowering.
     pub bundle: DescriptorBundle,
+    warnings: Vec<DiagnosticEnvelope>,
     plan: CollectorPlan,
     profile: Option<krs_ir::RawKProfile>,
 }
@@ -70,17 +72,56 @@ pub fn collect_descriptors(
         target_directory,
         &mut measurement,
     )?;
-    let (stdout, _) = run_collector(&collector_directory, &executable, &mut measurement)?;
-    let bundle = DescriptorBundle::from_collector_protocol(&stdout)
+    let collected = run_collector(&collector_directory, &executable, &mut measurement)?;
+    let bundle = DescriptorBundle::from_collector_protocol(&collected.stdout)
         .map_err(CommandError::DescriptorProtocol)?;
     Ok(CollectedDefinition {
         bundle,
+        warnings: collected.warnings,
         plan,
         profile: request.profile,
     })
 }
 
 impl CollectedDefinition {
+    /// The collector's warnings about the sentences of `bundle`, this definition's or a subset of
+    /// it: those located inside an authored node of a descriptor of `bundle` (a `cells!` entry
+    /// lies inside its sentence's payload), or naming one, and those about no sentence.
+    fn warnings_of(&self, bundle: &DescriptorBundle) -> Vec<DiagnosticEnvelope> {
+        let ranges = bundle
+            .descriptors()
+            .iter()
+            .flat_map(|descriptor| descriptor.provenance().origins())
+            .filter_map(|node| node.origin.exact_authored_range())
+            .collect::<Vec<_>>();
+        self.warnings
+            .iter()
+            .filter(|warning| match (&warning.authored_range, &warning.item) {
+                (Some(range), _) => ranges.iter().any(|item| {
+                    item.file == range.file
+                        && item.start_byte <= range.start_byte
+                        && range.end_byte <= item.end_byte
+                }),
+                (None, Some(item)) => bundle
+                    .descriptors()
+                    .iter()
+                    .any(|descriptor| descriptor.id().to_string() == *item),
+                (None, None) => true,
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// Lower `bundle` as every command does, after the collector's warnings about its sentences.
+    fn prepare(
+        &self,
+        bundle: DescriptorBundle,
+        measurement: &mut Measurement,
+    ) -> Result<super::PreparedDefinition, CommandError> {
+        let warnings = self.warnings_of(&bundle);
+        prepare_bundle(bundle, warnings, self.profile, measurement)
+    }
+
     /// Lower `bundle` and emit its K, as `krs emit-k` does without rendering or writing the
     /// artifacts. `bundle` is this definition's, or a subset of it.
     ///
@@ -90,7 +131,7 @@ impl CollectedDefinition {
     /// completed.
     pub fn emit_k(&self, bundle: DescriptorBundle) -> Result<EmittedDefinition, CommandError> {
         let mut measurement = Measurement::disabled();
-        let prepared = prepare_bundle(bundle, self.profile, &mut measurement)?;
+        let prepared = self.prepare(bundle, &mut measurement)?;
         let warnings = definition_warnings(&prepared);
         let emitted = emit_definition(&prepared, &mut measurement)
             .map_err(|error| error.warned(warnings.clone()))?;
@@ -129,7 +170,7 @@ impl CollectedDefinition {
         visit: Option<LoadVisit<'_>>,
     ) -> Result<DiagnosticReports, CommandError> {
         let mut measurement = Measurement::disabled();
-        let prepared = prepare_bundle(bundle, self.profile, &mut measurement)?;
+        let prepared = self.prepare(bundle, &mut measurement)?;
         check_verdict(&prepared, None, visit, &mut measurement)
             .map_err(|error| error.warned(definition_warnings(&prepared)))
     }
@@ -142,7 +183,7 @@ impl CollectedDefinition {
     /// file other than the crate root, which the crate root alone does not print.
     pub fn expand(&self, bundle: DescriptorBundle) -> Result<String, CommandError> {
         let mut measurement = Measurement::disabled();
-        let prepared = prepare_bundle(bundle, self.profile, &mut measurement)?;
+        let prepared = self.prepare(bundle, &mut measurement)?;
         let warnings = definition_warnings(&prepared);
         let expanded = expansion(&prepared, &self.plan).map_err(|error| error.warned(warnings))?;
         match expanded.changed.as_slice() {

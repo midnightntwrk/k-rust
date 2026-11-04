@@ -3122,38 +3122,6 @@ deviation = "krs::syntax::rust-syntax @ entry"
 finding = "S5-Q1"
 deviation = "krs::syntax::rust-syntax @ entry"
 
-["cells/subject/pc/k::configuration::Cell(_)"]
-finding = "S5-Q1"
-deviation = "accepted, without the lint no-effect-entry"
-
-["cells/subject/env/k::configuration::Cell(_)"]
-finding = "S5-Q1"
-deviation = "accepted, without the lint no-effect-entry"
-
-["cells/subject/stack/k::configuration::Cell(_)"]
-finding = "S5-Q1"
-deviation = "accepted, without the lint no-effect-entry"
-
-["cells/subject/frame/_"]
-finding = "S5-Q1"
-deviation = "accepted, without the lint no-effect-entry"
-
-["cells-run/subject/pc/k::configuration::Cell(_)"]
-finding = "S5-Q1"
-deviation = "accepted, without the lint no-effect-entry"
-
-["cells-run/subject/env/k::configuration::Cell(_)"]
-finding = "S5-Q1"
-deviation = "accepted, without the lint no-effect-entry"
-
-["cells-run/subject/stack/k::configuration::Cell(_)"]
-finding = "S5-Q1"
-deviation = "accepted, without the lint no-effect-entry"
-
-["cells-run/subject/frame/_"]
-finding = "S5-Q1"
-deviation = "accepted, without the lint no-effect-entry"
-
 ["readable/subject/job/[x, ..]"]
 finding = "S5-Q2"
 deviation = "krs::analysis::invalid-list-notation @ entry"
@@ -4691,17 +4659,9 @@ deviation = "krs::collect::invalid-configuration @ item"
 finding = "S5-Z1"
 deviation = "krs::collect::invalid-configuration @ item"
 
-["cells/g6-context-alias/kinds/pc/k::configuration::Cell(_)"]
-finding = "S5-Q1"
-deviation = "accepted, without the lint no-effect-entry"
-
 ["cells/g6-context/kinds/account/{ k::fragment![crate::Acct { id: z, acounter: None, .. }], .. }"]
 finding = "S5-G3"
 deviation = "krs::syntax::unsupported-rule-signature @ item"
-
-["cells/g6-context/kinds/pc/k::configuration::Cell(_)"]
-finding = "S5-Q1"
-deviation = "accepted, without the lint no-effect-entry"
 
 ["cells/g6-function-context/kinds/account/{ k::fragment![crate::Acct { id: z, acounter: None, .. }], .. }"]
 finding = "S5-G3"
@@ -4727,10 +4687,6 @@ deviation = "krs::analysis::invalid-function-context @ entry"
 finding = "S5-Z1"
 deviation = "krs::analysis::invalid-function-context @ entry"
 
-["cells/g6-function-context/kinds/pc/k::configuration::Cell(_)"]
-finding = "S5-Q1"
-deviation = "accepted, without the lint no-effect-entry"
-
 ["cells/lint/kinds/env/k::configuration::Cell(k::map![..])"]
 finding = "S5-P1"
 deviation = "krs::syntax::rust-syntax @ spelling"
@@ -4742,10 +4698,6 @@ deviation = "krs::analysis::invalid-record-update @ spelling"
 ["cells/lint/kinds/job/[]"]
 finding = "S5-E1"
 deviation = "krs::analysis::collection-entry @ entry"
-
-["cells/lint/kinds/prog/k::configuration::KCell(..)"]
-finding = "S5-Q1"
-deviation = "accepted, without the lint no-effect-entry"
 
 ["claim/deep-a/kinds/aa/x"]
 finding = "S5-S1"
@@ -13417,14 +13369,6 @@ deviation = "accepted"
 ["sweep/cells/overwrite/c25-ccell/k::fragment![crate::C { cc: [x], cn: 0 }]"]
 finding = "S5-C2"
 deviation = "krs::analysis::invalid-list-notation @ spelling"
-
-["sweep/cells/subject/seq/k::configuration::Cell(_)"]
-finding = "S5-Q1"
-deviation = "accepted, without the lint no-effect-entry"
-
-["sweep/cells/subject/set/k::configuration::Cell(_)"]
-finding = "S5-Q1"
-deviation = "accepted, without the lint no-effect-entry"
 
 ["sweep/claim/overwrite/acct/Gm { ma: x }"]
 finding = "S5-Q1"
