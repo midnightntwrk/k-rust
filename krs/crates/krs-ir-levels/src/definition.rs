@@ -350,8 +350,11 @@ impl LabelIdentity {
 }
 
 /// A checked source-level Definition IR.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
+///
+/// Its JSON is `{schema_version, provenance, main_module, modules}`: the
+/// nodes' origin stacks refer to the provenance tables
+/// ([`krs_ir::provenance_table`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DefinitionIr {
     schema_version: SchemaVersion,
     main_module: ModuleId,
@@ -371,15 +374,57 @@ impl<'de> Deserialize<'de> for DefinitionIr {
     where
         D: Deserializer<'de>,
     {
-        let wire = DefinitionIrWire::deserialize(deserializer)?;
+        let wire =
+            krs_ir::provenance_table::deserialize_root::<Self, DefinitionIrWire, D>(deserializer)?;
         if wire.schema_version != SchemaVersion::CURRENT {
-            return Err(serde::de::Error::custom(format_args!(
-                "unsupported Definition IR schema {}; expected {}",
-                wire.schema_version.0,
-                SchemaVersion::CURRENT.0
+            return Err(serde::de::Error::custom(unsupported_definition_schema(
+                wire.schema_version,
             )));
         }
         Self::new(wire.main_module, wire.modules).map_err(serde::de::Error::custom)
+    }
+}
+
+impl krs_ir::provenance_table::ArtifactRoot for DefinitionIr {
+    const NAME: &'static str = "DefinitionIr";
+    const VERSION_FIELD: &'static str = "schema_version";
+    const BODY_FIELDS: usize = 2;
+    type Version = SchemaVersion;
+
+    fn version(&self) -> &SchemaVersion {
+        &self.schema_version
+    }
+
+    fn serialize_body<M: serde::ser::SerializeStruct>(
+        &self,
+        fields: &mut M,
+    ) -> Result<(), M::Error> {
+        fields.serialize_field("main_module", &self.main_module)?;
+        fields.serialize_field("modules", &self.modules)?;
+        Ok(())
+    }
+
+    fn check_version(version: &serde_json::Value) -> Result<(), String> {
+        let version = SchemaVersion::deserialize(version).map_err(|error| error.to_string())?;
+        if version == SchemaVersion::CURRENT {
+            Ok(())
+        } else {
+            Err(unsupported_definition_schema(version))
+        }
+    }
+}
+
+fn unsupported_definition_schema(version: SchemaVersion) -> String {
+    format!(
+        "unsupported Definition IR schema {}; expected {}",
+        version.0,
+        SchemaVersion::CURRENT.0
+    )
+}
+
+impl Serialize for DefinitionIr {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        krs_ir::provenance_table::serialize_root(self, serializer)
     }
 }
 

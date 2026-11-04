@@ -14,18 +14,24 @@ use krs_ir_levels::{
 use serde::{Deserialize, Serialize};
 
 /// Version of the compiler-owned symbol/source sidecar encoding.
-const SIDECAR_SCHEMA_VERSION: u32 = 3;
+const SIDECAR_SCHEMA_VERSION: u32 = 4;
 
 fn deserialize_schema_version<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<u32, D::Error> {
     let version = u32::deserialize(deserializer)?;
-    if version != SIDECAR_SCHEMA_VERSION {
-        return Err(serde::de::Error::custom(format!(
-            "unsupported compiler sidecar schema version {version}; expected {SIDECAR_SCHEMA_VERSION}"
-        )));
-    }
+    check_schema_version(version).map_err(serde::de::Error::custom)?;
     Ok(version)
+}
+
+fn check_schema_version(version: u32) -> Result<(), String> {
+    if version == SIDECAR_SCHEMA_VERSION {
+        Ok(())
+    } else {
+        Err(format!(
+            "unsupported compiler sidecar schema version {version}; expected {SIDECAR_SCHEMA_VERSION}"
+        ))
+    }
 }
 
 /// A typed Definition IR identity mapped to generated source spelling.
@@ -456,12 +462,60 @@ impl SourceMapEntry {
 }
 
 /// Canonically ordered Definition-node source-map sidecar.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+///
+/// Its JSON is `{schema_version, provenance, entries}`: the entries' origin
+/// stacks refer to the provenance tables ([`krs_ir::provenance_table`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SourceMap {
+    schema_version: u32,
+    entries: Vec<SourceMapEntry>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceMapWire {
     #[serde(deserialize_with = "deserialize_schema_version")]
     schema_version: u32,
     entries: Vec<SourceMapEntry>,
+}
+
+impl krs_ir::provenance_table::ArtifactRoot for SourceMap {
+    const NAME: &'static str = "SourceMap";
+    const VERSION_FIELD: &'static str = "schema_version";
+    const BODY_FIELDS: usize = 1;
+    type Version = u32;
+
+    fn version(&self) -> &u32 {
+        &self.schema_version
+    }
+
+    fn serialize_body<M: serde::ser::SerializeStruct>(
+        &self,
+        fields: &mut M,
+    ) -> Result<(), M::Error> {
+        fields.serialize_field("entries", &self.entries)
+    }
+
+    fn check_version(version: &serde_json::Value) -> Result<(), String> {
+        check_schema_version(u32::deserialize(version).map_err(|error| error.to_string())?)
+    }
+}
+
+impl Serialize for SourceMap {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        krs_ir::provenance_table::serialize_root(self, serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for SourceMap {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let wire =
+            krs_ir::provenance_table::deserialize_root::<Self, SourceMapWire, D>(deserializer)?;
+        Ok(Self {
+            schema_version: wire.schema_version,
+            entries: wire.entries,
+        })
+    }
 }
 
 impl SourceMap {
@@ -1336,13 +1390,27 @@ mod reader_tests {
 
     #[test]
     fn sidecar_readers_require_the_current_version() {
-        for version in [0, 1, 2, 4] {
+        let empty = serde_json::json!({
+            "packages": [], "files": [], "items": [], "labels": [], "frames": []
+        });
+        for version in [0, 1, 2, 3, 5] {
+            let unsupported =
+                format!("unsupported compiler sidecar schema version {version}; expected");
             let input = serde_json::json!({"schema_version": version, "entries": []});
-            assert!(serde_json::from_value::<SymbolMap>(input.clone()).is_err());
-            assert!(serde_json::from_value::<SourceMap>(input).is_err());
+            let error = serde_json::from_value::<SymbolMap>(input.clone()).unwrap_err();
+            assert!(error.to_string().contains(&unsupported), "{error}");
+            // The source map carries its tables, so only its version can refuse it.
+            let mut tabled = input;
+            tabled["provenance"] = empty.clone();
+            let error = serde_json::from_value::<SourceMap>(tabled).unwrap_err();
+            assert!(error.to_string().contains(&unsupported), "{error}");
         }
         let valid = serde_json::json!({"schema_version": SIDECAR_SCHEMA_VERSION, "entries": []});
         assert!(serde_json::from_value::<SymbolMap>(valid.clone()).is_ok());
-        assert!(serde_json::from_value::<SourceMap>(valid).is_ok());
+        // A source map's stacks refer to its provenance tables, which it must carry.
+        assert!(serde_json::from_value::<SourceMap>(valid.clone()).is_err());
+        let mut tabled = valid;
+        tabled["provenance"] = empty;
+        assert!(serde_json::from_value::<SourceMap>(tabled).is_ok());
     }
 }

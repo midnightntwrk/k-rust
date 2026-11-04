@@ -547,6 +547,7 @@ fn descriptor_provenance_rejects_unknown_wire_fields() {
 
     let top_level = serde_json::json!({
         "protocol_version": SchemaVersion::CURRENT.0,
+        "provenance": {"packages": [], "files": [], "items": [], "labels": [], "frames": []},
         "descriptors": [],
         "declarations": [],
         "unexpected": true

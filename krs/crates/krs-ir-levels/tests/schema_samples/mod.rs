@@ -4382,7 +4382,30 @@ impl Sample for WireStructuredRule {
 
 mod manual;
 
-fn insert<T: Sample + Serialize + DeserializeOwned>(
+fn insert<T: Sample + Serialize + DeserializeOwned + Send + PartialEq + std::fmt::Debug>(
+    corpus: &mut BTreeMap<&'static str, Vec<serde_json::Value>>,
+    name: &'static str,
+) {
+    let values: Vec<_> = T::samples()
+        .iter()
+        .map(|sample| {
+            let json = assert_renders(name, sample);
+            let decoded = assert_round_trips(name, sample);
+            assert_eq!(
+                serde_json::to_value(decoded).unwrap(),
+                json,
+                "{name} round trip"
+            );
+            json
+        })
+        .collect();
+    assert!(!values.is_empty());
+    assert!(corpus.insert(name, values).is_none());
+}
+
+/// Inserts the samples of a wire-stage shape, which has no equality: its round trip is
+/// checked on its encoding, decoded and encoded again.
+fn insert_wire<T: Sample + Serialize + DeserializeOwned>(
     corpus: &mut BTreeMap<&'static str, Vec<serde_json::Value>>,
     name: &'static str,
 ) {
@@ -4416,6 +4439,26 @@ pub(super) fn assert_renders<T: Serialize>(name: &str, sample: &T) -> serde_json
         "{name} rendering"
     );
     json
+}
+
+/// Decodes `sample`'s canonical encoding, from its text and from its `serde_json::Value` (which
+/// orders object keys), and asserts that both decode to `sample` itself: the encoding loses
+/// nothing of the in-memory value.
+pub(super) fn assert_round_trips<T>(name: &str, sample: &T) -> T
+where
+    T: Serialize + DeserializeOwned + Send + PartialEq + std::fmt::Debug,
+{
+    let text = krs_ir::json::to_canonical_string(sample).unwrap();
+    let decoded: T = krs_ir::json::from_slice(text.as_bytes())
+        .unwrap_or_else(|error| panic!("{name} sample does not decode: {error}"));
+    assert_eq!(&decoded, sample, "{name} decodes to a different value");
+    let reordered: T = serde_json::from_value(serde_json::to_value(sample).unwrap())
+        .unwrap_or_else(|error| panic!("{name} sample value does not decode: {error}"));
+    assert_eq!(
+        &reordered, sample,
+        "{name} value decodes to a different value"
+    );
+    decoded
 }
 
 /// Checks that each of `fields` is required in the samples of `T` that
@@ -4521,7 +4564,7 @@ fn insert_tagged(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Value>>) {
         "ProtocolHeadRuleExtra",
     );
     insert::<ProtocolHeadRuleResult<DescriptorTerm>>(corpus, "ProtocolHeadRuleResult");
-    insert::<WireHeadRuleBracketAlternative>(corpus, "ProtocolHeadRuleBracketAlternative");
+    insert_wire::<WireHeadRuleBracketAlternative>(corpus, "ProtocolHeadRuleBracketAlternative");
     insert::<ProtocolHeadRuleHead<DescriptorTerm>>(corpus, "ProtocolHeadRuleHead");
     insert::<ProtocolHeadRuleList<DescriptorTerm>>(corpus, "ProtocolHeadRuleList");
     insert::<ProtocolHeadRuleListRest<DescriptorTerm>>(corpus, "ProtocolHeadRuleListRest");
@@ -4541,12 +4584,12 @@ fn insert_tagged(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Value>>) {
     insert::<RustVisibility>(corpus, "RustVisibility");
     insert::<SemanticSortRef>(corpus, "SemanticSortRef");
     insert::<SemanticTermKind>(corpus, "SemanticTermKind");
-    insert::<WireGrammarDescriptor>(corpus, "WireGrammarDescriptor");
-    insert::<WireProductionAttribute>(corpus, "WireProductionAttribute");
-    insert::<WireProductionItem>(corpus, "WireProductionItem");
-    insert::<WireProductionOwner>(corpus, "WireProductionOwner");
-    insert::<WireTerm>(corpus, "WireTerm");
-    insert::<WireTermArgument>(corpus, "WireTermArgument");
+    insert_wire::<WireGrammarDescriptor>(corpus, "WireGrammarDescriptor");
+    insert_wire::<WireProductionAttribute>(corpus, "WireProductionAttribute");
+    insert_wire::<WireProductionItem>(corpus, "WireProductionItem");
+    insert_wire::<WireProductionOwner>(corpus, "WireProductionOwner");
+    insert_wire::<WireTerm>(corpus, "WireTerm");
+    insert_wire::<WireTermArgument>(corpus, "WireTermArgument");
 }
 
 fn insert_structural(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Value>>) {
@@ -4705,21 +4748,21 @@ fn insert_transitive_rest(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Va
     insert::<StructuredRuleDescriptor>(corpus, "StructuredRuleDescriptor");
     insert::<SubsortSentence>(corpus, "SubsortSentence");
     insert::<SyntaxSortSentence>(corpus, "SyntaxSortSentence");
-    insert::<WireCellTermField>(corpus, "WireCellTermField");
-    insert::<WireFixedConfiguration>(corpus, "WireFixedConfiguration");
-    insert::<WireClaim>(corpus, "WireClaim");
-    insert::<WireConfigurationRule>(corpus, "WireConfigurationRule");
-    insert::<WireContextAlias>(corpus, "WireContextAlias");
-    insert::<WireConstant>(corpus, "WireConstant");
-    insert::<WireFunctionContext>(corpus, "WireFunctionContext");
-    insert::<WireHeadRule>(corpus, "WireHeadRule");
-    insert::<WirePayload>(corpus, "WirePayload");
+    insert_wire::<WireCellTermField>(corpus, "WireCellTermField");
+    insert_wire::<WireFixedConfiguration>(corpus, "WireFixedConfiguration");
+    insert_wire::<WireClaim>(corpus, "WireClaim");
+    insert_wire::<WireConfigurationRule>(corpus, "WireConfigurationRule");
+    insert_wire::<WireContextAlias>(corpus, "WireContextAlias");
+    insert_wire::<WireConstant>(corpus, "WireConstant");
+    insert_wire::<WireFunctionContext>(corpus, "WireFunctionContext");
+    insert_wire::<WireHeadRule>(corpus, "WireHeadRule");
+    insert_wire::<WirePayload>(corpus, "WirePayload");
     // The original payload samples must remain byte-identical; new kinds are pinned through their wire aliases.
     // All payload samples above still undergo variant-coverage and round-trip checks.
     corpus.get_mut("WirePayload").unwrap().truncate(4);
-    insert::<WireProduction>(corpus, "WireProduction");
-    insert::<WireRuleCondition>(corpus, "WireRuleCondition");
-    insert::<WireStructuredRule>(corpus, "WireStructuredRule");
+    insert_wire::<WireProduction>(corpus, "WireProduction");
+    insert_wire::<WireRuleCondition>(corpus, "WireRuleCondition");
+    insert_wire::<WireStructuredRule>(corpus, "WireStructuredRule");
 }
 
 pub(super) fn corpus() -> BTreeMap<&'static str, Vec<serde_json::Value>> {

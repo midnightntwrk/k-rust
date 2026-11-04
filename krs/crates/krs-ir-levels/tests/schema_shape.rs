@@ -682,9 +682,24 @@ fn registry() -> Registry {
         (decoded $name:ident : $ty:ty) => {
             trace_values!($name: $ty);
         };
+        // A wire-stage shape has no equality, so its round trip is checked on its encoding,
+        // decoded and encoded again.
+        (wire $name:ident : $ty:ty) => {
+            for value in &trace_values!($name: $ty) {
+                let json = schema_samples::assert_renders(stringify!($name), value);
+                let decoded: $ty = serde_json::from_value(json.clone()).unwrap();
+                assert_eq!(
+                    serde_json::to_value(decoded).unwrap(),
+                    json,
+                    "{} round trip",
+                    stringify!($name)
+                );
+            }
+        };
         ($name:ident : $ty:ty) => {
             for value in &trace_values!($name: $ty) {
                 schema_samples::assert_renders(stringify!($name), value);
+                schema_samples::assert_round_trips(stringify!($name), value);
             }
         };
     }
@@ -806,19 +821,19 @@ fn registry() -> Registry {
     trace!(TypeSlot: TypeSlot);
     trace!(ItemSlot: ItemSlot);
     trace!(TargetSlot: TargetSlot);
-    trace!(WireApplicationReference: WireApplicationReference);
-    trace!(WireConfigurationReference: WireConfigurationReference);
-    trace!(WireCellIdentity: WireCellIdentity);
-    trace!(WireCellReference: WireCellReference);
-    trace!(WireCellDeclarationReference: WireCellDeclarationReference);
-    trace!(WireSortDescriptor: WireSortDescriptor);
-    trace!(WireConstructorDescriptor: WireConstructorDescriptor);
-    trace!(WireConstructorFieldDescriptor: WireConstructorFieldDescriptor);
-    trace!(WireConstructorSortArgument: WireConstructorSortArgument);
-    trace!(WireContextAliasReference: WireContextAliasReference);
-    trace!(WireHeadRuleCellReference: WireHeadRuleCellReference);
-    trace!(WireSortReference: WireSortReference);
-    trace!(WireTypeReference: WireTypeReference);
+    trace!(wire WireApplicationReference: WireApplicationReference);
+    trace!(wire WireConfigurationReference: WireConfigurationReference);
+    trace!(wire WireCellIdentity: WireCellIdentity);
+    trace!(wire WireCellReference: WireCellReference);
+    trace!(wire WireCellDeclarationReference: WireCellDeclarationReference);
+    trace!(wire WireSortDescriptor: WireSortDescriptor);
+    trace!(wire WireConstructorDescriptor: WireConstructorDescriptor);
+    trace!(wire WireConstructorFieldDescriptor: WireConstructorFieldDescriptor);
+    trace!(wire WireConstructorSortArgument: WireConstructorSortArgument);
+    trace!(wire WireContextAliasReference: WireContextAliasReference);
+    trace!(wire WireHeadRuleCellReference: WireHeadRuleCellReference);
+    trace!(wire WireSortReference: WireSortReference);
+    trace!(wire WireTypeReference: WireTypeReference);
     trace!(ProtocolCellDeclaration: ProtocolCellDeclaration<String>);
     trace!(ProtocolConfigurationVariable: ProtocolConfigurationVariable<String>);
     trace!(ProtocolInitializerTerm: ProtocolInitializerTerm<String>);
@@ -1004,8 +1019,8 @@ fn registry() -> Registry {
     unsupported!(WireCellTermField: WireCellTermField);
     unsupported!(WireGrammarDescriptor: WireGrammarDescriptor);
     unsupported!(WireClaim: WireClaim);
-    trace!(WireClaimBinder: WireClaimBinder);
-    trace!(WireEvaluationStep: WireEvaluationStep);
+    trace!(wire WireClaimBinder: WireClaimBinder);
+    trace!(wire WireEvaluationStep: WireEvaluationStep);
     unsupported!(WireConfigurationRule: WireConfigurationRule);
     unsupported!(WireContextAlias: WireContextAlias);
     unsupported!(WireConstant: WireConstant);

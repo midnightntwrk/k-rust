@@ -44,8 +44,11 @@ impl SortKey for DescriptorNodeOrigin {
 }
 
 /// Deterministic, serializable output of one host collector execution.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(try_from = "DescriptorBundleWire")]
+///
+/// Its JSON is `{protocol_version, provenance, descriptors, declarations,
+/// package_settings}`: the descriptors' origin stacks refer to the
+/// provenance tables ([`crate::provenance_table`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DescriptorBundle {
     /// Schema and canonical-encoding version.
     protocol_version: SchemaVersion,
@@ -55,8 +58,55 @@ pub struct DescriptorBundle {
     declarations: SortedByKey<DescriptorDeclaration>,
     /// Package metadata that differs from the defaults, one entry per package,
     /// ordered by package identity. Omitted when every package uses defaults.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     package_settings: Vec<PackageSettings>,
+}
+
+impl crate::provenance_table::ArtifactRoot for DescriptorBundle {
+    const NAME: &'static str = "DescriptorBundle";
+    const VERSION_FIELD: &'static str = "protocol_version";
+    const BODY_FIELDS: usize = 3;
+    type Version = SchemaVersion;
+
+    fn version(&self) -> &SchemaVersion {
+        &self.protocol_version
+    }
+
+    fn serialize_body<M: serde::ser::SerializeStruct>(
+        &self,
+        fields: &mut M,
+    ) -> Result<(), M::Error> {
+        fields.serialize_field("descriptors", &self.descriptors)?;
+        fields.serialize_field("declarations", &self.declarations)?;
+        if self.package_settings.is_empty() {
+            fields.skip_field("package_settings")
+        } else {
+            fields.serialize_field("package_settings", &self.package_settings)
+        }
+    }
+
+    fn check_version(version: &serde_json::Value) -> Result<(), String> {
+        let version = SchemaVersion::deserialize(version).map_err(|error| error.to_string())?;
+        if version == SchemaVersion::CURRENT {
+            Ok(())
+        } else {
+            Err(DescriptorDeclarationError::UnsupportedSchema(version).to_string())
+        }
+    }
+}
+
+impl Serialize for DescriptorBundle {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        crate::provenance_table::serialize_root(self, serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for DescriptorBundle {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let wire = crate::provenance_table::deserialize_root::<Self, DescriptorBundleWire, D>(
+            deserializer,
+        )?;
+        Self::try_from(wire).map_err(serde::de::Error::custom)
+    }
 }
 
 /// Non-default `package.metadata.krs` settings of one collected package.

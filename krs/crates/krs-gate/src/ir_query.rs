@@ -1258,6 +1258,10 @@ pub fn query(directory: &Path, request: &Value) -> QueryResult {
 
 fn definition_shape(definition: &DefinitionIr) -> Value {
     let mut value = encoded(definition);
+    // The provenance tables are provenance, which the shape leaves out.
+    if let Some(object) = value.as_object_mut() {
+        object.remove(krs_ir::provenance_table::PROVENANCE_FIELD);
+    }
     value["modules"] =
         json!(
             definition
@@ -1747,10 +1751,16 @@ mod tests {
             "artifact": "spec.k", "start_byte": 6, "end_byte": 11,
             "start_line": 1, "start_column": 7, "end_line": 1, "end_column": 12,
         }});
+        // The entries state their stacks as frames; the map is written with its tables.
         let write = |entries: Vec<Value>| {
+            let map: krs_compiler::SourceMap =
+                krs_ir::provenance_table::with_inline_provenance(|| {
+                    serde_json::from_value(json!({"schema_version":4,"entries":entries}))
+                })
+                .unwrap();
             fs::write(
                 dir.path().join("sources.json"),
-                json!({"schema_version":3,"entries":entries}).to_string(),
+                map.to_canonical_json().unwrap(),
             )
             .unwrap();
         };
@@ -2044,15 +2054,24 @@ mod tests {
         let left = artifacts();
         let right = artifacts();
         for (dir, sentence) in [(&left, normalized.clone()), (&right, encoded(&input))] {
-            let mut value = encoded(definition);
-            let rule = value["modules"][0]["sentences"]
-                .as_array_mut()
-                .unwrap()
-                .iter_mut()
-                .find(|s| s["sentence_kind"] == "rule")
-                .unwrap();
-            *rule = sentence;
-            fs::write(dir.path().join("definition-ir.json"), value.to_string()).unwrap();
+            // A sentence encoded on its own writes its stacks as frames, so the definition it
+            // joins is edited in the same form and written with its tables.
+            let changed: DefinitionIr = krs_ir::provenance_table::with_inline_provenance(|| {
+                let mut value = encoded(definition);
+                let rule = value["modules"][0]["sentences"]
+                    .as_array_mut()
+                    .unwrap()
+                    .iter_mut()
+                    .find(|s| s["sentence_kind"] == "rule")
+                    .unwrap();
+                *rule = sentence;
+                serde_json::from_value(value).unwrap()
+            });
+            fs::write(
+                dir.path().join("definition-ir.json"),
+                changed.to_canonical_json().unwrap(),
+            )
+            .unwrap();
         }
         assert!(query(right.path(), &replacement_request(left.path())).is_ok());
         let preserved = make(tail(), CellPost::Preserve);

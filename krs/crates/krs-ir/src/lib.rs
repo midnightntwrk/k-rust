@@ -38,6 +38,7 @@ pub mod measure;
 mod operator;
 pub mod provenance;
 pub mod provenance_role;
+pub mod provenance_table;
 pub mod refined;
 pub mod sorted;
 pub mod string_token;
@@ -215,7 +216,7 @@ pub struct SchemaVersion(pub u32);
 
 impl SchemaVersion {
     /// The only version this release reads and writes.
-    pub const CURRENT: Self = Self(74);
+    pub const CURRENT: Self = Self(75);
 }
 
 impl Default for SchemaVersion {

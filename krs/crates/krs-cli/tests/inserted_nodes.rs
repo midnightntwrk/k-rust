@@ -88,22 +88,41 @@ struct Node {
     authored: Option<String>,
 }
 
-/// The text of `range` when it is in the fixture's `src/lib.rs`, else its file and bytes.
-fn range_text(library: &str, range: &Value) -> String {
-    let start = usize::try_from(range["start_byte"].as_u64().unwrap()).unwrap();
-    let end = usize::try_from(range["end_byte"].as_u64().unwrap()).unwrap();
-    let file = &range["file"];
-    if file["package"]["cargo_name"] == "inserted-nodes"
-        && file["package_relative_path"] == "src/lib.rs"
-    {
-        library[start..end].to_owned()
-    } else {
-        format!("{file}:{start}-{end}")
+/// Reads `sources.json`'s provenance tables: an entry's origin lists indexes into `frames`, and a
+/// frame names its file by an index into `files`, whose package is an index into `packages`.
+struct Tables<'a>(&'a Value);
+
+impl<'a> Tables<'a> {
+    fn row(&self, table: &str, index: &Value) -> &'a Value {
+        &self.0[table][usize::try_from(index.as_u64().unwrap()).unwrap()]
+    }
+
+    /// The text of the range `file`, `start`, `end` when it is in the fixture's `src/lib.rs`,
+    /// else its file and bytes.
+    fn range_text(&self, library: &str, range: &[Value]) -> String {
+        let [file, start, end] = range else {
+            panic!("a range is a file, a start and an end: {range:?}")
+        };
+        let start = usize::try_from(start.as_u64().unwrap()).unwrap();
+        let end = usize::try_from(end.as_u64().unwrap()).unwrap();
+        let file = self.row("files", file);
+        if self.row("packages", &file["package"])["cargo_name"] == "inserted-nodes"
+            && file["package_relative_path"] == "src/lib.rs"
+        {
+            library[start..end].to_owned()
+        } else {
+            format!("{file}:{start}-{end}")
+        }
     }
 }
 
+/// The kind codes of an authored and an inserted frame in the frame table.
+const AUTHORED: u64 = 0;
+const INSERTED: u64 = 7;
+
 fn nodes(definition: &str, sources: &Value, library: &str) -> Vec<Node> {
-    assert_eq!(sources["schema_version"], 3);
+    assert_eq!(sources["schema_version"], 4);
+    let tables = Tables(&sources["provenance"]);
     let mut nodes = Vec::new();
     for entry in sources["entries"].as_array().unwrap() {
         let Some(generated) = entry.get("generated") else {
@@ -112,14 +131,19 @@ fn nodes(definition: &str, sources: &Value, library: &str) -> Vec<Node> {
         if generated["artifact"] != "definition.k" {
             continue;
         }
-        let frames = entry["origin"].as_array().unwrap();
+        let frames = entry["origin"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|index| tables.row("frames", index).as_array().unwrap())
+            .collect::<Vec<_>>();
         let authored = frames
             .iter()
-            .filter(|frame| frame["frame_type"] == "ranged" && frame["kind"] == "authored")
+            .filter(|frame| frame[0] == AUTHORED)
             .collect::<Vec<_>>();
         let inserted = frames
             .iter()
-            .filter(|frame| frame["frame_type"] == "inserted")
+            .filter(|frame| frame[0] == INSERTED)
             .collect::<Vec<_>>();
         assert!(inserted.len() <= 1, "one insertion per node: {entry}");
         let start = usize::try_from(generated["start_byte"].as_u64().unwrap()).unwrap();
@@ -132,14 +156,12 @@ fn nodes(definition: &str, sources: &Value, library: &str) -> Vec<Node> {
             text: definition[start..end].to_owned(),
             inserted: inserted.first().map(|frame| {
                 (
-                    frame["kind"].as_str().unwrap().to_owned(),
-                    frame
-                        .get("anchor")
-                        .map(|anchor| range_text(library, anchor)),
+                    frame[1].as_str().unwrap().to_owned(),
+                    (frame.len() == 5).then(|| tables.range_text(library, &frame[2..5])),
                 )
             }),
             authored: match authored.as_slice() {
-                [frame] => Some(range_text(library, &frame["range"])),
+                [frame] => Some(tables.range_text(library, &frame[1..4])),
                 _ => None,
             },
         });

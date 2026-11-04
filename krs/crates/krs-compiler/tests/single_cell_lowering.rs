@@ -335,9 +335,11 @@ fn absolute_origin_labels_cannot_leak_into_sidecars() {
         r"\private",
         r"\\server\private",
     ] {
-        let mut json = serde_json::to_value(theory()).unwrap();
-        json["modules"][0]["origin"]["origin"][1]["label"] = serde_json::json!(label);
-        let theory = serde_json::from_value::<SemanticTheory>(json).unwrap();
+        let theory = krs_ir::provenance_table::with_inline_provenance(|| {
+            let mut json = serde_json::to_value(theory()).unwrap();
+            json["modules"][0]["origin"]["origin"][1]["label"] = serde_json::json!(label);
+            serde_json::from_value::<SemanticTheory>(json).unwrap()
+        });
         assert!(
             matches!(
                 lower_semantic_theory(&theory),

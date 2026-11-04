@@ -72,8 +72,10 @@ pub type SemanticProductionAttribute = ProductionAttribute<SemanticSortRef, Stab
 pub type SemanticSortRef = crate::IrSortRef<StableItemId>;
 
 /// A checked resolved semantic theory.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
+///
+/// Its JSON is `{schema_version, provenance, modules}`: the nodes' origin
+/// stacks refer to the provenance tables ([`krs_ir::provenance_table`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SemanticTheory {
     schema_version: SchemaVersion,
     modules: SortedByKey<SemanticModule>,
@@ -91,15 +93,57 @@ impl<'de> Deserialize<'de> for SemanticTheory {
     where
         D: Deserializer<'de>,
     {
-        let wire = SemanticTheoryWire::deserialize(deserializer)?;
+        let wire = krs_ir::provenance_table::deserialize_root::<Self, SemanticTheoryWire, D>(
+            deserializer,
+        )?;
         if wire.schema_version != SchemaVersion::CURRENT {
-            return Err(serde::de::Error::custom(format_args!(
-                "unsupported Semantic IR schema {}; expected {}",
-                wire.schema_version.0,
-                SchemaVersion::CURRENT.0
+            return Err(serde::de::Error::custom(unsupported_semantic_schema(
+                wire.schema_version,
             )));
         }
         Self::new(wire.modules).map_err(serde::de::Error::custom)
+    }
+}
+
+impl krs_ir::provenance_table::ArtifactRoot for SemanticTheory {
+    const NAME: &'static str = "SemanticTheory";
+    const VERSION_FIELD: &'static str = "schema_version";
+    const BODY_FIELDS: usize = 1;
+    type Version = SchemaVersion;
+
+    fn version(&self) -> &SchemaVersion {
+        &self.schema_version
+    }
+
+    fn serialize_body<M: serde::ser::SerializeStruct>(
+        &self,
+        fields: &mut M,
+    ) -> Result<(), M::Error> {
+        fields.serialize_field("modules", &self.modules)?;
+        Ok(())
+    }
+
+    fn check_version(version: &serde_json::Value) -> Result<(), String> {
+        let version = SchemaVersion::deserialize(version).map_err(|error| error.to_string())?;
+        if version == SchemaVersion::CURRENT {
+            Ok(())
+        } else {
+            Err(unsupported_semantic_schema(version))
+        }
+    }
+}
+
+fn unsupported_semantic_schema(version: SchemaVersion) -> String {
+    format!(
+        "unsupported Semantic IR schema {}; expected {}",
+        version.0,
+        SchemaVersion::CURRENT.0
+    )
+}
+
+impl Serialize for SemanticTheory {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        krs_ir::provenance_table::serialize_root(self, serializer)
     }
 }
 

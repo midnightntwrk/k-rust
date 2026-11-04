@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::fmt;
 
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{ByteRange, SourceFileId, StableItemId};
 
@@ -169,6 +169,12 @@ impl TransformationOriginKind {
     }
 }
 
+/// The kind code of an inserted frame, which only an artifact's frame table
+/// writes ([`crate::provenance_table`]); the collector wire has no inserted
+/// frames. It shares the code space of [`RangedOriginKind::code`] and
+/// [`TransformationOriginKind::code`], so no other kind may take it.
+pub(crate) const INSERTED_FRAME_CODE: u8 = 7;
+
 /// Collector frame shape and its kind, derived from its wire code.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum FrameKind {
@@ -307,9 +313,18 @@ impl OriginFrame {
 }
 
 /// Ordered provenance from the authored token toward later representations.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
-#[serde(transparent)]
+///
+/// Inside an artifact root a stack is written as the indexes of its frames in
+/// the root's frame table ([`crate::provenance_table`]); on its own, as the
+/// array of its frames.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct OriginStack(Vec<OriginFrame>);
+
+impl Serialize for OriginStack {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        crate::provenance_table::serialize_stack(&self.0, serializer)
+    }
+}
 
 impl OriginStack {
     /// Starts a non-empty origin stack at an authored frame.
@@ -379,7 +394,7 @@ impl<'de> Deserialize<'de> for OriginStack {
     where
         D: Deserializer<'de>,
     {
-        let frames = Vec::<OriginFrame>::deserialize(deserializer)?;
+        let frames = crate::provenance_table::deserialize_stack(deserializer)?;
         Self::try_from_frames(frames).map_err(serde::de::Error::custom)
     }
 }
@@ -524,7 +539,10 @@ mod tests {
         assert!(error.to_string().contains("inserted frame"), "{error}");
     }
 
-    /// Changing a frame code requires advancing `collector::VERSION`.
+    /// The collector wire and every artifact's frame table write a frame's
+    /// kind as these codes, and both decode it through [`FrameKind::from_code`].
+    /// Changing a frame code requires advancing `collector::VERSION` and the
+    /// schema versions of the artifacts.
     #[test]
     fn collector_frame_codes() {
         let ranged = [
@@ -567,7 +585,8 @@ mod tests {
             );
             assert_eq!(RangedOriginKind::from_code(kind.code()), None);
         }
-        for code in [7, u8::MAX] {
+        assert_eq!(super::INSERTED_FRAME_CODE, 7);
+        for code in [super::INSERTED_FRAME_CODE, u8::MAX] {
             assert_eq!(RangedOriginKind::from_code(code), None);
             assert_eq!(TransformationOriginKind::from_code(code), None);
             assert_eq!(FrameKind::from_code(code), None);

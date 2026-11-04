@@ -1990,7 +1990,10 @@ endmodule
             )
             .node("term", 5, at(GUARD, "M:Map"), (322, 323), None, None)
             .node("term", 5, at(GUARD, "7"), (324, 325), None, None);
-        serde_json::from_value(json!({ "schema_version": 3, "entries": entries.0 })).unwrap()
+        krs_ir::provenance_table::with_inline_provenance(|| {
+            serde_json::from_value(json!({ "schema_version": 4, "entries": entries.0 }))
+        })
+        .unwrap()
     }
 
     fn judge(edits: &[KEdit<'_>]) -> EditJudgement {

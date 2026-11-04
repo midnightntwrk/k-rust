@@ -435,10 +435,12 @@ fn sentence_multiset(
     frames: &FrameNormalization<'_>,
 ) -> Result<BTreeMap<String, usize>, Box<dyn std::error::Error>> {
     let context = super::Context::new(definition);
-    let mut value = encoded(definition);
+    // The modules are encoded on their own, outside the definition's provenance tables, so their
+    // stacks are written as frames, as the normalized sentences' are, and read back the same way.
+    let mut modules = encoded(&definition.modules());
     for (i, module) in definition.modules().iter().enumerate() {
         if module.id().as_str() == name {
-            value["modules"][i]["sentences"] = json!(
+            modules[i]["sentences"] = json!(
                 module
                     .sentences()
                     .iter()
@@ -447,7 +449,9 @@ fn sentence_multiset(
             );
         }
     }
-    let normalized: DefinitionIr = krs_ir::json::from_slice(&serde_json::to_vec(&value)?)?;
+    let modules: Vec<krs_ir_levels::DefinitionModule> =
+        krs_ir::json::from_slice(&serde_json::to_vec(&modules)?)?;
+    let normalized = DefinitionIr::new(definition.main_module().clone(), modules)?;
     let module = normalized
         .modules()
         .iter()

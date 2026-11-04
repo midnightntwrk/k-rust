@@ -769,8 +769,15 @@ fn semantic_expression_contract_resolves_builtin_sorts_and_applications() {
     assert!(!json.contains("INT.add"));
 }
 
+/// The expression definition with its stacks written as frames, so a test can add a node by
+/// hand; [`decode`] reads it back the same way.
 fn expression_json() -> serde_json::Value {
-    serde_json::to_value(expression_definition().unwrap()).unwrap()
+    let definition = expression_definition().unwrap();
+    krs_ir::provenance_table::with_inline_provenance(|| serde_json::to_value(definition).unwrap())
+}
+
+fn decode(json: serde_json::Value) -> serde_json::Result<DefinitionIr> {
+    krs_ir::provenance_table::with_inline_provenance(|| serde_json::from_value(json))
 }
 
 fn syntax_module_mut(json: &mut serde_json::Value) -> &mut serde_json::Value {
@@ -797,10 +804,7 @@ fn production_mut<'a>(json: &'a mut serde_json::Value, id: &str) -> &'a mut serd
 fn rejects_regex_without_classified_token_metadata() {
     let mut json = expression_json();
     production_mut(&mut json, "production.id")["sentence"]["attributes"] = serde_json::json!([]);
-    assert_rejects_with_message(
-        serde_json::from_value::<DefinitionIr>(json),
-        DefinitionValidationError::RegexWithoutToken,
-    );
+    assert_rejects_with_message(decode(json), DefinitionValidationError::RegexWithoutToken);
 }
 
 #[test]
@@ -825,7 +829,7 @@ fn rejects_prefer_with_avoid_and_on_parse_only_productions() {
         .unwrap()
         .push(prefer("production.neg.prefer"));
     assert_rejects_with_message(
-        serde_json::from_value::<DefinitionIr>(with_avoid),
+        decode(with_avoid),
         DefinitionValidationError::PreferAndAvoid,
     );
     let attributes = production_mut(&mut accepted, "production.neg")["sentence"]["attributes"]
@@ -833,7 +837,7 @@ fn rejects_prefer_with_avoid_and_on_parse_only_productions() {
         .unwrap();
     attributes.pop();
     attributes.push(prefer("production.neg.prefer"));
-    serde_json::from_value::<DefinitionIr>(accepted).unwrap();
+    decode(accepted).unwrap();
 
     for (production, key) in [
         ("production.paren", "production.paren.prefer"),
@@ -846,7 +850,7 @@ fn rejects_prefer_with_avoid_and_on_parse_only_productions() {
         attributes.retain(|attribute| attribute["attribute_kind"] != "avoid");
         attributes.push(prefer(key));
         assert_rejects_with_message(
-            serde_json::from_value::<DefinitionIr>(json),
+            decode(json),
             DefinitionValidationError::PreferOnParseOnlyProduction,
         );
     }
@@ -866,14 +870,14 @@ fn overload_names_a_production_symbol_on_a_constructor() {
         .as_array_mut()
         .unwrap()
         .push(overload("production.neg.overload", "production.add"));
-    serde_json::from_value::<DefinitionIr>(accepted).unwrap();
+    decode(accepted).unwrap();
 
     let mut dangling = expression_json();
     production_mut(&mut dangling, "production.neg")["sentence"]["attributes"]
         .as_array_mut()
         .unwrap()
         .push(overload("production.neg.overload", "production.missing"));
-    assert!(serde_json::from_value::<DefinitionIr>(dangling).is_err());
+    assert!(decode(dangling).is_err());
 
     let mut token = expression_json();
     production_mut(&mut token, "production.id")["sentence"]["attributes"]
@@ -881,7 +885,7 @@ fn overload_names_a_production_symbol_on_a_constructor() {
         .unwrap()
         .push(overload("production.id.overload", "production.add"));
     assert_rejects_with_message(
-        serde_json::from_value::<DefinitionIr>(token),
+        decode(token),
         DefinitionValidationError::InvalidOverloadProduction,
     );
 }
@@ -901,7 +905,7 @@ fn rejects_strictness_for_an_unknown_field() {
         "field": "missing"
     }]);
     assert_rejects_with_message(
-        serde_json::from_value::<DefinitionIr>(json),
+        decode(json),
         DefinitionValidationError::InvalidStrictnessField,
     );
 }
@@ -921,7 +925,7 @@ fn rejects_precedence_cycles_and_dangling_groups() {
             }
         }));
     assert_rejects_with_message(
-        serde_json::from_value::<DefinitionIr>(cycle),
+        decode(cycle),
         DefinitionValidationError::PrecedenceCycle(group("additive")),
     );
 
@@ -934,7 +938,7 @@ fn rejects_precedence_cycles_and_dangling_groups() {
         .unwrap();
     precedence["sentence"]["higher"] = serde_json::json!(["unknown"]);
     assert_rejects_with_message(
-        serde_json::from_value::<DefinitionIr>(dangling),
+        decode(dangling),
         DefinitionValidationError::DanglingProductionGroup(group("unknown")),
     );
 }
@@ -954,7 +958,7 @@ fn rejects_subsort_cycles() {
             }
         }));
     assert_rejects_with_message(
-        serde_json::from_value::<DefinitionIr>(json),
+        decode(json),
         DefinitionValidationError::SubsortCycle(declared("sort.expr")),
     );
 }
@@ -979,25 +983,19 @@ fn rejects_wrong_builtin_signature_and_raw_or_adapter_attributes() {
     neg["sentence"]["body"]["to"]["arguments"][0]["sort"] =
         serde_json::json!({"sort_source": "builtin", "sort": "bool"});
     assert_rejects_with_message(
-        serde_json::from_value::<DefinitionIr>(signature),
+        decode(signature),
         DefinitionValidationError::BuiltinApplicationSignature(BuiltinOperation::IntSub),
     );
 
     let mut raw = expression_json();
     production_mut(&mut raw, "production.add")["sentence"]["attributes"][0]["raw_hook"] =
         serde_json::json!("INT.add");
-    assert_rejects_with_message(
-        serde_json::from_value::<DefinitionIr>(raw),
-        "unknown field `raw_hook`",
-    );
+    assert_rejects_with_message(decode(raw), "unknown field `raw_hook`");
 
     let mut adapter = expression_json();
     production_mut(&mut adapter, "production.add")["sentence"]["k_rust_production_id"] =
         serde_json::json!(17);
-    assert_rejects_with_message(
-        serde_json::from_value::<DefinitionIr>(adapter),
-        "unknown field `k_rust_production_id`",
-    );
+    assert_rejects_with_message(decode(adapter), "unknown field `k_rust_production_id`");
 }
 
 #[test]
@@ -1007,17 +1005,14 @@ fn rejects_missing_or_reused_nested_provenance() {
         .as_object_mut()
         .unwrap()
         .remove("origin");
-    assert_rejects_with_message(
-        serde_json::from_value::<DefinitionIr>(missing),
-        "missing field `origin`",
-    );
+    assert_rejects_with_message(decode(missing), "missing field `origin`");
 
     let mut duplicate = expression_json();
     let production = production_mut(&mut duplicate, "production.add");
     production["sentence"]["items"][1]["origin"] =
         production["sentence"]["items"][0]["origin"].clone();
     assert_rejects_with_message(
-        serde_json::from_value::<DefinitionIr>(duplicate),
+        decode(duplicate),
         DefinitionValidationError::DuplicateSourceMapKey(
             SourceMapKey::new("production.add.lhs").unwrap(),
         ),

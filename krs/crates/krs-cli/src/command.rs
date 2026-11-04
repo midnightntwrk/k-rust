@@ -2067,15 +2067,17 @@ mod tests {
         .unwrap();
         let range = SourceRange::new(file, 7, 16).unwrap();
         let key = krs_ir::SourceMapKey::new("definition.item").unwrap();
-        let source_map = serde_json::from_value(serde_json::json!({
-            "schema_version": 3,
-            "entries": [{
-                "key": key.as_str(),
-                "node_kind": "module",
-                "depth": 0,
-                "origin": krs_ir::OriginStack::authored(range.clone()),
-            }],
-        }))
+        let source_map = krs_ir::provenance_table::with_inline_provenance(|| {
+            serde_json::from_value(serde_json::json!({
+                "schema_version": 4,
+                "entries": [{
+                    "key": key.as_str(),
+                    "node_kind": "module",
+                    "depth": 0,
+                    "origin": krs_ir::OriginStack::authored(range.clone()),
+                }],
+            }))
+        })
         .unwrap();
         let error = DefinitionCompileError::Adapter(krs_k_rust::AdapterError::MissingReference {
             key,

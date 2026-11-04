@@ -524,7 +524,10 @@ fn calc_fixed_state_is_target_neutral_and_deterministic() {
     let definition = calc_definition(Variants::default()).unwrap();
     testing::assert_canonical_contract(&definition);
     let first = definition.to_canonical_json().unwrap();
-    let wire: serde_json::Value = serde_json::from_str(&first).unwrap();
+    // A sentence read on its own writes its stacks as frames, as the inline encoding does.
+    let wire = krs_ir::provenance_table::with_inline_provenance(|| {
+        serde_json::to_value(&definition).unwrap()
+    });
     let configuration = wire["modules"][0]["sentences"]
         .as_array()
         .unwrap()
