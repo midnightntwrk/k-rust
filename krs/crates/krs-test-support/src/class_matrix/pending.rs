@@ -44,11 +44,43 @@
 //! - [`FULL`], `full/CASE`: the full tier's deviation of a case that the front refuses and the
 //!   full tier observes otherwise (rustc adds an error to the front's, say). The full tier reads
 //!   it in place of `CASE`'s entry.
+//!
+//! **A family entry** ([`FamilyEntry`]) pends, under one finding, every red of one diagnostic
+//! kind whose key a glob matches (`expected.toml`'s syntax, [`Glob`]):
+//!
+//! ```toml
+//! [[family]]
+//! match = "sweep/{claim,readable}/result/acct/*"
+//! finding = "S0-9"
+//! kind = "diagnostic"
+//! ```
+//!
+//! A diagnostic red is a program refused as it should be, with the wrong code, site or advice: a
+//! fix that moves it moves every case of the family at once, and an exact entry per case would
+//! turn each such fix into a rewrite of all of them. So only the kinds of [`FAMILY_KINDS`] may be
+//! pended by a family; a red of what KRS accepts, writes or runs (an under- or over-refusal, other
+//! K, K1, K3, K4, K6, K7, the twin check) and a bug (an internal code, a panic) stays exact, one
+//! entry per case, since any move of it matters. The rules:
+//! - a red that both an exact entry and a family match is the exact entry's;
+//! - a red the family matches whose kind is not the family's fails ([`Judgement::OtherKind`]): a
+//!   diagnostic red that turns into a meaning red is no longer the family's;
+//! - a case the family matches that conforms passes: what is given up is that a family does not
+//!   notice one of its cases conforming, nor a red moving from one wrong code to another, while
+//!   any other case of the family is still red;
+//! - a family is stale where a whole run of a shard it reaches (one of the run's keys it matches)
+//!   pends no red with it ([`Pending::stale_families`]): the whole family conforms, or no longer
+//!   is of its kind. A run that a filter narrows cannot tell, and does not judge it.
+//!
+//! A family's glob starts with a literal segment, which names its test: `k8/..` for K8, a case's
+//! family for K2. It never names `full/..`: a case the two tiers observe otherwise keeps its
+//! exact entries. No key may be matched by two families.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use toml_edit::DocumentMut;
+
+use super::table::Glob;
 
 /// The placeholder finding of a deviation the harness writes out for review: no registered
 /// finding has this name, so an entry that keeps it fails the registry's audit.
@@ -83,6 +115,22 @@ pub const FULL: &str = "full/";
 /// finding it says the recorded K is the principled one and the product's K is wrong: record
 /// mode keeps that K ([`Pending::holds_other_k`]), and the finding states its `risk`.
 pub const OTHER_K: &str = "accepted, with other K than recorded";
+
+/// The kinds of red ([`super::findings::Red`]'s display) a family entry may pend: a K2 red of a
+/// case the table refuses, refused otherwise than the class says (`diagnostic`, and its
+/// `+rust-syntax` tag), a lint's warning missing or unowed where the table accepts the program,
+/// and K8's verdict on a refusal's advice. Each is what a correct verdict says, not what KRS
+/// accepts, writes or runs.
+pub const FAMILY_KINDS: &[&str] = &[
+    "diagnostic",
+    "diagnostic+rust-syntax",
+    "lint-missing",
+    "lint-unowed",
+    "k8",
+];
+
+/// The table key of the family entries, `[[family]]`.
+pub const FAMILY: &str = "family";
 
 /// The case an entry's ID names: the ID itself, or the ID after [`KEYS`], [`CLOSURE`],
 /// [`NATIVE`], [`RUN`], [`TWIN`], [`ADVICE`] or [`FULL`]; `None` for a [`LATTICE`] entry, which
@@ -133,11 +181,26 @@ pub struct PendingEntry {
     pub deviation: String,
 }
 
+/// A family entry: every red of one kind whose key a glob matches, under one finding.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FamilyEntry {
+    /// The glob over pending keys, as written.
+    pub pattern: String,
+    /// The parsed glob.
+    pub glob: Glob,
+    /// The finding its reds belong to, registered in `findings.toml`.
+    pub finding: String,
+    /// The kind of red it pends, one of [`FAMILY_KINDS`].
+    pub kind: String,
+}
+
 /// The parsed red list.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Pending {
     /// The pending cases by ID.
     pub entries: BTreeMap<String, PendingEntry>,
+    /// The family entries, in the file's order.
+    pub families: Vec<FamilyEntry>,
 }
 
 /// What a case did, against its expectation.
@@ -158,6 +221,18 @@ pub enum Judgement {
     Red,
     /// The case is pending but conforms: remove it from `pending.toml`.
     NowConforms,
+    /// The case has no exact entry, and a family entry matches its key, but the case's red is of
+    /// another kind than the family's: record it as an exact entry under its finding.
+    OtherKind {
+        /// The family's glob.
+        family: String,
+        /// The family's kind.
+        recorded: String,
+        /// The kind of the observed red.
+        kind: String,
+        /// The observed signature.
+        observed: String,
+    },
     /// The case is pending but deviates differently: record the new deviation.
     DeviationChanged {
         /// The recorded signature.
@@ -192,6 +267,16 @@ impl fmt::Display for Judgement {
                 formatter,
                 "deviates as {observed:?}, but pending.toml records {recorded:?}: record the new deviation"
             ),
+            Self::OtherKind {
+                family,
+                recorded,
+                kind,
+                observed,
+            } => write!(
+                formatter,
+                "deviates as {observed:?}, a {kind} red, but the family entry {family:?} pends \
+                 {recorded} reds only: record the red as an exact entry under its finding"
+            ),
             Self::Unexpected { observed } => {
                 write!(formatter, "deviates as {observed:?} and is not pending")
             }
@@ -211,7 +296,28 @@ impl Pending {
             .map_err(|error| vec![format!("pending.toml: {error}")])?;
         let mut errors = Vec::new();
         let mut entries = BTreeMap::new();
+        let mut families = Vec::new();
         for (id, item) in document.iter() {
+            if id == FAMILY {
+                match item.as_array_of_tables() {
+                    Some(tables) => {
+                        for (index, table) in tables.iter().enumerate() {
+                            match parse_family(table) {
+                                Ok(family) => families.push(family),
+                                Err(more) => {
+                                    errors.extend(more.into_iter().map(|error| {
+                                        format!("[[{FAMILY}]] {}: {error}", index + 1)
+                                    }));
+                                }
+                            }
+                        }
+                    }
+                    None => errors.push(format!(
+                        "{id:?} is not an array of family tables: write each as `[[{FAMILY}]]`"
+                    )),
+                }
+                continue;
+            }
             let Some(table) = item.as_table() else {
                 errors.push(format!("{id:?} is not a table"));
                 continue;
@@ -246,10 +352,33 @@ impl Pending {
             }
         }
         if errors.is_empty() {
-            Ok(Self { entries })
+            Ok(Self { entries, families })
         } else {
             Err(errors)
         }
+    }
+
+    /// The family entry that pends a red keyed `key` with no exact entry: the first whose glob
+    /// matches it.
+    #[must_use]
+    pub fn family_of(&self, key: &str) -> Option<&FamilyEntry> {
+        self.families.iter().find(|family| family.glob.matches(key))
+    }
+
+    /// Whether an entry, exact or family, names the key `key`.
+    #[must_use]
+    pub fn names(&self, key: &str) -> bool {
+        self.entries.contains_key(key) || self.family_of(key).is_some()
+    }
+
+    /// The finding of the red keyed `key` that [`Self::judge`] judged [`Judgement::Red`]: its
+    /// exact entry's, else its family's.
+    #[must_use]
+    pub fn finding(&self, key: &str) -> Option<&str> {
+        self.entries.get(key).map_or_else(
+            || self.family_of(key).map(|family| family.finding.as_str()),
+            |entry| Some(entry.finding.as_str()),
+        )
     }
 
     /// Whether the case `id` has a K2 entry (`ID` or `full/ID`) whose deviation is [`OTHER_K`]:
@@ -262,34 +391,97 @@ impl Pending {
             .any(|entry| entry.deviation == OTHER_K)
     }
 
-    /// Judge one case.
+    /// Judge one case. `kind` gives the kind of red ([`super::findings::Red`]'s display) of an
+    /// observed signature; it is asked only where a family entry, and no exact entry, matches
+    /// `id`.
     #[must_use]
-    pub fn judge(&self, id: &str, observation: Observation<'_>) -> Judgement {
-        match (self.entries.get(id), observation) {
-            (None, Observation::Conforms) => Judgement::Conforms,
-            (Some(_), Observation::Conforms) => Judgement::NowConforms,
-            (Some(entry), Observation::Deviates(observed)) if entry.deviation == observed => {
-                Judgement::Red
-            }
-            (Some(entry), Observation::Deviates(observed)) => Judgement::DeviationChanged {
+    pub fn judge(
+        &self,
+        id: &str,
+        observation: Observation<'_>,
+        kind: impl FnOnce(&str) -> String,
+    ) -> Judgement {
+        let Some(entry) = self.entries.get(id) else {
+            return match (self.family_of(id), observation) {
+                (_, Observation::Conforms) => Judgement::Conforms,
+                (Some(family), Observation::Deviates(observed)) => {
+                    let kind = kind(observed);
+                    if kind == family.kind {
+                        Judgement::Red
+                    } else {
+                        Judgement::OtherKind {
+                            family: family.pattern.clone(),
+                            recorded: family.kind.clone(),
+                            kind,
+                            observed: observed.to_owned(),
+                        }
+                    }
+                }
+                (None, Observation::Deviates(observed)) => Judgement::Unexpected {
+                    observed: observed.to_owned(),
+                },
+            };
+        };
+        match observation {
+            Observation::Conforms => Judgement::NowConforms,
+            Observation::Deviates(observed) if entry.deviation == observed => Judgement::Red,
+            Observation::Deviates(observed) => Judgement::DeviationChanged {
                 recorded: entry.deviation.clone(),
-                observed: observed.to_owned(),
-            },
-            (None, Observation::Deviates(observed)) => Judgement::Unexpected {
                 observed: observed.to_owned(),
             },
         }
     }
 
-    /// The pending IDs whose case ([`case_of`]) is no case of `ids`: an entry for a case the
-    /// generator no longer produces must leave the list. [`LATTICE`] entries are no cases and are
-    /// not listed.
+    /// The pending IDs whose case ([`case_of`]) is no case of `ids`, and the family globs that
+    /// match no key of a case of `ids` (its ID, or `k8/ID`): an entry for a case the generator no
+    /// longer produces must leave the list. [`LATTICE`] entries are no cases and are not listed.
     #[must_use]
     pub fn stale<'a>(&'a self, ids: &[&str]) -> Vec<&'a str> {
-        self.entries
+        let entries = self
+            .entries
             .keys()
             .map(String::as_str)
-            .filter(|id| case_of(id).is_some_and(|case| !ids.contains(&case)))
+            .filter(|id| case_of(id).is_some_and(|case| !ids.contains(&case)));
+        let families = self
+            .families
+            .iter()
+            .filter(|family| {
+                !ids.iter().any(|id| {
+                    family.glob.matches(id) || family.glob.matches(&format!("{ADVICE}{id}"))
+                })
+            })
+            .map(|family| family.pattern.as_str());
+        entries.chain(families).collect()
+    }
+
+    /// The family globs that a whole run of a shard reaches and that pend no red of it: a glob
+    /// that matches a key of `judged` (the keys the run made a verdict on), and no key of `red`
+    /// (the keys it judged red) that has no exact entry. Such a family's cases all conform now,
+    /// or are no longer of its kind: narrow its glob or remove it. A run that a filter narrows
+    /// cannot tell, and must not ask.
+    #[must_use]
+    pub fn stale_families<'a>(&'a self, judged: &[&str], red: &[&str]) -> Vec<&'a str> {
+        let mut reached = vec![false; self.families.len()];
+        let mut met = vec![false; self.families.len()];
+        for key in judged {
+            for (index, family) in self.families.iter().enumerate() {
+                reached[index] |= family.glob.matches(key);
+            }
+        }
+        for key in red.iter().filter(|key| !self.entries.contains_key(**key)) {
+            if let Some(index) = self
+                .families
+                .iter()
+                .position(|family| family.glob.matches(key))
+            {
+                met[index] = true;
+            }
+        }
+        self.families
+            .iter()
+            .zip(reached.into_iter().zip(met))
+            .filter(|(_, (reached, met))| *reached && !*met)
+            .map(|(family, _)| family.pattern.as_str())
             .collect()
     }
 
@@ -325,12 +517,78 @@ impl Pending {
     pub fn tally<'a>(&self, red: impl IntoIterator<Item = &'a str>) -> Tally {
         let mut tally = Tally::default();
         for id in red {
-            let Some(entry) = self.entries.get(id) else {
+            let Some(finding) = self.finding(id) else {
                 continue;
             };
-            *tally.by_finding.entry(entry.finding.clone()).or_default() += 1;
+            *tally.by_finding.entry(finding.to_owned()).or_default() += 1;
         }
         tally
+    }
+}
+
+/// Parse one `[[family]]` table: its glob, finding and kind.
+fn parse_family(table: &toml_edit::Table) -> Result<FamilyEntry, Vec<String>> {
+    let mut errors = Vec::new();
+    for (key, _) in table {
+        if !["match", "finding", "kind"].contains(&key) {
+            errors.push(format!("the unknown key {key:?}"));
+        }
+    }
+    let mut field = |key: &str| match table.get(key).and_then(|value| value.as_str()) {
+        Some(text) if !text.is_empty() => Some(text.to_owned()),
+        _ => {
+            errors.push(format!("{key} is not a non-empty string"));
+            None
+        }
+    };
+    let (pattern, finding, kind) = (field("match"), field("finding"), field("kind"));
+    let glob = pattern.as_deref().and_then(|pattern| {
+        Glob::parse(pattern)
+            .map_err(|reason| errors.push(format!("match {pattern:?}: {reason}")))
+            .ok()
+    });
+    if let Some(pattern) = &pattern {
+        let first = pattern.split('/').next().unwrap_or_default();
+        if first.contains(['*', '{', '}', ',', '\\']) || !pattern.contains('/') {
+            errors.push(format!(
+                "match {pattern:?} must start with a literal segment, which names its test"
+            ));
+        }
+        if [FULL, LATTICE, "entry/", KEYS, CLOSURE, NATIVE, RUN, TWIN]
+            .iter()
+            .any(|prefix| pattern.starts_with(prefix))
+        {
+            errors.push(format!(
+                "match {pattern:?} names {} entries, which stay exact: a family names K2 or K8 \
+                 keys only",
+                test_of(pattern)
+            ));
+        }
+    }
+    if let (Some(pattern), Some(kind)) = (&pattern, &kind) {
+        if !FAMILY_KINDS.contains(&kind.as_str()) {
+            errors.push(format!(
+                "kind {kind:?} is not a diagnostic kind ({}): a red of what KRS accepts, writes or \
+                 runs, and a bug, stays exact, one entry per case",
+                FAMILY_KINDS.join(", ")
+            ));
+        } else if (kind == "k8") != (test_of(pattern) == "k8") {
+            errors.push(format!(
+                "kind {kind:?} is not a kind of the {} test that {pattern:?} names",
+                test_of(pattern)
+            ));
+        }
+    }
+    match (pattern, glob, finding, kind) {
+        (Some(pattern), Some(glob), Some(finding), Some(kind)) if errors.is_empty() => {
+            Ok(FamilyEntry {
+                pattern,
+                glob,
+                finding,
+                kind,
+            })
+        }
+        _ => Err(errors),
     }
 }
 

@@ -55,7 +55,7 @@
 //! under-refusal once the table decides the case.
 //!
 //! [`audit`] fails, with the fix in each message, where
-//! - a pending entry names a finding the registry does not have;
+//! - a pending entry, exact or family, names a finding the registry does not have;
 //! - a registered finding has no entry left (it is done: remove it), or a `by_test` owner has no
 //!   entry of its test left;
 //! - a red's kind is not one its finding's kind admits;
@@ -538,8 +538,10 @@ pub fn codes(text: &str) -> impl Iterator<Item = &str> {
     })
 }
 
-/// The registry's failures against the red list, each with its fix; `red` computes an entry's
-/// kind ([`Red::of`]).
+/// The registry's failures against the red list, each with its fix; `red` computes an exact
+/// entry's kind ([`Red::of`]). A family entry's kind is one of
+/// [`super::pending::FAMILY_KINDS`], which every finding kind admits and none counts as an
+/// under-refusal.
 #[must_use]
 pub fn audit(
     findings: &Findings,
@@ -574,6 +576,20 @@ pub fn audit(
                 red.reason()
             ));
         }
+    }
+    for family in &pending.families {
+        if !findings.findings.contains_key(&family.finding) {
+            errors.push(format!(
+                "the family {:?}: its finding {:?} is not in {FINDINGS_FILE}: register it with its \
+                 owner, kind and what",
+                family.pattern, family.finding
+            ));
+            continue;
+        }
+        tests
+            .entry(family.finding.as_str())
+            .or_default()
+            .insert(test_of(&family.pattern));
     }
     for (name, finding) in &findings.findings {
         let Some(held) = tests.get(name.as_str()) else {

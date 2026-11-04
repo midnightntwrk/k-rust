@@ -306,7 +306,8 @@ fn the_krs_sort_judges_agree() {
         let observation = observed.get(id).map_or(Observation::Conforms, |signature| {
             Observation::Deviates(signature)
         });
-        match pending.judge(id, observation) {
+        // A sort judges' disagreement is K4's, which no family entry pends.
+        match pending.judge(id, observation, |_| "k4".to_owned()) {
             Judgement::Conforms => {}
             Judgement::Red => red.push(id.as_str()),
             judgement => failures.push((id, judgement)),

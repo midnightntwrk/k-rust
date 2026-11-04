@@ -5715,8 +5715,9 @@ fn every_principle_line_cites_the_registry() {
 /// Where the root sweep cells no compiled case witnesses are accounted for (measure (a)).
 const WITNESSES_FILE: &str = "cells-outcome-witnesses.tsv";
 
-/// The cases a pending entry names, by any test's key ([`pending::case_of`]): each is red on
-/// some test, so its compiled verdict is not the one its row states.
+/// The cases a pending entry names, by any test's key ([`pending::case_of`]), or a family entry's
+/// glob matches: each is red on some test, or may be, so its compiled verdict is not the one its
+/// row states.
 fn pending_cases() -> BTreeMap<String, BTreeSet<String>> {
     let pending = Pending::parse(&read_class_matrix("pending.toml"))
         .unwrap_or_else(|errors| panic!("pending.toml: {errors:#?}"));
@@ -5727,6 +5728,18 @@ fn pending_cases() -> BTreeMap<String, BTreeSet<String>> {
                 .entry(case.to_owned())
                 .or_default()
                 .insert(entry.finding.clone());
+        }
+    }
+    // A family entry names every generated case one of whose keys it matches: the case may be
+    // red under it, so its row is no witness.
+    for (case, _) in ENTRIES.iter() {
+        for key in [case.id.clone(), format!("{}{}", pending::ADVICE, case.id)] {
+            if let Some(family) = pending.family_of(&key) {
+                cases
+                    .entry(case.id.clone())
+                    .or_default()
+                    .insert(family.finding.clone());
+            }
         }
     }
     cases

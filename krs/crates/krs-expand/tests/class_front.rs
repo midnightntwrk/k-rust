@@ -689,8 +689,9 @@ fn failure_message(failures: &[(&str, Option<Test>, Judgement)]) -> String {
     }
     message.push_str("\nTo record the new deviations in pending.toml:\n\n");
     for (id, _, judgement) in failures {
-        if let Judgement::Unexpected { observed } | Judgement::DeviationChanged { observed, .. } =
-            judgement
+        if let Judgement::Unexpected { observed }
+        | Judgement::DeviationChanged { observed, .. }
+        | Judgement::OtherKind { observed, .. } = judgement
         {
             writeln!(
                 message,
@@ -744,7 +745,7 @@ fn each_shard_of_the_fast_tier_has_its_test() {
 fn account(
     pending: &Pending,
     expected: &BTreeMap<String, Expected<'_>>,
-    red: &[&str],
+    red: &[(&str, &str)],
     failures: &mut Vec<String>,
 ) -> Summary {
     let findings = Findings::parse(&read_class_matrix(FINDINGS_FILE))
@@ -759,12 +760,12 @@ fn account(
             .map(|failure| format!("{FINDINGS_FILE}: {failure}")),
     );
     let mut summary = Summary::default();
-    for key in red {
-        let entry = &pending.entries[*key];
+    for (key, observed) in red {
+        let finding = pending.finding(key).expect("a red key is pending");
         summary.add(
-            kind(key, &entry.deviation),
-            &entry.finding,
-            &findings.owner_name(&entry.finding, key),
+            kind(key, observed),
+            finding,
+            &findings.owner_name(finding, key),
         );
     }
     summary
@@ -820,16 +821,28 @@ fn front(shard: &[class_matrix::Family]) {
         }
         let (test, observation) = match &ran.verdict {
             Verdict::Deferred => {
-                deferred_pending += usize::from(pending.entries.contains_key(&case.id));
+                deferred_pending += usize::from(pending.names(&case.id));
                 continue;
             }
             Verdict::Conforms => (None, Observation::Conforms),
             Verdict::Deviates(test, signature) => (Some(*test), Observation::Deviates(signature)),
         };
-        match pending.judge(&case.id, observation) {
+        let kind = |observed: &str| {
+            Red::of(
+                &case.id,
+                observed,
+                resolution.expected.get(&case.id),
+                registry_kind,
+            )
+            .to_string()
+        };
+        match pending.judge(&case.id, observation, kind) {
             Judgement::Conforms => {}
             Judgement::Red => {
-                red.push(case.id.as_str());
+                let Observation::Deviates(observed) = observation else {
+                    unreachable!("a red case deviates")
+                };
+                red.push((case.id.as_str(), observed));
                 *red_by_test
                     .entry((test.map_or("", Test::name), case.family.name()))
                     .or_default() += 1;

@@ -671,6 +671,30 @@ judged where the run selects the case's twin too. Each failure names what moved:
 and what the case should have done. An accepted case whose K is not the recorded K deviates as
 `accepted, with other K than recorded`, with the first line where the two differ.
 
+A **family entry** (`[[family]]`: `match`, a glob over keys in `expected.toml`'s syntax, `finding`
+and `kind`) pends, under one finding, every red of one diagnostic kind whose key the glob matches:
+`diagnostic` (and `diagnostic+rust-syntax`), `lint-missing`, `lint-unowed` and `k8`, a program the
+table refuses or accepts as it should, with the wrong code, site, warning or advice. One fix moves
+such a family whole, so one entry per case would turn the fix into a rewrite of all of them.
+Every other kind (an under- or over-refusal, other K, K1, K3, K4, K6, K7, the twin check, an
+internal code, a panic) stays exact, and the harness refuses a family of it; so do `full/..` keys.
+A glob starts with a literal segment (`k8/..` for K8, the case's family for K2); no key is matched
+by two families, and a K2 family matches only cases the table refuses
+(`the_shipped_table_and_red_list_parse`). The rules: an exact entry wins over a family; a red the
+family matches that is of another kind fails (`a {kind} red, but the family entry .. pends {kind}
+reds only`); a case it matches that conforms passes; a whole run of a shard that reaches a family
+(one of its verdict keys matches the glob) and pends no red with it fails as stale, which a
+filtered run cannot tell and does not judge. What is given up: a family does not notice a red
+moving from one wrong code to another, nor one of its cases conforming while another is red.
+The writer proposes every new red exact; `scripts/krs-class-collapse-pending.py TSV_DIR` collapses
+exact diagnostic entries into families (per finding, kind and shard, the fewest globs it finds
+that match exactly those keys among every key of a whole run's TSVs), and the ignored test
+`the_collapsed_red_list_pends_what_the_exact_one_did` (`KRS_PENDING_PROOF_TSV=TSV_DIR
+KRS_PENDING_PROOF_OLD=FILE`) proves a collapse over the same TSVs: every verdict line pended alike,
+under the same finding, no family stale, and no family matching a case that is not a red of its
+finding and kind. A lane that fixes a family deletes its entry; one that leaves part of it red
+narrows the glob, or leaves it while the stale rule does not fire.
+
 Every finding is registered in `findings.toml` (`class_matrix::findings`), one table per finding,
 sorted: its `owner` (a ticket `NT-n`, a step `S1` to `S6`, or `kept: REF` for a limit a decision
 keeps; `by_test` gives one test's entries another owner), its `kind` (`bug`, `feature`,

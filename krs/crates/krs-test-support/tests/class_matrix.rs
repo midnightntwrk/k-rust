@@ -21,7 +21,7 @@ use krs_test_support::class_matrix::invariants::{
 };
 use krs_test_support::class_matrix::oracle::{Class, Outcome, Refusal, Stage, admits};
 use krs_test_support::class_matrix::pending::{
-    FULL, Judgement, Observation, Pending, UNASSIGNED, case_of,
+    ADVICE, FAMILY_KINDS, FULL, Judgement, Observation, Pending, UNASSIGNED, case_of,
 };
 use krs_test_support::class_matrix::positions::{
     Construct, Entry, Form, Kind, Notation, Opening, Position, Slot as Part,
@@ -758,6 +758,29 @@ fn the_shipped_table_and_red_list_parse() {
     let mut named = ids.clone();
     named.extend(mutations.iter().map(|mutation| mutation.id.as_str()));
     assert!(pending.stale(&named).is_empty());
+    // A family entry's glob matches each key at most once among the families, and a K2 family
+    // only cases the table refuses: a diagnostic red is of a case the table refuses, so a glob
+    // that reaches a case it accepts is wider than its family.
+    for id in &ids {
+        for key in [(*id).to_owned(), format!("{ADVICE}{id}")] {
+            let matching = pending
+                .families
+                .iter()
+                .filter(|family| family.glob.matches(&key))
+                .map(|family| family.pattern.as_str())
+                .collect::<Vec<_>>();
+            assert!(
+                matching.len() <= 1,
+                "{key} is matched by the families {matching:?}"
+            );
+            if !matching.is_empty() && !key.starts_with(ADVICE) {
+                assert!(
+                    matches!(resolution.expected.get(*id), Some(Expected::Refuse { .. })),
+                    "the family {matching:?} matches {id}, which the table does not refuse"
+                );
+            }
+        }
+    }
 
     // Every red has a registered owner, and its computed kind is one its finding's kind admits.
     let findings = Findings::parse(&read_class_matrix(FINDINGS_FILE))
@@ -780,7 +803,161 @@ fn the_shipped_table_and_red_list_parse() {
             &findings.owner_name(&entry.finding, key),
         );
     }
-    eprintln!("pending.toml: {} reds, {summary}", pending.entries.len());
+    eprintln!(
+        "pending.toml: {} exact entries and {} family entries, {summary}",
+        pending.entries.len(),
+        pending.families.len()
+    );
+}
+
+/// The keys of generated cases (`ID`, `k8/ID`) that a family of `pending` matches and that are
+/// not a red `reds` pends (by key, its finding and kind) under the family's finding and of its
+/// kind, or that an exact entry holds: a family must reach no case that is not one of its reds.
+fn families_beyond_their_reds(
+    pending: &Pending,
+    cases: &[Case],
+    reds: &BTreeMap<String, (String, String)>,
+) -> Vec<String> {
+    let mut failures = Vec::new();
+    for family in &pending.families {
+        for case in cases {
+            for key in [case.id.clone(), format!("{ADVICE}{}", case.id)] {
+                if !family.glob.matches(&key) {
+                    continue;
+                }
+                let held = (family.finding.clone(), family.kind.clone());
+                if reds.get(&key) != Some(&held) || pending.entries.contains_key(&key) {
+                    failures.push(format!(
+                        "the family {:?} matches {key}, which the old list pends as {:?}, not as \
+                         {held:?}",
+                        family.pattern,
+                        reds.get(&key)
+                    ));
+                }
+            }
+        }
+    }
+    failures
+}
+
+/// What a red list does with one verdict line: pends it under a finding, passes it, or fails it.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum Pended {
+    Red(String),
+    Passes,
+    Fails(String),
+}
+
+/// The proof of a collapse of `pending.toml` (`scripts/krs-class-collapse-pending.py`), over a
+/// whole run of every shard (`KRS_PENDING_PROOF_TSV`, the `KRS_CLASS_OUT` directories, one per
+/// shard) and the red list it was judged by (`KRS_PENDING_PROOF_OLD`): a pure function of the
+/// run's verdict lines, which judges each with both lists, the red's kind computed as the shards
+/// compute it. It fails where
+/// - a verdict line is pended by one list and not the other, or under another finding, or passes
+///   or fails under one only;
+/// - a family entry is stale in a shard it reaches ([`Pending::stale_families`]);
+/// - a family entry matches a key of a generated case (`ID`, `k8/ID`) that is not a red the old
+///   list pends under the family's finding, of the family's kind: a case that is green, a red of
+///   a meaning kind, or a key the run made no verdict on.
+#[test]
+#[ignore = "reads a whole run's TSVs: KRS_PENDING_PROOF_TSV=DIR KRS_PENDING_PROOF_OLD=FILE"]
+fn the_collapsed_red_list_pends_what_the_exact_one_did() {
+    let directory = std::env::var("KRS_PENDING_PROOF_TSV").expect("KRS_PENDING_PROOF_TSV is set");
+    let old = std::env::var("KRS_PENDING_PROOF_OLD").expect("KRS_PENDING_PROOF_OLD is set");
+    let old = Pending::parse(&std::fs::read_to_string(&old).expect("the old list is read"))
+        .unwrap_or_else(|errors| panic!("{old}: {errors:#?}"));
+    let new = Pending::parse(&read_class_matrix("pending.toml"))
+        .unwrap_or_else(|errors| panic!("pending.toml: {errors:#?}"));
+    let table = Table::parse_with_term_accepts(
+        &read_class_matrix("expected.toml"),
+        &read_class_matrix(TERM_ACCEPTS_FILE),
+    )
+    .unwrap_or_else(|errors| panic!("expected.toml: {errors:#?}"));
+    let cases = class_matrix::cases();
+    let resolution = table.resolve_cases(&cases, registry_kind);
+    let kind = |key: &str, observed: &str| {
+        let expected = case_of(key).and_then(|case| resolution.expected.get(case));
+        Red::of(key, observed, expected, registry_kind).to_string()
+    };
+    let pended = |pending: &Pending, key: &str, observation: Observation<'_>| match pending.judge(
+        key,
+        observation,
+        |observed| kind(key, observed),
+    ) {
+        Judgement::Red => Pended::Red(pending.finding(key).unwrap_or_default().to_owned()),
+        judgement if judgement.passes() => Pended::Passes,
+        judgement => Pended::Fails(judgement.to_string()),
+    };
+    let mut failures = Vec::new();
+    let mut lines = 0;
+    let mut by_list = BTreeMap::<(&str, String), usize>::new();
+    // The old list's reds by key, with their kind, which a family may hold.
+    let mut old_reds = BTreeMap::<String, (String, String)>::new();
+    let mut shards = std::fs::read_dir(&directory)
+        .unwrap_or_else(|error| panic!("{directory}: {error}"))
+        .map(|entry| entry.expect("a directory entry").path())
+        .collect::<Vec<_>>();
+    shards.sort();
+    for shard in shards {
+        let name = shard
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+        let Ok(text) = std::fs::read_to_string(shard.join(format!("{name}.tsv"))) else {
+            continue;
+        };
+        let (mut judged, mut red) = (Vec::new(), Vec::new());
+        for line in text.lines() {
+            let fields = line.split('\t').collect::<Vec<_>>();
+            let [key, signature, misses] = fields[..] else {
+                continue;
+            };
+            if !key.contains('/') {
+                continue;
+            }
+            lines += 1;
+            let observation = if misses.is_empty() {
+                Observation::Conforms
+            } else {
+                Observation::Deviates(signature)
+            };
+            let (before, after) = (
+                pended(&old, key, observation),
+                pended(&new, key, observation),
+            );
+            if before != after {
+                failures.push(format!(
+                    "{name} {key}: the old list {before:?}, the new {after:?}"
+                ));
+            }
+            if let Pended::Red(finding) = &before {
+                old_reds.insert(key.to_owned(), (finding.clone(), kind(key, signature)));
+            }
+            if let Pended::Red(finding) = &after {
+                let list = if new.entries.contains_key(key) {
+                    "exact"
+                } else {
+                    "family"
+                };
+                *by_list.entry((list, finding.clone())).or_default() += 1;
+                red.push(key);
+            }
+            judged.push(key);
+        }
+        for family in new.stale_families(&judged, &red) {
+            failures.push(format!("{name}: the family {family:?} is stale"));
+        }
+    }
+    failures.extend(families_beyond_their_reds(&new, &cases, &old_reds));
+    eprintln!(
+        "{lines} verdict lines; old list {} exact entries; new list {} exact and {} family \
+         entries; reds by list and finding: {by_list:?}",
+        old.entries.len(),
+        new.entries.len(),
+        new.families.len()
+    );
+    assert!(lines > 0, "{directory} holds no verdict line");
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 /// A red's kind is computed from its key, its deviation and the table's expectation of its case,
@@ -2548,6 +2725,11 @@ same_k_as = ["readable/subject/pc/x", "readable/gone"]
     }
 }
 
+/// The kind of an observed red where no family matches its key: never asked.
+fn no_family(_: &str) -> String {
+    unreachable!("no family entry matches the key")
+}
+
 #[test]
 fn pending_cases_follow_the_pending_rules() {
     let pending = Pending::parse(
@@ -2569,21 +2751,22 @@ deviation = "1 pairs only catalog holds; 0 pairs only coverage holds"
     let id = "readable/result/pc/Some(x)";
     let other = "readable/subject/pc/x";
     assert_eq!(
-        pending.judge(other, Observation::Conforms),
+        pending.judge(other, Observation::Conforms, no_family),
         Judgement::Conforms
     );
     assert_eq!(
-        pending.judge(id, Observation::Deviates("E0277 @ item")),
+        pending.judge(id, Observation::Deviates("E0277 @ item"), no_family),
         Judgement::Red
     );
     assert_eq!(
-        pending.judge(id, Observation::Conforms),
+        pending.judge(id, Observation::Conforms, no_family),
         Judgement::NowConforms
     );
     assert_eq!(
         pending.judge(
             id,
-            Observation::Deviates("krs::analysis::optional-presence @ entry")
+            Observation::Deviates("krs::analysis::optional-presence @ entry"),
+            no_family
         ),
         Judgement::DeviationChanged {
             recorded: "E0277 @ item".to_owned(),
@@ -2591,7 +2774,7 @@ deviation = "1 pairs only catalog holds; 0 pairs only coverage holds"
         }
     );
     assert_eq!(
-        pending.judge(other, Observation::Deviates("panic")),
+        pending.judge(other, Observation::Deviates("panic"), no_family),
         Judgement::Unexpected {
             observed: "panic".to_owned()
         }
@@ -2630,6 +2813,237 @@ deviation = "1 pairs only catalog holds; 0 pairs only coverage holds"
         "unknown key \"note\"",
         "not a non-empty string",
     ] {
+        assert!(
+            errors.iter().any(|error| error.contains(fragment)),
+            "{fragment:?} missing from {errors:#?}"
+        );
+    }
+}
+
+/// A family entry pends the reds of its kind whose key its glob matches, under its finding; an
+/// exact entry wins over it; a red of another kind fails; a case it matches that conforms passes.
+#[test]
+fn a_family_entry_pends_the_reds_of_its_kind_and_loses_to_an_exact_entry() {
+    let pending = Pending::parse(
+        r#"
+["sweep/cells/result/pc/x"]
+finding = "F1"
+deviation = "krs::syntax::rust-syntax @ spelling"
+
+[[family]]
+match = "sweep/cells/{result,subject}/pc/*"
+finding = "F2"
+kind = "diagnostic"
+
+[[family]]
+match = "k8/sweep/cells/*/pc/*"
+finding = "F2"
+kind = "k8"
+"#,
+    )
+    .unwrap_or_else(|errors| panic!("{errors:#?}"));
+    let diagnostic = |_: &str| "diagnostic".to_owned();
+    let exact = "sweep/cells/result/pc/x";
+    let member = "sweep/cells/subject/pc/0";
+    // The exact entry wins: its deviation is judged, not the family's kind.
+    assert_eq!(
+        pending.judge(
+            exact,
+            Observation::Deviates("krs::syntax::rust-syntax @ spelling"),
+            no_family
+        ),
+        Judgement::Red
+    );
+    assert_eq!(pending.finding(exact), Some("F1"));
+    assert_eq!(
+        pending.judge(
+            exact,
+            Observation::Deviates("krs::analysis::cell-wrapper @ spelling"),
+            diagnostic
+        ),
+        Judgement::DeviationChanged {
+            recorded: "krs::syntax::rust-syntax @ spelling".to_owned(),
+            observed: "krs::analysis::cell-wrapper @ spelling".to_owned(),
+        }
+    );
+    assert_eq!(
+        pending.judge(exact, Observation::Conforms, no_family),
+        Judgement::NowConforms
+    );
+    // A family member: any red of the family's kind, from any code to any other.
+    for observed in [
+        "krs::analysis::cell-wrapper @ spelling",
+        "krs::syntax::invalid-list-notation @ spelling",
+    ] {
+        assert_eq!(
+            pending.judge(member, Observation::Deviates(observed), diagnostic),
+            Judgement::Red
+        );
+    }
+    assert_eq!(pending.finding(member), Some("F2"));
+    assert_eq!(
+        pending.judge(member, Observation::Conforms, no_family),
+        Judgement::Conforms
+    );
+    // A red of another kind is no longer the family's.
+    assert_eq!(
+        pending.judge(member, Observation::Deviates("accepted"), |_| {
+            "under-refusal".to_owned()
+        }),
+        Judgement::OtherKind {
+            family: "sweep/cells/{result,subject}/pc/*".to_owned(),
+            recorded: "diagnostic".to_owned(),
+            kind: "under-refusal".to_owned(),
+            observed: "accepted".to_owned(),
+        }
+    );
+    assert!(
+        !Judgement::OtherKind {
+            family: String::new(),
+            recorded: String::new(),
+            kind: String::new(),
+            observed: String::new(),
+        }
+        .passes()
+    );
+    // Outside the glob, nothing pends a red.
+    assert_eq!(
+        pending.judge(
+            "sweep/cells/overwrite/pc/x",
+            Observation::Deviates("d"),
+            diagnostic
+        ),
+        Judgement::Unexpected {
+            observed: "d".to_owned()
+        }
+    );
+    let tally = pending.tally([exact, member, "k8/sweep/cells/result/pc/x"]);
+    assert_eq!(
+        tally.by_finding,
+        BTreeMap::from([("F1".to_owned(), 1), ("F2".to_owned(), 2)])
+    );
+    // A family that matches no generated case is stale; one that does is not.
+    assert_eq!(
+        pending.stale(&[exact]),
+        Vec::<&str>::new(),
+        "both families match a key of the case"
+    );
+    assert_eq!(
+        pending.stale(&["sweep/cells/result/k/x"]),
+        vec![
+            exact,
+            "sweep/cells/{result,subject}/pc/*",
+            "k8/sweep/cells/*/pc/*"
+        ]
+    );
+}
+
+/// A whole run reports a family it reaches that pends none of its reds; a family it does not
+/// reach, and one that pends a red, are not reported; a red an exact entry holds does not keep
+/// a family alive.
+#[test]
+fn a_family_entry_that_pends_no_red_of_a_run_it_reaches_is_stale() {
+    let pending = Pending::parse(
+        r#"
+["sweep/cells/result/pc/x"]
+finding = "F1"
+deviation = "d"
+
+[[family]]
+match = "sweep/cells/result/pc/*"
+finding = "F2"
+kind = "diagnostic"
+
+[[family]]
+match = "sweep/cells/result/k/*"
+finding = "F2"
+kind = "diagnostic"
+
+[[family]]
+match = "terms/*/x"
+finding = "F2"
+kind = "diagnostic"
+"#,
+    )
+    .unwrap_or_else(|errors| panic!("{errors:#?}"));
+    let judged = [
+        "sweep/cells/result/pc/x",
+        "sweep/cells/result/pc/0",
+        "sweep/cells/result/k/x",
+    ];
+    assert_eq!(
+        pending.stale_families(&judged, &["sweep/cells/result/pc/x"]),
+        vec!["sweep/cells/result/pc/*", "sweep/cells/result/k/*"]
+    );
+    assert_eq!(
+        pending.stale_families(
+            &judged,
+            &["sweep/cells/result/pc/0", "sweep/cells/result/k/x"]
+        ),
+        Vec::<&str>::new()
+    );
+}
+
+/// A family pends diagnostic kinds only, under a glob whose literal first segment names a K2 or
+/// a K8 key; its kind is one of its test's.
+#[test]
+fn a_family_entry_of_a_meaning_kind_or_an_exact_test_is_refused() {
+    let family = |pattern: &str, kind: &str| {
+        Pending::parse(&format!(
+            "[[family]]\nmatch = {pattern:?}\nfinding = \"F\"\nkind = {kind:?}\n"
+        ))
+    };
+    for kind in [
+        "over-refusal",
+        "under-refusal",
+        "other-k",
+        "k3",
+        "k6",
+        "k7",
+        "twin",
+        "diagnostic+internal",
+        "diagnostic+panic",
+        "uncovered",
+    ] {
+        let errors = family("terms/*/x", kind).expect_err("a meaning kind is refused");
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("is not a diagnostic kind")),
+            "{kind}: {errors:#?}"
+        );
+    }
+    for kind in FAMILY_KINDS.iter().filter(|kind| **kind != "k8") {
+        assert!(family("terms/*/x", kind).is_ok(), "{kind}");
+    }
+    assert!(family("k8/terms/*/x", "k8").is_ok());
+    for (pattern, kind, fragment) in [
+        ("k8/terms/*/x", "diagnostic", "not a kind of the k8 test"),
+        ("terms/*/x", "k8", "not a kind of the k2 test"),
+        (
+            "*/terms/x",
+            "diagnostic",
+            "must start with a literal segment",
+        ),
+        (
+            "{terms,k8}/x",
+            "diagnostic",
+            "must start with a literal segment",
+        ),
+        ("terms", "diagnostic", "must start with a literal segment"),
+        ("full/terms/*/x", "diagnostic", "which stay exact"),
+        ("k3/terms/*/x", "diagnostic", "which stay exact"),
+        ("terms/{x", "diagnostic", "is not closed"),
+    ] {
+        let errors = family(pattern, kind).expect_err("the family is refused");
+        assert!(
+            errors.iter().any(|error| error.contains(fragment)),
+            "{pattern} {kind}: {fragment:?} missing from {errors:#?}"
+        );
+    }
+    let errors = Pending::parse("[[family]]\nmatch = \"terms/x\"\nnote = 1\n")
+        .expect_err("the family is broken");
+    for fragment in ["unknown key \"note\"", "finding is not a non-empty string"] {
         assert!(
             errors.iter().any(|error| error.contains(fragment)),
             "{fragment:?} missing from {errors:#?}"
@@ -3253,8 +3667,7 @@ fn no_case_krs_accepts_as_the_table_says_writes_a_form_an_unchecked_entry_review
             .iter()
             .filter(|case| matches!(resolution.expected.get(&case.id), Some(Expected::Accept(_))))
             .filter(|case| {
-                !pending.entries.contains_key(&case.id)
-                    && !pending.entries.contains_key(&format!("{FULL}{}", case.id))
+                !pending.names(&case.id) && !pending.names(&format!("{FULL}{}", case.id))
             })
             .map(|case| (case.id.clone(), case.own_source())),
     );

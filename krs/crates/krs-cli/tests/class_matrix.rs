@@ -30,6 +30,10 @@
 //! keyed `k1/<case ID>`, a K6 entry `k6/<case ID>`, a K7 entry `k7/<case ID>`, an entry of K7's
 //! twin check `twin/<case ID>` (a static clause's result against the same term at a rule's
 //! result, [`class_matrix::twins`]), and a K8 entry `k8/<case ID>` (`class_matrix::pending`).
+//! A family entry (`[[family]]`) pends every diagnostic red of its kind whose key its glob
+//! matches, under its finding; an exact entry wins over it, a red of another kind fails, and a
+//! whole run of a shard fails on a family it reaches and pends no red with ([`stale_families`]).
+//! The record of an unrecorded red (`KRS_CLASS_OUT`) is always an exact entry.
 //!
 //! The run is set by the environment (the script sets every variable from measured headroom):
 //! - `KRS_CLASS_WORKERS`: concurrent workers, each with one Cargo target (default 1);
@@ -172,18 +176,15 @@ fn account(name: &str, shard: &mut Shard, red: &[String]) {
     shard.failures.extend(registry_failures().iter().cloned());
     let mut summary = Summary::default();
     for key in red {
-        let Some(entry) = spec.pending.entries.get(key) else {
+        let (Some(finding), Some(observed)) = (spec.pending.finding(key), shard.observed.get(key))
+        else {
             continue;
         };
-        let kind = red_kind(key, &entry.deviation);
-        let owner = spec.findings.owner_name(&entry.finding, key);
-        writeln!(
-            shard.lines,
-            "red\t{key}\t{kind}\t{}\t{owner}",
-            entry.finding
-        )
-        .expect("writing to a String cannot fail");
-        summary.add(kind, &entry.finding, &owner);
+        let kind = red_kind(key, observed);
+        let owner = spec.findings.owner_name(finding, key);
+        writeln!(shard.lines, "red\t{key}\t{kind}\t{finding}\t{owner}")
+            .expect("writing to a String cannot fail");
+        summary.add(kind, finding, &owner);
     }
     for (kind, finding, owner, count) in summary.rows() {
         writeln!(shard.lines, "summary\t{kind}\t{finding}\t{owner}\t{count}")
@@ -458,6 +459,8 @@ struct Verdict {
 #[derive(Default)]
 struct Shard {
     verdicts: BTreeMap<&'static str, Vec<Verdict>>,
+    /// The signature of each red key, which an exact entry records and a family entry does not.
+    observed: BTreeMap<String, String>,
     failures: Vec<String>,
     lines: String,
     record: String,
@@ -515,8 +518,14 @@ impl Shard {
                     verdict.misses.join("; ")
                 )
                 .expect("writing to a String cannot fail");
-                match pending.judge(&verdict.key, observation) {
-                    Judgement::Red => red.push(verdict.key.clone()),
+                match pending.judge(&verdict.key, observation, |observed| {
+                    red_kind(&verdict.key, observed).to_string()
+                }) {
+                    Judgement::Red => {
+                        red.push(verdict.key.clone());
+                        self.observed
+                            .insert(verdict.key.clone(), verdict.signature.clone());
+                    }
                     Judgement::Conforms => {}
                     failure => {
                         self.failures.push(if verdict.misses.is_empty() {
@@ -525,7 +534,8 @@ impl Shard {
                             format!("{}: {failure} ({})", verdict.key, verdict.misses.join("; "))
                         });
                         if let Judgement::Unexpected { observed }
-                        | Judgement::DeviationChanged { observed, .. } = failure
+                        | Judgement::DeviationChanged { observed, .. }
+                        | Judgement::OtherKind { observed, .. } = failure
                         {
                             writeln!(
                                 self.record,
@@ -593,13 +603,21 @@ impl Shard {
                 .map_or(Observation::Conforms, |signature| {
                     Observation::Deviates(signature)
                 });
-            match pending.judge(key, observation) {
+            match pending.judge(key, observation, |observed| {
+                red_kind(key, observed).to_string()
+            }) {
                 Judgement::Conforms => {}
-                Judgement::Red => red.push(key.clone()),
+                Judgement::Red => {
+                    red.push(key.clone());
+                    if let Observation::Deviates(signature) = observation {
+                        self.observed.insert(key.clone(), signature.to_owned());
+                    }
+                }
                 failure => {
                     self.failures.push(format!("{key}: {failure}"));
                     if let Judgement::Unexpected { observed }
-                    | Judgement::DeviationChanged { observed, .. } = failure
+                    | Judgement::DeviationChanged { observed, .. }
+                    | Judgement::OtherKind { observed, .. } = failure
                     {
                         writeln!(
                             self.record,
@@ -666,9 +684,15 @@ fn k2_verdict(
     } else {
         Observation::Deviates(&signature)
     };
+    let key = k2_key(&judged.id);
     let unexpected = matches!(
-        spec().pending.judge(&k2_key(&judged.id), observation),
-        Judgement::Unexpected { .. } | Judgement::DeviationChanged { .. }
+        spec()
+            .pending
+            .judge(&key, observation, |observed| red_kind(&key, observed)
+                .to_string()),
+        Judgement::Unexpected { .. }
+            | Judgement::DeviationChanged { .. }
+            | Judgement::OtherKind { .. }
     );
     K2Verdict {
         unexpected,
@@ -959,15 +983,14 @@ fn check_unchecked(name: &str, shard: &mut Shard, whole: bool) {
 /// is red shows no form an author can write: the product refuses it or writes other K, so it
 /// is no witness that advice to write its form can be followed.
 fn accepted_corpus(resolution: &Resolution<'_>) -> Corpus {
-    let pending = &spec().pending.entries;
+    let pending = &spec().pending;
     Corpus::new(
         spec()
             .cases
             .iter()
             .filter(|case| matches!(resolution.expected.get(&case.id), Some(Expected::Accept(_))))
             .filter(|case| {
-                !pending.contains_key(&case.id)
-                    && !pending.contains_key(&format!("{FULL}{}", case.id))
+                !pending.names(&case.id) && !pending.names(&format!("{FULL}{}", case.id))
             })
             .map(|case| (case.id.clone(), case.own_source())),
     )
@@ -1351,6 +1374,14 @@ fn conclude(
         &ran_tests(settings),
         covered(families, filter.as_ref(), by_id),
     );
+    let judged = shard
+        .verdicts
+        .values()
+        .flatten()
+        .map(|verdict| verdict.key.as_str())
+        .collect::<Vec<_>>();
+    let stale = stale_families(&spec().pending, &judged, &red, filter.is_none());
+    shard.failures.extend(stale);
     if !shard.dependency.is_empty() {
         let counts = shard
             .dependency
@@ -1363,6 +1394,49 @@ fn conclude(
     account(name, shard, &red);
     write_out(name, shard);
     red
+}
+
+/// The failures of the family entries a whole run of a shard reaches and that pend none of its
+/// reds, `red` ([`Pending::stale_families`]): each family's cases conform now, or are no longer of
+/// its kind. A run that `KRS_CLASS_FILTER` narrows (`whole` false) cannot tell a family whose reds
+/// all conform from one whose reds it did not select, and judges none.
+fn stale_families(pending: &Pending, judged: &[&str], red: &[String], whole: bool) -> Vec<String> {
+    if !whole {
+        return Vec::new();
+    }
+    let red = red.iter().map(String::as_str).collect::<Vec<_>>();
+    pending
+        .stale_families(judged, &red)
+        .into_iter()
+        .map(|family| {
+            format!(
+                "the family entry {family:?}: this whole run reaches it and pends no red with it: \
+                 its cases conform, or are no longer of its kind; remove it from pending.toml, or \
+                 narrow its glob to the cases still red"
+            )
+        })
+        .collect()
+}
+
+/// A whole run reports a family entry it reaches and pends no red with; a filtered run reports
+/// none.
+#[test]
+fn a_whole_run_reports_a_stale_family_entry_and_a_filtered_run_does_not() {
+    let pending = Pending::parse(
+        "[[family]]\nmatch = \"sweep/cells/result/pc/*\"\nfinding = \"F\"\nkind = \"diagnostic\"\n\n\
+         [[family]]\nmatch = \"sweep/cells/result/k/*\"\nfinding = \"F\"\nkind = \"diagnostic\"\n",
+    )
+    .expect("the families parse");
+    let judged = ["sweep/cells/result/pc/x", "sweep/cells/result/k/x"];
+    let red = vec!["sweep/cells/result/pc/x".to_owned()];
+    let stale = stale_families(&pending, &judged, &red, true);
+    assert_eq!(stale.len(), 1, "{stale:#?}");
+    assert!(
+        stale[0].contains("\"sweep/cells/result/k/*\""),
+        "{stale:#?}"
+    );
+    assert!(stale_families(&pending, &judged, &red, false).is_empty());
+    assert!(stale_families(&pending, &judged, &[], false).is_empty());
 }
 
 /// Run one shard: judge its cases and apply the table and the red list.
