@@ -401,7 +401,7 @@ pub fn cells_update(
                 ],
             ],
             [
-                "error[krs::analysis::invalid-record-update]: a `cells!` term, the reference notation, names every field of a record, `_` for one a pattern leaves unconstrained; `..base` and `..` are readable-record notation; here it stands in the result of a `cells!` rule",
+                "error[krs::analysis::invalid-record-update]: a `cells!` term, the reference notation, names every field of a record, `_` for one a pattern leaves unconstrained, and only a pattern's group record leaves its other children open (`k::fragment![G { c: e, .. }]`); `..base` and `..` are readable-record notation; here it stands in the result of a `cells!` rule",
                 "--> src/lib.rs:83:114",
             ],
         )

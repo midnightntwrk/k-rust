@@ -1411,7 +1411,10 @@ impl<'a> TermBuilder<'a> {
             TermTree::Cell(cell) => {
                 let owner_range = TokenRange::for_tokens(cell.owner())?;
                 self.admit(side, Construct::Fragment, owner_range)?;
-                self.admit_record(side, cell.update(), cell.is_open(), owner_range)?;
+                self.admit_record(side, cell.update(), false, owner_range)?;
+                if cell.is_open() {
+                    self.admit(side, Construct::OpenFragment, owner_range)?;
+                }
                 let path_key = keys.path(cell.owner())?;
                 let node = keys.node(NodeKind::ApplicationHead, owner_range)?;
                 let (key, path_key) = node.head(path_key)?;

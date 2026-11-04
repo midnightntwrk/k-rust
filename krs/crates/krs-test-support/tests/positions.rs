@@ -719,9 +719,13 @@ fn every_construct_and_notation_has_a_spelling() {
         .iter()
         .filter_map(|construct| product_construct(*construct))
         .collect::<BTreeSet<_>>();
+    // An open group record's `..` is spelled by the `cells!` shards' group entries
+    // (`sweep/cells/subject/frame/k::fragment![crate::G { a: x, .. }]`), whose cell the term
+    // families' fragment `Frame` is not, and the cells oracle judges it there.
     missing.extend(
         Construct::ALL
             .iter()
+            .filter(|construct| **construct != Construct::OpenFragment)
             .filter(|construct| !products.contains(construct))
             .map(|construct| format!("the table's {construct:?}")),
     );

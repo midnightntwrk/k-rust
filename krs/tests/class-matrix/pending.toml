@@ -1403,143 +1403,11 @@ match = 'sweep/{claim,readable}/result/omap/x'
 finding = "S5-B1"
 kind = "diagnostic+rust-syntax"
 
-# S5-F2, diagnostic: 132 reds
-
-# cells: 2
-[[family]]
-match = 'cells/g5-c/kinds/*/*'
-finding = "S5-F2"
-kind = "diagnostic"
+# S5-F2, diagnostic: 1 reds
 
 # sweep: 1
 [[family]]
 match = 'sweep/cells/overwrite/c28-wcell/k::fragment![crate::W \{ wg: Gw \{ wa: x\, .. \}\, wn: 0 \}]'
-finding = "S5-F2"
-kind = "diagnostic"
-
-# sweep: 1
-[[family]]
-match = 'sweep/cells/result/c06-ohcell/Some(k::fragment![crate::Ho \{ ohl: [x]\, ohb: 0 \}])'
-finding = "S5-F2"
-kind = "diagnostic"
-
-# sweep: 1
-[[family]]
-match = 'sweep/cells/result/f18-ccell/k::fragment![crate::C \{ cc: [x]\, cn: 0 \}]'
-finding = "S5-F2"
-kind = "diagnostic"
-
-# sweep: 8
-[[family]]
-match = 'sweep/cells/result/frame/{None,Some(k::configuration::Cell(x)),[k::fragment![crate::G \{ a: x\, .. \}]\, ..],k::configuration::Cell(x),k::configuration::KCell(x),k::fragment![crate::G \{ a: x \}],k::fragment![crate::G \{ a: x\, .. \}],\{ k::fragment![crate::G \{ a: x\, .. \}]\, .. \}}'
-finding = "S5-F2"
-kind = "diagnostic"
-
-# sweep: 9
-[[family]]
-match = 'sweep/cells/result/ogroup/{Some(k::configuration::Cell(x)),[k::fragment![crate::Gp \{ pa: x\, .. \}]\, ..],k::configuration::Cell(x),k::configuration::KCell(x),k::fragment![crate::Gp \{ pa: x \}],k::fragment![crate::Gp \{ pa: x\, .. \}],k::fragment![crate::Gp \{ pa: x\, pb: y\, .. \}],x,\{ k::fragment![crate::Gp \{ pa: x\, .. \}]\, .. \}}'
-finding = "S5-F2"
-kind = "diagnostic"
-
-# sweep: 2
-[[family]]
-match = 'sweep/cells/result/{c00-hcell,f11-hcell}/k::fragment![crate::H \{ hl: [x]\, hb: 0 \}]'
-finding = "S5-F2"
-kind = "diagnostic"
-
-# sweep: 4
-[[family]]
-match = 'sweep/cells/{subject,written}/acct/{k::fragment![crate::Gm \{ ma: x\, .. \}],k::fragment![crate::Gm \{ ma: x\, mb: y\, .. \}]}'
-finding = "S5-F2"
-kind = "diagnostic"
-
-# sweep: 4
-[[family]]
-match = 'sweep/cells/{subject,written}/bag/{k::fragment![crate::Gs \{ sa: x\, .. \}],k::fragment![crate::Gs \{ sa: x\, sb: y\, .. \}]}'
-finding = "S5-F2"
-kind = "diagnostic"
-
-# sweep: 4
-[[family]]
-match = 'sweep/cells/{subject,written}/job/{k::fragment![crate::Gl \{ la: x\, .. \}],k::fragment![crate::Gl \{ la: x\, lb: y\, .. \}]}'
-finding = "S5-F2"
-kind = "diagnostic"
-
-# sweep: 4
-[[family]]
-match = 'sweep/cells/{subject,written}/ogroup/{k::fragment![crate::Gp \{ pa: x\, .. \}],k::fragment![crate::Gp \{ pa: x\, pb: y\, .. \}]}'
-finding = "S5-F2"
-kind = "diagnostic"
-
-# sweep: 36
-[[family]]
-match = 'sweep/cells/{subject,written}/{counter,env,olist,omap,pc,prog,seq,set,stack}/{k::fragment![crate::G \{ a: x\, .. \}],k::fragment![crate::G \{ a: x\, b: y\, .. \}]}'
-finding = "S5-F2"
-kind = "diagnostic"
-
-# sweep-paths: 36
-[[family]]
-match = 'sweep-paths/cells/subject/*/{k::fragment![crate::G \{ a: x\, .. \}],k::fragment![crate::G \{ a: x\, b: y\, .. \}]}'
-finding = "S5-F2"
-kind = "diagnostic"
-
-# sweep-paths: 2
-[[family]]
-match = 'sweep-paths/cells/subject/lacct/{k::fragment![crate::Lgm \{ lma: x\, .. \}],k::fragment![crate::Lgm \{ lma: x\, lmb: y\, .. \}]}'
-finding = "S5-F2"
-kind = "diagnostic"
-
-# sweep-paths: 2
-[[family]]
-match = 'sweep-paths/cells/subject/lbag/{k::fragment![crate::Lgs \{ lsa: x\, .. \}],k::fragment![crate::Lgs \{ lsa: x\, lsb: y\, .. \}]}'
-finding = "S5-F2"
-kind = "diagnostic"
-
-# sweep-paths: 2
-[[family]]
-match = 'sweep-paths/cells/subject/lframe/{k::fragment![crate::Lg \{ la: x\, .. \}],k::fragment![crate::Lg \{ la: x\, lb: y\, .. \}]}'
-finding = "S5-F2"
-kind = "diagnostic"
-
-# sweep-paths: 2
-[[family]]
-match = 'sweep-paths/cells/subject/ljob/{k::fragment![crate::Lgl \{ lla: x\, .. \}],k::fragment![crate::Lgl \{ lla: x\, llb: y\, .. \}]}'
-finding = "S5-F2"
-kind = "diagnostic"
-
-# sweep-paths: 2
-[[family]]
-match = 'sweep-paths/cells/subject/logroup/{k::fragment![crate::Lgp \{ lpa: x\, .. \}],k::fragment![crate::Lgp \{ lpa: x\, lpb: y\, .. \}]}'
-finding = "S5-F2"
-kind = "diagnostic"
-
-# sweep-paths: 2
-[[family]]
-match = 'sweep-paths/cells/subject/qacct/{k::fragment![crate::Qgm \{ qma: x\, .. \}],k::fragment![crate::Qgm \{ qma: x\, qmb: y\, .. \}]}'
-finding = "S5-F2"
-kind = "diagnostic"
-
-# sweep-paths: 2
-[[family]]
-match = 'sweep-paths/cells/subject/qbag/{k::fragment![crate::Qgs \{ qsa: x\, .. \}],k::fragment![crate::Qgs \{ qsa: x\, qsb: y\, .. \}]}'
-finding = "S5-F2"
-kind = "diagnostic"
-
-# sweep-paths: 2
-[[family]]
-match = 'sweep-paths/cells/subject/qframe/{k::fragment![crate::Qg \{ qa: x\, .. \}],k::fragment![crate::Qg \{ qa: x\, qb: y\, .. \}]}'
-finding = "S5-F2"
-kind = "diagnostic"
-
-# sweep-paths: 2
-[[family]]
-match = 'sweep-paths/cells/subject/qjob/{k::fragment![crate::Qgl \{ qla: x\, .. \}],k::fragment![crate::Qgl \{ qla: x\, qlb: y\, .. \}]}'
-finding = "S5-F2"
-kind = "diagnostic"
-
-# sweep-paths: 2
-[[family]]
-match = 'sweep-paths/cells/subject/qogroup/{k::fragment![crate::Qgp \{ qpa: x\, .. \}],k::fragment![crate::Qgp \{ qpa: x\, qpb: y\, .. \}]}'
 finding = "S5-F2"
 kind = "diagnostic"
 
@@ -3082,10 +2950,6 @@ deviation = "krs::analysis::invalid-function-context @ entry"
 finding = "S5-P1"
 deviation = "krs::syntax::rust-syntax @ spelling"
 
-["cells/lint/kinds/frame/k::fragment![crate::G { .. }]"]
-finding = "S5-F2"
-deviation = "krs::analysis::invalid-record-update @ spelling"
-
 ["cells/lint/kinds/job/[]"]
 finding = "S5-E1"
 deviation = "krs::analysis::collection-entry @ entry"
@@ -3157,10 +3021,6 @@ deviation = "other K than cells/g1-restore/kinds/frame/k::fragment![crate::G { a
 ["k3/readable/g1-restore/kinds/stack/[saved @ G { a: z, .. }, ..]"]
 finding = "S5-G1"
 deviation = "other K than cells/g1-restore/kinds/stack/k::configuration::Cell([saved @ k::fragment![crate::G { a: z, .. }], rest @ ..])"
-
-["k3/readable/lint/kinds/frame/G { .. }"]
-finding = "S5-F2"
-deviation = "other K than cells/lint/kinds/frame/k::fragment![crate::G { .. }]"
 
 ["readable/g1-a/kinds/account/{ Acct { acounter: Some(x), ..me }, .. }"]
 finding = "S5-G3"
@@ -3349,41 +3209,25 @@ deviation = "krs::analysis::invalid-record-update @ spelling"
 finding = "S5-F2"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
-["sweep/cells/result/c03-hcell/k::fragment![crate::H { hl: [x], hb: 0 }]"]
-finding = "S5-F2"
-deviation = "krs::analysis::invalid-record-update @ item"
-
 ["sweep/cells/result/f05-mcell/k::fragment![crate::M { mm: k::map![y -> x], mn: 0 }]"]
 finding = "S5-F2"
-deviation = "krs::analysis::invalid-record-update @ item"
+deviation = "krs::analysis::function-in-pattern @ item"
 
 ["sweep/cells/result/f09-hcell/k::fragment![crate::H { hl: [x, ..], hb: 0 }]"]
 finding = "S5-F2"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
-
-["sweep/cells/result/f12-hcell/k::fragment![crate::H { hl: [x], hb: 0 }]"]
-finding = "S5-F2"
-deviation = "krs::analysis::invalid-record-update @ item"
 
 ["sweep/cells/result/f16-ccell/k::fragment![crate::C { cc: [x, ..], cn: 0 }]"]
 finding = "S5-F2"
 deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["sweep/cells/result/f19-ccell/k::fragment![crate::C { cc: [x], cn: 0 }]"]
-finding = "S5-F2"
-deviation = "krs::analysis::invalid-record-update @ item"
-
-["sweep/cells/result/frame/k::fragment![crate::G { a: x, b: y, .. }]"]
-finding = "S5-F2"
-deviation = "krs::analysis::invalid-record-update @ item"
+finding = "S5-C2"
+deviation = "krs::analysis::invalid-list-notation @ item"
 
 ["sweep/cells/result/frame/x"]
-finding = "S5-F2"
-deviation = "krs::analysis::invalid-record-update @ item"
-
-["sweep/cells/result/ogroup/None"]
-finding = "S5-F2"
-deviation = "krs::analysis::invalid-record-update @ item"
+finding = "S5-F3"
+deviation = "krs::analysis::incompatible-binder @ item"
 
 ["sweep/cells/subject/f00-mcell/k::fragment![crate::M { mm: k::map![y -> x, ..], .. }]"]
 finding = "S5-F2"
@@ -3391,39 +3235,15 @@ deviation = "krs::syntax::invalid-state-macro @ spelling"
 
 ["sweep/cells/subject/f01-mcell/k::fragment![crate::M { mm: k::map![y -> x], .. }]"]
 finding = "S5-F2"
-deviation = "krs::analysis::invalid-record-update @ spelling"
-
-["sweep/cells/subject/f07-hcell/k::fragment![crate::H { hl: [y, ..], .. }]"]
-finding = "S5-F2"
-deviation = "krs::analysis::invalid-record-update @ spelling"
-
-["sweep/cells/subject/f08-hcell/k::fragment![crate::H { hl: [y], .. }]"]
-finding = "S5-F2"
-deviation = "krs::analysis::invalid-record-update @ spelling"
+deviation = "krs::analysis::function-in-pattern @ spelling"
 
 ["sweep/cells/subject/f14-ccell/k::fragment![crate::C { cc: [y, ..], .. }]"]
-finding = "S5-F2"
-deviation = "krs::analysis::invalid-record-update @ spelling"
+finding = "S5-C2"
+deviation = "krs::analysis::invalid-list-notation @ spelling"
 
 ["sweep/cells/subject/f15-ccell/k::fragment![crate::C { cc: [y], .. }]"]
-finding = "S5-F2"
-deviation = "krs::analysis::invalid-record-update @ spelling"
-
-["sweep/cells/subject/frame/k::fragment![crate::G { a: x, .. }]"]
-finding = "S5-F2"
-deviation = "krs::analysis::invalid-record-update @ spelling"
-
-["sweep/cells/subject/frame/k::fragment![crate::G { a: x, b: y, .. }]"]
-finding = "S5-F2"
-deviation = "krs::analysis::invalid-record-update @ spelling"
-
-["sweep/cells/written/frame/k::fragment![crate::G { a: x, .. }]"]
-finding = "S5-F2"
-deviation = "krs::analysis::invalid-record-update @ spelling"
-
-["sweep/cells/written/frame/k::fragment![crate::G { a: x, b: y, .. }]"]
-finding = "S5-F2"
-deviation = "krs::analysis::invalid-record-update @ spelling"
+finding = "S5-C2"
+deviation = "krs::analysis::invalid-list-notation @ spelling"
 
 ["sweep/cells/result/c10-tjob/[k::fragment![crate::T { tk: [x, ..], ..me }], ..]"]
 finding = "S5-K1"

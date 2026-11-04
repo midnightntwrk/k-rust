@@ -547,6 +547,9 @@ pub enum Construct {
     RecordUpdate,
     /// An open record `Ctor { f: e, .. }`.
     OpenRecord,
+    /// An open group record `k::fragment![G { c: e, .. }]`, a nested cell term that leaves the
+    /// group's other children open.
+    OpenFragment,
     /// A list pattern's anonymous rest `[e, ..]`, the elements it leaves unnamed; a term built
     /// outside a pattern holds none, which the list notation's parser refuses.
     Rest,
@@ -567,7 +570,7 @@ pub enum Construct {
 
 impl Construct {
     /// Every construct.
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 21] = [
         Self::Wildcard,
         Self::As,
         Self::Or,
@@ -581,6 +584,7 @@ impl Construct {
         Self::Fragment,
         Self::RecordUpdate,
         Self::OpenRecord,
+        Self::OpenFragment,
         Self::Rest,
         Self::Turbofish,
         Self::IdToken,
@@ -807,7 +811,7 @@ impl Class {
                 "`..` stands only in a pattern, where it leaves the fields the record does not name unconstrained; a built term names every field of the record it builds, so it holds no `..`, even with every field named"
             }
             Self::RecordRemainderInCellsTerm => {
-                "a `cells!` term, the reference notation, names every field of a record, `_` for one a pattern leaves unconstrained; `..base` and `..` are readable-record notation"
+                "a `cells!` term, the reference notation, names every field of a record, `_` for one a pattern leaves unconstrained, and only a pattern's group record leaves its other children open (`k::fragment![G { c: e, .. }]`); `..base` and `..` are readable-record notation"
             }
             Self::RecordRemainderInInitializer => {
                 "`..` leaves a record's other fields open, which only a pattern can: an initializer builds its record, which has no value for them, so name every field, or write `..base` to take them from the record `base`"
@@ -1133,7 +1137,13 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
         // computes; so is an alias's subject, from a match that gives them none. A readable
         // record's result also creates cell instances, whose `..` gives the other cells their
         // defaults, and only resolution tells an instance's record from a constructor's there.
-        Construct::OpenRecord => {
+        // A group record's `..` in a `cells!` pattern leaves the group's other children
+        // unconstrained, as a pattern's open record leaves its other fields (records follow
+        // Rust): its children are the group's entries, and K frames the ones it leaves out. A
+        // `cells!` result builds the group, which has no value for them; elsewhere it is an open
+        // record.
+        Construct::OpenFragment if cells_value(position) && pattern => Admit,
+        Construct::OpenRecord | Construct::OpenFragment => {
             if cells_value(position) {
                 Refuse(Class::RecordRemainderInCellsTerm)
             } else if built_backwards {
@@ -1217,6 +1227,7 @@ const fn constant_value(construct: Construct) -> Admission {
         | Construct::Fragment
         | Construct::RecordUpdate
         | Construct::OpenRecord
+        | Construct::OpenFragment
         | Construct::Rest => Admission::Refuse(Class::ConstantNotGround),
     }
 }
@@ -1236,7 +1247,7 @@ const fn initializer_value(position: Position, construct: Construct) -> Option<A
         Construct::MlPredicate if !position.in_local_pattern() => {
             Some(Refuse(Class::MlInInitializer))
         }
-        Construct::OpenRecord if !position.in_local_pattern() => {
+        Construct::OpenRecord | Construct::OpenFragment if !position.in_local_pattern() => {
             Some(Refuse(Class::RecordRemainderInInitializer))
         }
         _ => None,

@@ -178,12 +178,16 @@ impl<'a> Partial<'a> {
 /// The record a term lowers: in a pattern the alias it is the record of,
 /// if that alias is a record update's base, and in a result its update's
 /// base (F5).
+#[derive(Default)]
 pub(super) struct RecordContext<'a> {
     pub(super) alias: Option<String>,
     pub(super) update: Option<&'a DescriptorTerm>,
     pub(super) subject: bool,
     /// Whether the record is a pattern ending in `..` ([`Partial::open`]).
     pub(super) open: bool,
+    /// The record's own key, which anchors the wildcards of the fields an open pattern leaves
+    /// out where the sentence has no pattern key: a `cells!` entry's group record.
+    pub(super) key: Option<&'a ProvenanceKey>,
 }
 
 impl RecordContext<'_> {
@@ -2378,6 +2382,7 @@ impl StructuredTermBuilder<'_> {
                     update: update.as_deref(),
                     subject,
                     open: *open,
+                    key: None,
                 };
                 self.lower_application(reference, arguments, instance, expected_sort, &record, head)
             }
@@ -2432,6 +2437,7 @@ impl StructuredTermBuilder<'_> {
                     update: update.as_deref(),
                     subject,
                     open: *open,
+                    key: Some(key),
                 };
                 self.lower_cell_term(key, declaration, fields, *open, expected_sort, &record)
             }
@@ -3114,7 +3120,7 @@ impl StructuredTermBuilder<'_> {
         let sort = sort.cloned().ok_or_else(|| {
             self.invalid_term("a record rest at a parameter position needs a turbofish")
         })?;
-        self.lower_record_rest_wildcard(&sort)
+        self.lower_record_rest_wildcard(&sort, record.key)
     }
 
     /// Lowers a record update `Ctor { f: e, ..base }` whose base no pattern matched, an
@@ -3150,10 +3156,8 @@ impl StructuredTermBuilder<'_> {
         let value = self.lower(base, None, false)?;
         let outer = std::mem::take(&mut self.record_updates.taken);
         let record = RecordContext {
-            alias: None,
             update: Some(base),
-            subject: false,
-            open: false,
+            ..RecordContext::default()
         };
         let body = self.lower_application(
             reference,
@@ -3440,8 +3444,9 @@ impl StructuredTermBuilder<'_> {
     fn lower_record_rest_wildcard(
         &mut self,
         sort: &SemanticSortRef,
+        record: Option<&ProvenanceKey>,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
-        let pattern_key = self.pattern_key.ok_or_else(|| {
+        let pattern_key = self.pattern_key.or(record).ok_or_else(|| {
             self.invalid_term("partial named patterns are valid only in structured rule subjects")
         })?;
         let ordinal = self.wildcard_offset + self.wildcards.len();

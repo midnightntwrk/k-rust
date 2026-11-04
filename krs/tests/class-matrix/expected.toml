@@ -511,7 +511,7 @@ advice = "none"
 
 [class.record-remainder-in-cells-term]
 code = "krs::analysis::invalid-record-update"
-doc = "a record update (`Ctor { f: e, ..t }`) or an open record (`Ctor { f: e, .. }`) in a `cells!` cell value, the reference notation, which names every field"
+doc = "a record update (`Ctor { f: e, ..t }`) or an open record (`Ctor { f: e, .. }`) in a `cells!` cell value, the reference notation, which names every field; an open group record (`k::fragment![crate::G { a: x, .. }]`) only in a result, since a pattern's leaves the group's other children unconstrained (S5-F2)"
 advice = "none"
 
 [class.record-remainder-in-initializer]
@@ -12219,6 +12219,13 @@ syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 [accept."sweep/cells/result/c01-hcell/k::fragment![crate::H { hl: [x, ..], hb: 0 }]"]
 
 [accept."sweep/cells/result/c03-hcell/k::fragment![crate::H { hl: [x], hb: 0 }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(<hcell> <hl> _ </hl> <hb> V1:Int </hb> </hcell> => <hcell> <hl> ListItem(V0:Int) </hl> <hb> 0 </hb> </hcell>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/cells/result/c08-ohcell/Some(k::fragment![crate::Ho { ohl: [x], ohb: 0 }])"]
 k = """
@@ -12333,12 +12340,26 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."sweep/cells/result/f09-hcell/k::fragment![crate::H { hl: [x, ..], hb: 0 }]"]
 
 [accept."sweep/cells/result/f12-hcell/k::fragment![crate::H { hl: [x], hb: 0 }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(<hcell> <hl> ListItem(V1:KItem) </hl> <hb> _ </hb> </hcell> => <hcell> <hl> ListItem(V0:Int) </hl> <hb> 0 </hb> </hcell>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/cells/result/f16-ccell/k::fragment![crate::C { cc: [x, ..], cn: 0 }]"]
 
 [accept."sweep/cells/result/f19-ccell/k::fragment![crate::C { cc: [x], cn: 0 }]"]
 
 [accept."sweep/cells/result/frame/k::fragment![crate::G { a: x, b: y, .. }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+(<frame> <a> V1:Int </a> <b> _ </b> </frame> => <frame> <a> V0:Int </a> <b> V1:Int </b> </frame>)
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/cells/result/frame/x"]
 
@@ -12362,6 +12383,13 @@ syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
 [accept."sweep/cells/result/ogroup/None"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(<ogroup> <pa> V0:Int </pa> <pb> _ </pb> </ogroup> => .Bag)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/cells/result/olist/None"]
 k = """
@@ -12418,16 +12446,44 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 [accept."sweep/cells/subject/f01-mcell/k::fragment![crate::M { mm: k::map![y -> x], .. }]"]
 
 [accept."sweep/cells/subject/f07-hcell/k::fragment![crate::H { hl: [y, ..], .. }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<hcell> <hl> ListItem(V0:KItem) ... </hl> <hb> _ </hb> </hcell>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/cells/subject/f08-hcell/k::fragment![crate::H { hl: [y], .. }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<hcell> <hl> ListItem(V0:KItem) </hl> <hb> _ </hb> </hcell>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/cells/subject/f14-ccell/k::fragment![crate::C { cc: [y, ..], .. }]"]
 
 [accept."sweep/cells/subject/f15-ccell/k::fragment![crate::C { cc: [y], .. }]"]
 
 [accept."sweep/cells/subject/frame/k::fragment![crate::G { a: x, .. }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<frame> <a> V0:Int </a> <b> _ </b> </frame>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/cells/subject/frame/k::fragment![crate::G { a: x, b: y, .. }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<frame> <a> V0:Int </a> <b> V1:Int </b> </frame>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/cells/subject/job/[k::fragment![crate::Gl { la: x, .. }], ..]"]
 k = """
@@ -12588,8 +12644,22 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."sweep/cells/written/frame/k::fragment![crate::G { a: x, .. }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(<frame> <a> V0:Int </a> <b> _ </b> </frame> => <frame> <a> 1 </a> <b> 1 </b> </frame>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/cells/written/frame/k::fragment![crate::G { a: x, b: y, .. }]"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+(<frame> <a> V0:Int </a> <b> V1:Int </b> </frame> => <frame> <a> 1 </a> <b> 1 </b> </frame>)
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/cells/written/frame/x"]
 k = """
@@ -15796,6 +15866,13 @@ lint = "no-effect-entry"
 
 [accept."cells/lint/kinds/frame/k::fragment![crate::G { .. }]"]
 lint = "no-effect-entry"
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<frame> <a> _ </a> <b> _ </b> </frame>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."cells/lint/kinds/job/[]"]
 

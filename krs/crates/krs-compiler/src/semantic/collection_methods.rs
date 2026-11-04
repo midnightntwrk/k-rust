@@ -117,6 +117,7 @@ impl StructuredTermBuilder<'_> {
                 update: None,
                 subject,
                 open: false,
+                key: None,
             },
             head,
         )

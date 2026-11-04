@@ -768,6 +768,18 @@ fn a_cells_value_names_every_field_and_holds_no_let_or_test() {
             );
         }
     }
+    // A pattern's group record leaves the group's other children unconstrained; a result
+    // builds the group, which has no value for them (S5-F2).
+    for form in [Form::CellsRule, Form::CellsLocalRule, Form::CellsClaim] {
+        assert_eq!(
+            admits(Position::root(form, Slot::Subject), Construct::OpenFragment),
+            Admission::Admit
+        );
+        assert_eq!(
+            admits(Position::root(form, Slot::Result), Construct::OpenFragment),
+            Admission::Refuse(Class::RecordRemainderInCellsTerm)
+        );
+    }
     // Its conditions are a rule's conditions.
     let requires = Position::root(Form::CellsRule, Slot::Requires);
     assert_eq!(admits(requires, Construct::Let), Admission::Admit);
