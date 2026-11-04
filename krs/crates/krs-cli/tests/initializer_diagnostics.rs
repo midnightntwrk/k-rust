@@ -166,3 +166,143 @@ fn a_configuration_without_an_initializer_is_reported_at_its_name() {
         }
     }
 }
+
+/// A machine with a cell of each kind brackets mark nothing in at its own level: a plain leaf, an
+/// optional leaf, an optional list (whose brackets need its presence) and a collection inside a
+/// group, beside the computation and a list.
+const KINDS: &str = r#"
+use k::builtin::{Int, KSequence, List, list};
+use k::KResult;
+
+k::sorts! {
+    Stmt;
+    Value: KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum StmtSyntax {
+    #[k::syntax("skip")]
+    Skip(),
+}
+
+#[k::cell]
+pub struct Obj {
+    #[k::cell]
+    pub key: Int,
+}
+
+#[k::cell]
+pub struct Shelf {
+    #[k::cell(multiplicity = "*", cell_type = "Set", nested)]
+    pub bag: Obj,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub pc: Int,
+    #[k::cell]
+    pub stack: List<Value>,
+    #[k::cell(multiplicity = "?")]
+    pub counter: Option<Int>,
+    #[k::cell(multiplicity = "?")]
+    pub olist: Option<List<Value>>,
+    #[k::cell(nested)]
+    pub shelf: Shelf,
+}
+"#;
+
+/// The kinds machine's initializer, with `value` in the cell `cell` and every other cell's own
+/// typed value.
+fn kinds_initializer(cell: &str, value: &str) -> String {
+    let fields = [
+        ("k", "k::k![pgm]"),
+        ("pc", "0"),
+        ("stack", "list::empty()"),
+        ("counter", "k::absent!(0)"),
+        ("olist", "k::absent!(list::empty())"),
+        ("shelf", "Shelf { bag: Obj { key: 0 } }"),
+    ]
+    .map(|(name, typed)| {
+        let value = if name == cell { value } else { typed };
+        format!("{name}: {value}")
+    })
+    .join(", ");
+    format!(
+        "{KINDS}impl Machine {{\n    #[k::init]\n    pub fn init(#[k::config_var(name = \"PGM\", main)] pgm: Stmt) -> Self {{\n        Self {{ {fields} }}\n    }}\n}}\n"
+    )
+}
+
+/// Where the byte `at` of `library` is, as `lib.rs:line:column` (both from 1).
+fn location_at(library: &str, at: usize) -> String {
+    let before = &library[..at];
+    let line = before.matches('\n').count() + 1;
+    let column = at - before.rfind('\n').map_or(0, |newline| newline + 1) + 1;
+    format!("lib.rs:{line}:{column}")
+}
+
+#[test]
+fn brackets_on_a_cell_whose_kind_they_mark_nothing_in_are_the_table_s_refusal_at_the_brackets() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    // The cell, its bracketed value, the brackets the refusal stands at, and the class's code.
+    let cases = [
+        ("pc", "[0]", "[0]", "krs::analysis::invalid-list-notation"),
+        (
+            "counter",
+            "Some([0])",
+            "[0]",
+            "krs::analysis::invalid-list-notation",
+        ),
+        ("olist", "[0]", "[0]", "krs::analysis::optional-presence"),
+        (
+            "shelf",
+            "Shelf { bag: [0] }",
+            "[0]",
+            "krs::analysis::invalid-list-notation",
+        ),
+    ];
+    for (index, (cell, value, at, code)) in cases.into_iter().enumerate() {
+        let name = format!("kinds-refused-{index}");
+        let library = kinds_initializer(cell, value);
+        let manifest = package(temporary.path(), &name, &library);
+        let (success, stderr) = check(target.path(), &manifest);
+        assert!(!success, "{cell}: {value}: {stderr}");
+        let errors = stderr
+            .lines()
+            .filter(|line| line.starts_with("error"))
+            .collect::<Vec<_>>();
+        assert_eq!(errors.len(), 1, "{cell}: {value}: {stderr}");
+        assert!(
+            errors[0].starts_with(&format!("error[{code}]")),
+            "{cell}: {value}: {stderr}"
+        );
+        let value_at = library.find(&format!("{cell}: {value}")).unwrap() + cell.len() + 2;
+        let location = location_at(&library, value_at + value.find(at).unwrap());
+        assert!(
+            stderr.contains(&location),
+            "{cell}: {value}: {location}: {stderr}"
+        );
+        for internal in ["undecided", "E0308", "__krs", "__Krs"] {
+            assert!(!stderr.contains(internal), "{cell}: {value}: {stderr}");
+        }
+    }
+}
+
+#[test]
+fn brackets_inside_an_optional_list_s_presence_are_its_list() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    for (index, (cell, value)) in [("olist", "Some([0])"), ("stack", "[0]"), ("stack", "[]")]
+        .into_iter()
+        .enumerate()
+    {
+        let name = format!("kinds-admitted-{index}");
+        let manifest = package(temporary.path(), &name, &kinds_initializer(cell, value));
+        let (success, stderr) = check(target.path(), &manifest);
+        assert!(success, "{cell}: {value}: {stderr}");
+    }
+}

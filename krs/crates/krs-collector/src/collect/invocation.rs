@@ -1094,12 +1094,14 @@ fn collect_impl_invocations(
                 .attrs
                 .retain(|attribute| !resolver.invokes(attribute, AttributeMacro::Init));
             let initializer = InitializerFunction::from_item(method).map_err(source_syntax)?;
-            output.push(parsed_invocation(
+            let mut invocation = parsed_invocation(
                 ProvenanceRole::InitializerDeclaration,
                 initializer.item().sig.ident.to_string(),
                 initializer.provenance().map_err(source_syntax)?,
                 ParsedInvocationPayload::Declaration,
-            )?);
+            )?;
+            invocation.cells = super::cell_entries::ParsedCells::of_initializer(&initializer);
+            output.push(invocation);
         }
     }
     Ok(())

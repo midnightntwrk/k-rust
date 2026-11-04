@@ -570,6 +570,25 @@ impl InitializerFunction {
         &self.body
     }
 
+    /// The body's fields as the entry-admission table reads them
+    /// ([`crate::cell_entry::EntryReading::fields`]), each configuration variable read as one;
+    /// `None` where a part of the body is no field.
+    #[must_use]
+    pub fn entry_fields(&self) -> Option<Vec<crate::cell_entry::CellsField>> {
+        let variables = self.variable_names();
+        crate::cell_entry::EntryReading::new(crate::cell_entry::EntryForm::Initializer, &variables)
+            .fields(&self.body.fields.to_token_stream())
+    }
+
+    /// The names the configuration variables bind, in authored parameter order.
+    #[must_use]
+    pub fn variable_names(&self) -> Vec<String> {
+        self.variables
+            .iter()
+            .map(|variable| variable.binding.unraw().to_string())
+            .collect()
+    }
+
     /// Returns the legacy single-item `k` initializer when present.
     #[must_use]
     pub const fn cell(&self) -> Option<&ComputationCellInitializer> {

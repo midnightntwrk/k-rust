@@ -109,7 +109,13 @@ fn read_fields(
     tokens: &proc_macro2::TokenStream,
     form: EntryForm,
 ) -> Option<Vec<ParsedField<Coordinates>>> {
-    krs_syntax::cell_entry::entry_fields(tokens, form)?
+    located_fields(krs_syntax::cell_entry::entry_fields(tokens, form)?)
+}
+
+fn located_fields(
+    fields: Vec<krs_syntax::cell_entry::CellsField>,
+) -> Option<Vec<ParsedField<Coordinates>>> {
+    fields
         .into_iter()
         .map(|field| {
             Some(ParsedField {
@@ -180,6 +186,23 @@ impl ParsedCells<Coordinates> {
         })
     }
 
+    /// The fields of an initializer's body, each read with the initializer's configuration
+    /// variables as such, and the names they bind; `None` where the body is no list of fields.
+    pub(super) fn of_initializer(initializer: &krs_syntax::InitializerFunction) -> Option<Self> {
+        Some(Self {
+            form: EntryForm::Initializer,
+            subject: located_fields(initializer.entry_fields()?)?,
+            result: None,
+            parameters: initializer.variable_names(),
+            reuse: None,
+        })
+    }
+
+    /// Whether these are an initializer's fields.
+    pub(super) fn is_initializer(&self) -> bool {
+        self.form == EntryForm::Initializer
+    }
+
     /// The fields located in `document`.
     pub(super) fn locate(&self, document: &SourceDocument) -> LocatedCells {
         let locate = |fields: &[ParsedField<Coordinates>]| {
@@ -239,8 +262,8 @@ pub(super) fn judge(
     let index = DescriptorIndex::new(bundle);
     let mut warnings = Vec::new();
     for (id, authored) in cells {
-        if authored.form.is_readable() {
-            // Judged before its payload is resolved ([`judge_readable`]).
+        if authored.form.is_readable() || authored.form == EntryForm::Initializer {
+            // Judged before its payload is resolved ([`judge_readable`], [`judge_initializer`]).
             continue;
         }
         warnings.extend(judge_entries(&index, id, authored)?);
@@ -346,6 +369,69 @@ pub(super) fn judge_readable(
             ))
         }
     }
+}
+
+/// Judges the entries of an initializer that hold a value its cell's kind alone could not decide
+/// (a bracketed value on a cell that is neither the computation nor a list leaf), each against
+/// its cell: `cells` gives each such cell, its kind and its leaf's sort. Where the table admits
+/// such an entry, its brackets are the mark of the kind below its presence or instances (an
+/// optional list's `Some([..])`, a template's list), which the caller then decides; where it
+/// refuses one, the refusal is the author's answer, at what it refuses. The initializer's other
+/// entries are not judged here: their values state their own wrappers. An entry whose value the
+/// reader does not read is left undecided.
+///
+/// # Errors
+///
+/// The first refused entry, in source order, with its class's code.
+pub(super) fn judge_initializer(
+    cells: &[(&DescriptorCellIdentity, EntryKind, Option<&str>)],
+    groups: &[GroupKind],
+    authored: &LocatedCells,
+) -> Result<(), CollectionError> {
+    let entries = authored
+        .subject
+        .iter()
+        .filter_map(|field| {
+            let (cell, kind, sort) = cells
+                .iter()
+                .find(|(cell, ..)| unraw(&cell.field) == unraw(&field.name))?;
+            Some(Entry {
+                cell,
+                kind: kind.clone(),
+                field,
+                ancestor: None,
+                sort: sort.map(str::to_owned),
+            })
+        })
+        .collect::<Vec<_>>();
+    let sentence = entries
+        .iter()
+        .map(|entry| SentenceEntry {
+            side: EntrySide::Initializer,
+            cell: entry.cell,
+            kind: &entry.kind,
+            spelling: entry.field.spelling.as_ref(),
+        })
+        .collect::<Vec<_>>();
+    // An initializer's entry pairs with nothing: it is the cell's whole initial content.
+    Sentence {
+        form: EntryForm::Initializer,
+        entries: &sentence,
+        rewrite: Rewrite::Result,
+        parameters: &authored.parameters,
+        groups,
+    }
+    .judge_located()
+    .map(drop)
+    .map_err(|(at, refusal)| {
+        refused(
+            EntryForm::Initializer,
+            &entries[at],
+            EntrySide::Initializer,
+            &refusal,
+            groups,
+        )
+    })
 }
 
 /// The refusal of an admitted result entry over a collection the subject does not match (Q1's

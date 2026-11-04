@@ -121,7 +121,7 @@ fn materialize_invocation(
             Some(range) => error.with_source_range(range.clone()),
             None => error,
         })?;
-    context
+    let initializer = context
         .verify_authored(
             &loaded,
             primary_cache_key,
@@ -135,14 +135,20 @@ fn materialize_invocation(
                 error.with_source_range(loaded.materialized[context.primary_key].clone())
             }
         })?;
-    let cells = invocation.cells.as_ref().map(|cells| {
-        cells.locate(
-            context
-                .source_cache
-                .get(primary_cache_key)
-                .expect("the primary authored document remains cached"),
-        )
-    });
+    // A configuration's own invocation has no entries; its initializer's, a secondary
+    // invocation, has.
+    let cells = invocation
+        .cells
+        .as_ref()
+        .map(|cells| {
+            cells.locate(
+                context
+                    .source_cache
+                    .get(primary_cache_key)
+                    .expect("the primary authored document remains cached"),
+            )
+        })
+        .or(initializer);
     let origins = build_origins(
         loaded.materialized,
         &loaded.invocation_range,
@@ -281,7 +287,7 @@ impl MaterializationContext<'_> {
         primary_cache_key: &(usize, String),
         primary_invocation_index: usize,
         invocation: &ParsedInvocation,
-    ) -> Result<(), CollectionError> {
+    ) -> Result<Option<super::cell_entries::LocatedCells>, CollectionError> {
         let host_keys = self
             .provenance
             .authored()
@@ -290,6 +296,7 @@ impl MaterializationContext<'_> {
             .collect::<BTreeSet<_>>();
         let mut parser_keys = BTreeSet::new();
         let mut matched_invocations = BTreeSet::new();
+        let mut initializer = None;
         for authored in self.provenance.authored() {
             if authored.anchor().precision() != AnchorPrecision::Exact {
                 return Err(CollectionError::new(
@@ -354,6 +361,14 @@ impl MaterializationContext<'_> {
             };
             if matched_invocations.insert((authored_cache_key.clone(), invocation_index)) {
                 parser_keys.extend(parsed_invocation.anchors.keys().cloned());
+                if let Some(cells) = parsed_invocation
+                    .cells
+                    .as_ref()
+                    .filter(|cells| cells.is_initializer())
+                    && initializer.is_none()
+                {
+                    initializer = Some(cells.locate(document));
+                }
             }
         }
         if host_keys != parser_keys {
@@ -366,7 +381,7 @@ impl MaterializationContext<'_> {
             ));
         }
 
-        Ok(())
+        Ok(initializer)
     }
 }
 

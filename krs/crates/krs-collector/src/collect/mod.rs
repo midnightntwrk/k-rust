@@ -450,19 +450,41 @@ fn resolution_tables(
     pending: &mut [PendingDescriptor],
     contexts: &[PreparedContext],
     builtins: Option<&HostBuiltinRegistry>,
+    source_cache: &mut BTreeMap<(usize, String), source::SourceDocument>,
 ) -> Result<ResolutionTables, CollectionError> {
     pending.sort_by(|left, right| left.id.cmp(&right.id));
-    let dropped =
-        resolve::decide_neutral_leaves(pending, builtins).map_err(|(index, key, error)| {
-            let owner = &pending[index];
-            locate_at_host(
-                error.with_reference_key(key),
-                &owner.host,
-                &owner.id,
-                owner.context_index,
-                contexts,
-            )
-        })?;
+    // A configuration's initializer entries the declared kinds leave undecided are judged from
+    // its authored fields; a source that does not reparse is the configuration's resolution's
+    // to report.
+    let mut admit = |pending: &[PendingDescriptor], index: usize| {
+        let descriptor = &pending[index];
+        let authored = materialize_descriptor_provenance(
+            &descriptor.host,
+            &descriptor.host.payload,
+            &descriptor.id,
+            descriptor.context_index,
+            contexts,
+            source_cache,
+        )
+        .ok()
+        .and_then(|(.., cells)| cells);
+        resolve::admit_neutral_leaves(pending, index, builtins, authored.as_ref())
+    };
+    let dropped = resolve::decide_neutral_leaves(pending, builtins, &mut admit).map_err(
+        |(index, key, error)| match key {
+            Some(key) => {
+                let owner = &pending[index];
+                locate_at_host(
+                    error.with_reference_key(key),
+                    &owner.host,
+                    &owner.id,
+                    owner.context_index,
+                    contexts,
+                )
+            }
+            None => error,
+        },
+    )?;
     let context_aliases = pending
         .iter()
         .filter(|pending| pending.id.item_kind() == ItemKind::ContextAlias)
@@ -494,6 +516,7 @@ fn resolve_pending_descriptors(
     builtins: Option<&HostBuiltinRegistry>,
     timings: &mut Timings,
 ) -> Result<Collected, CollectionError> {
+    let mut source_cache = BTreeMap::new();
     let ResolutionTables {
         context_aliases,
         declarations,
@@ -502,9 +525,8 @@ fn resolve_pending_descriptors(
         cell_kinds,
         dropped,
     } = timings.try_span("collector.resolve.tables", |_| {
-        resolution_tables(&mut pending, contexts, builtins)
+        resolution_tables(&mut pending, contexts, builtins, &mut source_cache)
     })?;
-    let mut source_cache = BTreeMap::new();
     let mut resolved = Vec::with_capacity(pending.len());
     let mut declaration_metadata = Vec::with_capacity(pending.len());
     let mut authored_cells = BTreeMap::new();

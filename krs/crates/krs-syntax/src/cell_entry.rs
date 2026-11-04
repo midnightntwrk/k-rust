@@ -535,7 +535,21 @@ pub fn cells_fields(tokens: &TokenStream) -> Option<Vec<CellsField>> {
 /// out. `None` when a part of the record is neither, so that no field's neighbours are guessed.
 #[must_use]
 pub fn entry_fields(tokens: &TokenStream, form: EntryForm) -> Option<Vec<CellsField>> {
+    EntryReading::new(form, &[]).fields(tokens)
+}
+
+impl EntryReading<'_> {
+    /// The fields of a record of cell entries read this way ([`entry_fields`]): an initializer's
+    /// body reads its configuration variables as such.
+    #[must_use]
+    pub fn fields(self, tokens: &TokenStream) -> Option<Vec<CellsField>> {
+        read_fields(tokens, self)
+    }
+}
+
+fn read_fields(tokens: &TokenStream, reading: EntryReading<'_>) -> Option<Vec<CellsField>> {
     use proc_macro2::{Spacing, TokenTree};
+    let form = reading.form;
     let trees = tokens.clone().into_iter().collect::<Vec<_>>();
     let mut fields = Vec::new();
     for part in
@@ -589,7 +603,7 @@ pub fn entry_fields(tokens: &TokenStream, form: EntryForm) -> Option<Vec<CellsFi
             .parse2(part[..colon].iter().cloned().collect())
             .ok()?;
         let value = part[colon + 1..].iter().cloned().collect::<TokenStream>();
-        let spelling = EntryReading::new(form, &[]).value(value.clone()).ok();
+        let spelling = reading.value(value.clone()).ok();
         fields.push(CellsField {
             key,
             located: spelling

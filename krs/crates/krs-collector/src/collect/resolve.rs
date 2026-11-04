@@ -414,11 +414,24 @@ pub(super) type HostCellKinds = Vec<(StableItemId, Vec<(String, CellKind)>)>;
 /// its computation does not read, by configuration.
 pub(super) type DroppedKeys = HashMap<StableItemId, BTreeSet<krs_ir::ProvenanceKey>>;
 
+/// The entry-admission table's judgement of a configuration's initializer entries its cells'
+/// kinds leave undecided ([`admit_neutral_leaves`]), given the configuration's index in the
+/// descriptors: whether it judged them, or its refusal.
+pub(super) type Admission<'a> =
+    dyn FnMut(&[PendingDescriptor], usize) -> Result<bool, CollectionError> + 'a;
+
 /// Decides every configuration's kind-neutral initializer leaves by the declared cell's kind,
 /// before anything reads a leaf's wrapper (the main cell, the configuration's resolution): a
 /// bracketed value is the sequence of its items on a computation cell, and the list of its items
 /// on a `List` or cons-list leaf (P2/P3: brackets are the computation's or the list's mark, read
-/// by the declared kind). A leaf of any other kind stays neutral, for the admission to refuse.
+/// by the declared kind).
+///
+/// A leaf the cell's own kind does not decide so (one below a presence or an instances layer, or
+/// of a kind brackets do not mark) is the entry-admission table's to judge, against the entry's
+/// spelling (`admit`, given the configuration's index in `pending`): a refusal is the author's
+/// answer; an admitted entry's brackets are the mark of the content below the presence or the
+/// instances (`Some([..])` on an optional list), and are decided by that content. `admit` answers
+/// whether it judged the entries; a configuration it did not judge keeps its leaves neutral.
 ///
 /// Then main: the main configuration variable is the one the computation reads. A candidate
 /// marks each variable a neutral leaf reads when nothing else decides main; the rule `k!`
@@ -428,11 +441,13 @@ pub(super) type DroppedKeys = HashMap<StableItemId, BTreeSet<krs_ir::ProvenanceK
 /// # Errors
 ///
 /// [`CollectionErrorKind::AmbiguousMainConfigurationVariable`], with the configuration's index
-/// in `pending` and the second candidate's marker key, where the computation reads two.
+/// in `pending` and the second candidate's marker key, where the computation reads two; or the
+/// refusal `admit` gives, with no key (it is located already).
 pub(super) fn decide_neutral_leaves(
     pending: &mut [PendingDescriptor],
     builtins: Option<&HostBuiltinRegistry>,
-) -> Result<DroppedKeys, (usize, krs_ir::ProvenanceKey, CollectionError)> {
+    admit: &mut Admission<'_>,
+) -> Result<DroppedKeys, (usize, Option<krs_ir::ProvenanceKey>, CollectionError)> {
     let kinds = {
         let views = HostCellDeclarations::new(pending, builtins);
         pending
@@ -454,14 +469,24 @@ pub(super) fn decide_neutral_leaves(
             .collect::<HashMap<_, _>>()
     };
     let mut dropped = DroppedKeys::new();
-    for (index, descriptor) in pending.iter_mut().enumerate() {
+    for index in 0..pending.len() {
+        let mut computations = Vec::new();
+        let Some(initializer) = configuration_initializer(&mut pending[index]) else {
+            continue;
+        };
+        decide_leaves(&mut initializer.cells, &kinds, &mut computations, false);
+        if holds_neutral_leaf(&initializer.cells)
+            && admit(pending, index).map_err(|error| (index, None, error))?
+            && let Some(initializer) = configuration_initializer(&mut pending[index])
+        {
+            decide_leaves(&mut initializer.cells, &kinds, &mut computations, true);
+        }
+        let descriptor = &mut pending[index];
         let HostDescriptorPayload::FixedConfiguration(configuration) = &mut descriptor.host.payload
         else {
             continue;
         };
         let initializer = &mut configuration.initializer;
-        let mut computations = Vec::new();
-        decide_leaves(&mut initializer.cells, &kinds, &mut computations);
         if !initializer
             .variables
             .iter()
@@ -486,7 +511,7 @@ pub(super) fn decide_neutral_leaves(
                 .expect("a main candidate has a marker");
             return Err((
                 index,
-                key,
+                Some(key),
                 CollectionError::new(
                     CollectionErrorKind::AmbiguousMainConfigurationVariable,
                     format!(
@@ -516,12 +541,95 @@ pub(super) fn decide_neutral_leaves(
     Ok(dropped)
 }
 
+/// Judges, by the entry-admission table, the initializer entries of the configuration
+/// `pending[index]` that hold a leaf the cell's own kind did not decide
+/// ([`super::cell_entries::judge_initializer`]): each against its declared cell, from the
+/// initializer's authored fields. Answers whether it judged them: an initializer whose source or
+/// declaration does not resolve here is left as it is, for the configuration's resolution to
+/// report.
+///
+/// # Errors
+///
+/// The table's refusal of the first such entry, located at what it refuses.
+pub(super) fn admit_neutral_leaves(
+    pending: &[PendingDescriptor],
+    index: usize,
+    builtins: Option<&HostBuiltinRegistry>,
+    authored: Option<&super::cell_entries::LocatedCells>,
+) -> Result<bool, CollectionError> {
+    let HostDescriptorPayload::FixedConfiguration(configuration) = &pending[index].host.payload
+    else {
+        return Ok(false);
+    };
+    let Some(authored) = authored else {
+        return Ok(false);
+    };
+    let Ok(cell_fields) = declared_cell_field_table(pending) else {
+        return Ok(false);
+    };
+    let views = HostCellDeclarations::new(pending, builtins);
+    let Ok(cells) = configuration
+        .declaration
+        .fields
+        .iter()
+        .map(|field| head_rule_cell_target(&views.cell(field), &cell_fields, None, &[], None))
+        .collect::<Result<Vec<_>, _>>()
+    else {
+        return Ok(false);
+    };
+    let neutral = configuration
+        .initializer
+        .cells
+        .iter()
+        .filter(|cell| holds_neutral_leaf(std::slice::from_ref(cell)))
+        .filter_map(|cell| {
+            let identity = cell_fields.get(&cell.field.cell.resolve())?;
+            let target = cells.iter().find(|target| &target.identity == identity)?;
+            Some((
+                &target.identity,
+                krs_ir::cell_kind::EntryKind {
+                    path: target.path.clone(),
+                    own: target.kind.clone(),
+                },
+                target.sort.as_deref(),
+            ))
+        })
+        .collect::<Vec<_>>();
+    super::cell_entries::judge_initializer(&neutral, &configuration_groups(&cells), authored)?;
+    Ok(true)
+}
+
+/// The initializer of `descriptor`, where it is a fixed configuration.
+fn configuration_initializer(
+    descriptor: &mut PendingDescriptor,
+) -> Option<&mut krs_ir::HostConfigurationInitializer> {
+    match &mut descriptor.host.payload {
+        HostDescriptorPayload::FixedConfiguration(configuration) => {
+            Some(&mut configuration.initializer)
+        }
+        _ => None,
+    }
+}
+
+/// Whether `cells` hold a neutral leaf, at any depth.
+fn holds_neutral_leaf(cells: &[krs_ir::HostInitializerCell]) -> bool {
+    cells.iter().any(|cell| match &cell.content {
+        krs_ir::ProtocolInitializerCellContent::NeutralLeaf { .. } => true,
+        krs_ir::ProtocolInitializerCellContent::Nested { children, .. } => {
+            holds_neutral_leaf(children)
+        }
+        krs_ir::ProtocolInitializerCellContent::Leaf { .. } => false,
+    })
+}
+
 /// Decides the neutral leaves of `cells` by `kinds`, pushing the state of each one decided a
-/// computation onto `computations`.
+/// computation onto `computations`: by the cell's whole kind, or, once the table has `admitted`
+/// the entries, by its content below its presence or instances.
 fn decide_leaves(
     cells: &mut [krs_ir::HostInitializerCell],
     kinds: &HashMap<(TypeId, TypeId), CellKind>,
     computations: &mut Vec<krs_ir::HostInitializerStateTerm>,
+    admitted: bool,
 ) {
     for cell in cells {
         match &mut cell.content {
@@ -529,12 +637,16 @@ fn decide_leaves(
                 constructor_key,
                 value,
             } => {
-                // A cell of one, neither optional nor a collection: an optional cell's or a
-                // collection's brackets are the admission's to judge against its marks.
-                let wrapper = match kinds
-                    .get(&cell.field.cell.resolve())
-                    .map(|kind| kind.layers.as_slice())
-                {
+                // Before the admission, a cell of one, neither optional nor a collection: an
+                // optional cell's or a collection's brackets are the admission's to judge against
+                // its marks, and only an admitted entry's are its content's.
+                let kind = kinds.get(&cell.field.cell.resolve());
+                let layers = match kind {
+                    Some(kind) if admitted => kind.content().map(std::slice::from_ref),
+                    Some(kind) => Some(kind.layers.as_slice()),
+                    None => None,
+                };
+                let wrapper = match layers {
                     Some([Layer::Computation]) => krs_ir::CellWrapper::KCell,
                     Some([Layer::Leaf(Notation::List | Notation::Cons)]) => {
                         krs_ir::CellWrapper::Cell
@@ -551,7 +663,7 @@ fn decide_leaves(
                 };
             }
             krs_ir::ProtocolInitializerCellContent::Nested { children, .. } => {
-                decide_leaves(children, kinds, computations);
+                decide_leaves(children, kinds, computations, admitted);
             }
             krs_ir::ProtocolInitializerCellContent::Leaf { .. } => {}
         }
