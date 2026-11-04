@@ -76,11 +76,29 @@ Each JSON artifact is compact JSON with one trailing newline and no whitespace o
 KRS's serializer writes one encoding for each in-memory value, with object members in the order the value's type fixes; the encoding is not RFC 8785 canonical JSON, so another serializer may write the same value differently.
 `jq .` indents an artifact for reading.
 
+Every node of `sources.json` and of the three IRs carries its origin: the frames from its authored tokens through each transformation that produced it.
+Most frames recur across nodes (an item's macro invocation, a transformation's role, a file's identity in every range), so each of these artifacts writes its provenance once, in a `provenance` object after its version and before its body:
+
+- `packages`, each package a file or an item belongs to;
+- `files`, each source-file revision, as its `package` index, `package_relative_path` and `content_sha256`;
+- `items`, each Rust item a frame names, as its `package` index, `module_path`, `item_name`, `item_kind` and `disambiguator`;
+- `labels`, each frame label; and
+- `frames`, each distinct frame, as an array whose first element is its kind code:
+  `[code, file, start, end, item, label]` for a ranged frame (0 authored, 1 macro invocation, 2 generated artifact, 3 frontend diagnostic),
+  `[code, item, label]` for a transformation (4 generated descriptor, 5 Semantic IR, 6 Definition IR),
+  and `[7, kind]` or `[7, kind, file, start, end]` for an inserted frame, without or with its anchor.
+  `file`, `item` and `label` are indexes into their tables; `item` and `label` are `null` when the frame has none.
+
+In the body, an origin is the array of its frames' indexes, its authored frame first.
+Only the root object's `provenance` member holds the tables: in `descriptor-bundle.json` each descriptor also has a `provenance` member, holding its primary key and its nodes' origins, and those origins index the root's tables.
+Each table lists its rows in the order the body first reaches them, so the tables are part of the one encoding of the value.
+An artifact is read without any other file, and reading it restores every frame of every node.
+
 Each `sources.json` entry records its node's depth in the rendered definition: a module is 0, its sentences 1, and each child one more than the node that holds it.
 A configuration renders each cell's declaration and its initial value as one text, so a cell's declaration and its initializer cell, which span the same bytes, take two consecutive depths, the declaration first, and the cell's attributes, value and child cells come below both.
 A configuration variable, rendered at its first use in the initializer, and a context alias's `HERE`, rendered at its hole, are one deeper than the deepest such use.
 So a node whose range strictly holds another's is shallower than it, and nodes rendered at the same range have different depths.
-An entry whose node KRS inserted, which no authored token denotes, carries an `inserted` frame naming what was inserted:
+An entry whose node KRS inserted, which no authored token denotes, carries an inserted frame (code 7) naming what was inserted:
 `definedness_test` for the test of a partial construct a condition evaluates and the `andThenBool` that joins it,
 `lookup_guard` for a looked-up instance's or computed key's fresh name and guard,
 `generated_binder` for a name KRS made for no token and for an alias KRS adds under such a name (a `k::bits!` template's binder, the binder of a field a record update takes from its base),
