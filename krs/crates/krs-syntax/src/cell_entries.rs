@@ -874,6 +874,7 @@ impl Admission<'_> {
                 if map.rest == Some(EntryRest::Anonymous)
                     && !(self.form == EntryForm::Cells && pattern) =>
             {
+                self.path.push(REST);
                 return Err(Refusal::AnonymousRestInMapLiteral);
             }
             _ => {}
@@ -1988,7 +1989,7 @@ pub fn admit_form(
 }
 
 /// [`admit_form`], with where inside the spelling the refusal is raised: at the construct the
-/// form refuses (`_`, `name @ P`, a named rest's [`REST`], a map literal).
+/// form refuses (`_`, `name @ P`, and at [`REST`] a named rest or a map literal's anonymous rest).
 ///
 /// # Errors
 ///

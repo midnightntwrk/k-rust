@@ -873,7 +873,17 @@ fn readable_form_step(
                 // An initializer's refusals: a rule or a claim has no initializer.
                 _ => continue,
             };
-            return Err(crate::SyntaxError::new(kind, span).into());
+            let error = crate::SyntaxError::new(kind, span);
+            // What a term and a pattern write instead: the advice the term walker gives the same
+            // literal in any term.
+            let error = if located.refusal == Refusal::AnonymousRestInMapLiteral {
+                error.with_help(
+                    "in a term, `map![..]` is a literal, and its rest is the map its entries are written over, `map![k -> v, ..m]`; a readable pattern reads a map's entries with `{ k -> v, .. }`",
+                )
+            } else {
+                error
+            };
+            return Err(error.into());
         }
     }
     Ok(())

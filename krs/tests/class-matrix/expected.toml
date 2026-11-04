@@ -7581,6 +7581,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."claim/subject/env/_"]
 lint = "no-effect-entry"
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<env> _ </env>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."claim/subject/env/x"]
 k = """
@@ -7611,6 +7618,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."claim/subject/frame/_"]
 lint = "no-effect-entry"
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+_
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."claim/subject/frame/x"]
 k = """
@@ -7690,6 +7704,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."claim/subject/kinds/frame/_"]
 lint = "no-effect-entry"
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+_
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."claim/subject/kinds/omap/Some(x)"]
 k = """
@@ -7702,6 +7723,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."claim/subject/kinds/seq/_"]
 lint = "no-effect-entry"
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> _ </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."claim/subject/pc/0"]
 k = """
@@ -7714,6 +7742,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."claim/subject/pc/_"]
 lint = "no-effect-entry"
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<pc> _ </pc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."claim/subject/pc/x"]
 k = """
@@ -7765,6 +7800,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."claim/subject/stack/_"]
 lint = "no-effect-entry"
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> _ </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."claim/subject/stack/x"]
 k = """
@@ -10277,10 +10319,24 @@ configuration
 [accept."readable-run/subject/env/_"]
 lint = "no-effect-entry"
 same_k_as = ["cells-run/subject/env/k::configuration::Cell(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<env> _ </env>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."readable-run/subject/frame/_"]
 lint = "no-effect-entry"
 same_k_as = ["cells-run/subject/frame/_"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+_
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."readable-run/subject/job/[..]"]
 lint = "no-effect-entry"
@@ -10290,6 +10346,13 @@ lint = "no-effect-entry"
 [accept."readable-run/subject/pc/_"]
 lint = "no-effect-entry"
 same_k_as = ["cells-run/subject/pc/k::configuration::Cell(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<pc> _ </pc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."readable-run/subject/stack/[..]"]
 lint = "no-effect-entry"
@@ -10297,6 +10360,13 @@ lint = "no-effect-entry"
 [accept."readable-run/subject/stack/_"]
 lint = "no-effect-entry"
 same_k_as = ["cells-run/subject/stack/k::configuration::Cell(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> _ </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."readable/overwrite/kinds/pc/0"]
 
@@ -10693,6 +10763,13 @@ same_k_as = ["cells/subject/counter/Some(k::configuration::Cell(x))"]
 [accept."readable/subject/env/_"]
 lint = "no-effect-entry"
 same_k_as = ["cells/subject/env/k::configuration::Cell(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<env> _ </env>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."readable/subject/env/x"]
 k = """
@@ -10727,6 +10804,13 @@ same_k_as = ["cells/subject/frame/k::fragment![crate::Frame { ret: x }]"]
 [accept."readable/subject/frame/_"]
 lint = "no-effect-entry"
 same_k_as = ["cells/subject/frame/_"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+_
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."readable/subject/frame/x"]
 k = """
@@ -10807,6 +10891,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."readable/subject/kinds/frame/_"]
 lint = "no-effect-entry"
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+_
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."readable/subject/kinds/omap/Some(x)"]
 same_k_as = ["cells/subject/kinds/omap/Some(k::configuration::Cell(x))"]
@@ -10820,6 +10911,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."readable/subject/kinds/seq/_"]
 lint = "no-effect-entry"
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<seq> _ </seq>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."readable/subject/pc/0"]
 k = """
@@ -10834,6 +10932,13 @@ same_k_as = ["cells/subject/pc/k::configuration::Cell(0)"]
 [accept."readable/subject/pc/_"]
 lint = "no-effect-entry"
 same_k_as = ["cells/subject/pc/k::configuration::Cell(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<pc> _ </pc>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."readable/subject/pc/x"]
 k = """
@@ -10888,6 +10993,13 @@ same_k_as = ["cells/subject/stack/k::configuration::Cell([x, ..])"]
 [accept."readable/subject/stack/_"]
 lint = "no-effect-entry"
 same_k_as = ["cells/subject/stack/k::configuration::Cell(_)"]
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<stack> _ </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."readable/subject/stack/x"]
 k = """
@@ -13203,6 +13315,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."sweep/claim/subject/set/_"]
 lint = "no-effect-entry"
+k = """
+claim [case-TAG]:
+<k> cTAG => .K ... </k>
+<set> _ </set>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/claim/subject/set/x"]
 k = """
@@ -14892,6 +15011,13 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 
 [accept."sweep/readable/subject/set/_"]
 lint = "no-effect-entry"
+k = """
+rule [case-TAG]:
+<k> cTAG => .K ... </k>
+<set> _ </set>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
 
 [accept."sweep/readable/subject/set/x"]
 k = """

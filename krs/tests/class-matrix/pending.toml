@@ -4298,10 +4298,6 @@ deviation = "presence-on-plain-cell advises none, and its refusal advises `rest 
 finding = "S0-9"
 deviation = "presence-on-plain-cell advises none, and its refusal advises `rest @ ..`"
 
-["k8/sweep/claim/result/prog/Some(_)"]
-finding = "S0-9"
-deviation = "wildcard-outside-pattern advises none, and its refusal advises `rest @ ..`"
-
 ["k8/sweep/claim/result/prog/Some(x)"]
 finding = "S0-9"
 deviation = "presence-on-plain-cell advises none, and its refusal advises `rest @ ..`"
@@ -4309,14 +4305,6 @@ deviation = "presence-on-plain-cell advises none, and its refusal advises `rest 
 ["k8/sweep/claim/result/prog/[x]"]
 finding = "S0-9"
 deviation = "rest-mismatch's refusal advises `rest @ ..`, which readable/result/job/[..], claim/result/job/[..] does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
-
-["k8/sweep/claim/result/prog/_"]
-finding = "S0-9"
-deviation = "wildcard-outside-pattern advises none, and its refusal advises `rest @ ..`"
-
-["k8/sweep/claim/result/prog/map![y -> x, ..]"]
-finding = "S0-9"
-deviation = "anonymous-rest-in-map-literal's refusal advises `rest @ ..`, which readable-run/subject/bag/{ Obj { key: 1, m: { 1 -> 2, .. } }, .. } does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
 
 ["k8/sweep/claim/result/prog/x"]
 finding = "S0-9"
@@ -4354,10 +4342,6 @@ deviation = "presence-on-plain-cell advises none, and its refusal advises `rest 
 finding = "S0-9"
 deviation = "presence-on-plain-cell advises none, and its refusal advises `rest @ ..`"
 
-["k8/sweep/claim/result/seq/Some(_)"]
-finding = "S0-9"
-deviation = "wildcard-outside-pattern advises none, and its refusal advises `rest @ ..`"
-
 ["k8/sweep/claim/result/seq/Some(x)"]
 finding = "S0-9"
 deviation = "presence-on-plain-cell advises none, and its refusal advises `rest @ ..`"
@@ -4365,14 +4349,6 @@ deviation = "presence-on-plain-cell advises none, and its refusal advises `rest 
 ["k8/sweep/claim/result/seq/[x]"]
 finding = "S0-9"
 deviation = "rest-mismatch's refusal advises `rest @ ..`, which readable/result/job/[..], claim/result/job/[..] does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
-
-["k8/sweep/claim/result/seq/_"]
-finding = "S0-9"
-deviation = "wildcard-outside-pattern advises none, and its refusal advises `rest @ ..`"
-
-["k8/sweep/claim/result/seq/map![y -> x, ..]"]
-finding = "S0-9"
-deviation = "anonymous-rest-in-map-literal's refusal advises `rest @ ..`, which readable-run/subject/bag/{ Obj { key: 1, m: { 1 -> 2, .. } }, .. } does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
 
 ["k8/sweep/claim/result/seq/x"]
 finding = "S0-9"
@@ -4410,10 +4386,6 @@ deviation = "presence-on-plain-cell advises none, and its refusal advises `rest 
 finding = "S0-9"
 deviation = "presence-on-plain-cell advises none, and its refusal advises `rest @ ..`"
 
-["k8/sweep/claim/result/stack/Some(_)"]
-finding = "S0-9"
-deviation = "wildcard-outside-pattern advises none, and its refusal advises `rest @ ..`"
-
 ["k8/sweep/claim/result/stack/Some(x)"]
 finding = "S0-9"
 deviation = "presence-on-plain-cell advises none, and its refusal advises `rest @ ..`"
@@ -4421,14 +4393,6 @@ deviation = "presence-on-plain-cell advises none, and its refusal advises `rest 
 ["k8/sweep/claim/result/stack/[x]"]
 finding = "S0-9"
 deviation = "rest-mismatch's refusal advises `rest @ ..`, which readable/result/job/[..], claim/result/job/[..] does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
-
-["k8/sweep/claim/result/stack/_"]
-finding = "S0-9"
-deviation = "wildcard-outside-pattern advises none, and its refusal advises `rest @ ..`"
-
-["k8/sweep/claim/result/stack/map![y -> x, ..]"]
-finding = "S0-9"
-deviation = "anonymous-rest-in-map-literal's refusal advises `rest @ ..`, which readable-run/subject/bag/{ Obj { key: 1, m: { 1 -> 2, .. } }, .. } does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
 
 ["k8/sweep/claim/result/stack/x"]
 finding = "S0-9"
@@ -4690,10 +4654,6 @@ deviation = "presence-on-plain-cell advises none, and its refusal advises `rest 
 finding = "S0-9"
 deviation = "presence-on-plain-cell advises none, and its refusal advises `rest @ ..`"
 
-["k8/sweep/readable/result/prog/Some(_)"]
-finding = "S0-9"
-deviation = "wildcard-outside-pattern advises none, and its refusal advises `rest @ ..`"
-
 ["k8/sweep/readable/result/prog/Some(x)"]
 finding = "S0-9"
 deviation = "presence-on-plain-cell advises none, and its refusal advises `rest @ ..`"
@@ -4701,14 +4661,6 @@ deviation = "presence-on-plain-cell advises none, and its refusal advises `rest 
 ["k8/sweep/readable/result/prog/[x]"]
 finding = "S0-9"
 deviation = "rest-mismatch's refusal advises `rest @ ..`, which readable/result/job/[..], claim/result/job/[..] does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
-
-["k8/sweep/readable/result/prog/_"]
-finding = "S0-9"
-deviation = "wildcard-outside-pattern advises none, and its refusal advises `rest @ ..`"
-
-["k8/sweep/readable/result/prog/map![y -> x, ..]"]
-finding = "S0-9"
-deviation = "anonymous-rest-in-map-literal's refusal advises `rest @ ..`, which readable-run/subject/bag/{ Obj { key: 1, m: { 1 -> 2, .. } }, .. } does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
 
 ["k8/sweep/readable/result/prog/x"]
 finding = "S0-9"
@@ -4746,10 +4698,6 @@ deviation = "presence-on-plain-cell advises none, and its refusal advises `rest 
 finding = "S0-9"
 deviation = "presence-on-plain-cell advises none, and its refusal advises `rest @ ..`"
 
-["k8/sweep/readable/result/seq/Some(_)"]
-finding = "S0-9"
-deviation = "wildcard-outside-pattern advises none, and its refusal advises `rest @ ..`"
-
 ["k8/sweep/readable/result/seq/Some(x)"]
 finding = "S0-9"
 deviation = "presence-on-plain-cell advises none, and its refusal advises `rest @ ..`"
@@ -4757,14 +4705,6 @@ deviation = "presence-on-plain-cell advises none, and its refusal advises `rest 
 ["k8/sweep/readable/result/seq/[x]"]
 finding = "S0-9"
 deviation = "rest-mismatch's refusal advises `rest @ ..`, which readable/result/job/[..], claim/result/job/[..] does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
-
-["k8/sweep/readable/result/seq/_"]
-finding = "S0-9"
-deviation = "wildcard-outside-pattern advises none, and its refusal advises `rest @ ..`"
-
-["k8/sweep/readable/result/seq/map![y -> x, ..]"]
-finding = "S0-9"
-deviation = "anonymous-rest-in-map-literal's refusal advises `rest @ ..`, which readable-run/subject/bag/{ Obj { key: 1, m: { 1 -> 2, .. } }, .. } does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
 
 ["k8/sweep/readable/result/seq/x"]
 finding = "S0-9"
@@ -4802,10 +4742,6 @@ deviation = "presence-on-plain-cell advises none, and its refusal advises `rest 
 finding = "S0-9"
 deviation = "presence-on-plain-cell advises none, and its refusal advises `rest @ ..`"
 
-["k8/sweep/readable/result/stack/Some(_)"]
-finding = "S0-9"
-deviation = "wildcard-outside-pattern advises none, and its refusal advises `rest @ ..`"
-
 ["k8/sweep/readable/result/stack/Some(x)"]
 finding = "S0-9"
 deviation = "presence-on-plain-cell advises none, and its refusal advises `rest @ ..`"
@@ -4813,14 +4749,6 @@ deviation = "presence-on-plain-cell advises none, and its refusal advises `rest 
 ["k8/sweep/readable/result/stack/[x]"]
 finding = "S0-9"
 deviation = "rest-mismatch's refusal advises `rest @ ..`, which readable/result/job/[..], claim/result/job/[..] does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
-
-["k8/sweep/readable/result/stack/_"]
-finding = "S0-9"
-deviation = "wildcard-outside-pattern advises none, and its refusal advises `rest @ ..`"
-
-["k8/sweep/readable/result/stack/map![y -> x, ..]"]
-finding = "S0-9"
-deviation = "anonymous-rest-in-map-literal's refusal advises `rest @ ..`, which readable-run/subject/bag/{ Obj { key: 1, m: { 1 -> 2, .. } }, .. } does not write (cells-run/result/env/k::configuration::Cell(k::builtin::map::update(rest, x, y)) does)"
 
 ["k8/sweep/readable/result/stack/x"]
 finding = "S0-9"
@@ -10461,14 +10389,6 @@ deviation = "krs::syntax::invalid-list-notation @ item"
 ["sweep/cells/written/stack/{ k::fragment![crate::G { a: x, .. }], .. }"]
 finding = "S5-K1"
 deviation = "krs::syntax::invalid-list-notation @ item"
-
-["k3/sweep/claim/result/stack/[G { a: x, .. }, ..]"]
-finding = "S5-O1"
-deviation = "printed surface refused: krs::syntax::unsupported-term-expression @ item"
-
-["k3/sweep/readable/result/stack/[G { a: x, .. }, ..]"]
-finding = "S5-O1"
-deviation = "printed surface refused: krs::syntax::unsupported-term-expression @ item"
 
 ["sweep/cells/overwrite/c25-ccell/k::fragment![crate::C { cc: [x], cn: 0 }]"]
 finding = "S5-C2"
