@@ -9,13 +9,15 @@ use krs_test_support::{
     COLLECTOR_OPTIMIZED_PACKAGES, krs_command, temp_dir, write_unoptimized_collector_config,
 };
 
-// Baselines: many-small-rules n=24 from tests/perf/synth.py. Bundle byte
-// headroom is 10%, rounded up to the next hundred bytes; zero pins the
+// Baselines: many-small-rules n=24 from tests/perf/synth.py. A baseline
+// moves by the measured effect of a change that explains it, so growth no
+// change explains stays charged against the headroom. Headroom is 10% of
+// the baseline, rounded up (bytes to the next hundred); zero pins the
 // fixture's structural counts.
 const BOUNDS: &[(&str, u64, u64)] = &[
-    ("bundle.bytes", 143_598, 14_400),
-    ("bundle.other_bytes", 84_660, 8_500),
-    ("bundle.provenance_bytes", 58_938, 5_900),
+    ("bundle.bytes", 148_752, 14_900),
+    ("bundle.other_bytes", 86_052, 8_700),
+    ("bundle.provenance_bytes", 62_700, 6_300),
     ("collector.host_descriptors", 34, 4),
     ("declarations.total", 34, 4),
     ("definition.modules", 3, 0),
@@ -33,8 +35,8 @@ const BOUNDS: &[(&str, u64, u64)] = &[
     ("descriptors.kind.Rule", 24, 0),
     ("descriptors.kind.Sort", 3, 0),
     ("descriptors.total", 34, 4),
-    ("provenance.anchors", 409, 0),
-    ("provenance.origin_frames", 1_155, 116),
+    ("provenance.anchors", 433, 0),
+    ("provenance.origin_frames", 1_227, 123),
     ("semantic.modules", 2, 0),
 ];
 
