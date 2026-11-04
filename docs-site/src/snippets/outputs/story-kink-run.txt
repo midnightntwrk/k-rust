@@ -1,0 +1,24 @@
+$ krs kink --package story-plus --definition main run --full --output verdicts --locked
+schema = "kink-flow-verdicts"
+version = 3
+document = "run"
+schedule = "full"
+profile = "z3"
+
+[spec]
+outcome = "admitted"
+
+[[mutation]]
+id = "plus/a"
+status = "killed"
+killed_by = ["t2", "t3", "t4"]
+
+[[mutation]]
+id = "plus/b"
+status = "killed"
+killed_by = ["t3", "t4"]
+
+[[mutation]]
+id = "plus/c"
+status = "killed"
+killed_by = ["t4"]

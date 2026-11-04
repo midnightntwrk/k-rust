@@ -116,19 +116,19 @@
     "output": "109a73ae914de407bccc610f7945de7e5c976689712b8f47e993de3b49c74d74"
   },
   "story-base-t1": {
-    "inputs": "7e0c0711c9a69fb3acb0d374a53e966cc7971c999c3c8c97be17d51895a7a030",
+    "inputs": "a10f45b2f93942e79befc910f3cc68673b9f798ca39e8116f3479126ae36c03d",
     "output": "020f7f0dcbc6b34f64b043b5c8c2606b8f195ad197c39691fe91e2e2476e5e3f"
   },
   "story-base-t2": {
-    "inputs": "685d26074a458ec12856b3b226e5d95e7e58b437168eab8a1b4acf9411de72ef",
+    "inputs": "24401f6abb6e863cc51464a6bd5c7f7f6c1a6e4607853dc8ee398d333a271814",
     "output": "efe4d427eba16c2cb97499acb62e7de3873eeb2984c52a4b1aac9a533cec9d33"
   },
   "story-base-t3": {
-    "inputs": "1b981fab44ce59f6865924adef8efd581906c96c564ef0cf49e3e8f964f95c58",
+    "inputs": "5faa604e8dd80ed9d675caaa3dfc27ec5f97f6f49d304f84866164cf5296599e",
     "output": "789c9b32c47d89ba2d980bff534a92004e2cfb9bebdbcf652719b346267b4512"
   },
   "story-base-t4": {
-    "inputs": "5128decb7338207b9fc3ef257aa527bbf93a8f69c9b79e7577c91eec9d550211",
+    "inputs": "e81cb35fc4eecb73908f50f34aae262b61d921b9f74c6ce1664ad01103e394d0",
     "output": "c2581d9c46f1abf6ce3c2b61afe791aed567e71ca8d9bcca89c28621d69fb99d"
   },
   "story-c-t1": {
@@ -148,27 +148,43 @@
     "output": "fd4cdeec7d1f7d67317605bfe3c67cefe9ec794a3c8c7e0e3acb228ce603ee58"
   },
   "story-check": {
-    "inputs": "ca04d0f3821f7d23665750d6a11098f57c3e686f10c3834fc35f2221a4535273",
+    "inputs": "2e5c6c31e029ff4fcae1eb16d56d03f64e34fc633f5ef4a007ab1f10fd62ebef",
     "output": "24cd61b9680e34d74ce4c1c1c11e91b94c313e8b19046f5ffb04fb164f7bab33"
   },
   "story-emit-k": {
-    "inputs": "9f35b13567fa46dd9b4f1e06af3fca8eccb248705dc6005aa906c99bc8d88ba7",
+    "inputs": "a8a1e1a47e0788ec5abd8d4006363d2b30dbe5643ae0cf4456b44634893fce7e",
     "output": "9b4df7a8e0256a5fa77c48e9fdfdb25d40417da1a1335cb912d45f2c2089b23e"
   },
+  "story-emit-k-a": {
+    "inputs": "c9c9b35c97350bc7649554c3644bdb70630acb8fde14e55035bd84c554cdcff5",
+    "output": "5400f95f8b4df71ee1188e8d4113ad4e848186b36e52e90ed5d1b4e1458814aa"
+  },
+  "story-emit-k-b": {
+    "inputs": "8819ba6c4fb2e320075b986eef5b45dcbf20e0c1ceae9c493fb095a41621ca18",
+    "output": "189b08136eb26d92ecf76dd12f00658bfc9d83bae66037e88aa157ab040bda51"
+  },
+  "story-emit-k-c": {
+    "inputs": "3fff09da9980e88559feea93fef10798f81f8a53918c01992a4b2bd6f9ea0aba",
+    "output": "f7bb1f8c8bc1056b68b377c711c76c5c99c741cbb570974f3b2896826f65909f"
+  },
   "story-kink-results": {
-    "inputs": "46242312f6f55a8390aa9cab61857932302f49e42343a3e4d2ace6e64ff38cd9",
+    "inputs": "764c3e70baa5bd14f85c1a46a4d599aea47be2f5a2af3f5b4cd592592ea01f8d",
     "output": "4c91df5103ec368934c611bb501a6d5fadc649e003cd3a4e02038b3b6ae461f2"
   },
+  "story-kink-run": {
+    "inputs": "82c1b1253d24ae277b770162c735a16607d4cccbcf12a8fb525fcb6a1902daf7",
+    "output": "c534f4784530f1f9a0812194353485e41d61c31414fa6ec0b8578b4399cc2422"
+  },
   "story-parse": {
-    "inputs": "ff6dcc142cbdb237913fd95798e3fb8b8d40de3cfe145a88040a629e68dbfdc6",
+    "inputs": "7d9cc2f1a97bc342f6f3b02e0bf32e00395734a5e1f7ba417780c4b27824bc54",
     "output": "e2a7d6b8346bb96906c20bb15e2043962d8ed85aea0c741821a952852358b296"
   },
   "story-prove": {
-    "inputs": "6f2ad9b2c3c79687c6aec178bef8db27888de49963c3c4480f1549c4aa42f274",
+    "inputs": "26e5dc5ea2752b54b62ba09e7aad30592a752c1a54a7aa007b11c34135862ff1",
     "output": "7e0838bf3fabfaf7991a0acc9f3dc87b8f0afc89dc975a9f6b1407e4d1ec60aa"
   },
   "story-search": {
-    "inputs": "a09bd6dd488135f35134b356010c795da022ec680698755647e667aadb3a6aab",
+    "inputs": "5fcba88b5b97bc96753a299b3812e609123c0d8c1b4486682a68ca8770310f42",
     "output": "a93378b39088e12b88415d89bf6336a155727ef1b1a6a04422cc8092c3fea12f"
   },
   "tour-minimal-depth-0": {
