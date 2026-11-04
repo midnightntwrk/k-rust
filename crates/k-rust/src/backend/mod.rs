@@ -627,6 +627,8 @@ pub type KorePatternSearchResponse = PatternSearchResponse<KorePattern>;
 /// A pattern path search response whose KORE is held as patterns
 /// ([`Backend::search_pattern_paths_kore`]).
 pub type KorePathPatternSearchResponse = PathPatternSearchResponse<KorePattern>;
+/// A proof result whose leaves' KORE is held as patterns ([`Backend::prove_kore`]).
+pub type KoreProofResult = ProofResultOutput<KorePattern>;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -2947,10 +2949,17 @@ impl Backend {
     /// disjunction is proven one disjunct per request, each selected by its `#index`; it holds
     /// only if every disjunct is proven, and a label or unique id that names it is refused.
     ///
-    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::prove_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
+    /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::prove_json`] writes the same result as text inside the operation, and [`Self::prove_kore`] holds it as patterns. See docs/backend-port.md#stack-bounds.
     ///
     /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
     pub fn prove(&mut self, request: ProveRequest) -> Result<ProofResultOutput, BackendError> {
+        self.prove_using(request)
+    }
+
+    /// [`Self::prove`], with each leaf's KORE as patterns, as [`Self::execute_kore`].
+    ///
+    /// Cancellation and the other stops: [Bounding an operation](crate::backend#bounding-an-operation).
+    pub fn prove_kore(&mut self, request: ProveRequest) -> Result<KoreProofResult, BackendError> {
         self.prove_using(request)
     }
 

@@ -1,8 +1,8 @@
 //! The facade hands a result's KORE either as a `serde_json::Value` (`Backend::execute` and
 //! the others) or as a pattern (`Backend::execute_kore` and the others); both are built from the
 //! same terms, and an output holding patterns serializes as the output holding values.
-//! Each fixture here runs both forms of every execution and search on fresh backends and
-//! compares their JSON, and checks that its own JSON shows what it is meant to: builtin
+//! Each fixture here runs both forms of every execution and search, or of a proof, on fresh
+//! backends and compares their JSON, and checks that its own JSON shows what it is meant to: builtin
 //! collections, observation events, effects, coverage with condition records, diagnostics,
 //! cut-point and branch candidates, a branch leaf's remainder (with a solver; without one, the
 //! indeterminate leaf's cause), implementation-chosen values, unsupported hooks and state
@@ -16,8 +16,8 @@
 mod pattern_results;
 
 use k_rust::backend::{
-    Backend, BackendOptions, ConditionCollection, ExecuteRequest, ResultModalityOutput,
-    SearchPatternRequest, SearchRequest, StateMatchRequest,
+    Backend, BackendOptions, ConditionCollection, ExecuteRequest, ProveRequest,
+    ResultModalityOutput, SearchPatternRequest, SearchRequest, StateMatchRequest,
 };
 use k_rust::kore::{ast::Pattern, parser::parse_pattern};
 use pattern_results::{
@@ -114,6 +114,36 @@ const UNSUPPORTED_HOOK: &str = r#"[]
         sort SortState{} [hasDomainValues{}()]
         hooked-symbol missing{}(SortState{}) : SortState{}
             [function{}(), hook{}("TEST.missing")]
+    endmodule []"#;
+
+/// A claim that every path from `start` reaches `done`: one path is stuck at `stuck` and the
+/// other counts for ever, so a bounded proof leaves a stuck leaf and leaves at its bound.
+const REFUTED_CLAIM: &str = r#"[]
+    module MAIN
+        hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+        sort SortS{} []
+        symbol start{}() : SortS{} [constructor{}(), functional{}()]
+        symbol stuck{}() : SortS{} [constructor{}(), functional{}()]
+        symbol done{}() : SortS{} [constructor{}(), functional{}()]
+        symbol count{}(SortInt{}) : SortS{} [constructor{}(), functional{}()]
+        hooked-symbol add{}(SortInt{}, SortInt{}) : SortInt{}
+            [function{}(), total{}(), hook{}("INT.add"), smt-hook{}("+")]
+        alias weakAlwaysFinally{S}(S) : S where weakAlwaysFinally{S}(@X:S) := @X:S []
+        axiom{} \rewrites{SortS{}}(
+            \and{SortS{}}(start{}(), \top{SortS{}}()), \and{SortS{}}(stuck{}(), \top{SortS{}}())
+        ) [label{}("to-stuck")]
+        axiom{} \rewrites{SortS{}}(
+            \and{SortS{}}(start{}(), \top{SortS{}}()),
+            \and{SortS{}}(count{}(\dv{SortInt{}}("0")), \top{SortS{}}())
+        ) [label{}("to-count")]
+        axiom{} \rewrites{SortS{}}(
+            \and{SortS{}}(count{}(I:SortInt{}), \top{SortS{}}()),
+            \and{SortS{}}(count{}(add{}(I:SortInt{}, \dv{SortInt{}}("1"))), \top{SortS{}}())
+        ) [label{}("count")]
+        claim{} \implies{SortS{}}(
+            \and{SortS{}}(\top{SortS{}}(), start{}()),
+            weakAlwaysFinally{SortS{}}(\and{SortS{}}(done{}(), \top{SortS{}}()))
+        ) [label{}("all-done")]
     endmodule []"#;
 
 fn kore(text: &str) -> Pattern {
@@ -366,4 +396,34 @@ fn diagnostics_candidates_and_remainders_serialize_alike() {
         },
     );
     assert_shows("the pattern search", &pattern, &["diagnostics", "matches"]);
+}
+
+/// `prove_kore` serializes as `prove`: a refuted proof's stuck leaf and the leaves at its depth
+/// bound, each with its state.
+#[test]
+fn proofs_serialize_alike() {
+    let fresh = fresh(REFUTED_CLAIM);
+    let request = ProveRequest {
+        max_depth: Some(3),
+        max_counterexamples: 2,
+        ..ProveRequest::default()
+    };
+    let expected = fresh().prove(request.clone()).unwrap();
+    let actual = fresh().prove_kore(request).unwrap();
+    let expected_json = serde_json::to_value(&expected).unwrap();
+    assert_eq!(serde_json::to_value(&actual).unwrap(), expected_json);
+    assert_eq!(
+        serde_json::to_string(&actual).unwrap(),
+        serde_json::to_string(&expected).unwrap()
+    );
+    let states = actual
+        .leaves
+        .iter()
+        .map(|leaf| leaf.state.to_string())
+        .collect::<Vec<_>>();
+    assert!(
+        states.iter().any(|state| state.contains("stuck{}()"))
+            && states.iter().any(|state| state.contains("count{}(")),
+        "{states:?}"
+    );
 }
