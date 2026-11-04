@@ -496,9 +496,11 @@ pub(super) fn lower_instances_clause(
         {
             return Err(collection_error(
                 &descriptor,
-                codes::analysis::UNKNOWN_INSTANCE_LABEL,
+                codes::analysis::DUPLICATE_INSTANCE_LABEL,
                 &instance.key,
-                format!("the instance label `{label}` is used twice in `{name}`"),
+                format!(
+                    "the entry of the collection `{name}` labels two subject instances `{label} @`: a label names exactly one instance the subject matches, the one a result instance updates with `..{label}`, so a second instance labelled alike leaves that update with two bases; give each instance its own label"
+                ),
             ));
         }
     }
@@ -538,9 +540,11 @@ pub(super) fn lower_instances_clause(
                 if kept_by[index].replace((back, position)).is_some() {
                     return Err(collection_error(
                         &descriptor,
-                        codes::analysis::UNKNOWN_INSTANCE_LABEL,
+                        codes::analysis::DUPLICATE_INSTANCE_LABEL,
                         &instance.key,
-                        format!("two result instances of `{name}` update `{label}`"),
+                        format!(
+                            "two result instances of the collection `{name}` update the subject instance labelled `{label}` (`..{label}`): an update rewrites the one instance its label names in place, so that instance is the base of one update at most, and a second would give it two new contents at once"
+                        ),
                     ));
                 }
                 if (index >= before.front.len()) != back {
