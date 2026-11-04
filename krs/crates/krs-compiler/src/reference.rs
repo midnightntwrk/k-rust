@@ -2286,6 +2286,7 @@ fn materialize_initializer_cells(
             krs_syntax::InitializerCellContent::Leaf {
                 computation,
                 inferred_constructor: true,
+                neutral: false,
                 ..
             } => {
                 let value = expression.clone();
@@ -2298,10 +2299,12 @@ fn materialize_initializer_cells(
                     field.colon_token = Some(syn::token::Colon::default());
                 }
             }
+            // A kind-neutral leaf stays as written: the declared kind reads its brackets.
             krs_syntax::InitializerCellContent::Leaf {
                 inferred_constructor: false,
                 ..
-            } => {}
+            }
+            | krs_syntax::InitializerCellContent::Leaf { neutral: true, .. } => {}
             krs_syntax::InitializerCellContent::Nested { children, .. } => {
                 let syn::Expr::Struct(nested) = expression else {
                     return Err(ReferenceExpansionError::GeneratedRust(syn::Error::new(

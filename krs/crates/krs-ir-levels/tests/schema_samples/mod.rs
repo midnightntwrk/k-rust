@@ -916,6 +916,7 @@ impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolConfig
             sort: sample::<S>(),
             arguments: sample::<Vec<ProtocolSortArgument<S>>>(),
             main_key: sample::<Option<ProvenanceKey>>(),
+            main_candidate: sample::<bool>(),
         }]
     }
 }
@@ -2476,16 +2477,21 @@ impl<
                     wrapper: sample::<CellWrapper>(),
                     value: sample::<T>(),
                 },
+                Self::NeutralLeaf {
+                    constructor_key: sample::<ProvenanceKey>(),
+                    value: sample::<T>(),
+                },
                 Self::Nested {
                     declaration: sample::<N>(),
                     children: sample::<Vec<ProtocolInitializerCell<I, N, T>>>(),
                 },
             ],
-            2,
+            3,
             "ProtocolInitializerCellContent",
             |value| match value {
                 Self::Leaf { .. } => 0,
-                Self::Nested { .. } => 1,
+                Self::NeutralLeaf { .. } => 1,
+                Self::Nested { .. } => 2,
             },
         )
     }

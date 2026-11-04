@@ -440,6 +440,8 @@ struct ResolutionTables {
     /// Every declared cell's kind as the host declaration gives it, checked against the
     /// collected declaration once the bundle is resolved.
     cell_kinds: HostCellKinds,
+    /// The provenance keys each configuration's neutral-leaf decision drops.
+    dropped: resolve::DroppedKeys,
 }
 
 /// Sorts `pending` by final identity (K namespace order; host identities sort by Cargo package)
@@ -450,6 +452,17 @@ fn resolution_tables(
     builtins: Option<&HostBuiltinRegistry>,
 ) -> Result<ResolutionTables, CollectionError> {
     pending.sort_by(|left, right| left.id.cmp(&right.id));
+    let dropped =
+        resolve::decide_neutral_leaves(pending, builtins).map_err(|(index, key, error)| {
+            let owner = &pending[index];
+            locate_at_host(
+                error.with_reference_key(key),
+                &owner.host,
+                &owner.id,
+                owner.context_index,
+                contexts,
+            )
+        })?;
     let context_aliases = pending
         .iter()
         .filter(|pending| pending.id.item_kind() == ItemKind::ContextAlias)
@@ -467,6 +480,7 @@ fn resolution_tables(
         cell_fields,
         head_targets,
         cell_kinds,
+        dropped,
     })
 }
 
@@ -486,6 +500,7 @@ fn resolve_pending_descriptors(
         cell_fields,
         head_targets,
         cell_kinds,
+        dropped,
     } = timings.try_span("collector.resolve.tables", |_| {
         resolution_tables(&mut pending, contexts, builtins)
     })?;
@@ -541,7 +556,10 @@ fn resolve_pending_descriptors(
             &head_targets,
         );
         payload_seconds += Timings::since(started);
-        let (payload, provenance, misreads) = match payload.and_then(|resolved| {
+        let (payload, provenance, misreads) = match payload.and_then(|mut resolved| {
+            if let Some(keys) = dropped.get(&pending.id) {
+                resolved.discarded.extend(keys.iter().cloned());
+            }
             Ok((
                 resolved.payload,
                 kept_provenance(&provenance, &resolved.discarded)?,

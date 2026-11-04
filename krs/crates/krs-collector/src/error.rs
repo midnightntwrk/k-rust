@@ -51,6 +51,9 @@ pub enum CollectionErrorKind {
     /// A configuration with several `KSequence` cells, none or more than one of which reads the
     /// program, which a rule at the head of the computation needs: the configuration's refusal.
     MainCell,
+    /// Two configuration variables are read by the computation an initializer gives by
+    /// brackets, which the declared kinds decide: the rule `k!` follows, at the second.
+    AmbiguousMainConfigurationVariable,
     /// A display filename was not a normalized relative source hint.
     InvalidDisplayFile,
     /// A display or resolved source file escaped its Cargo package directory.
@@ -229,6 +232,9 @@ impl ToDiagnostic for CollectionError {
             CollectionErrorKind::ConfigurationCount => codes::analysis::CONFIGURATION_COUNT,
             CollectionErrorKind::ComputationCell => codes::analysis::COMPUTATION_CELL,
             CollectionErrorKind::MainCell => codes::analysis::MAIN_CELL,
+            CollectionErrorKind::AmbiguousMainConfigurationVariable => {
+                codes::syntax::AMBIGUOUS_MAIN_CONFIGURATION_VARIABLE
+            }
             CollectionErrorKind::InvalidDisplayFile => codes::collect::INVALID_DISPLAY_FILE,
             CollectionErrorKind::SourceOutsidePackage => codes::collect::SOURCE_OUTSIDE_PACKAGE,
             CollectionErrorKind::AmbiguousSourcePath => codes::collect::AMBIGUOUS_SOURCE_PATH,

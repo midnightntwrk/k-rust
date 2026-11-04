@@ -153,6 +153,7 @@ fn init_inner(
             },
             arguments,
             main_key,
+            main_candidate: variable.attribute().is_main_candidate(),
         });
     }
     let cells = builder.expand_cells(initializer.cells(), &quote!(Self))?;
@@ -295,6 +296,15 @@ fn inject_initializer_value(
     bindings: &[Ident],
 ) -> crate::Result<()> {
     match cell.content() {
+        // A kind-neutral leaf names no wrapper: the declared cell's kind decides it, so the
+        // stand-in is the cell's whole value, of whichever cell type the field declares.
+        InitializerCellContent::Leaf {
+            value,
+            neutral: true,
+            ..
+        } => {
+            *expression = initializer_value_stand_in(value, facade, bindings);
+        }
         InitializerCellContent::Leaf {
             value,
             computation,
@@ -429,6 +439,15 @@ impl<'a> InitializerBuilder<'a> {
                 },
             };
             let content = match cell.content() {
+                // A bracketed value: the declared kind decides its wrapper ([`ProtocolInitializerCellContent::NeutralLeaf`]).
+                InitializerCellContent::Leaf {
+                    value: value @ StateTerm::Term(_),
+                    neutral: true,
+                    ..
+                } => ProtocolInitializerCellContent::NeutralLeaf {
+                    constructor_key: ledger.define(cell.constructor_key())?,
+                    value: self.expand_state(value)?,
+                },
                 InitializerCellContent::Leaf {
                     constructor,
                     value,

@@ -434,7 +434,22 @@ protocol_shape! {
         pub arguments: Vec<ProtocolSortArgument<S>> => [vec nested sort_map],
         /// Exact optional `main` marker provenance.
         pub main_key: Option<ProvenanceKey> => [keep],
+        /// Whether `main_key` marks a candidate only: the variable is read by a kind-neutral
+        /// leaf ([`ProtocolInitializerCellContent::NeutralLeaf`]) and nothing else decides main.
+        /// The main variable is the one the computation reads, so the collector keeps the
+        /// candidate the computation it decides reads and drops the others' markers. Only a
+        /// host descriptor holds one.
+        #[serde(default, skip_serializing_if = "is_false")]
+        pub main_candidate: bool => [keep],
     }
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's `skip_serializing_if` passes the field by reference"
+)]
+const fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// Stable configuration-variable metadata.
@@ -1606,8 +1621,14 @@ fn validate_variables<S: ConfigurationValidationStage>(
             )?;
             S::validate_sort_argument(argument)?;
         }
+        if variable.main_candidate && (!S::NEUTRAL_LEAVES || variable.main_key.is_none()) {
+            return Err(StateTransportError::InvalidCellContent(
+                StateCellContentReason::UndecidedMainCandidate,
+            ));
+        }
         if let Some(main_key) = &variable.main_key {
-            main_count += 1;
+            // Candidates are many or none once the collector has decided them.
+            main_count += usize::from(!variable.main_candidate);
             keys.define(main_key, ProvenanceRole::ConfigurationVariableMain)?;
         }
     }

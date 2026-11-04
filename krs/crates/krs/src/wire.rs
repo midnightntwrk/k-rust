@@ -932,6 +932,7 @@ mod tests {
                 sort: wire_sort(),
                 arguments: Vec::new(),
                 main_key: None,
+                main_candidate: false,
             }],
             cells: vec![ProtocolInitializerCell {
                 absent: None,
@@ -979,6 +980,7 @@ mod tests {
                 sort: host_sort(),
                 arguments: Vec::new(),
                 main_key: None,
+                main_candidate: false,
             }],
             cells: vec![ProtocolInitializerCell {
                 absent: None,

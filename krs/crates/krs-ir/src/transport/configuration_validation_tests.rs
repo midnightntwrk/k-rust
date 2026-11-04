@@ -423,6 +423,7 @@ fn variable<S>(sort: S) -> ProtocolConfigurationVariable<S> {
         sort,
         arguments: Vec::new(),
         main_key: None,
+        main_candidate: false,
     }
 }
 

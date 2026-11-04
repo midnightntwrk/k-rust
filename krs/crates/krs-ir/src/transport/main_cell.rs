@@ -153,6 +153,17 @@ impl<S: Stage> FixedConfiguration<S> {
     }
 }
 
+/// Whether the initializer state `state` reads the variable `name` ([`term_reads`]): the reading
+/// [`FixedConfiguration::main_cell`] asks of each computation leaf, which the collector asks of
+/// the computation it decides from a kind-neutral leaf.
+#[must_use]
+pub fn initializer_state_reads<S: Stage>(
+    state: &ProtocolInitializerStateTerm<Term<S>>,
+    name: &str,
+) -> bool {
+    state_reads(state, name)
+}
+
 fn state_reads<S: Stage>(state: &ProtocolInitializerStateTerm<Term<S>>, name: &str) -> bool {
     match state {
         ProtocolInitializerStateTerm::Term(term) => term_reads(&term.term, name),

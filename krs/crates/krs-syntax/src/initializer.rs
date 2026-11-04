@@ -31,6 +31,7 @@ pub struct ConfigurationVariableAttribute {
     main: Option<Ident>,
     inferred_name: bool,
     inferred_main: bool,
+    main_candidate: bool,
 }
 
 impl ConfigurationVariableAttribute {
@@ -56,6 +57,15 @@ impl ConfigurationVariableAttribute {
     #[must_use]
     pub const fn has_inferred_main(&self) -> bool {
         self.inferred_main
+    }
+
+    /// Whether `main` is a candidate only: the variable is read by a kind-neutral leaf, and no
+    /// `k!` leaf or authored marker decides main. The main variable is the one the computation
+    /// reads, and only the declared kinds say which neutral leaf is the computation, so the
+    /// collector keeps the candidate its decided computation reads and drops the others.
+    #[must_use]
+    pub const fn is_main_candidate(&self) -> bool {
+        self.main_candidate
     }
 }
 
@@ -202,6 +212,11 @@ pub enum InitializerCellContent {
         computation: bool,
         /// Whether the constructor was inferred from a plain expression.
         inferred_constructor: bool,
+        /// Whether the leaf is kind-neutral: a bracketed value (`[a, b]`), which is the
+        /// computation's items on a computation cell and the list of its items on a list cell.
+        /// Tokens do not say which, so the declared cell's kind decides it, not this parser;
+        /// its constructor is inferred, and `computation` is `false` until that decision.
+        neutral: bool,
     },
     /// Nominal nested cell struct literal.
     Nested {
@@ -772,6 +787,7 @@ fn parse_configuration_variable(parameter: PatType) -> Result<ConfigurationVaria
             main: None,
             inferred_name: true,
             inferred_main: false,
+            main_candidate: false,
         }
     };
     let (term_sort, sort, arguments) = if let Ok(term_sort) =
@@ -912,6 +928,7 @@ fn parse_config_var_stream(
         main,
         inferred_name: false,
         inferred_main: false,
+        main_candidate: false,
     })
 }
 
@@ -1084,6 +1101,7 @@ fn parse_initializer_cell(
             value: StateTerm::Term(TermExpression::parse_tokens(field.expr.to_token_stream())?),
             computation: false,
             inferred_constructor: true,
+            neutral: false,
         };
         return Ok(FixedCellInitializer {
             field,
@@ -1144,6 +1162,7 @@ fn parse_initializer_cell(
                 value,
                 computation,
                 inferred_constructor: false,
+                neutral: false,
             }
         }
         Expr::Struct(nested) => {
@@ -1205,6 +1224,7 @@ fn parse_initializer_cell(
                 value,
                 computation,
                 inferred_constructor: true,
+                neutral: false,
             }
         }
         Expr::Path(_) => InitializerCellContent::Leaf {
@@ -1212,7 +1232,31 @@ fn parse_initializer_cell(
             value: StateTerm::Term(TermExpression::parse_tokens(field.expr.to_token_stream())?),
             computation: false,
             inferred_constructor: true,
+            neutral: false,
         },
+        // A bracketed value is kind-neutral: the computation's items or a list, as the declared
+        // cell's kind reads it.
+        Expr::Array(array) => {
+            // An initializer's value is complete: it has no subject whose rest a `..` could
+            // keep, whichever kind reads the brackets.
+            if let Some(rest) = array
+                .elems
+                .iter()
+                .find(|item| matches!(item, Expr::Range(syn::ExprRange { start: None, .. })))
+            {
+                return Err(unsupported_body(
+                    "an initializer's bracketed value holds a rest (`..`), but an initializer's value is complete: it has no subject whose rest the `..` could keep, so it lists every item",
+                    rest.span(),
+                ));
+            }
+            InitializerCellContent::Leaf {
+                constructor: inferred_constructor_path(false, field.expr.span()),
+                value: StateTerm::Term(TermExpression::parse_tokens(field.expr.to_token_stream())?),
+                computation: false,
+                inferred_constructor: true,
+                neutral: true,
+            }
+        }
         other => {
             return Err(unsupported_body(
                 "initializer cells require a cell constructor, a readable plain term, or a nested cell struct",
@@ -1555,6 +1599,22 @@ fn infer_main_configuration_variable(
     }
     let mut used = std::collections::BTreeSet::new();
     collect_computation_variable_uses(cells, variables, &mut used);
+    if used.is_empty() {
+        // No `k!` leaf reads a variable: each variable a kind-neutral leaf reads is a
+        // candidate, the main one if its leaf is the computation, which the declared kinds
+        // decide. The candidates are not ambiguous here: the collector applies this rule to the
+        // computation it decides.
+        collect_neutral_variable_uses(cells, variables, &mut used);
+        for variable in variables
+            .iter_mut()
+            .filter(|variable| used.contains(&variable.binding.to_string()))
+        {
+            variable.attribute.main = Some(variable.binding.clone());
+            variable.attribute.inferred_main = true;
+            variable.attribute.main_candidate = true;
+        }
+        return Ok(());
+    }
     let mut matches = variables
         .iter_mut()
         .filter(|variable| used.contains(&variable.binding.to_string()));
@@ -1585,27 +1645,56 @@ fn collect_computation_variable_uses(
                 ..
             } => {
                 for term in sequence.items() {
-                    for symbol in term.symbols() {
-                        if symbol.kind() != TermSymbolKind::Reference
-                            || symbol.path().leading_colon.is_some()
-                            || symbol.path().segments.len() != 1
-                        {
-                            continue;
-                        }
-                        let binding = &symbol.path().segments[0].ident;
-                        if variables
-                            .iter()
-                            .any(|variable| variable.binding == *binding)
-                        {
-                            output.insert(binding.to_string());
-                        }
-                    }
+                    collect_term_variable_uses(term, variables, output);
                 }
             }
             InitializerCellContent::Nested { children, .. } => {
                 collect_computation_variable_uses(children, variables, output);
             }
             InitializerCellContent::Leaf { .. } => {}
+        }
+    }
+}
+
+/// The variables the kind-neutral leaves of `cells` read, each a main candidate.
+fn collect_neutral_variable_uses(
+    cells: &[FixedCellInitializer],
+    variables: &[ConfigurationVariable],
+    output: &mut std::collections::BTreeSet<String>,
+) {
+    for cell in cells {
+        match &cell.content {
+            InitializerCellContent::Leaf {
+                value: StateTerm::Term(term),
+                neutral: true,
+                ..
+            } => collect_term_variable_uses(term, variables, output),
+            InitializerCellContent::Nested { children, .. } => {
+                collect_neutral_variable_uses(children, variables, output);
+            }
+            InitializerCellContent::Leaf { .. } => {}
+        }
+    }
+}
+
+fn collect_term_variable_uses(
+    term: &TermExpression,
+    variables: &[ConfigurationVariable],
+    output: &mut std::collections::BTreeSet<String>,
+) {
+    for symbol in term.symbols() {
+        if symbol.kind() != TermSymbolKind::Reference
+            || symbol.path().leading_colon.is_some()
+            || symbol.path().segments.len() != 1
+        {
+            continue;
+        }
+        let binding = &symbol.path().segments[0].ident;
+        if variables
+            .iter()
+            .any(|variable| variable.binding == *binding)
+        {
+            output.insert(binding.to_string());
         }
     }
 }

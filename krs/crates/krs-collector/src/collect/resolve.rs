@@ -410,6 +410,154 @@ impl CellView for HostCell<'_> {
 /// descriptor's identity and the field's Rust name.
 pub(super) type HostCellKinds = Vec<(StableItemId, Vec<(String, CellKind)>)>;
 
+/// The provenance keys a configuration's decision drops: the `main` markers of the candidates
+/// its computation does not read, by configuration.
+pub(super) type DroppedKeys = HashMap<StableItemId, BTreeSet<krs_ir::ProvenanceKey>>;
+
+/// Decides every configuration's kind-neutral initializer leaves by the declared cell's kind,
+/// before anything reads a leaf's wrapper (the main cell, the configuration's resolution): a
+/// bracketed value is the sequence of its items on a computation cell, and the list of its items
+/// on a `List` or cons-list leaf (P2/P3: brackets are the computation's or the list's mark, read
+/// by the declared kind). A leaf of any other kind stays neutral, for the admission to refuse.
+///
+/// Then main: the main configuration variable is the one the computation reads. A candidate
+/// marks each variable a neutral leaf reads when nothing else decides main; the rule `k!`
+/// follows decides among the candidates the decided computation reads: one is main, two are
+/// ambiguous at the second, and the others' markers are dropped.
+///
+/// # Errors
+///
+/// [`CollectionErrorKind::AmbiguousMainConfigurationVariable`], with the configuration's index
+/// in `pending` and the second candidate's marker key, where the computation reads two.
+pub(super) fn decide_neutral_leaves(
+    pending: &mut [PendingDescriptor],
+    builtins: Option<&HostBuiltinRegistry>,
+) -> Result<DroppedKeys, (usize, krs_ir::ProvenanceKey, CollectionError)> {
+    let kinds = {
+        let views = HostCellDeclarations::new(pending, builtins);
+        pending
+            .iter()
+            .filter_map(|descriptor| match &descriptor.host.payload {
+                HostDescriptorPayload::Cell(declaration) => Some(declaration.as_ref()),
+                HostDescriptorPayload::FixedConfiguration(configuration) => {
+                    Some(&configuration.declaration)
+                }
+                _ => None,
+            })
+            .flat_map(|declaration| &declaration.fields)
+            .map(|field| {
+                (
+                    field.reference.cell.resolve(),
+                    CellKind::of(&views.cell(field)),
+                )
+            })
+            .collect::<HashMap<_, _>>()
+    };
+    let mut dropped = DroppedKeys::new();
+    for (index, descriptor) in pending.iter_mut().enumerate() {
+        let HostDescriptorPayload::FixedConfiguration(configuration) = &mut descriptor.host.payload
+        else {
+            continue;
+        };
+        let initializer = &mut configuration.initializer;
+        let mut computations = Vec::new();
+        decide_leaves(&mut initializer.cells, &kinds, &mut computations);
+        if !initializer
+            .variables
+            .iter()
+            .any(|variable| variable.main_candidate)
+        {
+            continue;
+        }
+        let mut read = initializer
+            .variables
+            .iter_mut()
+            .filter(|variable| variable.main_candidate)
+            .filter(|variable| {
+                computations
+                    .iter()
+                    .any(|state| krs_ir::initializer_state_reads(state, &variable.binding))
+            });
+        let main = read.next().map(|variable| variable.binding.clone());
+        if let Some(ambiguous) = read.next() {
+            let key = ambiguous
+                .main_key
+                .clone()
+                .expect("a main candidate has a marker");
+            return Err((
+                index,
+                key,
+                CollectionError::new(
+                    CollectionErrorKind::AmbiguousMainConfigurationVariable,
+                    format!(
+                        "the computation reads two configuration variables, `{}` and `{}`, so \
+                         which is main is ambiguous: mark one `#[k::config_var(main)]`",
+                        main.as_deref().unwrap_or_default(),
+                        ambiguous.binding
+                    ),
+                ),
+            ));
+        }
+        for variable in &mut initializer.variables {
+            if !variable.main_candidate {
+                continue;
+            }
+            variable.main_candidate = false;
+            if main.as_ref() != Some(&variable.binding)
+                && let Some(key) = variable.main_key.take()
+            {
+                dropped
+                    .entry(descriptor.id.clone())
+                    .or_default()
+                    .insert(key);
+            }
+        }
+    }
+    Ok(dropped)
+}
+
+/// Decides the neutral leaves of `cells` by `kinds`, pushing the state of each one decided a
+/// computation onto `computations`.
+fn decide_leaves(
+    cells: &mut [krs_ir::HostInitializerCell],
+    kinds: &HashMap<(TypeId, TypeId), CellKind>,
+    computations: &mut Vec<krs_ir::HostInitializerStateTerm>,
+) {
+    for cell in cells {
+        match &mut cell.content {
+            krs_ir::ProtocolInitializerCellContent::NeutralLeaf {
+                constructor_key,
+                value,
+            } => {
+                // A cell of one, neither optional nor a collection: an optional cell's or a
+                // collection's brackets are the admission's to judge against its marks.
+                let wrapper = match kinds
+                    .get(&cell.field.cell.resolve())
+                    .map(|kind| kind.layers.as_slice())
+                {
+                    Some([Layer::Computation]) => krs_ir::CellWrapper::KCell,
+                    Some([Layer::Leaf(Notation::List | Notation::Cons)]) => {
+                        krs_ir::CellWrapper::Cell
+                    }
+                    _ => continue,
+                };
+                if wrapper == krs_ir::CellWrapper::KCell {
+                    computations.push(value.clone());
+                }
+                cell.content = krs_ir::ProtocolInitializerCellContent::Leaf {
+                    constructor_key: constructor_key.clone(),
+                    wrapper,
+                    value: value.clone(),
+                };
+            }
+            krs_ir::ProtocolInitializerCellContent::Nested { children, .. } => {
+                decide_leaves(children, kinds, computations);
+            }
+            krs_ir::ProtocolInitializerCellContent::Leaf { .. } => {}
+        }
+    }
+}
+
 /// The kinds [`HostCell`] gives every declared cell field of `pending`.
 pub(super) fn host_cell_kinds(
     pending: &[PendingDescriptor],

@@ -139,6 +139,7 @@ fn variable() -> DescriptorConfigurationVariable {
         sort: sort(2),
         arguments: Vec::new(),
         main_key: Some(key(3)),
+        main_candidate: false,
     }
 }
 
