@@ -1686,7 +1686,7 @@ With it, every build warns once per use (`krs::expand::raw-hook`, naming the hoo
 
 ## Running a definition
 
-Each command compiles the selected definition in-process and corresponds to a K tool on the emitted `definition.k` and `spec.k`; the [workflow reference](/reference/workflow#run-search-and-prove) lists their options.
+Each command compiles the selected definition with the k-rust backend linked into krs (`krs prove` in a child krs process, so that a crash costs one claim) and corresponds to a K tool on the emitted `definition.k` and `spec.k`; the [workflow reference](/reference/workflow#run-search-and-prove) lists their options.
 
 | KRS | Java K | Result |
 | --- | --- | --- |
@@ -1698,8 +1698,9 @@ Each command compiles the selected definition in-process and corresponds to a K 
 | `krs prove --spec-module IMP-SUM-SPEC` | `kprove spec.k --spec-module IMP-SUM-SPEC` | a verdict for each claim of an author spec module |
 
 A run ends `stuck` when no rule applies; K has no separate finished state, so a program is finished when `<k>` holds only `.K`.
-Proof verdicts are k-rust's `proven`, `disproved`, `failed`, `indeterminate`, `depth-bound`, and `breadth-bound`, and `trusted` for a [trusted claim](/verification/reachability-claims#trusted-claims), which is assumed without proof.
-`--output json` prints a `krs-exec/1` report whose configurations are KAST JSON, as `krun --output json` prints them.
+Proof verdicts are k-rust's `proven`, `disproved`, `failed`, `indeterminate`, `depth-bound`, and `breadth-bound`; `trusted` for a [trusted claim](/verification/reachability-claims#trusted-claims), which is assumed without proof; and `crashed` for a claim whose proof process ended abnormally ([proving a batch of claims](/verification/reachability-claims#proving-a-batch-of-claims)).
+`--output json` prints a report whose configurations are KAST JSON, as `krun --output json` prints them: a `krs-exec/1` report for `krs run` and `krs search`, and a `krs-exec/2` report for `krs prove`, the version that has the `crashed` verdict.
+`krs prove --output jsonl` prints a `krs-exec/2` record per claim as its proof ends, then a summary line.
 
 ### Printing through the grammar
 

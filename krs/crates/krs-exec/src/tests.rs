@@ -815,21 +815,15 @@ endmodule
     )
     .unwrap();
     let hooks = result_sort_hooks(&mut backend).unwrap();
-    let claims = vec![super::ClaimInfo {
+    let claim = super::ClaimInfo {
         label: "EMPTY-EVIDENCE-SPEC.empty".into(),
         module: "EMPTY-EVIDENCE-SPEC".into(),
         modality: super::Modality::AllPath,
         origin: None,
         trusted: false,
         backend_label: "EMPTY-EVIDENCE-SPEC.empty".into(),
-    }];
-    let reports = super::prove_claims(
-        &mut backend,
-        &hooks,
-        &claims,
-        &super::ProveOptions::default(),
-    )
-    .unwrap();
+    };
+    let reports = [super::prove_claim(&mut backend, &hooks, &claim, None).unwrap()];
     assert_eq!(reports[0].verdict, super::Verdict::Proven);
     assert!(reports[0].trusted_claims.is_empty());
     assert!(reports[0].leaves[0].vacuous);

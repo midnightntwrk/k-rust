@@ -13,7 +13,7 @@
 //! - [`Semantics::values`] names constructors and sorts by their KRS declarations, so a configuration variable can be given as a [`Value`] ([`ConfigValue::Value`]), and [`Semantics::views`] reads a result's cells as values by their Rust field names.
 //!
 //! The crate is filesystem-free: the caller supplies Definition IR, program text, and (optionally) the authored source text that trace origins are positioned in.
-//! The serialized reports form the `krs-exec/1` JSON shape that `krs run --output json` prints.
+//! The serialized reports form the `krs-exec` JSON shapes that `--output json` prints: `krs-exec/1` for a run and a search, `krs-exec/2` for a proof ([`REPORT_SCHEMA`] states how the versions are numbered).
 //! Every operation can recurse deeply through large terms: callers run it on a thread with a large stack, as the CLI and the gate session do (64 MiB).
 
 mod cell_types;
@@ -78,12 +78,19 @@ pub use krs_unparse::{Mode as UnparseMode, Printed, Warning as UnparseWarning};
 pub use origin::Origins;
 pub use read_back::{PrintedCell, ReadBack};
 pub use report::{
-    Capabilities, ClaimInfo, ConfigVariable, Coverage, CoveredRule, Halt, Modality, NamedRule,
-    ProofLeaf, ProofReport, REPORT_SCHEMA, RuleKind, RunReport, SearchReport, Solution, SourceSpan,
-    Step, StepOrigin, Stop, StopAt, Term, Verdict,
+    Capabilities, ClaimInfo, ConfigVariable, Coverage, CoveredRule, Crash, Halt, Modality,
+    NamedRule, PANIC_EXIT_STATUS, PROVE_REPORT_SCHEMA, ProofLeaf, ProofReport, REPORT_SCHEMA,
+    RuleKind, RunReport, SearchReport, Solution, SourceSpan, Step, StepOrigin, Stop, StopAt, Term,
+    Verdict,
 };
 pub use values::{Ctor, Decl, Float, SortRef, Value, ValueError, ValueIndex};
 pub use view::{CellError, StateView, View};
+
+/// The Z3 library this build links (`Z3_get_full_version`), or `None` in a build without one.
+#[must_use]
+pub fn z3_version() -> Option<&'static str> {
+    k_rust::backend::z3_version()
+}
 
 /// Authored source text by file identity, used to position trace and claim origins.
 ///
@@ -2100,25 +2107,72 @@ impl Semantics {
         })
     }
 
-    /// Prove the selected claims, one backend proof per claim, in selection order.
+    /// Prove the selected claims, one backend proof per claim, in selection order: the reports
+    /// of [`Semantics::prove_claim`] for each claim of [`Semantics::prove_selection`].
     ///
     /// # Errors
     ///
-    /// Returns [`ExecError::NoClaims`], a claim-resolution error, [`ExecError::Unavailable`] for an author spec module, or [`ExecError::Backend`].
+    /// Returns an error of [`Semantics::prove_selection`] or [`Semantics::prove_claim`].
     pub fn prove(&mut self, options: &ProveOptions) -> Result<Vec<ProofReport>, ExecError> {
-        if let Some(module) = &options.module
-            && module != &claims::spec_module(&self.main_module)
+        let selection = self.prove_selection(options)?;
+        selection
+            .iter()
+            .map(|claim| self.prove_claim(options, claim))
+            .collect()
+    }
+
+    /// The claims `options` selects, in selection order: its module's claims, resolved from
+    /// [`ProveOptions::claims`] once, so a caller proving them one at a time
+    /// ([`Semantics::prove_claim`]) can report each as it starts and ends.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecError::NoClaims`], a claim-resolution error, or [`ExecError::Unavailable`] for an author spec module.
+    pub fn prove_selection(&mut self, options: &ProveOptions) -> Result<Vec<ClaimInfo>, ExecError> {
+        let prover = self.prover(options.module.as_deref())?;
+        Ok(claims::select(prover.claims, &options.claims)?
+            .into_iter()
+            .map(|index| prover.claims[index].clone())
+            .collect())
+    }
+
+    /// Prove `claim`, one of [`Semantics::prove_selection`]'s for the same `options`, as one
+    /// backend proof per disjunct of its left-hand side.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error of [`Semantics::prove_selection`], or [`ExecError::Backend`].
+    pub fn prove_claim(
+        &mut self,
+        options: &ProveOptions,
+        claim: &ClaimInfo,
+    ) -> Result<ProofReport, ExecError> {
+        let prover = self.prover(options.module.as_deref())?;
+        // A claim read back from its serialization has lost its backend label: find it again.
+        let claim = if claim.backend_label.is_empty() {
+            let index = claims::select(prover.claims, std::slice::from_ref(&claim.label))?[0];
+            &prover.claims[index]
+        } else {
+            claim
+        };
+        prove_claim(prover.backend, prover.sort_hooks, claim, options.depth)
+    }
+
+    /// The backend and claim catalog of the spec module `module` (`None`: the generated
+    /// `<MAIN>-SPEC`), which must hold a claim.
+    fn prover(&mut self, module: Option<&str>) -> Result<Prover<'_>, ExecError> {
+        if let Some(module) = module
+            && module != claims::spec_module(&self.main_module)
         {
             let prover = self.spec_prover(module)?;
             if prover.claims.is_empty() {
-                return Err(ExecError::NoSpecClaims(module.clone()));
+                return Err(ExecError::NoSpecClaims(module.to_owned()));
             }
-            return prove_claims(
-                &mut prover.backend,
-                &prover.sort_hooks,
-                &prover.claims,
-                options,
-            );
+            return Ok(Prover {
+                backend: &mut prover.backend,
+                sort_hooks: &prover.sort_hooks,
+                claims: &prover.claims,
+            });
         }
         if self.claims.is_empty() {
             if !self.spec_modules.is_empty() {
@@ -2130,7 +2184,11 @@ impl Semantics {
             }
             return Err(ExecError::NoClaims);
         }
-        prove_claims(&mut self.backend, &self.sort_hooks, &self.claims, options)
+        Ok(Prover {
+            backend: &mut self.backend,
+            sort_hooks: &self.sort_hooks,
+            claims: &self.claims,
+        })
     }
 
     /// The value tables of this definition: names constructors and sorts
@@ -2471,81 +2529,84 @@ fn compile_spec_definition(
     .map(|(artifacts, _)| artifacts)
 }
 
-/// Prove the selected claims of `catalog` on `backend`, one proof per claim, in selection order.
-fn prove_claims(
+/// A spec module's backend and claim catalog ([`Semantics::prover`]).
+struct Prover<'a> {
+    backend: &'a mut Backend,
+    sort_hooks: &'a HashMap<String, String>,
+    claims: &'a [ClaimInfo],
+}
+
+/// Prove `claim` on `backend`, at most `depth` proof transitions per disjunct.
+fn prove_claim(
     backend: &mut Backend,
     sort_hooks: &HashMap<String, String>,
-    catalog: &[ClaimInfo],
-    options: &ProveOptions,
-) -> Result<Vec<ProofReport>, ExecError> {
-    let selected = claims::select(catalog, &options.claims)?;
-    let mut reports = Vec::with_capacity(selected.len());
-    for index in selected {
-        let claim = catalog[index].clone();
-        // A claim whose left-hand side is a disjunction is one backend claim per disjunct, each
-        // proven by its own request; the claim holds only if every disjunct does, so its verdict
-        // is the weakest of theirs and its leaves are all of theirs.
-        let disjuncts = backend.claim_disjuncts(None, &claim.backend_label)?;
-        let selectors = if disjuncts.len() > 1 {
-            disjuncts
-        } else {
-            vec![claim.backend_label.clone()]
-        };
-        let mut verdict = Verdict::Proven;
-        let mut leaves = Vec::new();
-        let mut trusted_claims = std::collections::BTreeSet::new();
-        for selector in selectors {
-            let result = backend.prove_kore(ProveRequest {
-                claim: Some(selector),
-                max_depth: options.depth,
-                ..ProveRequest::default()
-            })?;
-            let disjunct = Verdict::from_backend(&result.status).ok_or_else(|| {
-                ExecError::Result(format!("unknown proof status `{}`", result.status))
-            })?;
-            verdict = verdict.weakest(disjunct);
-            trusted_claims.extend(result.trusted_claims);
-            for leaf in result.leaves {
-                leaves.push(ProofLeaf {
-                    state: term(leaf.state, sort_hooks)?,
-                    depth: leaf.depth,
-                    outcome: leaf.outcome.name().to_owned(),
-                    detail: leaf.detail,
-                    certified: leaf.certified,
-                    vacuous: leaf.vacuous,
-                    claim_steps: leaf.claim_steps,
-                    contradicted_total: leaf
-                        .contradicted_total
-                        .map(|record| {
-                            Ok::<_, ExecError>(k_rust::backend::ContradictedTotalOutput {
-                                symbol: record.symbol,
-                                k_label: record.k_label,
-                                rule_id: record.rule_id,
-                                rule_label: record.rule_label,
-                                origin: record.origin,
-                                application: term(record.application, sort_hooks)?,
-                                undefined: term(record.undefined, sort_hooks)?,
-                            })
+    claim: &ClaimInfo,
+    depth: Option<u64>,
+) -> Result<ProofReport, ExecError> {
+    let claim = claim.clone();
+    // A claim whose left-hand side is a disjunction is one backend claim per disjunct, each
+    // proven by its own request; the claim holds only if every disjunct does, so its verdict
+    // is the weakest of theirs and its leaves are all of theirs.
+    let disjuncts = backend.claim_disjuncts(None, &claim.backend_label)?;
+    let selectors = if disjuncts.len() > 1 {
+        disjuncts
+    } else {
+        vec![claim.backend_label.clone()]
+    };
+    let mut verdict = Verdict::Proven;
+    let mut leaves = Vec::new();
+    let mut trusted_claims = std::collections::BTreeSet::new();
+    for selector in selectors {
+        let result = backend.prove_kore(ProveRequest {
+            claim: Some(selector),
+            max_depth: depth,
+            ..ProveRequest::default()
+        })?;
+        let disjunct = Verdict::from_backend(&result.status).ok_or_else(|| {
+            ExecError::Result(format!("unknown proof status `{}`", result.status))
+        })?;
+        verdict = verdict.weakest(disjunct);
+        trusted_claims.extend(result.trusted_claims);
+        for leaf in result.leaves {
+            leaves.push(ProofLeaf {
+                state: term(leaf.state, sort_hooks)?,
+                depth: leaf.depth,
+                outcome: leaf.outcome.name().to_owned(),
+                detail: leaf.detail,
+                certified: leaf.certified,
+                vacuous: leaf.vacuous,
+                claim_steps: leaf.claim_steps,
+                contradicted_total: leaf
+                    .contradicted_total
+                    .map(|record| {
+                        Ok::<_, ExecError>(k_rust::backend::ContradictedTotalOutput {
+                            symbol: record.symbol,
+                            k_label: record.k_label,
+                            rule_id: record.rule_id,
+                            rule_label: record.rule_label,
+                            origin: record.origin,
+                            application: term(record.application, sort_hooks)?,
+                            undefined: term(record.undefined, sort_hooks)?,
                         })
-                        .transpose()?,
-                });
-            }
+                    })
+                    .transpose()?,
+            });
         }
-        // The backend assumes a trusted claim and reports it proven; KRS never calls an
-        // assumption proven (KF-042).
-        if claim.trusted && verdict == Verdict::Proven {
-            verdict = Verdict::Trusted;
-        }
-        reports.push(ProofReport {
-            claim: claim.label,
-            modality: claim.modality,
-            origin: claim.origin,
-            verdict,
-            trusted_claims: trusted_claims.into_iter().collect(),
-            leaves,
-        });
     }
-    Ok(reports)
+    // The backend assumes a trusted claim and reports it proven; KRS never calls an
+    // assumption proven (KF-042).
+    if claim.trusted && verdict == Verdict::Proven {
+        verdict = Verdict::Trusted;
+    }
+    Ok(ProofReport {
+        claim: claim.label,
+        modality: claim.modality,
+        origin: claim.origin,
+        verdict,
+        trusted_claims: trusted_claims.into_iter().collect(),
+        leaves,
+        crash: None,
+    })
 }
 
 /// The `io::log` lines among committed backend effects, in order.

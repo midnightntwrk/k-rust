@@ -35,6 +35,7 @@ mod failed_items;
 mod output;
 mod result_cache;
 mod stage_cache;
+mod supervisor;
 use collector::{
     build_collector_measured, discover_runtime, generate_collector, run_collector,
     rustc_host_target,
@@ -139,6 +140,7 @@ pub(crate) use collected::{PlannedCollection, plan_collection};
 pub use exec::{
     ColorChoice, ParseRequest, ProgramSource, ProveRequest, RunRequest, SearchRequest, TermOutput,
 };
+pub use supervisor::{supervise_prove, watch_supervisor};
 
 impl Command {
     /// Return the command category recorded in measurements and cache file names.

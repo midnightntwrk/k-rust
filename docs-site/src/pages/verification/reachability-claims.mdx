@@ -314,6 +314,26 @@ KRS rejects a predicate in a transition or equation condition (`krs::analysis::m
 An `ml::exists` closure without exactly one typed parameter, a closure anywhere else, an `ml::` item outside the connectives above, and an `ml::Predicate` subject or result on anything but a simplification are expansion errors.
 `#Floor`, `#In`, and set variables are not part of `k::ml`.
 
+## Proving a batch of claims
+
+`krs prove` proves the selected claims one at a time, in order, and reports each as it ends.
+Standard error names each claim as its proof starts (`proving NAT-CLAIMS-SPEC.add-one`) and ends with the count of proven claims.
+The text outputs (`--output pretty`, `kast`, `kore`) print each claim's verdict and leaves as its proof ends.
+`--output json` prints one `krs-exec/2` document after the last claim, `{"schema":"krs-exec/2","prove":[...]}`, with a report per claim.
+`--output jsonl` prints one line per claim as its proof ends, `{"schema":"krs-exec/2","proof":{...}}`, and a last line that counts the verdicts, `{"schema":"krs-exec/2","summary":{"claims":3,"verdicts":{"proven":3}}}`; a run whose last line is no summary did not finish.
+
+The solver runs in the process that proves the claims, and some of its failures end that process: Z3 exits with status 114 on an internal error, and an abort or the kernel's out-of-memory killer ends a process by a signal.
+No code in that process can recover, so `krs prove` proves the claims in a child process of its own and watches it.
+When the child ends abnormally, by a signal or with an exit status krs never returns (a panic in krs ends it with status 101), the claim it was proving gets the verdict `crashed`, and a new child proves the claims after it.
+A crashed claim's report has no leaves and records how the process ended, `"crash":{"signal":6}` or `"crash":{"exit_status":114}`, with the Z3 library it linked (`"z3"`); its standard error, which `krs prove` passes through, holds whatever the process wrote before it ended.
+Nothing is known about a crashed claim.
+Proving it alone (`--claim`) may reproduce the crash, but need not: the child that crashed had proved the claims before it, and what it kept from them (the solver's state among it) is part of what led to the crash, while the claim alone, like every claim after a crash, starts in a fresh process.
+A crash that does not recur alone is reproduced by the batch that crashed.
+A crash before the claims are selected, or outside any claim before the child finished one, fails the whole run.
+After a crash, `--timings` and `--counters` measure only the last child, which writes them when it ends normally.
+
+`krs prove` exits 0 when every selected claim is proven or trusted, and 1 otherwise, a crashed claim included.
+
 ## Capability boundary
 
 `krs emit-k` writes claims to `spec.k`, in their spec modules or in a generated `<MAIN>-SPEC` module, beside the claim-free `definition.k`, because K accepts claims only outside an executable definition.
@@ -336,7 +356,7 @@ The table below describes repository-qualified claim processing on the Haskell r
 A proved result, an incomplete frontier, a false claim, and exhausted resources are distinct observations.
 
 The Haskell cells refer to `krs build --backend haskell` artifacts plus the repository's pinned native `kprove` harnesses.
-Those cells describe the named K/KORE consumers and repository harnesses; `krs prove` proves the same claims in-process with the k-rust backend and reports k-rust's verdicts.
+Those cells describe the named K/KORE consumers and repository harnesses; `krs prove` proves the same claims with the k-rust backend, without K, and reports k-rust's verdicts.
 One-path remains unqualified until a positive end-to-end fixture establishes its intended backend route.
 
 Malformed binders and ill-sorted conditions fail during authoring or semantic checking.

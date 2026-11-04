@@ -4,7 +4,7 @@ use krs_cli::{
     Backend, ColorChoice, Command, CommandKind, CommandRequest, DiagnosticSources, FacetSelector,
     KrsCfg, MessageFormat, PackageSelector, ParseRequest, ProgramSource, ProveRequest,
     RegistrationMode, RunRequest, SearchMode, SearchRequest, TermOutput, execute_command_reported,
-    valid_identifier_segment,
+    supervise_prove, valid_identifier_segment,
 };
 use krs_fmt::{Edition, FormatOptions, TrailingCommentStyle};
 use krs_ir::measure::Measurement;
@@ -28,7 +28,7 @@ Usage:
              [--max-solutions N] [--trace] [--output pretty|kast|json|kore]
              [--color auto|always|never]
   krs prove  --package P --definition D [--spec-module NAME] [--claim LABEL]... [--depth N]
-             [--output pretty|kast|json|kore] [--color auto|always|never]
+             [--output pretty|kast|json|jsonl|kore] [--color auto|always|never]
   krs kink <emit|check|results|run|report|query|fuzz> --package P --definition D [OPTIONS]
              (krs kink --help lists the corpus loop's options)
   krs fmt [--check] [--manifest-path PATH] [PATH ...]
@@ -61,7 +61,7 @@ Options:
                              that backend's route (default: every route)
   --output DIRECTORY         Required for emit-k and build; with expand, an absent or empty
                              directory for the changed module files, whose paths stdout lists
-  --output FORMAT            Result format: pretty (default of run, search, prove), program (parse), kast (default of parse), json, kore, none (run)
+  --output FORMAT            Result format: pretty (default of run, search, prove), program (parse), kast (default of parse), json, jsonl (prove), kore, none (run)
   FILE|-                     With run and search, bind the main parameter: the file's bytes
                              when its type is exactly Bytes, else its text, parsed at its sort
   --case FILE                Bind the inputs a case document (.toml or .json) gives by
@@ -143,7 +143,8 @@ command that builds the package builds it in process, so krs kink takes no --no-
 ";
 
 fn main() {
-    match parse(std::env::args_os().skip(1).collect()) {
+    let arguments: Vec<OsString> = std::env::args_os().skip(1).collect();
+    match parse(arguments.clone()) {
         Ok(ParseResult::Help) => print!("{USAGE}"),
         Ok(ParseResult::Format(request)) => match execute_format(&request) {
             Ok(true) => {}
@@ -162,7 +163,21 @@ fn main() {
                 std::process::exit(status);
             }
         }
+        // `krs prove` proves its claims in supervised worker processes, which do the measuring.
+        Ok(ParseResult::Run(request, _)) if matches!(&request.command, Command::Prove(prove) if !prove.worker) =>
+        {
+            let Command::Prove(prove) = &request.command else {
+                unreachable!("the guard matched a prove command")
+            };
+            let status = supervise_prove(&arguments, prove);
+            if status != 0 {
+                std::process::exit(status);
+            }
+        }
         Ok(ParseResult::Run(request, measure)) => {
+            if matches!(&request.command, Command::Prove(prove) if prove.worker) {
+                krs_cli::watch_supervisor();
+            }
             let mut measurement =
                 Measurement::new(measure.timings.is_some(), measure.counters.is_some());
             let (result, sources) = execute_command_reported(&request, &mut measurement);
@@ -372,6 +387,12 @@ struct ExecOptions {
     mode: Option<SearchMode>,
     max_solutions: Option<usize>,
     claims: Vec<String>,
+    /// `--worker-protocol` (hidden): prove for a supervising `krs prove`.
+    worker: bool,
+    /// `--worker-claim` (hidden): the claims a worker proves, exactly, instead of `--claim`'s.
+    worker_claims: Vec<String>,
+    /// `--worker-color` (hidden): whether a worker colours, as its supervisor resolved `--color`.
+    worker_color: Option<ColorChoice>,
     spec_module: Option<String>,
     sort: Option<String>,
     color: Option<ColorChoice>,
@@ -580,8 +601,12 @@ fn parse_run(parser: &mut lexopt::Parser, kind: CommandKind) -> Result<ParseResu
     finish_run(kind, options)
 }
 
+/// The options between a supervising `krs prove` and its workers, which the usage does not show.
+#[cfg(test)]
+const HIDDEN_OPTIONS: [&str; 3] = ["--worker-protocol", "--worker-claim", "--worker-color"];
+
 /// Long options of the run-family commands, without their leading dashes.
-const EXEC_LONG_OPTIONS: [&str; 11] = [
+const EXEC_LONG_OPTIONS: [&str; 14] = [
     "case",
     "input",
     "depth",
@@ -593,6 +618,9 @@ const EXEC_LONG_OPTIONS: [&str; 11] = [
     "spec-module",
     "sort",
     "color",
+    "worker-protocol",
+    "worker-claim",
+    "worker-color",
 ];
 
 /// Parse one run-family option (`-c` or a member of [`EXEC_LONG_OPTIONS`]).
@@ -662,6 +690,9 @@ fn exec_option(
             exec.note("--claim");
             exec.claims.push(option_value(parser, "claim label")?);
         }
+        "worker-protocol" | "worker-claim" | "worker-color" => {
+            worker_option(parser, exec, option)?;
+        }
         "spec-module" => {
             exec.note("--spec-module");
             let module = option_value(parser, "spec module")?;
@@ -684,6 +715,38 @@ fn exec_option(
             set_once(&mut exec.color, color, "--color")?;
         }
         _ => unreachable!("exec_option is called only for run options"),
+    }
+    Ok(())
+}
+
+/// Parse one of the hidden options between a supervising `krs prove` and its workers.
+fn worker_option(
+    parser: &mut lexopt::Parser,
+    exec: &mut ExecOptions,
+    option: &'static str,
+) -> Result<(), UsageError> {
+    match option {
+        "worker-protocol" => {
+            exec.note("--worker-protocol");
+            exec.worker = true;
+        }
+        "worker-claim" => {
+            exec.note("--worker-claim");
+            exec.worker_claims
+                .push(option_value(parser, "claim label")?);
+        }
+        "worker-color" => {
+            exec.note("--worker-color");
+            // The supervisor resolves `auto`: a worker's stdout is never the terminal.
+            let value = option_value(parser, "color")?;
+            let color = match value.as_str() {
+                "always" => ColorChoice::Always,
+                "never" => ColorChoice::Never,
+                _ => return Err(usage(format!("unknown worker color `{value}`"))),
+            };
+            set_once(&mut exec.worker_color, color, "--worker-color")?;
+        }
+        _ => unreachable!("worker_option is called only for the worker options"),
     }
     Ok(())
 }
@@ -741,7 +804,15 @@ fn exec_options(kind: CommandKind) -> &'static [&'static str] {
             "--trace",
             "--color",
         ],
-        CommandKind::Prove => &["--spec-module", "--claim", "--depth", "--color"],
+        CommandKind::Prove => &[
+            "--spec-module",
+            "--claim",
+            "--depth",
+            "--color",
+            "--worker-protocol",
+            "--worker-claim",
+            "--worker-color",
+        ],
         CommandKind::Check | CommandKind::Expand | CommandKind::EmitK | CommandKind::Build => &[],
     }
 }
@@ -760,6 +831,7 @@ fn term_output(kind: CommandKind, output: Option<PathBuf>) -> Result<TermOutput,
         ("json", _) => Ok(TermOutput::Json),
         ("kore", _) => Ok(TermOutput::Kore),
         ("none", CommandKind::Run) => Ok(TermOutput::None),
+        ("jsonl", CommandKind::Prove) => Ok(TermOutput::JsonLines),
         ("program", CommandKind::Parse) => Ok(TermOutput::Program),
         ("pretty", CommandKind::Run | CommandKind::Search | CommandKind::Prove) => {
             Ok(TermOutput::Pretty)
@@ -826,13 +898,26 @@ fn exec_command(
             output,
             color,
         }),
-        CommandKind::Prove => Command::Prove(ProveRequest {
-            spec_module: exec.spec_module,
-            claims: exec.claims,
-            depth: exec.depth,
-            output,
-            color,
-        }),
+        CommandKind::Prove => {
+            if !exec.worker && !exec.worker_claims.is_empty() {
+                return Err(usage("--worker-claim applies only with --worker-protocol"));
+            }
+            if !exec.worker && exec.worker_color.is_some() {
+                return Err(usage("--worker-color applies only with --worker-protocol"));
+            }
+            Command::Prove(ProveRequest {
+                spec_module: exec.spec_module,
+                claims: if exec.worker_claims.is_empty() {
+                    exec.claims
+                } else {
+                    exec.worker_claims
+                },
+                depth: exec.depth,
+                output,
+                color: exec.worker_color.unwrap_or(color),
+                worker: exec.worker,
+            })
+        }
         CommandKind::Check | CommandKind::Expand | CommandKind::EmitK | CommandKind::Build => {
             unreachable!("only run-family commands take run options")
         }
@@ -1953,6 +2038,7 @@ mod tests {
                 depth: None,
                 output: TermOutput::Kore,
                 color: ColorChoice::Auto,
+                worker: false,
             })
         );
         assert_eq!(
@@ -1963,6 +2049,7 @@ mod tests {
                 depth: None,
                 output: TermOutput::Pretty,
                 color: ColorChoice::Auto,
+                worker: false,
             })
         );
         assert_eq!(
@@ -1989,6 +2076,52 @@ mod tests {
             panic!("krs prove parses as a prove command");
         };
         assert_eq!(prove.output, TermOutput::Pretty);
+        assert!(!prove.worker);
+        // A worker proves exactly the claims its supervisor gives it, whatever `--claim` says.
+        let Command::Prove(worker) = with(
+            "prove",
+            &[
+                "--claim",
+                "sum",
+                "--output",
+                "jsonl",
+                "--worker-protocol",
+                "--worker-claim",
+                "MAIN-SPEC.branching",
+                "--color",
+                "auto",
+                "--worker-color",
+                "always",
+            ],
+        ) else {
+            panic!("krs prove parses as a prove command");
+        };
+        assert!(worker.worker);
+        assert_eq!(worker.claims, ["MAIN-SPEC.branching"]);
+        assert_eq!(worker.output, TermOutput::JsonLines);
+        // A worker colours as its supervisor resolved `--color` against the supervisor's stdout.
+        assert_eq!(worker.color, ColorChoice::Always);
+    }
+
+    #[test]
+    fn worker_options_need_the_worker_protocol_and_jsonl_is_prove_only() {
+        let failure = |verb: &str, extra: &[&str]| {
+            let mut args = vec![verb, "--package", "imp", "--definition", "main"];
+            args.extend(extra);
+            error(&args)
+        };
+        assert_eq!(
+            failure("prove", &["--worker-claim", "sum"]),
+            "--worker-claim applies only with --worker-protocol"
+        );
+        assert_eq!(
+            failure("prove", &["--worker-color", "never"]),
+            "--worker-color applies only with --worker-protocol"
+        );
+        assert_eq!(
+            failure("run", &["--output", "jsonl"]),
+            "unknown --output format `jsonl` for krs run"
+        );
     }
 
     #[test]
@@ -2141,7 +2274,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("no --output in the krs {} synopsis", kind.as_str()))
                 .split('|')
                 .collect();
-            for format in ["pretty", "program", "kast", "json", "kore", "none"] {
+            for format in ["pretty", "program", "kast", "json", "jsonl", "kore", "none"] {
                 assert_eq!(
                     term_output(kind, Some(PathBuf::from(format))).is_ok(),
                     listed.contains(&format),
@@ -2150,6 +2283,13 @@ mod tests {
                 );
             }
             for option in exec_options(kind) {
+                if HIDDEN_OPTIONS.contains(option) {
+                    assert!(
+                        !USAGE.contains(option),
+                        "the usage shows the hidden {option}"
+                    );
+                    continue;
+                }
                 let option = if *option == "FILE" { "FILE|-" } else { option };
                 assert!(
                     synopsis.contains(option),

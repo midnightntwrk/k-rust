@@ -1,4 +1,9 @@
-//! The `krs-exec/1` report shapes shared by `--output json` and the browser JSON ABI.
+//! The `krs-exec` report shapes shared by `--output json` and the browser JSON ABI.
+//!
+//! A run or search document is `krs-exec/1` ([`REPORT_SCHEMA`]); a proof document is
+//! `krs-exec/2` ([`PROVE_REPORT_SCHEMA`]), whose verdicts include `crashed`.
+//!
+//! [`REPORT_SCHEMA`] states how the versions are numbered.
 
 use k_rust::{
     backend::{ChosenValueOutput, HaltReasonOutput},
@@ -6,10 +11,21 @@ use k_rust::{
     kore::{ast::Pattern, walk},
     names::WellKnownSymbol,
 };
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 
-/// The schema name every serialized report envelope carries.
+/// The schema name a serialized run or search envelope carries.
+///
+/// A `krs-exec/N` name states which shape a document has, so a reader can refuse one it does not
+/// know. Each document kind (run, search, proof) carries the version of its own last change, and
+/// the numbers are one sequence shared by every kind: a change to any kind's shape takes the
+/// number after the highest any kind uses, never a number another kind already uses. A version
+/// therefore names one shape of each kind, whatever kind a reader expects.
 pub const REPORT_SCHEMA: &str = "krs-exec/1";
+
+/// The schema name a serialized proof envelope carries: a reader of `krs-exec/1` proof documents
+/// knows no `crashed` verdict and no `crash` record, so a proof document is a format of its own
+/// version, while run and search documents, which did not change, keep theirs.
+pub const PROVE_REPORT_SCHEMA: &str = "krs-exec/2";
 
 /// One configuration or term, kept as KORE and as user-facing KAST.
 ///
@@ -286,7 +302,7 @@ pub enum StepOrigin {
 }
 
 /// An authored location.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct SourceSpan {
     /// Package-relative source path.
     pub file: String,
@@ -533,7 +549,7 @@ pub struct SearchReport {
 }
 
 /// K's reachability modality.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Modality {
     /// `all-path`.
@@ -543,7 +559,7 @@ pub enum Modality {
 }
 
 /// The verdict of one claim, in k-rust's words.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Verdict {
     /// The weak reachability claim is proven; this does not certify termination.
@@ -560,6 +576,10 @@ pub enum Verdict {
     BreadthBound,
     /// The claim is `trusted` (KF-042): assumed without proof, never proven.
     Trusted,
+    /// The process proving the claim ended abnormally (a signal, or an exit status krs never
+    /// returns) before the claim's proof finished; [`ProofReport::crash`] says how.
+    /// Nothing is known about the claim.
+    Crashed,
 }
 
 impl Verdict {
@@ -570,11 +590,13 @@ impl Verdict {
         let rank = |verdict: Self| match verdict {
             Self::Disproved => 0,
             Self::Failed => 1,
-            Self::Indeterminate => 2,
-            Self::DepthBound => 3,
-            Self::BreadthBound => 4,
-            Self::Trusted => 5,
-            Self::Proven => 6,
+            // Never a backend verdict: a crash ends the whole claim, so it is never combined.
+            Self::Crashed => 2,
+            Self::Indeterminate => 3,
+            Self::DepthBound => 4,
+            Self::BreadthBound => 5,
+            Self::Trusted => 6,
+            Self::Proven => 7,
         };
         if rank(other) < rank(self) {
             other
@@ -606,6 +628,7 @@ impl Verdict {
             Self::DepthBound => "depth-bound",
             Self::BreadthBound => "breadth-bound",
             Self::Trusted => "trusted",
+            Self::Crashed => "crashed",
         }
     }
 }
@@ -654,6 +677,89 @@ pub struct ProofReport {
     pub trusted_claims: Vec<String>,
     /// Residual leaves.
     pub leaves: Vec<ProofLeaf>,
+    /// How the proof process ended, for a [`Verdict::Crashed`] claim; absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crash: Option<Crash>,
+}
+
+impl ProofReport {
+    /// The report of `claim`, whose proof process ended as `crash` says before the proof finished:
+    /// verdict [`Verdict::Crashed`], no leaves.
+    #[must_use]
+    pub fn crashed(claim: &ClaimInfo, crash: Crash) -> Self {
+        Self {
+            claim: claim.label.clone(),
+            modality: claim.modality,
+            origin: claim.origin.clone(),
+            verdict: Verdict::Crashed,
+            trusted_claims: Vec::new(),
+            leaves: Vec::new(),
+            crash: Some(crash),
+        }
+    }
+}
+
+/// The exit status of a krs process that panicked (the status a Rust program's panic ends it
+/// with), which krs never returns otherwise: a worker of a supervising `krs prove` that panics
+/// ends with it, so the supervisor records the claim it was proving as [`Verdict::Crashed`].
+pub const PANIC_EXIT_STATUS: i32 = 101;
+
+/// How the process proving a [`Verdict::Crashed`] claim ended: one of `exit_status` and `signal`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct Crash {
+    /// The exit status, when the process exited with a status krs never returns (Z3, for one,
+    /// exits with 114 on an internal error; a krs worker that panics exits with
+    /// [`PANIC_EXIT_STATUS`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_status: Option<i32>,
+    /// The signal that killed the process (6 for an abort, 9 for a kill, such as the kernel's
+    /// out-of-memory killer's).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signal: Option<i32>,
+    /// The Z3 library the process linked (`Z3_get_full_version`), absent in a build without
+    /// one: the solver runs in the proof process, so it is part of what reproduces the crash.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub z3: Option<String>,
+}
+
+impl std::fmt::Display for Crash {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match (self.exit_status, self.signal) {
+            (_, Some(signal)) => {
+                write!(formatter, "the proof process was killed by signal {signal}")?;
+                if let Some(name) = signal_name(signal) {
+                    write!(formatter, " ({name})")?;
+                }
+                Ok(())
+            }
+            (Some(PANIC_EXIT_STATUS), None) => write!(
+                formatter,
+                "the proof process panicked (exit status {PANIC_EXIT_STATUS})"
+            ),
+            (Some(status), None) => {
+                write!(formatter, "the proof process exited with status {status}")
+            }
+            (None, None) => formatter.write_str("the proof process ended without a status"),
+        }
+    }
+}
+
+/// The POSIX name of a signal whose number is the same on every platform krs runs on.
+const fn signal_name(signal: i32) -> Option<&'static str> {
+    Some(match signal {
+        1 => "SIGHUP",
+        2 => "SIGINT",
+        3 => "SIGQUIT",
+        4 => "SIGILL",
+        6 => "SIGABRT",
+        8 => "SIGFPE",
+        9 => "SIGKILL",
+        11 => "SIGSEGV",
+        13 => "SIGPIPE",
+        14 => "SIGALRM",
+        15 => "SIGTERM",
+        _ => return None,
+    })
 }
 
 /// What a compiled definition supports in this build.
@@ -701,7 +807,7 @@ impl std::fmt::Display for ConfigVariable {
 }
 
 /// One claim of the compiled definition.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ClaimInfo {
     /// The label as `kprove --claims` spells it (`<MAIN>-SPEC.label`).
     pub label: String,
@@ -712,9 +818,9 @@ pub struct ClaimInfo {
     /// The authored claim.
     pub origin: Option<SourceSpan>,
     /// Whether the claim is `trusted`: assumed without proof (KF-042).
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub trusted: bool,
-    /// The backend's label for the claim.
+    /// The backend's label for the claim; empty in a claim read back from its serialization.
     #[serde(skip)]
     pub(crate) backend_label: String,
 }

@@ -39,8 +39,19 @@ fn tour_minimal() -> String {
 }
 
 fn krs(target: &Path, manifest: &Path, verb: &str, arguments: &[&str]) -> Output {
+    krs_with_env(target, manifest, verb, arguments, &[])
+}
+
+fn krs_with_env(
+    target: &Path,
+    manifest: &Path,
+    verb: &str,
+    arguments: &[&str],
+    environment: &[(&str, &str)],
+) -> Output {
     let mut process = krs_command!();
     fixture_build_env(&mut process, target);
+    process.envs(environment.iter().copied());
     process
         .current_dir(manifest.parent().unwrap())
         .arg(verb)
@@ -906,6 +917,351 @@ fn a_disjunctive_claim_is_proven_disjunct_by_disjunct() {
             ("foo-reaches-bar", "proven"),
         ]
         .map(|(claim, verdict)| (format!("ORG-KRS-CLI-EXEC-SPEC.{claim}"), verdict.to_owned()))
+    );
+}
+
+/// The claims of the supervised-proof tests: `bar-reaches-foo` (disproved), `either-reaches-bar`
+/// and `foo-reaches-bar` (proven), in this order.
+fn supervised_claims(temporary: &Path) -> PathBuf {
+    let end = CLAIMS.rfind('}').unwrap();
+    let source = format!(
+        "{}{}}}\n",
+        &CLAIMS[..end],
+        r#"
+    /// Holds: `foo` rewrites to `bar`, and `bar` is `bar`.
+    #[krs::claim(all_paths, label = "either-reaches-bar")]
+    fn either_reaches_bar(
+        krs::cells! {
+            k: krs::configuration::KCell(Object::Foo() | Object::Bar(), tail @ ..),
+            state @ ..
+        }: Machine,
+    ) -> Machine {
+        krs::cells! {
+            k: krs::configuration::KCell(Object::Bar(), ..tail),
+            ..state
+        }
+    }
+"#
+    );
+    materialize(temporary, &source)
+}
+
+fn supervised_label(claim: &str) -> String {
+    format!("ORG-KRS-CLI-EXEC-SPEC.{claim}")
+}
+
+/// Each report's claim and verdict.
+fn claim_verdicts<'a>(reports: impl IntoIterator<Item = &'a Value>) -> Vec<(String, String)> {
+    reports
+        .into_iter()
+        .map(|report| {
+            (
+                report["claim"].as_str().unwrap().to_owned(),
+                report["verdict"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect()
+}
+
+/// The verdicts of [`supervised_claims`] when the claim `crashed` crashes.
+fn supervised_verdicts(crashed: &str) -> Vec<(String, String)> {
+    [
+        ("bar-reaches-foo", "disproved"),
+        ("either-reaches-bar", "proven"),
+        ("foo-reaches-bar", "proven"),
+    ]
+    .map(|(claim, verdict)| {
+        let claim = supervised_label(claim);
+        let verdict = if claim == crashed { "crashed" } else { verdict };
+        (claim, verdict.to_owned())
+    })
+    .to_vec()
+}
+
+/// `krs prove` proves its claims in a supervised worker process: a worker that ends abnormally
+/// (here by the debug build's test hook, an abort at the start of a chosen claim) costs the claim
+/// it was proving, recorded `crashed` with how the process ended, and the claims after it are
+/// proved by a new worker. `--output json` stays one document; stderr names each claim as it
+/// starts.
+#[test]
+#[cfg_attr(
+    not(debug_assertions),
+    ignore = "the crash hook is in debug builds only"
+)]
+fn prove_supervised_records_an_aborted_claim_and_proves_the_rest() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = supervised_claims(temporary.path());
+    let middle = supervised_label("either-reaches-bar");
+    let aborted = krs_with_env(
+        target.path(),
+        &manifest,
+        "prove",
+        &["--output", "json"],
+        &[("KRS_TEST_CRASH_AT", &middle)],
+    );
+    assert_eq!(aborted.status.code(), Some(1), "{}", stderr(&aborted));
+    let document = json(&aborted);
+    assert_eq!(document["schema"], "krs-exec/2");
+    let reports = document["prove"].as_array().unwrap();
+    assert_eq!(claim_verdicts(reports), supervised_verdicts(&middle));
+    let crashed = &reports[1];
+    assert_eq!(crashed["crash"]["signal"], 6);
+    assert!(crashed["crash"].get("exit_status").is_none());
+    assert_eq!(crashed["modality"], "all-path");
+    assert_eq!(crashed["origin"]["file"], "src/lib.rs");
+    assert_eq!(crashed["leaves"], serde_json::json!([]));
+    assert!(reports[0].get("crash").is_none());
+    let log = stderr(&aborted);
+    for line in [
+        format!("proving {}\n", supervised_label("bar-reaches-foo")),
+        format!("proving {middle}\n"),
+        format!(
+            "krs prove: {middle} crashed: the proof process was killed by signal 6 (SIGABRT)\n"
+        ),
+        "krs prove: proving the 1 remaining claim in a new process\n".to_owned(),
+        format!("proving {}\n", supervised_label("foo-reaches-bar")),
+    ] {
+        assert!(log.contains(&line), "no `{line}` in:\n{log}");
+    }
+    assert!(
+        log.ends_with("krs prove: 1 of 3 claims proven, 1 crashed\n"),
+        "{log}"
+    );
+}
+
+/// A worker that exits with a status krs never returns (114, Z3's on an internal error) crashes
+/// too. `--output jsonl` prints a record per claim as it ends and a summary; the text output
+/// prints the crashed claim with how its process ended, and no new worker starts after the
+/// last claim.
+#[test]
+#[cfg_attr(
+    not(debug_assertions),
+    ignore = "the crash hook is in debug builds only"
+)]
+fn prove_supervised_records_an_exit_status_in_records_and_text() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = supervised_claims(temporary.path());
+    let middle = supervised_label("either-reaches-bar");
+    let last = supervised_label("foo-reaches-bar");
+    let exited = krs_with_env(
+        target.path(),
+        &manifest,
+        "prove",
+        &["--output", "jsonl"],
+        &[
+            ("KRS_TEST_CRASH_AT", &middle),
+            ("KRS_TEST_CRASH_EXIT", "114"),
+        ],
+    );
+    assert_eq!(exited.status.code(), Some(1), "{}", stderr(&exited));
+    let lines = String::from_utf8(exited.stdout.clone())
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(lines.len(), 4, "{lines:?}");
+    assert!(lines.iter().all(|line| line["schema"] == "krs-exec/2"));
+    assert_eq!(
+        claim_verdicts(lines[..3].iter().map(|line| &line["proof"])),
+        supervised_verdicts(&middle)
+    );
+    assert_eq!(lines[1]["proof"]["crash"]["exit_status"], 114);
+    assert!(lines[1]["proof"]["crash"].get("signal").is_none());
+    assert_eq!(
+        lines[3]["summary"],
+        serde_json::json!({"claims": 3, "verdicts": {"crashed": 1, "disproved": 1, "proven": 1}})
+    );
+
+    let text = krs_with_env(
+        target.path(),
+        &manifest,
+        "prove",
+        &[],
+        &[("KRS_TEST_CRASH_AT", &last), ("KRS_TEST_CRASH_EXIT", "114")],
+    );
+    assert_eq!(text.status.code(), Some(1), "{}", stderr(&text));
+    let printed = String::from_utf8_lossy(&text.stdout);
+    assert!(
+        printed.starts_with(&format!(
+            "{}: disproved\n",
+            supervised_label("bar-reaches-foo")
+        )) && printed.contains(&format!("{middle}: proven\n"))
+            && printed.ends_with(&format!(
+                "{last}: crashed\n  the proof process exited with status 114\n"
+            )),
+        "{printed}"
+    );
+    assert!(!stderr(&text).contains("remaining"), "{}", stderr(&text));
+    assert!(
+        stderr(&text).ends_with("krs prove: 1 of 3 claims proven, 1 crashed\n"),
+        "{}",
+        stderr(&text)
+    );
+}
+
+/// A panic in a worker is a crash too (exit status 101), and a batch survives several: here the
+/// first and the second claim crash, so three workers prove the batch, each later one given the
+/// claims left in the selection's order. Each crash records the Z3 library its worker linked.
+#[test]
+#[cfg_attr(
+    not(debug_assertions),
+    ignore = "the crash hook is in debug builds only"
+)]
+fn prove_supervised_survives_two_panics_in_three_workers() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = supervised_claims(temporary.path());
+    let first = supervised_label("bar-reaches-foo");
+    let second = supervised_label("either-reaches-bar");
+    let panicked = krs_with_env(
+        target.path(),
+        &manifest,
+        "prove",
+        &["--output", "json"],
+        &[
+            ("KRS_TEST_CRASH_AT", &format!("{first},{second}")),
+            ("KRS_TEST_CRASH_EXIT", "panic"),
+        ],
+    );
+    assert_eq!(panicked.status.code(), Some(1), "{}", stderr(&panicked));
+    let document = json(&panicked);
+    let reports = document["prove"].as_array().unwrap();
+    assert_eq!(
+        claim_verdicts(reports),
+        [
+            (first.clone(), "crashed".to_owned()),
+            (second.clone(), "crashed".to_owned()),
+            (supervised_label("foo-reaches-bar"), "proven".to_owned()),
+        ]
+    );
+    for crashed in &reports[..2] {
+        assert_eq!(crashed["crash"]["exit_status"], 101);
+        assert!(crashed["crash"].get("signal").is_none());
+        // The Z3 library is the one this build links, the same for every worker.
+        if cfg!(feature = "z3-inference") {
+            assert!(
+                crashed["crash"]["z3"]
+                    .as_str()
+                    .is_some_and(|version| !version.is_empty()),
+                "{crashed}"
+            );
+        } else {
+            assert!(crashed["crash"].get("z3").is_none(), "{crashed}");
+        }
+    }
+    assert_eq!(reports[0]["crash"]["z3"], reports[1]["crash"]["z3"]);
+    let log = stderr(&panicked);
+    // The worker writes its panic message itself, so only its presence is certain, not where it
+    // falls among the lines the supervisor writes.
+    assert!(
+        log.contains(&format!("the test hook panics at {first}")),
+        "{log}"
+    );
+    // Every line below is the supervisor's, in the order it writes them.
+    let mut rest = log.as_str();
+    for line in [
+        format!("proving {first}\n"),
+        format!("krs prove: {first} crashed: the proof process panicked (exit status 101)\n"),
+        "krs prove: proving the 2 remaining claims in a new process\n".to_owned(),
+        format!("proving {second}\n"),
+        format!("krs prove: {second} crashed: the proof process panicked (exit status 101)\n"),
+        "krs prove: proving the 1 remaining claim in a new process\n".to_owned(),
+        format!("proving {}\n", supervised_label("foo-reaches-bar")),
+        "krs prove: 1 of 3 claims proven, 2 crashed\n".to_owned(),
+    ] {
+        let at = rest
+            .find(&line)
+            .unwrap_or_else(|| panic!("no `{line}` in order in:\n{log}"));
+        rest = &rest[at + line.len()..];
+    }
+}
+
+/// A crash outside every claim is no claim's: before the selection, or before a worker's first
+/// claim, it fails the batch, which prints no output; after the last claim, the batch is
+/// complete. A worker that reports an error (exit status 1 or 2) in the middle of a batch fails
+/// it too, and `--output jsonl` then has no summary line.
+#[test]
+#[cfg_attr(
+    not(debug_assertions),
+    ignore = "the crash hook is in debug builds only"
+)]
+fn prove_supervised_fails_the_batch_on_a_crash_outside_every_claim() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = supervised_claims(temporary.path());
+    let crash_at = |point: &str, output: &str, how: &str| {
+        krs_with_env(
+            target.path(),
+            &manifest,
+            "prove",
+            &["--output", output],
+            &[("KRS_TEST_CRASH_AT", point), ("KRS_TEST_CRASH_EXIT", how)],
+        )
+    };
+    for (point, message) in [
+        (
+            "before-selection",
+            "krs prove: the proof process was killed by signal 6 (SIGABRT) before it selected the claims\n",
+        ),
+        (
+            "before-claims",
+            "krs prove: the proof process was killed by signal 6 (SIGABRT) outside any claim\n",
+        ),
+    ] {
+        let failed = crash_at(point, "json", "abort");
+        assert_eq!(
+            failed.status.code(),
+            Some(1),
+            "{point}: {}",
+            stderr(&failed)
+        );
+        assert!(
+            failed.stdout.is_empty(),
+            "{point}: {}",
+            String::from_utf8_lossy(&failed.stdout)
+        );
+        assert!(
+            stderr(&failed).ends_with(message),
+            "{point}: {}",
+            stderr(&failed)
+        );
+    }
+
+    let late = crash_at("after-claims", "json", "abort");
+    assert_eq!(late.status.code(), Some(1), "{}", stderr(&late));
+    let document = json(&late);
+    assert_eq!(
+        claim_verdicts(document["prove"].as_array().unwrap()),
+        supervised_verdicts("")
+    );
+    let log = stderr(&late);
+    assert!(
+        log.contains(
+            "krs prove: the proof process was killed by signal 6 (SIGABRT) after its last claim\n"
+        ) && !log.contains("remaining")
+            && log.ends_with("krs prove: 2 of 3 claims proven\n"),
+        "{log}"
+    );
+
+    let middle = supervised_label("either-reaches-bar");
+    let reported = crash_at(&middle, "jsonl", "2");
+    assert_eq!(reported.status.code(), Some(2), "{}", stderr(&reported));
+    let lines = String::from_utf8(reported.stdout.clone()).unwrap();
+    let lines = lines
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert_eq!(
+        lines[0]["proof"]["claim"].as_str(),
+        Some(supervised_label("bar-reaches-foo").as_str())
+    );
+    assert!(
+        !stderr(&reported).contains("claims proven"),
+        "{}",
+        stderr(&reported)
     );
 }
 

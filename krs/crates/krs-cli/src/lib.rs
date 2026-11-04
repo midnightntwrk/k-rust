@@ -29,6 +29,7 @@ pub use command::{
     CommandRequest, EmittedDefinition, EmittedRule, LoadVisit, MessageFormat, ParseRequest,
     ProgramSource, ProveRequest, RetainedEmission, RunRequest, SearchRequest, TermOutput,
     collect_descriptors, execute_command, execute_command_measured, execute_command_reported,
+    supervise_prove, watch_supervisor,
 };
 pub use diagnostic::{
     DIAGNOSTIC_SCHEMA_VERSION, DiagnosticEnvelope, DiagnosticGeneratedRange, DiagnosticLabel,

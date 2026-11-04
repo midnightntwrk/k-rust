@@ -15,14 +15,15 @@ use std::path::{Path, PathBuf};
 use krs_diagnostic::{Code, codes};
 use krs_exec::{
     Case, CompiledStage, ConfigInputs, ConfigValue, Coverage, CoverageOptions, ExecError, Halt,
-    InputError, InputFiles, PrintStyle, Printed, ProgramFile, ProgramInput, ProveOptions,
-    REPORT_SCHEMA, ReadBack, RunOptions, SearchMode, SearchOptions, Semantics, SourceText,
-    SpecStage, Step, StepOrigin, Term, Verdict, json_document,
+    InputError, InputFiles, PrintStyle, Printed, ProgramFile, ProgramInput, ProofReport,
+    ProveOptions, REPORT_SCHEMA, ReadBack, RunOptions, SearchMode, SearchOptions, Semantics,
+    SourceText, SpecStage, Step, StepOrigin, Term, Verdict, json_document,
 };
 use krs_ir::measure::Measurement;
 use serde_json::json;
 
 use super::stage_cache::StageCache;
+use super::supervisor::{self, ProveOutput};
 use super::{Command, CommandError, CommandOutcome, PreparedDefinition, native_command_error};
 use crate::DiagnosticSources;
 
@@ -45,8 +46,11 @@ pub enum TermOutput {
     /// Textual KAST (the default of `parse`).
     #[default]
     Kast,
-    /// The `krs-exec/1` JSON report (`parse` prints the KAST JSON envelope, as `kast --output json` does).
+    /// The `krs-exec` JSON report (`parse` prints the KAST JSON envelope, as `kast --output json` does).
     Json,
+    /// One `krs-exec/2` JSON document per line: a proof report as each claim ends, then a summary
+    /// (`prove` only).
+    JsonLines,
     /// KORE text.
     Kore,
     /// Nothing on stdout (`run` only).
@@ -137,11 +141,16 @@ pub struct ProveRequest {
     pub output: TermOutput,
     /// `--color`.
     pub color: ColorChoice,
+    /// `--worker-protocol` (hidden): this process proves the claims for a supervising `krs prove`,
+    /// writing the events of [`supervisor`] on stdout instead of the output; the claims are
+    /// proved in this process, without a supervisor, when this is false and the command is
+    /// executed as a library call.
+    pub worker: bool,
 }
 
 impl ColorChoice {
     /// Whether to colour: `auto` colours exactly when standard output is a terminal and `NO_COLOR` is unset.
-    fn enabled(self) -> bool {
+    pub(super) fn enabled(self) -> bool {
         match self {
             Self::Always => true,
             Self::Never => false,
@@ -221,7 +230,16 @@ pub(super) fn execute(
                 CommandError::InvalidRequest(format!("could not start the run worker: {error}"))
             })?
             .join()
-            .map_err(|_| CommandError::InvalidRequest("the run worker panicked".into()))
+            .map_err(|_| {
+                // A worker of a supervising `krs prove` that panics has crashed on the claim it
+                // was proving: it ends with a status krs never returns otherwise, so the
+                // supervisor records that claim `crashed` and proves the rest in a new worker.
+                if matches!(command, Command::Prove(ProveRequest { worker: true, .. })) {
+                    let _ = std::io::Write::flush(&mut std::io::stdout());
+                    std::process::exit(krs_exec::PANIC_EXIT_STATUS);
+                }
+                CommandError::InvalidRequest("the run worker panicked".into())
+            })
     })?;
     measurement.counters.set("stage.reused", u64::from(reused));
     if let Some(reused) = spec_reused {
@@ -391,9 +409,11 @@ fn dispatch(semantics: &mut Semantics, command: &Command) -> Result<CommandOutco
             let stdout = match request.output {
                 TermOutput::Json => semantics.print(&term, PrintStyle::Json)?,
                 TermOutput::Kore => semantics.print(&term, PrintStyle::Kore)?,
-                TermOutput::Kast | TermOutput::None | TermOutput::Pretty | TermOutput::Program => {
-                    semantics.print(&term, PrintStyle::Kast)?
-                }
+                TermOutput::Kast
+                | TermOutput::JsonLines
+                | TermOutput::None
+                | TermOutput::Pretty
+                | TermOutput::Program => semantics.print(&term, PrintStyle::Kast)?,
             }
             .text;
             Ok(outcome(format!("{stdout}\n"), String::new(), 0))
@@ -747,94 +767,142 @@ fn search(semantics: &mut Semantics, request: &SearchRequest) -> Result<CommandO
     ))
 }
 
+/// `krs prove`: each selected claim proved in turn and printed as it ends ([`ProveOutput`]), or,
+/// in a worker of a supervising `krs prove` ([`ProveRequest::worker`]), written to it as events.
 fn prove(semantics: &mut Semantics, request: &ProveRequest) -> Result<CommandOutcome, Failure> {
-    let smt = semantics.capabilities().smt;
-    let reports = semantics.prove(&ProveOptions {
+    let options = ProveOptions {
         module: request.spec_module.clone(),
         claims: request.claims.clone(),
         depth: request.depth,
-    })?;
-    let proven = reports
-        .iter()
-        .filter(|report| report.verdict == Verdict::Proven)
-        .count();
-    // A trusted claim is assumed, never proven (KF-042); it does not fail the run.
-    let trusted = reports
-        .iter()
-        .filter(|report| report.verdict == Verdict::Trusted)
-        .count();
-    let mut stdout = String::new();
-    let mut warnings = String::new();
-    let color = request.color.enabled();
+    };
+    let selection = semantics.prove_selection(&options)?;
     // A leaf is a printed state, as a run's and a search's are.
     let mut prints = PrintCheck::new(request.output);
-    if request.output == TermOutput::Json {
-        stdout = json_line(&json!({"schema": REPORT_SCHEMA, "prove": reports}))?;
-    } else {
-        for report in &reports {
-            let _ = writeln!(
-                stdout,
-                "{}: {}",
-                report.claim,
-                status_word(report.verdict.as_str(), smt)
-            );
-            for leaf in &report.leaves {
-                if leaf.vacuous {
-                    let _ = writeln!(
-                        stdout,
-                        "  vacuously proven leaf at proof depth {}",
-                        leaf.depth
-                    );
-                }
-                if let Some(record) = &leaf.contradicted_total {
-                    let _ = writeln!(
-                        stdout,
-                        "  total declaration {} contradicted by equation {}",
-                        record.k_label.as_deref().unwrap_or(&record.symbol),
-                        record.rule_label.as_deref().unwrap_or(&record.rule_id)
-                    );
-                }
-                for step in &leaf.claim_steps {
-                    let _ = writeln!(
-                        stdout,
-                        "  applied claim {} at proof depth {}",
-                        step.label.as_deref().unwrap_or(&step.unique_id),
-                        step.depth
-                    );
-                }
-            }
-            if matches!(report.verdict, Verdict::Proven | Verdict::Trusted) {
-                continue;
-            }
-            for (index, leaf) in report.leaves.iter().enumerate() {
-                prints.check(semantics, &leaf.state)?;
-                let text = print(semantics, &leaf.state, request.output, color, &mut warnings)?;
-                let _ = writeln!(
-                    stdout,
-                    "  leaf {} ({}, depth {}):\n{text}",
-                    index + 1,
-                    leaf.outcome,
-                    leaf.depth,
-                );
-            }
+    if request.worker {
+        let mut events = std::io::stdout().lock();
+        #[cfg(debug_assertions)]
+        supervisor::test_crash("before-selection");
+        supervisor::send_selected(&mut events, &selection).map_err(|error| worker_write(&error))?;
+        #[cfg(debug_assertions)]
+        supervisor::test_crash("before-claims");
+        for claim in &selection {
+            supervisor::send_started(&mut events, &claim.label)
+                .map_err(|error| worker_write(&error))?;
+            #[cfg(debug_assertions)]
+            supervisor::test_crash(&claim.label);
+            let report = semantics.prove_claim(&options, claim)?;
+            let mut warnings = String::new();
+            let text = claim_text(semantics, request, &report, &mut prints, &mut warnings)?;
+            supervisor::send_finished(&mut events, request.output, &report, &text, &warnings)
+                .map_err(|error| worker_write(&error))?;
         }
+        #[cfg(debug_assertions)]
+        supervisor::test_crash("after-claims");
+        prints.verdict()?;
+        return Ok(outcome(supervisor::end_event(), String::new(), 0));
+    }
+    let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+    let mut printed = ProveOutput::new(request.output, &mut stdout, &mut stderr);
+    for claim in &selection {
+        printed
+            .started(&claim.label)
+            .map_err(|error| buffer_write(&error))?;
+        let report = semantics.prove_claim(&options, claim)?;
+        let mut warnings = String::new();
+        let text = claim_text(semantics, request, &report, &mut prints, &mut warnings)?;
+        let serialized = printed
+            .wants_report()
+            .then(|| supervisor::serialize_report(&report))
+            .transpose()
+            .map_err(|error| buffer_write(&error))?;
+        printed
+            .finished(serialized, report.verdict, &text, &warnings)
+            .map_err(|error| buffer_write(&error))?;
     }
     prints.verdict()?;
-    let stderr = format!(
-        "{warnings}krs prove: {proven} of {} claim{} proven{}\n",
-        reports.len(),
-        if reports.len() == 1 { "" } else { "s" },
-        if trusted == 0 {
-            String::new()
-        } else {
-            format!(", {trusted} trusted")
-        }
-    );
-    Ok(outcome(
+    let exit_code = printed.close().map_err(|error| buffer_write(&error))?;
+    Ok(CommandOutcome {
         stdout,
         stderr,
-        i32::from(proven + trusted != reports.len()),
+        exit_code,
+        warnings: crate::DiagnosticReports {
+            envelopes: Vec::new(),
+        },
+    })
+}
+
+fn worker_write(error: &std::io::Error) -> Failure {
+    Failure::Read(format!(
+        "could not write to the supervising krs prove: {error}"
     ))
+}
+
+fn buffer_write(error: &std::io::Error) -> Failure {
+    Failure::Read(format!("could not write the proof output: {error}"))
+}
+
+/// The text `--output pretty`, `kast` or `kore` prints for `report`: its verdict line, then what
+/// the proof applied, then, unless it is proven or trusted, each residual leaf; empty for the
+/// JSON outputs. A print's warnings go to `warnings`.
+fn claim_text(
+    semantics: &mut Semantics,
+    request: &ProveRequest,
+    report: &ProofReport,
+    prints: &mut PrintCheck,
+    warnings: &mut String,
+) -> Result<String, Failure> {
+    let mut stdout = String::new();
+    if matches!(request.output, TermOutput::Json | TermOutput::JsonLines) {
+        return Ok(stdout);
+    }
+    let smt = semantics.capabilities().smt;
+    let color = request.color.enabled();
+    let _ = writeln!(
+        stdout,
+        "{}: {}",
+        report.claim,
+        status_word(report.verdict.as_str(), smt)
+    );
+    for leaf in &report.leaves {
+        if leaf.vacuous {
+            let _ = writeln!(
+                stdout,
+                "  vacuously proven leaf at proof depth {}",
+                leaf.depth
+            );
+        }
+        if let Some(record) = &leaf.contradicted_total {
+            let _ = writeln!(
+                stdout,
+                "  total declaration {} contradicted by equation {}",
+                record.k_label.as_deref().unwrap_or(&record.symbol),
+                record.rule_label.as_deref().unwrap_or(&record.rule_id)
+            );
+        }
+        for step in &leaf.claim_steps {
+            let _ = writeln!(
+                stdout,
+                "  applied claim {} at proof depth {}",
+                step.label.as_deref().unwrap_or(&step.unique_id),
+                step.depth
+            );
+        }
+    }
+    if matches!(report.verdict, Verdict::Proven | Verdict::Trusted) {
+        return Ok(stdout);
+    }
+    for (index, leaf) in report.leaves.iter().enumerate() {
+        prints.check(semantics, &leaf.state)?;
+        let text = print(semantics, &leaf.state, request.output, color, warnings)?;
+        let _ = writeln!(
+            stdout,
+            "  leaf {} ({}, depth {}):\n{text}",
+            index + 1,
+            leaf.outcome,
+            leaf.depth,
+        );
+    }
+    Ok(stdout)
 }
 
 /// The read-back of the states a command prints through the definition's grammar, which
@@ -956,7 +1024,7 @@ fn main_cell_head(
                 })
             })
         }
-        TermOutput::Kast | TermOutput::Json => state.computation_head(cell),
+        TermOutput::Kast | TermOutput::Json | TermOutput::JsonLines => state.computation_head(cell),
         TermOutput::Kore => state
             .computation_head_kore(cell)
             .map(|head| head.map(ToString::to_string)),
@@ -983,7 +1051,7 @@ fn print(
             return Ok(printed.text);
         }
         TermOutput::Kore => PrintStyle::Kore,
-        TermOutput::Json => PrintStyle::Json,
+        TermOutput::Json | TermOutput::JsonLines => PrintStyle::Json,
         TermOutput::Kast | TermOutput::None => PrintStyle::Kast,
     };
     Ok(semantics.print(term, style)?.text)
