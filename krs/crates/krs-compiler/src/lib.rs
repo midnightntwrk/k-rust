@@ -8,6 +8,7 @@ pub mod artifacts;
 pub mod capability;
 mod console;
 mod coverage;
+mod edit_origin;
 mod emit;
 mod equation_domain;
 mod error;
@@ -26,6 +27,10 @@ mod token_values;
 
 pub use artifacts::*;
 pub use coverage::coverage_warnings;
+pub use edit_origin::{
+    AuthoredNodeRef, EditContainer, EditJudgement, InsertedNodeRef, JudgeError, KEdit,
+    MutationVerdict, OutsideChange, SentenceJudgement, SentenceVerdict, judge_edits,
+};
 pub use emit::{
     DeclaredCellType, EmitError, EmittedK, EmittedSpec, SentenceSource, SentenceSources,
     declared_cell_types, definition_module_imports, definition_sentence_source, emit_k,
