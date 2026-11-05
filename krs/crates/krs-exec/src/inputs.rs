@@ -247,8 +247,9 @@
 //!   `depth`, at most this many rewrite steps;
 //!   `stop_before` and `stop_after`, the rules at whose step the run ends,
 //!   each an array of names of rules as [`StopRules`](crate::StopRules) takes them:
-//!   a KRS item by its Rust path (`crate::machine::boundary`, or a dependency's crate name and
-//!   its path), or a K label, in full or by a unique suffix after a `.`;
+//!   a KRS item as a stop flag names it (`crate::machine::boundary`, or a dependency's crate name,
+//!   its Cargo package name with `-` written `_`, and its path), or a K label, in full or by a
+//!   unique suffix after a `.`;
 //!   and `stop_count`, a positive integer, the arrival at a stop the run ends at
 //!   ([`StopCriterion::Rules`](crate::StopCriterion::Rules)), the first by default,
 //!   which needs a stop rule to count arrivals at.

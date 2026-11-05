@@ -107,7 +107,12 @@ impl Origins {
 pub(crate) struct ItemPath {
     /// The declaring package's K namespace, which tells the definition's packages apart.
     pub(crate) namespace: String,
-    /// The declaring package's Rust crate name: its Cargo name with `-` written `_`.
+    /// The name a stop gives the declaring package's crate: its Cargo package name with `-`
+    /// written `_`, from the package ID the definition identifies the package by, so that every
+    /// reader of the definition names the item alike. It is never a name a depending package's
+    /// manifest renames the dependency to, and it is the package name even where the package's
+    /// `[lib]` section names its library otherwise, since the definition records no library
+    /// name.
     pub(crate) krate: String,
     /// The item's Rust path below its crate root (`interrupt::boundary_fetch`, `Arith::Add`
     /// for a variant of the enum family `Arith`).

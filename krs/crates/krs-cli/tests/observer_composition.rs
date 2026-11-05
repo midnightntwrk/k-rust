@@ -503,6 +503,36 @@ fn an_observer_that_does_not_compile_prints_its_diagnostics() {
     said(&text);
 }
 
+/// An observer is a package of the package graph Cargo resolves for `--manifest-path`: one that
+/// graph does not hold is refused, saying that the observer and the definition it compares must
+/// come from one Cargo resolution.
+#[test]
+fn an_observer_outside_the_package_graph_is_refused_saying_where_it_must_be() {
+    let workspace = workspace();
+    let output = workspace.krs(
+        "compare",
+        &[
+            "end.json",
+            "cases.json#plain",
+            "--compare",
+            "bus",
+            "--view",
+            "bus=Exposed",
+            "--observer",
+            "elsewhere-views:main",
+        ],
+    );
+    assert_eq!(output.status.code(), Some(2), "{}", stdout(&output));
+    let text = stderr(&output);
+    for said in [
+        "missing-package",
+        "in the observer `elsewhere-views:main`",
+        "the observer's package is one of the package graph Cargo resolves for --manifest-path, a workspace member or a dependency of one: the observer composes the definition it compares, so both must come from one Cargo resolution",
+    ] {
+        assert!(text.contains(said), "{said}\n{text}");
+    }
+}
+
 /// Each observer of a batch composes the extra facets its own closure holds: two observers that
 /// need different packages run in one batch, and a facet that no observer the batch prepared
 /// holds is reported as a warning once the verdicts are printed.

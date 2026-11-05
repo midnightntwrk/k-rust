@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 
 use k_rust::backend::{Backend, CompiledRuleKind};
 
-use crate::{ExecError, origin::ItemPath, report::RuleKind};
+use crate::{ExecError, UnknownCrate, origin::ItemPath, report::RuleKind};
 
 /// One identity of the catalog.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -143,9 +143,10 @@ impl Rules {
     /// The rewrite rules a stop named by KRS item selects: every rewrite rule the item
     /// `requested` wrote, whatever the rules' labels.
     ///
-    /// The item is named by its Rust path, as the root package's own source names it:
-    /// `crate::` and its path below the root crate's root, or the crate name of the package that
-    /// declares it (its Cargo name with `-` written `_`) and its path below that crate's root.
+    /// The item is named by its Rust path: `crate::` and its path below the root crate's root,
+    /// or the crate name of the package that declares it ([`ItemPath::krate`]: its Cargo package
+    /// name with `-` written `_`, whatever a depending package's manifest renames it to) and its
+    /// path below that crate's root.
     /// A path that starts with neither is read both ways, as Rust reads a path at the crate
     /// root, and is ambiguous where the root package has an item at it and a package of that
     /// crate name has one at its rest ([`ExecError::AmbiguousItem`]); so is a path two packages
@@ -154,8 +155,75 @@ impl Rules {
     /// An item lowers to several sentences where KRS or K generates them from one (a context's
     /// heat and cool rules, a strict production's), and a stop is a step by any of them. The
     /// item's sentences that are no rewrite rule take no step, so they are no stop; an item none
-    /// of whose sentences is a rewrite rule is refused, naming their kinds.
+    /// of whose sentences is a rewrite rule is refused, naming their kinds. A path no sentence is
+    /// the item of is refused naming the items at the path below its first segment, by the names
+    /// that select them ([`Self::elsewhere`]), and saying what its first segment is where it
+    /// names no package as a stop does ([`UnknownCrate`]).
     pub(crate) fn resolve_item(&self, requested: &str) -> Result<Vec<String>, ExecError> {
+        self.resolve_item_named(requested)
+            .map_err(|error| match error {
+                ExecError::UnknownItem {
+                    requested, kinds, ..
+                } if kinds.is_empty() => ExecError::UnknownItem {
+                    unknown_crate: self.unknown_crate(&requested),
+                    suggestions: self.elsewhere(&requested),
+                    requested,
+                    kinds,
+                },
+                error => error,
+            })
+    }
+
+    /// The first segment of `requested` where it is neither `crate` nor the crate name of a
+    /// dependency ([`ItemPath::krate`]) nor a module of the root package's items: the root
+    /// package's own crate name or `self`, which name the root package but are not how a stop
+    /// names its items, or else a name the definition records no package by.
+    fn unknown_crate(&self, requested: &str) -> Option<UnknownCrate> {
+        let (first, _) = requested.split_once("::")?;
+        let module = format!("{first}::");
+        let items = || self.by_id.values().filter_map(|rule| rule.item.as_ref());
+        let known = first == "crate"
+            || items().any(|item| {
+                if item.namespace == self.root {
+                    item.path.starts_with(&module)
+                } else {
+                    item.krate == first
+                }
+            });
+        if known {
+            None
+        } else if first == "self"
+            || items().any(|item| item.namespace == self.root && item.krate == first)
+        {
+            Some(UnknownCrate::Root(first.to_owned()))
+        } else {
+            Some(UnknownCrate::Unrecorded(first.to_owned()))
+        }
+    }
+
+    /// The names that select the items with a rewrite rule at the path below `requested`'s
+    /// first segment, in any package, other than `requested` itself: what a path written with
+    /// another crate's name, a renamed one or `crate::` for a dependency's item, meant.
+    fn elsewhere(&self, requested: &str) -> Vec<String> {
+        let Some((_, below)) = requested.split_once("::") else {
+            return Vec::new();
+        };
+        let mut names = self
+            .by_id
+            .values()
+            .filter(|rule| rule.kind == RuleKind::Rule)
+            .filter_map(|rule| rule.item.as_ref())
+            .filter(|item| item.path == below)
+            .map(|item| self.spelling(item))
+            .filter(|name| name != requested && self.resolve_item_named(name).is_ok())
+            .collect::<Vec<_>>();
+        names.sort_unstable();
+        names.dedup();
+        names
+    }
+
+    /// [`Self::resolve_item`] without the names a refusal suggests.
+    fn resolve_item_named(&self, requested: &str) -> Result<Vec<String>, ExecError> {
         let (in_root, in_dependency) = match requested.split_once("::") {
             Some(("crate", path)) => (path, None),
             Some((krate, path)) => (requested, Some((krate, path))),
@@ -199,6 +267,8 @@ impl Rules {
             return Err(ExecError::UnknownItem {
                 requested: requested.to_owned(),
                 kinds,
+                unknown_crate: None,
+                suggestions: Vec::new(),
             });
         }
         Ok(rules)
@@ -364,7 +434,7 @@ impl Rules {
 #[cfg(test)]
 mod tests {
     use super::{CatalogRule, Rules};
-    use crate::{ExecError, origin::ItemPath, report::RuleKind};
+    use crate::{ExecError, UnknownCrate, origin::ItemPath, report::RuleKind};
 
     /// The root package's K namespace in [`rules`].
     const ROOT: &str = "SM83";
@@ -606,6 +676,72 @@ mod tests {
         assert_eq!(
             bare.resolve_rewrite("work_amount").unwrap_err().to_string(),
             "no rewrite rule has label `work_amount`; did you mean `crate::work_amount`?"
+        );
+    }
+
+    /// A dependency's item is named by that crate's own name, its package name with `-` written
+    /// `_`: a name a depending manifest renames the dependency to is no crate of the definition,
+    /// and the refusal says so and names the item by the name that selects it.
+    #[test]
+    fn a_dependency_is_named_by_its_own_crate_name() {
+        let rules = Rules::from_entries(
+            "VM",
+            [
+                by(
+                    rule("v1", Some("VM.tick"), RuleKind::Rule),
+                    "VM",
+                    "vm",
+                    "tick",
+                ),
+                by(
+                    rule("c1", Some("CORE.step"), RuleKind::Rule),
+                    "CORE",
+                    "gb_sm83_core",
+                    "step",
+                ),
+            ],
+        );
+        assert_eq!(rules.resolve_item("gb_sm83_core::step").unwrap(), ["c1"]);
+        // The root's `sm83-core = { package = "gb-sm83-core" }` names the crate `sm83_core` in
+        // the root's source only.
+        let renamed = rules.resolve_item("sm83_core::step").unwrap_err();
+        assert!(
+            matches!(&renamed, ExecError::UnknownItem { unknown_crate: Some(UnknownCrate::Unrecorded(krate)), suggestions, .. }
+                if krate == "sm83_core" && suggestions == &["gb_sm83_core::step"]),
+            "{renamed:?}"
+        );
+        assert_eq!(
+            renamed.to_string(),
+            "no rewrite rule is written by KRS item `sm83_core::step`: no sentence of the definition is the item's, and the definition records no package by the name `sm83_core`: a dependency's item is named by its Cargo package name with `-` written `_`, never by a name a depending package's manifest renames it to or a library name its `[lib]` section gives it; did you mean `gb_sm83_core::step`?"
+        );
+        // `crate::` names the root's items alone.
+        let rooted = rules.resolve_item("crate::step").unwrap_err();
+        assert!(
+            matches!(&rooted, ExecError::UnknownItem { unknown_crate: None, suggestions, .. }
+                if suggestions == &["gb_sm83_core::step"]),
+            "{rooted:?}"
+        );
+        // The root's own crate name and `self` name the root package, whose items a stop names
+        // `crate::`.
+        for written in ["vm", "self"] {
+            let refused = rules.resolve_item(&format!("{written}::tick")).unwrap_err();
+            assert!(
+                matches!(&refused, ExecError::UnknownItem { unknown_crate: Some(UnknownCrate::Root(name)), suggestions, .. }
+                    if name == written && suggestions == &["crate::tick"]),
+                "{written}: {refused:?}"
+            );
+            assert_eq!(
+                refused.to_string(),
+                format!(
+                    "no rewrite rule is written by KRS item `{written}::tick`: no sentence of the definition is the item's, and `{written}` names the root package, whose items are named `crate::` and their path; did you mean `crate::tick`?"
+                )
+            );
+        }
+        // A dependency's crate name with a path it has no item at points at none.
+        let missing = rules.resolve_item("gb_sm83_core::tock").unwrap_err();
+        assert_eq!(
+            missing.to_string(),
+            "no rewrite rule is written by KRS item `gb_sm83_core::tock`: no sentence of the definition is the item's (an item is named by its Rust path: `crate::` and its path in the root package, or a dependency's own crate name and its path there)"
         );
     }
 

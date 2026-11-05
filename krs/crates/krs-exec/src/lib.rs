@@ -203,9 +203,10 @@ impl From<StopRules> for StopCriterion {
 ///
 /// A name is a KRS item or a K label.
 ///
-/// - A name with `::` is a KRS item, by its Rust path as the root package's source names it:
-///   `crate::` and the path below the root crate's root (`crate::ppu::frame_end`), or a
-///   dependency's crate name and the path below its root (`lang::step`). The root package is
+/// - A name with `::` is a KRS item, by its Rust path: `crate::` and the path below the root
+///   crate's root (`crate::ppu::frame_end`), or a dependency's own crate name, its Cargo package
+///   name with `-` written `_` whatever a depending manifest renames it to, and the path below
+///   its root (`lang::step`). The root package is
 ///   the one whose module is the definition's main module. A path with neither prefix
 ///   (`ppu::frame_end`) is read both ways, as Rust reads a path at the crate root. The name
 ///   selects every rewrite rule the item lowers to (a context's heat and cool rules, a strict
@@ -540,6 +541,19 @@ impl fmt::Display for ElementSortMismatch {
     }
 }
 
+/// The first segment of a KRS item path that names no item, where it names no package the way
+/// a stop names one ([`ExecError::UnknownItem`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum UnknownCrate {
+    /// A name the definition records no package by, such as a depending manifest's rename of a
+    /// dependency or a library name its `[lib]` section gives it: a stop names a dependency by
+    /// its Cargo package name with `-` written `_`.
+    Unrecorded(String),
+    /// The root package's own crate name, or `self`: names of the root package, whose items a
+    /// stop names `crate::` and their path.
+    Root(String),
+}
+
 /// A failure of a `krs-exec` operation.
 #[derive(Debug)]
 pub enum ExecError {
@@ -640,6 +654,13 @@ pub enum ExecError {
         /// The kinds of the sentences the item lowers to, none of them a rewrite rule, each
         /// once; empty where no sentence of the definition is the item's.
         kinds: Vec<RuleKind>,
+        /// Where no sentence is the item's: the path's first segment, when it is neither
+        /// `crate`, nor a dependency's crate name, nor a module of the root package's items, and
+        /// what it is instead.
+        unknown_crate: Option<UnknownCrate>,
+        /// Where no sentence is the item's: the names that select the items with a rewrite rule
+        /// at the path below the first segment (`my_lang::step` for `lang::step`), sorted.
+        suggestions: Vec<String>,
     },
     /// A stop named by KRS item ([`StopRules`]) names items of several packages.
     AmbiguousItem {
@@ -803,7 +824,18 @@ impl fmt::Display for ExecError {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Self::UnknownItem { requested, kinds } => write_unknown_item(formatter, requested, kinds),
+            Self::UnknownItem {
+                requested,
+                kinds,
+                unknown_crate,
+                suggestions,
+            } => write_unknown_item(
+                formatter,
+                requested,
+                kinds,
+                unknown_crate.as_ref(),
+                suggestions,
+            ),
             Self::AmbiguousItem { requested, matches } => write!(
                 formatter,
                 "KRS item `{requested}` is ambiguous: it names {}; `crate::` names the root package's item alone, and a K label names one package's rule",
@@ -900,12 +932,39 @@ fn write_unknown_item(
     formatter: &mut fmt::Formatter<'_>,
     requested: &str,
     kinds: &[RuleKind],
+    unknown_crate: Option<&UnknownCrate>,
+    suggestions: &[String],
 ) -> fmt::Result {
     if kinds.is_empty() {
-        return write!(
+        write!(
             formatter,
-            "no rewrite rule is written by KRS item `{requested}`: no sentence of the definition is the item's (an item is named by its Rust path: `crate::` and its path in the root package, or a dependency's crate name and its path there)"
-        );
+            "no rewrite rule is written by KRS item `{requested}`: no sentence of the definition is the item's"
+        )?;
+        match unknown_crate {
+            Some(UnknownCrate::Unrecorded(krate)) => write!(
+                formatter,
+                ", and the definition records no package by the name `{krate}`: a dependency's item is named by its Cargo package name with `-` written `_`, never by a name a depending package's manifest renames it to or a library name its `[lib]` section gives it"
+            )?,
+            Some(UnknownCrate::Root(name)) => write!(
+                formatter,
+                ", and `{name}` names the root package, whose items are named `crate::` and their path"
+            )?,
+            None => formatter.write_str(
+                " (an item is named by its Rust path: `crate::` and its path in the root package, or a dependency's own crate name and its path there)",
+            )?,
+        }
+        return match suggestions {
+            [] => Ok(()),
+            [one] => write!(formatter, "; did you mean `{one}`?"),
+            many => write!(
+                formatter,
+                "; did you mean one of {}?",
+                many.iter()
+                    .map(|name| format!("`{name}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        };
     }
     let kinds = kinds
         .iter()

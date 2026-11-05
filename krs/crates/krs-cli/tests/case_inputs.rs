@@ -958,6 +958,34 @@ fn a_case_names_its_rules_as_the_stop_flags_do() {
         "{}",
         stderr(&refused)
     );
+    // A crate name no package of the definition has, as a depending manifest's rename of a
+    // dependency would be, is refused in a case's `run` and by a stop flag alike, naming the
+    // item by the name that selects it.
+    let hint = "the definition records no package by the name `renamed`: a dependency's item is named by its Cargo package name with `-` written `_`, never by a name a depending package's manifest renames it to or a library name its `[lib]` section gives it; did you mean `crate::finish`?";
+    project.write(
+        "renamed-stop.json",
+        json!({"inputs": ends_inputs(&finish), "run": {"stop_before": ["renamed::finish"]}})
+            .to_string(),
+    );
+    project.write(
+        "unstopped.json",
+        json!({"inputs": ends_inputs(&finish)}).to_string(),
+    );
+    for refused in [
+        project.krs("run", &["--case", "renamed-stop.json"]),
+        project.krs(
+            "run",
+            &[
+                "--case",
+                "unstopped.json",
+                "--stop-before",
+                "renamed::finish",
+            ],
+        ),
+    ] {
+        assert_eq!(refused.status.code(), Some(2), "{}", stderr(&refused));
+        assert!(stderr(&refused).contains(hint), "{}", stderr(&refused));
+    }
 }
 
 /// A run that stops at a rule it does not name has no end class to compare, so its expectation is

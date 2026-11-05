@@ -940,10 +940,15 @@ const VIEW_FUNCTION_HELP: &str = "if this function is a view (a function of one 
 /// of no selected facet ([`krs_diagnostic::codes::collect::PACKAGE_NOT_SELECTED`]).
 const OBSERVER_DEPENDENCY_HELP: &str = "the observer composes the packages it depends on whose facets --dependency names, as any definition does: name the package's facet with --dependency PACKAGE:DEFINITION (one outside the compared definition's closure is composed into the observer only)";
 
+/// Where the observer's package must be, said where planning finds no package of its name
+/// ([`krs_diagnostic::codes::plan::MISSING_PACKAGE`]).
+const OBSERVER_PACKAGE_HELP: &str = "the observer's package is one of the package graph Cargo resolves for --manifest-path, a workspace member or a dependency of one: the observer composes the definition it compares, so both must come from one Cargo resolution, or its views would be built against another copy of that definition; add the observer's package to that workspace, or run from a workspace that holds both";
+
 /// The observer `name`'s refusal `error`: each of its diagnostics noting the observer, one that
 /// refuses a function for being program syntax without one saying what a view function must be,
-/// and one that finds a package of no selected facet saying how to compose it; a refusal without
-/// diagnostics as text naming the observer.
+/// one that finds a package of no selected facet saying how to compose it, and one that finds no
+/// package of the observer's name saying where it must be; a refusal without diagnostics as text
+/// naming the observer.
 fn observer_refusal(name: &str, error: &CommandError) -> CommandError {
     let note = format!(
         "in the observer `{name}`, the definition krs composes to resolve and evaluate the views"
@@ -957,6 +962,8 @@ fn observer_refusal(name: &str, error: &CommandError) -> CommandError {
                     diagnostic.help.push(VIEW_FUNCTION_HELP.to_owned());
                 } else if code == krs_diagnostic::codes::collect::PACKAGE_NOT_SELECTED.as_str() {
                     diagnostic.help.push(OBSERVER_DEPENDENCY_HELP.to_owned());
+                } else if code == krs_diagnostic::codes::plan::MISSING_PACKAGE.as_str() {
+                    diagnostic.help.push(OBSERVER_PACKAGE_HELP.to_owned());
                 }
                 diagnostic.notes.push(note.clone());
             }
