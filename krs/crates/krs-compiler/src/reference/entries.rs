@@ -87,9 +87,10 @@ impl From<IllegalEntry> for super::ReferenceExpansionError {
 ///
 /// # Errors
 ///
-/// [`IllegalEntry`] for an entry `k::cells!` refuses: an anonymous rest in a result map or
-/// list, whose `..` keeps a rest only of a computation cell, and items after a cons list's
-/// rest, since a cons list is built from its front.
+/// [`IllegalEntry`] for an entry `k::cells!` refuses: an anonymous rest in a result map, whose
+/// `..` names no map the entries are written over; brackets that hold an anonymous rest and no
+/// item (`[..]`, which name no element); and items after a cons list's rest, since a cons list
+/// is built from its front.
 pub(crate) fn print_entry(
     field: &TokenStream,
     entry: &Entry,
@@ -101,9 +102,11 @@ pub(crate) fn print_entry(
                 "an anonymous `..` in a result map literal: a result names the map's rest",
             ));
         }
-        (Contents::List { .. }, Rest::Anonymous, Side::Result) => {
+        (Contents::List { items, back, .. }, Rest::Anonymous, _)
+            if items.is_empty() && back.is_empty() =>
+        {
             return Err(IllegalEntry(
-                "an anonymous `..` in a result list: a result names the list's rest",
+                "brackets holding only an anonymous `..`: `[..]` names no element",
             ));
         }
         (
@@ -144,7 +147,7 @@ pub(crate) fn print_entry(
             match &entry.rest {
                 Rest::Named(rest) => quote!(k::configuration::Cell(#rest)),
                 Rest::Exact => quote!(k::configuration::Cell([])),
-                Rest::Anonymous => quote!(k::configuration::Cell(_)),
+                Rest::Anonymous => unreachable!("refused above"),
             }
         }
         Contents::List { items, back, .. } => {
@@ -301,8 +304,23 @@ mod tests {
             items: vec![quote!(a)],
             back,
         };
-        assert!(refused(
+        assert!(!refused(
             list(ListKind::Cons, Vec::new()),
+            Rest::Anonymous,
+            Side::Result
+        ));
+        let bare = |kind| Contents::List {
+            kind,
+            items: Vec::new(),
+            back: Vec::new(),
+        };
+        assert!(refused(
+            bare(ListKind::Cons),
+            Rest::Anonymous,
+            Side::Subject
+        ));
+        assert!(refused(
+            bare(ListKind::Builtin),
             Rest::Anonymous,
             Side::Result
         ));

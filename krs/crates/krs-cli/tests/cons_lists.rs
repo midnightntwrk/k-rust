@@ -441,6 +441,57 @@ fn a_record_cells_anonymous_rest_is_one_shared_rest() {
     );
 }
 
+/// A list cell's anonymous `..` reads the same in `k::cells!` as in a readable record: `krs
+/// expand` prints it `..` on both sides, and the print emits the readable rule's K, whose
+/// shared rest is the one variable both sides of the cell name, in a rule and a claim, and in a
+/// subject that reads the cell its result does not write.
+#[test]
+fn a_cells_list_entrys_anonymous_rest_keeps_the_subjects_rest() {
+    let target = shared_fixture_target();
+    let readable = temp_dir();
+    let printed = temp_dir();
+    let source = spelled(true)
+        .replace(
+            "add: { k: [Add(), ..], word_stack: [a, b, rest @ ..] } => { k: [..], word_stack: [Chop(a + b), ..rest] };",
+            "add: { k: [Add(), ..], word_stack: [a, b, ..] } => { k: [..], word_stack: [Chop(a + b), ..] };",
+        )
+        .replace(
+            "swap: { word_stack: [a, b, rest @ ..], k: [Swap(), ..] } => { k: [..], word_stack: [b, a, ..rest] };",
+            "swap: { word_stack: [a, b, ..], k: [Swap(), ..] } => { k: [..], word_stack: [b, a, ..] };",
+        )
+        .replace("word_stack: [1, 2, rest @ ..] }", "word_stack: [1, 2, ..] }")
+        .replace("word_stack: [3, ..rest] }", "word_stack: [3, ..] }")
+        .replace("load: { k: [Load(", "load: { word_stack: [_, ..], k: [Load(");
+    assert!(source.contains("[3, ..] }") && source.contains("load: { word_stack: [_, ..]"));
+    let readable_k = definition_k(target.path(), readable.path(), "lists", &source);
+    let manifest = package(readable.path(), "lists", &source);
+    let (success, print, stderr) = krs(target.path(), &manifest, "expand", &[]);
+    assert!(success, "{stderr}");
+    let collapsed = print.split_whitespace().collect::<String>();
+    for entry in [
+        "word_stack:k::configuration::Cell([a,b,..])",
+        "word_stack:k::configuration::Cell([b,a,..])",
+        "word_stack:k::configuration::Cell([_,..])",
+        "word_stack:k::configuration::Cell([1,2,..])",
+        "word_stack:k::configuration::Cell([3,..])",
+    ] {
+        assert!(collapsed.contains(entry), "{entry}:\n{print}");
+    }
+    // `bump`'s record update names its hidden binder `Krs_UpdateFTy` on the readable route and
+    // `FTy` in the print, which writes the binder: a rename, and not this test's.
+    assert_eq!(
+        definition_k(target.path(), printed.path(), "lists", &print),
+        readable_k.replace("Krs_UpdateFTy", "FTy")
+    );
+    for sentence in [
+        "<wordStack> A:Int : B:Int : Krs_RestWordStack:WordStack => B:Int : A:Int : Krs_RestWordStack:WordStack </wordStack>",
+        "<wordStack> _ : Krs_RestWordStack:WordStack </wordStack>",
+        "<wordStack> 1 : 2 : Krs_RestWordStack:WordStack => 3 : Krs_RestWordStack:WordStack </wordStack>",
+    ] {
+        assert!(readable_k.contains(sentence), "{sentence}:\n{readable_k}");
+    }
+}
+
 #[test]
 fn expand_writes_a_list_cells_brackets_as_written() {
     let target = shared_fixture_target();

@@ -1710,8 +1710,8 @@ fn cell_cons_list(
 }
 
 /// Renders one side of a list cell as the constructor term it denotes:
-/// `Cons(a, Cons(b, rest))`. Only a cell with an anonymous rest (R2) prints so; other list
-/// entries print their brackets through [`entries::print_entry`].
+/// `Cons(a, Cons(b, rest))`. Only a cell whose brackets hold just the anonymous rest (`[..]`)
+/// prints so; other list entries print their brackets through [`entries::print_entry`].
 fn render_list(
     list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>,
     constructors: &CellConsList,
@@ -1743,8 +1743,9 @@ fn render_list(
 
 /// Renders one side of a builtin `List` cell as the term its brackets
 /// denote: `list::concat(list::item(a), rest)`, nested as
-/// [`render_builtin_list_level`] nests a term's brackets. Only a cell with an anonymous rest
-/// (R2) prints so; other list entries print their brackets through [`entries::print_entry`].
+/// [`render_builtin_list_level`] nests a term's brackets. Only a cell whose brackets hold just
+/// the anonymous rest (`[..]`) prints so; other list entries print their brackets through
+/// [`entries::print_entry`].
 fn render_builtin_list(
     list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>,
     shared: Option<&Ident>,
@@ -2547,14 +2548,18 @@ fn render_rule(
                 ..
             } => {
                 let constructors = cell_cons_list(&cell.cell, bundle);
-                let anonymous = |list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>| {
+                let bare = |list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>| {
                     matches!(list.rest, krs_ir::ProtocolHeadRuleListRest::Shared(_))
+                        && list.items.is_empty()
+                        && list.back.is_empty()
                 };
                 // The brackets are written as the author wrote them: each side's items, its
-                // rest (bound `r @ ..` in the subject, written `..t` in the result) and, on a
-                // `List`, its back. They denote the constructor or `List` term the readable
-                // rule's do, front first.
-                if !anonymous(before) && !after.as_ref().is_some_and(anonymous) {
+                // rest (`..` on both sides when anonymous; bound `r @ ..` in the subject and
+                // written `..t` in the result when named) and, on a `List`, its back. They
+                // denote the constructor or `List` term the readable rule's do, front first:
+                // `cells!` names a list cell's anonymous rest as the readable rule does, one
+                // variable of the cell the subject binds and the result keeps.
+                if !bare(before) && !after.as_ref().is_some_and(bare) {
                     let kind = if constructors.is_some() {
                         entries::ListKind::Cons
                     } else {
@@ -2600,11 +2605,9 @@ fn render_rule(
                     }
                     continue;
                 }
-                // R2: an anonymous rest keeps its constructor print, a parameter both sides
-                // name. Its result `[x, ..]` waits for `k::cells!` to keep a list's rest (K1
-                // step 2). Its subject `[a, ..]` would emit `_` where the readable rule emits
-                // its generated rest variable: the same rule, which waits for S5.5's generated
-                // rest name, or for a `k_round_trip` rule equating `_` with a variable used once.
+                // Brackets holding only the anonymous rest (`[..]`, the whole list) name no
+                // element, which `k::cells!` refuses: such a cell prints its constructor or
+                // `List` term over a rest parameter both sides name.
                 //
                 // A cell of the builtin `List` is the `list::item` and
                 // `list::concat` term its brackets denote.

@@ -489,18 +489,15 @@ fn expand_writes_the_list_terms_brackets_denote() {
         #[k::rule(label = "swap")]
         pub fn swap(
             a: k::Term<k::builtin::Int>,
-            rest: k::Term<k::builtin::List>,
             z: k::Term<k::builtin::Int>,
             k::cells! {
                 k : k::configuration::KCell(crate ::Cmd::Swap(), ..), queue :
-                k::configuration::Cell(k::builtin::list::concat(k::builtin::list::item(a),
-                k::builtin::list::concat(rest, k::builtin::list::item(z)))), state @ ..
+                k::configuration::Cell([a, .., z]), state @ ..
             }: crate::Machine,
         ) -> crate::Machine {
             k::cells! {
-                k : k::configuration::KCell(..), queue :
-                k::configuration::Cell(k::builtin::list::concat(k::builtin::list::item(z),
-                k::builtin::list::concat(rest, k::builtin::list::item(a)))), ..state
+                k : k::configuration::KCell(..), queue : k::configuration::Cell([z, .., a]),
+                ..state
             }
         }
     "#]]
