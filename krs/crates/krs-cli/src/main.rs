@@ -3170,26 +3170,33 @@ mod tests {
         }
     }
 
+    /// The package and definition every `krs compare` test below names.
+    const COMPARE_BASE: [&str; 4] = ["--package", "imp", "--definition", "main"];
+
+    /// `krs compare` with `extra` after the package and definition.
+    fn compare_arguments<'a>(extra: &[&'a str]) -> Vec<&'a str> {
+        let mut args = vec!["compare"];
+        args.extend(COMPARE_BASE);
+        args.extend(extra);
+        args
+    }
+
+    /// The side `path`, naming the case `name` of its document when given.
+    fn side(path: &str, name: Option<&str>) -> SideFile {
+        SideFile {
+            path: PathBuf::from(path),
+            name: name.map(str::to_owned),
+        }
+    }
+
     /// `krs compare` takes two sides, or `--expect CASE` and one; `--compare` (comma-separated,
     /// repeatable), `--view CELL=FUNCTION`, `--observer`, `--output human|json`, `--view-budget`
     /// and the solver options; the expectation states its own cells and views.
     #[test]
     fn parses_compare_options() {
-        let base = ["--package", "imp", "--definition", "main"];
-        fn arguments<'a>(base: [&'a str; 4], extra: &[&'a str]) -> Vec<&'a str> {
-            let mut args = vec!["compare"];
-            args.extend(base);
-            args.extend(extra);
-            args
-        }
-        let with = |extra: &[&str]| match run(&arguments(base, extra)).0.command {
+        let with = |extra: &[&str]| match run(&compare_arguments(extra)).0.command {
             Command::Compare(request) => request,
             other => panic!("{other:?}"),
-        };
-        let failure = |extra: &[&str]| error(&arguments(base, extra));
-        let side = |path: &str, name: Option<&str>| SideFile {
-            path: PathBuf::from(path),
-            name: name.map(str::to_owned),
         };
         assert_eq!(
             with(&["a.json", "cases.toml#ld-a"]),
@@ -3240,6 +3247,14 @@ mod tests {
                 actual: side("end.json", None),
             }
         );
+    }
+
+    /// `krs compare` refuses a wrong number of sides, the comparison options beside
+    /// `--expect`, a malformed `--view` or `--compare`, a side that is no document, and the
+    /// options of other verbs; `--view` belongs to `krs compare` alone.
+    #[test]
+    fn refuses_compare_misuse() {
+        let failure = |extra: &[&str]| error(&compare_arguments(extra));
         assert_eq!(
             failure(&["a.json"]),
             "krs compare takes two sides, LEFT and RIGHT, or --expect CASE and one side, ACTUAL; 1 given"
@@ -3289,7 +3304,7 @@ mod tests {
             );
         }
         let mut args = vec!["run"];
-        args.extend(base);
+        args.extend(COMPARE_BASE);
         args.extend(["--view", "bus=V"]);
         assert_eq!(error(&args), "--view does not apply to krs run");
     }
