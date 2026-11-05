@@ -556,6 +556,23 @@ fn initializer_context_preserves_restrictions_and_first_errors_on_both_stages() 
     assert_initializer_context::<HostStage>();
 }
 
+/// An initializer builds a list and matches none, so it holds no list's unnamed rest.
+#[test]
+fn an_initializer_refuses_a_kept_list_rest() {
+    fn refused<S: ConfigurationValidationStage>() {
+        assert_eq!(
+            initializer_term::<S>(Term::KeptRest {
+                key: key(ProvenanceRole::InitializerTermPath)
+            }),
+            Err(StateTransportError::InvalidTerm(
+                StateTermReason::KeptRestOutsideListCellRoot
+            ))
+        );
+    }
+    refused::<DescriptorStage>();
+    refused::<HostStage>();
+}
+
 /// A builtin literal and a lexeme are constants: an initializer term keyed
 /// with its constant's role, and the literal must be valid for its sort.
 fn assert_initializer_constants<S: ConfigurationValidationStage>(sort: impl Fn() -> S::Sort) {

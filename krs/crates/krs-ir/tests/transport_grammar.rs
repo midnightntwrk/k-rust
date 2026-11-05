@@ -1338,6 +1338,23 @@ fn wrong_kinds_missing_origins_and_noncanonical_literals_are_rejected() {
             GrammarTransportError::InvalidTerm(_)
         ))
     ));
+
+    // A grammar-level sentence has no `cells!` list cell whose unnamed rest it could keep.
+    let mut descriptors = expression_descriptors();
+    let DescriptorPayload::StructuredRule(rule) = &mut descriptors[1].payload else {
+        unreachable!()
+    };
+    rule.result = Some(DescriptorTerm::KeptRest {
+        key: key(ProvenanceRole::RuleLeftWildcard, 0),
+    });
+    assert!(matches!(
+        descriptors[1].build(),
+        Err(krs_ir::DescriptorError::Grammar(
+            GrammarTransportError::InvalidTerm(
+                krs_ir::transport::detail::GrammarTermReason::KeptRestOutsideListCellRoot
+            )
+        ))
+    ));
 }
 
 macro_rules! type_keys {

@@ -1038,3 +1038,265 @@ fn a_set_s_element_admits_a_let_block_outside_its_local_patterns() {
         refused
     );
 }
+
+/// A rule term keyed `role`, ordinal `ordinal`: the literal `true`.
+fn list_literal(role: ProvenanceRole, ordinal: u32) -> Term<DescriptorStage> {
+    Term::Literal {
+        key: ProvenanceKey::new(role, ordinal),
+        literal: DescriptorLiteral::Bool(true),
+    }
+}
+
+/// One level of list notation on `side`, `[element, ..rest]` or `[..rest, element]`.
+fn list_level(
+    side: ValidationSide,
+    notation: crate::ListNotation,
+    element: Term<DescriptorStage>,
+    rest: Term<DescriptorStage>,
+    ordinal: u32,
+) -> Term<DescriptorStage> {
+    let role = match side {
+        ValidationSide::Left => ProvenanceRole::RuleLeftApplicationHead,
+        _ => ProvenanceRole::RuleRightApplicationHead,
+    };
+    let head = ProvenanceKey::new(role, ordinal);
+    let arguments = match notation {
+        crate::ListNotation::Snoc => vec![rest, element],
+        _ => vec![element, rest],
+    };
+    Term::Application {
+        instance: Vec::new(),
+        head_class: DescriptorApplicationHeadClass::Applied,
+        reference: DescriptorApplicationReference {
+            key: head.clone(),
+            application: DescriptorApplicationRef::ListNotation(notation),
+        },
+        path_key: head,
+        arguments: crate::Arguments::Positional(arguments.into_iter().map(Box::new).collect()),
+        update: None,
+        open: false,
+    }
+}
+
+/// The unnamed rest of a list, keyed as the `..` it is on `side`.
+fn kept_rest(side: ValidationSide, ordinal: u32) -> Term<DescriptorStage> {
+    let role = match side {
+        ValidationSide::Left => ProvenanceRole::RuleLeftWildcard,
+        _ => ProvenanceRole::RuleRightWildcard,
+    };
+    Term::KeptRest {
+        key: ProvenanceKey::new(role, ordinal),
+    }
+}
+
+/// A list cell entry's state validated on `side`, as the entry's root when `entry_root`, in a
+/// sentence with a result when `with_result`.
+fn list_entry(
+    state: &ProtocolRuleStateTerm<Term<DescriptorStage>>,
+    side: RuleSide,
+    entry_root: bool,
+    with_result: bool,
+) -> Result<(), StateTransportError> {
+    validate_rule_state::<DescriptorStage>(
+        state,
+        side,
+        &[],
+        &mut Vec::new(),
+        &mut RuleWalk {
+            kept_rests: with_result,
+            ..RuleWalk::default()
+        },
+        &mut WireKeys::default(),
+        entry_root,
+    )
+}
+
+const OUTSIDE_LIST_ROOT: Result<(), StateTransportError> = Err(StateTransportError::InvalidTerm(
+    StateTermReason::KeptRestOutsideListCellRoot,
+));
+
+/// A list cell entry's root brackets end in the list's unnamed rest, on either side of a rule
+/// with a result: a cons level's tail, a snoc level's init, at any depth of the root's spine,
+/// below `Some(..)` too.
+#[test]
+fn a_kept_rest_ends_a_list_cell_entrys_root_spine() {
+    use crate::ListNotation::{Cons, Snoc};
+    for (side, validation) in [
+        (RuleSide::Left, ValidationSide::Left),
+        (RuleSide::Right, ValidationSide::Right),
+    ] {
+        let literal = |ordinal| {
+            list_literal(
+                match side {
+                    RuleSide::Left => ProvenanceRole::RuleLeftLiteral,
+                    RuleSide::Right => ProvenanceRole::RuleRightLiteral,
+                },
+                ordinal,
+            )
+        };
+        let terms = [
+            // `[x, ..]`, `[.., x]` and `[x, .., y]`.
+            list_level(validation, Cons, literal(0), kept_rest(validation, 0), 0),
+            list_level(validation, Snoc, literal(0), kept_rest(validation, 0), 0),
+            list_level(
+                validation,
+                Cons,
+                literal(0),
+                list_level(validation, Snoc, literal(1), kept_rest(validation, 0), 1),
+                0,
+            ),
+        ];
+        for term in terms {
+            let state = ProtocolRuleStateTerm::Term(term);
+            assert_eq!(list_entry(&state, side, true, true), Ok(()));
+            let present = ProtocolRuleStateTerm::Present {
+                value: Box::new(state),
+            };
+            assert_eq!(list_entry(&present, side, true, true), Ok(()));
+        }
+    }
+}
+
+/// The whole entry is no list's rest: `Cell(..)` names no element.
+#[test]
+fn a_kept_rest_is_not_a_whole_entry() {
+    let state = ProtocolRuleStateTerm::Term(kept_rest(ValidationSide::Left, 0));
+    assert_eq!(
+        list_entry(&state, RuleSide::Left, true, true),
+        OUTSIDE_LIST_ROOT
+    );
+}
+
+/// An element of the root's brackets, and a list nested in one, are no rest of the cell's list.
+#[test]
+fn a_kept_rest_is_not_an_element_or_a_nested_lists_rest() {
+    use crate::ListNotation::Cons;
+    let left = ValidationSide::Left;
+    let literal = |ordinal| list_literal(ProvenanceRole::RuleLeftLiteral, ordinal);
+    for term in [
+        // `[.., ..rest]`'s element.
+        list_level(left, Cons, kept_rest(left, 0), literal(0), 0),
+        // `[[x, ..], ..rest]`.
+        list_level(
+            left,
+            Cons,
+            list_level(left, Cons, literal(0), kept_rest(left, 0), 1),
+            literal(1),
+            0,
+        ),
+    ] {
+        assert_eq!(
+            list_entry(
+                &ProtocolRuleStateTerm::Term(term),
+                RuleSide::Left,
+                true,
+                true
+            ),
+            OUTSIDE_LIST_ROOT
+        );
+    }
+}
+
+/// A term below an application that is no level of list notation is no rest of the list.
+#[test]
+fn a_kept_rest_is_not_an_applications_argument() {
+    let head = key(ProvenanceRole::RuleLeftApplicationHead);
+    let term = Term::Application {
+        instance: Vec::new(),
+        head_class: DescriptorApplicationHeadClass::Applied,
+        reference: DescriptorApplicationReference {
+            key: head.clone(),
+            application: DescriptorApplicationRef::Declared(item("Wrap", ItemKind::Constructor)),
+        },
+        path_key: head,
+        arguments: crate::Arguments::Positional(vec![Box::new(kept_rest(ValidationSide::Left, 0))]),
+        update: None,
+        open: false,
+    };
+    assert_eq!(
+        list_entry(
+            &ProtocolRuleStateTerm::Term(term),
+            RuleSide::Left,
+            true,
+            true
+        ),
+        OUTSIDE_LIST_ROOT
+    );
+}
+
+/// A sentence with no result (a single-body rule, a context) keeps no rest, so its subject's
+/// brackets hold none.
+#[test]
+fn a_kept_rest_needs_a_result_to_keep_it() {
+    let left = ValidationSide::Left;
+    let term = list_level(
+        left,
+        crate::ListNotation::Cons,
+        list_literal(ProvenanceRole::RuleLeftLiteral, 0),
+        kept_rest(left, 0),
+        0,
+    );
+    assert_eq!(
+        list_entry(
+            &ProtocolRuleStateTerm::Term(term),
+            RuleSide::Left,
+            true,
+            false
+        ),
+        OUTSIDE_LIST_ROOT
+    );
+}
+
+/// A collection instance's child is no entry's root: its list's rest is not the cell's.
+#[test]
+fn a_kept_rest_is_not_an_instance_childs() {
+    let left = ValidationSide::Left;
+    let term = list_level(
+        left,
+        crate::ListNotation::Cons,
+        list_literal(ProvenanceRole::RuleLeftLiteral, 0),
+        kept_rest(left, 0),
+        0,
+    );
+    let child = ProtocolRuleStateTerm::Term(term);
+    // The child's own validation, as an instance's field validates it.
+    assert_eq!(
+        list_entry(&child, RuleSide::Left, false, true),
+        OUTSIDE_LIST_ROOT
+    );
+}
+
+/// A K sequence's item and a condition hold no list cell's rest.
+#[test]
+fn a_kept_rest_is_not_in_a_k_sequence_or_a_condition() {
+    let rest = kept_rest(ValidationSide::Left, 0);
+    let sequence = ProtocolRuleStateTerm::KSequence(ProtocolRuleKSequence {
+        payload_key: key(ProvenanceRole::RuleLeftKSequencePayload),
+        dot_k_key: None,
+        notation: crate::DescriptorKSequenceNotation::Comma,
+        items: vec![ProtocolRuleKSequenceItem {
+            key: key(ProvenanceRole::RuleLeftKSequenceItem),
+            value: rest,
+        }],
+        tail: ProtocolRuleFrame::Exact,
+    });
+    assert_eq!(
+        list_entry(&sequence, RuleSide::Left, true, true),
+        OUTSIDE_LIST_ROOT
+    );
+    assert_eq!(
+        validate_rule_term(
+            &kept_rest(ValidationSide::Right, 0),
+            ValidationSide::Requires,
+            &[],
+            &mut Vec::new(),
+            &mut RuleWalk {
+                kept_rests: true,
+                in_list_root: true,
+                ..RuleWalk::default()
+            },
+            &mut WireKeys::default(),
+        ),
+        OUTSIDE_LIST_ROOT
+    );
+}

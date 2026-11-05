@@ -135,7 +135,7 @@ pub(super) fn dropped_list_rest(
         descriptor,
         krs_diagnostic::codes::syntax::INVALID_LIST_NOTATION,
         key,
-        "the subject matches the rest of the list with `..`, and the result's brackets are exact, so the rule would drop that rest: keep it with `..` in the result's brackets too, or name it in the subject (`rest @ ..`) and leave it out of the result".to_owned(),
+        "the subject matches the rest of the list with `..`, and the result's brackets are exact, so the sentence would drop that rest: keep it with `..` in the result's brackets too, or name it in the subject (`rest @ ..`) and leave it out of the result".to_owned(),
     )
 }
 

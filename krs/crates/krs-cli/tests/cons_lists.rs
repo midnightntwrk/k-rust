@@ -492,6 +492,200 @@ fn a_cells_list_entrys_anonymous_rest_keeps_the_subjects_rest() {
     }
 }
 
+/// Two group cells with one field spelling, each a word stack.
+const GROUP_STACKS: &str = r#"
+use k::builtin::{Int, KSequence};
+use k::{KItem, KResult, Term};
+
+k::sorts! {
+    WordStack: KItem;
+    Op: KItem;
+}
+
+#[k::constructors(sort = WordStack, result = KResult)]
+#[k::cons_list]
+#[k::precedence((StackEmpty, StackCons))]
+pub enum Stack {
+    #[k::syntax(".WordStack")]
+    StackEmpty(),
+    #[k::syntax("{head} : {tail}")]
+    StackCons { head: Int, tail: WordStack },
+}
+
+#[k::constructors(sort = Op, result = KResult)]
+pub enum Instr {
+    #[k::syntax("TRADE")]
+    Trade,
+}
+
+#[k::cell]
+pub struct Left {
+    #[k::cell(name = "leftStack")]
+    pub stack: WordStack,
+}
+
+#[k::cell]
+pub struct Right {
+    #[k::cell(name = "rightStack")]
+    pub stack: WordStack,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell(nested)]
+    pub left: Left,
+    #[k::cell(nested)]
+    pub right: Right,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(#[k::config_var(name = "PGM", main)] pgm: Op) -> Self {
+        Self {
+            k: k::k![pgm],
+            left: Left { stack: Stack::StackEmpty() },
+            right: Right { stack: Stack::StackEmpty() },
+        }
+    }
+}
+
+/// The two stacks trade their tops; each keeps its own rest.
+#[k::rule(label = "trade")]
+pub fn trade(
+    a: Term<Int>,
+    b: Term<Int>,
+    k::cells! {
+        k: k::configuration::KCell(Instr::Trade(), ..),
+        Left::stack: k::configuration::Cell([a, ..]),
+        Right::stack: k::configuration::Cell([b, ..]),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..),
+        Left::stack: k::configuration::Cell([b, ..]),
+        Right::stack: k::configuration::Cell([a, ..]),
+        ..state
+    }
+}
+"#;
+
+/// Two cells whose fields are spelled alike are two cells, and each one's unnamed rest is its
+/// own: the rule matches stacks whose rests differ, and keeps each below its own new top.
+#[test]
+fn owner_qualified_list_cells_keep_a_rest_each() {
+    let target = shared_fixture_target();
+    let root = temp_dir();
+    let k = definition_k(target.path(), root.path(), "groups", GROUP_STACKS);
+    for sentence in [
+        "<leftStack> A:Int : Krs_RestLeftStack:WordStack => B:Int : Krs_RestLeftStack:WordStack </leftStack>",
+        "<rightStack> B:Int : Krs_RestRightStack:WordStack => A:Int : Krs_RestRightStack:WordStack </rightStack>",
+    ] {
+        assert!(k.contains(sentence), "{sentence}:\n{k}");
+    }
+}
+
+/// A name with the reserved marker is no author's binder, so no authored name stands for a list
+/// cell's unnamed rest: a subject cannot bind it, and a result's use of it, in another cell,
+/// names nothing the subject bound.
+#[test]
+fn a_reserved_rest_name_is_refused_on_both_sides() {
+    let target = shared_fixture_target();
+    for (item, expected) in [
+        (
+            "#[k::rule(label = \"reserved_subject\")]
+             fn reserved_subject(
+                 k::cells! {
+                     k: k::configuration::KCell(Instr::Reset(), ..),
+                     word_stack: k::configuration::Cell(__krs_rest_word_stack),
+                     state @ ..
+                 }: Machine,
+             ) -> Machine {
+                 k::cells! { k: k::configuration::KCell(..), ..state }
+             }",
+            "error[krs::syntax::reserved-binder]",
+        ),
+        (
+            "#[k::rule(label = \"reserved_result\")]
+             fn reserved_result(
+                 a: Term<Int>,
+                 k::cells! {
+                     k: k::configuration::KCell(Instr::Reset(), ..),
+                     word_stack: k::configuration::Cell([a, ..]),
+                     projections: k::configuration::Cell(_),
+                     state @ ..
+                 }: Machine,
+             ) -> Machine {
+                 k::cells! {
+                     k: k::configuration::KCell(..),
+                     word_stack: k::configuration::Cell([a, ..]),
+                     projections: k::configuration::Cell(__krs_rest_word_stack),
+                     ..state
+                 }
+             }",
+            "error[krs::expand::unbound-name]: `__krs_rest_word_stack` is not bound",
+        ),
+    ] {
+        let error = check_error(target.path(), item);
+        assert!(error.starts_with(expected), "{error}");
+    }
+}
+
+/// A result keeps only the rest its subject's `..` matched: a result's `..` over a subject that
+/// writes the whole list or names its rest, and exact result brackets over a subject's `..`,
+/// which would drop the rest it matched, are refused, in a rule and in a claim.
+#[test]
+fn a_cells_list_rest_is_kept_only_from_the_subjects() {
+    let target = shared_fixture_target();
+    // The entry table judges a rule's entries; the compiler answers a claim's, and a wire the
+    // table never saw.
+    let table = "error[krs::syntax::invalid-list-notation]: the entry of the cell `word_stack` has a rest (`..`) on one side of the rule only";
+    let unmatched = "error[krs::syntax::invalid-list-notation]: the result keeps the rest of the list with `..`, and the subject matched no unnamed rest of it";
+    let dropped = "error[krs::syntax::invalid-list-notation]: the subject matches the rest of the list with `..`, and the result's brackets are exact, so the sentence would drop that rest";
+    let entries = [
+        ("b: Term<Int>,", "[a, b]", "[b, ..]", unmatched),
+        (
+            "rest: Term<WordStack>,",
+            "[a, rest @ ..]",
+            "[a, ..]",
+            unmatched,
+        ),
+        ("", "[a, ..]", "[a]", dropped),
+    ];
+    for (binders, subject, result, claim) in entries {
+        for (attribute, expected) in [
+            ("k::rule(label = \"kept\")", table),
+            ("k::claim(all_paths, label = \"kept\")", claim),
+        ] {
+            let item = format!(
+                "#[{attribute}]
+                 fn kept(
+                     a: Term<Int>,
+                     {binders}
+                     k::cells! {{
+                         k: k::configuration::KCell(Instr::Reset(), ..),
+                         word_stack: k::configuration::Cell({subject}),
+                         state @ ..
+                     }}: Machine,
+                 ) -> Machine {{
+                     k::cells! {{
+                         k: k::configuration::KCell(..),
+                         word_stack: k::configuration::Cell({result}),
+                         ..state
+                     }}
+                 }}"
+            );
+            let error = check_error(target.path(), &item);
+            assert!(
+                error.starts_with(expected),
+                "{subject} => {result}: {error}"
+            );
+        }
+    }
+}
+
 #[test]
 fn expand_writes_a_list_cells_brackets_as_written() {
     let target = shared_fixture_target();
