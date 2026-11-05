@@ -681,8 +681,9 @@ text = 'h(opaque(1), 2)'
         // `schedule`, `matrix` and a row's `killed_by`; version 17 reads a row's `reaching` from
         // the compiled mutant; CF-40c2: version 18 names it `witnesses` and the status `invalid`
         // `not-admitted`; version 19 witnesses a rewrite rule edit that is not confined to its
-        // right-hand side or ensures by `matched`.
-        assert_eq!(document["version"], 20);
+        // right-hand side or ensures by `matched`; CF-21-U3: version 20 adds `stop`; CF-24f:
+        // version 21 names each `difference`'s format.
+        assert_eq!(document["version"], 21);
         assert_eq!(row["typing_diagnostics"], json!([]));
         assert_eq!(
             entry(&document, "guard-dropped", "by-zero")["slots"],
