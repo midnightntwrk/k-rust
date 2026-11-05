@@ -520,8 +520,9 @@ pub enum ExecError {
     ProgramNotText {
         /// The file name, or `<stdin>`.
         file: String,
-        /// The main parameter.
-        parameter: Parameter,
+        /// The main parameter, boxed: beside the file name it is the largest payload of any
+        /// variant, and every `Result` that carries an `ExecError` would otherwise grow to fit it.
+        parameter: Box<Parameter>,
     },
     /// The main parameter was bound neither by FILE nor by name.
     MissingProgram {
@@ -1262,7 +1263,7 @@ impl Semantics {
         }
         let text = String::from_utf8(bytes).map_err(|_| ExecError::ProgramNotText {
             file: name.to_owned(),
-            parameter: main.clone(),
+            parameter: Box::new(main.clone()),
         })?;
         Ok(ProgramFile::Text(ProgramInput {
             name: name.to_owned(),

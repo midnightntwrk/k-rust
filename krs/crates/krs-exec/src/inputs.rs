@@ -294,7 +294,7 @@ fn configuration_variables(
             DefinitionSentence::Configuration(configuration) => Some(configuration),
             _ => None,
         })
-        .flat_map(|configuration| configuration.variables())
+        .flat_map(krs_ir::FixedConfiguration::variables)
 }
 
 /// Whether a program file binds a parameter of the IR sort `sort` applied to `arguments` as the
