@@ -141,6 +141,14 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
         Ok(())
     }
 
+    /// A grammar-level sentence has no `cells!` list cell whose rest it could keep.
+    fn kept_rest(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
+        require_key(key, self.provenance)?;
+        Err(GrammarTransportError::InvalidTerm(
+            GrammarTermReason::KeptRestOutsideListCellRoot,
+        ))
+    }
+
     fn builtin_token(
         &mut self,
         key: &ProvenanceKey,

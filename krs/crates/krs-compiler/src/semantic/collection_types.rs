@@ -1121,6 +1121,7 @@ impl<'a> Walker<'a> {
                 }
             }
             DescriptorTerm::Wildcard { .. }
+            | DescriptorTerm::KeptRest { .. }
             | DescriptorTerm::Literal { .. }
             | DescriptorTerm::BuiltinToken { .. }
             | DescriptorTerm::Anonymous { .. }

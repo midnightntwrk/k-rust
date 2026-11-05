@@ -770,6 +770,7 @@ impl<'a> Scan<'a> {
             }
             DescriptorTerm::Literal { .. }
             | DescriptorTerm::Wildcard { .. }
+            | DescriptorTerm::KeptRest { .. }
             | DescriptorTerm::BuiltinToken { .. }
             | DescriptorTerm::Anonymous { .. }
             | DescriptorTerm::Lexeme { .. } => {}
@@ -1151,6 +1152,7 @@ impl LongForm<'_, '_> {
             DescriptorTerm::Variable { .. }
             | DescriptorTerm::Literal { .. }
             | DescriptorTerm::Wildcard { .. }
+            | DescriptorTerm::KeptRest { .. }
             | DescriptorTerm::BuiltinToken { .. }
             | DescriptorTerm::Anonymous { .. }
             | DescriptorTerm::Lexeme { .. } => {}

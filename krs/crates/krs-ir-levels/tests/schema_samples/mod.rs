@@ -1794,8 +1794,11 @@ impl Sample for DescriptorTerm {
                     from: Box::new(sample::<DescriptorTerm>()),
                     to: None,
                 },
+                Self::KeptRest {
+                    key: sample::<ProvenanceKey>(),
+                },
             ],
-            16,
+            17,
             "DescriptorTerm",
             |value| match value {
                 Self::Variable { .. } => 0,
@@ -1814,6 +1817,7 @@ impl Sample for DescriptorTerm {
                 Self::Let { .. } => 13,
                 Self::Closure { .. } => 14,
                 Self::Rewrite { .. } => 15,
+                Self::KeptRest { .. } => 16,
             },
         )
     }
@@ -3186,8 +3190,11 @@ impl Sample for WireTerm {
                     from: Box::new(sample::<WireTerm>()),
                     to: None,
                 },
+                Self::KeptRest {
+                    key: sample::<ProvenanceKey>(),
+                },
             ],
-            16,
+            17,
             "WireTerm",
             |value| match value {
                 Self::Variable { .. } => 0,
@@ -3206,6 +3213,7 @@ impl Sample for WireTerm {
                 Self::Let { .. } => 13,
                 Self::Closure { .. } => 14,
                 Self::Rewrite { .. } => 15,
+                Self::KeptRest { .. } => 16,
             },
         )
     }

@@ -58,6 +58,50 @@ pub(crate) trait ValidationStage: Stage {
     /// the set up by: a host occurrence by its authored path, which only widens what the element
     /// may hold until resolution, and a descriptor occurrence by its resolved operation.
     fn is_set_element(application: &Self::Application) -> bool;
+    /// The argument of a level of list notation that holds the rest of the list: a cons
+    /// level's tail (1) and a snoc level's init (0); `None` for the empty list and for every
+    /// other application. A host occurrence is read by its authored marker path, a
+    /// descriptor occurrence by its resolved notation.
+    fn list_rest_argument(application: &Self::Application) -> Option<usize>;
+}
+
+/// [`ValidationStage::list_rest_argument`] of a level by its authored marker path
+/// (`__list::cons`, `__list::snoc`).
+fn marker_rest_argument(path: &str) -> Option<usize> {
+    let segments = path.split("::").map(str::trim).collect::<Vec<_>>();
+    match segments.as_slice() {
+        ["__list", "cons"] => Some(1),
+        ["__list", "snoc"] => Some(0),
+        _ => None,
+    }
+}
+
+/// Whether every [`Term::KeptRest`] of `term` is the rest of its root brackets: the tail of
+/// the spine of list-notation levels that starts at the root, when `list_root` admits one at
+/// all. A kept rest is a list cell's unnamed rest, so it stands nowhere else: not as the
+/// whole entry, not in an element, and not in a list nested in one.
+pub(crate) fn kept_rests_placed<S: ValidationStage>(term: &Term<S>, list_root: bool) -> bool {
+    fn placed<S: ValidationStage>(term: &Term<S>, level: bool, rest: bool) -> bool {
+        match term {
+            Term::KeptRest { .. } => rest,
+            Term::Application {
+                reference,
+                arguments: crate::Arguments::Positional(arguments),
+                update: None,
+                ..
+            } if level => {
+                let at = S::list_rest_argument(reference);
+                arguments.iter().enumerate().all(|(index, argument)| {
+                    let spine = at == Some(index);
+                    placed(argument, spine, spine)
+                })
+            }
+            other => term_children(other)
+                .into_iter()
+                .all(|child| placed(child, false, false)),
+        }
+    }
+    placed(term, list_root, false)
 }
 
 /// Whether `path`, an authored application path, ends in `set::item`: the spelling the expander
@@ -99,6 +143,10 @@ impl ValidationStage for HostStage {
     fn is_set_element(application: &Self::Application) -> bool {
         names_set_element(application.target.authored_path())
     }
+
+    fn list_rest_argument(application: &Self::Application) -> Option<usize> {
+        marker_rest_argument(application.target.authored_path())
+    }
 }
 
 impl ValidationStage for DescriptorStage {
@@ -134,6 +182,14 @@ impl ValidationStage for DescriptorStage {
     fn is_set_element(application: &Self::Application) -> bool {
         application.application == crate::DescriptorApplicationRef::Set(crate::SetOperation::Item)
     }
+
+    fn list_rest_argument(application: &Self::Application) -> Option<usize> {
+        match application.application {
+            crate::DescriptorApplicationRef::ListNotation(crate::ListNotation::Cons) => Some(1),
+            crate::DescriptorApplicationRef::ListNotation(crate::ListNotation::Snoc) => Some(0),
+            _ => None,
+        }
+    }
 }
 
 /// Nonrecursive checks for one term context.
@@ -163,6 +219,10 @@ pub(crate) trait TermValidation<S: ValidationStage> {
     ) -> Result<(), Self::Error>;
 
     fn wildcard(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error>;
+
+    /// A `cells!` list cell's unnamed rest ([`Term::KeptRest`]), which only the rest of a list
+    /// cell entry's root brackets holds: every other context refuses it.
+    fn kept_rest(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error>;
 
     fn builtin_token(
         &mut self,
@@ -327,6 +387,7 @@ fn term_key<S: ValidationStage>(term: &Term<S>) -> &ProvenanceKey {
         Term::Variable { key, .. }
         | Term::Literal { key, .. }
         | Term::Wildcard { key }
+        | Term::KeptRest { key }
         | Term::BuiltinToken { key, .. }
         | Term::Anonymous { key, .. }
         | Term::OrBool { key, .. }
@@ -384,6 +445,7 @@ fn validate_term_node<S: ValidationStage, C: TermValidation<S>>(
         }
         Term::Literal { key, literal } => context.literal(key, literal),
         Term::Wildcard { key } => context.wildcard(key),
+        Term::KeptRest { key } => context.kept_rest(key),
         Term::BuiltinToken { key, sort, value } => context.builtin_token(key, *sort, value),
         Term::Anonymous {
             key,
@@ -565,6 +627,7 @@ pub(crate) fn let_pattern_names<S: Stage>(term: &Term<S>, names: &mut BTreeSet<S
         | Term::Closure { .. }
         | Term::Literal { .. }
         | Term::Wildcard { .. }
+        | Term::KeptRest { .. }
         | Term::BuiltinToken { .. }
         | Term::Anonymous { .. }
         | Term::Lexeme { .. } => {}
@@ -609,6 +672,7 @@ pub(crate) fn term_children<S: Stage>(term: &Term<S>) -> Vec<&Term<S>> {
         Term::Variable { .. }
         | Term::Literal { .. }
         | Term::Wildcard { .. }
+        | Term::KeptRest { .. }
         | Term::BuiltinToken { .. }
         | Term::Anonymous { .. }
         | Term::Lexeme { .. } => Vec::new(),

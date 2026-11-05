@@ -29,6 +29,11 @@ pub(super) enum HeadPlace {
     SequenceItem,
 }
 
+/// Why a list cell's unnamed rest reaches term inference: only a configuration rule's list cell
+/// roots hold one, and the rule names it for its cell first.
+const KEPT_REST_UNNAMED: &str =
+    "an unnamed list rest stands only as the rest of a `cells!` list cell's root brackets";
+
 pub(super) struct StructuredTermBuilder<'a> {
     pub(super) descriptor: &'a Descriptor,
     pub(super) catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
@@ -619,6 +624,11 @@ impl StructuredTermBuilder<'_> {
                         .entry((name.clone(), expected.clone()))
                         .or_insert_with(|| key.clone());
                 }
+            }
+            // The configuration rule names each list cell's unnamed rest before its terms are
+            // inferred; the transport refuses one anywhere else.
+            DescriptorTerm::KeptRest { .. } => {
+                return Err(self.invalid_term(KEPT_REST_UNNAMED));
             }
             DescriptorTerm::Wildcard { key } => {
                 if !subject && !self.result_wildcards {
@@ -2325,6 +2335,7 @@ impl StructuredTermBuilder<'_> {
                     SemanticId::new(name.clone())?,
                 ))
             }
+            DescriptorTerm::KeptRest { .. } => Err(self.invalid_term(KEPT_REST_UNNAMED)),
             DescriptorTerm::Wildcard { key } => {
                 if !subject && !self.result_wildcards {
                     return Err(self.refused_position(key, "`_`"));
@@ -4142,6 +4153,7 @@ fn pattern_names(term: &DescriptorTerm, output: &mut Vec<(String, ProvenanceKey)
         | DescriptorTerm::Closure { .. }
         | DescriptorTerm::Literal { .. }
         | DescriptorTerm::Wildcard { .. }
+        | DescriptorTerm::KeptRest { .. }
         | DescriptorTerm::BuiltinToken { .. }
         | DescriptorTerm::Anonymous { .. }
         | DescriptorTerm::Lexeme { .. } => {}

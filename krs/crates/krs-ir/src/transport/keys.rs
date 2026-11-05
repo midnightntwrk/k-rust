@@ -149,6 +149,8 @@ pub(crate) enum TermRefusal {
     Closure,
     /// A record update whose base is not a variable outside a pattern.
     RecordUpdateBase,
+    /// A list cell's unnamed rest outside a rule's subject and result.
+    KeptRest,
 }
 
 /// How a rule term's nodes carry their keys, and what the walk checks of
@@ -317,6 +319,22 @@ where
                 ValidationSide::Requires
                 | ValidationSide::Ensures
                 | ValidationSide::RuleEnsures => return Err(TermRefusal::Wildcard.into()),
+            }
+        };
+        self.node(key, role)
+    }
+
+    /// A list cell's unnamed rest is keyed as the `..` it is, the wildcard a pattern's `..`
+    /// reads as on its side; the rule's walk judges where it stands.
+    fn kept_rest(&mut self, key: &ProvenanceKey) -> Result<(), E> {
+        let role = match self.side {
+            _ if self.in_let_pattern || self.in_matches_pattern => {
+                return Err(TermRefusal::KeptRest.into());
+            }
+            ValidationSide::Left => ProvenanceRole::RuleLeftWildcard,
+            ValidationSide::Right => ProvenanceRole::RuleRightWildcard,
+            ValidationSide::Requires | ValidationSide::Ensures | ValidationSide::RuleEnsures => {
+                return Err(TermRefusal::KeptRest.into());
             }
         };
         self.node(key, role)

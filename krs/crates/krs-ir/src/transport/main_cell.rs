@@ -205,6 +205,7 @@ fn term_reads<S: Stage>(term: &Term<S>, name: &str) -> bool {
         }
         Term::Literal { .. }
         | Term::Wildcard { .. }
+        | Term::KeptRest { .. }
         | Term::BuiltinToken { .. }
         | Term::Anonymous { .. }
         | Term::Lexeme { .. } => false,

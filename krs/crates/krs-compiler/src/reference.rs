@@ -3413,6 +3413,8 @@ fn render_term(
             krs_ir::DescriptorLiteral::Float(token) => float_literal(token),
         },
         DescriptorTerm::Wildcard { .. } => Ok(quote!(_)),
+        // A list cell's unnamed rest, written as it is authored, among its brackets.
+        DescriptorTerm::KeptRest { .. } => Ok(quote!(..)),
         DescriptorTerm::BuiltinToken { sort, value, .. } => match sort {
             BuiltinSort::Id => {
                 let value = syn::LitStr::new(value, Span::call_site());

@@ -158,6 +158,7 @@ impl StructuredTermBuilder<'_> {
             DescriptorTerm::Variable { key, .. }
             | DescriptorTerm::Literal { key, .. }
             | DescriptorTerm::Wildcard { key }
+            | DescriptorTerm::KeptRest { key }
             | DescriptorTerm::BuiltinToken { key, .. }
             | DescriptorTerm::Anonymous { key, .. }
             | DescriptorTerm::OrBool { key, .. }

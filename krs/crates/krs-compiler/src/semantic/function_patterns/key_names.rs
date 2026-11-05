@@ -653,6 +653,7 @@ impl<'t> Pattern<'t, '_> {
             }
             DescriptorTerm::Literal { .. }
             | DescriptorTerm::Wildcard { .. }
+            | DescriptorTerm::KeptRest { .. }
             | DescriptorTerm::BuiltinToken { .. }
             | DescriptorTerm::Anonymous { .. }
             | DescriptorTerm::OrBool { .. }
@@ -907,6 +908,9 @@ impl<'t> Key<'_, 't> {
             }
             DescriptorTerm::Wildcard { key } => {
                 self.pattern_only(KeyPattern::Wildcard, key, computing, || "`_`".to_owned());
+            }
+            DescriptorTerm::KeptRest { key } => {
+                self.pattern_only(KeyPattern::Wildcard, key, computing, || "`..`".to_owned());
             }
             DescriptorTerm::As {
                 binding_key,

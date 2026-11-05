@@ -918,6 +918,7 @@ impl From<TermRefusal> for StateTransportError {
             TermRefusal::Let => StateTermReason::LetInPattern,
             TermRefusal::Closure => StateTermReason::ClosureInPattern,
             TermRefusal::RecordUpdateBase => StateTermReason::RecordUpdateBase,
+            TermRefusal::KeptRest => StateTermReason::KeptRestOutsideListCellRoot,
         })
     }
 }
@@ -2021,6 +2022,13 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
                 StateTermReason::WildcardsAreNotAllowedInInitializers,
             ))
         }
+    }
+
+    /// An initializer matches no list, so it holds no rest of one.
+    fn kept_rest(&mut self, _: &ProvenanceKey) -> Result<(), Self::Error> {
+        Err(StateTransportError::InvalidTerm(
+            StateTermReason::KeptRestOutsideListCellRoot,
+        ))
     }
 
     /// A builtin literal is one constant of its sort, an initializer term as any constant is.

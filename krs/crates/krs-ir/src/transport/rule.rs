@@ -1044,6 +1044,7 @@ fn count_here_in_term(term: &DescriptorTerm, here: &str) -> usize {
             .sum(),
         DescriptorTerm::Literal { .. }
         | DescriptorTerm::Wildcard { .. }
+        | DescriptorTerm::KeptRest { .. }
         | DescriptorTerm::BuiltinToken { .. }
         | DescriptorTerm::Anonymous { .. }
         | DescriptorTerm::Lexeme { .. } => 0,
@@ -1429,6 +1430,12 @@ struct RuleWalk {
     /// How many sets' elements, and `cells!` map keys, enclose the term
     /// ([`TermValidation::set_element`]).
     set_elements: usize,
+    /// Whether the sentence's list cells may keep their unnamed rest: a sentence with a
+    /// subject and a result, whose result's `..` keeps what its subject's matched.
+    kept_rests: bool,
+    /// Whether the term being validated is a list cell entry's root, whose only unnamed rest,
+    /// if any, is the rest of its root brackets ([`super::validation::kept_rests_placed`]).
+    in_list_root: bool,
 }
 
 impl RuleWalk {
@@ -1878,6 +1885,7 @@ fn validate_configuration_rule<S: RuleValidationStage>(
     let mut discovered = Vec::new();
     let mut subject = RuleWalk {
         allow_rewrite: result.is_none(),
+        kept_rests: result.is_some(),
         rewrite_right_names: if result.is_none() && !context {
             rule.existentials
                 .iter()
@@ -1953,7 +1961,10 @@ fn validate_configuration_rule<S: RuleValidationStage>(
             RuleSide::Right,
             &right_bindings,
             &mut ignored,
-            &mut RuleWalk::default(),
+            &mut RuleWalk {
+                kept_rests: true,
+                ..RuleWalk::default()
+            },
             keys,
         )?;
     }
@@ -2179,7 +2190,7 @@ fn validate_rule_cells<S: RuleValidationStage>(
         // below.
         collect_cell_keys::<S, StateTransportError>(cell, side, keys, &mut |_, _| Ok(()))?;
         validate_rule_wrapper(cell.wrapper, &cell.value)?;
-        validate_rule_state::<S>(&cell.value, side, bindings, discovered, walk, keys)?;
+        validate_rule_state::<S>(&cell.value, side, bindings, discovered, walk, keys, true)?;
     }
     if let Some(key) = frame_key(&cells.remainder) {
         keys.define(key, RuleRole::CellsRemainder.on_side(side))?;
@@ -2239,13 +2250,26 @@ fn validate_rule_state<S: RuleValidationStage>(
     discovered: &mut Vec<String>,
     walk: &mut RuleWalk,
     keys: &mut WireKeys,
+    entry_root: bool,
 ) -> Result<(), StateTransportError> {
     match state {
+        // A cell entry's term may end its root brackets in the list's unnamed rest; an instance
+        // child's, and every term nested in it, may not.
         ProtocolRuleStateTerm::Term(term) => {
-            validate_rule_term::<S>(term, side.into(), bindings, discovered, walk, keys)
+            let list_root = entry_root && walk.kept_rests;
+            if !super::validation::kept_rests_placed(term, list_root) {
+                return Err(StateTransportError::InvalidTerm(
+                    StateTermReason::KeptRestOutsideListCellRoot,
+                ));
+            }
+            walk.in_list_root = list_root;
+            let validated =
+                validate_rule_term::<S>(term, side.into(), bindings, discovered, walk, keys);
+            walk.in_list_root = false;
+            validated
         }
         ProtocolRuleStateTerm::Present { value } => {
-            validate_rule_state::<S>(value, side, bindings, discovered, walk, keys)
+            validate_rule_state::<S>(value, side, bindings, discovered, walk, keys, entry_root)
         }
         ProtocolRuleStateTerm::Absent => Ok(()),
         ProtocolRuleStateTerm::Instances(instances) => {
@@ -2410,7 +2434,7 @@ fn validate_rule_instances<S: RuleValidationStage>(
             ) {
                 return Err(invalid());
             }
-            validate_rule_state::<S>(&field.value, side, bindings, discovered, walk, keys)?;
+            validate_rule_state::<S>(&field.value, side, bindings, discovered, walk, keys, false)?;
         }
         Ok(())
     };
@@ -2617,6 +2641,31 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
             ));
         }
         self.keys.define(key, ProvenanceRole::RuleLeftWildcard)?;
+        Ok(())
+    }
+
+    /// The unnamed rest of a list cell's root brackets, keyed as the `..` it is: the wildcard
+    /// a pattern's `..` reads as, on its side. It names no variable, so it binds and uses
+    /// none.
+    fn kept_rest(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
+        let role = match self.side {
+            _ if !self.walk.in_list_root
+                || self.walk.in_matches_pattern
+                || self.walk.in_let_pattern
+                || self.walk.in_rewrite_right =>
+            {
+                None
+            }
+            ValidationSide::Left => Some(ProvenanceRole::RuleLeftWildcard),
+            ValidationSide::Right => Some(ProvenanceRole::RuleRightWildcard),
+            ValidationSide::Requires | ValidationSide::Ensures | ValidationSide::RuleEnsures => {
+                None
+            }
+        };
+        let role = role.ok_or(StateTransportError::InvalidTerm(
+            StateTermReason::KeptRestOutsideListCellRoot,
+        ))?;
+        self.keys.define(key, role)?;
         Ok(())
     }
 

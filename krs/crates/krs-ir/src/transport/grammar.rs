@@ -1521,6 +1521,15 @@ stage_shape! {
             /// Exact authored underscore provenance.
             key: ProvenanceKey => [keep],
         },
+        /// The rest a `cells!` list cell's brackets leave unnamed (`[x, ..]`, `[.., x]`,
+        /// `[x, .., y]`): the tail of the entry's root list spine, a cons level's tail or a
+        /// snoc level's init. A subject's matches the rest of the cell's list, and a result's
+        /// keeps the rest its subject's matched. It names no variable: the compiler names the
+        /// rest for its cell. Valid only there, in a rule's or claim's subject or result.
+        KeptRest {
+            /// The authored `..`'s provenance.
+            key: ProvenanceKey => [keep],
+        },
         /// Compiler-owned domain token whose sort is intrinsic.
         BuiltinToken {
             /// Exact literal provenance.
@@ -2298,6 +2307,7 @@ impl From<TermRefusal> for GrammarTransportError {
             TermRefusal::Let => GrammarTermReason::LetInPattern,
             TermRefusal::Closure => GrammarTermReason::ClosureInPattern,
             TermRefusal::RecordUpdateBase => GrammarTermReason::RecordUpdateBase,
+            TermRefusal::KeptRest => GrammarTermReason::KeptRestOutsideListCellRoot,
         })
     }
 }

@@ -358,6 +358,7 @@ impl StructuredTermBuilder<'_> {
                 ..
             } => self.application_sort(reference, arguments),
             DescriptorTerm::Wildcard { .. }
+            | DescriptorTerm::KeptRest { .. }
             | DescriptorTerm::Cell { .. }
             | DescriptorTerm::Lexeme { .. }
             | DescriptorTerm::As { .. }
