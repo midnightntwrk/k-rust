@@ -76,6 +76,9 @@ pub enum ManifestError {
     OperatorMismatch,
     Unpinned,
     NonDefaultCompileOptions,
+    /// The runs have a stop ([`crate::RunOptions::stop`]), which a manifest does not record, so
+    /// it could not say what its report's verdicts are relative to.
+    Stopped,
     BaselineCompile(String),
     Census(String),
     Encode(String),
@@ -153,6 +156,9 @@ pub fn campaign_manifest_multi_with_options(
     let baseline = validator.baseline();
     if input.generations.iter().any(|g| !g.derived_from(baseline)) {
         return Err(ManifestError::ForeignGeneration);
+    }
+    if !run.stop.is_none() {
+        return Err(ManifestError::Stopped);
     }
     let compiled = validator
         .compile_baseline()

@@ -45,7 +45,8 @@ pub enum MutantStatus {
     /// kink did not admit the mutant for judging: validation or compilation rejected it, its
     /// lowering does not terminate, or kink's consistency gate
     /// ([`kink_native::consistency::admit_mutant`]) did not admit it
-    /// ([`MutantScopeFailure::InconsistentMutant`]). Reported as `not-admitted`, a name apart
+    /// ([`MutantScopeFailure::InconsistentMutant`]), or the campaign's stop names no rewrite rule
+    /// of it ([`MutantScopeFailure::StopUnresolved`]). Reported as `not-admitted`, a name apart
     /// from the compile-stage [`MutantScopeFailure::Rejected`] that is one of its causes and
     /// from the generation stage's rejected origins.
     NotAdmitted,
@@ -103,6 +104,12 @@ pub enum MutantScopeFailure {
     /// that every other pair is the baseline's, and the difference shows the premise does not
     /// hold, so the mutant is unknown, never killed.
     MutantFindings,
+    /// A name of the campaign's stop selects no rewrite rule of the claim-free mutant
+    /// (`stop-unresolved`; `crate::Stop`): the edit dropped the label or made the rule an
+    /// equation, so the observation the stop states is not defined on the mutant. It is not run
+    /// without its stop, which would compare ends of two different observations.
+    /// [`MutantStatus::NotAdmitted`]: outside the score, never killed or survived.
+    StopUnresolved,
     /// Infrastructure failure affecting the whole mutant, for example a
     /// backend that cannot be prepared for the validated mutant.
     Infrastructure,
@@ -114,9 +121,10 @@ impl MutantScopeFailure {
     pub const fn status(self) -> MutantStatus {
         match self {
             Self::EquivalentCompilation => MutantStatus::Equivalent,
-            Self::Rejected | Self::LoweringNontermination | Self::InconsistentMutant => {
-                MutantStatus::NotAdmitted
-            }
+            Self::Rejected
+            | Self::LoweringNontermination
+            | Self::InconsistentMutant
+            | Self::StopUnresolved => MutantStatus::NotAdmitted,
             Self::LoweringTimeLimit => MutantStatus::Timeout,
             Self::LoweringResourceLimit
             | Self::RepresentationRefused
@@ -695,6 +703,7 @@ pub struct CampaignFailure {
     kind: CampaignFailureKind,
     detail: String,
     exclusion: Option<kink_native::exclusion::Exclusion>,
+    unresolved_stop: Vec<String>,
 }
 
 impl CampaignFailure {
@@ -703,6 +712,28 @@ impl CampaignFailure {
             kind,
             detail: detail.into(),
             exclusion: None,
+            unresolved_stop: Vec::new(),
+        }
+    }
+
+    /// A refusal of the campaign because the names `unresolved` of its stop select no rewrite
+    /// rule of the baseline (`crate::Stop`): the observation the stop states is not defined on
+    /// the specification. An [`CampaignFailureKind::InvalidDeclaration`]: the declaration names
+    /// something the baseline does not have.
+    pub(crate) fn stop_unresolved(unresolved: Vec<String>) -> Self {
+        Self {
+            unresolved_stop: unresolved.clone(),
+            ..Self::new(
+                CampaignFailureKind::InvalidDeclaration,
+                format!(
+                    "stop-unresolved: {} on the baseline",
+                    unresolved
+                        .iter()
+                        .map(|name| format!("`{name}` labels no rewrite rule"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            )
         }
     }
 
@@ -730,6 +761,13 @@ impl CampaignFailure {
     #[must_use]
     pub const fn exclusion(&self) -> Option<kink_native::exclusion::Exclusion> {
         self.exclusion
+    }
+
+    /// The names of the campaign's stop that select no rewrite rule of the baseline, when that
+    /// refused the campaign; empty otherwise.
+    #[must_use]
+    pub fn unresolved_stop(&self) -> &[String] {
+        &self.unresolved_stop
     }
 }
 

@@ -173,6 +173,7 @@ const fn options(work: WorkBudget) -> CampaignOptions {
             one_sided: OneSided::NoCrashClassifier,
             baseline_max_work: None,
             smt_resource_limit: kink_native::SMT_RESOURCE_LIMIT,
+            stop: kink_campaign::Stop::NONE,
         },
         compile_workers: 1,
     }

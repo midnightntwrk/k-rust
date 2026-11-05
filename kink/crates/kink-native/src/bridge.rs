@@ -454,7 +454,10 @@ pub fn discarded(leaf: &crate::execution::AdaptedLeaf) -> Option<DiscardReason> 
     (!diagnosed(leaf)).then_some(reason)
 }
 
-fn diagnosed(leaf: &crate::execution::AdaptedLeaf) -> bool {
+/// Whether `leaf` carries a backend diagnostic: on its own step, on a candidate (a cut point's
+/// proposed successor included) or on its remainder. A diagnosed leaf keeps its run incomplete.
+#[must_use]
+pub fn diagnosed(leaf: &crate::execution::AdaptedLeaf) -> bool {
     !leaf.diagnostics.is_empty()
         || leaf
             .candidate_diagnostics

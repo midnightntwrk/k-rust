@@ -55,8 +55,8 @@ pub use runner::{
     AHEAD_PER_WORKER, BaselineRecording, BaselineSession, CallRecording, Campaign, CampaignOptions,
     CampaignRun, ClaimFreeMutant, CrossCause, CrossEnd, CrossRefusal, FirstTests, LeafCensus,
     MutantAdmission, MutantRefusal, MutantRun, MutantStage, ONE_SIDED_VERSION, OneSided,
-    OracleDeclaration, Projection, RunNotes, RunOptions, RunRecording, RunStop, SideRun,
-    StateProjection, Tally, TestCase, TestEvidence, WorkBudget, claim_free_mutant, mutant_compiles,
-    pattern_side, run_campaign, run_campaign_multi, run_campaign_multi_ordered,
+    OracleDeclaration, Projection, RunNotes, RunOptions, RunRecording, RunStop, STOP_VERSION,
+    SideRun, StateProjection, Stop, Tally, TestCase, TestEvidence, WorkBudget, claim_free_mutant,
+    mutant_compiles, pattern_side, run_campaign, run_campaign_multi, run_campaign_multi_ordered,
     run_campaign_multi_with, run_campaign_with, slot_outcome, state_side, tally,
 };

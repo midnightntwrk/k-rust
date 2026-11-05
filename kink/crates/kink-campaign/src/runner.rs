@@ -140,6 +140,24 @@
 //! score, would depend on the schedule. They stay sequential, outside any compile, and every
 //! backend is built before and outside the watchdog. With one worker nothing is compiled ahead:
 //! today's path.
+//!
+//! A campaign may stop its result runs at named rewrite rules ([`Stop`], [`RunOptions::stop`]):
+//! for a definition that never terminates, the observer chooses the end. A stop of rules `R` and
+//! count `N` defines the truncated system, in which a path ends at its `N`th stop event: a step
+//! by a rule of `R` that is its state's one successor (before the step for a rule to stop
+//! before, after it for a rule to stop after), or where the definition's own run ends. Its ends
+//! are what every slot compares, so a kill is relative to the stop. k-rust stops a path at a
+//! selected rule only where its step is the state's one successor, and lists the rules it went
+//! on past where the step had another; kink-native excludes such a run (`passed-stop`), so every
+//! verdict is a fact of the system in which any step of a rule of `R` is a stop event. The count
+//! is reached by resuming ([`Runtime::execute`]): each request ends every path at its first stop,
+//! so each request's stop leaves have count one relative to its start, and the stop leaves of
+//! stage `k` (deduplicated in a state set, each kept in a path set) are the starts of stage
+//! `k + 1`, until stage `N`, whose stop leaves are ends; the requests' own ends are ends at every
+//! stage. Each side resolves the stop's names on its own definition: a name must label a
+//! rewrite rule there, or the baseline's campaign is refused and a mutant is not admitted
+//! (`StopUnresolved`), never run without its stop, which would compare ends of two different
+//! observations.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
@@ -152,8 +170,8 @@ use k_rust::kore::{
     walk,
 };
 use kink_native::bridge::{
-    BridgeContext, BridgeFailure, BridgedPaths, OpenApplication, open_applications,
-    paths_from_execution_existing, tree_from_steps, validate_test_initial_state,
+    BridgeContext, BridgeFailure, BridgedPaths, OpenApplication, diagnosed, discarded,
+    open_applications, paths_from_execution_existing, tree_from_steps, validate_test_initial_state,
     work_bound_stuck_terminals,
 };
 use kink_native::consistency::{CompiledEquations, MutantFailure, UnjoinedEquations};
@@ -161,8 +179,9 @@ use kink_native::coverage::{RuleAuthors, TestCoverage};
 use kink_native::data::{DataEnds, DataFacts, data_ends};
 use kink_native::exclusion::{DefinitionExclusions, Exclusion};
 use kink_native::execution::{
-    AdaptedExecution, ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget, HaltClass,
-    ResultModality, ResultRun, SolverProfile, StepRunFailure, SteppedExecution,
+    AdaptedExecution, AdaptedLeaf, ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget,
+    HaltClass, ResultModality, ResultRun, SolverProfile, StagedExecution, StepRunFailure,
+    SteppedExecution, StopRules,
 };
 use kink_native::feasibility::TestInitialState;
 use kink_native::representation::validate_representation;
@@ -453,6 +472,9 @@ pub struct RunOptions {
     /// bound of every Z3 attempt of a run, so whether a query is decided is a function of the
     /// query, this budget and the Z3 build. The default is [`kink_native::SMT_RESOURCE_LIMIT`].
     pub smt_resource_limit: std::num::NonZeroU32,
+    /// Where every result run ends besides its own end ([`Stop`]), on the baseline and on every
+    /// mutant; [`Stop::NONE`] by default, under which every run is the run before stops existed.
+    pub stop: Stop,
 }
 
 impl Default for RunOptions {
@@ -463,6 +485,7 @@ impl Default for RunOptions {
             one_sided: OneSided::default(),
             baseline_max_work: None,
             smt_resource_limit: kink_native::SMT_RESOURCE_LIMIT,
+            stop: Stop::NONE,
         }
     }
 }
@@ -479,14 +502,14 @@ impl RunOptions {
     /// without a work budget, else `{factor, floor}`; `one_sided` is [`OneSided::name`]; and
     /// `baseline_max_work` only when it is set, so the value of every option set without it, a
     /// kink-corpus index entry's included, is the value it had before the option existed, and
-    /// absence means exactly `None`. `smt_resource_limit` is a member under the Z3 profile only:
-    /// under the no-Z3 profile no backend reads it, so it decides nothing a store keeps, and the
-    /// value is the one the options had before it existed. A store
-    /// that records the options its runs were made with (kink-corpus index entries, `run_options`)
-    /// records this value (re-pin L1-2-land; CACHE-ID review 2 minor 1). Every field is
-    /// destructured, without `..`, and every nested option is matched exhaustively, so a new
-    /// option does not compile until it is recorded here: no option can be left out of the
-    /// record and silently default when the record is read back.
+    /// absence means exactly `None`; `stop` likewise only with a stop ([`Stop::value`]).
+    /// `smt_resource_limit` is a member under the Z3 profile only: under the no-Z3 profile no
+    /// backend reads it, so it decides nothing a store keeps, and the value is the one the options
+    /// had before it existed. A store that records the options its runs were made with
+    /// (kink-corpus index entries, `run_options`) records this value (re-pin L1-2-land; CACHE-ID
+    /// review 2 minor 1). Every field is destructured, without `..`, and every nested option is
+    /// matched exhaustively, so a new option does not compile until it is recorded here: no
+    /// option can be left out of the record and silently default when the record is read back.
     #[must_use]
     pub fn value(&self) -> Value {
         let Self {
@@ -495,6 +518,7 @@ impl RunOptions {
             one_sided,
             baseline_max_work,
             smt_resource_limit,
+            stop,
         } = *self;
         let work = match work {
             WorkBudget::Unbounded => Value::Null,
@@ -511,7 +535,148 @@ impl RunOptions {
         if SolverProfile::BUILD == SolverProfile::Z3 {
             value["smt_resource_limit"] = json!(smt_resource_limit.get());
         }
+        if let Some(stop) = stop.value() {
+            value["stop"] = stop;
+        }
         value
+    }
+}
+
+/// The version of kink's counted stop ([`Stop`]): how a result run with a stop is made of
+/// requests and joined ([`Runtime::execute`]: the stage starts, their deduplication and order,
+/// the work budget spent across stages, the one time budget, the coverage credit of a resumed
+/// step), how each side resolves the stop's names (by exact label of a rewrite rule; the
+/// baseline refused and a mutant not admitted otherwise), and that a stop leaf is compared as an
+/// end of the truncated system. A component of kink's semantics identity
+/// ([`crate::identity::KINK_IDENTITY`], key `stop`), so a store that honours a verdict made under
+/// another version misses or is refused. Bump it whenever any of these changes what a run with a
+/// stop returns; a run without a stop is outside all of it. v1: the first.
+pub const STOP_VERSION: &str = "kink-campaign/stop/v1";
+
+/// Where a campaign's result runs end besides their own end (the observer's choice for a
+/// definition that never terminates): rewrite rules named by exact K label, to stop before
+/// ([`StopRules::before`], k-rust `cut_point_rules`) or after ([`StopRules::after`],
+/// `terminal_rules`), and a count `N`: a path ends at its `N`th stop event, a step by a named
+/// rule that is its state's one successor (see the module documentation), or where the
+/// definition's own run ends, whichever comes first. A test may have its own count
+/// ([`Self::with_test_count`]): the count is a property of the observation of one program, while
+/// the rules are the campaign's.
+///
+/// [`RunOptions`] is `Copy`, so a stop is held interned: equal stops are one value, which lives
+/// as long as the process. [`Stop::NONE`] names no rule.
+///
+/// A stop applies to result runs only. A pattern oracle's stepped run has none, so a campaign
+/// with a stop and a pattern oracle is refused, and so is a campaign manifest for runs with a
+/// stop: a manifest does not record one, so it could not say what its report's verdicts are
+/// relative to.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct Stop(Option<&'static CountedStop>);
+
+/// The rules and counts of a [`Stop`] that names a rule.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct CountedStop {
+    rules: StopRules,
+    count: std::num::NonZeroU64,
+    counts: BTreeMap<String, std::num::NonZeroU64>,
+}
+
+impl Stop {
+    /// No stop: every run ends where its paths end.
+    pub const NONE: Self = Self(None);
+
+    /// The stop at the rules `rules`, at the `count`th stop event of a path; `None` when `rules`
+    /// names no rule, for which a count means nothing.
+    #[must_use]
+    pub fn new(rules: StopRules, count: std::num::NonZeroU64) -> Option<Self> {
+        (!rules.is_none()).then(|| {
+            Self::interned(CountedStop {
+                rules,
+                count,
+                counts: BTreeMap::new(),
+            })
+        })
+    }
+
+    /// This stop with the count `count` for the test `test_id` (its id in the campaign's tests);
+    /// [`Self::NONE`] stays as it is.
+    #[must_use]
+    pub fn with_test_count(self, test_id: &str, count: std::num::NonZeroU64) -> Self {
+        match self.0 {
+            None => self,
+            Some(counted) => {
+                let mut counted = counted.clone();
+                counted.counts.insert(test_id.to_owned(), count);
+                Self::interned(counted)
+            }
+        }
+    }
+
+    fn interned(counted: CountedStop) -> Self {
+        static INTERNED: std::sync::Mutex<BTreeSet<&'static CountedStop>> =
+            std::sync::Mutex::new(BTreeSet::new());
+        let mut interned = INTERNED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(existing) = interned.get(&counted) {
+            return Self(Some(existing));
+        }
+        let leaked: &'static CountedStop = Box::leak(Box::new(counted));
+        interned.insert(leaked);
+        Self(Some(leaked))
+    }
+
+    /// Whether this names no rule.
+    #[must_use]
+    pub const fn is_none(self) -> bool {
+        self.0.is_none()
+    }
+
+    /// The rules; `None` for [`Self::NONE`].
+    #[must_use]
+    pub fn rules(self) -> Option<&'static StopRules> {
+        self.0.map(|counted| &counted.rules)
+    }
+
+    /// The count of every test without its own; `None` for [`Self::NONE`].
+    #[must_use]
+    pub fn count(self) -> Option<std::num::NonZeroU64> {
+        self.0.map(|counted| counted.count)
+    }
+
+    /// The rules and the count of the run of the test `test_id`; `None` for [`Self::NONE`].
+    #[must_use]
+    pub fn of_test(self, test_id: &str) -> Option<(&'static StopRules, std::num::NonZeroU64)> {
+        self.0.map(|counted| {
+            (
+                &counted.rules,
+                counted
+                    .counts
+                    .get(test_id)
+                    .copied()
+                    .unwrap_or(counted.count),
+            )
+        })
+    }
+
+    /// The stop as a JSON object, `{before, after, count}`, with `counts` (`{test_id: count}`)
+    /// when a test has its own count; `None` for [`Self::NONE`]. Every field is destructured, so a
+    /// new one does not compile until it is recorded here.
+    #[must_use]
+    pub fn value(self) -> Option<Value> {
+        let CountedStop {
+            rules: StopRules { before, after },
+            count,
+            counts,
+        } = self.0?;
+        let mut value = json!({"before": before, "after": after, "count": count.get()});
+        if !counts.is_empty() {
+            value["counts"] = counts
+                .iter()
+                .map(|(test, count)| (test.clone(), json!(count.get())))
+                .collect::<serde_json::Map<_, _>>()
+                .into();
+        }
+        Some(value)
     }
 }
 
@@ -528,8 +693,16 @@ impl RunOptions {
 /// configuration is shown to exist, not only by a terminal value, so `work_bound_stuck_terminals`
 /// admits runs with such a leaf that v1 refused. v3: a slot projecting the configuration without
 /// its uncompared cells ([`StateProjection::Cells`]), which is defined on every configuration,
-/// distinguishes one-sidedly as the whole term does.
-pub const ONE_SIDED_VERSION: &str = "kink-campaign/one-sided/v3";
+/// distinguishes one-sidedly as the whole term does. v4: a run with a stop ([`Stop`]) gives
+/// one-sided evidence across its stages. A clean ground stop leaf of the last stage is final in
+/// the truncated system by a fact of its own path (its last step is a stop event, or its one
+/// successor is by a rule it stops before, decided without a diagnostic), and that path passes
+/// only through stage starts that are stop leaves of finished earlier requests, so it is a final
+/// configuration of every completion of the run, as a clean ground stuck leaf is; the starts the
+/// work budget left unresumed are dropped as the bounded request's pending states are. The rule
+/// reads the joined run of every stage ([`staged_result_run`]), whose only incompleteness must be
+/// its last, `work-bound` leaf.
+pub const ONE_SIDED_VERSION: &str = "kink-campaign/one-sided/v4";
 
 /// The one-sided early kill (re-pin L1-2: decision 6, finding A-15). Off by default: a state slot
 /// distinguishes only two complete sides.
@@ -801,6 +974,8 @@ struct BaselineKey {
     /// The result run's work bound (`Runtime::execute`; [`RunOptions::baseline_max_work`]), so a
     /// session never answers a request with a run made under another bound.
     max_work: Option<u64>,
+    /// The result run's stop (`Runtime::execute`; [`RunOptions::stop`]).
+    stop: Stop,
 }
 
 /// A stored live baseline run, under its key.
@@ -1226,6 +1401,7 @@ impl<'v> BaselineSession<'v> {
             solver: runtime.solver,
             modality: runtime.modality,
             max_work: runtime.baseline_max_work,
+            stop: runtime.stop,
         };
         if let Some(stored) = self.runs.iter().find(|stored| stored.key == key) {
             let (evidence, cache) = match &stored.run {
@@ -1389,6 +1565,29 @@ fn run_campaign_session(
     runtime.coverage = Some(RuleAuthors::of(&baseline));
     runtime.modality = options.run.result_modality;
     runtime.baseline_max_work = options.run.baseline_max_work;
+    runtime.stop = options.run.stop;
+    if !options.run.stop.is_none() {
+        // A stop ends result runs; a pattern oracle's stepped run has none, so its sides would be
+        // of another observation than the stop states.
+        if let Some(test) = campaign.tests.iter().find(|test| {
+            test.oracles
+                .iter()
+                .any(|declaration| matches!(declaration.projection(), Projection::Pattern { .. }))
+        }) {
+            return Err(CampaignFailure::new(
+                CampaignFailureKind::InvalidDeclaration,
+                format!(
+                    "test {} has a pattern oracle, whose stepped run takes no stop",
+                    test.id
+                ),
+            ));
+        }
+        let unresolved = resolve_stop(options.run.stop, &mut runtime.backend)
+            .map_err(|_| admission_failure(BaselineAdmission::Error))?;
+        if !unresolved.is_empty() {
+            return Err(CampaignFailure::stop_unresolved(unresolved));
+        }
+    }
     // The baseline's full critical-pair check, once per session (fz26 KINK-BASELINE-FINDINGS):
     // a name the author gives that the baseline refuses refuses a call with a mutant. Every call
     // reads it for the ends of the baseline's runs (KINK-OVERLOAD-VALUE: an overload application
@@ -1905,6 +2104,27 @@ fn run_mutant(
         Ok((mut sides, claims)) => {
             sides.runtime.modality = options.run.result_modality;
             sides.runtime.one_sided = options.run.one_sided;
+            sides.runtime.stop = options.run.stop;
+            // The stop names the observation on this side too: a name that labels no rewrite
+            // rule of the claim-free mutant leaves it undefined there, and the mutant is not run
+            // without it.
+            let failure = match resolve_stop(options.run.stop, &mut sides.runtime.backend) {
+                Ok(unresolved) if unresolved.is_empty() => None,
+                Ok(_) => Some(MutantScopeFailure::StopUnresolved),
+                Err(_) => Some(MutantScopeFailure::Infrastructure),
+            };
+            if let Some(failure) = failure {
+                return MutantExecution {
+                    tests: Vec::new(),
+                    failure: Some(failure),
+                    evidence: Vec::new(),
+                    claims,
+                    inconsistent_pairs: Vec::new(),
+                    selection: None,
+                    caller_order: None,
+                    recordings: Vec::new(),
+                };
+            }
             let selection = mutant_selection(
                 campaign,
                 paired,
@@ -2959,6 +3179,9 @@ struct Runtime {
     /// Whether the side's runs collect one-sided evidence ([`RunOptions::one_sided`]; a mutant's
     /// only).
     one_sided: OneSided,
+    /// Where the side's result runs end besides their own end ([`RunOptions::stop`]), resolved on
+    /// the side's definition before it runs anything ([`resolve_stop`]).
+    stop: Stop,
     /// The `max_work` of the side's result runs a [`BaselineSession`] makes
     /// ([`RunOptions::baseline_max_work`]; the baseline's only, a mutant's runs take
     /// [`WorkBudget`]).
@@ -3091,6 +3314,7 @@ impl Runtime {
             coverage: None,
             modality: ResultModality::default(),
             one_sided: OneSided::Off,
+            stop: Stop::NONE,
             baseline_max_work: None,
             exclusions,
             data: None,
@@ -3157,7 +3381,9 @@ impl Runtime {
     /// a stepped path set, and when stepping fails its run is a path-set result run, so both
     /// sides of such a test are path sets; any other test runs as a result run in this side's
     /// modality, which is the campaign's, whatever its leaves ([`RunOptions::result_modality`]).
-    /// `max_work` bounds result runs only, never a stepped run ([`WorkBudget`]).
+    /// `max_work` bounds result runs only, never a stepped run ([`WorkBudget`]). A result run
+    /// with a stop ([`RunOptions::stop`]) is the staged run of the test's count
+    /// ([`staged_result_run`]); one without is the one request it was before stops existed.
     fn execute(
         &mut self,
         campaign: &Campaign<'_>,
@@ -3197,15 +3423,27 @@ impl Runtime {
                 Err(failure) => Err(failure),
             }
         } else {
-            self.adapter.execute_result(
-                &mut self.backend,
-                &test.initial_state,
-                campaign.budget,
-                ResultRun {
-                    modality: self.modality,
-                    max_work,
-                },
-            )
+            let run = ResultRun {
+                modality: self.modality,
+                max_work,
+            };
+            match self.stop.of_test(&test.id) {
+                None => self.adapter.execute_result(
+                    &mut self.backend,
+                    &test.initial_state,
+                    campaign.budget,
+                    run,
+                ),
+                Some((rules, count)) => staged_result_run(
+                    &self.adapter,
+                    &mut self.backend,
+                    &test.initial_state,
+                    campaign.budget,
+                    run,
+                    rules,
+                    count,
+                ),
+            }
         };
         cache.coverage = self.coverage.as_ref().map(|authors| match &execution {
             Ok(execution) => TestCoverage::of_execution(&test.id, execution, authors),
@@ -3600,6 +3838,147 @@ impl Runtime {
             })
             .unwrap_or_else(|_| Ok(refused()))
     }
+}
+
+/// The result run of `initial` under the stop `rules` with count `count` (see the module
+/// documentation and [`Runtime::execute`]), as one [`AdaptedExecution`] ([`StagedExecution`]).
+///
+/// Stage 1 is one request from `initial`. Every request ends each of its paths at its first stop,
+/// so every stop leaf of a request is one stop event past its start, and k-rust's merges within
+/// a request never join states of different counts (no count is part of a merge key, and every
+/// state of one request has the same count up to its first stop). The stop leaves of stage `k`
+/// are the starts of stage `k + 1`: an after-stop leaf's state, or the successor a cut-point leaf
+/// proposes (the staged run takes that step, so its rule is credited as committed,
+/// [`StagedExecution::take_step`]). In a state set, equal starts are one start: exact pattern
+/// equality is finer than any merge k-rust makes, and the leaves of one start's request are the
+/// same whichever leaf it came from. A path set keeps one start per leaf, one leaf per path. The
+/// starts of a stage run in the total order of their patterns, so the run is a function of its
+/// request, whatever order the leaves came in. The stop leaves of stage `count` are ends, as is
+/// every own end (stuck, undefined step) of any stage; a bound, a diagnosed stop leaf or an
+/// exclusion of any stage keeps the run incomplete, read by the bridge from the joined leaves as
+/// from a single run's. A stop leaf with no instance (refuted, [`discarded`]) or with a diagnostic
+/// is kept as it is and never resumed: the bridge drops the first and reads the second as an
+/// incomplete path, as it would in a single run.
+///
+/// The bounds:
+/// - `max_depth` and `max_breadth` bound each request (a depth between consecutive stops), a
+///   choice that is sound for any budget and that does not depend on which merged path a start
+///   came from;
+/// - `run.max_work` bounds the whole run: each request gets what the earlier ones left. A request
+///   that ends at its budget ends the run: its `work-bound` leaf is the joined run's last leaf,
+///   and every start not yet resumed, its own stop leaves among them, is dropped with the
+///   request's pending states, as one bounded request drops them. With a budget equal to an
+///   unbounded staged run's work, every request has the work it needs (k-rust stops a run only
+///   when a state remains past the budget);
+/// - `budget.time` bounds the whole run, as one watchdog: each request's watchdog gets the time
+///   the run has left, and a run with no time left before a request has timed out.
+fn staged_result_run(
+    adapter: &ExecutionAdapter,
+    backend: &mut Backend,
+    initial: &Pattern,
+    budget: ExecutionBudget,
+    run: ResultRun,
+    rules: &StopRules,
+    count: std::num::NonZeroU64,
+) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
+    let started = Instant::now();
+    let mut staged = StagedExecution::new();
+    let mut spent = 0_u64;
+    let mut starts = vec![(initial.clone(), BTreeSet::<String>::new())];
+    let mut stage = 1_u64;
+    'stages: loop {
+        let last = stage == count.get();
+        let mut next = Vec::<(Pattern, BTreeSet<String>)>::new();
+        for (start, taken) in starts {
+            let time = if stage == 1 {
+                budget.time
+            } else {
+                match budget.time.checked_sub(started.elapsed()) {
+                    Some(time) if !time.is_zero() => time,
+                    _ => {
+                        staged.time_out();
+                        break 'stages;
+                    }
+                }
+            };
+            let part = adapter.execute_result_stopped(
+                backend,
+                &start,
+                ExecutionBudget { time, ..budget },
+                ResultRun {
+                    modality: run.modality,
+                    max_work: run.max_work.map(|limit| limit.saturating_sub(spent)),
+                },
+                rules,
+            )?;
+            for rule in &taken {
+                staged.take_step(rule);
+            }
+            spent = spent.saturating_add(part.work());
+            let ended = part.timed_out()
+                || part
+                    .leaves()
+                    .iter()
+                    .any(|leaf| leaf.halt == HaltClass::WorkBound);
+            staged.push(part, |leaf| {
+                let Some(resumed) = stage_start(leaf).filter(|_| !last) else {
+                    return true;
+                };
+                if !ended {
+                    next.push(resumed);
+                }
+                false
+            });
+            if ended {
+                break 'stages;
+            }
+        }
+        if last || next.is_empty() {
+            break;
+        }
+        next.sort();
+        if run.modality == ResultModality::StateSet {
+            next.dedup_by(|later, earlier| {
+                if later.0 == earlier.0 {
+                    earlier.1.append(&mut later.1);
+                    true
+                } else {
+                    false
+                }
+            });
+        }
+        starts = next;
+        stage += 1;
+    }
+    Ok(staged
+        .finish()
+        .expect("stage 1 always runs its one request"))
+}
+
+/// The start of the next stage that the stop leaf `leaf` gives, with the rule of the step the
+/// staged run takes to reach it (a cut point's): an after-stop (`terminal`) leaf's state, or the
+/// successor a cut-point leaf proposes. `None` for every other leaf, and for a stop leaf with no
+/// instance or with a diagnostic, which stays a leaf of the run ([`staged_result_run`]).
+fn stage_start(leaf: &AdaptedLeaf) -> Option<(Pattern, BTreeSet<String>)> {
+    if discarded(leaf).is_some() || diagnosed(leaf) {
+        return None;
+    }
+    match (leaf.halt, &leaf.proposal) {
+        (HaltClass::TerminalRule, _) => Some((leaf.branch.state.clone(), BTreeSet::new())),
+        (HaltClass::CutPoint, Some(proposal)) => Some((
+            proposal.successor.clone(),
+            BTreeSet::from([proposal.rule_id.clone()]),
+        )),
+        _ => None,
+    }
+}
+
+/// Whether the stop of a campaign is defined on a side whose backend is `backend`: every name
+/// labels a rewrite rule of its definition ([`StopRules::unresolved`]). `Ok` with the names that
+/// do not, empty when the stop is resolved or there is none.
+fn resolve_stop(stop: Stop, backend: &mut Backend) -> Result<Vec<String>, ExecutionAdapterFailure> {
+    stop.rules()
+        .map_or_else(|| Ok(Vec::new()), |rules| rules.unresolved(backend))
 }
 
 /// `PatternPlan::new` accepts exactly this plan over `vocabulary`. A plan's fields are public,
@@ -4241,6 +4620,7 @@ mod tests {
                             solver: kink_native::BACKEND_OPTIONS,
                             modality: ResultModality::default(),
                             max_work: None,
+                            stop: Stop::NONE,
                         },
                         run: StoredRun::Executed {
                             executed: Box::new(executed),
@@ -4489,6 +4869,7 @@ mod tests {
                             solver: kink_native::BACKEND_OPTIONS,
                             modality: ResultModality::default(),
                             max_work: None,
+                            stop: Stop::NONE,
                         },
                         run: StoredRun::Executed {
                             executed: Box::new(executed),
@@ -4560,6 +4941,7 @@ mod tests {
             one_sided: OneSided::NoCrashClassifier,
             baseline_max_work: None,
             smt_resource_limit: kink_native::SMT_RESOURCE_LIMIT,
+            stop: Stop::NONE,
         };
         assert_eq!(
             options.value(),
@@ -4605,9 +4987,63 @@ mod tests {
                 baseline_max_work: Some(1),
                 ..options
             },
+            RunOptions {
+                stop: Stop::new(
+                    StopRules {
+                        before: Vec::new(),
+                        after: vec!["CLOCK.frame".into()],
+                    },
+                    std::num::NonZeroU64::MIN,
+                )
+                .unwrap(),
+                ..options
+            },
         ] {
             assert_ne!(changed.value(), options.value(), "{changed:?}");
         }
+    }
+
+    /// A stop is a member of the run options record only when it names a rule, with its rules
+    /// as written, its count and each test's own count; equal stops are one interned value.
+    #[test]
+    fn the_run_options_record_names_the_stop() {
+        let rules = StopRules {
+            before: vec!["CLOCK.frame".into()],
+            after: Vec::new(),
+        };
+        let three = std::num::NonZeroU64::new(3).unwrap();
+        assert_eq!(
+            Stop::new(StopRules::NONE, three),
+            None,
+            "a count of no rule means nothing"
+        );
+        let stop = Stop::new(rules.clone(), three).unwrap();
+        assert_eq!(stop, Stop::new(rules.clone(), three).unwrap());
+        assert_eq!(
+            stop.value(),
+            Some(json!({"before": ["CLOCK.frame"], "after": [], "count": 3}))
+        );
+        let counted = stop.with_test_count("t", std::num::NonZeroU64::MIN);
+        assert_eq!(
+            counted.value(),
+            Some(json!({"before": ["CLOCK.frame"], "after": [], "count": 3, "counts": {"t": 1}}))
+        );
+        assert_eq!(
+            counted.of_test("t"),
+            Some((&rules, std::num::NonZeroU64::MIN))
+        );
+        assert_eq!(counted.of_test("u"), Some((&rules, three)));
+        assert_eq!(Stop::NONE.with_test_count("t", three), Stop::NONE);
+        assert_eq!(Stop::NONE.value(), None);
+        let options = RunOptions {
+            stop,
+            ..RunOptions::default()
+        };
+        assert_eq!(
+            options.value()["stop"],
+            json!({"before": ["CLOCK.frame"], "after": [], "count": 3})
+        );
+        assert!(RunOptions::default().value().get("stop").is_none());
     }
 
     /// Re-pin L1-2 (decision 6, finding A-15): a run's one-sided evidence is read only on a side

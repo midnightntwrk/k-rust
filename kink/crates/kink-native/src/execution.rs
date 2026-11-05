@@ -714,6 +714,205 @@ impl AdaptedExecution {
     }
 }
 
+/// The execution of a run made of several result runs of one definition (kink-campaign's
+/// counted stop: a run resumed at each stop before the last), joined into one
+/// [`AdaptedExecution`] that every reader of a single run reads unchanged: the bridge, the
+/// one-sided reading, coverage, the exclusions and the census.
+///
+/// The caller adds each request's execution in the order it ran ([`Self::push`]) with the leaves
+/// it keeps; a leaf it leaves out is one it resumed, whose subtree later requests hold, or one
+/// it dropped unresumed with the run incomplete. The joined execution:
+/// - holds the kept leaves in the order they were added, so a run whose last request ended at
+///   its work budget ends in that request's `work-bound` leaf, as a single bounded run does
+///   ([`crate::bridge::work_bound_stuck_terminals`]);
+/// - has timed out when any request did, or when the caller says the staged run's own time ran
+///   out before a request ([`Self::time_out`]); a timed-out run publishes no leaf, coverage, work
+///   or facts, as a single one;
+/// - counts the work and the stack stops of every request, and its undecided solver answers;
+/// - lists every distinct entry of each request's run-level lists once, in the order first met
+///   (each passed stop with the depth its own request reports);
+/// - has the union of the requests' coverage, with each rule a resumed step took
+///   ([`Self::take_step`]) also committed: the staged run takes a resumed cut point's step
+///   although no request committed it (the request that proposed it stopped before it, and the
+///   next one started after it), and the step's candidate was built, so it is applied;
+/// - is ground when its first request's initial state is.
+///
+/// With one request whose every leaf is kept and no step taken, the joined execution is that
+/// request's execution.
+#[derive(Clone, Debug, Default)]
+pub struct StagedExecution {
+    joined: Option<AdaptedExecution>,
+    taken: BTreeSet<String>,
+    timed_out: bool,
+}
+
+impl StagedExecution {
+    /// An empty staged run.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Adds the execution of the next request, keeping the leaves `keep` selects.
+    pub fn push(&mut self, part: AdaptedExecution, mut keep: impl FnMut(&AdaptedLeaf) -> bool) {
+        let AdaptedExecution {
+            leaves,
+            effects,
+            timed_out,
+            stack_stops,
+            modality,
+            work,
+            coverage,
+            facts,
+        } = part;
+        let leaves = leaves.into_iter().filter(|leaf| keep(leaf));
+        let Some(joined) = &mut self.joined else {
+            self.joined = Some(AdaptedExecution {
+                leaves: leaves.collect(),
+                effects,
+                timed_out,
+                stack_stops,
+                modality,
+                work,
+                coverage,
+                facts,
+            });
+            return;
+        };
+        joined.leaves.extend(leaves);
+        joined.effects.extend(effects);
+        joined.timed_out |= timed_out;
+        joined.stack_stops += stack_stops;
+        joined.work = joined.work.saturating_add(work);
+        joined.coverage = match (joined.coverage.take(), coverage) {
+            (Some(mut into), Some(from)) => {
+                into.applied.extend(from.applied);
+                into.matched.extend(from.matched);
+                into.applied_rewrites.extend(from.applied_rewrites);
+                into.committed.extend(from.committed);
+                Some(into)
+            }
+            // Only a timed-out request has no coverage, and it makes the joined run a timeout.
+            (into, from) => into.or(from),
+        };
+        joined.facts.join(facts);
+    }
+
+    /// Records that the staged run took the step of the rewrite rule `rule_id` (its `UNIQUE_ID`)
+    /// that a cut point proposed, by resuming from the step's successor.
+    pub fn take_step(&mut self, rule_id: &str) {
+        self.taken.insert(rule_id.to_owned());
+    }
+
+    /// Records that the staged run's own time ran out before its next request.
+    pub fn time_out(&mut self) {
+        self.timed_out = true;
+    }
+
+    /// The joined execution; `None` when no request was added.
+    #[must_use]
+    pub fn finish(self) -> Option<AdaptedExecution> {
+        let Self {
+            joined,
+            taken,
+            timed_out,
+        } = self;
+        let mut joined = joined?;
+        if timed_out || joined.timed_out {
+            joined.timed_out = true;
+            joined.leaves.clear();
+            joined.work = 0;
+            joined.coverage = None;
+            joined.facts = RunFacts::default();
+            return Some(joined);
+        }
+        if let Some(coverage) = &mut joined.coverage {
+            for rule in taken {
+                coverage.applied.insert(rule.clone());
+                coverage.applied_rewrites.insert(rule.clone());
+                coverage.committed.insert(rule);
+            }
+        }
+        Some(joined)
+    }
+}
+
+impl RunFacts {
+    /// Adds the facts of a later request of the same staged run ([`StagedExecution`]).
+    fn join(&mut self, other: Self) {
+        fn union<T: PartialEq>(into: &mut Vec<T>, from: Vec<T>) {
+            for entry in from {
+                if !into.contains(&entry) {
+                    into.push(entry);
+                }
+            }
+        }
+        let Self {
+            smt_unknowns,
+            implementation_chosen_values,
+            contradicted_claims,
+            allowance_refusals,
+            unsupported_hooks,
+            short_circuit_readings,
+            passed_stops,
+            ground: _,
+        } = other;
+        self.smt_unknowns = self.smt_unknowns.saturating_add(smt_unknowns);
+        union(
+            &mut self.implementation_chosen_values,
+            implementation_chosen_values,
+        );
+        union(&mut self.contradicted_claims, contradicted_claims);
+        union(&mut self.allowance_refusals, allowance_refusals);
+        union(&mut self.unsupported_hooks, unsupported_hooks);
+        self.short_circuit_readings =
+            match (self.short_circuit_readings.take(), short_circuit_readings) {
+                (Some(mut into), Some(from)) => {
+                    union(&mut into, from);
+                    Some(into)
+                }
+                // One backend runs every request of a staged run, so either every request lists
+                // them or none does; without a list the joined run has none, which no reader
+                // takes for an empty one.
+                _ => None,
+            };
+        union(&mut self.passed_stops, passed_stops);
+    }
+}
+
+impl StopRules {
+    /// The names of `self` that select no rewrite rule of `backend`'s definition for its default
+    /// module, in the order written (`before`'s, then `after`'s). A name selects a rule here when
+    /// it is the rule's label, exactly. k-rust also selects a rule by its `UNIQUE_ID`, but a stop
+    /// names one observation on a baseline and on each of its mutants, and a `UNIQUE_ID` is a
+    /// digest of one rule's text that any edit of the rule changes, so it names no observation.
+    /// A name that labels only an equation selects nothing: k-rust stops only at rewrite steps.
+    pub fn unresolved(
+        &self,
+        backend: &mut Backend,
+    ) -> Result<Vec<String>, ExecutionAdapterFailure> {
+        let labels = with_definition(backend, |definition| Ok(rewrite_labels(definition)))?;
+        Ok(self
+            .before
+            .iter()
+            .chain(&self.after)
+            .filter(|name| !labels.contains(name.as_str()))
+            .cloned()
+            .collect())
+    }
+}
+
+/// The labels of the definition's rewrite rules.
+fn rewrite_labels(definition: &k_rust_backend::definition::BackendDefinition) -> BTreeSet<String> {
+    definition
+        .rewrite_theory()
+        .values()
+        .flat_map(|priorities| priorities.values())
+        .flatten()
+        .filter_map(|rule| rule.rule.attributes.label.clone())
+        .collect()
+}
+
 /// Execution adapter failure. No adapted execution is returned.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ExecutionAdapterFailure {

@@ -462,6 +462,7 @@ mod heavy {
     compiled_catalogue_sweep_of_b1coll: "b1coll.k" BOTH 0 / 1,
     compiled_catalogue_sweep_of_cellmap: "cellmap.k" BOTH 0 / 1,
     compiled_catalogue_sweep_of_claims: "claims.k" BOTH 0 / 1,
+    compiled_catalogue_sweep_of_clock: "clock.k" BOTH 0 / 1,
     compiled_catalogue_sweep_of_collenv: "collenv.k" BOTH 0 / 1,
     compiled_catalogue_sweep_of_collimp: "collimp.k" BOTH 0 / 1,
     compiled_catalogue_sweep_of_collstore: "collstore.k" BOTH 0 / 1,
