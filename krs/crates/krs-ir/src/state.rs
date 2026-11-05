@@ -476,6 +476,16 @@ impl<S, C> FixedCell<S, C> {
             .iter()
             .any(|attribute| matches!(attribute, CellAttribute::Initial { .. }))
     }
+
+    /// Whether the cell itself carries `unobservable`: no use of the definition may observe its
+    /// content. A cell inside an unobservable cell is unobservable too, which this flag of the
+    /// inner cell does not say.
+    #[must_use]
+    pub fn is_unobservable(&self) -> bool {
+        self.attributes
+            .iter()
+            .any(|attribute| matches!(attribute, CellAttribute::Unobservable { .. }))
+    }
 }
 
 /// A fixed cell contains either one ordinary term or ordered child cells.
@@ -1977,4 +1987,30 @@ where
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CellAttribute, FixedCell};
+    use crate::testing::origin;
+
+    #[test]
+    fn a_cell_is_unobservable_exactly_when_it_carries_the_flag() {
+        let plain =
+            FixedCell::<&str, &str>::leaf(origin("w"), "w", "w", Vec::new(), "Int").unwrap();
+        let flagged = FixedCell::<&str, &str>::leaf(
+            origin("z"),
+            "z",
+            "z",
+            vec![CellAttribute::unobservable(origin("z-flag"))],
+            "Int",
+        )
+        .unwrap();
+        assert!(!plain.is_unobservable());
+        assert!(flagged.is_unobservable());
+        // The flag is the cell's own: a group holding an unobservable cell is not flagged.
+        let group = FixedCell::nested(origin("g"), "g", "g", Vec::new(), vec![flagged]).unwrap();
+        assert!(!group.is_unobservable());
+        assert!(!group.is_initial());
+    }
 }
