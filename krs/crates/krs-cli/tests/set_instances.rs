@@ -530,7 +530,7 @@ fn a_rule_that_only_removes_or_creates_an_instance_changes_a_cell() {
         &[("EXTRA", extra)],
         &["drop_one", "drop-any", "make_one", "touched"],
     );
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         rule [drop_one]:
         (<obj>
         .Bag ...
@@ -545,7 +545,7 @@ fn a_rule_that_only_removes_or_creates_an_instance_changes_a_cell() {
         .Bag ...
         </obj>)
         requires A:Int >Int 0
-        rule touch N:Int => probe N:Int [priority(60), label(touched)]"#]]
+        rule touch N:Int => probe N:Int [priority(60), label(touched)]"]]
     .assert_eq(&rules);
 }
 

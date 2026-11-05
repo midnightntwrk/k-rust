@@ -368,7 +368,10 @@ fn source_request_and_executable_changes_miss_and_escape_hatches_recompute() {
         .run("check", "llvm", None, &[], false)
         .assert_reused(1);
 
-    let rule_edit = FOO_BAR.replace("    Bar\n}", "    Foo\n}");
+    // The rule turned around, `bar` to `foo`: another rule, which still changes a cell.
+    let rule_edit = FOO_BAR
+        .replace("(Foo: krs::Term", "(Bar: krs::Term")
+        .replace("    Bar\n}", "    Foo\n}");
     assert_ne!(rule_edit, FOO_BAR);
     fs::write(fixture.source(), &rule_edit).unwrap();
     fixture

@@ -8,12 +8,14 @@ k::sorts! {
 }
 
 #[k::constructors(sort = Object, result = KResult)]
-#[k::precedence((Foo, Bar))]
+#[k::precedence((Foo, Bar, Baz))]
 pub enum Syntax {
     #[k::syntax("foo")]
     Foo(),
     #[k::syntax("bar")]
     Bar(),
+    #[k::syntax("baz")]
+    Baz(),
 }
 
 #[k::configuration]
@@ -36,5 +38,5 @@ k::rules! {
     use Syntax::*;
 
     first_foo : Foo() => Bar();
-    second_foo: Foo() => Foo();
+    second_foo: Foo() => Baz();
 }
