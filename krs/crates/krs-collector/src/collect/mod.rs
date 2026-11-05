@@ -493,7 +493,7 @@ fn resolution_tables(
     let declarations = declared_type_table(pending, builtins)?;
     let cell_fields = declared_cell_field_table(pending)?;
     let views = HostCellDeclarations::new(pending, builtins);
-    let mut head_targets = resolve_head_rule_targets(pending, &cell_fields, &views)?;
+    let mut head_targets = resolve_head_rule_targets(pending, &cell_fields, &views, &declarations)?;
     let cell_kinds = host_cell_kinds(pending, &views);
     locate_main_cell_refusals(&mut head_targets, pending, contexts);
     Ok(ResolutionTables {

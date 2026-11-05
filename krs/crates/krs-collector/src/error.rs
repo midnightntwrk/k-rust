@@ -45,6 +45,15 @@ pub enum CollectionErrorKind {
     /// A rule at the head of the computation needs exactly one configuration, and the definition
     /// has none or several.
     ConfigurationCount,
+    /// A sentence typed by a cell group whose group sits below an optional or a collection cell, so
+    /// its cells have no one position.
+    GroupSubjectPosition,
+    /// A sentence typed by a cell group that no cell of the configuration holds.
+    GroupNotInConfiguration,
+    /// A sentence typed by a cell group names a cell outside the group.
+    CellOutsideSubject,
+    /// A claim typed by a cell group.
+    GroupClaim,
     /// A rule at the head of the computation needs a computation cell in its configuration, and
     /// the configuration has no `KSequence` cell, or the record names a cell that is not one.
     ComputationCell,
@@ -230,6 +239,12 @@ impl ToDiagnostic for CollectionError {
             CollectionErrorKind::ReferenceKindMismatch => codes::collect::REFERENCE_KIND_MISMATCH,
             CollectionErrorKind::InvalidConfiguration => codes::collect::INVALID_CONFIGURATION,
             CollectionErrorKind::ConfigurationCount => codes::analysis::CONFIGURATION_COUNT,
+            CollectionErrorKind::GroupSubjectPosition => codes::analysis::GROUP_SUBJECT_POSITION,
+            CollectionErrorKind::GroupNotInConfiguration => {
+                codes::analysis::GROUP_NOT_IN_CONFIGURATION
+            }
+            CollectionErrorKind::CellOutsideSubject => codes::analysis::CELL_OUTSIDE_SUBJECT,
+            CollectionErrorKind::GroupClaim => codes::analysis::GROUP_CLAIM,
             CollectionErrorKind::ComputationCell => codes::analysis::COMPUTATION_CELL,
             CollectionErrorKind::MainCell => codes::analysis::MAIN_CELL,
             CollectionErrorKind::AmbiguousMainConfigurationVariable => {
@@ -378,6 +393,22 @@ mod tests {
                 codes::analysis::COMPUTATION_CELL,
             ),
             (CollectionErrorKind::MainCell, codes::analysis::MAIN_CELL),
+            (
+                CollectionErrorKind::GroupSubjectPosition,
+                codes::analysis::GROUP_SUBJECT_POSITION,
+            ),
+            (
+                CollectionErrorKind::GroupNotInConfiguration,
+                codes::analysis::GROUP_NOT_IN_CONFIGURATION,
+            ),
+            (
+                CollectionErrorKind::CellOutsideSubject,
+                codes::analysis::CELL_OUTSIDE_SUBJECT,
+            ),
+            (
+                CollectionErrorKind::GroupClaim,
+                codes::analysis::GROUP_CLAIM,
+            ),
             (
                 CollectionErrorKind::InvalidDisplayFile,
                 codes::collect::INVALID_DISPLAY_FILE,

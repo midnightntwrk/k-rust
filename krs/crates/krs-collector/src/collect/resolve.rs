@@ -162,6 +162,11 @@ struct HeadRuleCellTarget {
     ancestor: Option<MarkedAncestor>,
     /// A leaf's sort as its declaration names it (`Int`), which a refusal's reason names.
     sort: Option<String>,
+    /// The index of the enclosing group cell among the configuration's cells, absent for a
+    /// top-level cell of the configuration.
+    parent: Option<usize>,
+    /// The `#[k::cell]` declaration a group cell holds.
+    group_id: Option<StableItemId>,
 }
 
 /// A cell's outermost `?` or `*` ancestor, as a refusal of an entry naming the cell below it
@@ -234,6 +239,8 @@ fn head_rule_cell_target(
         group,
         ancestor: ancestor.cloned(),
         sort,
+        parent: None,
+        group_id: None,
     })
 }
 
@@ -762,6 +769,37 @@ pub(super) struct HeadRuleTarget {
     /// The configuration's groups ([`krs_syntax::cell_entries::collect_groups`]), whose records
     /// the entry-admission table reads.
     groups: Vec<krs_ir::cell_kind::GroupKind>,
+    /// The cell group this target is scoped to, absent for the whole configuration. A scoped
+    /// target's `cells` are the cells its subject lets a sentence name
+    /// ([`krs_ir::subject::scope`]): name lookup, the computation cell and the readings of a
+    /// readable record stay within them.
+    subject: Option<TargetSubject>,
+    /// The configuration scoped to each cell group a cell of it holds, by the group's
+    /// declaration, or why the group has no fixed position there; empty on a scoped target.
+    subjects: Vec<(StableItemId, Result<HeadRuleTarget, CollectionError>)>,
+}
+
+/// The cell group a [`HeadRuleTarget`] is scoped to.
+#[derive(Clone, Debug)]
+struct TargetSubject {
+    subject: krs_ir::DescriptorSubject,
+    /// The group's name, as a message names it.
+    name: String,
+    /// The cell of the configuration that holds the group.
+    holder: HeadRuleCellTarget,
+    /// The configuration's other cells outside the group, which a sentence about the group may
+    /// not name.
+    outside: Vec<HeadRuleCellTarget>,
+}
+
+/// Where a cell a sentence about a cell group names sits, outside the group.
+enum OutsideCell<'a> {
+    /// The cell that holds the group.
+    Holder,
+    /// Another cell of the configuration.
+    Other,
+    /// A cell of the group `.0`, which no cell of the configuration holds.
+    NotHeld(&'a StableItemId),
 }
 
 /// The children of a nested `#[k::cell]` struct.
@@ -828,6 +866,237 @@ impl HeadRuleTarget {
         locate: impl FnOnce(CollectionError) -> CollectionError,
     ) {
         self.main_refusal = self.main_refusal.take().map(locate);
+        for (_, scoped) in &mut self.subjects {
+            if let Ok(scoped) = scoped {
+                scoped.main_refusal.clone_from(&self.main_refusal);
+            }
+        }
+    }
+
+    /// The subject a sentence resolved against this target carries.
+    fn descriptor_subject(&self) -> Option<krs_ir::DescriptorSubject> {
+        self.subject.as_ref().map(|subject| subject.subject.clone())
+    }
+
+    /// What a message calls the part of the configuration the target is: the configuration,
+    /// or the group it is scoped to.
+    fn owner(&self) -> String {
+        match &self.subject {
+            Some(subject) => format!("the group `{}`", subject.name),
+            None => format!("configuration `{}`", self.configuration.item_name()),
+        }
+    }
+
+    /// The refusal of the name `name`, which no cell the target lets a sentence name has, where a
+    /// cell of the configuration outside the target's group has it.
+    fn outside(&self, name: &str) -> Option<CollectionError> {
+        let subject = self.subject.as_ref()?;
+        let named =
+            |cell: &HeadRuleCellTarget| cell.names.iter().any(|candidate| candidate == name);
+        let place = if named(&subject.holder) {
+            OutsideCell::Holder
+        } else if subject.outside.iter().any(named) {
+            OutsideCell::Other
+        } else {
+            return None;
+        };
+        Some(self.outside_refusal(subject, name, &place))
+    }
+
+    /// The refusal of the cell `cell`, which a sentence names by its owner (`Group::cell` in
+    /// `cells!`), where the target is scoped to a group and the cell is not inside it.
+    fn outside_cell(&self, cell: &krs_ir::DescriptorCellIdentity) -> Option<CollectionError> {
+        let subject = self.subject.as_ref()?;
+        if self
+            .cells
+            .iter()
+            .any(|candidate| candidate.identity == *cell)
+        {
+            return None;
+        }
+        let place = if subject.holder.identity == *cell {
+            OutsideCell::Holder
+        } else if subject
+            .outside
+            .iter()
+            .any(|candidate| candidate.identity == *cell)
+        {
+            OutsideCell::Other
+        } else {
+            OutsideCell::NotHeld(&cell.owner)
+        };
+        let spelled = format!("{}::{}", cell.owner.item_name(), cell.field);
+        Some(self.outside_refusal(subject, &spelled, &place))
+    }
+
+    /// The refusal of a sentence about the group `subject` that names the cell `spelled`, which
+    /// sits at `place`, outside the group.
+    fn outside_refusal(
+        &self,
+        subject: &TargetSubject,
+        spelled: &str,
+        place: &OutsideCell<'_>,
+    ) -> CollectionError {
+        let configuration = self.configuration.item_name();
+        let why = match place {
+            OutsideCell::Holder => format!(
+                "`{spelled}` is the cell of configuration `{configuration}` that holds the group; write the sentence for `{configuration}` to name it"
+            ),
+            OutsideCell::Other => format!(
+                "`{spelled}` is another cell of configuration `{configuration}`; write the sentence for `{configuration}` to name it"
+            ),
+            OutsideCell::NotHeld(owner) => format!(
+                "`{spelled}` is a cell of the group `{}`, which configuration `{configuration}` does not hold",
+                owner.item_name()
+            ),
+        };
+        CollectionError::new(
+            CollectionErrorKind::CellOutsideSubject,
+            format!(
+                "`{group}` has no cell `{spelled}`: a sentence about the cell group `{group}` names only the cells inside the group, and {why}",
+                group = subject.name,
+            ),
+        )
+    }
+
+    /// Scopes the configuration to each cell group one of its cells holds
+    /// ([`krs_ir::subject::scope`]), reading its cells as a tree.
+    fn with_subjects(mut self) -> Self {
+        let tree = self
+            .cells
+            .iter()
+            .map(|cell| krs_ir::TreeCell {
+                identity: cell.identity.clone(),
+                parent: cell.parent,
+                group: cell.group_id.clone(),
+                multiplicity: cell.kind.multiplicity(),
+                computation: cell.kind.is_computation(),
+            })
+            .collect::<Vec<_>>();
+        let mut groups = Vec::new();
+        for group in self.cells.iter().filter_map(|cell| cell.group_id.as_ref()) {
+            if !groups.contains(group) {
+                groups.push(group.clone());
+            }
+        }
+        self.subjects = groups
+            .into_iter()
+            .map(|group| {
+                let subject = krs_ir::DescriptorSubject::Group {
+                    declaration: group.clone(),
+                };
+                let scoped = match krs_ir::subject::scope(&tree, Some(&subject)) {
+                    Ok(krs_ir::SubjectScope {
+                        anchor: Some(anchor),
+                        nameable,
+                    }) => {
+                        let scoped = self.scoped(subject, anchor);
+                        debug_assert!(
+                            scoped
+                                .cells
+                                .iter()
+                                .all(|cell| nameable.contains(&cell.identity))
+                                && scoped.cells.len() == nameable.len(),
+                            "the cells below the anchor are the scope's nameable cells"
+                        );
+                        Ok(scoped)
+                    }
+                    Ok(krs_ir::SubjectScope { anchor: None, .. }) => {
+                        unreachable!("a group's scope has the cell that holds the group")
+                    }
+                    // A configuration that holds one group in several cells is refused whatever
+                    // its sentences say (`ambiguous-cell-sort`, at the second field): the fault
+                    // is the configuration's, so it is left to that check. Cell identities are
+                    // nominal, so the cells below each position have the same identities, and
+                    // the first position resolves the sentence's names as any other would.
+                    Err(krs_ir::SubjectError::SeveralPositions { positions }) => {
+                        Ok(self.scoped(subject, positions[0]))
+                    }
+                    Err(error) => Err(self.subject_refusal(&group, &error)),
+                };
+                (group, scoped)
+            })
+            .collect();
+        self
+    }
+
+    /// The target scoped to `subject`, a group the cell at `anchor` holds: its sentences name
+    /// the cells below that cell.
+    fn scoped(&self, subject: krs_ir::DescriptorSubject, anchor: usize) -> Self {
+        let krs_ir::DescriptorSubject::Group { declaration } = &subject;
+        // Parents precede their children, so the walk up from a cell ends at the top level.
+        let below = |index: usize| {
+            std::iter::successors(self.cells[index].parent, |&parent| {
+                self.cells[parent].parent.filter(|&above| above < parent)
+            })
+            .any(|ancestor| ancestor == anchor)
+        };
+        let (cells, outside): (Vec<_>, Vec<_>) = self
+            .cells
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index != anchor)
+            .partition(|(index, _)| below(*index));
+        let cells = cells.into_iter().map(|(_, cell)| cell.clone()).collect();
+        Self {
+            configuration: self.configuration.clone(),
+            cells,
+            main: self.main.clone(),
+            main_refusal: self.main_refusal.clone(),
+            group_children: self.group_children.clone(),
+            groups: self.groups.clone(),
+            subject: Some(TargetSubject {
+                name: declaration.item_name().to_owned(),
+                holder: self.cells[anchor].clone(),
+                outside: outside.into_iter().map(|(_, cell)| cell.clone()).collect(),
+                subject,
+            }),
+            subjects: Vec::new(),
+        }
+    }
+
+    /// The refusal of a sentence typed by the group `group`, which has no fixed position in the
+    /// configuration for `error`.
+    fn subject_refusal(
+        &self,
+        group_id: &StableItemId,
+        error: &krs_ir::SubjectError,
+    ) -> CollectionError {
+        let group = group_id.item_name();
+        let configuration = self.configuration.item_name();
+        let name = |index: usize| format!("`{}`", self.cells[index].names[0]);
+        // The group's own cell, where it is the marked one, holds it; an ancestor has it below.
+        let held = |ancestor: usize| {
+            if self.cells[ancestor].group_id.as_ref() == Some(group_id) {
+                "is held by"
+            } else {
+                "sits below"
+            }
+        };
+        let detail = match error {
+            krs_ir::SubjectError::NotInConfiguration => {
+                return CollectionError::new(
+                    CollectionErrorKind::GroupNotInConfiguration,
+                    format!(
+                        "no cell of configuration `{configuration}` holds the cell group `{group}`, so a rule for `{group}` has no cells to apply to: a group's rules apply at the group's position in the definition's configuration"
+                    ),
+                );
+            }
+            krs_ir::SubjectError::SeveralPositions { .. } => {
+                unreachable!("a group held by several cells is scoped at the first of them")
+            }
+            krs_ir::SubjectError::BelowOptional { ancestor } => format!(
+                "the cell group `{group}` {} the optional cell {} of configuration `{configuration}`, so its cells exist only in some states: a rule for a group applies at the group's one fixed position; write the rule for `{configuration}`, or hold `{group}` in a cell that is always present",
+                held(*ancestor),
+                name(*ancestor),
+            ),
+            krs_ir::SubjectError::BelowCollection { ancestor } => format!(
+                "the cell group `{group}` {} the collection cell {} of configuration `{configuration}`, so each instance holds its own copy of its cells: a rule for a group applies at the group's one fixed position, and a group inside a `*` collection is not supported yet; write the rule for `{configuration}`, or hold `{group}` at a fixed position",
+                held(*ancestor),
+                name(*ancestor),
+            ),
+        };
+        CollectionError::new(CollectionErrorKind::GroupSubjectPosition, detail)
     }
 }
 
@@ -871,18 +1140,15 @@ fn collect_head_rule_cells(
         &mut Vec<HeadRuleCellTarget>,
         &mut HashMap<TypeId, GroupChildren>,
     ),
-    (path, ancestor): (&[Layer], Option<&MarkedAncestor>),
+    (path, ancestor, parent): (&[Layer], Option<&MarkedAncestor>, Option<usize>),
 ) -> Result<(), CollectionError> {
     for field in &declaration.fields {
         match &field.content {
             krs_ir::ProtocolCellContent::Leaf { .. } => {
-                cells.push(head_rule_cell_target(
-                    &views.cell(field),
-                    cell_fields,
-                    None,
-                    path,
-                    ancestor,
-                )?);
+                let mut target =
+                    head_rule_cell_target(&views.cell(field), cell_fields, None, path, ancestor)?;
+                target.parent = parent;
+                cells.push(target);
             }
             krs_ir::ProtocolCellContent::Nested { declaration } => {
                 // A group, an optional group, or a collection is named by a readable record
@@ -891,13 +1157,16 @@ fn collect_head_rule_cells(
                 // that ancestor's class: an entry names the content of its own level, and below
                 // a `*` ancestor the instance is written as an instance record.
                 let key = declaration.declaration.key.resolve();
-                let target = head_rule_cell_target(
+                let mut target = head_rule_cell_target(
                     &views.cell(field),
                     cell_fields,
                     Some(key),
                     path,
                     ancestor,
                 )?;
+                target.parent = parent;
+                target.group_id = views.nested.get(&key).map(|(id, _)| (*id).clone());
+                let index = cells.len();
                 let below_ancestor = below_ancestor(ancestor, &target);
                 let mut below = path.to_vec();
                 below.extend(
@@ -955,7 +1224,7 @@ fn collect_head_rule_cells(
                     cell_fields,
                     visiting,
                     (&mut *cells, &mut *group_children),
-                    (&below, below_ancestor.as_ref()),
+                    (&below, below_ancestor.as_ref(), Some(index)),
                 )?;
                 visiting.remove(&key);
             }
@@ -964,15 +1233,16 @@ fn collect_head_rule_cells(
     Ok(())
 }
 
+/// The fixed configurations as the targets a head rule, or a sentence typed by a cell group, is
+/// resolved against: built only where the descriptors hold such a sentence, so a bundle without
+/// one is resolved as before.
 pub(super) fn resolve_head_rule_targets(
     pending: &[PendingDescriptor],
     cell_fields: &HashMap<HostCellKey, krs_ir::DescriptorCellIdentity>,
     views: &HostCellDeclarations<'_>,
+    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
 ) -> Result<Vec<HeadRuleTarget>, CollectionError> {
-    if !pending
-        .iter()
-        .any(|descriptor| matches!(descriptor.host.payload, HostDescriptorPayload::HeadRule(_)))
-    {
+    if !needs_targets(pending, declarations) {
         return Ok(Vec::new());
     }
     let configurations = pending
@@ -1009,7 +1279,7 @@ pub(super) fn resolve_head_rule_targets(
                 cell_fields,
                 &mut HashSet::new(),
                 (&mut cells, &mut group_children),
-                (&[], None),
+                (&[], None, None),
             )?;
             let identity = |cell: &krs_ir::HostCellIdentity| {
                 cell_fields.get(&cell.resolve()).cloned().ok_or_else(|| {
@@ -1066,7 +1336,10 @@ pub(super) fn resolve_head_rule_targets(
                 group_children,
                 groups: configuration_groups(&cells),
                 cells,
-            })
+                subject: None,
+                subjects: Vec::new(),
+            }
+            .with_subjects())
         })
         .collect::<Result<Vec<_>, CollectionError>>()?;
     // Each rule that needs one configuration, or one computation cell, checks it as it is
@@ -1092,23 +1365,153 @@ fn names<'a>(names: impl Iterator<Item = &'a str>) -> String {
         .join(", ")
 }
 
-/// The fixed configuration a head rule names, or the only one collected.
+/// Whether the descriptors hold a head rule or a sentence typed by a cell group, which the
+/// configurations' targets resolve.
+fn needs_targets(
+    pending: &[PendingDescriptor],
+    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+) -> bool {
+    pending.iter().any(|descriptor| {
+        matches!(descriptor.host.payload, HostDescriptorPayload::HeadRule(_))
+            || configuration_references(&descriptor.host.payload)
+                .any(|reference| names_group(reference, declarations))
+    })
+}
+
+/// The configuration references a host payload's sentences are typed by.
+fn configuration_references(
+    payload: &HostDescriptorPayload,
+) -> impl Iterator<Item = &krs_ir::HostConfigurationReference> {
+    let references: [Option<&krs_ir::HostConfigurationReference>; 2] = match payload {
+        HostDescriptorPayload::ConfigurationRule(rule) => [
+            Some(&rule.subject_configuration),
+            rule.result_configuration.as_ref(),
+        ],
+        HostDescriptorPayload::ContextAlias(alias) => [Some(&alias.configuration), None],
+        HostDescriptorPayload::StructuredRule(rule) => [
+            rule.function_context
+                .as_ref()
+                .map(|context| &context.configuration),
+            None,
+        ],
+        HostDescriptorPayload::HeadRule(rule) => [rule.configuration.as_ref(), None],
+        _ => [None, None],
+    };
+    references.into_iter().flatten()
+}
+
+/// Whether `reference` names a `#[k::cell]` group, as a sentence typed by a group does.
+fn names_group(
+    reference: &krs_ir::HostConfigurationReference,
+    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+) -> bool {
+    matches!(
+        declarations.get(&HostApplicationIdentity::Nominal(
+            reference.configuration.key.resolve()
+        )),
+        Some((_, ItemKind::Cell))
+    )
+}
+
+/// What a sentence's configuration type names: a configuration, or a cell group.
+enum TypedBy {
+    Configuration(StableItemId),
+    Group(StableItemId),
+}
+
+/// Resolves the type of a configuration-typed sentence: a `#[k::configuration]`, or a
+/// `#[k::cell]` group, which types a sentence about the group's cells.
+fn resolve_typed_by(
+    reference: &krs_ir::HostConfigurationReference,
+    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+) -> Result<TypedBy, CollectionError> {
+    if let Some((group, ItemKind::Cell)) = declarations.get(&HostApplicationIdentity::Nominal(
+        reference.configuration.key.resolve(),
+    )) {
+        return Ok(TypedBy::Group(group.clone()));
+    }
+    resolve_nominal_reference(
+        &reference.configuration,
+        ItemKind::Configuration,
+        declarations,
+    )
+    .map(TypedBy::Configuration)
+}
+
+/// The refusal of a claim typed by the cell group `group`.
+fn group_claim(group: &StableItemId) -> CollectionError {
+    CollectionError::new(
+        CollectionErrorKind::GroupClaim,
+        format!(
+            "a claim is typed by its definition's configuration, not by the cell group `{group}`: a claim states what the definition's transition system does and leaves every cell it does not name unchanged, so the same claim would state something else in each configuration that holds `{group}`; write the claim for the configuration",
+            group = group.item_name(),
+        ),
+    )
+}
+
+/// The definition's one configuration scoped to the cell group `group`: a sentence typed by a
+/// group is about the group's cells at its one position in that configuration.
+fn group_target<'a>(
+    group: &StableItemId,
+    targets: &'a [HeadRuleTarget],
+) -> Result<&'a HeadRuleTarget, CollectionError> {
+    let name = group.item_name();
+    let [target] = targets else {
+        let detail = match targets {
+            [] => format!(
+                "this rule is for the cell group `{name}`, but the definition has no `#[k::configuration]`: `{name}` is a cell group, not a configuration, and rules for a group are checked through a definition whose configuration holds it"
+            ),
+            several => format!(
+                "this rule is for the cell group `{name}`, but the definition declares {} configurations, {}; a definition has exactly one",
+                several.len(),
+                names(
+                    several
+                        .iter()
+                        .map(|target| target.configuration.item_name())
+                ),
+            ),
+        };
+        return Err(CollectionError::new(
+            CollectionErrorKind::ConfigurationCount,
+            detail,
+        ));
+    };
+    match target
+        .subjects
+        .iter()
+        .find(|(declaration, _)| declaration == group)
+    {
+        Some((_, Ok(scoped))) => Ok(scoped),
+        Some((_, Err(refusal))) => Err(refusal.clone()),
+        None => Err(target.subject_refusal(group, &krs_ir::SubjectError::NotInConfiguration)),
+    }
+}
+
+/// The fixed configuration a head rule names, or the only one collected; for a rule typed by a
+/// cell group, the only one scoped to the group.
 pub(super) fn select_head_rule_target<'a>(
     rule: &krs_ir::HostHeadRule,
     targets: &'a [HeadRuleTarget],
     declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
 ) -> Result<&'a HeadRuleTarget, CollectionError> {
     Ok(if let Some(configuration) = &rule.configuration {
-        let selected = resolve_configuration_reference(configuration, declarations)?;
-        targets
-            .iter()
-            .find(|target| target.configuration == selected.configuration)
-            .ok_or_else(|| {
-                CollectionError::new(
-                    CollectionErrorKind::InvalidConfiguration,
-                    "cell-record rule names a fixed configuration that was not collected",
-                )
-            })?
+        match resolve_typed_by(configuration, declarations)? {
+            TypedBy::Configuration(selected) => targets
+                .iter()
+                .find(|target| target.configuration == selected)
+                .ok_or_else(|| {
+                    CollectionError::new(
+                        CollectionErrorKind::InvalidConfiguration,
+                        "cell-record rule names a fixed configuration that was not collected",
+                    )
+                })?,
+            TypedBy::Group(group) => if rule.sentence_kind == krs_ir::SentenceKind::Claim {
+                Err(group_claim(&group))
+            } else {
+                group_target(&group, targets)
+            }
+            .map_err(|error| error.with_reference_key(configuration.key.clone()))?,
+        }
     } else {
         let [target] = targets else {
             let detail = match targets {
@@ -1140,12 +1543,12 @@ fn resolve_head_rule_target<'a>(
             computation: None,
         });
     }
-    let configuration = target.configuration.item_name();
+    let owner = target.owner();
     let no_computation = || {
         CollectionError::new(
             CollectionErrorKind::ComputationCell,
             format!(
-                "this rule rewrites the head of the computation, but configuration `{configuration}` has no `KSequence` cell to hold the computation"
+                "this rule rewrites the head of the computation, but {owner} has no `KSequence` cell to hold the computation"
             ),
         )
     };
@@ -1164,16 +1567,24 @@ fn resolve_head_rule_target<'a>(
                     .cells
                     .iter()
                     .any(|cell| cell.names.contains(&named.name));
+                if !named_cell && let Some(outside) = target.outside(&named.name) {
+                    return Err(outside.with_reference_key(named.key.clone()));
+                }
+                let holder = if target.subject.is_some() {
+                    "group"
+                } else {
+                    "configuration"
+                };
                 return Err(CollectionError::new(
                     CollectionErrorKind::ComputationCell,
                     if named_cell {
                         format!(
-                            "this rule rewrites the head of the computation in the cell `{}` of configuration `{configuration}`, which is not a `KSequence` cell: name the configuration's `KSequence` cell that holds the computation",
+                            "this rule rewrites the head of the computation in the cell `{}` of {owner}, which is not a `KSequence` cell: name the {holder}'s `KSequence` cell that holds the computation",
                             named.name
                         )
                     } else {
                         format!(
-                            "this rule rewrites the head of the computation in the cell `{}`, which configuration `{configuration}` does not have",
+                            "this rule rewrites the head of the computation in the cell `{}`, which {owner} does not have",
                             named.name
                         )
                     },
@@ -1183,7 +1594,7 @@ fn resolve_head_rule_target<'a>(
                 return Err(CollectionError::new(
                     CollectionErrorKind::ComputationCell,
                     format!(
-                        "this rule rewrites the head of the computation in the cell `{}`, which names {} `KSequence` cells of configuration `{configuration}`, {}: name the cell by a name only it has",
+                        "this rule rewrites the head of the computation in the cell `{}`, which names {} `KSequence` cells of {owner}, {}: name the cell by a name only it has",
                         named.name,
                         several.len(),
                         names(several.iter().map(|cell| cell.k_name.as_str())),
@@ -1224,6 +1635,11 @@ struct Resolver<'a> {
     builtins: Option<&'a HostBuiltinRegistry>,
     head_targets: &'a [HeadRuleTarget],
     head_selection: Option<HeadRuleSelection<'a>>,
+    /// Whether the payload is a claim, which a cell group may not type.
+    claim: bool,
+    /// The configuration scoped to the cell group the payload's sentence is typed by, absent for
+    /// a sentence typed by the configuration: every cell the sentence names is inside the group.
+    subject_target: Option<&'a HeadRuleTarget>,
     allow_builtin_application: bool,
     /// The generated marker type of each sort parameter of this payload's
     /// parametric production, by its declared name (KF-027).
@@ -1297,19 +1713,41 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
             return Ok(krs_ir::DescriptorConfigurationReference {
                 key: reference.key,
                 configuration: selection.target.configuration.clone(),
-                subject: None,
+                subject: selection.target.descriptor_subject(),
             });
         }
-        resolve_configuration_reference(&reference, self.declarations)
-            .map_err(|error| error.with_reference_key(reference.key))
+        let resolved = match resolve_typed_by(&reference, self.declarations) {
+            Ok(TypedBy::Configuration(configuration)) => Ok((configuration, None)),
+            Ok(TypedBy::Group(group)) if self.claim => Err(group_claim(&group)),
+            Ok(TypedBy::Group(group)) => group_target(&group, self.head_targets)
+                .map(|target| (target.configuration.clone(), target.descriptor_subject())),
+            Err(error) => Err(error),
+        };
+        match resolved {
+            Ok((configuration, subject)) => Ok(krs_ir::DescriptorConfigurationReference {
+                key: reference.key,
+                configuration,
+                subject,
+            }),
+            Err(error) => Err(error.with_reference_key(reference.key)),
+        }
     }
 
     fn cell(
         &mut self,
         reference: krs_ir::HostCellReference,
     ) -> Result<krs_ir::DescriptorCellReference, Self::Error> {
-        resolve_cell_reference(&reference, self.cell_fields)
-            .map_err(|error| error.with_reference_key(reference.key))
+        let resolved = resolve_cell_reference(&reference, self.cell_fields)
+            .map_err(|error| error.with_reference_key(reference.key.clone()))?;
+        let target = self
+            .head_selection
+            .as_ref()
+            .map(|selection| selection.target)
+            .or(self.subject_target);
+        match target.and_then(|target| target.outside_cell(&resolved.cell)) {
+            Some(outside) => Err(outside.with_reference_key(reference.key)),
+            None => Ok(resolved),
+        }
     }
 
     fn head_rule_cell(
@@ -1327,6 +1765,11 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
             .filter(|candidate| candidate.names.iter().any(|name| name == &reference.name))
             .collect::<Vec<_>>();
         let [resolved] = matches.as_slice() else {
+            if matches.is_empty()
+                && let Some(outside) = selection.target.outside(&reference.name)
+            {
+                return Err(outside.with_reference_key(reference.key));
+            }
             let detail = match matches.len() {
                 0 => format!(
                     "readable rule extra names no fixed leaf cell `{}`",
@@ -2030,7 +2473,7 @@ fn resolve_head_rule(
         rule,
         selection.target.configuration.clone(),
         configuration_key,
-        None,
+        selection.target.descriptor_subject(),
         computation_cell,
     ))
 }
@@ -2095,6 +2538,11 @@ pub(super) fn resolve_payload_reading(
     builtins: Option<&HostBuiltinRegistry>,
     head_targets: &[HeadRuleTarget],
 ) -> Result<ResolvedPayload, CollectionError> {
+    let claim = matches!(
+        payload,
+        HostDescriptorPayload::ConfigurationRule(rule)
+            if rule.sentence_kind == krs_ir::ConfigurationSentenceKind::Claim
+    );
     let mut map = Resolver {
         declarations,
         cell_fields,
@@ -2102,6 +2550,12 @@ pub(super) fn resolve_payload_reading(
         builtins,
         head_targets,
         head_selection: None,
+        claim,
+        subject_target: if claim {
+            None
+        } else {
+            group_subject_target(payload, declarations, head_targets)
+        },
         allow_builtin_application: !matches!(payload, HostDescriptorPayload::Grammar(_)),
         parameters: sort_parameters(payload),
         discarded: BTreeSet::new(),
@@ -2114,6 +2568,21 @@ pub(super) fn resolve_payload_reading(
         payload,
         discarded: map.discarded,
         misreads_set_element: !map.misread_elements.is_empty(),
+    })
+}
+
+/// The configuration scoped to the cell group `payload`'s sentence is typed by, where it is typed
+/// by a group that has one; a reference that does not resolve so is refused where it is resolved.
+fn group_subject_target<'a>(
+    payload: &HostDescriptorPayload,
+    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+    head_targets: &'a [HeadRuleTarget],
+) -> Option<&'a HeadRuleTarget> {
+    configuration_references(payload).find_map(|reference| {
+        match resolve_typed_by(reference, declarations) {
+            Ok(TypedBy::Group(group)) => group_target(&group, head_targets).ok(),
+            _ => None,
+        }
     })
 }
 
@@ -2174,21 +2643,6 @@ fn resolve_cell_declaration_reference(
             ItemKind::Cell,
             declarations,
         )?,
-    })
-}
-
-fn resolve_configuration_reference(
-    reference: &krs_ir::HostConfigurationReference,
-    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
-) -> Result<krs_ir::DescriptorConfigurationReference, CollectionError> {
-    Ok(krs_ir::DescriptorConfigurationReference {
-        key: reference.key.clone(),
-        configuration: resolve_nominal_reference(
-            &reference.configuration,
-            ItemKind::Configuration,
-            declarations,
-        )?,
-        subject: None,
     })
 }
 
@@ -2706,6 +3160,8 @@ mod tests {
             builtins: None,
             head_targets: &[],
             head_selection: None,
+            claim: false,
+            subject_target: None,
             allow_builtin_application: true,
             discarded: BTreeSet::new(),
             misread_elements: BTreeSet::new(),
@@ -2776,11 +3232,10 @@ mod tests {
             .unwrap(),
             field: "k".to_owned(),
         };
-        let target = HeadRuleTarget {
-            configuration: identity.owner.clone(),
-            main: krs_ir::MainCell::Cell(identity.clone()),
-            main_refusal: None,
-            cells: vec![HeadRuleCellTarget {
+        let main = krs_ir::MainCell::Cell(identity.clone());
+        let target = configuration_target(
+            identity.owner.clone(),
+            vec![HeadRuleCellTarget {
                 identity,
                 names: vec!["k".to_owned()],
                 k_name: "k".to_owned(),
@@ -2791,10 +3246,11 @@ mod tests {
                 group: None,
                 ancestor: None,
                 sort: None,
+                parent: None,
+                group_id: None,
             }],
-            group_children: HashMap::new(),
-            groups: Vec::new(),
-        };
+            main,
+        );
         let payload = |rule| HostDescriptorPayload::HeadRule(Box::new(rule));
         let error = payload_error(&payload(rule.clone()), &[]);
         assert_eq!(error.kind(), CollectionErrorKind::ConfigurationCount);
@@ -3358,6 +3814,8 @@ mod tests {
             group: None,
             ancestor: None,
             sort: None,
+            parent: None,
+            group_id: None,
         }
     }
 
@@ -3379,14 +3837,7 @@ mod tests {
                 .filter(|cell| cell.kind.is_computation())
                 .map(|cell| (cell.identity.clone(), false)),
         );
-        let targets = [HeadRuleTarget {
-            configuration: state_id(),
-            cells,
-            main,
-            main_refusal: None,
-            group_children: HashMap::new(),
-            groups: Vec::new(),
-        }];
+        let targets = [configuration_target(state_id(), cells, main)];
         let anchors = rule.carried_keys().unwrap();
         let (payload, discarded) = resolve_payload(
             &HostDescriptorPayload::HeadRule(Box::new(rule)),
@@ -3709,5 +4160,255 @@ mod tests {
                 .and_then(|computation| computation.key),
             Some(Role::RuleLeftCellsField.key(0))
         );
+    }
+
+    /// A cell of `State`'s tree: `owner` is `State` or a group, `group` the group a group cell
+    /// holds, `marked` its `?` or `*` layer.
+    fn tree_cell(
+        (owner, field): (&str, &str),
+        parent: Option<usize>,
+        group: Option<&str>,
+        marked: Option<Layer>,
+    ) -> HeadRuleCellTarget {
+        let content = match (group, field) {
+            (Some(name), _) => Layer::Group(krs_ir::cell_kind::GroupKind {
+                name: name.to_owned(),
+                children: Vec::new(),
+            }),
+            (None, "k") => Layer::Computation,
+            (None, _) => Layer::Leaf(Notation::Plain),
+        };
+        HeadRuleCellTarget {
+            identity: krs_ir::DescriptorCellIdentity {
+                owner: if owner == "State" {
+                    state_id()
+                } else {
+                    cell_id(owner)
+                },
+                field: field.to_owned(),
+            },
+            names: vec![field.to_owned()],
+            k_name: field.to_owned(),
+            kind: CellKind {
+                layers: marked.into_iter().chain([content]).collect(),
+            },
+            path: CellKind::default(),
+            group: None,
+            ancestor: None,
+            sort: None,
+            parent,
+            group_id: group.map(cell_id),
+        }
+    }
+
+    /// `State { core: Core { k, pc }, mem, mark?: Mark { seen }, job*: Job { payload },
+    /// left: Twice { x }, right: Twice { x } }`, scoped to each group it holds.
+    fn group_target_state() -> HeadRuleTarget {
+        let cells = vec![
+            tree_cell(("State", "core"), None, Some("Core"), None),
+            tree_cell(("Core", "k"), Some(0), None, None),
+            tree_cell(("Core", "pc"), Some(0), None, None),
+            tree_cell(("State", "mem"), None, None, None),
+            tree_cell(("State", "mark"), None, Some("Mark"), Some(Layer::Optional)),
+            tree_cell(("Mark", "seen"), Some(4), None, None),
+            tree_cell(
+                ("State", "job"),
+                None,
+                Some("Job"),
+                Some(Layer::Instances(krs_ir::cell_kind::Order::List)),
+            ),
+            tree_cell(("Job", "payload"), Some(6), None, None),
+            tree_cell(("State", "left"), None, Some("Twice"), None),
+            tree_cell(("Twice", "x"), Some(8), None, None),
+            tree_cell(("State", "right"), None, Some("Twice"), None),
+            tree_cell(("Twice", "x"), Some(10), None, None),
+        ];
+        let main = krs_ir::MainCell::Cell(cells[1].identity.clone());
+        configuration_target(state_id(), cells, main).with_subjects()
+    }
+
+    /// The target of the configuration `configuration` whose cells are `cells`, with no group
+    /// records and no scopes.
+    fn configuration_target(
+        configuration: StableItemId,
+        cells: Vec<HeadRuleCellTarget>,
+        main: krs_ir::MainCell<krs_ir::DescriptorCellIdentity>,
+    ) -> HeadRuleTarget {
+        HeadRuleTarget {
+            configuration,
+            cells,
+            main,
+            main_refusal: None,
+            group_children: HashMap::new(),
+            groups: Vec::new(),
+            subject: None,
+            subjects: Vec::new(),
+        }
+    }
+
+    /// A group at a fixed position scopes the configuration to the cells below it: a sentence
+    /// typed by it names those, and is told so when it names the cell holding the group, another
+    /// cell of the configuration, or a cell of a group the configuration does not hold. A group
+    /// below an optional or a collection cell, or held by no cell, has no scope, and each refusal
+    /// says why; a group held by several cells is scoped at the first, since that configuration
+    /// is refused as it is.
+    #[test]
+    fn a_group_subject_scopes_the_one_configuration_to_the_group_cells() {
+        let state = group_target_state();
+        let targets = std::slice::from_ref(&state);
+        let core = group_target(&cell_id("Core"), targets).unwrap();
+        assert_eq!(core.configuration, state_id());
+        assert_eq!(
+            core.descriptor_subject(),
+            Some(krs_ir::DescriptorSubject::Group {
+                declaration: cell_id("Core")
+            })
+        );
+        assert_eq!(
+            core.cells
+                .iter()
+                .map(|cell| cell.identity.field.as_str())
+                .collect::<Vec<_>>(),
+            ["k", "pc"]
+        );
+        assert_eq!(core.owner(), "the group `Core`");
+        assert_eq!(state.owner(), "configuration `State`");
+        let outside = core.outside("mem").unwrap();
+        assert_eq!(outside.kind(), CollectionErrorKind::CellOutsideSubject);
+        assert_eq!(
+            outside.detail(),
+            "`Core` has no cell `mem`: a sentence about the cell group `Core` names only the cells inside the group, and `mem` is another cell of configuration `State`; write the sentence for `State` to name it"
+        );
+        assert_eq!(
+            core.outside("core").unwrap().detail(),
+            "`Core` has no cell `core`: a sentence about the cell group `Core` names only the cells inside the group, and `core` is the cell of configuration `State` that holds the group; write the sentence for `State` to name it"
+        );
+        assert!(core.outside("pc").is_none() && core.outside("missing").is_none());
+        assert!(state.outside("mem").is_none());
+
+        // The same cells named by their owner, as a `cells!` entry names them.
+        let identity = |owner: StableItemId, field: &str| krs_ir::DescriptorCellIdentity {
+            owner,
+            field: field.to_owned(),
+        };
+        assert!(
+            core.outside_cell(&identity(cell_id("Core"), "pc"))
+                .is_none()
+        );
+        assert!(state.outside_cell(&identity(state_id(), "mem")).is_none());
+        for (cell, why) in [
+            (
+                identity(state_id(), "mem"),
+                "`State::mem` is another cell of configuration `State`; write the sentence for `State` to name it",
+            ),
+            (
+                identity(state_id(), "core"),
+                "`State::core` is the cell of configuration `State` that holds the group; write the sentence for `State` to name it",
+            ),
+            (
+                identity(cell_id("Mark"), "seen"),
+                "`Mark::seen` is another cell of configuration `State`; write the sentence for `State` to name it",
+            ),
+            (
+                identity(cell_id("Spare"), "ticks"),
+                "`Spare::ticks` is a cell of the group `Spare`, which configuration `State` does not hold",
+            ),
+        ] {
+            let refusal = core.outside_cell(&cell).unwrap();
+            assert_eq!(refusal.kind(), CollectionErrorKind::CellOutsideSubject);
+            assert!(refusal.detail().ends_with(why), "{}", refusal.detail());
+        }
+
+        // `Twice` is held by `left` and `right`: the configuration is refused as
+        // `ambiguous-cell-sort`, and a sentence about `Twice` resolves at the first.
+        let twice = group_target(&cell_id("Twice"), targets).unwrap();
+        assert_eq!(twice.cells.len(), 1);
+        assert_eq!(twice.cells[0].identity, identity(cell_id("Twice"), "x"));
+        assert_eq!(
+            twice.subject.as_ref().unwrap().holder.identity,
+            identity(state_id(), "left")
+        );
+
+        let refusal = |group: &str| group_target(&cell_id(group), targets).unwrap_err();
+        for (group, kind, reason) in [
+            (
+                "Mark",
+                CollectionErrorKind::GroupSubjectPosition,
+                "the cell group `Mark` is held by the optional cell `mark` of configuration `State`, so its cells exist only in some states",
+            ),
+            (
+                "Job",
+                CollectionErrorKind::GroupSubjectPosition,
+                "the cell group `Job` is held by the collection cell `job` of configuration `State`, so each instance holds its own copy of its cells",
+            ),
+            (
+                "Spare",
+                CollectionErrorKind::GroupNotInConfiguration,
+                "no cell of configuration `State` holds the cell group `Spare`",
+            ),
+        ] {
+            let error = refusal(group);
+            assert_eq!(error.kind(), kind, "{group}");
+            assert!(error.detail().starts_with(reason), "{}", error.detail());
+        }
+
+        let none = group_target(&cell_id("Core"), &[]).unwrap_err();
+        assert_eq!(none.kind(), CollectionErrorKind::ConfigurationCount);
+        assert!(
+            none.detail().ends_with(
+                "`Core` is a cell group, not a configuration, and rules for a group are checked through a definition whose configuration holds it"
+            ),
+            "{}",
+            none.detail()
+        );
+    }
+
+    /// A readable clause typed by a group resolves against the one configuration and carries the
+    /// group as its subject; it may not name a cell outside the group, and a claim may not be
+    /// typed by a group.
+    #[test]
+    fn a_clause_typed_by_a_group_carries_its_subject() {
+        let declarations = HashMap::from([(
+            HostApplicationIdentity::Nominal(boolean_key()),
+            (cell_id("Core"), ItemKind::Cell),
+        )]);
+        let targets = [group_target_state()];
+        let resolve = |rule: krs_ir::HostHeadRule| {
+            resolve_payload(
+                &HostDescriptorPayload::HeadRule(Box::new(rule)),
+                &declarations,
+                &HashMap::new(),
+                &HashMap::new(),
+                None,
+                &targets,
+            )
+            .map(|(payload, _)| payload)
+        };
+        let Ok(DescriptorPayload::HeadRule(resolved)) = resolve(list_reading_clause("k", true))
+        else {
+            panic!("a clause for `Core` naming its `k` resolves")
+        };
+        assert_eq!(resolved.configuration, state_id());
+        assert_eq!(
+            resolved.subject,
+            Some(krs_ir::DescriptorSubject::Group {
+                declaration: cell_id("Core")
+            })
+        );
+        assert_eq!(
+            resolved
+                .computation_cell
+                .as_ref()
+                .map(|computation| &computation.cell.owner),
+            Some(&cell_id("Core"))
+        );
+
+        let outside = resolve(list_reading_clause("mem", false)).unwrap_err();
+        assert_eq!(outside.kind(), CollectionErrorKind::CellOutsideSubject);
+
+        let mut claim = list_reading_clause("k", true);
+        claim.sentence_kind = krs_ir::SentenceKind::Claim;
+        let refused = resolve(claim).unwrap_err();
+        assert_eq!(refused.kind(), CollectionErrorKind::GroupClaim);
     }
 }
