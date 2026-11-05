@@ -958,10 +958,9 @@ ch02	member	* Map of A	{ .. }	{ A { id: 5, .. }, .. }
 ch02	member	* List of T	[..]	[T { n: 0, .. }, ..]
 ch02	member	group W	-	W { g: G { a: x, b: y }, n: 0 }
 ch02	member	group W	-	W { g: G { a: x, b: y, .. }, n: 0 }
-ch02	member	* List of T	[..]	[T { k: [x], ..me }, ..]
 ch02	member	* Map of A	{ me @ A { id: 5, .. }, .. }	{ A { id: 5, ..me }, .. }
 ch02	member	? group G	None	Some(G { a: x, .. })
-ch02	principle	sort in every form (P1, P6): each child's rest pairs with its own other side, and each value to the lattice. An exact child over a framed one or none; a created instance's exact child or bare `..` (template fields, P6); an update `..me` of a shown instance keeping or naming its key as the subject's binder or literal (S5.0g:D-2, S5.0g:R9); an update whose label the subject does not show, of a value matched elsewhere, which creates its instance (S5.0g:P-R3); a vacuous `..` (S5.0g:R4); a `?` cell created over `None` taking its template's fields for a bare `..` (S5.0g:P-R13).
+ch02	principle	sort in every form (P1, P6): each child's rest pairs with its own other side, and each value to the lattice. An exact child over a framed one or none; a created instance's exact child or bare `..` (template fields, P6); an update `..me` of a shown instance keeping or naming its key as the subject's binder or literal (S5.0g:D-2, S5.0g:R9); a vacuous `..` (S5.0g:R4); a `?` cell created over `None` taking its template's fields for a bare `..` (S5.0g:P-R13).
 ch03	answers	map-collection-key	map-collection-key	map-collection-key
 ch03	member	* Map of A	{ me @ A { id: z, .. }, .. }	{ A { id: 5, ..me }, .. }
 ch03	member	* Map of A	{ me @ A { l: [y, ..], .. }, .. }	{ A { id: 5, ..me }, .. }
@@ -979,9 +978,12 @@ ch05	principle	uor in every form: an overwritten group's `?` child, written Some
 ch06	answers	open-record-outside-pattern	open-record-outside-pattern	open-record-outside-pattern
 ch06	member	group W	-	W { g: G { a: x, .. }, n: 0 }
 ch06	principle	open-record-outside-pattern in every form: an overwritten group's group child exists, so its bare `..` is Rust's defaults, which only a created instance has (S5.0:F3, S5.0g:D-1).
-ch07	answers	rmc	rmc	rmc
-ch07	member	? group G	None	Some(G { a: x })
-ch07	principle	record-missing-children in every form: a `?` cell created over `None` is written by its record, which names every child or writes `..` (L4, S5.0g:D-4), whatever its creation.
+ch07	answers	sort	sort	record-remainder-in-cells-term
+ch07	member	* List of T	[..]	[T { k: [x], ..me }, ..]
+ch07	principle	An update whose label the subject does not show, of a record of its constructor matched elsewhere (S5.0g:P-R3): readable and claim sort (a created instance taking that record's fields, P6); cells! record-remainder-in-cells-term (the reference notation names every child, and its one update rewrites in place the instance its subject labels, design:rev4-R10; ruled 2026-11-06, S6-1d-2), after its children pair against the instance it would create.
+ch08	answers	rmc	rmc	rmc
+ch08	member	? group G	None	Some(G { a: x })
+ch08	principle	record-missing-children in every form: a `?` cell created over `None` is written by its record, which names every child or writes `..` (L4, S5.0g:D-4), whatever its creation.
 #
 ## children, base matched nowhere
 pattern	line	readable	claim	cells

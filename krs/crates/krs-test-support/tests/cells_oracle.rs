@@ -22,10 +22,10 @@ use krs_syntax::{ConfigurationCell, ConfigurationDeclaration};
 use syn::parse::Parser;
 
 use krs_test_support::class_matrix::cells_oracle::{
-    CODES, ENTRY_CLASSES, Entries, EntryCase, Form, Group, LINT_CLASSES, Layer, Mark, Notation,
-    Order, Outcome, READABLE_ONLY, RULE_CLASSES, Record, RecordRest, Rest, RestAt, SORT_CLASSES,
-    Seq, Spelling, Step, Template, abbreviate, advise, judge, mark, outcome, rule_outcome,
-    sentence_outcome,
+    CELLS_ONLY, CODES, ENTRY_CLASSES, Entries, EntryCase, Form, Group, LINT_CLASSES, Layer, Mark,
+    Notation, Order, Outcome, READABLE_ONLY, RULE_CLASSES, Record, RecordRest, Rest, RestAt,
+    SORT_CLASSES, Seq, Spelling, Step, Template, abbreviate, advise, judge, mark, outcome,
+    rule_outcome, sentence_outcome,
 };
 use krs_test_support::class_matrix::invariants::registry_kind;
 use krs_test_support::class_matrix::pending::{self, Pending};
@@ -1576,8 +1576,9 @@ fn sentence_of(case: &Case) -> &str {
 }
 
 /// Check 3 (P7): a readable entry is admitted exactly where the `cells!` entry it abbreviates
-/// is, but for a listed readable-only refusal; and an accepted readable rule whose abbreviation
-/// is a generated accepted case is linked to it by `same_k_as`.
+/// is, but for a listed readable-only refusal and a listed `cells!`-only one ([`CELLS_ONLY`]: the
+/// reference notation has no update from a base matched elsewhere); and an accepted readable rule
+/// whose abbreviation is a generated accepted case is linked to it by `same_k_as`.
 #[test]
 fn check_3_readable_abbreviates_cells() {
     let twins = ENTRIES
@@ -1622,10 +1623,15 @@ fn check_3_readable_abbreviates_cells() {
             ))
             .or_default() += 1;
         match (readable, cells.admits()) {
-            (got, false) if got.admits() => failures.push(format!(
-                "{}: admitted, but its `cells!` abbreviation {abbreviation:?} is {cells:?}",
-                case.id
-            )),
+            (got, false)
+                if got.admits()
+                    && !matches!(cells, Outcome::Refuse(class) if CELLS_ONLY.contains(&class)) =>
+            {
+                failures.push(format!(
+                    "{}: admitted, but its `cells!` abbreviation {abbreviation:?} is {cells:?}",
+                    case.id
+                ));
+            }
             (Outcome::Refuse(class), true) if !READABLE_ONLY.contains(&class) => {
                 failures.push(format!(
                     "{}: refused as {class}, which is no readable-only class, while its `cells!` \
@@ -7136,8 +7142,11 @@ fn the_cases_items_print_on_request() {
 /// S5.0g item 3b ruling 1 (P6): `..base` updates a record, so its base is a record of the
 /// update's own constructor matched by the sentence. Where the subject shows no instance
 /// labelled `me`, a base the sentence binds elsewhere to a record of the update's constructor
-/// creates an instance; one bound to no record (a list element, a leaf value) or to another
-/// constructor's record has none (`record-update-base`). Ruling 2 (P5 with P1): a subject's
+/// creates an instance in readable; `cells!`, the reference notation, names every child and
+/// updates only an instance its subject labels, so it refuses that update
+/// (`record-remainder-in-cells-term`, ruled 2026-11-06). A base bound to no record (a list
+/// element, a leaf value) or to another constructor's record has none (`record-update-base`), in
+/// either form. Ruling 2 (P5 with P1): a subject's
 /// `None` on a `?` child of a group or instance record tests the child absent, which K does
 /// only by creating it, so the result's same child must be present, at every depth.
 #[test]
@@ -7182,7 +7191,10 @@ fn a_base_is_a_record_of_its_constructor_and_a_child_absence_test_needs_creation
             update(Form::Readable, readable, &[("me", "T")]),
             Outcome::After,
         ),
-        (update(Form::Cells, cells, &[("me", "T")]), Outcome::After),
+        (
+            update(Form::Cells, cells, &[("me", "T")]),
+            Outcome::Refuse("record-remainder-in-cells-term"),
+        ),
         (update(Form::Readable, readable, &[]), base),
         (update(Form::Cells, cells, &[]), base),
         (update(Form::Readable, readable, &[("me", "Job")]), base),
@@ -7468,6 +7480,7 @@ fn check_7n_a_refusal_inside_a_childs_content_names_the_child_there() {
             "optional-without-presence",
             "presence-on-plain-cell",
             "record-missing-children",
+            "record-remainder-in-cells-term",
             "record-update-base",
             "rest-mismatch",
             "unmatched-optional-result",

@@ -1393,7 +1393,7 @@ cells	group W	-	k::fragment![crate::W { g: G { a: x, .. }, n: 0 }]	open-record-o
 cells	group W	-	k::fragment![crate::W { g: G { a: x, b: y }, n: 0 }]	sort
 cells	group W	-	k::fragment![crate::W { g: G { a: x, b: y, .. }, n: 0 }]	sort
 cells	* List of T	[..]	[k::fragment![crate::T { k: [x, ..], ..me }], ..]	rm
-cells	* List of T	[..]	[k::fragment![crate::T { k: [x], ..me }], ..]	sort
+cells	* List of T	[..]	[k::fragment![crate::T { k: [x], ..me }], ..]	record-remainder-in-cells-term
 cells	* Map of A	{ .. }	{ k::fragment![crate::A { l: [x, ..], ..me }], .. }	rm
 cells	* Map of A	{ me @ k::fragment![crate::A { id: 5, .. }], .. }	{ k::fragment![crate::A { id: 5, ..me }], .. }	sort
 cells	* Map of A	{ me @ k::fragment![crate::A { id: 5, .. }], .. }	{ k::fragment![crate::A { id: 6, ..me }], .. }	map-collection-key

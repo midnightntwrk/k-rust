@@ -381,7 +381,7 @@ pub struct Refusal {
 pub const NO_EFFECT_ENTRY: &str = "no-effect-entry";
 
 /// The classes [`outcome`] answers with.
-pub const ENTRY_CLASSES: [&str; 23] = [
+pub const ENTRY_CLASSES: [&str; 24] = [
     "absence-test-without-creation",
     "alias-outside-pattern",
     "anonymous-rest-in-map-literal",
@@ -401,6 +401,7 @@ pub const ENTRY_CLASSES: [&str; 23] = [
     "optional-without-presence",
     "presence-on-plain-cell",
     "record-missing-children",
+    "record-remainder-in-cells-term",
     "record-update-base",
     "rest-mismatch",
     "unmatched-optional-result",
@@ -421,7 +422,7 @@ pub const LINT_CLASSES: [&str; 1] = [NO_EFFECT_ENTRY];
 
 /// The code each class of [`ENTRY_CLASSES`], [`RULE_CLASSES`] and [`LINT_CLASSES`] answers with,
 /// which `expected.toml` must declare alike (check 0).
-pub const CODES: [(&str, &str); 29] = [
+pub const CODES: [(&str, &str); 30] = [
     (
         "absence-test-without-creation",
         "krs::analysis::optional-presence",
@@ -481,6 +482,10 @@ pub const CODES: [(&str, &str); 29] = [
         "record-missing-children",
         "krs::analysis::record-missing-children",
     ),
+    (
+        "record-remainder-in-cells-term",
+        "krs::analysis::invalid-record-update",
+    ),
     ("record-update-base", "krs::analysis::invalid-record-update"),
     ("rest-mismatch", "krs::syntax::invalid-list-notation"),
     (
@@ -514,6 +519,11 @@ pub const SORT_CLASSES: [&str; 5] = [
 /// `cells!`-only spelling, which P7 allows), and a map literal's `..`, which readable writes with
 /// its own mark, `{ k -> v, .. }` (P2).
 pub const READABLE_ONLY: [&str; 2] = ["anonymous-rest-in-map-literal", "continuation-in-readable"];
+
+/// The `cells!` refusals whose readable twin may be admitted (check 3 (i)): `cells!` is the
+/// reference notation, which names every child, so it has no update from a base matched elsewhere
+/// and no group record update, which readable writes as record notation (P6; ruled 2026-11-06).
+pub const CELLS_ONLY: [&str; 1] = ["record-remainder-in-cells-term"];
 
 /// The marks of P2, per form.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -1297,6 +1307,15 @@ impl Judge<'_> {
 
     /// The children of the group or instance records a result's content writes, each against
     /// its own other side ([`Other`]).
+    ///
+    /// `cells!` is the reference notation: a record names every child (P0), and its one update,
+    /// `..me`, rewrites in place the instance of a collection its subject labels `me @` (R10), the
+    /// instance the step matched. A group record's `..base`, and an instance update whose label
+    /// no subject instance of the cell has, take the record's other children from a record
+    /// matched elsewhere, so `cells!` refuses them (`record-remainder-in-cells-term`, ruled
+    /// 2026-11-06), after the record's children, each an entry of its own cell (P1), are paired
+    /// against the instance the update would create. Readable keeps them: there they are
+    /// readable-record notation (P6).
     fn pair_children(
         &self,
         stack: &[Layer],
@@ -1320,7 +1339,11 @@ impl Judge<'_> {
                 if leaves_open(record, group) && other != Other::Created {
                     return refuse("open-record-outside-pattern", Step::Pairing, 0);
                 }
-                self.pair_fields(group, record, other)
+                self.pair_fields(group, record, other)?;
+                if self.form == Form::Cells && matches!(record.rest, RecordRest::Update(_)) {
+                    return refuse("record-remainder-in-cells-term", Step::Pairing, 0);
+                }
+                Ok(())
             }
             ([Layer::Instances(order), Layer::Group(group), ..], _) => {
                 for item in seq_of(spelling).map_or(&[][..], |(items, _)| items) {
@@ -1332,6 +1355,14 @@ impl Judge<'_> {
                             return refuse("map-collection-key", Step::Pairing, 0);
                         }
                         self.pair_fields(group, record, other)?;
+                        // An update whose other side is a created instance updates no subject
+                        // instance.
+                        if self.form == Form::Cells
+                            && matches!(record.rest, RecordRest::Update(_))
+                            && other == Other::Created
+                        {
+                            return refuse("record-remainder-in-cells-term", Step::Pairing, 0);
+                        }
                     }
                 }
                 Ok(())

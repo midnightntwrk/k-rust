@@ -511,7 +511,8 @@ advice = "none"
 
 [class.record-remainder-in-cells-term]
 code = "krs::analysis::invalid-record-update"
-doc = "a record update (`Ctor { f: e, ..t }`) or an open record (`Ctor { f: e, .. }`) in a `cells!` cell value, the reference notation, which names every field; an open group record (`k::fragment![crate::G { a: x, .. }]`) only in a result, since a pattern's leaves the group's other children unconstrained (S5-F2)"
+doc = "a record update (`Ctor { f: e, ..t }`) or an open record (`Ctor { f: e, .. }`) in a `cells!` cell value, the reference notation, which names every field; an open group record (`k::fragment![crate::G { a: x, .. }]`) only in a result, since a pattern's leaves the group's other children unconstrained (S5-F2); and, judged at pairing, a `cells!` result's group record update (`k::fragment![crate::G { a: x, ..saved }]`) or instance update whose label names no subject instance of its cell (`..me` of a record matched in another cell): Sebastien ruled (2026-11-06) that `cells!` stays explicit, so its one update rewrites in place the instance its subject labels `me @` (R10), and readable keeps `..base` as record notation"
+examples = ["cells ; result ; - ; group H ; k::fragment![crate::H { b: x, ..y }] ; _"]
 advice = "none"
 
 [class.record-remainder-in-initializer]
@@ -6932,6 +6933,46 @@ at = "entry"
 match = 'cells/g1-d/kinds/account/\{ k::fragment![crate::Acct \{ aprog: [x\, ..]\, ..me \}]\, ..instances0 \}'
 class = "rest-mismatch"
 at = "entry"
+
+# G1, ruled 2026-11-06 (S6-1d-2): `cells!` stays explicit. Its one update is `..me` of the instance
+# its subject labels `me @`, rewritten in place (R10: g3-c, g4-d); an update whose label names
+# no subject instance of its cell (its base `me` matched in another cell) and a group record's
+# `..saved` take a record's other children from elsewhere, which the reference notation names
+# instead. Readable keeps both (S5-G1's readable part).
+[[refuse]]
+match = 'cells/g1-a/kinds/account/\{ k::fragment![crate::Acct \{ acounter: Some(x)\, ..me \}]\, ..instances0 \}'
+class = "record-remainder-in-cells-term"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/g1-b/kinds/account/\{ k::fragment![crate::Acct \{ aframe: Ag \{ aa: x \}\, ..me \}]\, ..instances0 \}'
+class = "record-remainder-in-cells-term"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/g1-c/kinds/account/\{ k::fragment![crate::Acct \{ aprog: [x]\, ..me \}]\, ..instances0 \}'
+class = "record-remainder-in-cells-term"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/g1-e/kinds/account/\{ k::fragment![crate::Acct \{ aenv: k::map![x -> 1]\, ..me \}]\, ..instances0 \}'
+class = "record-remainder-in-cells-term"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/g1-restore/kinds/frame/k::fragment![crate::G \{ a: x\, ..saved \}]'
+class = "record-remainder-in-cells-term"
+at = "spelling"
+
+[[refuse]]
+match = 'cells/g1-a/kinds/stack/k::configuration::Cell([me @ k::fragment![crate::Acct \{ id: z\, .. \}]\, rest @ ..])'
+class = "record-remainder-in-cells-term"
+at = "item"
+
+[[refuse]]
+match = 'cells/g1-restore/kinds/stack/k::configuration::Cell([saved @ k::fragment![crate::G \{ a: z\, .. \}]\, rest @ ..])'
+class = "record-remainder-in-cells-term"
+at = "item"
 
 [accept."cells/result/counter/None"]
 k = """
@@ -16321,20 +16362,6 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 # S5.0g item 3b: the kinds base's groups (accepts, K written by `--record`).
-[accept."cells/g1-a/kinds/account/{ k::fragment![crate::Acct { acounter: Some(x), ..me }], ..instances0 }"]
-
-[accept."cells/g1-a/kinds/stack/k::configuration::Cell([me @ k::fragment![crate::Acct { id: z, .. }], rest @ ..])"]
-
-[accept."cells/g1-b/kinds/account/{ k::fragment![crate::Acct { aframe: Ag { aa: x }, ..me }], ..instances0 }"]
-
-[accept."cells/g1-c/kinds/account/{ k::fragment![crate::Acct { aprog: [x], ..me }], ..instances0 }"]
-
-[accept."cells/g1-e/kinds/account/{ k::fragment![crate::Acct { aenv: k::map![x -> 1], ..me }], ..instances0 }"]
-
-[accept."cells/g1-restore/kinds/frame/k::fragment![crate::G { a: x, ..saved }]"]
-
-[accept."cells/g1-restore/kinds/stack/k::configuration::Cell([saved @ k::fragment![crate::G { a: z, .. }], rest @ ..])"]
-
 [accept."cells/g3-a/kinds/account/{ k::fragment![crate::Acct { id: z, acounter: Some(y), .. }], .. }"]
 
 [accept."cells/g3-c/kinds/account/{ k::fragment![crate::Acct { acounter: Some(x), ..me }], ..instances0 }"]
@@ -16767,22 +16794,16 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
 
 [accept."readable/g1-a/kinds/account/{ Acct { acounter: Some(x), ..me }, .. }"]
-same_k_as = ["cells/g1-a/kinds/account/{ k::fragment![crate::Acct { acounter: Some(x), ..me }], ..instances0 }"]
 
 [accept."readable/g1-a/kinds/stack/[me @ Acct { id: z, .. }, ..]"]
-same_k_as = ["cells/g1-a/kinds/stack/k::configuration::Cell([me @ k::fragment![crate::Acct { id: z, .. }], rest @ ..])"]
 
 [accept."readable/g1-b/kinds/account/{ Acct { aframe: Ag { aa: x }, ..me }, .. }"]
-same_k_as = ["cells/g1-b/kinds/account/{ k::fragment![crate::Acct { aframe: Ag { aa: x }, ..me }], ..instances0 }"]
 
 [accept."readable/g1-c/kinds/account/{ Acct { aprog: [x], ..me }, .. }"]
-same_k_as = ["cells/g1-c/kinds/account/{ k::fragment![crate::Acct { aprog: [x], ..me }], ..instances0 }"]
 
 [accept."readable/g1-e/kinds/account/{ Acct { aenv: { x -> 1 }, ..me }, .. }"]
-same_k_as = ["cells/g1-e/kinds/account/{ k::fragment![crate::Acct { aenv: k::map![x -> 1], ..me }], ..instances0 }"]
 
 [accept."readable/g1-restore/kinds/frame/G { a: x, ..saved }"]
-same_k_as = ["cells/g1-restore/kinds/frame/k::fragment![crate::G { a: x, ..saved }]"]
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:Int ) => .K ... </k>
@@ -16793,7 +16814,6 @@ syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
 [accept."readable/g1-restore/kinds/stack/[saved @ G { a: z, .. }, ..]"]
-same_k_as = ["cells/g1-restore/kinds/stack/k::configuration::Cell([saved @ k::fragment![crate::G { a: z, .. }], rest @ ..])"]
 k = """
 rule [case-TAG]:
 <k> cTAG ( V0:Int ) => .K ... </k>
