@@ -2,13 +2,14 @@
 //! completed, so that an equal state arriving later at that depth is merged instead of expanded.
 //!
 //! After term simplification a state's subtree depends only on its pattern up to a renaming of
-//! the variables the request does not name (`RequestNames::state_key`), its kind, its depth, its
-//! console cursor and console availability, and the options; its leaves also report the path's
-//! committed effects, console transcript and diagnostics. So an arriving state whose depth and
-//! key equal a recorded state's, whose effects and console are observed alike, whose console
-//! availability is the same, and whose diagnostics are among the recorded state's, would yield
-//! leaves each equal to a leaf of the recorded state's subtree in configuration, depth, halt
-//! reason, effects and console, with no diagnostic the other lacks: the final merge would absorb
+//! the variables the request does not name (`RequestNames::state_key`), its kind, its depth, the
+//! arrivals at a stop its path passed (`ExecutionOptions::stop_count`), its console cursor and
+//! console availability, and the options; its leaves also report the path's committed effects,
+//! console transcript and diagnostics. So an arriving state whose depth, stop count and key equal
+//! a recorded state's, whose effects and console are observed alike, whose console availability
+//! is the same, and whose diagnostics are among the recorded state's, would yield leaves each
+//! equal to a leaf of the recorded state's subtree in configuration, depth, halt reason, stop
+//! count, effects and console, with no diagnostic the other lacks: the final merge would absorb
 //! every one of them. Its expansion is skipped.
 //!
 //! Path facts (`BackendDiagnostic::ImplementationChosenValue`) are left out of the comparison of
@@ -42,6 +43,8 @@ use super::{Pattern, state_match::MatchMark};
 /// A state that arrives at a depth, as the table compares and records it.
 pub(super) struct Arrival {
     pub(super) depth: u64,
+    /// The arrivals at a stop the state's path passed.
+    pub(super) stops: u64,
     pub(super) pattern: Pattern,
     pub(super) effects: EffectJournal,
     pub(super) io: ExecutionIoState,
@@ -59,6 +62,7 @@ pub(super) struct Arrival {
 impl Arrival {
     pub(super) fn new(
         depth: u64,
+        stops: u64,
         pattern: Pattern,
         effects: EffectJournal,
         io: ExecutionIoState,
@@ -67,6 +71,7 @@ impl Arrival {
     ) -> Self {
         Self {
             depth,
+            stops,
             pattern,
             effects,
             io,
@@ -88,6 +93,7 @@ impl Arrival {
     /// which stop where the two paths share their history.
     fn absorbed_by(&self, recorded: &Self, names: &RequestNames) -> bool {
         recorded.io_enabled == self.io_enabled
+            && recorded.stops == self.stops
             && recorded.effects.fingerprint() == self.effects.fingerprint()
             && self
                 .diagnostics

@@ -1005,6 +1005,7 @@ fn request(state: Pattern, budget: ExecutionBudget, requested: Requested<'_>) ->
         stop_at_branch: false,
         cut_point_rules: stop.before.clone(),
         terminal_rules: stop.after.clone(),
+        stop_count: None,
         step_timeout_ms: None,
         moving_average_timeout: false,
         assume_state_defined: false,
@@ -1751,6 +1752,7 @@ mod tests {
             branch: vec![id.clone()],
             effects: Vec::new(),
             observations: vec![event(TransitionClassOutput::Remainder, state.clone())],
+            stops: None,
         };
         assert_eq!(step_states(&mut leaf), Err(StepRunFailure::Unobservable));
         leaf.observations = vec![event(TransitionClassOutput::Rewrite, state.clone())];
@@ -2204,6 +2206,7 @@ mod tests {
             branch: Vec::new(),
             effects: Vec::new(),
             observations: Vec::new(),
+            stops: None,
         };
         let result = |leaf, passed_stops| KoreExecutionResult {
             modality: ResultModalityOutput::StateSet,
@@ -2513,6 +2516,7 @@ mod tests {
             branch: Vec::new(),
             effects: Vec::new(),
             observations: Vec::new(),
+            stops: None,
         };
         let result = |leaves: Vec<KoreExecutionLeaf>| KoreExecutionResult {
             modality: ResultModalityOutput::PathSet,

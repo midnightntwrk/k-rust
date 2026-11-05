@@ -58,7 +58,7 @@ pub use state_match::{
 pub(crate) use step::rewrite_step_all_first_group_for_tests;
 use step::{rewrite_step_all, rewrite_step_any};
 
-use std::{collections::BTreeSet, hash::Hash, sync::Arc, time::Duration};
+use std::{collections::BTreeSet, hash::Hash, num::NonZeroU64, sync::Arc, time::Duration};
 
 use crate::{
     builtin::BuiltinEffect,
@@ -586,6 +586,24 @@ pub struct ExecutionOptions {
     pub branch_mode: ExecutionBranchMode,
     pub cut_point_rules: BTreeSet<String>,
     pub terminal_rules: BTreeSet<String>,
+    /// The arrival at a stop at which a path ends (1, the default: its first).
+    ///
+    /// An *arrival* is a step by a rule that [`Self::cut_point_rules`] or
+    /// [`Self::terminal_rules`] selects, where the step is its state's one successor and that
+    /// successor is defined: the steps that end a path at a stop rule
+    /// ([`ExecutionResult::passed_stops`] names the others). A path counts its arrivals
+    /// ([`ExecutionLeaf::stops`]). It ends at its `stop_count`th, before the step of a cut-point
+    /// rule and after the step of a terminal rule, as at a first arrival without a count; an
+    /// earlier arrival is a step of the path like any other, committed and normalized where the
+    /// path goes on. So the run to the Nth arrival takes the steps of the run without stop rules,
+    /// up to that arrival, and is one path, which keeps its structural sharing, its memos and
+    /// its trace through every arrival.
+    ///
+    /// A state's subtree under a count rests on the arrivals its path passed, so the state-set
+    /// merges compare them: a state merges only into a state of the same count, and a leaf only
+    /// into a leaf whose path passed as many arrivals before its own halt. With a count of 1
+    /// every state and every leaf has passed none, so the count changes nothing there.
+    pub stop_count: NonZeroU64,
     pub step_timeout: Option<Duration>,
     pub moving_average_timeout: bool,
     /// Treat the current configuration and its partial subterms as defined while matching rules.
@@ -751,6 +769,7 @@ impl Default for ExecutionOptions {
             branch_mode: ExecutionBranchMode::ExploreAll,
             cut_point_rules: BTreeSet::new(),
             terminal_rules: BTreeSet::new(),
+            stop_count: NonZeroU64::MIN,
             step_timeout: None,
             moving_average_timeout: false,
             assume_initial_defined: false,
@@ -971,6 +990,10 @@ pub struct ExecutionLeaf {
     /// `SimplificationBudgetExhausted` over `Predicates` with the same limit. A caller collecting
     /// with `diagnostic::collect` around the execution still receives every diagnostic.
     pub diagnostics: Vec<BackendDiagnostic>,
+    /// The arrivals at a stop this leaf's path counted ([`ExecutionOptions::stop_count`]): the
+    /// arrival it ends at included, for a `CutPointRule` or `TerminalRule` leaf, whose count is
+    /// then `stop_count`; 0 on a run without stop rules.
+    pub stops: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

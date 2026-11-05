@@ -630,6 +630,7 @@ fn execute_request(state: Pattern, max_depth: u64) -> ExecuteRequest {
         stop_at_branch: false,
         cut_point_rules: Vec::new(),
         terminal_rules: Vec::new(),
+        stop_count: None,
         step_timeout_ms: None,
         moving_average_timeout: false,
         assume_state_defined: false,

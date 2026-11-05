@@ -351,6 +351,8 @@ impl<'a> Execution<'a> {
                     defined_where: Vec::new(),
                     diagnostics: diagnostics.empty_like(),
                     producer: None,
+                    stops: 0,
+                    arriving: false,
                 }
             })
             .collect::<VecDeque<_>>();
@@ -580,6 +582,7 @@ impl<'a> Execution<'a> {
         }
         let mut arrival = Arrival::new(
             state.depth,
+            state.stops,
             state.pattern.clone(),
             state.effects.clone(),
             state.io.clone(),
@@ -1244,8 +1247,13 @@ impl<'a> Execution<'a> {
             state.io = io;
         }
         state.io_enabled &= pattern_supports_execution_io(&state.pattern);
-        // The successor is normalized and defined: its step is a transition of the run.
+        // The successor is normalized and defined: its step is a transition of the run, and an
+        // arrival at a stop where it was a stop rule's step the path goes on past
+        // ([`ExecutionOptions::stop_count`]).
         Self::note_committed(&state);
+        if std::mem::take(&mut state.arriving) {
+            state.stops += 1;
+        }
         if state.depth >= self.options.max_depth {
             // A state the depth bound stops is reached; it takes no part in merging.
             if let ExecutionStateKind::Rewritable = state.kind {
@@ -1412,16 +1420,19 @@ impl<'a> Execution<'a> {
         }
     }
 
-    /// E6: one rule applied. A cut-point rule ends the state as a `CutPointRule` leaf with the
-    /// simplified successor; a terminal rule ends the successor as a `TerminalRule` (or
-    /// `Trivial`) leaf; otherwise the successor is returned.
+    /// E6: one rule applied. At the arrival the path ends at ([`Self::ends_at_arrival`]), a
+    /// cut-point rule ends the state as a `CutPointRule` leaf with the simplified successor and
+    /// a terminal rule ends the successor as a `TerminalRule` (or `Trivial`) leaf; otherwise the
+    /// successor is returned, an arrival once its normalization shows it defined where a stop
+    /// rule took it.
     fn finished(
         &mut self,
         mut state: ExecutionState,
         applied: AppliedRule,
         excluded: &Exclusion,
     ) -> Phase<Vec<ExecutionState>> {
-        if let Some(rule) = selected_stop_rule(&applied, &self.options.cut_point_rules) {
+        let ends = self.ends_at_arrival(&state);
+        if ends && let Some(rule) = selected_stop_rule(&applied, &self.options.cut_point_rules) {
             let mut applied = applied;
             let producer = Producer::of(&state, &applied);
             commit_proposed_effects(&mut state, &applied);
@@ -1522,7 +1533,10 @@ impl<'a> Execution<'a> {
                 candidate_observation,
             )));
         }
-        let terminal_rule = selected_stop_rule(&applied, &self.options.terminal_rules);
+        let arriving = !ends && self.selects_stop(&applied);
+        let terminal_rule = ends
+            .then(|| selected_stop_rule(&applied, &self.options.terminal_rules))
+            .flatten();
         let producer = Producer::of(&state, &applied);
         let mut next = next_state(
             self.definition,
@@ -1532,6 +1546,7 @@ impl<'a> Execution<'a> {
             self.observation,
         );
         next.producer = Some(std::rc::Rc::new(producer));
+        next.arriving = arriving;
         if let Some(rule) = terminal_rule {
             let producer_rule = next.producer.as_ref().map(|producer| producer.rule.clone());
             let (simplified, diagnostics) = crate::path_facts::collect_with_diagnostics(|| {
@@ -1588,9 +1603,11 @@ impl<'a> Execution<'a> {
                     .report_undefined_successor(next, halt_reason)
                     .map(|()| Vec::new());
             }
-            // The successor is normalized and defined: committed and reached.
+            // The successor is normalized and defined: committed and reached, the path's last
+            // arrival.
             Self::note_committed(&next);
             self.match_state(&next);
+            next.stops += 1;
             return Err(Box::new(
                 next.leaf(HaltReason::TerminalRule { rule }, &self.observation_log),
             ));
@@ -1598,14 +1615,26 @@ impl<'a> Execution<'a> {
         Ok(vec![next])
     }
 
+    /// Whether a step by a stop rule from `state`, its one successor, ends the path: it is the
+    /// path's `stop_count`th arrival at a stop ([`ExecutionOptions::stop_count`]).
+    fn ends_at_arrival(&self, state: &ExecutionState) -> bool {
+        state.stops.saturating_add(1) >= self.options.stop_count.get()
+    }
+
+    /// Whether `applied` is a step by a rule the cut-point or terminal rules select.
+    fn selects_stop(&self, applied: &AppliedRule) -> bool {
+        selected_stop_name(applied, &self.options.cut_point_rules).is_some()
+            || selected_stop_name(applied, &self.options.terminal_rules).is_some()
+    }
+
     /// The `CutPointRule` leaf for a proposed successor that is normalized, on its own
     /// observation head `candidate`, and not bottom, once its effects are committed to `state`.
     /// The leaf is this state: it keeps this state's depth, branch and diagnostics; the
     /// successor, carried in `next_states`, owns its diagnostics and the events it would add to
-    /// this branch.
+    /// this branch. Its step is the path's last arrival, which the leaf counts.
     fn cut_point_leaf(
         &self,
-        state: ExecutionState,
+        mut state: ExecutionState,
         rule: String,
         mut applied: AppliedRule,
         candidate: ObservationHead,
@@ -1613,6 +1642,7 @@ impl<'a> Execution<'a> {
         applied.observations = self
             .observation_log
             .events_since(candidate, state.observation);
+        state.stops += 1;
         state.leaf(
             HaltReason::CutPointRule {
                 rule,
@@ -2131,8 +2161,10 @@ impl<'a> Execution<'a> {
                         // as a `Finished` step's application is: the stop rules apply to it
                         // alike. It is already normalized, on its own head, and not bottom.
                         let (applied, observation, _) = branches.pop().expect("one branch remains");
-                        if let Some(rule) =
-                            selected_stop_rule(&applied, &self.options.cut_point_rules)
+                        let ends = self.ends_at_arrival(&state);
+                        if ends
+                            && let Some(rule) =
+                                selected_stop_rule(&applied, &self.options.cut_point_rules)
                         {
                             let mut state = state;
                             // The undefined step stands for some instances of this state: the
@@ -2146,13 +2178,18 @@ impl<'a> Execution<'a> {
                                 observation,
                             )));
                         }
-                        let terminal_rule =
-                            selected_stop_rule(&applied, &self.options.terminal_rules);
-                        let next = commit_applied(state, applied, observation);
+                        let arriving = !ends && self.selects_stop(&applied);
+                        let terminal_rule = ends
+                            .then(|| selected_stop_rule(&applied, &self.options.terminal_rules))
+                            .flatten();
+                        let mut next = commit_applied(state, applied, observation);
+                        next.arriving = arriving;
                         if let Some(rule) = terminal_rule {
-                            // Normalized within the step and not bottom: committed and reached.
+                            // Normalized within the step and not bottom: committed and reached,
+                            // the path's last arrival.
                             Self::note_committed(&next);
                             self.match_state(&next);
+                            next.stops += 1;
                             return Err(Box::new(
                                 next.leaf(HaltReason::TerminalRule { rule }, &self.observation_log),
                             ));
@@ -2756,6 +2793,7 @@ fn merge_final_leaves(
             request.state_key(&leaf.pattern),
             leaf.effects.clone(),
             leaf.io.observable(),
+            arrivals_before_halt(&leaf),
         );
         match seen.iter_mut().find(|(seen_key, _)| *seen_key == key) {
             Some((_, retained)) => {
@@ -2937,6 +2975,23 @@ fn replaceable_in_state_set(possible: &[Standing], halt: &HaltReason) -> bool {
         && possible
             .iter()
             .any(|other| other.class != standing.class && other.absorbs(standing))
+}
+
+/// The arrivals at a stop `leaf`'s path passed before its own halt
+/// ([`ExecutionOptions::stop_count`]): its count, less the arrival a cut-point or terminal-rule
+/// leaf ends at.
+///
+/// A configuration's subtree under a count rests on the arrivals passed before it: a cut-point
+/// leaf's configuration is final only at the last count, while at an earlier one the path goes
+/// on from it, so an unexplored leaf of that configuration with fewer arrivals stands for more
+/// than the configuration. A leaf is therefore merged only into a leaf of the same count before
+/// its halt. Without a count every leaf has passed none, so the merge is unchanged.
+fn arrivals_before_halt(leaf: &ExecutionLeaf) -> u64 {
+    let own = matches!(
+        leaf.halt_reason,
+        HaltReason::CutPointRule { .. } | HaltReason::TerminalRule { .. }
+    );
+    leaf.stops.saturating_sub(u64::from(own))
 }
 
 fn selected_stop_rule(applied: &AppliedRule, selected: &BTreeSet<String>) -> Option<String> {
@@ -3778,6 +3833,11 @@ struct ExecutionState {
     /// The step that produced this state, until the state's first normalization, which may find
     /// that step undefined ([`Producer`]); `None` on every other state.
     producer: Option<std::rc::Rc<Producer>>,
+    /// The arrivals at a stop this state's path passed ([`ExecutionOptions::stop_count`]).
+    stops: u64,
+    /// Whether the step that produced this state is an arrival at a stop the path goes on past,
+    /// counted once the state's normalization shows it defined; false on every other state.
+    arriving: bool,
 }
 
 /// The step that produced a successor, kept on it until its first normalization.
@@ -4317,6 +4377,7 @@ impl ExecutionState {
             io: self.io,
             halt_reason,
             diagnostics: self.diagnostics.to_vec(),
+            stops: self.stops,
         }
     }
 
@@ -4424,6 +4485,7 @@ fn extend_unique_predicates(target: &mut Vec<Predicate>, predicates: Vec<Predica
 #[cfg(test)]
 mod tests {
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
+    use std::num::NonZeroU64;
 
     use super::*;
 
@@ -4724,6 +4786,7 @@ mod tests {
     fn depth_bound_leaves_are_kept_around_a_stuck_leaf() {
         let definition = definition("");
         let leaf = |name, halt_reason| ExecutionLeaf {
+            stops: 0,
             pattern: subject(&definition, name),
             depth: 1,
             trace: Vec::new(),
@@ -4770,6 +4833,7 @@ mod tests {
             subject: crate::simplify::BudgetSubject::Term,
         };
         let leaf = |name, depth, halt_reason, diagnostics| ExecutionLeaf {
+            stops: 0,
             pattern: subject(&definition, name),
             depth,
             trace: Vec::new(),
@@ -4813,6 +4877,7 @@ mod tests {
     fn a_final_leaf_alone_among_configurations_gets_no_state_key() {
         let definition = definition("");
         let leaf = |name, halt_reason| ExecutionLeaf {
+            stops: 0,
             pattern: subject(&definition, name),
             depth: 1,
             trace: Vec::new(),
@@ -4870,6 +4935,7 @@ mod tests {
         right_evaluation.append("IO.write", 1, Vec::from(&b"right"[..]));
         let right_io = right_evaluation.commit();
         let leaf = |io| ExecutionLeaf {
+            stops: 0,
             pattern: subject(&definition, "same"),
             depth: 1,
             trace: Vec::new(),
@@ -5027,6 +5093,8 @@ mod tests {
         let mut trace = PathTrace::default();
         trace.extend(prefix.iter().cloned());
         ExecutionState {
+            stops: 0,
+            arriving: false,
             pattern: subject(definition, "state"),
             depth: 500,
             trace,
@@ -5172,6 +5240,7 @@ mod tests {
      {
         let definition = definition("");
         let leaf = |depth, halt_reason| ExecutionLeaf {
+            stops: 0,
             pattern: subject(&definition, "same"),
             depth,
             trace: Vec::new(),
@@ -5909,6 +5978,8 @@ mod tests {
                 .spawn_scoped(scope, || {
                     // The state holds thread-confined values, so it is made on the thread.
                     let state = ExecutionState {
+                        stops: 0,
+                        arriving: false,
                         pattern: pattern.clone(),
                         depth: 0,
                         trace: PathTrace::default(),
@@ -6040,6 +6111,7 @@ mod tests {
     fn a_cancellation_during_the_final_merge_discards_the_leaves_when_asked_to() {
         let definition = definition("");
         let leaves = ["a", "b", "a"].map(|name| ExecutionLeaf {
+            stops: 0,
             pattern: subject(&definition, name),
             depth: 1,
             trace: Vec::new(),
@@ -6195,6 +6267,262 @@ mod tests {
                 .collect::<Vec<_>>(),
             [HaltReason::Stuck, HaltReason::Stuck]
         );
+    }
+
+    /// What a counted run's leaf is compared by: its configuration (as `Debug` text, to sort
+    /// by), the path's depth, its halt (`stop` for a cut-point or terminal-rule leaf), its
+    /// arrivals, and the labels of the path's rewrite steps.
+    type CountedLeaf = (String, u64, &'static str, u64, Vec<String>);
+
+    fn halt_name(halt: &HaltReason) -> &'static str {
+        match halt {
+            HaltReason::CutPointRule { .. } | HaltReason::TerminalRule { .. } => "stop",
+            HaltReason::Stuck => "stuck",
+            HaltReason::DepthBound => "depth-bound",
+            _ => "other",
+        }
+    }
+
+    fn rewrite_labels(trace: &[TraceEntry]) -> Vec<String> {
+        trace
+            .iter()
+            .filter(|entry| entry.kind == TraceKind::Rewrite)
+            .map(|entry| entry.label.clone().unwrap_or_default())
+            .collect()
+    }
+
+    /// A run to the Nth arrival at a stop takes exactly the steps of the run to the first
+    /// arrival resumed from each arrival before the Nth, each piece a request of its own (a
+    /// cut-point piece resumed at its proposed successor, the proposed step counted), with no
+    /// count anywhere: the same ends, at the same depths, by the same steps, with the same
+    /// passed stops (at the depth along the whole path), and each end's count of arrivals.
+    ///
+    /// The definition runs `0` to `6` by alternating selected `tick-*` and unselected `work-*`
+    /// steps, except that `3` also has a selected `tick-x` successor beside `work-b`: a choice,
+    /// which strategy `all` takes both sides of and passes, and strategy `any` resolves to
+    /// `work-b`, the first rule. Every count from 1 past the number of arrivals, both kinds of
+    /// stop rule, both strategies and both modalities, and depth bounds that cut before, at and
+    /// after arrivals are run.
+    #[test]
+    fn a_counted_run_takes_the_steps_of_its_staged_pieces() {
+        let step = |from: &str, to: &str, label: &str| {
+            format!(
+                r#"axiom{{}} \rewrites{{SortS{{}}}}(
+                    \and{{SortS{{}}}}(\dv{{SortS{{}}}}("{from}"), \top{{SortS{{}}}}()),
+                    \dv{{SortS{{}}}}("{to}")
+                ) [label{{}}("{label}")]"#
+            )
+        };
+        let axioms = [
+            step("0", "1", "tick-a"),
+            step("1", "2", "work-a"),
+            step("2", "3", "tick-b"),
+            step("3", "4", "work-b"),
+            step("3", "4x", "tick-x"),
+            step("4", "5", "tick-c"),
+            step("5", "6", "work-c"),
+            step("4x", "6x", "work-x"),
+        ]
+        .join("\n");
+        let definition = definition(&axioms);
+        let selected = BTreeSet::from(["tick-a", "tick-b", "tick-c", "tick-x"].map(str::to_owned));
+        let run = |start: Pattern,
+                   terminal: bool,
+                   count: u64,
+                   max_depth: u64,
+                   mode: ExecutionMode,
+                   result_modality: ResultModality| {
+            let (cut_point_rules, terminal_rules) = if terminal {
+                (BTreeSet::new(), selected.clone())
+            } else {
+                (selected.clone(), BTreeSet::new())
+            };
+            super::super::execute(
+                &definition,
+                start,
+                ExecutionOptions {
+                    cut_point_rules,
+                    terminal_rules,
+                    stop_count: NonZeroU64::new(count).unwrap(),
+                    max_depth,
+                    mode,
+                    result_modality,
+                    ..ExecutionOptions::default()
+                },
+            )
+        };
+        let start = Pattern {
+            term: definition
+                .internalize_term(&parse_pattern(r#"\dv{SortS{}}("0")"#).unwrap(), &[])
+                .unwrap(),
+            constraints: Vec::new(),
+        };
+        let configurations = |mode, modality| {
+            [false, true].into_iter().flat_map(move |terminal| {
+                (1..=5).flat_map(move |count| {
+                    [u64::MAX, 0, 1, 2, 3, 4, 5]
+                        .into_iter()
+                        .map(move |depth| (terminal, count, depth, mode, modality))
+                })
+            })
+        };
+        let mut arrivals_seen = BTreeSet::new();
+        for (mode, modality) in [
+            (ExecutionMode::Any, ResultModality::StateSet),
+            (ExecutionMode::All, ResultModality::StateSet),
+            (ExecutionMode::All, ResultModality::PathSet),
+        ] {
+            for (terminal, count, max_depth, mode, modality) in configurations(mode, modality) {
+                let context = format!(
+                    "terminal={terminal} count={count} depth={max_depth} {mode:?} {modality:?}"
+                );
+                let counted = run(start.clone(), terminal, count, max_depth, mode, modality);
+                let mut counted_leaves = counted
+                    .leaves
+                    .iter()
+                    .map(|leaf| {
+                        (
+                            format!("{:?}", leaf.pattern),
+                            leaf.depth,
+                            halt_name(&leaf.halt_reason),
+                            leaf.stops,
+                            rewrite_labels(&leaf.trace),
+                        )
+                    })
+                    .collect::<Vec<CountedLeaf>>();
+                // The staged run: each piece to its first arrival, from where the one before it
+                // stopped, with the depth the pieces before it left.
+                let mut staged_leaves = Vec::<CountedLeaf>::new();
+                let mut passed = BTreeMap::<String, u64>::new();
+                let mut pieces = vec![(start.clone(), 0_u64, 0_u64, Vec::<String>::new())];
+                while let Some((from, offset, arrivals, mut trace)) = pieces.pop() {
+                    let piece = run(
+                        from,
+                        terminal,
+                        1,
+                        max_depth.saturating_sub(offset),
+                        mode,
+                        modality,
+                    );
+                    for stop in piece.passed_stops {
+                        let depth = offset + stop.depth;
+                        let entry = passed.entry(stop.rule).or_insert(depth);
+                        *entry = (*entry).min(depth);
+                    }
+                    for leaf in piece.leaves {
+                        assert_eq!(
+                            leaf.stops,
+                            u64::from(halt_name(&leaf.halt_reason) == "stop"),
+                            "{context}"
+                        );
+                        let mut path = trace.clone();
+                        path.extend(rewrite_labels(&leaf.trace));
+                        let depth = offset + leaf.depth;
+                        let stopped = halt_name(&leaf.halt_reason) == "stop";
+                        if stopped && arrivals + 1 < count {
+                            match leaf.halt_reason {
+                                HaltReason::CutPointRule { next_states, .. } => {
+                                    let [taken] = next_states.as_slice() else {
+                                        panic!("{context}: {next_states:?}")
+                                    };
+                                    path.push(taken.label.clone().unwrap_or_default());
+                                    pieces.push((
+                                        taken.pattern.clone(),
+                                        depth + 1,
+                                        arrivals + 1,
+                                        path,
+                                    ));
+                                }
+                                _ => pieces.push((leaf.pattern, depth, arrivals + 1, path)),
+                            }
+                            continue;
+                        }
+                        staged_leaves.push((
+                            format!("{:?}", leaf.pattern),
+                            depth,
+                            halt_name(&leaf.halt_reason),
+                            arrivals + u64::from(stopped),
+                            path,
+                        ));
+                    }
+                    trace.clear();
+                }
+                counted_leaves.sort();
+                staged_leaves.sort();
+                assert_eq!(counted_leaves, staged_leaves, "{context}");
+                let counted_passed = counted
+                    .passed_stops
+                    .iter()
+                    .map(|stop| (stop.rule.clone(), stop.depth))
+                    .collect::<BTreeMap<_, _>>();
+                assert_eq!(counted_passed, passed, "{context}");
+                arrivals_seen.extend(counted_leaves.iter().map(|leaf| leaf.3));
+            }
+        }
+        // The table reaches every count of arrivals the definition has, and a passed stop.
+        assert_eq!(arrivals_seen, BTreeSet::from([0, 1, 2, 3]));
+    }
+
+    /// Under `state-set` a state merges only into a state whose path passed as many arrivals:
+    /// from `s`, `m1` reaches `z` by the selected `stop-a` and `m2` by the unselected `plain`,
+    /// both at depth 2, so at a count of 2 the `stop-b` step from `z` ends the first path (its
+    /// second arrival, a cut-point leaf at `z`) and is the second path's first, which goes on to
+    /// `end`. Merging the second `z` into the first would lose `end`. With a count of 1 the first
+    /// path ends before `stop-a` and the second before `stop-b`, as without a count.
+    #[test]
+    fn a_state_set_run_merges_only_states_of_one_count_of_arrivals() {
+        let step = |from: &str, to: &str, label: &str| {
+            format!(
+                r#"axiom{{}} \rewrites{{SortS{{}}}}(
+                    \and{{SortS{{}}}}(\dv{{SortS{{}}}}("{from}"), \top{{SortS{{}}}}()),
+                    \dv{{SortS{{}}}}("{to}")
+                ) [label{{}}("{label}")]"#
+            )
+        };
+        let axioms = [
+            step("s", "m1", "x1"),
+            step("s", "m2", "x2"),
+            step("m1", "z", "stop-a"),
+            step("m2", "z", "plain"),
+            step("z", "end", "stop-b"),
+        ]
+        .join("\n");
+        let definition = definition(&axioms);
+        let start = Pattern {
+            term: definition
+                .internalize_term(&parse_pattern(r#"\dv{SortS{}}("s")"#).unwrap(), &[])
+                .unwrap(),
+            constraints: Vec::new(),
+        };
+        let run = |count| {
+            super::super::execute(
+                &definition,
+                start.clone(),
+                ExecutionOptions {
+                    cut_point_rules: BTreeSet::from(["stop-a", "stop-b"].map(str::to_owned)),
+                    stop_count: NonZeroU64::new(count).unwrap(),
+                    result_modality: ResultModality::StateSet,
+                    ..ExecutionOptions::default()
+                },
+            )
+        };
+        let ends = |result: &ExecutionResult| {
+            let mut ends = result
+                .leaves
+                .iter()
+                .map(|leaf| (leaf.depth, halt_name(&leaf.halt_reason), leaf.stops))
+                .collect::<Vec<_>>();
+            ends.sort_unstable();
+            ends
+        };
+        let counted = run(2);
+        assert_eq!(
+            ends(&counted),
+            [(2, "stop", 2), (3, "stuck", 1)],
+            "{counted:#?}"
+        );
+        let first = run(1);
+        assert_eq!(ends(&first), [(1, "stop", 1), (2, "stop", 1)], "{first:#?}");
     }
 
     /// A cut-point or terminal rule stops a run only as its state's one successor. From `a`

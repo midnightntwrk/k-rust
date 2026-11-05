@@ -52,10 +52,18 @@ use crate::support::{
 /// The pins hash a result's `Debug` rendering without the lines of fields added after they were
 /// taken and absent from these results (`state_matches: None`, FZ-STATESET-MATCH), so a pin
 /// still states the rendering it was taken from and an added absent field moves none of them.
+/// A leaf's count of arrivals at a stop (`ExecutionLeaf::stops`) was added later too: these
+/// requests set no stop count, so it is 0, or 1 on a cut-point or terminal-rule leaf, which is
+/// what its halt already states, and its line is left out alike.
 fn assert_be08_capture(name: &str, value: &impl Debug, expected_sha256: &str) {
     let rendered = format!("{value:#?}")
         .lines()
-        .filter(|line| line.trim() != "state_matches: None,")
+        .filter(|line| {
+            !matches!(
+                line.trim(),
+                "state_matches: None," | "stops: 0," | "stops: 1,"
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n");
     let mut actual = String::with_capacity(64);
@@ -7776,6 +7784,7 @@ fn execution_stops_before_work_when_the_request_is_cancelled() {
     assert_eq!(
         result.leaves,
         [ExecutionLeaf {
+            stops: 0,
             pattern: initial,
             depth: 0,
             trace: Vec::new(),

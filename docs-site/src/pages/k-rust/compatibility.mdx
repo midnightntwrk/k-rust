@@ -2634,6 +2634,29 @@ The list over-approximates and never omits: a step with a remainder and no undef
 `passed_stops_reach_the_facade_alike` in [pattern_results.rs](https://github.com/midnightntwrk/k-rust/blob/main/crates/k-rust/tests/pattern_results.rs) reads the list from the JSON of both facade routes.
 The Rust structs gain public fields (`passed_stops` on both execution results, `passed_stops` on `BackendCapabilities`), so a struct literal of them outside k-rust names the field; the wire and the TypeScript declarations (`PassedStop`) gain optional members.
 
+### Stop count
+
+An execute request may end its paths at a later arrival at a stop than the first: `stopCount` (`ExecuteRequest::stop_count`, `ExecutionOptions::stop_count` in the backend; absent by default, which is 1; capability `stopCount`).
+An *arrival* is a step at which a stop rule stops a run ([Passed stops](#passed-stops)): a step by a selected cut-point or terminal rule that is its state's one successor, whose successor is defined.
+A path counts its arrivals and ends at its `stopCount`th, before the step of a cut-point rule and after the step of a terminal rule, as it ends at a first arrival without a count.
+It takes each earlier arrival as it takes any other step: the step is committed, its successor normalized, and the path goes on from that successor.
+So a run to the Nth arrival is one path, whose steps are those of the run without stop rules up to that arrival, and whose trace, coverage, effects, depth and work are that path's.
+`maxDepth` and `maxWork` bound the whole path: a bound met before the Nth arrival ends the path there, never at a stop.
+A step by a selected rule that is not its state's one successor is no arrival, whatever the count, and is a passed stop.
+
+With `stopCount`, each leaf reports the arrivals its path counted as `stops` (`ExecutionLeaf::stops`, omitted without `stopCount`).
+A `cut-point` or `terminal` leaf counts the arrival it ends at, so it reports `stopCount`; any other leaf reports the arrivals its path passed before it ended otherwise.
+
+A state's subtree rests on the arrivals its path passed: at the last count a cut-point rule's step ends the path at its state, and at an earlier one the path goes on from it.
+So under `state-set` a state merges during exploration only into a state whose path passed as many arrivals, and the final merge lets a leaf stand only for a leaf whose path passed as many arrivals before its own halt (a cut-point or terminal leaf's own arrival aside).
+With a count of 1 every state and leaf has passed none, so such a request explores, reports and merges what the request without `stopCount` does, and its leaves differ only by `stops`.
+
+The arrivals are counted where the path is executed, rather than by a new request from each arrival, so the path keeps its structural sharing, its memos and its trace across them: an earlier arrival costs the stop-rule check every step pays, and only the end is converted.
+`a_counted_run_takes_the_steps_of_its_staged_pieces` in [execute.rs](https://github.com/midnightntwrk/k-rust/blob/main/crates/k-rust-backend/src/rewrite/execute.rs) runs every count past the number of arrivals of a definition with a choice, both kinds of stop rule, both strategies, both modalities and depth bounds before, at and after arrivals, and finds each run's ends, depths, rewrite steps, arrivals and passed stops equal to those of the same run as requests to the first arrival, each resumed from where the one before it stopped; `a_state_set_run_merges_only_states_of_one_count_of_arrivals` keeps two states of one configuration and depth apart where their paths passed different numbers of arrivals.
+`the_stop_count_reaches_the_facade` in [backend/mod.rs](https://github.com/midnightntwrk/k-rust/blob/main/crates/k-rust/src/backend/mod.rs) reads `stops` from the JSON and the TypeScript declarations.
+The Rust structs gain public fields (`stop_count` on `ExecuteRequest`, on `ExecutionOptions` and on `BackendCapabilities`, `stops` on both execution leaves), so a struct literal of them outside k-rust names the field; the wire and the TypeScript declarations gain optional members, and the backend schema version stays 1.
+The RPC `execute` takes `stop-count` as a k-rust extension and then answers `stops`.
+
 ### Work budget
 
 An execute request may bound the work of its run: `maxWork` (`ExecuteRequest::max_work`, `ExecutionOptions::max_work` in the backend; absent by default, no bound) is the most states the run may visit across all its paths.

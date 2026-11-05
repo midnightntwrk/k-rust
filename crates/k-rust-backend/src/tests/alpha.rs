@@ -1332,6 +1332,7 @@ impl AlphaComparable for ExecutionLeaf {
         self.diagnostics
             .collect_alpha(&other.diagnostics, context)?;
         if self.depth != other.depth
+            || self.stops != other.stops
             || self.trace != other.trace
             || self.effects != other.effects
             || self.io != other.io
@@ -1368,6 +1369,7 @@ impl AlphaComparable for ExecutionLeaf {
             io: self.io.clone(),
             halt_reason: self.halt_reason.rename_alpha(context)?,
             diagnostics: self.diagnostics.rename_alpha(context)?,
+            stops: self.stops,
         })
     }
 }
@@ -1607,6 +1609,7 @@ fn result_with_transition(name: &str) -> ExecutionResult {
         state_matches: None,
         modality: crate::search::ResultModality::StateSet,
         leaves: vec![ExecutionLeaf {
+            stops: 0,
             pattern: after.clone(),
             depth: 1,
             trace: Vec::new(),

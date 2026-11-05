@@ -232,6 +232,8 @@ export interface BackendCapabilities {
   shortCircuitReadings: boolean
   /** `execute` and `executeObserved` report `passedStops`. */
   passedStops: boolean
+  /** `execute` and `executeObserved` take `stopCount` and report each leaf's `stops`. */
+  stopCount: boolean
 }
 
 export interface CreateBackendOptions {
@@ -253,6 +255,8 @@ export interface ExecuteOptions {
   stopAtBranch?: boolean
   cutPointRules?: string[]
   terminalRules?: string[]
+  /** The arrival at a stop of `cutPointRules` or `terminalRules` a path ends at (default 1, its first); earlier arrivals are steps like any other. */
+  stopCount?: number
   stepTimeoutMs?: number
   movingAverageTimeout?: boolean
   assumeStateDefined?: boolean
@@ -450,6 +454,8 @@ export interface ExecutionLeaf {
   /** Ordered effects committed on this branch, independent of observation. */
   effects?: BackendEffect[]
   observations?: ObservationEvent[]
+  /** The arrivals at a stop this leaf's path counted, present exactly when the request set `stopCount`; a 'cut-point-rule' or 'terminal-rule' leaf counts the arrival it ends at. */
+  stops?: number
 }
 
 export interface ExecutionCandidate {

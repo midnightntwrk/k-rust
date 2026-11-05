@@ -4904,6 +4904,7 @@ mod tests {
                                 branch: leaf.branch.identity.clone(),
                                 effects: Vec::new(),
                                 observations: Vec::new(),
+                                stops: None,
                             }
                         })
                         .collect(),
@@ -5190,6 +5191,7 @@ mod tests {
                             branch: leaf.branch.identity.clone(),
                             effects: Vec::new(),
                             observations: Vec::new(),
+                            stops: None,
                         })
                         .collect(),
                     effects: Vec::new(),
@@ -5545,6 +5547,7 @@ mod tests {
                             branch: leaf.branch.identity.clone(),
                             effects: Vec::new(),
                             observations: Vec::new(),
+                            stops: None,
                         })
                         .collect(),
                     effects: Vec::new(),

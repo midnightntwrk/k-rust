@@ -88,6 +88,7 @@ fn single_path(backend: &mut Backend, state: &Pattern, budget: ExecutionBudget) 
             stop_at_branch: false,
             cut_point_rules: Vec::new(),
             terminal_rules: Vec::new(),
+            stop_count: None,
             step_timeout_ms: None,
             moving_average_timeout: false,
             assume_state_defined: false,

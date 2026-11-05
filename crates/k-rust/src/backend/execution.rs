@@ -2479,6 +2479,7 @@ mod captured_stdout_tests {
             io: ExecutionIoState::default(),
             halt_reason,
             diagnostics: Vec::new(),
+            stops: 0,
         }
     }
 

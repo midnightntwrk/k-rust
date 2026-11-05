@@ -562,6 +562,9 @@ pub struct BackendCapabilities {
     /// An execution lists every selected cut-point or terminal rule it went on past at a step
     /// where the rule was not its state's one successor ([`ExecutionResult::passed_stops`]).
     pub passed_stops: bool,
+    /// An execution ends a path at the arrival at a stop [`ExecuteRequest::stop_count`] names and
+    /// reports each leaf's count ([`ExecutionLeaf::stops`]).
+    pub stop_count: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -594,6 +597,16 @@ pub struct ExecuteRequest {
     pub cut_point_rules: Vec<String>,
     #[serde(default)]
     pub terminal_rules: Vec<String>,
+    /// The arrival at a stop of [`Self::cut_point_rules`] or [`Self::terminal_rules`] at which a
+    /// path ends (wire `stopCount`; absent: its first). An arrival is a step by a selected rule
+    /// that is its state's one successor, with a defined successor; a path ends at its
+    /// `stopCount`th, before or after the rule's step as at a first arrival, and takes each
+    /// earlier one as any other step, so a run to the Nth arrival is one path with the steps of
+    /// the run without stop rules up to it. With it, each leaf reports the arrivals its path
+    /// counted ([`ExecutionLeaf::stops`]); under `state-set` a state merges only into one of the
+    /// same count (docs/compatibility.md, "Stop count").
+    #[serde(default)]
+    pub stop_count: Option<std::num::NonZeroU64>,
     /// The deadline of each step, in milliseconds (module documentation, point 5). Condition
     /// records ([`Self::collect_conditions`]) run off this clock, so a recorded run is not
     /// bounded in wall time by it alone ([`ConditionCollection::record_polls`]).
@@ -766,6 +779,7 @@ impl ExecuteRequest {
             stop_at_branch: false,
             cut_point_rules: Vec::new(),
             terminal_rules: Vec::new(),
+            stop_count: None,
             step_timeout_ms: None,
             moving_average_timeout: false,
             assume_state_defined: false,
@@ -1560,6 +1574,12 @@ pub struct ExecutionLeaf<K = Value> {
     pub effects: Vec<EffectOutput>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub observations: Vec<ObservationEventOutput<K>>,
+    /// The arrivals at a stop this leaf's path counted, present exactly when the request set
+    /// [`ExecuteRequest::stop_count`]: the arrival a `cut-point-rule` or `terminal-rule` leaf
+    /// ends at included, so such a leaf reports the request's count, and any other leaf the
+    /// arrivals its path passed before it ended otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stops: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -2202,6 +2222,7 @@ impl Backend {
             unsupported_hooks: true,
             short_circuit_readings: true,
             passed_stops: true,
+            stop_count: true,
         }
     }
 
@@ -2436,6 +2457,7 @@ impl Backend {
                 },
                 cut_point_rules: request.cut_point_rules.into_iter().collect(),
                 terminal_rules: request.terminal_rules.into_iter().collect(),
+                stop_count: request.stop_count.unwrap_or(std::num::NonZeroU64::MIN),
                 step_timeout: request.step_timeout_ms.map(Duration::from_millis),
                 moving_average_timeout: request.moving_average_timeout,
                 assume_initial_defined: request.assume_state_defined,
@@ -2466,7 +2488,11 @@ impl Backend {
                 }
                 None => execute_with_solver(definition, initial, options, solver),
             };
-            wire::execute_answer(request.cancelled_result, result)
+            wire::execute_answer(
+                request.cancelled_result,
+                request.stop_count.is_some(),
+                result,
+            )
         })
     }
 
@@ -5357,6 +5383,75 @@ mod tests {
             "b{}()"
         );
     }
+
+    /// `stopCount` ends a path at that arrival at a stop and reports each leaf's count as
+    /// `stops`: on `a -> b -> c -> d`, every step selected, a terminal count of 2 ends at `c`, a
+    /// cut-point count of 2 at `b` before `bc`, and a count past the arrivals ends stuck at `d`
+    /// after 3; a request without it reports no count. The request member, the leaf's field and
+    /// the capability are declared in TypeScript.
+    #[test]
+    fn the_stop_count_reaches_the_facade() {
+        let mut backend = Backend::new(CHAIN, "MAIN", BackendOptions::default()).unwrap();
+        let rules = || vec!["ab".to_owned(), "bc".to_owned(), "cd".to_owned()];
+        let mut run = |terminal: bool, stop_count: Option<u64>| {
+            let (cut_point_rules, terminal_rules) = if terminal {
+                (Vec::new(), rules())
+            } else {
+                (rules(), Vec::new())
+            };
+            let result = backend
+                .execute_kore(ExecuteRequest {
+                    cut_point_rules,
+                    terminal_rules,
+                    stop_count: stop_count.map(|count| std::num::NonZeroU64::new(count).unwrap()),
+                    ..ExecuteRequest::new(kore("a{}()"))
+                })
+                .unwrap();
+            let value = serde_json::to_value(result).unwrap();
+            let [leaf] = value["leaves"].as_array().unwrap().as_slice() else {
+                panic!("expected one leaf: {value}");
+            };
+            (
+                leaf["reason"].as_str().unwrap().to_owned(),
+                leaf["depth"].as_u64().unwrap(),
+                text(kore_codec::from_value(&leaf["state"]).unwrap()),
+                leaf.get("stops").map(|stops| stops.as_u64().unwrap()),
+            )
+        };
+        let end = |reason: &str, depth, state: &str, stops| {
+            (reason.to_owned(), depth, state.to_owned(), stops)
+        };
+        assert_eq!(run(true, None), end("terminal", 1, "b{}()", None));
+        assert_eq!(run(true, Some(1)), end("terminal", 1, "b{}()", Some(1)));
+        assert_eq!(run(true, Some(2)), end("terminal", 2, "c{}()", Some(2)));
+        assert_eq!(run(false, Some(2)), end("cut-point", 1, "b{}()", Some(2)));
+        assert_eq!(run(true, Some(5)), end("stuck", 3, "d{}()", Some(3)));
+        assert_eq!(run(false, Some(5)), end("stuck", 3, "d{}()", Some(3)));
+        assert_typescript_member("ExecuteOptions", "stopCount?: number");
+        assert_typescript_member("ExecutionLeaf", "stops?: number");
+        assert_typescript_member("BackendCapabilities", "stopCount: boolean");
+        let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
+        assert_eq!(capabilities["stopCount"], true);
+    }
+
+    /// A chain of three steps, `a -> b -> c -> d`, labelled `ab`, `bc` and `cd`.
+    const CHAIN: &str = r#"[]
+            module MAIN
+                sort SortState{} []
+                symbol a{}() : SortState{} [constructor{}()]
+                symbol b{}() : SortState{} [constructor{}()]
+                symbol c{}() : SortState{} [constructor{}()]
+                symbol d{}() : SortState{} [constructor{}()]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(a{}(), \top{SortState{}}()), b{}()
+                ) [label{}("ab")]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(b{}(), \top{SortState{}}()), c{}()
+                ) [label{}("bc")]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(c{}(), \top{SortState{}}()), d{}()
+                ) [label{}("cd")]
+            endmodule []"#;
 
     #[test]
     fn cut_point_candidates_expose_their_diagnostics_on_the_wire() {

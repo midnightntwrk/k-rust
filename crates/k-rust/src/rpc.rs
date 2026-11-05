@@ -360,6 +360,11 @@ struct ExecuteParams {
     cut_point_rules: Vec<String>,
     #[serde(default)]
     terminal_rules: Vec<String>,
+    /// k-rust extension: the arrival at a stop of `cut-point-rules` or `terminal-rules` at which
+    /// the run ends (absent: its first), as `ExecuteRequest::stop_count`; the answer then
+    /// reports the arrivals the run counted as `stops`.
+    #[serde(default)]
+    stop_count: Option<std::num::NonZeroU64>,
     #[serde(default)]
     moving_average_step_timeout: bool,
     #[serde(default)]
@@ -785,6 +790,7 @@ impl RpcService {
             module,
             cut_point_rules,
             terminal_rules,
+            stop_count,
             moving_average_step_timeout,
             step_timeout,
             assume_state_defined,
@@ -833,6 +839,7 @@ impl RpcService {
                         branch_mode: ExecutionBranchMode::StopAtBranch,
                         cut_point_rules: cut_point_rules.into_iter().collect(),
                         terminal_rules: terminal_rules.into_iter().collect(),
+                        stop_count: stop_count.unwrap_or(std::num::NonZeroU64::MIN),
                         step_timeout: step_timeout.map(Duration::from_millis),
                         moving_average_timeout: moving_average_step_timeout,
                         assume_initial_defined: assume_state_defined,
@@ -912,6 +919,9 @@ impl RpcService {
                 };
                 output.insert("reason".into(), Value::String(reason.into()).into());
                 output.insert("depth".into(), Value::from(leaf.depth).into());
+                if stop_count.is_some() {
+                    output.insert("stops".into(), Value::from(leaf.stops).into());
+                }
                 if let Some(rule) = rule {
                     output.insert("rule".into(), Value::String(rule).into());
                 }
@@ -3476,6 +3486,62 @@ endmodule
         let response = request(&mut service, 1, "execute", json!({ "state": state }));
         assert_eq!(response["result"]["reason"], "vacuous", "{response}");
         assert!(response["result"].get("rule").is_none(), "{response}");
+    }
+
+    /// `stop-count` ends the run at that arrival at a stop and answers the arrivals the run
+    /// counted as `stops`: on `a -> b -> c -> d`, every step a terminal rule, a count of 2 ends at
+    /// `c` after 2 steps, and a count past the arrivals ends stuck at `d` after 3; without it the
+    /// run ends at its first and the answer has no `stops`.
+    #[test]
+    fn execute_counts_stop_arrivals_with_stop_count() {
+        const CHAIN: &str = r#"[]
+            module MAIN
+                sort SortState{} []
+                symbol a{}() : SortState{} [constructor{}()]
+                symbol b{}() : SortState{} [constructor{}()]
+                symbol c{}() : SortState{} [constructor{}()]
+                symbol d{}() : SortState{} [constructor{}()]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(a{}(), \top{SortState{}}()), b{}()
+                ) [label{}("ab")]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(b{}(), \top{SortState{}}()), c{}()
+                ) [label{}("bc")]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(c{}(), \top{SortState{}}()), d{}()
+                ) [label{}("cd")]
+            endmodule []"#;
+        let mut service = RpcService::with_backend(
+            k_rust::backend::Backend::new(CHAIN, "MAIN", BackendOptions::default()).unwrap(),
+        );
+        let state = encode_kore(&parse_pattern("a{}()").unwrap()).unwrap();
+        let rules = json!(["ab", "bc", "cd"]);
+        let response = request(
+            &mut service,
+            1,
+            "execute",
+            json!({ "state": state, "terminal-rules": rules, "stop-count": 2 }),
+        );
+        assert_eq!(response["result"]["reason"], "terminal-rule", "{response}");
+        assert_eq!(response["result"]["depth"], 2, "{response}");
+        assert_eq!(response["result"]["stops"], 2, "{response}");
+        let response = request(
+            &mut service,
+            2,
+            "execute",
+            json!({ "state": state, "terminal-rules": rules, "stop-count": 5 }),
+        );
+        assert_eq!(response["result"]["reason"], "stuck", "{response}");
+        assert_eq!(response["result"]["depth"], 3, "{response}");
+        assert_eq!(response["result"]["stops"], 3, "{response}");
+        let response = request(
+            &mut service,
+            3,
+            "execute",
+            json!({ "state": state, "terminal-rules": rules }),
+        );
+        assert_eq!(response["result"]["depth"], 1, "{response}");
+        assert!(response["result"].get("stops").is_none(), "{response}");
     }
 
     /// A rule `1 => cond(true)` whose `requires` holds only in k-rust's order of `keys_list`
