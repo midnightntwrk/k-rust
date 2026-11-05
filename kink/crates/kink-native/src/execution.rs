@@ -27,7 +27,7 @@
 use std::{
     cell::Cell,
     collections::{BTreeMap, BTreeSet},
-    num::NonZeroUsize,
+    num::{NonZeroU64, NonZeroUsize},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -321,12 +321,14 @@ impl StopRules {
 static NO_STOP_RULES: StopRules = StopRules::NONE;
 
 /// What one request asks for besides its [`ExecutionBudget`]: `run`'s modality and work budget,
-/// and the stop rules `stop`. The request is built from it ([`request`]), and the halts its
-/// result may hold are read from it ([`HaltClass::admitted_by`]).
+/// the stop rules `stop`, and the arrival at a stop at which a path ends, `count`. The request is
+/// built from it ([`request`]), and the halts its result may hold and the arrivals each leaf
+/// reports are read from it ([`HaltClass::admitted_by`], [`Self::admits_arrivals`]).
 #[derive(Clone, Copy, Debug)]
 struct Requested<'a> {
     run: ResultRun,
     stop: &'a StopRules,
+    count: NonZeroU64,
 }
 
 impl Requested<'static> {
@@ -335,6 +337,34 @@ impl Requested<'static> {
         Self {
             run,
             stop: &NO_STOP_RULES,
+            count: NonZeroU64::MIN,
+        }
+    }
+}
+
+impl Requested<'_> {
+    /// The count the request sends (k-rust `stop_count`): `count` when it is past the first
+    /// arrival and some rule is selected, `None` otherwise. A path ends at its first arrival
+    /// without a count, and has no arrival without a selected rule, so leaving the count out
+    /// there asks for exactly the run it names, with the request of a run without a count.
+    fn stop_count(self) -> Option<NonZeroU64> {
+        (self.count > NonZeroU64::MIN && !self.stop.is_none()).then_some(self.count)
+    }
+
+    /// Whether a leaf of halt `halt` that reports `stops` arrivals at a stop (k-rust
+    /// `ExecutionLeaf::stops`) is one the request can yield. Without a count k-rust reports
+    /// none. With one, a `cut-point` or `terminal` leaf ends its path at the count's arrival, so
+    /// it reports the count, and any other leaf ended its path before it, so it reports fewer.
+    /// A stop leaf short of the count would otherwise be read as an end of the truncated system
+    /// that its path has not reached.
+    fn admits_arrivals(self, halt: HaltClass, stops: Option<u64>) -> bool {
+        match (self.stop_count(), stops) {
+            (None, None) => true,
+            (None, Some(_)) | (Some(_), None) => false,
+            (Some(count), Some(stops)) => match halt {
+                HaltClass::CutPoint | HaltClass::TerminalRule => stops == count.get(),
+                _ => stops < count.get(),
+            },
         }
     }
 }
@@ -515,7 +545,8 @@ pub struct AdaptedLeaf {
 /// The step a `cut-point` leaf stopped before: its one successor, by a rule the request selected
 /// to stop before. The successor is normalized and defined, as every successor a step keeps, but
 /// the run did not take the step: no path commits it, so the rule is applied but not committed in
-/// the run's coverage ([`RunCoverage`]). A run resumed from the successor takes the step.
+/// the run's coverage ([`RunCoverage`]). A run to a later arrival at a stop takes the step there
+/// ([`ExecutionAdapter::execute_result_counted`]).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StopProposal {
     /// The successor the step would reach.
@@ -732,176 +763,6 @@ impl AdaptedExecution {
     }
 }
 
-/// The execution of a run made of several result runs of one definition (kink-campaign's
-/// counted stop: a run resumed at each stop before the last), joined into one
-/// [`AdaptedExecution`] that every reader of a single run reads unchanged: the bridge, the
-/// one-sided reading, coverage, the exclusions and the census.
-///
-/// The caller adds each request's execution in the order it ran ([`Self::push`]) with the leaves
-/// it keeps; a leaf it leaves out is one it resumed, whose subtree later requests hold, or one
-/// it dropped unresumed with the run incomplete. The joined execution:
-/// - holds the kept leaves in the order they were added, so a run whose last request ended at
-///   its work budget ends in that request's `work-bound` leaf, as a single bounded run does
-///   ([`crate::bridge::work_bound_stuck_terminals`]);
-/// - has timed out when any request did, or when the caller says the staged run's own time ran
-///   out before a request ([`Self::time_out`]); a timed-out run publishes no leaf, coverage, work
-///   or facts, as a single one;
-/// - counts the work and the stack stops of every request, and its undecided solver answers;
-/// - lists every distinct entry of each request's run-level lists once, in the order first met
-///   (each passed stop with the depth its own request reports);
-/// - has the union of the requests' coverage, with each rule a resumed step took
-///   ([`Self::take_step`]) also committed: the staged run takes a resumed cut point's step
-///   although no request committed it (the request that proposed it stopped before it, and the
-///   next one started after it), and the step's candidate was built, so it is applied;
-/// - is ground when its first request's initial state is.
-///
-/// With one request whose every leaf is kept and no step taken, the joined execution is that
-/// request's execution.
-#[derive(Clone, Debug, Default)]
-pub struct StagedExecution {
-    joined: Option<AdaptedExecution>,
-    taken: BTreeSet<String>,
-    timed_out: bool,
-}
-
-impl StagedExecution {
-    /// An empty staged run.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Adds the execution of the next request, keeping the leaves `keep` selects.
-    pub fn push(&mut self, part: AdaptedExecution, mut keep: impl FnMut(&AdaptedLeaf) -> bool) {
-        let AdaptedExecution {
-            leaves,
-            effects,
-            timed_out,
-            stack_stops,
-            modality,
-            work,
-            coverage,
-            facts,
-        } = part;
-        let leaves = leaves.into_iter().filter(|leaf| keep(leaf));
-        let Some(joined) = &mut self.joined else {
-            self.joined = Some(AdaptedExecution {
-                leaves: leaves.collect(),
-                effects,
-                timed_out,
-                stack_stops,
-                modality,
-                work,
-                coverage,
-                facts,
-            });
-            return;
-        };
-        joined.leaves.extend(leaves);
-        joined.effects.extend(effects);
-        joined.timed_out |= timed_out;
-        joined.stack_stops += stack_stops;
-        joined.work = joined.work.saturating_add(work);
-        joined.coverage = match (joined.coverage.take(), coverage) {
-            (Some(mut into), Some(from)) => {
-                into.applied.extend(from.applied);
-                into.matched.extend(from.matched);
-                into.applied_rewrites.extend(from.applied_rewrites);
-                into.committed.extend(from.committed);
-                Some(into)
-            }
-            // Only a timed-out request has no coverage, and it makes the joined run a timeout.
-            (into, from) => into.or(from),
-        };
-        joined.facts.join(facts);
-    }
-
-    /// Records that the staged run took the step of the rewrite rule `rule_id` (its `UNIQUE_ID`)
-    /// that a cut point proposed, by resuming from the step's successor.
-    pub fn take_step(&mut self, rule_id: &str) {
-        self.taken.insert(rule_id.to_owned());
-    }
-
-    /// Records that the staged run's own time ran out before its next request.
-    pub fn time_out(&mut self) {
-        self.timed_out = true;
-    }
-
-    /// The joined execution; `None` when no request was added.
-    #[must_use]
-    pub fn finish(self) -> Option<AdaptedExecution> {
-        let Self {
-            joined,
-            taken,
-            timed_out,
-        } = self;
-        let mut joined = joined?;
-        if timed_out || joined.timed_out {
-            joined.timed_out = true;
-            joined.leaves.clear();
-            joined.work = 0;
-            joined.coverage = None;
-            joined.facts = RunFacts::default();
-            return Some(joined);
-        }
-        if let Some(coverage) = &mut joined.coverage {
-            for rule in taken {
-                coverage.applied.insert(rule.clone());
-                coverage.applied_rewrites.insert(rule.clone());
-                coverage.committed.insert(rule);
-            }
-        }
-        Some(joined)
-    }
-}
-
-impl RunFacts {
-    /// Adds the facts of a later request of the same staged run ([`StagedExecution`]).
-    fn join(&mut self, other: Self) {
-        fn union<T: PartialEq>(into: &mut Vec<T>, from: Vec<T>) {
-            for entry in from {
-                if !into.contains(&entry) {
-                    into.push(entry);
-                }
-            }
-        }
-        let Self {
-            smt_unknowns,
-            decider_smt_unknowns,
-            implementation_chosen_values,
-            contradicted_claims,
-            allowance_refusals,
-            unsupported_hooks,
-            short_circuit_readings,
-            passed_stops,
-            ground: _,
-        } = other;
-        self.smt_unknowns = self.smt_unknowns.saturating_add(smt_unknowns);
-        self.decider_smt_unknowns = self
-            .decider_smt_unknowns
-            .saturating_add(decider_smt_unknowns);
-        union(
-            &mut self.implementation_chosen_values,
-            implementation_chosen_values,
-        );
-        union(&mut self.contradicted_claims, contradicted_claims);
-        union(&mut self.allowance_refusals, allowance_refusals);
-        union(&mut self.unsupported_hooks, unsupported_hooks);
-        self.short_circuit_readings =
-            match (self.short_circuit_readings.take(), short_circuit_readings) {
-                (Some(mut into), Some(from)) => {
-                    union(&mut into, from);
-                    Some(into)
-                }
-                // One backend runs every request of a staged run, so either every request lists
-                // them or none does; without a list the joined run has none, which no reader
-                // takes for an empty one.
-                _ => None,
-            };
-        union(&mut self.passed_stops, passed_stops);
-    }
-}
-
 impl StopRules {
     /// The names of `self` that select no rewrite rule of `backend`'s definition for its default
     /// module, in the order written (`before`'s, then `after`'s). A name selects a rule here when
@@ -960,7 +821,9 @@ pub enum ExecutionAdapterFailure {
 /// `Trivial`. Stop-at-branch is off, so no leaf stops at a branch. The cut-point and terminal
 /// rules are `requested.stop`'s ([`StopRules`]), none by default, so a leaf stops at a selected
 /// rule only where the caller asked for it; a request without a stop is the request before stop
-/// rules existed, field for field.
+/// rules existed, field for field. `stop_count` is the count past a first arrival at a stop
+/// ([`Requested::stop_count`]), absent otherwise, so a request whose paths end at their first
+/// arrival is the request before counts existed, field for field.
 ///
 /// The request is a full struct literal with no struct-update base (no defaults taken from
 /// `ExecuteRequest::new`), so a field k-rust adds at a later pin is a compile error that forces a
@@ -994,7 +857,8 @@ pub enum ExecutionAdapterFailure {
 /// Step timeouts stay off: a step deadline is host-dependent, which an Execute-promise run must
 /// not be (finding A-03).
 fn request(state: Pattern, budget: ExecutionBudget, requested: Requested<'_>) -> ExecuteRequest {
-    let Requested { run, stop } = requested;
+    let stop_count = requested.stop_count();
+    let Requested { run, stop, .. } = requested;
     ExecuteRequest {
         state,
         module_name: None,
@@ -1005,7 +869,7 @@ fn request(state: Pattern, budget: ExecutionBudget, requested: Requested<'_>) ->
         stop_at_branch: false,
         cut_point_rules: stop.before.clone(),
         terminal_rules: stop.after.clone(),
-        stop_count: None,
+        stop_count,
         step_timeout_ms: None,
         moving_average_timeout: false,
         assume_state_defined: false,
@@ -1044,7 +908,12 @@ fn request(state: Pattern, budget: ExecutionBudget, requested: Requested<'_>) ->
 /// [`ExecutionAdapter::execute_result_stopped`]), which the request sends as `cut_point_rules` and
 /// `terminal_rules`; their leaves are admitted exactly then and read as final configurations of
 /// the truncated system, and a run that passed a stop is excluded. A run without a stop sends the
-/// request of v2, field for field, and is adapted and judged as under v2.
+/// request of v2, field for field, and is adapted and judged as under v2. A result run may also
+/// end its paths at a later arrival at a stop than the first
+/// ([`ExecutionAdapter::execute_result_counted`]), which the request sends as `stop_count` and
+/// whose leaves must report their arrivals accordingly; only kink-campaign's counted stop asks for
+/// one, and its version (kink-campaign `STOP_VERSION` v2) names that change, since every request
+/// of v3 is sent and adapted as it was.
 pub const EXECUTION_REQUEST_VERSION: &str = "kink-native/execution-request/v3";
 
 /// The request of a stepped run: an observed path set without a work budget or stop rules.
@@ -1052,6 +921,50 @@ const STEPPED: Requested<'static> = Requested::unstopped(ResultRun {
     modality: ResultModality::PathSet,
     max_work: None,
 });
+
+/// The tables a result run reads from its backend's definition, built once per backend and
+/// kept for every later request to it ([`ExecutionAdapter::execute_result_counted`]): which sorts
+/// have values (a leaf's feasibility and the initial state's inhabitation, [`Inhabitation`]) and
+/// the `UNIQUE_ID`s of the rewrite rules (the rewrite rules among a run's coverage,
+/// [`RunCoverage::applied_rewrites`]). Both are functions of the definition alone, so building
+/// them per request would compute the same tables again; a request reads them, and nothing else
+/// of a request changes them.
+///
+/// A value holds the tables of the first backend it is used with, and must be used with that
+/// backend only: the caller that owns a backend owns its tables beside it. A new value builds them
+/// on its first request; a failure to build them is not kept.
+#[derive(Clone, Debug, Default)]
+pub struct DefinitionTables {
+    built: Option<BuiltTables>,
+}
+
+#[derive(Clone, Debug)]
+struct BuiltTables {
+    inhabitation: Inhabitation,
+    rewrites: BTreeSet<String>,
+}
+
+impl DefinitionTables {
+    /// No table built yet.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { built: None }
+    }
+
+    /// The tables of `backend`'s definition, built on the first call.
+    fn of(&mut self, backend: &mut Backend) -> Result<&BuiltTables, ExecutionAdapterFailure> {
+        if self.built.is_none() {
+            let built = with_definition(backend, |definition| {
+                Ok(BuiltTables {
+                    inhabitation: Inhabitation::of(definition),
+                    rewrites: rewrite_unique_ids(definition),
+                })
+            })?;
+            self.built = Some(built);
+        }
+        Ok(self.built.as_ref().expect("built above"))
+    }
+}
 
 /// Event-free and stepped execution in one expected solver profile.
 #[derive(Clone, Debug, PartialEq)]
@@ -1138,18 +1051,73 @@ impl ExecutionAdapter {
         run: ResultRun,
         stop: &StopRules,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
+        self.execute_result_counted(
+            backend,
+            &mut DefinitionTables::new(),
+            state,
+            budget,
+            run,
+            stop,
+            NonZeroU64::MIN,
+        )
+    }
+
+    /// [`Self::execute_result_stopped`] whose paths end at their `count`th arrival at a stop
+    /// instead of their first, reading the definition's tables from `tables`, which is filled on
+    /// the first request that needs it and must hold the tables of `backend`'s definition
+    /// ([`DefinitionTables`]).
+    ///
+    /// An *arrival* is a step at which a selected rule stops a path: the rule's step is its
+    /// state's one successor, and that successor is defined (k-rust `docs/compatibility.md`,
+    /// "Stop count"). A path takes each arrival before its `count`th as it takes any other step,
+    /// and ends at the `count`th as a path without a count ends at its first: before the step as
+    /// a `cut-point` leaf, after it as a `terminal` leaf. So the run is one request whose paths
+    /// are the paths of the system truncated at the `count`th arrival, from `state`: its depth
+    /// bound, work budget and watchdog bound each whole path and the whole run, its coverage is
+    /// the coverage of those paths (an earlier arrival's step is committed where the path takes
+    /// it), and its state set merges a state only into one whose path passed as many arrivals.
+    /// Each leaf reports its arrivals, and a leaf whose report the request cannot yield is a
+    /// [`ExecutionAdapterFailure::ContractViolation`]: a stop leaf must report `count`, any other
+    /// leaf fewer. With `count` 1 the request is [`Self::execute_result_stopped`]'s, field for
+    /// field.
+    ///
+    /// A backend that does not count arrivals (its `stop_count` capability off) cannot be asked
+    /// for a count past the first: it would end every path at its first arrival, which is another
+    /// observation, so the adapter answers [`ExecutionAdapterFailure::Backend`] and runs nothing.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one request's inputs: the backend and its tables, the start, the budget, the run, \
+                  the stop rules and their count, none of which belong to another"
+    )]
+    pub fn execute_result_counted(
+        &self,
+        backend: &mut Backend,
+        tables: &mut DefinitionTables,
+        state: &Pattern,
+        budget: ExecutionBudget,
+        run: ResultRun,
+        stop: &StopRules,
+        count: NonZeroU64,
+    ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         self.check_profile(backend)?;
-        stops_listed(stop, backend.capabilities())?;
-        let (inhabitation, rewrites) = with_definition(backend, |definition| {
-            let inhabitation = Inhabitation::of(definition);
-            match uninhabited_variable(definition, &inhabitation, state) {
-                Ok(None) => Ok((inhabitation, rewrite_unique_ids(definition))),
+        let requested = Requested { run, stop, count };
+        stops_listed(requested, backend.capabilities())?;
+        let built = tables.of(backend)?;
+        with_definition(backend, |definition| {
+            match uninhabited_variable(definition, &built.inhabitation, state) {
+                Ok(None) => Ok(()),
                 Ok(Some(variable)) => Err(ExecutionAdapterFailure::UninhabitedVariable(variable)),
                 Err(error) => Err(ExecutionAdapterFailure::InvalidState(error)),
             }
         })?;
-        let requested = Requested { run, stop };
-        self.result_once(backend, state, budget, requested, &inhabitation, &rewrites)
+        self.result_once(
+            backend,
+            state,
+            budget,
+            requested,
+            &built.inhabitation,
+            &built.rewrites,
+        )
     }
 
     fn result_once(
@@ -1376,7 +1344,9 @@ impl ExecutionAdapter {
             .zip(feasibility)
             .map(|(leaf, feasibility)| {
                 let halt = HaltClass::from_output(leaf.reason);
-                if !halt.admitted_by(budget, requested.run.max_work, requested.stop) {
+                if !halt.admitted_by(budget, requested.run.max_work, requested.stop)
+                    || !requested.admits_arrivals(halt, leaf.stops)
+                {
                     return Err(ExecutionAdapterFailure::ContractViolation(halt));
                 }
                 let proposal = StopProposal::of(halt, leaf.candidates.as_deref())?;
@@ -1469,17 +1439,23 @@ impl ExecutionAdapter {
 /// (`BackendCapabilities::passed_stops`): such a backend answers an empty list whether or not the
 /// run went on past a stop rule, so a run that passed one could not be told from one that passed
 /// none, and its leaves could be read as ends of the truncated system they need not be. A
-/// request without stop rules passes none, so it needs nothing.
+/// request without stop rules passes none, so it needs nothing. Refuses a count past the first
+/// arrival ([`Requested::stop_count`]) on a backend that does not count arrivals
+/// (`BackendCapabilities::stop_count`), which would end every path at its first.
 fn stops_listed(
-    stop: &StopRules,
+    requested: Requested<'_>,
     capabilities: BackendCapabilities,
 ) -> Result<(), ExecutionAdapterFailure> {
-    if stop.is_none() || capabilities.passed_stops {
-        Ok(())
-    } else {
+    if !requested.stop.is_none() && !capabilities.passed_stops {
         Err(ExecutionAdapterFailure::Backend(
             "a run with stop rules needs a backend that lists passed stops".to_owned(),
         ))
+    } else if requested.stop_count().is_some() && !capabilities.stop_count {
+        Err(ExecutionAdapterFailure::Backend(
+            "a run to a later stop than the first needs a backend that counts stops".to_owned(),
+        ))
+    } else {
+        Ok(())
     }
 }
 
@@ -2087,11 +2063,35 @@ mod tests {
                 before: vec!["before".to_owned()],
                 after: vec!["after".to_owned(), "MAIN.after".to_owned()],
             };
-            for (stop, before, after) in [
-                (&StopRules::NONE, Vec::new(), Vec::new()),
-                (&stop, stop.before.clone(), stop.after.clone()),
+            // A count is sent past the first arrival, and only with a stop rule: a request to
+            // the first arrival, or with no rule to arrive at, is the request before counts.
+            let three = NonZeroU64::new(3).unwrap();
+            for (stop, before, after, count, sent) in [
+                (
+                    &StopRules::NONE,
+                    Vec::new(),
+                    Vec::new(),
+                    NonZeroU64::MIN,
+                    None,
+                ),
+                (&StopRules::NONE, Vec::new(), Vec::new(), three, None),
+                (
+                    &stop,
+                    stop.before.clone(),
+                    stop.after.clone(),
+                    NonZeroU64::MIN,
+                    None,
+                ),
+                (
+                    &stop,
+                    stop.before.clone(),
+                    stop.after.clone(),
+                    three,
+                    Some(three),
+                ),
             ] {
-                let request = request(state.clone(), budget, Requested { run, stop });
+                let request = request(state.clone(), budget, Requested { run, stop, count });
+                assert_eq!(request.stop_count, sent);
                 assert_eq!(request.result_modality, run.modality.output());
                 assert_eq!(request.max_work, run.max_work);
                 assert!(request.collect_coverage);
@@ -2142,11 +2142,36 @@ mod tests {
             before: Vec::new(),
             after: vec!["next".to_owned()],
         };
-        assert_eq!(stops_listed(&StopRules::NONE, listing), Ok(()));
-        assert_eq!(stops_listed(&stop, listing), Ok(()));
-        assert_eq!(stops_listed(&StopRules::NONE, unlisting), Ok(()));
+        let requested = |stop, count| Requested {
+            run: ResultRun::default(),
+            stop,
+            count: NonZeroU64::new(count).unwrap(),
+        };
+        assert_eq!(stops_listed(requested(&NO_STOP_RULES, 1), listing), Ok(()));
+        assert_eq!(stops_listed(requested(&stop, 1), listing), Ok(()));
+        assert_eq!(
+            stops_listed(requested(&NO_STOP_RULES, 1), unlisting),
+            Ok(())
+        );
         assert!(matches!(
-            stops_listed(&stop, unlisting),
+            stops_listed(requested(&stop, 1), unlisting),
+            Err(ExecutionAdapterFailure::Backend(_))
+        ));
+        // A count past the first arrival needs a backend that counts arrivals, which the
+        // in-process backend does; to the first arrival, or without a rule, it needs nothing.
+        assert!(listing.stop_count);
+        let uncounting = BackendCapabilities {
+            stop_count: false,
+            ..listing
+        };
+        assert_eq!(stops_listed(requested(&stop, 3), listing), Ok(()));
+        assert_eq!(stops_listed(requested(&stop, 1), uncounting), Ok(()));
+        assert_eq!(
+            stops_listed(requested(&NO_STOP_RULES, 3), uncounting),
+            Ok(())
+        );
+        assert!(matches!(
+            stops_listed(requested(&stop, 3), uncounting),
             Err(ExecutionAdapterFailure::Backend(_))
         ));
         // With a listing backend the stopped run goes ahead.
@@ -2240,6 +2265,7 @@ mod tests {
                 Requested {
                     run: ResultRun::default(),
                     stop,
+                    count: NonZeroU64::MIN,
                 },
                 vec![LeafFeasibility::Syntactic],
                 &BTreeSet::new(),
@@ -2471,6 +2497,91 @@ mod tests {
                 exclusions.run_exclusion(&passed),
                 Some(Exclusion::PassedStop)
             );
+        }
+
+        // Counted, with both steps selected and one table for every request: after the second
+        // arrival the run ends at `c`, having committed both steps; before it, at `b`, proposing
+        // `c` by `b-c` and having committed `a-b`, whose arrival it took; past the arrivals, the
+        // run's own end. Each is one request, whose leaf reports its arrivals.
+        let mut tables = DefinitionTables::new();
+        let mut counted = |before: &[&str], after: &[&str], count: u64| {
+            let stop = StopRules {
+                before: before.iter().map(|name| (*name).to_owned()).collect(),
+                after: after.iter().map(|name| (*name).to_owned()).collect(),
+            };
+            adapter
+                .execute_result_counted(
+                    &mut backend,
+                    &mut tables,
+                    &constant("a"),
+                    budget,
+                    ResultRun::default(),
+                    &stop,
+                    NonZeroU64::new(count).unwrap(),
+                )
+                .expect("the run is adapted")
+        };
+        let both = ["a-b", "b-c"];
+        let second = counted(&[], &both, 2);
+        assert_eq!(
+            summary(&second),
+            [(HaltClass::TerminalRule, constant("c"), 2)]
+        );
+        assert_eq!(ends(&second), [constant("c")]);
+        let committed = &second.coverage().expect("coverage").committed;
+        assert!(committed.contains("id-a-b") && committed.contains("id-b-c"));
+        let cut = counted(&both, &[], 2);
+        assert_eq!(summary(&cut), [(HaltClass::CutPoint, constant("b"), 1)]);
+        assert_eq!(
+            cut.leaves()[0].proposal.as_ref().map(|p| &p.successor),
+            Some(&constant("c"))
+        );
+        let coverage = cut.coverage().expect("coverage");
+        assert!(coverage.committed.contains("id-a-b"));
+        assert!(!coverage.committed.contains("id-b-c"));
+        assert_eq!(ends(&cut), [constant("b")]);
+        for (before, after) in [(&both[..], &[][..]), (&[][..], &both[..])] {
+            let past = counted(before, after, 5);
+            assert_eq!(summary(&past), [(HaltClass::Stuck, constant("c"), 2)]);
+            assert_eq!(ends(&past), [constant("c")]);
+        }
+    }
+
+    /// A leaf's arrivals at a stop must be ones its request can yield: none reported without a
+    /// count; with one, a stop leaf at the count and any other leaf short of it. Otherwise a stop
+    /// leaf short of the count would be read as an end its path has not reached.
+    #[test]
+    fn a_leaf_reports_the_arrivals_its_request_counts() {
+        let stop = StopRules {
+            before: vec!["r".to_owned()],
+            after: Vec::new(),
+        };
+        let requested = |stop, count| Requested {
+            run: ResultRun::default(),
+            stop,
+            count: NonZeroU64::new(count).unwrap(),
+        };
+        for halt in [HaltClass::CutPoint, HaltClass::Stuck] {
+            for request in [requested(&NO_STOP_RULES, 3), requested(&stop, 1)] {
+                assert!(request.admits_arrivals(halt, None));
+                assert!(!request.admits_arrivals(halt, Some(1)));
+            }
+            assert!(!requested(&stop, 3).admits_arrivals(halt, None));
+        }
+        let three = requested(&stop, 3);
+        for (halt, admitted) in [
+            (HaltClass::CutPoint, [false, false, false, true, false]),
+            (HaltClass::TerminalRule, [false, false, false, true, false]),
+            (HaltClass::Stuck, [true, true, true, false, false]),
+            (HaltClass::DepthBound, [true, true, true, false, false]),
+        ] {
+            for (stops, admitted) in admitted.into_iter().enumerate() {
+                assert_eq!(
+                    three.admits_arrivals(halt, Some(stops as u64)),
+                    admitted,
+                    "{halt:?} {stops}"
+                );
+            }
         }
     }
 

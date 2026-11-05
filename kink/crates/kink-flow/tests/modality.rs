@@ -819,7 +819,7 @@ const CORPUS: [(&str, &[&str], Minimums); 31] = [
     // The free-running clock (no minimum: it is there for `tests/stop.rs`). Listed but not run
     // by a differential test: its definition never ends on its own, so its runs end only at its
     // `[stop]`, which this differential does not apply; kink-campaign `tests/stop.rs` checks that
-    // a state set and a path set of a staged run agree.
+    // a state set and a path set of a counted run agree.
     ("clock", &["FLOW.toml"], at_least(0, 0, 0, 0)),
     ("collections/cellmap", &["FLOW.toml"], at_least(6, 4, 2, 2)),
     ("collections/collenv", &["FLOW.toml"], at_least(9, 6, 2, 2)),

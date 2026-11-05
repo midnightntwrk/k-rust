@@ -150,11 +150,11 @@
 //! selected rule only where its step is the state's one successor, and lists the rules it went
 //! on past where the step had another; kink-native excludes such a run (`passed-stop`), so every
 //! verdict is a fact of the system in which any step of a rule of `R` is a stop event. The count
-//! is reached by resuming ([`Runtime::execute`]): each request ends every path at its first stop,
-//! so each request's stop leaves have count one relative to its start, and the stop leaves of
-//! stage `k` (deduplicated in a state set, each kept in a path set) are the starts of stage
-//! `k + 1`, until stage `N`, whose stop leaves are ends; the requests' own ends are ends at every
-//! stage. Each side resolves the stop's names on its own definition: a name must label a
+//! is k-rust's ([`Runtime::execute`]): a run to the `N`th stop event is one request, whose paths
+//! count their stop events, take each before the `N`th as any other step and end at the `N`th,
+//! so its stop leaves and its own ends are the truncated system's ends from the test's initial
+//! state, and its state set merges a state only into one whose path passed as many stop events.
+//! Each side resolves the stop's names on its own definition: a name must label a
 //! rewrite rule there, or the baseline's campaign is refused and a mutant is not admitted
 //! (`StopUnresolved`), never run without its stop, which would compare ends of two different
 //! observations.
@@ -170,8 +170,8 @@ use k_rust::kore::{
     walk,
 };
 use kink_native::bridge::{
-    BridgeContext, BridgeFailure, BridgedPaths, OpenApplication, diagnosed, discarded, leaf_keys,
-    open_applications, paths_from_execution_existing, tree_from_steps, validate_test_initial_state,
+    BridgeContext, BridgeFailure, BridgedPaths, OpenApplication, leaf_keys, open_applications,
+    paths_from_execution_existing, tree_from_steps, validate_test_initial_state,
     work_bound_stuck_terminals,
 };
 use kink_native::consistency::{CompiledEquations, MutantFailure, UnjoinedEquations};
@@ -179,9 +179,9 @@ use kink_native::coverage::{RuleAuthors, TestCoverage};
 use kink_native::data::{DataEnds, DataFacts, data_ends};
 use kink_native::exclusion::{DefinitionExclusions, Exclusion};
 use kink_native::execution::{
-    AdaptedExecution, AdaptedLeaf, ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget,
-    HaltClass, ResultModality, ResultRun, SolverProfile, StagedExecution, StepRunFailure,
-    SteppedExecution, StopRules,
+    AdaptedExecution, DefinitionTables, ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget,
+    HaltClass, ResultModality, ResultRun, SolverProfile, StepRunFailure, SteppedExecution,
+    StopRules,
 };
 use kink_native::feasibility::TestInitialState;
 use kink_native::representation::validate_representation;
@@ -362,11 +362,11 @@ pub struct TestEvidence {
     /// reads the terminals themselves), and not encoded in the campaign report.
     pub one_sided_ends: BTreeSet<Pattern>,
     /// The ends of [`Self::ends`] that some path of the run reached at its last stop ([`Stop`]):
-    /// a stop leaf of the run's last stage, a `cut-point` or `terminal` leaf, rather than a leaf
-    /// where the definition's own run ends. Evidence for a reader of where each end came from:
-    /// both kinds are ends of the truncated system and compared alike, and two paths can reach
-    /// one end each way. Empty for a run without a stop. Read by no comparison, fold, status or
-    /// score, and not encoded in the campaign report.
+    /// a stop leaf of the run, a `cut-point` or `terminal` leaf at its path's `N`th stop event,
+    /// rather than a leaf where the definition's own run ends. Evidence for a reader of where
+    /// each end came from: both kinds are ends of the truncated system and compared alike, and
+    /// two paths can reach one end each way. Empty for a run without a stop. Read by no
+    /// comparison, fold, status or score, and not encoded in the campaign report.
     pub stop_ends: BTreeSet<Pattern>,
     /// For each pattern slot (by its index in the test's oracles), the terms its relation
     /// decisions read ([`ReadTerms`]): the payloads, bound values and assumptions of every
@@ -576,15 +576,24 @@ impl RunOptions {
 }
 
 /// The version of kink's counted stop ([`Stop`]): how a result run with a stop is made of
-/// requests and joined ([`Runtime::execute`]: the stage starts, their deduplication and order,
-/// the work budget spent across stages, the one time budget, the coverage credit of a resumed
-/// step), how each side resolves the stop's names (by exact label of a rewrite rule; the
-/// baseline refused and a mutant not admitted otherwise), and that a stop leaf is compared as an
-/// end of the truncated system. A component of kink's semantics identity
+/// requests ([`Runtime::execute`]), how each side resolves the stop's names (by exact label of a
+/// rewrite rule; the baseline refused and a mutant not admitted otherwise), and that a stop leaf
+/// is compared as an end of the truncated system. A component of kink's semantics identity
 /// ([`crate::identity::KINK_IDENTITY`], key `stop`), so a store that honours a verdict made under
 /// another version misses or is refused. Bump it whenever any of these changes what a run with a
-/// stop returns; a run without a stop is outside all of it. v1: the first.
-pub const STOP_VERSION: &str = "kink-campaign/stop/v1";
+/// stop returns; a run without a stop is outside all of it. v1: the run to the `N`th stop event
+/// was staged, one request per stage start, each ending its paths at their first stop event,
+/// with `max_depth` bounding each request, the work budget spent across the requests in the order
+/// of their starts' patterns, and each resumed cut point's step credited to coverage. v2: the run
+/// is one request from the test's initial state, which k-rust ends at each path's `N`th stop
+/// event (kink-native `ExecutionAdapter::execute_result_counted`). Its ends, coverage and
+/// exclusions are those of the same truncated system and its work is the same count of expanded
+/// states, but `max_depth` now bounds each path from the initial state, as in a run without a
+/// stop, a work budget reaches the states of k-rust's one exploration of the run (depth first)
+/// rather than the stages' starts in the order of their patterns, and a leaf's depth is its
+/// path's from the initial state; so a run that a bound stops, and the depths a census reports,
+/// can differ from v1's.
+pub const STOP_VERSION: &str = "kink-campaign/stop/v2";
 
 /// Where a campaign's result runs end besides their own end (the observer's choice for a
 /// definition that never terminates): rewrite rules named by exact K label, to stop before
@@ -604,6 +613,9 @@ pub const STOP_VERSION: &str = "kink-campaign/stop/v1";
 /// relative to.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub struct Stop(Option<&'static CountedStop>);
+
+/// No stop rule, the rules of a run without a stop ([`Stop::execute_result`]).
+static NO_STOP: StopRules = StopRules::NONE;
 
 /// The rules and counts of a [`Stop`] that names a rule.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -692,14 +704,14 @@ impl Stop {
     }
 
     /// The result run of the test `test_id` from `initial`, as a campaign makes it
-    /// ([`RunOptions::stop`]): without a stop, `adapter`'s one request; with one, the staged run
-    /// that ends each path at its `N`th stop event, `N` the test's count ([`Self::of_test`]), by
-    /// resuming (see the module documentation). For a caller that runs a test again outside a
-    /// campaign, such as a diagnostic run, so that it runs the request the campaign ran.
+    /// ([`RunOptions::stop`]): `adapter`'s one request, which with a stop ends each path at its
+    /// `N`th stop event, `N` the test's count ([`Self::of_test`]; see the module documentation).
+    /// For a caller that runs a test again outside a campaign, such as a diagnostic run, so that
+    /// it runs the request the campaign ran.
     ///
     /// # Errors
     ///
-    /// The adapter's failure of any request of the run.
+    /// The adapter's failure of the request.
     pub fn execute_result(
         self,
         adapter: &ExecutionAdapter,
@@ -709,12 +721,38 @@ impl Stop {
         budget: ExecutionBudget,
         run: ResultRun,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
-        match self.of_test(test_id) {
-            None => adapter.execute_result(backend, initial, budget, run),
-            Some((rules, count)) => {
-                staged_result_run(adapter, backend, initial, budget, run, rules, count)
-            }
-        }
+        self.execute_result_with(
+            adapter,
+            backend,
+            &mut DefinitionTables::new(),
+            test_id,
+            initial,
+            budget,
+            run,
+        )
+    }
+
+    /// [`Self::execute_result`] reading `backend`'s definition tables from `tables`, which the
+    /// caller keeps beside `backend` for all its runs ([`DefinitionTables`]).
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Self::execute_result's inputs and the backend's tables, which belong beside the \
+                  backend and not in any of the others"
+    )]
+    fn execute_result_with(
+        self,
+        adapter: &ExecutionAdapter,
+        backend: &mut Backend,
+        tables: &mut DefinitionTables,
+        test_id: &str,
+        initial: &Pattern,
+        budget: ExecutionBudget,
+        run: ResultRun,
+    ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
+        let (rules, count) = self
+            .of_test(test_id)
+            .unwrap_or((&NO_STOP, std::num::NonZeroU64::MIN));
+        adapter.execute_result_counted(backend, tables, initial, budget, run, rules, count)
     }
 
     /// The stop as a JSON object, `{before, after, count}`, with `counts` (`{test_id: count}`)
@@ -753,14 +791,13 @@ impl Stop {
 /// admits runs with such a leaf that v1 refused. v3: a slot projecting the configuration without
 /// its uncompared cells ([`StateProjection::Cells`]), which is defined on every configuration,
 /// distinguishes one-sidedly as the whole term does. v4: a run with a stop ([`Stop`]) gives
-/// one-sided evidence across its stages. A clean ground stop leaf of the last stage is final in
-/// the truncated system by a fact of its own path (its last step is a stop event, or its one
-/// successor is by a rule it stops before, decided without a diagnostic), and that path passes
-/// only through stage starts that are stop leaves of finished earlier requests, so it is a final
-/// configuration of every completion of the run, as a clean ground stuck leaf is; the starts the
-/// work budget left unresumed are dropped as the bounded request's pending states are. The rule
-/// reads the joined run of every stage ([`staged_result_run`]), whose only incompleteness must be
-/// its last, `work-bound` leaf.
+/// one-sided evidence. A clean ground stop leaf is final in the truncated system by a fact of its
+/// own path (its last step is its `N`th stop event, or its one successor is by a rule it stops
+/// before at its `N`th, decided without a diagnostic; the earlier stop events are steps of that
+/// path), so it is a final configuration of every completion of the run, as a clean ground stuck
+/// leaf is. (Under [`STOP_VERSION`] v1 the run was staged, and the rule read the joined run of
+/// every stage, whose path to such a leaf passed only through stage starts that were stop leaves
+/// of finished earlier requests; under v2 it is one request, and the rule reads it as any run.)
 pub const ONE_SIDED_VERSION: &str = "kink-campaign/one-sided/v4";
 
 /// The one-sided early kill (re-pin L1-2: decision 6, finding A-15). Off by default: a state slot
@@ -3308,6 +3345,9 @@ struct Runtime {
     digest: Sha256Digest,
     backend: Backend,
     adapter: ExecutionAdapter,
+    /// The tables `backend`'s result runs read from its definition, built on the first
+    /// ([`DefinitionTables`]): a function of the definition, so one per backend.
+    tables: DefinitionTables,
     context: EvaluationContext,
     /// The definition's facts once computed ([`Runtime::facts`]; a refusal is not kept).
     facts: Option<DefinitionFacts>,
@@ -3448,6 +3488,7 @@ impl Runtime {
             digest: side.kore_sha256(),
             backend,
             adapter,
+            tables: DefinitionTables::new(),
             context,
             facts: None,
             coverage: None,
@@ -3529,8 +3570,9 @@ impl Runtime {
     /// sides of such a test are path sets; any other test runs as a result run in this side's
     /// modality, which is the campaign's, whatever its leaves ([`RunOptions::result_modality`]).
     /// `max_work` bounds result runs only, never a stepped run ([`WorkBudget`]). A result run
-    /// with a stop ([`RunOptions::stop`]) is the staged run of the test's count
-    /// ([`staged_result_run`]); one without is the one request it was before stops existed.
+    /// with a stop ([`RunOptions::stop`]) is one request to the test's count
+    /// ([`Stop::execute_result`]); one without is the request it was before stops existed. Every
+    /// result run reads the side's definition tables, built on its first.
     fn execute(
         &mut self,
         campaign: &Campaign<'_>,
@@ -3557,14 +3599,17 @@ impl Runtime {
                 }
                 Ok(Err(failure)) => {
                     pattern_failure = step_failure_side(&failure);
-                    self.adapter.execute_result(
+                    self.adapter.execute_result_counted(
                         &mut self.backend,
+                        &mut self.tables,
                         &test.initial_state,
                         campaign.budget,
                         ResultRun {
                             modality: ResultModality::PathSet,
                             max_work,
                         },
+                        &NO_STOP,
+                        std::num::NonZeroU64::MIN,
                     )
                 }
                 Err(failure) => Err(failure),
@@ -3574,9 +3619,10 @@ impl Runtime {
                 modality: self.modality,
                 max_work,
             };
-            self.stop.execute_result(
+            self.stop.execute_result_with(
                 &self.adapter,
                 &mut self.backend,
+                &mut self.tables,
                 &test.id,
                 &test.initial_state,
                 campaign.budget,
@@ -4048,139 +4094,6 @@ impl Runtime {
         .unwrap_or_else(|_| (Ok(refused()), 0, true));
         // A stack stop the judgement met ([`judgement`]) marks it unjudged too.
         (judged, smt_unknowns, refused_judgement || stack_stopped)
-    }
-}
-
-/// The result run of `initial` under the stop `rules` with count `count` (see the module
-/// documentation and [`Runtime::execute`]), as one [`AdaptedExecution`] ([`StagedExecution`]).
-///
-/// Stage 1 is one request from `initial`. Every request ends each of its paths at its first stop,
-/// so every stop leaf of a request is one stop event past its start, and k-rust's merges within
-/// a request never join states of different counts (no count is part of a merge key, and every
-/// state of one request has the same count up to its first stop). The stop leaves of stage `k`
-/// are the starts of stage `k + 1`: an after-stop leaf's state, or the successor a cut-point leaf
-/// proposes (the staged run takes that step, so its rule is credited as committed,
-/// [`StagedExecution::take_step`]). In a state set, equal starts are one start: exact pattern
-/// equality is finer than any merge k-rust makes, and the leaves of one start's request are the
-/// same whichever leaf it came from. A path set keeps one start per leaf, one leaf per path. The
-/// starts of a stage run in the total order of their patterns, so the run is a function of its
-/// request, whatever order the leaves came in. The stop leaves of stage `count` are ends, as is
-/// every own end (stuck, undefined step) of any stage; a bound, a diagnosed stop leaf or an
-/// exclusion of any stage keeps the run incomplete, read by the bridge from the joined leaves as
-/// from a single run's. A stop leaf with no instance (refuted, [`discarded`]) or with a diagnostic
-/// is kept as it is and never resumed: the bridge drops the first and reads the second as an
-/// incomplete path, as it would in a single run.
-///
-/// The bounds:
-/// - `max_depth` and `max_breadth` bound each request (a depth between consecutive stops), a
-///   choice that is sound for any budget and that does not depend on which merged path a start
-///   came from;
-/// - `run.max_work` bounds the whole run: each request gets what the earlier ones left. A request
-///   that ends at its budget ends the run: its `work-bound` leaf is the joined run's last leaf,
-///   and every start not yet resumed, its own stop leaves among them, is dropped with the
-///   request's pending states, as one bounded request drops them. With a budget equal to an
-///   unbounded staged run's work, every request has the work it needs (k-rust stops a run only
-///   when a state remains past the budget);
-/// - `budget.time` bounds the whole run, as one watchdog: each request's watchdog gets the time
-///   the run has left, and a run with no time left before a request has timed out.
-fn staged_result_run(
-    adapter: &ExecutionAdapter,
-    backend: &mut Backend,
-    initial: &Pattern,
-    budget: ExecutionBudget,
-    run: ResultRun,
-    rules: &StopRules,
-    count: std::num::NonZeroU64,
-) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
-    let started = Instant::now();
-    let mut staged = StagedExecution::new();
-    let mut spent = 0_u64;
-    let mut starts = vec![(initial.clone(), BTreeSet::<String>::new())];
-    let mut stage = 1_u64;
-    'stages: loop {
-        let last = stage == count.get();
-        let mut next = Vec::<(Pattern, BTreeSet<String>)>::new();
-        for (start, taken) in starts {
-            let time = if stage == 1 {
-                budget.time
-            } else {
-                match budget.time.checked_sub(started.elapsed()) {
-                    Some(time) if !time.is_zero() => time,
-                    _ => {
-                        staged.time_out();
-                        break 'stages;
-                    }
-                }
-            };
-            let part = adapter.execute_result_stopped(
-                backend,
-                &start,
-                ExecutionBudget { time, ..budget },
-                ResultRun {
-                    modality: run.modality,
-                    max_work: run.max_work.map(|limit| limit.saturating_sub(spent)),
-                },
-                rules,
-            )?;
-            for rule in &taken {
-                staged.take_step(rule);
-            }
-            spent = spent.saturating_add(part.work());
-            let ended = part.timed_out()
-                || part
-                    .leaves()
-                    .iter()
-                    .any(|leaf| leaf.halt == HaltClass::WorkBound);
-            staged.push(part, |leaf| {
-                let Some(resumed) = stage_start(leaf).filter(|_| !last) else {
-                    return true;
-                };
-                if !ended {
-                    next.push(resumed);
-                }
-                false
-            });
-            if ended {
-                break 'stages;
-            }
-        }
-        if last || next.is_empty() {
-            break;
-        }
-        next.sort();
-        if run.modality == ResultModality::StateSet {
-            next.dedup_by(|later, earlier| {
-                if later.0 == earlier.0 {
-                    earlier.1.append(&mut later.1);
-                    true
-                } else {
-                    false
-                }
-            });
-        }
-        starts = next;
-        stage += 1;
-    }
-    Ok(staged
-        .finish()
-        .expect("stage 1 always runs its one request"))
-}
-
-/// The start of the next stage that the stop leaf `leaf` gives, with the rule of the step the
-/// staged run takes to reach it (a cut point's): an after-stop (`terminal`) leaf's state, or the
-/// successor a cut-point leaf proposes. `None` for every other leaf, and for a stop leaf with no
-/// instance or with a diagnostic, which stays a leaf of the run ([`staged_result_run`]).
-fn stage_start(leaf: &AdaptedLeaf) -> Option<(Pattern, BTreeSet<String>)> {
-    if discarded(leaf).is_some() || diagnosed(leaf) {
-        return None;
-    }
-    match (leaf.halt, &leaf.proposal) {
-        (HaltClass::TerminalRule, _) => Some((leaf.branch.state.clone(), BTreeSet::new())),
-        (HaltClass::CutPoint, Some(proposal)) => Some((
-            proposal.successor.clone(),
-            BTreeSet::from([proposal.rule_id.clone()]),
-        )),
-        _ => None,
     }
 }
 

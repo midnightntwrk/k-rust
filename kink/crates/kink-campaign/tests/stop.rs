@@ -1,7 +1,8 @@
 //! The counted stop (`RunOptions::stop`): a campaign over a definition that never terminates ends
-//! its result runs at named rewrite rules, at the `N`th stop event of a path, by resuming each
-//! request's stop leaves (`testdata/k/clock.k`, a free-running clock whose `frame` step comes
-//! every fourth step, and whose negative counts reach each next frame two ways).
+//! its result runs at named rewrite rules, at the `N`th stop event of a path, in one request to
+//! k-rust, which counts each path's stop events (`testdata/k/clock.k`, a free-running clock whose
+//! `frame` step comes every fourth step, and whose negative counts reach each next frame two
+//! ways).
 //!
 //! Every verdict here is relative to the stop: a kill says that the ends of the truncated system
 //! (each path cut at its `N`th stop event, or at its own end) differ.
@@ -70,8 +71,9 @@ fn test(id: &str) -> TestCase {
 /// passing run.
 const NO_CLOCK: Duration = Duration::from_secs(600);
 
-/// Each request's depth bound: a path that never reaches its next stop (a mutant whose frame
-/// step has a sibling runs past every frame) ends here instead of at the clock.
+/// Each path's depth bound, from its test's initial state: a path that never reaches its last
+/// stop (a mutant whose frame step has a sibling runs past every frame) ends here instead of at
+/// the clock.
 const MAX_DEPTH: u64 = 64;
 
 fn campaign<'a>(validator: &'a NativeValidator, tests: &'a [TestCase]) -> Campaign<'a> {
@@ -363,8 +365,8 @@ fn halted(n: i64) -> Pattern {
     )
 }
 
-/// The stop is reached by resuming: after the `N`th frame the clock is at `4N` and phase 0;
-/// before it, at `4N - 1` and phase 3, the `N - 1` earlier frames taken. A test's own count
+/// The stop is the `N`th frame: after it the clock is at `4N` and phase 0; before it, at `4N - 1`
+/// and phase 3, the `N - 1` earlier frames taken. A test's own count
 /// overrides the campaign's for that test only.
 #[test]
 fn a_counted_stop_ends_each_run_at_its_nth_frame() {
@@ -388,6 +390,54 @@ fn a_counted_stop_ends_each_run_at_its_nth_frame() {
         let stop = after_frame(1).with_test_count("three", count(3));
         let run = run(&campaign, &generation, options(stop));
         assert_eq!(baseline_ends(&run), [vec![clock(4, 0)], vec![clock(12, 0)]]);
+    });
+}
+
+/// A run to the `N`th frame is one request from the test's initial state: its stop leaf's depth
+/// is its whole path's, `4N` steps after the `N`th frame and `4N - 1` before it (run as one
+/// request per frame, each from the stop before it, the leaf would be at depth 4 or 3). Its work
+/// is the `4N` states the path expands, as many as such requests would expand together.
+#[test]
+fn a_counted_run_is_one_request_from_the_initial_state() {
+    on_a_big_stack(|| {
+        let validator = validator();
+        let tests = [test("clock")];
+        let campaign = campaign(&validator, &tests);
+        let generation = faster_tick(validator.baseline());
+        for (stop, depth) in [
+            (after_frame(1), 4),
+            (after_frame(3), 12),
+            (before_frame(1), 3),
+            (before_frame(3), 11),
+        ] {
+            let mut session = BaselineSession::new(&validator);
+            run_campaign_multi_with(
+                &campaign,
+                std::slice::from_ref(&generation),
+                &CampaignOptions {
+                    schedule: ScheduleMode::Full,
+                    selection: Sel::None,
+                    share_evidence: true,
+                    run: options(stop),
+                    compile_workers: 1,
+                },
+                &mut session,
+            )
+            .unwrap();
+            let census = &session
+                .last_call()
+                .baseline_of("clock")
+                .expect("the baseline's run")
+                .run
+                .census;
+            assert_eq!(census.total(), 1, "{stop:?}");
+            assert_eq!(census.deepest, Some(depth), "{stop:?}");
+            assert_eq!(
+                census.work,
+                Some(4 * stop.count().unwrap().get()),
+                "{stop:?}"
+            );
+        }
     });
 }
 
@@ -468,20 +518,23 @@ fn a_stop_rule_turned_into_a_choice_is_unknown() {
     });
 }
 
-/// warp's -1 becomes 0: the first step branches into tick's way (the baseline's ends) and warp's
-/// (`clock(100, 3)`, whose frames end it at 101 and then 105). Stopping after the second frame,
-/// both runs are complete without a work budget and the mutant is killed two-sidedly.
+/// warp's -1 becomes 0: from `clock(0, 0)` the first step branches into tick's way (the
+/// baseline's ends) and warp's (`clock(100, 3)`, whose frames end it at 101 and then 105).
+/// Stopping after the second frame, both runs are complete without a work budget and the mutant
+/// is killed two-sidedly.
 ///
-/// Under a work budget of the baseline's work plus 2 states, stage 1 (both branches to their
-/// first frame) costs one state more than the baseline's, and stage 2 resumes its starts in the
-/// order of their patterns: `clock(101, 0)` before `clock(4, 0)` (the Int `"101"` sorts before
-/// `"4"`). The first reaches `clock(105, 0)`, and the second ends at the budget. The mutant's run
-/// is work-bound, so its side is unknown, but its explored stage-2 stop leaf is a final
-/// configuration of every completion of the run, outside the baseline's ends: a one-sided kill.
-/// With no state over the baseline's work the budget ends stage 2's first request too, and the
-/// mutant is unknown; with five or more, the run completes.
+/// The run is one request, which k-rust explores depth first, a state's successors in the order
+/// of its rules: from `clock(0, 5)`, where warp's step and skip's are its two successors, warp's
+/// way comes first and ends at `clock(105, 0)` in 6 states, and skip's way, the baseline's (10
+/// states with the start), comes second. Under a work budget of the baseline's work plus at most
+/// 4 states the mutant's run ends at the budget on skip's way, so its side is unknown, but its
+/// stop leaf `clock(105, 0)` is a final configuration of every completion of the run, outside
+/// the baseline's ends: a one-sided kill. From `clock(0, 0)` tick's way comes first, so the one
+/// end the bounded run finished is the baseline's own `clock(8, 0)`, which distinguishes
+/// nothing: the mutant is unknown there. With 5 states or more over the baseline's work, both
+/// runs complete.
 #[test]
-fn a_work_bound_mutant_is_killed_one_sidedly_at_its_last_stage() {
+fn a_work_bound_mutant_is_killed_one_sidedly_at_its_last_stop() {
     on_a_big_stack(|| {
         let validator = validator();
         let tests = [test("clock")];
@@ -495,7 +548,12 @@ fn a_work_bound_mutant_is_killed_one_sidedly_at_its_last_stage() {
             one_sided: OneSided::NoCrashClassifier,
             ..options(after_frame(2))
         };
-        let bounded = run(&campaign, &generation, budget(2));
+        let five = [TestCase {
+            initial_state: clock(0, 5),
+            ..test("five")
+        }];
+        let from_five = self::campaign(&validator, &five);
+        let bounded = run(&from_five, &generation, budget(2));
         let mutant = &bounded.mutants[0];
         assert_eq!(mutant.report.status, MutantStatus::Killed);
         assert_eq!(
@@ -512,9 +570,19 @@ fn a_work_bound_mutant_is_killed_one_sidedly_at_its_last_stage() {
             mutant.evidence[0].one_sided_ends.iter().collect::<Vec<_>>(),
             [&clock(105, 0)]
         );
-        let tight = run(&campaign, &generation, budget(0));
-        assert_eq!(tight.mutants[0].report.status, MutantStatus::Unknown);
-        assert!(tight.mutants[0].evidence[0].one_sided_ends.is_empty());
+        let baseline_first = run(&campaign, &generation, budget(2));
+        let mutant = &baseline_first.mutants[0];
+        assert_eq!(mutant.report.status, MutantStatus::Unknown);
+        assert_eq!(
+            mutant.evidence[0].one_sided_ends.iter().collect::<Vec<_>>(),
+            [&clock(8, 0)]
+        );
+        for campaign in [&from_five, &campaign] {
+            let complete = run(campaign, &generation, budget(5));
+            let mutant = &complete.mutants[0];
+            assert_eq!(mutant.report.status, MutantStatus::Killed);
+            assert!(mutant.evidence[0].one_sided_ends.is_empty());
+        }
     });
 }
 
@@ -700,13 +768,13 @@ mod kink_tier {
         });
     }
 
-    /// A state set and a path set of the same staged run have the same ends, and give the same
+    /// A state set and a path set of the same counted run have the same ends, and give the same
     /// verdicts, at one stop and at three (the warp mutant's run branches, and k-rust merges the
-    /// state set's equal leaves within a request; equal starts of one stage are
-    /// `a_state_set_resumes_equal_starts_once`'s).
+    /// state set's equal leaves; equal states of one count are
+    /// `a_state_set_merges_equal_states_of_one_count`'s).
     #[test]
     #[ignore = "kink"]
-    fn a_state_set_and_a_path_set_of_a_staged_run_agree() {
+    fn a_state_set_and_a_path_set_of_a_counted_run_agree() {
         on_a_big_stack(|| {
             let validator = validator();
             let tests = [test("clock")];
@@ -738,11 +806,11 @@ mod kink_tier {
     }
 
     /// A stop before frame proposes frame's step without taking it, so the first frame has not
-    /// fired when the run stops before it; resumed at that stop to reach the second, the run takes
+    /// fired when the run stops before it; running on to stop before the second, the run takes
     /// the first frame's step, and frame has fired, as it has after the first frame.
     #[test]
     #[ignore = "kink"]
-    fn a_resumed_cut_point_fires_its_rule() {
+    fn an_earlier_cut_point_arrival_fires_its_rule() {
         on_a_big_stack(|| {
             let validator = validator();
             let tests = [test("clock")];
@@ -767,16 +835,15 @@ mod kink_tier {
 
     /// From `clock(-16, 0)`, `split` branches off each frame's first tick, so each frame is
     /// reached two ways: by ticks to phase 3, where `frame` steps, and by `split` to phase 5,
-    /// where `skip` steps, both to the same next state. Stopping before either rule, a request
-    /// ends at two cut points of different states (`clock(-13, 3)` and `clock(-13, 5)`), whose
-    /// proposals are one state, `clock(-12, 0)`. A state set resumes it once, crediting both
-    /// rules (each start's taken step is credited when it is resumed, so the one start carries
-    /// both): its second and last stage is one request, with two stop leaves. A path set resumes
-    /// it once per leaf: two requests, four leaves. Both have the same ends, and in both every
-    /// rule whose step the staged run took has fired, though no request took either.
+    /// where `skip` steps, both to the same next state. Stopping before the second step of
+    /// either rule, both ways arrive at their first stop (`clock(-13, 3)` and `clock(-13, 5)`),
+    /// take its step to one state, `clock(-12, 0)`, at the same count and depth, and go on. A
+    /// state set merges the two into one state and explores it once: two stop leaves. A path set
+    /// follows each way: four leaves. Both have the same ends, and in both the rules of the steps
+    /// taken at the first arrivals have fired.
     #[test]
     #[ignore = "kink"]
-    fn a_state_set_resumes_equal_starts_once() {
+    fn a_state_set_merges_equal_states_of_one_count() {
         on_a_big_stack(|| {
             let validator = validator();
             let tests = [TestCase {
@@ -840,18 +907,19 @@ mod kink_tier {
         });
     }
 
-    /// The time budget bounds the whole staged run, as one watchdog: each request has the time the
-    /// run has left. A stop at the millionth frame is a million requests of four steps each,
-    /// which a second does not reach, so the baseline's run times out (and a baseline without
-    /// evidence refuses the campaign); with a second per request it would end at its stop.
+    /// The time budget bounds the whole counted run, as one watchdog. A stop at the millionth
+    /// frame is four million steps, which a second does not reach, so the baseline's run times
+    /// out (and a baseline without evidence refuses the campaign). The run has no depth bound
+    /// here: a depth bound bounds the whole path, so [`MAX_DEPTH`] would end it first.
     #[test]
     #[ignore = "kink"]
-    fn the_time_budget_bounds_the_whole_staged_run() {
+    fn the_time_budget_bounds_the_whole_counted_run() {
         on_a_big_stack(|| {
             let validator = validator();
             let tests = [test("clock")];
             let mut campaign = campaign(&validator, &tests);
             campaign.budget.time = Duration::from_secs(1);
+            campaign.budget.max_depth = None;
             let generation = faster_tick(validator.baseline());
             let mut session = BaselineSession::new(&validator);
             let failure = run_campaign_multi_with(

@@ -31,9 +31,10 @@
 //! so they are not fired. Nor is the step a `cut-point` leaf proposes (a run that stops before a
 //! rule, [`crate::execution::StopRules`]): the step built its successor, so its rule is applied,
 //! but the run stopped before taking it, so k-rust does not commit it and no path of the run
-//! takes it ([`crate::execution::StopProposal`]); a run resumed from the successor takes it and
-//! commits it there. kink-flow's `fired_by` reads them; they are not part of the canonical value
-//! ([`TestCoverage::value`]), which schedules read, so [`COVERAGE_DOMAIN`] did not move.
+//! takes it ([`crate::execution::StopProposal`]); a run whose count of stop events is past that
+//! arrival takes the step and commits it. kink-flow's `fired_by` reads them; they are not part of
+//! the canonical value ([`TestCoverage::value`]), which schedules read, so [`COVERAGE_DOMAIN`] did
+//! not move.
 //!
 //! Both cover every state the run explored, the states a state-set result merges away included.
 //!
@@ -43,12 +44,13 @@
 //! a path at every step of a selected rule (see [`crate::bridge`]): a clean `cut-point` or
 //! `terminal` leaf has no successor there, as a stuck leaf has none in the definition's own
 //! system, so it leaves its run complete as a stuck leaf does, and the coverage of such a run is
-//! the coverage of that truncated system. A run that resumes from a stop leaf is another run; a
-//! staged run is complete only when every one of its runs is and none of its stop leaves is left
-//! to resume. Before stop rules every stop leaf was refused by the adapter, so no coverage value
-//! computed under [`COVERAGE_DOMAIN`] `kink/coverage/v4` held one, and admitting them changes
-//! none of those values: the domain did not move, and a stopped run is told from an unstopped
-//! one by its request (`kink-native/execution-request/v3`).
+//! the coverage of that truncated system. A run to a later arrival at a stop than the first is a
+//! run of the system truncated at that arrival, whose earlier arrivals are steps of its paths that
+//! the run commits, so its coverage is that system's. Before stop rules every stop leaf was
+//! refused by the adapter, so no coverage value computed under [`COVERAGE_DOMAIN`]
+//! `kink/coverage/v4` held one, and admitting them changes none of those values: the domain did
+//! not move, and a stopped run is told from an unstopped one by its request
+//! (`kink-native/execution-request/v3`).
 //! Before L2-1 (`kink/coverage/v1`) the rule ids were the rewrite rules among `applied` only, so
 //! an equation edit was never covered (ticket CS-T09), and an execution without run coverage was
 //! read from its leaves' branch identities and traces. Such an execution (only a hand-built

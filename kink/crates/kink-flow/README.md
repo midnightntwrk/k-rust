@@ -228,8 +228,9 @@ Each name must label a rewrite rule of the specification, or the specification i
 A backend that cannot list the specification's rules refuses it at stage `stop` with reason `backend-error` instead, since the names were never checked.
 A mutant on which a name labels no rewrite rule (the edit deleted the rule, or made it an equation) is `not-admitted`, reason `stop-unresolved`: the observation the stop states is not defined on it, and running it without the stop would compare ends of two different observations.
 
-kink reaches the count by resuming (kink-campaign `Stop`): each request ends every path at its first stop, and the stop leaves of one stage start the next.
-A stop leaf is an end of the truncated system by a fact of its own path, so it completes a path as a stuck leaf does, and a work-bound mutant run can kill one-sidedly at a stop leaf of its last stage (root README, "What a kill trusts").
+kink runs a program to its count in one request (kink-campaign `Stop`): k-rust counts each path's stop events and ends the path at its `count`th, taking each earlier one as any other step.
+`budget.max_depth` bounds the whole path from the program's initial configuration, as without `[stop]`, so it must cover every step up to the last stop, not only those between two stops.
+A stop leaf is an end of the truncated system by a fact of its own path, so it completes a path as a stuck leaf does, and a work-bound mutant run can kill one-sidedly at a stop leaf (root README, "What a kill trusts").
 A step of a named rule that has another successor stops nothing in k-rust; a run that went on past one is excluded (`passed-stop`), so every verdict is a fact of the system in which every step of a named rule is a stop event.
 A mutant that never reaches its last stop meets `max_depth`, a work budget or `time_ms`, so its program is `unknown` or `timeout` for it (a one-sided kill still possible); one that ends on its own first has another end.
 
