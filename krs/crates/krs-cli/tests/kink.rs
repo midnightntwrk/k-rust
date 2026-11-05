@@ -1649,7 +1649,7 @@ fn results_give_a_claim_helper_its_own_status() {
         document["summary"]
     );
     assert_eq!(document["summary"]["uncovered"], count("uncovered"));
-    assert_eq!(document["version"], 8);
+    assert_eq!(document["version"], 9);
 }
 
 /// A false `total` claim of a KRS function, observed by a run, is a specification diagnostic

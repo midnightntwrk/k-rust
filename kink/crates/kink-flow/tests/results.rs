@@ -996,8 +996,8 @@ text = 'h(opaque(1), 2)'
         assert!(document["rules"][2]["reason"].is_null());
         // KINK-R4 fix round (review N7): 3, since `fired_by`'s meaning changed; 5 adds `result`;
         // 6 (CF-03) takes the short-circuit reading out of `spec.exclusion`; 8 (CF-45) gives an
-        // unmatched claim helper its own status.
-        assert_eq!(document["version"], 8);
+        // unmatched claim helper its own status; 9 adds a stopped corpus's `stop` and ends' `halt`.
+        assert_eq!(document["version"], 9);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());
@@ -1105,7 +1105,7 @@ text = 'h(opaque(1), 2)'
             json!({"programs": 2, "comparable": 2, "computed": 2, "rules": 6, "uncovered": 0,
                    "covered": 4, "claim_helper": 2, "no_coverage_signal": 0, "mismatches": 0})
         );
-        assert_eq!(document["version"], 8);
+        assert_eq!(document["version"], 9);
     }
 
     #[test]
@@ -1512,7 +1512,7 @@ endmodule
             // digest and the bounds a stored class depends on, and no host-dependent class is
             // stored. v11 (CF-03), because a record holds the readings that excluded its run. v12
             // (v12), because a record holds each end once, as KORE text.
-            assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v12");
+            assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v13");
             record["key"]["schema_version"] = json!("kink-flow/result/v1");
             fs::write(&path, record.to_string()).unwrap();
             let (recomputed, status) = run(&manifest, false);

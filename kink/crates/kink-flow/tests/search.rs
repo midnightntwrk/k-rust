@@ -937,7 +937,7 @@ note = "right-hand side"
         // `reaching` from the compiled mutant; CF-40c2: version 18 names it `witnesses` and the
         // status `invalid` `not-admitted`; version 19 witnesses a rewrite rule edit that is not
         // confined to its right-hand side or ensures by `matched`.
-        assert_eq!(document["version"], 19);
+        assert_eq!(document["version"], 20);
         // GUIDE-USABILITY 5 (KINK-R4 fix round): every kink-flow document names k-rust's build
         // identity, not the version alone.
         assert_eq!(document["k_rust_revision"], k_rust::build_identity());

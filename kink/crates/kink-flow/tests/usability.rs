@@ -682,7 +682,7 @@ text = 'h(opaque(1), 2)'
         // the compiled mutant; CF-40c2: version 18 names it `witnesses` and the status `invalid`
         // `not-admitted`; version 19 witnesses a rewrite rule edit that is not confined to its
         // right-hand side or ensures by `matched`.
-        assert_eq!(document["version"], 19);
+        assert_eq!(document["version"], 20);
         assert_eq!(row["typing_diagnostics"], json!([]));
         assert_eq!(
             entry(&document, "guard-dropped", "by-zero")["slots"],

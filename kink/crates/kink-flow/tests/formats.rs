@@ -35,9 +35,12 @@ use kink_flow::fuzz::FUZZ_VERSION;
 /// takes, the key `reaching` became `witnesses` and the key `mode` of a rule job's `job.rule`
 /// (k-rust-fuzz's goal name, which `job.kind` says again) is gone, so the digest moved by those
 /// two alone (the job kinds, the confirmation statuses, `not-comparable` among them, the refusal
-/// stage and the warning kinds are values the reader does not take).
+/// stage and the warning kinds are values the reader does not take). Version 7 adds the refusal
+/// of a corpus with `[stop]`; the digest is unchanged, since its stage and reason are arguments of
+/// `Refusal::new`, which the reader does not take, its `action` is a message, not a token, and its
+/// `stopped` value `refused` and its key `action` were already in the document.
 const DOCUMENT_SHAPE: (u32, u32, u32, &str) = (
-    6,
+    7,
     10,
     2,
     "354a34995bfb9adf32910561f811533ca6eb32c4739e94d4be12517a753b3734",
