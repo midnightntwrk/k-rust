@@ -149,18 +149,35 @@ fn view<'t>(index: &Arc<ValueIndex>, state: &'t Pattern) -> Result<View<'t>, Val
     }))
 }
 
-/// Every pattern below `root` (itself included) whose head is `symbol`, outermost first.
-fn occurrences<'t>(root: &'t Pattern, symbol: &str) -> Vec<&'t Pattern> {
+/// Every cell application reachable from `parent`'s arguments without passing another cell, in
+/// order: the cells a cell holds directly, through the collection that holds a repeated cell's
+/// instances. A cell is a cell of `symbols`, the configuration's cell symbols
+/// ([`cell_symbols`]): a leaf cell's content is a term, never cells of the configuration, so a
+/// cell term it holds as a value (a `k::fragment!` result in the computation cell) is no cell
+/// of the state.
+pub(crate) fn cells_below<'t>(parent: &'t Pattern, symbols: &[&str]) -> Vec<&'t Pattern> {
     let mut found = Vec::new();
-    let mut stack = vec![root];
+    let mut stack: Vec<&Pattern> = match parent {
+        Pattern::Application { arguments, .. }
+        | Pattern::AssociativeApplication { arguments, .. } => arguments.iter().rev().collect(),
+        _ => Vec::new(),
+    };
     while let Some(pattern) = stack.pop() {
-        if head(pattern) == Some(symbol) {
+        if head(pattern).is_some_and(|symbol| symbols.contains(&symbol)) {
             found.push(pattern);
             continue;
         }
         stack.extend(walk::children(pattern).into_iter().rev());
     }
     found
+}
+
+/// The KORE symbols of the cells of `nodes` and of every cell below them.
+pub(crate) fn cell_symbols<'n>(nodes: &'n [CellNode], output: &mut Vec<&'n str>) {
+    for node in nodes {
+        output.push(&node.symbol);
+        cell_symbols(&node.children, output);
+    }
 }
 
 fn paths(nodes: &[CellNode], prefix: &str, output: &mut Vec<String>) {
@@ -207,6 +224,16 @@ struct Located<'t, 'n> {
 }
 
 impl<'t> StateView<'t> {
+    /// The cells `parent` holds directly ([`cells_below`]) whose symbol is `symbol`.
+    fn cells_of(&self, parent: &'t Pattern, symbol: &str) -> Vec<&'t Pattern> {
+        let mut symbols = Vec::new();
+        cell_symbols(self.index.cells(), &mut symbols);
+        cells_below(parent, &symbols)
+            .into_iter()
+            .filter(|cell| head(cell) == Some(symbol))
+            .collect()
+    }
+
     fn root_nodes(&self) -> &[CellNode] {
         let mut nodes = self.index.cells();
         for position in &self.scope {
@@ -249,7 +276,7 @@ impl<'t> StateView<'t> {
             if !(last && repeated) {
                 term = match term {
                     Some(parent) => {
-                        let found = occurrences(parent, &node.symbol);
+                        let found = self.cells_of(parent, &node.symbol);
                         match found.as_slice() {
                             [] if node.multiplicity == Some(CellMultiplicity::Optional) => None,
                             [cell] => Some(*cell),
@@ -414,7 +441,8 @@ impl<'t> StateView<'t> {
         let Some(parent) = located.term else {
             return Ok(Vec::new());
         };
-        Ok(occurrences(parent, &located.node.symbol)
+        Ok(self
+            .cells_of(parent, &located.node.symbol)
             .into_iter()
             .map(|term| Self {
                 index: self.index.clone(),
@@ -434,5 +462,65 @@ impl<'t> StateView<'t> {
     /// The term of this view's root cell (the configuration, for a state's view).
     pub(crate) const fn term(&self) -> &'t Pattern {
         self.term
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{cells_below, head};
+    use k_rust::kore::parser::parse_pattern;
+
+    /// A cell's cells are those it holds directly or through the collection of a repeated
+    /// cell's instances; a cell term that a leaf cell holds as its content (here a `<frame>`
+    /// fragment in the computation cell, and a `<row>` one in a row's `<id>`) is a value, not a
+    /// cell of the state.
+    #[test]
+    fn the_cells_below_a_cell_pass_no_other_cell() {
+        let frame = |ret: &str| {
+            format!(
+                r#"Lbl'-LT-'frame'-GT-'{{}}(Lbl'-LT-'ret'-GT-'{{}}(\dv{{SortInt{{}}}}("{ret}")))"#
+            )
+        };
+        let row = |id: &str| format!(r"Lbl'-LT-'row'-GT-'{{}}(Lbl'-LT-'id'-GT-'{{}}({id}))");
+        let fragment_row = format!(
+            "inj{{SortRowCell{{}}, SortKItem{{}}}}({})",
+            row(r#"\dv{SortInt{}}("9")"#)
+        );
+        let state = parse_pattern(&format!(
+            r"Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{SortFrameCell{{}}, SortKItem{{}}}}({}), dotk{{}}())), {}, Lbl'-LT-'table'-GT-'{{}}(Lbl'Unds'RowCellBag'Unds'{{}}({}, {})))",
+            frame("1"),
+            frame("5"),
+            row(r#"\dv{SortInt{}}("1")"#),
+            row(&format!("kseq{{}}({fragment_row}, dotk{{}}())")),
+        ))
+        .unwrap();
+        let symbols = [
+            "Lbl'-LT-'k'-GT-'",
+            "Lbl'-LT-'frame'-GT-'",
+            "Lbl'-LT-'ret'-GT-'",
+            "Lbl'-LT-'table'-GT-'",
+            "Lbl'-LT-'row'-GT-'",
+            "Lbl'-LT-'id'-GT-'",
+        ];
+        let below = cells_below(&state, &symbols);
+        let heads = below.iter().map(|cell| head(cell)).collect::<Vec<_>>();
+        assert_eq!(
+            heads,
+            [
+                Some("Lbl'-LT-'k'-GT-'"),
+                Some("Lbl'-LT-'frame'-GT-'"),
+                Some("Lbl'-LT-'table'-GT-'")
+            ]
+        );
+        assert_eq!(
+            below[1].to_string(),
+            parse_pattern(&frame("5")).unwrap().to_string()
+        );
+        let rows = cells_below(below[2], &symbols);
+        assert_eq!(rows.len(), 2, "{rows:?}");
+        assert!(
+            rows.iter()
+                .all(|row| head(row) == Some("Lbl'-LT-'row'-GT-'"))
+        );
     }
 }

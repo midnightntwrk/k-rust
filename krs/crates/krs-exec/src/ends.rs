@@ -148,7 +148,7 @@ use crate::inputs::{InputFiles, InputType, NoFiles, decode_value_in, input_type}
 use crate::origin;
 use crate::report::{Halt, RuleKind, RunReport, SearchReport};
 use crate::values::{CellNode, SortRef, Value, ValueError, ValueIndex};
-use crate::view::{self, View};
+use crate::view::{self, View, cell_symbols, cells_below};
 use crate::views::CellViews;
 use crate::{SearchMode, SearchOptions, Semantics};
 use krs_ir::BuiltinSort;
@@ -584,36 +584,6 @@ fn tagged(name: &str, body: Json) -> Json {
     let mut object = JsonMap::new();
     object.insert(name.to_owned(), body);
     Json::Object(object)
-}
-
-/// Every cell application reachable from `parent`'s arguments without passing another cell, in
-/// order: the cells a cell holds directly, through the collection that holds a repeated cell's
-/// instances.
-fn cells_below<'t>(parent: &'t Pattern, symbols: &[&str]) -> Vec<&'t Pattern> {
-    let mut found = Vec::new();
-    let mut stack: Vec<&Pattern> = match parent {
-        Pattern::Application { arguments, .. }
-        | Pattern::AssociativeApplication { arguments, .. } => arguments.iter().rev().collect(),
-        _ => Vec::new(),
-    };
-    while let Some(pattern) = stack.pop() {
-        if let Pattern::Application { symbol, .. } | Pattern::AssociativeApplication { symbol, .. } =
-            pattern
-            && symbols.contains(&symbol.name.as_str())
-        {
-            found.push(pattern);
-            continue;
-        }
-        stack.extend(k_rust::kore::walk::children(pattern).into_iter().rev());
-    }
-    found
-}
-
-fn cell_symbols<'n>(nodes: &'n [CellNode], output: &mut Vec<&'n str>) {
-    for node in nodes {
-        output.push(&node.symbol);
-        cell_symbols(&node.children, output);
-    }
 }
 
 /// The first end of `from` that `to` does not hold.
