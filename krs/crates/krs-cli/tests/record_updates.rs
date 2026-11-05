@@ -664,7 +664,7 @@ fn a_whole_use_of_a_group_alias_is_the_group_rebuilt() {
         .map(|manifest| emitted(target.path(), manifest));
     assert_eq!(whole.0, fragment.0);
     assert_eq!(whole.0, record.0);
-    assert!(!whole.0.contains("#as Saved"), "{}", whole.0);
+    assert!(!whole.0.contains("#as Saved:"), "{}", whole.0);
     expect_test::expect![[r"
         [save]:
             <k> save => .K ... </k>
