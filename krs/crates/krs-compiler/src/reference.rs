@@ -4803,9 +4803,11 @@ fn render_facade_marker(marker: FacadeMarker) -> TokenStream {
     quote!(k::builtin::#module::#name)
 }
 
-/// Names the hidden binders of a `k::bits!` template's long form, which no
-/// author may write, `bits`, `bits1`, .. in the order of their ordinals,
-/// skipping every identifier the item already spells.
+/// Names the hidden binders no author may write, of a `k::bits!` template's
+/// long form and of a record update's fields, as the compiler names their K
+/// variables (`generated_binder_names`): `bits`, `bits1`, .. in the order of
+/// their ordinals, then `<alias>_<field>`, each fresh against the K spelling
+/// of every identifier the item spells.
 fn rename_hidden_binders(item: &mut syn::Item) -> Result<(), ReferenceExpansionError> {
     let (tokens, renamed) = rename_hidden_tokens(item.to_token_stream())?;
     if !renamed.is_empty() {
@@ -4854,41 +4856,37 @@ fn rename_hidden_tokens(tokens: TokenStream) -> Result<Renamed, ReferenceExpansi
     }
     let mut spelled = BTreeSet::new();
     identifiers(tokens.clone(), &mut spelled);
-    let mut hidden = spelled
+    // The compiler's own choice of these names (`generated_binder_names`):
+    // fresh against the K spelling of every identifier the item spells, a
+    // superset of its binders, so no binder of the print collides with or
+    // shadows one, and K reads each as the variable the compiler names.
+    let taken = spelled
         .iter()
-        .filter(|name| krs_syntax::is_hidden_binder(name))
-        .cloned()
-        .collect::<Vec<_>>();
-    // A record update's hidden binder (F5) is named after its alias and
-    // field, `saved_gas` for the field `gas` of `saved`.
-    let updates = spelled
-        .iter()
-        .filter_map(|name| {
-            name.strip_prefix(RECORD_UPDATE_BINDER)
-                .map(|readable| (name.clone(), readable.to_owned()))
-        })
-        .collect::<Vec<_>>();
-    if hidden.is_empty() && updates.is_empty() {
+        .map(|name| krs_ir_levels::k_surface::authored_variable_spelling(name))
+        .collect::<BTreeSet<_>>();
+    let generated = krs_ir_levels::k_surface::generated_binder_names(
+        spelled.iter().map(String::as_str),
+        &taken,
+    );
+    // A hidden spelling with nothing after its prefix names no field: a
+    // failure of whatever produced it, typed rather than printed.
+    if let Some(unnamed) = spelled.iter().find(|name| {
+        name.starts_with(krs_ir::ir::UPDATE_BINDER_PREFIX) && !generated.contains_key(name.as_str())
+    }) {
+        return Err(ReferenceExpansionError::GeneratedRust(syn::Error::new(
+            Span::call_site(),
+            format!("`{unnamed}` names no field of a record update"),
+        )));
+    }
+    if generated.is_empty() {
         return Ok((tokens, BTreeMap::new()));
     }
-    hidden.sort_by_key(|name| {
-        name.trim_start_matches(|character: char| !character.is_ascii_digit())
-            .parse::<u64>()
-            .unwrap_or(u64::MAX)
-    });
-    let mut names = hidden
+    let names = generated
         .into_iter()
-        .map(|name| Ok((name, fresh_ident("bits", &mut spelled)?)))
+        .map(|(hidden, name)| Ok((hidden.to_owned(), rust_ident(&name)?)))
         .collect::<Result<BTreeMap<_, _>, ReferenceExpansionError>>()?;
-    for (name, readable) in updates {
-        let fresh = fresh_ident(&readable, &mut spelled)?;
-        names.insert(name, fresh);
-    }
     Ok((rename(tokens, &names), names))
 }
-
-/// The spelling prefix of a record update's hidden binder (F5).
-const RECORD_UPDATE_BINDER: &str = "__krs_update_";
 
 fn fresh_ident(
     base: &str,
@@ -5649,6 +5647,20 @@ mod tests {
             rename_hidden_tokens(quote::quote!(f(r#bits, __krs_bits_0))).unwrap();
         assert_eq!(renamed["__krs_bits_0"].to_string(), "bits1");
         assert_eq!(tokens.to_string(), "f (r#bits , bits1)");
+    }
+
+    /// The clash test is K's: `savedPc` is K's `SavedPc`, so the update's
+    /// field `pc` of `saved` cannot print as `saved_pc`.
+    #[test]
+    fn a_hidden_binder_is_fresh_against_the_k_spelling_of_each_identifier() {
+        let (tokens, renamed) = rename_hidden_tokens(quote::quote!(f(
+            savedPc,
+            __krs_update_saved_pc,
+            __krs_bits_0
+        )))
+        .unwrap();
+        assert_eq!(renamed["__krs_update_saved_pc"].to_string(), "saved_pc1");
+        assert_eq!(tokens.to_string(), "f (savedPc , saved_pc1 , bits)");
     }
 
     #[test]

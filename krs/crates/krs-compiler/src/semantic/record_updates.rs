@@ -485,7 +485,7 @@ impl HiddenNames {
             .map(|segment| segment.strip_prefix("r#").unwrap_or(segment))
             .collect::<Vec<_>>()
             .join("_");
-        let base = format!("{}update_{path}", krs_ir::ir::RESERVED_MARKER);
+        let base = format!("{}{path}", krs_ir::ir::UPDATE_BINDER_PREFIX);
         let mut name = base.clone();
         let mut ordinal = 2_usize;
         while !self.taken.insert(name.clone()) {

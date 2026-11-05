@@ -2975,7 +2975,7 @@ fn lower_term(
 ) -> Result<DefinitionTerm, LoweringError> {
     // An occurrence of a name KRS made for no token is inserted, and so is
     // an alias KRS adds under such a name (a record update's hidden field
-    // over the field's pattern, `( P #as Krs_Update.. )`): its own bytes are
+    // over the field's pattern, `( P #as SavedPc )` for the field `pc` of `saved`): its own bytes are
     // the parentheses, `#as` and the name, all KRS's, while the pattern is
     // a node of its own. The rest of an authored `..` renders that token,
     // and a lookup's fresh name is marked with its guard.

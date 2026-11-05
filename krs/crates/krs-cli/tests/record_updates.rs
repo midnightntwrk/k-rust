@@ -508,7 +508,7 @@ fn a_record_pattern_may_name_no_field() {
     expect_test::expect![[r#"
         [
             "<k> step ( pair ( _ , _ ) ) => peek ... </k>",
-            "<k> swapped ( pair ( _ , Krs_UpdatePY:Exp ) ) => pair ( jump , Krs_UpdatePY:Exp ) ... </k>",
+            "<k> swapped ( pair ( _ , PY:Exp ) ) => pair ( jump , PY:Exp ) ... </k>",
         ]
     "#]]
     .assert_debug_eq(&[rule("step"), rule("swapped")]);
@@ -668,21 +668,21 @@ fn a_whole_use_of_a_group_alias_is_the_group_rebuilt() {
     expect_test::expect![[r"
         [save]:
             <k> save => .K ... </k>
-            <stack> S:List => ListItem(<frame> <pc> Krs_UpdateSavedPc:Int </pc> <fuel> Krs_UpdateSavedFuel:Int </fuel> <depth> Krs_UpdateSavedDepth:Int </depth> </frame>) S:List </stack>
-            <frame> <pc> ( 1 #as Krs_UpdateSavedPc:Int ) </pc> <fuel> Krs_UpdateSavedFuel:Int </fuel> <depth> Krs_UpdateSavedDepth:Int </depth> </frame>
+            <stack> S:List => ListItem(<frame> <pc> SavedPc:Int </pc> <fuel> SavedFuel:Int </fuel> <depth> SavedDepth:Int </depth> </frame>) S:List </stack>
+            <frame> <pc> ( 1 #as SavedPc:Int ) </pc> <fuel> SavedFuel:Int </fuel> <depth> SavedDepth:Int </depth> </frame>
         [restore]:
             <k> restore => .K ... </k>
-            <stack> ListItem(<frame> <pc> Krs_UpdateSavedPc:Int </pc> <fuel> Krs_UpdateSavedFuel:Int </fuel> <depth> Krs_UpdateSavedDepth:Int </depth> </frame>) S:List => S:List </stack>
-            (_:FrameCell => <frame> <pc> Krs_UpdateSavedPc:Int </pc> <fuel> Krs_UpdateSavedFuel:Int </fuel> <depth> Krs_UpdateSavedDepth:Int </depth> </frame>)
+            <stack> ListItem(<frame> <pc> SavedPc:Int </pc> <fuel> SavedFuel:Int </fuel> <depth> SavedDepth:Int </depth> </frame>) S:List => S:List </stack>
+            (_:FrameCell => <frame> <pc> SavedPc:Int </pc> <fuel> SavedFuel:Int </fuel> <depth> SavedDepth:Int </depth> </frame>)
         [peek]:
             <k> peek => .K ... </k>
             <gas> _ => 0 </gas>
-            <stack> ListItem(<frame> <pc> Krs_UpdateSavedPc:Int </pc> <fuel> Krs_UpdateSavedFuel:Int </fuel> <depth> Krs_UpdateSavedDepth:Int </depth> </frame>) Krs_RestStack:List </stack>
-            <frame> <pc> Krs_UpdateSavedPc:Int </pc> <fuel> Krs_UpdateSavedFuel:Int </fuel> <depth> Krs_UpdateSavedDepth:Int </depth> </frame>
+            <stack> ListItem(<frame> <pc> SavedPc:Int </pc> <fuel> SavedFuel:Int </fuel> <depth> SavedDepth:Int </depth> </frame>) Krs_RestStack:List </stack>
+            <frame> <pc> SavedPc:Int </pc> <fuel> SavedFuel:Int </fuel> <depth> SavedDepth:Int </depth> </frame>
         [saves]:
             <k> save => .K </k>
-            <stack> S:List => ListItem(<frame> <pc> Krs_UpdateSavedPc:Int </pc> <fuel> Krs_UpdateSavedFuel:Int </fuel> <depth> Krs_UpdateSavedDepth:Int </depth> </frame>) S:List </stack>
-            <frame> <pc> ( 1 #as Krs_UpdateSavedPc:Int ) </pc> <fuel> Krs_UpdateSavedFuel:Int </fuel> <depth> Krs_UpdateSavedDepth:Int </depth> </frame>"]].assert_eq(&format!(
+            <stack> S:List => ListItem(<frame> <pc> SavedPc:Int </pc> <fuel> SavedFuel:Int </fuel> <depth> SavedDepth:Int </depth> </frame>) S:List </stack>
+            <frame> <pc> ( 1 #as SavedPc:Int ) </pc> <fuel> SavedFuel:Int </fuel> <depth> SavedDepth:Int </depth> </frame>"]].assert_eq(&format!(
         "{}\n{}\n{}\n{}",
         sentence(&whole.0, "save"),
         sentence(&whole.0, "restore"),
@@ -804,7 +804,7 @@ k::rules! {{
     let flat = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
     expect_test::expect![[r"
         [both]:
-            <k> both ( left ( Krs_UpdateAXY:Int , 0 ) , right ( Krs_UpdateAXY2:Int , 1 ) ) => both ( left ( Krs_UpdateAXY:Int , 5 ) , right ( Krs_UpdateAXY2:Int , 6 ) ) ... </k>
+            <k> both ( left ( AXY:Int , 0 ) , right ( AXY2:Int , 1 ) ) => both ( left ( AXY:Int , 5 ) , right ( AXY2:Int , 6 ) ) ... </k>
         <k> both(left(7, 5), right(9, 6)) ~> .K </k>"]].assert_eq(&format!(
         "{}\n{}",
         sentence(&definition, "both"),
@@ -904,15 +904,15 @@ fn a_group_child_below_a_base_is_rebuilt_from_its_children() {
     expect_test::expect![[r"
         [push]:
             <k> push => .K ... </k>
-            <stack> S:List => ListItem(<outer> Krs_UpdateOFrame:FrameCell <flag> Krs_UpdateOFlag:Int </flag> </outer>) S:List </stack>
-            <outer> Krs_UpdateOFrame:FrameCell <flag> ( 0 #as Krs_UpdateOFlag:Int ) </flag> </outer>
+            <stack> S:List => ListItem(<outer> OFrame:FrameCell <flag> OFlag:Int </flag> </outer>) S:List </stack>
+            <outer> OFrame:FrameCell <flag> ( 0 #as OFlag:Int ) </flag> </outer>
         [pop]:
             <k> pop => .K ... </k>
-            <stack> ListItem(<outer> Krs_UpdateSavedFrame:FrameCell <flag> Krs_UpdateSavedFlag:Int </flag> </outer>) S:List => S:List </stack>
-            (_:OuterCell => <outer> Krs_UpdateSavedFrame:FrameCell <flag> Krs_UpdateSavedFlag:Int </flag> </outer>)
+            <stack> ListItem(<outer> SavedFrame:FrameCell <flag> SavedFlag:Int </flag> </outer>) S:List => S:List </stack>
+            (_:OuterCell => <outer> SavedFrame:FrameCell <flag> SavedFlag:Int </flag> </outer>)
         [flag]:
             <k> flag => .K ... </k>
-            (<outer> <frame> <pc> ( 0 #as Krs_UpdateOFramePc:Int ) </pc> <gas> Krs_UpdateOFrameGas:Int </gas> </frame> <flag> _ </flag> </outer> => <outer> <frame> <pc> Krs_UpdateOFramePc:Int </pc> <gas> Krs_UpdateOFrameGas:Int </gas> </frame> <flag> 7 </flag> </outer>)"]].assert_eq(&format!(
+            (<outer> <frame> <pc> ( 0 #as OFramePc:Int ) </pc> <gas> OFrameGas:Int </gas> </frame> <flag> _ </flag> </outer> => <outer> <frame> <pc> OFramePc:Int </pc> <gas> OFrameGas:Int </gas> </frame> <flag> 7 </flag> </outer>)"]].assert_eq(&format!(
         "{}\n{}\n{}",
         sentence(&definition, "push"),
         sentence(&definition, "pop"),

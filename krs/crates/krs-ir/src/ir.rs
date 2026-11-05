@@ -82,6 +82,11 @@ macro_rules! reserved_encodings {
         const LOCAL_SEPARATOR: &str = concat!($marker, "local_");
         const ANONYMOUS_SEPARATOR: &str = RESERVED_MARKER;
         const REST_PREFIXES: [&str; 2] = [concat!($marker, "rest_"), concat!($marker, "map_rest_")];
+        /// Prefix of a `k::bits!` template's binder, which a decimal ordinal follows.
+        pub const BITS_BINDER_PREFIX: &str = concat!($marker, "bits_");
+        /// Prefix of the binder of a field a record update takes from its
+        /// base, which the alias and the field path follow (F5).
+        pub const UPDATE_BINDER_PREFIX: &str = concat!($marker, "update_");
     };
 }
 

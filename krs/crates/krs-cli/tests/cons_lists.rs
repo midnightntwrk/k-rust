@@ -387,7 +387,7 @@ fn list_notation_emits_the_k_of_the_constructors_it_denotes() {
         "<wordStack> A:Int : B:Int : Rest:WordStack => chop ( A:Int +Int B:Int ) : Rest:WordStack </wordStack>",
         "rule depth ( _ : Rest:WordStack ) => 1 +Int depth ( Rest:WordStack )",
         "rule pairs ( A:Int , B:Int ) => A:Int , B:Int , .Operands",
-        "<projections> projectionsCons ( field ( I:Int , Krs_UpdateFTy:Int ) , Rest:Projections ) => projectionsCons ( field ( I:Int +Int 1 , Krs_UpdateFTy:Int ) , Rest:Projections ) </projections>",
+        "<projections> projectionsCons ( field ( I:Int , FTy:Int ) , Rest:Projections ) => projectionsCons ( field ( I:Int +Int 1 , FTy:Int ) , Rest:Projections ) </projections>",
         "<wordStack> 1 : 2 : Rest:WordStack => 3 : Rest:WordStack </wordStack>",
     ] {
         assert!(list_k.contains(sentence), "{sentence}:\n{list_k}");
@@ -477,11 +477,11 @@ fn a_cells_list_entrys_anonymous_rest_keeps_the_subjects_rest() {
     ] {
         assert!(collapsed.contains(entry), "{entry}:\n{print}");
     }
-    // `bump`'s record update names its hidden binder `Krs_UpdateFTy` on the readable route and
-    // `FTy` in the print, which writes the binder: a rename, and not this test's.
+    // `bump`'s record update names its hidden binder `FTy` on both routes: the print writes the
+    // name the readable route gives it.
     assert_eq!(
         definition_k(target.path(), printed.path(), "lists", &print),
-        readable_k.replace("Krs_UpdateFTy", "FTy")
+        readable_k
     );
     for sentence in [
         "<wordStack> A:Int : B:Int : Krs_RestWordStack:WordStack => B:Int : A:Int : Krs_RestWordStack:WordStack </wordStack>",

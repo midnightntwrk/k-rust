@@ -262,14 +262,14 @@ fn edits_of_inserted_nodes_are_refused_and_authored_edits_need_rederivation() {
             "bits",
             &[emitted.edit(
                 "rule [bits]",
-                "bitRangeInt(Krs_Bits0:Int, 0, 3)",
+                "bitRangeInt(Bits:Int, 0, 3)",
                 "bitRangeInt(Y:Int, 0, 3)"
             )]
         ),
         [(
-            "Krs_Bits0:Int".to_owned(),
+            "Bits:Int".to_owned(),
             InsertedNode::GeneratedBinder,
-            Some("bitRangeInt(Krs_Bits0:Int, 0, 3)".to_owned()),
+            Some("bitRangeInt(Bits:Int, 0, 3)".to_owned()),
             Some("a".to_owned()),
         )]
     );
@@ -304,16 +304,12 @@ fn edits_of_inserted_nodes_are_refused_and_authored_edits_need_rederivation() {
     assert_eq!(guard[0].1, InsertedNode::LookupGuard);
     let update = emitted.inserted_only(
         "save",
-        &[emitted.edit(
-            "rule [save]",
-            "( 1 #as Krs_UpdateFPc:Int )",
-            "( 1 #as P:Int )",
-        )],
+        &[emitted.edit("rule [save]", "( 1 #as FPc:Int )", "( 1 #as P:Int )")],
     );
     assert_eq!(update.len(), 1);
     assert_eq!(
         (update[0].0.as_str(), update[0].1),
-        ("( 1 #as Krs_UpdateFPc:Int )", InsertedNode::GeneratedBinder)
+        ("( 1 #as FPc:Int )", InsertedNode::GeneratedBinder)
     );
 
     // Authored: renderings of authored syntax and frames the author wrote need the
@@ -324,8 +320,8 @@ fn edits_of_inserted_nodes_are_refused_and_authored_edits_need_rederivation() {
             "bits",
             &[emitted.edit(
                 bits,
-                "(bitRangeInt(Krs_Bits0:Int, 3, 1)) ==Int 0",
-                "(bitRangeInt(Krs_Bits0:Int, 3, 1)) ==Int 1"
+                "(bitRangeInt(Bits:Int, 3, 1)) ==Int 0",
+                "(bitRangeInt(Bits:Int, 3, 1)) ==Int 1"
             )]
         ),
         ["0"]
@@ -335,8 +331,8 @@ fn edits_of_inserted_nodes_are_refused_and_authored_edits_need_rederivation() {
             "bits",
             &[emitted.edit(
                 bits,
-                "bitRangeInt(Krs_Bits0:Int, 0, 3)",
-                "bitRangeInt(Krs_Bits0:Int, 0, 4)"
+                "bitRangeInt(Bits:Int, 0, 3)",
+                "bitRangeInt(Bits:Int, 0, 4)"
             )]
         ),
         ["3"]
@@ -787,7 +783,7 @@ fn derived_nodes_follow_the_edit() {
     let check = baseline.check(
         "rule [bits]",
         &[(
-            "read bitRangeInt(Krs_Bits0:Int, 0, 3)",
+            "read bitRangeInt(Bits:Int, 0, 3)",
             "read bitRangeInt(Y:Int, 0, 4)",
         )],
     );
@@ -799,10 +795,7 @@ fn derived_nodes_follow_the_edit() {
     // lift, since no Rust spelling names it.
     let check = baseline.check(
         "rule [bits]",
-        &[(
-            "read bitRangeInt(Krs_Bits0:Int, 0, 3)",
-            "read Krs_Bits0:Int",
-        )],
+        &[("read bitRangeInt(Bits:Int, 0, 3)", "read Bits:Int")],
     );
     assert!(
         matches!(

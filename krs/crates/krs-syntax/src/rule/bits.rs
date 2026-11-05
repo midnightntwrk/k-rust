@@ -43,7 +43,7 @@ use crate::{SyntaxError, SyntaxErrorKind, TokenRange};
 
 /// The prefix of a hidden template binder. It holds the reserved marker, so
 /// no authored binder may spell it (`validate_authored_binder`).
-pub(crate) const GENERATED_BINDER_PREFIX: &str = "__krs_bits_";
+pub(crate) const GENERATED_BINDER_PREFIX: &str = krs_ir::ir::BITS_BINDER_PREFIX;
 
 /// The widest template, in bits: its literals are computed in `u128`.
 const MAXIMUM_WIDTH: u32 = 128;

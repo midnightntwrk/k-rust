@@ -654,7 +654,7 @@ fn readable_kevm_claims_prove_and_expand() {
           claim [push-add-frame]:
             <k> PUSH ( 2 ) ~> PUSH ( 3 ) ~> ADD ~> STOP => .K </k>
             <statusCode> RUNNING => SUCCESS </statusCode>
-            (<callState> <wordStack> . WordStack </wordStack> <pc> 0 </pc> <gas> 11 </gas> <callDepth> Krs_UpdateFrameCallDepth:Int </callDepth> </callState> => <callState> <wordStack> 5 : . WordStack </wordStack> <pc> 3 </pc> <gas> 2 </gas> <callDepth> Krs_UpdateFrameCallDepth:Int </callDepth> </callState>)
+            (<callState> <wordStack> . WordStack </wordStack> <pc> 0 </pc> <gas> 11 </gas> <callDepth> FrameCallDepth:Int </callDepth> </callState> => <callState> <wordStack> 5 : . WordStack </wordStack> <pc> 3 </pc> <gas> 2 </gas> <callDepth> FrameCallDepth:Int </callDepth> </callState>)
           claim [push-add-stop]:
             <k> PUSH ( 2 ) ~> PUSH ( 3 ) ~> ADD ~> STOP => .K </k>
             <statusCode> RUNNING => SUCCESS </statusCode>

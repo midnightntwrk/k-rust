@@ -1391,15 +1391,15 @@ fn snake_case(name: &str) -> String {
     out
 }
 
-/// The prefix of the binder that stands for an unnamed `k::bits!`
-/// template's value; authors cannot write it.
-const HIDDEN_BITS_BINDER: &str = "__krs_bits_";
-
 /// How a diagnostic names a binder: its name, or `_` for an unnamed one,
 /// a `k::bits!` template's hidden binder included.
 pub(crate) fn binder_text(variable: &SemanticId) -> String {
     match variable.kind() {
-        SemanticIdKind::Named if !variable.as_str().starts_with(HIDDEN_BITS_BINDER) => {
+        SemanticIdKind::Named
+            if !variable
+                .as_str()
+                .starts_with(krs_ir::ir::BITS_BINDER_PREFIX) =>
+        {
             variable.as_str().to_owned()
         }
         _ => "_".to_owned(),

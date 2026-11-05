@@ -20,6 +20,10 @@
 //! - a KRS-generated binder is spelled `Krs_` followed by its generated role in `PascalCase`, and a
 //!   generated wildcard is additionally `_`-prefixed; no authored-derived spelling begins with
 //!   `Krs_` or `_Krs_`, so this namespace is reserved for KRS;
+//! - a generated binder that stands for a value an author could have named, a `k::bits!`
+//!   template's value or a field a record update takes from its base, is spelled as the authored
+//!   binder [`generated_binder_names`] names it, chosen against the K spellings of the sentence's
+//!   other binders, so the reference notation that names it reads as the same K;
 //! - a claim existential is prefixed with `?`.
 //! - the hole binder of a heat or cool rule is spelled `HOLE`, as K requires (KF-014).
 //!
@@ -38,7 +42,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
     CellContentFrame, FixedInitializerCell, FixedInitializerContent, GrammarProductionItemKind,
-    SemanticId, SemanticIdKind, ir::RESERVED_MARKER,
+    SemanticId, SemanticIdKind,
+    ir::{BITS_BINDER_PREFIX, RESERVED_MARKER, UPDATE_BINDER_PREFIX},
 };
 
 use crate::{
@@ -395,12 +400,13 @@ impl Scope {
     }
 
     fn name(self, reserved: &BTreeSet<String>) -> SentenceVariables {
-        let binders = self
+        let mut binders = self
             .occurrences
             .iter()
             .filter(|(variable, _)| !self.fixed.contains_key(*variable))
             .map(|(variable, occurrences)| Binder::new(variable, *occurrences))
-            .collect();
+            .collect::<Vec<_>>();
+        name_generated_binders(&mut binders, &self.occurrences, self.fixed.values());
         let mut names = assign(binders, reserved, self.fixed.values().cloned());
         for existential in &self.existentials {
             if let Some(name) = names.get_mut(existential) {
@@ -415,6 +421,120 @@ impl Scope {
         names.extend(self.fixed);
         SentenceVariables { names }
     }
+}
+
+/// Gives each generated binder that stands for a value an author could have
+/// named the K spelling of the authored binder [`generated_binder_names`]
+/// names it, chosen against the bases of the sentence's other binders and
+/// its fixed spellings.
+fn name_generated_binders<'a>(
+    binders: &mut [Binder<'a>],
+    occurrences: &BTreeMap<SemanticId, usize>,
+    fixed: impl IntoIterator<Item = &'a String>,
+) {
+    let taken = binders
+        .iter()
+        .filter(|binder| generated_binder_base(binder.variable.as_str()).is_none())
+        .map(|binder| binder.base.clone())
+        .chain(fixed.into_iter().cloned())
+        .collect::<BTreeSet<_>>();
+    let variables = binders
+        .iter()
+        .map(|binder| binder.variable)
+        .collect::<Vec<_>>();
+    let names = generated_binder_names(variables.iter().map(|variable| variable.as_str()), &taken);
+    for binder in binders {
+        if let Some(name) = names.get(binder.variable.as_str()) {
+            let count = occurrences
+                .get(binder.variable)
+                .copied()
+                .unwrap_or_default();
+            binder.base = authored_spelling(name, count);
+        }
+    }
+}
+
+/// The base name of a generated binder that stands for a value an author
+/// could have named, with its place in the naming order: `bits` for a
+/// `k::bits!` template's value, by its ordinal, and `<alias>_<field>` for a
+/// field a record update takes from its base (F5), after every template.
+/// `None` for any other spelling.
+fn generated_binder_base(spelling: &str) -> Option<((u8, u64), &str)> {
+    if let Some(ordinal) = spelling.strip_prefix(BITS_BINDER_PREFIX)
+        && !ordinal.is_empty()
+        && ordinal.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return Some(((0, ordinal.parse().unwrap_or(u64::MAX)), "bits"));
+    }
+    // An alias may begin with `_`; its base does not, so the authored
+    // binder that spells it is K's whatever its number of occurrences.
+    let path = spelling
+        .strip_prefix(UPDATE_BINDER_PREFIX)?
+        .trim_start_matches('_');
+    (!path.is_empty()).then_some(((1, 0), path))
+}
+
+/// Names the generated binders among `spellings` that stand for a value an
+/// author could have named: a `k::bits!` template's value and a field a
+/// record update takes from its base (F5). Every other spelling is left out.
+///
+/// Each takes the first of its base ([`generated_binder_base`]) and the base
+/// followed by `1`, `2`, .. whose K spelling as an authored binder's is not
+/// in `taken` and was taken by no earlier generated binder. `taken` holds
+/// the K spellings of the sentence's other binders, so no binder an author
+/// wrote can collide with or shadow a generated one, and two generated
+/// binders never share a spelling. Templates are named in the order of
+/// their ordinals, then updates in the order of their spellings, so a
+/// sentence always names them alike.
+///
+/// The compiler spells these binders' K variables this way, and `krs expand`
+/// prints them as authored binders of the returned names, so the printed
+/// reference form reads as the same K.
+pub fn generated_binder_names<'a>(
+    spellings: impl IntoIterator<Item = &'a str>,
+    taken: &BTreeSet<String>,
+) -> BTreeMap<&'a str, String> {
+    let mut generated = spellings
+        .into_iter()
+        .filter_map(|spelling| {
+            generated_binder_base(spelling).map(|(order, base)| (order, spelling, base))
+        })
+        .collect::<Vec<_>>();
+    generated.sort_unstable();
+    generated.dedup();
+    let mut chosen = BTreeSet::new();
+    let mut names = BTreeMap::new();
+    for (_, spelling, base) in generated {
+        let mut ordinal = 0_u64;
+        let name = loop {
+            let candidate = if ordinal == 0 {
+                base.to_owned()
+            } else {
+                format!("{base}{ordinal}")
+            };
+            let spelled = authored_spelling(&candidate, 2);
+            if !taken.contains(&spelled) && chosen.insert(spelled) {
+                break candidate;
+            }
+            ordinal += 1;
+        };
+        names.insert(spelling, name);
+    }
+    names
+}
+
+/// The K spelling an authored binder `name` takes before collisions are
+/// resolved.
+fn authored_spelling(name: &str, occurrences: usize) -> String {
+    unreserved(authored_base(name, occurrences))
+}
+
+/// The K spelling, before collisions are resolved, of the authored binder
+/// `name` that occurs more than once: what [`generated_binder_names`]
+/// compares to `taken`.
+#[must_use]
+pub fn authored_variable_spelling(name: &str) -> String {
+    authored_spelling(name, 2)
 }
 
 /// Naming precedence; generated binders claim their spellings first.
@@ -455,7 +575,7 @@ impl<'a> Binder<'a> {
             }
             SemanticIdKind::Named => (
                 Origin::Authored,
-                unreserved(authored_base(variable.as_str(), occurrences)),
+                authored_spelling(variable.as_str(), occurrences),
             ),
         };
         Self {
@@ -755,6 +875,87 @@ mod tests {
         assert_eq!(names[&impostor], "_VKrs_Wildcard3");
         assert_eq!(names[&id("krs_wildcard3")], "KrsWildcard3");
         assert_eq!(generated_variable_name("counter7"), "Krs_Counter7");
+    }
+
+    /// Names `entries` as a sentence does, generated binders included.
+    fn sentence(entries: &[(&str, usize)]) -> BTreeMap<String, String> {
+        let ids = entries
+            .iter()
+            .map(|(value, occurrences)| (id(value), *occurrences))
+            .collect::<BTreeMap<_, _>>();
+        let mut binders = ids
+            .iter()
+            .map(|(variable, occurrences)| Binder::new(variable, *occurrences))
+            .collect::<Vec<_>>();
+        name_generated_binders(&mut binders, &ids, []);
+        assign(binders, &BTreeSet::new(), [])
+            .into_iter()
+            .map(|(variable, name)| (variable.as_str().to_owned(), name))
+            .collect()
+    }
+
+    #[test]
+    fn template_and_update_binders_take_the_names_an_author_would_write() {
+        let names = sentence(&[
+            ("__krs_bits_0", 2),
+            ("__krs_update_saved_pc", 2),
+            ("__krs_update__me_gas", 2),
+            ("__krs_instance0", 1),
+            ("x", 2),
+        ]);
+        assert_eq!(names["__krs_bits_0"], "Bits");
+        assert_eq!(names["__krs_update_saved_pc"], "SavedPc");
+        assert_eq!(names["__krs_update__me_gas"], "MeGas");
+        assert_eq!(names["__krs_instance0"], "Krs_Instance0");
+        assert_eq!(names["x"], "X");
+    }
+
+    /// The clash test compares K spellings, so `savedPc` and the update's
+    /// `saved_pc` do not both become `SavedPc`, and an authored `bits1`
+    /// pushes the second template further.
+    #[test]
+    fn a_generated_name_is_fresh_against_every_k_spelling_of_the_sentence() {
+        let names = sentence(&[
+            ("__krs_bits_10", 2),
+            ("__krs_bits_2", 2),
+            ("bits", 1),
+            ("bits1", 1),
+            ("__krs_update_saved_pc", 2),
+            ("__krs_update_saved_pc_2", 2),
+            ("savedPc", 2),
+        ]);
+        assert_eq!(names["__krs_bits_2"], "Bits2");
+        assert_eq!(names["__krs_bits_10"], "Bits3");
+        assert_eq!(names["bits"], "Bits");
+        assert_eq!(names["bits1"], "Bits1");
+        assert_eq!(names["__krs_update_saved_pc"], "SavedPc1");
+        assert_eq!(names["__krs_update_saved_pc_2"], "SavedPc2");
+        assert_eq!(names["savedPc"], "SavedPc");
+        let distinct = names.values().collect::<BTreeSet<_>>();
+        assert_eq!(distinct.len(), names.len());
+    }
+
+    /// The printer's view: the names, and the K spellings they read as.
+    #[test]
+    fn the_shared_names_read_back_as_the_compilers_spellings() {
+        let taken = ["SavedPc".to_owned()].into_iter().collect();
+        let names = generated_binder_names(
+            [
+                "__krs_update_saved_pc",
+                "__krs_bits_0",
+                "saved",
+                "__krs_rest_k",
+            ],
+            &taken,
+        );
+        assert_eq!(
+            names.into_iter().collect::<Vec<_>>(),
+            [
+                ("__krs_bits_0", "bits".to_owned()),
+                ("__krs_update_saved_pc", "saved_pc1".to_owned())
+            ]
+        );
+        assert_eq!(authored_variable_spelling("saved_pc1"), "SavedPc1");
     }
 
     #[test]

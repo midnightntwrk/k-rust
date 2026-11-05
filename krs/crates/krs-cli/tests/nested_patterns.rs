@@ -268,7 +268,7 @@ fn a_pattern_needs_no_wrapper_and_a_group_record_is_its_cell_term() {
     expect_test::expect![[r"
         rule [swap]:
             <k> swap => .K ... </k>
-            <stack> ListItem(<frame> <pc> P:Int </pc> <gas> Krs_UpdateSavedGas:Int </gas> </frame>) S:List => ListItem(<frame> <pc> P:Int +Int 1 </pc> <gas> Krs_UpdateSavedGas:Int </gas> </frame>) ListItem(F:FrameCell) S:List </stack>
+            <stack> ListItem(<frame> <pc> P:Int </pc> <gas> SavedGas:Int </gas> </frame>) S:List => ListItem(<frame> <pc> P:Int +Int 1 </pc> <gas> SavedGas:Int </gas> </frame>) ListItem(F:FrameCell) S:List </stack>
             F:FrameCell"]]
     .assert_eq(rule(&k, "swap"));
     expect_test::expect![[r"
@@ -617,8 +617,8 @@ fn a_group_record_at_a_configuration_cell_leaves_children_out_only_with_rest() {
             <outer> <frame> <pc> P:Int </pc> <gas> _ </gas> </frame> <flag> F:Int </flag> </outer>
         rule [report]:
             <k> report => P:Int ... </k>
-            <stack> S:List => ListItem(<outer> <frame> <pc> P:Int </pc> <gas> Krs_UpdateOFrameGas:Int </gas> </frame> <flag> Krs_UpdateOFlag:Int </flag> </outer>) S:List </stack>
-            <outer> <frame> <pc> P:Int </pc> <gas> Krs_UpdateOFrameGas:Int </gas> </frame> <flag> Krs_UpdateOFlag:Int </flag> </outer>"]]
+            <stack> S:List => ListItem(<outer> <frame> <pc> P:Int </pc> <gas> OFrameGas:Int </gas> </frame> <flag> OFlag:Int </flag> </outer>) S:List </stack>
+            <outer> <frame> <pc> P:Int </pc> <gas> OFrameGas:Int </gas> </frame> <flag> OFlag:Int </flag> </outer>"]]
     .assert_eq(&format!("{}\n{}", rule(&definition, "look"), rule(&definition, "report")));
 
     // A record as a value (a `KItem` leaf's content, a list element) is a complete term; a
@@ -715,11 +715,11 @@ fn a_group_child_may_be_a_binder_or_wildcard() {
             (<outer> _ <flag> X:Int </flag> </outer> => <outer> Fr:FrameCell <flag> X:Int </flag> </outer>)
         rule [bump]:
             <k> bump => .K ... </k>
-            (<outer> <frame> <pc> P:Int </pc> <gas> Krs_UpdateFrGas:Int </gas> </frame> <flag> Krs_UpdateOFlag:Int </flag> </outer> => <outer> <frame> <pc> P:Int +Int 1 </pc> <gas> Krs_UpdateFrGas:Int </gas> </frame> <flag> Krs_UpdateOFlag:Int </flag> </outer>)
+            (<outer> <frame> <pc> P:Int </pc> <gas> FrGas:Int </gas> </frame> <flag> OFlag:Int </flag> </outer> => <outer> <frame> <pc> P:Int +Int 1 </pc> <gas> FrGas:Int </gas> </frame> <flag> OFlag:Int </flag> </outer>)
         rule [look]:
             <k> look => .K ... </k>
-            <stack> S:List => ListItem(<frame> <pc> Krs_UpdateFrPc:Int </pc> <gas> Krs_UpdateFrGas:Int </gas> </frame>) S:List </stack>
-            <outer> <frame> <pc> ( 1 #as Krs_UpdateFrPc:Int ) </pc> <gas> Krs_UpdateFrGas:Int </gas> </frame> <flag> _ </flag> </outer>"]].assert_eq(&["push", "pop", "bump", "look"].map(|label| rule(&k, label)).join("\n"));
+            <stack> S:List => ListItem(<frame> <pc> FrPc:Int </pc> <gas> FrGas:Int </gas> </frame>) S:List </stack>
+            <outer> <frame> <pc> ( 1 #as FrPc:Int ) </pc> <gas> FrGas:Int </gas> </frame> <flag> _ </flag> </outer>"]].assert_eq(&["push", "pop", "bump", "look"].map(|label| rule(&k, label)).join("\n"));
     let run = |manifest: &Path, program: &str| {
         let file = manifest.with_file_name("program.txt");
         fs::write(&file, program).unwrap();

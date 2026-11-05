@@ -6,7 +6,8 @@ use std::collections::{BTreeMap, BTreeSet};
 mod variable_names;
 
 pub use variable_names::{
-    SentenceVariables, VariableNaming, definition_terminals, generated_variable_name,
+    SentenceVariables, VariableNaming, authored_variable_spelling, definition_terminals,
+    generated_binder_names, generated_variable_name,
 };
 
 use crate::{

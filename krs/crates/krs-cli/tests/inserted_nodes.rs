@@ -309,14 +309,14 @@ fn every_inserted_node_is_marked_and_renderings_are_not() {
     // A `k::bits!` template's hidden binder is a name KRS made; the template's tests and field
     // read render the template and are authored.
     let bits = "rule [bits]";
-    assert_kind(&nodes, bits, "Krs_Bits0:Int", Some("generated_binder"));
+    assert_kind(&nodes, bits, "Bits:Int", Some("generated_binder"));
     for text in [
-        "Krs_Bits0:Int <Int 16",
+        "Bits:Int <Int 16",
         "16",
-        "(bitRangeInt(Krs_Bits0:Int, 3, 1)) ==Int 0",
-        "bitRangeInt(Krs_Bits0:Int, 3, 1)",
+        "(bitRangeInt(Bits:Int, 3, 1)) ==Int 0",
+        "bitRangeInt(Bits:Int, 3, 1)",
         "3",
-        "bitRangeInt(Krs_Bits0:Int, 0, 3)",
+        "bitRangeInt(Bits:Int, 0, 3)",
     ] {
         assert_kind(&nodes, bits, text, None);
     }
@@ -403,13 +403,8 @@ fn every_inserted_node_is_marked_and_renderings_are_not() {
     // the pattern, whose own bytes (the parentheses, `#as` and the name) are all KRS's, while
     // the pattern is the author's.
     let save = "rule [save]";
-    assert_kind(
-        &nodes,
-        save,
-        "( 1 #as Krs_UpdateFPc:Int )",
-        Some("generated_binder"),
-    );
-    assert_kind(&nodes, save, "Krs_UpdateFPc:Int", Some("generated_binder"));
+    assert_kind(&nodes, save, "( 1 #as FPc:Int )", Some("generated_binder"));
+    assert_kind(&nodes, save, "FPc:Int", Some("generated_binder"));
     assert_kind(&nodes, save, "1", None);
 
     // An `else`'s negation of the earlier condition and a constant at its use render authored
