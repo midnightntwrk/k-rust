@@ -1599,6 +1599,13 @@ mod tests {
             "d",
         ]);
         assert_eq!(emit.verb, krs_cli::KinkVerb::Emit { check: true });
+    }
+
+    /// `krs kink` refuses an option before the verb or on a verb it does not apply to, an
+    /// unknown verb, and a missing package or verb; `krs kink --help` is kink's own help.
+    #[cfg(feature = "kink")]
+    #[test]
+    fn kink_refuses_misplaced_options_and_a_missing_selection() {
         for (args, message) in [
             (&["kink", "--full", "run"][..], "--full before the verb"),
             (
