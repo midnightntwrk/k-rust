@@ -386,6 +386,9 @@ pub struct BackendCapabilities {
     /// of an operand a short-circuiting reading skips and did not find it defined
     /// ([`ExecutionResult::short_circuit_readings`]), whatever became of the work.
     pub short_circuit_readings: bool,
+    /// An execution lists every selected cut-point or terminal rule it went on past at a step
+    /// where the rule was not its state's one successor ([`ExecutionResult::passed_stops`]).
+    pub passed_stops: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -734,11 +737,35 @@ pub struct ExecutionResult<K> {
     /// the backend that recorded them, since the absence is only then a run that listed nothing.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub short_circuit_readings: Vec<wire::ShortCircuitReadingOutput<K>>,
+    /// Each rule that [`ExecuteRequest::cut_point_rules`] or [`ExecuteRequest::terminal_rules`]
+    /// selects and that the run went on past at a step where it was not its state's one
+    /// successor, with the shallowest depth at which it did (wire `passedStops`), in order of
+    /// depth and then of name; one entry per rule, absent when empty (docs/compatibility.md,
+    /// "Passed stops"). A stop rule stops a run only as its state's one successor, so where this
+    /// lists a rule the run went on past a step at which a system that ends at every step of a
+    /// selected rule would end, and its leaves need not be that system's final configurations.
+    /// Always absent without stop rules and under `stop_at_branch`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub passed_stops: Vec<PassedStopOutput>,
     /// The summary of the run's state matches, present exactly when the request set
     /// [`ExecuteRequest::match_states`] (wire `stateMatches`; docs/compatibility.md, "State
     /// matches").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state_matches: Option<StateMatchesOutput<K>>,
+}
+
+/// A selected stop rule the run went on past ([`ExecutionResult::passed_stops`]): at some step
+/// the rule had a candidate that the step's normalization did not show undefined, and the step
+/// had another successor (another such candidate or a remainder), so the run went on through
+/// every successor.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct PassedStopOutput {
+    /// The name the request selected the rule by, as [`ExecuteRequest::cut_point_rules`] or
+    /// [`ExecuteRequest::terminal_rules`] gives it: a label or a `UNIQUE_ID`.
+    pub rule: String,
+    /// The depth of the state of the shallowest such step.
+    pub depth: u64,
 }
 
 /// The summary of an execution's state matches ([`ExecutionResult::state_matches`]), in the
@@ -2001,6 +2028,7 @@ impl Backend {
             allowance_refusals: true,
             unsupported_hooks: true,
             short_circuit_readings: true,
+            passed_stops: true,
         }
     }
 
@@ -3914,6 +3942,10 @@ mod tests {
         ] {
             assert_typescript_member("ContradictedClaimFields", member);
         }
+        assert_typescript_member("ExecutionResult", "passedStops?: PassedStop[]");
+        assert_typescript_member("BackendCapabilities", "passedStops: boolean");
+        assert_typescript_member("PassedStop", "rule: string");
+        assert_typescript_member("PassedStop", "depth: number");
         assert_typescript_member("UnevaluatedHook", "hook: string");
         assert_typescript_member("UnevaluatedHook", "reason: string");
         assert_typescript_member("UnevaluatedHook", "observedIn: ObservedIn");
@@ -3929,6 +3961,7 @@ mod tests {
             "allowanceRefusals",
             "unsupportedHooks",
             "shortCircuitReadings",
+            "passedStops",
         ] {
             assert_eq!(capabilities[capability], true, "{capability}");
         }

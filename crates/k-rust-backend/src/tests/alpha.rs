@@ -1519,6 +1519,7 @@ impl AlphaComparable for ExecutionResult {
         if self.contradicted_claims != other.contradicted_claims
             || self.allowance_refusals != other.allowance_refusals
             || self.unsupported_hooks != other.unsupported_hooks
+            || self.passed_stops != other.passed_stops
         {
             return Err("execution run-level records differ".into());
         }
@@ -1543,6 +1544,8 @@ impl AlphaComparable for ExecutionResult {
             unsupported_hooks: self.unsupported_hooks.clone(),
             // A reading's identity leaves its example operand out, so no renaming changes it.
             short_circuit_readings: self.short_circuit_readings.clone(),
+            // A passed stop names a rule and a depth, not a variable.
+            passed_stops: self.passed_stops.clone(),
             // Its states are compared by the tests of `state_match`, not up to renaming here.
             state_matches: self.state_matches.clone(),
         })
@@ -1600,6 +1603,7 @@ fn result_with_transition(name: &str) -> ExecutionResult {
         allowance_refusals: Vec::new(),
         unsupported_hooks: Vec::new(),
         short_circuit_readings: Vec::new(),
+        passed_stops: Vec::new(),
         state_matches: None,
         modality: crate::search::ResultModality::StateSet,
         leaves: vec![ExecutionLeaf {

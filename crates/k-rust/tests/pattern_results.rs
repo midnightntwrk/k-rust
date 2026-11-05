@@ -6,8 +6,8 @@
 //! backends and compares their JSON, and checks that its own JSON shows what it is meant to: builtin
 //! collections, observation events, effects, coverage with condition records, diagnostics,
 //! cut-point and branch candidates, a branch leaf's remainder (with a solver; without one, the
-//! indeterminate leaf's cause), implementation-chosen values, unsupported hooks and state
-//! matches.
+//! indeterminate leaf's cause), implementation-chosen values, unsupported hooks, passed stops
+//! and state matches.
 //! Another fixture's JSON cannot show it in its place.
 //! The run lists that need a compiled definition (contradicted claims, allowance refusals,
 //! short-circuit readings, discarded events) are compared in the tests that build them
@@ -17,7 +17,7 @@
 mod pattern_results;
 
 use k_rust::backend::{
-    Backend, BackendOptions, ConditionCollection, ExecuteRequest, ProveRequest,
+    Backend, BackendOptions, ConditionCollection, ExecuteRequest, PassedStopOutput, ProveRequest,
     ResultModalityOutput, SearchPatternRequest, SearchRequest, StateMatchRequest,
 };
 use k_rust::kore::{ast::Pattern, parser::parse_pattern};
@@ -401,6 +401,56 @@ fn diagnostics_candidates_and_remainders_serialize_alike() {
 
 /// `prove_kore` serializes as the JSON text `prove_json` writes: a refuted proof's stuck leaf and
 /// the leaves at its depth bound, each with its state.
+/// A stop rule stops a run only as its state's one successor (docs/compatibility.md, "Passed
+/// stops"). In `REFUTED_CLAIM`, `start` has two successors, `stuck` by `to-stuck` and `count(0)` by
+/// `to-count`, so a terminal `to-stuck` stops nothing there and is listed at depth 0; `count` is
+/// its state's one successor from `count(0)`, so it stops that path at depth 2 and is not listed.
+/// Both facade routes write the list as `passedStops: [{rule, depth}]`, and a run without stop
+/// rules writes none.
+#[test]
+fn passed_stops_reach_the_facade_alike() {
+    let request = ExecuteRequest {
+        terminal_rules: vec!["to-stuck".into(), "count".into()],
+        ..ExecuteRequest::new(kore("start{}()"))
+    };
+    let mut backend = fresh(REFUTED_CLAIM)();
+    let result = backend.execute_kore(request.clone()).unwrap();
+    assert_eq!(
+        result.passed_stops,
+        [PassedStopOutput {
+            rule: "to-stuck".into(),
+            depth: 0,
+        }],
+        "{result:#?}"
+    );
+    let results = executions_alike(fresh(REFUTED_CLAIM), &request);
+    for value in &results {
+        assert_eq!(
+            value["passedStops"],
+            serde_json::json!([{ "rule": "to-stuck", "depth": 0 }]),
+            "{value}"
+        );
+        let leaves = value["leaves"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|leaf| (leaf["reason"].clone(), leaf["depth"].clone()))
+            .collect::<Vec<_>>();
+        assert!(
+            leaves.contains(&(serde_json::json!("terminal"), serde_json::json!(2))),
+            "{value}"
+        );
+    }
+    let free = executions_alike(
+        fresh(REFUTED_CLAIM),
+        &ExecuteRequest {
+            max_depth: Some(3),
+            ..ExecuteRequest::new(kore("start{}()"))
+        },
+    );
+    assert!(!shows(&free, "passedStops"), "{free:?}");
+}
+
 #[test]
 fn proofs_serialize_alike() {
     let fresh = fresh(REFUTED_CLAIM);

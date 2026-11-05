@@ -1084,10 +1084,34 @@ pub struct ExecutionResult {
     /// that operand decides gives the run the same states, leaves and lists as k-rust's strict
     /// reading (docs/compatibility.md, "Short-circuit readings").
     pub short_circuit_readings: Vec<crate::path_facts::ShortCircuitReading>,
+    /// Each rule that [`ExecutionOptions::cut_point_rules`] or
+    /// [`ExecutionOptions::terminal_rules`] selects and that the run went on past at a step where
+    /// it was not its state's one successor, with the shallowest depth at which it did, in order
+    /// of depth and then of name ([`PassedStop`]); one entry per rule, so the list is no longer
+    /// than the selected rules. A stop rule stops the run only as its state's one successor, so a
+    /// run that lists one went on past a step at which a system that ends at every step of a
+    /// selected rule would end, and its leaves need not be that system's final configurations.
+    /// Empty when the request selects no stop rule, and under
+    /// [`ExecutionBranchMode::StopAtBranch`], where a step with several successors ends its path
+    /// as a `Branch` leaf (docs/compatibility.md, "Passed stops").
+    pub passed_stops: Vec<PassedStop>,
     /// The summary of the run's state matches when [`ExecutionOptions::match_states`] asked for
     /// them, `None` otherwise. A run that a stop, a bound or the work budget cut short reports
     /// the states it matched before it ended.
     pub state_matches: Option<StateMatches>,
+}
+
+/// A selected stop rule the run went on past ([`ExecutionResult::passed_stops`]): at some step
+/// the rule had a candidate that the step's normalization did not show undefined, and the step
+/// had another successor (another such candidate or a remainder), so the run went on through
+/// every successor.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct PassedStop {
+    /// The depth of the state of the shallowest such step.
+    pub depth: u64,
+    /// The name the request selected the rule by: its label or its `UNIQUE_ID`, as
+    /// [`ExecutionOptions::cut_point_rules`] and [`ExecutionOptions::terminal_rules`] name it.
+    pub rule: String,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

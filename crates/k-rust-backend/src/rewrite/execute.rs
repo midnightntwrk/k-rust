@@ -62,7 +62,7 @@
 // The phase methods return `Phase<T>` (below), whose `Err` is the finished `ExecutionLeaf`,
 // boxed: one leaf per state, moved once into `leaves`.
 
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 
 use k_rust_kore::measure::{self, Algorithm, Counter};
@@ -96,7 +96,7 @@ use super::work::Work;
 use super::{
     AppliedRule, ExecutionBranchMode, ExecutionLeaf, ExecutionMode, ExecutionOptions,
     ExecutionResult, HaltReason, IndeterminateReason, InitialDefinedness,
-    InitialSimplificationStatus, NormalizedSuccessor, Pattern, RemainderBranch,
+    InitialSimplificationStatus, NormalizedSuccessor, PassedStop, Pattern, RemainderBranch,
     RemainderSimplification, RewriteResult, SubjectDefinedness, TraceEntry, TraceKind,
     TrivialApplication, Truth, UndecidedStep, applied_trivial_halt,
     exploration_merge::{Arrival, ExplorationMerge},
@@ -286,6 +286,9 @@ struct Execution<'a> {
     bottom_initial_simplifications: usize,
     /// The cause of the stop that ended the run, once one did (`ExecutionResult::stopped`).
     stopped: Option<StopCause>,
+    /// Each selected stop rule the run went on past, by the name the request selected it by,
+    /// with the shallowest depth at which it did (`ExecutionResult::passed_stops`).
+    passed_stops: BTreeMap<String, u64>,
     /// The states visited and the budget (`work::Work`).
     work: Work,
     /// The refutations of rule attempts the sequential step reuses across the run's states
@@ -421,6 +424,7 @@ impl<'a> Execution<'a> {
             completed_initial_simplifications: 0,
             bottom_initial_simplifications: 0,
             stopped: None,
+            passed_stops: BTreeMap::new(),
             work,
             refutations: RefutationMemo::default(),
             merge,
@@ -455,6 +459,7 @@ impl<'a> Execution<'a> {
                 allowance_refusals: Vec::new(),
                 unsupported_hooks: Vec::new(),
                 short_circuit_readings: Vec::new(),
+                passed_stops: passed_stops_in_order(self.passed_stops),
                 state_matches: self.matcher.map(StateMatcher::finish),
             },
             InitialSimplificationStatus {
@@ -1650,8 +1655,8 @@ impl<'a> Execution<'a> {
         let stop_rule_selects = !single
             && remainder.is_none()
             && branches.iter().any(|applied| {
-                selected_stop_rule(applied, &self.options.cut_point_rules).is_some()
-                    || selected_stop_rule(applied, &self.options.terminal_rules).is_some()
+                selected_stop_name(applied, &self.options.cut_point_rules).is_some()
+                    || selected_stop_name(applied, &self.options.terminal_rules).is_some()
             });
         let entries_decide = !trivial.is_empty()
             && (!parts.is_empty() || (branches.is_empty() && remainder.is_none()));
@@ -1917,6 +1922,23 @@ impl<'a> Execution<'a> {
         remainder: Option<RemainderBranch>,
         offset: usize,
     ) -> Vec<ExecutionState> {
+        // The step goes on through every successor, and it is no lone candidate without a
+        // remainder (such a step goes on as `finished`), so a candidate of a selected stop rule
+        // among them has another successor beside it and is not its state's one successor: the
+        // run passes that stop. A rule passed again keeps its shallowest depth, so the record
+        // grows with the selected rules, not with the run.
+        for applied in &branches {
+            for selected in [&self.options.cut_point_rules, &self.options.terminal_rules] {
+                if let Some(rule) = selected_stop_name(applied, selected) {
+                    match self.passed_stops.get_mut(rule) {
+                        Some(depth) => *depth = (*depth).min(state.depth),
+                        None => {
+                            self.passed_stops.insert(rule.to_owned(), state.depth);
+                        }
+                    }
+                }
+            }
+        }
         let mut next = Vec::with_capacity(branches.len() + usize::from(remainder.is_some()));
         let candidates = branches
             .iter()
@@ -2549,6 +2571,7 @@ impl<'a> Execution<'a> {
                 allowance_refusals: Vec::new(),
                 unsupported_hooks: Vec::new(),
                 short_circuit_readings: Vec::new(),
+                passed_stops: passed_stops_in_order(self.passed_stops),
                 state_matches: self.matcher.map(StateMatcher::finish),
             },
             InitialSimplificationStatus {
@@ -2917,16 +2940,34 @@ fn replaceable_in_state_set(possible: &[Standing], halt: &HaltReason) -> bool {
 }
 
 fn selected_stop_rule(applied: &AppliedRule, selected: &BTreeSet<String>) -> Option<String> {
+    selected_stop_name(applied, selected).map(str::to_owned)
+}
+
+/// The name by which `selected` selects `applied`'s rule, its label before its `UNIQUE_ID`.
+fn selected_stop_name<'a>(
+    applied: &'a AppliedRule,
+    selected: &BTreeSet<String>,
+) -> Option<&'a str> {
     applied
         .label
-        .as_ref()
+        .as_deref()
         .filter(|label| selected.contains(*label))
-        .cloned()
         .or_else(|| {
             selected
                 .contains(&applied.unique_id)
-                .then(|| applied.unique_id.clone())
+                .then_some(applied.unique_id.as_str())
         })
+}
+
+/// The passed stops of a run ([`ExecutionResult::passed_stops`]), each rule with the shallowest
+/// depth at which the run passed it, in order of depth and then of name.
+fn passed_stops_in_order(passed: BTreeMap<String, u64>) -> Vec<PassedStop> {
+    let mut passed = passed
+        .into_iter()
+        .map(|(rule, depth)| PassedStop { depth, rule })
+        .collect::<Vec<_>>();
+    passed.sort();
+    passed
 }
 
 fn record_trivial_candidates(
@@ -6154,5 +6195,254 @@ mod tests {
                 .collect::<Vec<_>>(),
             [HaltReason::Stuck, HaltReason::Stuck]
         );
+    }
+
+    /// A cut-point or terminal rule stops a run only as its state's one successor. From `a`
+    /// the step has two defined successors, `b` by `to-b` and `c` by `to-c`, so selecting
+    /// `to-b` stops nothing there: the run goes on through both, and lists the step it passed,
+    /// at the depth of the state it was taken from. From `one` and from `u` the selected rule's
+    /// step is the one successor (`u-bottom`'s successor is undefined, so it is no successor),
+    /// so the run stops and passes nothing; and under `StopAtBranch` the step from `a` ends its
+    /// path as a `Branch` leaf, which goes on past nothing. From `p` the run reaches `a` at depth 1
+    /// and again at depth 2, through `q`, and passes `to-b` from both: the list names the rule
+    /// once, at the shallower depth.
+    #[test]
+    fn passed_stop_is_listed_where_a_stop_rule_is_one_of_several_successors() {
+        let definition = definition(
+            r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(\dv{SortS{}}("s"), \top{SortS{}}()), \dv{SortS{}}("a")
+            ) [label{}("s-a")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(\dv{SortS{}}("a"), \top{SortS{}}()), \dv{SortS{}}("b")
+            ) [label{}("to-b")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(\dv{SortS{}}("a"), \top{SortS{}}()), \dv{SortS{}}("c")
+            ) [label{}("to-c")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(\dv{SortS{}}("one"), \top{SortS{}}()), \dv{SortS{}}("b")
+            ) [label{}("one-b")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(\dv{SortS{}}("u"), \top{SortS{}}()),
+                \and{SortS{}}(\dv{SortS{}}("x"), \bottom{SortS{}}())
+            ) [label{}("u-bottom")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(\dv{SortS{}}("u"), \top{SortS{}}()), \dv{SortS{}}("b")
+            ) [label{}("u-b")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(\dv{SortS{}}("p"), \top{SortS{}}()), \dv{SortS{}}("a")
+            ) [label{}("p-a")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(\dv{SortS{}}("p"), \top{SortS{}}()), \dv{SortS{}}("q")
+            ) [label{}("p-q")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(\dv{SortS{}}("q"), \top{SortS{}}()), \dv{SortS{}}("a")
+            ) [label{}("q-a")]
+            "#,
+        );
+        let state = |value: &str| Pattern {
+            term: definition
+                .internalize_term(
+                    &parse_pattern(&format!(r#"\dv{{SortS{{}}}}("{value}")"#)).unwrap(),
+                    &[],
+                )
+                .unwrap(),
+            constraints: Vec::new(),
+        };
+        let selected = || BTreeSet::from(["to-b".to_owned(), "one-b".to_owned(), "u-b".to_owned()]);
+        let run = |start: &str, terminal: bool, branch_mode, result_modality| {
+            let (cut_point_rules, terminal_rules) = if terminal {
+                (BTreeSet::new(), selected())
+            } else {
+                (selected(), BTreeSet::new())
+            };
+            super::super::execute(
+                &definition,
+                state(start),
+                ExecutionOptions {
+                    cut_point_rules,
+                    terminal_rules,
+                    branch_mode,
+                    result_modality,
+                    ..ExecutionOptions::default()
+                },
+            )
+        };
+        let halts = |result: &ExecutionResult| {
+            result
+                .leaves
+                .iter()
+                .map(|leaf| (leaf.depth, leaf.halt_reason.clone()))
+                .collect::<Vec<_>>()
+        };
+        let passed = |rule: &str, depth| PassedStop {
+            depth,
+            rule: rule.to_owned(),
+        };
+        for terminal in [false, true] {
+            for modality in [ResultModality::StateSet, ResultModality::PathSet] {
+                // Both successors of `a` are explored and stuck: the stop was passed.
+                for (start, depth) in [("a", 0), ("s", 1)] {
+                    let result = run(start, terminal, ExecutionBranchMode::ExploreAll, modality);
+                    assert_eq!(
+                        halts(&result),
+                        [
+                            (depth + 1, HaltReason::Stuck),
+                            (depth + 1, HaltReason::Stuck)
+                        ],
+                        "{start} terminal={terminal} {modality:?}: {result:#?}"
+                    );
+                    assert_eq!(
+                        result.passed_stops,
+                        [passed("to-b", depth)],
+                        "{start} terminal={terminal} {modality:?}"
+                    );
+                }
+                // `to-b` is passed from `a` at depth 1 and at depth 2: one entry, at depth 1.
+                let result = run("p", terminal, ExecutionBranchMode::ExploreAll, modality);
+                assert_eq!(
+                    result.passed_stops,
+                    [passed("to-b", 1)],
+                    "p terminal={terminal} {modality:?}: {result:#?}"
+                );
+                // The selected rule's step is the one defined successor: the run stops there.
+                for (start, rule) in [("one", "one-b"), ("u", "u-b")] {
+                    let result = run(start, terminal, ExecutionBranchMode::ExploreAll, modality);
+                    let stop = if terminal {
+                        (
+                            1,
+                            HaltReason::TerminalRule {
+                                rule: rule.to_owned(),
+                            },
+                        )
+                    } else {
+                        (0, result.leaves.last().unwrap().halt_reason.clone())
+                    };
+                    assert!(
+                        halts(&result).contains(&stop),
+                        "{start} terminal={terminal} {modality:?}: {result:#?}"
+                    );
+                    assert!(
+                        terminal
+                            || matches!(
+                                &stop.1,
+                                HaltReason::CutPointRule { rule: name, .. } if name == rule
+                            ),
+                        "{start} {modality:?}: {result:#?}"
+                    );
+                    assert_eq!(result.passed_stops, [], "{start} terminal={terminal}");
+                }
+                // A step with several successors ends its path as a `Branch` leaf.
+                let result = run("a", terminal, ExecutionBranchMode::StopAtBranch, modality);
+                assert!(
+                    matches!(halts(&result).as_slice(), [(0, HaltReason::Branch { .. })]),
+                    "terminal={terminal} {modality:?}: {result:#?}"
+                );
+                assert_eq!(result.passed_stops, [], "terminal={terminal} {modality:?}");
+            }
+        }
+    }
+
+    /// A step with one candidate of a selected stop rule and a remainder goes on through both,
+    /// so it passes that stop. `n(X)` rewrites to `done` by `n-zero` where `X == 0`, and the
+    /// solver decides nothing, so the step keeps the rest of `n(X)` as a remainder beside the
+    /// candidate: the remainder is a successor (stuck, since no other rule applies to it), and the
+    /// candidate is not the one successor. The remainder route leaves the candidate's normalization to its own expansion, and the list
+    /// names the rule there too; under `StopAtBranch` the step is a `Branch` leaf.
+    #[test]
+    fn passed_stop_is_listed_where_a_stop_rule_has_a_remainder_beside_it() {
+        let source = r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortS{} []
+                symbol n{}(SortInt{}) : SortS{} [constructor{}()]
+                symbol done{}() : SortS{} [constructor{}()]
+                hooked-symbol eqInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.eq"), smt-hook{}("=")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(
+                        n{}(X:SortInt{}),
+                        \equals{SortBool{}, SortS{}}(
+                            eqInt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                            \dv{SortBool{}}("true")
+                        )
+                    ),
+                    done{}()
+                ) [label{}("n-zero")]
+            endmodule []"#;
+        let syntax = parse_definition(source).expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let start = Pattern {
+            term: definition
+                .internalize_term(&parse_pattern("n{}(X:SortInt{})").unwrap(), &[])
+                .unwrap(),
+            constraints: Vec::new(),
+        };
+        for terminal in [false, true] {
+            for branch_mode in [
+                ExecutionBranchMode::ExploreAll,
+                ExecutionBranchMode::StopAtBranch,
+            ] {
+                let selected = BTreeSet::from(["n-zero".to_owned()]);
+                let (cut_point_rules, terminal_rules) = if terminal {
+                    (BTreeSet::new(), selected)
+                } else {
+                    (selected, BTreeSet::new())
+                };
+                let solver = DeadlineAtQuery {
+                    nth: 0,
+                    queries: std::cell::Cell::new(0),
+                };
+                let result = super::super::execute_disjunction_with_solver_and_observer(
+                    &definition,
+                    vec![start.clone()],
+                    ExecutionOptions {
+                        cut_point_rules,
+                        terminal_rules,
+                        branch_mode,
+                        ..ExecutionOptions::default()
+                    },
+                    &solver,
+                    |_| {},
+                );
+                let label = format!("terminal={terminal} {branch_mode:?}: {result:#?}");
+                if branch_mode == ExecutionBranchMode::StopAtBranch {
+                    assert!(
+                        matches!(
+                            result.leaves.as_slice(),
+                            [ExecutionLeaf {
+                                halt_reason: HaltReason::Branch { .. },
+                                ..
+                            }]
+                        ),
+                        "{label}"
+                    );
+                    assert_eq!(result.passed_stops, [], "{label}");
+                } else {
+                    // `done` at depth 1, and the remainder, where no rule applies, at depth 0.
+                    let mut halts = result
+                        .leaves
+                        .iter()
+                        .map(|leaf| (leaf.depth, leaf.halt_reason.clone()))
+                        .collect::<Vec<_>>();
+                    halts.sort_by_key(|(depth, _)| *depth);
+                    assert_eq!(
+                        halts,
+                        [(0, HaltReason::Stuck), (1, HaltReason::Stuck)],
+                        "{label}"
+                    );
+                    assert_eq!(
+                        result.passed_stops,
+                        [PassedStop {
+                            depth: 0,
+                            rule: "n-zero".to_owned(),
+                        }],
+                        "{label}"
+                    );
+                }
+            }
+        }
     }
 }

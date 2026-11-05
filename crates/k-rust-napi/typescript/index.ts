@@ -230,6 +230,8 @@ export interface BackendCapabilities {
   unsupportedHooks: boolean
   /** `execute`, `executeObserved` and every search report `shortCircuitReadings`. */
   shortCircuitReadings: boolean
+  /** `execute` and `executeObserved` report `passedStops`. */
+  passedStops: boolean
 }
 
 export interface CreateBackendOptions {
@@ -543,8 +545,26 @@ export interface ExecutionResult {
    * gives the run the same states, leaves and lists; an entry is no evidence that it does not.
    */
   shortCircuitReadings?: ShortCircuitReading[]
+  /**
+   * Each rule that `cutPointRules` or `terminalRules` selects and that the run went on past at
+   * a step where it was not its state's one successor, with the shallowest depth at which it did,
+   * in order of depth and then of name; one entry per rule, absent when none
+   * (docs/compatibility.md, "Passed stops"). A stop rule stops a run only as its state's one
+   * successor, so where this lists a rule the run went on past a step at which a system that ends
+   * at every step of a selected rule would end, and its leaves need not be that system's final
+   * configurations.
+   */
+  passedStops?: PassedStop[]
   /** Present exactly when the request set `matchStates` (docs/compatibility.md, "State matches"). */
   stateMatches?: StateMatches
+}
+
+/** A selected stop rule the run went on past (`ExecutionResult.passedStops`). */
+export interface PassedStop {
+  /** The name the request selected the rule by, as `cutPointRules` or `terminalRules` gives it: a label or a `UNIQUE_ID`. */
+  rule: string
+  /** The depth of the state of the shallowest step at which the run went on past the rule. */
+  depth: number
 }
 
 /** A hook application a run left unevaluated, with the reason the 'unsupported-hook-unevaluated' diagnostic gives, and who met it. */

@@ -2205,6 +2205,14 @@ pub(super) fn execution_response<K: WireKore>(
             .iter()
             .map(short_circuit_reading_output)
             .collect::<Result<_, _>>()?,
+        passed_stops: result
+            .passed_stops
+            .into_iter()
+            .map(|passed| super::PassedStopOutput {
+                rule: passed.rule,
+                depth: passed.depth,
+            })
+            .collect(),
         state_matches: result.state_matches.map(state_matches_output).transpose()?,
     })
 }

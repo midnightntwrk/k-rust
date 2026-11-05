@@ -547,6 +547,7 @@ fn the_run_facts_carry_the_short_circuit_readings_as_recorded() {
             allowance_refusals: Vec::new(),
             unsupported_hooks: Vec::new(),
             short_circuit_readings: vec![entry.clone()],
+            passed_stops: Vec::new(),
             state_matches: None,
         };
         for (capability, expected) in [(true, Some(vec![entry.clone()])), (false, None)] {

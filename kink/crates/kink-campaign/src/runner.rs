@@ -4057,6 +4057,7 @@ mod tests {
                     allowance_refusals: Vec::new(),
                     unsupported_hooks: Vec::new(),
                     short_circuit_readings: Vec::new(),
+                    passed_stops: Vec::new(),
                     state_matches: None,
                 };
                 let executed = |result: k_rust::backend::KoreExecutionResult| {
@@ -4325,6 +4326,7 @@ mod tests {
                     allowance_refusals: Vec::new(),
                     unsupported_hooks: Vec::new(),
                     short_circuit_readings: Vec::new(),
+                    passed_stops: Vec::new(),
                     state_matches: None,
                 };
                 let reading = |rule: Option<&str>, observed_in| ShortCircuitReadingOutput {
@@ -4608,6 +4610,7 @@ mod tests {
                     allowance_refusals: Vec::new(),
                     unsupported_hooks: Vec::new(),
                     short_circuit_readings: Vec::new(),
+                    passed_stops: Vec::new(),
                     state_matches: None,
                 };
                 let feasibility = execution
