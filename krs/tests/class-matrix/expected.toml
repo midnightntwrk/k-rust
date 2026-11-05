@@ -264,7 +264,7 @@ advice = "none"
 [class.equation-root-not-function]
 code = "krs::analysis::subject-root-not-function"
 doc = "a constructor, a literal or a builtin operation at the root of an equation's subject, which is the application of the function the equation defines: a value defines no function"
-advice = ["terms/simplification/subject-root/k::builtin::int::add(1, 2)", "terms/rule/subject-root/Cmd::Go()"]
+advice = ["terms/simplification/subject-root/k::builtin::int::add(1, 2)", "terms/rule/subject-root/Cmd::Hold(x)"]
 
 [class.evaluation-key-without-evaluation]
 code = "krs::syntax::invalid-rule-key"
@@ -591,7 +591,7 @@ advice = "none"
 [class.simplification-root-not-function]
 code = "krs::analysis::subject-root-not-function"
 doc = "a constructor, a literal, a collection's unit, element or concatenation, or a collection literal that writes entries (`map![k -> v]`, `set![a, b]`, the collection it builds, whatever calls KRS builds it with; NT-28) at the root of a simplification's subject, which rewrites a function's unevaluated application: a value has nothing to simplify; the update or the union is written as its call"
-advice = ["terms/rule/subject-root/Cmd::Go()", "notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)", "notation/simplification/subject-root/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
+advice = ["terms/rule/subject-root/Cmd::Hold(x)", "notation/simplification/subject-root/k::builtin::map::update(k::builtin::map::empty(), x, 1)", "notation/simplification/subject-root/k::builtin::set::union(k::builtin::set::item(x), k::builtin::set::item(1))"]
 
 [class.single-body-without-rewrite]
 code = "krs::syntax::invalid-local-rewrite"
@@ -1920,6 +1920,14 @@ at = "item"
 
 [[refuse]]
 match = 'terms/cells/guard-restated/{true,k::is!(Int\, x)}'
+class = "rule-changes-no-cell"
+at = "item"
+
+# A `#[k::rule]` fn's or a `for KItem` clause's whole subject whose term is the template's result,
+# `Cmd::Go()`: the rule rewrites `go` to `go`. KRS reports it at the subject (`k::term![..]`, or
+# the bare subject of a clause), inside the item
+[[refuse]]
+match = '{import/{rule/subject-root,sort-rule/subject-root,sort-rule/subject-root-term}/Go(),terms/{rule/subject-root,sort-rule/subject-root,sort-rule/subject-root-term}/{Cmd::Go,Cmd::Go()}}'
 class = "rule-changes-no-cell"
 at = "item"
 

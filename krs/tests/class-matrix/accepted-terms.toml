@@ -2407,13 +2407,6 @@ rule cTAG ( V0:KItem , hold ( hold ( V0:KItem ) ) ) => hold ( V0:KItem ) [label(
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
-[accept."import/rule/subject-root/Go()"]
-k = """
-rule go => go [label(case-TAG)]
-
-syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
-"""
-
 [accept."import/rule/subject-root/Hold(x)"]
 k = """
 rule hold ( V0:KItem ) => go [label(case-TAG)]
@@ -2563,26 +2556,10 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
-[accept."import/sort-rule/subject-root-term/Go()"]
-k = """
-rule [case-TAG]:
-<k> go => go ... </k>
-
-syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
-"""
-
 [accept."import/sort-rule/subject-root-term/Hold(x)"]
 k = """
 rule [case-TAG]:
 <k> hold ( V0:KItem ) => go ... </k>
-
-syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
-"""
-
-[accept."import/sort-rule/subject-root/Go()"]
-k = """
-rule [case-TAG]:
-<k> go => go ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
@@ -14875,20 +14852,6 @@ rule 1.5 => go [label(case-TAG)]
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
-[accept."terms/rule/subject-root/Cmd::Go"]
-k = """
-rule go => go [label(case-TAG)]
-
-syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
-"""
-
-[accept."terms/rule/subject-root/Cmd::Go()"]
-k = """
-rule go => go [label(case-TAG)]
-
-syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
-"""
-
 [accept."terms/rule/subject-root/Cmd::Go() | Cmd::Hold(_)"]
 k = """
 rule ( go #Or hold ( _ ) ) => go [label(case-TAG)]
@@ -18969,24 +18932,6 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 """
 same_k_as = ["terms/sort-rule/subject-root/1.5"]
 
-[accept."terms/sort-rule/subject-root-term/Cmd::Go"]
-k = """
-rule [case-TAG]:
-<k> go => go ... </k>
-
-syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
-"""
-same_k_as = ["terms/sort-rule/subject-root/Cmd::Go"]
-
-[accept."terms/sort-rule/subject-root-term/Cmd::Go()"]
-k = """
-rule [case-TAG]:
-<k> go => go ... </k>
-
-syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
-"""
-same_k_as = ["terms/sort-rule/subject-root/Cmd::Go()"]
-
 [accept."terms/sort-rule/subject-root-term/Cmd::Go() | Cmd::Hold(_)"]
 k = """
 rule [case-TAG]:
@@ -19088,22 +19033,6 @@ syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4
 k = """
 rule [case-TAG]:
 <k> 1.5 => go ... </k>
-
-syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
-"""
-
-[accept."terms/sort-rule/subject-root/Cmd::Go"]
-k = """
-rule [case-TAG]:
-<k> go => go ... </k>
-
-syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
-"""
-
-[accept."terms/sort-rule/subject-root/Cmd::Go()"]
-k = """
-rule [case-TAG]:
-<k> go => go ... </k>
 
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
