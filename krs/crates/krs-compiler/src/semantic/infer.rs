@@ -88,6 +88,8 @@ pub(super) struct StructuredTermBuilder<'a> {
     pub(super) operators: super::operators::OperatorInference,
     /// The sentence's record updates `Ctor { f: e, ..t }` (F5).
     pub(super) record_updates: super::record_updates::RecordUpdateState,
+    /// The names of the sentence's list cells' unnamed rests ([`super::cons_lists::ListRests`]).
+    pub(super) list_rests: super::cons_lists::ListRests,
     /// The element types of the sentence's typed collections.
     pub(super) collections: CollectionUse<'a>,
 }

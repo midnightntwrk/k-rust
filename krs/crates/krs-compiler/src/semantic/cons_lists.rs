@@ -29,9 +29,10 @@ use std::collections::BTreeMap;
 
 use krs_ir::{
     ApplicationRef, CollectionOperandSort, Descriptor, DescriptorApplicationRef,
-    DescriptorApplicationReference, DescriptorCellReference, DescriptorPayload,
-    DescriptorProductionAttribute, DescriptorProductionItem, GrammarDescriptor, ListNotation,
-    ListOperation, NodeOrigin, ProtocolHeadRuleListRest, ProvenanceKey, SemanticId, StableItemId,
+    DescriptorApplicationReference, DescriptorCellIdentity, DescriptorCellReference,
+    DescriptorIndex, DescriptorPayload, DescriptorProductionAttribute, DescriptorProductionItem,
+    GrammarDescriptor, ListNotation, ListOperation, NodeOrigin, ProtocolHeadRuleListRest,
+    ProvenanceKey, SemanticId, StableItemId,
 };
 use krs_ir_levels::{ListOperands, SemanticSortRef, SemanticTerm, SemanticVariable};
 
@@ -151,6 +152,48 @@ struct ListSpine<'t> {
 
 /// Why a cons list has no level taken from its back.
 const CONS_LIST_BACK: &str = "a cons list is matched and built from its front, so its back is no constructor pattern: `..` may only end its brackets; name the elements before the rest";
+
+/// The names one sentence gives its list cells' unnamed rests: one variable per cell, which both
+/// sides of the cell name, and never one for two cells. A cell its sentence's configuration owns
+/// names its rest `__krs_rest_<field>`; a nested cell's adds its owner's name,
+/// `__krs_rest_<owner>_<field>`, since two groups may hold fields of one spelling; and a name
+/// another cell of the sentence already has takes the first free suffix `_2`, `_3`, ...
+#[derive(Clone, Debug, Default)]
+pub(super) struct ListRests {
+    names: BTreeMap<DescriptorCellIdentity, SemanticId>,
+}
+
+impl ListRests {
+    /// The name of `cell`'s unnamed rest in the sentence.
+    pub(super) fn name(
+        &mut self,
+        cell: &DescriptorCellIdentity,
+        declarations: &DescriptorIndex<'_>,
+    ) -> Result<SemanticId, DescriptorLoweringError> {
+        if let Some(id) = self.names.get(cell) {
+            return Ok(id.clone());
+        }
+        let field = cell.field.strip_prefix("r#").unwrap_or(&cell.field);
+        let marker = krs_ir::ir::RESERVED_MARKER;
+        let top_level = declarations.get(&cell.owner).is_some_and(|owner| {
+            matches!(owner.payload(), DescriptorPayload::FixedConfiguration(_))
+        });
+        let base = if top_level {
+            format!("{marker}rest_{field}")
+        } else {
+            format!("{marker}rest_{}_{field}", cell.owner.item_name())
+        };
+        let mut name = base.clone();
+        let mut ordinal = 2_usize;
+        while self.names.values().any(|id| id.as_str() == name) {
+            name = format!("{base}_{ordinal}");
+            ordinal += 1;
+        }
+        let id = SemanticId::new(name)?;
+        self.names.insert(cell.clone(), id.clone());
+        Ok(id)
+    }
+}
 
 impl StructuredTermBuilder<'_> {
     /// The constructors of `sort` when it is a cons list.
@@ -685,18 +728,13 @@ impl StructuredTermBuilder<'_> {
 
     /// The variable an anonymous `..` of a list cell names: one rest of the
     /// cell's sort, declared once and shared by both sides of the rule, as
-    /// the computation cell's `..` is.
+    /// the computation cell's `..` is ([`ListRests`]).
     pub(super) fn shared_list_rest(
         &mut self,
         cell: &DescriptorCellReference,
         sort: &SemanticSortRef,
     ) -> Result<SemanticId, DescriptorLoweringError> {
-        let field = cell
-            .cell
-            .field
-            .strip_prefix("r#")
-            .unwrap_or(&cell.cell.field);
-        let id = SemanticId::new(format!("{}rest_{field}", krs_ir::ir::RESERVED_MARKER))?;
+        let id = self.list_rests.name(&cell.cell, self.declarations)?;
         if !self.wildcards.iter().any(|variable| *variable.id() == id) {
             self.wildcards
                 .push(SemanticVariable::new(id.clone(), sort.clone()));

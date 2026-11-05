@@ -164,6 +164,7 @@ impl<'a> StateRuleTerms<'a> {
             declared_binders: self.declared_binders.clone(),
             configuration_variables: BTreeMap::new(),
             subject_keys: BTreeMap::new(),
+            list_rests: super::cons_lists::ListRests::default(),
             record_updates: super::record_updates::RecordUpdateState::default(),
             collections: CollectionUse::new(self.collections),
         };
@@ -246,6 +247,7 @@ impl<'a> StateRuleTerms<'a> {
             declared_binders: self.declared_binders.clone(),
             configuration_variables: BTreeMap::new(),
             subject_keys: BTreeMap::new(),
+            list_rests: super::cons_lists::ListRests::default(),
             record_updates: super::record_updates::RecordUpdateState::default(),
             collections: CollectionUse::new(self.collections),
         };
@@ -466,6 +468,168 @@ struct ConfigurationRuleBindings {
     variables: Vec<SemanticVariable>,
 }
 
+/// The end of the spine of list-notation levels that starts at `term`, the root of a list cell
+/// entry's brackets: what a cons level's tail and a snoc level's init hold, level by level. The
+/// root itself when it is no level.
+fn list_spine_end(term: &mut DescriptorTerm) -> &mut DescriptorTerm {
+    let rest = match term {
+        DescriptorTerm::Application {
+            reference,
+            arguments: krs_ir::Arguments::Positional(arguments),
+            update: None,
+            ..
+        } => match reference.application {
+            krs_ir::DescriptorApplicationRef::ListNotation(krs_ir::ListNotation::Cons) => Some(1),
+            krs_ir::DescriptorApplicationRef::ListNotation(krs_ir::ListNotation::Snoc) => Some(0),
+            _ => None,
+        }
+        .filter(|at| *at < arguments.len()),
+        _ => None,
+    };
+    match (rest, term) {
+        (
+            Some(at),
+            DescriptorTerm::Application {
+                arguments: krs_ir::Arguments::Positional(arguments),
+                ..
+            },
+        ) => list_spine_end(&mut arguments[at]),
+        (_, term) => term,
+    }
+}
+
+/// Whether a cell entry is a leaf's term, below `Some(..)`, whose spine of list-notation levels
+/// ends in the list's unnamed rest ([`list_spine_end`]).
+fn ends_in_kept_rest(state: &ProtocolRuleStateTerm<DescriptorTerm>) -> bool {
+    fn ends(term: &DescriptorTerm) -> bool {
+        match term {
+            DescriptorTerm::KeptRest { .. } => true,
+            DescriptorTerm::Application {
+                reference,
+                arguments: krs_ir::Arguments::Positional(arguments),
+                update: None,
+                ..
+            } => match reference.application {
+                krs_ir::DescriptorApplicationRef::ListNotation(krs_ir::ListNotation::Cons) => {
+                    arguments.get(1).is_some_and(|rest| ends(rest))
+                }
+                krs_ir::DescriptorApplicationRef::ListNotation(krs_ir::ListNotation::Snoc) => {
+                    arguments.first().is_some_and(|rest| ends(rest))
+                }
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+    match state {
+        ProtocolRuleStateTerm::Term(term) => ends(term),
+        ProtocolRuleStateTerm::Present { value } => ends_in_kept_rest(value),
+        _ => false,
+    }
+}
+
+/// The root term of a cell entry, below `Some(..)`, if the entry is a leaf's term.
+fn entry_root(state: &mut ProtocolRuleStateTerm<DescriptorTerm>) -> Option<&mut DescriptorTerm> {
+    match state {
+        ProtocolRuleStateTerm::Term(term) => Some(term),
+        ProtocolRuleStateTerm::Present { value } => entry_root(value),
+        _ => None,
+    }
+}
+
+/// The rule with each list cell's unnamed rest ([`DescriptorTerm::KeptRest`]) named, and the
+/// variables that name them: one per cell, of the cell's sort, which the subject's `..` binds and
+/// a result's `..` keeps ([`super::cons_lists::ListRests`], the names a readable rule gives its
+/// list cells' rests). A result keeps only the rest its subject matched with `..`: a subject
+/// that writes the cell's whole list, names its rest or does not match the cell has none to keep;
+/// and exact result brackets over a subject's `..` drop the rest it matched, which the brackets
+/// say nothing of. `None` when the rule has no unnamed rest.
+fn with_named_list_rests(
+    descriptor: &Descriptor,
+    rule: &krs_ir::DescriptorConfigurationRule,
+    declarations: &DescriptorIndex<'_>,
+) -> Result<
+    Option<(krs_ir::DescriptorConfigurationRule, Vec<SemanticVariable>)>,
+    DescriptorLoweringError,
+> {
+    // The transport admits an unnamed rest only at the end of a list cell entry's spine.
+    let result_cells = rule.result.iter().flat_map(|result| &result.cells);
+    if !rule
+        .subject
+        .cells
+        .iter()
+        .chain(result_cells)
+        .any(|cell| ends_in_kept_rest(&cell.value))
+    {
+        return Ok(None);
+    }
+    let mut rule = rule.clone();
+    let mut names = super::cons_lists::ListRests::default();
+    let mut variables = Vec::new();
+    let mut matched = BTreeSet::new();
+    let mut name = |cell: &DescriptorCellReference,
+                    term: &mut DescriptorTerm,
+                    variables: &mut Vec<SemanticVariable>|
+     -> Result<(), DescriptorLoweringError> {
+        let DescriptorTerm::KeptRest { key } = term else {
+            return Ok(());
+        };
+        let id = names.name(&cell.cell, declarations)?;
+        if !variables.iter().any(|variable| *variable.id() == id) {
+            let declared = require_cell_field(&cell.cell, declarations)?;
+            let ProtocolCellContent::Leaf { sort, .. } = &declared.content else {
+                return Err(DescriptorLoweringError::cell_wrapper(None, None, None));
+            };
+            variables.push(SemanticVariable::new(
+                id.clone(),
+                semantic_sort_ref(&sort.sort),
+            ));
+        }
+        *term = DescriptorTerm::Variable {
+            key: key.clone(),
+            path_key: key.clone(),
+            name: id.as_str().to_owned(),
+        };
+        Ok(())
+    };
+    for cell in &mut rule.subject.cells {
+        let field = cell.field.clone();
+        if let Some(root) = entry_root(&mut cell.value) {
+            let end = list_spine_end(root);
+            if matches!(end, DescriptorTerm::KeptRest { .. }) {
+                matched.insert(field.cell.clone());
+                name(&field, end, &mut variables)?;
+            }
+        }
+    }
+    for cell in rule.result.iter_mut().flat_map(|result| &mut result.cells) {
+        let field = cell.field.clone();
+        let Some(root) = entry_root(&mut cell.value) else {
+            continue;
+        };
+        let end = list_spine_end(root);
+        match end {
+            DescriptorTerm::KeptRest { key } if !matched.contains(&field.cell) => {
+                return Err(super::cell_states::kept_list_rest_mismatch(descriptor, key));
+            }
+            DescriptorTerm::Application {
+                reference,
+                path_key,
+                ..
+            } if matched.contains(&field.cell)
+                && reference.application
+                    == krs_ir::DescriptorApplicationRef::ListNotation(
+                        krs_ir::ListNotation::Empty,
+                    ) =>
+            {
+                return Err(super::cell_states::dropped_list_rest(descriptor, path_key));
+            }
+            end => name(&field, end, &mut variables)?,
+        }
+    }
+    Ok(Some((rule, variables)))
+}
+
 fn configuration_rule_bindings(
     rule: &krs_ir::DescriptorConfigurationRule,
 ) -> Result<ConfigurationRuleBindings, DescriptorLoweringError> {
@@ -582,12 +746,24 @@ pub(super) fn lower_configuration_rule_descriptor(
     )?;
     let overwritten = with_overwritten_cells(rule, declarations)?;
     let rule = overwritten.as_ref().unwrap_or(rule);
+    let named = with_named_list_rests(descriptor, rule, declarations)?;
+    let (rule, rests) = named
+        .as_ref()
+        .map_or((rule, &[][..]), |(rule, rests)| (rule, rests.as_slice()));
     let ConfigurationRuleBindings {
-        subject_sorts,
-        result_sorts,
+        mut subject_sorts,
+        mut result_sorts,
         requires_sorts,
-        variables,
+        mut variables,
     } = configuration_rule_bindings(rule)?;
+    // Each list cell's unnamed rest is one variable of the cell's sort, which the subject binds
+    // and a result keeps, declared once for the sentence.
+    for variable in rests {
+        let name = variable.id().as_str();
+        subject_sorts.insert(name.to_owned(), variable.sort().clone());
+        result_sorts.insert(name.to_owned(), variable.sort().clone());
+        variables.push(variable.clone());
+    }
     let typing = configuration_rule_typing(descriptor, rule, declarations, catalog, sort_parents)?;
     let mut declared_binders = declared_existentials(
         rule.claim

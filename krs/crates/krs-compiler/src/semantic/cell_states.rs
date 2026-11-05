@@ -107,6 +107,38 @@ pub(super) fn kept_rest_mismatch(
     )
 }
 
+/// A result's `..` in a list cell's brackets over a subject that left no unnamed rest of the
+/// cell for it to keep (P6): the subject's entry names the whole list, names its rest, or does
+/// not match the cell. The entry table answers it as `rest-mismatch` at the author's entry; this
+/// answers it for a sentence the table does not judge.
+pub(super) fn kept_list_rest_mismatch(
+    descriptor: &Descriptor,
+    key: &ProvenanceKey,
+) -> DescriptorLoweringError {
+    collection_error(
+        descriptor,
+        krs_diagnostic::codes::syntax::INVALID_LIST_NOTATION,
+        key,
+        "the result keeps the rest of the list with `..`, and the subject matched no unnamed rest of it: a result's `..` keeps the rest its subject's `..` matched; write `..` in the subject's brackets too, or name the rest (`rest @ ..`, `..rest`)".to_owned(),
+    )
+}
+
+/// Exact result brackets in a list cell over a subject whose brackets end in `..`: the rest the
+/// subject matched is dropped, which the result's brackets say nothing of (P6, D2). The entry
+/// table answers it as `rest-mismatch` at the author's entry; this answers it for a sentence the
+/// table does not judge.
+pub(super) fn dropped_list_rest(
+    descriptor: &Descriptor,
+    key: &ProvenanceKey,
+) -> DescriptorLoweringError {
+    collection_error(
+        descriptor,
+        krs_diagnostic::codes::syntax::INVALID_LIST_NOTATION,
+        key,
+        "the subject matches the rest of the list with `..`, and the result's brackets are exact, so the rule would drop that rest: keep it with `..` in the result's brackets too, or name it in the subject (`rest @ ..`) and leave it out of the result".to_owned(),
+    )
+}
+
 /// Why an optional cell's entry written as a bare value is a mistake.
 pub(super) fn bare_optional(name: &str) -> String {
     format!(

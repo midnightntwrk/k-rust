@@ -549,6 +549,7 @@ pub(super) fn lower_head_rule_descriptor(
         declared_binders,
         configuration_variables: BTreeMap::new(),
         subject_keys: BTreeMap::new(),
+        list_rests: super::cons_lists::ListRests::default(),
         record_updates: super::record_updates::RecordUpdateState::default(),
         collections: CollectionUse::new(&typing),
     };
@@ -2230,6 +2231,7 @@ pub(super) fn lower_structured_rule_descriptor(
         declared_binders,
         configuration_variables: BTreeMap::new(),
         subject_keys: BTreeMap::new(),
+        list_rests: super::cons_lists::ListRests::default(),
         record_updates: super::record_updates::RecordUpdateState::default(),
         collections: CollectionUse::new(&typing),
     };

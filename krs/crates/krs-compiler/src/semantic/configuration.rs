@@ -1342,6 +1342,7 @@ fn lower_initializer_term(
         subject_keys: BTreeMap::new(),
         // A record update's base is a configuration variable or a name a `let` binds, a value
         // no pattern matched.
+        list_rests: super::cons_lists::ListRests::default(),
         record_updates: super::record_updates::RecordUpdateState {
             by_value: true,
             ..super::record_updates::RecordUpdateState::default()
