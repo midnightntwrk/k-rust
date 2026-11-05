@@ -1355,8 +1355,9 @@ fn establish_disjunction(
                     None => Some(undecided(combined)),
                 },
                 Truth::Unknown => {
-                    let verdict =
-                        solver.check_predicates(&knowledge, &Substitution::new(), &combined)?;
+                    let verdict = crate::smt::trace::with_label(VALIDITY_LABEL, || {
+                        solver.check_predicates(&knowledge, &Substitution::new(), &combined)
+                    })?;
                     if !matches!(
                         &verdict,
                         Ok(Validity::Valid | Validity::InconsistentGroundTruth)
@@ -2089,10 +2090,18 @@ fn rename_existentials_apart(
     })
 }
 
+/// The SMT trace's label of an implication check's final validity query: whether the prepared
+/// obligations hold on every instance of the antecedent, the query whose answer the check
+/// establishes. The solver's other work while the consequent is discharged (preparing and
+/// simplifying the obligations, refuting branches) is labelled `implication.consequent`, so a
+/// trace separates the answer the check rests on from its side queries.
+const VALIDITY_LABEL: &str = "implication.validity";
+
 /// Discharge the obligations of a match of the consequent against the antecedent: the match's
 /// remainder equations, the bindings of universal consequent variables, and the consequent's
 /// constraints, with the consequent's existential witnesses eliminated. The SMT trace labels the
-/// solver's work here `implication.consequent`.
+/// final validity query [`VALIDITY_LABEL`] and the solver's other work here
+/// `implication.consequent`.
 fn discharge_consequent(
     definition: &BackendDefinition,
     antecedent: &Pattern,
@@ -2190,7 +2199,9 @@ fn discharge_consequent_obligations(
         Truth::Unknown => {}
     }
 
-    let verdict = solver.check_predicates(&knowledge, &Substitution::new(), &obligations)?;
+    let verdict = crate::smt::trace::with_label(VALIDITY_LABEL, || {
+        solver.check_predicates(&knowledge, &Substitution::new(), &obligations)
+    })?;
     if !matches!(
         &verdict,
         Ok(Validity::Valid | Validity::InconsistentGroundTruth)
@@ -3306,8 +3317,8 @@ mod tests {
     }
 
     /// The SMT trace records what a check established, and labels the solver work of
-    /// discharging the consequent: `pair(Y, 1) ⇒ pair(X, 1)` holds where the antecedent states
-    /// `X = Y`, which it leaves open.
+    /// discharging the consequent, its final validity query apart: `pair(Y, 1) ⇒ pair(X, 1)`
+    /// holds where the antecedent states `X = Y`, which it leaves open.
     #[cfg(feature = "z3")]
     #[test]
     fn the_smt_trace_records_what_a_check_established() {
@@ -3340,6 +3351,13 @@ mod tests {
         assert_eq!(implications[0]["obligations"], 1);
         assert!(implications[0]["origin"].is_string());
         assert!(implications[0]["label"].is_null());
+        // The contingent answer is the final validity query's, which carries its own label.
+        assert!(
+            of_kind(&records, "check")
+                .iter()
+                .any(|check| check["label"] == VALIDITY_LABEL),
+            "{records:?}"
+        );
         assert!(
             of_kind(&records, "check")
                 .iter()
@@ -3392,6 +3410,13 @@ mod tests {
         assert_eq!(implications[0]["established"], "Contingent");
         assert_eq!(implications[0]["destinations"], 2);
         assert!(implications[0]["label"].is_null());
+        // The contingent answer is the final validity query's, which carries its own label.
+        assert!(
+            of_kind(&records, "check")
+                .iter()
+                .any(|check| check["label"] == VALIDITY_LABEL),
+            "{records:?}"
+        );
         assert!(
             of_kind(&records, "check")
                 .iter()
