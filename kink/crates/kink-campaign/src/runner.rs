@@ -423,7 +423,13 @@ pub struct RunNotes {
     /// compares signatures by ([`Runtime::facts`]), or, on the mutant's evidence of a pair, for
     /// the judgement of either side's ends under the other side's definition ([`judge_across`]);
     /// or that judgement admitted no end as data because the definition's full critical-pair
-    /// check ran out of native stack (kink-native `DataFacts::stack_stopped`). The slots that
+    /// check ran out of native stack (kink-native `DataFacts::stack_stopped`); or one of those
+    /// judgements met a stop for lack of native stack while it ran, a stop a site that only
+    /// refines its answer dismissed included (k-rust's `stop::OperationRecord::stack_stops`
+    /// around the judgement, [`judgement`]): the decider's existence judgement of a leaf
+    /// (kink-native `ObservationDecider::configuration_exists`, k-rust's `ground_defined`) then
+    /// answers "not shown to exist" where more stack would show it, and whether such a stop
+    /// happens depends on the thread's stack and on the stack other threads hold. The slots that
     /// judgement decides are then `Unknown`, or the ends it judges are not data, so such an
     /// unknown is no function of the run's inputs and kink-flow's outcome cache never stores it
     /// (CF-33d). It decides no status here.
@@ -3131,8 +3137,9 @@ struct StepSides {
     sides: Result<Vec<PatternSide>, SegmentRefused>,
     /// The decider's [`ObservationDecider::smt_unknowns`] ([`RunNotes::decider_smt_unknowns`]).
     smt_unknowns: usize,
-    /// Whether the backend refused the judgement, so every pattern side is `Unknown` for a
-    /// reason that need not be a fact of the run ([`RunNotes::unjudged`]).
+    /// Whether the backend refused the judgement, so every pattern side is `Unknown`, or the
+    /// judgement met a stack stop ([`judgement`]): either for a reason that need not be a fact of
+    /// the run ([`RunNotes::unjudged`]).
     unjudged: bool,
 }
 
@@ -3140,8 +3147,15 @@ struct StepSides {
 /// run outside it (the run's decider, its pattern slots, a pair's judgement of ends), whose
 /// refusal marks the run unjudged ([`RunNotes::unjudged`]). A unit test can make it refuse
 /// (`tests::REFUSE_JUDGEMENTS`), as a refused stack segment or solver would.
+///
+/// `stack_stopped` is set when the operation met a stop for lack of native stack, one a site
+/// dismissed included, read from the operation's record (`stop::with_operation_record`, which
+/// counts every such stop inside, also in an operation on another backend that `operation`
+/// runs); that too marks the run unjudged. A unit test can make it report one
+/// (`tests::STACK_STOP_JUDGEMENTS`).
 fn judgement<T>(
     backend: &mut Backend,
+    stack_stopped: &mut bool,
     operation: impl FnOnce(
         &k_rust::k_rust_backend::definition::BackendDefinition,
         &dyn k_rust::k_rust_backend::smt::SmtSolver,
@@ -3153,7 +3167,15 @@ fn judgement<T>(
             "the backend refused the operation (a unit test's refusal)",
         ));
     }
-    backend.with_solver(None, operation)
+    let (result, record) = k_rust::k_rust_backend::stop::with_operation_record(|| {
+        backend.with_solver(None, operation)
+    });
+    *stack_stopped |= record.stack_stops > 0;
+    #[cfg(test)]
+    {
+        *stack_stopped |= tests::STACK_STOP_JUDGEMENTS.with(std::cell::Cell::get);
+    }
+    result
 }
 
 /// Whether `test` has a pattern slot, whose side the pattern judgement gives
@@ -3656,50 +3678,60 @@ impl Runtime {
         let mut ends = BTreeSet::new();
         let mut stop_ends = BTreeSet::new();
         let mut undefined_steps = false;
+        // Whether the decider's judgements met a stack stop ([`judgement`]), which marks the run
+        // unjudged below.
+        let mut stack_stopped = false;
         let run = match &executed.execution {
             Err(failure) => SideRun::Failed(failure.into()),
             Ok(execution) if execution.timed_out() => {
                 SideRun::Failed(ExecutionFailureKind::TimeLimit)
             }
-            Ok(execution) => match judgement(&mut self.backend, |definition, solver| {
-                let decider = ObservationDecider::new(
-                    definition,
-                    solver,
-                    TestInitialState::of_test(&test.initial_state),
-                )
-                .trusting_collections(collections_trusted)
-                .judging_data(own, own);
-                let context = BridgeContext {
-                    test_id: &test.id,
-                    classify: campaign.classify,
-                    sorts: &self.context.symbol_sorts,
-                };
-                let value = |term: &Pattern| decider.terminal_value(term);
-                let exists = |term: &Pattern| decider.configuration_exists(term);
-                // A host's refusal of a stack the decider's judgements needed fails the run as
-                // infrastructure, never as an answer about its leaves.
-                let (bridged, one_sided) = decider
-                    .host_refusal_during(|| {
-                        let bridged =
-                            paths_from_execution_existing(execution, &context, &value, &exists);
-                        // Re-pin L1-2: kept below only when the run is judged into sides.
-                        let one_sided = if one_sided {
-                            work_bound_stuck_terminals(execution, &context, &value, &exists)
-                        } else {
-                            Vec::new()
-                        };
-                        (bridged, one_sided)
-                    })
-                    .unwrap_or_else(|refused| {
-                        (Err(BridgeFailure::HostStackRefused(refused)), Vec::new())
-                    });
-                let state_exclusion =
-                    exclusions.state_exclusion(definition, &test.initial_state, execution.facts());
-                notes.decider_smt_unknowns = notes
-                    .decider_smt_unknowns
-                    .saturating_add(decider.smt_unknowns());
-                Ok::<_, k_rust::backend::BackendError>((bridged, state_exclusion, one_sided))
-            }) {
+            Ok(execution) => match judgement(
+                &mut self.backend,
+                &mut stack_stopped,
+                |definition, solver| {
+                    let decider = ObservationDecider::new(
+                        definition,
+                        solver,
+                        TestInitialState::of_test(&test.initial_state),
+                    )
+                    .trusting_collections(collections_trusted)
+                    .judging_data(own, own);
+                    let context = BridgeContext {
+                        test_id: &test.id,
+                        classify: campaign.classify,
+                        sorts: &self.context.symbol_sorts,
+                    };
+                    let value = |term: &Pattern| decider.terminal_value(term);
+                    let exists = |term: &Pattern| decider.configuration_exists(term);
+                    // A host's refusal of a stack the decider's judgements needed fails the run as
+                    // infrastructure, never as an answer about its leaves.
+                    let (bridged, one_sided) = decider
+                        .host_refusal_during(|| {
+                            let bridged =
+                                paths_from_execution_existing(execution, &context, &value, &exists);
+                            // Re-pin L1-2: kept below only when the run is judged into sides.
+                            let one_sided = if one_sided {
+                                work_bound_stuck_terminals(execution, &context, &value, &exists)
+                            } else {
+                                Vec::new()
+                            };
+                            (bridged, one_sided)
+                        })
+                        .unwrap_or_else(|refused| {
+                            (Err(BridgeFailure::HostStackRefused(refused)), Vec::new())
+                        });
+                    let state_exclusion = exclusions.state_exclusion(
+                        definition,
+                        &test.initial_state,
+                        execution.facts(),
+                    );
+                    notes.decider_smt_unknowns = notes
+                        .decider_smt_unknowns
+                        .saturating_add(decider.smt_unknowns());
+                    Ok::<_, k_rust::backend::BackendError>((bridged, state_exclusion, one_sided))
+                },
+            ) {
                 // No decider: every slot is unknown, unless the run is excluded, which is read
                 // from its leaves and from the test's initial state on the selected definition
                 // (re-pin R0c-fix-2, R0c-fix-1 review minor), or no definition can be selected to
@@ -3782,6 +3814,7 @@ impl Runtime {
                 }
             },
         };
+        notes.unjudged |= stack_stopped;
         (
             TestEvidence {
                 test_id: test.id.clone(),
@@ -3882,16 +3915,21 @@ impl Runtime {
         };
         let initial = || TestInitialState::of_test(&test.initial_state);
         let own = self.data.as_ref().map_or(DataEnds::None, data_ends);
+        let mut stack_stopped = false;
         let sides = match leaves {
-            None => judgement(&mut self.backend, |definition, solver| {
-                let decider = ObservationDecider::new(definition, solver, initial())
-                    .trusting_collections(trusted)
-                    .judging_data(own, own);
-                Ok::<_, k_rust::backend::BackendError>(evaluate(&decider))
-            }),
+            None => judgement(
+                &mut self.backend,
+                &mut stack_stopped,
+                |definition, solver| {
+                    let decider = ObservationDecider::new(definition, solver, initial())
+                        .trusting_collections(trusted)
+                        .judging_data(own, own);
+                    Ok::<_, k_rust::backend::BackendError>(evaluate(&decider))
+                },
+            ),
             Some(leaves) => {
                 let leaf_data = leaves.data.as_ref().map_or(DataEnds::None, data_ends);
-                judgement(&mut self.backend, |definition, _| {
+                judgement(&mut self.backend, &mut stack_stopped, |definition, _| {
                     leaves
                         .backend
                         .with_solver(None, |leaf_definition, leaf_solver| {
@@ -3908,14 +3946,17 @@ impl Runtime {
                 })
             }
         };
-        sides.unwrap_or_else(|_| StepSides {
+        let mut sides = sides.unwrap_or_else(|_| StepSides {
             sides: Ok(vec![
                 (OracleSide::Unknown, BTreeSet::new());
                 test.oracles.len()
             ]),
             smt_unknowns: 0,
             unjudged: true,
-        })
+        });
+        // A stack stop the judgement met ([`judgement`]).
+        sides.unjudged |= stack_stopped;
+        sides
     }
 
     /// Whether each of `terminals`, ends of the other side of a pair, is data under this side's
@@ -3925,7 +3966,8 @@ impl Runtime {
     /// reached, nothing is. The host's refusal of a stack one of these judgements needed is `Err`
     /// ([`ObservationDecider::host_refusal_during`]), never an answer about the ends. Beside it:
     /// the undecided solver answers the judgement took, and whether the backend refused the
-    /// judgement as a whole (no definition reached; [`RunNotes::unjudged`]).
+    /// judgement as a whole (no definition reached) or the judgement met a stack stop
+    /// ([`judgement`], [`RunNotes::unjudged`]).
     fn judge_ends(
         &mut self,
         test: &TestCase,
@@ -3952,51 +3994,60 @@ impl Runtime {
             return (Ok(refused()), 0, stack);
         }
         let trusted = self.exclusions.collections_trusted();
-        judgement(&mut self.backend, |definition, solver| {
-            let decider = ObservationDecider::new(
-                definition,
-                solver,
-                TestInitialState::of_test(&test.initial_state),
-            )
-            .trusting_collections(trusted)
-            .judging_data(ends, ends);
-            let judgement = decider.host_refusal_during(|| {
-                let terminals = terminals
-                    .iter()
-                    .map(|end| decider.terminal_value(end).as_ref() == Some(end))
-                    .zip(terminals)
-                    .collect::<Vec<_>>();
-                let (independent, dependent): (Vec<_>, Vec<_>) = bindings
-                    .iter()
-                    .partition(|term| decider.definition_independent(term));
-                // Causes only of what is refused (fz26 KINK-CAUSE-SUBTERM), from the walks above.
-                EndJudgement {
-                    terminal_causes: terminals
+        let mut stack_stopped = false;
+        let (judged, smt_unknowns, refused_judgement) = judgement(
+            &mut self.backend,
+            &mut stack_stopped,
+            |definition, solver| {
+                let decider = ObservationDecider::new(
+                    definition,
+                    solver,
+                    TestInitialState::of_test(&test.initial_state),
+                )
+                .trusting_collections(trusted)
+                .judging_data(ends, ends);
+                let judgement = decider.host_refusal_during(|| {
+                    let terminals = terminals
                         .iter()
-                        .map(|(data, end)| {
-                            (!data).then(|| {
-                                CrossCause::NotData(decider.first_non_value(end).map(Box::new))
+                        .map(|end| decider.terminal_value(end).as_ref() == Some(end))
+                        .zip(terminals)
+                        .collect::<Vec<_>>();
+                    let (independent, dependent): (Vec<_>, Vec<_>) = bindings
+                        .iter()
+                        .partition(|term| decider.definition_independent(term));
+                    // Causes only of what is refused (fz26 KINK-CAUSE-SUBTERM), from the walks above.
+                    EndJudgement {
+                        terminal_causes: terminals
+                            .iter()
+                            .map(|(data, end)| {
+                                (!data).then(|| {
+                                    CrossCause::NotData(decider.first_non_value(end).map(Box::new))
+                                })
                             })
-                        })
-                        .collect(),
-                    terminals: terminals.iter().map(|(data, _)| *data).collect(),
-                    binding_causes: dependent
-                        .into_iter()
-                        .map(|term| {
-                            (
-                                term.clone(),
-                                CrossCause::NotData(decider.first_dependent(term).map(Box::new)),
-                            )
-                        })
-                        .collect(),
-                    independent: independent.into_iter().cloned().collect(),
-                }
-            });
-            Ok::<_, k_rust::backend::BackendError>((judgement, decider.smt_unknowns(), false))
-        })
+                            .collect(),
+                        terminals: terminals.iter().map(|(data, _)| *data).collect(),
+                        binding_causes: dependent
+                            .into_iter()
+                            .map(|term| {
+                                (
+                                    term.clone(),
+                                    CrossCause::NotData(
+                                        decider.first_dependent(term).map(Box::new),
+                                    ),
+                                )
+                            })
+                            .collect(),
+                        independent: independent.into_iter().cloned().collect(),
+                    }
+                });
+                Ok::<_, k_rust::backend::BackendError>((judgement, decider.smt_unknowns(), false))
+            },
+        )
         // The backend refused the judgement: nothing is data, and the judgement is marked
         // refused ([`RunNotes::unjudged`]).
-        .unwrap_or_else(|_| (Ok(refused()), 0, true))
+        .unwrap_or_else(|_| (Ok(refused()), 0, true));
+        // A stack stop the judgement met ([`judgement`]) marks it unjudged too.
+        (judged, smt_unknowns, refused_judgement || stack_stopped)
     }
 }
 
@@ -4560,6 +4611,11 @@ mod tests {
         /// ([`judgement`], [`Runtime::facts`]), as a refused stack segment or solver would.
         pub(super) static REFUSE_JUDGEMENTS: std::cell::Cell<bool> =
             const { std::cell::Cell::new(false) };
+        /// Whether every judgement kink makes of a run on this thread reports a stack stop
+        /// ([`judgement`]), as one whose work ran out of native stack does; its answer is the
+        /// backend's.
+        pub(super) static STACK_STOP_JUDGEMENTS: std::cell::Cell<bool> =
+            const { std::cell::Cell::new(false) };
     }
 
     /// CF-33d: a judgement of a run the backend refuses leaves its slots unknown for a reason
@@ -4634,6 +4690,118 @@ mod tests {
                 refuse(false);
             },
         );
+    }
+
+    /// CF-33e: a judgement that met a stop for lack of native stack (here reported by the unit
+    /// test's switch, as [`judgement`] reports one from the operation's record) keeps the
+    /// backend's answers but marks the run unjudged at every site: the run's decider, the
+    /// pattern judgement and a pair's judgement of ends. kink-flow's outcome cache then writes no
+    /// unknown record of it (`outcomes::cacheable`).
+    #[test]
+    fn a_judgement_that_met_a_stack_stop_marks_the_run_unjudged_at_every_site() {
+        let z = || input_test_support::app("Lblz", vec![]);
+        let program = input_test_support::app(
+            "Lblcounter",
+            vec![z(), input_test_support::app("Lbls", vec![z()])],
+        );
+        with_one_test(
+            "counter.k",
+            "COUNTER",
+            program,
+            "SortCounter",
+            |_, compiled, campaign| {
+                let stop = |on: bool| STACK_STOP_JUDGEMENTS.with(|stop| stop.set(on));
+                let test = &campaign.tests[0];
+                let mut runtime = Runtime::prepare(campaign, compiled).unwrap_or_else(|_| panic!());
+                let definition = runtime.backend.select_definition(None).unwrap();
+                runtime.data = Some(DataFacts::of(&definition, &[]));
+                let observation = StepObservation::new(&mut runtime.backend, vec![]).unwrap();
+
+                let (judged, _) = runtime.run(campaign, test);
+                assert!(!judged.notes.unjudged, "{judged:?}");
+                stop(true);
+                let (stopped, _) = runtime.run(campaign, test);
+                stop(false);
+                assert!(stopped.notes.unjudged, "{stopped:?}");
+                assert_eq!(stopped.run, judged.run);
+
+                let sides = runtime.step_sides(campaign, test, &observation, None, None);
+                assert!(!sides.unjudged);
+                stop(true);
+                let stopped_sides = runtime.step_sides(campaign, test, &observation, None, None);
+                stop(false);
+                assert!(stopped_sides.unjudged);
+                assert_eq!(stopped_sides.sides, sides.sides);
+
+                let end = judged.ends.iter().next().expect("an end").clone();
+                stop(true);
+                let (judgement, _, unjudged) = runtime.judge_ends(test, &[end], &[]);
+                stop(false);
+                assert!(unjudged && judgement.is_ok_and(|judgement| judgement.terminals[0]));
+            },
+        );
+    }
+
+    /// CF-33e, the record [`judgement`] reads: an existence judgement of k-rust
+    /// (`ground_defined`) whose ceil condition recurses deeper than its thread's stack, with no
+    /// stack segment allowed, meets a stop for lack of native stack, which the definedness walk
+    /// dismisses (the term is then not shown defined); the judgement reports it. The same
+    /// judgement of a shallow term reports none.
+    #[test]
+    fn a_judgement_whose_ground_defined_call_ran_out_of_stack_reports_the_stop() {
+        // `deep(N)` recurses `N` levels; `p` is partial, `\ceil(p(X)) = (X ==Int 1)`.
+        const DEFINITION: &str = r#"[] module MAIN
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            hooked-symbol subInt{}(SortInt{}, SortInt{}) : SortInt{}
+                [function{}(), total{}(), hook{}("INT.sub"), smt-hook{}("-")]
+            hooked-symbol addInt{}(SortInt{}, SortInt{}) : SortInt{}
+                [function{}(), total{}(), hook{}("INT.add"), smt-hook{}("+")]
+            hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), hook{}("INT.gt"), smt-hook{}(">")]
+            hooked-symbol eqInt{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), hook{}("INT.eq"), smt-hook{}("=")]
+            symbol deep{}(SortInt{}) : SortInt{} [function{}(), total{}()]
+            symbol p{}(SortInt{}) : SortInt{} [function{}()]
+            axiom{R} \implies{R}(\and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, \dv{SortInt{}}("0")), \top{R}())), \equals{SortInt{}, R}(deep{}(X0:SortInt{}), \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}()))) []
+            axiom{R} \implies{R}(\and{R}(\equals{SortBool{}, R}(gtInt{}(VarN:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("true")), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarN:SortInt{}), \top{R}())), \equals{SortInt{}, R}(deep{}(X0:SortInt{}), \and{SortInt{}}(addInt{}(deep{}(subInt{}(VarN:SortInt{}, \dv{SortInt{}}("1"))), \dv{SortInt{}}("1")), \top{SortInt{}}()))) []
+            axiom{R} \implies{R}(\top{R}(), \equals{R, R}(\ceil{SortInt{}, R}(p{}(X:SortInt{})), \equals{SortBool{}, R}(eqInt{}(X:SortInt{}, \dv{SortInt{}}("1")), \dv{SortBool{}}("true")))) []
+        endmodule []"#;
+        let judged = |depth: u32| {
+            std::thread::scope(|scope| {
+                std::thread::Builder::new()
+                    .stack_size(8 << 20)
+                    .spawn_scoped(scope, || {
+                        let mut backend = Backend::new(
+                            DEFINITION,
+                            "MAIN",
+                            k_rust::backend::BackendOptions::default(),
+                        )
+                        .expect("the definition loads");
+                        backend.set_simplification_stack_budget(0);
+                        let term = k_rust::kore::parser::parse_pattern(&format!(
+                            r#"p{{}}(deep{{}}(\dv{{SortInt{{}}}}("{depth}")))"#
+                        ))
+                        .expect("the term parses");
+                        let mut stack_stopped = false;
+                        let defined =
+                            judgement(&mut backend, &mut stack_stopped, |definition, _| {
+                                Ok(definition
+                                    .admit_unverified(&term, &[])
+                                    .internalize_term()
+                                    .is_ok_and(|internal| definition.ground_defined(&internal)))
+                            })
+                            .expect("the judgement runs");
+                        (defined, stack_stopped)
+                    })
+                    .expect("the thread starts")
+                    .join()
+                    .expect("the judgement does not panic")
+            })
+        };
+        assert_eq!(judged(100_000), (false, true));
+        assert_eq!(judged(1), (true, false));
+        assert_eq!(judged(2), (false, false));
     }
 
     /// Re-pin R0b deliverables 1, 2, 7 and 9: `judge` gives an excluded run no side for any
