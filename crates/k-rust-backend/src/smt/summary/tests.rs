@@ -2092,3 +2092,186 @@ fn a_partial_boolean_summary_keeps_false_values_distinct_from_false_domains() {
         Ok(Ok(Validity::Valid))
     );
 }
+
+/// Three functions of one integer, each a partition of rows. `magnitude` tests quotients of a
+/// quotient, `(X / 2) / 2 =/= 0` and then `(X / 1) / 2 =/= 0`, whose conditions state the
+/// definedness of the inner partial `X / 2` and `X / 1` (the ceil equation of `/` states its
+/// divisor nonzero and both operands defined, as K's `INT` module does); `table` splits the same function by
+/// comparisons, `X < 0`, `X >= 4`, `2 <= X < 4`, `0 <= X < 2`; `outer` is `table` with a
+/// different value on `2 <= X < 4`. Division is Euclidean, so with a positive divisor
+/// `(X / 2) / 2 = X / 4`, and `magnitude` and `table` agree on every integer. `ignore` tests
+/// `(X / X) / 2 =/= 0`, whose inner quotient is undefined at `X = 0`.
+fn quotient_partition_rows() -> String {
+    let declarations = r#"
+      hooked-symbol ne{}(SortInt{},SortInt{}) : SortBool{}
+        [function{}(),total{}(),hook{}("INT.ne"),smt-hook{}("distinct")]
+      hooked-symbol both{}(SortBool{},SortBool{}) : SortBool{}
+        [function{}(),total{}(),hook{}("BOOL.and"),smt-hook{}("and")]
+      symbol ignore{}(SortInt{}) : SortInt{} [function{}(),total{}()]
+      axiom{R} \implies{R}(\top{R}(),\equals{R,R}(
+        \ceil{SortInt{},R}(ediv{}(@I:SortInt{},@D:SortInt{})),
+        \and{R}(\equals{SortBool{},R}(ne{}(@D:SortInt{},\dv{SortInt{}}("0")),\dv{SortBool{}}("true")),
+          \and{R}(\ceil{SortInt{},R}(@I:SortInt{}),\ceil{SortInt{},R}(@D:SortInt{}))))) [simplification{}()]
+    "#;
+    let quarter = format!(
+        "ne{{}}(ediv{{}}(ediv{{}}(X:SortInt{{}},{two}),{two}),{zero})",
+        two = int(2),
+        zero = int(0)
+    );
+    let half = format!(
+        "ne{{}}(ediv{{}}(ediv{{}}(X:SortInt{{}},{one}),{two}),{zero})",
+        one = int(1),
+        two = int(2),
+        zero = int(0)
+    );
+    // `X / X` is undefined at `X = 0`, so a test of `(X / X) / 2` is not defined everywhere.
+    let unit = format!(
+        "ne{{}}(ediv{{}}(ediv{{}}(X:SortInt{{}},X:SortInt{{}}),{two}),{zero})",
+        two = int(2),
+        zero = int(0)
+    );
+    let mut rows = vec![
+        declarations.to_owned(),
+        equation("ignore{}(X:SortInt{})", &int(1), Some(&unit), ""),
+        equation(
+            "ignore{}(X:SortInt{})",
+            &int(0),
+            Some(&format!("not{{}}({unit})")),
+            "",
+        ),
+        equation("magnitude{}(X:SortInt{})", &int(1), Some(&quarter), ""),
+        equation(
+            "magnitude{}(X:SortInt{})",
+            &int(2),
+            Some(&format!("both{{}}(not{{}}({quarter}),{half})")),
+            "",
+        ),
+        equation(
+            "magnitude{}(X:SortInt{})",
+            &int(0),
+            Some(&format!("both{{}}(not{{}}({quarter}),not{{}}({half}))")),
+            "",
+        ),
+    ];
+    // Each row is conjoined with the negations of the earlier ones, as an `if` chain is, so the
+    // rows are disjoint as propositions over their comparisons, which the partition check reads.
+    let x = "X:SortInt{}";
+    let negative = format!("lt{{}}({x},{})", int(0));
+    let natural = format!("ge{{}}({x},{})", int(0));
+    let below_four = format!("lt{{}}({x},{})", int(4));
+    let at_least_four = format!("ge{{}}({x},{})", int(4));
+    let below_two = format!("lt{{}}({x},{})", int(2));
+    let at_least_two = format!("ge{{}}({x},{})", int(2));
+    for (head, middle) in [("table", 2), ("outer", 3)] {
+        let lhs = format!("{head}{{}}({x})");
+        rows.push(equation(&lhs, &int(1), Some(&negative), ""));
+        rows.push(equation(
+            &lhs,
+            &int(1),
+            Some(&format!("both{{}}({natural},{at_least_four})")),
+            "",
+        ));
+        rows.push(equation(
+            &lhs,
+            &int(middle),
+            Some(&format!(
+                "both{{}}(both{{}}({natural},{below_four}),{at_least_two})"
+            )),
+            "",
+        ));
+        rows.push(equation(
+            &lhs,
+            &int(0),
+            Some(&format!(
+                "both{{}}(both{{}}({natural},{below_four}),{below_two})"
+            )),
+            "",
+        ));
+    }
+    rows.join("\n")
+}
+
+/// A guard testing a quotient of a quotient is a partition test: read as stated, as a query's
+/// preparation reads it, its condition states the definedness of the inner quotient, which
+/// builtin hooks decide on every input (the divisor is a nonzero literal and the dividend a
+/// parameter), so the `\ceil` it states is no test, and the function gets a summary whose rows
+/// give its value everywhere.
+#[test]
+fn a_guard_over_a_quotient_of_a_quotient_is_a_partition_test() {
+    let d = definition(&quotient_partition_rows());
+    let admit = |head: &str| {
+        crate::definedness::with_stated_ceil_conditions(|| {
+            Catalog::new(&d)
+                .admit(&term(&d, &format!("{head}{{}}(X:SortInt{{}})")))
+                .unwrap()
+        })
+    };
+    let summary = admit("magnitude").unwrap();
+    assert!(summary.declared_total);
+    for (x, expected) in [
+        (-5, 1),
+        (-1, 1),
+        (0, 0),
+        (1, 0),
+        (2, 2),
+        (3, 2),
+        (4, 1),
+        (9, 1),
+    ] {
+        assert_eq!(
+            crate::builtin::read_int(&evaluate(&d, &summary, vec![term(&d, &int(x))])).unwrap(),
+            expected.into(),
+            "magnitude({x})"
+        );
+    }
+    for head in ["table", "outer"] {
+        assert!(admit(head).is_ok(), "{head}");
+    }
+    // A test whose inner quotient is undefined on some input is no partition test.
+    assert_eq!(admit("ignore"), Err(Rejected::Partial));
+}
+
+/// Two applications of branching total functions are decided equal by their summaries where
+/// their rows give equal values on every input, though their guards split the inputs
+/// differently, and are not proved equal where they disagree on one guard's region: `magnitude`
+/// and `outer` differ exactly on `2 <= X < 4`, so their equality holds on part of the inputs
+/// and fails on the rest.
+#[cfg(feature = "z3")]
+#[test]
+fn branching_functions_are_equal_exactly_where_their_rows_agree() {
+    use crate::{
+        smt::{SmtSolver, Validity, Z3Solver},
+        substitution::Substitution,
+    };
+    let d = definition(&quotient_partition_rows());
+    let solver = Z3Solver::new(&d).unwrap();
+    let equal = |left: &str, right: &str| {
+        solver.check_predicates(
+            &[],
+            &Substitution::new(),
+            &[Predicate::Equals(
+                term(&d, &format!("{left}{{}}(X:SortInt{{}})")),
+                term(&d, &format!("{right}{{}}(X:SortInt{{}})")),
+            )],
+        )
+    };
+    assert_eq!(equal("magnitude", "table"), Ok(Ok(Validity::Valid)));
+    assert_eq!(equal("magnitude", "outer"), Ok(Ok(Validity::Contingent)));
+    assert_eq!(equal("table", "outer"), Ok(Ok(Validity::Contingent)));
+    // Where the antecedent excludes the region they disagree on, the equality holds.
+    let outside = [Predicate::Term(term(
+        &d,
+        &format!("lt{{}}(X:SortInt{{}},{})", int(2)),
+    ))];
+    assert_eq!(
+        solver.check_predicates(
+            &outside,
+            &Substitution::new(),
+            &[Predicate::Equals(
+                term(&d, "magnitude{}(X:SortInt{})"),
+                term(&d, "outer{}(X:SortInt{})"),
+            )],
+        ),
+        Ok(Ok(Validity::Valid))
+    );
+}

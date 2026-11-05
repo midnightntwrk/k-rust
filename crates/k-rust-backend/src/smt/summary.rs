@@ -868,6 +868,17 @@ impl<'d> Catalog<'d> {
                 // graph. This permits that graph as a partition test, not a partial guard.
                 // Checking the whole call also retains global definedness of every argument.
                 admitted!(self.check_body(call, parameters, seen, dependencies, false));
+                // A builtin hook's call that `check_body` admits as a partition test is defined
+                // everywhere: its arguments are, each checked the same way, and a partial hook's
+                // stated ceil condition is decided true by hooks alone on defined arguments. So
+                // its `\ceil` holds on every input and is no test. This is the `\ceil` a
+                // condition states for a partial operand of a partial hook, `X /Int 2` in
+                // `(X /Int 2) %Int 2 ==Int 1`; a hook has no equations to summarize.
+                if matches!(call.kind(), TermKind::Application { symbol, .. }
+                    if symbol.attributes.hook.is_some())
+                {
+                    return Ok(Ok(Predicate::True));
+                }
                 let summary = admitted!(self.admit(call));
                 if !summary.declared_total && !summary.domain_total {
                     return Ok(Err(Rejected::Partial));
