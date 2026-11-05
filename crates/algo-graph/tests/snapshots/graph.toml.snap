@@ -2429,12 +2429,6 @@ no_counter = "definedness has no dedicated counter; MatchingProblems, MatchingPa
 span = "per call"
 table = "Algorithm::ALL"
 registry_name = "BackendDefinedness"
-lean = [
-    "KRust.TermAttributes.ceilFree_sound",
-    "KRust.TermAttributes.walk_eq_ceilTerm",
-    "KRust.TermAttributes.apart_of_sameSkeleton",
-    "KRust.TermAttributes.normDistinct_of_sameSkeleton",
-]
 
 [node.anchor]
 crate = "k-rust-backend"
@@ -4115,7 +4109,6 @@ no_counter = "rule selection has no dedicated counter; RewriteRuleAttempts is bu
 span = "per call"
 table = "Algorithm::ALL"
 registry_name = "BackendRuleSelect"
-lean = ["KRust.TermAttributes.rule_index_same"]
 
 [node.anchor]
 crate = "k-rust-backend"
@@ -5366,11 +5359,6 @@ no_counter = "substitution extraction has no dedicated counter"
 span = "per call"
 table = "Algorithm::ALL"
 registry_name = "BackendSubstitutionExtract"
-lean = [
-    "KRust.SubstitutionSaturation.sweep_eq",
-    "KRust.SubstitutionSaturation.saturation_eq",
-    "KRust.SubstitutionSaturation.replay_eq",
-]
 
 [node.anchor]
 crate = "k-rust-backend"
@@ -5706,10 +5694,6 @@ no_counter = "the search has no dedicated counter; its callers run it once per c
 span = "none"
 table = "Algorithm::ALL"
 registry_name = "BackendTermMacroOrAlias"
-lean = [
-    "KRust.TermAttributes.hasMacro_iff",
-    "KRust.TermAttributes.macro_shortcut_eq",
-]
 
 [node.anchor]
 crate = "k-rust-backend"
@@ -6100,18 +6084,6 @@ name = "crates/k-rust-backend/src/tests/definedness.rs"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/tests/definedness.rs"
 symbol = "crates/k-rust-backend/src/tests/definedness.rs"
-
-[[node]]
-kind = "observation"
-id = "crates/k-rust-backend/src/tests/lean_bridge/substitution.rs"
-provenance = "declared"
-area = "backend"
-name = "crates/k-rust-backend/src/tests/lean_bridge/substitution.rs"
-
-[node.anchor]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/tests/lean_bridge/substitution.rs"
-symbol = "crates/k-rust-backend/src/tests/lean_bridge/substitution.rs"
 
 [[node]]
 kind = "observation"
@@ -10899,12 +10871,6 @@ variable = "H = sort heads; G = ground sorts; N = term nodes (of an inferred pac
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserInferenceZ3"
-lean = [
-    "KRust.SubsortEncoding.new_equiv",
-    "KRust.MaximalModels.maximal_models_spec",
-    "KRust.MaximalModels.runs_agree_up_to_pref",
-    "KRust.MaximalModels.runs_agree_candidates",
-]
 
 [node.anchor]
 crate = "k-rust"
@@ -11567,13 +11533,8 @@ id = "representation.backend.term"
 provenance = "declared"
 area = "backend"
 name = "immutable backend term with a cached structural hash"
-invariant = "Term::allocate is the only place a TermData is built, and a TermData is never mutated after it is shared, except for the debug-only mark of definedness::check_ceil_free, which nothing else reads: Term and TermData keep their fields private. Term::allocate sets the stored hash to calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) is structural equality of the kind, and Ord for Term is the derived order on the kind (a Sort orders by variant, name bytes and arguments, representation.backend.sort); below RECURSIVE_COMPARISON_LEVELS levels of recursion both continue on a work list (equal_nodes, order_nodes) that makes the derived comparisons of each pair of nodes in field order. Term::allocate also sets the stored ceil_free attribute to ceil_free of the kind, which reads only the kind and the children's stored ceil_free, so the stored value of every Term is ceilFree of the Lean model applied to it; likewise has_macro_or_alias and k_cells, from the children's stored values, are hasMacro and kCells of the Lean model. may_be_rigid, from the kind and the children's stored values, is false exactly when some node is a variable, a conjunction, a collection, or an application of a function, residual or uninterpreted symbol, the nodes at which rigid_apart_skeleton_hash and has_key_header stop. Only Term::map_of_items builds a Map kind: it unites entries in nondecreasing (key, value) order with those of a same-definition rest, which keeps that order, retaining repeated keys and bindings; Term::map orders its entries with order_collection first, and the other callers hand over entries edited from a map's in their order. Only Term::set_of_items builds a Set kind, with elements the same way, retaining repeated elements; Term::set orders them first. Only Term::list_of_items builds a List kind, in the items' given order: it joins the heads and tails of a same-definition list middle with its own, so no stored list has such a middle. Allocation synthesizes shape from the completed kind and every immediate child: a repeated map key or set element anywhere below a term excludes constructor_like and concrete_after_normalization; a collision root also excludes structural evaluated. with_evaluated_cache rebuilds through the same allocator from its immutable source: the kind is the source's, and an Application keeps every other stored attribute of the source, which equals the structural and kind-derived value for that kind (checked against recomputation in debug); other kinds recompute them. Only evaluated is overridden, with a collision root taking precedence. The Lean ceilFree proofs concern the separate conservative ceil_free attribute, not this hereditary shape exclusion."
+invariant = "Term::allocate is the only place a TermData is built, and a TermData is never mutated after it is shared, except for the debug-only mark of definedness::check_ceil_free, which nothing else reads: Term and TermData keep their fields private. Term::allocate sets the stored hash to calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) is structural equality of the kind, and Ord for Term is the derived order on the kind (a Sort orders by variant, name bytes and arguments, representation.backend.sort); below RECURSIVE_COMPARISON_LEVELS levels of recursion both continue on a work list (equal_nodes, order_nodes) that makes the derived comparisons of each pair of nodes in field order. Term::allocate also sets the stored ceil_free attribute to ceil_free of the kind, which reads only the kind and the children's stored ceil_free, so the stored value of every Term is the recursive definition of ceil_free evaluated at it; likewise has_macro_or_alias and k_cells, from the children's stored values. may_be_rigid, from the kind and the children's stored values, is false exactly when some node is a variable, a conjunction, a collection, or an application of a function, residual or uninterpreted symbol, the nodes at which rigid_apart_skeleton_hash and has_key_header stop. Only Term::map_of_items builds a Map kind: it unites entries in nondecreasing (key, value) order with those of a same-definition rest, which keeps that order, retaining repeated keys and bindings; Term::map orders its entries with order_collection first, and the other callers hand over entries edited from a map's in their order. Only Term::set_of_items builds a Set kind, with elements the same way, retaining repeated elements; Term::set orders them first. Only Term::list_of_items builds a List kind, in the items' given order: it joins the heads and tails of a same-definition list middle with its own, so no stored list has such a middle. Allocation synthesizes shape from the completed kind and every immediate child: a repeated map key or set element anywhere below a term excludes constructor_like and concrete_after_normalization; a collision root also excludes structural evaluated. with_evaluated_cache rebuilds through the same allocator from its immutable source: the kind is the source's, and an Application keeps every other stored attribute of the source, which equals the structural and kind-derived value for that kind (checked against recomputation in debug); other kinds recompute them. Only evaluated is overridden, with a collision root taking precedence. The conservative ceil_free attribute is separate from this hereditary shape exclusion."
 type_path = "k_rust_backend::term::Term"
-lean = [
-    "KRust.TermAttributes.ceilFree_sound",
-    "KRust.TermAttributes.map_keys_pairwise_distinct",
-    "KRust.TermAttributes.set_pairwise_distinct",
-]
 
 [node.anchor]
 crate = "k-rust-backend"
@@ -13042,12 +13003,6 @@ provenance = "declared"
 kind = "measured-by"
 from = "backend.substitution.extract"
 to = "crates/k-rust-backend/src/substitution/saturation_tests.rs"
-provenance = "declared"
-
-[[edge]]
-kind = "measured-by"
-from = "backend.substitution.extract"
-to = "crates/k-rust-backend/src/tests/lean_bridge/substitution.rs"
 provenance = "declared"
 
 [[edge]]

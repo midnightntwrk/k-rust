@@ -14,7 +14,7 @@ use proptest::{
     test_runner::{Config, RngAlgorithm, TestRng, TestRunner},
 };
 
-use super::lean_bridge::generators::{term, term_with_ground_keys};
+use super::generators::{term, term_with_ground_keys};
 use crate::term::{Term, equal_terms_on_work_list, order_terms_on_work_list};
 
 const CASES: usize = 4096;
@@ -198,7 +198,7 @@ fn the_comparison_is_the_derived_comparison_on_collections_that_differ_only_in_h
 /// occurs.
 #[test]
 fn the_comparison_is_the_derived_comparison_on_one_edit_neighbours() {
-    use super::lean_bridge::generators::{Edit, one_edit_neighbours};
+    use super::generators::{Edit, one_edit_neighbours};
     let mut runner = TestRunner::new_with_rng(
         Config::default(),
         TestRng::deterministic_rng(RngAlgorithm::ChaCha),

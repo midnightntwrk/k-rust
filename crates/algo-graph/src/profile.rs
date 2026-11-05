@@ -1093,7 +1093,6 @@ mod tests {
             role: None,
             registry_name: None,
             sequence: None,
-            lean: Vec::new(),
         }
     }
 

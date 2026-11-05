@@ -12,7 +12,7 @@ use proptest::prelude::*;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
-use super::lean_bridge::generators;
+use super::generators;
 use crate::{
     externalize::{
         self, ConjunctionShape, External, Printable, ResultSort, conjunction, connective_source,

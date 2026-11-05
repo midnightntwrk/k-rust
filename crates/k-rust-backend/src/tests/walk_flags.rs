@@ -1,22 +1,20 @@
 //! Compare the stored `has_macro_or_alias` and `k_cells` attributes against the walks they
 //! replace, over terms of every `TermKind` built by the public constructors
-//! (`lean_bridge::generators::term`).
+//! (`generators::term`).
 //!
 //! - `has_macro_or_alias` is true exactly when `Term::first_macro_or_alias_symbol` finds a symbol,
-//!   and `Term::macro_or_alias_symbol`, which reads the flag, returns what the walk returns
-//!   (`hasMacro_iff`, `macro_shortcut_eq` of `lean/KRust/TermAttributes.lean`);
+//!   and `Term::macro_or_alias_symbol`, which reads the flag, returns what the walk returns;
 //! - `k_cells` is the number of cells `find_k_cells` collects (it stops at two), `fetch_k_cell`
 //!   returns the first of them, and so the cell `rule_index` keys on, fetched only when the count
-//!   is 1, is the one `find_k_cells` left alone in its vector (`kCells_eq`, `fetchK_eq`,
-//!   `rule_index_same`). Cells are compared by allocation, so the fetch must return the same
-//!   subterm, not only an equal one.
+//!   is 1, is the one `find_k_cells` left alone in its vector. Cells are compared by allocation,
+//!   so the fetch must return the same subterm, not only an equal one.
 
 use proptest::{
     strategy::{Strategy, ValueTree},
     test_runner::{Config, RngAlgorithm, TestRng, TestRunner},
 };
 
-use super::lean_bridge::generators::term;
+use super::generators::term;
 use crate::{
     rule::{fetch_k_cell, find_k_cells},
     term::Term,

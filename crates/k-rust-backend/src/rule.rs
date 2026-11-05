@@ -6,7 +6,6 @@
 //! counters = []
 //! span = "per call"
 //! no_counter = "rule selection has no dedicated counter; RewriteRuleAttempts is bumped by apply_rule_with_match for each candidate the caller tries"
-//! lean = ["KRust.TermAttributes.rule_index_same"]
 //!
 //! [[cost]]
 //! mode = "rigid subject"
@@ -2488,7 +2487,7 @@ fn index_of(definition: &BackendDefinition, term: &Term, side: KeySide) -> RuleI
     // The index keys on the one `<k>` cell not nested in a `<k>` cell, and on nothing when there
     // are none or several. The stored count, saturated at 2, says which case holds, and the cell
     // is fetched only when it is 1: the same cell as the first that `find_k_cells` collects
-    // (`rule_index_same` of lean/KRust/TermAttributes.lean).
+    // (`tests::walk_flags`).
     // A subject's cell is keyed only when every instance of the subject has it as its one `<k>`
     // cell (`k_cell_is_exact`): a rule's cell may otherwise match another cell of an instance.
     let cell = match term.attributes().k_cells() {
@@ -2616,8 +2615,7 @@ fn collect_k_cells<'a>(term: &'a Term, cells: &mut Vec<&'a Term>) {
 
 /// The first `<k>` cell of `term` not nested in a `<k>` cell, in the order of `find_k_cells`, or
 /// `None` when there is none: descends only into the first child whose stored `k_cells` count is
-/// not zero (`fetchK` of lean/KRust/TermAttributes.lean), a collection's found through its trees'
-/// summaries.
+/// not zero, a collection's found through its trees' summaries.
 pub(crate) fn fetch_k_cell(term: &Term) -> Option<&Term> {
     match term.kind() {
         TermKind::Application {
@@ -2733,8 +2731,8 @@ fn first_with_k_cell<'a>(mut children: impl Iterator<Item = &'a Term>) -> Option
 }
 
 /// Every `<k>` cell not nested in a `<k>` cell, stopping after two: the walk that `rule_index`
-/// ran before the stored count replaced it (`findK` of lean/KRust/TermAttributes.lean), kept as
-/// the reference its replacement is tested against.
+/// ran before the stored count replaced it, kept as the reference its replacement is tested
+/// against.
 #[cfg(test)]
 pub(crate) fn find_k_cells<'a>(term: &'a Term, cells: &mut Vec<&'a Term>) {
     if cells.len() > 1 {

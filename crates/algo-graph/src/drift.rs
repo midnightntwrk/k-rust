@@ -22,8 +22,6 @@ pub struct DriftFinding {
     pub file: String,
     pub item: String,
     pub hunks: Vec<String>,
-    /// The card's `lean` theorems: their models mirror the changed site and must be re-checked.
-    pub lean: Vec<String>,
     /// For a counted site (`docs/algorithm-cards.md`), the counters the item bumps that the
     /// algorithm claims; empty for a site a card names.
     pub counters: Vec<String>,
@@ -99,13 +97,6 @@ pub fn render_drift(report: &DriftReport) -> String {
                     .map(|counter| format!("Counter::{counter}"))
                     .collect::<Vec<_>>()
                     .join(", ")
-            );
-        }
-        if !finding.lean.is_empty() {
-            let _ = writeln!(
-                output,
-                "  re-check the Lean models of: {}",
-                finding.lean.join(", ")
             );
         }
         for hunk in &finding.hunks {
@@ -356,7 +347,6 @@ fn named_findings(changed: &ChangedFile) -> Vec<DriftFinding> {
                 file: changed.diff.file.clone(),
                 item: site.clone(),
                 hunks,
-                lean: card.lean.clone(),
                 counters: Vec::new(),
             });
         }
@@ -411,16 +401,8 @@ fn counted_findings(changed: &[ChangedFile], cards: &[Card]) -> Vec<DriftFinding
                         file: file.diff.file.clone(),
                         item: symbol.to_owned(),
                         hunks: hunks.clone(),
-                        lean: Vec::new(),
                         counters: Vec::new(),
                     });
-                for card in claiming {
-                    for theorem in &card.body.lean {
-                        if !finding.lean.contains(theorem) {
-                            finding.lean.push(theorem.clone());
-                        }
-                    }
-                }
                 if !finding.counters.contains(&bump.counter) {
                     finding.counters.push(bump.counter.clone());
                 }
@@ -538,7 +520,6 @@ struct LocatedCard {
     kind: CardKind,
     id: String,
     sites: Vec<String>,
-    lean: Vec<String>,
     counters: Vec<String>,
     range: ItemRange,
 }
@@ -645,7 +626,6 @@ fn extract_cards(docs: &[LocatedDoc]) -> Result<Vec<LocatedCard>, Error> {
                     kind: *kind,
                     id: body.id,
                     sites: body.sites,
-                    lean: body.lean,
                     counters: body.counters,
                     range: ItemRange {
                         start: *start,
@@ -681,8 +661,6 @@ fn extract_cards(docs: &[LocatedDoc]) -> Result<Vec<LocatedCard>, Error> {
 struct DriftCardBody {
     id: String,
     sites: Vec<String>,
-    #[serde(default)]
-    lean: Vec<String>,
     #[serde(default)]
     counters: Vec<String>,
 }
@@ -771,7 +749,7 @@ fn run() -> usize {
     }
 
     #[test]
-    fn names_the_lean_theorems_of_a_representation_card_whose_site_changed() {
+    fn reports_a_representation_card_whose_site_changed() {
         let Some(repository) = TestRepository::new() else {
             return;
         };
@@ -781,7 +759,6 @@ fn run() -> usize {
 /// type = "example::Value"
 /// sites = ["Value::new"]
 /// invariant = "the field is positive"
-/// lean = ["KRust.Example.positive"]
 /// ```
 pub struct Value(u32);
 
@@ -800,10 +777,6 @@ impl Value {
         assert_eq!(report.findings.len(), 1, "{report:?}");
         assert_eq!(report.findings[0].card_id, "representation.example.value");
         assert_eq!(report.findings[0].item, "Value::new");
-        assert_eq!(report.findings[0].lean, ["KRust.Example.positive"]);
-        assert!(
-            render_drift(&report).contains("re-check the Lean models of: KRust.Example.positive")
-        );
     }
 
     #[test]

@@ -1389,7 +1389,7 @@ mod tests {
         }
     }
 
-    /// Over the terms of the Lean bridge generators, the unifier's root policy takes the step
+    /// Over the terms of the shared term generators, the unifier's root policy takes the step
     /// the integration base took for every pair that reaches it, the arity mismatch of one
     /// symbol now reported as such. The generated symbols are not declared by the definition,
     /// so an equation-head application is instance-normal exactly when its arguments are.
@@ -1403,7 +1403,7 @@ mod tests {
             test_runner::{Config, TestRunner},
         };
 
-        use crate::tests::lean_bridge::generators;
+        use crate::tests::generators;
 
         let definition = anywhere_definition();
         let unifier = Unifier {

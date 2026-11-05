@@ -362,12 +362,6 @@ run = "ci"
 command = "scripts/script-unit-tests.sh"
 paths = ['^scripts/(.+/)?[^/]+\.py$', '^scripts/script-unit-tests\.sh$']
 
-# The Lean proofs under lean/ and the hypothesis table that ties them to Rust tests.
-[[gate]]
-name = "lean-check"
-run = "weekly"
-command = "scripts/lean-check.sh"
-
 # Hand-run tools: each measures something when it is wanted, and none is owed by a change.
 [[gate]]
 name = "coverage"

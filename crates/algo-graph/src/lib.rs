@@ -200,28 +200,12 @@ fn find_workspace_root(start: &Path) -> Option<PathBuf> {
     })
 }
 
-/// Workspace-relative path of the tracked list of Lean theorem names that card `lean` keys name.
-///
-/// `scripts/lean-check.sh` fails when the list differs from the theorems the Lean project proves,
-/// so the graph checks the names without running Lean.
-pub const LEAN_THEOREMS_PATH: &str = "lean/theorems.txt";
-
-/// The theorem names of [`LEAN_THEOREMS_PATH`], one per line, or `None` when the file is absent.
-fn read_lean_theorems(root: &Path) -> Result<Option<BTreeSet<String>>, Error> {
-    match fs::read_to_string(root.join(LEAN_THEOREMS_PATH)) {
-        Ok(text) => Ok(Some(text.lines().map(ToOwned::to_owned).collect())),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error.into()),
-    }
-}
-
 /// Build the static graph from source cards and linked registries.
 ///
 pub fn build_graph(root: &Path) -> Result<Build, Error> {
     let mut failures = Vec::new();
     let mut report = Vec::new();
     let (cards, index) = cards::read_cards(root, &mut failures)?;
-    let lean_theorems = read_lean_theorems(root)?;
     let algorithm_registry = Algorithm::ALL
         .iter()
         .map(|algorithm| (algorithm.as_str().to_owned(), format!("{algorithm:?}")))
@@ -261,7 +245,6 @@ pub fn build_graph(root: &Path) -> Result<Build, Error> {
                 role: None,
                 registry_name: Some(variant.clone()),
                 sequence: None,
-                lean: Vec::new(),
             },
         );
     }
@@ -293,7 +276,6 @@ pub fn build_graph(root: &Path) -> Result<Build, Error> {
                 role: None,
                 registry_name: Some(name.clone()),
                 sequence: None,
-                lean: Vec::new(),
             },
         );
     }
@@ -324,7 +306,6 @@ pub fn build_graph(root: &Path) -> Result<Build, Error> {
             role: None,
             registry_name: None,
             sequence: None,
-            lean: Vec::new(),
         },
     );
     let constraint_producers = algorithm_registry
@@ -346,7 +327,6 @@ pub fn build_graph(root: &Path) -> Result<Build, Error> {
             &constraint_producers,
             &mut failures,
         );
-        validate_lean_key(card, lean_theorems.as_ref(), &mut failures);
         match card.kind {
             CardKind::Primary => {
                 primary_cards
@@ -371,7 +351,6 @@ pub fn build_graph(root: &Path) -> Result<Build, Error> {
                 apply_representation_card(&mut nodes, card, &index);
             }
         }
-        add_lean(&mut nodes, card);
         add_card_edges(
             &mut nodes,
             &mut edges,
@@ -754,38 +733,6 @@ fn validate_representation_card(card: &Card, index: &SourceIndex, failures: &mut
     }
 }
 
-/// Every `lean` entry must be a line of [`LEAN_THEOREMS_PATH`], once per card.
-fn validate_lean_key(
-    card: &Card,
-    lean_theorems: Option<&BTreeSet<String>>,
-    failures: &mut Vec<String>,
-) {
-    let mut seen = BTreeSet::new();
-    for theorem in &card.body.lean {
-        if !seen.insert(theorem) {
-            failures.push(format!(
-                "{}: lean theorem {theorem} is named twice for {}",
-                card_location(card),
-                card.body.id
-            ));
-            continue;
-        }
-        match lean_theorems {
-            None => failures.push(format!(
-                "{}: lean theorem {theorem} for {}: {LEAN_THEOREMS_PATH} is absent",
-                card_location(card),
-                card.body.id
-            )),
-            Some(theorems) if !theorems.contains(theorem) => failures.push(format!(
-                "{}: lean theorem {theorem} for {} is not in {LEAN_THEOREMS_PATH}",
-                card_location(card),
-                card.body.id
-            )),
-            Some(_) => {}
-        }
-    }
-}
-
 /// A bound names a variable when one of its words is a single letter other than `O` (the
 /// asymptotic operator) and `x` (the multiplication sign cards write).
 fn bound_names_variable(bound: &str) -> bool {
@@ -881,7 +828,6 @@ fn apply_contract_card(nodes: &mut BTreeMap<(String, String), Node>, card: &Card
             role: None,
             registry_name: None,
             sequence: None,
-            lean: Vec::new(),
         },
     );
 }
@@ -929,21 +875,8 @@ fn apply_representation_card(
             role: None,
             registry_name: None,
             sequence: None,
-            lean: Vec::new(),
         },
     );
-}
-
-/// Add a card's `lean` theorems to the node the card declares or extends.
-fn add_lean(nodes: &mut BTreeMap<(String, String), Node>, card: &Card) {
-    let kind = match card.kind {
-        CardKind::Primary | CardKind::Site => "algorithm",
-        CardKind::Contract => "contract",
-        CardKind::Representation => "invariant",
-    };
-    if let Some(node) = nodes.get_mut(&(card.body.id.clone(), kind.to_owned())) {
-        extend_unique(&mut node.lean, card.body.lean.iter().cloned());
-    }
 }
 
 fn empty_algorithm(card: &Card, anchor: Anchor) -> Node {
@@ -968,7 +901,6 @@ fn empty_algorithm(card: &Card, anchor: Anchor) -> Node {
         role: None,
         registry_name: None,
         sequence: None,
-        lean: Vec::new(),
     }
 }
 
@@ -1025,7 +957,6 @@ fn add_card_edges(
                 role: None,
                 registry_name: None,
                 sequence: None,
-                lean: Vec::new(),
             },
         );
         edges.push(edge("measured-by", &card.body.id, &test_id, "declared"));
@@ -1099,7 +1030,6 @@ fn add_representation(
             role: representation.role().map(ToOwned::to_owned),
             registry_name: None,
             sequence: None,
-            lean: Vec::new(),
         },
     );
     edges.push(edge(edge_kind, &card.body.id, &id, "declared"));
@@ -1165,7 +1095,6 @@ fn simple_phase(name: &str, table: &str, sequence: usize) -> Node {
         role: None,
         registry_name: None,
         sequence: Some(sequence),
-        lean: Vec::new(),
     }
 }
 
@@ -1199,7 +1128,6 @@ fn described_phase(description: StageDescription, sequence: usize) -> Node {
         role: None,
         registry_name: None,
         sequence: Some(sequence),
-        lean: Vec::new(),
     }
 }
 
@@ -1717,27 +1645,6 @@ mod tests {
             &mut failures,
         );
         assert!(failures.is_empty(), "{failures:?}");
-    }
-
-    #[test]
-    fn lean_keys_must_name_listed_theorems_once() {
-        let card = primary_card(
-            "id = \"backend.x\"\nsites = [\"run\"]\nlean = [\"KRust.A.proved\", \"KRust.A.missing\", \"KRust.A.proved\"]\n",
-        );
-        let theorems = BTreeSet::from(["KRust.A.proved".to_owned()]);
-        let mut failures = Vec::new();
-        validate_lean_key(&card, Some(&theorems), &mut failures);
-        assert_eq!(
-            failures,
-            [
-                "crates/k-rust-backend/src/example.rs:run: lean theorem KRust.A.missing for backend.x is not in lean/theorems.txt",
-                "crates/k-rust-backend/src/example.rs:run: lean theorem KRust.A.proved is named twice for backend.x",
-            ]
-        );
-        let mut failures = Vec::new();
-        validate_lean_key(&card, None, &mut failures);
-        assert_eq!(failures.len(), 3, "{failures:?}");
-        assert!(failures[0].ends_with("lean/theorems.txt is absent"));
     }
 
     #[test]

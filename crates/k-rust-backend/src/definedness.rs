@@ -7,7 +7,6 @@
 //! no_counter = "definedness has no dedicated counter; MatchingProblems, MatchingPairs and SimplifyInvocations count the matching and predicate simplification it calls"
 //! span = "per call"
 //! consumes = [{ type = "k_rust_backend::matching::MatchResult", role = "match result" }]
-//! lean = ["KRust.TermAttributes.ceilFree_sound", "KRust.TermAttributes.walk_eq_ceilTerm", "KRust.TermAttributes.apart_of_sameSkeleton", "KRust.TermAttributes.normDistinct_of_sameSkeleton"]
 //!
 //! [[cost]]
 //! mode = "one term (ceil_term)"
@@ -157,7 +156,7 @@ impl BackendDefinition {
     /// the run's unsupported-hook records (k-rust-fuzz does, at run level).
     ///
     /// It accepts every ground term whose stored `ceil_free` attribute is true at once (the walk
-    /// would skip it, `ceilFree_sound`: such a term owes nothing under every definition), and
+    /// would skip it: such a term owes nothing under every definition, term.rs `ceil_free`), and
     /// beyond those, among others, a term holding an irreducible `value-production` application
     /// (SIMPLE's stored `a[4]`), a partial application whose unconditional ceil equation's
     /// condition simplifies to `\top`, a sort projection on an instance of its exact image, a
@@ -245,9 +244,8 @@ enum Pending<'a> {
 /// (`and_side`); it is deduplicated once at the end, keeping the first occurrence of each
 /// member. A list deduplicated at every node gives
 /// the same result, since keeping first occurrences absorbs a deduplication of a part of the list
-/// (a member removed inside the part has an earlier copy in it): `walk_eq_ceilTerm` of
-/// `lean/KRust/TermAttributes.lean` proves it for the model of this walk (`walk`), from that
-/// absorption law, which `tests::deduplicate_absorbs_a_deduplicated_part` checks.
+/// (a member removed inside the part has an earlier copy in it), which
+/// `tests::deduplicate_absorbs_a_deduplicated_part` checks.
 ///
 /// The pending subterms and obligations are kept on the heap, so the walk takes the same native
 /// stack whatever the height of the term. It runs on instantiated right-hand sides and bound
@@ -256,9 +254,9 @@ enum Pending<'a> {
 ///
 /// With [`AtCeilFree::Skip`] a subterm whose `ceil_free` attribute is true is skipped. Sound
 /// because `ceil_free` (term.rs) is true only when the walk finds no obligation in the subterm
-/// under every definition: `lean/KRust/TermAttributes.lean` proves it (`ceilFree_sound`) for the
-/// model of the walk and of the attribute, from the constructor invariants that
-/// `tests/backend/term_order.rs` checks. The attribute depends only on the term, never on the
+/// under every definition (term.rs `ceil_free` states why, from the constructor invariants that
+/// `tests/backend/term_order.rs` checks); `tests::definedness` checks it on generated terms.
+/// The attribute depends only on the term, never on the
 /// definition, so one stored bit serves every definition a process holds. In debug builds
 /// [`check_ceil_free`] verifies every skipped subterm, including the items of a collection that
 /// the walk passes over through the collection's summaries (`check_passed_over`).
@@ -310,8 +308,8 @@ fn ceil_term_walk(
 /// (`Term::mark_ceil_free_checked`). A marked node and every node below it passed already, so the
 /// check does not walk it again: each node is walked by the check once, and a descent that skips
 /// the same subterm at every level (a list a recursive equation consumes) stays linear. A node is
-/// not checked again under another definition: the attribute is a function of the term, and
-/// `ceilFree_sound` holds for every definition.
+/// not checked again under another definition: the attribute is a function of the term, and its
+/// meaning holds for every definition.
 ///
 /// A map whose keys share one header and which has no rest is checked through its entries' tree
 /// (`check_map_entries`), a set likewise through its elements' (`check_set_elements`), and a list
@@ -585,8 +583,7 @@ fn push_list_items<'a>(
 /// nothing. `simplify::without_term_conjunctions` reads a conjunction nested in a term the same
 /// way: it replaces it by its first conjunct and states the equality of its sides' first
 /// conjuncts. The attribute `ceil_free` of a conjunction requires sides without obligations
-/// and equal first conjuncts (term.rs `ceil_free`). This is `andSide` of
-/// `lean/KRust/TermAttributes.lean`.
+/// and equal first conjuncts (term.rs `ceil_free`).
 pub(crate) fn and_side(and: &Term, left: &Term, right: &Term) -> Option<Predicate> {
     if left == right {
         return None;
@@ -821,7 +818,7 @@ const GROUPED_KEYS: usize = 4;
 ///
 /// R-def: the walk states `\not(k_i = k_j)` for every pair `i < j` that [`elements_are_apart`]
 /// does not separate. Two rigid keys with one skeleton are apart exactly when they differ
-/// (`term::rigid_apart_skeleton_hash`; `apart_of_sameSkeleton` of the Lean model), and then
+/// (`term::rigid_apart_skeleton_hash`), and then
 /// `elements_are_apart` holds through its first disjunct, so such a pair needs no call. Only the
 /// pairs with a key in another group or a key that is not rigid, and the pairs of equal keys,
 /// are decided by `elements_are_apart`, in increasing `j`: the list is the one the walk states
@@ -2308,9 +2305,8 @@ mod tests {
         assert_eq!(predicates, vec![first, second]);
     }
 
-    /// The hypothesis `Oracles.dedup_nil` of lean/KRust/TermAttributes.lean: `deduplicate`
-    /// leaves an empty vector empty, so an arm of the model `ceilTerm` whose parts are all empty,
-    /// and `ceil_term_walk` when it emits no obligation, return the empty vector.
+    /// `deduplicate` leaves an empty vector empty, so `ceil_term_walk` returns the empty vector
+    /// when it emits no obligation.
     #[test]
     fn deduplicate_keeps_an_empty_vector_empty() {
         let mut predicates = Vec::new();
@@ -2320,8 +2316,8 @@ mod tests {
         assert_eq!(predicates, Vec::<Predicate>::new());
     }
 
-    /// The hypothesis `DedupAbsorbs` of `walk_eq_ceilTerm` (lean/KRust/TermAttributes.lean):
-    /// deduplicating a part of a list first changes nothing, for every split of every list of up
+    /// The absorption law `ceil_term_walk` rests on: deduplicating a part of a list first
+    /// changes nothing, for every split of every list of up
     /// to six members over three predicates.
     #[test]
     fn deduplicate_absorbs_a_deduplicated_part() {

@@ -70,7 +70,6 @@ pub fn render_map_with(graph: &Graph, commands: &[Command]) -> String {
     representations(&mut output, &index);
     contracts(&mut output, &index);
     invariants(&mut output, &index);
-    lean_proofs(&mut output, &index);
     fallbacks(&mut output, &index);
     output
 }
@@ -785,25 +784,6 @@ fn invariants(output: &mut String, index: &Index) {
     output.push('\n');
 }
 
-fn lean_proofs(output: &mut String, index: &Index) {
-    output.push_str("## Lean proofs\n\n");
-    output.push_str("Each card with a `lean` key names theorems of `lean/theorems.txt` whose models mirror its sites. When `algo-graph drift` reports one of those sites, re-check the models against the Rust (`lean/README.md`, \"Conventions\").\n\n");
-    let mut any = false;
-    for node in index
-        .graph
-        .nodes
-        .iter()
-        .filter(|node| !node.lean.is_empty())
-    {
-        any = true;
-        output.push_str(&format!("- {}: {}\n", node.id, node.lean.join(", ")));
-    }
-    if !any {
-        output.push_str("None declared.\n");
-    }
-    output.push('\n');
-}
-
 fn fallbacks(output: &mut String, index: &Index) {
     output.push_str("## Fallbacks and variants\n\n");
     let mut any = false;
@@ -866,7 +846,6 @@ mod tests {
             role: None,
             registry_name: None,
             sequence: None,
-            lean: Vec::new(),
         }
     }
 

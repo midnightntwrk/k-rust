@@ -682,9 +682,9 @@ impl Flag {
     }
 }
 
-/// The header of a key that has one (`super::has_key_header`, `keyHeader` in the Lean model),
-/// as a value a summary holds: the key's apartness skeleton, represented by the key itself and
-/// compared with [`same_apart_skeleton`]. Two distinct keys of one header are apart, so the keys
+/// The header of a key that has one (`super::has_key_header`), as a value a summary holds: the
+/// key's apartness skeleton, represented by the key itself and compared with
+/// [`same_apart_skeleton`]. Two distinct keys of one header are apart, so the keys
 /// of a sorted collection that all share one header are pairwise apart when no two adjacent ones
 /// are equal.
 ///
@@ -780,8 +780,7 @@ impl ItemSummary {
         self.failing.holds(flag as usize)
     }
 
-    /// Whether every key has a [`Header`] and all share one (`oneHeader` in the Lean model);
-    /// true for no key.
+    /// Whether every key has a [`Header`] and all share one; true for no key.
     pub(crate) fn keys_share_one_header(&self) -> bool {
         matches!(self.header, Uniform::Empty | Uniform::One(Some(_)))
     }

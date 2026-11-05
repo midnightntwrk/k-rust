@@ -4,9 +4,7 @@
 //! keep their pending pairs on a work list below a bounded recursion, and so does apartness, so
 //! they take a bounded native stack at any height.
 //!
-//! Storage and collection canonicalization invariants are checked by `tests/backend/term_order.rs`.
-//! The Lean attribute bridge checks `ceil_free`, macro presence and k-cell count separately;
-//! it does not certify the collision exclusion for value shape:
+//! Storage and collection canonicalization invariants are checked by `tests/backend/term_order.rs`:
 //!
 //! ```toml algorithm-representation
 //! id = "representation.backend.term"
@@ -29,8 +27,8 @@
 //! order_nodes) that makes the derived comparisons of each pair of nodes in field order. \
 //! Term::allocate also sets the stored ceil_free attribute to ceil_free of the kind, which reads \
 //! only the kind and the children's stored ceil_free, so the stored value of every Term is \
-//! ceilFree of the Lean model applied to it; likewise has_macro_or_alias and k_cells, from the \
-//! children's stored values, are hasMacro and kCells of the Lean model. may_be_rigid, from the \
+//! the recursive definition of ceil_free evaluated at it; likewise has_macro_or_alias and \
+//! k_cells, from the children's stored values. may_be_rigid, from the \
 //! kind and the children's stored values, is false exactly when some node is a variable, a \
 //! conjunction, a collection, or an application of a function, residual or uninterpreted symbol, \
 //! the nodes at which rigid_apart_skeleton_hash and has_key_header stop. Only \
@@ -48,10 +46,9 @@
 //! is the source's, and an Application keeps every other stored attribute of the source, which \
 //! equals the structural and kind-derived value for that kind (checked against recomputation in \
 //! debug); other kinds recompute them. Only evaluated is overridden, with a collision root taking \
-//! precedence. The Lean ceilFree proofs concern the separate conservative ceil_free attribute, \
-//! not this hereditary shape exclusion."""
+//! precedence. The conservative ceil_free attribute is separate from this hereditary shape \
+//! exclusion."""
 //! tests = ["crates/k-rust-backend/tests/backend/term_order.rs", "crates/k-rust-backend/src/tests/definedness.rs"]
-//! lean = ["KRust.TermAttributes.ceilFree_sound", "KRust.TermAttributes.map_keys_pairwise_distinct", "KRust.TermAttributes.set_pairwise_distinct"]
 //! ```
 //!
 //! Execution, search and proof check every configuration they reach for a macro or alias symbol
@@ -66,7 +63,6 @@
 //! counters = []
 //! no_counter = "the search has no dedicated counter; its callers run it once per configuration they reach"
 //! span = "none"
-//! lean = ["KRust.TermAttributes.hasMacro_iff", "KRust.TermAttributes.macro_shortcut_eq"]
 //!
 //! [[cost]]
 //! mode = "no surviving symbol (stored has_macro_or_alias false)"
@@ -356,12 +352,11 @@ pub struct SymbolAttributes {
 /// Every field of [`SymbolAttributes`], all visible inside the crate: the one way to build
 /// attributes from a declaration with each field named (the internalizer,
 /// `definition::symbol_attributes`), and, in tests, the declaration read back as written
-/// (`SymbolAttributes::declaration`, for the Lean bridge, whose `Sym` reads the flags raw).
+/// (`SymbolAttributes::declaration`).
 ///
 /// The conversion into [`SymbolAttributes`] and `SymbolAttributes::declaration` name every field
 /// of both structs without `..`, so a new field of [`SymbolAttributes`] does not compile until it
-/// is added here, and the Lean bridge (`tests::lean_bridge::term_json::symbol_json`) destructures
-/// this struct without `..`, so it does not compile until the field reaches the model's `Sym`.
+/// is added here.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SymbolDeclaration {
     pub(crate) symbol_type: SymbolType,
@@ -572,7 +567,7 @@ impl SymbolAttributes {
     }
 
     /// The declaration as written, every field including the flags [`Self::head_role`] folds,
-    /// for the Lean bridge only. No algorithm reads the flags, so this is test-only.
+    /// for tests only. No algorithm reads the flags, so this is test-only.
     #[cfg(test)]
     pub(crate) fn declaration(&self) -> SymbolDeclaration {
         let Self {
@@ -1443,7 +1438,7 @@ impl Term {
 
     /// The domain value of `sort` holding `value` as given, without a kind: not validated and
     /// not canonicalized. For tests that build values without a definition (the backend's and
-    /// the k-rust crate's test suites, the Lean bridge generators, the hook-model harness);
+    /// the k-rust crate's test suites, the term generators, the hook-model harness);
     /// it exists only in test builds and with the test-only feature `raw-domain-values`, which
     /// no normal build enables. A library caller builds a domain value with
     /// [`crate::definition::BackendDefinition::domain_value`] or a fixed-sort constructor
@@ -1713,8 +1708,7 @@ impl Term {
     /// denote one element: each conjunct of `l /\ r` denotes at most one element, and `l /\ r`
     /// denotes the element both share. So a conjunction's definedness need only relate its sides'
     /// first conjuncts (`definedness::and_side`), as `simplify::without_term_conjunctions`
-    /// does when it replaces a conjunction by its first conjunct. This is `firstConjunct` of
-    /// `lean/KRust/TermAttributes.lean`.
+    /// does when it replaces a conjunction by its first conjunct.
     pub fn first_conjunct(&self) -> &Term {
         self.0.attributes.first_conjunct.as_ref().unwrap_or(self)
     }
@@ -2010,9 +2004,8 @@ impl Term {
     /// Return the first preprocessing symbol that survived into an internal executable term.
     ///
     /// The stored `has_macro_or_alias` attribute is false exactly when the walk would find
-    /// nothing (`hasMacro_iff` of `lean/KRust/TermAttributes.lean`, for the attribute and the
-    /// walk as modelled there), so the walk runs only when it will report a symbol, and the
-    /// symbol it reports is unchanged (`macro_shortcut_eq`).
+    /// nothing (`tests::walk_flags` checks it), so the walk runs only when it will report a
+    /// symbol, and the symbol it reports is unchanged.
     pub fn macro_or_alias_symbol(&self) -> Option<Name> {
         if !self.attributes().has_macro_or_alias() {
             return None;
@@ -2021,7 +2014,7 @@ impl Term {
     }
 
     /// The first symbol with `macro_or_alias` in the preorder of `visit_symbols`: the walk that
-    /// `macro_or_alias_symbol` guards (`firstMacro` of the Lean model).
+    /// `macro_or_alias_symbol` guards.
     pub(crate) fn first_macro_or_alias_symbol(&self) -> Option<Name> {
         let mut found = None;
         self.visit_symbols(&mut |symbol| {
@@ -2393,9 +2386,8 @@ pub(crate) fn children_lacking(kind: &TermKind, flag: Flag) -> Vec<&Term> {
 /// `tests/backend/term_order.rs` (`constructed_collections_are_sorted`,
 /// `ord_for_term_is_transitive`, `ord_for_term_equal_is_eq`).
 ///
-/// This is the function `ceilFree` of `lean/KRust/TermAttributes.lean`, which proves the meaning
-/// above (`ceilFree_sound`); `tests::lean_bridge` compares it with the Lean definition, and in
-/// debug builds `definedness::check_ceil_free` walks every node of a term the walk skips for it.
+/// `tests::definedness` checks the meaning above on generated terms, and in debug builds
+/// `definedness::check_ceil_free` walks every node of a term the walk skips for it.
 fn ceil_free(kind: &TermKind) -> bool {
     let free = |term: &Term| term.attributes().ceil_free;
     match kind {
@@ -2478,9 +2470,8 @@ fn fold_children<B>(kind: &TermKind, init: B, mut step: impl FnMut(B, &Term) -> 
 }
 
 /// The `has_macro_or_alias` attribute of a node with this kind: the symbol's `macro_or_alias` at
-/// an application, or any child's stored attribute. This is `hasMacro` of
-/// `lean/KRust/TermAttributes.lean`; `tests::lean_bridge` compares the stored attribute with it at
-/// every subterm.
+/// an application, or any child's stored attribute. `tests::walk_flags` compares the stored
+/// attribute with the walk `Term::first_macro_or_alias_symbol`.
 fn has_macro_or_alias(kind: &TermKind) -> bool {
     // A map's entries, a list's items and a set's elements answer from their summary.
     if let TermKind::List { heads, rest, .. } = kind {
@@ -2550,10 +2541,9 @@ fn may_be_rigid(kind: &TermKind) -> bool {
 
 /// The `k_cells` attribute of a node with this kind: 1 at a `<k>` cell whatever its arguments
 /// hold, because `rule::find_k_cells` does not descend below a `<k>` cell; otherwise the sum of
-/// the children's stored counts, saturated at 2. This is `kCells` of
-/// `lean/KRust/TermAttributes.lean`, which proves it equal to the number of `<k>` cells not nested
-/// in one, saturated at 2 (`kCells_eq`); `tests::lean_bridge` compares the stored attribute with
-/// it at every subterm.
+/// the children's stored counts, saturated at 2; so the number of `<k>` cells not nested in one,
+/// saturated at 2. `tests::walk_flags` compares the stored attribute with the cells
+/// `rule::find_k_cells` collects.
 fn k_cells(kind: &TermKind) -> u8 {
     if let TermKind::Application { symbol, .. } = kind
         && symbol.is(WellKnownSymbol::KCell)
@@ -2617,8 +2607,7 @@ fn distinct_roots_decide(left: head::FixedRoot, right: head::FixedRoot) -> bool 
 /// every pair of nodes above which is two applications of one symbol with the same sort
 /// arguments and arity, whose search tries every argument pair, or two injections with one
 /// source and one target, whose operands decide them; the pair at that position is apart
-/// ([`head::Apart::of_domain_values`]). This is `apart_of_sameSkeleton` of
-/// `lean/KRust/TermAttributes.lean`.
+/// ([`head::Apart::of_domain_values`]).
 ///
 /// One walk over the term, with its pending nodes on `pending` (left empty), so that a key of any
 /// height takes a bounded native stack; none when the stored `may_be_rigid` attribute is false,
@@ -3018,7 +3007,7 @@ pub(crate) enum InjectionComparison {
     Undecided,
 }
 
-/// Whether `key` has a key header (`keyHeader` in the Lean model): whether it is rigid through
+/// Whether `key` has a key header: whether it is rigid through
 /// free roots alone, every node of it a domain value, an injection, or an application of a
 /// symbol whose role is [`HeadRole::FreeConstructor`]. Its header is then its apartness skeleton
 /// ([`same_apart_skeleton`]), and two distinct keys of one header are apart for every definition
@@ -4565,7 +4554,7 @@ mod tests {
         };
         let side = || {
             proptest::prop_oneof![
-                crate::tests::lean_bridge::generators::term().boxed(),
+                crate::tests::generators::term().boxed(),
                 rigid.clone().boxed(),
             ]
         };

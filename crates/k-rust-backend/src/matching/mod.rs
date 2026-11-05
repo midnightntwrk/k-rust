@@ -3527,7 +3527,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::{term::Symbol, tests::lean_bridge::generators};
+    use crate::{term::Symbol, tests::generators};
 
     /// How a transcription of `Matcher::match_one` reads a symbol's role.
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -3894,7 +3894,7 @@ mod tests {
         }
     }
 
-    /// Acceptance of CBC-02-T4: over the terms of the Lean bridge generators, in every mode,
+    /// Acceptance of CBC-02-T4: over the terms of the shared term generators, in every mode,
     /// with and without evidence for an equation-head subject and with every set of overloaded
     /// names, `matcher_root_policy` selects the arm the guards of `eea634ce` selected, except
     /// for a root symbol whose role CBC-02-T2 changed (B1-B3), and the arm the integration

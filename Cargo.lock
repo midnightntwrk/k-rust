@@ -1126,7 +1126,6 @@ dependencies = [
  "k-rust-domain",
  "k-rust-kore",
  "k-rust-regex",
- "lean-conformance",
  "libc",
  "num-bigint",
  "num-traits",
@@ -1159,7 +1158,6 @@ dependencies = [
  "k-rust-domain",
  "k-rust-kore",
  "k256",
- "lean-conformance",
  "libc",
  "num-bigint",
  "num-traits",
@@ -1670,14 +1668,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 dependencies = [
  "spin",
-]
-
-[[package]]
-name = "lean-conformance"
-version = "0.1.0"
-dependencies = [
- "proptest",
- "serde_json",
 ]
 
 [[package]]

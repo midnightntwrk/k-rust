@@ -1,8 +1,8 @@
-//! Property tests of the hypotheses that lean/KRust/TermAttributes.lean takes about the term
-//! representation (the hypothesis table in lean/README.md):
-//! - `TotalOrder.trans` and `TotalOrder.antisym`: `Ord for Term` is transitive, and
-//!   `a.cmp(b) == Equal` exactly when `a == b`, which is structural equality of the kinds;
-//! - `WF`: map entries are sorted by `(key, value)` and set elements are sorted, at every depth of
+//! Property tests of the term representation that the `ceil_free` attribute and the collection
+//! constructors rest on (term.rs `ceil_free`):
+//! - `Ord for Term` is transitive, and `a.cmp(b) == Equal` exactly when `a == b`, which is
+//!   structural equality of the kinds;
+//! - map entries are sorted by `(key, value)` and set elements are sorted, at every depth of
 //!   a term built by the public constructors. A set may hold an element twice (concatenation is
 //!   nilpotent, so such a set is `\bottom`); `ceil_free` checks adjacent elements itself.
 //!
@@ -399,12 +399,12 @@ fn related(base: &Spec, choice: u8, position: usize, other: &Spec) -> Spec {
     }
 }
 
-/// `le` of the Lean model: `a <= b` under `Ord for Term`.
+/// `a <= b` under `Ord for Term`.
 fn le(a: &Term, b: &Term) -> bool {
     a.cmp(b) != Ordering::Greater
 }
 
-/// The model's `WF`, checked at every depth: map entries sorted by `(key, value)`, set elements
+/// Well-formedness, checked at every depth: map entries sorted by `(key, value)`, set elements
 /// sorted.
 fn check_wf(term: &Term) -> Result<(), String> {
     match term.kind() {
@@ -454,8 +454,8 @@ fn check_wf(term: &Term) -> Result<(), String> {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(1024))]
 
-    /// `TotalOrder.antisym` (and its converse): `a.cmp(b) == Equal` exactly when `a == b`, and
-    /// `a == b` exactly when the kinds are equal, which is the model's equality.
+    /// Antisymmetry (and its converse): `a.cmp(b) == Equal` exactly when `a == b`, and `a == b`
+    /// exactly when the kinds are equal, which is structural equality.
     #[test]
     fn ord_for_term_equal_is_eq(
         base in spec(),
@@ -470,7 +470,7 @@ proptest! {
         prop_assert_eq!(b.cmp(&a), a.cmp(&b).reverse());
     }
 
-    /// `TotalOrder.trans`: `a <= b` and `b <= c` give `a <= c`, for every order of a triple of
+    /// Transitivity: `a <= b` and `b <= c` give `a <= c`, for every order of a triple of
     /// related terms.
     #[test]
     fn ord_for_term_is_transitive(
@@ -494,7 +494,7 @@ proptest! {
         }
     }
 
-    /// `WF`: every term the public constructors build has sorted map entries and sorted set
+    /// Well-formedness: every term the public constructors build has sorted map entries and sorted set
     /// elements at every depth. `Term::new` is private and `Term::map` and `Term::set` are the
     /// only constructors of a map or set kind (`with_evaluated_cache` copies an existing kind), so
     /// generating over those constructors with arbitrary children covers every built term.

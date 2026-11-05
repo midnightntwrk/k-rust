@@ -1,9 +1,9 @@
 //! Compare the `ceil_free` shortcut of the definedness walk (`definedness::ceil_term`) against the
 //! walk that never reads the attribute (`ceil_term_without_attribute`), over terms of every `TermKind`
-//! built by the public constructors (`lean_bridge::generators::term_with_ground_keys`).
+//! built by the public constructors (`generators::term_with_ground_keys`).
 //!
-//! The property is `ceilFree_sound` of `lean/KRust/TermAttributes.lean` applied to the Rust: a
-//! term whose stored attribute is true has no definedness obligation, so `ceil_term` with the
+//! The property is the meaning of the attribute (term.rs `ceil_free`): a term whose stored
+//! attribute is true has no definedness obligation under any definition, so `ceil_term` with the
 //! shortcut returns the same list as the full walk for every term, not only for `ceil_free`
 //! ones. The definition declares the generator's sorts with `Int` a subsort of `KItem`, so that
 //! the matcher the full walk falls back on for keys with different headers has a subsort
@@ -20,7 +20,7 @@ use proptest::{
     test_runner::{Config, RngAlgorithm, TestRng, TestRunner},
 };
 
-use super::lean_bridge::generators::term_with_ground_keys;
+use super::generators::term_with_ground_keys;
 use crate::{
     definedness::{ceil_term, ceil_term_without_attribute},
     definition::BackendDefinition,
@@ -737,7 +737,7 @@ impl KeyCoverage {
 
 /// The grouping by apartness skeleton states the disequalities that `elements_are_apart` states
 /// pair by pair, in the same order, for the sorted keys of a map and the sorted elements of a set
-/// (`apart_of_sameSkeleton` of the Lean model, applied to the Rust): a pair it skips is a pair of
+/// (`term::rigid_apart_skeleton_hash`): a pair it skips is a pair of
 /// distinct rigid keys with one skeleton, which `elements_are_apart` separates.
 #[test]
 fn grouped_disequalities_are_the_pairwise_ones() {
@@ -800,7 +800,7 @@ fn grouped_disequalities_are_the_pairwise_ones() {
 fn grouped_disequalities_are_the_pairwise_ones_on_one_edit_neighbours() {
     use proptest::prelude::*;
 
-    use super::lean_bridge::generators::one_edit_neighbours;
+    use super::generators::one_edit_neighbours;
     let definition = definition();
     let (_, set_definition, _) = collection_definitions();
     let mut runner = TestRunner::new_with_rng(

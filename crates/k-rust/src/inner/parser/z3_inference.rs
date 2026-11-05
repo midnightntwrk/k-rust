@@ -13,7 +13,6 @@
 //! consumes = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }, { type = "k_rust::inner::parser::forest::PackedTerm", role = "scoped packed forest" }]
 //! produces = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "sorted forest" }, { type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
 //! span = "per problem"
-//! lean = ["KRust.SubsortEncoding.new_equiv", "KRust.MaximalModels.maximal_models_spec", "KRust.MaximalModels.runs_agree_up_to_pref", "KRust.MaximalModels.runs_agree_candidates"]
 //!
 //! [[cost]]
 //! mode = "encoding construction"
@@ -2457,20 +2456,17 @@ impl<'a> Encoding<'a> {
     /// constant. No property of `R` is used (not transitivity, not reflexivity), only that the
     /// side treated as closed is a constructor term; a closed term that is not one (an accessor
     /// applied to a value, say) is not in `closed_values` and gets the full disjunction.
-    /// Lean: `KRust.SubsortEncoding.new_equiv` (lean/KRust/SubsortEncoding.lean); Rust test:
-    /// `tests::ground_side_encoding_is_equivalent`; model conformance of this formula with the
-    /// Lean `new`: `tests::lean_bridge::less_than_eq_agrees_with_new`.
+    /// Rust test: `tests::ground_side_encoding_is_equivalent`.
     ///
     /// Output argument. Every caller combines these formulas with `and`, `not`, `or` and
     /// pseudo-Boolean bounds, so replacing each by an equivalent one leaves every asserted
     /// formula equivalent: the hard constraints, the climbing and blocking clauses of
     /// `maximal_models` and the preferences of `top_preferences`, hence the same satisfiable
-    /// problems, order and preference counts (`KRust.MaximalModels.Equivalent`, Rust test
+    /// problems, order and preference counts (Rust test
     /// `tests::order_constraints_are_equivalent_at_every_call_site`).
     /// `maximal_models` then records the same maximal real typings, each with a parameter
-    /// vector that `admissible_parameters` admits under either formula
-    /// (`KRust.MaximalModels.runs_agree_up_to_pref`). Every admissible vector is applied, so
-    /// the candidate parses are the same (`KRust.MaximalModels.runs_agree_candidates`). What
+    /// vector that `admissible_parameters` admits under either formula.
+    /// Every admissible vector is applied, so the candidate parses are the same. What
     /// may change is what depends on the particular models
     /// Z3 returns: the number of checks (`ParserZ3Checks`), the order of recorded models, and
     /// the sorts named in the diagnostics of a rejected input.
@@ -4439,8 +4435,6 @@ mod tests {
     use proptest::prelude::*;
     use z3::Solver;
 
-    mod lean_bridge;
-
     fn nonterminal(name: &str) -> ProductionItem {
         ProductionItem::NonTerminal {
             sort: Sort::new(name),
@@ -4570,20 +4564,18 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(48))]
 
-        /// Rust side of the Lean theorem `KRust.SubsortEncoding.new_equiv`
-        /// (lean/KRust/SubsortEncoding.lean): for every relation `R` over cached ground sort
-        /// values, `Encoding::less_than_eq`, which encodes a constraint with a closed side from
-        /// that side's up- or down-set (the model's `new`), and the full disjunction over `R`
-        /// (`OrderRelation::full_disjunction`, the model's `old`) are logically equivalent, so
-        /// Z3 must report `¬(old ⇔ new)` unsatisfiable.
-        /// The Lean proof says this test cannot fail as long as its one hypothesis `hI` holds
-        /// (distinct cached constructor terms denote distinct values in every Z3 model); the test
-        /// checks that the Rust code matches the Lean model and that Z3 satisfies `hI`.
-        /// `R` is arbitrary, not a closed partial order, because the theorem needs no hypothesis
-        /// on it. The sides
-        /// are every cached ground value and, for the model's `other` case, two variables, a
-        /// constructor applied to a variable, and an accessor applied to a cached value (a
-        /// closed term that is not a cached constructor term), so every pair of kinds
+        /// For every relation `R` over cached ground sort values, `Encoding::less_than_eq`,
+        /// which encodes a constraint with a closed side from that side's up- or down-set
+        /// (`new`), and the full disjunction over `R` (`OrderRelation::full_disjunction`,
+        /// `old`) are logically equivalent, so Z3 must report `¬(old ⇔ new)` unsatisfiable.
+        /// The equivalence argument of `Encoding::less_than_eq` rests only on distinct cached
+        /// constructor terms denoting distinct values in every Z3 model; the test checks the
+        /// Rust formulas and that property of Z3 together.
+        /// `R` is arbitrary, not a closed partial order, because the argument uses no property
+        /// of it. The sides
+        /// are every cached ground value and, as sides that are not cached ground values, two
+        /// variables, a constructor applied to a variable, and an accessor applied to a cached
+        /// value (a closed term that is not a cached constructor term), so every pair of kinds
         /// (closed/closed, closed/open, open/closed, open/open) occurs.
         #[test]
         fn ground_side_encoding_is_equivalent(
@@ -4702,8 +4694,7 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(48))]
 
-        /// Rust side of the hypothesis `hP : P.WF` of `KRust.MaximalModels`
-        /// (lean/KRust/MaximalModels.lean): `Encoding::less_than_eq`, the semantic subsort order
+        /// `Encoding::less_than_eq`, the semantic subsort order
         /// that the hard constraints, the preferences, the climb and the blocking clause all
         /// use, is reflexive and transitive on every value of the encoding datatype.
         /// Fresh constants range over every value a Z3 model can give a variable or a parameter,
@@ -4739,8 +4730,7 @@ mod tests {
             );
         }
 
-        /// Rust side of the hypothesis `hR : P.RoundTrip` of `KRust.MaximalModels`: for every
-        /// value `v` that `model.eval` returns for a constant of the encoding datatype,
+        /// For every value `v` that `model.eval` returns for a constant of the encoding datatype,
         /// `sort_value(decode_sort(v))` is the same Z3 term as `v` (`Datatype`'s `==` is
         /// `Z3_is_eq_ast`). This extends `cached_sort_values_round_trip`, which starts from
         /// ground sorts, to the values of models, including nested parametric values.
@@ -5521,15 +5511,11 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(128))]
 
-        /// Rust side of the model-conformance hypothesis of `KRust.MaximalModels`: the Rust loop
-        /// is one of the runs the relation `Run` allows. Checked through the consequence
-        /// `maximal_models_spec` draws from it: over small generated grammars with ambiguous
-        /// parses, the real projections `maximal_models` records are exactly the brute-force
-        /// maximal satisfying assignments, with no duplicate; and they stay the same set when
-        /// Z3's `random_seed` changes, when the disjuncts of every `less_than_eq` are reversed,
-        /// and when every order constraint is written over the whole relation instead of from a
-        /// closed side's up- or down-set (the consequence `runs_agree_up_to_pref` draws for
-        /// equivalent encodings).
+        /// Over small generated grammars with ambiguous parses, the real projections
+        /// `maximal_models` records are exactly the brute-force maximal satisfying assignments,
+        /// with no duplicate; and they stay the same set when Z3's `random_seed` changes, when
+        /// the disjuncts of every `less_than_eq` are reversed, and when every order constraint
+        /// is written over the whole relation instead of from a closed side's up- or down-set.
         #[test]
         fn maximal_models_conform_to_brute_force_maximum(
             sort_count in 3usize..6,
@@ -5598,10 +5584,9 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(128))]
 
-        /// Rust side of the enumeration-conformance hypothesis of
-        /// `KRust.MaximalModels.runs_agree_candidates`: for each recorded variable typing `a`,
-        /// `maximal_models` returns exactly the brute-force admissible set `Pref(a)`, without a
-        /// duplicate, so the candidate set the inference applies is `Problem.candidates`. Checked on the generated problems of
+        /// For each recorded variable typing `a`, `maximal_models` returns exactly the
+        /// brute-force admissible set `Pref(a)`, without a duplicate, so the candidate set the
+        /// inference applies is the brute-force candidate set. Checked on the generated problems of
         /// `maximal_models_conform_to_brute_force_maximum` that carry the parametric production,
         /// optionally the shared `id` subterm whose parameter decides which alternatives are
         /// live, optionally bracketed copies of alternatives (the same reading under other
@@ -6449,8 +6434,8 @@ endmodule
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(128))]
 
-        /// Rust side of the hypothesis `e : Equivalent P Q` of `KRust.MaximalModels`, for the
-        /// encodings with and without the closed-side rewrite of `Encoding::less_than_eq`: at
+        /// For the encodings with and without the closed-side rewrite of
+        /// `Encoding::less_than_eq`: at
         /// every call site of `less_than_eq` in a packed inference (the hard constraints, the
         /// preferences, the climb and the blocking clause), the formula it built is logically
         /// equivalent to the full disjunction over the same relation, so Z3 must report

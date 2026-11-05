@@ -4,9 +4,9 @@
 //! canonicalized.
 //!
 //! The alphabets are small, so that repeated symbols, k cells at several depths and macros in
-//! every position are frequent, and they vary every field the term model keeps: each symbol
-//! attribute the walks read, the fields the model folds into `Sym.other`, sort arguments,
-//! variable sorts, two definitions per collection kind, and domain values that are not UTF-8.
+//! every position are frequent, and they vary each symbol attribute the walks read, a symbol's
+//! sort variables and hook, sort arguments, variable sorts, two definitions per collection kind,
+//! and domain values that are not UTF-8.
 
 use std::sync::Arc;
 
@@ -31,8 +31,7 @@ fn sort() -> impl Strategy<Value = Sort> {
 }
 
 /// A symbol: the k cell (a name comparison, term.rs:176-178) or a plain name, with every
-/// attribute the walks read varied independently, and two values of the fields the model folds
-/// into `other`.
+/// attribute the walks read varied independently, and two values of its sort variables and hook.
 fn symbol() -> impl Strategy<Value = Arc<Symbol>> {
     (
         prop_oneof![

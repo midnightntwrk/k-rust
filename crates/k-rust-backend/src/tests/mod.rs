@@ -7,7 +7,7 @@ mod definedness;
 mod definedness_oracle;
 mod domain_values;
 mod externalize;
-pub(crate) mod lean_bridge;
+pub(crate) mod generators;
 mod matching;
 mod matching_oracle;
 mod parametric_subsorts;

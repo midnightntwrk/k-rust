@@ -521,6 +521,14 @@ fn a_plain_anywhere_head_is_a_data_head_and_admits_only_irreducible_applications
 /// the same obligations in the same order, the same early returns, and no route to `\top` or to
 /// `no` added or removed. So `ground_defined` stays one-sided and kink's reading is unchanged.
 /// `ceil_term_node` is re-pinned; the rest is byte-identical.
+///
+/// Lean retirement (the k-rust commit that deletes `lean/`): `ground_defined`'s
+/// documentation no longer names the Lean theorem `ceilFree_sound`; it names the meaning of the
+/// `ceil_free` attribute that term.rs states. Only that comment moved, not the code: the walk still
+/// skips exactly the subterms whose stored `ceil_free` holds, so `ground_defined` stays one-sided
+/// and is re-pinned. That shortcut now rests on k-rust's property test of it
+/// (`tests::definedness`) and on its debug-build check (`definedness::check_ceil_free`), not on a
+/// proof; kink-flow's README says so among the trusted claims. The rest is byte-identical.
 #[test]
 fn the_data_judgement_kink_reads_is_pinned() {
     const DATA_TERM: &str = include_str!("../../../../crates/k-rust-backend/src/data_term.rs");
@@ -750,7 +758,7 @@ fn the_data_judgement_kink_reads_is_pinned() {
             ),
             (
                 "ground_defined",
-                "96139e7e0f4ae2770d9eaf43291d02e7d9d59a9f23a2b50d01862ac1259eb572"
+                "ca422ee13ea2c5ef72c42fdcbb5c0cf32a2243b0fc4d0189e3f98f7a11760ca3"
             ),
             (
                 "only_top",

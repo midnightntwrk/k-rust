@@ -1,13 +1,13 @@
 //! The frozen clone/remove loop and complete extraction at 8ff88a783 against the restoring helper.
 use super::*;
 use crate::term::{Sort, Symbol};
-use crate::tests::lean_bridge::generators;
+use crate::tests::generators;
 use proptest::prelude::*;
 use std::sync::Arc;
 
 /// The old loop, including its callback order and convergence-test placement.
 /// Kept independent of `saturate_with` so the differential cannot silently test it against itself.
-pub(crate) fn reference_saturate_with(
+fn reference_saturate_with(
     substitution: &mut Substitution,
     mut apply: impl FnMut(&Term, &Substitution) -> Term,
 ) {
@@ -280,5 +280,99 @@ fn restoring_saturation_preserves_large_btree_snapshots() {
         });
         assert_eq!(old_trace, new_trace);
         assert_eq!(old, new);
+    }
+}
+
+/// A saturation whose callback answers are drawn from a finite term pool rather than computed
+/// by `substitute`: the bindings, from `raw_bindings` as (variable, pool term) indexes, and the
+/// answers of the successive calls, as pool indexes (a call past the last answer returns its
+/// input).
+#[derive(Clone, Debug)]
+struct ScheduleCase {
+    raw_bindings: Vec<(usize, usize)>,
+    answers: Vec<usize>,
+    term: Term,
+}
+
+fn schedule_cases() -> impl Strategy<Value = ScheduleCase> {
+    (
+        prop::collection::vec((0usize..6, 0usize..5), 0..9),
+        prop::collection::vec(0usize..5, 0..40),
+        generators::term(),
+    )
+        .prop_map(|(raw_bindings, answers, term)| ScheduleCase {
+            raw_bindings,
+            answers,
+            term,
+        })
+}
+
+impl ScheduleCase {
+    fn terms(&self) -> Vec<Term> {
+        vec![
+            self.term.clone(),
+            Term::variable(Variable::new("X", Sort::simple("S"))),
+            Term::variable(Variable::set("X", Sort::simple("S"))),
+            Term::raw_domain_value(Sort::simple("S"), "a"),
+            Term::raw_domain_value(Sort::simple("S"), "b"),
+        ]
+    }
+
+    fn bindings(&self) -> Substitution {
+        // Same names across sorts and kinds exercise the real `Variable` `Eq` and `Ord`.
+        let variables = [
+            Variable::new("X", Sort::simple("S")),
+            Variable::set("X", Sort::simple("S")),
+            Variable::new("X", Sort::simple("T")),
+            Variable::new("Y", Sort::simple("S")),
+            Variable::new("Z", Sort::simple("S")),
+            Variable::set("Y", Sort::simple("T")),
+        ];
+        let terms = self.terms();
+        self.raw_bindings
+            .iter()
+            .map(|(key, value)| (variables[*key].clone(), terms[*value].clone()))
+            .collect()
+    }
+
+    /// The final bindings and every callback input, in call order, as the key the call
+    /// saturates, its value and the other bindings it sees.
+    fn observe(&self, restoring: bool) -> (Substitution, Vec<(Variable, Term, Substitution)>) {
+        let terms = self.terms();
+        let mut bindings = self.bindings();
+        let keys = bindings.keys().cloned().collect::<Vec<_>>();
+        let mut calls = Vec::new();
+        let mut apply = |value: &Term, others: &Substitution| {
+            let missing = keys
+                .iter()
+                .filter(|key| !others.contains_key(*key))
+                .collect::<Vec<_>>();
+            assert_eq!(
+                missing.len(),
+                1,
+                "each call excludes exactly its current key"
+            );
+            calls.push((missing[0].clone(), value.clone(), others.clone()));
+            self.answers
+                .get(calls.len() - 1)
+                .map_or_else(|| value.clone(), |index| terms[*index].clone())
+        };
+        if restoring {
+            saturate_with(&mut bindings, &mut apply);
+        } else {
+            reference_saturate_with(&mut bindings, &mut apply);
+        }
+        (bindings, calls)
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(4096))]
+
+    /// Under arbitrary callback answers, the restoring schedule makes the old loop's calls, in
+    /// its order and with its inputs, and ends with its bindings.
+    #[test]
+    fn restoring_saturation_has_exact_old_trace(case in schedule_cases()) {
+        prop_assert_eq!(case.observe(true), case.observe(false));
     }
 }

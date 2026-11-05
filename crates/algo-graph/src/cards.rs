@@ -110,10 +110,6 @@ pub(crate) struct CardBody {
     pub tests: Vec<String>,
     #[serde(default)]
     pub cost: Vec<CardCost>,
-    /// Lean theorems whose models mirror the card's sites; each must be a line of
-    /// `lean/theorems.txt`.
-    #[serde(default)]
-    pub lean: Vec<String>,
     /// The workspace type a representation card describes.
     #[serde(default, rename = "type")]
     pub type_path: Option<String>,
@@ -1491,7 +1487,7 @@ fn run() {}
     }
 
     #[test]
-    fn extracts_representation_cards_with_type_and_lean_keys() {
+    fn extracts_representation_cards_with_type_key() {
         let source = r#"
 //! ```toml algorithm-representation
 //! id = "representation.example.value"
@@ -1499,7 +1495,6 @@ fn run() {}
 //! type = "k_rust::Value"
 //! sites = ["Value::new"]
 //! invariant = "fields are sorted"
-//! lean = ["KRust.Example.sorted"]
 //! ```
 struct Value;
 impl Value { fn new() -> Self { Value } }
@@ -1512,7 +1507,6 @@ impl Value { fn new() -> Self { Value } }
         assert_eq!(fences[0].0, CardKind::Representation);
         let body = toml::from_str::<CardBody>(&fences[0].1).unwrap();
         assert_eq!(body.type_path.as_deref(), Some("k_rust::Value"));
-        assert_eq!(body.lean, ["KRust.Example.sorted"]);
     }
 
     #[test]

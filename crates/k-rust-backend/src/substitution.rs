@@ -30,8 +30,7 @@
 //! span = "per call"
 //! produces = [{ type = "k_rust_backend::substitution::Substitution", role = "extracted substitution" }]
 //! invariant = "During saturation, the round snapshot is restored before each binding; the callback sees exactly the previous round with its own key removed. SCC acyclicity is needed for convergence, not for remove/restore equivalence."
-//! tests = ["crates/k-rust-backend/src/substitution/saturation_tests.rs", "crates/k-rust-backend/src/tests/lean_bridge/substitution.rs"]
-//! lean = ["KRust.SubstitutionSaturation.sweep_eq", "KRust.SubstitutionSaturation.saturation_eq", "KRust.SubstitutionSaturation.replay_eq"]
+//! tests = ["crates/k-rust-backend/src/substitution/saturation_tests.rs"]
 //!
 //! [[cost]]
 //! mode = "cycle breaking"
@@ -289,7 +288,8 @@ fn extract_substitution_with(
 /// Removing and then restoring one entry gives `apply` exactly the map that clone-and-remove
 /// gave it, with one map clone per round. This is valid for any callback result; the optimization
 /// does not rely on SCC acyclicity. The caller's acyclicity establishes saturation's convergence.
-/// `KRust.SubstitutionSaturation.saturation_eq` proves the complete call schedule and result.
+/// `saturation_tests::restoring_saturation_has_exact_old_trace` compares the complete call
+/// schedule and result with the clone-and-remove loop under arbitrary callback results.
 pub(crate) fn saturate_with(
     substitution: &mut Substitution,
     mut apply: impl FnMut(&Term, &Substitution) -> Term,
