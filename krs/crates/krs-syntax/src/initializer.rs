@@ -1096,9 +1096,11 @@ fn parse_initializer_cell(
             field.expr.span(),
         ));
     }
-    // A literal, or a call of a qualified path other than `Cell::new`/`KCell::new` (such as
-    // `list::empty()`), is a readable plain term, as a path is, and so is the notation for a
-    // builtin call (`a && b`, `x.max::<Int>(0)`). A bare call stays a host call. A
+    // A literal is a readable plain term, as a path is, and so is the notation for a builtin
+    // call (`a && b`, `x.max::<Int>(0)`). So is every call but the cell forms `Cell::new(..)`,
+    // `KCell::new(..)` and `Some(..)`, whatever its path: a function or constructor application
+    // (`StartRegs(start)`, `self::StartRegs(start)`, `list::empty()`) is a term of the cell's
+    // value, as it is in a result, and the term parser reports a head that is no term's. A
     // compiler-owned island (`k::bytes!(..)`, `k::id!(..)`, `k::lexeme!(..)`) is a term too,
     // so a constant can be a cell's whole value and any other island reports its own error. A
     // `let` block is the term it computes, as in a result.
@@ -1108,10 +1110,7 @@ fn parse_initializer_cell(
         // the cell's own map, below.
         Expr::Macro(ExprMacro { mac, .. }) => is_term_macro(mac),
         expression if crate::notation::is_expression_notation(expression) => true,
-        Expr::Call(ExprCall { func, .. }) => {
-            !is_cell_constructor(func)
-                && matches!(&**func, Expr::Path(ExprPath { path, .. }) if path.segments.len() > 1)
-        }
+        Expr::Call(ExprCall { func, .. }) => !is_cell_constructor(func) && !is_option_some(func),
         _ => false,
     };
     if readable_term {
@@ -1135,12 +1134,28 @@ fn parse_initializer_cell(
         });
     }
     let content = match &field.expr {
+        // A call reaches here only as a cell form: a `Some(..)` the optional cell's start above
+        // does not take (other than one value, with attributes, or with generic arguments), or
+        // `Cell::new(..)`/`KCell::new(..)`.
+        Expr::Call(ExprCall { func, args, .. }) if is_option_some(func) => {
+            return Err(unsupported_body(
+                if args.len() == 1 {
+                    "an optional cell's start is written `Some(value)`, without attributes or generic arguments"
+                } else {
+                    "an optional cell's `Some(..)` takes exactly one expression, the value the cell starts present with"
+                },
+                field.expr.span(),
+            ));
+        }
         Expr::Call(ExprCall {
-            attrs, func, args, ..
+            attrs: call_attrs,
+            func,
+            args,
+            ..
         }) => {
-            let (true, 1, Some(argument)) = (attrs.is_empty(), args.len(), args.first()) else {
+            let (1, Some(argument)) = (args.len(), args.first()) else {
                 return Err(unsupported_body(
-                    "cell constructors require exactly one argument",
+                    "`Cell::new(..)` and `KCell::new(..)` take exactly one argument, the cell's value",
                     field.expr.span(),
                 ));
             };
@@ -1151,29 +1166,20 @@ fn parse_initializer_cell(
             }) = &**func
             else {
                 return Err(unsupported_body(
-                    "cell constructors must be plain paths",
+                    "`Cell::new` and `KCell::new` are written as plain paths, without a qualified self type",
                     func.span(),
                 ));
             };
-            let mut reversed = path.segments.iter().rev();
-            let (true, Some(method), Some(wrapper)) = (
-                attrs.is_empty() && is_plain_path(path),
-                reversed.next(),
-                reversed.next(),
+            // The head is `Cell::new` or `KCell::new` ([`is_cell_constructor`]).
+            let (true, Some(wrapper)) = (
+                call_attrs.is_empty() && attrs.is_empty() && is_plain_path(path),
+                path.segments.iter().rev().nth(1),
             ) else {
                 return Err(unsupported_body(
-                    "cell constructors must be plain paths",
+                    "`Cell::new` and `KCell::new` are written as plain paths, without generic arguments or attributes",
                     path.span(),
                 ));
             };
-            if method.ident != "new"
-                || !matches!(wrapper.ident.to_string().as_str(), "Cell" | "KCell")
-            {
-                return Err(unsupported_body(
-                    "leaf constructors must end in `Cell::new` or `KCell::new`",
-                    path.span(),
-                ));
-            }
             let computation = wrapper.ident == "KCell";
             let value = parse_initializer_state_term(argument, computation)?;
             InitializerCellContent::Leaf {
@@ -1352,6 +1358,27 @@ fn is_term_macro(mac: &syn::Macro) -> bool {
             }
             None => false,
         }
+}
+
+/// Whether `func`, a call's head, is `Some` or `Option::Some`, with or without generic
+/// arguments: an optional cell's start, which is a cell form however it is written.
+fn is_option_some(func: &Expr) -> bool {
+    let Expr::Path(ExprPath {
+        qself: None, path, ..
+    }) = func
+    else {
+        return false;
+    };
+    let mut reversed = path.segments.iter().rev();
+    match (reversed.next(), reversed.next(), reversed.next()) {
+        (Some(variant), None, None) => variant.ident == "Some",
+        (Some(variant), Some(option), None) => {
+            variant.ident == "Some"
+                && option.ident == "Option"
+                && matches!(option.arguments, PathArguments::None)
+        }
+        _ => false,
+    }
 }
 
 /// Whether `func` names a cell constructor, `Cell::new` or `KCell::new` under any prefix.

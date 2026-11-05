@@ -52,9 +52,9 @@ fn configuration_anchors_stream_and_exit_per_field() {
 }
 
 #[test]
-fn literals_and_qualified_calls_are_readable_initializer_terms() {
+fn literals_and_calls_are_readable_initializer_terms() {
     let initializer = krs_syntax::InitializerFunction::parse_source(
-        "fn init(pgm: Stmt) -> Self { Self { k: k![pgm], input: list::empty(), status: 1, low: -1 } }",
+        "fn init(pgm: Stmt) -> Self { Self { k: k![pgm], input: list::empty(), status: 1, low: -1, made: make(pgm), qualified: self::make(pgm) } }",
     )
     .unwrap();
     for cell in &initializer.cells()[1..] {
@@ -68,9 +68,29 @@ fn literals_and_qualified_calls_are_readable_initializer_terms() {
             panic!("{} is not a readable term", cell.name());
         };
     }
-    // A bare call is still a host call, not a term.
-    krs_syntax::InitializerFunction::parse_source("fn init() -> Self { Self { status: make() } }")
-        .unwrap_err();
+    // The cell forms are no terms: `Some(..)` holds one value, written without attributes or
+    // generic arguments, and `Cell::new(..)` one argument.
+    for (source, reason) in [
+        (
+            "fn init() -> Self { Self { status: Some(1, 2) } }",
+            "an optional cell's `Some(..)` takes exactly one expression, the value the cell starts present with",
+        ),
+        (
+            "fn init() -> Self { Self { status: #[x] Some(1) } }",
+            "an optional cell's start is written `Some(value)`, without attributes or generic arguments",
+        ),
+        (
+            "fn init() -> Self { Self { status: Some::<Int>(1) } }",
+            "an optional cell's start is written `Some(value)`, without attributes or generic arguments",
+        ),
+        (
+            "fn init() -> Self { Self { status: Cell::new(1, 2) } }",
+            "`Cell::new(..)` and `KCell::new(..)` take exactly one argument, the cell's value",
+        ),
+    ] {
+        let error = krs_syntax::InitializerFunction::parse_source(source).unwrap_err();
+        assert!(error.to_string().contains(reason), "{source}: {error}");
+    }
 }
 
 #[test]

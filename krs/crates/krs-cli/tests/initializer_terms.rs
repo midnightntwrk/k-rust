@@ -955,6 +955,156 @@ fn an_initializer_reads_its_variables_inside_local_terms() {
     }
 }
 
+/// A machine whose initializer reads its cells from one structured input, `start: Start`: a record
+/// of the registers and the program counter, which `Boot(n)` builds, so that `-c START=boot(5)`
+/// binds it to an application only the definition evaluates.
+const START_INPUT: &str = r#"
+use k::builtin::{Int, KSequence, Map};
+use k::Term;
+
+k::sorts! {
+    Stmt;
+    Start;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum StmtSyntax {
+    #[k::syntax("done")]
+    Done(),
+}
+
+#[k::constructor(sort = Start, syntax = "state({regs}, {pc})")]
+pub struct State {
+    pub regs: Term<Map<Int, Int>>,
+    pub pc: Term<Int>,
+}
+
+#[k::function(total, syntax = "boot({n})")]
+pub fn Boot(n: Term<Int>) -> Term<Start> {
+    State { regs: k::map![0 -> n], pc: n }
+}
+
+#[k::function(total, syntax = "startRegs({start})")]
+pub fn StartRegs(start: Term<Start>) -> Term<Map<Int, Int>> {
+    let State { regs, .. } = start;
+    regs
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub regs: Map<Int, Int>,
+    #[k::cell]
+    pub pc: Int,
+}
+"#;
+
+/// `START_INPUT` with `regs` and `pc` as those cells' values.
+fn start_input_initializer(regs: &str, pc: &str) -> String {
+    format!(
+        "{START_INPUT}impl Machine {{\n    #[k::init]\n    pub fn init(#[k::config_var(name = \"PGM\", main)] pgm: Stmt, start: Start) -> Self {{\n        Self {{\n            k: k::k![pgm],\n            regs: {regs},\n            pc: {pc},\n        }}\n    }}\n}}\n"
+    )
+}
+
+/// The configuration `krs run` starts from on the program `done` with `START` bound to
+/// `boot(5)`, flattened, with the run's messages after it.
+fn booted(target: &Path, manifest: &Path) -> String {
+    let program = manifest.with_file_name("program.txt");
+    fs::write(&program, "done").unwrap();
+    let (_, stdout, stderr) = krs(
+        target,
+        manifest,
+        "run",
+        &[
+            "--depth",
+            "0",
+            "-c",
+            "START=boot(5)",
+            program.to_str().unwrap(),
+        ],
+    );
+    let state = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+    format!("{state}\n{stderr}")
+}
+
+/// A call is a term whatever its path: a cell whose value is a function's application,
+/// `StartRegs(start)`, holds the term `self::StartRegs(start)` is, as a result would, and the
+/// configuration evaluates it when it is built. Only `Cell::new(..)`, `KCell::new(..)` and
+/// `Some(..)` are cell forms rather than terms.
+#[test]
+fn a_bare_call_is_an_initializer_term() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let mut configurations = Vec::new();
+    for (name, regs) in [
+        ("bare-call", "StartRegs(start)"),
+        ("qualified-call", "self::StartRegs(start)"),
+    ] {
+        let manifest = package(temporary.path(), name, &start_input_initializer(regs, "0"));
+        let definition = emit(target.path(), &manifest);
+        let state = booted(target.path(), &manifest);
+        assert!(state.contains("<regs> 0 |-> 5 </regs>"), "{name}: {state}");
+        configurations.push(configuration(&definition));
+    }
+    expect_test::expect![[r"
+        <k> $PGM:Stmt </k>
+        <regs> startRegs ( $START:Start ) </regs>
+        <pc> 0 </pc>"]]
+    .assert_eq(&configurations[0]);
+    assert_eq!(configurations[0], configurations[1]);
+}
+
+/// A cell reads a field of a structured input with a `let` block, `#let` in K: a term over
+/// `$START`, evaluated when the configuration is built, so the input may itself be an application
+/// the definition evaluates (`boot(5)`). Both routes start the cells with the fields' values: the
+/// native one (`krs build`, which `krs run` runs) and the emitted `definition.k` compiled by
+/// k-rust's text frontend.
+#[test]
+fn an_initializer_reads_a_structured_input_s_fields_with_let() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(
+        temporary.path(),
+        "structured-start",
+        &start_input_initializer(
+            "{ let State { regs, .. } = start; regs }",
+            "{ let State { pc, .. } = start; pc }",
+        ),
+    );
+    let definition = emit(target.path(), &manifest);
+    expect_test::expect![[r"
+        <k> $PGM:Stmt </k>
+        <regs> ( #let state ( Regs:Map , _ ) = $START:Start #in Regs:Map ):Map </regs>
+        <pc> ( #let state ( _ , Pc:Int ) = $START:Start #in Pc:Int ):Int </pc>"]]
+    .assert_eq(&configuration(&definition));
+    let state = booted(target.path(), &manifest);
+    for cell in ["<regs> 0 |-> 5 </regs>", "<pc> 5 </pc>"] {
+        assert!(state.contains(cell), "{cell}\n{state}");
+    }
+
+    let output = manifest.with_file_name("native");
+    let (success, _, stderr) = krs(
+        target.path(),
+        &manifest,
+        "build",
+        &["--backend", "haskell", "--output", output.to_str().unwrap()],
+    );
+    assert!(success, "{stderr}");
+    let native_kore = fs::read_to_string(output.join("definition.kore")).unwrap();
+    let text_kore = text_route_kore(&definition).unwrap_or_else(|error| panic!("{error}"));
+    let variables = r#"Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortKConfigVar{}, SortKItem{}}(\dv{SortKConfigVar{}}("$START")), Lbl'Hash'KConfigValue{}(kseq{}(inj{SortStart{}, SortKItem{}}(Lblboot{}(\dv{SortInt{}}("5"))), dotk{}())))"#;
+    let native = evaluated_initial_cells_from(&native_kore, &["regs", "pc"], variables);
+    assert_eq!(
+        native,
+        evaluated_initial_cells_from(&text_kore, &["regs", "pc"], variables)
+    );
+    expect_test::expect![[r#"
+        regs: Lbl'-LT-'regs'-GT-'{}(Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("0")), inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("5"))))
+        pc: Lbl'-LT-'pc'-GT-'{}(\dv{SortInt{}}("5"))"#]].assert_eq(&native.join("\n"));
+}
+
 /// A configuration whose top-level computation cell is `top` and whose group `frame` holds a
 /// second one, `code`, with `go => done` as its one cell-free sentence (a `#[k::rule]` fn,
 /// emitted without a cell), which K runs in the main cell. (A `for Stmt` clause runs there too:
@@ -1654,6 +1804,17 @@ fn initial_cells_agree(definition: &str, native_kore: &str, cells: &[CastCell]) 
 /// initializer `init<Name>Cell` applied to the configuration variables `$V = unit`, evaluated by
 /// k-rust's backend, as `name: <cell>`.
 fn evaluated_initial_cells(kore: &str, names: &[&str]) -> Vec<String> {
+    evaluated_initial_cells_from(
+        kore,
+        names,
+        r#"Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortKConfigVar{}, SortKItem{}}(\dv{SortKConfigVar{}}("$V")), Lbl'Hash'KConfigValue{}(kseq{}(inj{SortValue{}, SortKItem{}}(LblvalUnit{}()), dotk{}())))"#,
+    )
+}
+
+/// The value each leaf cell `<name>` of `names` starts with in the KORE definition `kore`: its
+/// initializer `init<Name>Cell` applied to the configuration variables `variables` (a KORE `Map`),
+/// evaluated by k-rust's backend, as `name: <cell>`.
+fn evaluated_initial_cells_from(kore: &str, names: &[&str], variables: &str) -> Vec<String> {
     use k_rust::k_rust_backend::definition::BackendDefinition;
     use k_rust::k_rust_backend::externalize;
     use k_rust::k_rust_backend::simplify::{SimplificationOptions, simplify};
@@ -1662,7 +1823,6 @@ fn evaluated_initial_cells(kore: &str, names: &[&str]) -> Vec<String> {
     let syntax = parse_definition(kore).expect("the compiled KORE parses");
     let main = &syntax.modules.last().expect("a main module").name;
     let definition = BackendDefinition::internalize(&syntax, main).expect("the KORE internalizes");
-    let variables = r#"Lbl'UndsPipe'-'-GT-Unds'{}(inj{SortKConfigVar{}, SortKItem{}}(\dv{SortKConfigVar{}}("$V")), Lbl'Hash'KConfigValue{}(kseq{}(inj{SortValue{}, SortKItem{}}(LblvalUnit{}()), dotk{}())))"#;
     names
         .iter()
         .map(|name| {

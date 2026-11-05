@@ -225,7 +225,9 @@ fn host_statements_control_flow_mutation_calls_and_early_return_are_rejected() {
         "fn init() -> Self { let x = Foo; Self { k: KCell::new(k![x]) } }",
         "fn init() -> Self { if flag { Self { k: KCell::new(k![Foo]) } } else { Self { k: KCell::new(k![Bar]) } } }",
         "fn init() -> Self { return Self { k: KCell::new(k![Foo]) }; }",
-        "fn init() -> Self { Self { k: make_cell() } }",
+        // A call of a path is a term whatever its path (`k: make_cell()` applies `make_cell`);
+        // a call of any other head is none.
+        "fn init() -> Self { Self { k: (make_cell)() } }",
         "fn init() -> Self { Self { k: KCell::new(other![Foo]) } }",
         "fn init() -> Self { Self { k: KCell::new(k![*lhs]) } }",
         "fn init() -> Self { Self { k: KCell::new(k![Foo]), ..base } }",
