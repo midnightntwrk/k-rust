@@ -71,6 +71,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-configuration-cells-group-harts-hart"
+version = "0.1.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
+name = "krs-configuration-cells-group-harts-nested"
+version = "0.1.0"
+dependencies = [
+ "krs",
+ "krs-configuration-cells-group-harts-hart",
+]
+
+[[package]]
+name = "krs-configuration-cells-group-harts-opt"
+version = "0.1.0"
+dependencies = [
+ "krs",
+ "krs-configuration-cells-group-harts-hart",
+]
+
+[[package]]
+name = "krs-configuration-cells-group-harts-smp"
+version = "0.1.0"
+dependencies = [
+ "krs",
+ "krs-configuration-cells-group-harts-hart",
+]
+
+[[package]]
 name = "krs-configuration-cells-group-small"
 version = "0.1.0"
 dependencies = [

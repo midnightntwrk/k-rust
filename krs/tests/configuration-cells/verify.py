@@ -74,6 +74,30 @@ the outcomes must agree:
   and `mem` in both definitions on both routes, and `board`'s timer counts
   the bus accesses; a load of an address `mem` does not map is stuck at
   `busRead` in both;
+- `group-harts`: rules for a cell group held in instances. The library
+  `group-harts/hart` declares `Hart { id, k, pc, regs, reservation?, jobs }`,
+  whose `jobs` holds a Map collection of jobs, and rules for it (`for Hart`)
+  over leaf cells, the whole group `regs`, the optional `reservation` and
+  the job instances, a context alias `hart_eval` and a `#[k::context]`.
+  `smp` holds harts as a Map collection keyed by `id`, starts a hart with its
+  `spawn` rule, removes a finished one with `join`, and answers the bus from
+  one shared memory; `nested` holds a Map collection of harts inside each
+  instance of a Map collection of clusters, with those rules for `Cluster`;
+  `opt` holds one hart in an optional cell. Each definition emits the
+  library's modules with the same text apart from the configuration module
+  the main one imports: every clause of a rule for `Hart`, and every cell of
+  the alias and the contexts, inside one `<hart> .. ... </hart>`; the
+  context `guard_operand`'s condition reads the hart's register `a`. A
+  program that uses every form ends with the same cells on both routes in
+  each definition, and `opt` is stuck at `guard` once `a` is no longer 1.
+  Both routes compile the same `definition.kore`, a context's freezer paired
+  by the labels of its heating and cooling rules (`krs-gate kore-compare`).
+  A search of two harts that each run every form reaches one final state on
+  both routes, and a search of two harts storing at one address reaches both
+  orders of the stores, a load reading `0` and `1`. `nested`'s round trip is
+  a known failure (`known_round_trip_failures`): `krs expand` prints its rules
+  for `Cluster` as `cells!` rules typed by the configuration, which name the
+  harts of a cluster flat;
 - negative fixtures: a rule without the computation cell whose only pattern
   is an unguarded variable (`krs::analysis::always-enabled-rule`), one
   that writes its cell back unchanged (`krs::analysis::rule-changes-no-cell`),
@@ -476,6 +500,99 @@ GROUP_CORE_CELLS = (
     "    </core>\n"
 )
 
+GROUP_HARTS_LIBRARY = "krs-configuration-cells-group-harts-hart"
+GROUP_HARTS_MODULE = "KRS-GROUP-HART"
+GROUP_HARTS = tuple(
+    (Fixture(MANIFEST, f"krs-configuration-cells-group-harts-{name}", dependencies=(f"{GROUP_HARTS_LIBRARY}:main",)),
+     f"KRS-GROUP-HARTS-{name.upper()}-CONFIGURATION")
+    for name in ("smp", "nested", "opt")
+)
+# Every form a rule for `Hart` holds inside the hart: from pc 0, `inc` counts 1, `reserve` and
+# `release` add the reserved 1, `wait ( here )` and `hop ( here )` each double it to 8; `swap`
+# exchanges the registers 1 and 2, `post` creates the job keyed 0 and `work` counts it once.
+GROUP_HARTS_FORMS = "inc ; swap ; reserve ; release ; post ; work ; wait ( here ) ; hop ( here )"
+GROUP_HARTS_CELLS = (("pc", "8"), ("a", "2"), ("b", "1"), ("payload", "1"))
+# Two harts store their ids at address 0; after hart 1 is joined, hart 0 reads the later store.
+GROUP_HARTS_RACE = Program(
+    "race", "spawn { store ( 0 ) } ; store ( 0 ) ; join ( 1 ) ; load ( 0 )", "accepted", None,
+    search=("0", "1"),
+)
+# Two harts run every form, interleaved: hart 1 from pc 0 ends with pc 8, `a` 2 and one job's
+# payload 1, and reports `8 + 10 * 2 + 100 * 1` at address 1 before hart 0 joins it; hart 0 runs
+# `guard ( here )` with `a` 1, so its operand is evaluated, and ends with pc 24 and two `work`s on
+# its job. Every order of the two harts' steps reaches that one final state, on both routes.
+GROUP_HARTS_PAIR = Program(
+    "pair",
+    "spawn { inc ; swap ; reserve ; release ; post ; work ; wait ( here ) ; hop ( here ) ; report ( 1 ) } ; "
+    "inc ; guard ( here ) ; inc ; reserve ; release ; post ; work ; work ; wait ( here ) ; hop ( here ) ; "
+    "join ( 1 ) ; load ( 1 )",
+    "accepted", "128",
+    search=("128",),
+    cells=(("pc", "24"), ("a", "1"), ("b", "2"), ("payload", "2"), ("mem", "1 |-> 128")),
+)
+GROUP_HARTS_PROGRAMS = {
+    "krs-configuration-cells-group-harts-smp": (
+        Program("forms", f"{GROUP_HARTS_FORMS} ; store ( 0 ) ; load ( 0 )", "accepted", "0",
+                cells=(*GROUP_HARTS_CELLS, ("mem", "0 |-> 0"))),
+        GROUP_HARTS_RACE,
+        GROUP_HARTS_PAIR,
+    ),
+    "krs-configuration-cells-group-harts-nested": (
+        Program("forms", f"{GROUP_HARTS_FORMS} ; store ( 0 ) ; load ( 0 )", "accepted", "0",
+                cells=(*GROUP_HARTS_CELLS, ("mem", "0 |-> 0"))),
+        GROUP_HARTS_RACE,
+        GROUP_HARTS_PAIR,
+    ),
+    # `opt` answers no bus item, so the load stays open; after `swap` the register `a` is 2, so
+    # `guard`'s operand is not evaluated and the hart is stuck at it.
+    "krs-configuration-cells-group-harts-opt": (
+        Program("forms", f"{GROUP_HARTS_FORMS} ; load ( 0 )", "accepted", "busRead ( 0 )",
+                cells=GROUP_HARTS_CELLS),
+        Program("guarded", "swap ; guard ( here )", "accepted", "guard ( here )"),
+    ),
+}
+# Each form inside the hart, as the library's module states it in every definition.
+GROUP_HARTS_K = (
+    "  context alias [hartEval]:\n"
+    "    <hart>\n"
+    "        <k> HERE ~> Tail:K </k>\n"
+    "        ...\n"
+    "    </hart>\n",
+    "  context [hop-operand]:\n"
+    "    <hart>\n"
+    "        <k> hop ( HOLE:Exp ) ... </k>\n"
+    "        ...\n"
+    "    </hart>\n",
+    "  context [guard-operand]:\n"
+    "    <hart>\n"
+    "        <k> guard ( HOLE:Exp ) ... </k>\n"
+    "        <a> One:Int </a>\n"
+    "        ...\n"
+    "    </hart>\n"
+    "    requires One:Int ==Int 1\n",
+    "  rule [swap]:\n"
+    "    <hart>\n"
+    "        <k> swap => .K ... </k>\n"
+    "        (<regs> <a> A:Int </a> <b> B:Int </b> </regs> => <regs> <a> B:Int </a> <b> A:Int </b> </regs>)\n"
+    "        ...\n"
+    "    </hart>\n",
+    "        (.Bag => <reservation> Pc:Int </reservation>)\n",
+    "        (<reservation> R:Int </reservation> => .Bag)\n",
+    "        (.Bag => <job>\n"
+    "            <jid> Me:Int </jid>\n"
+    "            <payload> 0 </payload>\n"
+    "        </job>)\n",
+    "  rule [work]:\n"
+    "    <hart>\n"
+    "        <k> work => .K ... </k>\n"
+    "        <job>\n"
+    "            <payload> P:Int => P:Int +Int 1 </payload>\n"
+    "            ...\n"
+    "        </job>\n"
+    "        ...\n"
+    "    </hart>\n",
+)
+
 NEGATIVE = (
     "unguarded-framed-rule",
     "identity-framed-rule",
@@ -610,19 +727,19 @@ def modules(source: str) -> dict[str, str]:
     }
 
 
-def library_modules(source: str, configuration: str) -> dict[str, str]:
-    """The emitted modules of the group's library, without the main one's import of `configuration`'s module."""
+def library_modules(source: str, configuration: str, module: str = GROUP_MODULE) -> dict[str, str]:
+    """The emitted modules of the group's library `module`, without the main one's import of `configuration`'s module."""
 
     library = {
         name: body for name, body in modules(source).items()
-        if name == GROUP_MODULE or name.startswith(f"{GROUP_MODULE}-")
+        if name == module or name.startswith(f"{module}-")
     }
-    if set(library) != {GROUP_MODULE, f"{GROUP_MODULE}-SYNTAX"}:
-        raise GateError(f"the library's modules are {sorted(library)}, not {GROUP_MODULE} and its syntax:\n{source}")
+    if set(library) != {module, f"{module}-SYNTAX"}:
+        raise GateError(f"the library's modules are {sorted(library)}, not {module} and its syntax:\n{source}")
     imported = f"  imports {configuration}\n"
-    if imported not in library[GROUP_MODULE]:
-        raise GateError(f"{GROUP_MODULE} does not import {configuration}:\n{library[GROUP_MODULE]}")
-    library[GROUP_MODULE] = library[GROUP_MODULE].replace(imported, "", 1)
+    if imported not in library[module]:
+        raise GateError(f"{module} does not import {configuration}:\n{library[module]}")
+    library[module] = library[module].replace(imported, "", 1)
     return library
 
 
@@ -658,6 +775,33 @@ def verify_group(harness: FixtureGate) -> None:
     if library[GROUP_SMALL.package] != library[GROUP_BOARD.package]:
         raise GateError(
             "the group's modules differ between its definitions:\n"
+            + json.dumps(library, indent=2)
+        )
+
+
+def verify_group_harts(harness: FixtureGate) -> None:
+    """Each definition holding harts in an instance emits the library's rules inside `<hart>`,
+    and runs them alike on both routes."""
+
+    library = {}
+    for fixture, configuration in GROUP_HARTS:
+        harness.check(fixture)
+        harness.expand(fixture)
+        emitted = harness.emit(fixture)
+        source = emitted.source.read_text(encoding="utf-8")
+        library[fixture.package] = library_modules(source, configuration, GROUP_HARTS_MODULE)
+        for text in GROUP_HARTS_K:
+            if text not in library[fixture.package][GROUP_HARTS_MODULE]:
+                raise GateError(f"{fixture.package}: emitted K changed a form inside the hart:\n{text}\nin:\n{source}")
+        programs = GROUP_HARTS_PROGRAMS[fixture.package]
+        harness.compare(
+            emitted, programs, sort="Prog",
+            search=any(program.search is not None for program in programs), kore=True,
+        )
+    texts = list(library.values())
+    if any(text != texts[0] for text in texts):
+        raise GateError(
+            "the hart library's modules differ between its definitions:\n"
             + json.dumps(library, indent=2)
         )
 
@@ -718,6 +862,12 @@ def main() -> int:
         print(
             "PASS group: the library's rules for Core run in small and board alike, each resolving the bus "
             "with its own rules; only board's timer counts the bus accesses; an unmapped load is stuck at busRead"
+        )
+
+        verify_group_harts(harness)
+        print(
+            "PASS group-harts: the library's rules for Hart run inside one hart in a Map collection, a nested "
+            "collection and an optional cell; both routes agree, and two harts' racing stores reach both orders"
         )
 
         for name in NEGATIVE:

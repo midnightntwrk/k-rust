@@ -1,0 +1,22 @@
+[package]
+name = "krs-configuration-cells-group-harts-opt"
+description = "One hart held in an optional cell"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_configuration_cells_group_harts_opt"
+
+[dependencies]
+k = { package = "krs", path = "../../../../../crates/krs" }
+hart = { package = "krs-configuration-cells-group-harts-hart", path = "../hart" }
+
+[package.metadata.krs]
+k-namespace = "KRS-GROUP-HARTS-OPT"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

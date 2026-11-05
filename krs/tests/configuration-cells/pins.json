@@ -547,6 +547,7 @@
     }
   },
   "known_round_trip_failures": {
-    "krs-configuration-cells-threads": "check: krs::analysis::collection-entry"
+    "krs-configuration-cells-threads": "check: krs::analysis::collection-entry",
+    "krs-configuration-cells-group-harts-nested": "check: krs::analysis::collection-entry"
   }
 }
