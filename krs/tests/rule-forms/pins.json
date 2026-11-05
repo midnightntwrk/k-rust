@@ -1173,7 +1173,7 @@
   },
   "evaluation_cycles": {
     "krs-rule-forms-anywhere-stutter": {
-      "two-cycle": "exit 1: initGeneratedTopCell ( $PGM |-> #KConfigValue ( q(a, a) ~> .K ) ) krs run: simplification-error after 0 steps"
+      "two-cycle": "exit 3: initGeneratedTopCell ( $PGM |-> #KConfigValue ( q(a, a) ~> .K ) ) krs run: simplification-error after 0 steps"
     }
   }
 }

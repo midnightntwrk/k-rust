@@ -706,7 +706,7 @@ def console_io(harness: FixtureGate) -> None:
 
     searched = harness._krs(IO, "search", program, check=False)
     lines = diagnostic_lines(searched.stderr)
-    if searched.returncode != 1 or not lines:
+    if searched.returncode != 2 or not lines:
         raise GateError(f"{IO.package}: krs search exited {searched.returncode}:\n{searched.stderr}")
     harness.pins.expect(("diagnostics", "io-search"), lines)
     try:

@@ -45,15 +45,15 @@ path; `pins.json` pins both emitted files.
 
 A third fixture, `fixtures/claims`, is the foo-to-bar language with `$PGM` and two claims:
 `foo-reaches-bar` holds and `bar-reaches-foo` does not.
-`krs prove` must report them `proven` and `disproved` (exit status 1, since not every claim is proven),
+`krs prove` must report them `proven` and `disproved` (exit status 1, a finding),
 and Java `kprove` on the emitted `spec.k`, against the Haskell `kompile` of the emitted `definition.k`, must agree;
 those Java runs form the reference snapshot `claims-prove`.
 The same fixture checks an unknown `--claim` (with its did-you-mean from `foo_reaches_bar` to the kebab label)
-and the `file:line:column` of a program that does not parse.
+and the `file:line:column` of a program that does not parse, each exit status 2.
 
 Negative cases cover omitted and nonexistent facets, ambiguous Cargo package
 names, an authored Cargo-check failure, preservation of an unowned
-nonempty artifact directory, an unknown `-c` variable, and a FILE passed to a definition whose `#[k::init]` has no main parameter (exit status 2). The emitted K is compiled with the LLVM backend
+nonempty artifact directory, an unknown `-c` variable, and a FILE passed to a definition whose `#[k::init]` has no main parameter (the last two `krs run`, exit status 2). The emitted K is compiled with the LLVM backend
 and executed to prove `foo -> bar`.
 The Java K results form the reference snapshots `execution`, `dollar-id-claims`, and `claims-prove` (`tests/support/reference.py`),
 keyed by the `Krs.lock` K version and the digests of the emitted `definition.k` (and, for the dry run, `spec.k`).

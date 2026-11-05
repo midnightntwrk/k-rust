@@ -445,7 +445,7 @@ def negative_cases(binary: Path, workspace: Path, results: Results) -> None:
     run_manifest = materialize(workspace / "run-language")
     unknown_variable = cli_command(binary, "run", run_manifest, target, extra=("-c", "ENV=.Map"))
     unknown_ok = (
-        unknown_variable.returncode == 1
+        unknown_variable.returncode == 2
         and b"unknown configuration variable `ENV`" in unknown_variable.stderr
     )
     results.add(
@@ -704,13 +704,13 @@ def claims_proofs(
         expected_suggestion = (
             b"no claim has label `foo_reaches_bar`; did you mean `ORG-KRS-CLI-CLAIMS-SPEC.foo-reaches-bar`?"
         )
-        if suggestion.returncode != 1 or expected_suggestion not in suggestion.stderr:
+        if suggestion.returncode != 2 or expected_suggestion not in suggestion.stderr:
             raise GateError(f"unknown-claim suggestion differs: {compact(suggestion)}")
         bad = workspace / "bad.prog"
         bad.write_text("fooo\n", encoding="utf-8")
         rejected = cli_command(binary, "run", manifest, target, package=CLAIMS_PACKAGE, extra=(str(bad),))
         expected_location = f"{bad}:1:4 does not parse at sort ObjectTerm".encode()
-        if rejected.returncode != 1 or expected_location not in rejected.stderr:
+        if rejected.returncode != 2 or expected_location not in rejected.stderr:
             raise GateError(f"program parse error location differs: {compact(rejected)}")
         emit = cli_command(binary, "emit-k", manifest, target, package=CLAIMS_PACKAGE, output=emitted)
         if emit.returncode != 0 or not (emitted / "spec.k").is_file():
