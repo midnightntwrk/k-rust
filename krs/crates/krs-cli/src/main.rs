@@ -2,10 +2,10 @@
 
 use krs_cli::{
     Backend, CasesOutput, CasesRequest, ColorChoice, Command, CommandKind, CommandRequest,
-    DEFAULT_VIEW_BUDGET, DiagnosticSources, FacetSelector, KrsCfg, MessageFormat, PackageSelector,
-    ParseRequest, ProgramSource, ProveRequest, RegistrationMode, RunRequest, SearchMode,
-    SearchRequest, StopCriterion, StopRules, TermOutput, execute_command_reported, supervise_prove,
-    valid_identifier_segment,
+    CompareOutput, CompareRequest, CompareSides, DEFAULT_VIEW_BUDGET, DiagnosticSources,
+    FacetSelector, KrsCfg, MessageFormat, PackageSelector, ParseRequest, ProgramSource,
+    ProveRequest, RegistrationMode, RunRequest, SearchMode, SearchRequest, SideFile, StopCriterion,
+    StopRules, TermOutput, execute_command_reported, supervise_prove, valid_identifier_segment,
 };
 use krs_fmt::{Edition, FormatOptions, TrailingCommentStyle};
 use krs_ir::measure::Measurement;
@@ -38,6 +38,13 @@ Usage:
   krs cases  --package P --definition D CASES... [--jobs N] [--name PATTERN]
              [--output human|json] [--view-budget POLLS]
              [--smt-resource-limit UNITS | --smt-clock-ms MS] [--smt-retries N]
+  krs compare --package P --definition D LEFT RIGHT [--compare CELL,...]...
+             [--view CELL=FUNCTION]... [--observer PACKAGE:DEFINITION]
+             [--output human|json] [--view-budget POLLS]
+             [--smt-resource-limit UNITS | --smt-clock-ms MS] [--smt-retries N]
+  krs compare --package P --definition D --expect CASE ACTUAL [--output human|json]
+             [--view-budget POLLS]
+             [--smt-resource-limit UNITS | --smt-clock-ms MS] [--smt-retries N]
   krs prove  --package P --definition D [--spec-module NAME] [--claim LABEL]... [--depth N]
              [--claim-timeout SECONDS] [--output pretty|kast|json|jsonl|kore]
              [--color auto|always|never]
@@ -61,6 +68,8 @@ Commands:
   prove                     Prove the definition's claims (kprove)
   cases                     Run a batch of cases, the definition loaded once per worker, and
                             report each case's verdict against its expectation
+  compare                   Compare two ends of the definition, each an end document or the
+                            end of a case's run, or check an end against a case's expectation
   kink                      The corpus loop over the package's kink/ corpus: results and
                             coverage per case, mutations killed or survived, query and fuzz
   fmt                       Format Rust and KRS rules! bodies using the package's facade aliases
@@ -76,7 +85,7 @@ Options:
                              that backend's route (default: every route)
   --output DIRECTORY         Required for emit-k and build; with expand, an absent or empty
                              directory for the changed module files, whose paths stdout lists
-  --output FORMAT            Result format: pretty (default of run, search, prove), program (parse), kast (default of parse), json, jsonl (prove), kore, none (run); human (default of cases) or json for cases
+  --output FORMAT            Result format: pretty (default of run, search, prove), program (parse), kast (default of parse), json, jsonl (prove), kore, none (run); human (default of cases and compare) or json for cases and compare
   FILE|-                     With run and search, bind the main parameter: the file's bytes
                              when its type is exactly Bytes, else its text, parsed at its sort
   --case FILE                Bind the inputs a case document (.toml or .json) gives by
@@ -98,11 +107,28 @@ Options:
                              limits, whose answers a worker's earlier cases may have decided
   --name PATTERN             With cases, only the named cases whose name PATTERN matches
                              (`*` any text, `?` any one character)
-  --view-budget POLLS        With run, search and cases, the polls each evaluation of a view
-                             of a case's expectation may take (default: 30000000), a count of
-                             its own work that the host's speed and load do not change; one
-                             that spends it, or that another stop ends, makes the verdict
-                             inconclusive
+  LEFT RIGHT                 With compare, the two sides, each an end document (halt, rule,
+                             cells) or a case document (.toml or .json), whose case is run for
+                             its end; FILE#NAME names a case of a document of named cases.
+                             Prints equal or the first difference: exit 0 equal, 1 differs,
+                             3 inconclusive
+  --expect CASE              With compare, check the one side ACTUAL against the expectation of
+                             CASE (FILE or FILE#NAME), as run --case checks a run's end, on the
+                             cells, views and observer it names: exit 0 met, 1 unmet,
+                             3 inconclusive
+  --compare CELL,...         With compare, compare only these cells, by declared path (a group
+                             names its leaves); repeatable (default: every leaf cell that is
+                             not unobservable)
+  --view CELL=FUNCTION       With compare, compare CELL on the value of FUNCTION, a function of
+                             one parameter, at its value on each side; repeatable
+  --observer PACKAGE:DEFINITION
+                             With compare, the definition the views are resolved and evaluated
+                             in: a package that depends on the definition's and that no
+                             semantics imports (default: the compared definition)
+  --view-budget POLLS        With run, search, cases and compare, the polls each evaluation of
+                             a view may take (default: 30000000), a count of its own work that
+                             the host's speed and load do not change; one that spends it, or
+                             that another stop ends, makes the verdict inconclusive
   --input NAME=JSON          Bind input NAME to a JSON document of the typed encoding; file
                              paths are relative to the working directory; repeatable
   -c NAME=TEXT               Bind configuration variable NAME ($ENV, ENV, or init parameter env); repeatable
@@ -124,9 +150,9 @@ Options:
   --claim LABEL              Prove only this claim (exact label or unique suffix); repeatable
   --claim-timeout SECONDS    With prove, cancel a claim's proof still running after SECONDS
                              (decimal) of wall-clock time; its verdict is then timeout
-  --smt-resource-limit UNITS With run, search and prove, bound each Z3 attempt by Z3 resource
-                             units, UNITS for the first and twice the previous for each retry,
-                             and by no clock (the default: 310000 units)
+  --smt-resource-limit UNITS With run, search, prove, cases and compare, bound each Z3 attempt
+                             by Z3 resource units, UNITS for the first and twice the previous
+                             for each retry, and by no clock (the default: 310000 units)
   --smt-clock-ms MS          Bound each Z3 attempt by the clock instead, MS milliseconds for the
                              first and twice the previous for each retry; whether a query is
                              decided then depends on the machine's speed and load
@@ -467,6 +493,14 @@ struct ExecOptions {
     name: Option<String>,
     /// `--view-budget`.
     view_budget: Option<u64>,
+    /// `--expect`.
+    expect: Option<String>,
+    /// `--compare`, its cells in command-line order.
+    compare: Option<Vec<String>>,
+    /// `--view`, by cell.
+    views: std::collections::BTreeMap<String, String>,
+    /// `--observer`.
+    observer: Option<String>,
 }
 
 impl ExecOptions {
@@ -567,6 +601,7 @@ fn parse(arguments: Vec<OsString>) -> Result<ParseResult, UsageError> {
         "search" => CommandKind::Search,
         "prove" => CommandKind::Prove,
         "cases" => CommandKind::Cases,
+        "compare" => CommandKind::Compare,
         unknown => return Err(usage(format!("unknown command `{unknown}`"))),
     };
     parse_run(&mut parser, kind)
@@ -678,12 +713,16 @@ fn parse_run(parser: &mut lexopt::Parser, kind: CommandKind) -> Result<ParseResu
 const HIDDEN_OPTIONS: [&str; 3] = ["--worker-protocol", "--worker-claim", "--worker-color"];
 
 /// Long options of the run-family commands, without their leading dashes.
-const EXEC_LONG_OPTIONS: [&str; 25] = [
+const EXEC_LONG_OPTIONS: [&str; 29] = [
     "case",
     "case-name",
     "jobs",
     "name",
     "view-budget",
+    "expect",
+    "compare",
+    "view",
+    "observer",
     "input",
     "depth",
     "stop-before",
@@ -749,6 +788,7 @@ fn exec_option(
         }
         "stop-before" | "stop-after" | "stop-count" => stop_option(parser, exec, option)?,
         "jobs" | "name" | "view-budget" => cases_option(parser, exec, option)?,
+        "expect" | "compare" | "view" | "observer" => compare_option(parser, exec, option)?,
         "max-solutions" => {
             exec.note("--max-solutions");
             let value = option_value(parser, "maximum solution count")?;
@@ -848,6 +888,64 @@ fn cases_option(
             set_once(&mut exec.view_budget, budget.get(), "--view-budget")?;
         }
         _ => unreachable!("cases_option is called only for --jobs, --name and --view-budget"),
+    }
+    Ok(())
+}
+
+/// Parse `--expect`, `--compare`, `--view` or `--observer`.
+fn compare_option(
+    parser: &mut lexopt::Parser,
+    exec: &mut ExecOptions,
+    option: &'static str,
+) -> Result<(), UsageError> {
+    match option {
+        "expect" => {
+            exec.note("--expect");
+            let case = option_value(parser, "case")?;
+            set_once(&mut exec.expect, case, "--expect")?;
+        }
+        "compare" => {
+            exec.note("--compare");
+            let value = option_value(parser, "compared cells")?;
+            let cells = exec.compare.get_or_insert_with(Vec::new);
+            for cell in value.split(',') {
+                if cell.is_empty() {
+                    return Err(usage(format!(
+                        "--compare `{value}` names an empty cell path"
+                    )));
+                }
+                cells.push(cell.to_owned());
+            }
+        }
+        "view" => {
+            exec.note("--view");
+            let value = option_value(parser, "view")?;
+            let Some((cell, function)) = value
+                .split_once('=')
+                .filter(|(cell, function)| !cell.is_empty() && !function.is_empty())
+            else {
+                return Err(usage(format!(
+                    "--view `{value}` must have the form CELL=FUNCTION"
+                )));
+            };
+            if exec
+                .views
+                .insert(cell.to_owned(), function.to_owned())
+                .is_some()
+            {
+                return Err(usage(format!(
+                    "--view names the cell `{cell}` twice; a cell has one view"
+                )));
+            }
+        }
+        "observer" => {
+            exec.note("--observer");
+            let observer = option_value(parser, "observer")?;
+            set_once(&mut exec.observer, observer, "--observer")?;
+        }
+        _ => unreachable!(
+            "compare_option is called only for --expect, --compare, --view and --observer"
+        ),
     }
     Ok(())
 }
@@ -1106,6 +1204,74 @@ fn cases_output(output: Option<&Path>) -> Result<CasesOutput, UsageError> {
     }
 }
 
+/// `krs compare` with its options, which [`exec_command`] checked it accepts: `LEFT RIGHT`, or
+/// `--expect CASE` and `ACTUAL`.
+fn compare_command(
+    exec: ExecOptions,
+    output: Option<&Path>,
+    solver: krs_exec::BackendOptions,
+) -> Result<Command, UsageError> {
+    let mut files = exec
+        .inputs
+        .into_iter()
+        .map(|value| SideFile::parse(&utf8(value, "side")?).map_err(usage))
+        .collect::<Result<Vec<_>, _>>()?;
+    let sides = match (exec.expect, files.len()) {
+        (Some(case), 1) => {
+            if exec.compare.is_some() || !exec.views.is_empty() || exec.observer.is_some() {
+                return Err(usage(
+                    "--compare, --view and --observer do not apply with --expect: the case's `expect` table states the compared cells, the views and the observer",
+                ));
+            }
+            CompareSides::Expectation {
+                case: SideFile::parse(&case).map_err(usage)?,
+                actual: files.remove(0),
+            }
+        }
+        (Some(_), given) => {
+            return Err(usage(format!(
+                "krs compare --expect CASE checks one side, ACTUAL, against the case's expectation; {given} given"
+            )));
+        }
+        (None, 2) => {
+            let right = files.remove(1);
+            CompareSides::Ends {
+                left: files.remove(0),
+                right,
+            }
+        }
+        (None, given) => {
+            return Err(usage(format!(
+                "krs compare takes two sides, LEFT and RIGHT, or --expect CASE and one side, ACTUAL; {given} given"
+            )));
+        }
+    };
+    if exec.observer.is_some() && exec.views.is_empty() {
+        return Err(usage(
+            "--observer names the definition the views are evaluated in, and no --view names a view",
+        ));
+    }
+    let output = match output.map(Path::to_string_lossy) {
+        None => CompareOutput::Human,
+        Some(value) if value == "human" => CompareOutput::Human,
+        Some(value) if value == "json" => CompareOutput::Json,
+        Some(value) => {
+            return Err(usage(format!(
+                "unknown --output format `{value}` for krs compare; it prints human or json"
+            )));
+        }
+    };
+    Ok(Command::Compare(CompareRequest {
+        sides,
+        compare: exec.compare,
+        views: exec.views,
+        observer: exec.observer,
+        output,
+        solver,
+        view_budget: exec.view_budget.unwrap_or(DEFAULT_VIEW_BUDGET),
+    }))
+}
+
 /// The input name and the JSON document of `--input NAME=JSON`.
 fn typed_input(value: &str) -> Result<(String, String), UsageError> {
     let (name, document) = value
@@ -1159,6 +1325,17 @@ fn exec_options(kind: CommandKind) -> &'static [&'static str] {
             "FILE",
             "--jobs",
             "--name",
+            "--view-budget",
+            "--smt-resource-limit",
+            "--smt-clock-ms",
+            "--smt-retries",
+        ],
+        CommandKind::Compare => &[
+            "FILE",
+            "--expect",
+            "--compare",
+            "--view",
+            "--observer",
             "--view-budget",
             "--smt-resource-limit",
             "--smt-clock-ms",
@@ -1225,6 +1402,9 @@ fn exec_command(
     let view_budget = exec.view_budget.unwrap_or(DEFAULT_VIEW_BUDGET);
     if kind == CommandKind::Cases {
         return cases_command(exec, output.as_deref(), solver);
+    }
+    if kind == CommandKind::Compare {
+        return compare_command(exec, output.as_deref(), solver);
     }
     if exec.inputs.len() > 1 {
         return Err(usage("more than one FILE given"));
@@ -1305,7 +1485,8 @@ fn exec_command(
         | CommandKind::Expand
         | CommandKind::EmitK
         | CommandKind::Build
-        | CommandKind::Cases => {
+        | CommandKind::Cases
+        | CommandKind::Compare => {
             unreachable!("only run-family commands take run options")
         }
     })
@@ -1355,7 +1536,8 @@ fn finish_run(kind: CommandKind, options: RunOptions) -> Result<ParseResult, Usa
         | CommandKind::Run
         | CommandKind::Search
         | CommandKind::Prove
-        | CommandKind::Cases => {
+        | CommandKind::Cases
+        | CommandKind::Compare => {
             if backend.is_some() {
                 return Err(usage(format!(
                     "--backend does not apply to krs {}; it always uses the in-process k-rust backend",
@@ -2984,6 +3166,164 @@ mod tests {
             assert!(
                 synopsis.contains(option),
                 "krs cases synopsis omits {option}"
+            );
+        }
+    }
+
+    /// `krs compare` takes two sides, or `--expect CASE` and one; `--compare` (comma-separated,
+    /// repeatable), `--view CELL=FUNCTION`, `--observer`, `--output human|json`, `--view-budget`
+    /// and the solver options; the expectation states its own cells and views.
+    #[test]
+    fn parses_compare_options() {
+        let base = ["--package", "imp", "--definition", "main"];
+        fn arguments<'a>(base: [&'a str; 4], extra: &[&'a str]) -> Vec<&'a str> {
+            let mut args = vec!["compare"];
+            args.extend(base);
+            args.extend(extra);
+            args
+        }
+        let with = |extra: &[&str]| match run(&arguments(base, extra)).0.command {
+            Command::Compare(request) => request,
+            other => panic!("{other:?}"),
+        };
+        let failure = |extra: &[&str]| error(&arguments(base, extra));
+        let side = |path: &str, name: Option<&str>| SideFile {
+            path: PathBuf::from(path),
+            name: name.map(str::to_owned),
+        };
+        assert_eq!(
+            with(&["a.json", "cases.toml#ld-a"]),
+            CompareRequest {
+                sides: CompareSides::Ends {
+                    left: side("a.json", None),
+                    right: side("cases.toml", Some("ld-a")),
+                },
+                compare: None,
+                views: std::collections::BTreeMap::new(),
+                observer: None,
+                output: CompareOutput::Human,
+                solver: krs_exec::BackendOptions::RESOURCE_BOUNDED,
+                view_budget: DEFAULT_VIEW_BUDGET,
+            }
+        );
+        let request = with(&[
+            "a.json",
+            "b.toml",
+            "--compare",
+            "pc,bus",
+            "--compare",
+            "f",
+            "--view",
+            "bus=WritesView",
+            "--observer",
+            "observe:main",
+            "--output",
+            "json",
+            "--view-budget",
+            "50",
+        ]);
+        assert_eq!(
+            request.compare,
+            Some(vec!["pc".to_owned(), "bus".to_owned(), "f".to_owned()])
+        );
+        assert_eq!(
+            request.views,
+            [("bus".to_owned(), "WritesView".to_owned())].into()
+        );
+        assert_eq!(request.observer.as_deref(), Some("observe:main"));
+        assert_eq!(request.output, CompareOutput::Json);
+        assert_eq!(request.view_budget, 50);
+        assert_eq!(
+            with(&["--expect", "cases.toml#ld-a", "end.json"]).sides,
+            CompareSides::Expectation {
+                case: side("cases.toml", Some("ld-a")),
+                actual: side("end.json", None),
+            }
+        );
+        assert_eq!(
+            failure(&["a.json"]),
+            "krs compare takes two sides, LEFT and RIGHT, or --expect CASE and one side, ACTUAL; 1 given"
+        );
+        assert_eq!(
+            failure(&["--expect", "c.toml", "a.json", "b.json"]),
+            "krs compare --expect CASE checks one side, ACTUAL, against the case's expectation; 2 given"
+        );
+        assert!(
+            failure(&["--expect", "c.toml", "a.json", "--view", "bus=V"])
+                .starts_with("--compare, --view and --observer do not apply with --expect")
+        );
+        assert_eq!(
+            failure(&["a.json", "b.json", "--observer", "o:main"]),
+            "--observer names the definition the views are evaluated in, and no --view names a view"
+        );
+        assert_eq!(
+            failure(&["a.json", "b.json", "--view", "bus"]),
+            "--view `bus` must have the form CELL=FUNCTION"
+        );
+        assert_eq!(
+            failure(&["a.json", "b.json", "--view", "bus=A", "--view", "bus=B"]),
+            "--view names the cell `bus` twice; a cell has one view"
+        );
+        assert_eq!(
+            failure(&["a.json", "b.json", "--compare", "pc,"]),
+            "--compare `pc,` names an empty cell path"
+        );
+        assert_eq!(
+            failure(&["a.json", "b.txt"]),
+            "the document `b.txt` is not a `.toml` or `.json` file, which its extension says"
+        );
+        assert_eq!(
+            failure(&["a.json", "b.json", "--output", "pretty"]),
+            "unknown --output format `pretty` for krs compare; it prints human or json"
+        );
+        for option in [
+            &["--case", "a.toml"][..],
+            &["--depth", "1"],
+            &["--jobs", "2"],
+        ] {
+            let mut extra = vec!["a.json", "b.json"];
+            extra.extend(option);
+            assert_eq!(
+                failure(&extra),
+                format!("{} does not apply to krs compare", option[0])
+            );
+        }
+        let mut args = vec!["run"];
+        args.extend(base);
+        args.extend(["--view", "bus=V"]);
+        assert_eq!(error(&args), "--view does not apply to krs run");
+    }
+
+    /// The two synopses of `krs compare` list every option it accepts and the `--output` formats.
+    #[test]
+    fn compare_usage_synopsis_matches_the_parser() {
+        let lines: Vec<&str> = USAGE.lines().collect();
+        let mut synopsis = String::new();
+        let mut index = 0;
+        while index < lines.len() {
+            if lines[index].starts_with("  krs compare ") {
+                synopsis.push_str(lines[index]);
+                index += 1;
+                while index < lines.len() && lines[index].starts_with("             ") {
+                    synopsis.push(' ');
+                    synopsis.push_str(lines[index]);
+                    index += 1;
+                }
+            } else {
+                index += 1;
+            }
+        }
+        assert!(synopsis.contains("--expect CASE ACTUAL"), "{synopsis}");
+        assert!(synopsis.contains("[--output human|json]"), "{synopsis}");
+        for option in exec_options(CommandKind::Compare) {
+            let option = if *option == "FILE" {
+                "LEFT RIGHT"
+            } else {
+                option
+            };
+            assert!(
+                synopsis.contains(option),
+                "krs compare synopsis omits {option}"
             );
         }
     }

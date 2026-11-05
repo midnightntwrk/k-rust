@@ -9,6 +9,7 @@
 //! `finish(v)` to `done(v)` by the rule `finish`.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
 use std::sync::OnceLock;
@@ -1848,4 +1849,323 @@ fn a_view_applies_in_every_instance_and_a_difference_always_names_the_views() {
         assert_eq!(difference.at, DifferenceAt::Class);
         assert_eq!(difference.views, views("bus", "EventCount"));
     });
+}
+
+/// The inputs of a case on the fixture that bind the reference state's variables, `pgm` the
+/// program.
+fn reference_inputs(pgm: &Json) -> Json {
+    json!({
+        "pgm": pgm,
+        "regs": {"A": 1, "B": 2},
+        "f": {"Flags": {"zf": false, "cf": true}},
+        "pc": 256,
+        "bus": [{"Read": {"addr": 1}}, {"Read": {"addr": 2}}, {"Read": {"addr": 3}}],
+        "memory": {"5": 7, "6": 8},
+        "ime": false,
+        "w": 9,
+        "z": 10,
+    })
+}
+
+/// `value` as a TOML inline value: a table's keys quoted, a string as JSON quotes it (which TOML
+/// reads alike for the strings these documents hold).
+fn toml_inline(value: &Json) -> String {
+    match value {
+        Json::Object(table) => {
+            let members = table
+                .iter()
+                .map(|(key, value)| {
+                    format!("{} = {}", Json::from(key.as_str()), toml_inline(value))
+                })
+                .collect::<Vec<_>>();
+            format!("{{ {} }}", members.join(", "))
+        }
+        Json::Array(items) => {
+            let items = items.iter().map(toml_inline).collect::<Vec<_>>();
+            format!("[{}]", items.join(", "))
+        }
+        Json::Null => panic!("TOML has no null"),
+        scalar => scalar.to_string(),
+    }
+}
+
+/// `table` as a TOML document, each top-level key on its own line with an inline value.
+fn toml_table(table: &Json) -> String {
+    table
+        .as_object()
+        .unwrap()
+        .iter()
+        .fold(String::new(), |mut document, (key, value)| {
+            let _ = writeln!(
+                document,
+                "{} = {}",
+                Json::from(key.as_str()),
+                toml_inline(value)
+            );
+            document
+        })
+}
+
+/// The fixture and its observer as a workspace, with the documents `krs compare` reads in the
+/// fixture's package: `end.toml`, the end of `finish(3)` from the reference state; `moved.json`,
+/// that end with `pc` and `bus` changed; `partial.json`, that end without `pc`; `cases.toml`,
+/// the named cases `finish` and `toss` from the reference state; and `expect.json`, a case that
+/// expects `finish(3)`'s end on `k` and `pc`.
+struct CompareWorkspace {
+    directory: krs_test_support::TempDir,
+    target: krs_test_support::SharedFixtureTarget,
+}
+
+impl CompareWorkspace {
+    fn new() -> Self {
+        // The end of `finish(3)` from the reference state, written by the definition itself.
+        let mut end = Json::Null;
+        with_semantics(|semantics| {
+            let pgm = ctor(semantics, "Cmd::Finish", vec![("value", 3.into())]);
+            let ends = run_end(semantics, pgm, None);
+            end = semantics.end_document(&ends.ends[0]).unwrap();
+        });
+        assert_eq!(end["halt"], "stuck", "{end}");
+        let directory = temp_dir();
+        let root = directory.path();
+        write_package(
+            root,
+            "language",
+            FIXTURE,
+            &manifest(PACKAGE, "ORG-KRS-EXEC-ENDS", "", false),
+        );
+        write_package(
+            root,
+            "observe",
+            OBSERVER,
+            &manifest(
+                OBSERVER_PACKAGE,
+                "ORG-KRS-EXEC-ENDS-OBSERVE",
+                &format!("ends = {{ package = \"{PACKAGE}\", path = \"../language\" }}\n"),
+                false,
+            ),
+        );
+        fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"language\", \"observe\"]\nresolver = \"3\"\n",
+        )
+        .unwrap();
+        let language = root.join("language");
+        let write =
+            |file: &str, contents: String| fs::write(language.join(file), contents).unwrap();
+        write("end.toml", toml_table(&end));
+        let mut moved = end.clone();
+        moved["cells"]["pc"] = json!(257);
+        moved["cells"]["bus"] = json!([{"Write": {"addr": 9, "value": 9}}, {"Read": {"addr": 2}}]);
+        write("moved.json", moved.to_string());
+        let mut partial = end;
+        partial["cells"].as_object_mut().unwrap().remove("pc");
+        write("partial.json", partial.to_string());
+        let finish = json!({"Finish": {"value": 3}});
+        let toss = json!({"Toss": {"value": 0}});
+        write(
+            "cases.toml",
+            format!(
+                "[[case]]\n{}\n[[case]]\n{}",
+                toml_table(&json!({"name": "finish", "inputs": reference_inputs(&finish)})),
+                toml_table(&json!({"name": "toss", "inputs": reference_inputs(&toss)})),
+            ),
+        );
+        write(
+            "expect.json",
+            json!({
+                "inputs": reference_inputs(&finish),
+                "expect": {
+                    "halt": "stuck",
+                    "compare": ["k", "pc"],
+                    "cells": {"k": {"$seq": [{"Done": {"value": 3}}]}, "pc": 256},
+                },
+            })
+            .to_string(),
+        );
+        Self {
+            directory,
+            target: shared_fixture_target(),
+        }
+    }
+
+    /// `krs compare` on the fixture with `arguments`, from its package: the exit status, stdout
+    /// and stderr.
+    fn compare(&self, arguments: &[&str]) -> (Option<i32>, String, String) {
+        let mut process = krs_command!();
+        fixture_build_env(&mut process, self.target.path());
+        let output = process
+            .current_dir(self.directory.path().join("language"))
+            .args(["compare", "--package", PACKAGE, "--definition", "main"])
+            .args(arguments)
+            .output()
+            .unwrap();
+        let text = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
+        (
+            output.status.code(),
+            text(&output.stdout),
+            text(&output.stderr),
+        )
+    }
+}
+
+/// `krs compare` reads each side as an end document or a case document, whose case it runs
+/// (`FILE#NAME` naming a named case), and prints `equal` or the first difference in the lines
+/// `krs run --case` prints, with the cells that also differ, or as a `krs-compare/1` document
+/// whose difference is a `krs-difference/2` document; `--compare` narrows the compared cells, and
+/// `--view` compares a cell on a view's value, evaluated in the compared definition or in the
+/// observer `--observer` names. Two runs that may end elsewhere are inconclusive (exit 3);
+/// `--expect` checks a side against a case's expectation; an end document that leaves out a
+/// compared cell is refused, naming it, before the case runs.
+#[test]
+fn krs_compare_reads_ends_and_cases_and_prints_the_first_difference() {
+    let workspace = CompareWorkspace::new();
+    compare_ends_and_runs(&workspace);
+    compare_under_views(&workspace);
+    compare_against_expectations_and_refusals(&workspace);
+}
+
+fn compare_ends_and_runs(workspace: &CompareWorkspace) {
+    // A TOML end document and a named case's run: equal.
+    let (code, stdout, stderr) = workspace.compare(&["end.toml", "cases.toml#finish"]);
+    assert_eq!(
+        (code, stdout.as_str()),
+        (Some(0), "krs compare: equal\n"),
+        "{stderr}"
+    );
+
+    // The first difference in declaration order, the others listed after it.
+    let (code, stdout, stderr) = workspace.compare(&["moved.json", "cases.toml#finish"]);
+    assert_eq!(code, Some(1), "{stderr}");
+    assert_eq!(
+        stdout,
+        "krs compare: differs at `pc`\n  left:  257\n  right: 256\n  also differ: `bus`\n"
+    );
+    let (code, stdout, stderr) =
+        workspace.compare(&["moved.json", "cases.toml#finish", "--output", "json"]);
+    assert_eq!(code, Some(1), "{stderr}");
+    let document: Json = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(document["schema"], "krs-compare/1", "{document}");
+    assert_eq!(document["verdict"], "differs", "{document}");
+    let difference = &document["difference"];
+    assert_eq!(difference["format"], DIFFERENCE_FORMAT, "{difference}");
+    assert_eq!(difference["path"], "pc", "{difference}");
+    assert_eq!(difference["also_differ"], json!(["bus"]), "{difference}");
+    assert_eq!(difference["left"]["name"], "left", "{difference}");
+    assert_eq!(difference["left"]["value"]["document"], 257, "{difference}");
+    assert_eq!(
+        difference["right"]["value"]["document"], 256,
+        "{difference}"
+    );
+
+    // Narrowed to cells both sides agree on.
+    let (code, stdout, stderr) = workspace.compare(&[
+        "moved.json",
+        "cases.toml#finish",
+        "--compare",
+        "k,f",
+        "--compare",
+        "cpu",
+    ]);
+    assert_eq!(
+        (code, stdout.as_str()),
+        (Some(0), "krs compare: equal\n"),
+        "{stderr}"
+    );
+
+    // A run that chose among successors is not its case's only end.
+    let (code, stdout, stderr) = workspace.compare(&["cases.toml#toss", "cases.toml#toss"]);
+    assert_eq!(code, Some(3), "{stderr}");
+    assert!(
+        stdout.starts_with("krs compare: inconclusive: the left side's ends are incomplete: "),
+        "{stdout}"
+    );
+}
+
+fn compare_under_views(workspace: &CompareWorkspace) {
+    // A view of the compared definition: the logs differ, their lengths too.
+    let (code, stdout, stderr) = workspace.compare(&[
+        "moved.json",
+        "cases.toml#finish",
+        "--compare",
+        "bus",
+        "--view",
+        "bus=EventCount",
+    ]);
+    assert_eq!(code, Some(1), "{stderr}");
+    assert_eq!(
+        stdout,
+        "krs compare: differs at `bus`\n  left:  2\n  right: 3\n  views: `bus` = `EventCount`\n"
+    );
+    // A view of the observer, shown at its own sort; and one under which the ends are equal,
+    // which the verdict names.
+    let observer = format!("{OBSERVER_PACKAGE}:main");
+    let (code, stdout, stderr) = workspace.compare(&[
+        "moved.json",
+        "end.toml",
+        "--compare",
+        "bus",
+        "--view",
+        "bus=LogShape",
+        "--observer",
+        &observer,
+        "--output",
+        "json",
+    ]);
+    assert_eq!(code, Some(1), "{stderr}");
+    let document: Json = serde_json::from_str(&stdout).unwrap();
+    let difference = &document["difference"];
+    assert_eq!(difference["path"], "bus.events", "{difference}");
+    assert_eq!(
+        difference["views"],
+        json!({"bus": "LogShape"}),
+        "{difference}"
+    );
+    assert_eq!(document["observer"], json!(observer), "{document}");
+    assert_eq!(difference["left"]["value"]["document"], 2, "{difference}");
+    let (code, stdout, stderr) = workspace.compare(&[
+        "end.toml",
+        "cases.toml#finish",
+        "--view",
+        "bus=WithRead",
+        "--observer",
+        &observer,
+    ]);
+    assert_eq!(code, Some(0), "{stderr}");
+    assert_eq!(
+        stdout,
+        format!("krs compare: equal\n  views: `bus` = `WithRead`, in `{observer}`\n")
+    );
+}
+
+fn compare_against_expectations_and_refusals(workspace: &CompareWorkspace) {
+    // A side checked against a case's expectation, as `krs run --case` checks a run's end.
+    let (code, stdout, stderr) = workspace.compare(&["--expect", "expect.json", "moved.json"]);
+    assert_eq!(code, Some(1), "{stderr}");
+    assert_eq!(
+        stdout,
+        "krs compare: expectation unmet at `pc`\n  expected: 256\n  actual:   257\n"
+    );
+    let (code, stdout, stderr) =
+        workspace.compare(&["--expect", "expect.json", "cases.toml#finish"]);
+    assert_eq!(
+        (code, stdout.as_str()),
+        (Some(0), "krs compare: expectation met\n"),
+        "{stderr}"
+    );
+
+    // A compared cell an end document leaves out is refused, naming it, before the case runs;
+    // an end document has no named case.
+    let (code, stdout, stderr) = workspace.compare(&["partial.json", "cases.toml#toss"]);
+    assert_eq!(code, Some(1), "{stdout}");
+    assert!(
+        stderr.contains("`partial.json`: the left end does not state the compared cell `pc`"),
+        "{stderr}"
+    );
+    let (code, _, stderr) = workspace.compare(&["end.toml#finish", "cases.toml#finish"]);
+    assert_eq!(code, Some(2), "{stderr}");
+    assert!(
+        stderr.contains("`end.toml` is an end document, which states one end and no named case"),
+        "{stderr}"
+    );
 }

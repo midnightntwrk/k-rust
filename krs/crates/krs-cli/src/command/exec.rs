@@ -245,7 +245,7 @@ pub(super) fn compiled_stage(
 }
 
 /// The semantics of the observer `observer`, its stage restored or compiled as `restore` allows.
-fn load_observer(
+pub(super) fn load_observer(
     observer: &ObserverDefinition,
     restore: bool,
     solver: BackendOptions,
@@ -655,9 +655,9 @@ impl SelectedCase {
 /// data file's that includes it, or the working directory for an `--input` document. A file is
 /// named by its canonical path, which is what tells a `$data-file` that includes itself from
 /// one that includes another file of the same spelling.
-struct CaseFiles {
+pub(super) struct CaseFiles {
     /// The directory of the top document's paths.
-    base: PathBuf,
+    pub(super) base: PathBuf,
 }
 
 impl InputFiles for CaseFiles {
@@ -706,7 +706,7 @@ fn case_and_depth(
 const LISTED_NAMES: usize = 10;
 
 /// `names` as a message lists them: the first [`LISTED_NAMES`], then how many more.
-fn listed_names<'a>(names: impl Iterator<Item = &'a str>) -> String {
+pub(super) fn listed_names<'a>(names: impl Iterator<Item = &'a str>) -> String {
     let names = names.collect::<Vec<_>>();
     let mut listed = names
         .iter()
@@ -1232,7 +1232,7 @@ fn search(
 
 /// A run's or a search's ends that are no ends of the definition's configurations: the backend
 /// returned a state KRS cannot read as one.
-fn end_failure(error: &EndError) -> Failure {
+pub(super) fn end_failure(error: &EndError) -> Failure {
     Failure::Exec(ExecError::Result(error.to_string()))
 }
 
@@ -1474,49 +1474,49 @@ impl Checked {
             Compared::Inconclusive(reason) => {
                 let _ = writeln!(output, "{command}: expectation inconclusive: {reason}");
             }
-            Compared::Differs(difference) => write_difference(output, command, difference),
+            Compared::Differs(difference) => {
+                write_difference(output, &format!("{command}: expectation unmet"), difference);
+                if difference.right.ends > 1 {
+                    let _ = writeln!(
+                        output,
+                        "  (one of the {} actual ends; the expectation holds of every end or is unmet)",
+                        difference.right.ends
+                    );
+                }
+            }
         }
-        if !self.views.is_empty() {
-            let views = self
-                .views
-                .iter()
-                .map(|(cell, function)| format!("`{cell}` = `{function}`"))
-                .collect::<Vec<_>>()
-                .join(", ");
-            let _ = match &self.observer {
-                Some(observer) => writeln!(output, "  views: {views}, in `{observer}`"),
-                None => writeln!(output, "  views: {views}"),
-            };
-        }
+        write_views(output, &self.views, self.observer.as_deref());
         if let Some(note) = self.note {
             let _ = writeln!(output, "note: {note}");
         }
     }
 }
 
-/// An unmet expectation's first difference, as `krs run` prints it.
-fn write_difference(output: &mut String, command: &str, difference: &Difference) {
-    let (expected, actual) = (&difference.left, &difference.right);
-    if let (DifferenceAt::Cell, Some(path)) = (difference.at, &difference.path) {
-        let _ = writeln!(output, "{command}: expectation unmet at `{path}`");
-        let _ = writeln!(
-            output,
-            "  expected: {}",
-            rendered_text(expected.value.as_ref())
-        );
-        let _ = writeln!(
-            output,
-            "  actual:   {}",
-            rendered_text(actual.value.as_ref())
-        );
+/// A first difference, as `krs run --case` prints an unmet expectation's and `krs compare` a
+/// difference of two ends: `head` and where the difference is (at a cell's path, or at the end's
+/// halt),
+/// each side's value or class labelled by the side's name, then the other compared cells that
+/// differ.
+pub(super) fn write_difference(output: &mut String, head: &str, difference: &Difference) {
+    let (left, right) = (&difference.left, &difference.right);
+    let shown = if let (DifferenceAt::Cell, Some(path)) = (difference.at, &difference.path) {
+        let _ = writeln!(output, "{head} at `{path}`");
+        [
+            rendered_text(left.value.as_ref()),
+            rendered_text(right.value.as_ref()),
+        ]
     } else {
         let class = |class: &krs_exec::EndClass| match &class.rule {
             Some(rule) => format!("{} at `{rule}`", class.halt.as_str()),
             None => class.halt.as_str().to_owned(),
         };
-        let _ = writeln!(output, "{command}: expectation unmet at the end's halt");
-        let _ = writeln!(output, "  expected: {}", class(&expected.class));
-        let _ = writeln!(output, "  actual:   {}", class(&actual.class));
+        let _ = writeln!(output, "{head} at the end's halt");
+        [class(&left.class), class(&right.class)]
+    };
+    let width = left.name.len().max(right.name.len()) + 1;
+    for (name, text) in [&left.name, &right.name].into_iter().zip(shown) {
+        let label = format!("{name}:");
+        let _ = writeln!(output, "  {label:<width$} {text}");
     }
     if !difference.also_differ.is_empty() {
         let cells = difference
@@ -1527,13 +1527,27 @@ fn write_difference(output: &mut String, command: &str, difference: &Difference)
             .join(", ");
         let _ = writeln!(output, "  also differ: {cells}");
     }
-    if actual.ends > 1 {
-        let _ = writeln!(
-            output,
-            "  (one of the {} actual ends; the expectation holds of every end or is unmet)",
-            actual.ends
-        );
+}
+
+/// The line naming the views a verdict applied, and the observer they were evaluated in when it
+/// is not the compared definition; nothing without views.
+pub(super) fn write_views(
+    output: &mut String,
+    views: &BTreeMap<String, String>,
+    observer: Option<&str>,
+) {
+    if views.is_empty() {
+        return;
     }
+    let listed = views
+        .iter()
+        .map(|(cell, function)| format!("`{cell}` = `{function}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let _ = match observer {
+        Some(observer) => writeln!(output, "  views: {listed}, in `{observer}`"),
+        None => writeln!(output, "  views: {listed}"),
+    };
 }
 
 /// A side's value at a difference: its canonical text, or its K text, marked; `nothing` where

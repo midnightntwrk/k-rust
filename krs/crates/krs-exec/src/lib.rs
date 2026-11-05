@@ -85,6 +85,7 @@ pub use ends::{
 pub use inputs::{
     Case, CaseDocument, CaseRun, Expectation, InputError, InputFiles, InputType, MainVariable,
     NoFiles, Parameter, declares_variable, json_document, main_variable, toml_document,
+    toml_text_document,
 };
 pub use k_rust::backend::{
     BackendError, BackendOptions, ChosenValueOutput, DEFAULT_SMT_RESOURCE_LIMIT,

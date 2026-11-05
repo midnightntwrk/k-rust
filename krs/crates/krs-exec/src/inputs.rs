@@ -806,6 +806,21 @@ fn toml_case_document(text: &str) -> Result<Json, InputError> {
     toml_document(&toml::Value::Table(table))
 }
 
+/// The TOML text `text` in the JSON data model ([`toml_document`]), for a reader that learns
+/// which document it holds from its keys: an end document ([`crate::ends`], "End documents") or
+/// a case document ([`CaseDocument::from_document`]).
+///
+/// # Errors
+///
+/// Returns [`InputError`] for a text that is no TOML document and a value [`toml_document`]
+/// refuses.
+pub fn toml_text_document(text: &str) -> Result<Json, InputError> {
+    let table = text
+        .parse::<toml::Table>()
+        .map_err(|error| InputError::document(format!("no TOML document: {error}")))?;
+    toml_document(&toml::Value::Table(table))
+}
+
 /// A refusal of a case document at `position`.
 fn at(position: &str, message: String) -> InputError {
     InputError {

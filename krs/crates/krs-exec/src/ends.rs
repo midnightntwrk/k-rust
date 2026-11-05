@@ -2031,6 +2031,18 @@ impl Lens<'_> {
 }
 
 impl Semantics {
+    /// Check `comparison` against the declaration, as every comparison under it does, without
+    /// an end: a caller refuses a comparison that names no cell, an unobservable cell, or a view
+    /// of a cell it does not compare, before it runs what it compares.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EndError::UnknownCell`] and [`EndError::Unobservable`] for a compared path that
+    /// names no observable cell, and [`EndError::View`] for a view of a cell it does not compare.
+    pub fn check_comparison(&self, comparison: &Comparison) -> Result<(), EndError> {
+        self.viewed_selection(comparison).map(|_| ())
+    }
+
     /// Check that `end` states every cell `comparison` compares, as any comparison of the end
     /// does, without comparing it: a caller refuses a partial end before it runs what the end is
     /// compared with. `side` names the end in a refusal.

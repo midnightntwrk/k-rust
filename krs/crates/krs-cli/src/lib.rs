@@ -25,12 +25,12 @@ mod process;
 mod render;
 
 pub use command::{
-    CASES_SCHEMA, CasesOutput, CasesRequest, CollectedDefinition, ColorChoice, Command,
-    CommandError, CommandKind, CommandOutcome, CommandRequest, DEFAULT_VIEW_BUDGET,
-    EmittedDefinition, EmittedRule, LoadVisit, MessageFormat, ParseRequest, ProgramSource,
-    ProveRequest, RetainedEmission, RunRequest, SearchRequest, TermOutput, collect_descriptors,
-    execute_command, execute_command_measured, execute_command_reported, supervise_prove,
-    watch_supervisor,
+    CASES_SCHEMA, COMPARE_SCHEMA, CasesOutput, CasesRequest, CollectedDefinition, ColorChoice,
+    Command, CommandError, CommandKind, CommandOutcome, CommandRequest, CompareOutput,
+    CompareRequest, CompareSides, DEFAULT_VIEW_BUDGET, EmittedDefinition, EmittedRule, LoadVisit,
+    MessageFormat, ParseRequest, ProgramSource, ProveRequest, RetainedEmission, RunRequest,
+    SearchRequest, SideFile, TermOutput, collect_descriptors, execute_command,
+    execute_command_measured, execute_command_reported, supervise_prove, watch_supervisor,
 };
 pub use diagnostic::{
     DIAGNOSTIC_SCHEMA_VERSION, DiagnosticEnvelope, DiagnosticGeneratedRange, DiagnosticLabel,

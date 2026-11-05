@@ -30,6 +30,7 @@ mod agreement;
 mod cases;
 mod collected;
 mod collector;
+mod compare;
 mod counters;
 mod exec;
 mod failed_items;
@@ -67,6 +68,8 @@ pub enum CommandKind {
     Prove,
     /// Run a batch of named cases and report each one's verdict.
     Cases,
+    /// Compare two ends, or an end against a case's expectation.
+    Compare,
 }
 
 impl CommandKind {
@@ -83,6 +86,7 @@ impl CommandKind {
             Self::Search => "search",
             Self::Prove => "prove",
             Self::Cases => "cases",
+            Self::Compare => "compare",
         }
     }
 
@@ -136,6 +140,8 @@ pub enum Command {
     Prove(ProveRequest),
     /// Run a batch of cases (`krs cases`).
     Cases(CasesRequest),
+    /// Compare two ends (`krs compare`).
+    Compare(CompareRequest),
 }
 
 pub use cases::{CASES_SCHEMA, CasesOutput, CasesRequest};
@@ -144,6 +150,7 @@ pub use collected::{
 };
 #[cfg(feature = "kink")]
 pub(crate) use collected::{PlannedCollection, plan_collection};
+pub use compare::{COMPARE_SCHEMA, CompareOutput, CompareRequest, CompareSides, SideFile};
 pub use exec::{
     ColorChoice, DEFAULT_VIEW_BUDGET, ParseRequest, ProgramSource, ProveRequest, RunRequest,
     SearchRequest, TermOutput,
@@ -164,6 +171,7 @@ impl Command {
             Self::Search(_) => CommandKind::Search,
             Self::Prove(_) => CommandKind::Prove,
             Self::Cases(_) => CommandKind::Cases,
+            Self::Compare(_) => CommandKind::Compare,
         }
     }
 
@@ -177,6 +185,7 @@ impl Command {
             Self::Search(request) => request.solver,
             Self::Prove(request) => request.solver,
             Self::Cases(request) => request.solver,
+            Self::Compare(request) => request.solver,
             _ => krs_exec::BackendOptions::RESOURCE_BOUNDED,
         }
     }
@@ -193,7 +202,8 @@ impl Command {
             | Self::Run(_)
             | Self::Search(_)
             | Self::Prove(_)
-            | Self::Cases(_) => None,
+            | Self::Cases(_)
+            | Self::Compare(_) => None,
         }
     }
 
@@ -221,7 +231,8 @@ impl Command {
             | Self::Run(_)
             | Self::Search(_)
             | Self::Prove(_)
-            | Self::Cases(_) => None,
+            | Self::Cases(_)
+            | Self::Compare(_) => None,
         }
     }
 }
@@ -437,7 +448,8 @@ fn execute_with_sources(
         | Command::Run(_)
         | Command::Search(_)
         | Command::Prove(_)
-        | Command::Cases(_) => exec_command(
+        | Command::Cases(_)
+        | Command::Compare(_) => exec_command(
             &prepared,
             request,
             sources,
@@ -555,6 +567,25 @@ fn exec_command(
             &observers,
             measurement,
         )
+    } else if let Command::Compare(compare) = &request.command {
+        compare::read(compare)
+            .map_err(|failure| failure.into_command_error(prepared))
+            .and_then(|read| {
+                let observer = compare::observer_name(compare, &read)
+                    .map(|name| prepare_observer(request, name, workspace_root))
+                    .transpose()
+                    .map_err(CommandError::InvalidRequest)?
+                    .flatten();
+                compare::execute(
+                    prepared,
+                    compare,
+                    sources,
+                    stage_reuse,
+                    read,
+                    observer,
+                    measurement,
+                )
+            })
     } else {
         read_case(request, workspace_root)
             .map_err(|error| error.warned(warnings.clone()))

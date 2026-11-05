@@ -183,7 +183,7 @@ When the definition declares an exit cell (`#[k::cell(exit)]`), a completed run 
 A definition with a `stream = "stdin"` cell reads standard input into it before the first step; `run` writes what its `stream = "stdout"` cell holds to standard output before the configuration, and `--output json` reports it as `stdout` instead ([console I/O](/reference/language#console-io-and-the-exit-cell)).
 `run` and `search` write each line that `io::log` logs to standard error, one per line and before their own report, as `krun` and `krun --search` do on K's LLVM backend; `--output json` also reports them as `log`.
 
-The current commands are `fmt`, `check`, `expand`, `emit-k`, `build`, `parse`, `run`, `search`, `prove`, [`cases`](#run-a-batch-of-cases), and the [corpus loop](#the-corpus-loop)'s `kink`.
+The current commands are `fmt`, `check`, `expand`, `emit-k`, `build`, `parse`, `run`, `search`, `prove`, [`cases`](#run-a-batch-of-cases), [`compare`](#compare-two-ends), and the [corpus loop](#the-corpus-loop)'s `kink`.
 
 ## Inputs by name
 
@@ -623,6 +623,38 @@ A last line counts the verdicts.
 - then the summary, `{"schema": "krs-cases/1", "summary": {"cases", "met", "unmet", "inconclusive", "refused", "ran"}, "status"}`, `status` being the exit status.
 
 `krs cases` exits 1 when a case is unmet or refused, else 3 when one is inconclusive or states no expectation and has no end (its run halted `indeterminate`, `timeout` or another inconclusive halt), else 0; a usage error exits 2.
+
+## Compare two ends
+
+```console
+krs compare --package my-semantics --definition main ends/reference.json cases/steps.toml#ld-a
+krs compare --package my-semantics --definition main left.json right.json --compare pc,regs,bus \
+  --view bus=WritesView --observer my-semantics-views:main --output json
+krs compare --package my-semantics --definition main --expect cases/steps.toml#ld-a ends/emulator.json
+```
+
+`krs compare` compares two ends of the definition, the left and the right side, on the halt and on every leaf cell that is not unobservable.
+Each side is a `.toml` or `.json` file, read by its keys:
+an end document (`halt`, `rule`, `cells`), written as [an expectation](#expectations) writes its end;
+or a case document, whose case is run as `krs run --case` runs it (its inputs and its `run` table), and whose run's end is the side.
+`FILE#NAME` names a case of a document of named cases, as the case's id in `krs cases` does.
+The case of a case side is run, not checked: its own `expect` table is no part of the comparison.
+
+An end document states the one end of whatever produced it: another implementation, a recorded run, an expected state written by hand.
+A run's end is its case's only end exactly where the run chose nowhere: no state on its path had several successors, and it read no value the definition leaves open.
+Where it chose, the definition may end otherwise from the same inputs, so its side is incomplete.
+Two sides are *equal* when their ends are; they *differ* when one side has an end the other, complete, side does not; otherwise the comparison is *inconclusive*, as it is when a side has no end (its run halted `indeterminate`, `timeout` or another inconclusive halt).
+An end document that leaves out a cell the comparison compares is refused, naming the cell and its type, before any case is run.
+
+`--compare CELL,...` compares only the cells it names by declared path (a group names its leaves), and may be repeated; a cell it names may not be unobservable.
+`--view CELL=FUNCTION` compares a cell on the value of a function of one parameter at the cell's value on each side, as an expectation's `views` does, and may be repeated, one view per cell; the views are evaluated in the definition compared, or in the definition `--observer PACKAGE:DEFINITION` names, within `--view-budget POLLS` polls each.
+
+`--expect CASE` checks the one side given against the expectation of CASE (`FILE` or `FILE#NAME`) on the cells, views and observer it names, as `krs run --case` checks its run's end, so `--compare`, `--view` and `--observer` do not apply.
+The side may be an end document: an end another implementation reached, checked against what the case expects.
+
+`krs compare` prints `krs compare: equal`, or the first difference as `krs run --case` prints an unmet expectation's: where the sides differ, each side's value labelled `left` and `right`, the other compared cells that differ, and the views it applied; with `--expect`, the lines of `krs run --case`.
+`--output json` prints one document instead, `{"schema": "krs-compare/1", "verdict", ...}`: `verdict` is `equal`, `differs` or `inconclusive` (`met`, `unmet` or `inconclusive` with `--expect`), with `difference` (`krs-difference/2`, the left side on its `left`) or `reason`, and `views` and `observer` when views were applied.
+It exits 0 when the sides are equal (the expectation is met), 1 when they differ (it is unmet), 3 when the comparison is inconclusive, 1 when a side or the comparison is refused, and 2 for a usage error.
 
 ## The corpus loop
 
