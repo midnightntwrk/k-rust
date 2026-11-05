@@ -2083,9 +2083,9 @@
       "program_count": 23,
       "evidence_sha256": "1c78c291c3c6073130f87aad7db4747025288128033df5fdee789bfb0c68a0ff",
       "cli_sha256": {
-        "while-followed.imp": "6996ab8b00bf28d02d5b33399cc2094c6a6ec5e9f3a7ee356bea760803d094f3",
+        "while-followed.imp": "cdc93a6500b02558d7b27c41f28e1b74ffd22506417c689f933209a4a858c737",
         "while-followed.imp/pretty": "1ce57ae5e515bdfdc677593c1fe18bb98452e7f8e7f60c5ea74f3dd7c4a0d85a",
-        "stuck-undefined-variable.calc": "c10db9ca7dd53290ff04d52ef408f82b8025ee7b3309997ab859c228e0ef1a9c",
+        "stuck-undefined-variable.calc": "3881a71b5a97bad07de7887d27fedcd1bad57d4d315c7e25e1444581d468369a",
         "stuck-undefined-variable.calc/pretty": "7db088758a74ef3c6d7c5a339d7a876a70aa3b8c2538a737fb2959613627f6d8"
       }
     },
