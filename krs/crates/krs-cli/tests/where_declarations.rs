@@ -340,20 +340,10 @@ fn a_declaration_every_occurrence_admits_emits_its_sort() {
     let (success, expanded, stderr) = krs(target.path(), &manifest, "expand", &[]);
     assert!(success, "{stderr}");
     let reference = source_package(temporary.path(), "reference", &expanded);
-    // The expansion frames the computation with `tail @ ..`, so compare the
-    // sorted binders only.
-    let binders = |rules: [Vec<String>; 6]| {
-        rules.map(|lines| {
-            lines
-                .iter()
-                .flat_map(|line| line.split_whitespace())
-                .filter(|token| token.contains(':') && !token.starts_with("Tail:"))
-                .map(str::to_owned)
-                .collect::<Vec<_>>()
-        })
-    };
+    // The expansion keeps the rest of the computation with `..`, as the
+    // readable rules do, so it emits the same rules.
     assert_eq!(
-        binders(rules(&emitted(target.path(), &reference))),
-        binders(rules(&definition))
+        rules(&emitted(target.path(), &reference)),
+        rules(&definition)
     );
 }

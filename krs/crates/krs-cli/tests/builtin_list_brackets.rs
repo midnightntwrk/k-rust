@@ -492,13 +492,13 @@ fn expand_writes_the_list_terms_brackets_denote() {
             rest: k::Term<k::builtin::List>,
             z: k::Term<k::builtin::Int>,
             k::cells! {
-                k : k::configuration::KCell(crate ::Cmd::Swap(), tail @ ..), queue :
+                k : k::configuration::KCell(crate ::Cmd::Swap(), ..), queue :
                 k::configuration::Cell(k::builtin::list::concat(k::builtin::list::item(a),
                 k::builtin::list::concat(rest, k::builtin::list::item(z)))), state @ ..
             }: crate::Machine,
         ) -> crate::Machine {
             k::cells! {
-                k : k::configuration::KCell(..tail), queue :
+                k : k::configuration::KCell(..), queue :
                 k::configuration::Cell(k::builtin::list::concat(k::builtin::list::item(z),
                 k::builtin::list::concat(rest, k::builtin::list::item(a)))), ..state
             }

@@ -320,12 +320,12 @@ fn expand_writes_the_calls_operators_denote() {
             p: k::Term<k::builtin::Int>,
             a: k::Term<k::builtin::Int>,
             k::cells! {
-                k : k::configuration::KCell(crate ::ExpSyntax::Step(n), tail @ ..), pc :
+                k : k::configuration::KCell(crate ::ExpSyntax::Step(n), ..), pc :
                 k::configuration::Cell(p), acc : k::configuration::Cell(a), state @ ..
             }: crate::Machine,
         ) -> crate::Machine {
             k::cells! {
-                k : k::configuration::KCell(..tail), pc :
+                k : k::configuration::KCell(..), pc :
                 k::configuration::Cell(k::builtin::int::add(p, 1)), acc :
                 k::configuration::Cell(k::builtin::int::sub(0, k::builtin::int::bit_xor(a, n))),
                 ..state

@@ -443,13 +443,13 @@ fn expand_writes_the_calls_collection_notation_denotes() {
             s: k::Term<k::builtin::Set>,
             c: k::Term<k::builtin::Map>,
             k::cells! {
-                k : k::configuration::KCell(crate ::ExpSyntax::Visit(n), tail @ ..), env :
+                k : k::configuration::KCell(crate ::ExpSyntax::Visit(n), ..), env :
                 k::configuration::Cell(e), stack : k::configuration::Cell(st), seen :
                 k::configuration::Cell(s), counts : k::configuration::Cell(c), state @ ..
             }: crate::Machine,
         ) -> crate::Machine {
             k::cells! {
-                k : k::configuration::KCell(..tail), env :
+                k : k::configuration::KCell(..), env :
                 k::configuration::Cell(k::builtin::map::update_all(k::builtin::map::remove_all(k::builtin::map::remove(k::builtin::map::update(e,
                 n, k::builtin::map::get_or_default(e, n, 0)), 0), s), e)), stack :
                 k::configuration::Cell(k::builtin::list::update(st, 0, n)), seen :
@@ -878,12 +878,12 @@ fn expand_writes_the_calls_a_collection_literal_denotes() {
             e: k::Term<k::builtin::Map>,
             s: k::Term<k::builtin::Set>,
             k::cells! {
-                k : k::configuration::KCell(crate ::ExpSyntax::Pair(a, b), tail @ ..), env :
+                k : k::configuration::KCell(crate ::ExpSyntax::Pair(a, b), ..), env :
                 k::configuration::Cell(e), seen : k::configuration::Cell(s), state @ ..
             }: crate::Machine,
         ) -> crate::Machine {
             k::cells! {
-                k : k::configuration::KCell(..tail), env :
+                k : k::configuration::KCell(..), env :
                 k::configuration::Cell(k::builtin::map::update(k::builtin::map::update(e, a, 1),
                 b, 2)), seen : k::configuration::Cell(k::builtin::set::union(s,
                 k::builtin::set::union(k::builtin::set::item(a), k::builtin::set::item(b)))),

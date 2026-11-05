@@ -77,8 +77,6 @@ REFERENCE_MODULE = "KRS-IMP-STATIC"
 REFERENCE_SYNTAX_MODULE = "KRS-IMP-STATIC-SYNTAX"
 EXPANDED_PACKAGE = "krs-imp-expanded"
 CLAIM_COUNT = 20
-REPLACED_K_TAIL_CELLS = ["k"]
-PRESERVED_MAP_REMAINDER_CELLS = ["env"]
 SNAPSHOTS = ("kompile-tests", "source-definitions", "native-claims", "behavior", "proofs", "frontend-diagnostic")
 """The reference snapshots, each pinned in `pins.json` `reference_sha256`, in layer order."""
 ARTIFACT_SNAPSHOTS = ("kompile-tests",)
@@ -149,8 +147,6 @@ def _verify_replacement_parity(
             "kind": "replacement_parity", "reference": os.fspath(authored),
             "module": module, "module_path": list(module_path),
             "k_namespace": MODULE,
-            "replaced_k_tail_cells": REPLACED_K_TAIL_CELLS,
-            "preserved_map_remainder_cells": PRESERVED_MAP_REMAINDER_CELLS,
         }, environment=environment)
 
     expected = dict(load_json(expected_path))

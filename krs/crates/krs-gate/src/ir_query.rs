@@ -51,8 +51,6 @@ enum Query {
         module: String,
         module_path: Vec<String>,
         k_namespace: String,
-        replaced_k_tail_cells: Vec<String>,
-        preserved_map_remainder_cells: Vec<String>,
     },
     AbsoluteStrings {},
     Files {},
@@ -973,18 +971,12 @@ pub fn query(directory: &Path, request: &Value) -> QueryResult {
             module,
             module_path,
             k_namespace,
-            replaced_k_tail_cells,
-            preserved_map_remainder_cells,
         } => projections::replacement_parity(
             Path::new(&reference),
             directory,
             &module,
             &module_path,
             &k_namespace,
-            &projections::FrameNormalization {
-                replaced_k_tail_cells: &replaced_k_tail_cells,
-                preserved_map_remainder_cells: &preserved_map_remainder_cells,
-            },
         ),
         Query::Descriptors {
             descriptor_kind,
@@ -1800,8 +1792,6 @@ mod tests {
             "module": "KRS-FOO-BAR",
             "module_path": ["syntax"],
             "k_namespace": "KRS-FOO-BAR",
-            "replaced_k_tail_cells": ["k"],
-            "preserved_map_remainder_cells": ["env"],
         })
     }
 
@@ -1968,148 +1958,6 @@ mod tests {
                 .to_string()
                 .contains("non-rule descriptors")
         );
-    }
-
-    #[test]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "The test compares every declared K-tail and map-remainder normalization case."
-    )]
-    fn replacement_normalizes_only_declared_replaced_k_tails_and_preserved_map_remainders() {
-        let lowered = krs_compiler::lower_semantic_theory(&theory()).unwrap();
-        let definition = lowered.definition();
-        let mut context = Context::new(definition);
-        let cell = *context
-            .cells
-            .iter()
-            .find(|(_, name)| **name == "k")
-            .unwrap()
-            .0;
-        let ordinary = definition.modules()[0]
-            .sentences()
-            .iter()
-            .find_map(|s| match s {
-                DefinitionSentence::Rule(r) => Some(r),
-                _ => None,
-            })
-            .unwrap();
-        let RuleBodyRef::Term(rewrite) = ordinary.relational_body() else {
-            unreachable!()
-        };
-        let (from, to) = (rewrite.from(), rewrite.to());
-        let make = |frame: krs_ir::CellContentFrame, after: CellPost<DefinitionTerm>| {
-            DefinitionSentence::Rule(krs_ir_levels::RuleSentence::new_configuration(
-                ordinary.origin().clone(),
-                ordinary.label().clone(),
-                ordinary.kind().try_into().unwrap(),
-                vec![krs_ir_levels::DefinitionVariable::new(
-                    SemanticId::new("tail").unwrap(),
-                    DefinitionSortRef::k_sequence(),
-                )],
-                krs_ir::FixedConfigurationRewrite::new(
-                    origin("test.rewrite"),
-                    SemanticId::new("machine").unwrap(),
-                    vec![krs_ir::FixedCellClause::new(
-                        origin("test.clause"),
-                        (*cell).clone(),
-                        DefinitionTerm::k_sequence(
-                            origin("test.before"),
-                            from.sort().clone(),
-                            vec![from.clone()],
-                        ),
-                        after,
-                        frame,
-                    )],
-                    vec![],
-                )
-                .unwrap(),
-            ))
-        };
-        let tail = || krs_ir::CellContentFrame::KSequenceTail {
-            origin: origin("test.frame"),
-            binding: Some(SemanticId::new("tail").unwrap()),
-        };
-        let replace = || CellPost::Replace {
-            term: DefinitionTerm::k_sequence(
-                origin("test.after"),
-                to.sort().clone(),
-                vec![to.clone()],
-            ),
-        };
-        let input = make(tail(), replace());
-        let replaced_k_tail_cells = ["k".to_owned()];
-        let preserved_map_remainder_cells = ["env".to_owned()];
-        let frames = projections::FrameNormalization {
-            replaced_k_tail_cells: &replaced_k_tail_cells,
-            preserved_map_remainder_cells: &preserved_map_remainder_cells,
-        };
-        let normalized =
-            encoded(&projections::frame_normalized(&input, &context, &frames).unwrap());
-        assert!(
-            normalized["sentence"]["body"]["clauses"][0]["frame"]
-                .get("binding")
-                .is_none()
-        );
-        assert_eq!(normalized["sentence"]["variables"], json!([]));
-        let left = artifacts();
-        let right = artifacts();
-        for (dir, sentence) in [(&left, normalized.clone()), (&right, encoded(&input))] {
-            // A sentence encoded on its own writes its stacks as frames, so the definition it
-            // joins is edited in the same form and written with its tables.
-            let changed: DefinitionIr = krs_ir::provenance_table::with_inline_provenance(|| {
-                let mut value = encoded(definition);
-                let rule = value["modules"][0]["sentences"]
-                    .as_array_mut()
-                    .unwrap()
-                    .iter_mut()
-                    .find(|s| s["sentence_kind"] == "rule")
-                    .unwrap();
-                *rule = sentence;
-                serde_json::from_value(value).unwrap()
-            });
-            fs::write(
-                dir.path().join("definition-ir.json"),
-                changed.to_canonical_json().unwrap(),
-            )
-            .unwrap();
-        }
-        assert!(query(right.path(), &replacement_request(left.path())).is_ok());
-        let preserved = make(tail(), CellPost::Preserve);
-        assert_eq!(
-            projections::frame_normalized(&preserved, &context, &frames).unwrap(),
-            preserved
-        );
-        context.cells.insert(cell, "env");
-        let map = || krs_ir::CellContentFrame::MapRemainder {
-            origin: origin("test.frame"),
-            binding: Some(SemanticId::new("tail").unwrap()),
-        };
-        let preserved = make(map(), CellPost::Preserve);
-        let normalized =
-            encoded(&projections::frame_normalized(&preserved, &context, &frames).unwrap());
-        assert!(
-            normalized["sentence"]["body"]["clauses"][0]["frame"]
-                .get("binding")
-                .is_none()
-        );
-        let replaced = make(map(), replace());
-        assert_eq!(
-            projections::frame_normalized(&replaced, &context, &frames).unwrap(),
-            replaced
-        );
-        context.cells.insert(cell, "other");
-        assert_eq!(
-            projections::frame_normalized(&input, &context, &frames).unwrap(),
-            input
-        );
-        let replaced_k_tail_cells = ["other".to_owned()];
-        let frames = projections::FrameNormalization {
-            replaced_k_tail_cells: &replaced_k_tail_cells,
-            preserved_map_remainder_cells: &[],
-        };
-        let normalized =
-            encoded(&projections::frame_normalized(&input, &context, &frames).unwrap());
-        assert_eq!(normalized["sentence"]["variables"], json!([]));
     }
 
     #[expect(

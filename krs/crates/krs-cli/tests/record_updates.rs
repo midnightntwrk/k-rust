@@ -278,13 +278,13 @@ fn expand_writes_an_update_as_every_field() {
             x: k::Term<k::builtin::Int>,
             w_b: k::Term<k::builtin::Int>,
             k::cells! {
-                k : k::configuration::KCell(crate ::Cmd::Step(crate ::Cmd::Wrap(x, w_b)), tail @
-                ..), state @ ..
+                k : k::configuration::KCell(crate ::Cmd::Step(crate ::Cmd::Wrap(x, w_b)), ..),
+                state @ ..
             }: crate::Machine,
         ) -> crate::Machine {
             k::cells! {
                 k : k::configuration::KCell(crate ::Cmd::Wrap(k::builtin::int::add(x, 1), w_b),
-                ..tail), ..state
+                ..), ..state
             }
         }
         #[k::rule(label = "restore")]
@@ -294,14 +294,14 @@ fn expand_writes_an_update_as_every_field() {
             fl: k::Term<k::builtin::Int>,
             s: k::Term<k::builtin::List>,
             k::cells! {
-                k : k::configuration::KCell(crate ::Cmd::Restore(), tail @ ..), gas :
+                k : k::configuration::KCell(crate ::Cmd::Restore(), ..), gas :
                 k::configuration::Cell(g), stack :
                 k::configuration::Cell(k::builtin::list::concat(k::builtin::list::item(k::fragment![crate
                 ::Frame { pc : saved_pc, fuel : fl, depth : _ }]), s)), frame : _, state @ ..
             }: crate::Machine,
         ) -> crate::Machine {
             k::cells! {
-                k : k::configuration::KCell(..tail), gas : k::configuration::Cell(fl), stack :
+                k : k::configuration::KCell(..), gas : k::configuration::Cell(fl), stack :
                 k::configuration::Cell(s), frame : k::fragment![crate ::Frame { pc : saved_pc,
                 fuel : 0, depth : k::builtin::int::add(g, 1) }], ..state
             }
@@ -517,7 +517,7 @@ fn a_record_pattern_may_name_no_field() {
         "{expanded}"
     );
     assert!(
-        expanded.contains("KCell(crate ::Cmd::Step(crate ::Cmd::Pair(_, _)), tail @"),
+        expanded.contains("KCell(crate ::Cmd::Step(crate ::Cmd::Pair(_, _)), ..)"),
         "{expanded}"
     );
 
@@ -724,13 +724,13 @@ fn a_whole_use_of_a_group_alias_is_the_group_rebuilt() {
             saved_fuel: k::Term<k::builtin::Int>,
             saved_depth: k::Term<k::builtin::Int>,
             k::cells! {
-                k : k::configuration::KCell(crate ::Cmd::Save(), tail @ ..), stack :
+                k : k::configuration::KCell(crate ::Cmd::Save(), ..), stack :
                 k::configuration::Cell(s), frame : k::fragment![crate ::Frame { pc : saved_pc @
                 1, fuel : saved_fuel, depth : saved_depth }], state @ ..
             }: crate::Machine,
         ) -> crate::Machine {
             k::cells! {
-                k : k::configuration::KCell(..tail), stack :
+                k : k::configuration::KCell(..), stack :
                 k::configuration::Cell(k::builtin::list::concat(k::builtin::list::item(k::fragment![crate
                 ::Frame { pc : saved_pc, fuel : saved_fuel, depth : saved_depth }]), s)), ..state
             }

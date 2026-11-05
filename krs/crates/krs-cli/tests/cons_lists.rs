@@ -460,13 +460,13 @@ fn expand_writes_the_constructors_list_notation_denotes() {
             f_ty: k::Term<k::builtin::Int>,
             rest: crate::Projections,
             k::cells! {
-                k : k::configuration::KCell(crate ::Instr::Bump(), tail @ ..), projections :
+                k : k::configuration::KCell(crate ::Instr::Bump(), ..), projections :
                 k::configuration::Cell(crate ::ProjectionList::ProjectionsCons(crate
                 ::ProjectionElem::Field(i, f_ty), rest)), state @ ..
             }: crate::Machine,
         ) -> crate::Machine {
             k::cells! {
-                k : k::configuration::KCell(..tail), projections : k::configuration::Cell(crate
+                k : k::configuration::KCell(..), projections : k::configuration::Cell(crate
                 ::ProjectionList::ProjectionsCons(crate
                 ::ProjectionElem::Field(k::builtin::int::add(i, 1), f_ty), rest)), ..state
             }

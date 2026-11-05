@@ -3,10 +3,10 @@
 use super::{QueryResult, accepts, encoded, enum_name, read};
 use krs_compiler::{SourceMap, SymbolMap, definition_module_imports, definition_sentence_source};
 use krs_ir::{
-    CellContentFrame, CellPost, DescriptorBundle, DescriptorHeadRuleResult, DescriptorPayload,
-    DescriptorTerm, GrammarDescriptor, RustVisibility, SentenceKind, TermArgumentRef,
+    DescriptorBundle, DescriptorHeadRuleResult, DescriptorPayload, DescriptorTerm,
+    GrammarDescriptor, RustVisibility, SentenceKind, TermArgumentRef,
 };
-use krs_ir_levels::{DefinitionIr, DefinitionSentence, RuleBodyRef};
+use krs_ir_levels::{DefinitionIr, DefinitionSentence};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
@@ -360,99 +360,11 @@ fn rule_transport(bundle: &DescriptorBundle, path: &[String], head: bool) -> Que
     Ok(json!(rules))
 }
 
-pub(super) struct FrameNormalization<'a> {
-    pub(super) replaced_k_tail_cells: &'a [String],
-    pub(super) preserved_map_remainder_cells: &'a [String],
-}
-
-/// Remove bindings of replaced K-sequence tails in the declared K cells.
-/// Remove bindings of preserved Map remainders in the declared map cells.
-pub(super) fn frame_normalized(
-    sentence: &DefinitionSentence,
-    cells: &super::Context<'_>,
-    frames: &FrameNormalization<'_>,
-) -> Result<DefinitionSentence, Box<dyn std::error::Error>> {
-    let DefinitionSentence::Rule(rule) = sentence else {
-        return Ok(sentence.clone());
-    };
-    let RuleBodyRef::Configuration { body, .. } = rule.relational_body() else {
-        return Ok(sentence.clone());
-    };
-    let mut value = encoded(sentence);
-    let mut removed = Vec::new();
-    for (i, clause) in body.clauses().iter().enumerate() {
-        // Optional and collection clauses (KF-023) carry no frame binding to normalize.
-        let Some(clause) = clause.as_fixed() else {
-            continue;
-        };
-        let cell_name = cells.cells[clause.cell()];
-        let binding = match (clause.frame(), clause.after()) {
-            (
-                CellContentFrame::KSequenceTail {
-                    binding: Some(binding),
-                    ..
-                },
-                CellPost::Replace { .. },
-            ) if frames
-                .replaced_k_tail_cells
-                .iter()
-                .any(|name| name == cell_name) =>
-            {
-                binding
-            }
-            (
-                CellContentFrame::MapRemainder {
-                    binding: Some(binding),
-                    ..
-                },
-                CellPost::Preserve,
-            ) if frames
-                .preserved_map_remainder_cells
-                .iter()
-                .any(|name| name == cell_name) =>
-            {
-                binding
-            }
-            _ => continue,
-        };
-        removed.push(binding.as_str());
-        value["sentence"]["body"]["clauses"][i]["frame"]
-            .as_object_mut()
-            .unwrap()
-            .remove("binding");
-    }
-    value["sentence"]["variables"]
-        .as_array_mut()
-        .unwrap()
-        .retain(|v| !removed.contains(&v["id"].as_str().unwrap()));
-    // The rebuilt full definition below validates all remaining binder uses.
-    Ok(krs_ir::json::from_slice(&serde_json::to_vec(&value)?)?)
-}
-
 fn sentence_multiset(
     definition: &DefinitionIr,
     name: &str,
-    frames: &FrameNormalization<'_>,
 ) -> Result<BTreeMap<String, usize>, Box<dyn std::error::Error>> {
-    let context = super::Context::new(definition);
-    // The modules are encoded on their own, outside the definition's provenance tables, so their
-    // stacks are written as frames, as the normalized sentences' are, and read back the same way.
-    let mut modules = encoded(&definition.modules());
-    for (i, module) in definition.modules().iter().enumerate() {
-        if module.id().as_str() == name {
-            modules[i]["sentences"] = json!(
-                module
-                    .sentences()
-                    .iter()
-                    .map(|s| frame_normalized(s, &context, frames))
-                    .collect::<Result<Vec<_>, _>>()?
-            );
-        }
-    }
-    let modules: Vec<krs_ir_levels::DefinitionModule> =
-        krs_ir::json::from_slice(&serde_json::to_vec(&modules)?)?;
-    let normalized = DefinitionIr::new(definition.main_module().clone(), modules)?;
-    let module = normalized
+    let module = definition
         .modules()
         .iter()
         .find(|m| m.id().as_str() == name)
@@ -465,7 +377,7 @@ fn sentence_multiset(
         if matches!(sentence,DefinitionSentence::Rule(r) if r.kind()==SentenceKind::Claim) {
             continue;
         }
-        let source = definition_sentence_source(&normalized, sentence)?;
+        let source = definition_sentence_source(definition, sentence)?;
         *rows.entry(source.trim_end().to_owned()).or_default() += 1;
     }
     Ok(rows)
@@ -477,7 +389,6 @@ pub(super) fn replacement_parity(
     module: &str,
     path: &[String],
     k_namespace: &str,
-    frames: &FrameNormalization<'_>,
 ) -> QueryResult {
     let reference_bundle: DescriptorBundle = read(reference, krs_compiler::DESCRIPTOR_ARTIFACT)?;
     let replacement_bundle: DescriptorBundle =
@@ -491,8 +402,8 @@ pub(super) fn replacement_parity(
     let replacement_rules = rule_transport(&replacement_bundle, path, false)?;
     let left_definition: DefinitionIr = read(reference, krs_compiler::DEFINITION_IR_ARTIFACT)?;
     let right_definition: DefinitionIr = read(replacement, krs_compiler::DEFINITION_IR_ARTIFACT)?;
-    let left_sentences = sentence_multiset(&left_definition, module, frames)?;
-    let right_sentences = sentence_multiset(&right_definition, module, frames)?;
+    let left_sentences = sentence_multiset(&left_definition, module)?;
+    let right_sentences = sentence_multiset(&right_definition, module)?;
     for (sentence, count) in &right_sentences {
         if left_sentences.get(sentence).copied().unwrap_or(0) < *count {
             return Err(format!("replacement sentence multiset differs: {sentence}").into());

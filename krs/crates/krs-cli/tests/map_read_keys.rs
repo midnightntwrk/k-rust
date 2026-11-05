@@ -180,8 +180,8 @@ fn emit(target: &Path, manifest: &Path, output: &Path) -> (String, String) {
 /// equal to its value keeps that meaning. A value `_` binds a value of its
 /// own, at the cell's value sort or the sort `_: S` writes, so two of them
 /// read two entries whatever their values. `krs expand` writes the same
-/// rules as `cells!` maps, which emit the same K with named frames, a value
-/// `_` as a fresh binder.
+/// rules as `cells!` maps, which emit the same K, a value `_` as a fresh
+/// binder.
 #[test]
 fn a_free_map_read_key_matches_any_entry() {
     let target = shared_fixture_target();
@@ -246,26 +246,23 @@ fn a_free_map_read_key_matches_any_entry() {
         "<k> skip => .K </k> <env> Key:Id |-> Value:Value ... </env> <acc> _ => Value:Value </acc> [one-path]"
     );
 
-    // The expansion, pasted back, emits the same rules with named frames.
+    // The expansion, pasted back, emits the same rules.
     let (success, expanded, stderr) = krs(target.path(), &manifest, "expand", &[]);
     assert!(success, "{stderr}");
     let printed = expanded.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        printed.contains("map![kk -> vv, rest0 @ ..]")
-            && printed.contains("map![_ -> x, _ -> y, rest0 @ ..]")
-            && printed.contains("map![a -> value, b -> _1, rest0 @ ..]")
-            && printed.contains("map![rk -> value, rj -> _1, rest0 @ ..]"),
+        printed.contains("map![kk -> vv, ..]")
+            && printed.contains("map![_ -> x, _ -> y, ..]")
+            && printed.contains("map![a -> value, b -> _1, ..]")
+            && printed.contains("map![rk -> value, rj -> _1, ..]"),
         "{expanded}"
     );
     let pasted = package(temporary.path(), "map-read-expanded", &expanded);
     let (pasted, _) = emit(target.path(), &pasted, &temporary.path().join("pasted"));
     for (label, body) in &rules {
         // The first value `_` is printed as the binder `value`.
-        let framed = sentence(&pasted, label)
-            .replace(" ~> Tail:K", "")
-            .replace(" Rest0:Map", " ...")
-            .replace("|-> Value:", "|-> V5F:");
-        assert_eq!(&framed.replace(" </k>", " ... </k>"), body, "{label}");
+        let framed = sentence(&pasted, label).replace("|-> Value:", "|-> V5F:");
+        assert_eq!(&framed, body, "{label}");
     }
 }
 
@@ -499,19 +496,14 @@ fn two_have_wildcards_are_two_binders() {
     assert!(success, "{stderr}");
     let printed = expanded.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        printed.contains("map![x -> value, rest0 @ ..]")
-            && printed.contains("map![x -> _1, rest1 @ ..]"),
+        printed.contains("map![x -> value, ..]") && printed.contains("map![x -> _1, ..]"),
         "{expanded}"
     );
     let pasted = package(temporary.path(), "map-read-have-wild-expanded", &expanded);
     let (pasted, _) = emit(target.path(), &pasted, &temporary.path().join("pasted"));
     for (label, body) in &rules {
-        let framed = sentence(&pasted, label)
-            .replace(" ~> Tail:K", "")
-            .replace(" Rest0:Map", " ...")
-            .replace(" Rest1:Map", " ...")
-            .replace("|-> Value:", "|-> V5F:");
-        assert_eq!(&framed.replace(" </k>", " ... </k>"), body, "{label}");
+        let framed = sentence(&pasted, label).replace("|-> Value:", "|-> V5F:");
+        assert_eq!(&framed, body, "{label}");
     }
 
     // One binder read twice would need equal values; `x` maps to 1 and 2.

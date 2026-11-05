@@ -25,6 +25,7 @@ use quote::{ToTokens, format_ident, quote};
 use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 
+pub(crate) mod entries;
 mod modules;
 
 use modules::ModuleTree;
@@ -2396,14 +2397,6 @@ fn render_rule(
         .iter()
         .map(|binding| binding.name.clone())
         .collect::<BTreeSet<_>>();
-    // An open pattern that rewrites the cell names its tail; one that only
-    // reads it keeps the tail anonymous.
-    let tail = rule
-        .head
-        .as_ref()
-        .filter(|head| !head.exact && head.result.is_some())
-        .map(|_| fresh_ident("tail", &mut reserved))
-        .transpose()?;
     let state = fresh_ident("state", &mut reserved)?;
     // A map entry's `x -> _` value is recorded as a binding named `_`, used
     // once and at the sort a narrowing `_: S` gives it, so it denotes what
@@ -2442,14 +2435,23 @@ fn render_rule(
             .iter()
             .map(|item| render_term(item, true, package, bundle))
             .collect::<Result<Vec<_>, _>>()?;
-        let rest = match (&tail, head.exact) {
-            (_, true) => Vec::new(),
-            (Some(tail), false) => vec![quote!(#tail @ ..)],
-            (None, false) => vec![quote!(..)],
+        // An open head keeps the rest of the cell: the subject's `..` matches it and the
+        // result's `..` keeps it, as the author wrote.
+        let rest = || {
+            if head.exact {
+                entries::Rest::Exact
+            } else {
+                entries::Rest::Anonymous
+            }
         };
-        left_cells.push(quote! {
-            #computation: k::configuration::KCell(#(#subject),* #(, #rest)*)
-        });
+        left_cells.push(entries::print_entry(
+            &computation,
+            &entries::Entry {
+                contents: entries::Contents::KSequence(subject),
+                rest: rest(),
+            },
+            entries::Side::Subject,
+        ));
         if let Some(result) = &head.result {
             let result_items = match result {
                 ProtocolHeadRuleResult::Replace(term) => {
@@ -2461,15 +2463,14 @@ fn render_rule(
                     .collect::<Result<Vec<_>, _>>()?,
                 ProtocolHeadRuleResult::Erase => Vec::new(),
             };
-            right_cells.push(if let Some(tail) = &tail {
-                quote! {
-                    #computation: k::configuration::KCell(#(#result_items,)* ..#tail)
-                }
-            } else {
-                quote! {
-                    #computation: k::configuration::KCell(#(#result_items),*)
-                }
-            });
+            right_cells.push(entries::print_entry(
+                &computation,
+                &entries::Entry {
+                    contents: entries::Contents::KSequence(result_items),
+                    rest: rest(),
+                },
+                entries::Side::Result,
+            ));
         }
     }
 
@@ -2499,20 +2500,30 @@ fn render_rule(
                 left_cells.push(left);
                 right_cells.extend(right);
             }
-            ProtocolHeadRuleExtra::HaveMap { cell, entries, .. } => {
+            ProtocolHeadRuleExtra::HaveMap {
+                cell,
+                entries: read,
+                ..
+            } => {
                 let cell = render_rule_cell_field(&cell.cell, &rule.configuration, package)?;
-                let entries = entries
+                let pairs = read
                     .iter()
                     .map(|entry| {
                         let key = render_term(&entry.key, true, package, bundle)?;
                         let value = binder(&entry.value_binding)?;
-                        Ok(quote!(#key -> #value))
+                        Ok((key, quote!(#value)))
                     })
                     .collect::<Result<Vec<_>, ReferenceExpansionError>>()?;
-                let rest = fresh_ident(&format!("rest{ordinal}"), &mut reserved)?;
-                left_cells.push(quote! {
-                    #cell: k::configuration::Cell(map![#(#entries,)* #rest @ ..])
-                });
+                // A read leaves the other entries as they are: the subject's `..` matches
+                // them, and the cell, absent from the result, keeps them.
+                left_cells.push(entries::print_entry(
+                    &cell,
+                    &entries::Entry {
+                        contents: entries::Contents::Map(pairs),
+                        rest: entries::Rest::Anonymous,
+                    },
+                    entries::Side::Subject,
+                ));
             }
             ProtocolHeadRuleExtra::UpdateMap {
                 cell,

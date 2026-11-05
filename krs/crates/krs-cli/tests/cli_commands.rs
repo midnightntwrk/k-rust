@@ -999,10 +999,10 @@ fn expanded_map_reads_compile_back_to_the_same_rule() {
             "extern crate krs as k;\n{}",
             String::from_utf8(expanded.stdout).unwrap()
         );
-        // The reference spelling names the map's frame `rest0 @ ..`, which
-        // K writes as an unused variable where the readable read writes `...`.
+        // The reference spelling keeps the map's other entries with `..`, as
+        // the readable read does, so K writes the same `...`.
         assert_eq!(
-            emit_sum_rule(target.path(), &expanded).replace("Rest0:Map", "..."),
+            emit_sum_rule(target.path(), &expanded),
             emit_sum_rule(target.path(), &source),
             "{expanded}"
         );
@@ -1029,9 +1029,9 @@ fn same_named_clauses_under_exclusive_cfgs_expand_to_the_one_that_holds() {
             String::from_utf8(expanded.stdout).unwrap()
         );
         assert_eq!(expanded.matches("pub fn sum(").count(), 1, "{expanded}");
-        assert!(expanded.contains("map![0 -> x, rest0 @ ..]"), "{expanded}");
+        assert!(expanded.contains("map![0 -> x, ..]"), "{expanded}");
         assert_eq!(
-            emit_sum_rule(target.path(), &expanded).replace("Rest0:Map", "..."),
+            emit_sum_rule(target.path(), &expanded),
             emit_sum_rule(target.path(), &source),
             "{expanded}"
         );
@@ -1407,9 +1407,8 @@ fn readable_k_patterns_match_several_items_a_whole_cell_or_only_read() {
     );
 
     // `krs expand` writes each as a `cells!` rule that compiles back to the
-    // same rules; the reference spelling names the tail of a rule that
-    // rewrites an open pattern, which K writes as a variable where the
-    // readable rule writes `...`.
+    // same rules; a rule that rewrites an open pattern keeps the rest of the
+    // cell with `..` on both sides, as the readable rule does.
     let temporary = temp_dir();
     let manifest = materialize_fixture(temporary.path(), &source);
     let expanded = command(target.path(), &manifest, "expand", None, &[]);
@@ -1417,8 +1416,8 @@ fn readable_k_patterns_match_several_items_a_whole_cell_or_only_read() {
     let expanded = String::from_utf8(expanded.stdout).unwrap();
     let words = expanded.split_whitespace().collect::<Vec<_>>().join(" ");
     for reference in [
-        "k : k::configuration::KCell(v, crate ::Op::Store(a), tail @ ..)",
-        "k : k::configuration::KCell(..tail)",
+        "k : k::configuration::KCell(v, crate ::Op::Store(a), ..)",
+        "k : k::configuration::KCell(..)",
         "k : k::configuration::KCell(crate ::Op::Run(n))",
         "k : k::configuration::KCell(crate ::Op::Abort(c), _ignored)",
         "k : k::configuration::KCell(), left : k::configuration::Cell(n), state @ ..",
@@ -1430,26 +1429,7 @@ fn readable_k_patterns_match_several_items_a_whole_cell_or_only_read() {
         target.path(),
         &format!("extern crate krs as k;\n{expanded}"),
     );
-    let without_k = |sentence: String| {
-        sentence
-            .lines()
-            .filter(|line| !line.contains("<k>"))
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
-    for label in ["store", "wake"] {
-        assert_eq!(
-            without_k(emitted_rule(&reference, label)),
-            without_k(emitted_rule(&definition, label)),
-            "{expanded}"
-        );
-    }
-    assert!(
-        emitted_rule(&reference, "store")
-            .contains("<k> V:Int ~> store ( A:Int ) ~> Tail:K => .K ~> Tail:K </k>"),
-        "{expanded}"
-    );
-    for label in ["start", "abort", "idle", "tick"] {
+    for label in ["store", "start", "abort", "idle", "tick", "wake"] {
         assert_eq!(
             emitted_rule(&reference, label),
             emitted_rule(&definition, label),
