@@ -9,11 +9,57 @@
 //! doc states the premises that reading rests on), not identical bytes. `kink-flow run --verify`
 //! re-proves every cached outcome and reports a disagreement as an error.
 //!
-//! Only outcomes computed from complete evidence are cached: a compared test with some
-//! `distinguish` slot (outcome `killed`) or with every slot `agree` (outcome `agree`). A
-//! timeout, unknown, error or incomparable slot, a failed or skipped test, and every test of a
-//! call that ended in a corpus error or whose plan carries a mutant-scope failure are never
-//! written (decisions D14-2 and D14-3).
+//! An outcome is cached exactly when it is a function of what its key names. A compared test
+//! with some `distinguish` slot (outcome `killed`) or with every slot `agree` (outcome `agree`)
+//! is, by the Execute promise below. So, since CF-33d, is a compared test whose slots are
+//! `agree` or `unknown`, some `unknown` (outcome `unknown`), when the mutant's run was judged.
+//!
+//! **Unknown outcomes.** An `unknown` slot of a compared test is a mutant side that is no
+//! comparable value although the run returned (the watchdog stopped no part of it: a run it
+//! stopped is `Failed(TimeLimit)`, and a path it stopped makes its side `timeout`, not
+//! `unknown`). Its causes, each read from the run's leaves and from kink's judgement of them:
+//! - a path stopped by a bound of the request: the work budget (`[budget] work_factor`: at most
+//!   `factor * W + floor` states, `W` the states the program's baseline run visited, itself a
+//!   function of the baseline's request, which the context and the program digest name),
+//!   `max_depth`, `max_simplification_iterations` or `max_breadth`. Each counts work, not time,
+//!   so it stops the same request at the same place on every host; each is in the context's
+//!   `budget` (the work budget as `budget.work: {factor, floor}`);
+//! - a leaf k-rust left indeterminate or vacuous, or a state kink's feasibility check did not
+//!   decide: without Z3 no solver is asked; under the Z3 profile every query, k-rust's and
+//!   kink's own (leaf feasibility, the observation decider, the pair's judgement), is bounded by
+//!   Z3 resource units, and its answer, decided or not, is a function of the query, the units
+//!   and the Z3 build (k-rust's `docs/compatibility.md`, "Execute", clock-free solver mode),
+//!   which the context's `budget.smt` names; a clock-bounded solver turns tier 1 off;
+//! - an end that is no value kink compares (a symbolic term, a collection kink cannot compare,
+//!   a mix of crashes), or that is not data under the other side's definition (kink-campaign
+//!   `judge_across`): a function of the ends and of the two definitions;
+//! - the one-sided rule (re-pin L1-2): a work-bound run kills when one of its stuck ground
+//!   terminals is outside the baseline's set, and stays `unknown` otherwise, a function of the
+//!   run and of the rule's version (`kink.one_sided` in the context);
+//! - the baseline's side: a baseline end the pair's judgement finds not data under the mutant's
+//!   definition (`judge_across`), or a pattern slot whose baseline side is no value (kink-flow's
+//!   slots are state slots, so not here): functions of the baseline run, which the record's
+//!   `baseline_run_sha256` names, and of the two definitions.
+//!
+//! The run's stop (`[stop]`, the context's `stop`), the projection (`oracles`, `not_compared`),
+//! the build (`kink_build`, `kink`, `profile`) and the definition (`execution_digest`) are in
+//! the context too. What is not a fact of the run is excluded: a judgement of the run the backend
+//! refused (kink-campaign `RunNotes::unjudged`: a refused stack segment, solver initialization or
+//! prelude makes its slots `unknown`, possibly for the host's reason; and a definition whose
+//! full check ran out of native stack admits no end as data, for a reason of the thread), so such
+//! an outcome is not written. Every other inconclusive outcome is not written either: a `timeout` slot (the
+//! watchdog's clock), an `error` slot (an untrustworthy backend result, which can come from the
+//! host), an `incomparable` slot (whose status is `error`), every failed test (a run the watchdog
+//! stopped, an infrastructure failure, the host exclusions: stack stop, load stack stop,
+//! allowance refusal; and the exclusions of the definition or the run, which are facts of the
+//! key but whose row's `reason` and diagnostics a live call gives; and `Indeterminate` and
+//! `ResourceLimit`, which would be facts of the key too, but which the runner does not produce
+//! and which stay uncached, conservatively), a skipped test, and every
+//! test of a call that ended in a corpus error or whose plan carries a mutant-scope failure
+//! (decisions D14-2 and D14-3).
+//!
+//! An `unknown` record keeps the live executed entry's `cause` (and every record the run's
+//! undecided-answer counts), so a cached unknown reports why, as the live one does.
 //!
 //! The Execute promise (k-rust `docs/compatibility.md`, "Execute"; re-pin finding B-02) is what
 //! makes a cached outcome a function of its key, and it excludes runs: a token cancelled before
@@ -31,10 +77,10 @@
 //! cannot be named, tier 1 is off (`search::tier1_refusal`).
 //!
 //! `<cache>/outcomes/<context digest>/<mutation identity>.json` holds one mutation's records:
-//! `{schema: "kink-flow-outcomes", version: 3, context, context_sha256, mutation_identity,
+//! `{schema: "kink-flow-outcomes", version: 5, context, context_sha256, mutation_identity,
 //! mutation_id, removed_claims, witness, records: {<program digest>: {program_id,
-//! baseline_run_sha256, outcome, slots, mutant_run_sha256, difference, allowance_bytes,
-//! record_sha256}}}`.
+//! baseline_run_sha256, outcome, slots, mutant_run_sha256, difference, cause, smt_unknowns,
+//! decider_smt_unknowns, allowance_bytes, record_sha256}}}`.
 //!
 //! `removed_claims` is the row's (`report::claims_value`):
 //! the claims the mutant every record ran on does not carry (re-pin R0c-fix-2).
@@ -76,14 +122,19 @@
 //! evidence"); a file of an earlier version is not current, so its records are recomputed with
 //! evidence that names its format.
 //!
+//! `cause` (version 5) is an `unknown` record's cause (null on any other), and `smt_unknowns` and
+//! `decider_smt_unknowns` the run's undecided solver answers: outside the key, of which they are
+//! functions, and inside the record digest (domain v3).
+//!
 //! [`OutcomeStore::read`] returns only the records that pass every check that needs no corpus
-//! (schema, version, context, record digest, outcome consistent with its slots);
+//! (schema, version, context, record digest, outcome consistent with its slots, a cause exactly
+//! on an `unknown` record);
 //! the kill search then requires the program to be a current comparable candidate
 //! whose result record has the record's `baseline_run_sha256`.
 //! Anything else is ignored, never trusted, and deleting `outcomes/` is always safe.
 
 use crate::{digest::context_sha256, results::ORACLE_SLOTS};
-use kink_campaign::{OracleOutcome, TestRun};
+use kink_campaign::{OracleOutcome, RunNotes, TestRun};
 use kink_corpus::{Store, StoreError};
 use kink_patch::{Sha256Digest, canonical_json, payload_digest};
 use serde_json::{Map, Value, json};
@@ -97,10 +148,13 @@ use std::{
 pub const OUTCOMES_SCHEMA: &str = "kink-flow-outcomes";
 /// The outcome file's version: 2 since CF-16 added each record's `difference`; 3 since the file
 /// keeps the mutant's compiled edit (`witness`, module doc); 4 since each record's `difference`
-/// names its format, and is a front end's evidence where the context names one (`evidence`).
-pub const OUTCOMES_VERSION: u64 = 4;
-/// Domain of a record's integrity digest: v2 since CF-16 added `difference` to the digest.
-pub const RECORD_DOMAIN: &str = "kink-flow/outcome-record/v2";
+/// names its format, and is a front end's evidence where the context names one (`evidence`); 5
+/// since a record's outcome can be `unknown` (CF-33d) and every record carries `cause`,
+/// `smt_unknowns` and `decider_smt_unknowns`.
+pub const OUTCOMES_VERSION: u64 = 5;
+/// Domain of a record's integrity digest: v2 since CF-16 added `difference` to the digest; v3
+/// since CF-33d added the record's report (`cause`, `smt_unknowns`, `decider_smt_unknowns`).
+pub const RECORD_DOMAIN: &str = "kink-flow/outcome-record/v3";
 /// The tier-1 directory's name in the cache directory.
 pub const OUTCOMES_DIRECTORY: &str = "outcomes";
 
@@ -111,6 +165,9 @@ pub enum CachedOutcome {
     Killed,
     /// Every oracle slot agreed on complete evidence.
     Agree,
+    /// No slot distinguished, some slot is `unknown` and every other agreed, on evidence that is
+    /// a function of the context (module doc, "Unknown outcomes"; CF-33d).
+    Unknown,
 }
 
 impl CachedOutcome {
@@ -118,6 +175,7 @@ impl CachedOutcome {
         match self {
             Self::Killed => "killed",
             Self::Agree => "agree",
+            Self::Unknown => "unknown",
         }
     }
 
@@ -125,30 +183,55 @@ impl CachedOutcome {
         match text {
             "killed" => Some(Self::Killed),
             "agree" => Some(Self::Agree),
+            "unknown" => Some(Self::Unknown),
             _ => None,
         }
     }
 
-    /// The outcome compared slots give, when it is cacheable: `killed` iff some slot is
-    /// `distinguish`, `agree` iff every slot is `agree`; `None` otherwise (or with no slot).
+    /// The outcome compared slots give, when they can be cached: `killed` iff some slot is
+    /// `distinguish`, `agree` iff every slot is `agree`, `unknown` iff every slot is `agree` or
+    /// `unknown` and some is `unknown`; `None` otherwise (a `timeout`, `error` or `incomparable`
+    /// slot, or no slot). Whether an `unknown` is cached also depends on the run's notes
+    /// ([`cacheable`]).
     pub fn of_slots(slots: &[OracleOutcome]) -> Option<Self> {
         if slots.contains(&OracleOutcome::Distinguish) {
             Some(Self::Killed)
-        } else if !slots.is_empty() && slots.iter().all(|slot| *slot == OracleOutcome::Agree) {
+        } else if slots.is_empty() {
+            None
+        } else if slots.iter().all(|slot| *slot == OracleOutcome::Agree) {
             Some(Self::Agree)
+        } else if slots
+            .iter()
+            .all(|slot| matches!(slot, OracleOutcome::Agree | OracleOutcome::Unknown))
+        {
+            Some(Self::Unknown)
         } else {
             None
         }
     }
 }
 
-/// The cacheable outcome of one test's mutant run and its slots, or `None`: only a compared
-/// test whose slots give `killed` or `agree` is cacheable.
-pub fn cacheable(run: &TestRun) -> Option<(CachedOutcome, &[OracleOutcome])> {
-    match run {
-        TestRun::Compared(slots) => CachedOutcome::of_slots(slots).map(|o| (o, slots.as_slice())),
-        TestRun::Failed(_) | TestRun::SkippedAfterKill => None,
-    }
+/// The cacheable outcome of one test's mutant run and its slots, or `None` (module doc): a
+/// compared test whose slots give `killed` or `agree`, or `unknown` when the mutant's evidence
+/// `notes` say the run was judged (`RunNotes::unjudged` false: no judgement of it was refused by
+/// the backend, which can be the host's doing) and carry nothing an excluded run carries (no
+/// contradicted claim, no counting short-circuit reading: such a run is excluded, never compared,
+/// so this is defensive). A failed or skipped test is never cacheable.
+pub fn cacheable<'r>(
+    run: &'r TestRun,
+    notes: Option<&RunNotes>,
+) -> Option<(CachedOutcome, &'r [OracleOutcome])> {
+    let TestRun::Compared(slots) = run else {
+        return None;
+    };
+    let outcome = CachedOutcome::of_slots(slots)?;
+    let judged = |notes: &RunNotes| {
+        !notes.unjudged
+            && notes.contradicted_claims.is_empty()
+            && notes.short_circuit_readings.is_empty()
+    };
+    (outcome != CachedOutcome::Unknown || notes.is_some_and(judged))
+        .then_some((outcome, slots.as_slice()))
 }
 
 /// An oracle slot outcome as the run document and the outcome records name it.
@@ -194,6 +277,16 @@ pub struct OutcomeRecord {
     /// null on an `agree` record, and on a `killed` one whose sides held no whole-term value.
     /// Outside the key, inside the record digest; read only by the report.
     pub difference: Value,
+    /// An `unknown` record's cause, the live executed entry's (`report::executed_cause`): why the
+    /// mutant's run gave no comparable value, so that a cached unknown says why as a live one
+    /// does; `None` on a `killed` or `agree` record. Outside the key (a function of it), inside
+    /// the record digest; read only by the report.
+    pub cause: Option<String>,
+    /// The undecided solver answers of the mutant's run, k-rust's (`smt_unknowns`) and kink's
+    /// own about it (`decider_smt_unknowns`), as the live executed entry reports them (decision
+    /// D-7 (a1)). Outside the key, inside the record digest; read only by the report.
+    pub smt_unknowns: u64,
+    pub decider_smt_unknowns: u64,
     /// The writing process's memory allowance in bytes (k-rust `Allowance::of_process`), for
     /// diagnosis only: outside the key and the record digest; `None` in a record without it.
     pub allowance_bytes: Option<u64>,
@@ -225,7 +318,46 @@ impl OutcomeRecord {
             &self.slot_names(),
             &self.mutant_run_sha256,
             &self.difference,
+            &self.report(),
         )
+    }
+
+    /// The record's report, as its digest holds it: `{cause, smt_unknowns,
+    /// decider_smt_unknowns}`.
+    pub fn report(&self) -> Value {
+        Self::report_of(
+            self.cause.as_ref(),
+            self.smt_unknowns,
+            self.decider_smt_unknowns,
+        )
+    }
+
+    /// A report of these fields ([`Self::report`]).
+    pub fn report_of(
+        cause: Option<&String>,
+        smt_unknowns: u64,
+        decider_smt_unknowns: u64,
+    ) -> Value {
+        json!({
+            "cause": cause,
+            "smt_unknowns": smt_unknowns,
+            "decider_smt_unknowns": decider_smt_unknowns,
+        })
+    }
+
+    /// The report of a record with no cause and no undecided answer.
+    pub fn no_report() -> Value {
+        Self::report_of(None, 0, 0)
+    }
+
+    /// The report of a stored record's JSON value, for its digest (a test that reseals a record
+    /// it edited reads it back this way).
+    pub fn report_value(record: &Value) -> Value {
+        json!({
+            "cause": record["cause"],
+            "smt_unknowns": record["smt_unknowns"],
+            "decider_smt_unknowns": record["decider_smt_unknowns"],
+        })
     }
 
     fn value(&self, context_sha256: &str, mutation_identity: &str, program_digest: &str) -> Value {
@@ -236,6 +368,9 @@ impl OutcomeRecord {
             "slots": self.slot_names(),
             "mutant_run_sha256": self.mutant_run_sha256,
             "difference": self.difference,
+            "cause": self.cause,
+            "smt_unknowns": self.smt_unknowns,
+            "decider_smt_unknowns": self.decider_smt_unknowns,
             "allowance_bytes": self.allowance_bytes,
             "record_sha256": self
                 .digest(context_sha256, mutation_identity, program_digest)
@@ -244,10 +379,11 @@ impl OutcomeRecord {
     }
 }
 
-/// `record_sha256 = payload_digest("kink-flow/outcome-record/v2", canonical JSON of
+/// `record_sha256 = payload_digest("kink-flow/outcome-record/v3", canonical JSON of
 /// {context_sha256, mutation_identity, program_digest, baseline_run_sha256, outcome, slots,
-/// mutant_run_sha256, difference})`. It detects corruption and a record moved under another key,
-/// not forgery (README 7.5.1).
+/// mutant_run_sha256, difference, report})`, where `report` is `{cause, smt_unknowns,
+/// decider_smt_unknowns}`. It detects corruption and a record moved under another key, not
+/// forgery (README 7.5.1).
 #[allow(clippy::too_many_arguments)]
 pub fn record_sha256(
     context_sha256: &str,
@@ -258,6 +394,7 @@ pub fn record_sha256(
     slots: &[&str],
     mutant_run_sha256: &str,
     difference: &Value,
+    report: &Value,
 ) -> Sha256Digest {
     payload_digest(
         RECORD_DOMAIN,
@@ -270,6 +407,7 @@ pub fn record_sha256(
             "slots": slots,
             "mutant_run_sha256": mutant_run_sha256,
             "difference": difference,
+            "report": report,
         }))
         .as_bytes(),
     )
@@ -376,6 +514,12 @@ impl OutcomeStore {
         if CachedOutcome::of_slots(&slots) != Some(outcome) {
             return None;
         }
+        // An `unknown` record says why; no other record has a cause.
+        let cause = match value.get("cause")? {
+            Value::String(cause) if outcome == CachedOutcome::Unknown => Some(cause.clone()),
+            Value::Null if outcome != CachedOutcome::Unknown => None,
+            _ => return None,
+        };
         let record = OutcomeRecord {
             program_id: field("program_id")?,
             baseline_run_sha256: field("baseline_run_sha256")?,
@@ -383,6 +527,9 @@ impl OutcomeStore {
             slots,
             mutant_run_sha256: field("mutant_run_sha256")?,
             difference: value.get("difference")?.clone(),
+            cause,
+            smt_unknowns: value.get("smt_unknowns")?.as_u64()?,
+            decider_smt_unknowns: value.get("decider_smt_unknowns")?.as_u64()?,
             allowance_bytes: value.get("allowance_bytes").and_then(Value::as_u64),
         };
         let digest = record.digest(&self.context_sha256, &identity.to_string(), program);

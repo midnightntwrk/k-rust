@@ -415,6 +415,19 @@ pub struct RunNotes {
     /// pair, and why (fz26 KINK-CAUSE-SUBTERM). Empty on every run's own evidence, and on a
     /// baseline's.
     pub across: Vec<CrossRefusal>,
+    /// Whether a judgement kink makes of the run outside it could not be made for a reason that
+    /// need not be a fact of the run (it can be the host's): the backend refused the operation
+    /// (`Backend::with_solver` failed: a stack segment or the solver's initialization refused,
+    /// or a failed solver prelude) for the observation decider over its leaves, for the
+    /// judgement of its pattern slots, for the definition's facts a test with a pattern slot
+    /// compares signatures by ([`Runtime::facts`]), or, on the mutant's evidence of a pair, for
+    /// the judgement of either side's ends under the other side's definition ([`judge_across`]);
+    /// or that judgement admitted no end as data because the definition's full critical-pair
+    /// check ran out of native stack (kink-native `DataFacts::stack_stopped`). The slots that
+    /// judgement decides are then `Unknown`, or the ends it judges are not data, so such an
+    /// unknown is no function of the run's inputs and kink-flow's outcome cache never stores it
+    /// (CF-33d). It decides no status here.
+    pub unjudged: bool,
 }
 
 /// One mutant's operator, written baseline sentences, plan, report and runs. A coupled
@@ -1728,6 +1741,11 @@ fn run_campaign_session(
                 let patterns = facts.as_ref().ok().map(|_| {
                     runtime.step_sides(campaign, test, &observation, cache.stepped.as_ref(), None)
                 });
+                // The backend refused the definition's facts: the pattern slots are unknown for a
+                // reason that need not be a fact of the run ([`RunNotes::unjudged`]).
+                if patterns.is_none() && has_pattern_slot(test) {
+                    evidence.notes.unjudged = true;
+                }
                 replace_patterns(test, evidence, patterns.as_ref());
             }
         }
@@ -2669,17 +2687,21 @@ fn run_tests(
         if let Some(recording) = &cache.recording {
             recordings.push(recording.clone());
         }
-        // Initialize facts on both paths, including each newly prepared mutant backend.
-        let signatures_match = observations
-            .runtime
-            .facts()
-            .and_then(|baseline_facts| {
-                sides
-                    .runtime
-                    .facts()
-                    .map(|mutant_facts| baseline_facts.signature == mutant_facts.signature)
-            })
-            .unwrap_or(false);
+        // Initialize facts on both paths, including each newly prepared mutant backend. Facts
+        // the backend refused are not kept ([`Runtime::facts`]): the pair's pattern slots are then
+        // unknown for a reason that need not be a fact of the run ([`RunNotes::unjudged`]), and
+        // its evidence is not kept for reuse, so a later call compares the signatures again.
+        let compared_signatures = observations.runtime.facts().and_then(|baseline_facts| {
+            sides
+                .runtime
+                .facts()
+                .map(|mutant_facts| baseline_facts.signature == mutant_facts.signature)
+        });
+        let facts_refused = compared_signatures.is_err();
+        if facts_refused && has_pattern_slot(test) {
+            mutant.notes.unjudged = true;
+        }
+        let signatures_match = compared_signatures.unwrap_or(false);
         let signatures_match = cached.as_ref().map_or(signatures_match, |cached| {
             assert_eq!(
                 signatures_match, cached.signatures_match,
@@ -2709,6 +2731,7 @@ fn run_tests(
             replace_patterns(test, &mut mutant, None);
         }
         if cached.is_none()
+            && !facts_refused
             && let Some(entries) = &mut observations.evidence
         {
             entries.insert(
@@ -2912,7 +2935,7 @@ fn judge_across(
     };
     // Under the mutant's definition: the baseline's terminals and payloads, and both sides'
     // bindings.
-    let (under_mutant, undecided_under_mutant) = mutant_runtime.judge_ends(
+    let (under_mutant, undecided_under_mutant, unjudged_under_mutant) = mutant_runtime.judge_ends(
         test,
         &compared(baseline),
         &[bindings(baseline), bindings(mutant), payloads(baseline)].concat(),
@@ -2920,14 +2943,15 @@ fn judge_across(
     // Under the baseline's definition: the mutant's terminals, then its one-sided terminals.
     let mutant_ends = compared(mutant);
     let terminals = mutant_ends.len();
-    let (under_baseline, undecided_under_baseline) = baseline_runtime.judge_ends(
-        test,
-        &mutant_ends
-            .into_iter()
-            .chain(one_sided.iter().map(|terminal| terminal.state.clone()))
-            .collect::<Vec<_>>(),
-        &payloads(mutant),
-    );
+    let (under_baseline, undecided_under_baseline, unjudged_under_baseline) = baseline_runtime
+        .judge_ends(
+            test,
+            &mutant_ends
+                .into_iter()
+                .chain(one_sided.iter().map(|terminal| terminal.state.clone()))
+                .collect::<Vec<_>>(),
+            &payloads(mutant),
+        );
     // A host's refusal of a stack a judgement under either definition needed is no answer about
     // the ends: the pair's mutant run fails as infrastructure, which kink-flow's outcome cache
     // never stores. Both judgements run first, so that both backends' solver state evolves as
@@ -2938,6 +2962,9 @@ fn judge_across(
         .decider_smt_unknowns
         .saturating_add(undecided_under_mutant)
         .saturating_add(undecided_under_baseline);
+    // A judgement the backend refused leaves the ends it judges not data, for a reason that need
+    // not be a fact of the run ([`RunNotes::unjudged`]).
+    mutant.notes.unjudged |= unjudged_under_mutant || unjudged_under_baseline;
     let (Ok(under_mutant), Ok(under_baseline)) = (under_mutant, under_baseline) else {
         mutant.run = SideRun::Failed(ExecutionFailureKind::Infrastructure);
         mutant.payloads.clear();
@@ -3104,6 +3131,37 @@ struct StepSides {
     sides: Result<Vec<PatternSide>, SegmentRefused>,
     /// The decider's [`ObservationDecider::smt_unknowns`] ([`RunNotes::decider_smt_unknowns`]).
     smt_unknowns: usize,
+    /// Whether the backend refused the judgement, so every pattern side is `Unknown` for a
+    /// reason that need not be a fact of the run ([`RunNotes::unjudged`]).
+    unjudged: bool,
+}
+
+/// `backend.with_solver(None, operation)`: the solver operation of a judgement kink makes of a
+/// run outside it (the run's decider, its pattern slots, a pair's judgement of ends), whose
+/// refusal marks the run unjudged ([`RunNotes::unjudged`]). A unit test can make it refuse
+/// (`tests::REFUSE_JUDGEMENTS`), as a refused stack segment or solver would.
+fn judgement<T>(
+    backend: &mut Backend,
+    operation: impl FnOnce(
+        &k_rust::k_rust_backend::definition::BackendDefinition,
+        &dyn k_rust::k_rust_backend::smt::SmtSolver,
+    ) -> Result<T, k_rust::backend::BackendError>,
+) -> Result<T, k_rust::backend::BackendError> {
+    #[cfg(test)]
+    if tests::REFUSE_JUDGEMENTS.with(std::cell::Cell::get) {
+        return Err(k_rust::backend::BackendError::new(
+            "the backend refused the operation (a unit test's refusal)",
+        ));
+    }
+    backend.with_solver(None, operation)
+}
+
+/// Whether `test` has a pattern slot, whose side the pattern judgement gives
+/// ([`replace_patterns`]).
+fn has_pattern_slot(test: &TestCase) -> bool {
+    test.oracles
+        .iter()
+        .any(|declaration| matches!(declaration.projection(), Projection::Pattern { .. }))
 }
 
 /// `evidence` with its pattern slots replaced by `patterns`, or each made `Unknown` without them
@@ -3115,6 +3173,7 @@ fn replace_patterns(test: &TestCase, evidence: &mut TestEvidence, patterns: Opti
             .notes
             .decider_smt_unknowns
             .saturating_add(patterns.smt_unknowns);
+        evidence.notes.unjudged |= patterns.unjudged;
     }
     let patterns = match patterns.map(|patterns| &patterns.sides) {
         Some(Err(_)) => {
@@ -3228,7 +3287,8 @@ struct Runtime {
     backend: Backend,
     adapter: ExecutionAdapter,
     context: EvaluationContext,
-    facts: Option<Result<DefinitionFacts, String>>,
+    /// The definition's facts once computed ([`Runtime::facts`]; a refusal is not kept).
+    facts: Option<DefinitionFacts>,
     /// The side's rule authors when its runs record coverage (the baseline only).
     coverage: Option<RuleAuthors>,
     /// The modality of the side's result runs ([`RunOptions::result_modality`]).
@@ -3380,13 +3440,21 @@ impl Runtime {
         })
     }
 
+    /// The definition's facts, computed once and kept. A refusal is not kept: the backend's
+    /// refusal of the operation (`Backend::with_solver`) need not be a fact of the definition, so
+    /// the next call asks again.
     fn facts(&mut self) -> Result<DefinitionFacts, String> {
-        if self.facts.is_none() {
-            self.facts = Some(
-                definition_facts(&mut self.backend).map_err(|error| error.message().to_owned()),
-            );
+        if let Some(facts) = &self.facts {
+            return Ok(facts.clone());
         }
-        self.facts.clone().expect("filled above")
+        #[cfg(test)]
+        if tests::REFUSE_JUDGEMENTS.with(std::cell::Cell::get) {
+            return Err("the backend refused the operation (a unit test's refusal)".into());
+        }
+        let facts =
+            definition_facts(&mut self.backend).map_err(|error| error.message().to_owned())?;
+        self.facts = Some(facts.clone());
+        Ok(facts)
     }
 
     /// [`Runtime::run_bounded`] without a work budget (tests only: every campaign run names its
@@ -3576,9 +3644,15 @@ impl Runtime {
                 decider_smt_unknowns: execution.facts().decider_smt_unknowns,
                 leaf_contradiction: exclusions.contradiction_on_a_leaf(execution),
                 across: Vec::new(),
+                unjudged: false,
             },
             _ => RunNotes::default(),
         };
+        // Own facts whose check ran out of native stack admit no end of the run as data, for a
+        // reason of the thread ([`RunNotes::unjudged`]).
+        if own == DataEnds::None && self.data.as_ref().is_some_and(DataFacts::stack_stopped) {
+            notes.unjudged = true;
+        }
         let mut ends = BTreeSet::new();
         let mut stop_ends = BTreeSet::new();
         let mut undefined_steps = false;
@@ -3587,7 +3661,7 @@ impl Runtime {
             Ok(execution) if execution.timed_out() => {
                 SideRun::Failed(ExecutionFailureKind::TimeLimit)
             }
-            Ok(execution) => match self.backend.with_solver(None, |definition, solver| {
+            Ok(execution) => match judgement(&mut self.backend, |definition, solver| {
                 let decider = ObservationDecider::new(
                     definition,
                     solver,
@@ -3631,25 +3705,29 @@ impl Runtime {
                 // (re-pin R0c-fix-2, R0c-fix-1 review minor), or no definition can be selected to
                 // read the state on, which gives no side either. An excluded run gives no side, so
                 // no slot, a pattern slot `run_tests` fills from the stepped run included, can
-                // take one from it.
-                Err(_) => match exclusions.run_exclusion(execution) {
-                    Some(exclusion) => SideRun::Failed(exclusion.into()),
-                    None => match self.backend.select_definition(None) {
-                        Err(_) => SideRun::Failed(ExecutionFailureKind::Infrastructure),
-                        Ok(definition) => {
-                            match exclusions.state_exclusion(
-                                &definition,
-                                &test.initial_state,
-                                execution.facts(),
-                            ) {
-                                Some(exclusion) => SideRun::Failed(exclusion.into()),
-                                None => SideRun::Sides {
-                                    sides: vec![OracleSide::Unknown; test.oracles.len()],
-                                },
+                // take one from it. The backend refused the decider, so the run is unjudged
+                // (`RunNotes::unjudged`): its unknown slots need not be facts of the run.
+                Err(_) => {
+                    notes.unjudged = true;
+                    match exclusions.run_exclusion(execution) {
+                        Some(exclusion) => SideRun::Failed(exclusion.into()),
+                        None => match self.backend.select_definition(None) {
+                            Err(_) => SideRun::Failed(ExecutionFailureKind::Infrastructure),
+                            Ok(definition) => {
+                                match exclusions.state_exclusion(
+                                    &definition,
+                                    &test.initial_state,
+                                    execution.facts(),
+                                ) {
+                                    Some(exclusion) => SideRun::Failed(exclusion.into()),
+                                    None => SideRun::Sides {
+                                        sides: vec![OracleSide::Unknown; test.oracles.len()],
+                                    },
+                                }
                             }
-                        }
-                    },
-                },
+                        },
+                    }
+                }
                 Ok((Err(failure), ..)) => SideRun::Failed((&failure).into()),
                 // A run that bridged is checked for its exclusions before any side is formed
                 // (re-pin R0b): an excluded run gives no side to any slot, on the baseline as on
@@ -3799,12 +3877,13 @@ impl Runtime {
             StepSides {
                 sides,
                 smt_unknowns: decider.smt_unknowns(),
+                unjudged: false,
             }
         };
         let initial = || TestInitialState::of_test(&test.initial_state);
         let own = self.data.as_ref().map_or(DataEnds::None, data_ends);
         let sides = match leaves {
-            None => self.backend.with_solver(None, |definition, solver| {
+            None => judgement(&mut self.backend, |definition, solver| {
                 let decider = ObservationDecider::new(definition, solver, initial())
                     .trusting_collections(trusted)
                     .judging_data(own, own);
@@ -3812,7 +3891,7 @@ impl Runtime {
             }),
             Some(leaves) => {
                 let leaf_data = leaves.data.as_ref().map_or(DataEnds::None, data_ends);
-                self.backend.with_solver(None, |definition, _| {
+                judgement(&mut self.backend, |definition, _| {
                     leaves
                         .backend
                         .with_solver(None, |leaf_definition, leaf_solver| {
@@ -3835,6 +3914,7 @@ impl Runtime {
                 test.oracles.len()
             ]),
             smt_unknowns: 0,
+            unjudged: true,
         })
     }
 
@@ -3843,13 +3923,15 @@ impl Runtime {
     /// [`data_ends`] of its facts), and which of `bindings` are definition-independent there
     /// ([`judge_across`]). Without facts, with a finding left, or when no definition can be
     /// reached, nothing is. The host's refusal of a stack one of these judgements needed is `Err`
-    /// ([`ObservationDecider::host_refusal_during`]), never an answer about the ends.
+    /// ([`ObservationDecider::host_refusal_during`]), never an answer about the ends. Beside it:
+    /// the undecided solver answers the judgement took, and whether the backend refused the
+    /// judgement as a whole (no definition reached; [`RunNotes::unjudged`]).
     fn judge_ends(
         &mut self,
         test: &TestCase,
         terminals: &[Pattern],
         bindings: &[Pattern],
-    ) -> (Result<EndJudgement, SegmentRefused>, usize) {
+    ) -> (Result<EndJudgement, SegmentRefused>, usize, bool) {
         let refused = || EndJudgement {
             terminals: vec![false; terminals.len()],
             independent: Vec::new(),
@@ -3860,59 +3942,61 @@ impl Runtime {
                 .collect(),
         };
         if terminals.is_empty() && bindings.is_empty() {
-            return (Ok(refused()), 0);
+            return (Ok(refused()), 0, false);
         }
         let ends = self.data.as_ref().map_or(DataEnds::None, data_ends);
         if ends == DataEnds::None {
-            return (Ok(refused()), 0);
+            // Facts whose check ran out of native stack admit no end for a reason of the thread,
+            // not of the definition ([`RunNotes::unjudged`]).
+            let stack = self.data.as_ref().is_some_and(DataFacts::stack_stopped);
+            return (Ok(refused()), 0, stack);
         }
         let trusted = self.exclusions.collections_trusted();
-        self.backend
-            .with_solver(None, |definition, solver| {
-                let decider = ObservationDecider::new(
-                    definition,
-                    solver,
-                    TestInitialState::of_test(&test.initial_state),
-                )
-                .trusting_collections(trusted)
-                .judging_data(ends, ends);
-                let judgement = decider.host_refusal_during(|| {
-                    let terminals = terminals
+        judgement(&mut self.backend, |definition, solver| {
+            let decider = ObservationDecider::new(
+                definition,
+                solver,
+                TestInitialState::of_test(&test.initial_state),
+            )
+            .trusting_collections(trusted)
+            .judging_data(ends, ends);
+            let judgement = decider.host_refusal_during(|| {
+                let terminals = terminals
+                    .iter()
+                    .map(|end| decider.terminal_value(end).as_ref() == Some(end))
+                    .zip(terminals)
+                    .collect::<Vec<_>>();
+                let (independent, dependent): (Vec<_>, Vec<_>) = bindings
+                    .iter()
+                    .partition(|term| decider.definition_independent(term));
+                // Causes only of what is refused (fz26 KINK-CAUSE-SUBTERM), from the walks above.
+                EndJudgement {
+                    terminal_causes: terminals
                         .iter()
-                        .map(|end| decider.terminal_value(end).as_ref() == Some(end))
-                        .zip(terminals)
-                        .collect::<Vec<_>>();
-                    let (independent, dependent): (Vec<_>, Vec<_>) = bindings
-                        .iter()
-                        .partition(|term| decider.definition_independent(term));
-                    // Causes only of what is refused (fz26 KINK-CAUSE-SUBTERM), from the walks above.
-                    EndJudgement {
-                        terminal_causes: terminals
-                            .iter()
-                            .map(|(data, end)| {
-                                (!data).then(|| {
-                                    CrossCause::NotData(decider.first_non_value(end).map(Box::new))
-                                })
+                        .map(|(data, end)| {
+                            (!data).then(|| {
+                                CrossCause::NotData(decider.first_non_value(end).map(Box::new))
                             })
-                            .collect(),
-                        terminals: terminals.iter().map(|(data, _)| *data).collect(),
-                        binding_causes: dependent
-                            .into_iter()
-                            .map(|term| {
-                                (
-                                    term.clone(),
-                                    CrossCause::NotData(
-                                        decider.first_dependent(term).map(Box::new),
-                                    ),
-                                )
-                            })
-                            .collect(),
-                        independent: independent.into_iter().cloned().collect(),
-                    }
-                });
-                Ok::<_, k_rust::backend::BackendError>((judgement, decider.smt_unknowns()))
-            })
-            .unwrap_or_else(|_| (Ok(refused()), 0))
+                        })
+                        .collect(),
+                    terminals: terminals.iter().map(|(data, _)| *data).collect(),
+                    binding_causes: dependent
+                        .into_iter()
+                        .map(|term| {
+                            (
+                                term.clone(),
+                                CrossCause::NotData(decider.first_dependent(term).map(Box::new)),
+                            )
+                        })
+                        .collect(),
+                    independent: independent.into_iter().cloned().collect(),
+                }
+            });
+            Ok::<_, k_rust::backend::BackendError>((judgement, decider.smt_unknowns(), false))
+        })
+        // The backend refused the judgement: nothing is data, and the judgement is marked
+        // refused ([`RunNotes::unjudged`]).
+        .unwrap_or_else(|_| (Ok(refused()), 0, true))
     }
 }
 
@@ -4470,6 +4554,87 @@ mod input_test_support;
 mod tests {
     use super::*;
     use kink_native::execution::RecordedRun;
+
+    thread_local! {
+        /// Whether the backend refuses every judgement kink makes of a run on this thread
+        /// ([`judgement`], [`Runtime::facts`]), as a refused stack segment or solver would.
+        pub(super) static REFUSE_JUDGEMENTS: std::cell::Cell<bool> =
+            const { std::cell::Cell::new(false) };
+    }
+
+    /// CF-33d: a judgement of a run the backend refuses leaves its slots unknown for a reason
+    /// that need not be the run's, and marks the run `unjudged` (kink-flow's outcome cache then
+    /// writes no record of it): the run's decider (every slot unknown), the pattern judgement,
+    /// a pair's judgement of ends (nothing is data) and the definition's facts, which are not
+    /// kept when refused, so the next call computes them. The same judgements the backend makes
+    /// leave the run judged.
+    #[test]
+    fn a_refused_judgement_marks_the_run_unjudged_at_every_site() {
+        let z = || input_test_support::app("Lblz", vec![]);
+        let program = input_test_support::app(
+            "Lblcounter",
+            vec![z(), input_test_support::app("Lbls", vec![z()])],
+        );
+        with_one_test(
+            "counter.k",
+            "COUNTER",
+            program,
+            "SortCounter",
+            |_, compiled, campaign| {
+                let refuse = |on: bool| REFUSE_JUDGEMENTS.with(|refuse| refuse.set(on));
+                let test = &campaign.tests[0];
+                let mut runtime = Runtime::prepare(campaign, compiled).unwrap_or_else(|_| panic!());
+                let definition = runtime.backend.select_definition(None).unwrap();
+                runtime.data = Some(DataFacts::of(&definition, &[]));
+                let observation = StepObservation::new(&mut runtime.backend, vec![]).unwrap();
+
+                // The run's decider.
+                let (judged, _) = runtime.run(campaign, test);
+                assert!(!judged.notes.unjudged, "{judged:?}");
+                assert!(matches!(judged.run, SideRun::Sides { .. }), "{judged:?}");
+                refuse(true);
+                let (refused, _) = runtime.run(campaign, test);
+                refuse(false);
+                assert!(refused.notes.unjudged, "{refused:?}");
+                assert_eq!(
+                    refused.run,
+                    SideRun::Sides {
+                        sides: vec![OracleSide::Unknown]
+                    }
+                );
+
+                // The pattern judgement.
+                let sides = runtime.step_sides(campaign, test, &observation, None, None);
+                assert!(!sides.unjudged);
+                refuse(true);
+                let sides = runtime.step_sides(campaign, test, &observation, None, None);
+                refuse(false);
+                assert!(sides.unjudged);
+                let mut evidence = judged.clone();
+                replace_patterns(test, &mut evidence, Some(&sides));
+                assert!(evidence.notes.unjudged);
+
+                // A pair's judgement of ends.
+                let end = judged.ends.iter().next().expect("an end").clone();
+                let (judgement, _, unjudged) =
+                    runtime.judge_ends(test, std::slice::from_ref(&end), &[]);
+                assert!(!unjudged && judgement.is_ok_and(|judgement| judgement.terminals[0]));
+                refuse(true);
+                let (judgement, _, unjudged) = runtime.judge_ends(test, &[end], &[]);
+                refuse(false);
+                assert!(unjudged && judgement.is_ok_and(|judgement| !judgement.terminals[0]));
+
+                // The definition's facts: a refusal is not kept.
+                refuse(true);
+                assert!(runtime.facts().is_err());
+                refuse(false);
+                assert!(runtime.facts().is_ok());
+                refuse(true);
+                assert!(runtime.facts().is_ok(), "computed facts are kept");
+                refuse(false);
+            },
+        );
+    }
 
     /// Re-pin R0b deliverables 1, 2, 7 and 9: `judge` gives an excluded run no side for any
     /// slot (`SideRun::Failed` with the exclusion), on a live run and on a run a baseline session
@@ -5744,6 +5909,7 @@ mod tests {
                     (OracleSide::Unknown, BTreeSet::new()),
                 ]),
                 smt_unknowns: 2,
+                unjudged: false,
             };
             replace_patterns(&test, &mut counted, Some(&judged));
             assert_eq!(counted.notes.decider_smt_unknowns, 3);

@@ -3,8 +3,10 @@
 //! The loop fixture's `countdown-escapes` makes `countdown(3)` step to itself forever. Under the
 //! fixture's time bound it is a timeout (tests/search.rs); with a work budget its run ends in a
 //! work-bound leaf long before any time bound, so the program is `unknown` for the mutant with a
-//! cause that names the budget, never a kill, and nothing is cached for it. The budget enters the
-//! outcome key: another factor reuses no cached outcome.
+//! cause that names the budget, never a kill. The work budget counts states, not time, so that
+//! `unknown` is a function of the outcome key, which names the budget, and it is cached with its
+//! cause (CF-33d); another factor reuses no cached outcome. The same mutant stopped by the clock
+//! instead is a timeout, which depends on the host's load and is run again by every command.
 
 use kink_flow::{
     FlowManifest, MutationList,
@@ -70,6 +72,10 @@ fn set_factor(manifest: &Path, factor: u64) {
 }
 
 fn search(manifest: &Path) -> Value {
+    search_with(manifest, kink_campaign::ScheduleMode::FirstKill)
+}
+
+fn search_with(manifest: &Path, schedule: kink_campaign::ScheduleMode) -> Value {
     let (document, ok) = run(
         &FlowManifest::read(manifest).unwrap(),
         &MutationList::read(&manifest.with_file_name("MUTATIONS.toml")).unwrap(),
@@ -79,7 +85,7 @@ fn search(manifest: &Path) -> Value {
             order: ProgramOrder::Corpus,
             compile_workers: None,
             memo: kink_flow::memo::MemoUse::On,
-            schedule: kink_campaign::ScheduleMode::FirstKill,
+            schedule,
         },
     );
     assert!(ok, "{document:#}");
@@ -114,9 +120,14 @@ fn executed(document: &Value) -> Vec<(String, String, Option<String>, bool)> {
 mod kink_tier {
     use super::*;
 
+    /// CF-33d: the work-bound `unknown` of `countdown` is cached with its cause, so the next
+    /// command answers the whole row from the outcome cache (no call, no baseline run), with the
+    /// cause the live run gave; another work factor is another outcome key. The same mutant under
+    /// the clock alone is a timeout, a host-bound cause, which is never cached: every command runs
+    /// it again.
     #[test]
     #[ignore = "kink"]
-    fn a_mutant_that_never_ends_is_unknown_under_the_work_budget_and_never_cached() {
+    fn a_work_bound_unknown_is_cached_with_its_cause_and_a_timeout_is_not() {
         let manifest = fixture("loop-work", 2);
         let first = search(&manifest);
         // The time bound is `NO_CLOCK_MS`; that the work budget, not the clock, stopped the loop is
@@ -140,22 +151,76 @@ mod kink_tier {
             (entries[1].0.as_str(), entries[1].1.as_str(), entries[1].3),
             ("twice", "agree", false)
         );
+        assert_eq!(first["outcome_cache"]["records_written"], 2, "{first:#}");
 
-        // A re-run: the agreement is cached, the unknown outcome is not.
-        let second = executed(&search(&manifest));
-        let expected = [("twice", "agree", true), ("countdown", "unknown", false)];
+        // A re-run: both cells are cached, the unknown with the live run's cause, so the row is
+        // decided with no call and no program's baseline runs.
+        let second = search(&manifest);
+        let row = row_of(&second);
+        assert_eq!(row["calls"], serde_json::json!([]), "{row:#}");
         assert_eq!(
-            second
-                .iter()
-                .map(|(program, outcome, _, cached)| (program.as_str(), outcome.as_str(), *cached))
-                .collect::<Vec<_>>(),
-            expected
+            executed(&second),
+            [
+                (
+                    "countdown".to_owned(),
+                    "unknown".to_owned(),
+                    Some(cause.to_owned()),
+                    true
+                ),
+                ("twice".to_owned(), "agree".to_owned(), None, true),
+            ]
         );
+        assert_eq!(second["outcome_cache"]["mutations_from_cache"], 1);
+        assert_eq!(
+            second["baseline_runs"]["live"], 0,
+            "{:#}",
+            second["baseline_runs"]
+        );
+        // Full, warm: the same cells, from the same store.
+        let full = search_with(&manifest, kink_campaign::ScheduleMode::Full);
+        assert_eq!(row_of(&full)["calls"], serde_json::json!([]));
+        assert_eq!(executed(&full), executed(&second));
 
         // Another factor is another outcome key: nothing cached applies.
         set_factor(&manifest, 3);
         let third = executed(&search(&manifest));
         assert!(third.iter().all(|(.., cached)| !cached), "{third:?}");
+
+        // Under the fixture's clock and no work budget the watchdog stops countdown: a timeout,
+        // which depends on the host's load, so it is not written and the next command runs it
+        // again (twice's agreement is cached under this context).
+        let clocked =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/flow/loop/FLOW-search.toml");
+        let dir = manifest.parent().unwrap().with_file_name("loop-clock");
+        let _ = fs::remove_dir_all(&dir);
+        copy_dir(clocked.parent().unwrap(), &dir);
+        let clocked = dir.join("FLOW-search.toml");
+        let cold = search_timeout(&clocked);
+        assert_eq!(cold["outcome_cache"]["records_written"], 1, "{cold:#}");
+        let warm = search_timeout(&clocked);
+        assert_eq!(
+            row_of(&warm)["calls"],
+            serde_json::json!([{"programs": ["countdown"], "status": "timeout"}]),
+            "{warm:#}"
+        );
+    }
+
+    /// The `countdown-escapes` row of a document.
+    fn row_of(document: &Value) -> &Value {
+        document["mutations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| m["id"] == "countdown-escapes")
+            .unwrap()
+    }
+
+    /// A first-kill search of the clocked loop fixture, whose `countdown-escapes` times out.
+    fn search_timeout(manifest: &Path) -> Value {
+        let document = search(manifest);
+        let row = row_of(&document);
+        assert_eq!(row["status"], "timeout", "{row:#}");
+        document
     }
 
     /// A private copy of `testdata/flow/diamonds` (or its `unguarded` directory) and its manifest.

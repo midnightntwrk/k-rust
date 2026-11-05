@@ -276,6 +276,13 @@ impl DataFacts {
         self.heads.confluent() && self.incomplete().is_none()
     }
 
+    /// Whether a simplification of the full check ran out of native stack: the check's verdict,
+    /// and so [`Self::has_data`], then depends on the thread, not only on the definition.
+    #[must_use]
+    pub fn stack_stopped(&self) -> bool {
+        self.heads.check_counts().condition_stack_stops > 0
+    }
+
     /// Why the full check is not shown to have read the whole definition, if it is not: a
     /// simplification of the check ran out of native stack (its verdict then depends on the
     /// thread), or the check did not read every executable equation, skipped a candidate pair,

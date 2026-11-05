@@ -321,6 +321,7 @@ fn forge_record(
             &slots,
             record["mutant_run_sha256"].as_str().unwrap(),
             &record["difference"],
+            &kink_flow::outcomes::OutcomeRecord::report_value(record),
         );
         record["record_sha256"] = json!(sealed.to_string());
     }
@@ -435,8 +436,14 @@ fn warm_after_no_change(manifest: &Path, mutations: &Path, cold: &Value, name: &
                 );
                 from_cache += 1;
             }
-            // Never cached: a timeout, an unknown, a mutant-scope status; an invalid
-            // mutation is never run.
+            // CF-33d: an unknown whose every cell is cached (agreements and unknowns a work or
+            // depth bound gave) makes no call.
+            "unknown" if executed(&warm, id).iter().all(|(_, _, cached)| *cached) => {
+                assert_eq!(row["calls"], json!([]), "{id}");
+                from_cache += 1;
+            }
+            // Never cached: a timeout, an unknown of a failed run, a mutant-scope status; an
+            // invalid mutation is never run.
             "invalid-mutation" => assert_eq!(row["calls"], json!([]), "{id}"),
             _ => assert_ne!(row["calls"], json!([]), "{id}"),
         }
@@ -489,6 +496,9 @@ fn an_outcome_written_under_another_identity_is_ignored() {
         ],
         mutant_run_sha256: "1".repeat(64),
         difference: serde_json::Value::Null,
+        cause: None,
+        smt_unknowns: 0,
+        decider_smt_unknowns: 0,
         allowance_bytes: None,
     };
     let records = [(program.clone(), record)];
@@ -563,6 +573,9 @@ fn the_outcome_file_keeps_the_compiled_edit() {
                 ],
                 mutant_run_sha256: "1".repeat(64),
                 difference: Value::Null,
+                cause: None,
+                smt_unknowns: 0,
+                decider_smt_unknowns: 0,
                 allowance_bytes: None,
             },
         )
@@ -616,6 +629,142 @@ fn the_outcome_file_keeps_the_compiled_edit() {
     fs::write(&path, file.to_string()).unwrap();
     let (records, read) = outcomes.read_with_witness(identity);
     assert!(records.is_empty() && read.is_null());
+}
+
+/// CF-33d, the cacheability of an outcome (outcomes.rs, "Unknown outcomes"): `killed` and
+/// `agree` as before; an `unknown` only from a compared test whose slots are `agree` or `unknown`
+/// and whose run the backend judged (`RunNotes::unjudged` false), so that it is a function of the
+/// outcome key. A host-bound cause is never cacheable: a slot the clock stopped (`timeout`), an
+/// untrustworthy backend result (`error`), a run the watchdog stopped (`TimeLimit`), a host
+/// exclusion (stack stop, load stack stop, allowance refusal), an infrastructure failure, and a
+/// judgement the backend refused; nor is an `incomparable` slot (status `error`) or a failed run
+/// excluded for a fact of the definition or the run, whose row's reason a live call gives.
+#[test]
+fn an_unknown_is_cacheable_only_when_the_run_was_judged() {
+    use kink_campaign::{ExecutionFailureKind as F, OracleOutcome as O, RunNotes, TestRun};
+    use kink_flow::outcomes::{CachedOutcome, cacheable};
+    let judged = RunNotes::default();
+    let unjudged = RunNotes {
+        unjudged: true,
+        ..RunNotes::default()
+    };
+    let outcome =
+        |run: &TestRun, notes: Option<&RunNotes>| cacheable(run, notes).map(|(outcome, _)| outcome);
+    let compared = |slots: &[O]| TestRun::Compared(slots.to_vec());
+    for (slots, expected) in [
+        (
+            &[O::Distinguish, O::Unknown][..],
+            Some(CachedOutcome::Killed),
+        ),
+        (&[O::Agree, O::Agree], Some(CachedOutcome::Agree)),
+        (&[O::Unknown, O::Agree], Some(CachedOutcome::Unknown)),
+        (&[O::Unknown, O::Unknown], Some(CachedOutcome::Unknown)),
+        (&[O::Timeout, O::Agree], None),
+        (&[O::Unknown, O::Timeout], None),
+        (&[O::Error, O::Unknown], None),
+        (&[O::Incomparable, O::Agree], None),
+        (&[], None),
+    ] {
+        assert_eq!(
+            outcome(&compared(slots), Some(&judged)),
+            expected,
+            "{slots:?}"
+        );
+    }
+    // A judgement the backend refused, or no evidence to read it from: not cached as unknown.
+    let unknown = compared(&[O::Unknown, O::Agree]);
+    assert_eq!(outcome(&unknown, Some(&unjudged)), None);
+    assert_eq!(outcome(&unknown, None), None);
+    // Killed and agree rest on no refused judgement (one leaves its slots unknown), so the flag
+    // does not change them.
+    assert_eq!(
+        outcome(&compared(&[O::Agree, O::Agree]), Some(&unjudged)),
+        Some(CachedOutcome::Agree)
+    );
+    for kind in [
+        F::TimeLimit,
+        F::Infrastructure,
+        F::StackStop,
+        F::LoadStackStop,
+        F::AllowanceRefusal,
+        F::ContradictedClaim,
+        F::ShortCircuitReading,
+        F::ImplementationChosenValue,
+        F::Indeterminate,
+        F::ResourceLimit,
+    ] {
+        assert_eq!(
+            outcome(&TestRun::Failed(kind), Some(&judged)),
+            None,
+            "{kind:?}"
+        );
+    }
+    assert_eq!(outcome(&TestRun::SkippedAfterKill, Some(&judged)), None);
+}
+
+/// CF-33d: an `unknown` record keeps its cause and the run's undecided-answer counts, inside its
+/// digest; the reader returns it only with a cause, and returns no other record with one.
+#[test]
+fn an_unknown_record_says_why_and_no_other_record_has_a_cause() {
+    use kink_campaign::OracleOutcome as O;
+    use kink_flow::outcomes::{CachedOutcome, OutcomeRecord, OutcomeStore};
+    let cache = scratch("unknown-record");
+    let store = kink_corpus::Store::new(&cache);
+    let outcomes = OutcomeStore::new(&cache, json!({"test": "unknown-record"}));
+    let identity = kink_patch::sha256(b"mutation");
+    let program = |name: &str| kink_patch::sha256(name.as_bytes()).to_string();
+    let record = |outcome, slots: Vec<O>, cause: Option<&str>| OutcomeRecord {
+        program_id: "p".into(),
+        baseline_run_sha256: "0".repeat(64),
+        outcome,
+        slots,
+        mutant_run_sha256: "1".repeat(64),
+        difference: Value::Null,
+        cause: cause.map(str::to_owned),
+        smt_unknowns: 2,
+        decider_smt_unknowns: 1,
+        allowance_bytes: None,
+    };
+    let unknown = record(
+        CachedOutcome::Unknown,
+        vec![O::Unknown, O::Agree],
+        Some("exit-stop: the run reached its work budget"),
+    );
+    let agree = record(CachedOutcome::Agree, vec![O::Agree, O::Agree], None);
+    outcomes
+        .write(
+            &store,
+            identity,
+            "m",
+            &json!(null),
+            &json!(null),
+            &[
+                (program("unknown"), unknown.clone()),
+                (program("agree"), agree.clone()),
+                // An unknown with no cause and an agreement with one are written as given here,
+                // and refused by the reader below.
+                (
+                    program("no-cause"),
+                    record(CachedOutcome::Unknown, vec![O::Unknown, O::Agree], None),
+                ),
+                (
+                    program("agree-cause"),
+                    record(CachedOutcome::Agree, vec![O::Agree, O::Agree], Some("why")),
+                ),
+            ],
+        )
+        .unwrap();
+    let read = outcomes.read(identity);
+    assert_eq!(read.get(&program("unknown")), Some(&unknown));
+    assert_eq!(read.get(&program("agree")), Some(&agree));
+    assert_eq!(read.len(), 2, "{read:?}");
+    // The cause is inside the record's digest: an edited cause is not read.
+    let path = outcomes.path(identity);
+    let mut file: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    file["records"][program("unknown")]["cause"] = json!("edited");
+    file["records"][program("agree")]["smt_unknowns"] = json!(0);
+    fs::write(&path, file.to_string()).unwrap();
+    assert!(outcomes.read(identity).is_empty());
 }
 
 /// Stop rule 1 (README 7.5.3 step 6): every mutation of the list run with a cache that a run
@@ -892,6 +1041,7 @@ fn forge_agreements(
             &["agree", "agree"],
             &baseline,
             &Value::Null,
+            &kink_flow::outcomes::OutcomeRecord::no_report(),
         );
         records.insert(
             digest,
@@ -902,6 +1052,9 @@ fn forge_agreements(
                 "slots": ["agree", "agree"],
                 "mutant_run_sha256": baseline,
                 "difference": null,
+                "cause": null,
+                "smt_unknowns": 0,
+                "decider_smt_unknowns": 0,
                 "record_sha256": sealed.to_string(),
             }),
         );
@@ -1203,11 +1356,14 @@ misunderstanding = "a test mutation"
 
     #[test]
     #[ignore = "kink"]
-    fn unknowns_are_never_cached() {
-        // (d): countdown never ends on the mutant. Under a small depth bound its outcome is
-        // unknown: it is not written, and countdown runs again in the next command; twice's
-        // agreement is cached. (The timeout case: warm_and_forged_hints_on_loop.)
-        let dir = fixture("loop", "never-unknown");
+    fn a_depth_bound_unknown_is_cached_with_its_cause() {
+        // (d), since CF-33d: countdown never ends on the mutant. Under a small depth bound its
+        // outcome is unknown; the depth bound counts steps, not time, and is in the outcome key,
+        // so the unknown is a function of the key and is written with its cause, beside twice's
+        // agreement. The next command decides the row from the cache with no call, and reports
+        // the cached unknown's cause as the live one gave it. (The timeout case, which is never
+        // written: warm_and_forged_hints_on_loop.)
+        let dir = fixture("loop", "depth-unknown");
         let manifest = dir.join("FLOW-depth.toml");
         let mutations = dir.join("MUTATIONS.toml");
         let (first, ok) = search(&manifest, &mutations, &[]);
@@ -1218,26 +1374,179 @@ misunderstanding = "a test mutation"
         );
         assert_eq!(
             records(&manifest, &first, "countdown-escapes"),
-            BTreeMap::from([("twice".to_owned(), "agree".to_owned())])
+            BTreeMap::from([
+                ("countdown".to_owned(), "unknown".to_owned()),
+                ("twice".to_owned(), "agree".to_owned()),
+            ])
+        );
+        let cause = |document: &Value| {
+            mutation(document, "countdown-escapes")["executed"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|entry| entry["program"] == "countdown")
+                .unwrap()["cause"]
+                .clone()
+        };
+        let live_cause = cause(&first);
+        assert!(
+            live_cause
+                .as_str()
+                .is_some_and(|cause| cause.contains("max_depth")),
+            "{live_cause}"
+        );
+        let file = read_json(&outcome_file(&manifest, &first, "countdown-escapes"));
+        assert_eq!(
+            file["records"][program_digest(&first, "countdown")]["cause"],
+            live_cause
         );
         let (second, ok) = search(&manifest, &mutations, &[]);
         assert!(ok, "{second:#}");
         assert_eq!(statuses(&second), statuses(&first));
-        assert_eq!(
-            calls(&second, "countdown-escapes"),
-            vec![strings(&["countdown"])]
-        );
+        assert!(calls(&second, "countdown-escapes").is_empty());
         assert_eq!(
             executed(&second, "countdown-escapes"),
             vec![
+                ("countdown".into(), "unknown".into(), true),
                 ("twice".into(), "agree".into(), true),
-                ("countdown".into(), "unknown".into(), false),
             ]
         );
-        assert_eq!(
-            records(&manifest, &second, "countdown-escapes"),
-            BTreeMap::from([("twice".to_owned(), "agree".to_owned())])
+        assert_eq!(cause(&second), live_cause);
+        assert_eq!(second["outcome_cache"]["mutations_from_cache"], 1);
+        assert_eq!(second["outcome_cache"]["records_written"], 0);
+        // `run --verify` re-proves the cached unknown, its cause included.
+        let (verified, ok) = search_mode(&manifest, &mutations, &[], RunMode::Verify);
+        assert!(ok, "{verified:#}");
+        assert_eq!(verified["mismatches"], json!([]));
+        // A record whose cause was edited and resealed differs from the live run's.
+        forge_record(
+            &manifest,
+            &first,
+            "countdown-escapes",
+            "countdown",
+            true,
+            |record| {
+                record["cause"] = json!("forged");
+            },
         );
+        let (forged, ok) = search_mode(&manifest, &mutations, &[], RunMode::Verify);
+        assert!(!ok, "{forged:#}");
+        assert_eq!(
+            mutation(&forged, "countdown-escapes")["reason"],
+            "outcome-mismatch:countdown"
+        );
+        assert_eq!(forged["mismatches"][0]["cached"]["cause"], "forged");
+        assert_eq!(forged["mismatches"][0]["live"]["cause"], live_cause);
+    }
+
+    /// CF-33d (review): the kill search runs the mutants under `[budget] smt_resource_limit`,
+    /// the units its outcome context names, and an unknown that rests on undecided solver answers
+    /// is cached with them. `pick-anything` makes `go(N)` choose an existential `?M`, so the
+    /// mutant's run branches on `?M >Int 0`, a question for Z3 (the baseline's concrete run asks
+    /// none). With kink's units Z3 decides both branches feasible and `go` kills the mutation;
+    /// with 1 unit (8 with the retries) it decides neither, so the mutant's leaves are unknown,
+    /// with a nonzero `smt_unknowns`. Before the fix the kill search ran at kink's default units
+    /// whatever the manifest said, and killed. The unknown is written with its cause and counts,
+    /// answered from the cache by the next command, and re-proved by `run --verify`.
+    #[cfg(feature = "z3")]
+    #[test]
+    #[ignore = "kink"]
+    fn the_kill_search_uses_the_manifests_solver_units_and_caches_an_undecided_unknown() {
+        let dir = scratch("undecided");
+        fs::write(
+            dir.join("und.k"),
+            r#"module UND-SYNTAX
+  imports INT-SYNTAX
+  syntax Prog ::= go(Int) [symbol(go)]
+endmodule
+module UND
+  imports UND-SYNTAX
+  imports INT
+  configuration <k> $PGM:Prog </k> <out> 0 </out>
+  syntax KItem ::= pick(Int) [symbol(pick)]
+  rule [go]: <k> go(N) => pick(N) ... </k>
+  rule [pos]: <k> pick(N) => .K ... </k> <out> _ => 1 </out> requires N >Int 0
+  rule [neg]: <k> pick(N) => .K ... </k> <out> _ => 2 </out> requires N <=Int 0
+endmodule
+"#,
+        )
+        .unwrap();
+        let manifest = |units: &str| {
+            let path = dir.join(format!("FLOW-{units}.toml"));
+            fs::write(
+                &path,
+                format!(
+                    r#"[spec]
+entry = "und.k"
+main_module = "UND"
+syntax_module = "UND-SYNTAX"
+
+[budget]
+time_ms = 600000
+{units}
+
+[[program]]
+id = "go"
+text = "go(1)"
+"#
+                ),
+            )
+            .unwrap();
+            path
+        };
+        let mutations = dir.join("MUTATIONS.toml");
+        fs::write(
+            &mutations,
+            r#"[[mutation]]
+id = "pick-anything"
+note = "go picks any integer"
+  [[mutation.edit]]
+  rule = "go"
+  find = "pick(N)"
+  replace = "pick(?M:Int)"
+"#,
+        )
+        .unwrap();
+        let entry = |document: &Value| mutation(document, "pick-anything")["executed"][0].clone();
+        // kink's units: decided, killed.
+        let (killed, ok) = search(&manifest(""), &mutations, &[]);
+        assert!(ok, "{killed:#}");
+        assert_eq!(
+            status_only(&killed),
+            [("pick-anything".to_owned(), "killed".to_owned())]
+        );
+
+        // One unit: undecided, unknown, with the undecided answers counted.
+        let tiny = manifest("smt_resource_limit = 1");
+        let (first, ok) = search(&tiny, &mutations, &[]);
+        assert!(ok, "{first:#}");
+        assert_eq!(
+            status_only(&first),
+            [("pick-anything".to_owned(), "unknown".to_owned())]
+        );
+        let live = entry(&first);
+        assert_eq!(live["cached"], false, "{live:#}");
+        assert!(
+            live["smt_unknowns"].as_u64().unwrap_or(0) > 0
+                || live["decider_smt_unknowns"].as_u64().unwrap_or(0) > 0,
+            "{live:#}"
+        );
+        assert_eq!(
+            records(&tiny, &first, "pick-anything"),
+            BTreeMap::from([("go".to_owned(), "unknown".to_owned())])
+        );
+        // The next command answers it from the cache, as the live entry reported it.
+        let (second, ok) = search(&tiny, &mutations, &[]);
+        assert!(ok, "{second:#}");
+        assert!(calls(&second, "pick-anything").is_empty(), "{second:#}");
+        let cached = entry(&second);
+        assert_eq!(cached["cached"], true);
+        for field in ["outcome", "cause", "smt_unknowns", "decider_smt_unknowns"] {
+            assert_eq!(cached[field], live[field], "{field}");
+        }
+        let (verified, ok) = search_mode(&tiny, &mutations, &[], RunMode::Verify);
+        assert!(ok, "{verified:#}");
+        assert_eq!(verified["mismatches"], json!([]));
     }
 
     #[test]
@@ -1612,6 +1921,7 @@ misunderstanding = "a test mutation"
                 .collect::<Vec<_>>(),
             record["mutant_run_sha256"].as_str().unwrap(),
             &record["difference"],
+            &kink_flow::outcomes::OutcomeRecord::report_value(&record),
         );
         assert_eq!(record["record_sha256"], json!(sealed.to_string()));
     }
@@ -2108,10 +2418,16 @@ misunderstanding = "a test mutation"
                     "outcome": "killed",
                     "mutant_run_sha256": read_json(&outcome_file(&manifest, &cold, "add-swaps-operands"))
                         ["records"][program_digest(&cold, "add")]["mutant_run_sha256"],
+                    "cause": null,
+                    "smt_unknowns": 0,
+                    "decider_smt_unknowns": 0,
                 },
                 "live": {
                     "outcome": "agree",
                     "mutant_run_sha256": verified["mismatches"][0]["live"]["mutant_run_sha256"],
+                    "cause": null,
+                    "smt_unknowns": 0,
+                    "decider_smt_unknowns": 0,
                 },
             })
         );

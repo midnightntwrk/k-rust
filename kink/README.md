@@ -610,9 +610,9 @@ Every other row also carries:
 
 - `results/<execution digest>/<program digest>.json`: one program's cached result (class, cause, baseline evidence, final configuration, rule coverage, and `wall_ms`, which orders the search and is part of no key);
   only `comparable` and `unknown` results are cached, and of `unknown` only those whose cause is not a host event: a timeout, an error, a stack stop or an allowance refusal depends on the host, so every command runs that program again (`[budget] baseline_max_work` bounds a baseline by work instead, a cached `unknown`); under the Z3 profile the key also names the solver's units and Z3 build;
-- `outcomes/<context digest>/<mutation identity>.json`: one mutation's proved outcomes (`killed` or `agree`) per program, with an integrity digest per record;
-  the context is kink's build, the k-rust revision, the solver profile, the execution digest, the budget's bounds and the oracles;
-  a timeout, an unknown or an error is never cached;
+- `outcomes/<context digest>/<mutation identity>.json`: one mutation's outcomes per program that are functions of their key (`killed`, `agree`, and an `unknown` that counts work or reads the run, such as a work-bound or depth-bound mutant run, with its cause), with an integrity digest per record;
+  the context is kink's build, the k-rust revision, the solver profile, the execution digest, the budget's bounds (the work budget and, under Z3, the solver's units and Z3 build included) and the oracles;
+  a timeout, an error, a failed run (a host exclusion such as a stack stop or an allowance refusal among them) and an unknown whose judgement the backend refused are never cached;
 - `hints.json`: each killed mutation's last killing program, keyed by the mutation's edits and its rules' text (no positions), a scheduling hint only (deleting it with `outcomes/` re-runs the searches cheapest killer first);
 - `report.json`: the last run's report;
 - `patterns/<execution digest>/<pattern digest>/<program digest>.json`: one cached pattern answer (`hit` with its witness, or `no`); `run` never reads it;

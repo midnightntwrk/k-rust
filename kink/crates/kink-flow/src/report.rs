@@ -153,8 +153,11 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// `inputs` (`typed-expectation`, `expectation-value`); 23 since each executed entry and each
 /// program row carries `decider_smt_unknowns`, the undecided solver answers of kink's own
 /// questions about the run beside k-rust's `smt_unknowns` (an entry only when it is not zero),
-/// and under the Z3 profile the outcome cache is on where the solver is resource-bounded.
-pub const RUN_VERSION: u64 = 23;
+/// and under the Z3 profile the outcome cache is on where the solver is resource-bounded; 24
+/// since an executed entry from the outcome cache (`cached: true`) can be an `unknown` with its
+/// `cause` and carries the cached run's undecided-answer counts (CF-33d), and a `mismatches`
+/// entry of a program names each side's `cause`, `smt_unknowns` and `decider_smt_unknowns`.
+pub const RUN_VERSION: u64 = 24;
 
 /// k-rust's contradicted-claim records of one run as specification diagnostics (re-pin adoption
 /// A-1): each `{claim, symbol, k_label, rule_id, rule_label, application, undefined,

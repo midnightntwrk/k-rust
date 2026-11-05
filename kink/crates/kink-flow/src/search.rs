@@ -41,8 +41,10 @@
 //!    call would run O: first the programs that witness the compiled edit the outcome file
 //!    keeps, then the rest, each in O's order; so after `--full` cached every killer, the killer
 //!    is the one a cold first-kill call finds first, for the same order of O); otherwise the
-//!    programs with a valid `agree` record form A, in that order, and L = O minus A. With L empty the status
-//!    is the runner's fold over A's cached outcomes (survived), with no call.
+//!    programs with a valid `agree` or `unknown` record (CF-33d: an unknown that is a function
+//!    of the key, [`crate::outcomes`]) form A, in that order, and L = O minus A. With L empty the
+//!    status is the runner's fold over A's cached outcomes (survived, or unknown when some record
+//!    is), with no call.
 //! 4. Otherwise the mutant runs live on L. Tier 2 (README 7.5.5): when the killer hint names a
 //!    comparable program of L, one call runs that program alone; if it kills, that is the
 //!    verdict. Otherwise the cold call runs L (the hinted program included), the programs that
@@ -52,16 +54,18 @@
 //!    their order, with that call's mutant-scope failure. kink-flow adds no fold and compares
 //!    no terms: a mutation is killed only by a proved `Distinguish`, live from
 //!    `run_campaign_multi` in this command or cached under an exactly matching key. A cached
-//!    agreement is the fold's bottom, so the assembled status is the cold call's status; a
-//!    live mutant-scope failure that precedes execution next to a cached agreement is the
+//!    agreement is the fold's bottom, and a cached unknown is the outcome the cold call's test of
+//!    that program gives, so the assembled status is the cold call's status; a live mutant-scope
+//!    failure that precedes execution next to a cached record (which says the mutant ran) is the
 //!    corpus error `outcome-conflict`. A live mutant-scope `Infrastructure` failure is not
 //!    (flow F-16): the status is the live plan's alone (`error`), as a cold call gives it, and
-//!    the cached agreements leave the plan and the row.
+//!    the cached records leave the plan and the row.
 //! 6. After every call, each program's baseline row from that call is compared, by run
 //!    digest, with its cached record. Any difference is a corpus error: the mutation gets the
 //!    status `error` with reason `baseline-mismatch:<program id>` (or
 //!    `baseline-count-mismatch`), nothing is written to tier 1 for it, and the run stops.
-//! 7. After a verdict, every live test whose outcome is cacheable (killed or agree) gets a
+//! 7. After a verdict, every live test whose outcome is cacheable (killed, agree, or, since
+//!    CF-33d, an unknown of a judged run, with its cause; [`crate::outcomes::cacheable`]) gets a
 //!    tier-1 record, unless its call's plan carries a mutant-scope failure, and the mutation's
 //!    outcome file keeps the call's compiled edit ([`EditWitness`]). A `killed` status
 //!    makes its first killing program the mutation's hint; any other status removes it. The
@@ -75,7 +79,7 @@
 //!   `witnesses` still names the programs that witness the compiled edit, in that order).
 //! - Tier 1 decides with no call only when every program of O has a valid record (step 3): a
 //!   `killed` record does not decide a full row, which needs every cell. The valid records,
-//!   killed and agreements alike, are the cached cells C, and L = O minus C.
+//!   killed, agreements and unknowns alike, are the cached cells C, and L = O minus C.
 //! - No one-program call is made for the hint (step 4): a hint only orders the first-kill
 //!   search, and under `Full` every program of L runs in one call. A hint that names
 //!   no comparable program is still reported and removed.
@@ -480,8 +484,10 @@ type Calls = Vec<(Vec<usize>, Value, u64)>;
 
 /// A live program's outcome in `run --verify`.
 enum Live {
-    /// The test ran: its run and the run digest of the mutant's evidence row.
-    Ran(TestRun, Option<String>),
+    /// The test ran: its outcome as a record names it (the cacheable outcome, else the executed
+    /// entry's label), the run digest of the mutant's evidence row, and the report a record of it
+    /// holds ([`OutcomeRecord::report`]).
+    Ran(String, Option<String>, Value),
     /// The one-program call ran no test (a mutant-scope failure): the call's status.
     NotRun(&'static str),
 }
@@ -724,9 +730,11 @@ impl Search<'_, '_> {
     }
 
     /// The executed entry of a valid tier-1 record (`cached: true`): no run in this command,
-    /// so no timings or cause; a kill's difference and sides are the record's (CF-16).
+    /// so no timings; a kill's difference and sides are the record's (CF-16), and an unknown's
+    /// cause and every record's undecided-answer counts are the record's (CF-33d), as the live
+    /// entry that wrote it gave them.
     fn cached_entry(&self, candidate: usize, record: &OutcomeRecord) -> Value {
-        json!({
+        let mut entry = json!({
             "program": self.candidates[candidate].id,
             "outcome": compared_outcome(&record.slots),
             "slots": slots_value(
@@ -738,12 +746,19 @@ impl Search<'_, '_> {
                 &record.difference,
             ),
             "difference": record.difference,
-            "cause": null,
+            "cause": record.cause,
             "cached": true,
             "wall_ms": null,
             "baseline_ms": null,
             "baseline_reused": null,
-        })
+        });
+        if record.smt_unknowns > 0 {
+            entry["smt_unknowns"] = json!(record.smt_unknowns);
+        }
+        if record.decider_smt_unknowns > 0 {
+            entry["decider_smt_unknowns"] = json!(record.decider_smt_unknowns);
+        }
+        entry
     }
 
     /// The valid tier-1 records of the programs of `order`, in that order (README 7.5.3): the
@@ -980,12 +995,16 @@ impl Search<'_, '_> {
     }
 
     /// The tier-1 records a live call gives (README 7.5.3 step 7): one per test whose outcome
-    /// is cacheable, none when the call's plan carries a mutant-scope failure. A `killed`
-    /// record carries the test's kill evidence from `differences` (CF-16).
+    /// is cacheable ([`cacheable`]: `killed`, `agree`, or an `unknown` of a judged run), none when
+    /// the call's plan carries a mutant-scope failure. A `killed` record carries the test's kill
+    /// evidence from `differences` (CF-16), an `unknown` record its executed entry's cause from
+    /// `causes` (CF-33d, [`entry_causes`]; none without one), and every record the run's
+    /// undecided-answer counts.
     fn live_records(
         &self,
         run: &MutantRun,
         differences: &BTreeMap<String, Value>,
+        causes: &BTreeMap<String, String>,
     ) -> Vec<(String, OutcomeRecord)> {
         if run.plan.mutant_failure.is_some() {
             return Vec::new();
@@ -994,8 +1013,17 @@ impl Search<'_, '_> {
             .tests
             .iter()
             .filter_map(|test| {
-                let (outcome, slots) = cacheable(&test.run)?;
+                let notes = run
+                    .evidence
+                    .iter()
+                    .find(|evidence| evidence.test_id == test.test_id)
+                    .map(|evidence| &evidence.notes);
+                let (outcome, slots) = cacheable(&test.run, notes)?;
                 let candidate = &self.candidates[self.position(&test.test_id)?];
+                let cause = match outcome {
+                    CachedOutcome::Unknown => Some(causes.get(&test.test_id)?.clone()),
+                    CachedOutcome::Killed | CachedOutcome::Agree => None,
+                };
                 Some((
                     candidate.digest.to_string(),
                     OutcomeRecord {
@@ -1010,8 +1038,12 @@ impl Search<'_, '_> {
                                 .get(&test.test_id)
                                 .cloned()
                                 .unwrap_or(Value::Null),
-                            CachedOutcome::Agree => Value::Null,
+                            CachedOutcome::Agree | CachedOutcome::Unknown => Value::Null,
                         },
+                        cause,
+                        smt_unknowns: notes.map_or(0, |notes| count(notes.smt_unknowns)),
+                        decider_smt_unknowns: notes
+                            .map_or(0, |notes| count(notes.decider_smt_unknowns)),
                         allowance_bytes: Some(
                             k_rust::k_rust_backend::allowance::Allowance::of_process().bytes(),
                         ),
@@ -1035,7 +1067,7 @@ impl Search<'_, '_> {
     /// The mutants [`Search::search_one`] would compile for `resolution` given the stores now
     /// (re-pin L1-3, for compiling ahead): none when the mutation resolves to no generation, no
     /// program is in O, or tier 1 decides it with no call (a valid killed record, or a valid
-    /// agreement for every program of O); otherwise each candidate's patch and its withdrawing
+    /// record for every program of O); otherwise each candidate's patch and its withdrawing
     /// patch ([`kink_campaign::mutant_compiles`]). Under [`ScheduleMode::Full`] a valid killed
     /// record does not decide ([`tier1_decides`]). A guess that differs from what the search then
     /// does costs a compile, never a row.
@@ -1370,7 +1402,7 @@ impl Search<'_, '_> {
                 false,
             ));
         }
-        // Step 3: A (every valid record is now an agreement) and L.
+        // Step 3: A (every valid record is now an agreement or an unknown) and L.
         let agree = records;
         let live_order = order
             .iter()
@@ -1385,7 +1417,7 @@ impl Search<'_, '_> {
         if live_order.is_empty() {
             let report = self
                 .assemble(&agree, None)
-                .expect("cached agreements form a valid plan");
+                .expect("cached outcomes of executed tests form a valid plan");
             self.stats.mutations_from_cache += 1;
             self.hints.remove(key);
             return Some((
@@ -1407,7 +1439,9 @@ impl Search<'_, '_> {
         let generation = generation
             .expect("a memo's facts are searched only when tier 1 decides, in step 2 or 3");
         let mut calls = Calls::new();
-        let mut runs = Vec::<(Vec<usize>, MutantRun)>::new();
+        // Each live call's order, run and its entries' causes (CF-33d): a record keeps the cause
+        // of its own call's run.
+        let mut runs = Vec::<(Vec<usize>, MutantRun, BTreeMap<String, String>)>::new();
         // The kill evidence of the live calls, by program; a later call's replaces an earlier's,
         // as its record does (step 7).
         let mut differences = BTreeMap::<String, Value>::new();
@@ -1432,8 +1466,10 @@ impl Search<'_, '_> {
                     if status == MutantStatus::Killed {
                         source = SOURCE_HINT;
                     }
+                    let causes =
+                        entry_causes(&live, self.spec.result.slots(), self.manifest.budget);
                     differences.extend(live.differences);
-                    runs.push((vec![h], live.mutant));
+                    runs.push((vec![h], live.mutant, causes));
                 }
             }
         }
@@ -1466,20 +1502,22 @@ impl Search<'_, '_> {
                                 .any(|again| again["program"] == entry["program"])
                     });
                     executed.extend(entries);
+                    let causes =
+                        entry_causes(&live, self.spec.result.slots(), self.manifest.budget);
                     differences.extend(live.differences);
-                    runs.push((live.order, live.mutant));
+                    runs.push((live.order, live.mutant, causes));
                 }
             }
         }
         // Step 5: the status of the assembled plan.
-        let (last_order, last) = runs.last().expect("a live call");
+        let (last_order, last, _) = runs.last().expect("a live call");
         let report = match self.assemble(&agree, Some((last_order, &last.plan))) {
             Ok(report) => report,
             Err(failure) => {
                 let error = CorpusError {
                     reason: "outcome-conflict".into(),
                     detail: format!(
-                        "the cached agreements of {:?} and the live call over {:?} do not form \
+                        "the cached outcomes of {:?} and the live call over {:?} do not form \
                          one plan ({failure}): a cached outcome says the mutant ran, the live \
                          call says it did not; run `{} --verify`",
                         agree
@@ -1495,7 +1533,7 @@ impl Search<'_, '_> {
         };
         if last.plan.mutant_failure == Some(MutantScopeFailure::Infrastructure) && !agree.is_empty()
         {
-            // `assemble` left the cached agreements out of the plan (flow F-16): they leave the
+            // `assemble` left the cached records out of the plan (flow F-16): they leave the
             // row and the counts too, so the row is the cold call's.
             self.stats.programs_from_cache -= agree.len();
             executed.retain(|entry| entry["cached"] != true);
@@ -1504,7 +1542,7 @@ impl Search<'_, '_> {
             .plan
             .mutant_failure
             .map(|failure| kebab(&format!("{failure:?}")))
-            .or_else(|| exclusion_reason(&report, runs.iter().map(|(_, run)| run)));
+            .or_else(|| exclusion_reason(&report, runs.iter().map(|(_, run, _)| run)));
         verdict_claims(&mut row, &last.plan.claims, |claims| {
             claims_value(self.spec.validator.baseline(), claims)
         });
@@ -1513,7 +1551,7 @@ impl Search<'_, '_> {
         // counts each program once).
         let records = runs
             .iter()
-            .flat_map(|(_, run)| self.live_records(run, &differences))
+            .flat_map(|(_, run, causes)| self.live_records(run, &differences, causes))
             .collect::<Vec<_>>();
         self.write_records(identity, mutation, &mut row, &records, witness.as_ref());
         let killer = (report.status == MutantStatus::Killed)
@@ -1533,7 +1571,7 @@ impl Search<'_, '_> {
     }
 
     /// A full row (`run --full`, module documentation): every program of O, in corpus order, is a
-    /// cell, cached (C: every valid record, killed or agreement) or live (L = O minus C, one call
+    /// cell, cached (C: every valid record, killed, agreement or unknown) or live (L = O minus C, one call
     /// under [`ScheduleMode::Full`]). Tier 1 decides with no call only when L is empty; no
     /// one-program call is made for the hint. The status is the fold over C then the call's tests,
     /// under `Full`; `killed_by` lists every killing program in corpus order, `killer` is the
@@ -1640,7 +1678,8 @@ impl Search<'_, '_> {
             verdict_claims(&mut row, &live.mutant.plan.claims, |claims| {
                 claims_value(self.spec.validator.baseline(), claims)
             });
-            let records = self.live_records(&live.mutant, &live.differences);
+            let causes = entry_causes(live, self.spec.result.slots(), self.manifest.budget);
+            let records = self.live_records(&live.mutant, &live.differences, &causes);
             self.write_records(
                 facts.identity,
                 mutation,
@@ -1739,11 +1778,13 @@ impl Search<'_, '_> {
                     self.manifest.budget,
                     first_killer(&live),
                 ));
-                live.mutant
+                let causes = entry_causes(&live, self.spec.result.slots(), self.manifest.budget);
+                (live.mutant, causes)
             }
         };
+        let (cold, cold_causes) = cold;
         let mut live = BTreeMap::new();
-        self.collect_live(&cold, &mut live);
+        self.collect_live(&cold, &cold_causes, &mut live);
         for (c, _) in records {
             if live.contains_key(c) {
                 continue;
@@ -1763,31 +1804,44 @@ impl Search<'_, '_> {
                         self.manifest.budget,
                         None,
                     ));
-                    self.collect_live(&one.mutant, &mut live);
+                    let causes = entry_causes(&one, self.spec.result.slots(), self.manifest.budget);
+                    self.collect_live(&one.mutant, &causes, &mut live);
                     live.entry(*c).or_insert(Live::NotRun(status));
                 }
             }
         }
         // Every valid record against its program's live outcome.
         let mut mismatches = Vec::new();
+        // The record's report (an unknown's cause, the undecided-answer counts) is compared too:
+        // it is a function of the key, as the outcome is (CF-33d).
         for (c, record) in records {
-            let (outcome, mutant) = match &live[c] {
-                Live::Ran(run, mutant) => (
-                    cacheable(run)
-                        .map_or_else(|| run_label(run).to_owned(), |(o, _)| o.as_str().to_owned()),
-                    mutant.clone(),
-                ),
-                Live::NotRun(status) => ((*status).to_owned(), None),
+            let (outcome, mutant, report) = match &live[c] {
+                Live::Ran(outcome, mutant, report) => {
+                    (outcome.clone(), mutant.clone(), report.clone())
+                }
+                Live::NotRun(status) => ((*status).to_owned(), None, OutcomeRecord::no_report()),
             };
+            let cached = record.report();
             if outcome != record.outcome.as_str()
                 || mutant.as_deref() != Some(record.mutant_run_sha256.as_str())
+                || report != cached
             {
+                let side = |outcome: &str, mutant: Value, report: Value| {
+                    let mut side = json!({"outcome": outcome, "mutant_run_sha256": mutant});
+                    for field in ["cause", "smt_unknowns", "decider_smt_unknowns"] {
+                        side[field] = report[field].clone();
+                    }
+                    side
+                };
                 mismatches.push(json!({
                     "mutation": mutation.id,
                     "program": self.candidates[*c].id,
-                    "cached": {"outcome": record.outcome.as_str(),
-                               "mutant_run_sha256": record.mutant_run_sha256},
-                    "live": {"outcome": outcome, "mutant_run_sha256": mutant},
+                    "cached": side(
+                        record.outcome.as_str(),
+                        json!(record.mutant_run_sha256),
+                        cached,
+                    ),
+                    "live": side(&outcome, json!(mutant), report),
                 }));
             }
         }
@@ -1866,18 +1920,46 @@ impl Search<'_, '_> {
         )
     }
 
-    /// Each executed test of a live run, by candidate.
-    fn collect_live(&self, run: &MutantRun, live: &mut BTreeMap<usize, Live>) {
+    /// Each executed test of a live run, by candidate, with the outcome and report a record of it
+    /// holds ([`Search::live_records`]; the label of an outcome that is not cacheable, with no
+    /// cause).
+    fn collect_live(
+        &self,
+        run: &MutantRun,
+        causes: &BTreeMap<String, String>,
+        live: &mut BTreeMap<usize, Live>,
+    ) {
         for test in &run.plan.tests {
             if test.run == TestRun::SkippedAfterKill {
                 continue;
             }
-            if let Some(c) = self.position(&test.test_id) {
-                live.insert(
-                    c,
-                    Live::Ran(test.run.clone(), mutant_run_sha256(run, &test.test_id)),
-                );
-            }
+            let Some(c) = self.position(&test.test_id) else {
+                continue;
+            };
+            let notes = run
+                .evidence
+                .iter()
+                .find(|evidence| evidence.test_id == test.test_id)
+                .map(|evidence| &evidence.notes);
+            let outcome = cacheable(&test.run, notes);
+            let report = OutcomeRecord::report_of(
+                outcome
+                    .filter(|(outcome, _)| *outcome == CachedOutcome::Unknown)
+                    .and_then(|_| causes.get(&test.test_id)),
+                notes.map_or(0, |notes| count(notes.smt_unknowns)),
+                notes.map_or(0, |notes| count(notes.decider_smt_unknowns)),
+            );
+            live.insert(
+                c,
+                Live::Ran(
+                    outcome.map_or_else(
+                        || run_label(&test.run).to_owned(),
+                        |(outcome, _)| outcome.as_str().to_owned(),
+                    ),
+                    mutant_run_sha256(run, &test.test_id),
+                    report,
+                ),
+            );
         }
     }
 
@@ -2021,14 +2103,7 @@ fn executed_entries(
                 .recording
                 .mutant_run(mutant.plan.mutant_id, &test.test_id);
             let baseline_run = live.recording.baseline_of(&test.test_id);
-            let cause = executed_cause(
-                &slots,
-                &test.run,
-                evidence,
-                found.map_or(&[][..], |evidence| evidence.notes.across.as_slice()),
-                budget,
-                run.map(|run| (&run.census, &live.edited)),
-            );
+            let cause = entry_cause(live, slots, budget, test);
             let difference = live
                 .differences
                 .get(&test.test_id)
@@ -2071,25 +2146,73 @@ fn executed_entries(
                 }
                 undecided_answers(&mut entry, notes);
                 // CF-03: the readings that count against the mutant's run, the step that
-                // excluded it.
+                // excluded it (which the cause names, [`entry_cause`]).
                 if !notes.short_circuit_readings.is_empty() {
                     entry["short_circuit_readings"] =
                         crate::exclusion::readings_value(&notes.short_circuit_readings);
-                    if let (
-                        TestRun::Failed(kink_campaign::ExecutionFailureKind::ShortCircuitReading),
-                        Some(cause),
-                    ) = (&test.run, &cause)
-                    {
-                        entry["cause"] = json!(format!(
-                            "{cause}; the mutant's run: {}",
-                            crate::exclusion::readings_text(&notes.short_circuit_readings)
-                        ));
-                    }
                 }
             }
             Some(entry)
         })
         .collect()
+}
+
+/// The `cause` of a live call's executed entry for `test` ([`executed_cause`]): from the runner's
+/// evidence for the mutant's run and, when this call recorded the run, its leaf census; for a run
+/// excluded by a short-circuit reading, followed by the readings (CF-03).
+fn entry_cause(
+    live: &LiveCall,
+    slots: [&str; 2],
+    budget: Budget,
+    test: &kink_campaign::TestPlan,
+) -> Option<String> {
+    let mutant = &live.mutant;
+    let found = mutant
+        .evidence
+        .iter()
+        .find(|evidence| evidence.test_id == test.test_id);
+    let run = live
+        .recording
+        .mutant_run(mutant.plan.mutant_id, &test.test_id);
+    let cause = executed_cause(
+        &slots,
+        &test.run,
+        found.map(|evidence| &evidence.run),
+        found.map_or(&[][..], |evidence| evidence.notes.across.as_slice()),
+        budget,
+        run.map(|run| (&run.census, &live.edited)),
+    )?;
+    Some(match (found, &test.run) {
+        (
+            Some(evidence),
+            TestRun::Failed(kink_campaign::ExecutionFailureKind::ShortCircuitReading),
+        ) if !evidence.notes.short_circuit_readings.is_empty() => format!(
+            "{cause}; the mutant's run: {}",
+            crate::exclusion::readings_text(&evidence.notes.short_circuit_readings)
+        ),
+        _ => cause,
+    })
+}
+
+/// The cause of every executed entry of a live call that has one ([`entry_cause`]), by program:
+/// what an `unknown` outcome record of the call keeps (CF-33d).
+fn entry_causes(live: &LiveCall, slots: [&str; 2], budget: Budget) -> BTreeMap<String, String> {
+    live.mutant
+        .plan
+        .tests
+        .iter()
+        .filter_map(|test| {
+            Some((
+                test.test_id.clone(),
+                entry_cause(live, slots, budget, test)?,
+            ))
+        })
+        .collect()
+}
+
+/// A count of undecided answers as a record holds it.
+fn count(answers: usize) -> u64 {
+    u64::try_from(answers).unwrap_or(u64::MAX)
 }
 
 /// Writes on an executed entry of a live mutant run the undecided solver answers of the run that
@@ -3146,6 +3269,9 @@ mod tests {
             slots: Vec::new(),
             mutant_run_sha256: String::new(),
             difference: Value::Null,
+            cause: None,
+            smt_unknowns: 0,
+            decider_smt_unknowns: 0,
             allowance_bytes: None,
         };
         let killed = |c| (c, record(CachedOutcome::Killed));
@@ -3169,6 +3295,14 @@ mod tests {
         );
         assert_eq!(
             decides(&[0, 1, 2], &[agree(0), agree(1), agree(2)]),
+            [true, true]
+        );
+        // CF-33d: a cached unknown is a cell like an agreement: it decides nothing alone, and a
+        // record for every program of O, unknowns included, decides both.
+        let unknown = |c| (c, record(CachedOutcome::Unknown));
+        assert_eq!(decides(&[0, 1, 2], &[unknown(0), agree(2)]), [false, false]);
+        assert_eq!(
+            decides(&[0, 1, 2], &[unknown(0), agree(1), unknown(2)]),
             [true, true]
         );
     }

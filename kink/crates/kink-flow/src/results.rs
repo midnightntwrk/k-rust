@@ -707,6 +707,10 @@ impl<'a> BaselineRunner<'a> {
     ) -> Result<CampaignRun, CampaignFailure> {
         let mut options = options.clone();
         options.run.baseline_max_work = self.baseline_max_work;
+        // The manifest's units bound every solver query of the kill search too, as `call`'s do:
+        // the tier-1 context names them (`budget_value`'s `smt`), so a call under any other units
+        // would write an outcome its key does not name (CF-33d review).
+        options.run.smt_resource_limit = self.smt_resource_limit;
         options.run.stop = self.stop;
         let campaign = Campaign {
             validator: &self.spec.validator,

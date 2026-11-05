@@ -156,8 +156,10 @@ pub const EXECUTION_DIGEST_KIND: &str = EXECUTION_DOMAIN;
 /// The `outcome_schema` of every tier-1 context: what an outcome record means (flow README
 /// 7.5.3). v2: outcomes are recorded under the Z3 profile too, where the solver is
 /// resource-bounded and the context's budget names its units and Z3 build, so a record may hold
-/// an outcome that rests on solver answers.
-pub const OUTCOME_SCHEMA_VERSION: &str = "kink-flow/outcome/v2";
+/// an outcome that rests on solver answers. v3 (CF-33d): a record may hold an `unknown` outcome,
+/// one whose run is a function of the context (`crate::outcomes`, "Unknown outcomes"), with its
+/// cause.
+pub const OUTCOME_SCHEMA_VERSION: &str = "kink-flow/outcome/v3";
 /// Domain of the digest of a tier-1 context, which names its directory under `outcomes/`.
 pub const OUTCOME_CONTEXT_DOMAIN: &str = "kink-flow/outcome-context/v1";
 /// Domain of a mutation's position-free identity (flow README 7.5.4).
