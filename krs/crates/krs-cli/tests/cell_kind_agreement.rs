@@ -105,13 +105,62 @@ fn every_class_base_cell_has_one_kind_collected_and_parsed() {
     assert!(compared > 0, "the bases declare cells");
 }
 
-/// The fixture packages, by directory name, that the fixture package in `directory` depends on by
-/// path: each dependency whose path is a sibling directory of `packages`.
-fn fixture_dependencies(packages: &Path, directory: &Path) -> Vec<String> {
-    let manifest = fs::read_to_string(directory.join("Cargo.toml"))
+/// A fixture package: a member of the configuration-cells gate's workspace.
+struct Fixture {
+    /// The member's path below `packages/`, such as `group-harts/smp`.
+    key: String,
+    /// The member's directory.
+    directory: PathBuf,
+    /// The package name its manifest declares.
+    package: String,
+}
+
+fn manifest(directory: &Path) -> toml_edit::DocumentMut {
+    fs::read_to_string(directory.join("Cargo.toml"))
         .unwrap()
         .parse::<toml_edit::DocumentMut>()
-        .unwrap();
+        .unwrap()
+}
+
+/// The fixture packages: the members the gate's workspace manifest lists, which is what makes a
+/// directory a fixture package, whatever its depth below `packages/`.
+fn fixtures(workspace: &Path) -> Vec<Fixture> {
+    let packages = workspace.join("packages");
+    let root = manifest(workspace);
+    let mut fixtures = root["workspace"]["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|member| {
+            let directory = workspace
+                .join(member.as_str().unwrap())
+                .canonicalize()
+                .unwrap();
+            let key = directory
+                .strip_prefix(&packages)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_owned();
+            let package = manifest(&directory)["package"]["name"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            Fixture {
+                key,
+                directory,
+                package,
+            }
+        })
+        .collect::<Vec<_>>();
+    fixtures.sort_by(|left, right| left.key.cmp(&right.key));
+    fixtures
+}
+
+/// The fixture packages, by key, that the fixture package in `directory` depends on by path:
+/// each dependency whose path is another fixture's directory.
+fn fixture_dependencies(keys: &BTreeMap<PathBuf, String>, directory: &Path) -> Vec<String> {
+    let manifest = manifest(directory);
     let Some(dependencies) = manifest
         .get("dependencies")
         .and_then(toml_edit::Item::as_table_like)
@@ -122,8 +171,7 @@ fn fixture_dependencies(packages: &Path, directory: &Path) -> Vec<String> {
         .iter()
         .filter_map(|(_, dependency)| {
             let path = directory.join(dependency.get("path")?.as_str()?);
-            let path = path.canonicalize().ok()?;
-            (path.parent()? == packages).then(|| path.file_name()?.to_str().map(str::to_owned))?
+            keys.get(&path.canonicalize().ok()?).cloned()
         })
         .collect::<Vec<_>>();
     names.sort();
@@ -155,46 +203,49 @@ fn package_sources(directory: &Path) -> Vec<String> {
 fn every_configuration_cells_fixture_cell_has_one_kind_collected_and_parsed() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
-    let packages = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/configuration-cells/packages")
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/configuration-cells")
         .canonicalize()
         .unwrap();
-    let mut names = fs::read_dir(&packages)
-        .unwrap()
-        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
-        .collect::<Vec<_>>();
-    names.sort();
-    assert!(!names.is_empty());
-    let dependencies = names
+    let fixtures = fixtures(&workspace);
+    assert!(!fixtures.is_empty());
+    let keys = fixtures
         .iter()
-        .map(|name| {
+        .map(|fixture| (fixture.directory.clone(), fixture.key.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let by_key = fixtures
+        .iter()
+        .map(|fixture| (fixture.key.as_str(), fixture))
+        .collect::<BTreeMap<_, _>>();
+    let dependencies = fixtures
+        .iter()
+        .map(|fixture| {
             (
-                name.clone(),
-                fixture_dependencies(&packages, &packages.join(name)),
+                fixture.key.clone(),
+                fixture_dependencies(&keys, &fixture.directory),
             )
         })
         .collect::<BTreeMap<_, _>>();
     let libraries = dependencies.values().flatten().collect::<BTreeSet<_>>();
     let mut held = BTreeSet::new();
-    for name in &names {
+    for fixture in &fixtures {
+        let name = &fixture.key;
         if libraries.contains(name) {
             continue;
         }
-        let directory = packages.join(name);
-        let package = format!("krs-configuration-cells-{name}");
         let bundle = emitted_bundle(
             target.path(),
-            &directory.join("Cargo.toml"),
-            &package,
+            &fixture.directory.join("Cargo.toml"),
+            &fixture.package,
             &dependencies[name]
                 .iter()
-                .map(|dependency| format!("krs-configuration-cells-{dependency}"))
+                .map(|dependency| by_key[dependency.as_str()].package.clone())
                 .collect::<Vec<_>>(),
-            &temporary.path().join(name),
+            &temporary.path().join(name.replace('/', "-")),
         );
-        let mut sources = package_sources(&directory);
+        let mut sources = package_sources(&fixture.directory);
         for dependency in &dependencies[name] {
-            sources.extend(package_sources(&packages.join(dependency)));
+            sources.extend(package_sources(&by_key[dependency.as_str()].directory));
             held.insert(dependency);
         }
         let cells = agree(name, &bundle, &sources);
