@@ -35,6 +35,7 @@ mod values;
 mod view;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::num::NonZeroU64;
 use std::sync::Arc;
 use std::{collections::HashMap, fmt};
 
@@ -115,19 +116,92 @@ pub struct RunOptions {
     /// Report the run's coverage ([`RunReport::coverage`]): the rules and equations it matched,
     /// applied and committed, with how many times it applied each.
     pub coverage: Option<CoverageOptions>,
-    /// End the run at a step by one of these rules ([`RunReport::stop`]).
-    pub stop: StopRules,
+    /// End the run at the stop the criterion names ([`RunReport::stop`]); by default the run
+    /// ends only on its own. A [`StopRules`] converts into the criterion that ends the run at
+    /// its first stop (`stop: rules.into()`).
+    pub stop: StopCriterion,
+}
+
+/// Where a run ends besides its own end ([`RunOptions::stop`]).
+///
+/// Whatever the criterion, a run ends on its own (no rule applies, or the state has no value)
+/// and is cut off by a bound (the step budget [`RunOptions::depth`], or the backend's); a
+/// criterion only adds ends. A bound is no end of the run: a run that reaches its step budget
+/// reports `depth-bound`, never a stop, and counts no arrival there.
+#[non_exhaustive]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub enum StopCriterion {
+    /// The run ends only on its own.
+    #[default]
+    None,
+    /// The run ends at its `count`th arrival at a stop of `rules`.
+    ///
+    /// An arrival is what ends a run at the stop rules: a step by a stop rule that is its
+    /// state's one successor, the run ending at that state for a stop-before rule and at the
+    /// step's successor for a stop-after rule; a step by a stop rule from a state with several
+    /// successors is no arrival. The run is a run to the first arrival, resumed from its state
+    /// ([`RunReport::resume`]) until the `count`th, so it holds no counter: its `steps`, trace,
+    /// depth bound and coverage are those of the pieces summed, which are the uncut run's
+    /// ([`StopRules`]: coverage's counts but for an equation instance the uncut run serves from
+    /// its memo, which a later piece evaluates again). A run that ends on its own first reports
+    /// that end, and how many arrivals it counted ([`RunReport::stops`]).
+    Rules {
+        /// The rules a stop is a step by.
+        rules: StopRules,
+        /// The arrival the run ends at.
+        count: NonZeroU64,
+    },
+}
+
+impl StopCriterion {
+    /// The arrival a run ends at, `None` when it ends only on its own.
+    #[must_use]
+    pub const fn count(&self) -> Option<NonZeroU64> {
+        match self {
+            Self::None => None,
+            Self::Rules { count, .. } => Some(*count),
+        }
+    }
+}
+
+/// The criterion that ends a run at its first stop of `rules`, or only on its own where `rules`
+/// names none.
+impl From<StopRules> for StopCriterion {
+    fn from(rules: StopRules) -> Self {
+        if rules.is_empty() {
+            Self::None
+        } else {
+            Self::Rules {
+                rules,
+                count: NonZeroU64::MIN,
+            }
+        }
+    }
 }
 
 /// The rewrite rules at which a run ends ([`RunOptions::stop`]): k-rust's cut-point and terminal
 /// rules (`ExecuteRequest::cut_point_rules`, `terminal_rules`).
 ///
-/// Each rule is named by its K label, exactly (`SM83.boundary-fetch`) or by a unique `.`-suffix
-/// (`boundary-fetch`), as `krs prove --claim` names a claim; a label several rules carry names
-/// each of them. The name is resolved among the labels of every sentence, an exact label winning
-/// over every suffix, and is an error where it selects no sentence, several labels, or a
-/// sentence that is no rewrite rule ([`ExecError::UnknownRule`], [`ExecError::AmbiguousRule`]):
-/// an equation, a simplification or a definedness equation takes no step, so no run stops at it.
+/// A name is a KRS item or a K label.
+///
+/// - A name with `::` is a KRS item, by its Rust path as the root package's source names it:
+///   `crate::` and the path below the root crate's root (`crate::ppu::frame_end`), or a
+///   dependency's crate name and the path below its root (`lang::step`). The root package is
+///   the one whose module is the definition's main module. A path with neither prefix
+///   (`ppu::frame_end`) is read both ways, as Rust reads a path at the crate root. The name
+///   selects every rewrite rule the item lowers to (a context's heat and cool rules, a strict
+///   production's), whatever their labels. It is an error where the item lowers to no rewrite
+///   rule ([`ExecError::UnknownItem`]), or where the path names items of several packages
+///   ([`ExecError::AmbiguousItem`]). No label KRS emits holds `::`, so a KRS label is never
+///   read as an item.
+/// - Any other name is a K label, exactly (`SM83.boundary-fetch`) or a unique `.`-suffix
+///   (`boundary-fetch`), as `krs prove --claim` names a claim; a label several rules carry names
+///   each of them. The name is resolved among the labels of every sentence, an exact label
+///   winning over every suffix, and is an error where it selects no sentence, several labels, or
+///   a sentence that is no rewrite rule ([`ExecError::UnknownRule`],
+///   [`ExecError::AmbiguousRule`]).
+///
+/// An equation, a simplification or a definedness equation takes no step, so no run stops at it.
 ///
 /// A run that ends at a stop rule reports `stopped` ([`Halt::Stopped`]) and the stop
 /// ([`RunReport::stop`]), and a later run from [`RunReport::resume`] goes on along the path from
@@ -513,6 +587,22 @@ pub enum ExecError {
         /// The matching labels.
         matches: Vec<String>,
     },
+    /// A stop named by KRS item ([`StopRules`]) lowers to no rewrite rule.
+    UnknownItem {
+        /// The item as written.
+        requested: String,
+        /// The kinds of the sentences the item lowers to, none of them a rewrite rule, each
+        /// once; empty where no sentence of the definition is the item's.
+        kinds: Vec<RuleKind>,
+    },
+    /// A stop named by KRS item ([`StopRules`]) names items of several packages.
+    AmbiguousItem {
+        /// The item as written.
+        requested: String,
+        /// Each item it names, by the spelling that names it where any does (`crate::step`,
+        /// `lang::step`), with its package's K namespace, ordered by namespace.
+        matches: Vec<(String, String)>,
+    },
     /// `prove` on a definition without claims.
     NoClaims,
     /// `--spec-module` named an author spec module without claims (KF-041).
@@ -662,6 +752,18 @@ impl fmt::Display for ExecError {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
+            Self::UnknownItem { requested, kinds } => write_unknown_item(formatter, requested, kinds),
+            Self::AmbiguousItem { requested, matches } => write!(
+                formatter,
+                "KRS item `{requested}` is ambiguous: it names {}; `crate::` names the root package's item alone, and a K label names one package's rule",
+                matches
+                    .iter()
+                    .map(|(item, namespace)| format!(
+                        "`{item}` of the package of K namespace `{namespace}`"
+                    ))
+                    .collect::<Vec<_>>()
+                    .join(" and ")
+            ),
             Self::NoClaims => formatter.write_str("this definition has no claims"),
             Self::NoSpecClaims(module) => write!(
                 formatter,
@@ -733,6 +835,38 @@ fn unboxed_configuration_value(boxed: &Pattern) -> &Pattern {
     }
 }
 
+/// A sentence kind with its article, as a refusal names it.
+const fn kind_phrase(kind: RuleKind) -> &'static str {
+    match kind {
+        RuleKind::Equation => "a function equation",
+        RuleKind::Simplification => "a simplification",
+        RuleKind::Definedness => "a definedness (`#Ceil`) equation",
+        RuleKind::Rule => "a rewrite rule",
+    }
+}
+
+fn write_unknown_item(
+    formatter: &mut fmt::Formatter<'_>,
+    requested: &str,
+    kinds: &[RuleKind],
+) -> fmt::Result {
+    if kinds.is_empty() {
+        return write!(
+            formatter,
+            "no rewrite rule is written by KRS item `{requested}`: no sentence of the definition is the item's (an item is named by its Rust path: `crate::` and its path in the root package, or a dependency's crate name and its path there)"
+        );
+    }
+    let kinds = kinds
+        .iter()
+        .map(|kind| kind_phrase(*kind))
+        .collect::<Vec<_>>()
+        .join(" or ");
+    write!(
+        formatter,
+        "no rewrite rule is written by KRS item `{requested}`: each of its sentences is {kinds}, which a run applies without taking a step, so no step can stop at it"
+    )
+}
+
 fn write_unknown_rule(
     formatter: &mut fmt::Formatter<'_>,
     requested: &str,
@@ -741,12 +875,7 @@ fn write_unknown_rule(
 ) -> fmt::Result {
     write!(formatter, "no rewrite rule has label `{requested}`")?;
     if let Some((label, kind)) = sentence {
-        let kind = match kind {
-            RuleKind::Equation => "a function equation",
-            RuleKind::Simplification => "a simplification",
-            RuleKind::Definedness => "a definedness (`#Ceil`) equation",
-            RuleKind::Rule => "a rewrite rule",
-        };
+        let kind = kind_phrase(kind);
         write!(
             formatter,
             ": `{label}` is {kind}, which a run applies without taking a step, so no step can stop at it"
@@ -937,7 +1066,9 @@ impl Semantics {
             .collect::<Vec<_>>();
         let spec_definition = (!spec_modules.is_empty()).then(|| Box::new(definition.clone()));
         let main_cell = main_cell_name(definition);
-        let rules = rules::Rules::new(&backend)?;
+        let rules = rules::Rules::new(&backend, &main_module, |id| {
+            origin::item_path(sentence_provenance.get(id))
+        })?;
         Ok(Self {
             backend,
             sort_hooks,
@@ -1626,17 +1757,55 @@ impl Semantics {
     /// ([`StopRules::before`]); a depth bound of 0 leaves it untaken, so the run ends where the
     /// stopped run did.
     ///
+    /// Under a stop criterion with a count N ([`StopCriterion::Rules`]), the run is the run to
+    /// its first arrival at a stop, resumed from each arrival before the Nth
+    /// ([`RunReport::resume`]): the report is the last piece's, with the pieces' `steps`,
+    /// traces (numbered along the whole path), logs and coverage summed, and the depth bound is
+    /// the whole path's.
+    ///
     /// # Errors
     ///
-    /// Returns [`ExecError::UnknownRule`] or [`ExecError::AmbiguousRule`] when a stop rule names
-    /// no rewrite rule, or several by suffix ([`StopRules`]), [`ExecError::Backend`] when the
+    /// Returns [`ExecError::UnknownRule`], [`ExecError::AmbiguousRule`],
+    /// [`ExecError::UnknownItem`] or [`ExecError::AmbiguousItem`] when a stop names no rewrite
+    /// rule, several labels by suffix, or items of several packages ([`StopRules`]),
+    /// [`ExecError::Backend`] when the
     /// backend fails, [`ExecError::Undecided`] when the run reaches several states under
     /// conditions it cannot decide, or [`ExecError::Result`] when the backend returns several
     /// states under no condition, or none.
     pub fn run(&mut self, state: &State, options: RunOptions) -> Result<RunReport, ExecError> {
-        let stops = self.stop_ids(&options.stop)?;
+        let (stops, count) = match &options.stop {
+            StopCriterion::None => (StopIds::default(), NonZeroU64::MIN),
+            StopCriterion::Rules { rules, count } => (self.stop_ids(rules)?, *count),
+        };
+        let depth = options.depth;
+        let mut piece = options;
+        let mut report = self.run_piece(state, &piece, &stops)?;
+        let mut arrivals = u64::from(report.halt == Halt::Stopped);
+        // Each piece is a run to the next arrival, resumed where the last one stopped, with the
+        // bound the pieces before it left; an arrival short of the count is passed so.
+        while report.halt == Halt::Stopped && arrivals < count.get() {
+            piece.depth = depth.map(|depth| depth.saturating_sub(report.steps));
+            let next = self.run_piece(&report.resume(), &piece, &stops)?;
+            arrivals += u64::from(next.halt == Halt::Stopped);
+            report = report.followed_by(next);
+        }
+        report.stops = arrivals;
+        if let Some(stop) = &mut report.stop {
+            stop.nth = arrivals;
+        }
+        Ok(report)
+    }
+
+    /// A run from `state` to its first arrival at a stop rule of `stops`, or its own end
+    /// ([`Self::run`]).
+    fn run_piece(
+        &mut self,
+        state: &State,
+        options: &RunOptions,
+        stops: &StopIds,
+    ) -> Result<RunReport, ExecError> {
         let Some(taken) = &state.taken else {
-            return self.run_from(&state.pattern, &options, &stops, None);
+            return self.run_from(&state.pattern, options, stops, None);
         };
         // The bound left once the taken step is counted: `None` where the bound allows no step.
         let Some(depth) = options
@@ -1658,8 +1827,11 @@ impl Semantics {
             report.resume = Some(state.clone());
             return Ok(report);
         };
-        let options = RunOptions { depth, ..options };
-        self.run_from(&state.pattern, &options, &stops, Some(taken))
+        let options = RunOptions {
+            depth,
+            ..options.clone()
+        };
+        self.run_from(&state.pattern, &options, stops, Some(taken))
     }
 
     /// A run from `start` ([`Self::run`]); `taken` is the step that leads to `start`, which the
@@ -1761,6 +1933,7 @@ impl Semantics {
             valueless,
             coverage,
             stop,
+            stops: 0,
             resume,
         })
     }
@@ -1810,13 +1983,27 @@ impl Semantics {
             .collect()
     }
 
+    /// A name of the rewrite rule `rule_id` that a stop accepts ([`StopRules`]) and that
+    /// selects it, as a report names a stop to its reader: its KRS item's spelling
+    /// (`crate::ppu::frame_end`, `lang::step`) where that names the item alone, else its K label
+    /// where that selects it. `None` where neither does, or the identity is no rule of the
+    /// definition.
+    #[must_use]
+    pub fn stop_name(&self, rule_id: &str) -> Option<String> {
+        self.rules.stop_name(rule_id)
+    }
+
     /// The `UNIQUE_ID`s of a run's stop rules, each name resolved among the rewrite rules
     /// ([`StopRules`]).
     fn stop_ids(&self, stop: &StopRules) -> Result<StopIds, ExecError> {
         let resolve = |names: &[String]| {
             let mut ids = BTreeSet::new();
             for name in names {
-                ids.extend(self.rules.resolve_rewrite(name)?);
+                ids.extend(if name.contains("::") {
+                    self.rules.resolve_item(name)?
+                } else {
+                    self.rules.resolve_rewrite(name)?
+                });
             }
             Ok::<_, ExecError>(ids.into_iter().collect::<Vec<_>>())
         };
@@ -1859,7 +2046,7 @@ impl Semantics {
                 rule_id,
             }
         });
-        Some(Stop { at, rule })
+        Some(Stop { at, rule, nth: 1 })
     }
 
     /// A run's coverage by identity, from k-rust's lists ([`Coverage`]): each identity once, with

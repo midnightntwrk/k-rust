@@ -3,8 +3,8 @@
 use krs_cli::{
     Backend, ColorChoice, Command, CommandKind, CommandRequest, DiagnosticSources, FacetSelector,
     KrsCfg, MessageFormat, PackageSelector, ParseRequest, ProgramSource, ProveRequest,
-    RegistrationMode, RunRequest, SearchMode, SearchRequest, TermOutput, execute_command_reported,
-    supervise_prove, valid_identifier_segment,
+    RegistrationMode, RunRequest, SearchMode, SearchRequest, StopCriterion, StopRules, TermOutput,
+    execute_command_reported, supervise_prove, valid_identifier_segment,
 };
 use krs_fmt::{Edition, FormatOptions, TrailingCommentStyle};
 use krs_ir::measure::Measurement;
@@ -12,6 +12,7 @@ use lexopt::Arg::{Long, Short, Value};
 use std::ffi::OsString;
 use std::fmt;
 use std::io::{self, IsTerminal, Read, Write};
+use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 
 const USAGE: &str = "\
@@ -21,7 +22,8 @@ Usage:
   krs <check|expand|emit-k|build> --package PACKAGE --definition NAME [OPTIONS]
   krs parse  --package P --definition D [--sort SORT] [--output kast|program|json|kore] [FILE|-]
   krs run    --package P --definition D [FILE|-] [--case FILE] [--input NAME=JSON]...
-             [-c NAME=TEXT]... [--depth N] [--trace] [--coverage]
+             [-c NAME=TEXT]... [--depth N] [--stop-before NAME]... [--stop-after NAME]...
+             [--stop-count N] [--trace] [--coverage]
              [--output pretty|kast|json|kore|none] [--color auto|always|never]
   krs search --package P --definition D [FILE|-] [--case FILE] [--input NAME=JSON]...
              [-c NAME=TEXT]... [--mode final|all|one-step|one-or-more-steps] [--depth N]
@@ -70,6 +72,13 @@ Options:
                              paths are relative to the working directory; repeatable
   -c NAME=TEXT               Bind configuration variable NAME ($ENV, ENV, or init parameter env); repeatable
   --depth N                  At most N rewrite steps
+  --stop-before NAME         With run, end before a step by a rule of NAME: a KRS item by
+                             its Rust path (`crate::ppu::frame_end`, or `lang::tick` in the
+                             dependency crate `lang`), whose every rewrite rule it names, or a
+                             K label (exact or unique suffix); repeatable
+  --stop-after NAME          With run, end after a step by a rule of NAME; repeatable
+  --stop-count N             With run, end at the Nth stop, resuming past the earlier ones
+                             (default: 1); needs --stop-before or --stop-after
   --trace                    Print each rewrite step with its rule and source
   --coverage                 With run, list the rules and equations the run matched, applied
                              and committed, with their sources (--output json: the report's
@@ -382,6 +391,8 @@ struct ExecOptions {
     typed: Vec<(String, String)>,
     variables: Vec<(String, String)>,
     depth: Option<u64>,
+    stop: StopRules,
+    stop_count: Option<NonZeroU64>,
     trace: bool,
     coverage: bool,
     mode: Option<SearchMode>,
@@ -606,10 +617,13 @@ fn parse_run(parser: &mut lexopt::Parser, kind: CommandKind) -> Result<ParseResu
 const HIDDEN_OPTIONS: [&str; 3] = ["--worker-protocol", "--worker-claim", "--worker-color"];
 
 /// Long options of the run-family commands, without their leading dashes.
-const EXEC_LONG_OPTIONS: [&str; 14] = [
+const EXEC_LONG_OPTIONS: [&str; 17] = [
     "case",
     "input",
     "depth",
+    "stop-before",
+    "stop-after",
+    "stop-count",
     "max-solutions",
     "mode",
     "trace",
@@ -659,6 +673,7 @@ fn exec_option(
                 .map_err(|_| usage(format!("--depth `{value}` is not a non-negative integer")))?;
             set_once(&mut exec.depth, depth, "--depth")?;
         }
+        "stop-before" | "stop-after" | "stop-count" => stop_option(parser, exec, option)?,
         "max-solutions" => {
             exec.note("--max-solutions");
             let value = option_value(parser, "maximum solution count")?;
@@ -717,6 +732,60 @@ fn exec_option(
         _ => unreachable!("exec_option is called only for run options"),
     }
     Ok(())
+}
+
+/// Parse one of the stop options of `krs run`.
+fn stop_option(
+    parser: &mut lexopt::Parser,
+    exec: &mut ExecOptions,
+    option: &'static str,
+) -> Result<(), UsageError> {
+    match option {
+        "stop-before" => {
+            exec.note("--stop-before");
+            exec.stop.before.push(stop_name(parser, "--stop-before")?);
+        }
+        "stop-after" => {
+            exec.note("--stop-after");
+            exec.stop.after.push(stop_name(parser, "--stop-after")?);
+        }
+        "stop-count" => {
+            exec.note("--stop-count");
+            let value = option_value(parser, "stop count")?;
+            let count = value
+                .parse::<NonZeroU64>()
+                .map_err(|_| usage(format!("--stop-count `{value}` is not a positive integer")))?;
+            set_once(&mut exec.stop_count, count, "--stop-count")?;
+        }
+        _ => unreachable!("stop_option is called only for the stop options"),
+    }
+    Ok(())
+}
+
+/// The KRS item or K label a stop option names, which must not be empty.
+fn stop_name(parser: &mut lexopt::Parser, option: &str) -> Result<String, UsageError> {
+    let name = option_value(parser, "stop rule")?;
+    if name.is_empty() {
+        return Err(usage(format!(
+            "{option} needs a KRS item or a K label, not an empty name"
+        )));
+    }
+    Ok(name)
+}
+
+/// The stop criterion of `--stop-before`, `--stop-after` and `--stop-count`: a count without a
+/// rule has no stop to count.
+fn stop_criterion(
+    rules: StopRules,
+    count: Option<NonZeroU64>,
+) -> Result<StopCriterion, UsageError> {
+    match count {
+        Some(_) if rules.is_empty() => Err(usage(
+            "--stop-count needs --stop-before or --stop-after: it counts arrivals at their rules",
+        )),
+        Some(count) => Ok(StopCriterion::Rules { rules, count }),
+        None => Ok(rules.into()),
+    }
 }
 
 /// Parse one of the hidden options between a supervising `krs prove` and its workers.
@@ -789,6 +858,9 @@ fn exec_options(kind: CommandKind) -> &'static [&'static str] {
             "--input",
             "-c",
             "--depth",
+            "--stop-before",
+            "--stop-after",
+            "--stop-count",
             "--trace",
             "--coverage",
             "--color",
@@ -881,6 +953,7 @@ fn exec_command(
             inputs: exec.typed,
             variables: exec.variables,
             depth: exec.depth,
+            stop: stop_criterion(exec.stop, exec.stop_count)?,
             trace: exec.trace,
             coverage: exec.coverage,
             output,
@@ -1988,6 +2061,7 @@ mod tests {
                     ("$STORE".to_owned(), "1".to_owned()),
                 ],
                 depth: Some(3),
+                stop: StopCriterion::None,
                 trace: true,
                 coverage: true,
                 output: TermOutput::Json,
@@ -2101,6 +2175,90 @@ mod tests {
         assert_eq!(worker.output, TermOutput::JsonLines);
         // A worker colours as its supervisor resolved `--color` against the supervisor's stdout.
         assert_eq!(worker.color, ColorChoice::Always);
+    }
+
+    /// `--stop-before` and `--stop-after` name stop rules by KRS item or K label, each
+    /// repeatable, and `--stop-count` counts arrivals at them; a count without a stop is refused.
+    #[test]
+    fn parses_stop_options_and_refuses_a_count_without_a_stop() {
+        let base = ["--package", "imp", "--definition", "main"];
+        let with = |verb: &str, extra: &[&str]| {
+            let mut args = vec![verb];
+            args.extend(base);
+            args.extend(extra);
+            run(&args).0.command
+        };
+        let failure = |verb: &str, extra: &[&str]| {
+            let mut args = vec![verb];
+            args.extend(base);
+            args.extend(extra);
+            error(&args)
+        };
+        let stop = |extra: &[&str]| match with("run", extra) {
+            Command::Run(request) => request.stop,
+            other => panic!("{other:?}"),
+        };
+        let rules = StopRules {
+            before: vec!["ppu::frame_end".to_owned()],
+            after: vec!["boundary-fetch".to_owned(), "crate::tick".to_owned()],
+        };
+        assert_eq!(
+            stop(&[
+                "--stop-before",
+                "ppu::frame_end",
+                "--stop-after=boundary-fetch",
+                "--stop-after",
+                "crate::tick",
+                "--stop-count",
+                "60"
+            ]),
+            StopCriterion::Rules {
+                rules,
+                count: NonZeroU64::new(60).unwrap(),
+            }
+        );
+        // Without --stop-count the run ends at its first stop.
+        assert_eq!(
+            stop(&["--stop-after", "boundary-fetch"]),
+            StopCriterion::Rules {
+                rules: StopRules {
+                    after: vec!["boundary-fetch".to_owned()],
+                    ..StopRules::default()
+                },
+                count: NonZeroU64::MIN,
+            }
+        );
+        assert_eq!(stop(&[]), StopCriterion::None);
+        assert_eq!(
+            failure("run", &["--stop-count", "2"]),
+            "--stop-count needs --stop-before or --stop-after: it counts arrivals at their rules"
+        );
+        assert_eq!(
+            failure("run", &["--stop-after", "tick", "--stop-count", "0"]),
+            "--stop-count `0` is not a positive integer"
+        );
+        assert_eq!(
+            failure(
+                "run",
+                &[
+                    "--stop-after",
+                    "tick",
+                    "--stop-count",
+                    "2",
+                    "--stop-count",
+                    "3"
+                ]
+            ),
+            "--stop-count specified more than once"
+        );
+        assert_eq!(
+            failure("run", &["--stop-before", ""]),
+            "--stop-before needs a KRS item or a K label, not an empty name"
+        );
+        assert_eq!(
+            failure("search", &["--stop-after", "tick"]),
+            "--stop-after does not apply to krs search"
+        );
     }
 
     #[test]

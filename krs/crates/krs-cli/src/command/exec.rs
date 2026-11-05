@@ -16,8 +16,9 @@ use krs_diagnostic::{Code, codes};
 use krs_exec::{
     Case, CompiledStage, ConfigInputs, ConfigValue, Coverage, CoverageOptions, ExecError, Halt,
     InputError, InputFiles, PrintStyle, Printed, ProgramFile, ProgramInput, ProofReport,
-    ProveOptions, REPORT_SCHEMA, ReadBack, RunOptions, SearchMode, SearchOptions, Semantics,
-    SourceText, SpecStage, Step, StepOrigin, Term, Verdict, json_document,
+    ProveOptions, REPORT_SCHEMA, ReadBack, RunOptions, RunReport, SearchMode, SearchOptions,
+    Semantics, SourceText, SpecStage, Step, StepOrigin, StopAt, StopCriterion, Term, Verdict,
+    json_document,
 };
 use krs_ir::measure::Measurement;
 use serde_json::json;
@@ -93,6 +94,8 @@ pub struct RunRequest {
     pub variables: Vec<(String, String)>,
     /// `--depth`.
     pub depth: Option<u64>,
+    /// `--stop-before`, `--stop-after` and `--stop-count`.
+    pub stop: StopCriterion,
     /// `--trace`.
     pub trace: bool,
     /// `--coverage`.
@@ -643,6 +646,7 @@ fn run(semantics: &mut Semantics, request: &RunRequest) -> Result<CommandOutcome
             depth: request.depth,
             trace: request.trace,
             coverage: request.coverage.then(CoverageOptions::default),
+            stop: request.stop.clone(),
             ..RunOptions::default()
         },
     )?;
@@ -666,9 +670,10 @@ fn run(semantics: &mut Semantics, request: &RunRequest) -> Result<CommandOutcome
     prints.check(semantics, &report.state)?;
     prints.verdict()?;
     let head = main_cell_head(semantics, &report.state, request.output, &mut stderr);
+    let stops = stops_passed(semantics, &report, &request.stop);
     let _ = write!(
         stderr,
-        "krs run: {} after {} step{}{head}",
+        "krs run: {} after {} step{}{stops}{head}",
         status_word(report.halt.as_str(), smt),
         report.steps,
         if report.steps == 1 { "" } else { "s" }
@@ -981,6 +986,38 @@ fn log_text(lines: &[String]) -> String {
     })
 }
 
+/// The status line's account of a run's stops under `criterion`, when it names stop rules: the
+/// stop the run ended at, with its place in the count (``, after `frame_end` (stop 3 of 3)``),
+/// or how many arrivals it counted when it ended on its own first (`, 2 of 3 stops reached`).
+///
+/// The stop is named so that the name, passed to the stop flags, selects its rule: by its KRS
+/// item's spelling where that names the item alone (`crate::frame_end`), else by its K label
+/// ([`Semantics::stop_name`]); where the report does not name the rule (a stop after a rule of a
+/// name that selects several, without a trace), by the name written for that side when it is
+/// one.
+fn stops_passed(semantics: &Semantics, report: &RunReport, criterion: &StopCriterion) -> String {
+    let StopCriterion::Rules { rules, count } = criterion else {
+        return String::new();
+    };
+    let Some(stop) = &report.stop else {
+        return format!(", {} of {count} stops reached", report.stops);
+    };
+    let (at, names) = match stop.at {
+        StopAt::Before => ("before", &rules.before),
+        StopAt::After => ("after", &rules.after),
+    };
+    let rule = stop
+        .rule
+        .as_ref()
+        .and_then(|rule| semantics.stop_name(&rule.rule_id))
+        .or_else(|| match names.as_slice() {
+            [name] => Some(name.clone()),
+            _ => None,
+        })
+        .map_or_else(|| "a stop rule".to_owned(), |name| format!("`{name}`"));
+    format!(", {at} {rule} (stop {} of {count})", stop.nth)
+}
+
 fn status_word(word: &str, smt: bool) -> String {
     if word == "indeterminate" && !smt {
         "indeterminate (no SMT solver)".to_owned()
@@ -1204,7 +1241,10 @@ pub(super) const fn diagnostic_code(error: &ExecError) -> Code {
         | ExecError::NoClaims
         | ExecError::NoSpecClaims(_)
         | ExecError::UnknownSpecModule { .. } => codes::exec::CLAIM,
-        ExecError::UnknownRule { .. } | ExecError::AmbiguousRule { .. } => codes::exec::RULE,
+        ExecError::UnknownRule { .. }
+        | ExecError::AmbiguousRule { .. }
+        | ExecError::UnknownItem { .. }
+        | ExecError::AmbiguousItem { .. } => codes::exec::RULE,
         ExecError::SearchWithStreams => codes::exec::STREAMS,
         ExecError::Unavailable(_) => codes::exec::UNAVAILABLE,
         ExecError::Result(_) => codes::exec::RESULT,

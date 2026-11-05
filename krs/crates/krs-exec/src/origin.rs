@@ -102,10 +102,26 @@ impl Origins {
     }
 }
 
-/// The KRS item that wrote an emitted rule identity, as a Rust path below its crate root
-/// (`interrupt::boundary_fetch`): the item the first frame of its first KRS author's origin that
-/// names one names. `None` for a rule of K's builtin closure, or one whose origin names no item.
-pub(crate) fn item(provenance: Option<&EmittedProvenance>) -> Option<String> {
+/// The KRS item that wrote an emitted rule identity, with the package that declares it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ItemPath {
+    /// The declaring package's K namespace, which tells the definition's packages apart.
+    pub(crate) namespace: String,
+    /// The declaring package's Rust crate name: its Cargo name with `-` written `_`.
+    pub(crate) krate: String,
+    /// The item's Rust path below its crate root (`interrupt::boundary_fetch`, `Arith::Add`
+    /// for a variant of the enum family `Arith`).
+    pub(crate) path: String,
+}
+
+/// The KRS item that wrote an emitted rule identity ([`ItemPath`]): the item the first frame of
+/// its first KRS author's origin that names an authored item names. An item whose name holds
+/// KRS's reserved marker (`__krs_`) is one the expansion generated, such as a production's
+/// grammar registration, which no author writes and no Rust path of the source names; the
+/// origin names the authored item it serves in a later frame (a strict variant's heat and cool
+/// rules name the variant once the production is lowered). `None` for a rule of K's builtin
+/// closure, or one whose origin names no authored item.
+pub(crate) fn item_path(provenance: Option<&EmittedProvenance>) -> Option<ItemPath> {
     let Some(Author::Krs { origin, .. }) = provenance?.authors().first() else {
         return None;
     };
@@ -114,17 +130,36 @@ pub(crate) fn item(provenance: Option<&EmittedProvenance>) -> Option<String> {
         .frames()
         .iter()
         .find_map(|frame| match frame {
-            OriginFrame::Ranged { item, .. } | OriginFrame::Transformation { item, .. } => {
-                item.as_ref()
-            }
+            OriginFrame::Ranged { item, .. } | OriginFrame::Transformation { item, .. } => item
+                .as_ref()
+                .filter(|item| !item.item_name().starts_with(krs_ir::ir::RESERVED_MARKER)),
             OriginFrame::Inserted { .. } => None,
         })?;
-    let mut path = item.module_path().join("::");
-    if !path.is_empty() {
-        path.push_str("::");
-    }
-    path.push_str(item.item_name());
-    Some(path)
+    // A variant of a constructor family is named in Rust through its enum, which its identity
+    // holds as its disambiguator, never in its module path.
+    let family = item
+        .disambiguator()
+        .strip_prefix(krs_ir::ENUM_VARIANT_DISAMBIGUATOR_PREFIX);
+    let path = item
+        .module_path()
+        .iter()
+        .map(String::as_str)
+        .chain(family)
+        .chain([item.item_name()])
+        .collect::<Vec<_>>()
+        .join("::");
+    let package = item.package();
+    Some(ItemPath {
+        namespace: package.k_namespace().to_owned(),
+        krate: package.cargo_name().replace('-', "_"),
+        path,
+    })
+}
+
+/// The Rust path below its crate root of the KRS item that wrote an emitted rule identity
+/// ([`item_path`]).
+pub(crate) fn item(provenance: Option<&EmittedProvenance>) -> Option<String> {
+    item_path(provenance).map(|item| item.path)
 }
 
 /// The pass that turns a non-rule input sentence into rules.

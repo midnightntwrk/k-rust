@@ -1,15 +1,15 @@
 //! The compiled definition's rules and equations, by the backend's identity (`UNIQUE_ID`).
 //!
 //! k-rust names a rule or an equation by its `UNIQUE_ID` in run coverage and in traces, and a
-//! run's stop rules are named by label ([`crate::StopRules`]). This catalog is what krs-exec
-//! reads both from: each identity's label and kind, as the backend loaded them
-//! (`Backend::rule_catalog`).
+//! run's stop rules are named by label or by KRS item ([`crate::StopRules`]). This catalog is
+//! what krs-exec reads both from: each identity's label and kind, as the backend loaded them
+//! (`Backend::rule_catalog`), and the KRS item that wrote it.
 
 use std::collections::BTreeMap;
 
 use k_rust::backend::{Backend, CompiledRuleKind};
 
-use crate::{ExecError, report::RuleKind};
+use crate::{ExecError, origin::ItemPath, report::RuleKind};
 
 /// One identity of the catalog.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -18,20 +18,31 @@ pub(crate) struct CatalogRule {
     pub(crate) label: Option<String>,
     /// What kind of sentence it is.
     pub(crate) kind: RuleKind,
+    /// The KRS item that wrote it ([`crate::origin::item_path`]).
+    pub(crate) item: Option<ItemPath>,
 }
 
 /// The rules and equations of the definition a run executes, by `UNIQUE_ID`.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct Rules {
     by_id: BTreeMap<String, CatalogRule>,
+    /// The K namespace of the root package: the package whose module is the definition's main
+    /// module, which the backend runs, so every other package's rules run only as its imports.
+    root: String,
 }
 
 impl Rules {
-    /// The catalog of the definition `backend` runs.
-    pub(crate) fn new(backend: &Backend) -> Result<Self, ExecError> {
+    /// The catalog of the definition `backend` runs, whose main module is `main_module`, each
+    /// identity with the item `item_of` names.
+    pub(crate) fn new(
+        backend: &Backend,
+        main_module: &str,
+        item_of: impl Fn(&str) -> Option<ItemPath>,
+    ) -> Result<Self, ExecError> {
         let mut by_id = BTreeMap::new();
         for rule in backend.rule_catalog(None)? {
             // Equal written axioms share one identity (`shared_identity`); they are one rule.
+            let item = item_of(&rule.id);
             by_id.entry(rule.id).or_insert(CatalogRule {
                 label: rule.label,
                 kind: match rule.kind {
@@ -40,15 +51,25 @@ impl Rules {
                     CompiledRuleKind::Simplification => RuleKind::Simplification,
                     CompiledRuleKind::Definedness => RuleKind::Definedness,
                 },
+                item,
             });
         }
-        Ok(Self { by_id })
+        // KRS names a package's module by the package's K namespace (`<NS>`), so the main
+        // module's name is the root package's namespace.
+        Ok(Self {
+            by_id,
+            root: main_module.to_owned(),
+        })
     }
 
     #[cfg(test)]
-    pub(crate) fn from_entries(entries: impl IntoIterator<Item = (String, CatalogRule)>) -> Self {
+    pub(crate) fn from_entries(
+        root: &str,
+        entries: impl IntoIterator<Item = (String, CatalogRule)>,
+    ) -> Self {
         Self {
             by_id: entries.into_iter().collect(),
+            root: root.to_owned(),
         }
     }
 
@@ -109,58 +130,224 @@ impl Rules {
         Ok(named.into_iter().map(|(id, _)| id.clone()).collect())
     }
 
+    /// The rewrite rules a stop named by KRS item selects: every rewrite rule the item
+    /// `requested` wrote, whatever the rules' labels.
+    ///
+    /// The item is named by its Rust path, as the root package's own source names it:
+    /// `crate::` and its path below the root crate's root, or the crate name of the package that
+    /// declares it (its Cargo name with `-` written `_`) and its path below that crate's root.
+    /// A path that starts with neither is read both ways, as Rust reads a path at the crate
+    /// root, and is ambiguous where the root package has an item at it and a package of that
+    /// crate name has one at its rest ([`ExecError::AmbiguousItem`]); so is a path two packages
+    /// of one crate name each have an item at.
+    ///
+    /// An item lowers to several sentences where KRS or K generates them from one (a context's
+    /// heat and cool rules, a strict production's), and a stop is a step by any of them. The
+    /// item's sentences that are no rewrite rule take no step, so they are no stop; an item none
+    /// of whose sentences is a rewrite rule is refused, naming their kinds.
+    pub(crate) fn resolve_item(&self, requested: &str) -> Result<Vec<String>, ExecError> {
+        let (in_root, in_dependency) = match requested.split_once("::") {
+            Some(("crate", path)) => (path, None),
+            Some((krate, path)) => (requested, Some((krate, path))),
+            None => (requested, None),
+        };
+        // The item's sentences by package: their rewrite rules, the kinds of the others, and
+        // the item's spelling.
+        let mut packages = BTreeMap::<&str, (Vec<String>, Vec<RuleKind>, String)>::new();
+        for (id, rule) in &self.by_id {
+            let Some(item) = &rule.item else {
+                continue;
+            };
+            let named = if item.namespace == self.root {
+                item.path == in_root
+            } else {
+                in_dependency.is_some_and(|(krate, path)| item.krate == krate && item.path == path)
+            };
+            if !named {
+                continue;
+            }
+            let (rules, kinds, _) = packages
+                .entry(&item.namespace)
+                .or_insert_with(|| (Vec::new(), Vec::new(), self.spelling(item)));
+            if rule.kind == RuleKind::Rule {
+                rules.push(id.clone());
+            } else if !kinds.contains(&rule.kind) {
+                kinds.push(rule.kind);
+            }
+        }
+        if packages.len() > 1 {
+            return Err(ExecError::AmbiguousItem {
+                requested: requested.to_owned(),
+                matches: packages
+                    .into_iter()
+                    .map(|(namespace, (.., spelling))| (spelling, namespace.to_owned()))
+                    .collect(),
+            });
+        }
+        let (rules, kinds, _) = packages.into_values().next().unwrap_or_default();
+        if rules.is_empty() {
+            return Err(ExecError::UnknownItem {
+                requested: requested.to_owned(),
+                kinds,
+            });
+        }
+        Ok(rules)
+    }
+
+    /// The name of `item` that [`Self::resolve_item`] reads as it whatever else the definition
+    /// declares: `crate::` and its path for an item of the root package, its crate name and its
+    /// path otherwise.
+    fn spelling(&self, item: &ItemPath) -> String {
+        let krate = if item.namespace == self.root {
+            "crate"
+        } else {
+            &item.krate
+        };
+        format!("{krate}::{}", item.path)
+    }
+
+    /// A name for the rewrite rule `id` that a stop accepts ([`crate::StopRules`]) and that
+    /// selects it: its item's spelling where that names the item alone, else its label where
+    /// that selects it; `None` where neither does.
+    pub(crate) fn stop_name(&self, id: &str) -> Option<String> {
+        let rule = self.by_id.get(id)?;
+        let selects = |selected: Result<Vec<String>, ExecError>| {
+            selected.is_ok_and(|ids| ids.iter().any(|selected| selected == id))
+        };
+        rule.item
+            .as_ref()
+            .map(|item| self.spelling(item))
+            .filter(|name| selects(self.resolve_item(name)))
+            .or_else(|| {
+                rule.label
+                    .clone()
+                    .filter(|label| selects(self.resolve_rewrite(label)))
+            })
+    }
+
     /// A did-you-mean for a rule label written as a Rust identifier (`boundary_fetch` for
-    /// `boundary-fetch`) or in another case.
+    /// `boundary-fetch`) or in another case; else for the name of a KRS item, written without
+    /// the path that names it as an item (`work_amount` for `crate::work_amount`).
     fn suggestion(&self, requested: &str) -> Option<String> {
         let kebab = requested.replace('_', "-").to_ascii_lowercase();
-        let mut labels = self
-            .by_id
-            .values()
-            .filter(|rule| rule.kind == RuleKind::Rule)
+        let rewrite_rules = || {
+            self.by_id
+                .values()
+                .filter(|rule| rule.kind == RuleKind::Rule)
+        };
+        let unique = |mut names: Vec<String>| {
+            names.sort_unstable();
+            names.dedup();
+            match <[String; 1]>::try_from(names) {
+                Ok([name]) => Some(name),
+                Err(_) => None,
+            }
+        };
+        let labels = rewrite_rules()
             .filter_map(|rule| rule.label.as_deref())
             .filter(|label| {
                 let local = label.rsplit_once('.').map_or(*label, |(_, local)| local);
                 local.to_ascii_lowercase() == kebab || label.to_ascii_lowercase() == kebab
             })
+            .map(str::to_owned)
             .collect::<Vec<_>>();
-        labels.sort_unstable();
-        labels.dedup();
-        match labels.as_slice() {
-            [label] => Some((*label).to_owned()),
-            _ => None,
+        if !labels.is_empty() {
+            return unique(labels);
         }
+        unique(
+            rewrite_rules()
+                .filter_map(|rule| rule.item.as_ref())
+                .filter(|item| item.path.rsplit("::").next() == Some(requested))
+                .map(|item| self.spelling(item))
+                .filter(|name| self.resolve_item(name).is_ok())
+                .collect(),
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{CatalogRule, Rules};
-    use crate::{ExecError, report::RuleKind};
+    use crate::{ExecError, origin::ItemPath, report::RuleKind};
+
+    /// The root package's K namespace in [`rules`].
+    const ROOT: &str = "SM83";
+
+    fn rule(id: &str, label: Option<&str>, kind: RuleKind) -> (String, CatalogRule) {
+        (
+            id.to_owned(),
+            CatalogRule {
+                label: label.map(str::to_owned),
+                kind,
+                item: None,
+            },
+        )
+    }
+
+    /// `entry` written by the item at `path` of the package of namespace `namespace` and crate
+    /// name `krate`.
+    fn by(
+        (id, rule): (String, CatalogRule),
+        namespace: &str,
+        krate: &str,
+        path: &str,
+    ) -> (String, CatalogRule) {
+        let item = Some(ItemPath {
+            namespace: namespace.to_owned(),
+            krate: krate.to_owned(),
+            path: path.to_owned(),
+        });
+        (id, CatalogRule { item, ..rule })
+    }
 
     fn rules() -> Rules {
-        let rule = |id: &str, label: Option<&str>, kind| {
-            (
-                id.to_owned(),
-                CatalogRule {
-                    label: label.map(str::to_owned),
-                    kind,
-                },
-            )
-        };
-        Rules::from_entries([
-            rule("r1", Some("SM83.boundary-fetch"), RuleKind::Rule),
-            rule("r2", Some("SM83.boundary-halted"), RuleKind::Rule),
-            rule("r3", Some("SM83.step"), RuleKind::Rule),
-            rule("r4", Some("OTHER.step"), RuleKind::Rule),
-            rule("r5", Some("SM83.shared"), RuleKind::Rule),
-            rule("r6", Some("SM83.shared"), RuleKind::Rule),
-            rule("e1", Some("SM83.plus-zero"), RuleKind::Equation),
-            rule("e2", None, RuleKind::Equation),
-            rule("e3", Some("fetch"), RuleKind::Equation),
-            rule("r7", Some("SM83.fetch"), RuleKind::Rule),
-            rule("s1", Some("SM83.lemma"), RuleKind::Simplification),
-            rule("r8", Some("OTHER.lemma"), RuleKind::Rule),
-        ])
+        Rules::from_entries(
+            ROOT,
+            [
+                by(
+                    rule("r1", Some("SM83.boundary-fetch"), RuleKind::Rule),
+                    ROOT,
+                    "sm83",
+                    "interrupt::boundary",
+                ),
+                by(
+                    rule("r2", Some("SM83.boundary-halted"), RuleKind::Rule),
+                    ROOT,
+                    "sm83",
+                    "interrupt::boundary",
+                ),
+                by(
+                    rule("r3", Some("SM83.step"), RuleKind::Rule),
+                    ROOT,
+                    "sm83",
+                    "step",
+                ),
+                rule("r4", Some("OTHER.step"), RuleKind::Rule),
+                rule("r5", Some("SM83.shared"), RuleKind::Rule),
+                rule("r6", Some("SM83.shared"), RuleKind::Rule),
+                by(
+                    rule("e1", Some("SM83.plus-zero"), RuleKind::Equation),
+                    ROOT,
+                    "sm83",
+                    "interrupt::boundary",
+                ),
+                rule("e2", None, RuleKind::Equation),
+                by(
+                    rule("e3", Some("fetch"), RuleKind::Equation),
+                    ROOT,
+                    "sm83",
+                    "fetch",
+                ),
+                rule("r7", Some("SM83.fetch"), RuleKind::Rule),
+                by(
+                    rule("s1", Some("SM83.lemma"), RuleKind::Simplification),
+                    ROOT,
+                    "sm83",
+                    "fetch",
+                ),
+                rule("r8", Some("OTHER.lemma"), RuleKind::Rule),
+            ],
+        )
     }
 
     #[test]
@@ -206,6 +393,124 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    /// A KRS item names every rewrite rule it lowers to, whatever their labels, and is refused
+    /// where it lowers to none.
+    #[test]
+    fn a_stop_named_by_item_selects_every_rewrite_rule_of_the_item() {
+        let rules = rules();
+        // The item's equation takes no step and is left out.
+        assert_eq!(
+            rules.resolve_item("interrupt::boundary").unwrap(),
+            ["r1", "r2"]
+        );
+        assert_eq!(
+            rules.resolve_item("crate::interrupt::boundary").unwrap(),
+            ["r1", "r2"]
+        );
+        assert_eq!(rules.resolve_item("crate::step").unwrap(), ["r3"]);
+        let equations = rules.resolve_item("crate::fetch").unwrap_err();
+        assert!(
+            matches!(&equations, ExecError::UnknownItem { kinds, .. } if kinds == &[RuleKind::Equation, RuleKind::Simplification]),
+            "{equations:?}"
+        );
+        assert_eq!(
+            equations.to_string(),
+            "no rewrite rule is written by KRS item `crate::fetch`: each of its sentences is a function equation or a simplification, which a run applies without taking a step, so no step can stop at it"
+        );
+        let missing = rules.resolve_item("ppu::frame_end").unwrap_err();
+        assert!(
+            matches!(&missing, ExecError::UnknownItem { kinds, .. } if kinds.is_empty()),
+            "{missing:?}"
+        );
+    }
+
+    /// `crate::` names an item of the root package alone, and a dependency's item is named by
+    /// its crate name; a path both readings name an item at is ambiguous.
+    #[test]
+    fn a_stop_named_by_item_tells_the_packages_apart() {
+        let rules = Rules::from_entries(
+            "VM",
+            [
+                by(
+                    rule("v1", Some("VM.step"), RuleKind::Rule),
+                    "VM",
+                    "vm",
+                    "step",
+                ),
+                by(
+                    rule("l1", Some("LANG.step"), RuleKind::Rule),
+                    "LANG",
+                    "lang",
+                    "step",
+                ),
+                by(
+                    rule("l2", Some("LANG.frame"), RuleKind::Rule),
+                    "LANG",
+                    "lang",
+                    "ppu::frame",
+                ),
+                by(
+                    rule("v2", Some("VM.local-step"), RuleKind::Rule),
+                    "VM",
+                    "vm",
+                    "lang::step",
+                ),
+                by(
+                    rule("o1", Some("OLD.frame"), RuleKind::Rule),
+                    "OLD",
+                    "lang",
+                    "ppu::frame",
+                ),
+                by(
+                    rule("o2", Some("OLD.tick"), RuleKind::Rule),
+                    "OLD",
+                    "lang",
+                    "tick",
+                ),
+            ],
+        );
+        // The root's `step`, never the dependency's of the same path.
+        assert_eq!(rules.resolve_item("crate::step").unwrap(), ["v1"]);
+        assert_eq!(rules.resolve_item("crate::lang::step").unwrap(), ["v2"]);
+        assert_eq!(rules.resolve_item("lang::tick").unwrap(), ["o2"]);
+        // `lang::step` is the root's module `lang` and the crate `lang` at once.
+        let ambiguous = rules.resolve_item("lang::step").unwrap_err();
+        assert_eq!(
+            ambiguous.to_string(),
+            "KRS item `lang::step` is ambiguous: it names `lang::step` of the package of K namespace `LANG` and `crate::lang::step` of the package of K namespace `VM`; `crate::` names the root package's item alone, and a K label names one package's rule"
+        );
+        // Two packages of one crate name are told apart by label only.
+        assert!(matches!(
+            rules.resolve_item("lang::ppu::frame").unwrap_err(),
+            ExecError::AmbiguousItem { matches, .. } if matches.len() == 2
+        ));
+        // A dependency's item is not the root's.
+        assert!(matches!(
+            rules.resolve_item("crate::tick").unwrap_err(),
+            ExecError::UnknownItem { .. }
+        ));
+        // The name a stop prints selects the rule: the item where it names it alone, else the
+        // label.
+        assert_eq!(rules.stop_name("v1").as_deref(), Some("crate::step"));
+        assert_eq!(rules.stop_name("o2").as_deref(), Some("lang::tick"));
+        assert_eq!(rules.stop_name("l1").as_deref(), Some("LANG.step"));
+        assert_eq!(rules.stop_name("o1").as_deref(), Some("OLD.frame"));
+        // A root item's name written as a label is pointed at the item.
+        let bare = Rules::from_entries(
+            "VM",
+            [by(
+                rule("w1", Some("VM.work-amount-heat"), RuleKind::Rule),
+                "VM",
+                "vm",
+                "work_amount",
+            )],
+        );
+        assert_eq!(
+            bare.resolve_rewrite("work_amount").unwrap_err().to_string(),
+            "no rewrite rule has label `work_amount`; did you mean `crate::work_amount`?"
+        );
     }
 
     /// An exact label names its own sentence, never a rewrite rule whose label ends with it.
