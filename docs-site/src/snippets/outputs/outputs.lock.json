@@ -45,11 +45,11 @@
   },
   "functions-defined-by-rules-run-pred-zero": {
     "inputs": "113a0a91a9a556185d9d2b8fa25b29fac8fa64ed41a73b1d72b7148ed332f9d6",
-    "output": "968f7ebeb8919abfdc61ecc26aadf8bdc35003f3e08ccb0cc962dd641c9c8741"
+    "output": "2681c84e377d07429a542486f471f4a3e717eaa8b1cb3faf8da82d35cd077421"
   },
   "functions-defined-by-rules-run-times-pred-zero": {
     "inputs": "dbcb58dfb12d88357b7a3d38650d8c67db2f4b16f05f78afe49c9fc2b2e4a23d",
-    "output": "2b8ce98bd6147417c83077e61efa202532a12202fd9601f99448b4b92716dec0"
+    "output": "b15fcaaa3fcd07e2b556091bd0c18895fb2bf9bf4e79484c3bf31518a7134f11"
   },
   "patterns-and-substitution-emit-k": {
     "inputs": "98efae637bf87783685f9615c6a23800ba18d45cdac53104900ab169dda1f26b",
@@ -57,7 +57,7 @@
   },
   "patterns-and-substitution-run-differ": {
     "inputs": "74eb791baa48f116acf1a38aa89f7124101b6ad280dc30a2d08c27ba235b849a",
-    "output": "586b6849b1eed2e76e4dbe545660e5167bfedd9903033401ad9be590e4a20e08"
+    "output": "9a127c007a629d7eb07d965b7d071c8e4cb0f06473fbbb00681fe9175e733cdf"
   },
   "patterns-and-substitution-run-is-zero": {
     "inputs": "eb5e28631b56d83576d00a6dd3da0e8d11fbd6e093dcdac8d1534d9a83945170",

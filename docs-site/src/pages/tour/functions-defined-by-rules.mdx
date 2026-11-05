@@ -108,11 +108,17 @@ An application without a value is **undefined**.
 // [!include ~/snippets/outputs/functions-defined-by-rules-run-pred-zero.txt]
 ```
 
-No equation applies, so `krs run` leaves the application in place; `krs` prints applications of function symbols with spaces around the parentheses, which means nothing.
-The definition gives no value for `pred(zero)`.
-It does not say that `pred(zero)` is undefined either: `partial` only permits that, and the equations leave `pred(zero)` unconstrained.
+The run is **undefined**, and the note names the application that has no value; `krs` prints applications of function symbols with spaces around the parentheses, which means nothing.
+`partial` alone only permits an application to have no value.
+What decides `pred(zero)` is that `pred` has no definition besides its equations: it has a value exactly where one of them applies.
+`zero` does not match `s(n)`, so no equation applies to `pred(zero)`, and it has no value.
+A state that holds a term with no value has no value either, so it is no state the run can be in.
+Here the start state already holds `pred(zero)`, so the run is undefined after 0 steps, and `krs run` prints that start state.
 
-The difference shows when another term's value depends on it.
+Undefined is not stuck.
+A stuck run ends in a state to which no rule applies; an undefined run reaches a term that has no value, and so no state at all.
+
+The undefined application spreads to the terms around it.
 The third function is multiplication:
 
 ```rust [docs-site/tour/functions-defined-by-rules/src/lib.rs]
@@ -127,11 +133,12 @@ So `times(zero, pred(zero))` equals `zero` by the first equation, but only if `p
 // [!include ~/snippets/outputs/functions-defined-by-rules-run-times-pred-zero.txt]
 ```
 
-`#Ceil ( pred ( zero ) )` reads "provided that `pred(zero)` is defined", and `#And` joins that condition to the configuration.
-`krs` simplified the term to `zero` and kept the definedness of `pred(zero)` as an open condition, because the definition does not decide it.
+`krs` simplified the term to `zero` by `times_zero`, under the condition that `pred(zero)` has a value.
+`pred(zero)` has none, so that condition does not hold, and the run is undefined, as the note says.
+The `k` cell shows the configuration the condition guarded, not a value of the program.
 
 **Total**, as on `plus` and `times`, is a promise that every application has a value.
-KRS does not prove the promise, but it uses it: with `pred` declared total, the same run prints only the configuration with `zero`, with no condition, as the second exercise shows.
+KRS does not prove the promise, but it uses it: with `pred` declared total, the same run ends stuck with `zero`, and no note, as the second exercise shows.
 A total `pred` without an equation for `zero` would mean that `pred(zero)` is some number the definition does not name.
 
 ## The generated K
@@ -188,7 +195,7 @@ A function used only by rules, never by programs, may leave out `syntax` when it
 - Several `#[k::equation]` fns look like ordered `match` arms or overloads. They are unordered equations, and KRS does not check that overlapping ones agree.
 - A `k::equations!` table looks like a `match`, but its rows are unordered too: a last row `_ => ..` does not mean "otherwise", so KRS rejects it beside other rows unless it is marked `#[k::equation(owise)]`.
 - `fn Double(n: Term<Nat>) -> Term<Nat> { .. }` is named in UpperCamelCase because applications write `Double(n)`; like the struct form, it is never called.
-- `partial` suggests `Option` or a panic. An application without a value is not a value that signals an error; there is nothing to inspect or catch, and `krs` keeps its definedness as a condition.
+- `partial` suggests `Option` or a panic. An application without a value is not a value that signals an error; there is nothing to inspect or catch, and a run that reaches one is undefined.
 - The `k::rules!` row of the first lesson named `Red()` without an enum path and without `k::term!`, because its table carries a `use LightSyntax::*;` line. That import reaches only the table's rows; this lesson's `#[k::equation]` fns are items of their own, so they keep the enum path, `NatSyntax::Succ(m)`, unless the module imports the variants with a `use NatSyntax::*;` at its top, which reaches every term of every item in it.
 
 ## Exercises
@@ -228,9 +235,11 @@ What disappears from the output, and why? Change `Pred` back to `partial` afterw
 <details>
 <summary>Answer</summary>
 
-The `#Ceil ( pred ( zero ) )` condition and the `#And` disappear; the `k` cell holds `zero`.
-A total `pred` promises that `pred(zero)` has a value, so `times(zero, pred(zero))` equals `zero` with nothing left to check.
-Running `programs/pred-zero.nat` still prints `pred ( zero )` in both versions: no equation names the value.
+The note disappears, and the run ends stuck after 0 steps instead of undefined; the `k` cell still holds `zero`.
+A total `pred` promises that `pred(zero)` has a value, so `times(zero, pred(zero))` equals `zero` by `times_zero`, and the state with `zero` is the run's state.
+Running `programs/pred-zero.nat` changes the same way: it still prints `pred ( zero )`, but the run ends stuck, with no note.
+`pred(zero)` now has a value, but no equation names it, so `krs` leaves the application in place.
+`krs` also warns that the total `Pred` has no equation for `zero`.
 
 </details>
 
@@ -244,8 +253,8 @@ krs run --package tour-nat-functions --definition main programs/pred-of-sum.nat
 <details>
 <summary>Answer</summary>
 
-`pred ( zero )`.
-`plus(zero, zero)` equals `zero`, so the term simplifies to `pred(zero)`, and no equation applies to that.
+The run is undefined after 0 steps, with `pred ( zero )` in the `k` cell and a note naming it.
+`plus(zero, zero)` equals `zero`, so the term simplifies to `pred(zero)`, and no equation applies to that, so it has no value.
 
 </details>
 

@@ -94,14 +94,14 @@ The first argument simplifies to `s(s(zero))`, so `n = s(s(zero))` matches both 
 ```
 
 `programs/same-differ.answer` contains `same(plus(s(zero), zero), zero)`.
-The first argument simplifies to `s(zero)`, and no single term can stand for `n` in both places, so the run leaves the application in place:
+The first argument simplifies to `s(zero)`, and no single term can stand for `n` in both places, so `same_equal` does not apply, and the run is undefined:
 
 ```console [recorded with krs]
 // [!include ~/snippets/outputs/patterns-and-substitution-run-differ.txt]
 ```
 
 The `plus` application was replaced by its value, but no equation applies to `same(s(zero), zero)`.
-As with `pred(zero)` in the previous lesson, the definition gives no value for it, and `same` is declared partial, so it may have none.
+As with `pred(zero)` in the previous lesson, `same` is partial and has no definition besides its equations, so `same(s(zero), zero)` has no value, and the note names it.
 A nonlinear pattern can only say when an equation applies; it cannot say "otherwise".
 The second exercise makes `same` total with more patterns, and a later lesson on guards, `owise`, and priority shows K's ways to state a fallback.
 
@@ -202,7 +202,7 @@ plus(s(s(zero)), zero)  =  s(plus(s(zero), zero))   plus_succ, m = s(zero), n = 
                         =  s(s(zero))                plus_zero, n = zero
 ```
 
-With `t = s(s(zero))` the run prints `yes`; any other `t` leaves the `same` application in place.
+With `t = s(s(zero))` the run prints `yes`; with any other `t` no equation applies to the `same` application, so the run is undefined.
 
 </details>
 
@@ -217,13 +217,14 @@ krs run --package tour-nat-patterns --definition main programs/top-nine.answer
 krs run --package tour-nat-patterns --definition main programs/top-sixteen.answer
 ```
 
-Why does `top(16)` stay as it is, although the top bit of `16`, written in four bits, would be `0`?
+Why is the run of `top(16)` undefined, although the top bit of `16`, written in four bits, would be `0`?
 
 <details>
 <summary>Answer</summary>
 
 `top(9)` gives `yes`: `9` is `1001` in four bits.
-`top(16)` is left in place because a template of four bits matches only the integers from `0` to `15`: its width is part of the pattern, so neither equation applies to `16`, whose bits are `10000`.
+A template of four bits matches only the integers from `0` to `15`: its width is part of the pattern, so neither equation applies to `16`, whose bits are `10000`.
+`top` is partial and has no definition besides its equations, so `top(16)` has no value, and the run is undefined, with a note naming `top ( 16 )`.
 `krs expand --package tour-nat-patterns --definition main` shows the guard each template stands for, `int::ge(bits, 0)`, `int::lt(bits, 16)`, and for the fixed bit `int::eq(int::bit_range(bits, 3, 1), 1)`, where `bits` is the matched integer.
 One spelling of the function and its equations:
 

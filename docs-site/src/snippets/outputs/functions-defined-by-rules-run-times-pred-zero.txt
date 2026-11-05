@@ -1,7 +1,6 @@
 $ krs run --package tour-nat-functions --definition main programs/zero-times-pred-zero.nat
-  #Ceil ( pred ( zero ) )
-#And
-  <k>
-    zero ~> .K
-  </k>
-krs run: stuck after 0 steps; <k> starts with `zero`
+<k>
+  zero ~> .K
+</k>
+krs run: undefined after 0 steps; <k> starts with `zero`
+note: `pred ( zero )` has no value: its function is partial and defined by its equations alone, and none applies there, so no state holds it

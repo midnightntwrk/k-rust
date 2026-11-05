@@ -2,4 +2,5 @@ $ krs run --package tour-nat-functions --definition main programs/pred-zero.nat
 <k>
   pred ( zero ) ~> .K
 </k>
-krs run: stuck after 0 steps; <k> starts with `pred ( zero )`
+krs run: undefined after 0 steps; <k> starts with `pred ( zero )`
+note: `pred ( zero )` has no value: its function is partial and defined by its equations alone, and none applies there, so no state holds it
