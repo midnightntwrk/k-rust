@@ -64,6 +64,7 @@ use crate::{
     admit::{AdmittedSpec, CaseInputs, InputSession, admit_spec},
     digest::{ExecutionDigest, execution_digest, program_digest, spec_digest},
     evidence::EndReader,
+    expect::Baseline,
     manifest::{Budget, FlowManifest, Program},
     mutation::qualified_label,
 };
@@ -2028,18 +2029,37 @@ fn program_row(
             .unwrap_or_else(|| json!([]));
         row
     };
+    // A case's expectation, checked against its baseline record or inconclusive for why it has
+    // none (`crate::expect`); absent from the row of a program without one.
+    let expected = |mut row: Value, expectation: Option<Value>| {
+        if let Some(expectation) = expectation {
+            row["expectation"] = expectation;
+        }
+        row
+    };
     let refused = |digest, refusal: kink_corpus::admission::AdmissionRefusal| {
         let result = ProgramResult::refused(format!(
             "{}/{}: {}",
             refusal.stage, refusal.reason, refusal.detail
         ));
+        let expectation = crate::expect::expectation_value(
+            &manifest.end_renderer,
+            None,
+            program,
+            Err("the case is refused, so it has no baseline run"),
+            &[],
+            None,
+        );
         ProgramRow {
-            row: row(
-                digest,
-                result.class.as_str(),
-                &json!(result.cause),
-                false,
-                Value::Null,
+            row: expected(
+                row(
+                    digest,
+                    result.class.as_str(),
+                    &json!(result.cause),
+                    false,
+                    Value::Null,
+                ),
+                expectation,
             ),
             record: None,
             live: None,
@@ -2069,17 +2089,21 @@ fn program_row(
         .ok()
         .and_then(|_| read_record(&path, &key))
         .flatten();
+    let stop = manifest.stop.as_ref();
     if let (Some(record), false) = (&stored, context.verify) {
         return ProgramRow {
-            row: with_wall(
-                row(
-                    Some(digest),
-                    record["class"].as_str().unwrap_or("error"),
-                    &record["cause"],
-                    true,
-                    Value::Null,
+            row: expected(
+                with_wall(
+                    row(
+                        Some(digest),
+                        record["class"].as_str().unwrap_or("error"),
+                        &record["cause"],
+                        true,
+                        Value::Null,
+                    ),
+                    record,
                 ),
-                record,
+                inputs.expectation(program, Ok(Baseline::of_record(record)), stop),
             ),
             failed: record["class"] == ResultClass::Error.as_str(),
             record: stored.map(without_ends),
@@ -2110,15 +2134,18 @@ fn program_row(
             "mismatch"
         };
         return ProgramRow {
-            row: with_wall(
-                row(
-                    Some(digest),
-                    record["class"].as_str().unwrap_or("error"),
-                    &record["cause"],
-                    true,
-                    json!(verdict),
+            row: expected(
+                with_wall(
+                    row(
+                        Some(digest),
+                        record["class"].as_str().unwrap_or("error"),
+                        &record["cause"],
+                        true,
+                        json!(verdict),
+                    ),
+                    &record,
                 ),
-                &record,
+                inputs.expectation(program, Ok(Baseline::of_record(&record)), stop),
             ),
             failed: record["class"] == ResultClass::Error.as_str(),
             record: Some(without_ends(record)),
@@ -2135,15 +2162,18 @@ fn program_row(
         };
     }
     let record = record_value(spec, &key, context.spec_digest, &program.id, &result);
-    let mut row = with_wall(
-        row(
-            Some(digest),
-            result.class.as_str(),
-            &json!(result.cause),
-            false,
-            Value::Null,
+    let mut row = expected(
+        with_wall(
+            row(
+                Some(digest),
+                result.class.as_str(),
+                &json!(result.cause),
+                false,
+                Value::Null,
+            ),
+            &record,
         ),
-        &record,
+        inputs.expectation(program, Ok(Baseline::of_result(&result)), stop),
     );
     // A record is written only when the store is on and the result is a function of its key;
     // an error row still fails the command, cached or not.
@@ -2343,7 +2373,12 @@ fn document(
         // count and each program's own count (`counts`), and each comparable program's `ends`
         // say how the run reached them (`halt`: `stop` or `own`); a specification on which a
         // rule of the stop labels no rewrite rule is refused at stage `stop`. A corpus without a
-        // stop has the document it had.
+        // stop has the document it had. Added to 9 without a new version, since a corpus without
+        // a case expectation or a named case has the document it had and no command reads a
+        // `results` document back: the program of a named case of a case document, id
+        // `<path>#<name>`; the row of a program with an expectation carries `expectation`
+        // (`crate::expect`); and a program whose expectation no front end reads is refused at
+        // stage `inputs` (`typed-expectation`, `expectation-value`).
         // 8 since CF-45: a claim helper no comparable program matched (an equation of a function
         // only claims apply, which the front end names, `FlowManifest::claim_helpers`) has status
         // `claim-helper` (summary `claim_helper`), no longer `uncovered`, so the uncovered rules

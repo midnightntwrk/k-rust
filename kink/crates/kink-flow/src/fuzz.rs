@@ -941,6 +941,8 @@ fn fragment(template: &Template, instance: &Instance, case: &WitnessCase) -> Fra
         variables: variables.clone(),
         inputs: Table::new(),
         case: None,
+        case_file: None,
+        expect: None,
         stop_count: None,
     };
     let inputs = CaseInputs {
@@ -1169,6 +1171,8 @@ fn template_program(template: &Template, instance: &Instance) -> Program {
         variables: instance.variables.clone(),
         inputs: Table::new(),
         case: None,
+        case_file: None,
+        expect: None,
         stop_count: None,
     }
 }

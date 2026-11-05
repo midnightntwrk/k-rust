@@ -2475,3 +2475,282 @@ fn a_stop_names_configuration_rules_and_a_dependencys_items_as_krs_run_does() {
     labels.sort_unstable();
     assert_eq!(strings(&check["stop"]["after"]), labels, "{check:#}");
 }
+
+/// The case documents of [`LEFT_OUT`]'s expectation corpora: `run(1)` ends in `done(2)` and
+/// `run(2)` in `done(3)`, each `stuck` without a stop and stopped after `finish` with one.
+fn expectation_files() -> Vec<(String, Vec<u8>)> {
+    let flow = |stop: &str| {
+        format!("[spec]\nkrs = {{ definition = \"main\" }}\n\n{stop}[[program]]\ncases = \"cases/*.toml\"\n")
+            .into_bytes()
+    };
+    let mutation = b"[[mutation]]\nid = \"twice\"\nmisunderstanding = \"adds two\"\n\n  [[mutation.edit]]\n  rule = \"finish\"\n  find = \"+Int 1\"\n  replace = \"+Int 2\"\n";
+    vec![
+        ("src/lib.rs".to_owned(), LEFT_OUT.as_bytes().to_vec()),
+        ("kink/FLOW.toml".to_owned(), flow("")),
+        ("kink/mutations/finish.toml".to_owned(), mutation.to_vec()),
+        (
+            "kink/cases/runs.toml".to_owned(),
+            br#"[[case]]
+name = "met"
+inputs = { pgm = { Run = { value = 1 } } }
+expect = { halt = "stuck", cells = { k = { "$seq" = [{ Done = { value = 2 } }] }, regs = { a = 0 } } }
+
+[[case]]
+name = "unmet"
+inputs = { pgm = { Run = { value = 2 } } }
+expect = { halt = "stuck", compare = ["k"], cells = { k = { "$seq" = [{ Done = { value = 4 } }] } } }
+
+[[case]]
+"$data-file" = "data/more.json"
+"#
+            .to_vec(),
+        ),
+        (
+            "kink/cases/data/more.json".to_owned(),
+            br#"[{"name": "stopped", "inputs": {"pgm": {"Run": {"value": 3}}},
+  "expect": {"halt": "stopped", "rule": "crate::finish", "compare": ["k"],
+             "cells": {"k": {"$seq": [{"Done": {"value": 4}}]}}}}]"#
+                .to_vec(),
+        ),
+        (
+            "corpora/stopped/FLOW.toml".to_owned(),
+            flow("[stop]\nafter = [\"crate::finish\"]\n\n"),
+        ),
+        (
+            "corpora/stopped/cases/runs.toml".to_owned(),
+            br#"[[case]]
+name = "stopped"
+inputs = { pgm = { Run = { value = 1 } } }
+expect = { halt = "stopped", rule = "crate::finish", compare = ["k"], cells = { k = { "$seq" = [{ Done = { value = 2 } }] } } }
+
+[[case]]
+name = "undefined"
+inputs = { pgm = { Run = { value = 2 } } }
+expect = { halt = "undefined" }
+
+[[case]]
+name = "differs"
+inputs = { pgm = { Run = { value = 3 } } }
+expect = { halt = "stuck", compare = ["k"], cells = { k = { "$seq" = [{ Done = { value = 5 } }] } } }
+"#
+            .to_vec(),
+        ),
+        ("corpora/bad/FLOW.toml".to_owned(), flow("")),
+        (
+            "corpora/bad/cases/runs.toml".to_owned(),
+            b"[[case]]\nname = \"nope\"\ninputs = { pgm = { Run = { value = 1 } } }\nexpect = { halt = \"stuck\", cells = { nope = 1 } }\n"
+                .to_vec(),
+        ),
+    ]
+}
+
+/// Each program row's id and its expectation's verdict.
+fn verdicts(document: &Value) -> Vec<(String, Option<String>)> {
+    document["programs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| {
+            (
+                row["id"].as_str().unwrap().to_owned(),
+                row["expectation"]["verdict"].as_str().map(str::to_owned),
+            )
+        })
+        .collect()
+}
+
+/// The program row of `id`.
+fn program_row(document: &Value, id: &str) -> Value {
+    document["programs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == id)
+        .unwrap()
+        .clone()
+}
+
+/// A case document's named cases are programs `<path>#<name>`, and each case's expectation is
+/// checked against its baseline run by KRS's comparison of ends and reported in its row: `met`,
+/// `unmet` with the first difference by Rust field path (`expected` against `baseline`), or
+/// `inconclusive` with why (an end stopped where the corpus has no stop). A baseline that misses
+/// its own expectation is reported, and the case kept: it still kills the mutation, whose kill
+/// is a difference from the baseline. Under `[stop]` the halt of a stuck end or of one stopped at
+/// a stop rule is not observed: ends that agree on the compared cells are inconclusive, ends that
+/// differ on them unmet, and the row says the halt was not compared; an expectation of a halt no
+/// end of the truncated system has is unmet at the class, with the baseline's class left
+/// unstated. `check` reports each expectation from the case's current result record (none in the
+/// Z3 profile, where the result cache is off), and refuses a case whose expectation is no
+/// expectation of the definition.
+#[test]
+fn a_case_expectation_is_reported_and_its_case_kept() {
+    let project = project_of(
+        "krs-cli-kink-expectations",
+        "EXPECTATIONS",
+        &expectation_files(),
+    );
+    let output = project.kink("results", &[]);
+    assert_status(&output, 0);
+    let results = json(&output);
+    let expected = [
+        ("cases/runs.toml#met", "met"),
+        ("cases/runs.toml#unmet", "unmet"),
+        ("cases/runs.toml#stopped", "inconclusive"),
+    ]
+    .map(|(id, verdict)| (id.to_owned(), Some(verdict.to_owned())));
+    assert_eq!(verdicts(&results), expected, "{results:#}");
+    for id in ["cases/runs.toml#met", "cases/runs.toml#unmet"] {
+        assert_eq!(
+            program_row(&results, id)["class"],
+            "comparable",
+            "{results:#}"
+        );
+    }
+    let met = program_row(&results, "cases/runs.toml#met")["expectation"].clone();
+    assert_eq!(met["detail"], Value::Null, "{met:#}");
+    assert_eq!(met["difference"], Value::Null, "{met:#}");
+    let unmet = program_row(&results, "cases/runs.toml#unmet")["expectation"].clone();
+    let difference = &unmet["difference"];
+    assert_eq!(difference["format"], "krs-difference/1", "{unmet:#}");
+    assert_eq!(difference["path"], "k[0].value", "{unmet:#}");
+    assert_eq!(difference["left"]["name"], "expected", "{unmet:#}");
+    assert_eq!(difference["left"]["value"]["document"], 4, "{unmet:#}");
+    assert_eq!(difference["right"]["name"], "baseline", "{unmet:#}");
+    assert_eq!(difference["right"]["value"]["document"], 3, "{unmet:#}");
+    assert_eq!(difference["right"]["class"]["halt"], "stuck", "{unmet:#}");
+    let stopped = program_row(&results, "cases/runs.toml#stopped")["expectation"].clone();
+    assert_eq!(
+        stopped["detail"],
+        "the expectation's end is stopped at `crate::finish`, and the corpus declares no [stop]: \
+         kink runs every program as the corpus says",
+        "{stopped:#}"
+    );
+
+    // The unmet case is kept: it kills the mutation as every other case does.
+    let output = project.kink("run", &["--full"]);
+    let run = json(&output);
+    assert_eq!(run["mutations"][0]["status"], "killed", "{run:#}");
+    assert_eq!(
+        strings(&run["mutations"][0]["killed_by"]),
+        [
+            "cases/runs.toml#met",
+            "cases/runs.toml#unmet",
+            "cases/runs.toml#stopped"
+        ],
+        "{run:#}"
+    );
+    assert_eq!(verdicts(&run), expected, "{run:#}");
+
+    // `check` runs nothing: it reads each case's current result record.
+    let output = project.kink("check", &[]);
+    assert_status(&output, 0);
+    let check = json(&output);
+    assert_eq!(check["version"], 10, "{check:#}");
+    if results["result_cache"]["enabled"] == true {
+        assert_eq!(verdicts(&check), expected, "{check:#}");
+    } else {
+        for (_, verdict) in verdicts(&check) {
+            assert_eq!(verdict.as_deref(), Some("inconclusive"), "{check:#}");
+        }
+        let detail = program_row(&check, "cases/runs.toml#met")["expectation"]["detail"].clone();
+        assert!(
+            detail
+                .as_str()
+                .unwrap()
+                .starts_with("the case has no current result record"),
+            "{check:#}"
+        );
+    }
+
+    expectations_under_a_stop(&project);
+    a_refused_expectation(&project);
+}
+
+/// [`a_case_expectation_is_reported_and_its_case_kept`] under `[stop]`: the halt of a stuck end or
+/// of one stopped at a stop rule is not observed, so ends that agree on the compared cells are
+/// inconclusive and ends that differ on them unmet, and a halt no end of the truncated system has
+/// differs at the class.
+fn expectations_under_a_stop(project: &Project) {
+    let output = project.kink("results", &["--corpus", "corpora/stopped"]);
+    assert_status(&output, 0);
+    let results = json(&output);
+    assert_eq!(
+        verdicts(&results),
+        [
+            ("cases/runs.toml#stopped", "inconclusive"),
+            ("cases/runs.toml#undefined", "unmet"),
+            ("cases/runs.toml#differs", "unmet"),
+        ]
+        .map(|(id, verdict)| (id.to_owned(), Some(verdict.to_owned()))),
+        "{results:#}"
+    );
+    let detail = |id: &str| {
+        program_row(&results, id)["expectation"]["detail"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let stopped = detail("cases/runs.toml#stopped");
+    assert!(
+        stopped.starts_with(
+            "every end agrees with the expectation on the compared cells, but its halt is not \
+             observed: under [stop] an end kink keeps is stuck or stopped at a rule of the stop, \
+             and the ends do not say which"
+        ),
+        "{results:#}"
+    );
+    assert!(
+        detail("cases/runs.toml#undefined").starts_with("the halt is compared: under [stop]"),
+        "{results:#}"
+    );
+    assert!(
+        detail("cases/runs.toml#differs").starts_with("the halt is not compared: under [stop]"),
+        "{results:#}"
+    );
+    let undefined = program_row(&results, "cases/runs.toml#undefined")["expectation"].clone();
+    assert_eq!(undefined["difference"]["at"], "class", "{undefined:#}");
+    assert_eq!(
+        undefined["difference"]["left"]["class"]["halt"], "undefined",
+        "{undefined:#}"
+    );
+    assert_eq!(
+        undefined["difference"]["right"].get("class"),
+        None,
+        "{undefined:#}"
+    );
+    let differs = program_row(&results, "cases/runs.toml#differs")["expectation"].clone();
+    assert_eq!(differs["difference"]["path"], "k[0].value", "{differs:#}");
+    assert_eq!(
+        differs["difference"]["left"]["value"]["document"], 5,
+        "{differs:#}"
+    );
+    assert_eq!(
+        differs["difference"]["right"]["value"]["document"], 4,
+        "{differs:#}"
+    );
+    assert_eq!(
+        differs["difference"]["right"].get("class"),
+        None,
+        "{differs:#}"
+    );
+}
+
+/// [`a_case_expectation_is_reported_and_its_case_kept`]: an expectation that is no expectation of
+/// the definition refuses its case.
+fn a_refused_expectation(project: &Project) {
+    let output = project.kink("check", &["--corpus", "corpora/bad"]);
+    assert_status(&output, 1);
+    let check = json(&output);
+    let program = &check["programs"][0];
+    assert_eq!(program["id"], "cases/runs.toml#nope", "{check:#}");
+    assert_eq!(program["outcome"], "refused", "{check:#}");
+    assert_eq!(program["reason"], "expectation-value", "{check:#}");
+    assert!(
+        program["detail"].as_str().unwrap().contains("nope"),
+        "{check:#}"
+    );
+    assert_eq!(
+        program["expectation"]["verdict"], "inconclusive",
+        "{check:#}"
+    );
+}

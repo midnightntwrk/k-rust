@@ -343,6 +343,8 @@ fn a_program_digest_changes_with_its_text_start_sort_and_variables_only() {
         variables: vec![("A".into(), "1".into()), ("B".into(), "2".into())],
         inputs: toml::Table::new(),
         case: None,
+        case_file: None,
+        expect: None,
         stop_count: None,
     };
     let base = program_digest(&program("p"), &"1 + 2".into());

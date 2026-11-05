@@ -139,8 +139,13 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// on which a rule of the stop labels no rewrite rule is `not-admitted`, reason `stop-unresolved`;
 /// 21 since each executed entry's `difference` names its format (`format`), and is the front end's
 /// evidence, in the front end's format, where a front end renders it (`crate::evidence`, "The
-/// format of the evidence").
-pub const RUN_VERSION: u64 = 21;
+/// format of the evidence"); 22 since a case document may hold named cases, each a program whose
+/// id is the document's path, `#` and its name, and the end its case expects, which kink reads
+/// through the front end's renderer: the row of a program with an expectation carries
+/// `expectation`, met, unmet with the first difference, or inconclusive with why
+/// (`crate::expect`), and a program whose expectation no front end reads is refused at stage
+/// `inputs` (`typed-expectation`, `expectation-value`).
+pub const RUN_VERSION: u64 = 22;
 
 /// k-rust's contradicted-claim records of one run as specification diagnostics (re-pin adoption
 /// A-1): each `{claim, symbol, k_label, rule_id, rule_label, application, undefined,

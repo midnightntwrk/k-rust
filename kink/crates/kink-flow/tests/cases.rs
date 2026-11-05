@@ -112,6 +112,8 @@ text = "2"
             variables: vec![("N".into(), "1".into())],
             inputs: toml::Table::new(),
             case: None,
+            case_file: None,
+            expect: None,
             stop_count: None,
         }
     );
@@ -432,6 +434,8 @@ fn a_case_document_is_the_whole_case() {
                 variables: Vec::new(),
                 inputs,
                 case: Some("cases/boot/case.toml".into()),
+                case_file: None,
+                expect: None,
                 stop_count: None,
             },
             Program {
@@ -441,6 +445,8 @@ fn a_case_document_is_the_whole_case() {
                 variables: Vec::new(),
                 inputs: toml::Table::new(),
                 case: Some("cases/empty/case.toml".into()),
+                case_file: None,
+                expect: None,
                 stop_count: None,
             }
         ]
@@ -461,7 +467,7 @@ fn a_case_document_is_the_whole_case() {
     refused(
         "program = 1",
         &format!("{id}.program"),
-        "a case has the key `inputs`",
+        "a case has the keys `inputs` and `expect`",
     );
     refused("[inputs", id, "no TOML document");
 
@@ -1064,4 +1070,388 @@ fn without_times(value: &mut Value) {
         Value::Array(items) => items.iter_mut().for_each(without_times),
         _ => {}
     }
+}
+
+/// A case document of named cases: each case of `case` is a program whose id is the document's
+/// path, `#` and its name, in document order, an included file's cases at the include's place
+/// (`.toml` or `.json`, a path relative to the file that names it), each with the file it is
+/// written in and the end it expects. Names are distinct across the includes; a cycle of includes,
+/// an empty list, an unnamed case, a key a case does not have and a case's `run` are refused,
+/// naming the position.
+#[test]
+fn named_cases_are_programs_named_by_their_document_and_name() {
+    let dir = corpus(
+        "named-cases",
+        &[],
+        "[[program]]\ncases = \"cases/*.toml\"\n",
+    );
+    write(
+        &dir.join("cases/one.toml"),
+        "[inputs]\nn = 1\n\n[expect]\nhalt = \"stuck\"\n",
+    );
+    let document = "[[case]]\nname = \"first\"\ninputs = { n = 2 }\n\n\
+                    [[case]]\nname = \"second\"\ninputs = { n = 3 }\nexpect = { halt = \"stuck\" }\n";
+    write(
+        &dir.join("cases/runs.toml"),
+        &format!("{document}\n[[case]]\n\"$data-file\" = \"data/more.json\"\n"),
+    );
+    write(
+        &dir.join("cases/data/more.json"),
+        r#"[{"name": "third", "inputs": {"n": 4}, "expect": {"cells": {"n": 4}}},
+            {"$data-file": "deeper/last.toml"}]"#,
+    );
+    write(
+        &dir.join("cases/data/deeper/last.toml"),
+        "[[case]]\nname = \"fourth\"\ninputs = { n = 5 }\n",
+    );
+    let manifest = read(&dir).unwrap();
+    assert_eq!(
+        ids(&manifest),
+        [
+            "cases/one.toml",
+            "cases/runs.toml#first",
+            "cases/runs.toml#second",
+            "cases/runs.toml#third",
+            "cases/runs.toml#fourth",
+        ]
+    );
+    let table = |text: &str| toml::from_str::<toml::Table>(text).unwrap();
+    let facts = manifest
+        .programs
+        .iter()
+        .map(|program| {
+            (
+                program.case.as_deref(),
+                program.case_file.as_deref(),
+                program.inputs.clone(),
+                program.expect.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        facts,
+        [
+            (
+                Some("cases/one.toml"),
+                None,
+                table("n = 1"),
+                Some(table("halt = \"stuck\"")),
+            ),
+            (Some("cases/runs.toml"), None, table("n = 2"), None),
+            (
+                Some("cases/runs.toml"),
+                None,
+                table("n = 3"),
+                Some(table("halt = \"stuck\"")),
+            ),
+            (
+                Some("cases/runs.toml"),
+                Some("cases/data/more.json"),
+                table("n = 4"),
+                Some(table("cells = { n = 4 }")),
+            ),
+            (
+                Some("cases/runs.toml"),
+                Some("cases/data/deeper/last.toml"),
+                table("n = 5"),
+                None,
+            ),
+        ]
+    );
+    let id = "program \"cases/runs.toml\"";
+    let refused = |text: &str, key: &str, message: &str| {
+        write(&dir.join("cases/runs.toml"), text);
+        let error = read(&dir).expect_err(text);
+        assert_eq!(error.key, key, "{error}");
+        assert!(error.message.contains(message), "{error}");
+    };
+    // A case's `run`: in a named case, at the top of a document of named cases, in a document
+    // of one case.
+    let run = "kink runs every program as the corpus says";
+    refused(
+        "[[case]]\nname = \"a\"\nrun = { depth = 3 }\n",
+        &format!("{id}.case[0].run"),
+        run,
+    );
+    refused(
+        &format!("[run]\ndepth = 3\n\n{document}"),
+        &format!("{id}.run"),
+        run,
+    );
+    refused("[run]\ndepth = 3\n", &format!("{id}.run"), run);
+    refused(
+        &format!("{document}\n[[case]]\nname = \"first\"\n"),
+        &format!("{id}.case[2].name"),
+        "`first` is also the name of the case at program \"cases/runs.toml\".case[0]",
+    );
+    write(
+        &dir.join("cases/data/deeper/last.toml"),
+        "[[case]]\nname = \"first\"\n",
+    );
+    refused(
+        "[[case]]\nname = \"first\"\n\n[[case]]\n\"$data-file\" = \"data/more.json\"\n",
+        &format!("{id}.case[1]$data-file(data/more.json)[1]$data-file(deeper/last.toml)[0].name"),
+        "also the name",
+    );
+    write(
+        &dir.join("cases/data/deeper/last.toml"),
+        "case = { \"$data-file\" = \"../more.json\" }\n",
+    );
+    refused(
+        "case = { \"$data-file\" = \"data/more.json\" }\n",
+        &format!("{id}.case$data-file(data/more.json)[1]$data-file(deeper/last.toml)"),
+        "`cases/data/more.json` includes `cases/data/deeper/last.toml` includes \
+         `cases/data/more.json`",
+    );
+    refused("case = []\n", &format!("{id}.case"), "lists no case");
+    refused(
+        "[[case]]\ninputs = { n = 1 }\n",
+        &format!("{id}.case[0]"),
+        "has a `name`",
+    );
+    refused(
+        "[[case]]\nname = \"a\"\nfile = \"x\"\n",
+        &format!("{id}.case[0].file"),
+        "it has the keys `name`, `inputs` and `expect`",
+    );
+    refused(
+        "[[case]]\nname = \"a\"\nexpect = 1\n",
+        &format!("{id}.case[0].expect"),
+        "expected a table",
+    );
+    refused(
+        "[[case]]\n\"$file\" = \"x\"\n",
+        &format!("{id}.case[0]"),
+        "`$file` is no case",
+    );
+    refused(
+        "name = \"a\"\n",
+        &format!("{id}.name"),
+        "a document of one case names none",
+    );
+    write(
+        &dir.join("cases/data/null.json"),
+        r#"[{"name": "a", "inputs": {"n": null}}]"#,
+    );
+    refused(
+        "case = { \"$data-file\" = \"data/null.json\" }\n",
+        &format!("{id}.case"),
+        "`$data-file` `cases/data/null.json`",
+    );
+}
+
+/// A case's expectation is read by the front end that reads the definition's ends: without one
+/// (here a K-level manifest with a decoder of typed inputs but no renderer of ends) the case is
+/// refused at stage `inputs`, reason `typed-expectation`, as typed inputs are without a decoder,
+/// and a case without an expectation is admitted.
+#[test]
+fn an_expectation_needs_a_front_end_that_reads_ends() {
+    let dir = scratch("expect-k-level");
+    write(&dir.join("cases.k"), CASES_K);
+    fs::create_dir_all(dir.join("cases/data")).unwrap();
+    fs::write(dir.join("cases/data/rom.bin"), [0x07]).unwrap();
+    write(
+        &dir.join("cases/runs.toml"),
+        "[[case]]\nname = \"plain\"\ninputs = { entry = { \"$go\" = true }, n = 1, rom = { \"$file\" = \"data/rom.bin\" } }\n\n\
+         [[case]]\nname = \"expecting\"\ninputs = { entry = { \"$go\" = true }, n = 2, rom = { \"$file\" = \"data/rom.bin\" } }\n\
+         expect = { halt = \"stuck\" }\n\n\
+         [[case]]\n\"$data-file\" = \"data/more.toml\"\n",
+    );
+    // An included case's paths are relative to its file.
+    fs::write(dir.join("cases/data/data.bin"), [0x01, 0x02]).unwrap();
+    write(
+        &dir.join("cases/data/more.toml"),
+        "[[case]]\nname = \"included\"\ninputs = { entry = { \"$go\" = true }, n = 3, rom = { \"$file\" = \"data.bin\" } }\n",
+    );
+    write(
+        &dir.join("FLOW.toml"),
+        "[spec]\nentry = \"cases.k\"\nmain_module = \"CASES\"\n\n[[program]]\ncases = \"cases/*.toml\"\n\n\
+         [[program]]\nid = \"included-as-text\"\nvariables = { ENTRY = \"go\", N = \"3\", ROM = 'b\"\\x01\\x02\"' }\n",
+    );
+    let manifest = read(&dir)
+        .unwrap()
+        .with_input_decoder(std::sync::Arc::new(TestDecoder));
+    let admission = on_stack(move || admit(&manifest));
+    assert_eq!(
+        outcomes(&admission),
+        [
+            ("cases/runs.toml#plain".to_owned(), None),
+            (
+                "cases/runs.toml#expecting".to_owned(),
+                Some(("inputs".to_owned(), "typed-expectation".to_owned()))
+            ),
+            ("cases/runs.toml#included".to_owned(), None),
+            ("included-as-text".to_owned(), None),
+        ]
+    );
+    let initial = |id: &str| {
+        let program = admission.programs.iter().find(|p| p.id == id).unwrap();
+        program.outcome.as_ref().unwrap().initial_state.clone()
+    };
+    assert_eq!(
+        initial("cases/runs.toml#included"),
+        initial("included-as-text")
+    );
+}
+
+/// A test front end's renderer of ends: it shows no kill, refuses an expectation with the key
+/// `bad`, and meets an expectation exactly when it states the count of the baseline's ends
+/// (`ends = N`), saying under `[stop]` that it did not compare a halt.
+struct TestRenderer;
+
+impl kink_flow::EndRenderer for TestRenderer {
+    fn format(&self) -> &'static str {
+        "test/1"
+    }
+
+    fn identity(&self) -> Result<Value, String> {
+        Ok(Value::Null)
+    }
+
+    fn difference(
+        &self,
+        _: &std::collections::BTreeSet<k_rust::kore::ast::Pattern>,
+        _: &std::collections::BTreeSet<k_rust::kore::ast::Pattern>,
+        _: bool,
+        _: &[String],
+    ) -> Result<Value, String> {
+        Err("the test renderer shows no kill".into())
+    }
+
+    fn read_expectation(
+        &self,
+        expect: &toml::Table,
+        _: &mut dyn kink_flow::InputFiles,
+    ) -> Result<(), String> {
+        if expect.contains_key("bad") {
+            return Err("`bad` is no part of an expectation".into());
+        }
+        Ok(())
+    }
+
+    fn check_expectation(
+        &self,
+        check: kink_flow::ExpectationCheck<'_>,
+    ) -> Result<kink_flow::CheckedExpectation, String> {
+        let stated = check.expect["ends"].as_integer().unwrap();
+        let met = usize::try_from(stated).unwrap() == check.ends.len();
+        Ok(kink_flow::CheckedExpectation {
+            verdict: if met {
+                kink_flow::ExpectationVerdict::Met
+            } else {
+                kink_flow::ExpectationVerdict::Unmet
+            },
+            detail: check.stop.map(|_| "no halt compared".to_owned()),
+            difference: (!met)
+                .then(|| serde_json::json!({"format": "test/1", "ends": check.ends.len()})),
+        })
+    }
+}
+
+/// With a front end's renderer, each case's expectation is checked against its baseline's ends
+/// and reported in its row of `results`, `run` and `check` (`check` reads the current result
+/// record), and decides no exit status: an unmet expectation leaves `results` and `check` ok.
+/// A program whose expectation the renderer refuses is refused (`inputs`/`expectation-value`),
+/// and so is its expectation's report inconclusive. A program without `expect` has no
+/// `expectation`.
+#[test]
+fn a_case_expectation_is_checked_by_the_front_ends_renderer() {
+    let dir = scratch("expect-renderer");
+    write(&dir.join("cases.k"), CASES_K);
+    fs::create_dir_all(dir.join("cases")).unwrap();
+    fs::write(dir.join("cases/rom.bin"), [0x07]).unwrap();
+    let case = |name: &str, n: u8, expect: &str| {
+        format!(
+            "[[case]]\nname = \"{name}\"\ninputs = {{ entry = {{ \"$go\" = true }}, n = {n}, rom = {{ \"$file\" = \"rom.bin\" }} }}\n{expect}\n"
+        )
+    };
+    write(
+        &dir.join("cases/runs.toml"),
+        &[
+            case("met", 1, "expect = { ends = 1 }"),
+            case("unmet", 2, "expect = { ends = 2 }"),
+            case("none", 3, ""),
+        ]
+        .concat(),
+    );
+    write(
+        &dir.join("FLOW.toml"),
+        "[spec]\nentry = \"cases.k\"\nmain_module = \"CASES\"\n\n[[program]]\ncases = \"cases/*.toml\"\n",
+    );
+    let manifest = read(&dir)
+        .unwrap()
+        .with_input_decoder(std::sync::Arc::new(TestDecoder))
+        .with_end_renderer(std::sync::Arc::new(TestRenderer));
+    let expectations = |document: &Value| {
+        document["programs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                (
+                    row["id"].as_str().unwrap().to_owned(),
+                    row.get("expectation").cloned(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let met = serde_json::json!({"verdict": "met", "detail": null, "difference": null});
+    let unmet = serde_json::json!({
+        "verdict": "unmet",
+        "detail": null,
+        "difference": {"format": "test/1", "ends": 1},
+    });
+    let reported = [
+        ("cases/runs.toml#met".to_owned(), Some(met)),
+        ("cases/runs.toml#unmet".to_owned(), Some(unmet)),
+        ("cases/runs.toml#none".to_owned(), None),
+    ];
+    let checking = manifest.clone();
+    let (results, results_ok) =
+        on_stack(move || kink_flow::results::results(&manifest, &ResultsOptions::default()));
+    assert!(results_ok, "{results:#}");
+    assert_eq!(expectations(&results), reported, "{results:#}");
+    let (check, status) = on_stack(move || {
+        kink_flow::cli::run_command(
+            &checking,
+            &kink_flow::FlowCommand::Check(kink_flow::cli::CheckOptions::default()),
+            &kink_flow::FrontEnd::default(),
+        )
+    });
+    assert_eq!(status, 0, "{check:#}");
+    assert_eq!(check["version"], 10, "{check:#}");
+    assert_eq!(expectations(&check), reported, "{check:#}");
+
+    // A refused expectation refuses its case.
+    write(
+        &dir.join("cases/runs.toml"),
+        &case("bad", 1, "expect = { bad = 1 }"),
+    );
+    let manifest = read(&dir)
+        .unwrap()
+        .with_input_decoder(std::sync::Arc::new(TestDecoder))
+        .with_end_renderer(std::sync::Arc::new(TestRenderer));
+    let (check, status) = on_stack(move || {
+        kink_flow::cli::run_command(
+            &manifest,
+            &kink_flow::FlowCommand::Check(kink_flow::cli::CheckOptions::default()),
+            &kink_flow::FrontEnd::default(),
+        )
+    });
+    assert_eq!(status, 1, "{check:#}");
+    let row = &check["programs"][0];
+    assert_eq!(
+        (&row["outcome"], &row["stage"], &row["reason"]),
+        (
+            &Value::from("refused"),
+            &Value::from("inputs"),
+            &Value::from("expectation-value")
+        ),
+        "{check:#}"
+    );
+    assert_eq!(
+        row["detail"], "expect: `bad` is no part of an expectation",
+        "{check:#}"
+    );
+    assert_eq!(row["expectation"]["verdict"], "inconclusive", "{check:#}");
 }

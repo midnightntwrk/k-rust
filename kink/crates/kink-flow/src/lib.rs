@@ -46,6 +46,7 @@ pub mod cli;
 pub mod digest;
 pub mod evidence;
 pub mod exclusion;
+pub mod expect;
 pub mod fuzz;
 pub mod fuzz_filter;
 pub mod hints;
@@ -74,6 +75,7 @@ pub use cli::{
     dispatch, on_stack,
 };
 pub use evidence::{EndRenderer, Renderer};
+pub use expect::{CheckedExpectation, ExpectationCheck, ExpectationVerdict};
 pub use manifest::{
     Budget, Decoder, FlowManifest, KrsSpec, ManifestError, ManifestFile, Program, ResultSection,
     SpecDecl, SpecSection, StopSection,

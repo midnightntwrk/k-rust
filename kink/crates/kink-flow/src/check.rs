@@ -74,7 +74,7 @@
 //! itself knows only K.
 
 use crate::{
-    admit::{AdmittedSpec, InputSession},
+    admit::{AdmittedSpec, FlowAdmission, InputSession, ProgramAdmission, admit_spec},
     cli::{CommandSpelling, Verb},
     digest::execution_digest,
     manifest::FlowManifest,
@@ -82,7 +82,7 @@ use crate::{
         InvalidMutation, Mutation, MutationList, ResolvedMutation, addressed_rule, resolve,
     },
     report::rules_value,
-    results::{ResultClass, current_record, no_coverage_signal, result_store},
+    results::{ResultClass, cache_directory, current_record, no_coverage_signal, result_store},
 };
 use kink_corpus::LoadedSource;
 use kink_patch::SentenceRef;
@@ -315,6 +315,82 @@ impl CorpusCoverage {
             "incomplete": self.incomplete,
             "detail": detail,
         })
+    }
+}
+
+/// The admission of `manifest` (`crate::admit::admit`) with each case's expectation checked
+/// against its current result record in the cache directory `cache` (default `.kink-flow/` next
+/// to `FLOW.toml`), read without running a program or writing anything ([`expect_recorded`]).
+pub fn admit_checked(manifest: &FlowManifest, cache: Option<&Path>) -> FlowAdmission {
+    let (record, admitted) = admit_spec(manifest);
+    let Some((spec, mut inputs)) = admitted else {
+        return FlowAdmission {
+            record,
+            spec: None,
+            programs: Vec::new(),
+            stop: manifest.stop_value(),
+        };
+    };
+    let programs = {
+        let mut session = inputs.session(&spec);
+        let mut programs = manifest
+            .programs
+            .iter()
+            .map(|program| session.admit(program))
+            .collect::<Vec<_>>();
+        let cache = cache_directory(manifest, cache);
+        expect_recorded(&spec, manifest, &session, &cache, &mut programs);
+        programs
+    };
+    FlowAdmission {
+        record,
+        spec: Some(spec),
+        programs,
+        stop: manifest.stop_value(),
+    }
+}
+
+/// Why the check document has no baseline to check a case's expectation against.
+const NO_RECORD: &str = "the case has no current result record to check the expectation \
+     against: it has not run under this specification and build (run `results`), or its result is \
+     never cached (a timeout, an error, or an unknown the host caused)";
+
+/// Each admission of `programs` (one per manifest program, in order) whose program has `expect`,
+/// with its expectation checked against the program's current result record in the cache
+/// directory `cache`, read without running anything (`crate::expect`): inconclusive for a refused
+/// program and for one without a record.
+pub fn expect_recorded(
+    spec: &AdmittedSpec,
+    manifest: &FlowManifest,
+    inputs: &InputSession<'_>,
+    cache: &Path,
+    programs: &mut [ProgramAdmission],
+) {
+    if manifest
+        .programs
+        .iter()
+        .all(|program| program.expect.is_none())
+    {
+        return;
+    }
+    let execution = execution_digest(manifest, spec);
+    for (program, admission) in manifest.programs.iter().zip(programs) {
+        if program.expect.is_none() {
+            continue;
+        }
+        let record = match &admission.outcome {
+            Err(_) => None,
+            Ok(_) => inputs
+                .admitted_inputs(program)
+                .ok()
+                .and_then(|case| current_record(manifest, execution, program, &case, cache)),
+        };
+        let baseline = match (&admission.outcome, &record) {
+            (Err(_), _) => Err("the case is refused, so it has no baseline run"),
+            (Ok(_), None) => Err(NO_RECORD),
+            (Ok(_), Some(record)) => Ok(crate::expect::Baseline::of_record(record)),
+        };
+        admission.expectation = inputs.expectation(program, baseline, manifest.stop.as_ref());
     }
 }
 

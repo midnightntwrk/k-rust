@@ -85,7 +85,7 @@ thread_local! {
 
 /// kink-flow's file reader seen as krs-exec's: the same contract (a path relative to the
 /// document that names it, the resolved name and the bytes), with kink's containment rule.
-struct ManifestFiles<'a>(&'a mut dyn kink_flow::admit::InputFiles);
+pub(crate) struct ManifestFiles<'a>(pub(crate) &'a mut dyn kink_flow::admit::InputFiles);
 
 impl krs_exec::InputFiles for ManifestFiles<'_> {
     fn read(&mut self, from: Option<&str>, path: &str) -> Result<(String, Vec<u8>), String> {

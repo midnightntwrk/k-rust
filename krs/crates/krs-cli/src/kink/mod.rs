@@ -8,8 +8,9 @@
 //! the options kink-flow's own command line takes. The engine is kink-flow's: admission,
 //! resolution, the kill definition and the caches are those of a K corpus over the same file.
 //!
-//! The front end adds, on the way in, how a case's typed inputs are read (the encoding KRS
-//! derives from the definition's declared types, the `inputs` submodule), the exact K labels of
+//! The front end adds, on the way in, how a case's typed inputs and its expectation are read
+//! (the encoding KRS derives from the definition's declared types, the `inputs` and `render`
+//! submodules), the exact K labels of
 //! the rules `[stop]` names by KRS item or label as `krs run --stop-before` does (the `stop`
 //! submodule, over the native compile the `inputs` submodule makes; a name that selects no
 //! rewrite rule refuses the corpus at stage `stop`, reason `stop-unresolved`), and the mutations
@@ -539,8 +540,9 @@ fn bound_manifest(
 }
 
 /// `manifest` with what only the front end knows of `emitted`: how its programs' typed inputs are
-/// read (`decoder`), when one has any, how a kill's evidence is shown (by Rust field path and
-/// canonical documents, over the decoder's compile), and which sentences are claim helpers. Only
+/// read (`decoder`), when one has any, how a kill's evidence is shown and a case's expectation
+/// read and checked (by Rust field path and canonical documents, over the decoder's compile), and
+/// which sentences are claim helpers. Only
 /// claims apply a claim helper, and the claims are not in the K kink loads, so the emission,
 /// which wrote both, names them.
 fn with_front_end_facts(

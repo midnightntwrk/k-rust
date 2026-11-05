@@ -7,13 +7,17 @@
 //!
 //! A `[[program]]` entry may name a pattern of case files instead of one program: `files` (each
 //! match is a program text, as `file`, with the entry's other keys shared) or `cases` (each match
-//! is a case document, `[inputs]` by input name, the whole case). Each match is a program whose
-//! id is its path relative to the manifest's directory, as matched (`programs/sum.imp`), so a
-//! case is added or removed by adding or removing its file, and its id is the same on every run
-//! and host. The entry is replaced in place by its matches, sorted by id, so the program order is
-//! a function of the ids, never of the order the file system lists a directory in. A pattern that
-//! matches nothing is an error, not an empty corpus; an id that a listed program or another
-//! match also gives is an error (`duplicate program id`). The case documents are read here,
+//! is a case document: one case, `[inputs]` by input name and the end it expects, `[expect]`, or
+//! named cases under `case`). Each match is a program whose id is its path relative to the
+//! manifest's directory, as matched (`programs/sum.imp`), and each named case of a matched
+//! document a program whose id is that path, `#` and its name (`cases/boot.toml#reset`), so a
+//! case is added or removed by adding or removing its file or its table, and its id is the same
+//! on every run and host. A case's `run` is refused: kink runs every program as the corpus says.
+//! The entry is replaced in place by its matches, sorted by path, each document's named cases in
+//! document order, so the program order is a function of the corpus's files, never of the order
+//! the file system lists a directory in. A pattern that matches nothing is an error, not an empty
+//! corpus; an id that a listed program or another match also gives is an error (`duplicate
+//! program id`). The case documents are read here,
 //! inside the manifest's directory by the program-file rule, so the decoded programs are the
 //! whole corpus for both front ends.
 //!
@@ -29,6 +33,7 @@
 //! before that binding; [`ManifestFile::bind`] gives the [`FlowManifest`] every command runs on,
 //! so every other key decodes once, for both front ends.
 
+mod case_document;
 mod case_pattern;
 
 use crate::admit::InputDecoder;
@@ -267,12 +272,23 @@ pub struct Program {
     /// them (`FlowManifest::input_decoder`); without one admission refuses the program.
     pub inputs: Table,
     /// The case document a `cases` pattern matched, which gave `inputs`: its path relative to the
-    /// manifest's directory as matched (the program's id). The paths its inputs name are relative
-    /// to the directory of that path as written, not of the file a link leads to, which is the
-    /// directory `krs run --case` resolves them against, so a case document reached through a
-    /// link is the same case in every tool. `None` for every other program, whose inputs' paths
-    /// are relative to the manifest's directory.
+    /// manifest's directory as matched (the program's id, or the id up to its `#` for a named
+    /// case). The paths its inputs name are relative to the directory of that path as written,
+    /// not of the file a link leads to, which is the directory `krs run --case` resolves them
+    /// against, so a case document reached through a link is the same case in every tool.
+    /// `None` for every other program, whose inputs' paths are relative to the manifest's
+    /// directory.
     pub case: Option<String>,
+    /// The file a named case is written in where the case document includes it (`$data-file`):
+    /// its name as the manifest's file reader gives it, its path relative to the manifest's
+    /// directory with links resolved, which the case's paths are relative to. `None` for a case
+    /// of the matched document itself and for every other program.
+    pub case_file: Option<String>,
+    /// `expect`: the end the case document states the case's run ends in, kept as written; only
+    /// a front end's end renderer reads it (`EndRenderer::read_expectation`), and no run depends
+    /// on it, so it is in no digest. `None` for a case without one and for every program that is
+    /// no case of a case document.
+    pub expect: Option<Table>,
     /// `stop_count`: the stop event this program's run ends at, in place of `[stop] count`: the
     /// count is a property of the observation of one program (a console ROM that needs more
     /// frames than another), while the rules are the corpus's. Only with `[stop]`.
@@ -1020,6 +1036,8 @@ fn files_entry(
                 variables: variables.clone(),
                 inputs: inputs.clone(),
                 case: None,
+                case_file: None,
+                expect: None,
                 stop_count,
             };
             (program, key.clone())
@@ -1027,8 +1045,9 @@ fn files_entry(
         .collect())
 }
 
-/// `cases = "<pattern>"`: each match is a case document, the whole case, observed with the
-/// entry's `stop_count` when it has one.
+/// `cases = "<pattern>"`: each match is a case document, each of its cases a program (the one
+/// case of a document is the program the match names, a named case `<match>#<name>`), observed
+/// with the entry's `stop_count` when it has one.
 fn cases_entry(
     position: &str,
     entry: &Table,
@@ -1057,49 +1076,28 @@ fn cases_entry(
             format!("cannot resolve the manifest's directory: {e}"),
         )
     })?;
-    matches
-        .into_iter()
-        .map(|id| {
-            let inputs = case_document(&root, &id)?;
+    let mut programs = Vec::new();
+    for document in matches {
+        for case in case_document::case_document(&root, &document)? {
+            let id = match &case.name {
+                Some(name) => format!("{document}#{name}"),
+                None => document.clone(),
+            };
             let program = Program {
-                case: Some(id.clone()),
                 id,
+                case: Some(document.clone()),
+                case_file: case.file,
+                expect: case.expect,
                 source: None,
                 start_sort: None,
                 variables: Vec::new(),
-                inputs,
+                inputs: case.inputs,
                 stop_count,
             };
-            Ok((program, key.clone()))
-        })
-        .collect()
-}
-
-/// The `inputs` of the case document `id` (a path relative to the canonical manifest directory
-/// `root`), which must resolve, links included, to a file inside `root` (the rule a program file
-/// is read by). A case document has the one top-level key `inputs`, a table of typed inputs by
-/// input name, as in every tool that reads one.
-fn case_document(root: &Path, id: &str) -> Result<Table, ManifestError> {
-    let key = program_key(id);
-    let refused = |message: String| ManifestError::new(&key, message);
-    let resolved = fs::canonicalize(root.join(id))
-        .map_err(|e| refused(format!("cannot read the case document: {e}")))?;
-    if !resolved.starts_with(root) {
-        return Err(refused(
-            "the case document escapes the manifest's directory".to_owned(),
-        ));
+            programs.push((program, key.clone()));
+        }
     }
-    let text = fs::read_to_string(&resolved)
-        .map_err(|e| refused(format!("cannot read the case document: {e}")))?;
-    let document: Table = toml::from_str(&text)
-        .map_err(|e| refused(format!("the case document is no TOML document: {e}")))?;
-    if let Some(unknown) = document.keys().find(|key| *key != "inputs") {
-        return Err(ManifestError::new(
-            join(&key, unknown),
-            "unknown key in a case document; a case has the key `inputs`",
-        ));
-    }
-    inputs(&document, &key)
+    Ok(programs)
 }
 
 /// A listed program: `id` and its own keys.
@@ -1155,6 +1153,8 @@ fn program(position: &str, entry: &Table) -> Result<Program, ManifestError> {
         variables,
         inputs,
         case: None,
+        case_file: None,
+        expect: None,
         stop_count,
     })
 }

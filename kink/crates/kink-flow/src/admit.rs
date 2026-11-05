@@ -27,7 +27,9 @@
 //! kink reads K text only; a typed input is a document of a front end's encoding, which only the
 //! front end that knows the inputs' declared types can read, so kink asks that front end's
 //! decoder for the term it denotes and binds the term. Without a decoder (a `FLOW.toml` read at
-//! the K level) a program with `inputs` is refused (`typed-inputs`).
+//! the K level) a program with `inputs` is refused (`typed-inputs`). A case's expectation is a
+//! document of the front end's encoding of ends likewise, read by the manifest's renderer of
+//! ends, and refused without one (`typed-expectation`; `crate::expect`).
 //!
 //! A test's expected result is what the specification computes from its inputs. When the
 //! baseline's initial configuration has no value (an input divides by zero, directly or through
@@ -47,6 +49,7 @@
 //! `check` fails on it too, since no mutation can then have a verdict but `unknown`
 //! ([`FlowAdmission::verdicts_possible`]).
 
+use crate::evidence::Renderer;
 pub use crate::exclusion::ExclusionScope;
 use crate::manifest::{Decoder, FlowManifest, Program};
 use crate::observed::{ResultProjection, result_projection};
@@ -146,13 +149,14 @@ pub trait InputFiles {
 /// The files of a manifest's directory, read by the rule a program file is read by
 /// ([`read_program`]): the path is resolved by the operating system, links and `..` included,
 /// and the file it resolves to must lie inside the canonical manifest directory `root`.
-struct ManifestFiles<'a> {
-    root: &'a Path,
+pub(crate) struct ManifestFiles<'a> {
+    pub(crate) root: &'a Path,
     /// The case document the inputs were written in (`Program::case`, its path as matched),
     /// whose directory as written a path named by no other file is relative to, as `krs run
-    /// --case` reads it; `None`: the manifest's directory. A path named from another file is
-    /// relative to that file's name, links resolved.
-    document: Option<&'a str>,
+    /// --case` reads it, or the file a named case is written in where the document includes it
+    /// (`Program::case_file`, a name this reader gave); `None`: the manifest's directory. A path
+    /// named from another file is relative to that file's name, links resolved.
+    pub(crate) document: Option<&'a str>,
 }
 
 impl InputFiles for ManifestFiles<'_> {
@@ -280,6 +284,10 @@ pub struct ProgramAdmission {
     /// known before it runs any step ([`InputSession::exclusion`], and its depth-0 run for the
     /// short-circuit reading); `None` for a refused program.
     pub exclusion: Option<ProgramExclusion>,
+    /// The program's `expectation` member in the check document, when it has `expect` and the
+    /// command checked it (`crate::expect`: `check` checks it against the program's current
+    /// result record); `None` otherwise.
+    pub expectation: Option<serde_json::Value>,
 }
 
 impl ProgramAdmission {
@@ -401,6 +409,7 @@ pub fn admit_spec_with(
                 backend,
                 grammar: OnceCell::new(),
                 decoder: manifest.input_decoder.clone(),
+                renderer: manifest.end_renderer.clone(),
                 time: Duration::from_millis(manifest.budget.time_ms),
             };
             (record, Some((spec, inputs)))
@@ -425,6 +434,8 @@ pub struct ProgramInputs {
     grammar: OnceCell<Result<InputGrammar, InputError>>,
     /// The manifest's front-end decoder of typed inputs.
     decoder: Decoder,
+    /// The manifest's front-end renderer of ends, which reads expectations.
+    renderer: Renderer,
     /// The time bound of one program run (`[budget] time_ms`), which bounds the depth-0 run
     /// that decides whether a program's initial configuration has a value.
     time: Duration,
@@ -433,7 +444,7 @@ pub struct ProgramInputs {
 impl ProgramInputs {
     /// The program's inputs ([`read_inputs`]).
     pub fn read(&self, program: &Program) -> Result<CaseInputs, AdmissionRefusal> {
-        read_inputs(&self.root, &self.decoder, program)
+        read_inputs(&self.root, &self.decoder, &self.renderer, program)
     }
 
     /// A session that admits programs of `spec`, which must be the specification these inputs
@@ -457,6 +468,7 @@ impl ProgramInputs {
             backend: &mut self.backend,
             grammar: &self.grammar,
             decoder: &self.decoder,
+            renderer: &self.renderer,
             time: self.time,
             assembler: None,
             ceil_memo: CeilMemo::default(),
@@ -472,8 +484,24 @@ impl ProgramInputs {
 /// program ([`InputDecoder::program`]) reads its bytes; one that refuses them, or binds them
 /// otherwise than as `$PGM` text on a program with a `start_sort` (which reads `$PGM` text
 /// only), refuses the program (`inputs`/`input-value`). Without a decoder, or where it keeps
-/// kink's rule, the bytes are UTF-8 text bound to `$PGM`.
+/// kink's rule, the bytes are UTF-8 text bound to `$PGM`. A program with an expectation is
+/// refused without a renderer of ends (`inputs`/`typed-expectation`), and where the renderer
+/// refuses it (`inputs`/`expectation-value`; `crate::expect`).
 fn read_inputs(
+    root: &Result<PathBuf, AdmissionRefusal>,
+    decoder: &Decoder,
+    renderer: &Renderer,
+    program: &Program,
+) -> Result<CaseInputs, AdmissionRefusal> {
+    let inputs = read_typed_inputs(root, decoder, program)?;
+    if program.expect.is_some() {
+        crate::expect::admit_expectation(renderer, &root.clone()?, program)?;
+    }
+    Ok(inputs)
+}
+
+/// [`read_inputs`] without the expectation.
+fn read_typed_inputs(
     root: &Result<PathBuf, AdmissionRefusal>,
     decoder: &Decoder,
     program: &Program,
@@ -574,7 +602,7 @@ fn read_inputs(
     };
     let mut files = ManifestFiles {
         root: &root,
-        document: program.case.as_deref(),
+        document: program.case_file.as_deref().or(program.case.as_deref()),
     };
     // By K name, with the input name each came from.
     let mut typed = BTreeMap::<String, (String, Term)>::new();
@@ -627,6 +655,7 @@ pub struct InputSession<'a> {
     backend: &'a mut Backend,
     grammar: &'a OnceCell<Result<InputGrammar, InputError>>,
     decoder: &'a Decoder,
+    renderer: &'a Renderer,
     time: Duration,
     assembler: Option<InputAssembler<'a>>,
     /// The ceil-theory judgements of the initial-state exclusions read so far, on the input
@@ -650,6 +679,7 @@ impl<'a> InputSession<'a> {
             id: program.id.clone(),
             outcome,
             exclusion,
+            expectation: None,
         }
     }
 
@@ -682,7 +712,35 @@ impl<'a> InputSession<'a> {
 
     /// The program's inputs, as [`ProgramInputs::read`].
     pub fn read(&self, program: &Program) -> Result<CaseInputs, AdmissionRefusal> {
-        read_inputs(self.root, self.decoder, program)
+        read_inputs(self.root, self.decoder, self.renderer, program)
+    }
+
+    /// The inputs of a program this session admitted ([`Self::admit`]), without its expectation:
+    /// admission read the expectation, and it is in no digest or key that the inputs give.
+    pub(crate) fn admitted_inputs(
+        &self,
+        program: &Program,
+    ) -> Result<CaseInputs, AdmissionRefusal> {
+        read_typed_inputs(self.root, self.decoder, program)
+    }
+
+    /// The `expectation` member of `program`'s row, when it has `expect` (`crate::expect`):
+    /// checked against `baseline`, its baseline result, or why it has none; `stop` is the
+    /// manifest's `[stop]`.
+    pub fn expectation(
+        &self,
+        program: &Program,
+        baseline: Result<crate::expect::Baseline<'_>, &str>,
+        stop: Option<&crate::manifest::StopSection>,
+    ) -> Option<serde_json::Value> {
+        crate::expect::expectation_value(
+            self.renderer,
+            self.root.as_deref().ok(),
+            program,
+            baseline,
+            &self.spec.result.not_compared,
+            stop,
+        )
     }
 
     /// The program's concrete initial configuration (`inputs` is [`Self::read`]'s result):

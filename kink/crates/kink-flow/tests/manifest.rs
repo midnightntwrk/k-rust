@@ -59,6 +59,8 @@ fn a_minimal_manifest_takes_every_default() {
             variables: vec![],
             inputs: toml::Table::new(),
             case: None,
+            case_file: None,
+            expect: None,
             stop_count: None,
         }]
     );
@@ -147,6 +149,8 @@ text = "1 + 2"
                 variables: vec![("A".into(), "true".into()), ("Z".into(), "3".into())],
                 inputs: toml::Table::new(),
                 case: None,
+                case_file: None,
+                expect: None,
                 stop_count: None,
             },
             Program {
@@ -156,6 +160,8 @@ text = "1 + 2"
                 variables: vec![],
                 inputs: toml::Table::new(),
                 case: None,
+                case_file: None,
+                expect: None,
                 stop_count: None,
             },
         ]
@@ -260,6 +266,8 @@ fn a_program_without_file_or_text_is_a_program_less_case() {
             variables: vec![("ENTRY".into(), "run".into())],
             inputs: toml::Table::new(),
             case: None,
+            case_file: None,
+            expect: None,
             stop_count: None,
         }]
     );

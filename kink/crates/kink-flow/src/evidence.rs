@@ -200,6 +200,45 @@ pub trait EndRenderer {
         mutant_complete: bool,
         not_compared: &[String],
     ) -> Result<Value, String>;
+
+    /// Reads a case's expectation, its `expect` table as written ([`crate::expect`]), refusing
+    /// one that is no expectation of the definition; `files` reads the files it names, relative
+    /// to the file the case is written in. Admission calls it for every program with `expect`.
+    /// The default refuses every expectation: a renderer that reads none.
+    ///
+    /// # Errors
+    ///
+    /// Why the table is no expectation of the definition, which admission reports as the
+    /// refusal's detail (`inputs`/`expectation-value`).
+    fn read_expectation(
+        &self,
+        expect: &toml::Table,
+        files: &mut dyn crate::admit::InputFiles,
+    ) -> Result<(), String> {
+        let _ = (expect, files);
+        Err(format!(
+            "the front end's ends ({}) read no expectation",
+            self.format()
+        ))
+    }
+
+    /// Checks a case's expectation against the ends of its baseline run ([`crate::expect`]).
+    /// The default checks none.
+    ///
+    /// # Errors
+    ///
+    /// Why the expectation cannot be checked, which the row reports as an inconclusive
+    /// verdict's detail.
+    fn check_expectation(
+        &self,
+        check: crate::expect::ExpectationCheck<'_>,
+    ) -> Result<crate::expect::CheckedExpectation, String> {
+        let _ = check;
+        Err(format!(
+            "the front end's ends ({}) check no expectation",
+            self.format()
+        ))
+    }
 }
 
 /// A front end's [`EndRenderer`], or none. Two are equal when both are absent or both are the

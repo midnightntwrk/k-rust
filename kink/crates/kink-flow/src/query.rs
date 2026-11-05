@@ -63,7 +63,10 @@ use std::{
 };
 
 /// The query document's schema and version. Version 2 adds the refusal at stage `stop` (reason
-/// `unsupported-verb`) of a corpus with `[stop]`.
+/// `unsupported-verb`) of a corpus with `[stop]`. Added to 2 without a new version, since a
+/// corpus without a case expectation or a named case has the document it had and no command
+/// reads a query document back: a program row of a case with an expectation carries
+/// `expectation` (`crate::expect`).
 pub const QUERY_SCHEMA: &str = "kink-flow-query";
 pub const QUERY_VERSION: u64 = 2;
 /// A cached answer's schema, and its key's `schema_version`.

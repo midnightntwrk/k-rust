@@ -22,7 +22,7 @@
 //! itself runs every command with [`FrontEnd::default`].
 
 use crate::{
-    admit::{FlowAdmission, admit, admit_spec},
+    admit::{FlowAdmission, admit_spec},
     check::{CorpusCoverage, Finding, MutationCheck, check_mutations, corpus_coverage},
     fuzz::{FuzzJob, FuzzOptions, TemplateList},
     manifest::{FlowManifest, ManifestError},
@@ -582,7 +582,7 @@ pub fn run_command(
     let exit = |ok: bool| if ok { EXIT_OK } else { EXIT_CORPUS };
     let (document, status) = match command {
         FlowCommand::Check(options) => match &options.mutations {
-            None => check_admission(manifest),
+            None => check_admission(manifest, options.cache.as_deref()),
             Some(path) => {
                 let mut checked = check_corpus_mutations(
                     manifest,
@@ -1265,6 +1265,8 @@ pub fn check_corpus_mutations(
             .map(|program| session.admit(program))
             .collect::<Vec<_>>();
         let cache = cache_directory(manifest, cache);
+        let mut programs = programs;
+        crate::check::expect_recorded(&spec, manifest, &session, &cache, &mut programs);
         (programs, corpus_coverage(&spec, manifest, &session, &cache))
     };
     let mutations = list
@@ -1323,11 +1325,12 @@ pub fn check_mutations_document(
     (document, status)
 }
 
-/// `kink-flow check FLOW.toml` without a mutation list: admission alone, and [`EXIT_OK`] exactly
-/// when no fact known before any mutant runs makes a verdict impossible
-/// ([`FlowAdmission::verdicts_possible`]).
-fn check_admission(manifest: &FlowManifest) -> (Value, u8) {
-    let admission = admit(manifest);
+/// `kink-flow check FLOW.toml` without a mutation list: admission alone, each case's expectation
+/// checked against its current result record in `cache` ([`crate::check::admit_checked`]), and
+/// [`EXIT_OK`] exactly when no fact known before any mutant runs makes a verdict impossible
+/// ([`FlowAdmission::verdicts_possible`]); an expectation decides no exit status.
+fn check_admission(manifest: &FlowManifest, cache: Option<&Path>) -> (Value, u8) {
+    let admission = crate::check::admit_checked(manifest, cache);
     let status = if admission.verdicts_possible() {
         EXIT_OK
     } else {
@@ -1355,8 +1358,12 @@ fn check_admission(manifest: &FlowManifest) -> (Value, u8) {
 /// reads (k-rust `matched`), so that each coverage predicate has one name in every kink-flow
 /// document, and says `matches` for `reaches` in both warnings' text; 9 adds `stop` for a corpus
 /// with `[stop]` (absent without one), the warnings `stop-hides-edit` and `stop-rule-deleted`,
-/// and the specification's refusal at stage `stop` (`stop-unresolved`, `backend-error`).
-pub const CHECK_VERSION: u64 = 9;
+/// and the specification's refusal at stage `stop` (`stop-unresolved`, `backend-error`); 10 adds
+/// named cases of a case document (each a program whose id is the document's path, `#` and its
+/// name), and each case's `expectation`, checked against its current result record without
+/// running it (`crate::expect`; it decides no exit status), and refuses a program whose
+/// expectation no front end reads at stage `inputs` (`typed-expectation`, `expectation-value`).
+pub const CHECK_VERSION: u64 = 10;
 
 fn header(spec: Value, programs: Vec<Value>, data: Value, result: Value) -> Value {
     json!({
@@ -1469,6 +1476,14 @@ pub fn check_document(admission: &FlowAdmission) -> Value {
                 "reason": null,
                 "detail": null,
             }),
+        })
+        .zip(&admission.programs)
+        .map(|(mut row, program)| {
+            // A case's expectation (`crate::expect`); absent without one.
+            if let Some(expectation) = &program.expectation {
+                row["expectation"] = expectation.clone();
+            }
+            row
         })
         .collect();
     let data = admission
