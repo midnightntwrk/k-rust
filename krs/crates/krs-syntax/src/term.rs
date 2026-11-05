@@ -507,19 +507,26 @@ impl TermApplication {
     /// of its own, never a level's remainder.
     #[must_use]
     pub fn anonymous_rest(&self) -> Option<TokenRange> {
-        if !self.is_list_notation() {
-            return None;
-        }
         let TermArguments::Positional(arguments) = &self.arguments else {
             return None;
         };
-        let remainder = match self.head.segments.last()?.ident.to_string().as_str() {
-            "cons" => arguments.get(1),
-            "snoc" => arguments.first(),
-            _ => None,
-        };
-        match remainder {
+        match arguments.get(self.list_rest_argument()?) {
             Some(TermTree::Wildcard(range)) => Some(*range),
+            _ => None,
+        }
+    }
+
+    /// The argument of a level of list notation that holds the rest of the list: a
+    /// `__list::cons` level's tail (1) and a `__list::snoc` level's init (0); `None` for the
+    /// empty list and any other application.
+    #[must_use]
+    pub fn list_rest_argument(&self) -> Option<usize> {
+        if !self.is_list_notation() {
+            return None;
+        }
+        match self.head.segments.last()?.ident.to_string().as_str() {
+            "cons" => Some(1),
+            "snoc" => Some(0),
             _ => None,
         }
     }
@@ -1362,6 +1369,10 @@ pub struct TermExpression {
     /// The anchors of the term's standalone keying, which both provenance
     /// views project.
     anchors: Vec<ProvenanceAnchor>,
+    /// Whether a result's list notation ends its root spine in the list cell's unnamed rest,
+    /// a `..` that keeps the rest its subject's `..` matched
+    /// ([`Self::keeping_root_rest`]).
+    kept_root_rest: bool,
 }
 
 thread_local! {
@@ -1457,6 +1468,7 @@ impl TermExpression {
             tree,
             keys: TermKeys::default(),
             anchors: Vec::new(),
+            kept_root_rest: false,
         }
         .keyed_standalone()
     }
@@ -1623,6 +1635,7 @@ impl TermExpression {
             tree,
             keys: TermKeys::default(),
             anchors: Vec::new(),
+            kept_root_rest: false,
         }
         .keyed_standalone()
     }
@@ -1687,6 +1700,66 @@ impl TermExpression {
     #[must_use]
     pub const fn keys(&self) -> &TermKeys {
         &self.keys
+    }
+
+    /// Whether the term is a result's list brackets whose root spine ends in the list cell's
+    /// unnamed rest ([`Self::keeping_root_rest`]): its `..` is a wildcard of the result, which
+    /// the sentence keys as its side's.
+    #[must_use]
+    pub const fn keeps_root_rest(&self) -> bool {
+        self.kept_root_rest
+    }
+
+    /// The result brackets `[e1, .., en]` of a list cell's root, read with their `..` written
+    /// `..marker`: the `marker` reference that ends the root's spine of list-notation levels (a
+    /// cons level's tail, a snoc level's init) is the unnamed rest itself, a wildcard at the
+    /// `..`'s range, and the source is the brackets as authored. `None` when no such
+    /// reference ends the spine.
+    pub(crate) fn keeping_root_rest(mut self, marker: &str) -> Result<Option<Self>, SyntaxError> {
+        fn rest(tree: &mut TermTree, marker: &str) -> Result<bool, SyntaxError> {
+            match tree {
+                TermTree::Reference(path) if path.is_ident(marker) => {
+                    let range = TokenRange::for_tokens(path)?;
+                    *tree = TermTree::Wildcard(range);
+                    Ok(true)
+                }
+                TermTree::Application(application) => {
+                    let Some(at) = application.list_rest_argument() else {
+                        return Ok(false);
+                    };
+                    match &mut application.arguments {
+                        TermArguments::Positional(arguments) => match arguments.get_mut(at) {
+                            Some(argument) => rest(argument, marker),
+                            None => Ok(false),
+                        },
+                        TermArguments::Named(_) => Ok(false),
+                    }
+                }
+                _ => Ok(false),
+            }
+        }
+        if !rest(&mut self.tree, marker)? {
+            return Ok(None);
+        }
+        let is_marker = |path: &Path| path.is_ident(marker);
+        self.nodes
+            .retain(|node| !matches!(node, TermNode::Reference(path) if is_marker(path)));
+        self.symbols.retain(|symbol| !is_marker(&symbol.path));
+        if let TermSource::Expression(Expr::Array(array)) = &mut self.expression {
+            for element in &mut array.elems {
+                if let Expr::Range(range) = element
+                    && range
+                        .end
+                        .as_deref()
+                        .is_some_and(|end| matches!(end, Expr::Path(end) if is_marker(&end.path)))
+                {
+                    range.end = None;
+                }
+            }
+        }
+        self.kept_root_rest = true;
+        self.clear_keys();
+        self.keyed_standalone().map(Some)
     }
 
     /// The term's nodes with its keys, for a pass that keys them.

@@ -736,7 +736,11 @@ impl<'a> StateRuleBuilder<'a> {
                 // A whole nested-cell entry has no wrapper (KF-016).
                 (None, None)
             };
-            let value = self.expand_state(entry.value(), slots)?;
+            // A list cell's root brackets may end in the list's unnamed rest in a sentence
+            // with a subject and a result: the subject's `..` matches it and the result's
+            // keeps it.
+            let list_root = wrapper == Some(CellWrapper::Cell) && self.terms.keeps_list_rests();
+            let value = self.expand_entry_state(entry.value(), list_root, slots)?;
             output.push(ProtocolRuleCell {
                 field: WireCellReference {
                     key: field_key,
@@ -758,6 +762,29 @@ impl<'a> StateRuleBuilder<'a> {
             cells: output,
             remainder,
         })
+    }
+
+    /// A cell entry's state; a leaf's term is a list cell's root when `list_root`
+    /// ([`TermBuilder::expand_list_cell_wire`]), through `Some(..)`.
+    fn expand_entry_state(
+        &mut self,
+        state: &StateTerm,
+        list_root: bool,
+        slots: &mut WireSlots,
+    ) -> crate::Result<ProtocolRuleStateTerm<WireTerm>> {
+        match state {
+            StateTerm::Term(term) if list_root => {
+                let side = self.term_side();
+                Ok(ProtocolRuleStateTerm::Term(
+                    self.terms
+                        .expand_list_cell_wire(KeyedTerm::of(term), side, slots)?,
+                ))
+            }
+            StateTerm::Present(inner) if list_root => Ok(ProtocolRuleStateTerm::Present {
+                value: Box::new(self.expand_entry_state(inner, list_root, slots)?),
+            }),
+            state => self.expand_state(state, slots),
+        }
     }
 
     fn expand_state(

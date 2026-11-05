@@ -2123,6 +2123,8 @@ fn allocate_term_keys(
             ProvenanceRole::RuleRightRecordFieldName,
         ),
     };
+    // A result's list cell keeps its unnamed rest with a `..`, the result's one wildcard.
+    let kept_rest = term.keeps_root_rest();
     let (nodes, tree, term_keys) = term.keying();
     crate::rule::allocate_term_node_keys(
         keys,
@@ -2133,13 +2135,13 @@ fn allocate_term_keys(
         literal_role,
     )?;
     allocate_record_field_keys(keys, tree, term_keys, field_role)?;
-    if matches!(side, RuleSide::Left) {
-        crate::rule::allocate_wildcard_keys(
-            keys,
-            tree,
-            term_keys,
-            ProvenanceRole::RuleLeftWildcard,
-        )?;
+    let wildcard_role = match side {
+        RuleSide::Left => Some(ProvenanceRole::RuleLeftWildcard),
+        RuleSide::Right if kept_rest => Some(ProvenanceRole::RuleRightWildcard),
+        RuleSide::Right => None,
+    };
+    if let Some(role) = wildcard_role {
+        crate::rule::allocate_wildcard_keys(keys, tree, term_keys, role)?;
     }
     Ok(())
 }

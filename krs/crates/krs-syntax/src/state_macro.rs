@@ -1827,7 +1827,16 @@ fn parse_entry_value(
             let leaf = crate::parse::strip_trailing_comma(value_tokens);
             match named_rest_alone(&leaf, context) {
                 Some(rest) => StateTerm::Term(state_term_tokens(rest, context)?),
-                None => parse_state_term(leaf, context)?,
+                None => match kept_rest_marked(&leaf, context) {
+                    Some(marked) => StateTerm::Term(
+                        TermExpression::parse_tokens(marked)?
+                            .keeping_root_rest(KEPT_REST_MARKER)?
+                            .ok_or_else(|| {
+                                state_error("cells", "malformed list cell brackets", leaf.span())
+                            })?,
+                    ),
+                    None => parse_state_term(leaf, context)?,
+                },
             }
         }
         _ => {
@@ -1839,6 +1848,79 @@ fn parse_entry_value(
         }
     };
     Ok((Some(wrapper), value))
+}
+
+/// The reference a result's kept `..` is read through ([`kept_rest_marked`]); the term reads
+/// it back as the unnamed rest ([`TermExpression::keeping_root_rest`]), so no term holds it.
+const KEPT_REST_MARKER: &str = "__krs_kept_rest";
+
+/// A result leaf's brackets, the whole content of a list cell, whose one bare `..` among two or
+/// more elements is the cell's unnamed rest, kept (P6, D2): the rest of the list the subject's
+/// `..` matched, as a `KCell(..)` entry's `..` keeps its computation's. The `..` is written
+/// `..marker` for the expression grammar, which reads the rest it ends the brackets with; the
+/// term then reads the marker back as the unnamed rest. A pattern's `..` already is one, the
+/// wildcard that ends its brackets. `None` for any other leaf, which is read as written: brackets
+/// nested deeper, a lone `[..]`, two rests, and a leaf that writes the reserved marker itself,
+/// which binder validation refuses as written. Whether the subject matched a rest for the result
+/// to keep is the compiler's to judge, and the entry pairing's, from the tokens as written.
+fn kept_rest_marked(leaf: &TokenStream, context: StateMacroContext) -> Option<TokenStream> {
+    fn reserved(tokens: TokenStream) -> bool {
+        tokens.into_iter().any(|tree| match tree {
+            TokenTree::Ident(ident) => ident.to_string().contains(krs_ir::ir::RESERVED_MARKER),
+            TokenTree::Group(group) => reserved(group.stream()),
+            _ => false,
+        })
+    }
+    if context != StateMacroContext::Expression {
+        return None;
+    }
+    let mut trees = leaf.clone().into_iter();
+    let (Some(TokenTree::Group(group)), None) = (trees.next(), trees.next()) else {
+        return None;
+    };
+    if group.delimiter() != Delimiter::Bracket || reserved(group.stream()) {
+        return None;
+    }
+    // Each element with the comma that ends it, if any.
+    let mut elements = vec![(Vec::new(), None)];
+    for tree in group.stream() {
+        match &tree {
+            TokenTree::Punct(comma) if comma.as_char() == ',' => {
+                elements.last_mut().expect("one element").1 = Some(tree);
+                elements.push((Vec::new(), None));
+            }
+            _ => elements.last_mut().expect("one element").0.push(tree),
+        }
+    }
+    let dots = |element: &[TokenTree]| match element {
+        [TokenTree::Punct(first), TokenTree::Punct(second)] => {
+            first.as_char() == '.'
+                && first.spacing() == proc_macro2::Spacing::Joint
+                && second.as_char() == '.'
+        }
+        _ => false,
+    };
+    let written = elements
+        .iter()
+        .filter(|(element, _)| !element.is_empty())
+        .count();
+    if written < 2 || elements.iter().filter(|(element, _)| dots(element)).count() != 1 {
+        return None;
+    }
+    let mut marked = TokenStream::new();
+    for (element, comma) in elements {
+        if dots(&element) {
+            let rest = Ident::new(KEPT_REST_MARKER, element[0].span());
+            marked.extend(element);
+            marked.extend(quote!(#rest));
+        } else {
+            marked.extend(element);
+        }
+        marked.extend(comma);
+    }
+    let mut brackets = proc_macro2::Group::new(Delimiter::Bracket, marked);
+    brackets.set_span(group.span());
+    Some(TokenTree::Group(brackets).into())
 }
 
 /// Parses `None` (optionally `Option::None`) when it is the whole entry value.
@@ -2767,6 +2849,100 @@ mod keyed {
                 entry.value.keyed_nodes(nodes)?;
             }
             Ok(())
+        }
+    }
+}
+
+#[cfg(test)]
+mod kept_rest {
+    use super::{StateTerm, parse_cells_expression, parse_cells_pattern};
+    use crate::{TermNode, TermTree};
+    use quote::quote;
+
+    /// The term of the expression's only entry.
+    fn result_term(tokens: proc_macro2::TokenStream) -> crate::TermExpression {
+        let cells = parse_cells_expression(tokens).expect("the result parses");
+        match cells.entries()[0].value() {
+            StateTerm::Term(term) => term.clone(),
+            StateTerm::Present(inner) => match inner.as_ref() {
+                StateTerm::Term(term) => term.clone(),
+                other => panic!("not a leaf: {other:?}"),
+            },
+            other => panic!("not a leaf: {other:?}"),
+        }
+    }
+
+    /// The tree at the end of the root's spine of list-notation levels.
+    fn spine_end(tree: &TermTree) -> &TermTree {
+        match tree {
+            TermTree::Application(application) => match application.list_rest_argument() {
+                Some(at) => spine_end(&application.arguments().positional().expect("levels")[at]),
+                None => tree,
+            },
+            other => other,
+        }
+    }
+
+    #[test]
+    fn a_results_bare_rest_in_a_list_cells_brackets_is_its_unnamed_rest() {
+        for tokens in [
+            quote!(stack: Cell([y, ..])),
+            quote!(stack: Cell([.., y])),
+            quote!(stack: Cell([x, .., y])),
+            quote!(stack: Some(Cell([y, ..]))),
+        ] {
+            let term = result_term(tokens.clone());
+            assert!(term.keeps_root_rest(), "{tokens}");
+            assert!(
+                matches!(spine_end(term.tree()), TermTree::Wildcard(_)),
+                "{tokens}: {:?}",
+                term.tree()
+            );
+            assert!(
+                !term
+                    .nodes()
+                    .iter()
+                    .any(|node| matches!(node, TermNode::Reference(path) if path.is_ident(super::KEPT_REST_MARKER))),
+                "{tokens}"
+            );
+            assert!(
+                !term.spelling().contains(super::KEPT_REST_MARKER),
+                "{tokens}: {}",
+                term.spelling()
+            );
+        }
+        // A pattern's `..` already is the wildcard that ends its brackets.
+        let cells = parse_cells_pattern(quote!(stack: Cell([x, ..]))).expect("the subject parses");
+        let StateTerm::Term(term) = cells.entries()[0].value() else {
+            panic!("a leaf");
+        };
+        assert!(!term.keeps_root_rest());
+        assert!(matches!(spine_end(term.tree()), TermTree::Wildcard(_)));
+    }
+
+    #[test]
+    fn a_bare_rest_elsewhere_is_read_as_written() {
+        // A lone `[..]`, two rests and a nested list's rest are refused as the brackets are
+        // written.
+        for tokens in [
+            quote!(stack: Cell([..])),
+            quote!(stack: Cell([x, .., y, ..])),
+            quote!(stack: Cell([[x, ..], y])),
+        ] {
+            assert!(parse_cells_expression(tokens.clone()).is_err(), "{tokens}");
+        }
+        // A named rest is the rest it names, the marker's spelling too: an authored name, which
+        // the sentence's bindings judge.
+        for tokens in [
+            quote!(stack: Cell([y, ..rest])),
+            quote!(stack: Cell([x, ..__krs_kept_rest])),
+        ] {
+            let term = result_term(tokens.clone());
+            assert!(!term.keeps_root_rest(), "{tokens}");
+            assert!(
+                !matches!(spine_end(term.tree()), TermTree::Wildcard(_)),
+                "{tokens}"
+            );
         }
     }
 }

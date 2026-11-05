@@ -562,9 +562,25 @@ pub(super) struct TermBuilder<'a> {
     pub(super) tooling_binding_references: Vec<Path>,
     /// The side of the `k::rewrite!` being expanded, or `None` outside one.
     rewrite: Option<RewriteSide>,
+    /// Whether a list cell entry's root is being expanded, and where in it: the next node's
+    /// place, taken by it ([`ListRoot`]).
+    list_root: ListRoot,
     /// Whether the position table refused a construct where it stands, a
     /// mistake told by its spelling and position alone ([`Self::admit`]).
     refused_by_position: std::cell::Cell<bool>,
+}
+
+/// Where a node stands in a `cells!` rule's or claim's list cell entry, whose root brackets may
+/// end in the list's unnamed rest ([`krs_ir::Term::KeptRest`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ListRoot {
+    /// Not on the root's spine: an element, a nested list, any other term.
+    Not,
+    /// The entry's root.
+    Root,
+    /// The rest of a level of the root's list notation, a cons level's tail or a snoc level's
+    /// init, which the root's spine reaches.
+    Spine,
 }
 
 /// A side of a `k::rewrite!` (K's local `=>`).
@@ -608,6 +624,7 @@ impl<'a> TermBuilder<'a> {
             subject_head: None,
             tooling_binding_references: Vec::new(),
             rewrite: None,
+            list_root: ListRoot::Not,
             refused_by_position: std::cell::Cell::new(false),
         }
     }
@@ -949,6 +966,27 @@ impl<'a> TermBuilder<'a> {
         self.expand_node(term.tree(), &mut term.reader(self.ledger), side, slots)
     }
 
+    /// Whether the sentence has a subject and a result, whose list cells' root brackets may
+    /// end in the list's unnamed rest ([`Self::expand_list_cell_wire`]).
+    pub(super) const fn keeps_list_rests(&self) -> bool {
+        matches!(self.form, Form::CellsRule | Form::CellsClaim)
+    }
+
+    /// [`Self::expand_wire`] for a `cells!` rule's or claim's list cell entry, whose root
+    /// brackets' `..` is the list's unnamed rest: the subject's matches the rest of the cell's
+    /// list, and the result's keeps it ([`krs_ir::Term::KeptRest`]).
+    pub(super) fn expand_list_cell_wire(
+        &mut self,
+        term: KeyedTerm<'_>,
+        side: TermSide,
+        slots: &mut WireSlots,
+    ) -> crate::Result<WireTerm> {
+        self.list_root = ListRoot::Root;
+        let wire = self.expand_wire(term, side, slots);
+        self.list_root = ListRoot::Not;
+        wire
+    }
+
     /// [`Self::expand_wire`] for a map's key, which the map is looked up
     /// by: in a pattern it reads by its construct, a selection among the
     /// map's keys or a value computed to be looked up
@@ -1045,6 +1083,7 @@ impl<'a> TermBuilder<'a> {
         side: TermSide,
         slots: &mut WireSlots,
     ) -> crate::Result<WireTerm> {
+        let list_root = ::core::mem::replace(&mut self.list_root, ListRoot::Not);
         match tree {
             TermTree::Application(application) => {
                 let head_range = TokenRange::for_tokens(application.head())?;
@@ -1107,8 +1146,16 @@ impl<'a> TermBuilder<'a> {
                 let parts = (|| {
                     let arguments = match application.arguments() {
                         TermArguments::Positional(values) => {
+                            // The root's spine goes on through a level of its list notation's
+                            // rest, and nowhere else.
+                            let spine = application
+                                .list_rest_argument()
+                                .filter(|_| list_root != ListRoot::Not);
                             let mut arguments = Vec::new();
-                            for value in values {
+                            for (index, value) in values.iter().enumerate() {
+                                if spine == Some(index) {
+                                    self.list_root = ListRoot::Spine;
+                                }
                                 arguments
                                     .push(Box::new(self.expand_node(value, keys, side, slots)?));
                             }
@@ -1208,6 +1255,11 @@ impl<'a> TermBuilder<'a> {
                     literal: wire_literal(literal),
                 })
             }
+            // The `..` that ends a list cell's root brackets is the list's unnamed rest, which
+            // its level admitted as a rest.
+            TermTree::Wildcard(range) if list_root == ListRoot::Spine => Ok(WireTerm::KeptRest {
+                key: keys.wildcard(*range)?,
+            }),
             TermTree::Wildcard(range) => {
                 // A result wildcard parses only for a desugar clause that
                 // lists `_` in `unbound_variables` (KF-046).
