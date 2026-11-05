@@ -10,7 +10,10 @@
     "krs-configuration-cells-optional-config-var-initial": "ffc1563c9909faec3ea3ba9814effb44066b38e9f62df901d926cc048e74f8fc",
     "krs-configuration-cells-set-instances": "80752e56f8c5081d0a191b742c0ad05ce2392a55bd8930880553a5388dfb22cc",
     "krs-configuration-cells-group-small": "07780af01b8e8d5af90827c33c638d701b45ff042ebb010fe67329efde5d2d6f",
-    "krs-configuration-cells-group-board": "4b97ddaf69a9df729209d5198bb8341b9de63dd53d55c0ea601d49b6d35abcf1"
+    "krs-configuration-cells-group-board": "4b97ddaf69a9df729209d5198bb8341b9de63dd53d55c0ea601d49b6d35abcf1",
+    "krs-configuration-cells-group-harts-smp": "f6a2063e67982273c4f93318e426e8aa6661ad5e83cf37d8d3b7ebc173950073",
+    "krs-configuration-cells-group-harts-nested": "47845c343fb7eda178db2ffb1b5e590e4e42e241d288cc33e14b609c6284872e",
+    "krs-configuration-cells-group-harts-opt": "5ca444c1bd6ac460211d02ee9bf1d45ca26c7e1c65ade8eaa2fa7282de560274"
   },
   "emitted": {
     "krs-configuration-cells-framing": {
@@ -42,6 +45,15 @@
     },
     "krs-configuration-cells-group-board": {
       "definition.k": "5f47f228b50fe35a4e29806108419cade59cc3f273847341c9b719a9110dc94e"
+    },
+    "krs-configuration-cells-group-harts-smp": {
+      "definition.k": "d40a2470af309172a5892a7af3db03a9b2cbe7f856092492a5c4e55b39b3ec5b"
+    },
+    "krs-configuration-cells-group-harts-nested": {
+      "definition.k": "7fc483fa2b8644d52c8f6950cd4af6fc2da3e614c7a038f11fd0b94e127ae388"
+    },
+    "krs-configuration-cells-group-harts-opt": {
+      "definition.k": "bb4257c8a0a9ac54ea5bf7de63f90d91b489cb842df38264ebfb182ee00b7c3f"
     }
   },
   "reference_sha256": {
@@ -54,7 +66,10 @@
     "krs-configuration-cells-set-instances": "7e1ab1bc23c589f969788d4ced5c8ae2e5b0ab90fb14597aacaa681825389ee2",
     "krs-configuration-cells-threads": "7ddcacbefae7ab7383f99a7ac9edad13110d5dd1b93049d02e678c98279a4d7f",
     "krs-configuration-cells-group-small": "134ae54726e3144ddb7fa800f5d668064d8d9d137f8894a15b6be239836e3614",
-    "krs-configuration-cells-group-board": "655fa6eb4d1d23aa15acf43094d042a76129fbe7a0e6786f199b0c3d36c8e72b"
+    "krs-configuration-cells-group-board": "655fa6eb4d1d23aa15acf43094d042a76129fbe7a0e6786f199b0c3d36c8e72b",
+    "krs-configuration-cells-group-harts-smp": "b3151fe157d8e904dba1e53b3cd7bb7a2f01987d276d2603543b7798c1b59976",
+    "krs-configuration-cells-group-harts-nested": "f7c7d84f2273ce841dfd73b19e28e76121234e1e6eceae050f8c4c4204129421",
+    "krs-configuration-cells-group-harts-opt": "8f26a2088670b2cba4674a5f0998964ca318b1a4052df8c347341ba1173718f0"
   },
   "outcomes": {
     "krs-configuration-cells-framing": {
@@ -417,6 +432,92 @@
           "timer": "0"
         }
       }
+    },
+    "krs-configuration-cells-group-harts-smp": {
+      "forms": {
+        "parse": "accepted",
+        "run": "0",
+        "cells": {
+          "pc": "8",
+          "a": "2",
+          "b": "1",
+          "payload": "1",
+          "mem": "0 |-> 0"
+        }
+      },
+      "race": {
+        "parse": "accepted",
+        "run": null,
+        "search": [
+          "0",
+          "1"
+        ]
+      },
+      "pair": {
+        "parse": "accepted",
+        "run": "128",
+        "cells": {
+          "pc": "24",
+          "a": "1",
+          "b": "2",
+          "payload": "2",
+          "mem": "1 |-> 128"
+        },
+        "search": [
+          "128"
+        ]
+      }
+    },
+    "krs-configuration-cells-group-harts-nested": {
+      "forms": {
+        "parse": "accepted",
+        "run": "0",
+        "cells": {
+          "pc": "8",
+          "a": "2",
+          "b": "1",
+          "payload": "1",
+          "mem": "0 |-> 0"
+        }
+      },
+      "race": {
+        "parse": "accepted",
+        "run": null,
+        "search": [
+          "0",
+          "1"
+        ]
+      },
+      "pair": {
+        "parse": "accepted",
+        "run": "128",
+        "cells": {
+          "pc": "24",
+          "a": "1",
+          "b": "2",
+          "payload": "2",
+          "mem": "1 |-> 128"
+        },
+        "search": [
+          "128"
+        ]
+      }
+    },
+    "krs-configuration-cells-group-harts-opt": {
+      "forms": {
+        "parse": "accepted",
+        "run": "busRead ( 0 )",
+        "cells": {
+          "pc": "8",
+          "a": "2",
+          "b": "1",
+          "payload": "1"
+        }
+      },
+      "guarded": {
+        "parse": "accepted",
+        "run": "guard ( here )"
+      }
     }
   },
   "diagnostics": {
@@ -544,6 +645,20 @@
       "store-load": [],
       "overwrite": [],
       "unmapped": []
+    },
+    "krs-configuration-cells-group-harts-smp": {
+      "forms": [],
+      "race": [],
+      "pair": []
+    },
+    "krs-configuration-cells-group-harts-nested": {
+      "forms": [],
+      "race": [],
+      "pair": []
+    },
+    "krs-configuration-cells-group-harts-opt": {
+      "forms": [],
+      "guarded": []
     }
   },
   "known_round_trip_failures": {
