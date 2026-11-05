@@ -20,6 +20,11 @@
 //! the group, and a claim typed by a group are refused, each with its own
 //! code; a configuration that holds the group twice is refused as it is for
 //! any rule.
+//!
+//! A context alias and a function context typed by the group are about the
+//! group's cells in the same way: the library's serve every definition that
+//! holds the group. A claim is about one definition's transition system, so
+//! it is typed by the configuration, never by a group.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -636,17 +641,25 @@ fn emitted(target: &Path, manifest: &Path, package: &str) -> String {
     definition.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// The sentence of `flat` that starts with `start`, up to the next sentence.
+/// The sentence of `flat` that starts with `start`, up to the next sentence
+/// or the source comment above it.
 fn sentence<'a>(flat: &'a str, start: &str) -> &'a str {
     let begin = flat
         .find(start)
         .unwrap_or_else(|| panic!("no `{start}` in:\n{flat}"));
     let rest = &flat[begin..];
-    let end = [" rule ", " syntax ", " endmodule", " claim "]
-        .iter()
-        .filter_map(|next| rest[1..].find(next).map(|at| at + 1))
-        .min()
-        .unwrap_or(rest.len());
+    let end = [
+        " rule ",
+        " syntax ",
+        " endmodule",
+        " claim ",
+        " context ",
+        " // KRS ",
+    ]
+    .iter()
+    .filter_map(|next| rest[1..].find(next).map(|at| at + 1))
+    .min()
+    .unwrap_or(rest.len());
     &rest[..end]
 }
 
@@ -1059,4 +1072,428 @@ fn a_library_of_groups_alone_is_refused_with_where_its_rules_are_checked() {
             "= help: `Core` is a cell group, not a configuration: rules for a group are checked through a definition whose configuration holds it",
         ]
     "#]].assert_debug_eq(&check_report(target.path(), &lib, "lib"));
+}
+
+/// The library's evaluation of a shown expression, for its group: a context
+/// alias over `Core` that evaluates at the head of the group's computation,
+/// and a function whose context reads the group's `acc`. Neither names a
+/// cell outside the group, so both serve every definition that holds `Core`.
+const LIB_CONTEXTS: &str = r#"
+use k::Term;
+use k::builtin::int;
+
+k::sorts! {
+    Exp;
+    Value: Exp + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+pub enum Calc {
+    #[k::syntax("plusAcc ( {n} )")]
+    #[k::strict]
+    PlusAcc { n: Exp },
+}
+
+#[k::constructors(sort = Instr, result = KResult)]
+pub enum Out {
+    #[k::syntax("show ( {value} )")]
+    #[k::strict(using = core_eval)]
+    Show { value: Exp },
+}
+
+/// Evaluate at the head of the group's computation.
+#[k::context_alias(name = core_eval, here = site)]
+fn core_eval(
+    k::cells! {
+        k: k::configuration::KCell(site, tail @ ..),
+        state @ ..
+    }: Core,
+) {
+}
+
+/// `n` plus the group's accumulator.
+#[k::function(total, sort = Int, syntax = "accPlus({n})")]
+pub struct AccPlus {
+    pub n: Term<Int>,
+}
+
+#[k::equation]
+fn acc_plus(
+    n: Term<Int>,
+    a: Term<Int>,
+    k::term![AccPlus(n)]: Term<Int>,
+    k::cells! {
+        acc: k::configuration::Cell(a),
+        ..
+    }: Core,
+) -> Term<Int> {
+    int::add(a, n)
+}
+
+k::rules! {
+    for Exp;
+    use Calc::*;
+
+    plus_acc: PlusAcc(n) => crate::AccPlus(n) where n: Int;
+}
+
+k::rules! {
+    for Core;
+    use Out::*;
+
+    show: { k: [Show { value }, ..], pc: _ } => { k: [..], pc: value } where value: Int;
+}
+"#;
+
+/// A context alias and a function context typed by the group as a containing
+/// package writes them, `lib::Core`, and an expression that uses both: the
+/// alias evaluates `plusPc`'s operand, and the function reads the group's
+/// `pc`.
+const SMALL_CONTEXTS: &str = r#"
+use k::Term;
+
+#[k::constructors(sort = lib::Exp, result = k::KResult)]
+pub enum Peek {
+    #[k::syntax("plusPc ( {n} )")]
+    #[k::strict(using = small_eval)]
+    PlusPc { n: lib::Exp },
+}
+
+/// Evaluate at the head of the group's computation.
+#[k::context_alias(name = small_eval, here = site)]
+fn small_eval(
+    k::cells! {
+        k: k::configuration::KCell(site, tail @ ..),
+        state @ ..
+    }: lib::Core,
+) {
+}
+
+/// `n` plus the group's program counter.
+#[k::function(total, sort = Int, syntax = "pcPlus({n})")]
+pub struct PcPlus {
+    pub n: Term<Int>,
+}
+
+#[k::equation]
+fn pc_plus(
+    n: Term<Int>,
+    p: Term<Int>,
+    k::term![PcPlus(n)]: Term<Int>,
+    k::cells! {
+        pc: k::configuration::Cell(p),
+        ..
+    }: lib::Core,
+) -> Term<Int> {
+    k::builtin::int::add(p, n)
+}
+
+k::rules! {
+    for lib::Exp;
+    use Peek::*;
+
+    plus_pc: PlusPc(n) => crate::PcPlus(n) where n: Int;
+}
+"#;
+
+/// The context alias and the function context of `lib` and `small` as
+/// `krs emit-k` writes them: each names the group's cells only, unnested,
+/// which K completes to the group's one position.
+const EMITTED_CONTEXTS: [&str; 4] = [
+    "context alias [coreEval]: <k> HERE ~> Tail:K </k>",
+    "rule [[ accPlus ( N:Int ) => A:Int +Int N:Int ]] <acc> A:Int </acc> [label(org_krs_groups_lib--acc_plus)]",
+    "context alias [smallEval]: <k> HERE ~> Tail:K </k>",
+    "rule [[ pcPlus ( N:Int ) => P:Int +Int N:Int ]] <pc> P:Int </pc> [label(org_krs_groups_small--pc_plus)]",
+];
+
+/// The core cells `krs run` ends with for `program` in `package`'s
+/// definition: `k`, `pc` and `acc`.
+fn core_end(target: &Path, manifest: &Path, package: &str, program: &Path) -> [String; 3] {
+    let (success, stdout, stderr) = krs_on(
+        target,
+        manifest,
+        package,
+        "run",
+        &[program.to_str().unwrap()],
+    );
+    assert!(success, "{package}: {stdout}\n{stderr}");
+    let flat = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+    let core = cell(&flat, "core");
+    [cell(&core, "k"), cell(&core, "pc"), cell(&core, "acc")]
+}
+
+/// The library's context alias and function context, both typed by `Core`,
+/// are sentences of every definition whose configuration holds the group:
+/// `show ( plusAcc ( 5 ) )` evaluates its operand through the alias and reads
+/// the group's `acc` through the function's context, alike in `small` and in
+/// `big`, and each definition emits the two sentences with the same text.
+#[test]
+fn the_librarys_contexts_for_its_group_apply_in_every_containing_definition() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifests = definitions(
+        temporary.path(),
+        &format!("{LIB_CORE_RULES}{LIB_CONTEXTS}"),
+        &[
+            ("small", &format!("{SMALL}{SMALL_MEMORY_RULES}")),
+            ("big", &format!("{BIG}{BIG_RULES}")),
+        ],
+    );
+    let small = &manifests[0];
+    let program = temporary.path().join("program.txt");
+    fs::write(&program, "inc ; inc ; show ( plusAcc ( 5 ) ) ; done").unwrap();
+    for package in ["small", "big"] {
+        let (success, _, stderr) = krs_on(target.path(), small, package, "check", &[]);
+        assert!(success, "{package}: {stderr}");
+        assert_eq!(
+            core_end(target.path(), small, package, &program),
+            [".K", "7", "2"].map(str::to_owned),
+            "{package}"
+        );
+        let flat = emitted(target.path(), small, package);
+        assert_eq!(
+            ["context alias [coreEval]:", "rule [[ accPlus"].map(|start| sentence(&flat, start)),
+            [EMITTED_CONTEXTS[0], EMITTED_CONTEXTS[1]],
+            "{package}: {flat}"
+        );
+    }
+}
+
+/// A containing package's own context alias and function context typed by
+/// the group, `lib::Core`, resolve against its configuration as the
+/// library's do, and run beside them: `plusPc ( plusAcc ( 1 ) )` evaluates
+/// `plusAcc ( 1 )` through `small`'s alias, then reads `pc` through `small`'s
+/// function context.
+#[test]
+fn a_containing_packages_contexts_typed_by_the_group_resolve_as_the_librarys() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let small = workspace(
+        temporary.path(),
+        &format!("{LIB_CORE_RULES}{LIB_CONTEXTS}"),
+        &format!("{SMALL_MEMORY_RULES}{SMALL_CONTEXTS}"),
+    );
+    let (success, _, stderr) = krs(target.path(), &small, "check", &[]);
+    assert!(success, "{stderr}");
+    let flat = emitted(target.path(), &small, "small");
+    assert_eq!(
+        [
+            "context alias [coreEval]:",
+            "rule [[ accPlus",
+            "context alias [smallEval]:",
+            "rule [[ pcPlus",
+        ]
+        .map(|start| sentence(&flat, start)),
+        EMITTED_CONTEXTS,
+        "{flat}"
+    );
+    let program = small.with_file_name("program.txt");
+    fs::write(
+        &program,
+        "inc ; inc ; show ( plusPc ( plusAcc ( 1 ) ) ) ; done",
+    )
+    .unwrap();
+    assert_eq!(
+        core_end(target.path(), &small, "small", &program),
+        [".K", "5", "2"].map(str::to_owned)
+    );
+}
+
+/// A function context typed by the group that names `Small::mem`, a cell of
+/// the configuration outside the group.
+const SMALL_GROUP_FUNCTION_CONTEXT_OUTSIDE: &str = r#"
+use k::Term;
+
+#[k::function(total, sort = Int, syntax = "memSize({n})")]
+pub struct MemSize {
+    pub n: Term<Int>,
+}
+
+#[k::equation]
+fn mem_size(
+    n: Term<Int>,
+    m: Map,
+    k::term![MemSize(n)]: Term<Int>,
+    k::cells! {
+        Small::mem: k::configuration::Cell(m),
+        ..
+    }: lib::Core,
+) -> Term<Int> {
+    k::builtin::int::add(map::size(m), n)
+}
+"#;
+
+/// A context alias typed by the group that names `Small::mem`.
+const SMALL_GROUP_CONTEXT_ALIAS_OUTSIDE: &str = r"
+#[k::context_alias(name = mem_eval, here = site)]
+fn mem_eval(
+    m: Map,
+    k::cells! {
+        k: k::configuration::KCell(site, tail @ ..),
+        Small::mem: k::configuration::Cell(m),
+        state @ ..
+    }: lib::Core,
+) {
+}
+";
+
+/// A function context typed by a group that no cell of `Small` holds.
+const SMALL_SPARE_FUNCTION_CONTEXT: &str = r#"
+use k::Term;
+
+#[k::cell]
+pub struct Spare {
+    #[k::cell]
+    pub ticks: Int,
+}
+
+#[k::function(total, sort = Int, syntax = "ticksPlus({n})")]
+pub struct TicksPlus {
+    pub n: Term<Int>,
+}
+
+#[k::equation]
+fn ticks_plus(
+    n: Term<Int>,
+    t: Term<Int>,
+    k::term![TicksPlus(n)]: Term<Int>,
+    k::cells! {
+        ticks: k::configuration::Cell(t),
+        ..
+    }: Spare,
+) -> Term<Int> {
+    k::builtin::int::add(t, n)
+}
+"#;
+
+/// A context typed by a group is refused as a rule typed by the group is: a
+/// function context or a context alias that names a cell outside the group
+/// is `cell-outside-subject`, at the cell, and a function context typed by a
+/// group no cell of the configuration holds is `group-not-in-configuration`,
+/// at the type.
+#[test]
+fn a_context_typed_by_a_group_is_refused_where_it_leaves_the_group() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let outcomes = [
+        ("function-context", SMALL_GROUP_FUNCTION_CONTEXT_OUTSIDE),
+        ("context-alias", SMALL_GROUP_CONTEXT_ALIAS_OUTSIDE),
+        ("spare", SMALL_SPARE_FUNCTION_CONTEXT),
+    ]
+    .map(|(name, source)| {
+        let small = workspace(&temporary.path().join(name), "", source);
+        check_errors(target.path(), &small)
+    });
+    expect_test::expect![[r#"
+        [
+            [
+                "error[krs::analysis::cell-outside-subject]: `Core` has no cell `Small::mem`: a sentence about the cell group `Core` names only the cells inside the group, and `Small::mem` is another cell of configuration `Small`; write the sentence for `Small` to name it",
+                "--> small/src/lib.rs: `mem: k::configur`",
+            ],
+            [
+                "error[krs::analysis::cell-outside-subject]: `Core` has no cell `Small::mem`: a sentence about the cell group `Core` names only the cells inside the group, and `Small::mem` is another cell of configuration `Small`; write the sentence for `Small` to name it",
+                "--> small/src/lib.rs: `mem: k::configur`",
+            ],
+            [
+                "error[krs::analysis::group-not-in-configuration]: no cell of configuration `Small` holds the cell group `Spare`, so a rule for `Spare` has no cells to apply to: a group's rules apply at the group's position in the definition's configuration",
+                "--> small/src/lib.rs: `Spare,`",
+            ],
+        ]
+    "#]].assert_debug_eq(&outcomes);
+}
+
+/// A readable claim the library writes for its own group.
+const LIB_GROUP_READABLE_CLAIM: &str = r"
+k::claims! {
+    for Core;
+    use Op::*;
+
+    #[k::claim(all_paths)]
+    inc_once: { k: [Inc()], pc } => { k: [], pc: k::builtin::int::add(pc, 1) };
+}
+";
+
+/// A `cells!` claim the library writes for its own group.
+const LIB_GROUP_CELLS_CLAIM: &str = r#"
+#[k::claim(all_paths, label = "inc-once")]
+fn inc_once(
+    pc: Int,
+    k::cells! {
+        k: k::configuration::KCell(Op::Inc()),
+        pc: k::configuration::Cell(pc),
+        state @ ..
+    }: Core,
+) -> Core {
+    k::cells! {
+        k: k::configuration::KCell(.K),
+        pc: k::configuration::Cell(k::builtin::int::add(pc, 1)),
+        ..state
+    }
+}
+"#;
+
+/// The claim about the group's cells written for the configuration: it names
+/// them flat.
+const SMALL_CLAIM: &str = r"
+k::claims! {
+    for Small;
+    use lib::Op::*;
+
+    #[k::claim(all_paths)]
+    inc_once: { k: [Inc()], pc, acc } => { k: [], pc: k::builtin::int::add(pc, 1), acc: k::builtin::int::add(acc, 1) };
+}
+";
+
+/// A claim is about one definition's transition system, so the library's
+/// claims for its own group are refused in both forms, `group-claim` at the
+/// type that names the group, as a containing package's are. The same claim
+/// written for the containing configuration names the group's cells flat and
+/// is proven.
+#[test]
+fn a_claim_about_a_groups_cells_is_written_for_the_configuration() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let refused = [
+        ("readable", LIB_GROUP_READABLE_CLAIM),
+        ("cells", LIB_GROUP_CELLS_CLAIM),
+    ]
+    .map(|(name, claim)| {
+        let small = workspace(
+            &temporary.path().join(name),
+            &format!("{LIB_CORE_RULES}{claim}"),
+            "",
+        );
+        check_errors(target.path(), &small)
+    });
+    expect_test::expect![[r#"
+        [
+            [
+                "error[krs::analysis::group-claim]: a claim is typed by its definition's configuration, not by the cell group `Core`: a claim states what the definition's transition system does and leaves every cell it does not name unchanged, so the same claim would state something else in each configuration that holds `Core`; write the claim for the configuration",
+                "--> lib/src/lib.rs: `Core;`",
+            ],
+            [
+                "error[krs::analysis::group-claim]: a claim is typed by its definition's configuration, not by the cell group `Core`: a claim states what the definition's transition system does and leaves every cell it does not name unchanged, so the same claim would state something else in each configuration that holds `Core`; write the claim for the configuration",
+                "--> lib/src/lib.rs: `Core,`",
+            ],
+        ]
+    "#]].assert_debug_eq(&refused);
+
+    let small = workspace(
+        &temporary.path().join("configuration"),
+        LIB_CORE_RULES,
+        SMALL_CLAIM,
+    );
+    let (success, stdout, stderr) = krs(target.path(), &small, "prove", &[]);
+    assert!(success, "{stdout}\n{stderr}");
+    let proven = stdout
+        .lines()
+        .filter(|line| line.contains(": proven"))
+        .collect::<Vec<_>>();
+    expect_test::expect![[r#"
+        [
+            "ORG-KRS-GROUPS-SMALL-SPEC.inc-once: proven",
+        ]
+    "#]]
+    .assert_debug_eq(&proven);
 }
