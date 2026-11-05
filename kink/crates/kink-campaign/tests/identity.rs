@@ -480,14 +480,24 @@ fn the_identity_is_an_object_of_its_components() {
     before.as_object_mut().unwrap().remove("one_sided");
     assert_eq!(identity_difference(&before).as_deref(), Some("one_sided"));
     // v3: a slot projecting the configuration without its uncompared cells distinguishes
-    // one-sidedly too, so an identity written under v2 differs at the rule.
+    // one-sidedly too, so an identity written under v2 differs at the rule. v4: a run with a stop
+    // gives one-sided evidence across its stages, so one written under v3 differs too.
     assert_eq!(
         kink_campaign::ONE_SIDED_VERSION,
-        "kink-campaign/one-sided/v3"
+        "kink-campaign/one-sided/v4"
     );
-    let mut v2 = identity.clone();
-    v2["one_sided"] = "kink-campaign/one-sided/v2".into();
-    assert_eq!(identity_difference(&v2).as_deref(), Some("one_sided"));
+    for retired in ["kink-campaign/one-sided/v2", "kink-campaign/one-sided/v3"] {
+        let mut old = identity.clone();
+        old["one_sided"] = retired.into();
+        assert_eq!(identity_difference(&old).as_deref(), Some("one_sided"));
+    }
+    // The counted stop is a component: an identity written before it (every other component
+    // equal) differs at it.
+    assert_eq!(identity["stop"], kink_campaign::STOP_VERSION);
+    assert_eq!(kink_campaign::STOP_VERSION, "kink-campaign/stop/v1");
+    let mut before = identity.clone();
+    before.as_object_mut().unwrap().remove("stop");
+    assert_eq!(identity_difference(&before).as_deref(), Some("stop"));
     assert_eq!(identity_difference(&identity), None);
     // Re-pin L2-1: coverage v2 (equations, matched and applied) is another coverage reading, so
     // an identity written under v1 (f0fc3a1: every other component equal) differs at it, and
