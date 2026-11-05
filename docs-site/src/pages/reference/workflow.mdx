@@ -178,12 +178,35 @@ A proof ends a path `indeterminate` at the first state whose term matches the cl
 The sentences of K's builtin modules, and those a compiler pass generated from no authored source with neither a KRS item nor a label, are counted on a last line; `--output json` lists every sentence in `coverage.rules`, with its K label, `UNIQUE_ID` and each predicate, beside `coverage.offered`, which says whether rules only offered are listed.
 `run`, `search`, and `prove` print configurations through the definition's grammar by default (`--output pretty`, as `krun --output pretty` prints them), and `--color auto|always|never` colours them from the productions' `color` and `colors` (`auto` colours only when standard output is a terminal and `NO_COLOR` is unset); `parse` prints KAST by default, and `--output program` prints the program back through the grammar, as `kast --output program` does.
 `--output kast`, `json`, or `kore` selects the other formats (`none` prints no configuration from `run`).
-A run that ends stuck, at the depth bound, or undefined exits 0; a proof exits 0 only when every selected claim is `proven` or `trusted` (a `trusted` claim is assumed, never proven, and the summary line counts it separately); an inconclusive result or an error exits 1, and a usage error exits 2.
-When the definition declares an exit cell (`#[k::cell(exit)]`), a completed run instead exits with that cell's final value, as krun does (the OS keeps its low 8 bits), so a script that must tell it from an error reads `--output json`.
+The exit status of `run`, `search` and `prove` says what the caller does next ([exit status](#exit-status)).
 A definition with a `stream = "stdin"` cell reads standard input into it before the first step; `run` writes what its `stream = "stdout"` cell holds to standard output before the configuration, and `--output json` reports it as `stdout` instead ([console I/O](/reference/language#console-io-and-the-exit-cell)).
 `run` and `search` write each line that `io::log` logs to standard error, one per line and before their own report, as `krun` and `krun --search` do on K's LLVM backend; `--output json` also reports them as `log`.
 
 The current commands are `fmt`, `check`, `expand`, `emit-k`, `build`, `parse`, `run`, `search`, `prove`, [`cases`](#run-a-batch-of-cases), [`compare`](#compare-two-ends), and the [corpus loop](#the-corpus-loop)'s `kink`.
+
+### Exit status
+
+An exit status tells the caller which action to take next, and there are four actions, so `run`, `search`, `prove`, `cases` and `compare` exit with one of four statuses:
+
+| status | answer | the caller's next action |
+| --- | --- | --- |
+| 0 | yes: the run completed, the expectation is met, the sides are equal, every claim is proven or trusted | rely on the answer |
+| 1 | no: a finding; the expectation is unmet, the sides differ, a claim is disproved or failed | act on the finding |
+| 2 | the question could not be asked: a usage error, a refusal, or any other error, a panic or an output that cannot be written included | fix the input or the command |
+| 3 | no answer: an inconclusive halt, search or verdict, a run with no one path, or a claim `indeterminate`, `depth-bound`, `breadth-bound` or `timeout` | retry with more budget or another approach |
+
+A refusal exits 2, not 1: an end document that leaves out a compared cell, an unknown case name, inputs or an expectation that are refused, a view with no value, or a definition that does not compile makes the question ill-posed, which is no answer about the definition.
+A batch exits 2 when a member is refused or fails, since its answer is then incomplete; else 1 when a member is a finding; else 3 when a member has no answer; else 0.
+
+- `run` exits 0 when the run ends stuck, at the depth bound, undefined or stopped, 3 when it ends at an inconclusive halt (`indeterminate`, `timeout`, `interrupted`, `unsupported-hook`, `simplification-error`) or reaches several states under conditions it cannot decide (it has no one path), and 2 on any failure.
+  When the definition declares an exit cell (`#[k::cell(exit)]`), a completed run instead exits with that cell's final value, the program's own status (the OS keeps its low 8 bits), which shares the numbers above: a caller that must tell the program's status from krs's reads `--output json`.
+  With an expectation (`--case`), the run exits by its verdict instead, 0 met, 1 unmet and 3 inconclusive, and a refused case or expectation exits 2.
+- `search` exits 0 when its set of final states is complete or it stopped at `--max-solutions`, and 3 when some path was not decided; with an expectation, it exits by its verdict, as `run` does.
+- `prove` is a batch of its claims: a claim `proven` or `trusted` counts 0 (a `trusted` claim is assumed, never proven, and the summary line counts it separately), `disproved` or `failed` 1, `indeterminate`, `depth-bound`, `breadth-bound` or `timeout` 3, and `crashed` 2, since the process proving it failed and gave no answer; a failure of the batch itself, such as a definition with no claims, a `--claim` that names none, or a crash after the last claim, which leaves the batch's own checks and output unfinished, exits 2.
+- `cases` is a batch of its cases: `met` counts 0, `unmet` 1, `inconclusive` 3, `refused` 2, and `ran` 0, or 3 when the case's run has no end (it halted `indeterminate`, `timeout` or another inconclusive halt, or has no one path); its JSON summary's `status` is the exit status.
+- `compare` exits 0 when the sides are equal (with `--expect`, when the expectation is met), 1 when they differ (unmet), 3 when the comparison is inconclusive, and 2 when a side or the comparison is refused.
+
+Every other command exits 0 on success, 2 on a usage error and 1 otherwise; `krs kink` exits as kink-flow does ([the corpus loop](#the-corpus-loop)).
 
 ## Inputs by name
 
@@ -223,8 +246,8 @@ The expectation is met when every end of the definition from the case's inputs a
 `krs search --case` checks every final state.
 `krs run` follows one path: an end of it that differs is unmet, and one that agrees is met only when no state of the path has several successors (the path is followed again, trying every rule at each step, to find out) and the run read no value the definition leaves open; otherwise the verdict is inconclusive, and names the state that has several successors and their rules, or the open values.
 With an expectation, `krs run --case` prints its output as without one, then `krs run: expectation met`, or `unmet at` the first differing cell's path with the expected and the actual value as canonical documents (and the other compared cells that differ), or `inconclusive` with the reason: the run has no end to compare, or may have others; a run that cannot decide which of several states it reaches prints no state, only the verdict.
-It exits 0 when the expectation is met, 1 when it is unmet, and 3 when the verdict is inconclusive, in place of the exit cell's status.
-An expectation that is no end of the definition, or that leaves out a cell it is compared on, is refused before the run (`krs::exec::case`), and exits 1 as every refusal does; a `--case-name` the document does not hold is a usage error, exit 2, as a missing or a superfluous one is.
+It exits by the verdict, in place of the exit cell's status ([exit status](#exit-status)).
+An expectation that is no end of the definition, or that leaves out a cell it is compared on, is refused before the run (`krs::exec::case`); a `--case-name` the document does not hold is a usage error, as a missing or a superfluous one is.
 
 `--output json` adds the verdict to the report as the member `expectation`, beside `run` or `search` (alone when the run reached no one state):
 
@@ -615,14 +638,16 @@ A case binds only the inputs it states, and its `run` table alone bounds and sto
 `--name PATTERN` runs only the named cases whose name PATTERN matches (`*` any text, `?` any one character), and a pattern that selects no case is a usage error.
 
 A case's record is printed as soon as the cases before it are, so a slow case holds back the records after it, never their runs.
-By default each record is the verdict's lines `krs run --case` prints, named by the case's id, the document as given and, for a named case, `#` and its name (`cases/steps.toml#ld-a: expectation met`), `ran, stuck after 3 steps` for a case that states no expectation, or `refused:` and the reason for a case the definition cannot run: a document that cannot be read (one record, after which the next document runs), inputs or an expectation that are refused, an observer that cannot be prepared, or a view without a value at an end.
+By default each record is the verdict's lines `krs run --case` prints, named by the case's id, the document as given and, for a named case, `#` and its name (`cases/steps.toml#ld-a: expectation met`), `ran, stuck after 3 steps` for a case that states no expectation (`ran:` and the reason when its run reaches several states under conditions it cannot decide, so has no end), or `refused:` and the reason for a case the definition cannot run: a document that cannot be read (one record, after which the next document runs), inputs or an expectation that are refused, an observer that cannot be prepared, or a view without a value at an end.
 A last line counts the verdicts.
-`--output json` prints one document per line instead, each naming its format, `"schema": "krs-cases/1"`:
+`--output json` prints one document per line instead, each naming its format, `"schema": "krs-cases/2"`:
 
-- a record per case: `case`, its id; `verdict`, `met`, `unmet`, `inconclusive`, `refused` or `ran`; `halt` and `steps`, when the case ran to a state; `difference`, for `unmet` (`krs-difference/2`); `reason`, for `inconclusive` and `refused`; and `views` and `observer`, when the expectation names them, whatever the verdict;
-- then the summary, `{"schema": "krs-cases/1", "summary": {"cases", "met", "unmet", "inconclusive", "refused", "ran"}, "status"}`, `status` being the exit status.
+- a record per case: `case`, its id; `verdict`, `met`, `unmet`, `inconclusive`, `refused` or `ran`; `halt` and `steps`, when the case ran to a state; `difference`, for `unmet` (`krs-difference/2`); `reason`, for `inconclusive` and `refused`, and for `ran` with no end; and `views` and `observer`, when the expectation names them, whatever the verdict;
+- then the summary, `{"schema": "krs-cases/2", "summary": {"cases", "met", "unmet", "inconclusive", "refused", "ran"}, "status"}`, `status` being the exit status.
 
-`krs cases` exits 1 when a case is unmet or refused, else 3 when one is inconclusive or states no expectation and has no end (its run halted `indeterminate`, `timeout` or another inconclusive halt), else 0; a usage error exits 2.
+Version 2 of the format reads differently from version 1 in two places, so it takes the next version: a case that states no expectation and whose run has no one path is `ran`, with its `reason` and no `halt`, where version 1 recorded it `refused`; and the summary's `status` is the exit status of the four actions ([exit status](#exit-status)), under which a refused case gives 2, where version 1 gave 1.
+
+`krs cases` exits as a batch of its cases ([exit status](#exit-status)).
 
 ## Compare two ends
 
@@ -654,7 +679,7 @@ The side may be an end document: an end another implementation reached, checked 
 
 `krs compare` prints `krs compare: equal`, or the first difference as `krs run --case` prints an unmet expectation's: where the sides differ, each side's value labelled `left` and `right`, the other compared cells that differ, and the views it applied; with `--expect`, the lines of `krs run --case`.
 `--output json` prints one document instead, `{"schema": "krs-compare/1", "verdict", ...}`: `verdict` is `equal`, `differs` or `inconclusive` (`met`, `unmet` or `inconclusive` with `--expect`), with `difference` (`krs-difference/2`, the left side on its `left`) or `reason`, and `views` and `observer` when views were applied.
-It exits 0 when the sides are equal (the expectation is met), 1 when they differ (it is unmet), 3 when the comparison is inconclusive, 1 when a side or the comparison is refused, and 2 for a usage error.
+It exits by the verdict ([exit status](#exit-status)).
 
 ## The corpus loop
 

@@ -393,7 +393,7 @@ fn file_binds_the_main_parameter() {
     assert_eq!(stdout(&by_name), "<k>\n  halt ~> .K\n</k>\n");
 
     let twice = project.krs("run", &["prog.txt", "--input", r#"entry="Halt""#]);
-    assert_eq!(twice.status.code(), Some(1), "{}", stderr(&twice));
+    assert_eq!(twice.status.code(), Some(2), "{}", stderr(&twice));
     assert_eq!(
         stderr(&twice).lines().next(),
         Some(
@@ -419,7 +419,7 @@ fn a_text_main_parameter_refuses_a_file_that_is_not_text() {
     let project = inferred_main();
     project.write("prog.bin", [0x67, 0x6f, 0xff, 0x0a]);
     let run = project.krs("run", &["prog.bin"]);
-    assert_eq!(run.status.code(), Some(1), "{}", stderr(&run));
+    assert_eq!(run.status.code(), Some(2), "{}", stderr(&run));
     assert_eq!(
         stderr(&run).lines().next(),
         Some(
@@ -484,7 +484,7 @@ fn a_bytes_main_parameter_takes_the_files_bytes() {
             "pc=256",
         ],
     );
-    assert_eq!(twice.status.code(), Some(1), "{}", stderr(&twice));
+    assert_eq!(twice.status.code(), Some(2), "{}", stderr(&twice));
     assert_eq!(
         stderr(&twice).lines().next(),
         Some(
@@ -630,7 +630,7 @@ fn refusals_name_parameter_type_and_position() {
         let run = project.krs("run", &arguments);
         assert_eq!(
             run.status.code(),
-            Some(1),
+            Some(2),
             "{arguments:?}: {}",
             stderr(&run)
         );
@@ -642,7 +642,7 @@ fn refusals_name_parameter_type_and_position() {
     }
     // A case document that is none is the case's refusal, not an input's.
     let odd = project.krs("run", &["--case", "odd.toml"]);
-    assert_eq!(odd.status.code(), Some(1), "{}", stderr(&odd));
+    assert_eq!(odd.status.code(), Some(2), "{}", stderr(&odd));
     assert_eq!(
         stderr(&odd).lines().next(),
         Some(
@@ -745,7 +745,7 @@ fn an_expectation_states_the_cells_it_is_compared_on() {
             .to_string(),
     );
     let run = project.krs("run", &["--case", "partial.json"]);
-    assert_eq!(run.status.code(), Some(1), "{}", stderr(&run));
+    assert_eq!(run.status.code(), Some(2), "{}", stderr(&run));
     assert_eq!(
         stderr(&run).lines().next(),
         Some(
@@ -784,7 +784,7 @@ fn an_expectation_states_the_cells_it_is_compared_on() {
         json!({"inputs": ends_inputs(&finish), "expect": {"halt": "stuck", "compare": ["z"], "cells": {"z": 4}}}).to_string(),
     );
     let run = project.krs("run", &["--case", "compare-z.json"]);
-    assert_eq!(run.status.code(), Some(1), "{}", stderr(&run));
+    assert_eq!(run.status.code(), Some(2), "{}", stderr(&run));
     assert_eq!(
         stderr(&run).lines().next(),
         Some(
@@ -951,7 +951,7 @@ fn a_case_names_its_rules_as_the_stop_flags_do() {
         json!({"inputs": ends_inputs(&finish), "run": {"stop_before": ["crate::finish"]}, "expect": bare}).to_string(),
     );
     let refused = project.krs("run", &["--case", "bare-rule.json"]);
-    assert_eq!(refused.status.code(), Some(1), "{}", stderr(&refused));
+    assert_eq!(refused.status.code(), Some(2), "{}", stderr(&refused));
     assert!(
         stderr(&refused).lines().next().is_some_and(|line| line
             .starts_with("error[krs::exec::case]: case `bare-rule.json`: `expect.rule`: ")),

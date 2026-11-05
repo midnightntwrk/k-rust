@@ -345,7 +345,7 @@ A crash that does not recur alone is reproduced by the batch that crashed.
 A crash before the claims are selected, or outside any claim before the child finished one, fails the whole run.
 After a crash, `--timings` and `--counters` measure only the last child, which writes them when it ends normally.
 
-`krs prove` exits 0 when every selected claim is proven or trusted, and 1 otherwise, a crashed or timed-out claim included.
+`krs prove` exits as a batch of its claims ([exit status](/reference/workflow#exit-status)).
 
 ## Capability boundary
 

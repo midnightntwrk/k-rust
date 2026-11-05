@@ -1,6 +1,7 @@
 //! `krs cases` runs a batch of named cases, the definition loaded once per worker: one verdict
-//! record per case in document order (`krs-cases/1`) and a summary, exit 0 when every case is
-//! met, 1 when one is unmet or refused, 3 when one is inconclusive otherwise; `--jobs N` prints
+//! record per case in document order (`krs-cases/2`) and a summary, exit 2 when a case is
+//! refused, else 1 when one is unmet, else 3 when one is inconclusive or ran to no end, else 0;
+//! `--jobs N` prints
 //! what `--jobs 1` prints, views and their budget included. A case's views are evaluated in the
 //! definition it runs on or in the observer it names, and each evaluation is bounded by a budget
 //! of polls.
@@ -24,6 +25,64 @@ use serde_json::{Value, json};
 const ENDS: &str = include_str!("fixtures/ends/src/lib.rs");
 const PACKAGE: &str = "krs-cli-cases-ends-fixture";
 const OBSERVER_PACKAGE: &str = "krs-cli-cases-observe-fixture";
+const UNDECIDED_PACKAGE: &str = "krs-cli-cases-undecided-fixture";
+
+/// A definition whose exit cell, `status`, `quit c` sets to `c`; `open a` steps only where
+/// `unsure(a)` holds, which no equation decides at `2`, so a run of `open 2` reaches two states
+/// under a condition it cannot decide and has no one path.
+const UNDECIDED: &str = r#"
+use k::builtin::{Bool, Int, KSequence};
+use k::KResult;
+use k::Term;
+
+k::sorts! {
+    Stmt;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum StmtSyntax {
+    #[k::syntax("quit {code}")]
+    Quit { code: Int },
+    #[k::syntax("open {a}")]
+    Open { a: Int },
+}
+
+#[k::function(total, internal)]
+pub fn Opaque(a: Term<Int>) -> Term<Int>;
+
+#[k::function(partial, internal)]
+pub fn Unsure(a: Term<Int>) -> Term<Bool>;
+
+#[k::equation]
+#[k::requires(Opaque(a) == 1)]
+fn unsure_one(Unsure(a): Term<Bool>) -> Term<Bool> {
+    true
+}
+
+k::rules! {
+    for Machine;
+    use StmtSyntax::*;
+
+    quit: { k: [Quit(code), ..], status: _ } => { k: [..], status: code };
+    #[k::requires(Unsure(a))]
+    open: { k: [Open(a), ..], status: _ } => { k: [..], status: 1 };
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell(exit)]
+    pub status: Int,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(#[k::config_var(name = "PGM", main)] pgm: Stmt) -> Self {
+        Self { k: k::k![pgm], status: 0 }
+    }
+}
+"#;
 
 /// An observer of `ends`: `WithRead` appends a read to an event log, built with the compared
 /// definition's constructor (which makes this package's module import the configured one),
@@ -119,6 +178,11 @@ fn workspace() -> Arc<Workspace> {
                 &format!("ends = {{ package = \"{PACKAGE}\", path = \"../language\" }}\n"),
             ),
         ),
+        (
+            "undecided",
+            UNDECIDED,
+            manifest(UNDECIDED_PACKAGE, "ORG-KRS-CLI-CASES-UNDECIDED", ""),
+        ),
     ] {
         fs::create_dir_all(root.join(member).join("src")).unwrap();
         fs::write(root.join(member).join("src/lib.rs"), source).unwrap();
@@ -126,7 +190,7 @@ fn workspace() -> Arc<Workspace> {
     }
     fs::write(
         root.join("Cargo.toml"),
-        "[workspace]\nmembers = [\"language\", \"observe\"]\nresolver = \"3\"\n",
+        "[workspace]\nmembers = [\"language\", \"observe\", \"undecided\"]\nresolver = \"3\"\n",
     )
     .unwrap();
     let workspace = Arc::new(Workspace {
@@ -153,6 +217,27 @@ impl Workspace {
 
     /// `krs VERB --package ends --definition main ARGUMENTS`, from the `ends` package.
     fn krs(&self, verb: &str, arguments: &[&str]) -> Output {
+        self.krs_in("language", PACKAGE, verb, arguments)
+    }
+
+    /// `krs VERB --package PACKAGE --definition main ARGUMENTS`, from the workspace member
+    /// `member`.
+    fn krs_in(&self, member: &str, package: &str, verb: &str, arguments: &[&str]) -> Output {
+        self.krs_with(member, package, verb, arguments, |process| {
+            process.output().unwrap()
+        })
+    }
+
+    /// `krs VERB --package PACKAGE --definition main ARGUMENTS`, from the workspace member
+    /// `member`, run by `run`.
+    fn krs_with<T>(
+        &self,
+        member: &str,
+        package: &str,
+        verb: &str,
+        arguments: &[&str],
+        run: impl FnOnce(&mut std::process::Command) -> T,
+    ) -> T {
         let _turn = self
             .turn
             .lock()
@@ -160,12 +245,11 @@ impl Workspace {
         let mut process = krs_command!();
         fixture_build_env(&mut process, &self.target);
         process
-            .current_dir(self.path())
+            .current_dir(self.directory.path().join(member))
             .arg(verb)
-            .args(["--package", PACKAGE, "--definition", "main"])
-            .args(arguments)
-            .output()
-            .unwrap()
+            .args(["--package", package, "--definition", "main"])
+            .args(arguments);
+        run(&mut process)
     }
 }
 
@@ -298,13 +382,13 @@ fn a_batch_reports_each_case_in_document_order() {
     let workspace = workspace();
     write_batch(&workspace);
     let one = workspace.krs("cases", &["cases.toml", "--output", "json", "--jobs", "1"]);
-    assert_eq!(one.status.code(), Some(1), "{}", stderr(&one));
+    assert_eq!(one.status.code(), Some(2), "{}", stderr(&one));
     let lines = records(&one);
     let verdicts = lines
         .iter()
         .take(lines.len() - 1)
         .map(|record| {
-            assert_eq!(record["schema"], "krs-cases/1", "{record}");
+            assert_eq!(record["schema"], "krs-cases/2", "{record}");
             (
                 record["case"].as_str().unwrap().to_owned(),
                 record["verdict"].as_str().unwrap().to_owned(),
@@ -349,22 +433,22 @@ fn a_batch_reports_each_case_in_document_order() {
     assert_eq!(
         lines[5],
         json!({
-            "schema": "krs-cases/1",
+            "schema": "krs-cases/2",
             "summary": {"cases": 5, "met": 1, "unmet": 1, "inconclusive": 1, "refused": 1, "ran": 1},
-            "status": 1,
+            "status": 2,
         })
     );
 
     // Every worker count prints the same records.
     for jobs in ["2", "3"] {
         let many = workspace.krs("cases", &["cases.toml", "--output", "json", "--jobs", jobs]);
-        assert_eq!(many.status.code(), Some(1), "{}", stderr(&many));
+        assert_eq!(many.status.code(), Some(2), "{}", stderr(&many));
         assert_eq!(stdout(&many), stdout(&one), "--jobs {jobs}");
     }
 
     // The human records: the verdict lines `krs run --case` prints, named by the case's id.
     let human = workspace.krs("cases", &["cases.toml", "--jobs", "2"]);
-    assert_eq!(human.status.code(), Some(1), "{}", stderr(&human));
+    assert_eq!(human.status.code(), Some(2), "{}", stderr(&human));
     let text = stdout(&human);
     assert!(
         text.starts_with(
@@ -382,8 +466,8 @@ fn a_batch_reports_each_case_in_document_order() {
     );
 }
 
-/// The status is 1 when a case is unmet or refused, else 3 when one is inconclusive, else 0;
-/// `--name` selects the named cases whose name it matches, and one that selects none is a usage
+/// The status is 2 when a case is refused, else 1 when one is unmet, else 3 when one is
+/// inconclusive, else 0; `--name` selects the named cases whose name it matches, and one that selects none is a usage
 /// error. A document that cannot be read is a refused record, and the next document runs.
 #[test]
 fn the_status_follows_the_verdicts() {
@@ -412,6 +496,12 @@ fn the_status_follows_the_verdicts() {
     assert_eq!(code, Some(3), "{}", stderr(&output));
     let (code, output) = status(&["--name", "b-p*"]);
     assert_eq!(code, Some(0), "{}", stderr(&output));
+    // Met, unmet and inconclusive: the finding comes first.
+    let (code, output) = status(&["--name", "*-*t*"]);
+    assert_eq!(code, Some(1), "{}", stderr(&output));
+    // Inconclusive, ran and refused: the refusal comes first.
+    let (code, output) = status(&["--name", "b-*"]);
+    assert_eq!(code, Some(2), "{}", stderr(&output));
 
     let read = json!([{"Read": {"addr": 5}}]);
     workspace.write(
@@ -430,7 +520,7 @@ fn the_status_follows_the_verdicts() {
             "2",
         ],
     );
-    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    assert_eq!(output.status.code(), Some(2), "{}", stderr(&output));
     let lines = records(&output);
     assert_eq!(lines[0]["case"], "missing.toml");
     assert_eq!(lines[0]["verdict"], "refused");
@@ -454,7 +544,7 @@ fn the_status_follows_the_verdicts() {
         json!({"case": [case("unviewed", &finish(), &expect)]}).to_string(),
     );
     let output = workspace.krs("cases", &["unviewed.json", "--output", "json"]);
-    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    assert_eq!(output.status.code(), Some(2), "{}", stderr(&output));
     let lines = records(&output);
     assert_eq!(lines[0]["verdict"], "refused", "{}", lines[0]);
     assert!(
@@ -616,4 +706,132 @@ fn krs_run_case_evaluates_the_views_krs_cases_does() {
         "{}",
         stderr(&run)
     );
+}
+
+/// A case that states no expectation and whose run reaches several states under conditions it
+/// cannot decide ran to no one end: a `ran` record with no halt and the reason, which counts as no
+/// answer (exit 3), as an inconclusive halt does; `krs run --case` exits 3 on it, and `krs compare`
+/// finds a side with no one end inconclusive (exit 3), not a refusal.
+#[test]
+fn a_case_whose_run_has_no_one_path_ran_to_no_end() {
+    let workspace = workspace();
+    let undecided = workspace.directory.path().join("undecided");
+    let quit = json!({"pgm": {"Quit": {"code": 0}}});
+    let open = json!({"pgm": {"Open": {"a": 2}}});
+    let document = json!({"case": [
+        {"name": "quit", "inputs": quit},
+        {"name": "open", "inputs": open},
+        {"name": "expected", "inputs": quit, "expect": {"halt": "stuck", "compare": ["status"], "cells": {"status": 0}}},
+    ]});
+    fs::write(undecided.join("cases.json"), document.to_string()).unwrap();
+    let krs = |verb: &str, arguments: &[&str]| {
+        workspace.krs_in("undecided", UNDECIDED_PACKAGE, verb, arguments)
+    };
+
+    let output = krs(
+        "cases",
+        &["cases.json", "--name", "open", "--output", "json"],
+    );
+    assert_eq!(output.status.code(), Some(3), "{}", stderr(&output));
+    let lines = records(&output);
+    assert_eq!(lines[0]["case"], "cases.json#open", "{}", lines[0]);
+    assert_eq!(lines[0]["verdict"], "ran", "{}", lines[0]);
+    assert!(lines[0].get("halt").is_none(), "{}", lines[0]);
+    let reason = lines[0]["reason"].as_str().unwrap_or_default();
+    assert!(
+        reason.starts_with(
+            "the run has no one end: the run reaches 2 states, under conditions over `unsure ( 2 )`"
+        ),
+        "{}",
+        lines[0]
+    );
+    assert_eq!(
+        lines[1]["summary"],
+        json!({"cases": 1, "met": 0, "unmet": 0, "inconclusive": 0, "refused": 0, "ran": 1})
+    );
+    assert_eq!(lines[1]["status"], 3);
+    let human = krs("cases", &["cases.json", "--name", "open"]);
+    assert_eq!(human.status.code(), Some(3), "{}", stderr(&human));
+    assert!(
+        stdout(&human).starts_with("cases.json#open: ran: the run has no one end: "),
+        "{}",
+        stdout(&human)
+    );
+    let quit_only = krs("cases", &["cases.json", "--name", "quit"]);
+    assert_eq!(quit_only.status.code(), Some(0), "{}", stderr(&quit_only));
+
+    let run = krs("run", &["--case", "cases.json", "--case-name", "open"]);
+    assert_eq!(run.status.code(), Some(3), "{}", stderr(&run));
+    let compared = krs("compare", &["cases.json#open", "cases.json#quit"]);
+    assert_eq!(compared.status.code(), Some(3), "{}", stderr(&compared));
+    assert!(
+        stdout(&compared).starts_with("krs compare: inconclusive: "),
+        "{}",
+        stdout(&compared)
+    );
+    let expected = krs(
+        "compare",
+        &["--expect", "cases.json#expected", "cases.json#open"],
+    );
+    assert_eq!(expected.status.code(), Some(3), "{}", stderr(&expected));
+}
+
+/// The solver's bound decides nothing here, so a run ends `indeterminate` and a search is
+/// incomplete: no answer, exit 3. A run whose output cannot be written, or whose `--timings`
+/// cannot be, exits 2, joined with its answer: the error comes before no answer.
+#[test]
+fn an_undecided_run_or_search_has_no_answer_and_an_unwritten_output_is_an_error() {
+    let workspace = workspace();
+    let undecided = workspace.directory.path().join("undecided");
+    fs::write(undecided.join("open.txt"), "open 2\n").unwrap();
+    fs::write(undecided.join("quit.txt"), "quit 0\n").unwrap();
+    let krs = |verb: &str, arguments: &[&str]| {
+        workspace.krs_in("undecided", UNDECIDED_PACKAGE, verb, arguments)
+    };
+    let starved = ["--smt-resource-limit", "1", "--smt-retries", "0"];
+
+    let search = krs("search", &[&["open.txt"][..], &starved].concat());
+    assert_eq!(search.status.code(), Some(3), "{}", stderr(&search));
+    assert!(
+        stderr(&search).contains("(incomplete: some paths were not decided)"),
+        "{}",
+        stderr(&search)
+    );
+    let run = krs("run", &[&["open.txt"][..], &starved].concat());
+    assert_eq!(run.status.code(), Some(3), "{}", stderr(&run));
+    assert!(
+        stderr(&run).contains("krs run: indeterminate after 0 steps"),
+        "{}",
+        stderr(&run)
+    );
+
+    let full = workspace.krs_with(
+        "undecided",
+        UNDECIDED_PACKAGE,
+        "run",
+        &["quit.txt"],
+        |process| {
+            process
+                .stdout(fs::File::create("/dev/full").unwrap())
+                .stderr(std::process::Stdio::piped())
+                .output()
+                .unwrap()
+        },
+    );
+    assert_eq!(full.status.code(), Some(2), "{}", stderr(&full));
+    assert!(
+        stderr(&full).contains("krs: could not write stdout"),
+        "{}",
+        stderr(&full)
+    );
+
+    let timings = undecided.join("no-such-directory/timings.json");
+    let timings = timings.to_str().unwrap();
+    let unmeasured = krs("run", &["quit.txt", "--timings", timings]);
+    assert_eq!(unmeasured.status.code(), Some(2), "{}", stderr(&unmeasured));
+    let unmeasured = krs(
+        "run",
+        &[&["open.txt", "--timings", timings][..], &starved].concat(),
+    );
+    assert_eq!(unmeasured.status.code(), Some(2), "{}", stderr(&unmeasured));
 }

@@ -274,7 +274,7 @@ impl Halt {
         }
     }
 
-    /// Whether the result is complete (exit status 0) rather than inconclusive (exit status 1):
+    /// Whether the result is complete (exit status 0) rather than inconclusive (exit status 3):
     /// a stop rule, as the depth bound, ends a run where it was asked to.
     #[must_use]
     pub const fn is_complete(self) -> bool {

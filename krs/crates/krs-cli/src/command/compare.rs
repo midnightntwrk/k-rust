@@ -40,7 +40,7 @@ use super::exec::{
     self, CaseFiles, Checked, Failure, Inputs, ObserverDefinition, SelectedCase, StageReuse,
     WORKER_STACK,
 };
-use super::{CommandError, CommandOutcome, PreparedDefinition};
+use super::{CommandError, CommandOutcome, PreparedDefinition, compared_status};
 use crate::DiagnosticSources;
 
 /// The schema `krs compare --output json` names.
@@ -370,14 +370,10 @@ struct EndsVerdict {
 }
 
 impl EndsVerdict {
-    /// 0 equal, 1 differs, 3 inconclusive (no end to compare, which calls for another action
-    /// than ends that differ).
+    /// The exit status the verdict gives ([`exit_status`]): equal, differs (a finding), or
+    /// inconclusive (no answer).
     const fn exit_code(&self) -> i32 {
-        match self.verdict {
-            Compared::Equal => 0,
-            Compared::Differs(_) => 1,
-            Compared::Inconclusive(_) => 3,
-        }
+        compared_status(&self.verdict)
     }
 
     const fn word(&self) -> &'static str {

@@ -191,7 +191,7 @@ fn tour_minimal_runs_one_step_with_an_authored_trace_and_stays_put_at_depth_zero
     );
 
     let no_claims = krs(target.path(), &manifest, "prove", &[]);
-    assert_eq!(no_claims.status.code(), Some(1));
+    assert_eq!(no_claims.status.code(), Some(2));
     assert!(stderr(&no_claims).contains("this definition has no claims"));
 }
 
@@ -553,7 +553,7 @@ fn claims_prove_and_disprove_with_suggestions_for_unknown_labels() {
         "prove",
         &["--claim", "foo_reaches_bar"],
     );
-    assert_eq!(suggestion.status.code(), Some(1));
+    assert_eq!(suggestion.status.code(), Some(2));
     assert!(
         stderr(&suggestion).contains(
             "no claim has label `foo_reaches_bar`; did you mean `ORG-KRS-CLI-EXEC-SPEC.foo-reaches-bar`?"
@@ -590,7 +590,7 @@ fn programs_parse_bind_and_report_their_errors() {
         "run",
         &[program, "-c", "ENV=.Map"],
     );
-    assert_eq!(unknown.status.code(), Some(1));
+    assert_eq!(unknown.status.code(), Some(2));
     assert!(
         stderr(&unknown).contains("unknown configuration variable `ENV`")
             && stderr(&unknown).contains("$PGM (init parameter pgm): ObjectTerm"),
@@ -1002,7 +1002,7 @@ fn prove_supervised_records_an_aborted_claim_and_proves_the_rest() {
         &["--output", "json"],
         &[("KRS_TEST_CRASH_AT", &middle)],
     );
-    assert_eq!(aborted.status.code(), Some(1), "{}", stderr(&aborted));
+    assert_eq!(aborted.status.code(), Some(2), "{}", stderr(&aborted));
     let document = json(&aborted);
     assert_eq!(document["schema"], "krs-exec/2");
     let reports = document["prove"].as_array().unwrap();
@@ -1127,7 +1127,7 @@ fn prove_claim_timeout_cancels_a_proof_that_does_not_end_and_names_the_solver() 
             "json",
         ],
     );
-    assert_eq!(timed.status.code(), Some(1), "{}", stderr(&timed));
+    assert_eq!(timed.status.code(), Some(3), "{}", stderr(&timed));
     let document = json(&timed);
     let reports = document["prove"].as_array().unwrap();
     assert_eq!(
@@ -1184,7 +1184,7 @@ fn prove_claim_timeout_cancels_a_proof_that_does_not_end_and_names_the_solver() 
         "prove",
         &["--claim", "start-reaches-bar", "--claim-timeout", "0.5"],
     );
-    assert_eq!(text.status.code(), Some(1), "{}", stderr(&text));
+    assert_eq!(text.status.code(), Some(3), "{}", stderr(&text));
     assert_eq!(
         String::from_utf8_lossy(&text.stdout),
         format!(
@@ -1219,7 +1219,7 @@ fn prove_supervised_records_an_exit_status_in_records_and_text() {
             ("KRS_TEST_CRASH_EXIT", "114"),
         ],
     );
-    assert_eq!(exited.status.code(), Some(1), "{}", stderr(&exited));
+    assert_eq!(exited.status.code(), Some(2), "{}", stderr(&exited));
     let lines = String::from_utf8(exited.stdout.clone())
         .unwrap()
         .lines()
@@ -1245,7 +1245,7 @@ fn prove_supervised_records_an_exit_status_in_records_and_text() {
         &[],
         &[("KRS_TEST_CRASH_AT", &last), ("KRS_TEST_CRASH_EXIT", "114")],
     );
-    assert_eq!(text.status.code(), Some(1), "{}", stderr(&text));
+    assert_eq!(text.status.code(), Some(2), "{}", stderr(&text));
     let printed = String::from_utf8_lossy(&text.stdout);
     assert!(
         printed.starts_with(&format!(
@@ -1289,7 +1289,7 @@ fn prove_supervised_survives_two_panics_in_three_workers() {
             ("KRS_TEST_CRASH_EXIT", "panic"),
         ],
     );
-    assert_eq!(panicked.status.code(), Some(1), "{}", stderr(&panicked));
+    assert_eq!(panicked.status.code(), Some(2), "{}", stderr(&panicked));
     let document = json(&panicked);
     let reports = document["prove"].as_array().unwrap();
     assert_eq!(
@@ -1343,9 +1343,10 @@ fn prove_supervised_survives_two_panics_in_three_workers() {
 }
 
 /// A crash outside every claim is no claim's: before the selection, or before a worker's first
-/// claim, it fails the batch, which prints no output; after the last claim, the batch is
-/// complete. A worker that reports an error (exit status 1 or 2) in the middle of a batch fails
-/// it too, and `--output jsonl` then has no summary line.
+/// claim, it fails the batch, which prints no output; after the last claim, every verdict is
+/// printed, but the batch's own checks and output did not complete, so it exits 2 as a failed
+/// batch does. A worker that reports an error (exit status 2) in the middle of a batch fails it
+/// too, and `--output jsonl` then has no summary line.
 #[test]
 #[cfg_attr(
     not(debug_assertions),
@@ -1377,7 +1378,7 @@ fn prove_supervised_fails_the_batch_on_a_crash_outside_every_claim() {
         let failed = crash_at(point, "json", "abort");
         assert_eq!(
             failed.status.code(),
-            Some(1),
+            Some(2),
             "{point}: {}",
             stderr(&failed)
         );
@@ -1394,7 +1395,7 @@ fn prove_supervised_fails_the_batch_on_a_crash_outside_every_claim() {
     }
 
     let late = crash_at("after-claims", "json", "abort");
-    assert_eq!(late.status.code(), Some(1), "{}", stderr(&late));
+    assert_eq!(late.status.code(), Some(2), "{}", stderr(&late));
     let document = json(&late);
     assert_eq!(
         claim_verdicts(document["prove"].as_array().unwrap()),
@@ -1678,6 +1679,38 @@ fn an_equation_s_or_pattern_below_its_argument_root_applies_on_each_alternative(
                 .lines()
                 .any(|line| line.trim() == format!("{result} ~> .K")),
             "{program}: expected {result}, got\n{state}"
+        );
+    }
+}
+
+/// A panic in the process that runs an executing command, outside a prove worker, is an error:
+/// exit 2, the question not asked, not the panic's own status. Here the debug build's test hook
+/// panics before `krs run` and before `krs prove`'s supervisor starts a worker.
+#[test]
+#[cfg_attr(
+    not(debug_assertions),
+    ignore = "the panic hook is in debug builds only"
+)]
+fn a_panic_of_an_executing_command_exits_2() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = materialize(temporary.path(), CLAIMS);
+    let program = temporary.path().join("foo.prog");
+    fs::write(&program, "foo\n").unwrap();
+    let program = program.to_str().unwrap();
+    let panic = [("KRS_TEST_PANIC", "1")];
+    for (verb, arguments) in [("run", vec![program]), ("prove", vec![])] {
+        let panicked = krs_with_env(target.path(), &manifest, verb, &arguments, &panic);
+        assert_eq!(
+            panicked.status.code(),
+            Some(2),
+            "{verb}: {}",
+            stderr(&panicked)
+        );
+        assert!(
+            stderr(&panicked).contains("the test hook panics before the command runs"),
+            "{verb}: {}",
+            stderr(&panicked)
         );
     }
 }

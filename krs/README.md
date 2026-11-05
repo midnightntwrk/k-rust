@@ -12,7 +12,7 @@ The `krs` command collects the crate's descriptors, resolves one Semantic IR and
 `krs expand` projects the readable (layer-1) surface to a deterministic, explicit (layer-2) Rust reference surface, and `krs fmt` is the canonical formatter for both.
 
 `krs parse`, `run`, `search`, and `prove` play the roles of K's `kast`, `krun`, `krun --search`, and `kprove`: they compile the same Definition IR through `krs-exec` and the `k-rust` symbolic backend linked into krs (`prove` in a child krs process, so that a crash costs one claim), and `--output json` prints a `krs-exec` report (`krs-exec/3` for `run`, `krs-exec/1` for `search`, `krs-exec/2` for `prove`).
-`krs cases` runs a batch of case documents, each case checked against its expectation as `krs run --case` checks one, with the definition loaded once per worker (each worker holds its own copy, so memory grows with `--jobs`); `--output json` prints one `krs-cases/1` record per case and a summary.
+`krs cases` runs a batch of case documents, each case checked against its expectation as `krs run --case` checks one, with the definition loaded once per worker (each worker holds its own copy, so memory grows with `--jobs`); `--output json` prints one `krs-cases/2` record per case and a summary.
 `krs compare` compares two ends of the definition, each an end document or the end of a case's run, or checks one against a case's expectation, and prints `equal` or the first difference (`--output json`: a `krs-compare/1` document).
 The [native local-contract boundary](../docs/compatibility.md#native-local-state-transition-contracts) describes the supported symbolic state/helper laws, typed observation and domain premises, exhaustive input cases, weak partial correctness and unresolved proof limits.
 

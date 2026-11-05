@@ -6,7 +6,7 @@ version = 1
 # Every `krs` workload passes `--no-reuse`, so a run does not restore the previous result of an unchanged port.
 # All three ports share one Cargo target in the prepared root, which their `krs-emit-*` prepare steps build, so the timed region holds no cold Rust compilation.
 # The `krs/frontend-*` workloads measure krust compiling the K that a port emits, the k-rust frontend part of `krs build` on its own.
-# The KEVM port has no `krs prove` workload: `krs prove` of its 8 claims exits 1 with `error[krs::exec::result]: domain value of sort Bytes is not valid UTF-8` (2026-10-16, any --output format).
+# The KEVM port has no `krs prove` workload: `krs prove` of its 8 claims exits 2 with `error[krs::exec::result]: domain value of sort Bytes is not valid UTF-8` (2026-10-16, any --output format).
 # The emitted K is much smaller than the semantics it ports (KEVM about 2,400 lines, KMIR about 1,400, KWasm about 80), so no KRS row compares with kevm/compile, kmir/compile or kwasm/compile.
 
 # Builds the `krs` tool and writes the wrapper `${prepared}/krs-tool/krs`, the argv[0] of every krs workload.

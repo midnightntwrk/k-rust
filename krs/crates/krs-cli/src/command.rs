@@ -96,6 +96,96 @@ impl CommandKind {
     pub const fn reuses_results(self) -> bool {
         matches!(self, Self::Check | Self::EmitK | Self::Build)
     }
+
+    /// Whether the command executes the definition (`run`, `search`, `prove`, `cases`,
+    /// `compare`), so that its exit status is one of [`exit_status`]'s.
+    #[must_use]
+    pub const fn executes(self) -> bool {
+        matches!(
+            self,
+            Self::Run | Self::Search | Self::Prove | Self::Cases | Self::Compare
+        )
+    }
+
+    /// The exit status of this command when it fails. An executing command: with `error`,
+    /// [`exit_status::UNANSWERED`] for a run with no one path, else [`exit_status::UNASKED`];
+    /// with `None` (output or measurement not written), [`exit_status::UNASKED`]. Any other
+    /// command: the error's own status ([`CommandError::exit_code`]), 1 for `None`.
+    #[must_use]
+    pub fn failure_status(self, error: Option<&CommandError>) -> i32 {
+        match error {
+            Some(error) if self.executes() => error.execution_status(),
+            None if self.executes() => exit_status::UNASKED,
+            Some(error) => error.exit_code(),
+            None => 1,
+        }
+    }
+}
+
+/// The exit statuses of the commands that execute the definition ([`CommandKind::executes`]).
+///
+/// Each status names the action the caller takes next, and there are four actions:
+/// - [`YES`]: rely on the answer;
+/// - [`NO`]: act on a finding;
+/// - [`UNASKED`]: fix the input or the command, since the question could not be asked;
+/// - [`UNANSWERED`]: ask again with more budget or by another approach, since the question was
+///   asked and has no answer.
+///
+/// A refusal of an input is the question being ill-posed, not an answer, so it is [`UNASKED`],
+/// beside a usage error and every other error.
+/// A batch ([`join`]) is [`UNASKED`] when a member is, since its answer is then incomplete;
+/// else [`NO`] when a member is a finding; else [`UNANSWERED`] when one has no answer; else
+/// [`YES`].
+pub mod exit_status {
+    /// The run completed, the expectation is met, the sides are equal, every claim is proven or
+    /// trusted.
+    pub const YES: i32 = 0;
+    /// A finding: the expectation is unmet, the sides differ, a claim is disproved or failed.
+    pub const NO: i32 = 1;
+    /// The question could not be asked: a usage error, a refused input, case, expectation, view
+    /// or definition, or any other error.
+    pub const UNASKED: i32 = 2;
+    /// No answer: an inconclusive halt, search, verdict or proof.
+    pub const UNANSWERED: i32 = 3;
+
+    /// The status of a batch of two parts whose statuses are `left` and `right`: the one that
+    /// comes first of [`UNASKED`], [`NO`], [`UNANSWERED`] and [`YES`]. A status that is none of
+    /// the four counts as [`UNASKED`].
+    #[must_use]
+    pub const fn join(left: i32, right: i32) -> i32 {
+        const fn rank(status: i32) -> u8 {
+            match status {
+                YES => 0,
+                UNANSWERED => 1,
+                NO => 2,
+                _ => 3,
+            }
+        }
+        let (left, right) = (normal(left), normal(right));
+        if rank(left) >= rank(right) {
+            left
+        } else {
+            right
+        }
+    }
+
+    /// `status`, or [`UNASKED`] when it is none of the four.
+    const fn normal(status: i32) -> i32 {
+        match status {
+            YES | NO | UNASKED | UNANSWERED => status,
+            _ => UNASKED,
+        }
+    }
+}
+
+/// The exit status of a comparison's verdict ([`exit_status`]), an expectation's or two sides':
+/// equal (met) is yes, differs (unmet) a finding, inconclusive no answer.
+pub(crate) const fn compared_status(verdict: &krs_exec::Compared) -> i32 {
+    match verdict {
+        krs_exec::Compared::Equal => exit_status::YES,
+        krs_exec::Compared::Differs(_) => exit_status::NO,
+        krs_exec::Compared::Inconclusive(_) => exit_status::UNANSWERED,
+    }
 }
 
 /// A production command with its command-specific inputs.
@@ -301,7 +391,8 @@ impl CommandOutcome {
         &self.stderr
     }
 
-    /// The process exit status: 0 for a completed result, 1 for an inconclusive one.
+    /// The process exit status: one of [`exit_status`]'s for a command that executes the
+    /// definition (or the exit cell's value for a completed `krs run`), 0 for any other.
     #[must_use]
     pub const fn exit_code(&self) -> i32 {
         self.exit_code
@@ -1932,7 +2023,8 @@ impl Error for CommandError {
 }
 
 impl CommandError {
-    /// The process exit status for this failure: 2 for a usage error, 1 otherwise.
+    /// The process exit status for this failure of a command that does not execute the
+    /// definition: 2 for a usage error, 1 otherwise ([`CommandKind::failure_status`]).
     #[must_use]
     pub fn exit_code(&self) -> i32 {
         match self {
@@ -1943,6 +2035,20 @@ impl CommandError {
                 | krs_exec::ExecError::MissingProgram { .. },
             ) => 2,
             _ => 1,
+        }
+    }
+
+    /// The exit status for this failure of a command that executes the definition: a run that
+    /// reaches several states under conditions it cannot decide has no one path, which is no
+    /// answer ([`exit_status::UNANSWERED`]); any other failure is the question not asked
+    /// ([`exit_status::UNASKED`]).
+    fn execution_status(&self) -> i32 {
+        match self {
+            Self::Attributed { source, .. } | Self::Warned { source, .. } => {
+                source.execution_status()
+            }
+            Self::Exec(krs_exec::ExecError::Undecided(_)) => exit_status::UNANSWERED,
+            _ => exit_status::UNASKED,
         }
     }
 
@@ -2347,6 +2453,61 @@ mod tests {
         let attributed = usage.attributed("note".to_owned());
         assert_eq!(attributed.warnings().unwrap().envelopes, vec![earlier]);
         assert!(attributed.to_string().ends_with("(note)"));
+    }
+
+    /// A batch's status is its first part's of the question not asked, a finding, no answer and
+    /// yes, whatever the order of its parts.
+    #[test]
+    fn a_batch_status_takes_the_first_action_in_order() {
+        use exit_status::{NO, UNANSWERED, UNASKED, YES, join};
+        let order = [UNASKED, NO, UNANSWERED, YES];
+        for (index, &first) in order.iter().enumerate() {
+            for &later in &order[index..] {
+                assert_eq!(join(first, later), first);
+                assert_eq!(join(later, first), first);
+            }
+        }
+        assert_eq!(join(YES, 7), UNASKED);
+        assert_eq!([NO, YES, UNANSWERED].into_iter().fold(YES, join), NO);
+    }
+
+    /// An executing command's failure is the question not asked, but a run with no one path,
+    /// which has no answer; any other command keeps the error's own status.
+    #[test]
+    fn an_executing_command_fails_by_what_the_caller_does_next() {
+        let refusal = CommandError::Exec(krs_exec::ExecError::Case("refused".to_owned()));
+        let undecided = CommandError::Exec(krs_exec::ExecError::Undecided("two".to_owned()))
+            .attributed("note".to_owned());
+        let usage = CommandError::Usage("do not pass FILE".to_owned());
+        for kind in [
+            CommandKind::Run,
+            CommandKind::Search,
+            CommandKind::Prove,
+            CommandKind::Cases,
+            CommandKind::Compare,
+        ] {
+            assert!(kind.executes());
+            assert_eq!(kind.failure_status(Some(&refusal)), exit_status::UNASKED);
+            assert_eq!(kind.failure_status(Some(&usage)), exit_status::UNASKED);
+            assert_eq!(
+                kind.failure_status(Some(&undecided)),
+                exit_status::UNANSWERED
+            );
+            assert_eq!(kind.failure_status(None), exit_status::UNASKED);
+        }
+        for kind in [
+            CommandKind::Check,
+            CommandKind::Expand,
+            CommandKind::EmitK,
+            CommandKind::Build,
+            CommandKind::Parse,
+        ] {
+            assert!(!kind.executes());
+            assert_eq!(kind.failure_status(Some(&refusal)), 1);
+            assert_eq!(kind.failure_status(Some(&undecided)), 1);
+            assert_eq!(kind.failure_status(Some(&usage)), 2);
+            assert_eq!(kind.failure_status(None), 1);
+        }
     }
 
     #[test]

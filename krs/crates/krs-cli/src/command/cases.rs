@@ -44,11 +44,14 @@ use serde_json::json;
 use super::exec::{
     self, Checked, Failure, Inputs, ObserverDefinition, Run, SelectedCase, StageReuse, WORKER_STACK,
 };
-use super::{CommandError, CommandOutcome, PreparedDefinition};
+use super::{CommandError, CommandOutcome, PreparedDefinition, exit_status};
 use crate::DiagnosticSources;
 
-/// The schema every record of `krs cases --output json` names.
-pub const CASES_SCHEMA: &str = "krs-cases/1";
+/// The schema every record of `krs cases --output json` names. Version 2 records a case with
+/// no expectation whose run has no one path as `ran` with a `reason` and no `halt` (version 1
+/// refused it), and its summary's `status` is the exit status of the four actions
+/// ([`exit_status`]), under which a refused case is 2, no longer 1.
+pub const CASES_SCHEMA: &str = "krs-cases/2";
 
 /// How `krs cases` prints its records.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -151,7 +154,8 @@ enum Verdict {
     /// The case, its document or its observer is no case the definition can run, or a view has
     /// no value at an end.
     Refused,
-    /// The case states no expectation, and ran.
+    /// The case states no expectation, and ran: to a state, or, when it reaches several under
+    /// conditions it cannot decide, to no one end.
     Ran,
 }
 
@@ -175,7 +179,7 @@ struct Record {
     run: Option<(Halt, u64)>,
     /// The expectation's verdict, when the case states one and its run was checked.
     checked: Option<Checked>,
-    /// Why the case was refused.
+    /// Why the case was refused, or why a case that ran has no end.
     reason: Option<String>,
     /// The views and the observer the expectation names, as it writes them, for a record with no
     /// checked verdict to name them.
@@ -201,12 +205,24 @@ impl Record {
     }
 
     /// Whether the record counts as inconclusive in the status: an inconclusive verdict, or a
-    /// case without an expectation whose run has no end (an inconclusive halt).
+    /// case without an expectation whose run has no end (an inconclusive halt, or no one path).
     fn inconclusive(&self) -> bool {
         match self.verdict {
             Verdict::Inconclusive => true,
-            Verdict::Ran => self.run.is_some_and(|(halt, _)| !halt.is_complete()),
+            Verdict::Ran => self.run.is_none_or(|(halt, _)| !halt.is_complete()),
             Verdict::Met | Verdict::Unmet | Verdict::Refused => false,
+        }
+    }
+
+    /// The record's exit status ([`exit_status`]): yes for a met case or one that ran to an end,
+    /// a finding for an unmet one, no answer for an inconclusive one or one that ran to no end,
+    /// and the question not asked for a refused one.
+    fn status(&self) -> i32 {
+        match self.verdict {
+            Verdict::Unmet => exit_status::NO,
+            Verdict::Refused => exit_status::UNASKED,
+            Verdict::Inconclusive | Verdict::Ran if self.inconclusive() => exit_status::UNANSWERED,
+            Verdict::Met | Verdict::Inconclusive | Verdict::Ran => exit_status::YES,
         }
     }
 
@@ -241,6 +257,9 @@ impl Record {
         let mut text = String::new();
         match (&self.checked, self.run, &self.reason) {
             (Some(checked), _, _) => checked.write(&mut text, &self.id),
+            (None, None, Some(reason)) if self.verdict == Verdict::Ran => {
+                let _ = writeln!(text, "{}: ran: {reason}", self.id);
+            }
             (None, _, Some(reason)) => {
                 let _ = writeln!(text, "{}: refused: {reason}", self.id);
             }
@@ -269,8 +288,8 @@ struct Tally {
     inconclusive: usize,
     refused: usize,
     ran: usize,
-    /// Cases without an expectation whose run has no end.
-    ran_without_end: usize,
+    /// The [`exit_status::join`] of the records' statuses ([`Record::status`]).
+    status: i32,
 }
 
 impl Tally {
@@ -280,27 +299,19 @@ impl Tally {
             Verdict::Unmet => self.unmet += 1,
             Verdict::Inconclusive => self.inconclusive += 1,
             Verdict::Refused => self.refused += 1,
-            Verdict::Ran => {
-                self.ran += 1;
-                self.ran_without_end += usize::from(record.inconclusive());
-            }
+            Verdict::Ran => self.ran += 1,
         }
+        self.status = exit_status::join(self.status, record.status());
     }
 
     const fn cases(&self) -> usize {
         self.met + self.unmet + self.inconclusive + self.refused + self.ran
     }
 
-    /// 1 for an unmet or a refused case, else 3 for an inconclusive one (a case without an
-    /// expectation whose run has no end included), else 0.
+    /// The batch's exit status: the [`exit_status::join`] of its records', so a refused case
+    /// gives the question not asked, since the batch's answer is then incomplete.
     const fn status(&self) -> i32 {
-        if self.unmet > 0 || self.refused > 0 {
-            1
-        } else if self.inconclusive > 0 || self.ran_without_end > 0 {
-            3
-        } else {
-            0
-        }
+        self.status
     }
 
     fn json(&self) -> serde_json::Value {
@@ -722,6 +733,17 @@ fn run_case(
                 written: (BTreeMap::new(), None),
             });
         }
+        // Without an expectation, the case ran to no one end: no answer, as an inconclusive halt.
+        (Err(error @ ExecError::Undecided { .. }), None) => {
+            return Ok(Record {
+                id: job.id.clone(),
+                verdict: Verdict::Ran,
+                run: None,
+                checked: None,
+                reason: Some(format!("the run has no one end: {error}")),
+                written: (BTreeMap::new(), None),
+            });
+        }
         (Err(error), _) => return Err(error.into()),
     };
     let run = Some((report.halt, report.steps));
@@ -803,7 +825,8 @@ mod tests {
     use std::collections::BTreeMap;
 
     /// A case without an expectation whose run has no end is inconclusive in the status, and
-    /// one whose run ends is not.
+    /// one whose run ends is not; an unmet case comes before an inconclusive one, and a refused
+    /// case before an unmet one.
     #[test]
     fn a_ran_case_without_an_end_makes_the_status_inconclusive() {
         let ran = |halt| Record {
@@ -818,11 +841,28 @@ mod tests {
         tally.count(&ran(Halt::Stuck));
         tally.count(&ran(Halt::DepthBound));
         assert_eq!(tally.status(), 0);
+        // A run with no one path has no end either.
+        let mut no_path = Tally::default();
+        no_path.count(&ran(Halt::Stuck));
+        no_path.count(&Record {
+            run: None,
+            reason: Some("the run has no one end".to_owned()),
+            ..ran(Halt::Stuck)
+        });
+        assert_eq!(no_path.status(), 3);
+        assert_eq!(no_path.json()["summary"]["ran"], 2);
         tally.count(&ran(Halt::Interrupted));
         assert_eq!(tally.status(), 3);
         assert_eq!(tally.json()["summary"]["ran"], 3);
-        tally.count(&Record::refused("b.toml".to_owned(), "no".to_owned()));
+        tally.count(&Record {
+            verdict: Verdict::Unmet,
+            run: None,
+            ..ran(Halt::Stuck)
+        });
         assert_eq!(tally.status(), 1);
+        tally.count(&Record::refused("b.toml".to_owned(), "no".to_owned()));
+        assert_eq!(tally.status(), 2);
+        assert_eq!(tally.json()["status"], 2);
     }
 
     #[test]

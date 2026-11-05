@@ -22,8 +22,10 @@
 //! A line that begins as an event and does not parse as one is an error of the batch; any other
 //! line is something in the worker that wrote to its stdout, and is passed to stderr.
 //!
-//! A worker that ends with a status krs returns (0, 1 or 2) ended normally: after `end` the batch
-//! is complete; without it, the worker reported an error on stderr, and that error is the batch's.
+//! A worker that ends with a status krs returns (0 to 3, [`exit_status`]) ended normally: after
+//! `end` the batch is complete; without it, the worker reported an error on stderr, and that error
+//! is the batch's. A worker returns 0 when it sends `end` and [`exit_status::UNASKED`] for an
+//! error; the claims' verdicts, not the worker's status, give the batch's answer.
 //! Any other end (a signal, or another exit status) is a crash; a worker that panics ends with
 //! [`krs_exec::PANIC_EXIT_STATUS`], so a panic is a crash too. The claim that started and did not
 //! finish is recorded as `crashed`, with how the worker ended ([`Crash`]), and the claims that did
@@ -32,7 +34,9 @@
 //! from `--color` against its own stdout.
 //! Each worker after the first is started only when the previous one proved or crashed on at
 //! least one claim, so a batch starts at most one worker per claim. A crash before `selected`, or a
-//! crash outside any claim of a worker that finished none, is an error of the batch.
+//! crash outside any claim of a worker that finished none, is an error of the batch. A crash after
+//! the last claim leaves every verdict but not the batch's own checks and output, so the batch's
+//! status is the question not asked, joined with the verdicts'.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
@@ -46,6 +50,7 @@ use serde_json::json;
 use serde_json::value::RawValue;
 
 use super::exec::{ProveRequest, TermOutput};
+use super::exit_status;
 
 /// What `krs prove` prints of a batch, claim by claim, whether the claims are proved in this
 /// process or by workers: stderr names each claim as it starts; the text outputs and
@@ -62,6 +67,8 @@ pub(super) struct ProveOutput<'a> {
     /// The number of claims of each verdict.
     verdicts: BTreeMap<&'static str, usize>,
     claims: usize,
+    /// The [`exit_status::join`] of the finished claims' statuses ([`verdict_status`]).
+    status: i32,
 }
 
 impl<'a> ProveOutput<'a> {
@@ -79,6 +86,7 @@ impl<'a> ProveOutput<'a> {
             reports: Vec::new(),
             verdicts: BTreeMap::new(),
             claims: 0,
+            status: exit_status::YES,
         }
     }
 
@@ -104,6 +112,7 @@ impl<'a> ProveOutput<'a> {
     ) -> std::io::Result<()> {
         self.claims += 1;
         *self.verdicts.entry(verdict.as_str()).or_default() += 1;
+        self.status = exit_status::join(self.status, verdict_status(verdict));
         let report =
             || report.ok_or_else(|| std::io::Error::other("a JSON output's claim has no report"));
         match self.output {
@@ -149,10 +158,9 @@ impl<'a> ProveOutput<'a> {
         self.finished(value, Verdict::Crashed, &text, "")
     }
 
-    /// Print what follows the last claim, and return the exit status: 0 when every claim is
-    /// proven or trusted (a trusted claim is assumed, never proven, and does not fail the run),
-    /// 1 otherwise. The JSON outputs name the solver the claims were proved with: the document's
-    /// `solver` member, and the summary line's.
+    /// Print what follows the last claim, and return the batch's exit status, the
+    /// [`exit_status::join`] of its claims' ([`verdict_status`]). The JSON outputs name the solver
+    /// the claims were proved with: the document's `solver` member, and the summary line's.
     pub(super) fn close(self) -> std::io::Result<i32> {
         let count = |verdict: Verdict| self.verdicts.get(verdict.as_str()).copied().unwrap_or(0);
         let (proven, trusted, crashed, timeout) = (
@@ -207,7 +215,23 @@ impl<'a> ProveOutput<'a> {
                 if self.claims == 1 { "" } else { "s" },
             ),
         )?;
-        Ok(i32::from(proven + trusted != self.claims))
+        Ok(self.status)
+    }
+}
+
+/// The exit status a claim's verdict gives ([`exit_status`]): yes for a proven or a trusted claim
+/// (a trusted claim is assumed, never proven, and does not fail the batch); a finding for a
+/// disproved or a failed one; no answer for one the proof could not decide within its bounds
+/// (indeterminate, depth or breadth bound, timeout); the question not asked for a claim whose
+/// process crashed, which gave no answer and reported no error of its own.
+const fn verdict_status(verdict: Verdict) -> i32 {
+    match verdict {
+        Verdict::Proven | Verdict::Trusted => exit_status::YES,
+        Verdict::Disproved | Verdict::Failed => exit_status::NO,
+        Verdict::Indeterminate | Verdict::DepthBound | Verdict::BreadthBound | Verdict::Timeout => {
+            exit_status::UNANSWERED
+        }
+        Verdict::Crashed => exit_status::UNASKED,
     }
 }
 
@@ -382,24 +406,25 @@ pub fn supervise_prove(arguments: &[OsString], request: &ProveRequest) -> i32 {
     };
     let worker_status = supervise(arguments, color, &mut printed);
     let closed = worker_status.and_then(|status| {
-        Ok(printed
-            .close()
-            .map_err(|error| output_error(&error))?
-            .max(status))
+        Ok(exit_status::join(
+            printed.close().map_err(|error| output_error(&error))?,
+            status,
+        ))
     });
     match closed {
-        Ok(status) | Err(Stop::Status(status)) => status,
+        Ok(status) => status,
+        Err(Stop::Reported) => exit_status::UNASKED,
         Err(Stop::Error(message)) => {
             let _ = line(&mut std::io::stderr(), &format!("krs prove: {message}"));
-            1
+            exit_status::UNASKED
         }
     }
 }
 
 /// Why a batch stops without its summary.
 enum Stop {
-    /// A worker reported an error and ended with this status.
-    Status(i32),
+    /// A worker reported an error on stderr and ended with a status krs returns.
+    Reported,
     /// The supervisor's own error.
     Error(String),
 }
@@ -408,8 +433,9 @@ fn output_error(error: &std::io::Error) -> Stop {
     Stop::Error(format!("could not write the proof output: {error}"))
 }
 
-/// Prove the batch in workers; the status is 1 when the last worker failed after it finished every
-/// claim (it reported why on stderr), 0 otherwise.
+/// Prove the batch in workers; the status is [`exit_status::UNASKED`] when the last worker failed
+/// or crashed after it finished every claim, since the batch's own checks and output did not
+/// complete, 0 otherwise.
 fn supervise(
     arguments: &[OsString],
     color: &str,
@@ -439,8 +465,12 @@ fn supervise(
             selection = ended.selected;
         }
         let code = ended.status.code();
-        if ended.end && matches!(code, Some(0..=2)) {
-            return Ok(i32::from(code != Some(0)));
+        if ended.end && matches!(code, Some(0..=3)) {
+            return Ok(if code == Some(0) {
+                exit_status::YES
+            } else {
+                exit_status::UNASKED
+            });
         }
         match code {
             Some(0) => {
@@ -449,7 +479,7 @@ fn supervise(
                 ));
             }
             // A status krs returns: the worker reported its error on stderr.
-            Some(status @ 1..=2) => return Err(Stop::Status(status)),
+            Some(1..=3) => return Err(Stop::Reported),
             _ => {}
         }
         let crash = |z3: &Option<String>| Crash {
@@ -491,7 +521,8 @@ fn supervise(
                     &format!("krs prove: {crash} after its last claim"),
                 );
             }
-            return Ok(0);
+            // The worker did not complete the batch's checks and output after its last claim.
+            return Ok(exit_status::UNASKED);
         }
         let _ = line(
             &mut std::io::stderr(),
@@ -677,6 +708,26 @@ fn signal(_: ExitStatus) -> Option<i32> {
 
 #[cfg(test)]
 mod tests {
+    /// A proven or trusted claim is yes, a disproved or failed one a finding, a claim the proof
+    /// could not decide within its bounds no answer, and a crashed one the question not asked.
+    #[test]
+    fn a_claim_s_verdict_gives_its_status() {
+        use super::{Verdict, exit_status, verdict_status};
+        for (verdict, status) in [
+            (Verdict::Proven, exit_status::YES),
+            (Verdict::Trusted, exit_status::YES),
+            (Verdict::Disproved, exit_status::NO),
+            (Verdict::Failed, exit_status::NO),
+            (Verdict::Indeterminate, exit_status::UNANSWERED),
+            (Verdict::DepthBound, exit_status::UNANSWERED),
+            (Verdict::BreadthBound, exit_status::UNANSWERED),
+            (Verdict::Timeout, exit_status::UNANSWERED),
+            (Verdict::Crashed, exit_status::UNASKED),
+        ] {
+            assert_eq!(verdict_status(verdict), status, "{verdict:?}");
+        }
+    }
+
     use super::{Ended, ProveOutput, Stop, event};
     use crate::command::exec::TermOutput;
     use std::collections::BTreeSet;

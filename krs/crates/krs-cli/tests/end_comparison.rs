@@ -2016,7 +2016,7 @@ impl CompareWorkspace {
 /// `--view` compares a cell on a view's value, evaluated in the compared definition or in the
 /// observer `--observer` names. Two runs that may end elsewhere are inconclusive (exit 3);
 /// `--expect` checks a side against a case's expectation; an end document that leaves out a
-/// compared cell is refused, naming it, before the case runs.
+/// compared cell is refused (exit 2, as a usage error), naming it, before the case runs.
 #[test]
 fn krs_compare_reads_ends_and_cases_and_prints_the_first_difference() {
     let workspace = CompareWorkspace::new();
@@ -2157,7 +2157,7 @@ fn compare_against_expectations_and_refusals(workspace: &CompareWorkspace) {
     // A compared cell an end document leaves out is refused, naming it, before the case runs;
     // an end document has no named case.
     let (code, stdout, stderr) = workspace.compare(&["partial.json", "cases.toml#toss"]);
-    assert_eq!(code, Some(1), "{stdout}");
+    assert_eq!(code, Some(2), "{stdout}");
     assert!(
         stderr.contains("`partial.json`: the left end does not state the compared cell `pc`"),
         "{stderr}"

@@ -5,7 +5,8 @@ use krs_cli::{
     CompareOutput, CompareRequest, CompareSides, DEFAULT_VIEW_BUDGET, DiagnosticSources,
     FacetSelector, KrsCfg, MessageFormat, PackageSelector, ParseRequest, ProgramSource,
     ProveRequest, RegistrationMode, RunRequest, SearchMode, SearchRequest, SideFile, StopCriterion,
-    StopRules, TermOutput, execute_command_reported, supervise_prove, valid_identifier_segment,
+    StopRules, TermOutput, execute_command_reported, exit_status, supervise_prove,
+    valid_identifier_segment,
 };
 use krs_fmt::{Edition, FormatOptions, TrailingCommentStyle};
 use krs_ir::measure::Measurement;
@@ -91,14 +92,13 @@ Options:
   --case FILE                Bind the inputs a case document (.toml or .json) gives by
                              parameter name; its file paths are relative to FILE's directory.
                              A case's run table gives the depth, stop rules and stop count,
-                             in place of the flags; its expect table is checked: exit 0 met,
-                             1 unmet, 3 inconclusive
+                             in place of the flags; its expect table is checked: met, unmet
+                             or inconclusive
   --case-name NAME           With --case, the case of that name in a document of named cases
   CASES...                   With cases, the case documents (.toml or .json) whose cases run,
                              reported in this order: one verdict per case (met, unmet,
                              inconclusive, refused, or ran for a case with no expectation),
-                             then a summary; exit 0 all met, 1 any unmet or refused, 3 any
-                             inconclusive otherwise
+                             then a summary
   --jobs N                   With cases, run the cases on N workers (default: the available
                              parallelism), each loading its own copy of the definition and of
                              each observer it uses, so memory grows with N; the output is the
@@ -110,12 +110,10 @@ Options:
   LEFT RIGHT                 With compare, the two sides, each an end document (halt, rule,
                              cells) or a case document (.toml or .json), whose case is run for
                              its end; FILE#NAME names a case of a document of named cases.
-                             Prints equal or the first difference: exit 0 equal, 1 differs,
-                             3 inconclusive
+                             Prints equal, the first difference, or inconclusive
   --expect CASE              With compare, check the one side ACTUAL against the expectation of
                              CASE (FILE or FILE#NAME), as run --case checks a run's end, on the
-                             cells, views and observer it names: exit 0 met, 1 unmet,
-                             3 inconclusive
+                             cells, views and observer it names: met, unmet or inconclusive
   --compare CELL,...         With compare, compare only these cells, by declared path (a group
                              names its leaves); repeatable (default: every leaf cell that is
                              not unobservable)
@@ -173,6 +171,22 @@ Options:
   --check                    Report files that are not canonically formatted
   --trailing-comments STYLE  aligned or gutter (default: aligned)
   -h, --help                 Show this help
+
+Exit status of run, search, prove, cases and compare, by what the caller does next:
+  0  yes, rely on the answer: the run or the search completed, the expectation is met, the
+     sides are equal, every claim is proven or trusted
+  1  no, act on the finding: the expectation is unmet, the sides differ, a claim is disproved
+     or failed
+  2  the question could not be asked, fix the input or the command: a usage error, a refused
+     input, case, expectation, view or definition, or any other error
+  3  no answer, retry with more budget or another approach: an inconclusive halt, search or
+     verdict, a run with no one path, a claim indeterminate, bounded or timed out
+A batch (cases, or prove of several claims) exits 2 when a case is refused or a claim crashed,
+else 1 when one is a finding, else 3 when one has no answer (in cases, a case with no
+expectation whose run has no end included), else 0. A completed run of a definition with an
+exit cell exits with that cell's value instead, the program's own status, which shares these
+numbers: --output json tells them apart. Every other command exits 0 on success, 2 on a usage
+error and 1 otherwise; krs kink --help gives kink's.
 ";
 
 /// `krs kink --help`.
@@ -249,30 +263,40 @@ fn main() {
             let Command::Prove(prove) = &request.command else {
                 unreachable!("the guard matched a prove command")
             };
-            let status = supervise_prove(&arguments, prove);
+            let status = executing(|| supervise_prove(&arguments, prove));
             if status != 0 {
                 std::process::exit(status);
             }
         }
         Ok(ParseResult::Run(request, measure)) => {
-            if matches!(&request.command, Command::Prove(prove) if prove.worker) {
+            let worker = matches!(&request.command, Command::Prove(prove) if prove.worker);
+            if worker {
                 krs_cli::watch_supervisor();
             }
-            let mut measurement =
-                Measurement::new(measure.timings.is_some(), measure.counters.is_some());
-            let (result, sources) = execute_command_reported(&request, &mut measurement);
-            let measured = write_measurement(
-                &measure,
-                &measurement,
-                request.command.kind().as_str(),
-                result.is_ok(),
-            );
-            let status = report_outcome(result, request.message_format, &sources);
+            let kind = request.command.kind();
+            let run = || {
+                let mut measurement =
+                    Measurement::new(measure.timings.is_some(), measure.counters.is_some());
+                let (result, sources) = execute_command_reported(&request, &mut measurement);
+                let measured =
+                    write_measurement(&measure, &measurement, kind.as_str(), result.is_ok());
+                let status = report_outcome(result, kind, request.message_format, &sources);
+                match (kind.executes(), measured) {
+                    // An executing command's unwritten measurement is an error beside its answer.
+                    (true, false) => exit_status::join(status, kind.failure_status(None)),
+                    (false, false) if status == 0 => kind.failure_status(None),
+                    _ => status,
+                }
+            };
+            // A worker of a supervising `krs prove` that panics ends with the panic's status,
+            // which its supervisor records as a crash.
+            let status = if kind.executes() && !worker {
+                executing(run)
+            } else {
+                run()
+            };
             if status != 0 {
                 std::process::exit(status);
-            }
-            if !measured {
-                std::process::exit(1);
             }
         }
         #[cfg(feature = "kink")]
@@ -285,6 +309,22 @@ fn main() {
             std::process::exit(2);
         }
     }
+}
+
+/// Run `body`, an executing command's work in this process, and return its exit status: a panic,
+/// which the panic hook has reported, is an error, so the question was not asked
+/// ([`exit_status::UNASKED`]). In a debug build, `KRS_TEST_PANIC` set makes the work panic first,
+/// for the tests.
+fn executing(body: impl FnOnce() -> i32) -> i32 {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        #[cfg(debug_assertions)]
+        assert!(
+            std::env::var_os("KRS_TEST_PANIC").is_none(),
+            "the test hook panics before the command runs"
+        );
+        body()
+    }))
+    .unwrap_or(exit_status::UNASKED)
 }
 
 /// Run `krs kink`: krs's warnings and refusal on stderr, then the document on stdout, then the
@@ -356,12 +396,13 @@ fn write_measurement(
     ok
 }
 
-/// Print a command outcome and return the process exit status.
+/// Print a command outcome of a command of `kind` and return the process exit status.
 ///
-/// A success exits with the outcome's status (0, or 1 for an inconclusive run, search, or proof);
-/// a failure exits 2 for a usage error and 1 otherwise; a stdout failure exits 1.
+/// A success exits with the outcome's status; a failure, or a failure to write the outcome,
+/// exits with the status [`CommandKind::failure_status`] gives.
 fn report_outcome(
     result: Result<krs_cli::CommandOutcome, krs_cli::CommandError>,
+    kind: CommandKind,
     format: MessageFormat,
     sources: &DiagnosticSources,
 ) -> i32 {
@@ -370,18 +411,18 @@ fn report_outcome(
             report_diagnostics(&outcome.warnings().envelopes, format, sources);
             if let Err(error) = io::stdout().lock().write_all(outcome.stdout()) {
                 eprintln!("krs: could not write stdout: {error}");
-                return 1;
+                return kind.failure_status(None);
             }
             let _ = io::stdout().lock().flush();
             if let Err(error) = io::stderr().lock().write_all(outcome.stderr()) {
                 eprintln!("krs: could not write stderr: {error}");
-                return 1;
+                return kind.failure_status(None);
             }
             outcome.exit_code()
         }
         Err(error) => {
             report_error(&error, format, sources);
-            error.exit_code()
+            kind.failure_status(Some(&error))
         }
     }
 }

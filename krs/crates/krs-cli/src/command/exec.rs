@@ -29,7 +29,10 @@ use serde_json::json;
 
 use super::stage_cache::StageCache;
 use super::supervisor::{self, ProveOutput};
-use super::{Command, CommandError, CommandOutcome, PreparedDefinition, native_command_error};
+use super::{
+    Command, CommandError, CommandOutcome, PreparedDefinition, compared_status, exit_status,
+    native_command_error,
+};
 use crate::DiagnosticSources;
 
 /// Where FILE comes from.
@@ -1056,14 +1059,10 @@ fn run(
     if request.output != TermOutput::Json {
         write_valueless(semantics, &report, request.output, &mut stderr)?;
     }
-    let exit_code = match (&checked, report.exit_code) {
-        (Some(checked), _) => {
-            checked.write(&mut stderr, "krs run");
-            checked.exit_code()
-        }
-        (None, Some(code)) if report.halt.is_complete() => i32::try_from(code & 0xff).unwrap_or(1),
-        (None, _) => i32::from(!report.halt.is_complete()),
-    };
+    if let Some(checked) = &checked {
+        checked.write(&mut stderr, "krs run");
+    }
+    let exit_code = run_status(checked.as_ref(), report.halt, report.exit_code);
     // Console output comes first, as krun writes it during the run and prints the result after;
     // the JSON report carries it in `stdout` instead.
     let mut stdout = match (&report.stdout, request.output) {
@@ -1074,6 +1073,20 @@ fn run(
     let mut outcome = outcome(String::new(), stderr, exit_code);
     outcome.stdout = stdout;
     Ok(outcome)
+}
+
+/// The exit status of a run that ended ([`exit_status`]): its expectation's verdict when it has
+/// one; else, for a completed run, the exit cell's value when the definition declares one (the
+/// program's own status, which shares the numbers of krs's) and yes when it does not; no answer
+/// for an inconclusive halt.
+fn run_status(checked: Option<&Checked>, halt: Halt, exit_code: Option<i64>) -> i32 {
+    match (checked, exit_code) {
+        (Some(checked), _) => checked.exit_code(),
+        // The low 8 bits, which the OS keeps.
+        (None, Some(code)) if halt.is_complete() => i32::from(code.to_le_bytes()[0]),
+        (None, _) if halt.is_complete() => exit_status::YES,
+        (None, _) => exit_status::UNANSWERED,
+    }
 }
 
 /// The notes on the terms with no value a run's state holds or its condition read, printed in
@@ -1225,7 +1238,9 @@ fn search(
             checked.write(&mut stderr, "krs search");
             checked.exit_code()
         }
-        None => i32::from(!report.complete && !truncated),
+        // A search stopped at --max-solutions has the solutions it was asked for.
+        None if report.complete || truncated => exit_status::YES,
+        None => exit_status::UNANSWERED,
     };
     Ok(outcome(stdout, stderr, exit_code))
 }
@@ -1309,8 +1324,15 @@ pub(super) fn check_run(
     if !matches!(checked.verdict, Compared::Equal) {
         return Ok(checked);
     }
-    let Some(reason) = semantics.other_ends(run.state, run.options, run.report)? else {
-        return Ok(checked);
+    let reason = match semantics.other_ends(run.state, run.options, run.report) {
+        Ok(Some(reason)) => reason,
+        Ok(None) => return Ok(checked),
+        // Followed again, the run reaches several states it cannot decide among: it may have
+        // other ends, which is no answer, not a refusal of the case.
+        Err(error @ ExecError::Undecided(_)) => {
+            return Ok(Checked::undecided(run.case, expectation, &error));
+        }
+        Err(error) => return Err(error.into()),
     };
     actual.incomplete = Some(reason);
     let mut checked = check(semantics, observer, run.case, expectation, &actual, budget)?;
@@ -1418,14 +1440,10 @@ impl Checked {
         )
     }
 
-    /// The exit status the verdict gives: 0 met, 1 unmet, 3 inconclusive (no end to compare,
-    /// which calls for another action than ends that differ).
+    /// The exit status the verdict gives ([`exit_status`]): met, unmet (a finding), or
+    /// inconclusive (no answer).
     pub(super) const fn exit_code(&self) -> i32 {
-        match self.verdict {
-            Compared::Equal => 0,
-            Compared::Differs(_) => 1,
-            Compared::Inconclusive(_) => 3,
-        }
+        compared_status(&self.verdict)
     }
 
     /// The verdict word.
@@ -2090,6 +2108,43 @@ impl From<ExecError> for CommandError {
 mod tests {
     use super::{log_text, status_word, write_coverage, write_trace};
     use krs_exec::{Coverage, CoveredRule, RuleKind, SourceSpan, Step, StepOrigin};
+
+    /// A plain run that completed is yes, or its exit cell's low 8 bits; one that ended at an
+    /// inconclusive halt is no answer, whatever its exit cell holds.
+    #[test]
+    fn a_run_s_halt_gives_its_status() {
+        use super::{exit_status, run_status};
+        use krs_exec::Halt;
+        for halt in [
+            Halt::Stuck,
+            Halt::DepthBound,
+            Halt::Undefined,
+            Halt::Stopped,
+        ] {
+            assert_eq!(run_status(None, halt, None), exit_status::YES, "{halt:?}");
+            assert_eq!(run_status(None, halt, Some(7)), 7, "{halt:?}");
+        }
+        assert_eq!(run_status(None, Halt::Stuck, Some(259)), 3);
+        assert_eq!(run_status(None, Halt::Stuck, Some(-1)), 255);
+        for halt in [
+            Halt::Indeterminate,
+            Halt::UnsupportedHook,
+            Halt::SimplificationError,
+            Halt::Timeout,
+            Halt::Interrupted,
+        ] {
+            assert_eq!(
+                run_status(None, halt, None),
+                exit_status::UNANSWERED,
+                "{halt:?}"
+            );
+            assert_eq!(
+                run_status(None, halt, Some(0)),
+                exit_status::UNANSWERED,
+                "{halt:?}"
+            );
+        }
+    }
 
     #[test]
     fn indeterminate_results_name_a_missing_solver() {
