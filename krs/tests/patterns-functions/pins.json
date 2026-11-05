@@ -7,7 +7,7 @@
     "krs-patterns-functions-lets": "42a5da26e0b2bacc9f8bc8a4848aa5a97ce75439178942cf8e46ab8cc77502b1",
     "krs-patterns-functions-contexts": "ce535472354a1f94cd3896c75954b224e8da54ae28694435cb456c705ab61981",
     "krs-patterns-functions-sugar": "8632c5400c916cc05bf63fc46af4dab197e5c3f2171fefe9e18c803534cf494e",
-    "krs-patterns-functions-bits": "15cb2995eff0ed9812533b3518b2d1eaddce891596b59d4f6e31b5a67f7d26eb"
+    "krs-patterns-functions-bits": "a9c5187fb1728b665871a61b11a5fd16d9de008d92e2b05698a80e2a7939d514"
   },
   "emitted": {
     "krs-patterns-functions-aliases": {
@@ -29,7 +29,7 @@
       "definition.k": "e9df9ce18a2503351ea042cdf0aff73045cb42b9dffccd48219ea9fd704639ea"
     },
     "krs-patterns-functions-bits": {
-      "definition.k": "fb7488041657fe9bdb4a2078e377cf8a44d55749e55f36b2dfd6bfefddc5daa8"
+      "definition.k": "4fe83768fb66fc38a44a440a6502226cdac32d3ddb585ac11b4af8a1f5db25e8"
     }
   },
   "reference_sha256": {
@@ -48,7 +48,7 @@
     "krs-patterns-functions-contexts-haskell": "fd3a0724494b00ce03c09fe01ea57459c766eb25eb206f93fc83bdfb2889f388",
     "krs-patterns-functions-aliases": "3012480f062e95b3083eb4975da794391af986051ff21bb3f963849b5384d564",
     "krs-patterns-functions-sugar": "37a9de3012d85aaa548fecab3cd5408149a9f6dc4eb5e7c598f8343ac3e828e4",
-    "krs-patterns-functions-bits": "437a738a4354da8edbb46d098cbbf7899389d355c67b16dc07899727973cfb8a"
+    "krs-patterns-functions-bits": "5875922a0c513b875ba66450a73c7f34058b13a62ce9024cc91ff9e2acb9988e"
   },
   "outcomes": {
     "krs-patterns-functions-aliases": {
