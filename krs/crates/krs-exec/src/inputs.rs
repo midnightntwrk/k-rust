@@ -56,6 +56,7 @@
 //! | `{"$token": {"sort": "Id", "text": "x"}}` | a token of the named token sort | anywhere |
 //! | `{"$list": [..]}`, `{"$set": [..]}`, `{"$seq": [..]}` | a `List`, a `Set`, a K sequence, of untyped elements | anywhere |
 //! | `{"$map": [[key, value], ..]}` | a `Map` of untyped keys and values | anywhere |
+//! | `{"$ctor": {"path::C": fields}}` | the constructor `C` applied to its fields, as the constructor form `{"path::C": fields}` reads it | anywhere |
 //! | `{"$call": {"path::f": fields}}` | the application of the function `f` to its arguments | anywhere |
 //!
 //! A token's text, as `$token` or as a shorthand, is not checked against its sort's lexical
@@ -78,6 +79,12 @@
 //! constructors at an untyped position); a name that selects several is refused naming them.
 //! Each field is decoded at its declared sort, with no element types: a field declared `List` has
 //! untyped elements.
+//!
+//! At a declared sort that `Map` is at most (`KItem`, a field declared `KItem`), an object is also
+//! a map's object shorthand, so `{"Name": fields}` reads two ways there and is refused. The tagged
+//! form `{"$ctor": {"Name": fields}}` states the constructor reading at every position, its name
+//! resolved and its fields read as the constructor form's are; a function under `$ctor` is
+//! refused, as one in the constructor form is.
 //!
 //! A function is applied with `$call`, its arguments written as a constructor's fields and
 //! resolved among the function productions whose result sort is at most the position's sort. A
@@ -192,6 +199,9 @@
 //!   each field's document at its declared sort with no element types.
 //!   A nullary constructor is the bare string `"Name"` at a declared sort where that string
 //!   has no other reading: one that neither `String` nor any token sort is at most.
+//!   Where `{"Name": fields}` has another reading at the position
+//!   (at a declared sort that `Map` is at most, where an object is a map too),
+//!   `{"$ctor": {"Name": fields}}`, with the same name and fields.
 //!   `Name` is the shortest `::`-aligned suffix of the declaration's path
 //!   that selects exactly this declaration among the constructors the decoder resolves at the position
 //!   (among all constructors at an untyped position).
@@ -202,9 +212,7 @@
 //!   an `Opaque` part (a variable, an unevaluated application,
 //!   a freezer or another constructor without a KRS declaration, a matching-logic connective);
 //!   the application of a parametric constructor, which no form of this encoding writes;
-//!   a value whose sort is not at most the position's;
-//!   and a constructor at a declared sort that `Map` is also at most,
-//!   where its object form reads as a map too and a constructor has no tagged form.
+//!   and a value whose sort is not at most the position's.
 //!   The refusal ([`EncodeError`](crate::EncodeError)) names the part's position,
 //!   in the notation of [`InputError`]'s positions
 //!   (`.Run.log$list[2]`; an element of a set and a key of a map by its index in the value's order),
@@ -1650,7 +1658,9 @@ impl Reading {
                     "a token of `{sort}` ({{\"$token\": {{\"sort\": \"{sort}\", \"text\": ..}}}})"
                 )
             }
-            Self::Ctor(decl) => format!("the constructor `{decl}` ({{\"{decl}\": ..}})"),
+            Self::Ctor(decl) => {
+                format!("the constructor `{decl}` ({{\"$ctor\": {{\"{decl}\": ..}}}})")
+            }
             Self::List => "a `List` ({\"$list\": [..]})".to_owned(),
             Self::Set => "a `Set` ({\"$set\": [..]})".to_owned(),
             Self::Map => "a `Map` ({\"$map\": [[key, value], ..]})".to_owned(),
@@ -1765,7 +1775,7 @@ impl<'a> Decoder<'a> {
     }
 
     fn untyped(&mut self, document: &Json) -> Result<Value, Refusal> {
-        const FORMS: &str = "write a constructor form or a tagged form ($string, $int, $token, $float, $list, $set, $seq, $map, $hex, $file, $data-file, $call)";
+        const FORMS: &str = "write a constructor form or a tagged form ($string, $int, $token, $float, $list, $set, $seq, $map, $hex, $file, $data-file, $ctor, $call)";
         match document {
             Json::Bool(value) => Ok(Value::Bool(*value)),
             Json::Number(value) => match number(value) {
@@ -1778,7 +1788,7 @@ impl<'a> Decoder<'a> {
             Json::Object(object) if object.len() == 1 => {
                 let (name, fields) = object.iter().next().expect("one entry");
                 let decl = self.constructor(name, &InputType::untyped())?;
-                self.construct(&decl, name, fields)
+                self.construct(&decl, name, fields, false)
             }
             Json::String(text) => Err(self.refuse(&format!(
                 "the string {} is undetermined at an untyped position (a K sort, or the elements of a collection without element types); {FORMS}",
@@ -2085,10 +2095,10 @@ impl<'a> Decoder<'a> {
                 text: text(),
             }),
             Reading::Ctor(decl) => match document {
-                Json::String(name) => self.construct(decl, name, &Json::Array(Vec::new())),
+                Json::String(name) => self.construct(decl, name, &Json::Array(Vec::new()), false),
                 Json::Object(object) => {
                     let (name, fields) = object.iter().next().expect("one entry");
-                    self.construct(decl, name, fields)
+                    self.construct(decl, name, fields, false)
                 }
                 _ => Err(self.refuse("no constructor form")),
             },
@@ -2274,14 +2284,23 @@ impl<'a> Decoder<'a> {
     }
 
     /// The application of `decl`, written `name`, to the fields `body` writes: an object by
-    /// field name, or an array in declaration order.
-    fn construct(&mut self, decl: &Decl, name: &str, body: &Json) -> Result<Value, Refusal> {
+    /// field name, or an array in declaration order; `tagged` when a constructor is written
+    /// under `$ctor`, which the fields' positions name.
+    fn construct(
+        &mut self,
+        decl: &Decl,
+        name: &str,
+        body: &Json,
+        tagged: bool,
+    ) -> Result<Value, Refusal> {
         let values = self.values;
         let info = values
             .info(decl)
             .ok_or_else(|| self.refuse(&format!("no production is declared at `{decl}`")))?;
         let (prefix, verb) = if info.function {
             (format!("$call({name})."), "arguments")
+        } else if tagged {
+            (format!("$ctor({name})."), "fields")
         } else {
             (format!(".{name}."), "fields")
         };
@@ -2471,6 +2490,17 @@ impl<'a> Decoder<'a> {
                     decoder.pairs(&pairs, &InputType::untyped(), &InputType::untyped())
                 })
             }
+            "$ctor" => {
+                let Json::Object(object) = body else {
+                    return Err(self.refuse("`$ctor` takes {\"path::C\": fields}"));
+                };
+                let mut entries = object.iter();
+                let (Some((name, fields)), None) = (entries.next(), entries.next()) else {
+                    return Err(self.refuse("`$ctor` takes {\"path::C\": fields}, one constructor"));
+                };
+                let decl = self.constructor(name, ty)?;
+                self.construct(&decl, name, fields, true)
+            }
             "$call" => {
                 let Json::Object(object) = body else {
                     return Err(self.refuse("`$call` takes {\"path::f\": arguments}"));
@@ -2485,10 +2515,10 @@ impl<'a> Decoder<'a> {
                     )),
                     error => self.refuse(&format!("`$call`: {error}")),
                 })?;
-                self.construct(&decl, name, arguments)
+                self.construct(&decl, name, arguments, false)
             }
             other => Err(self.refuse(&format!(
-                "unknown tag `{other}`; the tags are $text, $text-file, $file, $hex, $data-file, $string, $int, $float, $token, $list, $set, $seq, $map and $call{}",
+                "unknown tag `{other}`; the tags are $text, $text-file, $file, $hex, $data-file, $string, $int, $float, $token, $list, $set, $seq, $map, $ctor and $call{}",
                 self.dollar_key_hint(ty)
             ))),
         }

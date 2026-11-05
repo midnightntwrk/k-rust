@@ -1870,6 +1870,20 @@ pub(crate) fn token_sort_index(
     (index, sort)
 }
 
+/// [`index_of`], where the constructors' result sort is `t::T` (KORE `SortT`) and `Map` (KORE
+/// `SortMap`) is at most it, by the definition's subsort axioms.
+#[cfg(test)]
+pub(crate) fn map_sort_index(text: &str, ctors: &[(&str, &str, &[&str])]) -> (ValueIndex, SortRef) {
+    let sort = SortRef::Declared(Decl("t::T".into()));
+    let mut index = index_at(text, ctors, Some(&sort));
+    index.kore_by_sort.insert(sort.clone(), "SortT".to_owned());
+    index.kore_by_sort.insert(
+        SortRef::Builtin(krs_ir::BuiltinSort::Map),
+        "SortMap".to_owned(),
+    );
+    (index, sort)
+}
+
 /// The index of `text` with the KRS declarations `ctors`, each `(symbol, name, fields)` declared
 /// at `t::S::<name>` with the result sort `result`.
 #[cfg(test)]
@@ -1879,6 +1893,7 @@ fn index_at(text: &str, ctors: &[(&str, &str, &[&str])], result: Option<&SortRef
     let mut backend = Backend::new(text, "MAIN", BackendOptions::default()).unwrap();
     let definition = backend.select_definition(None).unwrap();
     let symbols = BackendSymbols::scan(&definition);
+    let sort_graph = definition.sort_graph().clone();
     let mut ctors_by_symbol = HashMap::new();
     let mut ctors_by_decl = HashMap::new();
     for (symbol, name, fields) in ctors {
@@ -1901,7 +1916,7 @@ fn index_at(text: &str, ctors: &[(&str, &str, &[&str])], result: Option<&SortRef
         kore_by_sort: HashMap::new(),
         sorts_by_symbol: HashMap::new(),
         token_sorts: BTreeSet::new(),
-        sort_graph: SortGraph::default(),
+        sort_graph,
         sort_hooks: HashMap::new(),
         kast_sort_hooks: HashMap::new(),
         known_symbols: symbols.known,

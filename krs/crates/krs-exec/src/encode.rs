@@ -47,9 +47,6 @@ pub enum EncodeErrorKind {
     Sort,
     /// A domain value of a sort that is no token sort.
     NoTokenSort,
-    /// A constructor at a declared sort that `Map` is also at most, where its object form reads
-    /// as a map too.
-    MapReading,
     /// A constructor or sort that the definition does not declare, or that no name selects.
     Unnamed,
 }
@@ -85,9 +82,8 @@ impl std::error::Error for EncodeError {}
 ///
 /// Returns [`EncodeError`] for a value with no document there: an `Opaque` part, the
 /// application of a parametric constructor, a part whose sort is not at most its position's, a
-/// domain value of a sort that is no token sort, and a constructor whose object form also reads
-/// as a `Map` at its position; a part of an inherent kind only where the value has no part of
-/// another kind ([`EncodeError`]).
+/// domain value of a sort that is no token sort, and a constructor or sort no name selects; a
+/// part of an inherent kind only where the value has no part of another kind ([`EncodeError`]).
 pub fn encode(values: &ValueIndex, value: &Value, ty: &InputType) -> Result<Json, EncodeError> {
     let mut encoder = Encoder {
         values,
@@ -589,17 +585,15 @@ impl Encoder<'_> {
         {
             return Ok(Json::String(name));
         }
-        if !function
+        // The constructor form where it reads as the constructor alone; at a declared sort that
+        // `Map` is at most, where an object is a map too, the tagged form `$ctor`.
+        let tag_ctor = !function
             && !ty.is_untyped()
-            && !inputs::sole_reading(self.values, &tagged(&name, Json::Array(Vec::new())), ty)
-        {
-            return Err(self.refuse(EncodeErrorKind::MapReading, format!(
-                "the constructor `{decl}` at {}, where its object form also reads as a Map and a constructor has no tagged form,",
-                ValueIndex::sort_name(&ty.sort)
-            )));
-        }
+            && !inputs::sole_reading(self.values, &tagged(&name, Json::Array(Vec::new())), ty);
         let prefix = if function {
             format!("$call({name}).")
+        } else if tag_ctor {
+            format!("$ctor({name}).")
         } else {
             format!(".{name}.")
         };
@@ -633,6 +627,8 @@ impl Encoder<'_> {
         let form = tagged(&name, body);
         Ok(if function {
             tagged("$call", form)
+        } else if tag_ctor {
+            tagged("$ctor", form)
         } else {
             form
         })
@@ -651,7 +647,7 @@ fn shortest_suffix(path: &str, selects: impl Fn(&str) -> bool) -> Option<String>
 mod tests {
     use super::{canonical_text, decode, encode, float_literal};
     use crate::inputs::InputType;
-    use crate::values::{Float, Value, token_sort_index};
+    use crate::values::{Float, Value, map_sort_index, token_sort_index};
     use serde_json::json;
 
     /// A sort `T` with one nullary constructor, `named`.
@@ -684,6 +680,95 @@ mod tests {
                 "{value:?}"
             );
             assert_eq!(decode(&index, &document, &ty), Ok(value), "{document}");
+        }
+    }
+
+    /// A sort `T` that `Map` is at most, with a nullary constructor `named` and a binary one
+    /// `pair`.
+    const MAP_SORT: &str = r"[]
+        module MAIN
+            sort SortT{} []
+            sort SortMap{} []
+            sort SortInt{} []
+            symbol inj{From, To}(From) : To [sortInjection{}()]
+            symbol named{}() : SortT{} [constructor{}(), functional{}(), injective{}()]
+            symbol pair{}(SortInt{}, SortInt{}) : SortT{} [constructor{}(), functional{}(), injective{}()]
+            axiom{R} \exists{R}(V:SortT{}, \equals{SortT{}, R}(V:SortT{}, inj{SortMap{}, SortT{}}(From:SortMap{}))) [subsort{SortMap{}, SortT{}}()]
+        endmodule []";
+
+    #[test]
+    fn a_constructor_whose_object_form_also_reads_as_a_map_is_written_in_its_tagged_form() {
+        // At `T`, which `Map` is at most, an object is also a map's object shorthand, so the
+        // constructor form reads two ways and the tagged form `$ctor` states the constructor.
+        let (index, sort) = map_sort_index(
+            MAP_SORT,
+            &[
+                ("named", "Named", &[][..]),
+                ("pair", "Pair", &["a", "b"][..]),
+            ],
+        );
+        let ty = InputType::of(sort);
+        let named = index.ctor("Named", []).unwrap();
+        let pair = index
+            .ctor(
+                "Pair",
+                [("a", Value::Int(1.into())), ("b", Value::Int(2.into()))],
+            )
+            .unwrap();
+        let ambiguous = decode(&index, &json!({"Pair": {"a": 1, "b": 2}}), &ty).unwrap_err();
+        assert!(
+            ambiguous
+                .message
+                .contains(r#"{"$ctor": {"t::S::Pair": ..}}"#),
+            "{ambiguous}"
+        );
+        for (value, document) in [
+            // The bare name has one reading at `T`: neither `String` nor a token sort is at
+            // most it.
+            (named.clone(), json!("Named")),
+            (pair.clone(), json!({"$ctor": {"Pair": {"a": 1, "b": 2}}})),
+        ] {
+            assert_eq!(
+                encode(&index, &value, &ty),
+                Ok(document.clone()),
+                "{value:?}"
+            );
+            assert_eq!(decode(&index, &document, &ty), Ok(value), "{document}");
+        }
+        // `$ctor` means the same at every position; untyped, the constructor form is written.
+        let untyped = InputType::untyped();
+        assert_eq!(
+            encode(&index, &pair, &untyped),
+            Ok(json!({"Pair": {"a": 1, "b": 2}}))
+        );
+        for document in [
+            json!({"$ctor": {"Pair": [1, 2]}}),
+            json!({"$ctor": {"t::S::Pair": {"b": 2, "a": 1}}}),
+        ] {
+            assert_eq!(decode(&index, &document, &untyped), Ok(pair.clone()));
+            assert_eq!(decode(&index, &document, &ty), Ok(pair.clone()));
+        }
+        assert_eq!(
+            decode(&index, &json!({"$ctor": {"Named": []}}), &ty),
+            Ok(named)
+        );
+        // A field's position names the tagged form it lies in.
+        let field =
+            decode(&index, &json!({"$ctor": {"Pair": {"a": "x", "b": 2}}}), &ty).unwrap_err();
+        assert_eq!(field.position, "$ctor(Pair).a", "{field}");
+        for (document, message) in [
+            (
+                json!({"$ctor": "Pair"}),
+                r#"`$ctor` takes {"path::C": fields}"#,
+            ),
+            (
+                json!({"$ctor": {"Pair": [1, 2], "Named": []}}),
+                "one constructor",
+            ),
+            (json!({"$ctor": {"Other": []}}), "Other"),
+        ] {
+            let refusal = decode(&index, &document, &ty).unwrap_err();
+            assert!(refusal.message.contains(message), "{document}: {refusal}");
         }
     }
 

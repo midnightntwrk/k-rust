@@ -302,6 +302,7 @@ form, `[["$x", 1]]`, and the refusal of the object says so.
 | `{"$token": {"sort": "Id", "text": "x"}}` | a token of the named token sort | anywhere |
 | `{"$list": [..]}`, `{"$set": [..]}`, `{"$seq": [..]}` | a `List`, a `Set`, a K sequence, of untyped elements | anywhere |
 | `{"$map": [[key, value], ..]}` | a `Map` of untyped keys and values | anywhere |
+| `{"$ctor": {"path::C": fields}}` | the constructor `C` applied to its fields, as the constructor form `{"path::C": fields}` reads it | anywhere |
 | `{"$call": {"path::f": fields}}` | the application of the function `f` to its arguments | anywhere |
 
 A token's text, as `$token` or as a shorthand, is not checked against its sort's lexical
@@ -324,6 +325,12 @@ among the constructors whose result sort is at most the position's sort (among a
 constructors at an untyped position); a name that selects several is refused naming them.
 Each field is decoded at its declared sort, with no element types: a field declared `List` has
 untyped elements.
+
+At a declared sort that `Map` is at most (`KItem`, a field declared `KItem`), an object is also
+a map's object shorthand, so `{"Name": fields}` reads two ways there and is refused. The tagged
+form `{"$ctor": {"Name": fields}}` states the constructor reading at every position, its name
+resolved and its fields read as the constructor form's are; a function under `$ctor` is
+refused, as one in the constructor form is.
 
 A function is applied with `$call`, its arguments written as a constructor's fields and
 resolved among the function productions whose result sort is at most the position's sort. A
@@ -438,6 +445,9 @@ so no canonical document is one the decoder refuses.
   each field's document at its declared sort with no element types.
   A nullary constructor is the bare string `"Name"` at a declared sort where that string
   has no other reading: one that neither `String` nor any token sort is at most.
+  Where `{"Name": fields}` has another reading at the position
+  (at a declared sort that `Map` is at most, where an object is a map too),
+  `{"$ctor": {"Name": fields}}`, with the same name and fields.
   `Name` is the shortest `::`-aligned suffix of the declaration's path
   that selects exactly this declaration among the constructors the decoder resolves at the position
   (among all constructors at an untyped position).
@@ -448,9 +458,7 @@ so no canonical document is one the decoder refuses.
   an `Opaque` part (a variable, an unevaluated application,
   a freezer or another constructor without a KRS declaration, a matching-logic connective);
   the application of a parametric constructor, which no form of this encoding writes;
-  a value whose sort is not at most the position's;
-  and a constructor at a declared sort that `Map` is also at most,
-  where its object form reads as a map too and a constructor has no tagged form.
+  and a value whose sort is not at most the position's.
   The refusal (`EncodeError`) names the part's position,
   in the notation of `InputError`'s positions
   (`.Run.log$list[2]`; an element of a set and a key of a map by its index in the value's order),

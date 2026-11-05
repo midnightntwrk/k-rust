@@ -750,7 +750,7 @@ fn typed_shorthands_need_their_type() {
         // A key that starts with `$` makes the object a tagged form; the map is written in pairs.
         assert_eq!(
             refused("regs", json!({"$x": 1})),
-            "input `regs` (Map<Reg, Int>): unknown tag `$x`; the tags are $text, $text-file, $file, $hex, $data-file, $string, $int, $float, $token, $list, $set, $seq, $map and $call; a map with a key that starts with `$` is written as an array of [key, value] pairs"
+            "input `regs` (Map<Reg, Int>): unknown tag `$x`; the tags are $text, $text-file, $file, $hex, $data-file, $string, $int, $float, $token, $list, $set, $seq, $map, $ctor and $call; a map with a key that starts with `$` is written as an array of [key, value] pairs"
         );
         assert_eq!(
             refused("regs", json!({"$x": 1, "A": 2})),
@@ -965,7 +965,7 @@ fn a_declared_sort_reads_the_builtin_its_json_type_names() {
         // A bare string that names a nullary constructor is also a String.
         assert_eq!(
             refusal(semantics, "val", &json!("Nothing")),
-            "input `val` (Val): the string \"Nothing\" reads several ways at Val: as a `String` ({\"$string\": ..}), or the constructor `krs_exec_values_fixture::ValSyntax::Nothing` ({\"krs_exec_values_fixture::ValSyntax::Nothing\": ..}); write the form of the one meant"
+            "input `val` (Val): the string \"Nothing\" reads several ways at Val: as a `String` ({\"$string\": ..}), or the constructor `krs_exec_values_fixture::ValSyntax::Nothing` ({\"$ctor\": {\"krs_exec_values_fixture::ValSyntax::Nothing\": ..}}); write the form of the one meant"
         );
         // `Real`'s only builtin subsort is Float: every number is a Float there.
         let real = |x: f64| {
@@ -1495,11 +1495,23 @@ fn the_canonical_document_follows_the_position() {
             document_of(semantics, &call, &declared(semantics, "Bus")),
             json!({"$call": {"ReadBack": {"addr": 3}}})
         );
+        // `$ctor` states a constructor, as the constructor form does: a function there is
+        // refused, naming `$call`.
+        assert_eq!(
+            krs_exec::decode(
+                &index,
+                &json!({"$ctor": {"ReadBack": {"addr": 3}}}),
+                &declared(semantics, "Bus")
+            )
+            .unwrap_err()
+            .message,
+            r#"`krs_exec_values_fixture::ReadBack` is a function; write {"$call": {"ReadBack": ..}} to apply it"#
+        );
     });
 }
 
 #[test]
-fn an_object_with_a_second_reading_at_the_position_is_not_written() {
+fn an_object_with_a_second_reading_at_the_position_is_written_in_its_tagged_form() {
     with_semantics(|semantics| {
         let index = semantics.values().clone();
         // An object key that starts with `$` would read as a tagged form: such a map is
@@ -1527,8 +1539,8 @@ fn an_object_with_a_second_reading_at_the_position_is_not_written() {
             ),
             json!({"y": 2})
         );
-        // At a declared sort that `Map` is at most, a map is tagged and a constructor with
-        // fields has no document: its object form would read as a map too.
+        // At a declared sort that `Map` is at most, a map is tagged, and so is a constructor
+        // with fields, whose object form would read as a map too.
         let store = declared(semantics, "Store");
         assert_eq!(
             document_of(semantics, &Value::map([(1.into(), 2.into())]), &store),
@@ -1537,11 +1549,15 @@ fn an_object_with_a_second_reading_at_the_position_is_not_written() {
         let stored = index
             .ctor("StoreSyntax::Stored", [("n", 1.into())])
             .unwrap();
-        let error = semantics.encode(&stored, &store).unwrap_err();
-        assert_eq!(error.kind, EncodeErrorKind::MapReading);
         assert_eq!(
-            error.to_string(),
-            "the constructor `krs_exec_values_fixture::StoreSyntax::Stored` at Store, where its object form also reads as a Map and a constructor has no tagged form, has no document in the typed encoding"
+            document_of(semantics, &stored, &store),
+            json!({"$ctor": {"Stored": {"n": 1}}})
+        );
+        assert!(
+            krs_exec::decode(&index, &json!({"Stored": {"n": 1}}), &store)
+                .unwrap_err()
+                .message
+                .contains(r#"the constructor `krs_exec_values_fixture::StoreSyntax::Stored` ({"$ctor": {"krs_exec_values_fixture::StoreSyntax::Stored": ..}})"#)
         );
     });
 }
