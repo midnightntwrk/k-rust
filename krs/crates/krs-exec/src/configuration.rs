@@ -558,6 +558,27 @@ impl Configuration {
         Ok(self.assembler.finish()?)
     }
 
+    /// The KORE of a ground KAST term over the definition's labels, with the injections its
+    /// subterms' positions need, typed at its own sort: the term a backend request takes for a
+    /// value built without the parser ([`crate::Semantics::evaluate`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns the injector's or the converter's error for a term that is no well-sorted term of
+    /// the definition.
+    pub(crate) fn typed_kore(&self, term: &k_rust::kast::Term) -> Result<Pattern, Box<dyn Error>> {
+        let resolved = self.grammar.program.resolved();
+        let injector = SortInjector::new(resolved, &self.main_module)?;
+        let sort = injector.term_sort(term, None)?;
+        let term = injector.inject(term, &sort)?;
+        Ok(term_to_kore_from_resolved_with_token_module(
+            resolved,
+            &self.main_module,
+            &self.main_module,
+            &term,
+        )?)
+    }
+
     /// The term `printed`, a token's printed text, reads as at a position of sort `position`:
     /// parsed there alone with the syntax module's grammar, the one a program is read with
     /// ([`Self::read_token_in`]).

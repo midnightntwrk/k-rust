@@ -4,7 +4,8 @@
 //! collection of repeated cells. Every configuration variable is copied into its own cell, so a
 //! run of depth 0 ends with the values it was given; `toss` steps to `done(0)` or `done(1)`, so a
 //! search has two final states; `finish(v)` steps to `done(v)` by the rule `finish`, at which a
-//! run can stop; and `OnlyZero` is a partial function with no value but at 0.
+//! run can stop; `OnlyZero` is a partial function with no value but at 0; and `EventCount`,
+//! `RegisterOrder`, `Doubled`, `Positive` and `Sum` are functions the comparison's views name.
 
 use k::KResult;
 use k::Term;
@@ -69,6 +70,37 @@ fn finish(k::term![Cmd::Finish { value }]: Term<Stmt>) -> Term<Stmt> {
 #[k::requires(n.eq::<Int>(0))]
 pub fn OnlyZero(n: Term<Int>) -> Term<Int> {
     1
+}
+
+/// The number of events in a log: a total view of the `bus` cell.
+#[k::function(total, internal)]
+pub fn EventCount(log: Term<List>) -> Term<Int> {
+    log.len()
+}
+
+/// A register file's registers in the order `keys_list` lists them, which the definition leaves
+/// to the implementation for two or more keys.
+#[k::function(total, internal)]
+pub fn RegisterOrder(regs: Term<Map>) -> Term<List> {
+    regs.keys_list()
+}
+
+/// Twice an `Int`: a function whose parameter admits no `List` cell.
+#[k::function(total, internal)]
+pub fn Doubled(n: Term<Int>) -> Term<Int> {
+    n + n
+}
+
+/// Whether an `Int` is positive, as `1` or `0`: a view that identifies different values.
+#[k::function(total, internal)]
+pub fn Positive(n: Term<Int>) -> Term<Int> {
+    if n > 0 { 1 } else { 0 }
+}
+
+/// The sum of two `Int`s: a function of two parameters.
+#[k::function(total, internal)]
+pub fn Sum(m: Term<Int>, n: Term<Int>) -> Term<Int> {
+    m + n
 }
 
 #[k::cell]

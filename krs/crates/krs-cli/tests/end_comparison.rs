@@ -8,6 +8,7 @@
 //! of depth 0 ends with the values it was given; `toss` steps to `done(0)` or `done(1)`, and
 //! `finish(v)` to `done(v)` by the rule `finish`.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use std::sync::OnceLock;
@@ -25,49 +26,112 @@ use serde_json::{Value as Json, json};
 
 const FIXTURE: &str = include_str!("fixtures/ends/src/lib.rs");
 const PACKAGE: &str = "krs-exec-ends-fixture";
+const OBSERVER: &str = include_str!("fixtures/ends-observe/src/lib.rs");
+const OBSERVER_PACKAGE: &str = "krs-exec-ends-observe-fixture";
+
+/// The Cargo manifest of a fixture package named `name`, with `dependencies` and a `[workspace]`
+/// table when it stands alone.
+fn manifest(name: &str, namespace: &str, dependencies: &str, alone: bool) -> String {
+    let krs = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../krs")
+        .canonicalize()
+        .unwrap();
+    let krs_literal = serde_json::to_string(krs.to_str().unwrap()).unwrap();
+    format!(
+        "[package]\nname = \"{name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nk = {{ package = \"krs\", path = {krs_literal} }}\n{dependencies}\n[package.metadata.krs]\nk-namespace = \"{namespace}\"\n\n[package.metadata.krs.definitions.main]\n{}",
+        if alone { "\n[workspace]\n" } else { "" }
+    )
+}
+
+/// Write a package with `source` and `manifest` in `directory` below `root`; its manifest's path.
+fn write_package(root: &Path, directory: &str, source: &str, manifest: &str) -> std::path::PathBuf {
+    let project = root.join(directory);
+    fs::create_dir_all(project.join("src")).unwrap();
+    fs::write(project.join("src/lib.rs"), source).unwrap();
+    fs::write(project.join("Cargo.toml"), manifest).unwrap();
+    project.join("Cargo.toml")
+}
+
+/// The Definition IR `krs emit-k --ir` builds of `package`'s `main` definition, with `extra`
+/// arguments, and its compiled stage.
+fn emit(manifest: &Path, package: &str, extra: &[&str]) -> (DefinitionIr, CompiledStage) {
+    let target = shared_fixture_target();
+    let emitted = manifest
+        .parent()
+        .and_then(Path::parent)
+        .unwrap()
+        .join(format!("emitted-{package}"));
+    let mut process = krs_command!();
+    fixture_build_env(&mut process, target.path());
+    let output = process
+        .current_dir(manifest.parent().unwrap())
+        .args(["emit-k", "--ir", "--manifest-path"])
+        .arg(manifest)
+        .args(["--package", package, "--definition", "main"])
+        .args(extra)
+        .arg("--output")
+        .arg(&emitted)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let definition: DefinitionIr =
+        serde_json::from_slice(&fs::read(emitted.join("definition-ir.json")).unwrap()).unwrap();
+    let stage = CompiledStage::compile(&definition, &mut Timings::disabled()).unwrap();
+    (definition, stage)
+}
 
 /// The fixture's Definition IR and compiled stage, built once per test process.
 fn compiled() -> &'static (DefinitionIr, CompiledStage) {
     static COMPILED: OnceLock<(DefinitionIr, CompiledStage)> = OnceLock::new();
     COMPILED.get_or_init(|| {
-        let target = shared_fixture_target();
         let temporary = temp_dir();
-        let project = temporary.path().join("language");
-        fs::create_dir_all(project.join("src")).unwrap();
-        fs::write(project.join("src/lib.rs"), FIXTURE).unwrap();
-        let krs = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../krs")
-            .canonicalize()
-            .unwrap();
-        let krs_literal = serde_json::to_string(krs.to_str().unwrap()).unwrap();
-        fs::write(
-            project.join("Cargo.toml"),
-            format!(
-                "[package]\nname = \"{PACKAGE}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nk = {{ package = \"krs\", path = {krs_literal} }}\n\n[package.metadata.krs]\nk-namespace = \"ORG-KRS-EXEC-ENDS\"\n\n[package.metadata.krs.definitions.main]\n\n[workspace]\n"
+        let manifest = write_package(
+            temporary.path(),
+            "language",
+            FIXTURE,
+            &manifest(PACKAGE, "ORG-KRS-EXEC-ENDS", "", true),
+        );
+        emit(&manifest, PACKAGE, &[])
+    })
+}
+
+/// The observer fixture's Definition IR and compiled stage: the package `ends-observe`, which
+/// depends on the fixture, composed with the fixture's definition; built once per test process.
+fn observer_compiled() -> &'static (DefinitionIr, CompiledStage) {
+    static COMPILED: OnceLock<(DefinitionIr, CompiledStage)> = OnceLock::new();
+    COMPILED.get_or_init(|| {
+        let temporary = temp_dir();
+        write_package(
+            temporary.path(),
+            "language",
+            FIXTURE,
+            &manifest(PACKAGE, "ORG-KRS-EXEC-ENDS", "", false),
+        );
+        let manifest = write_package(
+            temporary.path(),
+            "observe",
+            OBSERVER,
+            &manifest(
+                OBSERVER_PACKAGE,
+                "ORG-KRS-EXEC-ENDS-OBSERVE",
+                &format!("ends = {{ package = \"{PACKAGE}\", path = \"../language\" }}\n"),
+                false,
             ),
+        );
+        fs::write(
+            temporary.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"language\", \"observe\"]\nresolver = \"3\"\n",
         )
         .unwrap();
-        let emitted = temporary.path().join("emitted");
-        let mut process = krs_command!();
-        fixture_build_env(&mut process, target.path());
-        let output = process
-            .current_dir(&project)
-            .args(["emit-k", "--ir", "--manifest-path"])
-            .arg(project.join("Cargo.toml"))
-            .args(["--package", PACKAGE, "--definition", "main", "--output"])
-            .arg(&emitted)
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let definition: DefinitionIr =
-            serde_json::from_slice(&fs::read(emitted.join("definition-ir.json")).unwrap())
-                .unwrap();
-        let stage = CompiledStage::compile(&definition, &mut Timings::disabled()).unwrap();
-        (definition, stage)
+        emit(
+            &manifest,
+            OBSERVER_PACKAGE,
+            &["--dependency", &format!("{PACKAGE}:main")],
+        )
     })
 }
 
@@ -338,6 +402,7 @@ fn an_end_document_omits_unobservable_cells_and_states_every_compared_one() {
         // Narrowed to `pc`, an end that states `pc` alone is enough.
         let narrowed = Comparison {
             compare: Some(vec!["pc".to_owned()]),
+            ..Comparison::default()
         };
         let pc = Ends::one(
             semantics
@@ -382,6 +447,7 @@ fn unknown_and_unobservable_cells_are_refused() {
             semantics.compare_ends(
                 &Comparison {
                     compare: Some(paths.iter().map(|path| (*path).to_owned()).collect()),
+                    ..Comparison::default()
                 },
                 side("left", &ends),
                 side("right", &ends),
@@ -409,6 +475,7 @@ fn unknown_and_unobservable_cells_are_refused() {
                 .compare_ends(
                     &Comparison {
                         compare: Some(vec!["cpu".to_owned()]),
+                        ..Comparison::default()
                     },
                     side("left", &ends),
                     side("right", &other),
@@ -533,6 +600,7 @@ fn the_difference_document_has_the_format_krs_difference_1() {
             semantics,
             &Comparison {
                 compare: Some(vec!["f".to_owned(), "pc".to_owned()]),
+                ..Comparison::default()
             },
             &expected,
             &ends,
@@ -630,6 +698,7 @@ fn sets_of_ends_meet_an_expectation_at_every_end_and_differ_by_the_pair_rule() {
         assert_eq!(difference.right.ends, 2);
         let pc = Comparison {
             compare: Some(vec!["pc".to_owned()]),
+            ..Comparison::default()
         };
         assert_eq!(
             expectation(semantics, &pc, &heads, &search),
@@ -1161,5 +1230,444 @@ fn a_value_with_no_document_is_shown_as_k_text_naming_the_part_inside_it() {
         assert_eq!(value["right"]["value"]["rendering"], json!("k"));
         assert_eq!(value["right"]["value"]["opaque"], json!(".count"));
         assert!(value["right"]["value"].get("document").is_none());
+    });
+}
+
+/// Run `test` on the fixture's semantics and its observer's, on one thread with the stack every
+/// `krs-exec` operation needs.
+fn with_observer(test: impl FnOnce(&mut Semantics, &mut Semantics) + Send) {
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn_scoped(scope, || {
+                let load = |(definition, stage): &(DefinitionIr, CompiledStage)| {
+                    Semantics::from_stage(definition, stage.clone(), None, &mut Timings::disabled())
+                        .unwrap()
+                };
+                let mut subject = load(compiled());
+                let mut observer = load(observer_compiled());
+                test(&mut subject, &mut observer);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    });
+}
+
+/// The comparison of every observable cell under the views `named` (function by cell), resolved
+/// and evaluated in the fixture's own definition at the ends of `sides`.
+fn viewed(
+    semantics: &mut Semantics,
+    named: &[(&str, &str)],
+    sides: &[(&str, &Ends)],
+) -> Result<Comparison, EndError> {
+    let named: BTreeMap<String, String> = named
+        .iter()
+        .map(|(cell, function)| ((*cell).to_owned(), (*function).to_owned()))
+        .collect();
+    let mut views = semantics.cell_views(semantics, &named)?;
+    let sides = sides
+        .iter()
+        .map(|(name, ends)| side(name, ends))
+        .collect::<Vec<_>>();
+    views.evaluate(semantics, &sides)?;
+    Ok(Comparison {
+        views,
+        ..Comparison::default()
+    })
+}
+
+/// The reference end with its `bus` replaced by `bus` (event documents).
+fn with_bus(semantics: &Semantics, ends: &Ends, bus: Json) -> Ends {
+    edited(semantics, ends, |document| document["cells"]["bus"] = bus)
+}
+
+/// A view's refusal message, the error's display.
+fn refusal(result: Result<Comparison, EndError>) -> String {
+    match result {
+        Err(error @ EndError::View { .. }) => error.to_string(),
+        other => panic!("expected a view's refusal, got {other:?}"),
+    }
+}
+
+#[test]
+fn evaluate_computes_a_function_of_the_definition_at_values() {
+    with_semantics(|semantics| {
+        let read = |addr: i64| ctor(semantics, "CpuEvent::Read", vec![("addr", addr.into())]);
+        let log = Value::list([read(1), read(2)]);
+        assert_eq!(
+            semantics
+                .evaluate("EventCount", vec![("log", log)])
+                .unwrap(),
+            2.into()
+        );
+        assert_eq!(
+            semantics
+                .evaluate("Sum", vec![("m", 3.into()), ("n", 4.into())])
+                .unwrap(),
+            7.into()
+        );
+        // Outside a partial function's domain, and at a value the definition leaves to the
+        // implementation, there is no value.
+        let none = semantics
+            .evaluate("OnlyZero", vec![("n", 5.into())])
+            .unwrap_err();
+        assert!(
+            matches!(none, krs_exec::EvaluationError::NoValue(_)),
+            "{none}"
+        );
+        let a = ctor(semantics, "Register::A", Vec::new());
+        let b = ctor(semantics, "Register::B", Vec::new());
+        let chosen = semantics
+            .evaluate(
+                "RegisterOrder",
+                vec![("regs", Value::map([(a, 1.into()), (b, 2.into())]))],
+            )
+            .unwrap_err();
+        assert!(
+            matches!(chosen, krs_exec::EvaluationError::NoValue(_)),
+            "{chosen}"
+        );
+        // A constructor is no function.
+        let wrong = semantics
+            .evaluate("CpuEvent::Read", vec![("addr", 1.into())])
+            .unwrap_err();
+        assert!(
+            matches!(wrong, krs_exec::EvaluationError::Application(_)),
+            "{wrong}"
+        );
+    });
+}
+
+#[test]
+fn a_viewed_cell_is_compared_on_its_view_and_shown_as_the_viewed_value() {
+    with_semantics(|semantics| {
+        let ends = reference(semantics);
+        let write = |addr: i64| json!({"Write": {"addr": addr, "value": 0}});
+        // The same number of events, other events: equal under the view, not without it.
+        let same_count = with_bus(semantics, &ends, json!([write(1), write(2), write(3)]));
+        let comparison = viewed(
+            semantics,
+            &[("bus", "EventCount")],
+            &[("expected", &same_count), ("actual", &ends)],
+        )
+        .unwrap();
+        assert_eq!(
+            expectation(semantics, &comparison, &same_count, &ends),
+            Compared::Equal
+        );
+        let raw = differs(expectation(
+            semantics,
+            &Comparison::default(),
+            &same_count,
+            &ends,
+        ));
+        assert_eq!(raw.path.as_deref(), Some("bus[0]"));
+        // Fewer events: the difference is at the viewed cell, between the viewed values.
+        let fewer = with_bus(semantics, &ends, json!([write(1), write(2)]));
+        let comparison = viewed(
+            semantics,
+            &[("bus", "EventCount")],
+            &[("left", &fewer), ("right", &ends)],
+        )
+        .unwrap();
+        let difference = differs(
+            semantics
+                .compare_ends(&comparison, side("left", &fewer), side("right", &ends))
+                .unwrap(),
+        );
+        assert_eq!(difference.at, DifferenceAt::Cell);
+        assert_eq!(difference.path.as_deref(), Some("bus"));
+        assert!(difference.segments.is_empty());
+        assert_eq!(shown(&difference.left), json!(2));
+        assert_eq!(shown(&difference.right), json!(3));
+        assert_eq!(
+            serde_json::to_value(&difference).unwrap()["views"],
+            json!({"bus": "EventCount"})
+        );
+    });
+}
+
+#[test]
+fn a_view_without_a_value_at_an_end_refuses_the_comparison() {
+    with_semantics(|semantics| {
+        let ends = reference(semantics);
+        // `pc` is 256, outside `OnlyZero`'s domain.
+        let partial = refusal(viewed(
+            semantics,
+            &[("pc", "OnlyZero")],
+            &[("expected", &ends), ("actual", &ends)],
+        ));
+        assert!(
+            partial.starts_with(
+                "the view `OnlyZero` of the cell `pc`: it has no value at the expected end's `pc`: the definition gives it no value"
+            ),
+            "{partial}"
+        );
+        // `regs` has two keys, whose `keys_list` order the definition leaves to the
+        // implementation: a view never rests on k-rust's choice.
+        let chosen = refusal(viewed(
+            semantics,
+            &[("regs", "RegisterOrder")],
+            &[("expected", &ends), ("actual", &ends)],
+        ));
+        assert!(
+            chosen.starts_with(
+                "the view `RegisterOrder` of the cell `regs`: it has no value at the expected end's `regs`: the definition gives it no value: its result holds an unevaluated application of the builtin function `MAP.keys_list`"
+            ),
+            "{chosen}"
+        );
+        // With a value at `pc` = 0 the same view applies.
+        let zero = edited(semantics, &ends, |document| {
+            document["cells"]["pc"] = json!(0);
+        });
+        let comparison = viewed(
+            semantics,
+            &[("pc", "OnlyZero")],
+            &[("expected", &zero), ("actual", &zero)],
+        )
+        .unwrap();
+        assert_eq!(
+            expectation(semantics, &comparison, &zero, &zero),
+            Compared::Equal
+        );
+    });
+}
+
+#[test]
+fn a_view_must_be_a_one_parameter_function_admitting_an_observable_compared_leaf_cell() {
+    with_semantics(|semantics| {
+        let ends = reference(semantics);
+        let both = [("expected", &ends), ("actual", &ends)];
+        let sort = refusal(viewed(semantics, &[("bus", "Doubled")], &both));
+        assert!(
+            sort.contains("is of sort Int, which does not admit the cell's sort List"),
+            "{sort}"
+        );
+        let arity = refusal(viewed(semantics, &[("pc", "Sum")], &both));
+        assert!(
+            arity.contains("takes 2 parameters; a view takes exactly one"),
+            "{arity}"
+        );
+        let group = refusal(viewed(semantics, &[("cpu", "EventCount")], &both));
+        assert!(group.contains("the cell is a group cell"), "{group}");
+        let constructor = refusal(viewed(semantics, &[("pc", "CpuEvent::Read")], &both));
+        assert!(
+            constructor.contains("CpuEvent::Read` is a constructor"),
+            "{constructor}"
+        );
+        assert!(matches!(
+            viewed(semantics, &[("z", "Doubled")], &both),
+            Err(EndError::Unobservable { .. })
+        ));
+        // A view of a cell the comparison does not compare would change nothing it decides.
+        let mut narrowed = viewed(semantics, &[("bus", "EventCount")], &both).unwrap();
+        narrowed.compare = Some(vec!["pc".to_owned()]);
+        let outside = semantics
+            .check_expectation(&narrowed, side("expected", &ends), side("actual", &ends))
+            .unwrap_err();
+        assert!(
+            outside
+                .to_string()
+                .contains("the comparison does not compare the cell"),
+            "{outside}"
+        );
+    });
+}
+
+#[test]
+fn a_view_declared_by_an_observer_package_is_evaluated_there_and_shown_at_its_sort() {
+    with_observer(|subject, observer| {
+        // The compared definition does not hold the observer's view.
+        assert!(subject.values().function_decl("LogShape").is_err());
+        let ends = reference(subject);
+        let fewer = with_bus(
+            subject,
+            &ends,
+            json!([{"Read": {"addr": 1}}, {"Read": {"addr": 2}}]),
+        );
+        // The observer's view of its own sort, and one built from the compared definition's
+        // constructors: both carried across by declaration.
+        let read = ctor(subject, "CpuEvent::Read", vec![("addr", 0.into())]);
+        let mut log = match ends.ends[0].value("bus") {
+            Some(Value::List(items)) => items.clone(),
+            other => panic!("a list bus: {other:?}"),
+        };
+        log.push(read);
+        assert_eq!(
+            observer
+                .evaluate(
+                    "WithRead",
+                    vec![("log", ends.ends[0].value("bus").unwrap().clone())]
+                )
+                .unwrap(),
+            Value::List(log)
+        );
+        let named = BTreeMap::from([("bus".to_owned(), "LogShape".to_owned())]);
+        let mut views = subject.cell_views(observer, &named).unwrap();
+        views
+            .evaluate(observer, &[side("left", &fewer), side("right", &ends)])
+            .unwrap();
+        let comparison = Comparison {
+            views,
+            ..Comparison::default()
+        };
+        let difference = differs(
+            subject
+                .compare_ends(&comparison, side("left", &fewer), side("right", &ends))
+                .unwrap(),
+        );
+        // The viewed value is of the observer's sort `Summary`, written by the observer.
+        assert_eq!(difference.path.as_deref(), Some("bus.events"));
+        assert_eq!(shown(&difference.left), json!(2));
+        assert_eq!(shown(&difference.right), json!(3));
+        assert_eq!(
+            subject
+                .compare_ends(&comparison, side("left", &ends), side("right", &ends))
+                .unwrap(),
+            Compared::Equal
+        );
+        // Views resolved in the observer are evaluated there only.
+        let mut views = subject.cell_views(observer, &named).unwrap();
+        assert!(matches!(
+            views.evaluate(subject, &[side("left", &ends)]),
+            Err(EndError::State(_))
+        ));
+    });
+}
+
+/// The comparison of every observable cell under the view `Positive` of `cell`, evaluated at
+/// the ends of `sides`.
+fn positive(semantics: &mut Semantics, cell: &str, sides: &[&Ends]) -> Comparison {
+    let named = ["a", "b", "c", "d"];
+    let sides = sides
+        .iter()
+        .zip(named)
+        .map(|(ends, name)| (name, *ends))
+        .collect::<Vec<_>>();
+    viewed(semantics, &[(cell, "Positive")], &sides).unwrap()
+}
+
+/// `left` against `right` under `comparison`.
+fn compared(semantics: &Semantics, comparison: &Comparison, left: &Ends, right: &Ends) -> Compared {
+    semantics
+        .compare_ends(comparison, side("left", left), side("right", right))
+        .unwrap()
+}
+
+/// The reference end with `edit` applied to its cells' document.
+fn with_cells(semantics: &Semantics, ends: &Ends, edit: impl FnOnce(&mut Json)) -> Ends {
+    edited(semantics, ends, |document| edit(&mut document["cells"]))
+}
+
+#[test]
+fn a_view_applies_in_every_instance_and_a_difference_always_names_the_views() {
+    with_semantics(|semantics| {
+        let ends = reference(semantics);
+        let views =
+            |cell: &str, function: &str| BTreeMap::from([(cell.to_owned(), function.to_owned())]);
+
+        // A `List` collection: each instance viewed at its index.
+        let threads = |semantics: &Semantics, counts: [i64; 2]| {
+            with_cells(semantics, &ends, |cells| {
+                cells["threads"]["thread"] = json!([
+                    {"id": 1, "count": counts[0]},
+                    {"id": 2, "count": counts[1]},
+                ]);
+            })
+        };
+        let (a, b, c) = (
+            threads(semantics, [5, -3]),
+            threads(semantics, [7, -1]),
+            threads(semantics, [5, 4]),
+        );
+        let comparison = positive(semantics, "threads.thread.count", &[&a, &b, &c]);
+        assert_eq!(compared(semantics, &comparison, &a, &b), Compared::Equal);
+        let difference = differs(compared(semantics, &comparison, &a, &c));
+        assert_eq!(difference.path.as_deref(), Some("threads.thread[1].count"));
+        assert_eq!(
+            (shown(&difference.left), shown(&difference.right)),
+            (json!(0), json!(1))
+        );
+        assert_eq!(difference.views, views("threads.thread.count", "Positive"));
+
+        // A set collection: its viewed instances are a set, so two objects that view alike are
+        // one viewed instance, and an instance is named by its viewed content.
+        let objects = |semantics: &Semantics, oids: &[i64]| {
+            with_cells(semantics, &ends, |cells| {
+                cells["objects"]["obj"] = oids.iter().map(|oid| json!({"oid": oid})).collect();
+            })
+        };
+        let (two, one, mixed) = (
+            objects(semantics, &[1, 2]),
+            objects(semantics, &[3]),
+            objects(semantics, &[-1, 2]),
+        );
+        let comparison = positive(semantics, "objects.obj.oid", &[&two, &one, &mixed]);
+        assert_eq!(
+            compared(semantics, &comparison, &two, &one),
+            Compared::Equal
+        );
+        let difference = differs(compared(semantics, &comparison, &mixed, &one));
+        assert_eq!(
+            difference.path.as_deref(),
+            Some(r#"objects.obj{{"oid":0}}"#)
+        );
+        assert_eq!(shown(&difference.left), json!({"oid": 0}));
+        assert_eq!(difference.right.value, None);
+        assert_eq!(difference.views, views("objects.obj.oid", "Positive"));
+
+        // An optional leaf cell: a present value is viewed, an absent one stays absent.
+        let timer = |semantics: &Semantics, value: Json| {
+            with_cells(semantics, &ends, |cells| cells["timer"] = value)
+        };
+        let (five, six, absent) = (
+            timer(semantics, json!([5])),
+            timer(semantics, json!([6])),
+            timer(semantics, json!([])),
+        );
+        let comparison = positive(semantics, "timer", &[&five, &six, &absent]);
+        assert_eq!(
+            compared(semantics, &comparison, &five, &six),
+            Compared::Equal
+        );
+        let difference = differs(compared(semantics, &comparison, &five, &absent));
+        assert_eq!(difference.path.as_deref(), Some("timer"));
+        assert_eq!(
+            (shown(&difference.left), shown(&difference.right)),
+            (json!([1]), json!([]))
+        );
+
+        // A leaf cell of an optional group.
+        let mark = |semantics: &Semantics, seen: i64| {
+            with_cells(semantics, &ends, |cells| {
+                cells["mark"] = json!([{"seen": seen}]);
+            })
+        };
+        let (three, four) = (mark(semantics, 3), mark(semantics, 4));
+        let comparison = positive(semantics, "mark.seen", &[&three, &four]);
+        assert_eq!(
+            compared(semantics, &comparison, &three, &four),
+            Compared::Equal
+        );
+
+        // A difference at a cell no view applies to, and one in the class, name the views too:
+        // the comparison that found them is weaker than the one without views.
+        let other_pc = with_cells(semantics, &ends, |cells| cells["pc"] = json!(1));
+        let stuck = edited(semantics, &ends, |document| {
+            document["halt"] = json!("stuck");
+        });
+        let comparison = viewed(
+            semantics,
+            &[("bus", "EventCount")],
+            &[("a", &ends), ("b", &other_pc), ("c", &stuck)],
+        )
+        .unwrap();
+        let difference = differs(compared(semantics, &comparison, &ends, &other_pc));
+        assert_eq!(difference.path.as_deref(), Some("pc"));
+        assert_eq!(difference.views, views("bus", "EventCount"));
+        let difference = differs(compared(semantics, &comparison, &ends, &stuck));
+        assert_eq!(difference.at, DifferenceAt::Class);
+        assert_eq!(difference.views, views("bus", "EventCount"));
     });
 }

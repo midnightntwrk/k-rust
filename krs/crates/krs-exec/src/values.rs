@@ -629,6 +629,8 @@ struct BackendSymbols {
     /// not `total`, with no hook, `smt-hook` or `smtlib`, and evaluated by the definition's
     /// equations, each of which is decided at values ([`crate::decided`], [`crate::valueless`]).
     equational_partial: HashSet<String>,
+    /// The hook of each declared function symbol that has one (`MAP.keys_list`).
+    hooked_functions: HashMap<String, String>,
     /// The builtin collections' unit, element and concatenation symbols.
     collection_builders: HashSet<String>,
     /// The constructors an `anywhere` rule rewrites: the backend evaluates their applications
@@ -646,6 +648,7 @@ impl BackendSymbols {
         let mut known = HashSet::new();
         let mut free_constructors = HashSet::new();
         let mut equational_partial = HashSet::new();
+        let mut hooked_functions = HashMap::new();
         let mut collection_builders = HashSet::new();
         let mut equation_heads = HashSet::new();
         let mut result_sorts = HashMap::new();
@@ -671,6 +674,13 @@ impl BackendSymbols {
                     equational_partial.insert(name.clone());
                 }
                 HeadRole::Function { .. } | HeadRole::Uninterpreted | HeadRole::Residual => {}
+            }
+            if matches!(
+                symbol.attributes.head_role(),
+                HeadRole::Function { declared: true, .. }
+            ) && let Some(hook) = &symbol.attributes.hook
+            {
+                hooked_functions.insert(name.clone(), hook.to_string());
             }
             if symbol.attributes.collection.is_some() {
                 collection_builders.insert(name.clone());
@@ -730,6 +740,7 @@ impl BackendSymbols {
             known,
             free_constructors,
             equational_partial,
+            hooked_functions,
             collection_builders,
             equation_heads,
             result_sorts,
@@ -761,6 +772,7 @@ pub struct ValueIndex {
     known_symbols: HashSet<String>,
     free_constructors: HashSet<String>,
     equational_partial: HashSet<String>,
+    hooked_functions: HashMap<String, String>,
     collection_builders: HashSet<String>,
     equation_heads: HashSet<String>,
     equation_head_data: EquationHeadData,
@@ -967,6 +979,7 @@ impl ValueIndex {
             known_symbols: symbols.known,
             free_constructors: symbols.free_constructors,
             equational_partial: symbols.equational_partial,
+            hooked_functions: symbols.hooked_functions,
             collection_builders: symbols.collection_builders,
             equation_heads: symbols.equation_heads,
             equation_head_data: EquationHeadData::new(Arc::clone(backend)),
@@ -1025,6 +1038,15 @@ impl ValueIndex {
                 error
             }
         })
+    }
+
+    /// Whether the loaded definition holds the production `decl` names: a declaration of a
+    /// package whose module the main module does not import is in the Definition IR but not in
+    /// the definition.
+    pub(crate) fn is_loaded(&self, decl: &Decl) -> bool {
+        self.ctors_by_decl
+            .get(decl)
+            .is_some_and(|info| self.known_symbols.contains(&info.symbol))
     }
 
     /// The production a KRS declaration names, constructor or function.
@@ -1676,9 +1698,9 @@ impl ValueIndex {
     }
 
     /// What an opaque part is, for a refusal that names it: a variable, an unevaluated function
-    /// application, a constructor application that is no value, a constructor no KRS
-    /// declaration names, a collection with a part that is no element, or a matching-logic
-    /// connective.
+    /// application (of a KRS function or a builtin hook), a constructor application that is no
+    /// value, a constructor no KRS declaration names, a collection with a part that is no
+    /// element, or a matching-logic connective.
     pub(crate) fn opaque_part(&self, pattern: &Pattern) -> String {
         match strip_injections(pattern) {
             Pattern::Variable(variable) => format!("the variable `{}`", variable.name),
@@ -1700,9 +1722,14 @@ impl ValueIndex {
                     {
                         "a collection with a part that is neither an element nor a unit (a variable or an unevaluated application)".to_owned()
                     }
-                    None => format!(
-                        "the application of `{name}`, a constructor no KRS declaration names (a strictness freezer, or one K generates)"
-                    ),
+                    None => match self.hooked_functions.get(name) {
+                        Some(hook) => format!(
+                            "an unevaluated application of the builtin function `{hook}`"
+                        ),
+                        None => format!(
+                            "the application of `{name}`, a constructor no KRS declaration names (a strictness freezer, or one K generates)"
+                        ),
+                    },
                 }
             }
             Pattern::DomainValue { sort, value } => format!(
@@ -1880,6 +1907,7 @@ fn index_at(text: &str, ctors: &[(&str, &str, &[&str])], result: Option<&SortRef
         known_symbols: symbols.known,
         free_constructors: symbols.free_constructors,
         equational_partial: symbols.equational_partial,
+        hooked_functions: symbols.hooked_functions,
         collection_builders: symbols.collection_builders,
         equation_heads: symbols.equation_heads,
         overloads: crate::overloads::Overloads::new(definition.axioms()),

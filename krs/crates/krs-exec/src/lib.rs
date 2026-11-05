@@ -12,6 +12,7 @@
 //! - [`Semantics::unparse`] prints a term through the definition's grammar, as `krun --output pretty` does, and [`Semantics::unparse_program`] prints a parsed program as `kast --output program` does (`krs-unparse`).
 //! - [`Semantics::values`] names constructors and sorts by their KRS declarations, so a configuration variable can be given as a [`Value`] ([`ConfigValue::Value`]), and [`Semantics::views`] reads a result's cells as values by their Rust field names.
 //! - [`Semantics::end_of`] and [`Semantics::ends_of`] read a run's or a search's ends, [`Semantics::read_end`] and [`Semantics::end_document`] read and write an end as a document of the typed encoding, and [`Semantics::compare_ends`] and [`Semantics::check_expectation`] compare ends on their observable cells by Rust field path; the documentation of [`ends`] is their normative statement.
+//! - [`Semantics::evaluate`] computes a function's value as a consequence of the definition, and [`Semantics::cell_views`] resolves the views a comparison applies to cells; the documentation of [`views`] is their normative statement.
 //!
 //! The crate is filesystem-free: the caller supplies Definition IR, program text, and (optionally) the authored source text that trace origins are positioned in.
 //! The serialized reports form the `krs-exec` JSON shapes that `--output json` prints: `krs-exec/1` for a run and a search, `krs-exec/2` for a proof ([`REPORT_SCHEMA`] states how the versions are numbered).
@@ -35,6 +36,7 @@ mod stage;
 mod valueless;
 mod values;
 mod view;
+pub mod views;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU64;
@@ -92,6 +94,7 @@ pub use report::{
 };
 pub use values::{Ctor, Decl, Float, SortRef, Value, ValueError, ValueIndex};
 pub use view::{CellError, StateView, View};
+pub use views::{CellViews, EvaluationError};
 
 /// The Z3 library this build links (`Z3_get_full_version`), or `None` in a build without one.
 #[must_use]

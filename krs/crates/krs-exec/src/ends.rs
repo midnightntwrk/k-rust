@@ -65,6 +65,14 @@
 //! holding a compared cell keeps whether it is present, and a repeated cell holding one keeps its
 //! instances, each projected, a set collection's instances as a set of projections.
 //!
+//! A comparison may apply *views* to compared leaf cells ([`Comparison::views`]; the normative
+//! statement is [`crate::views`]). The projected end then holds, at each viewed cell, the view's
+//! value at the cell's value instead of the cell's value, written at the view's result sort by the
+//! definition that declares the view; everything below compares and shows projected ends, so a
+//! difference at a viewed cell is between viewed values and its path descends into them, and the
+//! difference lists the views it applied (`views`). A set collection's instances are then the set
+//! of their viewed projections.
+//!
 //! # Results
 //!
 //! A comparison is [`Compared::Equal`], [`Compared::Differs`] with the first [`Difference`], or
@@ -127,6 +135,8 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::ops::Deref;
+use std::sync::Arc;
 
 use k_rust::kore::ast::{Pattern, Symbol};
 use krs_ir::{CellCollectionType, CellMultiplicity};
@@ -139,6 +149,7 @@ use crate::origin;
 use crate::report::{Halt, RuleKind, RunReport, SearchReport};
 use crate::values::{CellNode, SortRef, Value, ValueError, ValueIndex};
 use crate::view::{self, View};
+use crate::views::CellViews;
 use crate::{SearchMode, SearchOptions, Semantics};
 use krs_ir::BuiltinSort;
 
@@ -285,11 +296,15 @@ pub struct CellInfo {
 }
 
 /// What a comparison compares ([module documentation](crate::ends#compared-cells)).
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default)]
 pub struct Comparison {
     /// The compared cells by declared path; `None` compares every leaf cell that is not
     /// unobservable.
     pub compare: Option<Vec<String>>,
+    /// The views applied to compared cells, resolved ([`Semantics::cell_views`]) and evaluated
+    /// at the ends compared ([`CellViews::evaluate`]); none by default
+    /// ([module documentation](crate::views)).
+    pub views: CellViews,
 }
 
 /// One side of a comparison: a name for reports (`expected`/`actual`, `left`/`right`,
@@ -384,7 +399,7 @@ pub struct Difference {
     pub compared: Vec<String>,
     /// The leaf cells not compared, by declared path.
     pub not_compared: Vec<String>,
-    /// The views applied, by cell (none yet).
+    /// The views applied: the function by declared cell path.
     pub views: BTreeMap<String, String>,
     /// The first side.
     pub left: DifferenceSide,
@@ -423,6 +438,16 @@ pub enum EndError {
         /// Why.
         message: String,
     },
+    /// A view that cannot be applied: its cell or function does not fit, or it has no value at
+    /// an end ([module documentation](crate::views)).
+    View {
+        /// The viewed cell's declared path.
+        cell: String,
+        /// The view's function as named.
+        function: String,
+        /// Why.
+        message: String,
+    },
     /// A state that is no configuration of the definition, or results that are no ends.
     State(String),
 }
@@ -447,6 +472,14 @@ impl fmt::Display for EndError {
                 formatter.write_str(message)
             }
             Self::Document { position, message } => write!(formatter, "`{position}`: {message}"),
+            Self::View {
+                cell,
+                function,
+                message,
+            } => write!(
+                formatter,
+                "the view `{function}` of the cell `{cell}`: {message}"
+            ),
             Self::State(message) => formatter.write_str(message),
         }
     }
@@ -484,6 +517,8 @@ struct Unit<'e> {
     cell: String,
     segments: Vec<String>,
     ty: InputType,
+    /// The value index that writes the cell's values: the observer's for a viewed cell.
+    index: &'e ValueIndex,
     left: Option<Part<'e>>,
     right: Option<Part<'e>>,
     /// The compared leaves that differ there ([module documentation](crate::ends#results)).
@@ -607,6 +642,30 @@ fn window(text: &[char], start: usize) -> (String, bool, usize) {
         start > 0 || end < text.len(),
         start,
     )
+}
+
+/// The compared definition seen through a comparison's views: a viewed leaf cell holds the
+/// view's value, written at the view's result type by the observer's value index.
+struct Lens<'s> {
+    semantics: &'s Semantics,
+    views: &'s CellViews,
+}
+
+impl Deref for Lens<'_> {
+    type Target = Semantics;
+
+    fn deref(&self) -> &Semantics {
+        self.semantics
+    }
+}
+
+impl Semantics {
+    const fn lens<'s>(&'s self, views: &'s CellViews) -> Lens<'s> {
+        Lens {
+            semantics: self,
+            views,
+        }
+    }
 }
 
 /// Cut two shown texts by the rule of the
@@ -789,7 +848,7 @@ impl Semantics {
             let cell = match (node.multiplicity, found.pop()) {
                 (Some(CellMultiplicity::Star), last) => {
                     found.extend(last);
-                    EndCell::Repeated(self.instances(node, found))
+                    EndCell::Repeated(self.lens(&CellViews::default()).instances(node, found))
                 }
                 (Some(CellMultiplicity::Optional), last) if found.is_empty() => {
                     EndCell::Optional(last.map(Box::new))
@@ -835,7 +894,9 @@ impl Semantics {
             )?))
         }
     }
+}
 
+impl Lens<'_> {
     /// A repeated cell's instances in their order: the collection's for a `List` collection, the
     /// order of their canonical text otherwise, each once.
     fn instances(&self, node: &CellNode, instances: Vec<EndCell>) -> Vec<EndCell> {
@@ -865,7 +926,9 @@ impl Semantics {
                 .unwrap_or(Json::Null),
         )
     }
+}
 
+impl Semantics {
     /// Read an end document ([module documentation](crate::ends#end-documents)): every stated
     /// cell decoded at its declared type, the stop rule resolved among the definition's rewrite
     /// rules. Which cells it must state is a comparison's question.
@@ -1051,7 +1114,7 @@ impl Semantics {
                             self.read_document_content(node, item, &format!("{path}[{position}]"))
                         })
                         .collect::<Result<Vec<_>, _>>()?;
-                    EndCell::Repeated(self.instances(node, instances))
+                    EndCell::Repeated(self.lens(&CellViews::default()).instances(node, instances))
                 }
             };
             cells.push((node.field.clone(), cell));
@@ -1096,7 +1159,22 @@ impl Semantics {
     /// Returns [`EndError::Document`] naming the first cell whose value has no document at its
     /// type, with the encoder's reason.
     pub fn end_document(&self, end: &End) -> Result<Json, EndError> {
-        self.end_json(end, true)
+        self.lens(&CellViews::default()).end_json(end, true)
+    }
+}
+
+impl<'s> Lens<'s> {
+    /// The value index that writes the values of the leaf cell `node`, and the type they are
+    /// written at: the observer's and the view's result type for a viewed cell, else this
+    /// definition's and the cell's declared type.
+    fn leaf(&self, node: &CellNode) -> (&'s ValueIndex, InputType) {
+        match self.views.lens(node) {
+            Some((index, ty)) => (index, ty.clone()),
+            None => (
+                self.semantics.values.as_ref(),
+                leaf_type(&self.semantics.values, node).unwrap_or_else(InputType::untyped),
+            ),
+        }
     }
 
     fn end_json(&self, end: &End, strict: bool) -> Result<Json, EndError> {
@@ -1157,8 +1235,8 @@ impl Semantics {
     ) -> Result<Json, Box<Refused>> {
         match content {
             EndCell::Leaf(value) => {
-                let ty = leaf_type(&self.values, node).unwrap_or_else(InputType::untyped);
-                match encode(&self.values, value, &ty) {
+                let (index, ty) = self.leaf(node);
+                match encode(index, value, &ty) {
                     Ok(document) => Ok(document),
                     Err(error) if strict => Err(Box::new(Refused {
                         position: error.position.clone(),
@@ -1167,7 +1245,7 @@ impl Semantics {
                     Err(_) => {
                         Ok(tagged(
                             "$kore",
-                            Json::String(self.values.encode(value).map_or_else(
+                            Json::String(index.encode(value).map_or_else(
                                 |error| error.to_string(),
                                 |pattern| pattern.to_string(),
                             )),
@@ -1195,7 +1273,9 @@ impl Semantics {
             )),
         }
     }
+}
 
+impl Semantics {
     /// Which cells `comparison` compares, checked against the declaration.
     fn selection(&self, comparison: &Comparison) -> Result<Vec<Selection>, EndError> {
         fn build(
@@ -1249,8 +1329,37 @@ impl Semantics {
         ))
     }
 
+    /// [`Self::selection`] of `comparison`, whose views must have been resolved for this
+    /// definition and must each apply to a compared cell: a view of a cell the comparison does
+    /// not compare would change nothing it decides.
+    fn viewed_selection(&self, comparison: &Comparison) -> Result<Vec<Selection>, EndError> {
+        let selection = self.selection(comparison)?;
+        if comparison.views.is_empty() {
+            return Ok(selection);
+        }
+        if !comparison
+            .views
+            .subject()
+            .is_some_and(|subject| Arc::ptr_eq(subject, &self.values))
+        {
+            return Err(EndError::State(
+                "the comparison's views were resolved for another definition than the one comparing".to_owned(),
+            ));
+        }
+        let (compared, _) = Self::compared_paths(&selection, self.values.cells());
+        let named = comparison.views.named();
+        if let Some((cell, function)) = named.iter().find(|(cell, _)| !compared.contains(cell)) {
+            return Err(EndError::View {
+                cell: cell.clone(),
+                function: function.clone(),
+                message: "the comparison does not compare the cell, so the view would change nothing it decides".to_owned(),
+            });
+        }
+        Ok(selection)
+    }
+
     /// The positions in the cell tree of the cell at the declared `path`.
-    fn resolve_cell(&self, path: &str) -> Result<Vec<usize>, EndError> {
+    pub(crate) fn resolve_cell(&self, path: &str) -> Result<Vec<usize>, EndError> {
         let unknown = || {
             let mut known = Vec::new();
             declared_paths(self.values.cells(), "", &mut known);
@@ -1309,7 +1418,9 @@ impl Semantics {
         walk(selection, nodes, "", &mut output);
         output
     }
+}
 
+impl Lens<'_> {
     /// `end` projected onto the selected cells
     /// ([module documentation](crate::ends#compared-cells)).
     fn project(&self, selection: &[Selection], end: &End, side: &str) -> Result<End, EndError> {
@@ -1356,7 +1467,10 @@ impl Semantics {
                 }
                 (Some(CellMultiplicity::Star), EndCell::Repeated(instances)) => {
                     // A `List` collection's instance is named by its index, a set collection's
-                    // by its canonical text, as a difference names it.
+                    // by its canonical text, as a difference names it; the instance is the end's
+                    // own, not yet viewed, so it is named without the views.
+                    let no_views = CellViews::default();
+                    let unviewed = self.semantics.lens(&no_views);
                     let instances = instances
                         .iter()
                         .enumerate()
@@ -1364,7 +1478,7 @@ impl Semantics {
                             let at = if is_list(node) {
                                 format!("{path}[{position}]")
                             } else {
-                                format!("{path}{{{}}}", self.order_text(node, instance))
+                                format!("{path}{{{}}}", unviewed.order_text(node, instance))
                             };
                             self.project_content(node, selected, instance, side, &at)
                         })
@@ -1388,7 +1502,9 @@ impl Semantics {
         path: &str,
     ) -> Result<EndCell, EndError> {
         match content {
-            EndCell::Leaf(value) if node.children.is_empty() => Ok(EndCell::Leaf(value.clone())),
+            EndCell::Leaf(value) if node.children.is_empty() => {
+                Ok(EndCell::Leaf(self.views.apply(node, value)?))
+            }
             EndCell::Group(cells) if !node.children.is_empty() => {
                 Ok(EndCell::Group(self.project_cells(
                     &node.children,
@@ -1410,7 +1526,7 @@ impl Semantics {
 
     /// Every compared cell at which two projected cell sets differ, in declaration order.
     fn units<'e>(
-        &self,
+        &'e self,
         nodes: &'e [CellNode],
         left: &'e EndCells,
         right: &'e EndCells,
@@ -1433,6 +1549,7 @@ impl Semantics {
                     cell: path,
                     segments: Vec::new(),
                     ty: InputType::untyped(),
+                    index: self.semantics.values.as_ref(),
                     left: Some(Part::Optional(node, a)),
                     right: Some(Part::Optional(node, b)),
                     weight: leaves(a) + leaves(b),
@@ -1447,6 +1564,7 @@ impl Semantics {
                                 cell: path,
                                 segments: Vec::new(),
                                 ty: InputType::untyped(),
+                                index: self.semantics.values.as_ref(),
                                 left: a.map(|a| Part::Instance(node, a)),
                                 right: b.map(|b| Part::Instance(node, b)),
                                 weight: a.or(b).map_or(0, leaves),
@@ -1476,6 +1594,7 @@ impl Semantics {
                             cell: path,
                             segments: vec![format!("{{{text}}}")],
                             ty: InputType::untyped(),
+                            index: self.semantics.values.as_ref(),
                             left: held(a.as_slice()),
                             right: held(b.as_slice()),
                             weight,
@@ -1488,7 +1607,7 @@ impl Semantics {
     }
 
     fn content_units<'e>(
-        &self,
+        &'e self,
         node: &'e CellNode,
         left: &'e EndCell,
         right: &'e EndCell,
@@ -1502,7 +1621,8 @@ impl Semantics {
             (EndCell::Leaf(a), EndCell::Leaf(b)) => output.push(Unit {
                 cell: path,
                 segments: Vec::new(),
-                ty: leaf_type(&self.values, node).unwrap_or_else(InputType::untyped),
+                ty: self.leaf(node).1,
+                index: self.leaf(node).0,
                 left: Some(Part::Value(a)),
                 right: Some(Part::Value(b)),
                 weight: match (a, b) {
@@ -1519,6 +1639,7 @@ impl Semantics {
                 cell: path,
                 segments: Vec::new(),
                 ty: InputType::untyped(),
+                index: self.semantics.values.as_ref(),
                 left: Some(Part::Instance(node, left)),
                 right: Some(Part::Instance(node, right)),
                 weight: leaves(left) + leaves(right),
@@ -1554,16 +1675,16 @@ impl Semantics {
 
     /// The text of a value at `ty` that orders it and names it in a segment: its canonical text,
     /// or its K text where it has no document.
-    fn value_text(&self, value: &Value, ty: &InputType) -> String {
-        match encode(&self.values, value, ty) {
+    fn value_text(&self, index: &ValueIndex, value: &Value, ty: &InputType) -> String {
+        match encode(index, value, ty) {
             Ok(document) => canonical_text(&document),
-            Err(_) => self.k_text(value).0,
+            Err(_) => self.k_text(index, value).0,
         }
     }
 
     /// A value's K text, or its KORE where the printer warns: the text and its rendering.
-    fn k_text(&self, value: &Value) -> (String, &'static str) {
-        match self.values.encode(value) {
+    fn k_text(&self, index: &ValueIndex, value: &Value) -> (String, &'static str) {
+        match index.encode(value) {
             Ok(pattern) => self.pattern_text(&pattern),
             Err(error) => (error.to_string(), "kore"),
         }
@@ -1586,6 +1707,7 @@ impl Semantics {
     /// there (`None` for a side lacking the position) and the type there.
     fn descend<'v>(
         &self,
+        index: &ValueIndex,
         mut left: &'v Value,
         mut right: &'v Value,
         mut ty: InputType,
@@ -1607,8 +1729,7 @@ impl Semantics {
                     else {
                         break;
                     };
-                    let field_sort = self
-                        .values
+                    let field_sort = index
                         .info(a.decl())
                         .and_then(|info| info.field_sorts.get(position).cloned().flatten());
                     segments.push(format!(".{}", a.fields()[position].0));
@@ -1626,7 +1747,7 @@ impl Semantics {
                         .keys()
                         .chain(b.keys().filter(|key| !a.contains_key(*key)))
                         .filter(|key| a.get(*key) != b.get(*key))
-                        .map(|key| (self.value_text(key, &key_type), key))
+                        .map(|key| (self.value_text(index, key, &key_type), key))
                         .min_by(|(x, xk), (y, yk)| x.as_bytes().cmp(y.as_bytes()).then(xk.cmp(yk)))
                     else {
                         break;
@@ -1670,7 +1791,7 @@ impl Semantics {
                     };
                     let Some((text, item)) = a
                         .symmetric_difference(b)
-                        .map(|item| (self.value_text(item, &element), item))
+                        .map(|item| (self.value_text(index, item, &element), item))
                         .min_by(|(x, xi), (y, yi)| x.as_bytes().cmp(y.as_bytes()).then(xi.cmp(yi)))
                     else {
                         break;
@@ -1690,9 +1811,9 @@ impl Semantics {
 
     /// The shown text of a part: its document, and else its K text with the position, inside the
     /// part, of what has no document.
-    fn part_text(&self, part: Part<'_>, ty: &InputType) -> Shown {
+    fn part_text(&self, index: &ValueIndex, part: Part<'_>, ty: &InputType) -> Shown {
         let document = match part {
-            Part::Value(value) => encode(&self.values, value, ty).map_err(|error| error.position),
+            Part::Value(value) => encode(index, value, ty).map_err(|error| error.position),
             Part::Optional(node, cell) | Part::Instance(node, cell) => self
                 .content_document(node, cell, true)
                 .map_err(|refused| refused.position),
@@ -1709,7 +1830,7 @@ impl Semantics {
             Err(position) => position,
         };
         let content = match part {
-            Part::Value(value) => return k_shown(self.k_text(value), position),
+            Part::Value(value) => return k_shown(self.k_text(index, value), position),
             Part::Optional(node, EndCell::Optional(content)) => {
                 content.as_deref().map(|c| (node, c))
             }
@@ -1728,7 +1849,7 @@ impl Semantics {
     /// The KORE of a cell's content as its cell application, for showing it as K text.
     fn cell_pattern(&self, node: &CellNode, content: &EndCell) -> Option<Pattern> {
         let arguments = match content {
-            EndCell::Leaf(value) => vec![self.values.encode(value).ok()?],
+            EndCell::Leaf(value) => vec![self.leaf(node).0.encode(value).ok()?],
             EndCell::Group(cells) => node
                 .children
                 .iter()
@@ -1758,7 +1879,7 @@ impl Semantics {
         right: (Side<'_>, &End),
         outside: &str,
     ) -> Difference {
-        let (compared, not_compared) = Self::compared_paths(selection, self.values.cells());
+        let (compared, not_compared) = Semantics::compared_paths(selection, self.values.cells());
         let units = self.end_units(left.1, right.1);
         let side = |(side, end): (Side<'_>, &End), value: Option<Rendered>| DifferenceSide {
             name: side.name.to_owned(),
@@ -1778,7 +1899,7 @@ impl Semantics {
                 also_differ: units.into_iter().map(|unit| unit.cell).collect(),
                 compared,
                 not_compared,
-                views: BTreeMap::new(),
+                views: self.views.named(),
                 left: side(left, None),
                 right: side(right, None),
             };
@@ -1793,14 +1914,14 @@ impl Semantics {
         let mut segments = first.segments;
         let (left_part, right_part, ty) = match (first.left, first.right) {
             (Some(Part::Value(a)), Some(Part::Value(b))) => {
-                let (a, b, ty) = self.descend(a, b, first.ty, &mut segments);
+                let (a, b, ty) = self.descend(first.index, a, b, first.ty, &mut segments);
                 (a.map(Part::Value), b.map(Part::Value), ty)
             }
             (a, b) => (a, b, first.ty),
         };
         let shown = [
-            left_part.map(|part| self.part_text(part, &ty)),
-            right_part.map(|part| self.part_text(part, &ty)),
+            left_part.map(|part| self.part_text(first.index, part, &ty)),
+            right_part.map(|part| self.part_text(first.index, part, &ty)),
         ];
         let [left_cut, right_cut] = cut(
             shown[0].as_ref().map(|shown| shown.text.as_str()),
@@ -1836,7 +1957,7 @@ impl Semantics {
             also_differ,
             compared,
             not_compared,
-            views: BTreeMap::new(),
+            views: self.views.named(),
             left: side(left, render(left_shown, left_cut)),
             right: side(right, render(right_shown, right_cut)),
         }
@@ -1887,7 +2008,9 @@ impl Semantics {
         }
         Ok(unique)
     }
+}
 
+impl Semantics {
     /// Whether `actual`'s ends meet the expectation `expected` (one end), and else the first end
     /// that does not ([module documentation](crate::ends#results)).
     ///
@@ -1908,14 +2031,15 @@ impl Semantics {
                 expected.ends.ends.len()
             )));
         };
-        let selection = self.selection(comparison)?;
-        let x = self.project(&selection, expected_end, expected.name)?;
-        let projected = self.projected(&selection, actual)?;
-        if let Some(reason) = Self::unnamed_stop(expected).or_else(|| Self::unnamed_stop(actual)) {
+        let selection = self.viewed_selection(comparison)?;
+        let lens = self.lens(&comparison.views);
+        let x = lens.project(&selection, expected_end, expected.name)?;
+        let projected = lens.projected(&selection, actual)?;
+        if let Some(reason) = Lens::unnamed_stop(expected).or_else(|| Lens::unnamed_stop(actual)) {
             return Ok(Compared::Inconclusive(reason));
         }
         if let Some((_, end)) = projected.iter().find(|(_, end)| *end != x) {
-            return Ok(Compared::Differs(Box::new(self.difference(
+            return Ok(Compared::Differs(Box::new(lens.difference(
                 &selection,
                 (expected, &x),
                 (actual, end),
@@ -1947,9 +2071,10 @@ impl Semantics {
         left: Side<'_>,
         right: Side<'_>,
     ) -> Result<Compared, EndError> {
-        let selection = self.selection(comparison)?;
-        let left_ends = self.projected(&selection, left)?;
-        let right_ends = self.projected(&selection, right)?;
+        let selection = self.viewed_selection(comparison)?;
+        let lens = self.lens(&comparison.views);
+        let left_ends = lens.projected(&selection, left)?;
+        let right_ends = lens.projected(&selection, right)?;
         for (side, ends) in [(left, &left_ends), (right, &right_ends)] {
             if ends.is_empty() {
                 return Ok(Compared::Inconclusive(match &side.ends.incomplete {
@@ -1958,13 +2083,13 @@ impl Semantics {
                 }));
             }
         }
-        if let Some(reason) = Self::unnamed_stop(left).or_else(|| Self::unnamed_stop(right)) {
+        if let Some(reason) = Lens::unnamed_stop(left).or_else(|| Lens::unnamed_stop(right)) {
             return Ok(Compared::Inconclusive(reason));
         }
         let nearest = |end: &End, set: &[(String, End)]| {
             set.iter()
                 .map(|(_, other)| other)
-                .min_by_key(|other| self.distance(end, other))
+                .min_by_key(|other| lens.distance(end, other))
                 .cloned()
                 .unwrap_or_else(|| end.clone())
         };
@@ -1972,7 +2097,7 @@ impl Semantics {
             && let Some(end) = outside(&right_ends, &left_ends)
         {
             let near = nearest(end, &left_ends);
-            return Ok(Compared::Differs(Box::new(self.difference(
+            return Ok(Compared::Differs(Box::new(lens.difference(
                 &selection,
                 (left, &near),
                 (right, end),
@@ -1983,7 +2108,7 @@ impl Semantics {
             && let Some(end) = outside(&left_ends, &right_ends)
         {
             let near = nearest(end, &right_ends);
-            return Ok(Compared::Differs(Box::new(self.difference(
+            return Ok(Compared::Differs(Box::new(lens.difference(
                 &selection,
                 (left, end),
                 (right, &near),
