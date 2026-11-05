@@ -230,7 +230,7 @@ fn configuration_claim(
         .inputs
         .iter()
         .take(original.sig.inputs.len() - 1);
-    let name = name_ident.to_string();
+    let name = name_ident.unraw().to_string();
     let label_name = attribute.label().value();
     let modality = match attribute.modality() {
         SyntaxClaimModality::AllPaths => ClaimModality::AllPaths,

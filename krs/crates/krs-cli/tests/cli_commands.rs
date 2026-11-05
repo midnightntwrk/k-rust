@@ -1009,6 +1009,44 @@ fn expanded_map_reads_compile_back_to_the_same_rule() {
     }
 }
 
+/// A raw identifier names the item its plain spelling names (`r#while` is `while`), so a rule's
+/// identity is its unraw name: the readable clause `r#while` and the `#[krs::rule] fn r#while`
+/// it abbreviates, which `krs expand` prints, are one symbol.
+#[test]
+fn a_raw_rule_name_is_the_same_identity_on_both_routes() {
+    let target = shared_fixture_target();
+    let readable = "krs::rules! { for Machine; r#while: { acc: s, mem: { 0 -> x, .. } } => { acc: int::add(s, x) }; }";
+    let cells = r#"
+#[krs::rule(label = "while")]
+pub fn r#while(
+    x: Term<Int>,
+    s: Term<Int>,
+    krs::cells! {
+        mem: krs::configuration::Cell(krs::map![0 -> x, ..]),
+        acc: krs::configuration::Cell(s),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    krs::cells! { acc: krs::configuration::Cell(int::add(s, x)), ..state }
+}
+"#;
+    let symbols = [readable, cells].map(|rule| {
+        let temporary = temp_dir();
+        let manifest =
+            materialize_fixture(temporary.path(), &TWO_ENTRY_READ.replace("{rule}", rule));
+        let output = temporary.path().join("emitted");
+        assert_success(&command(
+            target.path(),
+            &manifest,
+            "emit-k",
+            Some(&output),
+            &[],
+        ));
+        fs::read_to_string(output.join("symbols.json")).unwrap()
+    });
+    assert_eq!(symbols[0], symbols[1]);
+}
+
 /// Two blocks may each hold a clause `sum` under exclusive `cfg`s: Rust
 /// removes the one whose `cfg` does not hold, so the definition holds one
 /// rule `sum`, and `krs expand` prints the clause that rule originates in,

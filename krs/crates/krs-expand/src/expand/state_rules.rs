@@ -182,7 +182,7 @@ pub(crate) fn context_alias(
     let visibility = &original.vis;
     let fn_token = original.sig.fn_token;
     let name_ident = &original.sig.ident;
-    let rust_name = name_ident.to_string();
+    let rust_name = name_ident.unraw().to_string();
     let alias_name = attribute.name().to_string();
     let here_name = attribute.here().to_string();
     // `result = S`, K's `result(S)` (KF-021).
@@ -512,7 +512,7 @@ pub(super) fn configuration_rule(
         .inputs
         .iter()
         .take(original.sig.inputs.len() - 1);
-    let name = name_ident.to_string();
+    let name = name_ident.unraw().to_string();
     let label = attribute
         .label()
         .map(|label| -> crate::Result<_> {

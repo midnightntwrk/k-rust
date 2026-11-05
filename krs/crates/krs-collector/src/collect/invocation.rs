@@ -808,7 +808,7 @@ fn collect_fn_invocations(
             .map_err(source_syntax)?;
         output.push(parsed_invocation(
             ProvenanceRole::ClaimDeclaration,
-            item_fn.sig.ident.to_string(),
+            item_fn.sig.ident.unraw().to_string(),
             anchors,
             ParsedInvocationPayload::Declaration,
         )?);
@@ -827,7 +827,7 @@ fn collect_fn_invocations(
             .map_err(source_syntax)?;
         let mut invocation = parsed_invocation(
             ProvenanceRole::ContextAliasDeclaration,
-            item_fn.sig.ident.to_string(),
+            item_fn.sig.ident.unraw().to_string(),
             anchors,
             ParsedInvocationPayload::Declaration,
         )?;
@@ -860,7 +860,7 @@ fn collect_fn_invocations(
             .map_err(source_syntax)?;
         output.push(parsed_invocation(
             ProvenanceRole::RuleDeclaration,
-            item_fn.sig.ident.to_string(),
+            item_fn.sig.ident.unraw().to_string(),
             descriptor.anchors().to_vec(),
             ParsedInvocationPayload::Rule { bindings },
         )?);
@@ -947,7 +947,7 @@ fn collect_fn_rules(
         let descriptor = RuleDescriptor::new(&rule, sentence).map_err(source_syntax)?;
         output.push(parsed_invocation(
             ProvenanceRole::RuleDeclaration,
-            item_fn.sig.ident.to_string(),
+            item_fn.sig.ident.unraw().to_string(),
             descriptor.anchors().to_vec(),
             ParsedInvocationPayload::Rule { bindings },
         )?);
@@ -965,7 +965,7 @@ fn collect_fn_rules(
                     .map_err(source_syntax)?;
             let mut invocation = parsed_invocation(
                 ProvenanceRole::RuleDeclaration,
-                item_fn.sig.ident.to_string(),
+                item_fn.sig.ident.unraw().to_string(),
                 descriptor.anchors().to_vec(),
                 ParsedInvocationPayload::Declaration,
             )?;
@@ -989,7 +989,7 @@ fn collect_fn_rules(
             .map_err(source_syntax)?;
         output.push(parsed_invocation(
             ProvenanceRole::RuleDeclaration,
-            item_fn.sig.ident.to_string(),
+            item_fn.sig.ident.unraw().to_string(),
             descriptor.anchors().to_vec(),
             ParsedInvocationPayload::Rule { bindings },
         )?);
@@ -1016,7 +1016,7 @@ fn collect_fn_contexts(
                 .map_err(source_syntax)?;
             let mut invocation = parsed_invocation(
                 ProvenanceRole::RuleDeclaration,
-                item_fn.sig.ident.to_string(),
+                item_fn.sig.ident.unraw().to_string(),
                 descriptor.anchors().to_vec(),
                 ParsedInvocationPayload::Declaration,
             )?;
@@ -1040,7 +1040,7 @@ fn collect_fn_contexts(
             RuleDescriptor::new(&rule, RuleSentence::Context(&context)).map_err(source_syntax)?;
         output.push(parsed_invocation(
             ProvenanceRole::RuleDeclaration,
-            item_fn.sig.ident.to_string(),
+            item_fn.sig.ident.unraw().to_string(),
             descriptor.anchors().to_vec(),
             ParsedInvocationPayload::Rule { bindings },
         )?);
@@ -1657,7 +1657,7 @@ fn push_rule_equation_invocation(
     });
     let mut invocation = parsed_invocation(
         ProvenanceRole::RuleDeclaration,
-        item_fn.sig.ident.to_string(),
+        item_fn.sig.ident.unraw().to_string(),
         descriptor.anchors().to_vec(),
         ParsedInvocationPayload::Rule { bindings },
     )?;
