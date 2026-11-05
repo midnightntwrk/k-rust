@@ -224,7 +224,11 @@ pub use k_rust_backend::timeout::StepTimeoutMode;
 
 /// The solver options of a [`Backend`]: how long each Z3 check may run and how often an unknown
 /// answer is retried. A build without Z3 reads none of them.
-#[derive(Clone, Copy, Debug, Deserialize)]
+///
+/// The default bounds every attempt by the clock, so whether a query is decided depends on the
+/// machine's speed and load; [`Self::RESOURCE_BOUNDED`] bounds it by Z3's own resource units, so
+/// it does not.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct BackendOptions {
     /// The first attempt's wall-clock timeout in milliseconds, doubled on each retry; unused
@@ -247,6 +251,40 @@ impl Default for BackendOptions {
             smt_resource_limit: None,
         }
     }
+}
+
+/// The Z3 resource units of the first attempt of [`BackendOptions::RESOURCE_BOUNDED`]: about the
+/// work Z3 4.16.0 does in the 125 ms first attempt of the default, clock-bounded options.
+///
+/// Derivation. Z3 counts resource units in its own search, at a rate per millisecond that
+/// depends on the query and the Z3 build. 200 queries whose first 125 ms attempt the clock
+/// stopped, replayed on Z3 4.16.0 (x86_64, at the host's ordinary load), counted a median of
+/// about 2,500 units per millisecond (p10 1,900, p90 3,200), so 125 ms is about
+/// 125 x 2,500 = 310,000 units (p10-p90: 240,000-400,000). With the default 3 retries at doubled
+/// units the attempts are L, 2L, 4L and 8L, 15 L (about 4.7M units) in all: the image of the
+/// default's 125, 250, 500 and 1000 ms.
+///
+/// The calibration holds for the build it was measured on, not for a version number: in the same
+/// 125 ms Z3 4.12.5 counted a median of 3.3 times the units of 4.16.0 per query (0.7 to 20.6
+/// times over the sample), so a 4.12.5 build reaches this budget after about a third of the
+/// clock time 4.16.0 does. That is a rate per millisecond; how many units each build needs to
+/// decide one query was not measured, so what this budget decides on another build is known
+/// only from runs on that build. An answer under it is a function of the query, the budget and
+/// the build ([`z3_build`]).
+pub const DEFAULT_SMT_RESOURCE_LIMIT: std::num::NonZeroU32 =
+    std::num::NonZeroU32::new(310_000).expect("the budget is not zero");
+
+impl BackendOptions {
+    /// The clock-free options: the default's 3 retries, each attempt bounded by Z3 resource
+    /// units only, [`DEFAULT_SMT_RESOURCE_LIMIT`] for the first and twice the previous for each
+    /// retry. Whether a query is decided is then a function of the query, these options and the
+    /// Z3 build, never of the machine's speed or load (docs/compatibility.md, "Determinism and
+    /// concurrency"). `smt_timeout_ms` is unused in this mode.
+    pub const RESOURCE_BOUNDED: Self = Self {
+        smt_timeout_ms: 125,
+        smt_retry_limit: 3,
+        smt_resource_limit: Some(DEFAULT_SMT_RESOURCE_LIMIT),
+    };
 }
 
 /// The KORE symbol of a compiled configuration's top cell.
@@ -317,6 +355,134 @@ pub fn z3_version() -> Option<&'static str> {
     {
         None
     }
+}
+
+/// The Z3 build this process runs: Z3's version string ([`z3_version`]) and the SHA-256 of the
+/// library file Z3's code comes from.
+///
+/// Z3 counts the resource units of [`BackendOptions::smt_resource_limit`] in its own search, so
+/// how many units a query takes is a function of the machine code that searches: two builds of
+/// one version (another compiler, other flags, another architecture) can count differently, and
+/// a version string names no build. The library file names that code, and nothing else: the
+/// shared library when Z3 is linked dynamically, and when it is linked statically the archive
+/// (`libz3.a`) the link took it from. A static link's code sits in the executable among the
+/// program around it, so the executable's digest would change with every change to that program
+/// while Z3 stays the same; the archive's does not.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Z3Build {
+    /// Z3's version string (`Z3_get_full_version`).
+    pub version: &'static str,
+    /// The lowercase hexadecimal SHA-256 of the library file Z3's code comes from. Under a
+    /// dynamic link it is the shared library this process maps, read when first asked. Under a
+    /// static link it is the archive k-rust's build script recorded (`build/z3_archive.rs`): the
+    /// published release asset's `libz3.a` when the build downloads it, or the archive found in
+    /// the linker's search path. `None` when it cannot be named: a shared library replaced since
+    /// it was mapped, a static link whose archive the build could not name (or whose recorded
+    /// archive holds another release than the linked Z3 reports), or a platform without
+    /// `/proc/self/maps` and no recorded archive; this process then cannot say which build
+    /// answers.
+    pub library_sha256: Option<String>,
+}
+
+/// The SHA-256 of the archive k-rust's build script found a static link takes Z3 from, empty
+/// when it found none.
+const Z3_ARCHIVE_SHA256: &str = env!("K_RUST_Z3_ARCHIVE_SHA256");
+/// The Z3 release that archive holds (`4.16.0`), empty when it found none.
+const Z3_ARCHIVE_RELEASE: &str = env!("K_RUST_Z3_ARCHIVE_RELEASE");
+
+/// The Z3 build this process links ([`Z3Build`]), computed once per process; `None` in a build
+/// without Z3.
+#[must_use]
+pub fn z3_build() -> Option<&'static Z3Build> {
+    static BUILD: std::sync::OnceLock<Option<Z3Build>> = std::sync::OnceLock::new();
+    BUILD
+        .get_or_init(|| {
+            let version = z3_version()?;
+            // Z3's version string is a constant of Z3's own image and this function is code of
+            // k-rust's, so the two lie in mappings of one file exactly when Z3 is linked into the
+            // same image as k-rust, statically.
+            let z3_image = mapped_file(version.as_ptr() as usize);
+            let own_image = mapped_file(z3_build as fn() -> Option<&'static Z3Build> as usize);
+            // The recorded archive names this build only if it holds the release Z3 reports.
+            let archive = (!Z3_ARCHIVE_SHA256.is_empty()
+                && names_release(version, Z3_ARCHIVE_RELEASE))
+            .then(|| Z3_ARCHIVE_SHA256.to_owned());
+            let library_sha256 = match (z3_image, own_image) {
+                (Some(z3_image), Some(own_image)) if z3_image != own_image => {
+                    // Dynamic: the shared library, unless it was replaced since it was mapped.
+                    z3_image
+                        .strip_suffix(" (deleted)")
+                        .is_none()
+                        .then(|| file_sha256(std::path::Path::new(&z3_image)))
+                        .flatten()
+                }
+                // Static, or no `/proc` to tell: the archive the build recorded for its static
+                // link, if any.
+                _ => archive,
+            };
+            Some(Z3Build {
+                version,
+                library_sha256,
+            })
+        })
+        .as_ref()
+}
+
+/// Whether `version`, a `Z3_get_full_version` text, is of the release `release` (`4.16.0`):
+/// builds spell it with or without a `Z3 ` prefix, and with a component after the patch number
+/// (`Z3 4.16.0.0`, `4.12.5.0`).
+fn names_release(version: &str, release: &str) -> bool {
+    !release.is_empty()
+        && version
+            .strip_prefix("Z3 ")
+            .unwrap_or(version)
+            .strip_prefix(release)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
+}
+
+/// The pathname of the file mapped at `address` in this process, from `/proc/self/maps`, with
+/// the ` (deleted)` the kernel appends to a file deleted or replaced since it was mapped; `None`
+/// on a platform without it and for an anonymous mapping.
+fn mapped_file(address: usize) -> Option<String> {
+    let maps = std::fs::read_to_string("/proc/self/maps").ok()?;
+    maps.lines().find_map(|line| {
+        // `start-end perms offset dev inode pathname`, the pathname padded with spaces.
+        let mut fields = line.splitn(6, ' ');
+        let (start, end) = fields.next()?.split_once('-')?;
+        let start = usize::from_str_radix(start, 16).ok()?;
+        let end = usize::from_str_radix(end, 16).ok()?;
+        if !(start..end).contains(&address) {
+            return None;
+        }
+        let path = fields.nth(4)?.trim_start();
+        path.starts_with('/').then(|| path.to_owned())
+    })
+}
+
+/// The lowercase hexadecimal SHA-256 of the file at `path`, read in pieces.
+fn file_sha256(path: &std::path::Path) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0; 1 << 20];
+    loop {
+        let read = file.read(&mut buffer).ok()?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Some(
+        hasher
+            .finalize()
+            .iter()
+            .fold(String::with_capacity(64), |mut hex, byte| {
+                use std::fmt::Write;
+                let _ = write!(hex, "{byte:02x}");
+                hex
+            }),
+    )
 }
 
 /// What this build of the backend supports. An execution below is [`Backend::execute_kore`] or
@@ -3577,6 +3743,48 @@ mod tests {
         );
         assert!(serde_json::from_str::<BackendOptions>(r#"{"smtResourceLimit": 0}"#).is_err());
         assert_eq!(z3_version().is_some(), cfg!(feature = "z3-inference"));
+    }
+
+    /// The resource-bounded options keep the default's retries and bound the first attempt by
+    /// the calibrated budget; the wire default stays clock-bounded.
+    #[test]
+    fn resource_bounded_options_keep_the_default_retries() {
+        let bounded = BackendOptions::RESOURCE_BOUNDED;
+        assert_eq!(bounded.smt_resource_limit, Some(DEFAULT_SMT_RESOURCE_LIMIT));
+        assert_eq!(
+            bounded.smt_retry_limit,
+            BackendOptions::default().smt_retry_limit
+        );
+        assert_ne!(bounded, BackendOptions::default());
+        assert_eq!(
+            serde_json::from_str::<BackendOptions>("{}").unwrap(),
+            BackendOptions::default()
+        );
+    }
+
+    /// A Z3 build names its version and the digest of its library file: on Linux whenever Z3 is
+    /// linked dynamically or the build named its static archive, which it does for the published
+    /// x86-64 Linux asset; a build without Z3 has none.
+    #[test]
+    fn the_z3_build_names_its_library() {
+        let Some(build) = z3_build() else {
+            assert!(z3_version().is_none());
+            return;
+        };
+        assert_eq!(Some(build.version), z3_version());
+        let named_statically = !Z3_ARCHIVE_SHA256.is_empty();
+        if cfg!(target_os = "linux") && (named_statically || cfg!(target_arch = "x86_64")) {
+            let digest = build.library_sha256.as_deref().expect("a named Z3 library");
+            assert_eq!(digest.len(), 64);
+            assert!(
+                digest
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            );
+        }
+        assert!(std::ptr::eq(build, z3_build().unwrap()));
+        assert!(names_release("Z3 4.16.0.0", "4.16.0") && names_release("4.12.5.0", "4.12.5"));
+        assert!(!names_release("Z3 4.16.10.0", "4.16.1") && !names_release("Z3 4.16.0.0", ""));
     }
 
     /// The wire spellings of `all`, each read back as its value, as a set of distinct names.

@@ -57,6 +57,10 @@ z3 = { workspace = true, optional = true }
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 stacker.workspace = true
 
+# The build script hashes the Z3 archive a static link takes (`build/z3_archive.rs`).
+[build-dependencies]
+sha2.workspace = true
+
 [dev-dependencies]
 indoc.workspace = true
 insta.workspace = true
