@@ -1297,6 +1297,7 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
             return Ok(krs_ir::DescriptorConfigurationReference {
                 key: reference.key,
                 configuration: selection.target.configuration.clone(),
+                subject: None,
             });
         }
         resolve_configuration_reference(&reference, self.declarations)
@@ -2029,6 +2030,7 @@ fn resolve_head_rule(
         rule,
         selection.target.configuration.clone(),
         configuration_key,
+        None,
         computation_cell,
     ))
 }
@@ -2186,6 +2188,7 @@ fn resolve_configuration_reference(
             ItemKind::Configuration,
             declarations,
         )?,
+        subject: None,
     })
 }
 

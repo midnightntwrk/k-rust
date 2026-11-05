@@ -98,6 +98,7 @@ fn configuration(ordinal: u32) -> DescriptorConfigurationReference {
     DescriptorConfigurationReference {
         key: key(ordinal),
         configuration: item(ItemKind::Configuration, "State"),
+        subject: None,
     }
 }
 
@@ -695,6 +696,7 @@ fn head_rule() -> DescriptorHeadRule {
         head_sort: None,
         configuration: item(ItemKind::Configuration, "State"),
         configuration_key: Some(key(6)),
+        subject: None,
         result_type_key: key(5),
         computation_cell: Some(crate::DescriptorComputationCell {
             cell: cell(2).cell,

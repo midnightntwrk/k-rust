@@ -43,6 +43,7 @@ const UNSUPPORTED_TAGGED: &[&str] = &[
     "DefinitionTermKind",
     "DescriptorApplicationRef",
     "DescriptorConfigurationRoot",
+    "DescriptorSubject",
     "DescriptorLiteral",
     "DescriptorPayload",
     "DescriptorProductionAttribute",
@@ -153,6 +154,7 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "DescriptorClaim",
     "DescriptorClaimBinder",
     "DescriptorEvaluationStep",
+    "DescriptorConfigurationReference",
     "DescriptorConfigurationRule",
     "DescriptorContextAlias",
     "ConstantDescriptor",
@@ -757,7 +759,6 @@ fn registry() -> Registry {
         }
         assert!(classified.insert("DescriptorCellCollectionType".to_owned()));
     }
-    trace!(DescriptorConfigurationReference: DescriptorConfigurationReference);
     trace!(DescriptorColorEntry: DescriptorColorEntry);
     trace!(DescriptorContextAliasReference: DescriptorContextAliasReference);
     trace!(DescriptorSortParent: DescriptorSortParent);
@@ -947,6 +948,8 @@ fn registry() -> Registry {
     unsupported!(DescriptorBundle: DescriptorBundle);
     unsupported!(DescriptorCellTermField: DescriptorCellTermField);
     unsupported!(DescriptorClaim: DescriptorClaim);
+    unsupported!(DescriptorConfigurationReference: DescriptorConfigurationReference);
+    unsupported!(DescriptorSubject: DescriptorSubject);
     unsupported!(DescriptorClaimBinder: DescriptorClaimBinder);
     unsupported!(DescriptorEvaluationStep: DescriptorEvaluationStep);
     unsupported!(DescriptorConfigurationRoot: DescriptorConfigurationRoot);

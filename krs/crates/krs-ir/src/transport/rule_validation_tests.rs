@@ -391,6 +391,7 @@ fn selected_cells_preserve_descriptor_identity_and_owner_checks() {
     let owner = DescriptorConfigurationReference {
         key: key(ProvenanceRole::RuleType),
         configuration: item("Config", ItemKind::Configuration),
+        subject: None,
     };
     let descriptor = |kind| {
         cells::<DescriptorStage>(DescriptorCellReference {
@@ -502,6 +503,7 @@ fn duplicate_selected_cells_use_stage_identities_before_second_cell_provenance()
         &DescriptorConfigurationReference {
             key: key(ProvenanceRole::RuleType),
             configuration,
+            subject: None,
         },
     );
     assert_duplicate_selected_cells::<HostStage>(
@@ -546,6 +548,7 @@ fn context_aliases_preserve_stage_specific_early_checks() {
     let descriptor = alias::<DescriptorStage>(DescriptorConfigurationReference {
         key: key(ProvenanceRole::RuleType),
         configuration: item("Config", ItemKind::Configuration),
+        subject: None,
     });
     let host = alias::<HostStage>(HostConfigurationReference {
         key: key(ProvenanceRole::RuleType),
@@ -596,6 +599,7 @@ fn ordinary_alias_duplicates_preserve_distinct_stage_errors() {
     let mut descriptor = alias::<DescriptorStage>(DescriptorConfigurationReference {
         key: key(ProvenanceRole::RuleType),
         configuration: item("Config", ItemKind::Configuration),
+        subject: None,
     });
     let mut host = alias::<HostStage>(HostConfigurationReference {
         key: key(ProvenanceRole::RuleType),
@@ -685,10 +689,12 @@ fn rule_key_collection_preserves_stage_specific_label_and_declaration_ownership(
         DescriptorConfigurationReference {
             key: key(ProvenanceRole::RuleType),
             configuration: item("Config", ItemKind::Configuration),
+            subject: None,
         },
         DescriptorConfigurationReference {
             key: key(ProvenanceRole::RuleResultType),
             configuration: item("Config", ItemKind::Configuration),
+            subject: None,
         },
     );
     let host = empty_rule::<HostStage>(
@@ -726,10 +732,12 @@ fn configuration_rules_compare_stable_ids_and_resolved_host_aliases() {
         DescriptorConfigurationReference {
             key: key(ProvenanceRole::RuleType),
             configuration: item("Config", ItemKind::Configuration),
+            subject: None,
         },
         DescriptorConfigurationReference {
             key: key(ProvenanceRole::RuleResultType),
             configuration: item("Other", ItemKind::Configuration),
+            subject: None,
         },
     );
     let mut host = empty_rule::<HostStage>(
@@ -762,6 +770,103 @@ fn configuration_rules_compare_stable_ids_and_resolved_host_aliases() {
     assert_eq!(host.validate(ItemKind::Rule), mismatch);
 }
 
+/// A rule about a cell group keeps one subject on both sides, names only
+/// group cells, and is never a claim.
+#[test]
+fn group_subjects_match_name_group_cells_and_refuse_claims() {
+    let group = |name| crate::DescriptorSubject::Group {
+        declaration: item(name, ItemKind::Cell),
+    };
+    let reference = |role, subject| DescriptorConfigurationReference {
+        key: key(role),
+        configuration: item("Config", ItemKind::Configuration),
+        subject,
+    };
+    let rule = |subject, result| {
+        empty_rule::<DescriptorStage>(
+            reference(ProvenanceRole::RuleType, subject),
+            reference(ProvenanceRole::RuleResultType, result),
+        )
+    };
+    assert_eq!(
+        rule(Some(group("Cpu")), Some(group("Cpu"))).validate(ItemKind::Rule),
+        Ok(())
+    );
+    let mismatch = Err(StateTransportError::InvalidCellContent(
+        StateCellContentReason::RuleSubjectAndResultConfigurationsDiffer,
+    ));
+    assert_eq!(
+        rule(Some(group("Cpu")), None).validate(ItemKind::Rule),
+        mismatch
+    );
+    assert_eq!(
+        rule(Some(group("Cpu")), Some(group("Timer"))).validate(ItemKind::Rule),
+        mismatch
+    );
+    assert_eq!(
+        rule(
+            Some(crate::DescriptorSubject::Group {
+                declaration: item("Config", ItemKind::Configuration),
+            }),
+            None,
+        )
+        .validate(ItemKind::Rule),
+        Err(StateTransportError::ItemKind {
+            field: TransportField::RuleSubjectGroup,
+            expected: TransportItemKind::Cell,
+            actual: ItemKind::Configuration,
+        })
+    );
+
+    let mut claim = rule(Some(group("Cpu")), Some(group("Cpu")));
+    claim.sentence_kind = crate::ConfigurationSentenceKind::Claim;
+    claim.claim = Some(Claim {
+        declaration_key: key(ProvenanceRole::ClaimDeclaration),
+        modality_key: key(ProvenanceRole::ClaimModality),
+        modality: ClaimModality::OnePath,
+        circularity_key: None,
+        trusted_key: None,
+        universals: Vec::new(),
+        existentials: Vec::new(),
+        ensures: None,
+        or_bool_keys: Vec::new(),
+    });
+    assert_eq!(
+        claim.validate(ItemKind::Claim),
+        Err(StateTransportError::InvalidTerm(
+            StateTermReason::GroupSubjectClaim
+        ))
+    );
+
+    let cell = |owner| DescriptorCellReference {
+        key: key(ProvenanceRole::RuleLeftCellsField),
+        cell: crate::DescriptorCellIdentity {
+            owner,
+            field: "value".into(),
+        },
+    };
+    let whole = reference(ProvenanceRole::RuleType, None);
+    let part = reference(ProvenanceRole::RuleType, Some(group("Cpu")));
+    let own = cell(item("Config", ItemKind::Configuration));
+    let grouped = cell(item("Cpu", ItemKind::Cell));
+    assert_eq!(DescriptorStage::validate_rule_cell(&own, &whole), Ok(()));
+    assert_eq!(
+        DescriptorStage::validate_rule_cell(&grouped, &whole),
+        Ok(())
+    );
+    assert_eq!(DescriptorStage::validate_rule_cell(&grouped, &part), Ok(()));
+    assert_eq!(
+        DescriptorStage::validate_rule_cell(&own, &part),
+        Err(StateTransportError::InvalidTerm(
+            StateTermReason::CellOutsideGroupSubject
+        ))
+    );
+    assert_eq!(
+        DescriptorStage::validate_rule_cell(&cell(item("Other", ItemKind::Configuration)), &part),
+        Err(StateTransportError::CellOwnerMismatch)
+    );
+}
+
 /// An equation's function context keys its cells as a rule's left side:
 /// each key has its role, and one node defines it.
 #[test]
@@ -772,6 +877,7 @@ fn function_context_cells_have_their_roles_and_one_definition() {
         configuration: DescriptorConfigurationReference {
             key: key(ProvenanceRole::FunctionContextType),
             configuration: configuration.clone(),
+            subject: None,
         },
         bindings: Vec::new(),
         cells,

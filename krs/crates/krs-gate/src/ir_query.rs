@@ -2181,6 +2181,7 @@ mod tests {
             head_sort: None,
             configuration: config.clone(),
             configuration_key: Some(key(ProvenanceRole::RuleType, 0)),
+            subject: None,
             result_type_key: key(ProvenanceRole::RuleResultType, 0),
             computation_cell: Some(krs_ir::DescriptorComputationCell {
                 cell: krs_ir::DescriptorCellIdentity {

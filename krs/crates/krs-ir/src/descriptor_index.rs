@@ -420,6 +420,7 @@ mod tests {
                 head_sort: None,
                 configuration: configuration.clone(),
                 configuration_key: Some(head_key(ProvenanceRole::RuleType)),
+                subject: None,
                 result_type_key: head_key(ProvenanceRole::RuleResultType),
                 computation_cell: Some(crate::DescriptorComputationCell {
                     cell: DescriptorCellIdentity {

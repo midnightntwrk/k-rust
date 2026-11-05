@@ -2661,6 +2661,11 @@ impl StructuredRuleDescriptor {
             || GrammarTransportError::InvalidTerm(GrammarTermReason::InvalidFunctionContext);
         if self.sentence_kind != SentenceKind::Equation
             || context.configuration.configuration.item_kind() != ItemKind::Configuration
+            || context
+                .configuration
+                .subject
+                .as_ref()
+                .is_some_and(|subject| subject.validate().is_err())
             || !matches!(
                 context.cells.remainder,
                 crate::ProtocolRuleFrame::Anonymous { .. }

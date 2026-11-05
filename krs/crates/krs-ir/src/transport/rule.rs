@@ -208,14 +208,19 @@ pub type DescriptorClaim = Claim<DescriptorStage>;
 /// Build-local host-stage form of [`Claim`].
 pub type HostClaim = Claim<HostStage>;
 
-/// Stable configuration type reference in a whole-configuration rule.
+/// Stable configuration type reference of a configuration-typed sentence.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DescriptorConfigurationReference {
     /// Exact subject/result Rust type-path provenance.
     pub key: ProvenanceKey,
-    /// Stable configuration declaration identity.
+    /// Stable identity of the configuration the sentence is lowered against,
+    /// its definition's one configuration.
     pub configuration: StableItemId,
+    /// The part of that configuration the sentence is about; absent for the
+    /// whole configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subject: Option<crate::DescriptorSubject>,
 }
 
 /// Host counterpart of [`DescriptorConfigurationReference`].
@@ -1453,8 +1458,10 @@ trait RuleValidationStage: ValidationStage {
     fn validate_configuration(
         configuration: &Self::Configuration,
     ) -> Result<(), StateTransportError>;
-    /// Descriptor configurations compare stable identities; host configurations compare resolved type identities.
+    /// Descriptor configurations compare stable identities and subjects; host configurations compare resolved type identities.
     fn same_configuration(left: &Self::Configuration, right: &Self::Configuration) -> bool;
+    /// Whether the sentence is about a part of its configuration; a host reference names a type the collector has not classified yet, so it states no subject.
+    fn has_partial_subject(configuration: &Self::Configuration) -> bool;
     /// Host selected cells have no stable owner kind; `DescriptorStage::validate_rule_cell` must check the resolved identity and Configuration or nominal Cell ownership.
     fn validate_rule_cell(
         cell: &Self::Cell,
@@ -1506,7 +1513,11 @@ impl RuleValidationStage for DescriptorStage {
     }
 
     fn same_configuration(left: &Self::Configuration, right: &Self::Configuration) -> bool {
-        left.configuration == right.configuration
+        left.configuration == right.configuration && left.subject == right.subject
+    }
+
+    fn has_partial_subject(configuration: &Self::Configuration) -> bool {
+        configuration.subject.is_some()
     }
 
     fn validate_rule_cell(
@@ -1514,10 +1525,7 @@ impl RuleValidationStage for DescriptorStage {
         owner: &Self::Configuration,
     ) -> Result<(), StateTransportError> {
         cell.cell.validate()?;
-        if cell.cell.owner != owner.configuration && cell.cell.owner.item_kind() != ItemKind::Cell {
-            return Err(StateTransportError::CellOwnerMismatch);
-        }
-        Ok(())
+        owner.validate_cell_owner(&cell.cell.owner)
     }
 
     fn rule_cell_identity(cell: &Self::Cell) -> Self::RuleCellIdentity {
@@ -1602,6 +1610,10 @@ impl RuleValidationStage for HostStage {
         left.configuration.key.resolve() == right.configuration.key.resolve()
     }
 
+    fn has_partial_subject(_: &Self::Configuration) -> bool {
+        false
+    }
+
     fn validate_rule_cell(
         _: &Self::Cell,
         _: &Self::Configuration,
@@ -1659,7 +1671,14 @@ impl DescriptorConfigurationReference {
                 actual: self.configuration.item_kind(),
             });
         }
+        if let Some(subject) = &self.subject {
+            subject.validate()?;
+        }
         Ok(())
+    }
+
+    fn validate_cell_owner(&self, owner: &StableItemId) -> Result<(), StateTransportError> {
+        super::subject::validate_cell_owner(&self.configuration, self.subject.as_ref(), owner)
     }
 }
 
@@ -1753,6 +1772,16 @@ fn validate_configuration_rule<S: RuleValidationStage>(
     } else if rule.claim.is_some() {
         return Err(StateTransportError::InvalidTerm(
             StateTermReason::UnexpectedClaimMetadata,
+        ));
+    }
+    // A claim states what its definition's transition system does, framing
+    // every cell it leaves out; the same statement about a group would mean
+    // something else in each configuration that holds the group.
+    if rule.sentence_kind == crate::ConfigurationSentenceKind::Claim
+        && S::has_partial_subject(&rule.subject_configuration)
+    {
+        return Err(StateTransportError::InvalidTerm(
+            StateTermReason::GroupSubjectClaim,
         ));
     }
     if let Some(label) = &rule.label {

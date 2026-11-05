@@ -498,6 +498,10 @@ stage_shape! {
         /// `for Sort` table clause, whose configuration collection selects.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub configuration_key: Option<ProvenanceKey> => [keep],
+        /// The part of the configuration a `for` header names, absent when
+        /// it names the configuration itself or the clause is a table clause.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub subject: Option<crate::DescriptorSubject> => [keep],
         /// The result's type, `rule_result_type`: the header's sort or
         /// configuration types the result as it types the subject.
         pub result_type_key: ProvenanceKey => [keep],
@@ -535,6 +539,7 @@ stage_shape! {
     descriptor_from: HeadRule<DescriptorStage> {
         configuration: crate::StableItemId,
         configuration_key: Option<ProvenanceKey>,
+        subject: Option<crate::DescriptorSubject>,
         computation_cell: Option<DescriptorComputationCell>,
     }
 }
@@ -1041,6 +1046,7 @@ impl DescriptorHeadRule {
         if self.computation_cell.is_some() != self.head.is_some()
             || (self.head.is_none() && self.extras.is_empty())
             || self.head_sort.is_some() == named
+            || (self.subject.is_some() && !named)
             || self.computation_cell.as_ref().is_some_and(|computation| {
                 computation.key.is_some() != named
                     || if named {
@@ -1057,13 +1063,14 @@ impl DescriptorHeadRule {
                 StateTermReason::HeadRuleHeaderOwnership,
             ));
         }
-        if let Some(computation) = &self.computation_cell
-            && computation.cell.owner != self.configuration
-            && computation.cell.owner.item_kind() != ItemKind::Cell
-        {
-            return Err(StateTransportError::CellOwnerMismatch);
+        if let Some(computation) = &self.computation_cell {
+            self.validate_cell_owner(&computation.cell.owner)?;
         }
         Ok(())
+    }
+
+    fn validate_cell_owner(&self, owner: &crate::StableItemId) -> Result<(), StateTransportError> {
+        super::subject::validate_cell_owner(&self.configuration, self.subject.as_ref(), owner)
     }
 
     /// Validates stable ownership after configuration and cell resolution.
@@ -1095,6 +1102,17 @@ impl DescriptorHeadRule {
                 expected: TransportItemKind::Configuration,
                 actual: self.configuration.item_kind(),
             });
+        }
+        if let Some(subject) = &self.subject {
+            subject.validate()?;
+            // A claim states what its definition's transition system does,
+            // framing every cell it leaves out, so a claim about a group
+            // would mean something else in each configuration holding it.
+            if self.sentence_kind == SentenceKind::Claim {
+                return Err(StateTransportError::InvalidTerm(
+                    StateTermReason::GroupSubjectClaim,
+                ));
+            }
         }
         self.validate_header()?;
         validate_head(self.head.as_ref(), self.head_sort.is_some())?;
@@ -1140,11 +1158,7 @@ impl DescriptorHeadRule {
                     StateTermReason::InvalidListCell,
                 ));
             }
-            if cell.cell.owner != self.configuration
-                && cell.cell.owner.item_kind() != ItemKind::Cell
-            {
-                return Err(StateTransportError::CellOwnerMismatch);
-            }
+            self.validate_cell_owner(&cell.cell.owner)?;
             if self
                 .computation_cell
                 .as_ref()
@@ -1922,6 +1936,7 @@ mod tests {
             head_sort: None,
             configuration: configuration.clone(),
             configuration_key: Some(key(ProvenanceRole::RuleType, 0)),
+            subject: None,
             result_type_key: key(ProvenanceRole::RuleResultType, 0),
             computation_cell: Some(super::DescriptorComputationCell {
                 cell: DescriptorCellIdentity {
@@ -2088,6 +2103,88 @@ mod tests {
     /// A readable state's shells define their payload keys, as every shell
     /// does: an instance child `[]` or `map![]` is accepted with its key
     /// anchored, and refused when no anchor holds it.
+    /// The clause `for Cpu; k: [x, ..], env: x => ..` about the group `Cpu`
+    /// that the configuration `State` holds: it names only `Cpu`'s cells,
+    /// and is never a claim.
+    #[test]
+    fn a_group_subject_names_group_cells_and_is_no_claim() {
+        let group = |kind| {
+            StableItemId::new(
+                PackageId::new("ORG-EXAMPLE", "test", "0.1.0", "workspace").unwrap(),
+                ["state"],
+                "Cpu",
+                kind,
+                "",
+            )
+            .unwrap()
+        };
+        let mut rule = resolved_clause();
+        rule.subject = Some(crate::DescriptorSubject::Group {
+            declaration: group(ItemKind::Cell),
+        });
+        // The fixture's cells are the configuration's own.
+        assert_eq!(
+            rule.validate(ItemKind::Rule),
+            Err(crate::StateTransportError::InvalidTerm(
+                super::StateTermReason::CellOutsideGroupSubject
+            ))
+        );
+        rule.computation_cell.as_mut().unwrap().cell.owner = group(ItemKind::Cell);
+        assert_eq!(
+            rule.validate(ItemKind::Rule),
+            Err(crate::StateTransportError::InvalidTerm(
+                super::StateTermReason::CellOutsideGroupSubject
+            ))
+        );
+        let ProtocolHeadRuleExtra::RewriteCell { cell, .. } = &mut rule.extras[0] else {
+            unreachable!()
+        };
+        cell.cell.owner = group(ItemKind::Cell);
+        assert_eq!(rule.validate(ItemKind::Rule), Ok(()));
+
+        // A group subject names a `#[k::cell]` declaration.
+        let mut configuration = rule.clone();
+        configuration.subject = Some(crate::DescriptorSubject::Group {
+            declaration: group(ItemKind::Configuration),
+        });
+        assert_eq!(
+            configuration.validate(ItemKind::Rule),
+            Err(crate::StateTransportError::ItemKind {
+                field: super::TransportField::RuleSubjectGroup,
+                expected: super::TransportItemKind::Cell,
+                actual: ItemKind::Configuration,
+            })
+        );
+
+        // A claim is about the whole configuration.
+        let mut claim = rule.clone();
+        claim.sentence_kind = SentenceKind::Claim;
+        claim.claim = Some(super::HeadRuleClaim {
+            modality_key: ProvenanceKey::new(ProvenanceRole::ClaimModality, 0),
+            modality: crate::ClaimModality::OnePath,
+            circularity_key: None,
+            trusted_key: None,
+        });
+        assert_eq!(
+            claim.validate(ItemKind::Claim),
+            Err(crate::StateTransportError::InvalidTerm(
+                super::StateTermReason::GroupSubjectClaim
+            ))
+        );
+        claim.subject = None;
+        assert_eq!(claim.validate(ItemKind::Claim), Ok(()));
+
+        // Only a cell-record clause's header names a subject.
+        let mut table = rule;
+        table.configuration_key = None;
+        assert_eq!(
+            table.validate(ItemKind::Rule),
+            Err(crate::StateTransportError::InvalidTerm(
+                super::StateTermReason::HeadRuleHeaderOwnership
+            ))
+        );
+    }
+
     #[test]
     fn a_readable_state_shell_has_its_payload_key() {
         use crate::{
@@ -2520,6 +2617,7 @@ mod tests {
             head_sort: Some(descriptor_sort()),
             configuration,
             configuration_key: None,
+            subject: None,
             result_type_key: key.clone(),
             computation_cell: Some(super::DescriptorComputationCell {
                 cell: cell.cell.clone(),

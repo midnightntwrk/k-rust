@@ -15,6 +15,7 @@ pub mod head_rule;
 pub(crate) mod keys;
 pub mod main_cell;
 pub mod rule;
+pub mod subject;
 pub(crate) mod validation;
 
 pub use validation::names_set_element;

@@ -459,6 +459,7 @@ fn descriptor_context_alias() -> DescriptorContextAlias {
         configuration: DescriptorConfigurationReference {
             key: key(ProvenanceRole::RuleType, 0),
             configuration: configuration.clone(),
+            subject: None,
         },
         bindings: vec![
             ProtocolContextAliasBinding {
@@ -752,11 +753,13 @@ fn var_configuration_rule() -> (StableItemId, DescriptorConfigurationRule) {
             subject_configuration: DescriptorConfigurationReference {
                 key: key(ProvenanceRole::RuleType, 0),
                 configuration: configuration.clone(),
+                subject: None,
             },
             result_key: Some(key(ProvenanceRole::RuleResult, 0)),
             result_configuration: Some(DescriptorConfigurationReference {
                 key: key(ProvenanceRole::RuleResultType, 0),
                 configuration,
+                subject: None,
             }),
             bindings: vec![
                 term_rule_binding("X", 0, DescriptorSortRef::Builtin(BuiltinSort::Id)),
@@ -1095,11 +1098,13 @@ fn wildcard_configuration_rule() -> DescriptorConfigurationRule {
         subject_configuration: DescriptorConfigurationReference {
             key: key(ProvenanceRole::RuleType, 0),
             configuration: configuration.clone(),
+            subject: None,
         },
         result_key: Some(key(ProvenanceRole::RuleResult, 0)),
         result_configuration: Some(DescriptorConfigurationReference {
             key: key(ProvenanceRole::RuleResultType, 0),
             configuration: configuration.clone(),
+            subject: None,
         }),
         bindings: Vec::new(),
         subject: DescriptorRuleCells {

@@ -58,6 +58,7 @@ details! {
         RawSentenceText => "raw K sentence text",
         SpecModuleName => "spec module name",
         SpecModuleImport => "spec module import",
+        RuleSubjectGroup => "rule subject group",
     }
 }
 
@@ -190,6 +191,8 @@ details! {
         InvalidEvaluationStep => "a heat or cool key is allowed only on a transition without priority, nondet group, anywhere marker, or fresh binders, with the heat, cool, hole, and result-sort roles",
         InitialRequiresMultiplicity => "`initial` requires an optional or collection multiplicity",
         InvalidReadableStateExtra => "a readable optional or collection extra names its cell once, with a subject state and an optional result",
+        GroupSubjectClaim => "a claim is about its definition's whole configuration, so its subject is never a cell group",
+        CellOutsideGroupSubject => "a sentence about a cell group names only cells of a group, never a cell the configuration declares",
     }
 }
 

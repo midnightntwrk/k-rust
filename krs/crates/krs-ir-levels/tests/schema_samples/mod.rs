@@ -460,9 +460,24 @@ impl Sample for DescriptorCellType {
 }
 impl Sample for DescriptorConfigurationReference {
     fn samples() -> Vec<Self> {
-        vec![Self {
-            key: sample::<ProvenanceKey>(),
-            configuration: sample::<StableItemId>(),
+        vec![
+            Self {
+                key: sample::<ProvenanceKey>(),
+                configuration: sample::<StableItemId>(),
+                subject: None,
+            },
+            Self {
+                key: sample::<ProvenanceKey>(),
+                configuration: sample::<StableItemId>(),
+                subject: Some(sample::<DescriptorSubject>()),
+            },
+        ]
+    }
+}
+impl Sample for DescriptorSubject {
+    fn samples() -> Vec<Self> {
+        vec![Self::Group {
+            declaration: sample::<StableItemId>(),
         }]
     }
 }
@@ -3640,6 +3655,7 @@ impl Sample for DescriptorHeadRule {
             head_sort: sample::<Option<DescriptorSortReference>>(),
             configuration: sample::<StableItemId>(),
             configuration_key: sample::<Option<ProvenanceKey>>(),
+            subject: Some(sample::<DescriptorSubject>()),
             result_type_key: sample::<ProvenanceKey>(),
             computation_cell: sample::<Option<DescriptorComputationCell>>(),
             bindings: sample::<Vec<DescriptorHeadRuleBinding>>(),
@@ -4541,6 +4557,7 @@ fn insert_tagged(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Value>>) {
     insert::<DefinitionTermKind>(corpus, "DefinitionTermKind");
     insert::<DescriptorApplicationRef>(corpus, "DescriptorApplicationRef");
     insert::<DescriptorConfigurationRoot>(corpus, "DescriptorConfigurationRoot");
+    insert::<DescriptorSubject>(corpus, "DescriptorSubject");
     insert::<DescriptorLiteral>(corpus, "DescriptorLiteral");
     insert::<DescriptorPayload>(corpus, "DescriptorPayload");
     insert::<DescriptorProductionAttribute>(corpus, "DescriptorProductionAttribute");
@@ -4650,6 +4667,7 @@ fn insert_transitive_first(corpus: &mut BTreeMap<&'static str, Vec<serde_json::V
     insert::<DescriptorClaim>(corpus, "DescriptorClaim");
     insert::<DescriptorClaimBinder>(corpus, "DescriptorClaimBinder");
     insert::<DescriptorEvaluationStep>(corpus, "DescriptorEvaluationStep");
+    insert::<DescriptorConfigurationReference>(corpus, "DescriptorConfigurationReference");
     insert::<DescriptorConfigurationRule>(corpus, "DescriptorConfigurationRule");
     insert::<DescriptorContextAlias>(corpus, "DescriptorContextAlias");
     insert::<ConstantDescriptor>(corpus, "ConstantDescriptor");

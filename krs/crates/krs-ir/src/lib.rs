@@ -197,6 +197,8 @@ pub use transport::rule::{
     InstanceDelimiter, ProtocolInstanceRest, ProtocolRuleInstance, ProtocolRuleInstanceField,
     ProtocolRuleInstances,
 };
+pub use transport::subject;
+pub use transport::subject::{CellTree, DescriptorSubject, SubjectError, SubjectScope, TreeCell};
 
 use serde::{Deserialize, Serialize};
 
@@ -218,7 +220,7 @@ pub struct SchemaVersion(pub u32);
 
 impl SchemaVersion {
     /// The only version this release reads and writes.
-    pub const CURRENT: Self = Self(76);
+    pub const CURRENT: Self = Self(77);
 }
 
 impl Default for SchemaVersion {

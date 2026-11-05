@@ -331,11 +331,13 @@ pub fn configuration_rule(owner: &StableItemId) -> DescriptorConfigurationRule {
         subject_configuration: DescriptorConfigurationReference {
             key: key(ProvenanceRole::RuleType, 0),
             configuration: owner.clone(),
+            subject: None,
         },
         result_key: Some(key(ProvenanceRole::RuleResult, 0)),
         result_configuration: Some(DescriptorConfigurationReference {
             key: key(ProvenanceRole::RuleResultType, 0),
             configuration: owner.clone(),
+            subject: None,
         }),
         bindings: vec![
             term_binding("X", 0, DescriptorSortRef::Builtin(BuiltinSort::Id)),
