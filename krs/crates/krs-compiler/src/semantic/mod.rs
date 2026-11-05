@@ -445,6 +445,7 @@ fn lower_bundle(
     // A context's or a heat or cool rule's hole is a name its pattern binds, which the
     // whole-theory check of evaluation steps judges: a name mistake as well.
     let lowered = lowered.and_then(|mut modules| {
+        evaluation::import_default_result(&mut modules);
         if !uses_framework(&modules) {
             modules.retain(|module| !crate::partition::is_framework_module(module.id()));
         }

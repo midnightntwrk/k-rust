@@ -17,6 +17,40 @@ use krs_ir_levels::{IrTermKind, RuleBodyRef, SemanticModule, SemanticRule, Seman
 use super::error::DescriptorLoweringError;
 use super::overload::sort_name;
 
+/// Makes every module with an evaluation step that names no result sort
+/// import the framework's module, which declares `KResult`.
+///
+/// Such a step's condition is about `KResult`: K adds
+/// `requires notBool isKResult(HOLE)` to its heating and
+/// `requires isKResult(HOLE)` to its cooling, and `isKResult` is the
+/// predicate of the framework's sort `KResult`. Every definition has that
+/// sort, and its elements are the terms of the sorts the definition declares
+/// below it. A definition that declares none has no results, so `isKResult`
+/// is false of every term: such a step heats whatever its pattern matches and
+/// never cools. That meaning is the definition's own, so the K keeps the
+/// sort the condition names rather than dropping it as unused.
+pub(super) fn import_default_result(modules: &mut [SemanticModule]) {
+    let Some(framework) = modules
+        .iter()
+        .map(SemanticModule::id)
+        .find(|id| crate::partition::is_framework_module(id))
+        .cloned()
+    else {
+        return;
+    };
+    for module in modules
+        .iter_mut()
+        .filter(|module| !crate::partition::is_framework_module(module.id()))
+    {
+        if module.rules().iter().any(|rule| {
+            rule.evaluation()
+                .is_some_and(|step| step.result().is_none())
+        }) {
+            module.add_imports([framework.clone()]);
+        }
+    }
+}
+
 /// Checks that every heat or cool rule binds its hole once on its left side.
 pub(super) fn check_evaluation_steps(
     modules: &[SemanticModule],
