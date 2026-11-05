@@ -426,7 +426,11 @@ An application anywhere else, a rule for the configuration, a function context t
 The left-hand side of an equation or a simplification is the pattern the sentence is about, not an application it evaluates, so a function named only there is not judged.
 A group held once has no holders, so every caller qualifies.
 
-Some forms inside an instance are not emitted yet, and are refused as `krs::analysis::group-subject-position` with the reason "not emitted yet": a rule's clause for anything but a leaf cell of the instance (a whole group, an optional cell, or an instance record of a collection inside the instance), a context alias and a `#[k::context]`, whose heating and cooling rules have their hole in the instance's computation, and a function context, once its callers are judged.
+Every clause of a sentence about one instance is written inside the instance's cell, with the other clauses for the same instance: a leaf, a whole group child (`regs: Regs { a, b } => regs: Regs { a: b, b: a }`), an optional child created or deleted, and an instance record of a collection inside the instance, so `post: { id: me, k: [Post(), ..], job: { .. } } => { k: [..], job: { Job { jid: me, payload: 0 }, .. } }` for a `Hart` with a Map collection of jobs emits `rule [post]: <hart> <k> post => .K ... </k> <id> Me:Int </id> (.Bag => <job> <jid> Me:Int </jid> <payload> 0 </payload> </job>) ... </hart>`.
+A context alias and a `#[k::context]` typed by the group are written the same way, `context alias [hartEval]: <hart> <k> HERE ~> Tail:K </k> ... </hart>`, so the heating and cooling rules K generates from them have their hole in the computation of one instance.
+Both emission routes write that instance cell, the K text and the definition handed to the native frontend, and cell completion supplies the cells above it and frames every other instance.
+So the text of a library's rule depends on where the definition holds the group: inside `<hart>` in an optional cell or a collection, without it at a fixed position, with the same body.
+A function context inside an instance is still refused as `krs::analysis::group-subject-position` with the reason "not emitted yet", once its callers are judged: the function would have to receive the instance it reads, which is not emitted yet.
 
 ### Optional cells and cell collections
 
