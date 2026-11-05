@@ -1,9 +1,7 @@
 //! An observer of the `ends` fixture (`tests/end_comparison.rs`): a package that depends on it,
 //! declares a sort of its own and views of its `bus` cell, and is imported by no definition, so
 //! the views are resolved and evaluated in this package's definition and the compared one does
-//! not hold them. `WithRead` refers to the fixture's constructors, which makes this package's
-//! module import the fixture's configured module, so that it is the composed definition's main
-//! module.
+//! not hold them. `WithRead` builds a value with the fixture's constructor.
 
 use k::KResult;
 use k::Term;

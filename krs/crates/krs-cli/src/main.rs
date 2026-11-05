@@ -122,7 +122,9 @@ Options:
   --observer PACKAGE:DEFINITION
                              With compare, the definition the views are resolved and evaluated
                              in: a package that depends on the definition's and that no
-                             semantics imports (default: the compared definition)
+                             semantics imports, composed with the --dependency facets its
+                             closure holds; a facet outside the definition's closure is the
+                             observer's (default: the compared definition)
   --view-budget POLLS        With run, search, cases and compare, the polls each evaluation of
                              a view may take (default: 30000000), a count of its own work that
                              the host's speed and load do not change; one that spends it, or

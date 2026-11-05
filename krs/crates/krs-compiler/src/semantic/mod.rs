@@ -6,6 +6,7 @@ mod cell_alternatives;
 mod cell_states;
 mod collection_methods;
 mod collection_types;
+mod composition;
 mod configuration;
 mod configuration_rules;
 mod cons_lists;
@@ -167,7 +168,22 @@ pub(crate) fn catalog_subsort_judge(
 pub fn lower_descriptor_bundle(
     bundle: &DescriptorBundle,
 ) -> Result<SemanticTheory, DescriptorLoweringError> {
-    lower_bundle(bundle, false).map(|retained| retained.theory)
+    lower_bundle(bundle, false, None).map(|retained| retained.theory)
+}
+
+/// [`lower_descriptor_bundle`] for a composed definition whose root package is `root`: the
+/// bundle's packages are `root` and the selected packages of its dependency closure, so the
+/// definition holds every one of them, `root`'s module importing each that the packages' own
+/// references do not reach ([`composition`]).
+///
+/// # Errors
+///
+/// As [`lower_descriptor_bundle`].
+pub fn lower_composed_bundle(
+    bundle: &DescriptorBundle,
+    root: &PackageId,
+) -> Result<SemanticTheory, DescriptorLoweringError> {
+    lower_bundle(bundle, false, Some(root)).map(|retained| retained.theory)
 }
 
 /// What lowering a descriptor bundle computes on the way to its semantic theory and keeps in
@@ -232,19 +248,21 @@ impl RetainedLowering {
     }
 }
 
-/// [`lower_descriptor_bundle`], keeping what it computes on the way ([`RetainedLowering`]).
+/// [`lower_descriptor_bundle`], or [`lower_composed_bundle`] with the root package `root`,
+/// keeping what it computes on the way ([`RetainedLowering`]).
 ///
 /// # Errors
 ///
 /// As [`lower_descriptor_bundle`].
 pub fn lower_descriptor_bundle_retained(
     bundle: &DescriptorBundle,
+    root: Option<&PackageId>,
 ) -> Result<RetainedLowering, DescriptorLoweringError> {
-    lower_bundle(bundle, true)
+    lower_bundle(bundle, true, root)
 }
 
-/// Lowers `bundle`; with `retain`, keeps what [`RetainedLowering`] holds beside the theory,
-/// which is otherwise left empty.
+/// Lowers `bundle`, composed with the root package `root` when it is given; with `retain`, keeps
+/// what [`RetainedLowering`] holds beside the theory, which is otherwise left empty.
 #[expect(
     clippy::too_many_lines,
     reason = "Lowering keeps the whole-bundle checks in their fixed order."
@@ -252,6 +270,7 @@ pub fn lower_descriptor_bundle_retained(
 fn lower_bundle(
     bundle: &DescriptorBundle,
     retain: bool,
+    root: Option<&PackageId>,
 ) -> Result<RetainedLowering, DescriptorLoweringError> {
     let inlined = ordered_descriptors(bundle)?;
     let retained_descriptors = if retain {
@@ -385,6 +404,9 @@ fn lower_bundle(
             if !split.specs.is_empty() {
                 package_specs.push((package, split.specs));
             }
+        }
+        if let Some(root) = root.and_then(|root| module_ids.get(root)) {
+            composition::import_composition(&mut modules, root);
         }
         // Only the main package's spec modules belong to this build (KF-041).
         if let Some(main) =

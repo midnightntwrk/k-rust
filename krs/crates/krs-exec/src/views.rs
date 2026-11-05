@@ -22,11 +22,14 @@
 //!
 //! A view is resolved and evaluated in an *observer*: a compiled definition that declares the
 //! function, by default the compared definition itself. It may be another definition, compiled
-//! from a package that depends on the compared definition's package, refers to it (so that its
-//! module imports the configured module and is the composed definition's main module), and that
-//! no semantics imports, so that editing a view changes neither the compared definition, nor its
-//! rules, nor anything keyed by it. A function the observer's Definition IR declares but its
-//! loaded definition does not hold (its package's module is not imported) is no view. A cell's
+//! from a package that depends on the compared definition's package and that no semantics
+//! imports, so that editing a view changes neither the compared definition, nor its rules, nor
+//! anything keyed by it. Like every composed definition, the observer is its package's own
+//! dependency closure: the compared definition, and whatever else the package depends on (a
+//! package of observations no semantics depends on), held by its definition because the package
+//! depends on them, whether or not its source names anything of them. A function the observer's
+//! Definition IR declares but its loaded definition does not hold (a module the main module does
+//! not import) is no view. A cell's
 //! value is carried to the observer by its constructors' KRS declarations ([`crate::Decl`]): a
 //! constructor is free, so a value made of constructors and builtin values denotes the same
 //! term in every definition that declares those constructors with the same fields, which the

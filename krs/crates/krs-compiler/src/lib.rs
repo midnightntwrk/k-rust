@@ -54,7 +54,8 @@ pub use reference::{
 pub use semantic::{
     DescriptorLoweringError, FreshProblem, ImplicitPresentCell, LexicalProblem, NondetGroupProblem,
     OpenSortAnalysis, OperatorProblem, RawKPolicy, RetainedLowering, analyze_open_sorts,
-    guard_warnings, lower_descriptor_bundle, lower_descriptor_bundle_retained, raw_k_policy,
+    guard_warnings, lower_composed_bundle, lower_descriptor_bundle,
+    lower_descriptor_bundle_retained, raw_k_policy,
 };
 pub use sidecar::{
     GeneratedRange, MappedIdentity, SourceMap, SourceMapEntry, SourceMapNodeKind, SymbolMap,

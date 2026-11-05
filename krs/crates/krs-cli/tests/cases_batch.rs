@@ -85,8 +85,7 @@ impl Machine {
 "#;
 
 /// An observer of `ends`: `WithRead` appends a read to an event log, built with the compared
-/// definition's constructor (which makes this package's module import the configured one),
-/// `Spin` climbs forever, so that its evaluation never ends, and `NotedStamp` gives a value of a
+/// definition's constructor, `Spin` climbs forever, so that its evaluation never ends, and `NotedStamp` gives a value of a
 /// sort only the observer declares, with no document where it is `noted`, whose K text only the
 /// observer's printer prints.
 const OBSERVER: &str = r#"//! An observer of the `ends` fixture, imported by no definition.

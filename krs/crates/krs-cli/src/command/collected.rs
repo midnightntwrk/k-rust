@@ -150,7 +150,12 @@ pub(crate) fn plan_collection(
     let metadata = measurement.timings.try_span("cargo.metadata.input", |_| {
         cargo_metadata_in(&request.manifest_path, target_directory)
     })?;
-    let plan = plan_collector(request, &metadata, &mut measurement.timings)?;
+    let plan = plan_collector(
+        request,
+        &request.dependencies,
+        &metadata,
+        &mut measurement.timings,
+    )?;
     *sources = DiagnosticSources::from_plan(&plan);
     Ok(PlannedCollection {
         metadata,
@@ -255,7 +260,8 @@ impl CollectedDefinition {
         measurement: &mut Measurement,
     ) -> Result<super::PreparedDefinition, CommandError> {
         let warnings = self.warnings_of(&bundle);
-        prepare_bundle(bundle, warnings, self.profile, measurement)
+        let root = self.plan.root_package();
+        prepare_bundle(bundle, warnings, root.as_ref(), self.profile, measurement)
     }
 
     /// Lower `bundle` and emit its K, as `krs emit-k` does without rendering or writing the
@@ -308,9 +314,10 @@ impl CollectedDefinition {
         measurement: &mut Measurement,
     ) -> Result<RetainedEmission, CommandError> {
         let warnings = self.warnings_of(&bundle);
+        let root = self.plan.root_package();
         let (prepared, retained) =
             prepare_bundle_with(bundle, warnings, self.profile, measurement, |bundle| {
-                krs_compiler::lower_descriptor_bundle_retained(bundle)
+                krs_compiler::lower_descriptor_bundle_retained(bundle, root.as_ref())
                     .map(|retained| (retained.theory().clone(), retained))
                     .map_err(CommandError::DescriptorLowering)
             })?;

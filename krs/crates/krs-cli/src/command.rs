@@ -1,14 +1,15 @@
 use crate::{
     CollectorPlan, DefinitionRequest, DiagnosticEnvelope, DiagnosticStage, FacetSelector,
-    GenerationError, KrsCfg, PlanningError, RegistrationMode, diagnostic_envelope,
-    metadata::cargo_metadata,
+    GenerationError, KrsCfg, PlanningError, PlanningErrorKind, RegistrationMode,
+    diagnostic_envelope, metadata::cargo_metadata,
 };
 use krs_collector::{CollectionError, FacadeAliases};
 use krs_compiler::{
     DEFINITION_ARTIFACT, DEFINITION_IR_ARTIFACT, DESCRIPTOR_ARTIFACT, DescriptorLoweringError,
     EmitError, EmittedK, LoweringError, ReferenceExpansionError, SEMANTIC_ARTIFACT,
     SOURCES_ARTIFACT, SPEC_ARTIFACT, SYMBOLS_ARTIFACT, declared_cell_types, emit_k,
-    expand_package_reference_source, lower_descriptor_bundle, lower_semantic_theory,
+    expand_package_reference_source, lower_composed_bundle, lower_descriptor_bundle,
+    lower_semantic_theory,
 };
 use krs_diagnostic::{Diagnostic, ToDiagnostic};
 use krs_ir::measure::Timings;
@@ -495,7 +496,8 @@ fn execute_with_sources(
     let metadata = timings.try_span("cargo.metadata.input", |_| {
         cargo_metadata(&request.manifest_path)
     })?;
-    let plan = plan_collector(request, &metadata, timings)?;
+    let (dependencies, observer_dependencies) = composed_dependencies(request, &metadata)?;
+    let plan = plan_collector(request, &dependencies, &metadata, timings)?;
     *sources = crate::DiagnosticSources::from_plan(&plan);
     let collector_directory = generate_collector(&metadata, &plan, measurement)?;
     let executable = build_collector_measured(&collector_directory, &plan, None, measurement)?;
@@ -517,6 +519,7 @@ fn execute_with_sources(
     let prepared = prepare(
         collected.stdout,
         collected.warnings,
+        &plan,
         request.profile,
         measurement,
     )?;
@@ -543,6 +546,7 @@ fn execute_with_sources(
         | Command::Compare(_) => exec_command(
             &prepared,
             request,
+            &observer_dependencies,
             sources,
             metadata.workspace_root.as_deref().map(Path::new),
             reuse,
@@ -587,9 +591,86 @@ fn execute_with_sources(
         .map_err(|error| error.warned(warnings))
 }
 
-/// The collector plan of `request`'s definition facets in the package graph `metadata`.
+/// The dependency facets of `request` its definition composes, and those it leaves to the
+/// observers its views are evaluated in.
+///
+/// A composition is its root package's dependency closure: it can hold only the facets whose
+/// package is in that closure. An observer is a package that depends on the compared
+/// definition's, so its closure holds the definition's and may hold more (a package of
+/// observations no semantics depends on). A command that can evaluate views in an observer
+/// (`compare`, `cases`, and `run` or `search` of a case) therefore composes into the definition
+/// the facets in its closure and leaves the others to the observers: each composes the facets
+/// its own closure holds ([`prepare_observer`]), and one that neither the definition's nor any
+/// prepared observer's closure holds is refused ([`refuse_unused_observer_dependencies`]). Any
+/// other command composes every facet given, and planning refuses one outside the closure.
+///
+/// # Errors
+///
+/// Returns a planning error for a selector that names no package of `metadata`, or several.
+fn composed_dependencies(
+    request: &CommandRequest,
+    metadata: &crate::CargoMetadata,
+) -> Result<(Vec<FacetSelector>, Vec<FacetSelector>), CommandError> {
+    let observes = match &request.command {
+        Command::Compare(_) | Command::Cases(_) => true,
+        Command::Run(run) => run.case.is_some(),
+        Command::Search(search) => search.case.is_some(),
+        _ => false,
+    };
+    if !observes {
+        return Ok((request.dependencies.clone(), Vec::new()));
+    }
+    Ok(crate::plan::split_by_closure(
+        metadata,
+        &request.root.package,
+        &request.dependencies,
+    )?)
+}
+
+/// Refuses a dependency facet that the definition's closure does not hold
+/// ([`composed_dependencies`]) and that no observer the command prepared composed (`composed`).
+fn refuse_unused_observer_dependencies(
+    request: &CommandRequest,
+    observer_dependencies: &[FacetSelector],
+    composed: &[FacetSelector],
+) -> Result<(), CommandError> {
+    let Some(dependency) = observer_dependencies
+        .iter()
+        .find(|dependency| !composed.contains(dependency))
+    else {
+        return Ok(());
+    };
+    Err(CommandError::Planning(PlanningError::new(
+        PlanningErrorKind::UnreachableSelection,
+        unused_facet_message(request, dependency),
+    )))
+}
+
+/// Why `dependency`, outside the definition's closure, was composed by no observer.
+fn unused_facet_message(request: &CommandRequest, dependency: &FacetSelector) -> String {
+    format!(
+        "the dependency facet `{}` is not in root package `{}`'s resolved dependency closure, nor in that of an observer the command prepared: a dependency facet outside the definition's closure is composed by each observer whose closure holds it",
+        facet_name(dependency),
+        package_name(&request.root.package)
+    )
+}
+
+/// `package` as a selector names it: its name, or its exact Cargo package ID.
+const fn package_name(package: &crate::PackageSelector) -> &String {
+    let (crate::PackageSelector::Name(name) | crate::PackageSelector::Id(name)) = package;
+    name
+}
+
+/// `facet` as `--dependency` names it.
+fn facet_name(facet: &FacetSelector) -> String {
+    format!("{}:{}", package_name(&facet.package), facet.definition)
+}
+
+/// The collector plan of `request`'s root facet and `dependencies` in the package graph
+/// `metadata`.
 fn plan_collector(
     request: &CommandRequest,
+    dependencies: &[FacetSelector],
     metadata: &crate::CargoMetadata,
     timings: &mut Timings,
 ) -> Result<CollectorPlan, CommandError> {
@@ -600,7 +681,7 @@ fn plan_collector(
             metadata,
             &DefinitionRequest {
                 root: request.root.clone(),
-                dependencies: request.dependencies.clone(),
+                dependencies: dependencies.to_vec(),
                 host_target,
                 cfg: request.cfg.clone(),
             },
@@ -614,10 +695,15 @@ fn plan_collector(
 }
 
 /// `krs parse`, `run`, `search`, or `prove`: compile (or restore) the stage and run the command, then attach the definition's warnings ([`definition_warnings`]), the trusted claims `prove` assumes, and the stage-cache warning to its outcome or its failure.
+///
+/// `observer_dependencies` are the dependency facets the definition's closure does not hold, which
+/// the observers compose ([`composed_dependencies`]); an observer's diagnostics are rendered with
+/// its packages' sources, which `sources` gains.
 fn exec_command(
     prepared: &PreparedDefinition,
     request: &CommandRequest,
-    sources: &crate::DiagnosticSources,
+    observer_dependencies: &[FacetSelector],
+    sources: &mut crate::DiagnosticSources,
     workspace_root: Option<&Path>,
     reuse: bool,
     measurement: &mut Measurement,
@@ -649,13 +735,15 @@ fn exec_command(
         restore: reuse,
     };
     let result = if let Command::Cases(cases) = &request.command {
-        let observers = |name: &str| prepare_observer(request, name, workspace_root);
-        cases::execute(
+        execute_cases(
             prepared,
+            request,
             cases,
+            observer_dependencies,
             sources,
+            workspace_root,
             stage_reuse,
-            &observers,
+            &mut warnings,
             measurement,
         )
     } else if let Command::Compare(compare) = &request.command {
@@ -665,20 +753,24 @@ fn exec_command(
                 let observer = compare::observer_name(compare, &read)
                     .map(|name| prepare_observer(request, name, workspace_root))
                     .transpose()
-                    .map_err(CommandError::InvalidRequest)?
+                    .map_err(|failure| failure.into_error(sources))?
                     .flatten();
+                let composed = observer
+                    .as_ref()
+                    .map_or(&[][..], |observer| &observer.composed);
+                refuse_unused_observer_dependencies(request, observer_dependencies, composed)?;
                 compare::execute(
                     prepared,
                     compare,
                     sources,
                     stage_reuse,
                     read,
-                    observer,
+                    observer.map(|observer| observer.definition),
                     measurement,
                 )
             })
     } else {
-        read_case(request, workspace_root)
+        read_case(request, observer_dependencies, workspace_root, sources)
             .map_err(|error| error.warned(warnings.clone()))
             .and_then(|read| {
                 exec::execute(
@@ -700,53 +792,235 @@ fn exec_command(
     }
 }
 
+/// `krs cases`: each case's observer prepared on first use, composing the dependency facets its
+/// closure holds; a facet of `observer_dependencies` that no prepared observer composed is a
+/// warning in `warnings`, since the verdicts are printed as the cases run.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The batch takes exec_command's prepared definition, request and observers' inputs."
+)]
+fn execute_cases(
+    prepared: &PreparedDefinition,
+    request: &CommandRequest,
+    cases: &CasesRequest,
+    observer_dependencies: &[FacetSelector],
+    sources: &crate::DiagnosticSources,
+    workspace_root: Option<&Path>,
+    stage_reuse: exec::StageReuse<'_>,
+    warnings: &mut crate::DiagnosticReports,
+    measurement: &mut Measurement,
+) -> Result<CommandOutcome, CommandError> {
+    let composed = std::sync::Mutex::new(Vec::new());
+    let failed = std::sync::Mutex::new(Vec::new());
+    let observers = |name: &str| {
+        let observer = prepare_observer(request, name, workspace_root).map_err(|failure| {
+            failed
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push((name.to_owned(), failure.composed.clone()));
+            failure.render(sources)
+        })?;
+        Ok(observer.map(|observer| {
+            composed
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .extend(observer.composed);
+            observer.definition
+        }))
+    };
+    let result = cases::execute(
+        prepared,
+        cases,
+        sources,
+        stage_reuse,
+        &observers,
+        measurement,
+    );
+    // The verdicts are printed as the cases run, so a facet that no observer of the batch
+    // composed is reported once they are, as a warning: no verdict rests on it. A facet that an
+    // observer which could not be prepared would have composed is that observer's: the cases
+    // that name it are refused, saying why.
+    let composed = composed
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let failed = failed
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    for dependency in observer_dependencies
+        .iter()
+        .filter(|dependency| !composed.contains(dependency))
+    {
+        let message = match failed.iter().find(|(_, would)| would.contains(dependency)) {
+            Some((observer, _)) => format!(
+                "the dependency facet `{}` was not composed: the observer `{observer}`, whose closure holds it, could not be prepared",
+                facet_name(dependency)
+            ),
+            None => unused_facet_message(request, dependency),
+        };
+        let mut diagnostic =
+            PlanningError::new(PlanningErrorKind::UnreachableSelection, message).to_diagnostic();
+        diagnostic.severity = krs_diagnostic::Severity::Warning;
+        warnings.push(diagnostic, DiagnosticStage::Analysis);
+    }
+    result
+}
+
 /// The case of a `run` or `search`, read once, and the observer definition its views are
-/// evaluated in, prepared, when it names one other than the definition it runs on.
+/// evaluated in, prepared, when it names one other than the definition it runs on; a facet of
+/// `observer_dependencies` that the observer does not compose is refused.
 fn read_case(
     request: &CommandRequest,
+    observer_dependencies: &[FacetSelector],
     workspace_root: Option<&Path>,
+    sources: &mut crate::DiagnosticSources,
 ) -> Result<exec::ReadCase, CommandError> {
     let (path, name) = match &request.command {
         Command::Run(run) => (run.case.as_deref(), run.case_name.as_deref()),
         Command::Search(search) => (search.case.as_deref(), search.case_name.as_deref()),
         _ => (None, None),
     };
-    // A case that cannot be read is read again by the run, which reports what is wrong with it.
+    // A case that cannot be read is read again by the run, which reports what is wrong with it
+    // before anything else is judged.
     let Some(case) = path.and_then(|path| exec::readable_case(path, name)) else {
         return Ok(exec::ReadCase::default());
     };
     let observer = match exec::named_observer(&case.case) {
         Some(observer) => prepare_observer(request, observer, workspace_root)
-            .map_err(CommandError::InvalidRequest)?,
+            .map_err(|failure| failure.into_error(sources))?,
         None => None,
     };
+    let composed = observer
+        .as_ref()
+        .map_or(&[][..], |observer| &observer.composed);
+    refuse_unused_observer_dependencies(request, observer_dependencies, composed)?;
     Ok(exec::ReadCase {
         case: Some(case),
-        observer,
+        observer: observer.map(|observer| observer.definition),
     })
 }
 
+/// Why the observer a command names cannot be prepared: the refusal, whose diagnostics name the
+/// observer, and the source roots of the observer's packages, which render them.
+struct ObserverFailure {
+    error: CommandError,
+    sources: crate::DiagnosticSources,
+    /// The dependency facets the observer would have composed, once its closure was read.
+    composed: Vec<FacetSelector>,
+}
+
+impl ObserverFailure {
+    /// The refusal, `sources` (the command's) gaining the observer's source roots.
+    fn into_error(self, sources: &mut crate::DiagnosticSources) -> CommandError {
+        sources.extend(self.sources);
+        self.error
+    }
+
+    /// The refusal as text, for a record of `krs cases`: each diagnostic rendered with `sources`
+    /// (the command's) and the observer's source roots, or the refusal's own text when it has
+    /// none.
+    fn render(self, sources: &crate::DiagnosticSources) -> String {
+        let Some(diagnostics) = self.error.diagnostics() else {
+            return self.error.to_string();
+        };
+        let mut all = sources.clone();
+        all.extend(self.sources);
+        diagnostics
+            .iter()
+            .map(|diagnostic| all.render_envelope(diagnostic, false))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+/// What a view function must be, said where the observer refuses a function that is program
+/// syntax without one ([`krs_diagnostic::codes::syntax::MISSING_FUNCTION_SYNTAX`]).
+const VIEW_FUNCTION_HELP: &str = "if this function is a view (a function of one parameter that a comparison applies to a cell's value, never written in a program), mark it `internal`, so that it is not program syntax and needs no `syntax`";
+
+/// How the observer composes a package it depends on, said where its collection finds a package
+/// of no selected facet ([`krs_diagnostic::codes::collect::PACKAGE_NOT_SELECTED`]).
+const OBSERVER_DEPENDENCY_HELP: &str = "the observer composes the packages it depends on whose facets --dependency names, as any definition does: name the package's facet with --dependency PACKAGE:DEFINITION (one outside the compared definition's closure is composed into the observer only)";
+
+/// The observer `name`'s refusal `error`: each of its diagnostics noting the observer, one that
+/// refuses a function for being program syntax without one saying what a view function must be,
+/// and one that finds a package of no selected facet saying how to compose it; a refusal without
+/// diagnostics as text naming the observer.
+fn observer_refusal(name: &str, error: &CommandError) -> CommandError {
+    let note = format!(
+        "in the observer `{name}`, the definition krs composes to resolve and evaluate the views"
+    );
+    match error.diagnostics() {
+        Some(diagnostics) => {
+            let mut diagnostics = diagnostics.into_owned();
+            for diagnostic in &mut diagnostics {
+                let code = diagnostic.code.as_str();
+                if code == krs_diagnostic::codes::syntax::MISSING_FUNCTION_SYNTAX.as_str() {
+                    diagnostic.help.push(VIEW_FUNCTION_HELP.to_owned());
+                } else if code == krs_diagnostic::codes::collect::PACKAGE_NOT_SELECTED.as_str() {
+                    diagnostic.help.push(OBSERVER_DEPENDENCY_HELP.to_owned());
+                }
+                diagnostic.notes.push(note.clone());
+            }
+            CommandError::Diagnostics(diagnostics)
+        }
+        None => CommandError::InvalidRequest(format!(
+            "the observer `{name}` cannot be prepared: {error}"
+        )),
+    }
+}
+
 /// The observer definition `name` (`PACKAGE:DEFINITION`, as `--dependency` names a definition)
-/// for the definition `request` selects: the facet `name` composed with that definition and its
-/// dependencies, prepared as every command prepares a definition, so that its module imports the
-/// configured one ([`krs_exec::views`], "The observer"); `None` when `name` is that definition
-/// itself.
+/// for the definition `request` selects: the facet `name` composed, as every command composes a
+/// root facet, with that definition and the dependency facets `request` gives that the observer
+/// package's own dependency closure holds (a facet outside it may be another observer's,
+/// [`composed_dependencies`]), which it returns beside the definition; `None` when `name` is
+/// that definition itself.
 ///
 /// # Errors
 ///
-/// Returns the reason as text: a name of another form, and any failure to prepare the facet.
+/// Returns the refusal and the observer's source roots: a name of another form, and any failure
+/// to prepare the facet, its diagnostics noting the observer ([`observer_refusal`]).
 fn prepare_observer(
     request: &CommandRequest,
     name: &str,
     workspace_root: Option<&Path>,
-) -> Result<Option<exec::ObserverDefinition>, String> {
+) -> Result<Option<PreparedObserver>, Box<ObserverFailure>> {
+    let mut sources = crate::DiagnosticSources::default();
+    let mut composed = Vec::new();
+    match prepare_observer_with(request, name, workspace_root, &mut sources, &mut composed) {
+        Ok(definition) => Ok(definition.map(|definition| PreparedObserver {
+            definition,
+            composed,
+        })),
+        Err(error) => Err(Box::new(ObserverFailure {
+            error,
+            sources,
+            composed,
+        })),
+    }
+}
+
+/// An observer definition, prepared, and the dependency facets of the request it composes.
+struct PreparedObserver {
+    definition: exec::ObserverDefinition,
+    composed: Vec<FacetSelector>,
+}
+
+/// [`prepare_observer`], recording in `sources` the observer's source roots and in `composed`
+/// the dependency facets it composes, as soon as each is known.
+fn prepare_observer_with(
+    request: &CommandRequest,
+    name: &str,
+    workspace_root: Option<&Path>,
+    sources: &mut crate::DiagnosticSources,
+    composed: &mut Vec<FacetSelector>,
+) -> Result<Option<exec::ObserverDefinition>, CommandError> {
     let (package, definition) = name
         .rsplit_once(':')
         .filter(|(package, definition)| !package.is_empty() && !definition.is_empty())
         .ok_or_else(|| {
-            format!(
+            CommandError::InvalidRequest(format!(
                 "the observer `{name}` is no definition: an observer is named `PACKAGE:DEFINITION`, as --dependency names one"
-            )
+            ))
         })?;
     let selector = FacetSelector {
         package: crate::PackageSelector::Name(package.to_owned()),
@@ -757,14 +1031,26 @@ fn prepare_observer(
     if subject {
         return Ok(None);
     }
+    let refuse = |error: CommandError| observer_refusal(name, &error);
+    let measurement = &mut Measurement::disabled();
+    let metadata = cargo_metadata(&request.manifest_path).map_err(refuse)?;
+    // The observer composes the given facets its own closure holds; another observer of the
+    // command may compose the others.
+    let given = request
+        .dependencies
+        .iter()
+        .filter(|dependency| **dependency != selector)
+        .cloned()
+        .collect::<Vec<_>>();
+    let (held, _) = crate::plan::split_by_closure(&metadata, &selector.package, &given)
+        .map_err(|error| refuse(CommandError::Planning(error)))?;
     let mut dependencies = vec![request.root.clone()];
-    dependencies.extend(
-        request
-            .dependencies
-            .iter()
-            .filter(|dependency| **dependency != selector)
-            .cloned(),
-    );
+    dependencies.extend(held.iter().cloned());
+    // The observer's own facet, given as a dependency too, is the observer: it is composed.
+    composed.extend(held);
+    if request.dependencies.contains(&selector) {
+        composed.push(selector.clone());
+    }
     let observer = CommandRequest {
         command: Command::Check {
             backend: None,
@@ -774,10 +1060,14 @@ fn prepare_observer(
         dependencies,
         ..request.clone()
     };
-    let refuse = |error: CommandError| format!("the observer `{name}` cannot be prepared: {error}");
-    let measurement = &mut Measurement::disabled();
-    let metadata = cargo_metadata(&observer.manifest_path).map_err(refuse)?;
-    let plan = plan_collector(&observer, &metadata, &mut measurement.timings).map_err(refuse)?;
+    let plan = plan_collector(
+        &observer,
+        &observer.dependencies,
+        &metadata,
+        &mut measurement.timings,
+    )
+    .map_err(refuse)?;
+    *sources = crate::DiagnosticSources::from_plan(&plan);
     let directory = generate_collector(&metadata, &plan, measurement).map_err(refuse)?;
     let executable =
         build_collector_measured(&directory, &plan, None, measurement).map_err(refuse)?;
@@ -785,6 +1075,7 @@ fn prepare_observer(
     let prepared = prepare(
         collected.stdout,
         collected.warnings,
+        &plan,
         observer.profile,
         measurement,
     )
@@ -810,6 +1101,7 @@ fn validate_request(request: &CommandRequest) -> Result<(), CommandError> {
 fn prepare(
     stdout: Vec<u8>,
     collection_warnings: Vec<crate::DiagnosticEnvelope>,
+    plan: &CollectorPlan,
     profile: Option<krs_ir::RawKProfile>,
     measurement: &mut Measurement,
 ) -> Result<PreparedDefinition, CommandError> {
@@ -826,7 +1118,13 @@ fn prepare(
             count_bundle(&mut measurement.counters, &bundle, bytes);
             bundle
         })?;
-    prepare_bundle(bundle, collection_warnings, profile, measurement)
+    prepare_bundle(
+        bundle,
+        collection_warnings,
+        plan.root_package().as_ref(),
+        profile,
+        measurement,
+    )
 }
 
 /// Lower a decoded bundle as every command does: the raw-K policy, the semantic theory, the
@@ -835,6 +1133,7 @@ fn prepare(
 fn prepare_bundle(
     bundle: DescriptorBundle,
     collection_warnings: Vec<crate::DiagnosticEnvelope>,
+    root: Option<&PackageId>,
     profile: Option<krs_ir::RawKProfile>,
     measurement: &mut Measurement,
 ) -> Result<PreparedDefinition, CommandError> {
@@ -843,7 +1142,7 @@ fn prepare_bundle(
         collection_warnings,
         profile,
         measurement,
-        |bundle| lower_semantic(bundle).map(|semantic| (semantic, ())),
+        |bundle| lower_semantic(bundle, root).map(|semantic| (semantic, ())),
     )
     .map(|(prepared, ())| prepared)
 }
@@ -911,10 +1210,17 @@ fn prepare_bundle_with<Kept>(
     ))
 }
 
+/// The semantic theory of `bundle`, composed with the root package `root` when it is known
+/// ([`krs_compiler::lower_composed_bundle`]).
 fn lower_semantic(
     bundle: &DescriptorBundle,
+    root: Option<&PackageId>,
 ) -> Result<krs_ir_levels::SemanticTheory, CommandError> {
-    lower_descriptor_bundle(bundle).map_err(CommandError::DescriptorLowering)
+    match root {
+        Some(root) => lower_composed_bundle(bundle, root),
+        None => lower_descriptor_bundle(bundle),
+    }
+    .map_err(CommandError::DescriptorLowering)
 }
 
 fn lower_definition(

@@ -550,6 +550,20 @@ impl CollectorPlan {
         matches!(self.kind, CollectorKind::Production { .. })
     }
 
+    /// The stable identity of the root facet's package, by which its descriptors are collected:
+    /// the composition's root, whose module the definition's main module is.
+    #[must_use]
+    pub fn root_package(&self) -> Option<krs_ir::PackageId> {
+        let root = self.facets.iter().find(|facet| facet.is_root)?;
+        krs_ir::PackageId::new(
+            &root.k_namespace,
+            &root.package_name,
+            &root.package_version,
+            &root.cargo_source,
+        )
+        .ok()
+    }
+
     /// Selected definition facets in canonical order.
     #[must_use]
     pub fn facets(&self) -> &[ResolvedFacet] {
@@ -1210,6 +1224,34 @@ fn validate_runtime_manifest(path: &Path, package: &str) -> Result<(), PlanningE
     Ok(())
 }
 
+/// Splits `dependencies` into the facets whose package is in `root`'s resolved Cargo dependency
+/// closure and the others, each in the order given: a composition rooted at `root` can hold
+/// only the first ([`CollectorPlan::resolve_definition`] refuses the others).
+///
+/// # Errors
+///
+/// Returns a [`PlanningError`] for inconsistent Cargo metadata, and for a selector that names no
+/// package or several.
+pub(crate) fn split_by_closure(
+    metadata: &CargoMetadata,
+    root: &PackageSelector,
+    dependencies: &[FacetSelector],
+) -> Result<(Vec<FacetSelector>, Vec<FacetSelector>), PlanningError> {
+    let packages = package_map(metadata)?;
+    let nodes = node_map(metadata, &packages)?;
+    let reachable = reachable_packages(&select_package(metadata, root)?.id, &nodes)?;
+    let mut inside = Vec::new();
+    let mut outside = Vec::new();
+    for dependency in dependencies {
+        if reachable.contains(&select_package(metadata, &dependency.package)?.id) {
+            inside.push(dependency.clone());
+        } else {
+            outside.push(dependency.clone());
+        }
+    }
+    Ok((inside, outside))
+}
+
 /// Return whether a segment is a Rust identifier accepted by KRS planning.
 #[must_use]
 pub fn valid_identifier_segment(segment: &str) -> bool {
@@ -1293,7 +1335,7 @@ pub struct PlanningError {
 }
 
 impl PlanningError {
-    fn new(kind: PlanningErrorKind, message: impl Into<String>) -> Self {
+    pub(crate) fn new(kind: PlanningErrorKind, message: impl Into<String>) -> Self {
         Self {
             kind,
             message: message.into(),

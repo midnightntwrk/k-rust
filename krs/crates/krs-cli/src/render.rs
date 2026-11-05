@@ -39,6 +39,14 @@ impl DiagnosticSources {
         Self { packages }
     }
 
+    /// Adds the source roots of `other`, such as an observer's packages beside the compared
+    /// definition's; a package both select has one root, since both plans read one Cargo graph.
+    pub(crate) fn extend(&mut self, other: Self) {
+        for (package, root) in other.packages {
+            self.packages.entry(package).or_insert(root);
+        }
+    }
+
     /// Renders an envelope, showing each exact authored range in its source revision when that
     /// revision is available: the primary's file first, then each label's file in producer
     /// order, each file once. An envelope without an authored range names its item, if any.

@@ -827,6 +827,12 @@ impl SemanticModule {
         &self.raw_sentences
     }
 
+    /// Adds `imports` to the modules this module imports. Cross-module references are checked
+    /// by [`SemanticTheory::new`].
+    pub fn add_imports(&mut self, imports: impl IntoIterator<Item = ModuleId>) {
+        self.imports.extend(imports);
+    }
+
     /// Sets the package's program-syntax integer literal module.
     #[must_use]
     pub const fn with_int_literals(mut self, int_literals: krs_ir::IntLiterals) -> Self {

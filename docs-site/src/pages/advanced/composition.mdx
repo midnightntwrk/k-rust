@@ -8,7 +8,8 @@ description: Select named facets across Cargo packages, cfg values, stable ident
 {/* tour-concepts: facets-composition facet-cfg-selection stable-identity backend-selection */}
 
 A larger semantics can be split into ordinary Cargo packages and assembled explicitly at collection time.
-Composition chooses definition facets; it does not merge source trees or make imports implicit.
+Composition chooses definition facets; it does not merge source trees.
+The definition it builds holds every selected facet, whether or not a source names one ([what the definition holds](#what-the-definition-holds)).
 
 ## Declare facets in Cargo metadata
 
@@ -45,7 +46,7 @@ KRS does not resolve a constructor by comparing the text `Same`; ordinary Rust p
 Rust privacy is K privacy.
 A production whose Rust item is not `pub`, including `pub(crate)` and `pub(in ..)`, is emitted with K's `private` attribute, so only its own package's rules can use it.
 A dependent that names it is rejected by rustc (E0603), and K's private syntax is invisible to every importing module, programs and proof modules included.
-KRS keeps K imports public on purpose: imports follow references, and a claim may name a dependency's `pub` production.
+KRS keeps K imports public on purpose: a package's module imports the packages it references, and a claim may name a dependency's `pub` production.
 A production that rules everywhere need but programs must not contain is `pub` and `internal`.
 
 ## Select the composition
@@ -68,7 +69,16 @@ An ambiguous root package name can be replaced by the exact `--package-id` selec
 Dependency selectors currently accept package names only, so an ambiguous dependency package cannot be disambiguated with `--package-id`.
 
 Missing packages, missing facets, and ambiguous package selections fail during planning before the collector is built.
+A dependency facet must be in the root package's resolved dependency closure; the commands that evaluate views in an observer ([views and the observer](/reference/workflow#expectations)) give each composition, the definition and each observer, the facets its own closure holds.
 Selection order has no semantic meaning: the planner canonicalizes the same set to the same composition.
+
+## What the definition holds
+
+The definition's main module is the root package's module `<NS>`, and the definition holds every selected facet.
+A package's module imports the packages its own sentences reference; the root's module also imports each selected package that those imports do not reach in the emitted K, so a facet is composed whether or not some source names it, and its `pub` productions join the root's program syntax through `<NS>-SYNTAX`, as a referenced dependency's do.
+A dependency whose rules need the configuration imports the configured package's `-CONFIGURATION` module rather than the package's module, and that module holds none of the configured package's rules, so such an import does not count as reaching the configured package.
+The root imports only what nothing else reaches, the topmost such packages, so a composition whose references already reach every facet emits the same K.
+A dependency that imports the root package's module, which the root never references, is held the same way: the root imports it, and its import of the root becomes the `-CONFIGURATION` import above, so the main module stays the root's rather than the dependency's.
 
 ## Stable public symbols
 
