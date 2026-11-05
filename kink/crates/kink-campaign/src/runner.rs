@@ -4890,7 +4890,7 @@ mod tests {
                     &executed(listing(vec![unflagged.clone()]), ground),
                 );
                 assert_eq!(evidence.run, excluded);
-                assert_eq!(evidence.notes.short_circuit_readings, [unflagged.clone()]);
+                assert_eq!(evidence.notes.short_circuit_readings, std::slice::from_ref(&unflagged));
                 // The live run on the flagged facts is stored, not excluded with its load: a
                 // reuse judges it again.
                 let mut session = BaselineSession::new(&validator);

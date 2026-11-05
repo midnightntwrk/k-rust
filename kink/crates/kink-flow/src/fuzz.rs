@@ -720,16 +720,16 @@ fn instance(
             )
         }
         TemplateSource::File(name) => {
-            let bytes = read_inside(&templates.directory, name).map_err(&refused)?;
+            let bytes = read_inside(&templates.directory, name).map_err(refused)?;
             (
-                Some(template_text(manifest, Some(name), &bytes).map_err(&refused)?),
+                Some(template_text(manifest, Some(name), &bytes).map_err(refused)?),
                 template.start_sort.clone(),
                 template.variables.clone(),
                 Some(name.clone()),
             )
         }
         TemplateSource::Text(text) => (
-            Some(template_text(manifest, None, text.as_bytes()).map_err(&refused)?),
+            Some(template_text(manifest, None, text.as_bytes()).map_err(refused)?),
             template.start_sort.clone(),
             template.variables.clone(),
             None,
