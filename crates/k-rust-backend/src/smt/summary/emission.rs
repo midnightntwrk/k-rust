@@ -326,41 +326,37 @@ fn emit(
         Ok(sort) => sort,
         Err(error) => return Ok(Err(error)),
     };
-    // `define-fun` is a parser macro in Z3: distinct arguments in a dependency diamond can
-    // expand exponentially before a solver check (and its limits) begins. This definition
-    // keeps function applications as AST nodes during loading. The admitted source graph is
-    // acyclic; using this SMT mechanism does not admit recursive K helpers.
-    let definition = SExpr::application(
-        "define-fun-rec",
-        vec![
-            SExpr::atom(name.clone()),
-            SExpr::List(parameters.clone()),
-            SExpr::atom(sort),
-            value,
-        ],
-    );
-    let domain_definition = domain_name.as_ref().map(|name| {
-        SExpr::application(
-            "define-fun-rec",
-            vec![
-                SExpr::atom(name.clone()),
-                SExpr::List(parameters),
-                SExpr::atom("Bool"),
-                domain,
-            ],
-        )
-    });
-    if !word::fits_text(&definition, text)? {
+    // A definition or a declared function with its axiom, by what the body applies
+    // (`word::reading_definition`); the admitted source graph is acyclic either way, and neither
+    // admits a recursive K helper.
+    let definition = word::reading_definition(
+        state,
+        name.clone(),
+        parameters.clone(),
+        SExpr::atom(sort),
+        value,
+    )?;
+    let domain_definition = match &domain_name {
+        Some(name) => Some(word::reading_definition(
+            state,
+            name.clone(),
+            parameters,
+            SExpr::atom("Bool"),
+            domain,
+        )?),
+        None => None,
+    };
+    if !word::fits_text(definition.command(), text)? {
         return Ok(Ok(false));
     }
     if let Some(domain) = &domain_definition
-        && !word::fits_text(domain, text)?
+        && !word::fits_text(domain.command(), text)?
     {
         return Ok(Ok(false));
     }
-    state.derived_definitions.push(definition.to_string());
+    word::install_reading(state, definition);
     if let Some(domain) = domain_definition {
-        state.derived_definitions.push(domain.to_string());
+        word::install_reading(state, domain);
     }
     state.summaries.insert(
         summary.key.clone(),

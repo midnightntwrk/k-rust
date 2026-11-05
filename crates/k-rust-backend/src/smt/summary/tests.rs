@@ -1253,7 +1253,7 @@ fn shared_word_variants_compose_with_independent_arithmetic_under_native_default
             )
             .unwrap()
             .unwrap();
-        assert!(q.base().contains("define-fun-rec SMT-WORD"), "{}", q.base());
+        assert!(q.base().contains("(define-fun SMT-WORD"), "{}", q.base());
         assert!(q.checked().to_string().contains("SMT-WORD-"));
         assert!(q.model_mappings().is_none());
         let counters = k_rust_kore::measure::snapshot();
@@ -1322,6 +1322,33 @@ fn distinct_argument_dependency_diamonds_share_integer_and_word_definitions() {
         .unwrap();
     let script = format!("{}\n(assert {})", q.base(), q.checked());
     assert_eq!(script.matches("define-fun").count(), 62);
+    // A reading is a `define-fun` exactly when it applies no `define-fun` reading: Z3 expanding
+    // the applications of `define-fun`s applying one another while it reads the script would
+    // copy the lowest stage's body 2^30 times. So the stages alternate, from a `define-fun` at
+    // the lowest, and each `define-fun-rec` applies the `define-fun` below it.
+    let mut macros = std::collections::BTreeSet::new();
+    let (mut definitions, mut recursive) = (0, 0);
+    for line in script.lines() {
+        let (is_recursive, rest) = if let Some(rest) = line.strip_prefix("(define-fun-rec ") {
+            (true, rest)
+        } else if let Some(rest) = line.strip_prefix("(define-fun ") {
+            (false, rest)
+        } else {
+            continue;
+        };
+        let (name, body) = rest.split_once(' ').unwrap();
+        let applies_macro = macros
+            .iter()
+            .any(|applied: &String| body.contains(&format!("({applied} ")));
+        assert_eq!(is_recursive, applies_macro, "{line}");
+        if is_recursive {
+            recursive += 1;
+        } else {
+            definitions += 1;
+            macros.insert(name.to_owned());
+        }
+    }
+    assert_eq!((definitions, recursive), (32, 30), "{script}");
     assert!(script.len() < 64_000, "{}", script.len());
     use crate::smt::{Satisfiability, SmtSolver, Z3Solver};
     let mut known = range(&d, "X", 256);
@@ -1407,7 +1434,7 @@ fn exact_range_profiles_are_query_local_and_source_ownership_outlives_the_loader
         )
         .unwrap()
         .unwrap();
-    assert_eq!(q.base().matches("define-fun-rec SMT-WORD-").count(), 2);
+    assert_eq!(q.base().matches("(define-fun SMT-WORD-").count(), 2);
     let solver = {
         let d = definition(&bit_rows());
         Z3Solver::new(&d).unwrap()
@@ -1530,7 +1557,7 @@ fn compiled_foldiboy_shared_emission_uses_original_helper_bodies() {
         "actual Foldiboy emission: snapshot={snapshot_cost:?} scalar={scalar_cost:?} complete={cost:?} native={:?} scalar_variants={} word_variants={} bytes={bytes}",
         started.elapsed(),
         state.summaries.len(),
-        query.base().matches("define-fun-rec SMT-WORD-").count()
+        query.base().matches(" SMT-WORD-").count()
     );
 }
 

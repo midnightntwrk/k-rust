@@ -481,6 +481,10 @@ pub struct TranslationState {
     #[cfg(any(feature = "z3", test))]
     summaries: BTreeMap<summary::Key, summary::Reading>,
     derived_definitions: Vec<String>,
+    /// The names of the readings among `derived_definitions` defined by `define-fun`
+    /// (`word::reading_definition`).
+    #[cfg(any(feature = "z3", test))]
+    reading_macros: rustc_hash::FxHashSet<String>,
     predicate_mappings: Vec<(Predicate, String)>,
     /// The names of `predicate_mappings`, for a lookup that does not scan them.
     predicate_mapping_names: FxHashMap<Predicate, String>,
@@ -568,6 +572,8 @@ impl TranslationState {
             #[cfg(any(feature = "z3", test))]
             summaries: BTreeMap::new(),
             derived_definitions: Vec::new(),
+            #[cfg(any(feature = "z3", test))]
+            reading_macros: rustc_hash::FxHashSet::default(),
             predicate_mappings: Vec::new(),
             predicate_mapping_names: FxHashMap::default(),
             atom_readings: false,

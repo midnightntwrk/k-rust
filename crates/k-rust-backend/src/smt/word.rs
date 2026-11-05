@@ -271,23 +271,218 @@ impl Registry {
                 Ok(body) => body,
                 Err(error) => return Ok(Err(error)),
             };
-            // As for scalar definitions, retain applications during parsing instead of
-            // eagerly macro-expanding distinct-argument dependency diamonds.
-            let expression = app(
-                "define-fun-rec",
-                vec![
-                    atom(definition.name),
-                    SExpr::List(parameters),
-                    atom(sort(result)),
-                    body,
-                ],
-            );
-            if !fits_text(&expression, text)? {
+            let reading =
+                reading_definition(state, definition.name, parameters, atom(sort(result)), body)?;
+            if !fits_text(&reading.command, text)? {
                 return Ok(Ok(false));
             }
-            state.derived_definitions.push(expression.to_string());
+            install_reading(state, reading);
         }
         Ok(Ok(true))
+    }
+}
+
+/// The command that defines a reading (a word variant, a scalar summary or its domain), before
+/// [`install_reading`] adds it to the query.
+pub(super) struct ReadingDefinition {
+    name: String,
+    /// Whether the command is a `define-fun`.
+    macro_definition: bool,
+    command: SExpr,
+}
+
+impl ReadingDefinition {
+    pub(super) fn command(&self) -> &SExpr {
+        &self.command
+    }
+}
+
+/// The definition of reading `name` as `body` over `parameters`, of sort `sort`.
+///
+/// No reading applies itself, directly or through others: the admitted source graph is acyclic
+/// (`summary`), and a word variant applies only variants completed before it. So a reading is a
+/// definition, and `define-fun` states it as one: Z3 replaces each application by the body while
+/// it reads the script, and the search sees the body with the rest of the assertions, rewritten
+/// with them before search. `define-fun-rec` instead declares a function and its defining
+/// axiom; Z3 unfolds an application during search and rewrites the unfolded body there, where
+/// the check's cancellation can cut the rewrite short ([`internalized_operators`]).
+///
+/// The replacement copies the body once per distinct application, and the body itself holds the
+/// copies of the `define-fun` readings it applies, so `define-fun` readings applying one another
+/// would grow with the product of their applications: `n` levels each applying the level below
+/// at two distinct arguments copy the lowest body `2^n` times, while Z3 reads the script, before
+/// any limit of the check applies. A reading is therefore a `define-fun` exactly when its body
+/// applies no `define-fun` reading. The expansion of such a body is then its text with each
+/// application of a power definition (`|KRUST-POWER-VALUE|`, `|KRUST-POWER-OF-b|`, which are
+/// `define-fun`s applying no definition) replaced by that definition's text, and the expansion
+/// of a script is bounded by its text with each application of a reading or a power definition
+/// replaced by that definition's text. Any other reading is a `define-fun-rec`, whose
+/// applications stay single terms until search unfolds them, as the applications of a declared
+/// function do.
+///
+/// Both kinds of body are written in operators Z3's search internalizes as written
+/// ([`internalized_operators`]): a `define-fun-rec` body is unfolded during search, and a
+/// `define-fun` body is copied into the `define-fun-rec` bodies that apply it.
+pub(super) fn reading_definition(
+    state: &TranslationState,
+    name: String,
+    parameters: Vec<SExpr>,
+    sort: SExpr,
+    body: SExpr,
+) -> Stoppable<ReadingDefinition> {
+    let body = internalized_operators(body)?;
+    let mut pending = vec![&body];
+    let mut applies_macro = false;
+    while let Some(expression) = pending.pop() {
+        stop::check()?;
+        match expression {
+            SExpr::Atom(text) => {
+                if state.reading_macros.contains(super::symbol_name(text)) {
+                    applies_macro = true;
+                    break;
+                }
+            }
+            SExpr::List(children) => pending.extend(children),
+        }
+    }
+    let command = app(
+        if applies_macro {
+            "define-fun-rec"
+        } else {
+            "define-fun"
+        },
+        vec![atom(&name), SExpr::List(parameters), sort, body],
+    );
+    Ok(ReadingDefinition {
+        name,
+        macro_definition: !applies_macro,
+        command,
+    })
+}
+
+/// `body` with every application of an operator that Z3's search does not internalize as
+/// written replaced by its meaning in operators it does, where SMT-LIB defines one exactly.
+///
+/// Z3 internalizes a term or an atom in the search only in the operators its theories and its core
+/// take as written: in the bit-vector theory, the arithmetic and bitwise operations, shifts,
+/// extractions, extensions, `int2bv` and `bv2nat`, and of the comparisons only `bvule` and `bvsle`
+/// (`theory_bv::internalize_term` and `internalize_atom`); in the core, `not`, `and`, `or`, `ite`,
+/// `=` and `xor` of two operands, and from Z3 4.15.3 on also `=>` (`context::internalize_formula`).
+/// Every other operator must have been rewritten into those first. The search rewrites the body of
+/// a `define-fun-rec` application when it unfolds it (`theory_recfun::apply_args`), and the check's
+/// cancellation (its resource limit or timeout) can cut that rewrite short and leave the rest of
+/// the body as written. An operator left so is an internal error of Z3: a bit-vector one reaches
+/// the `UNREACHABLE` of its theory (Z3 4.12.5 ends the process with exit status 114, 4.16.0 answers
+/// unknown with the reason `unreachable`), and a core one reaches the core's
+/// `formula has not been simplified` exception. Which core operators that is depends on the
+/// version: Z3 4.12.5 refuses `=>` and `distinct`, while 4.16.0 refuses `distinct` but internalizes
+/// `=>` (`context::mk_implies_cnstr`); both refuse `=` over Bool and `xor` with more than two
+/// operands (`context::mk_iff_cnstr`). A Game Boy CPU specification met the bit-vector case through
+/// a `bvult`.
+///
+/// The word planner writes only internalized operators, `=` and `xor` with two operands. This
+/// rewrites the rest of the text a reading copies, from the ordinary translation of its inputs and
+/// from the definition's `smt-hook`s (`distinct` for `INT.ne`, say), exactly: `(=> a ... b)` is
+/// `(or (not a) ... b)` (a rewrite 4.16.0 does not need and 4.12.5 does), `(distinct a b ...)` is
+/// the conjunction of `(not (= a b))` over its pairs, and over the total orders of bit-vectors
+/// `a < b` is `(not (b <= a))`, `a > b` is `(not (a <= b))` and `a >= b` is `(b <= a)`. Arithmetic
+/// needs no rewrite: Z3's arithmetic theory reads an atom or a term it does not internalize as
+/// unsupported, which makes the check's answer unknown (`theory_lra::internalize_atom`), never an
+/// internal error. An operator outside all of these can reach a reading only through an `smt-hook`
+/// template (a bit-vector division, say), whose meaning in the internalized operators this does not
+/// know; the cut-short rewrite can leave it as written, which is then the internal error above.
+fn internalized_operators(body: SExpr) -> Stoppable<SExpr> {
+    enum Step {
+        Visit(SExpr),
+        Build(usize),
+    }
+    let mut steps = vec![Step::Visit(body)];
+    let mut built = Vec::new();
+    while let Some(step) = steps.pop() {
+        stop::check()?;
+        match step {
+            Step::Visit(SExpr::List(children)) => {
+                steps.push(Step::Build(children.len()));
+                steps.extend(children.into_iter().rev().map(Step::Visit));
+            }
+            Step::Visit(atom) => built.push(atom),
+            Step::Build(length) => {
+                let children = built.split_off(built.len() - length);
+                built.push(internalized_application(children));
+            }
+        }
+    }
+    Ok(built.pop().expect("the body was built"))
+}
+
+/// The list `children`, whose children are already rewritten by [`internalized_operators`], as
+/// an application of an internalized operator.
+fn internalized_application(mut children: Vec<SExpr>) -> SExpr {
+    let operator = match children.first() {
+        Some(SExpr::Atom(operator)) => operator.as_str(),
+        _ => return SExpr::List(children),
+    };
+    let order = match operator {
+        "bvult" | "bvugt" | "bvuge" => Some("bvule"),
+        "bvslt" | "bvsgt" | "bvsge" => Some("bvsle"),
+        _ => None,
+    };
+    if let Some(le) = order {
+        if children.len() != 3 {
+            return SExpr::List(children);
+        }
+        let swapped = !matches!(operator, "bvugt" | "bvsgt");
+        let negated = !matches!(operator, "bvuge" | "bvsge");
+        let right = children.pop().expect("two operands");
+        let left = children.pop().expect("two operands");
+        let comparison = if swapped {
+            app(le, vec![right, left])
+        } else {
+            app(le, vec![left, right])
+        };
+        return if negated {
+            app("not", vec![comparison])
+        } else {
+            comparison
+        };
+    }
+    match operator {
+        "=>" if children.len() >= 3 => {
+            let conclusion = children.pop().expect("a conclusion");
+            let mut disjuncts = children
+                .into_iter()
+                .skip(1)
+                .map(|premise| app("not", vec![premise]))
+                .collect::<Vec<_>>();
+            disjuncts.push(conclusion);
+            app("or", disjuncts)
+        }
+        "distinct" if children.len() >= 3 => {
+            let operands = children.split_off(1);
+            let mut different = Vec::new();
+            for (index, left) in operands.iter().enumerate() {
+                for right in &operands[index + 1..] {
+                    different.push(app(
+                        "not",
+                        vec![app("=", vec![left.clone(), right.clone()])],
+                    ));
+                }
+            }
+            if different.len() == 1 {
+                different.pop().expect("one pair")
+            } else {
+                app("and", different)
+            }
+        }
+        _ => SExpr::List(children),
+    }
+}
+
+/// Add `reading` to the query's derived definitions.
+pub(super) fn install_reading(state: &mut TranslationState, reading: ReadingDefinition) {
+    state.derived_definitions.push(reading.command.to_string());
+    if reading.macro_definition {
+        state.reading_macros.insert(reading.name);
     }
 }
 
@@ -466,56 +661,28 @@ impl Planner<'_> {
         })
     }
 
+    /// The comparison `op` of nodes `a` and `b`. An order comparison is written only with
+    /// `bvule` or `bvsle`, negated or with its operands swapped: over a total order `a < b` is
+    /// `(not (b <= a))`, `a > b` is `(not (a <= b))` and `a >= b` is `(b <= a)`, exactly. These
+    /// two are the only comparisons Z3's search internalizes as written, which every operator of
+    /// a reading's body must be ([`internalized_operators`]).
     fn comparison(&mut self, op: &str, a: usize, b: usize) -> Option<usize> {
         match (self.range(a), self.range(b)) {
             (Some(a_range), Some(b_range)) => {
                 let combined = a_range.union(b_range);
                 let width = combined.width()?;
-                let operator = match op {
-                    "eq" | "ne" => "=",
-                    "lt" => {
-                        if combined.signed() {
-                            "bvslt"
-                        } else {
-                            "bvult"
-                        }
-                    }
-                    "le" => {
-                        if combined.signed() {
-                            "bvsle"
-                        } else {
-                            "bvule"
-                        }
-                    }
-                    "gt" => {
-                        if combined.signed() {
-                            "bvsgt"
-                        } else {
-                            "bvugt"
-                        }
-                    }
-                    "ge" => {
-                        if combined.signed() {
-                            "bvsge"
-                        } else {
-                            "bvuge"
-                        }
-                    }
+                let le = if combined.signed() { "bvsle" } else { "bvule" };
+                let (left, right) = (self.resize(a, width)?, self.resize(b, width)?);
+                let value = match op {
+                    "eq" => app("=", vec![left, right]),
+                    "ne" => app("not", vec![app("=", vec![left, right])]),
+                    "le" => app(le, vec![left, right]),
+                    "ge" => app(le, vec![right, left]),
+                    "lt" => app("not", vec![app(le, vec![right, left])]),
+                    "gt" => app("not", vec![app(le, vec![left, right])]),
                     _ => return None,
                 };
-                let result = app(
-                    operator,
-                    vec![self.resize(a, width)?, self.resize(b, width)?],
-                );
-                self.expression(
-                    if op == "ne" {
-                        app("not", vec![result])
-                    } else {
-                        result
-                    },
-                    None,
-                    &[a, b],
-                )
+                self.expression(value, None, &[a, b])
             }
             (None, None) if matches!(op, "eq" | "ne") => self.expression(
                 app(
@@ -672,7 +839,11 @@ impl Planner<'_> {
             let op = match op {
                 "eq" => "=",
                 "ne" | "xor" => "xor",
-                "implies" => "=>",
+                // `=>` is not internalized as written ([`internalized_operators`]).
+                "implies" => {
+                    let value = app("or", vec![app("not", vec![reference(a)]), reference(b)]);
+                    return self.expression(value, None, &[a, b]);
+                }
                 "and" | "andThen" => "and",
                 "or" | "orElse" => "or",
                 _ => return None,
@@ -779,7 +950,8 @@ impl Planner<'_> {
 
         if matches!(op, "tdiv" | "tmod") && x.signed() {
             // Compiled Euclidean division uses toward-zero division internally. A signed
-            // numerator cannot use an arithmetic shift for toward-zero division.
+            // numerator cannot use an arithmetic shift alone for toward-zero division
+            // (`signed_power_division`).
             let divisor = BigInt::one() << amount;
             let interval = if op == "tdiv" {
                 Interval {
@@ -799,10 +971,8 @@ impl Planner<'_> {
             if width > WIDTH_LIMIT {
                 return None;
             }
-            let mut value = app(
-                if op == "tdiv" { "bvsdiv" } else { "bvsrem" },
-                vec![self.resize(a, width)?, literal(&divisor, width)],
-            );
+            let mut value =
+                signed_power_division(op == "tmod", self.resize(a, width)?, amount, width);
             if result_width < width {
                 value = app(format!("(_ extract {} 0)", result_width - 1), vec![value]);
             }
@@ -877,6 +1047,37 @@ impl Planner<'_> {
             value = app(format!("(_ extract {} 0)", result_width - 1), vec![value]);
         }
         self.expression(value, Some(interval), &[a])
+    }
+}
+
+/// The quotient, or with `remainder` the remainder, of the signed `width`-bit value `x` divided
+/// by `2^amount` toward zero, with `width >= amount + 2`, in operators Z3's search internalizes
+/// as written ([`internalized_operators`]; neither `bvsdiv` nor `bvsrem` is one).
+///
+/// An arithmetic shift right by `amount` divides by `2^amount` rounding down, which is toward
+/// zero for `x >= 0`. For `x < 0`, toward zero is rounding up, and `ceil(x / 2^k)` is
+/// `floor((x + 2^k - 1) / 2^k)`; the sum does not wrap, as `x + 2^k - 1 <= 2^k - 2`, which is
+/// below `2^(width - 1)` when `width >= k + 2`. The remainder is `x - (x / 2^k) * 2^k`: the
+/// product's magnitude is at most `|x|` and the remainder's below `2^k`, so neither wraps.
+fn signed_power_division(remainder: bool, x: SExpr, amount: u32, width: u32) -> SExpr {
+    let zero = literal(&BigInt::zero(), width);
+    let bias = app(
+        "ite",
+        vec![
+            app("bvsle", vec![zero.clone(), x.clone()]),
+            zero,
+            literal(&((BigInt::one() << amount) - 1), width),
+        ],
+    );
+    let amount = literal(&BigInt::from(amount), width);
+    let quotient = app(
+        "bvashr",
+        vec![app("bvadd", vec![x.clone(), bias]), amount.clone()],
+    );
+    if remainder {
+        app("bvsub", vec![x, app("bvshl", vec![quotient, amount])])
+    } else {
+        quotient
     }
 }
 

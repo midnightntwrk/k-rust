@@ -477,6 +477,14 @@ fn signed_and_projected_values_agree_with_actual_native_hooks() {
             planner.plan.root = planner.comparison("eq", a, b).unwrap();
             let mut state = TranslationState::new();
             let expr = planner.plan.emit(&mut state, atom(false)).unwrap().unwrap();
+            // A reading's body holds no operator the search must rewrite before it internalizes
+            // it (`internalized_operators`).
+            let text = expr.to_string();
+            for written in [
+                "bvsdiv", "bvsrem", "bvult", "bvslt", "bvugt", "bvsgt", "bvuge",
+            ] {
+                assert!(!text.contains(&format!("({written} ")), "{hook}: {text}");
+            }
             let bindings = state
                 .mappings
                 .iter()
@@ -835,4 +843,97 @@ fn application_effects_and_text_limits_are_checked_independently() {
         state.word_predicates.is_empty(),
         "repeated occurrences must consume the text budget"
     );
+}
+
+/// A reading's body is written in operators Z3's search internalizes as written, whatever text
+/// it copies, and each rewrite means what it replaces; a reading that applies a `define-fun`
+/// reading is a `define-fun-rec`.
+#[test]
+fn a_reading_body_is_written_in_internalized_operators() {
+    let parse = |text: &str| SExpr::parse(text).unwrap();
+    let original = "(and (=> p q r) (distinct i j) (distinct i j k) (bvult u v) (bvugt u v) \
+                    (bvuge u v) (bvslt u v) (bvsgt u v) (bvsge u v) (= (SMT-1 i) j))";
+    let declarations = [
+        ("p", "Bool"),
+        ("q", "Bool"),
+        ("r", "Bool"),
+        ("i", "Int"),
+        ("j", "Int"),
+        ("k", "Int"),
+        ("u", "(_ BitVec 8)"),
+        ("v", "(_ BitVec 8)"),
+    ];
+    let mut state = TranslationState::new();
+    let lowest = reading_definition(
+        &state,
+        "SMT-1".into(),
+        vec![parse("(a Int)")],
+        atom("Int"),
+        parse("a"),
+    )
+    .unwrap();
+    assert_eq!(
+        lowest.command().to_string(),
+        "(define-fun SMT-1 ((a Int)) Int a)"
+    );
+    install_reading(&mut state, lowest);
+    let reading = reading_definition(
+        &state,
+        "SMT-2".into(),
+        declarations
+            .iter()
+            .map(|(name, sort)| parse(&format!("({name} {sort})")))
+            .collect(),
+        atom("Bool"),
+        parse(original),
+    )
+    .unwrap();
+    let SExpr::List(command) = reading.command() else {
+        panic!("{}", reading.command())
+    };
+    assert_eq!(command[0], atom("define-fun-rec"));
+    let rewritten = command[4].to_string();
+    assert_eq!(
+        rewritten,
+        "(and (or (not p) (not q) r) (not (= i j)) (and (not (= i j)) (not (= i k)) \
+         (not (= j k))) (not (bvule v u)) (not (bvule u v)) (bvule v u) (not (bvsle v u)) \
+         (not (bvsle u v)) (bvsle v u) (= (SMT-1 i) j))"
+    );
+    #[cfg(feature = "z3")]
+    {
+        let constants = declarations
+            .iter()
+            .map(|(name, sort)| format!("(declare-const {name} {sort})"))
+            .collect::<String>();
+        let solver = z3::Solver::new();
+        solver.from_string(format!(
+            "{constants}(declare-fun SMT-1 (Int) Int)(assert (not (= {original} {rewritten})))"
+        ));
+        assert_eq!(solver.check(), z3::SatResult::Unsat);
+    }
+}
+
+/// The quotient and the remainder of a signed word divided by a power of two toward zero, in
+/// shifts, are `bvsdiv` and `bvsrem` at every value of every width the planner admits them at.
+#[cfg(feature = "z3")]
+#[test]
+fn signed_division_by_a_power_of_two_is_bvsdiv_and_bvsrem() {
+    let mut checks = Vec::new();
+    for width in 2..=12_u32 {
+        for amount in 0..=width - 2 {
+            let x = atom(format!("x{width}"));
+            let divisor = literal(&(BigInt::one() << amount), width);
+            for (remainder, operator) in [(false, "bvsdiv"), (true, "bvsrem")] {
+                let shifted = signed_power_division(remainder, x.clone(), amount, width);
+                assert!(!shifted.to_string().contains(operator), "{shifted}");
+                checks.push(format!("(not (= {shifted} ({operator} {x} {divisor})))"));
+            }
+        }
+    }
+    let constants = (2..=12)
+        .map(|width| format!("(declare-const x{width} (_ BitVec {width}))"))
+        .collect::<String>();
+    let solver = z3::Solver::new();
+    solver.from_string(format!("{constants}(assert (or {}))", checks.join(" ")));
+    assert_eq!(solver.check(), z3::SatResult::Unsat);
 }

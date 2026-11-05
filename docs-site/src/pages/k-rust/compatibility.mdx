@@ -3399,7 +3399,8 @@ Caller bounds and branch guards never become global totality metadata, and the e
 Admitted functions share query-local scalar definitions and bounded word variants over one immutable snapshot of the loaded definition.
 A changed definition, including an admitted kink mutant, supplies its own source snapshot.
 These are derived readings of source equations, not trusted application lemmas, semantic execution steps, or fabricated coverage events.
-The SMT emitter uses `define-fun-rec` to keep acyclic helper applications shared during solver loading; this declaration does not admit recursive K functions.
+The SMT emitter writes a reading whose body applies no other reading defined by `define-fun` as a `define-fun`, which Z3 expands while it reads the script, and every other reading as a `define-fun-rec`, which keeps the reading's applications single terms while Z3 reads the script, so a chain of readings at distinct arguments does not expand exponentially before the check's limits apply; the admitted readings are acyclic either way, and neither declaration admits recursive K functions.
+Z3 unfolds a `define-fun-rec` application during search and rewrites its body there, and the check's cancellation can cut that rewrite short, so every reading's body is written in operators Z3's search takes as written: comparisons of words only with `bvule` and `bvsle`, a signed division of a word by a power of two with shifts, and `=>` and `distinct` with `not`, `or`, `and` and `=`; an operator left unrewritten there is an internal error of Z3.
 Helpers with residual branch domains retain the paired scalar reading; the word planner currently declines their specialized word variants rather than dropping a domain or a declared-total fallback.
 
 The word planner may read a complete bounded `Int` expression as bit-vector arithmetic with an explicit full-value or projection contract.
