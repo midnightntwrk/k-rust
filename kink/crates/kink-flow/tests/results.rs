@@ -1488,8 +1488,10 @@ endmodule
         // comparable record holds its ends' summaries. v10, because the key names the execution
         // digest and the bounds a stored class depends on, and no host-dependent class is
         // stored. v11 (CF-03), because a record holds the readings that excluded its run. v12
-        // (v12), because a record holds each end once, as KORE text.
-        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v13");
+        // (v12), because a record holds each end once, as KORE text. v13, because a record of a
+        // run with a stop holds how its ends were reached. v14 (CF-33), because a record holds
+        // kink's own undecided solver answers and records are written under Z3 too.
+        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v14");
         record["key"]["schema_version"] = json!("kink-flow/result/v1");
         fs::write(&path, record.to_string()).unwrap();
         let (recomputed, status) = run(&manifest, false);

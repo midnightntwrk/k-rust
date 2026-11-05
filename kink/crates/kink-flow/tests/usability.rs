@@ -666,8 +666,8 @@ text = 'h(opaque(1), 2)'
         // `not-admitted`; version 19 witnesses a rewrite rule edit that is not confined to its
         // right-hand side or ensures by `matched`; CF-21-U3: version 20 adds `stop`; CF-24f:
         // version 21 names each `difference`'s format; version 22 adds named cases and a case's
-        // `expectation`.
-        assert_eq!(document["version"], 22);
+        // `expectation`; CF-33: version 23 adds `decider_smt_unknowns`.
+        assert_eq!(document["version"], 23);
         assert_eq!(row["typing_diagnostics"], json!([]));
         assert_eq!(
             entry(&document, "guard-dropped", "by-zero")["slots"],
