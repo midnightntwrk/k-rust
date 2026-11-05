@@ -15,11 +15,12 @@
 //! definition's configuration: it names only those cells, and every other cell
 //! is framed. The library's rules for its group therefore apply in every
 //! definition whose configuration holds the group, here `small` and `big`
-//! (`Big { core: lib::Core, timer, mem }`). A group below an optional or a
-//! collection cell, a group the configuration does not hold, a cell outside
-//! the group, and a claim typed by a group are refused, each with its own
-//! code; a configuration that holds the group twice is refused as it is for
-//! any rule.
+//! (`Big { core: lib::Core, timer, mem }`). Held in an optional cell or as a
+//! Map collection's instance type, a rule for the group is a local step of
+//! one instance. A group in a Set or a List collection, a group the
+//! configuration does not hold, a cell outside the group, and a claim typed
+//! by a group are refused, each with its own code; a configuration that holds
+//! the group twice is refused as it is for any rule.
 //!
 //! A context alias and a function context typed by the group are about the
 //! group's cells in the same way: the library's serve every definition that
@@ -754,8 +755,9 @@ fn the_library_rules_for_its_group_apply_in_every_containing_definition() {
 ///   `Small` holds beside `Core`, or of one it does not hold);
 /// - a group no cell of the configuration holds is
 ///   `group-not-in-configuration`;
-/// - a group held by an optional or a collection cell has no one fixed
-///   position, `group-subject-position`;
+/// - a group held by a Set or a List collection cell has no position a local
+///   step of one instance applies at, `group-subject-position` (a group held
+///   by an optional cell or a Map collection is admitted, below);
 /// - a configuration that holds the group twice is refused as it is for any
 ///   rule, `ambiguous-cell-sort`: the fault is the configuration's;
 /// - a claim, readable or `cells!`, is typed by the configuration,
@@ -795,11 +797,11 @@ fn a_sentence_typed_by_a_group_is_refused_where_it_leaves_the_group() {
                 "--> small/src/lib.rs: `Spare;`",
             ],
             [
-                "error[krs::analysis::group-subject-position]: the cell group `Mark` is held by the optional cell `held` of configuration `Small`, so its cells exist only in some states: a rule for a group applies at the group's one fixed position; write the rule for `Small`, or hold `Mark` in a cell that is always present",
+                "error[krs::analysis::group-subject-position]: the cell group `Mark` is held by the Set collection cell `held` of configuration `Small`: a sentence about `Mark` is about one instance, which a rule rewrites as a local step, and a Set identifies an instance by its whole content, so a step that makes one instance equal to another merges the two, removing an instance the rule never matched; write the sentence for `Small`, or hold the instances in a Map collection keyed by an id",
                 "--> small/src/lib.rs: `Mark;`",
             ],
             [
-                "error[krs::analysis::group-subject-position]: the cell group `Job` is held by the collection cell `held` of configuration `Small`, so each instance holds its own copy of its cells: a rule for a group applies at the group's one fixed position, and a group inside a `*` collection is not supported yet; write the rule for `Small`, or hold `Job` at a fixed position",
+                "error[krs::analysis::group-subject-position]: the cell group `Job` is held by the List collection cell `held` of configuration `Small`: a sentence about `Job` is about one instance, which in a List is the instance at any position, and matching one instance between others is not supported yet; write the sentence for `Small`, or hold the instances in a Map collection keyed by an id",
                 "--> small/src/lib.rs: `Job;`",
             ],
             [
@@ -851,11 +853,11 @@ fn refused_workspaces(temporary: &Path) -> [PathBuf; 11] {
         ),
         workspace(&root("spare"), "", SMALL_SPARE_GROUP_RULE),
         alone(
-            "optional",
+            "set",
             &small_holding(
                 mark,
-                "#[k::cell(multiplicity = \"?\", nested)]\n    pub held: Option<Mark>,",
-                "k::absent!(Mark { seen: 0 })",
+                "#[k::cell(multiplicity = \"*\", cell_type = \"Set\", nested, initial)]\n    pub held: Mark,",
+                "Mark { seen: 0 }",
                 "k::rules! {\n    for Mark;\n\n    see: { seen } => { seen: k::builtin::int::add(seen, 1) };\n}",
             ),
         ),
@@ -1048,7 +1050,7 @@ fn a_group_held_twice_is_refused_with_the_advice_for_its_rules() {
         [
             "error[krs::analysis::ambiguous-cell-sort]: cell declaration `Core` is the content of more than one cell field (`left`, `right`), so its K cell sort is ambiguous; declare one struct per nested cell",
             "--> small/src/lib.rs: `right: lib::Core`",
-            "= help: a group has one position in a configuration, where its rules apply; several instances of a group are a `*` collection of it, which rules for the group do not support yet",
+            "= help: a group has one position in a configuration, where its rules apply; several instances of a group are a `*` collection of it, and in a Map collection, keyed by the instance's first child, a rule for the group is a step of one instance",
         ]
     "#]].assert_debug_eq(&check_report(target.path(), &small, "small"));
 }
@@ -1496,4 +1498,1255 @@ fn a_claim_about_a_groups_cells_is_written_for_the_configuration() {
         ]
     "#]]
     .assert_debug_eq(&proven);
+}
+
+// A cell group held in an optional cell or a Map collection (OT-11-U8, stage 1).
+//
+// A rule for a group is a local step of one instance: applied inside one
+// instance, it changes that instance and frames everything else. So a group
+// held at a fixed position, in an optional (`?`) cell, or as the instance type
+// of a Map collection takes the same library rules, in both spellings, and a
+// rule for the group names the instance's cells flat from the instance's
+// level. A Set collection merges a stepped instance with an equal one, so it
+// holds no local step; a List collection's instance at any position cannot be
+// matched yet. A Map instance's key is its identity, so a rule restates it or
+// leaves it out. A function context typed by such a group reads the one
+// instance it is evaluated in, so only a sentence inside that instance may
+// apply it.
+
+/// The library of the instance cases: a hart (its key `id`, its computation
+/// and its program counter) and a floating-point unit, with the program
+/// syntax. `rules` is appended.
+const INSTANCE_LIB: &str = r#"
+use k::KResult;
+use k::builtin::{Int, KSequence};
+
+k::sorts! {
+    Instr;
+}
+
+#[k::constructors(sort = Instr, result = KResult)]
+pub enum Op {
+    #[k::syntax("inc")]
+    Inc(),
+    #[k::syntax("dec")]
+    Dec(),
+    #[k::syntax("tick")]
+    Tick(),
+    #[k::syntax("spawn")]
+    Spawn(),
+}
+
+/// One hart; in a Map collection, its first child `id` is its key.
+#[k::cell]
+pub struct Hart {
+    #[k::cell]
+    pub id: Int,
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub pc: Int,
+}
+
+/// A floating-point unit, which a definition may hold as an optional cell.
+#[k::cell]
+pub struct Fpu {
+    #[k::cell]
+    pub busy: Int,
+    #[k::cell]
+    pub fa: Int,
+}
+"#;
+
+/// The library's rules for `Hart`, readable: `inc` leaves the key out,
+/// `dec` restates it as the binder its subject matched it with, and `tick`
+/// as the literal it matched. Each changes the program counter.
+const HART_RULES: &str = r"
+k::rules! {
+    for Hart;
+    use Op::*;
+
+    inc: { k: [Inc(), ..], pc } => { k: [..], pc: k::builtin::int::add(pc, 1) };
+    dec: { id: me, k: [Dec(), ..], pc } => { id: me, k: [..], pc: k::builtin::int::add(pc, 3) };
+    tick: { id: 0, k: [Tick(), ..], pc } => { id: 0, k: [..], pc: k::builtin::int::add(pc, 2) };
+}
+";
+
+/// [`HART_RULES`] as `#[k::rule]` fns over `k::cells! { .. }: Hart`.
+const HART_CELLS_RULES: &str = r#"
+#[k::rule(label = "inc")]
+pub fn inc(
+    pc: Int,
+    k::cells! {
+        k: k::configuration::KCell(Op::Inc(), tail @ ..),
+        pc: k::configuration::Cell(pc),
+        state @ ..
+    }: Hart,
+) -> Hart {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        pc: k::configuration::Cell(k::builtin::int::add(pc, 1)),
+        ..state
+    }
+}
+
+#[k::rule(label = "dec")]
+pub fn dec(
+    me: Int,
+    pc: Int,
+    k::cells! {
+        id: k::configuration::Cell(me),
+        k: k::configuration::KCell(Op::Dec(), tail @ ..),
+        pc: k::configuration::Cell(pc),
+        state @ ..
+    }: Hart,
+) -> Hart {
+    k::cells! {
+        id: k::configuration::Cell(me),
+        k: k::configuration::KCell(..tail),
+        pc: k::configuration::Cell(k::builtin::int::add(pc, 3)),
+        ..state
+    }
+}
+
+#[k::rule(label = "tick")]
+pub fn tick(
+    pc: Int,
+    k::cells! {
+        id: k::configuration::Cell(0),
+        k: k::configuration::KCell(Op::Tick(), tail @ ..),
+        pc: k::configuration::Cell(pc),
+        state @ ..
+    }: Hart,
+) -> Hart {
+    k::cells! {
+        id: k::configuration::Cell(0),
+        k: k::configuration::KCell(..tail),
+        pc: k::configuration::Cell(k::builtin::int::add(pc, 2)),
+        ..state
+    }
+}
+"#;
+
+/// `uni`: the hart at a fixed position.
+const UNI: &str = r"
+use k::builtin::{Int, Map, map};
+
+#[k::configuration]
+pub struct Uni {
+    #[k::cell(nested)]
+    pub hart: lib::Hart,
+    #[k::cell]
+    pub mem: Map<Int, Int>,
+}
+
+impl Uni {
+    #[k::init]
+    pub fn init(pgm: lib::Instr) -> Self {
+        Self {
+            hart: lib::Hart { id: 0, k: k::k![pgm], pc: 0 },
+            mem: map::empty(),
+        }
+    }
+}
+";
+
+/// `smp`: the harts as a collection ordered by `order`, starting with one,
+/// beside a memory and a counter; `rules` is appended.
+fn smp(order: &str, rules: &str) -> String {
+    format!(
+        r#"
+use k::builtin::{{Int, Map, map}};
+
+#[k::cell]
+pub struct Harts {{
+    #[k::cell(multiplicity = "*", cell_type = "{order}", initial, nested)]
+    pub hart: lib::Hart,
+}}
+
+#[k::configuration]
+pub struct Smp {{
+    #[k::cell(nested)]
+    pub harts: Harts,
+    #[k::cell]
+    pub mem: Map<Int, Int>,
+    #[k::cell]
+    pub ticks: Int,
+}}
+
+impl Smp {{
+    #[k::init]
+    pub fn init(pgm: lib::Instr) -> Self {{
+        Self {{
+            harts: Harts {{
+                hart: lib::Hart {{ id: 0, k: k::k![pgm], pc: 0 }},
+            }},
+            mem: map::empty(),
+            ticks: 0,
+        }}
+    }}
+}}
+
+{rules}
+"#
+    )
+}
+
+/// `opt`: the hart at a fixed position and an optional floating-point unit,
+/// with `rules` for the unit.
+fn opt(rules: &str) -> String {
+    format!(
+        r#"
+use k::builtin::{{Int, Map, map}};
+
+#[k::configuration]
+pub struct Opt {{
+    #[k::cell(nested)]
+    pub hart: lib::Hart,
+    #[k::cell(multiplicity = "?", nested)]
+    pub fpu: Option<lib::Fpu>,
+    #[k::cell]
+    pub mem: Map<Int, Int>,
+}}
+
+impl Opt {{
+    #[k::init]
+    pub fn init(pgm: lib::Instr) -> Self {{
+        Self {{
+            hart: lib::Hart {{ id: 0, k: k::k![pgm], pc: 0 }},
+            fpu: k::absent!(lib::Fpu {{ busy: 0, fa: 0 }}),
+            mem: map::empty(),
+        }}
+    }}
+}}
+
+{rules}
+"#
+    )
+}
+
+/// `opt`'s rule for its unit, readable.
+const FPU_RULE: &str = r"
+k::rules! {
+    for lib::Fpu;
+
+    finish: { busy: 1, fa } => { busy: 0, fa: k::builtin::int::add(fa, 1) };
+}
+";
+
+/// [`FPU_RULE`] as a `#[k::rule]` fn over `k::cells! { .. }: lib::Fpu`.
+const FPU_CELLS_RULE: &str = r#"
+#[k::rule(label = "finish")]
+pub fn finish(
+    fa: Int,
+    k::cells! {
+        busy: k::configuration::Cell(1),
+        fa: k::configuration::Cell(fa),
+        state @ ..
+    }: lib::Fpu,
+) -> lib::Fpu {
+    k::cells! {
+        busy: k::configuration::Cell(0),
+        fa: k::configuration::Cell(k::builtin::int::add(fa, 1)),
+        ..state
+    }
+}
+"#;
+
+/// A workspace of `lib` ([`INSTANCE_LIB`] plus `lib_rules`) and one package
+/// per definition, each depending on `lib`; the definitions' manifests, in
+/// order.
+fn instance_definitions(root: &Path, lib_rules: &str, packages: &[(&str, &str)]) -> Vec<PathBuf> {
+    write_package(root, "lib", &format!("{INSTANCE_LIB}{lib_rules}"), "");
+    let manifests = packages
+        .iter()
+        .map(|(name, source)| write_package(root, name, source, "lib = { path = \"../lib\" }\n"))
+        .collect();
+    let members = std::iter::once("lib")
+        .chain(packages.iter().map(|(name, _)| *name))
+        .map(|name| format!("\"{name}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    fs::write(
+        root.join("Cargo.toml"),
+        format!("[workspace]\nmembers = [{members}]\nresolver = \"3\"\n"),
+    )
+    .unwrap();
+    manifests
+}
+
+/// The library's rules for `Hart` are rules of a definition that holds the
+/// hart at a fixed position (`uni`), as a Map collection's instance type
+/// (`smp`), or beside an optional unit whose own rules are for `lib::Fpu`
+/// (`opt`), in both spellings: each definition checks. A rule that restates
+/// a Map instance's key, as the binder its subject matched it with (`dec`) or
+/// as the same literal (`tick`), is admitted. In `smp` the emitted rule names
+/// the instance's leaf cells inside the instance's cell `<hart>`, and the one
+/// hart runs.
+#[test]
+fn group_rules_apply_at_a_fixed_position_in_an_optional_cell_and_in_a_map() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let mut emitted_inc = Vec::new();
+    for (spelling, hart_rules, fpu_rule) in [
+        ("readable", HART_RULES, FPU_RULE),
+        ("cells", HART_CELLS_RULES, FPU_CELLS_RULE),
+    ] {
+        let manifests = instance_definitions(
+            &temporary.path().join(spelling),
+            hart_rules,
+            &[
+                ("uni", UNI),
+                ("smp", &smp("Map", "")),
+                ("opt", &opt(fpu_rule)),
+            ],
+        );
+        for (manifest, package) in manifests.iter().zip(["uni", "smp", "opt"]) {
+            let (success, _, stderr) = krs_on(target.path(), manifest, package, "check", &[]);
+            assert!(success, "{spelling} {package}:\n{stderr}");
+        }
+        let flat = emitted(target.path(), &manifests[1], "smp");
+        emitted_inc.push(sentence(&flat, "rule [inc]:").to_owned());
+        // The one hart steps by `dec`, which restates its key.
+        let program = manifests[1].with_file_name("program.txt");
+        fs::write(&program, "dec").unwrap();
+        let (success, stdout, stderr) = krs_on(
+            target.path(),
+            &manifests[1],
+            "smp",
+            "run",
+            &[program.to_str().unwrap()],
+        );
+        assert!(success, "{spelling}:\n{stdout}\n{stderr}");
+        let flat = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+        let hart = cell(&flat, "hart");
+        assert_eq!(
+            [cell(&hart, "id"), cell(&hart, "k"), cell(&hart, "pc")],
+            ["0", ".K", "3"].map(str::to_owned),
+            "{spelling}: {flat}"
+        );
+    }
+    expect_test::expect![[r#"
+        [
+            "rule [inc]: <hart> <k> inc => .K ... </k> <pc> Pc:Int => Pc:Int +Int 1 </pc> ... </hart>",
+            "rule [inc]: <hart> <k> inc ~> Tail:K => .K ~> Tail:K </k> <pc> Pc:Int => Pc:Int +Int 1 </pc> ... </hart>",
+        ]
+    "#]].assert_debug_eq(&emitted_inc);
+}
+
+/// A boot rule for `Smp`, over the collection's instance records: the first
+/// hart's `spawn` becomes `inc`, and a second hart, keyed `1`, starts with
+/// `dec` and its program counter at 10.
+const SMP_BOOT: &str = r"
+k::rules! {
+    for Smp;
+    use lib::Op::*;
+
+    spawn: { hart: { me @ lib::Hart { k: [Spawn(), ..], .. }, .. } } => { hart: { lib::Hart { k: [Inc(), ..], ..me }, lib::Hart { id: 1, k: [Dec()], pc: 10 }, .. } };
+}
+";
+
+/// Every `<hart> .. </hart>` of whitespace-flattened text, in order.
+fn harts(flat: &str) -> Vec<String> {
+    flat.split("<hart> ")
+        .skip(1)
+        .map(|rest| rest[..rest.find(" </hart>").unwrap()].to_owned())
+        .collect()
+}
+
+/// Two harts step by the library's rules for `Hart`: each step is a local step
+/// of one hart, which changes that hart and frames the other, so hart 0 ends
+/// with `inc` applied once (`pc` 1) and hart 1 with `dec` once (`pc` 13). The
+/// two harts' steps commute, so every interleaving reaches one final state:
+/// `krs search --mode final` finds exactly that one.
+#[test]
+fn each_step_of_a_group_rule_changes_one_instance() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = instance_definitions(
+        temporary.path(),
+        HART_RULES,
+        &[("smp", &smp("Map", SMP_BOOT))],
+    )
+    .remove(0);
+    let program = manifest.with_file_name("program.txt");
+    fs::write(&program, "spawn").unwrap();
+    let program = program.to_str().unwrap();
+    let flat = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let (success, stdout, stderr) = krs_on(target.path(), &manifest, "smp", "run", &[program]);
+    assert!(success, "{stdout}\n{stderr}");
+    let run = harts(&flat(&stdout));
+    let (success, stdout, stderr) = krs_on(
+        target.path(),
+        &manifest,
+        "smp",
+        "search",
+        &[program, "--mode", "final"],
+    );
+    assert!(success, "{stdout}\n{stderr}");
+    let searched = flat(&stdout);
+    assert_eq!(searched.matches("<generatedTop>").count(), 1, "{searched}");
+    expect_test::expect![[r#"
+        (
+            [
+                "<id> 0 </id> <k> .K </k> <pc> 1 </pc>",
+                "<id> 1 </id> <k> .K </k> <pc> 13 </pc>",
+            ],
+            "<generatedTop> <harts> <hart> <id> 0 </id> <k> .K </k> <pc> 1 </pc> </hart> <hart> <id> 1 </id> <k> .K </k> <pc> 13 </pc> </hart> </harts> <mem> .Map </mem> <ticks> 0 </ticks> </generatedTop>",
+        )
+    "#]].assert_debug_eq(&(run, searched));
+}
+
+/// A Map instance's key (`id`) written as another value than the subject
+/// matched it with.
+const KEY_CHANGE_RULE: &str = r"
+k::rules! {
+    for lib::Hart;
+    use lib::Op::*;
+
+    renumber: { id: me, k: [Inc(), ..] } => { id: k::builtin::int::add(me, 1), k: [..] };
+}
+";
+
+/// [`KEY_CHANGE_RULE`] as a `#[k::rule]` fn.
+const KEY_CHANGE_CELLS_RULE: &str = r#"
+#[k::rule(label = "renumber")]
+pub fn renumber(
+    me: Int,
+    k::cells! {
+        id: k::configuration::Cell(me),
+        k: k::configuration::KCell(lib::Op::Inc(), tail @ ..),
+        state @ ..
+    }: lib::Hart,
+) -> lib::Hart {
+    k::cells! {
+        id: k::configuration::Cell(k::builtin::int::add(me, 1)),
+        k: k::configuration::KCell(..tail),
+        ..state
+    }
+}
+"#;
+
+/// A rule for the hart that names `hart`, the collection cell that holds it.
+const HOLDER_RULE: &str = r"
+k::rules! {
+    for lib::Hart;
+    use lib::Op::*;
+
+    hold: { k: [Inc(), ..], hart } => { k: [..], hart };
+}
+";
+
+/// [`HOLDER_RULE`] as a `#[k::rule]` fn, naming the holder by its owner.
+const HOLDER_CELLS_RULE: &str = r#"
+#[k::rule(label = "hold")]
+pub fn hold(
+    k::cells! {
+        k: k::configuration::KCell(lib::Op::Inc(), tail @ ..),
+        Harts::hart: { me @ k::fragment![lib::Hart { .. }], others @ .. },
+        state @ ..
+    }: lib::Hart,
+) -> lib::Hart {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        ..state
+    }
+}
+"#;
+
+/// A configuration whose instances are `Core`s, each holding a List
+/// collection of jobs, with `rules` appended.
+fn cores(rules: &str) -> String {
+    format!(
+        r#"
+use k::builtin::{{Int, KSequence}};
+
+#[k::cell]
+pub struct Cores {{
+    #[k::cell(multiplicity = "*", cell_type = "Map", initial, nested)]
+    pub core: Core,
+}}
+
+#[k::cell]
+pub struct Core {{
+    #[k::cell]
+    pub id: Int,
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell(nested)]
+    pub jobs: Jobs,
+}}
+
+#[k::cell]
+pub struct Jobs {{
+    #[k::cell(multiplicity = "*", cell_type = "List", nested)]
+    pub job: Job,
+}}
+
+#[k::cell]
+pub struct Job {{
+    #[k::cell]
+    pub payload: Int,
+}}
+
+#[k::configuration]
+pub struct Many {{
+    #[k::cell(nested)]
+    pub cores: Cores,
+}}
+
+impl Many {{
+    #[k::init]
+    pub fn init(pgm: lib::Instr) -> Self {{
+        Self {{
+            cores: Cores {{
+                core: Core {{ id: 0, k: k::k![pgm], jobs: Jobs {{ job: Job {{ payload: 0 }} }} }},
+            }},
+        }}
+    }}
+}}
+
+{rules}
+"#
+    )
+}
+
+/// A rule for `Core` that names `payload`, a cell of the List collection
+/// inside the instance, flat.
+const INNER_FLAT_RULE: &str = r"
+k::rules! {
+    for Core;
+    use lib::Op::*;
+
+    work: { k: [Inc(), ..], payload } => { k: [..], payload: k::builtin::int::add(payload, 1) };
+}
+";
+
+/// [`INNER_FLAT_RULE`] as a `#[k::rule]` fn.
+const INNER_FLAT_CELLS_RULE: &str = r#"
+#[k::rule(label = "work")]
+pub fn work(
+    p: Int,
+    k::cells! {
+        k: k::configuration::KCell(lib::Op::Inc(), tail @ ..),
+        Job::payload: k::configuration::Cell(p),
+        state @ ..
+    }: Core,
+) -> Core {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        Job::payload: k::configuration::Cell(k::builtin::int::add(p, 1)),
+        ..state
+    }
+}
+"#;
+
+/// A rule for `Core` that writes the inner collection's front instance
+/// through its instance record: admitted by the entries, but not emitted
+/// inside an instance yet.
+const INNER_RECORD_RULE: &str = r"
+k::rules! {
+    for Core;
+    use lib::Op::*;
+
+    work: { k: [Inc(), ..], job: [j @ Job { payload: p }, ..] } => { k: [..], job: [Job { payload: k::builtin::int::add(p, 1), ..j }, ..] };
+}
+";
+
+/// [`INNER_RECORD_RULE`] as a `#[k::rule]` fn.
+const INNER_RECORD_CELLS_RULE: &str = r#"
+#[k::rule(label = "work")]
+pub fn work(
+    p: Int,
+    k::cells! {
+        k: k::configuration::KCell(lib::Op::Inc(), tail @ ..),
+        Jobs::job: [j @ k::fragment![crate::Job { payload: p }], jobs @ ..],
+        state @ ..
+    }: Core,
+) -> Core {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        Jobs::job: [k::fragment![crate::Job { payload: k::builtin::int::add(p, 1), ..j }], ..jobs],
+        ..state
+    }
+}
+"#;
+
+/// A function whose context reads the hart's `pc`, `pcPlus(n)`.
+const PC_PLUS: &str = r#"
+use k::Term;
+
+#[k::function(total, sort = Int, syntax = "pcPlus({n})")]
+pub struct PcPlus {
+    pub n: Term<Int>,
+}
+
+#[k::equation]
+fn pc_plus(
+    n: Term<Int>,
+    p: Term<Int>,
+    k::term![PcPlus(n)]: Term<Int>,
+    k::cells! {
+        pc: k::configuration::Cell(p),
+        ..
+    }: lib::Hart,
+) -> Term<Int> {
+    k::builtin::int::add(p, n)
+}
+"#;
+
+/// A function without a context of its own that applies `pcPlus`, so it is
+/// evaluated where its caller is, and a rule for `Smp` that applies it.
+const VIA_PC: &str = r#"
+#[k::function(total, sort = Int, syntax = "viaPc({n})")]
+pub struct ViaPc {
+    pub n: Term<Int>,
+}
+
+#[k::equation]
+fn via_pc(n: Term<Int>, k::term![ViaPc(n)]: Term<Int>) -> Term<Int> {
+    crate::PcPlus(n)
+}
+
+k::rules! {
+    for Smp;
+
+    sample: { ticks: 0 } => { ticks: crate::ViaPc(1) };
+}
+"#;
+
+/// A rule for `Smp`, outside every hart, that applies `pcPlus`.
+const SMP_CALLER: &str = r"
+k::rules! {
+    for Smp;
+
+    sample: { ticks: 0 } => { ticks: crate::PcPlus(1) };
+}
+";
+
+/// [`SMP_CALLER`] as a `#[k::rule]` fn.
+const SMP_CELLS_CALLER: &str = r#"
+#[k::rule(label = "sample")]
+pub fn sample(
+    k::cells! {
+        ticks: k::configuration::Cell(0),
+        state @ ..
+    }: Smp,
+) -> Smp {
+    k::cells! {
+        ticks: k::configuration::Cell(crate::PcPlus(1)),
+        ..state
+    }
+}
+"#;
+
+/// A rule for the hart that applies `pcPlus`: inside the instance the
+/// context reads.
+const HART_CALLER: &str = r"
+k::rules! {
+    for lib::Hart;
+    use lib::Op::*;
+
+    jump: { k: [Inc(), ..], pc } => { k: [..], pc: crate::PcPlus(pc) };
+}
+";
+
+/// A context alias typed by the hart.
+const HART_ALIAS: &str = r#"
+#[k::constructors(sort = lib::Instr, result = k::KResult)]
+pub enum Wait {
+    #[k::syntax("wait ( {n} )")]
+    #[k::strict(using = hart_eval)]
+    Wait { n: lib::Instr },
+}
+
+/// Evaluate at the head of the hart's computation.
+#[k::context_alias(name = hart_eval, here = site)]
+fn hart_eval(
+    k::cells! {
+        k: k::configuration::KCell(site, tail @ ..),
+        state @ ..
+    }: lib::Hart,
+) {
+}
+"#;
+
+/// A configuration whose only computation cell sits in a Set collection's
+/// instance, so the program starts there.
+const SET_MAIN: &str = r#"
+use k::builtin::{Int, KSequence};
+
+#[k::cell]
+pub struct Objs {
+    #[k::cell(multiplicity = "*", cell_type = "Set", initial, nested)]
+    pub obj: Obj,
+}
+
+#[k::cell]
+pub struct Obj {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub n: Int,
+}
+
+#[k::configuration]
+pub struct Pool {
+    #[k::cell(nested)]
+    pub objs: Objs,
+}
+
+impl Pool {
+    #[k::init]
+    pub fn init(pgm: lib::Instr) -> Self {
+        Self {
+            objs: Objs {
+                obj: Obj { k: k::k![pgm], n: 0 },
+            },
+        }
+    }
+}
+"#;
+
+/// A configuration whose instances are `Node`s keyed by a group, `cpu`, with
+/// `rules` appended: the whole group is the instance's identity.
+fn composite(rules: &str) -> String {
+    format!(
+        r#"
+use k::builtin::{{Int, KSequence}};
+
+#[k::cell]
+pub struct Nodes {{
+    #[k::cell(multiplicity = "*", cell_type = "Map", initial, nested)]
+    pub node: Node,
+}}
+
+#[k::cell]
+pub struct Node {{
+    #[k::cell(nested)]
+    pub cpu: Cpu,
+    #[k::cell]
+    pub k: KSequence,
+}}
+
+#[k::cell]
+pub struct Cpu {{
+    #[k::cell]
+    pub pc: Int,
+}}
+
+#[k::configuration]
+pub struct Grid {{
+    #[k::cell(nested)]
+    pub nodes: Nodes,
+}}
+
+impl Grid {{
+    #[k::init]
+    pub fn init(pgm: lib::Instr) -> Self {{
+        Self {{
+            nodes: Nodes {{
+                node: Node {{ cpu: Cpu {{ pc: 0 }}, k: k::k![pgm] }},
+            }},
+        }}
+    }}
+}}
+
+{rules}
+"#
+    )
+}
+
+/// A rule for `Node` that writes `pc`, a cell inside the key `cpu`.
+const INSIDE_KEY_RULE: &str = r"
+k::rules! {
+    for Node;
+    use lib::Op::*;
+
+    bump: { k: [Inc(), ..], pc } => { k: [..], pc: k::builtin::int::add(pc, 1) };
+}
+";
+
+/// [`INSIDE_KEY_RULE`] as a `#[k::rule]` fn.
+const INSIDE_KEY_CELLS_RULE: &str = r#"
+#[k::rule(label = "bump")]
+pub fn bump(
+    p: Int,
+    k::cells! {
+        k: k::configuration::KCell(lib::Op::Inc(), tail @ ..),
+        Cpu::pc: k::configuration::Cell(p),
+        state @ ..
+    }: Node,
+) -> Node {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        Cpu::pc: k::configuration::Cell(k::builtin::int::add(p, 1)),
+        ..state
+    }
+}
+"#;
+
+/// A rule for `Cpu`, the group that is each node's key.
+const KEY_GROUP_RULE: &str = r"
+k::rules! {
+    for Cpu;
+
+    bump: { pc: 0 } => { pc: 1 };
+}
+";
+
+/// [`KEY_GROUP_RULE`] as a `#[k::rule]` fn.
+const KEY_GROUP_CELLS_RULE: &str = r#"
+#[k::rule(label = "bump")]
+pub fn bump(
+    k::cells! {
+        pc: k::configuration::Cell(0),
+        state @ ..
+    }: Cpu,
+) -> Cpu {
+    k::cells! {
+        pc: k::configuration::Cell(1),
+        ..state
+    }
+}
+"#;
+
+/// A configuration whose instances are keyed by a constructor term, `h(n)`, with
+/// `rules` appended.
+fn tagged(rules: &str) -> String {
+    format!(
+        r#"
+use k::KResult;
+use k::builtin::{{Int, KSequence}};
+
+k::sorts! {{
+    Hid;
+}}
+
+#[k::constructors(sort = Hid, result = KResult)]
+pub enum HidC {{
+    #[k::syntax("h ( {{n}} )")]
+    H {{ n: Int }},
+}}
+
+#[k::cell]
+pub struct Units {{
+    #[k::cell(multiplicity = "*", cell_type = "Map", initial, nested)]
+    pub unit: Unit,
+}}
+
+#[k::cell]
+pub struct Unit {{
+    #[k::cell]
+    pub id: Hid,
+    #[k::cell]
+    pub k: KSequence,
+}}
+
+#[k::configuration]
+pub struct Tagged {{
+    #[k::cell(nested)]
+    pub units: Units,
+}}
+
+impl Tagged {{
+    #[k::init]
+    pub fn init(pgm: lib::Instr) -> Self {{
+        Self {{
+            units: Units {{
+                unit: Unit {{ id: HidC::H(0), k: k::k![pgm] }},
+            }},
+        }}
+    }}
+}}
+
+{rules}
+"#
+    )
+}
+
+/// A single-body rule that rewrites in place inside the key `h(n)`.
+const KEY_REWRITE_INSIDE: &str = r#"
+#[k::rule(label = "rekey")]
+pub fn rekey(
+    n: Int,
+    k::cells! {
+        id: k::configuration::Cell(HidC::H(k::rewrite!(n => k::builtin::int::add(n, 1)))),
+        k: k::configuration::KCell(k::rewrite!(lib::Op::Inc() => ()), ..),
+        state @ ..
+    }: Unit,
+) {}
+"#;
+
+/// A single-body rule that rewrites the whole key in place.
+const KEY_REWRITE_WHOLE: &str = r#"
+#[k::rule(label = "rekey")]
+pub fn rekey(
+    me: Hid,
+    k::cells! {
+        id: k::configuration::Cell(k::rewrite!(me => HidC::H(1))),
+        k: k::configuration::KCell(k::rewrite!(lib::Op::Inc() => ()), ..),
+        state @ ..
+    }: Unit,
+) {}
+"#;
+
+/// A configuration whose computation cell is each instance's key.
+const KEY_MAIN: &str = r#"
+use k::builtin::{Int, KSequence};
+
+#[k::cell]
+pub struct Cpus {
+    #[k::cell(multiplicity = "*", cell_type = "Map", initial, nested)]
+    pub cpu: Cpu,
+}
+
+#[k::cell]
+pub struct Cpu {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub n: Int,
+}
+
+#[k::configuration]
+pub struct Pool {
+    #[k::cell(nested)]
+    pub cpus: Cpus,
+}
+
+impl Pool {
+    #[k::init]
+    pub fn init(pgm: lib::Instr) -> Self {
+        Self {
+            cpus: Cpus {
+                cpu: Cpu { k: k::k![pgm], n: 0 },
+            },
+        }
+    }
+}
+"#;
+
+/// A `#[k::context]` over `k::cells!` typed by the hart.
+const HART_CONTEXT: &str = r#"
+#[k::constructors(sort = lib::Instr, result = k::KResult)]
+pub enum Hop {
+    #[k::syntax("hop ( {n} )")]
+    Hop { n: lib::Instr },
+}
+
+#[k::context(hole = h)]
+fn hop_operand(
+    h: lib::Instr,
+    k::cells! {
+        k: k::configuration::KCell(Hop::Hop(h), ..),
+        state @ ..
+    }: lib::Hart,
+) {
+}
+"#;
+
+/// A function whose context reads the optional unit's `fa`, and a
+/// simplification that mentions it only in its left-hand side, which is a
+/// pattern and evaluates nothing.
+const FA_PLUS: &str = r#"
+use k::Term;
+
+#[k::function(total, sort = Int, syntax = "faPlus({n})")]
+pub struct FaPlus {
+    pub n: Term<Int>,
+}
+
+#[k::equation]
+fn fa_plus(
+    n: Term<Int>,
+    a: Term<Int>,
+    k::term![FaPlus(n)]: Term<Int>,
+    k::cells! {
+        fa: k::configuration::Cell(a),
+        ..
+    }: lib::Fpu,
+) -> Term<Int> {
+    k::builtin::int::add(a, n)
+}
+
+#[k::simplification]
+fn fa_plus_same(k::term![k::builtin::int::sub(FaPlus(n), FaPlus(n))]: Term<Int>) -> Term<Int> {
+    0
+}
+"#;
+
+/// The outcome of `krs check` on each case: its name, then each diagnostic's
+/// headline, location and help. A case is its name, the source of its one
+/// package beside `lib` and that package's name; the holder cases take the
+/// library's rules for `Hart`, in each spelling.
+fn instance_outcomes(cases: &[(&str, String, &str)]) -> Vec<Vec<String>> {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    cases
+        .iter()
+        .map(|(name, source, package)| {
+            let lib_rules = match *name {
+                "set" | "list" => HART_RULES,
+                "set-cells" | "list-cells" => HART_CELLS_RULES,
+                _ => "",
+            };
+            let manifest = instance_definitions(
+                &temporary.path().join(name),
+                lib_rules,
+                &[(package, source)],
+            )
+            .remove(0);
+            let mut report = vec![(*name).to_owned()];
+            report.extend(check_report(target.path(), &manifest, package));
+            report
+        })
+        .collect()
+}
+
+/// The cases of
+/// [`a_sentence_about_one_instance_is_refused_where_its_meaning_does_not_hold`],
+/// as [`instance_outcomes`] takes them.
+fn meaning_cases() -> Vec<(&'static str, String, &'static str)> {
+    vec![
+        ("set", smp("Set", ""), "smp"),
+        ("set-cells", smp("Set", ""), "smp"),
+        ("list", smp("List", ""), "smp"),
+        ("list-cells", smp("List", ""), "smp"),
+        ("key", smp("Map", KEY_CHANGE_RULE), "smp"),
+        ("key-cells", smp("Map", KEY_CHANGE_CELLS_RULE), "smp"),
+        ("holder", smp("Map", HOLDER_RULE), "smp"),
+        ("holder-cells", smp("Map", HOLDER_CELLS_RULE), "smp"),
+        ("inner-flat", cores(INNER_FLAT_RULE), "many"),
+        ("inner-flat-cells", cores(INNER_FLAT_CELLS_RULE), "many"),
+        (
+            "caller",
+            smp("Map", &format!("{PC_PLUS}{SMP_CALLER}")),
+            "smp",
+        ),
+        (
+            "caller-cells",
+            smp("Map", &format!("{PC_PLUS}{SMP_CELLS_CALLER}")),
+            "smp",
+        ),
+        (
+            "caller-through",
+            smp("Map", &format!("{PC_PLUS}{VIA_PC}")),
+            "smp",
+        ),
+        ("set-main", SET_MAIN.to_owned(), "pool"),
+    ]
+}
+
+/// The refusals of a sentence about one instance that its meaning gives,
+/// each in both spellings where both exist (readable first), with its code,
+/// its reason and where it points:
+/// - a group in a Set or a List collection is `group-subject-position`, with
+///   the Set's reason (a stepped instance merges with an equal one) and the
+///   List's gap (an instance at any position is not matched yet);
+/// - a written Map key other than the matched one is `map-collection-key`;
+/// - the cell holding the group is `cell-outside-subject`;
+/// - a cell of a collection inside the instance, named flat, is
+///   `collection-entry`, whose advice names that inner holder;
+/// - a function whose context reads one hart, applied by a rule for the
+///   configuration, directly or through a function without a context of its
+///   own, is `instance-context-caller`, at the application;
+/// - a main cell inside a Set instance is `main-cell`.
+#[test]
+fn a_sentence_about_one_instance_is_refused_where_its_meaning_does_not_hold() {
+    let outcomes = instance_outcomes(&meaning_cases());
+    expect_test::expect![[r#"
+        [
+            [
+                "set",
+                "error[krs::analysis::group-subject-position]: the cell group `Hart` is held by the Set collection cell `hart` of configuration `Smp`: a sentence about `Hart` is about one instance, which a rule rewrites as a local step, and a Set identifies an instance by its whole content, so a step that makes one instance equal to another merges the two, removing an instance the rule never matched; write the sentence for `Smp`, or hold the instances in a Map collection keyed by an id",
+                "--> lib/src/lib.rs: `Hart;`",
+            ],
+            [
+                "set-cells",
+                "error[krs::analysis::group-subject-position]: the cell group `Hart` is held by the Set collection cell `hart` of configuration `Smp`: a sentence about `Hart` is about one instance, which a rule rewrites as a local step, and a Set identifies an instance by its whole content, so a step that makes one instance equal to another merges the two, removing an instance the rule never matched; write the sentence for `Smp`, or hold the instances in a Map collection keyed by an id",
+                "--> lib/src/lib.rs: `Hart,`",
+            ],
+            [
+                "list",
+                "error[krs::analysis::group-subject-position]: the cell group `Hart` is held by the List collection cell `hart` of configuration `Smp`: a sentence about `Hart` is about one instance, which in a List is the instance at any position, and matching one instance between others is not supported yet; write the sentence for `Smp`, or hold the instances in a Map collection keyed by an id",
+                "--> lib/src/lib.rs: `Hart;`",
+            ],
+            [
+                "list-cells",
+                "error[krs::analysis::group-subject-position]: the cell group `Hart` is held by the List collection cell `hart` of configuration `Smp`: a sentence about `Hart` is about one instance, which in a List is the instance at any position, and matching one instance between others is not supported yet; write the sentence for `Smp`, or hold the instances in a Map collection keyed by an id",
+                "--> lib/src/lib.rs: `Hart,`",
+            ],
+            [
+                "key",
+                "error[krs::analysis::map-collection-key]: the rule writes `id`, the key of the instance of the Map collection `hart` it is about: a rule for `Hart` is a local step of one instance, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
+                "--> smp/src/lib.rs: `k::builtin::int:`",
+            ],
+            [
+                "key-cells",
+                "error[krs::analysis::map-collection-key]: the rule writes `id`, the key of the instance of the Map collection `hart` it is about: a rule for `Hart` is a local step of one instance, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
+                "--> smp/src/lib.rs: `k::configuration`",
+            ],
+            [
+                "holder",
+                "error[krs::analysis::cell-outside-subject]: `Hart` has no cell `hart`: a sentence about the cell group `Hart` names only the cells inside the group, and `hart` is the cell of configuration `Smp` that holds the group; write the sentence for `Smp` to name it",
+                "--> smp/src/lib.rs: `hart } => { k: [`",
+            ],
+            [
+                "holder-cells",
+                "error[krs::analysis::cell-outside-subject]: `Hart` has no cell `Harts::hart`: a sentence about the cell group `Hart` names only the cells inside the group, and `Harts::hart` is the cell of configuration `Smp` that holds the group; write the sentence for `Smp` to name it",
+                "--> smp/src/lib.rs: `hart: { me @ k::`",
+            ],
+            [
+                "inner-flat",
+                "error[krs::analysis::collection-entry]: the cell `payload` is a cell of a collection's (`*`) instance, so no single cell has the content an entry naming it at the record's level would name: there is one `payload` per instance, and an entry names the instance through its instance record; `payload` is a cell of an instance of the collection `job`; so write the entry inside its record, `job: [Job { payload: .., .. }, ..]`",
+                "--> many/src/lib.rs: `payload } => { k`",
+            ],
+            [
+                "inner-flat-cells",
+                "error[krs::analysis::collection-entry]: the cell `payload` is a cell of a collection's (`*`) instance, so no single cell has the content an entry naming it at the record's level would name: there is one `payload` per instance, and an entry names the instance through its instance record; `payload` is a cell of an instance of the collection `job`; so write the entry inside its record, `job: [k::fragment![crate::Job { payload: .., .. }], ..]`",
+                "--> many/src/lib.rs: `k::configuration`",
+            ],
+            [
+                "caller",
+                "error[krs::analysis::instance-context-caller]: `PcPlus` reads the cell group `Hart` through its function context in one instance of the Map collection cell `hart`, the instance it is evaluated in, and this sentence is not inside such an instance, so it determines none: a function has one value for its arguments, so it is applied only from a sentence about one instance of that holder (a rule, a context alias or a function context for the group, or for a group inside its instance)",
+                "--> smp/src/lib.rs: `crate::PcPlus(1)`",
+            ],
+            [
+                "caller-cells",
+                "error[krs::analysis::instance-context-caller]: `PcPlus` reads the cell group `Hart` through its function context in one instance of the Map collection cell `hart`, the instance it is evaluated in, and this sentence is not inside such an instance, so it determines none: a function has one value for its arguments, so it is applied only from a sentence about one instance of that holder (a rule, a context alias or a function context for the group, or for a group inside its instance)",
+                "--> smp/src/lib.rs: `crate::PcPlus(1)`",
+            ],
+            [
+                "caller-through",
+                "error[krs::analysis::instance-context-caller]: `ViaPc` applies `PcPlus`, which reads the cell group `Hart` through its function context in one instance of the Map collection cell `hart`, the instance it is evaluated in, and this sentence is not inside such an instance, so it determines none: a function has one value for its arguments, so it is applied only from a sentence about one instance of that holder (a rule, a context alias or a function context for the group, or for a group inside its instance)",
+                "--> smp/src/lib.rs: `crate::ViaPc(1)`",
+            ],
+            [
+                "set-main",
+                "error[krs::analysis::main-cell]: the computation cell `k` sits in an instance of the Set collection cell `obj` of configuration `Pool`: a sentence that names no cell (a term rule, a context, a strict production's heating) runs at the computation cell, so it is a local step of the instance that holds it, and a Set identifies an instance by its whole content, so a step that makes that instance equal to another merges the two, removing an instance the step never touched; hold the instances in a Map collection keyed by an id",
+                "--> pool/src/lib.rs: `obj: Obj,`",
+            ],
+        ]
+    "#]].assert_debug_eq(&outcomes);
+}
+
+/// What stage 2 emits is refused inside an instance as `group-subject-position`,
+/// "not emitted yet": an instance record of a collection inside the instance
+/// (in both spellings), a context alias, a `#[k::context]`, and a function
+/// context the caller rule admits: applied from its own instance, or named only
+/// in a simplification's left-hand side, which is a pattern.
+#[test]
+fn a_form_inside_an_instance_that_is_not_emitted_yet_is_refused() {
+    let outcomes = instance_outcomes(&[
+        ("inner-record", cores(INNER_RECORD_RULE), "many"),
+        ("inner-record-cells", cores(INNER_RECORD_CELLS_RULE), "many"),
+        ("alias", smp("Map", HART_ALIAS), "smp"),
+        (
+            "function-context",
+            smp("Map", &format!("{PC_PLUS}{HART_CALLER}")),
+            "smp",
+        ),
+        ("context", smp("Map", HART_CONTEXT), "smp"),
+        ("simplification", opt(FA_PLUS), "opt"),
+    ]);
+    expect_test::expect![[r#"
+        [
+            [
+                "inner-record",
+                "error[krs::analysis::group-subject-position]: the cell group `Core` is held by the Map collection cell `core` of configuration `Many`, so a sentence about `Core` is a local step of one instance; the rule names `job`, a collection cell, and a clause for anything but a leaf cell inside an instance is not emitted yet",
+                "--> many/src/lib.rs: `job: [j @ Job {`",
+            ],
+            [
+                "inner-record-cells",
+                "error[krs::analysis::group-subject-position]: the cell group `Core` is held by the Map collection cell `core` of configuration `Many`, so a sentence about `Core` is a local step of one instance; the rule names `job`, a collection cell, and a clause for anything but a leaf cell inside an instance is not emitted yet",
+                "--> many/src/lib.rs: `job: [j @ k::fra`",
+            ],
+            [
+                "alias",
+                "error[krs::analysis::group-subject-position]: the cell group `Hart` is held by the Map collection cell `hart` of configuration `Smp`, so a sentence about `Hart` is a local step of one instance; a context alias inside an instance is not emitted yet",
+                "--> smp/src/lib.rs: `lib::Hart,`",
+            ],
+            [
+                "function-context",
+                "error[krs::analysis::group-subject-position]: the cell group `Hart` is held by the Map collection cell `hart` of configuration `Smp`, so a sentence about `Hart` is a local step of one instance; a function context inside an instance is not emitted yet",
+                "--> smp/src/lib.rs: `lib::Hart,`",
+            ],
+            [
+                "context",
+                "error[krs::analysis::group-subject-position]: the cell group `Hart` is held by the Map collection cell `hart` of configuration `Smp`, so a sentence about `Hart` is a local step of one instance; a context inside an instance is not emitted yet",
+                "--> smp/src/lib.rs: `lib::Hart,`",
+            ],
+            [
+                "simplification",
+                "error[krs::analysis::group-subject-position]: the cell group `Fpu` is held by the optional cell `fpu` of configuration `Opt`, so a sentence about `Fpu` is a local step of one instance; a function context inside an instance is not emitted yet",
+                "--> opt/src/lib.rs: `lib::Fpu,`",
+            ],
+        ]
+    "#]].assert_debug_eq(&outcomes);
+}
+
+/// The whole key is a Map instance's identity, so no sentence about the
+/// instance writes at or inside it, in both spellings where both exist:
+/// a written cell inside a composite key (`pc` inside `cpu`), a subject that
+/// is the key group, and an in-place rewrite inside the key or of the whole
+/// key are `map-collection-key`; a main cell that is a key is `main-cell`.
+#[test]
+fn a_sentence_about_one_instance_is_refused_where_it_writes_the_key() {
+    let outcomes = instance_outcomes(&[
+        ("inside-key", composite(INSIDE_KEY_RULE), "grid"),
+        ("inside-key-cells", composite(INSIDE_KEY_CELLS_RULE), "grid"),
+        ("key-group", composite(KEY_GROUP_RULE), "grid"),
+        ("key-group-cells", composite(KEY_GROUP_CELLS_RULE), "grid"),
+        (
+            "key-rewrite-inside-cells",
+            tagged(KEY_REWRITE_INSIDE),
+            "tagged",
+        ),
+        (
+            "key-rewrite-whole-cells",
+            tagged(KEY_REWRITE_WHOLE),
+            "tagged",
+        ),
+        ("key-main", KEY_MAIN.to_owned(), "pool"),
+    ]);
+    expect_test::expect![[r#"
+        [
+            [
+                "inside-key",
+                "error[krs::analysis::map-collection-key]: the rule writes `pc`, a cell inside the key `cpu`, of the instance of the Map collection `node` it is about: a rule for `Node` is a local step of one instance, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
+                "--> grid/src/lib.rs: `k::builtin::int:`",
+            ],
+            [
+                "inside-key-cells",
+                "error[krs::analysis::map-collection-key]: the rule writes `pc`, a cell inside the key `cpu`, of the instance of the Map collection `node` it is about: a rule for `Node` is a local step of one instance, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
+                "--> grid/src/lib.rs: `k::configuration`",
+            ],
+            [
+                "key-group",
+                "error[krs::analysis::map-collection-key]: the cell group `Cpu` is the key `cpu` of the instances of the Map collection `node`, or lies inside it: the whole key is an instance's identity, which no step of the instance changes, so a sentence about `Cpu` would be about an identity; match the key from a sentence about the instance or the configuration",
+                "--> grid/src/lib.rs: `Cpu;`",
+            ],
+            [
+                "key-group-cells",
+                "error[krs::analysis::map-collection-key]: the cell group `Cpu` is the key `cpu` of the instances of the Map collection `node`, or lies inside it: the whole key is an instance's identity, which no step of the instance changes, so a sentence about `Cpu` would be about an identity; match the key from a sentence about the instance or the configuration",
+                "--> grid/src/lib.rs: `Cpu,`",
+            ],
+            [
+                "key-rewrite-inside-cells",
+                "error[krs::analysis::map-collection-key]: the rule writes `id`, the key of the instance of the Map collection `unit` it is about: a rule for `Unit` is a local step of one instance, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
+                "--> tagged/src/lib.rs: `k::configuration`",
+            ],
+            [
+                "key-rewrite-whole-cells",
+                "error[krs::analysis::map-collection-key]: the rule writes `id`, the key of the instance of the Map collection `unit` it is about: a rule for `Unit` is a local step of one instance, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
+                "--> tagged/src/lib.rs: `k::configuration`",
+            ],
+            [
+                "key-main",
+                "error[krs::analysis::main-cell]: the computation cell `k` is the key `k` of the instances of the Map collection cell `cpu` of configuration `Pool`, or lies inside it: a sentence that names no cell (a term rule, a context, a strict production's heating) runs at the computation cell, so it would rewrite an instance's key, and the whole key is the instance's identity, which no step of the instance changes; key the instances by another child, declared first",
+                "--> pool/src/lib.rs: `k: KSequence,`",
+            ],
+        ]
+    "#]].assert_debug_eq(&outcomes);
 }

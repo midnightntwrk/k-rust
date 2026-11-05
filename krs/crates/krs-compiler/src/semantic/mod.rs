@@ -522,6 +522,7 @@ pub(crate) fn admit_rules(
     visibility::check_proof_visibility(&modules)?;
     spec_modules::check_spec_lemmas(&modules)?;
     spec_modules::check_spec_identifiers(&modules)?;
+    subjects::check_instance_contexts(&modules, declarations)?;
     if let Some(violation) = crate::overlap::first_overlap_violation(&modules) {
         let range = |rule: &StableItemId| {
             declarations

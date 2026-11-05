@@ -841,6 +841,21 @@ pub enum DescriptorLoweringError {
         /// The item the error arose in: the innermost enclosing frame that knows one names it.
         item: Option<Box<StableItemId>>,
     },
+    /// A sentence about one instance of a cell group held in an optional cell or a Map
+    /// collection that the definition may not state there, or that is not emitted there yet: a
+    /// function applied outside the one instance its context reads
+    /// (`instance-context-caller`), a written key (`map-collection-key`), or a form inside an
+    /// instance that has no emission yet (`group-subject-position`).
+    GroupInstance {
+        /// The diagnostic code of the specific check.
+        code: krs_diagnostic::Code,
+        /// Stable reason naming the group, the holder and what is refused.
+        reason: String,
+        /// Sole exact authored range of what is refused.
+        range: Option<Box<SourceRange>>,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
+    },
     /// An optional or collection cell entry K cannot express (KF-023).
     CellCollection {
         /// The diagnostic code of the specific check.
@@ -1292,6 +1307,11 @@ macro_rules! by_subject_slots {
                 item: $open_item,
                 ..
             }
+            | DescriptorLoweringError::GroupInstance {
+                range: $open_range,
+                item: $open_item,
+                ..
+            }
             | DescriptorLoweringError::CellCollection {
                 range: $open_range,
                 item: $open_item,
@@ -1715,6 +1735,7 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::AmbiguousListPattern { reason, .. }
             | Self::InvalidConsList { reason, .. }
             | Self::InvalidConsoleCell { reason, .. }
+            | Self::GroupInstance { reason, .. }
             | Self::CellCollection { reason, .. }
             | Self::CellWrapper { reason, .. }
             | Self::UnusedConfigurationVariable { reason, .. }
@@ -1824,7 +1845,7 @@ impl ToDiagnostic for DescriptorLoweringError {
                 LexicalProblem::Recursive => codes::analysis::RECURSIVE_LEXICAL,
             },
             Self::InvalidConsoleCell { .. } => codes::analysis::CONSOLE_CELL,
-            Self::CellCollection { code, .. } => code.clone(),
+            Self::CellCollection { code, .. } | Self::GroupInstance { code, .. } => code.clone(),
             Self::InvalidFresh { problem, .. } => match problem {
                 FreshProblem::NoGenerator => codes::analysis::NO_FRESH_GENERATOR,
                 FreshProblem::DuplicateGenerator => codes::analysis::DUPLICATE_FRESH_GENERATOR,
@@ -1928,7 +1949,7 @@ impl ToDiagnostic for DescriptorLoweringError {
                 })
             }
             Self::AmbiguousCellSort { .. } => diagnostic.with_help(
-                "a group has one position in a configuration, where its rules apply; several instances of a group are a `*` collection of it, which rules for the group do not support yet",
+                "a group has one position in a configuration, where its rules apply; several instances of a group are a `*` collection of it, and in a Map collection, keyed by the instance's first child, a rule for the group is a step of one instance",
             ),
             Self::DuplicateCellName { other_range, .. } => {
                 let diagnostic = diagnostic.with_help(

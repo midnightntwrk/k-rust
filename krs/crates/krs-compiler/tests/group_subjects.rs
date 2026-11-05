@@ -47,7 +47,8 @@ enum Cell {
         &'static str,
         Vec<(&'static str, &'static str, CellWrapper, BuiltinSort)>,
     ),
-    /// A field holding a group with this multiplicity (`?`, or `*` as a `List` collection).
+    /// A field holding a group with this multiplicity: `?`, `*` (a `List` collection), or `*`
+    /// with a collection type (`*Map`, `*Set`).
     Held(
         &'static str,
         &'static str,
@@ -174,14 +175,19 @@ fn configuration(name: &str, cells: &[Cell]) -> DescriptorInputs {
                     },
                 };
                 if let Cell::Held(_, multiplicity, _) = cell {
+                    let (mark, order) = multiplicity.split_at(1);
                     declared.multiplicity = Some(DescriptorCellMultiplicity {
                         key: key(ProvenanceRole::ConfigurationCellMultiplicity, field_ordinal),
-                        value: (*multiplicity).to_owned(),
+                        value: mark.to_owned(),
                     });
-                    if *multiplicity == "*" {
+                    if mark == "*" {
                         declared.cell_type = Some(DescriptorCellType {
                             key: key(ProvenanceRole::ConfigurationCellType, field_ordinal),
-                            value: DescriptorCellCollectionType::List,
+                            value: match order {
+                                "Map" => DescriptorCellCollectionType::Map,
+                                "Set" => DescriptorCellCollectionType::Set,
+                                _ => DescriptorCellCollectionType::List,
+                            },
                         });
                     }
                 }
@@ -428,7 +434,7 @@ fn a_rule_about_a_group_the_configuration_does_not_hold_is_refused() {
         )],
     ));
     expect_test::expect![[r#"
-        "the sentence is about the group `Other`, which has no one fixed position in the configuration `Small`: no cell of `Small` holds it"
+        "the sentence is about the group `Other`, which has no position a rule about it applies at in the configuration `Small`: no cell of `Small` holds it"
     "#]]
     .assert_debug_eq(&match &error {
         DescriptorLoweringError::ParserReferenceDisagreement { detail, .. } => detail.clone(),
@@ -851,12 +857,13 @@ fn a_context_alias_about_a_group_is_judged_against_its_scope() {
     .assert_debug_eq(&error.to_string());
 }
 
-/// A group held by an optional or a collection cell has no one fixed position. Collection refuses
-/// a sentence about it, so semantic analysis states the disagreement, naming the cell above the
-/// group.
+/// A group in a Set or a List collection has no position a local step of one instance applies at
+/// (a Set merges a stepped instance with an equal one; a List's instance at any position is not
+/// matched yet). Collection refuses a sentence about it, so semantic analysis states the
+/// disagreement, naming the collection.
 #[test]
-fn a_rule_about_a_group_below_an_optional_or_a_collection_cell_is_refused() {
-    let details = ["?", "*"].map(|multiplicity| {
+fn a_rule_about_a_group_in_a_set_or_a_list_collection_is_refused() {
+    let details = ["*Set", "*"].map(|multiplicity| {
         let error = refusal(&definition(
             "small",
             &[
@@ -877,9 +884,98 @@ fn a_rule_about_a_group_below_an_optional_or_a_collection_cell_is_refused() {
     });
     expect_test::expect![[r#"
         [
-            "the sentence is about the group `Other`, which has no one fixed position in the configuration `Small`: it sits below the optional cell `held`",
-            "the sentence is about the group `Other`, which has no one fixed position in the configuration `Small`: it sits below the collection cell `held`",
+            "the sentence is about the group `Other`, which has no position a rule about it applies at in the configuration `Small`: it sits in an instance of the Set collection cell `held`, whose instances a local step of one does not keep apart",
+            "the sentence is about the group `Other`, which has no position a rule about it applies at in the configuration `Small`: it sits in an instance of the List collection cell `held`, where a step of the instance at any position is not supported yet",
         ]
     "#]]
     .assert_debug_eq(&details);
+}
+
+/// A rule about one instance of a Map collection writes the instance's key, its first child, only
+/// as its subject matched it. Here `Core`'s first child is its computation `k`, which the rule
+/// `var` rewrites: the compiler states the key check over the descriptor's terms, so a key the
+/// collector would have refused is refused here too.
+#[test]
+fn a_rule_about_a_map_instance_that_writes_its_key_is_refused() {
+    let error = refusal(&definition(
+        "small",
+        &[Cell::Held("cores", "*Map", core_cells())],
+        "Core",
+        Vec::new(),
+    ));
+    expect_test::expect![[r#"
+        (
+            "krs::analysis::map-collection-key",
+            "the rule writes `k`, the key of the instance of the Map collection `cores` it is about: a rule for `Core` is a local step of one instance, and the whole key is the instance's identity, so the step writes it only as what its subject matched, the same variable or the same literal; a key that is not a variable or a literal cannot be shown kept, so leave it out of the result, which keeps it, or write it as the subject matched it",
+        )
+    "#]].assert_debug_eq(&(error.to_diagnostics()[0].code.to_string(), error.to_string()));
+}
+
+/// A main cell inside a Set collection's instance is refused, naming the collection: a sentence
+/// that names no cell is a local step of that instance, which a Set merges with an equal one.
+#[test]
+fn a_main_cell_inside_a_set_instance_is_refused() {
+    let error = refusal(&definition(
+        "small",
+        &[
+            Cell::Held(
+                "objs",
+                "*Set",
+                vec![
+                    ("Obj", "code", CellWrapper::KCell, BuiltinSort::KSequence),
+                    ("Obj", "n", CellWrapper::Cell, BuiltinSort::Int),
+                ],
+            ),
+            Cell::Group("core", core_cells()),
+        ],
+        "Core",
+        vec![group(
+            "Obj",
+            &[
+                ("code", CellWrapper::KCell, BuiltinSort::KSequence),
+                ("n", CellWrapper::Cell, BuiltinSort::Int),
+            ],
+        )],
+    ));
+    expect_test::expect![[r#"
+        (
+            "krs::analysis::main-cell",
+            "the computation cell `code` sits in an instance of the Set collection cell `objs` of configuration `Small`: a sentence that names no cell (a term rule, a context, a strict production's heating) runs at the computation cell, so it is a local step of the instance that holds it, and a Set identifies an instance by its whole content, so a step that makes that instance equal to another merges the two, removing an instance the step never touched; hold the instances in a Map collection keyed by an id",
+        )
+    "#]].assert_debug_eq(&(error.to_diagnostics()[0].code.to_string(), error.to_string()));
+}
+
+/// A main cell that is a Map instance's key is refused, naming the key: a sentence that names no
+/// cell would rewrite the instance's identity.
+#[test]
+fn a_main_cell_that_is_a_map_key_is_refused() {
+    let error = refusal(&definition(
+        "small",
+        &[
+            Cell::Held(
+                "cpus",
+                "*Map",
+                vec![
+                    ("Cpu", "code", CellWrapper::KCell, BuiltinSort::KSequence),
+                    ("Cpu", "n", CellWrapper::Cell, BuiltinSort::Int),
+                ],
+            ),
+            Cell::Group("core", core_cells()),
+        ],
+        "Core",
+        vec![group(
+            "Cpu",
+            &[
+                ("code", CellWrapper::KCell, BuiltinSort::KSequence),
+                ("n", CellWrapper::Cell, BuiltinSort::Int),
+            ],
+        )],
+    ));
+    expect_test::expect![[r#"
+        (
+            "krs::analysis::main-cell",
+            "the computation cell `code` is the key `code` of the instances of the Map collection cell `cpus` of configuration `Small`, or lies inside it: a sentence that names no cell (a term rule, a context, a strict production's heating) runs at the computation cell, so it would rewrite an instance's key, and the whole key is the instance's identity, which no step of the instance changes; key the instances by another child, declared first",
+        )
+    "#]]
+        .assert_debug_eq(&(error.to_diagnostics()[0].code.to_string(), error.to_string()));
 }

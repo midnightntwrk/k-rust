@@ -1508,23 +1508,38 @@ fn keyed(order: Order, group: &GroupKind, record: &EntryRecord, other: Other<'_>
             let Other::Matched(subject) = other else {
                 return other == Other::Created;
             };
-            match (
+            keeps_key(
                 value,
                 record_of(subject, group).and_then(|record| named(record, key)),
-            ) {
-                (
-                    EntrySpelling::Binder(written),
-                    Some(EntrySpelling::Binder(bound) | EntrySpelling::Alias(bound, _)),
-                ) => written == bound,
-                (EntrySpelling::Literal(written), Some(matched)) => matches!(
-                    unaliased(matched),
-                    EntrySpelling::Literal(literal) if literal == written
-                ),
-                _ => false,
-            }
+            )
         }
         (RecordTail::Update(_), None) => true,
         (RecordTail::Exact | RecordTail::Open, written) => written.is_some(),
+    }
+}
+
+/// Whether a result that writes a Map collection's key as `written` keeps the key `matched`,
+/// what its subject matched the same instance's key with (`None` where the subject does not
+/// name the key): an instance's key is its identity, so a step that changes the instance in
+/// place writes it, if at all, as what is provably the key it matched. That is the subject's own
+/// binder for the key (an alias's binder included), or the same literal the subject matched;
+/// any other value, or a key the subject does not name, is another instance.
+///
+/// One predicate serves every place that judges a written key: an instance update inside an
+/// instance record ([`Refusal::MapCollectionKey`]), and the flat key entry of a sentence about
+/// one instance of a Map collection's group.
+#[must_use]
+pub fn keeps_key(written: &EntrySpelling, matched: Option<&EntrySpelling>) -> bool {
+    match (written, matched) {
+        (
+            EntrySpelling::Binder(written),
+            Some(EntrySpelling::Binder(bound) | EntrySpelling::Alias(bound, _)),
+        ) => written == bound,
+        (EntrySpelling::Literal(written), Some(matched)) => matches!(
+            unaliased(matched),
+            EntrySpelling::Literal(literal) if literal == written
+        ),
+        _ => false,
     }
 }
 
@@ -2247,7 +2262,7 @@ mod tests {
 
     use super::{
         Bound, EntrySide, Lint, Refusal, Rewrite, Sentence, SentenceEntry, admit, collect_groups,
-        inner, pair,
+        inner, keeps_key, pair,
     };
     use crate::cell_entry::{EntryForm, EntryReading, EntrySpelling, RecordTail};
 
@@ -3311,6 +3326,25 @@ mod tests {
         let root = [Layer::Optional, Layer::Leaf(Notation::Plain)];
         assert_eq!(subject(&root, "None", Some("None")), absent);
         assert_eq!(subject(&root, "None", Some("Some(1)")), Ok(None));
+    }
+    #[test]
+    fn a_written_key_is_kept_only_as_the_matched_binder_or_literal() {
+        let binder = |name: &str| EntrySpelling::Binder(name.to_owned());
+        let literal = |text: &str| EntrySpelling::Literal(text.to_owned());
+        let alias = EntrySpelling::Alias("me".to_owned(), Box::new(literal("0")));
+        assert!(keeps_key(&binder("me"), Some(&binder("me"))));
+        assert!(keeps_key(&binder("me"), Some(&alias)));
+        assert!(keeps_key(&literal("0"), Some(&literal("0"))));
+        assert!(keeps_key(&literal("0"), Some(&alias)));
+        assert!(!keeps_key(&binder("me"), Some(&binder("other"))));
+        assert!(!keeps_key(&literal("1"), Some(&literal("0"))));
+        assert!(!keeps_key(&literal("0"), Some(&binder("me"))));
+        assert!(!keeps_key(
+            &EntrySpelling::Call(vec![binder("me")]),
+            Some(&binder("me"))
+        ));
+        // A key the subject does not name is no key it matched.
+        assert!(!keeps_key(&binder("me"), None));
     }
     #[test]
     fn an_update_of_a_map_collections_instance_keeps_its_key() {

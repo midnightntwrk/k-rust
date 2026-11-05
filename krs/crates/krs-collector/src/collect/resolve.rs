@@ -3,7 +3,7 @@
 use std::any::TypeId;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use krs_ir::cell_kind::{CellKind, CellView, Content, Layer, Multiplicity, Notation};
+use krs_ir::cell_kind::{CellKind, CellView, Content, Layer, Multiplicity, Notation, Order};
 use krs_ir::{
     DescriptorApplicationRef, DescriptorApplicationReference, DescriptorPayload, DescriptorSortRef,
     DescriptorSortReference, DescriptorStage, HostApplicationIdentity, HostBuiltinRegistry,
@@ -775,7 +775,8 @@ pub(super) struct HeadRuleTarget {
     /// readable record stay within them.
     subject: Option<TargetSubject>,
     /// The configuration scoped to each cell group a cell of it holds, by the group's
-    /// declaration, or why the group has no fixed position there; empty on a scoped target.
+    /// declaration, or why a sentence about the group has no scope there; empty on a scoped
+    /// target.
     subjects: Vec<(StableItemId, Result<HeadRuleTarget, CollectionError>)>,
 }
 
@@ -790,6 +791,11 @@ struct TargetSubject {
     /// The configuration's other cells outside the group, which a sentence about the group may
     /// not name.
     outside: Vec<HeadRuleCellTarget>,
+    /// Where the group is the instance type of a Map collection, the instance's key cell
+    /// ([`krs_ir::cell_kind::CellKind::instance_key`]) and every cell inside it: the whole key is
+    /// the instance's identity, which a sentence about the instance reads and never writes
+    /// another of ([`krs_syntax::cell_entries::keeps_key`]). Empty for any other subject.
+    key: Vec<krs_ir::DescriptorCellIdentity>,
 }
 
 /// Where a cell a sentence about a cell group names sits, outside the group.
@@ -971,6 +977,7 @@ impl HeadRuleTarget {
                 group: cell.group_id.clone(),
                 multiplicity: cell.kind.multiplicity(),
                 computation: cell.kind.is_computation(),
+                key: cell.kind.instance_key().map(str::to_owned),
             })
             .collect::<Vec<_>>();
         let mut groups = Vec::new();
@@ -989,8 +996,9 @@ impl HeadRuleTarget {
                     Ok(krs_ir::SubjectScope {
                         anchor: Some(anchor),
                         nameable,
+                        ..
                     }) => {
-                        let scoped = self.scoped(subject, anchor);
+                        let scoped = self.scoped(subject, anchor, &tree);
                         debug_assert!(
                             scoped
                                 .cells
@@ -1010,7 +1018,7 @@ impl HeadRuleTarget {
                     // nominal, so the cells below each position have the same identities, and
                     // the first position resolves the sentence's names as any other would.
                     Err(krs_ir::SubjectError::SeveralPositions { positions }) => {
-                        Ok(self.scoped(subject, positions[0]))
+                        Ok(self.scoped(subject, positions[0], &tree))
                     }
                     Err(error) => Err(self.subject_refusal(&group, &error)),
                 };
@@ -1022,22 +1030,81 @@ impl HeadRuleTarget {
 
     /// The target scoped to `subject`, a group the cell at `anchor` holds: its sentences name
     /// the cells below that cell.
-    fn scoped(&self, subject: krs_ir::DescriptorSubject, anchor: usize) -> Self {
+    ///
+    /// A sentence about the group is a local step of one instance of each optional cell and
+    /// collection on the anchor's path, the anchor included, so its entries are judged from the
+    /// instance's level: each cell's `path` and `ancestor` keep only the marks strictly below the
+    /// anchor. A cell below a further `?` or `*` inside the instance keeps that mark, so it is
+    /// still written inside that inner holder's record.
+    fn scoped(
+        &self,
+        subject: krs_ir::DescriptorSubject,
+        anchor: usize,
+        tree: &[krs_ir::TreeCell],
+    ) -> Self {
         let krs_ir::DescriptorSubject::Group { declaration } = &subject;
         // Parents precede their children, so the walk up from a cell ends at the top level.
-        let below = |index: usize| {
+        let above = |index: usize| {
             std::iter::successors(self.cells[index].parent, |&parent| {
                 self.cells[parent].parent.filter(|&above| above < parent)
             })
-            .any(|ancestor| ancestor == anchor)
         };
+        let below = |index: usize| above(index).any(|ancestor| ancestor == anchor);
+        let marked = |index: usize| {
+            matches!(
+                self.cells[index].kind.layers.first(),
+                Some(Layer::Optional | Layer::Instances(_))
+            )
+        };
+        // The marks of the anchor and its ancestors, which the instance's level drops.
+        let dropped = std::iter::once(anchor)
+            .chain(above(anchor))
+            .filter(|&index| marked(index))
+            .count();
         let (cells, outside): (Vec<_>, Vec<_>) = self
             .cells
             .iter()
             .enumerate()
             .filter(|(index, _)| *index != anchor)
             .partition(|(index, _)| below(*index));
-        let cells = cells.into_iter().map(|(_, cell)| cell.clone()).collect();
+        let cells = cells
+            .into_iter()
+            .map(|(index, cell)| {
+                let mut cell = cell.clone();
+                let kept = cell.path.layers.len().saturating_sub(dropped);
+                cell.path.layers.drain(..cell.path.layers.len() - kept);
+                // The outermost marked group strictly between the anchor and the cell.
+                let between = above(index)
+                    .take_while(|&ancestor| ancestor != anchor)
+                    .collect::<Vec<_>>();
+                cell.ancestor = between.iter().rev().find_map(|&ancestor| {
+                    let holder = &self.cells[ancestor];
+                    match holder.kind.layers.as_slice() {
+                        [
+                            layer @ (Layer::Optional | Layer::Instances(_)),
+                            Layer::Group(group),
+                            ..,
+                        ] => Some(MarkedAncestor {
+                            name: holder.names[0].clone(),
+                            layer: layer.clone(),
+                            group: group.name.clone(),
+                            direct: cell.parent == Some(ancestor),
+                        }),
+                        _ => None,
+                    }
+                });
+                cell
+            })
+            .collect();
+        // The key of the instance the sentence is about, and every cell inside it.
+        let key = (0..self.cells.len())
+            .filter(|&index| {
+                krs_ir::subject::keys_on_path(tree, index)
+                    .iter()
+                    .any(|&(holder, _)| holder == anchor)
+            })
+            .map(|index| self.cells[index].identity.clone())
+            .collect();
         Self {
             configuration: self.configuration.clone(),
             cells,
@@ -1049,13 +1116,28 @@ impl HeadRuleTarget {
                 name: declaration.item_name().to_owned(),
                 holder: self.cells[anchor].clone(),
                 outside: outside.into_iter().map(|(_, cell)| cell.clone()).collect(),
+                key,
                 subject,
             }),
             subjects: Vec::new(),
         }
     }
 
-    /// The refusal of a sentence typed by the group `group`, which has no fixed position in the
+    /// Where the target is scoped to the instance type of a Map collection, the instance's key
+    /// cell and the cells inside it, which a sentence about the instance never writes another
+    /// of, with the collection cell's name and the group's.
+    pub(super) fn instance_key(&self) -> Option<(&[krs_ir::DescriptorCellIdentity], &str, &str)> {
+        let subject = self.subject.as_ref()?;
+        (!subject.key.is_empty()).then(|| {
+            (
+                subject.key.as_slice(),
+                subject.holder.names[0].as_str(),
+                subject.name.as_str(),
+            )
+        })
+    }
+
+    /// The refusal of a sentence typed by the group `group`, which has no scope in the
     /// configuration for `error`.
     fn subject_refusal(
         &self,
@@ -1085,16 +1167,37 @@ impl HeadRuleTarget {
             krs_ir::SubjectError::SeveralPositions { .. } => {
                 unreachable!("a group held by several cells is scoped at the first of them")
             }
-            krs_ir::SubjectError::BelowOptional { ancestor } => format!(
-                "the cell group `{group}` {} the optional cell {} of configuration `{configuration}`, so its cells exist only in some states: a rule for a group applies at the group's one fixed position; write the rule for `{configuration}`, or hold `{group}` in a cell that is always present",
+            krs_ir::SubjectError::BelowCollection {
+                ancestor,
+                order: Order::Set,
+            } => format!(
+                "the cell group `{group}` {} the Set collection cell {} of configuration `{configuration}`: a sentence about `{group}` is about one instance, which a rule rewrites as a local step, and a Set identifies an instance by its whole content, so a step that makes one instance equal to another merges the two, removing an instance the rule never matched; write the sentence for `{configuration}`, or hold the instances in a Map collection keyed by an id",
                 held(*ancestor),
                 name(*ancestor),
             ),
-            krs_ir::SubjectError::BelowCollection { ancestor } => format!(
-                "the cell group `{group}` {} the collection cell {} of configuration `{configuration}`, so each instance holds its own copy of its cells: a rule for a group applies at the group's one fixed position, and a group inside a `*` collection is not supported yet; write the rule for `{configuration}`, or hold `{group}` at a fixed position",
+            krs_ir::SubjectError::BelowCollection {
+                ancestor,
+                order: Order::List,
+            } => format!(
+                "the cell group `{group}` {} the List collection cell {} of configuration `{configuration}`: a sentence about `{group}` is about one instance, which in a List is the instance at any position, and matching one instance between others is not supported yet; write the sentence for `{configuration}`, or hold the instances in a Map collection keyed by an id",
                 held(*ancestor),
                 name(*ancestor),
             ),
+            krs_ir::SubjectError::BelowCollection {
+                order: Order::Map, ..
+            } => unreachable!("a Map collection keeps an instance's identity, its key"),
+            krs_ir::SubjectError::InKey { holder, key } => {
+                return CollectionError::new(
+                    CollectionErrorKind::CellEntry(
+                        krs_syntax::cell_entries::Refusal::MapCollectionKey,
+                    ),
+                    krs_ir::subject::key_subject_reason(
+                        group,
+                        &self.cells[*holder].names[0],
+                        &self.cells[*key].names[0],
+                    ),
+                );
+            }
         };
         CollectionError::new(CollectionErrorKind::GroupSubjectPosition, detail)
     }
@@ -4202,7 +4305,8 @@ mod tests {
     }
 
     /// `State { core: Core { k, pc }, mem, mark?: Mark { seen }, job*: Job { payload },
-    /// left: Twice { x }, right: Twice { x } }`, scoped to each group it holds.
+    /// left: Twice { x }, right: Twice { x }, obj*: Obj { n } }`, the jobs a List collection and
+    /// the objects a Set, scoped to each group it holds.
     fn group_target_state() -> HeadRuleTarget {
         let cells = vec![
             tree_cell(("State", "core"), None, Some("Core"), None),
@@ -4222,9 +4326,209 @@ mod tests {
             tree_cell(("Twice", "x"), Some(8), None, None),
             tree_cell(("State", "right"), None, Some("Twice"), None),
             tree_cell(("Twice", "x"), Some(10), None, None),
+            tree_cell(
+                ("State", "obj"),
+                None,
+                Some("Obj"),
+                Some(Layer::Instances(krs_ir::cell_kind::Order::Set)),
+            ),
+            tree_cell(("Obj", "n"), Some(12), None, None),
         ];
         let main = krs_ir::MainCell::Cell(cells[1].identity.clone());
         configuration_target(state_id(), cells, main).with_subjects()
+    }
+
+    /// `cells` with each cell's `path` and outermost marked `ancestor` from the configuration's
+    /// level, as the configuration's walk gives them ([`collect_head_rule_cells`]).
+    fn with_marks(mut cells: Vec<HeadRuleCellTarget>) -> Vec<HeadRuleCellTarget> {
+        for index in 0..cells.len() {
+            let Some(parent) = cells[index].parent else {
+                continue;
+            };
+            let holder = &cells[parent];
+            let mut path = holder.path.clone();
+            path.layers.extend(
+                holder
+                    .kind
+                    .layers
+                    .first()
+                    .filter(|layer| matches!(layer, Layer::Optional | Layer::Instances(_)))
+                    .cloned(),
+            );
+            let ancestor = below_ancestor(holder.ancestor.as_ref(), holder);
+            cells[index].path = path;
+            cells[index].ancestor = ancestor;
+        }
+        cells
+    }
+
+    /// `State { harts: Harts { hart*: Hart { id, k, pc, fpu?: Fpu { f }, jobs*: Job { payload } }
+    /// }, mem }`, the harts a Map collection and the jobs a List, scoped to each group it holds.
+    fn instance_target_state() -> HeadRuleTarget {
+        use krs_ir::cell_kind::Order;
+        let cells = with_marks(vec![
+            tree_cell(("State", "harts"), None, Some("Harts"), None),
+            tree_cell(
+                ("Harts", "hart"),
+                Some(0),
+                Some("Hart"),
+                Some(Layer::Instances(Order::Map)),
+            ),
+            tree_cell(("Hart", "id"), Some(1), None, None),
+            tree_cell(("Hart", "k"), Some(1), None, None),
+            tree_cell(("Hart", "pc"), Some(1), None, None),
+            tree_cell(("Hart", "fpu"), Some(1), Some("Fpu"), Some(Layer::Optional)),
+            tree_cell(("Fpu", "f"), Some(5), None, None),
+            tree_cell(
+                ("Hart", "jobs"),
+                Some(1),
+                Some("Job"),
+                Some(Layer::Instances(Order::List)),
+            ),
+            tree_cell(("Job", "payload"), Some(7), None, None),
+            tree_cell(("State", "mem"), None, None, None),
+        ]);
+        let main = krs_ir::MainCell::Cell(cells[3].identity.clone());
+        configuration_target(state_id(), keyed(cells, 1, "id"), main).with_subjects()
+    }
+
+    /// `cells` with the group of the Map collection at `holder` keyed by its child `key`, as
+    /// a collected declaration states it ([`krs_ir::cell_kind::GroupKind::key`]).
+    fn keyed(
+        mut cells: Vec<HeadRuleCellTarget>,
+        holder: usize,
+        key: &str,
+    ) -> Vec<HeadRuleCellTarget> {
+        if let Some(Layer::Group(group)) = cells[holder].kind.layers.last_mut() {
+            group.children = vec![(
+                key.to_owned(),
+                CellKind {
+                    layers: vec![Layer::Leaf(Notation::Plain)],
+                },
+            )];
+        }
+        cells
+    }
+
+    /// `State { harts: Harts { hart*: Hart { cpu: Cpu { pc }, k } } }`, the hart keyed by the
+    /// group `cpu`.
+    fn composite_key_state() -> HeadRuleTarget {
+        use krs_ir::cell_kind::Order;
+        let cells = with_marks(vec![
+            tree_cell(("State", "harts"), None, Some("Harts"), None),
+            tree_cell(
+                ("Harts", "hart"),
+                Some(0),
+                Some("Hart"),
+                Some(Layer::Instances(Order::Map)),
+            ),
+            tree_cell(("Hart", "cpu"), Some(1), Some("Cpu"), None),
+            tree_cell(("Cpu", "pc"), Some(2), None, None),
+            tree_cell(("Hart", "k"), Some(1), None, None),
+        ]);
+        let main = krs_ir::MainCell::Cell(cells[4].identity.clone());
+        configuration_target(state_id(), keyed(cells, 1, "cpu"), main).with_subjects()
+    }
+
+    /// A Map instance's key is its whole first child: a composite key holds every cell inside
+    /// it, and a group inside the key is no subject (`map-collection-key`).
+    #[test]
+    fn a_composite_key_is_the_whole_identity_of_its_instance() {
+        let state = composite_key_state();
+        let targets = std::slice::from_ref(&state);
+        let hart = group_target(&cell_id("Hart"), targets).unwrap();
+        let (key, holder, group) = hart.instance_key().unwrap();
+        assert_eq!(
+            key.iter()
+                .map(|cell| cell.field.as_str())
+                .collect::<Vec<_>>(),
+            ["cpu", "pc"]
+        );
+        assert_eq!((holder, group), ("hart", "Hart"));
+        let cpu = group_target(&cell_id("Cpu"), targets).unwrap_err();
+        assert_eq!(
+            cpu.kind(),
+            CollectionErrorKind::CellEntry(krs_syntax::cell_entries::Refusal::MapCollectionKey)
+        );
+        assert!(
+            cpu.detail()
+                .starts_with("the cell group `Cpu` is the key `cpu` of the instances of the Map collection `hart`"),
+            "{}",
+            cpu.detail()
+        );
+    }
+
+    /// A sentence about the instance type of a collection is a step of one instance, so its
+    /// entries are judged from the instance's level: the marks of the anchor and its ancestors
+    /// are dropped, and a cell below a further `?` or `*` inside the instance keeps that one,
+    /// with that holder as its ancestor. A Map instance's key is its first child.
+    #[test]
+    fn a_group_subject_in_an_instance_judges_entries_from_the_instance() {
+        use krs_ir::cell_kind::Order;
+        let state = instance_target_state();
+        let targets = std::slice::from_ref(&state);
+        let entry = |target: &HeadRuleTarget, name: &str| {
+            let (_, kind, ancestor, _) = target.entry(name).unwrap();
+            (
+                kind.path.layers,
+                ancestor.map(|marked| (marked.name.clone(), marked.layer.clone(), marked.direct)),
+            )
+        };
+        // From the configuration's level, every cell of a hart sits below the collection.
+        assert_eq!(
+            entry(&state, "pc"),
+            (
+                vec![Layer::Instances(Order::Map)],
+                Some(("hart".to_owned(), Layer::Instances(Order::Map), true))
+            )
+        );
+        let hart = group_target(&cell_id("Hart"), targets).unwrap();
+        assert_eq!(entry(hart, "pc"), (Vec::new(), None));
+        assert_eq!(entry(hart, "id"), (Vec::new(), None));
+        assert_eq!(
+            entry(hart, "f"),
+            (
+                vec![Layer::Optional],
+                Some(("fpu".to_owned(), Layer::Optional, true))
+            )
+        );
+        assert_eq!(
+            entry(hart, "payload"),
+            (
+                vec![Layer::Instances(Order::List)],
+                Some(("jobs".to_owned(), Layer::Instances(Order::List), true))
+            )
+        );
+        assert_eq!(
+            hart.instance_key(),
+            Some((
+                &[krs_ir::DescriptorCellIdentity {
+                    owner: cell_id("Hart"),
+                    field: "id".to_owned(),
+                }][..],
+                "hart",
+                "Hart"
+            ))
+        );
+        // An optional group inside the instance is a step of the one present: its cells are at
+        // its own level, and it has no key.
+        let fpu = group_target(&cell_id("Fpu"), targets).unwrap();
+        assert_eq!(entry(fpu, "f"), (Vec::new(), None));
+        assert!(fpu.instance_key().is_none());
+        // A List collection inside the instance is refused, naming it.
+        let job = group_target(&cell_id("Job"), targets).unwrap_err();
+        assert_eq!(job.kind(), CollectionErrorKind::GroupSubjectPosition);
+        assert!(
+            job.detail()
+                .starts_with("the cell group `Job` is held by the List collection cell `jobs`"),
+            "{}",
+            job.detail()
+        );
+        // The group holding the collection is at a fixed position: the hart's cells keep the
+        // collection's mark.
+        let harts = group_target(&cell_id("Harts"), targets).unwrap();
+        assert_eq!(entry(harts, "pc").0, vec![Layer::Instances(Order::Map)]);
+        assert!(harts.instance_key().is_none());
     }
 
     /// The target of the configuration `configuration` whose cells are `cells`, with no group
@@ -4248,10 +4552,8 @@ mod tests {
 
     /// A group at a fixed position scopes the configuration to the cells below it: a sentence
     /// typed by it names those, and is told so when it names the cell holding the group, another
-    /// cell of the configuration, or a cell of a group the configuration does not hold. A group
-    /// below an optional or a collection cell, or held by no cell, has no scope, and each refusal
-    /// says why; a group held by several cells is scoped at the first, since that configuration
-    /// is refused as it is.
+    /// cell of the configuration, or a cell of a group the configuration does not hold; a group
+    /// held by several cells is scoped at the first, since that configuration is refused as it is.
     #[test]
     fn a_group_subject_scopes_the_one_configuration_to_the_group_cells() {
         let state = group_target_state();
@@ -4329,17 +4631,45 @@ mod tests {
             identity(state_id(), "left")
         );
 
+        let none = group_target(&cell_id("Core"), &[]).unwrap_err();
+        assert_eq!(none.kind(), CollectionErrorKind::ConfigurationCount);
+        assert!(
+            none.detail().ends_with(
+                "`Core` is a cell group, not a configuration, and rules for a group are checked through a definition whose configuration holds it"
+            ),
+            "{}",
+            none.detail()
+        );
+    }
+
+    /// A group held by an optional cell is scoped to the one instance present; a group in a
+    /// Set or a List collection, or held by no cell, has no scope, and each refusal says why.
+    #[test]
+    fn a_group_subject_in_an_optional_cell_is_scoped_and_in_a_set_or_a_list_is_refused() {
+        let state = group_target_state();
+        let targets = std::slice::from_ref(&state);
+        let identity = |owner: StableItemId, field: &str| krs_ir::DescriptorCellIdentity {
+            owner,
+            field: field.to_owned(),
+        };
+        // `Mark` is held by an optional cell: a sentence about it is a step of the one instance
+        // present, and names its cells.
+        let mark = group_target(&cell_id("Mark"), targets).unwrap();
+        assert_eq!(mark.cells.len(), 1);
+        assert_eq!(mark.cells[0].identity, identity(cell_id("Mark"), "seen"));
+        assert!(mark.instance_key().is_none());
+
         let refusal = |group: &str| group_target(&cell_id(group), targets).unwrap_err();
         for (group, kind, reason) in [
             (
-                "Mark",
-                CollectionErrorKind::GroupSubjectPosition,
-                "the cell group `Mark` is held by the optional cell `mark` of configuration `State`, so its cells exist only in some states",
-            ),
-            (
                 "Job",
                 CollectionErrorKind::GroupSubjectPosition,
-                "the cell group `Job` is held by the collection cell `job` of configuration `State`, so each instance holds its own copy of its cells",
+                "the cell group `Job` is held by the List collection cell `job` of configuration `State`: a sentence about `Job` is about one instance, which in a List is the instance at any position, and matching one instance between others is not supported yet",
+            ),
+            (
+                "Obj",
+                CollectionErrorKind::GroupSubjectPosition,
+                "the cell group `Obj` is held by the Set collection cell `obj` of configuration `State`: a sentence about `Obj` is about one instance, which a rule rewrites as a local step, and a Set identifies an instance by its whole content, so a step that makes one instance equal to another merges the two",
             ),
             (
                 "Spare",
@@ -4351,16 +4681,6 @@ mod tests {
             assert_eq!(error.kind(), kind, "{group}");
             assert!(error.detail().starts_with(reason), "{}", error.detail());
         }
-
-        let none = group_target(&cell_id("Core"), &[]).unwrap_err();
-        assert_eq!(none.kind(), CollectionErrorKind::ConfigurationCount);
-        assert!(
-            none.detail().ends_with(
-                "`Core` is a cell group, not a configuration, and rules for a group are checked through a definition whose configuration holds it"
-            ),
-            "{}",
-            none.detail()
-        );
     }
 
     /// A readable clause typed by a group resolves against the one configuration and carries the

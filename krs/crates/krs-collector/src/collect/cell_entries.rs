@@ -338,6 +338,19 @@ pub(super) fn judge_readable(
     {
         return Err(overwritten_collection(entry));
     }
+    if judged.is_ok()
+        && let Some((cells, holder, group)) = target.instance_key()
+    {
+        kept_key(
+            &InstanceKey {
+                cells: cells.to_vec(),
+                holder: holder.to_owned(),
+                group: group.to_owned(),
+            },
+            &subject,
+            &result,
+        )?;
+    }
     match judged {
         Ok(lints) => Ok(lints
             .into_iter()
@@ -496,9 +509,9 @@ fn judge_entries(
     let Some(descriptor) = index.get(id) else {
         return Ok(Vec::new());
     };
-    let (configuration, subject, result, rewrite) = match descriptor.payload() {
+    let (reference, subject, result, rewrite) = match descriptor.payload() {
         DescriptorPayload::ConfigurationRule(rule) => (
-            &rule.subject_configuration.configuration,
+            &rule.subject_configuration,
             &rule.subject.cells,
             rule.result.as_ref().map(|cells| cells.cells.as_slice()),
             match (&rule.result, rule.sentence_kind) {
@@ -508,7 +521,7 @@ fn judge_entries(
             },
         ),
         DescriptorPayload::ContextAlias(alias) => (
-            &alias.configuration.configuration,
+            &alias.configuration,
             &alias.pattern.cells,
             None,
             Rewrite::Kept { as_rule: false },
@@ -518,7 +531,7 @@ fn judge_entries(
                 return Ok(Vec::new());
             };
             (
-                &context.configuration.configuration,
+                &context.configuration,
                 &context.cells.cells,
                 None,
                 Rewrite::Kept { as_rule: false },
@@ -526,7 +539,7 @@ fn judge_entries(
         }
         _ => return Ok(Vec::new()),
     };
-    let lints = judge_sentence(index, configuration, subject, result, rewrite, authored)?;
+    let lints = judge_sentence(index, reference, subject, result, rewrite, authored)?;
     Ok(lints
         .into_iter()
         .map(|(cell, range, lint)| linted(id, &cell, range, lint))
@@ -552,20 +565,25 @@ type DescriptorCells =
 /// An admitted entry's lint: the entry's cell, where its value is, and the lint.
 type EntryLint = (String, Option<SourceRange>, Lint);
 
-/// Judges one sentence's entries over the configuration `configuration`, and gives the lints
-/// its admitted entries owe ([`Sentence::judge`]).
+/// Judges one sentence's entries over the configuration `reference` names, from the level of
+/// the one instance its subject is about ([`Tree::scoped`]), and gives the lints its admitted
+/// entries owe ([`Sentence::judge`]). A sentence about one instance of a Map collection then
+/// writes the instance's key only as it matched it ([`kept_key`]).
 fn judge_sentence(
     index: &DescriptorIndex<'_>,
-    configuration: &StableItemId,
+    reference: &krs_ir::DescriptorConfigurationReference,
     subject: &DescriptorCells,
     result: Option<&DescriptorCells>,
     rewrite: Rewrite,
     authored: &LocatedCells,
 ) -> Result<Vec<EntryLint>, CollectionError> {
+    let configuration = &reference.configuration;
     let Ok(declaration) = index.configuration(configuration) else {
         return Ok(Vec::new());
     };
-    let tree = Tree::new(configuration, &declaration.declaration, index);
+    let tree = Tree::new(configuration, &declaration.declaration, index)
+        .scoped(reference.subject.as_ref());
+    let subject_cells = subject;
     let subject = entries(&tree, subject, &authored.subject);
     let result = result
         .zip(authored.result.as_ref())
@@ -600,6 +618,12 @@ fn judge_sentence(
             .nth(at)
             .expect("a judged entry is the sentence's")
     };
+    if judged.is_ok()
+        && let Some(key) = &tree.key
+    {
+        kept_key(key, &subject, &result)?;
+        kept_key_in_place(key, subject_cells, &subject)?;
+    }
     match judged {
         Ok(lints) => Ok(lints
             .into_iter()
@@ -627,6 +651,103 @@ fn judge_sentence(
             ))
         }
     }
+}
+
+/// The key of the Map collection instance a sentence is about: its key cell
+/// ([`krs_ir::cell_kind::CellKind::instance_key`]) and every cell inside it, the whole of the
+/// instance's identity.
+struct InstanceKey {
+    /// The key cell, then the cells inside it.
+    cells: Vec<DescriptorCellIdentity>,
+    /// The collection cell's field name.
+    holder: String,
+    /// The group the sentence is about, the collection's instance type.
+    group: String,
+}
+
+impl InstanceKey {
+    fn holds(&self, cell: &DescriptorCellIdentity) -> bool {
+        self.cells.contains(cell)
+    }
+
+    /// The refusal of a write of `cell`, at or inside the key, located at `range`.
+    fn refusal(
+        &self,
+        cell: &DescriptorCellIdentity,
+        range: Option<&SourceRange>,
+    ) -> CollectionError {
+        let error = CollectionError::new(
+            CollectionErrorKind::CellEntry(Refusal::MapCollectionKey),
+            krs_ir::subject::key_write_reason(
+                &self.group,
+                unraw(&self.holder),
+                unraw(&self.cells[0].field),
+                unraw(&cell.field),
+            ),
+        );
+        match range {
+            Some(range) => error.with_source_range(range.clone()),
+            None => error,
+        }
+    }
+}
+
+/// Refuses a result entry at or inside the key of the instance the sentence is about that is
+/// not provably what its subject matched for the same cell ([`cell_entries::keeps_key`], the
+/// predicate an instance update's key is judged by): a sentence about one instance of a Map
+/// collection is a local step of that instance, and the whole key is the instance's identity,
+/// which a step that writes another key, or another value inside it, would change into another
+/// instance. A result that leaves such a cell out keeps it.
+fn kept_key(
+    key: &InstanceKey,
+    subject: &[Entry<'_>],
+    result: &[Entry<'_>],
+) -> Result<(), CollectionError> {
+    // A leaf's value: inside its `Cell(..)` in `cells!`, as written in a readable record.
+    fn value<'e>(entry: &Entry<'e>) -> Option<&'e EntrySpelling> {
+        entry
+            .field
+            .spelling
+            .as_ref()
+            .map(|spelling| match spelling {
+                EntrySpelling::Cell(inner) => &**inner,
+                other => other,
+            })
+    }
+    for written in result.iter().filter(|entry| key.holds(entry.cell)) {
+        let matched = subject
+            .iter()
+            .find(|entry| entry.cell == written.cell)
+            .and_then(value);
+        if !value(written).is_some_and(|value| cell_entries::keeps_key(value, matched)) {
+            return Err(key.refusal(written.cell, written.field.range.as_ref()));
+        }
+    }
+    Ok(())
+}
+
+/// Refuses an in-place rewrite (`k::rewrite!`) at or inside the key of the instance the sentence
+/// is about, unless it keeps what it matched ([`krs_ir::subject::rewrites_keep`]): a single-body
+/// rule writes its cells where its subject rewrites them. The authored spelling reads a
+/// `k::rewrite!` as an opaque macro, so the descriptor's terms are judged, beside the entries
+/// they correspond to.
+fn kept_key_in_place(
+    key: &InstanceKey,
+    cells: &DescriptorCells,
+    entries: &[Entry<'_>],
+) -> Result<(), CollectionError> {
+    for (cell, entry) in cells.iter().zip(entries) {
+        if key.holds(&cell.field.cell)
+            && !cell
+                .value
+                .terms()
+                .into_iter()
+                .all(krs_ir::subject::rewrites_keep)
+        {
+            return Err(key.refusal(entry.cell, entry.field.range.as_ref()));
+        }
+    }
+    Ok(())
 }
 
 /// A field's name without its raw-identifier prefix.
@@ -680,15 +801,24 @@ fn entries<'a>(
         .collect()
 }
 
+/// A cell of a [`Tree`]: its ancestors, outermost first, the cell, and its owner.
+type TreeEntry<'i, 'a> = (
+    Vec<DescriptorCell<'i, 'a>>,
+    DescriptorCell<'i, 'a>,
+    &'a StableItemId,
+);
+
 /// A configuration's cells, each with the cells above it and the declaration that owns it.
 struct Tree<'i, 'a> {
     /// Each cell's ancestors, outermost first, the cell, and its owner.
-    cells: Vec<(
-        Vec<DescriptorCell<'i, 'a>>,
-        DescriptorCell<'i, 'a>,
-        &'a StableItemId,
-    )>,
+    cells: Vec<TreeEntry<'i, 'a>>,
+    /// Each cell's enclosing cell, by its index in `cells`; absent for a top-level cell.
+    parents: Vec<Option<usize>>,
     groups: Vec<GroupKind>,
+    /// Where the sentence is about a cell group, the cell that holds it ([`Self::scoped`]).
+    anchor: Option<usize>,
+    /// Where that cell is a Map collection, its instance's key ([`Self::scoped`]).
+    key: Option<InstanceKey>,
 }
 
 impl<'i, 'a> Tree<'i, 'a> {
@@ -699,9 +829,12 @@ impl<'i, 'a> Tree<'i, 'a> {
     ) -> Self {
         let mut tree = Self {
             cells: Vec::new(),
+            parents: Vec::new(),
             groups: Vec::new(),
+            anchor: None,
+            key: None,
         };
-        tree.walk(owner, declaration, index, &[], &[owner]);
+        tree.walk(owner, declaration, index, (&[], None), &[owner]);
         let mut groups = Vec::new();
         for (ancestors, cell, _) in &tree.cells {
             if ancestors.is_empty() {
@@ -712,17 +845,88 @@ impl<'i, 'a> Tree<'i, 'a> {
         tree
     }
 
+    /// The tree judged from the level of the one instance a sentence about `subject` is a step
+    /// of ([`krs_ir::subject::scope`]): an entry naming a cell below the group's cell is judged
+    /// against the marks strictly below that cell, and a further `?` or `*` inside the instance
+    /// keeps its mark. The whole configuration (`None`), or a subject without a scope, which
+    /// resolution refuses first, leaves every cell judged from the configuration's level.
+    fn scoped(mut self, subject: Option<&krs_ir::DescriptorSubject>) -> Self {
+        if subject.is_none() {
+            return self;
+        }
+        let cells = self
+            .cells
+            .iter()
+            .zip(&self.parents)
+            .map(|((_, cell, owner), parent)| krs_ir::TreeCell {
+                identity: DescriptorCellIdentity {
+                    owner: (*owner).clone(),
+                    field: cell.field().rust_field.clone(),
+                },
+                parent: *parent,
+                group: match &cell.field().content {
+                    ProtocolCellContent::Nested { declaration } => {
+                        Some(declaration.declaration.clone())
+                    }
+                    ProtocolCellContent::Leaf { .. } => None,
+                },
+                multiplicity: cell.kind().multiplicity(),
+                computation: cell.kind().is_computation(),
+                key: cell.kind().instance_key().map(str::to_owned),
+            })
+            .collect::<Vec<_>>();
+        let Ok(krs_ir::SubjectScope {
+            anchor: Some(anchor),
+            ..
+        }) = krs_ir::subject::scope(&cells, subject)
+        else {
+            return self;
+        };
+        self.anchor = Some(anchor);
+        let key = (0..cells.len())
+            .filter(|&index| {
+                krs_ir::subject::keys_on_path(&cells, index)
+                    .iter()
+                    .any(|&(holder, _)| holder == anchor)
+            })
+            .map(|index| cells[index].identity.clone())
+            .collect::<Vec<_>>();
+        if let (false, Some(krs_ir::DescriptorSubject::Group { declaration })) =
+            (key.is_empty(), subject)
+        {
+            self.key = Some(InstanceKey {
+                cells: key,
+                holder: cells[anchor].identity.field.clone(),
+                group: declaration.item_name().to_owned(),
+            });
+        }
+        self
+    }
+
+    /// The ancestors of the cell at `index` an entry naming it is judged against: those
+    /// strictly below the anchor, where the cell is inside the group the sentence is about, else
+    /// all of them.
+    fn judged_ancestors<'t>(
+        &'t self,
+        index: usize,
+        ancestors: &'t [DescriptorCell<'i, 'a>],
+    ) -> &'t [DescriptorCell<'i, 'a>] {
+        &ancestors[dropped(&self.parents, self.anchor, index).min(ancestors.len())..]
+    }
+
     fn walk(
         &mut self,
         owner: &'a StableItemId,
         declaration: &'a DescriptorCellDeclaration,
         index: &'i DescriptorIndex<'a>,
-        ancestors: &[DescriptorCell<'i, 'a>],
+        (ancestors, parent): (&[DescriptorCell<'i, 'a>], Option<usize>),
         seen: &[&'a StableItemId],
     ) {
         for field in &declaration.fields {
             let cell = DescriptorCell::new(field, index);
+            let at = self.cells.len();
             self.cells.push((ancestors.to_vec(), cell.clone(), owner));
+            self.parents.push(parent);
             if let ProtocolCellContent::Nested { declaration } = &field.content {
                 let nested = &declaration.declaration;
                 if seen.contains(&nested) {
@@ -735,34 +939,32 @@ impl<'i, 'a> Tree<'i, 'a> {
                 below.push(cell);
                 let mut deeper = seen.to_vec();
                 deeper.push(nested);
-                self.walk(nested, inner, index, &below, &deeper);
+                self.walk(nested, inner, index, (&below, Some(at)), &deeper);
             }
         }
     }
 
-    /// The cell `identity` names: its ancestors, outermost first, itself, and its owner.
-    fn cell(
-        &self,
-        identity: &DescriptorCellIdentity,
-    ) -> Option<&(
-        Vec<DescriptorCell<'i, 'a>>,
-        DescriptorCell<'i, 'a>,
-        &'a StableItemId,
-    )> {
-        self.cells.iter().find(|(_, cell, owner)| {
+    /// The cell `identity` names: its index, its ancestors, outermost first, itself, and its
+    /// owner.
+    fn cell(&self, identity: &DescriptorCellIdentity) -> Option<(usize, &TreeEntry<'i, 'a>)> {
+        self.cells.iter().enumerate().find(|(_, (_, cell, owner))| {
             *owner == &identity.owner && cell.field().rust_field == identity.field
         })
     }
 
-    /// The kind an entry naming `identity` is judged against.
+    /// The kind an entry naming `identity` is judged against: the layers of its `?` and `*`
+    /// ancestors below the anchor ([`Self::judged_ancestors`]) and its own.
     fn kind(&self, identity: &DescriptorCellIdentity) -> Option<EntryKind> {
-        let (ancestors, cell, _) = self.cell(identity)?;
-        Some(CellKind::entry(ancestors, cell))
+        let (index, (ancestors, cell, _)) = self.cell(identity)?;
+        Some(CellKind::entry(
+            self.judged_ancestors(index, ancestors),
+            cell,
+        ))
     }
 
     /// The sort of the cell `identity`, where it is a leaf, as its declaration names it.
     fn sort(&self, identity: &DescriptorCellIdentity) -> Option<String> {
-        let (_, cell, _) = self.cell(identity)?;
+        let (_, (_, cell, _)) = self.cell(identity)?;
         match &cell.field().content {
             ProtocolCellContent::Leaf { sort, .. } => Some(match &sort.sort {
                 krs_ir::DescriptorSortRef::Declared(id) | krs_ir::DescriptorSortRef::Cell(id) => {
@@ -777,10 +979,12 @@ impl<'i, 'a> Tree<'i, 'a> {
         }
     }
 
-    /// The outermost `?` or `*` ancestor of the cell `identity`, if it has one.
+    /// The outermost `?` or `*` ancestor of the cell `identity` below the anchor
+    /// ([`Self::judged_ancestors`]), if it has one.
     fn ancestor(&self, identity: &DescriptorCellIdentity) -> Option<Ancestor> {
-        let (ancestors, _, owner) = self.cell(identity)?;
-        let marked = ancestors
+        let (index, (ancestors, _, owner)) = self.cell(identity)?;
+        let marked = self
+            .judged_ancestors(index, ancestors)
             .iter()
             .find(|ancestor| ancestor.kind().multiplicity() != Multiplicity::One)?;
         let kind = marked.kind();
@@ -808,6 +1012,25 @@ impl<'i, 'a> Tree<'i, 'a> {
             path: Some(path),
         })
     }
+}
+
+/// How many of the outermost ancestors of the cell at `index` an entry naming it is judged
+/// without, the cells' enclosing cells being `parents`: the anchor and every cell above it,
+/// where the cell is below the anchor; none where it is not, or the sentence has no anchor (it
+/// is about the whole configuration).
+fn dropped(parents: &[Option<usize>], anchor: Option<usize>, index: usize) -> usize {
+    let Some(anchor) = anchor else {
+        return 0;
+    };
+    // The enclosing cells, innermost first; parents precede their children.
+    let above = std::iter::successors(parents[index], |&parent| {
+        parents[parent].filter(|&outer| outer < parent)
+    })
+    .collect::<Vec<_>>();
+    above
+        .iter()
+        .position(|&ancestor| ancestor == anchor)
+        .map_or(0, |at| above.len() - at)
 }
 
 /// What the author is told to write instead of a refused entry, in the form `form` the entry is
@@ -1095,5 +1318,157 @@ fn refused(
     match range.or(entry.field.range.as_ref()) {
         Some(range) => error.with_source_range(range.clone()),
         None => error,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use krs_ir::cell_kind::{CellKind, EntryKind};
+    use krs_ir::{DescriptorCellIdentity, ItemKind, PackageId, StableItemId};
+    use krs_syntax::cell_entry::EntrySpelling;
+
+    use super::{Entry, InstanceKey, ParsedField, dropped, kept_key};
+    use crate::CollectionErrorKind;
+
+    /// `Machine { harts: Harts { hart*: Hart { id, k, fpu?: Fpu { f } } }, mem }`, by parent.
+    const PARENTS: [Option<usize>; 7] = [
+        None,    // 0 harts
+        Some(0), // 1 hart*
+        Some(1), // 2 id
+        Some(1), // 3 k
+        Some(1), // 4 fpu?
+        Some(4), // 5 f
+        None,    // 6 mem
+    ];
+
+    #[test]
+    fn a_sentence_without_a_subject_judges_every_cell_from_the_configuration() {
+        for index in 0..PARENTS.len() {
+            assert_eq!(dropped(&PARENTS, None, index), 0, "{index}");
+        }
+    }
+
+    #[test]
+    fn a_sentence_about_an_instance_drops_the_anchor_and_the_cells_above_it() {
+        // About `Hart`, held by `hart`: its cells drop `harts` and `hart`; a cell of the optional
+        // group inside keeps `fpu`.
+        assert_eq!(dropped(&PARENTS, Some(1), 2), 2);
+        assert_eq!(dropped(&PARENTS, Some(1), 3), 2);
+        assert_eq!(dropped(&PARENTS, Some(1), 5), 2);
+        // About `Fpu`, held by `fpu`: `f` drops all three.
+        assert_eq!(dropped(&PARENTS, Some(4), 5), 3);
+        // A cell outside the group keeps every ancestor.
+        assert_eq!(dropped(&PARENTS, Some(1), 6), 0);
+        assert_eq!(dropped(&PARENTS, Some(4), 3), 0);
+    }
+
+    fn identity(field: &str) -> DescriptorCellIdentity {
+        DescriptorCellIdentity {
+            owner: StableItemId::new(
+                PackageId::new("ORG-EXAMPLE", "test", "0.1.0", "workspace").unwrap(),
+                ["state"],
+                "Hart",
+                ItemKind::Cell,
+                "",
+            )
+            .unwrap(),
+            field: field.to_owned(),
+        }
+    }
+
+    fn field(name: &str, spelling: EntrySpelling) -> ParsedField<krs_ir::SourceRange> {
+        ParsedField {
+            name: name.to_owned(),
+            spelling: Some(spelling),
+            range: None,
+            located: Vec::new(),
+            anonymous_rest: false,
+        }
+    }
+
+    fn entry<'a>(
+        cell: &'a DescriptorCellIdentity,
+        field: &'a ParsedField<krs_ir::SourceRange>,
+    ) -> Entry<'a> {
+        Entry {
+            cell,
+            kind: EntryKind {
+                path: CellKind::default(),
+                own: CellKind::default(),
+            },
+            field,
+            ancestor: None,
+            sort: None,
+        }
+    }
+
+    /// A Map instance's key entry is kept where the result leaves it out, restates the binder
+    /// its subject matched it with (inside `Cell(..)` in `cells!`, bare in a readable record), or
+    /// the same literal; any other value, or a key the subject does not name, is refused as
+    /// `map-collection-key`.
+    #[test]
+    fn a_sentence_about_a_map_instance_writes_its_key_only_as_it_matched_it() {
+        let (id, pc) = (identity("id"), identity("pc"));
+        let key = InstanceKey {
+            cells: vec![id.clone()],
+            holder: "hart".to_owned(),
+            group: "Hart".to_owned(),
+        };
+        let binder = |name: &str| EntrySpelling::Binder(name.to_owned());
+        let literal = |text: &str| EntrySpelling::Literal(text.to_owned());
+        let cell = |inner: EntrySpelling| EntrySpelling::Cell(Box::new(inner));
+        let judge = |subject: Option<EntrySpelling>, result: Option<EntrySpelling>| {
+            let pc_field = field("pc", binder("p"));
+            let subject_field = subject.map(|spelling| field("id", spelling));
+            let result_field = result.map(|spelling| field("id", spelling));
+            let mut subject = vec![entry(&pc, &pc_field)];
+            subject.extend(subject_field.as_ref().map(|field| entry(&id, field)));
+            let mut result = vec![entry(&pc, &pc_field)];
+            result.extend(result_field.as_ref().map(|field| entry(&id, field)));
+            kept_key(&key, &subject, &result).map_err(|error| error.kind())
+        };
+        let refused = Err(CollectionErrorKind::CellEntry(
+            krs_syntax::cell_entries::Refusal::MapCollectionKey,
+        ));
+        assert_eq!(judge(Some(binder("me")), None), Ok(()));
+        assert_eq!(judge(None, None), Ok(()));
+        assert_eq!(judge(Some(binder("me")), Some(binder("me"))), Ok(()));
+        assert_eq!(
+            judge(Some(cell(binder("me"))), Some(cell(binder("me")))),
+            Ok(())
+        );
+        assert_eq!(judge(Some(literal("0")), Some(literal("0"))), Ok(()));
+        assert_eq!(judge(Some(binder("me")), Some(binder("other"))), refused);
+        assert_eq!(judge(Some(literal("0")), Some(literal("1"))), refused);
+        assert_eq!(
+            judge(
+                Some(cell(binder("me"))),
+                Some(cell(EntrySpelling::Call(vec![binder("me")])))
+            ),
+            refused
+        );
+        assert_eq!(judge(None, Some(binder("me"))), refused);
+        // A cell inside a composite key is part of the identity: restated it is kept, written
+        // anew it is refused.
+        let composite = InstanceKey {
+            cells: vec![identity("cpu"), pc.clone()],
+            holder: "hart".to_owned(),
+            group: "Hart".to_owned(),
+        };
+        let (matched, kept, moved) = (
+            field("pc", binder("p")),
+            field("pc", binder("p")),
+            field("pc", literal("1")),
+        );
+        let subject = [entry(&pc, &matched)];
+        assert!(kept_key(&composite, &subject, &[entry(&pc, &kept)]).is_ok());
+        let error = kept_key(&composite, &subject, &[entry(&pc, &moved)]).unwrap_err();
+        assert!(
+            error
+                .detail()
+                .starts_with("the rule writes `pc`, a cell inside the key `cpu`,"),
+            "{}",
+            error.detail()
+        );
     }
 }

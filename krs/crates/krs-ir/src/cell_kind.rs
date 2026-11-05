@@ -226,6 +226,16 @@ impl CellKind {
             _ => None,
         }
     }
+
+    /// For a collection of a group, the child that keys each instance ([`GroupKind::key`]): a
+    /// Map collection's first child; `None` for any other cell.
+    #[must_use]
+    pub fn instance_key(&self) -> Option<&str> {
+        match self.layers.as_slice() {
+            [Layer::Instances(order), Layer::Group(group), ..] => group.key(*order),
+            _ => None,
+        }
+    }
 }
 
 /// The sort a production makes a cons list: the result sort of the cons production of a
