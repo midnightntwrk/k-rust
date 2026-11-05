@@ -1710,7 +1710,8 @@ fn cell_cons_list(
 }
 
 /// Renders one side of a list cell as the constructor term it denotes:
-/// `Cons(a, Cons(b, rest))`.
+/// `Cons(a, Cons(b, rest))`. Only a cell with an anonymous rest (R2) prints so; other list
+/// entries print their brackets through [`entries::print_entry`].
 fn render_list(
     list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>,
     constructors: &CellConsList,
@@ -1742,7 +1743,8 @@ fn render_list(
 
 /// Renders one side of a builtin `List` cell as the term its brackets
 /// denote: `list::concat(list::item(a), rest)`, nested as
-/// [`render_builtin_list_level`] nests a term's brackets.
+/// [`render_builtin_list_level`] nests a term's brackets. Only a cell with an anonymous rest
+/// (R2) prints so; other list entries print their brackets through [`entries::print_entry`].
 fn render_builtin_list(
     list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>,
     shared: Option<&Ident>,
@@ -2451,7 +2453,7 @@ fn render_rule(
                 rest: rest(),
             },
             entries::Side::Subject,
-        ));
+        )?);
         if let Some(result) = &head.result {
             let result_items = match result {
                 ProtocolHeadRuleResult::Replace(term) => {
@@ -2470,7 +2472,7 @@ fn render_rule(
                     rest: rest(),
                 },
                 entries::Side::Result,
-            ));
+            )?);
         }
     }
 
@@ -2523,7 +2525,7 @@ fn render_rule(
                         rest: entries::Rest::Anonymous,
                     },
                     entries::Side::Subject,
-                ));
+                )?);
             }
             ProtocolHeadRuleExtra::UpdateMap {
                 cell,
@@ -2544,10 +2546,69 @@ fn render_rule(
                 after,
                 ..
             } => {
+                let constructors = cell_cons_list(&cell.cell, bundle);
+                let anonymous = |list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>| {
+                    matches!(list.rest, krs_ir::ProtocolHeadRuleListRest::Shared(_))
+                };
+                // The brackets are written as the author wrote them: each side's items, its
+                // rest (bound `r @ ..` in the subject, written `..t` in the result) and, on a
+                // `List`, its back. They denote the constructor or `List` term the readable
+                // rule's do, front first.
+                if !anonymous(before) && !after.as_ref().is_some_and(anonymous) {
+                    let kind = if constructors.is_some() {
+                        entries::ListKind::Cons
+                    } else {
+                        entries::ListKind::Builtin
+                    };
+                    let field = render_rule_cell_field(&cell.cell, &rule.configuration, package)?;
+                    let entry = |list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>,
+                                 pattern: bool|
+                     -> Result<entries::Entry, ReferenceExpansionError> {
+                        let render = |terms: &[DescriptorTerm]| {
+                            terms
+                                .iter()
+                                .map(|term| render_term(term, pattern, package, bundle))
+                                .collect::<Result<Vec<_>, _>>()
+                        };
+                        let rest = match &list.rest {
+                            krs_ir::ProtocolHeadRuleListRest::Exact => entries::Rest::Exact,
+                            krs_ir::ProtocolHeadRuleListRest::Shared(_) => entries::Rest::Anonymous,
+                            krs_ir::ProtocolHeadRuleListRest::Term(rest) => {
+                                entries::Rest::Named(render_term(rest, pattern, package, bundle)?)
+                            }
+                        };
+                        Ok(entries::Entry {
+                            contents: entries::Contents::List {
+                                kind,
+                                items: render(&list.items)?,
+                                back: render(&list.back)?,
+                            },
+                            rest,
+                        })
+                    };
+                    left_cells.push(entries::print_entry(
+                        &field,
+                        &entry(before, true)?,
+                        entries::Side::Subject,
+                    )?);
+                    if let Some(after) = after {
+                        right_cells.push(entries::print_entry(
+                            &field,
+                            &entry(after, false)?,
+                            entries::Side::Result,
+                        )?);
+                    }
+                    continue;
+                }
+                // R2: an anonymous rest keeps its constructor print, a parameter both sides
+                // name. Its result `[x, ..]` waits for `k::cells!` to keep a list's rest (K1
+                // step 2). Its subject `[a, ..]` would emit `_` where the readable rule emits
+                // its generated rest variable: the same rule, which waits for S5.5's generated
+                // rest name, or for a `k_round_trip` rule equating `_` with a variable used once.
+                //
                 // A cell of the builtin `List` is the `list::item` and
-                // `list::concat` term its brackets denote; its anonymous
-                // `..` is a parameter both sides name.
-                let Some(list) = cell_cons_list(&cell.cell, bundle) else {
+                // `list::concat` term its brackets denote.
+                let Some(list) = constructors else {
                     let shared = matches!(before.rest, krs_ir::ProtocolHeadRuleListRest::Shared(_))
                         .then(|| {
                             let rest = fresh_ident("rest", &mut reserved)?;
@@ -2574,8 +2635,7 @@ fn render_rule(
                     }
                     continue;
                 };
-                // A list cell is the constructor term it denotes (F6); its
-                // anonymous `..` is a parameter both sides name.
+                // A cons-list cell is the constructor term it denotes (F6).
                 let shared = matches!(before.rest, krs_ir::ProtocolHeadRuleListRest::Shared(_))
                     .then(|| {
                         let rest = fresh_ident("rest", &mut reserved)?;
@@ -3468,18 +3528,25 @@ fn render_term(
         DescriptorTerm::Cell {
             declaration,
             fields,
+            open,
+            update,
             ..
         } => {
             let owner = render_declared_path(declaration, package)?;
+            // An open record leaves every child it does not name unconstrained, which is what a
+            // `_` child is, so it prints the children that constrain something, then `..`. An
+            // update `..base` prints every child as before (S5-LOW).
+            let open = *open && update.is_none();
             let fields = fields
                 .iter()
+                .filter(|field| !(open && matches!(*field.value, DescriptorTerm::Wildcard { .. })))
                 .map(|field| {
                     let name = rust_ident(field.field.as_str())?;
                     let value = render_term(&field.value, pattern, package, bundle)?;
-                    Ok(quote!(#name: #value))
+                    Ok((quote!(#name), value))
                 })
                 .collect::<Result<Vec<_>, ReferenceExpansionError>>()?;
-            Ok(quote!(k::fragment![#owner { #(#fields),* }]))
+            Ok(entries::print_record(&owner, &fields, open))
         }
     }
 }
@@ -5176,6 +5243,8 @@ pub enum ReferenceExpansionError {
     UnsupportedBuiltinToken(BuiltinSort),
     /// A readable optional or collection entry has no reference spelling.
     UnsupportedState,
+    /// A cell entry `k::cells!` refuses reached the entry printer.
+    IllegalEntry(&'static str),
     /// Semantic lowering chose no operation for an operator.
     UnresolvedOperator(&'static str),
     /// Semantic lowering recorded no constructor for bracket list notation.
@@ -5216,7 +5285,7 @@ impl ToDiagnostic for ReferenceExpansionError {
             Self::UnknownApplicationField { .. } => codes::reference::UNKNOWN_APPLICATION_FIELD,
             Self::InvalidLiteral(_) => codes::reference::INVALID_LITERAL,
             Self::UnsupportedBuiltinToken(_) => codes::reference::UNSUPPORTED_BUILTIN_TOKEN,
-            Self::UnsupportedState => codes::reference::UNSUPPORTED_STATE,
+            Self::UnsupportedState | Self::IllegalEntry(_) => codes::reference::UNSUPPORTED_STATE,
             Self::UnresolvedOperator(_) | Self::UnresolvedCollectionMethod(_) => {
                 codes::reference::UNRESOLVED_OPERATOR
             }
@@ -5313,6 +5382,7 @@ impl fmt::Display for ReferenceExpansionError {
             }
             Self::UnsupportedState => formatter
                 .write_str("a readable optional or collection entry has no reference spelling"),
+            Self::IllegalEntry(reason) => write!(formatter, "no `k::cells!` entry: {reason}"),
             Self::UnresolvedOperator(operator) => write!(
                 formatter,
                 "semantic lowering chose no builtin operation for an operator `{operator}`"
@@ -5355,6 +5425,7 @@ impl Error for ReferenceExpansionError {
             | Self::InvalidLiteral(_)
             | Self::UnsupportedBuiltinToken(_)
             | Self::UnsupportedState
+            | Self::IllegalEntry(_)
             | Self::UnresolvedOperator(_)
             | Self::UnresolvedListNotation
             | Self::UnresolvedCollectionMethod(_) => None,

@@ -5,7 +5,7 @@
 //! projections) and a `#[k::syntax_list]` sort, in a function body's
 //! `match`, `k::equations!` rows, an equation result, a constructor field,
 //! readable records, and a claim; a readable record's anonymous `..` is one
-//! shared rest; `krs expand` writes the constructors; and malformed lists,
+//! shared rest; `krs expand` writes a list cell's brackets as written; and malformed lists,
 //! lists at positions that are no cons list, and cons-list enums of the
 //! wrong shape are errors.
 
@@ -442,7 +442,7 @@ fn a_record_cells_anonymous_rest_is_one_shared_rest() {
 }
 
 #[test]
-fn expand_writes_the_constructors_list_notation_denotes() {
+fn expand_writes_a_list_cells_brackets_as_written() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
     let manifest = package(temporary.path(), "lists", &spelled(true));
@@ -453,7 +453,7 @@ fn expand_writes_the_constructors_list_notation_denotes() {
         .expect("the readable rule is written");
     let start = stdout[..start].rfind("#[k::rule(").unwrap();
     let end = start + stdout[start..].find("\n}\n").unwrap() + 3;
-    expect_test::expect![[r#"
+    expect_test::expect![[r##"
         #[k::rule(label = "bump")]
         pub fn bump(
             i: k::Term<k::builtin::Int>,
@@ -461,17 +461,16 @@ fn expand_writes_the_constructors_list_notation_denotes() {
             rest: crate::Projections,
             k::cells! {
                 k : k::configuration::KCell(crate ::Instr::Bump(), ..), projections :
-                k::configuration::Cell(crate ::ProjectionList::ProjectionsCons(crate
-                ::ProjectionElem::Field(i, f_ty), rest)), state @ ..
+                k::configuration::Cell([crate ::ProjectionElem::Field(i, f_ty), rest @ ..]),
+                state @ ..
             }: crate::Machine,
         ) -> crate::Machine {
             k::cells! {
-                k : k::configuration::KCell(..), projections : k::configuration::Cell(crate
-                ::ProjectionList::ProjectionsCons(crate
-                ::ProjectionElem::Field(k::builtin::int::add(i, 1), f_ty), rest)), ..state
+                k : k::configuration::KCell(..), projections : k::configuration::Cell([crate
+                ::ProjectionElem::Field(k::builtin::int::add(i, 1), f_ty), ..rest]), ..state
             }
         }
-    "#]]
+    "##]]
     .assert_eq(&stdout[start..end]);
 }
 

@@ -1844,8 +1844,8 @@ fn readable_expansion_is_complete_deterministic_reference_rust() {
     );
 
     let eval_neg = &rules["eval_neg"];
-    assert!(eval_neg.contains("KCell (crate :: imp :: Op :: Neg (value) , tail @ ..)"));
-    assert!(eval_neg.contains("KCell (k :: builtin :: int :: sub (0 , value) , .. tail)"));
+    assert!(eval_neg.contains("KCell (crate :: imp :: Op :: Neg (value) , ..)"));
+    assert!(eval_neg.contains("KCell (k :: builtin :: int :: sub (0 , value) , ..)"));
     assert!(
         !eval_neg.contains("env :"),
         "ordinary completion must frame env"
@@ -1853,17 +1853,17 @@ fn readable_expansion_is_complete_deterministic_reference_rust() {
 
     let step = &rules["step"];
     assert!(
-        step.contains("KCell (s1 , s2 , .. tail)"),
+        step.contains("KCell (s1 , s2 , ..)"),
         "splice result was not expanded"
     );
     let done = &rules["done"];
     assert!(
-        done.contains("KCell (.. tail)"),
+        done.contains("KCell (..)"),
         "erase result was not expanded"
     );
 
     let var = &rules["var"];
-    assert!(var.contains("Cell (map ! [name -> value , rest0 @ ..])"));
+    assert!(var.contains("Cell (map ! [name -> value , ..])"));
     assert_eq!(
         var.matches("env :").count(),
         1,

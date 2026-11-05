@@ -858,7 +858,8 @@ impl LongForm<'_, '_> {
         match &mut term {
             DescriptorTerm::As { name, pattern, .. } => {
                 let base = self.updates.is_base(name).then(|| name.clone());
-                let long = self.term(pattern, base.as_deref())?;
+                // A labelled record names every child, as a base's does (S5-G1).
+                let long = self.closed(self.term(pattern, base.as_deref())?)?;
                 if self.updates.is_dropped(name) {
                     return Ok(long);
                 }
@@ -927,15 +928,19 @@ impl LongForm<'_, '_> {
                 for (field, value) in &mut values {
                     *value = self.term(value, self.child_record(alias, field, value))?;
                 }
+                // An open record that is no base's and no update leaves the children it does
+                // not name unconstrained, which its `..` says: it keeps the children written
+                // and stays open. Any other names every child.
+                let keeps_open = *open && alias.is_none() && update.is_none();
                 self.fill(&declared, &mut values, alias, update.take().as_deref(), key)?;
-                if *open {
+                if *open && !keeps_open {
                     for field in &declared {
                         values
                             .entry(field.clone())
                             .or_insert_with(|| DescriptorTerm::Wildcard { key: key.clone() });
                     }
                 }
-                *open = false;
+                *open = keeps_open;
                 *fields = declared
                     .iter()
                     .filter_map(|field| {
@@ -950,6 +955,37 @@ impl LongForm<'_, '_> {
                     .collect();
             }
             _ => self.children(&mut term)?,
+        }
+        Ok(term)
+    }
+
+    /// `term` naming every child when it is an open group record: the children it does not
+    /// name are `_`.
+    fn closed(&self, mut term: DescriptorTerm) -> Result<DescriptorTerm, DescriptorLoweringError> {
+        if let DescriptorTerm::Cell {
+            key,
+            declaration,
+            fields,
+            open: open @ true,
+            ..
+        } = &mut term
+        {
+            let declared = self.fields(&Record::Cell(declaration.clone()))?;
+            let mut values = std::mem::take(fields)
+                .into_iter()
+                .map(|field| (field.field, field.value))
+                .collect::<BTreeMap<_, _>>();
+            *fields = declared
+                .iter()
+                .map(|field| krs_ir::DescriptorCellTermField {
+                    key: key.clone(),
+                    field: field.clone(),
+                    value: values
+                        .remove(field)
+                        .unwrap_or_else(|| Box::new(DescriptorTerm::Wildcard { key: key.clone() })),
+                })
+                .collect();
+            *open = false;
         }
         Ok(term)
     }
@@ -1124,8 +1160,10 @@ impl LongForm<'_, '_> {
 }
 
 /// The long form of a readable rule or claim, as `krs expand` writes it
-/// (F5): its terms name every field, an alias used only as an update base is
-/// no binding, and the hidden binders of its updates are bindings.
+/// (F5): its terms name every field, except an open group record that is no
+/// base's, no update and unlabelled, which keeps the children written and its
+/// `..`; an alias used only as an update base is no binding, and the hidden
+/// binders of its updates are bindings.
 ///
 /// # Errors
 ///

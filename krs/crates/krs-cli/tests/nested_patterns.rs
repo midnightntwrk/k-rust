@@ -692,8 +692,8 @@ k::rules! {
 /// `<frame>` cell, a result writes it back, and an update of a group may
 /// nest inside an update of its parent. An alias over a group child names
 /// the matched child and is rebuilt where it is used (N7); one bound twice
-/// is rejected. `krs expand` writes a group child that a record leaves out with `..` as `frame: _`,
-/// which checks to the same rule.
+/// is rejected. `krs expand` writes a record that leaves a group child out with `..` as written,
+/// and the print checks to the same rule.
 #[test]
 fn a_group_child_may_be_a_binder_or_wildcard() {
     let target = shared_fixture_target();
@@ -768,7 +768,8 @@ fn a_group_child_may_be_a_binder_or_wildcard() {
     );
     let (success, expanded, stderr) = krs(target.path(), &omitted, "expand", &[]);
     assert!(success, "{stderr}");
-    assert!(expanded.contains("frame : _, flag : f"), "{expanded}");
+    // The open record prints as written: the child it names, then `..`.
+    assert!(expanded.contains("Outer { flag : f, .. }"), "{expanded}");
     let reference = library_package(temporary.path(), "omitted-expanded", &expanded);
     assert_eq!(run(&reference, "look"), run(&omitted, "look"));
 }
