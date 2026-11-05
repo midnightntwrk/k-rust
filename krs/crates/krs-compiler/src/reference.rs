@@ -2854,16 +2854,21 @@ fn instance_group(
     cell: &krs_ir::DescriptorCellIdentity,
     index: &DescriptorIndex<'_>,
 ) -> Option<StableItemId> {
-    fn walk<'a>(
+    /// Whether `cell` lies below `owner`; on the way to it, `instances` gains the group of each
+    /// `?` or `*` cell, outermost first.
+    fn reaches<'a>(
         owner: &'a StableItemId,
         cell: &krs_ir::DescriptorCellIdentity,
-        instance: Option<&'a StableItemId>,
         index: &DescriptorIndex<'a>,
+        instances: &mut Vec<&'a StableItemId>,
         visiting: &mut BTreeSet<&'a StableItemId>,
-    ) -> Option<Option<&'a StableItemId>> {
-        for field in &index.cell_owner(owner).ok()?.fields {
+    ) -> bool {
+        let Ok(declaration) = index.cell_owner(owner) else {
+            return false;
+        };
+        for field in &declaration.fields {
             if field.reference.cell == *cell {
-                return Some(instance);
+                return true;
             }
             let krs_ir::ProtocolCellContent::Nested { declaration } = &field.content else {
                 continue;
@@ -2875,23 +2880,26 @@ fn instance_group(
             let multiplicity = krs_ir::cell_kind::CellView::multiplicity(
                 &krs_ir::cell_kind::DescriptorCell::new(field, index),
             );
-            let inner = if multiplicity == krs_ir::cell_kind::Multiplicity::One {
-                instance
-            } else {
-                Some(group)
-            };
-            let found = walk(group, cell, inner, index, visiting);
+            let instance = multiplicity != krs_ir::cell_kind::Multiplicity::One;
+            if instance {
+                instances.push(group);
+            }
+            let found = reaches(group, cell, index, instances, visiting);
             visiting.remove(group);
-            if found.is_some() {
-                return found;
+            if found {
+                return true;
+            }
+            if instance {
+                instances.pop();
             }
         }
-        None
+        false
     }
     let owner = index.get(configuration)?.id();
-    walk(owner, cell, None, index, &mut BTreeSet::new())
+    let mut instances = Vec::new();
+    reaches(owner, cell, index, &mut instances, &mut BTreeSet::new())
+        .then(|| instances.last().copied().cloned())
         .flatten()
-        .cloned()
 }
 
 /// Whether a `#[k::requires]` of `item` holds the operator `==`.

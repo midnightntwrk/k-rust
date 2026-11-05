@@ -1866,6 +1866,31 @@ fn printed_rule<'a>(print: &'a str, label: &str) -> &'a str {
     &print[start..end]
 }
 
+/// `package`'s print checks, and each rule `labels` names emits as the
+/// readable rule does.
+fn assert_print_emits_the_readable_k(
+    target: &Path,
+    readable: &Path,
+    printed: &Path,
+    package: &str,
+    labels: &[&str],
+) {
+    let (success, _, stderr) = krs_on(target, printed, package, "check", &[]);
+    assert!(success, "printed {package}:\n{stderr}");
+    let (readable, printed) = (
+        emitted(target, readable, package),
+        emitted(target, printed, package),
+    );
+    for label in labels {
+        let start = format!("rule [{label}]:");
+        assert_eq!(
+            sentence(&readable, &start),
+            sentence(&printed, &start),
+            "{package}"
+        );
+    }
+}
+
 /// `krs expand` prints a rule for a group as a `cells!` rule typed by the
 /// group, naming the group's cells flat, whatever holds the group: a fixed
 /// position (`uni`), a Map collection (`smp`) or an optional cell (`opt`'s
@@ -1908,20 +1933,7 @@ fn a_rule_for_a_group_prints_typed_by_the_group_wherever_the_group_is_held() {
     let printed = instance_definitions(&temporary.path().join("printed"), "", &sources);
     for ((readable, printed), (package, _, labels)) in readable.iter().zip(&printed).zip(&packages)
     {
-        let (success, _, stderr) = krs_on(target.path(), printed, package, "check", &[]);
-        assert!(success, "printed {package}:\n{stderr}");
-        let (readable, printed) = (
-            emitted(target.path(), readable, package),
-            emitted(target.path(), printed, package),
-        );
-        for label in *labels {
-            let start = format!("rule [{label}]:");
-            assert_eq!(
-                sentence(&readable, &start),
-                sentence(&printed, &start),
-                "{package}"
-            );
-        }
+        assert_print_emits_the_readable_k(target.path(), readable, printed, package, labels);
     }
     expect_test::expect![[r#"
         // uni
