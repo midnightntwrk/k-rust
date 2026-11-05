@@ -368,11 +368,15 @@ fn is_not_two(k::term![IsTwo(_)]: Term<Bool>) -> Term<Bool> {
     assert_eq!(k.matches("priority(210)").count(), 1, "{k}");
     assert_eq!(k.matches("owise").count(), 3, "{k}");
 
-    // The IR states `owise` as a field of every priority, never as a reading of its value or
-    // its origin, so a priority whose field is dropped fails to load rather than reading as a
-    // written 200.
-    let mut json: serde_json::Value =
-        serde_json::from_slice(&fs::read(emitted.join("semantic-ir.json")).unwrap()).unwrap();
+    assert_owise_is_a_field_of_every_priority(&fs::read(emitted.join("semantic-ir.json")).unwrap());
+}
+
+/// The IR states `owise` as a field of every priority, never as a reading of its value or its
+/// origin, so a priority whose field is dropped fails to load rather than reading as a written
+/// 200. `semantic_ir` is the Semantic IR of the test above: five priorities of 200, three of
+/// them `owise`, and one of 210.
+fn assert_owise_is_a_field_of_every_priority(semantic_ir: &[u8]) {
+    let mut json: serde_json::Value = serde_json::from_slice(semantic_ir).unwrap();
     let mut stated = Vec::new();
     priority_objects(&mut json, &mut |priority| {
         stated.push((
