@@ -957,7 +957,7 @@ pub struct Semantics {
     /// The sort hooks of `backend`'s definition, by KAST sort name, with which its results are
     /// converted to KAST (`result_sort_hooks`).
     sort_hooks: HashMap<String, String>,
-    unparser: krs_unparse::Unparser,
+    unparser: Arc<krs_unparse::Unparser>,
     configuration: Configuration,
     values: Arc<ValueIndex>,
     /// The typed cells configuration variables fill, which [`Self::configure`] checks.
@@ -1123,7 +1123,7 @@ impl Semantics {
         Ok(Self {
             backend,
             sort_hooks,
-            unparser,
+            unparser: Arc::new(unparser),
             configuration,
             values,
             cell_types,
@@ -1430,8 +1430,10 @@ impl Semantics {
     /// The expectation an `expect` table states ([`inputs`], "Expectations"), read against the
     /// definition: its end as [`Self::read_end_in`] reads an end document, its file paths
     /// relative to the data file `from` (a resolved name `files` returned) or the top document
-    /// (`None`), and its `compare` narrowing. It is refused here, before the case runs, for any
-    /// cell it is compared on that it does not state, as every comparison of it would be.
+    /// (`None`), its `compare` narrowing, and its `views` and `observer` as the document names
+    /// them, which the caller resolves in the observer it names
+    /// ([`Expectation::comparison`]). It is refused here, before the case runs, for any cell it
+    /// is compared on that it does not state, as every comparison of it would be.
     ///
     /// # Errors
     ///
@@ -1452,7 +1454,7 @@ impl Semantics {
         let serde_json::Value::Object(table) = document else {
             return Err(refuse(
                 "",
-                "the expected end is a table of `halt`, `rule`, `cells` and `compare`",
+                "the expected end is a table of `halt`, `rule`, `cells`, `compare`, `views` and `observer`",
             ));
         };
         let mut end_document = table.clone();
@@ -1477,13 +1479,15 @@ impl Semantics {
                 ));
             }
         };
+        let (views, observer) = expectation_views(&mut end_document)
+            .map_err(|(position, message)| refuse(&position, message))?;
         if let Some(key) = end_document
             .keys()
             .find(|key| !matches!(key.as_str(), "halt" | "rule" | "cells"))
         {
             return Err(refuse(
                 key,
-                "an expected end holds `halt`, `rule`, `cells` and `compare` only",
+                "an expected end holds `halt`, `rule`, `cells`, `compare`, `views` and `observer` only",
             ));
         }
         let end = self
@@ -1504,7 +1508,12 @@ impl Semantics {
                 }
                 _ => refuse("cells", &error.to_string()),
             })?;
-        Ok(Expectation { end, comparison })
+        Ok(Expectation {
+            end,
+            comparison,
+            views,
+            observer,
+        })
     }
 
     /// The claims of the generated spec module, in label order.
@@ -2791,7 +2800,7 @@ impl Semantics {
 
     /// The printer `krs run` prints this definition's results with.
     #[must_use]
-    pub const fn unparser(&self) -> &krs_unparse::Unparser {
+    pub fn unparser(&self) -> &krs_unparse::Unparser {
         &self.unparser
     }
 
@@ -3038,6 +3047,52 @@ fn compile_spec_definition(
         timings,
     )
     .map(|(artifacts, _)| artifacts)
+}
+
+/// An expectation's views by cell path, and the observer it names.
+type ExpectationViews = (BTreeMap<String, String>, Option<String>);
+
+/// The `views` and `observer` of an `expect` table, removed from `table`; a refusal is its
+/// position below `expect` and the reason.
+fn expectation_views(
+    table: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<ExpectationViews, (String, &'static str)> {
+    let views = match table.remove("views") {
+        None => BTreeMap::new(),
+        Some(serde_json::Value::Object(views)) => views
+            .into_iter()
+            .map(|(cell, function)| match function {
+                serde_json::Value::String(function) if !function.is_empty() => Ok((cell, function)),
+                _ => Err((
+                    format!("views.{cell}"),
+                    "a view is the name of a function, a non-empty string",
+                )),
+            })
+            .collect::<Result<_, _>>()?,
+        Some(_) => {
+            return Err((
+                "views".to_owned(),
+                "`views` is a table of a function name by cell path",
+            ));
+        }
+    };
+    let observer = match table.remove("observer") {
+        None => None,
+        Some(serde_json::Value::String(observer)) if !observer.is_empty() => Some(observer),
+        Some(_) => {
+            return Err((
+                "observer".to_owned(),
+                "`observer` names the definition the views are evaluated in, a non-empty string",
+            ));
+        }
+    };
+    if observer.is_some() && views.is_empty() {
+        return Err((
+            "observer".to_owned(),
+            "`observer` names the definition the views are evaluated in, and the expectation names no view",
+        ));
+    }
+    Ok((views, observer))
 }
 
 /// A spec module's backend and claim catalog ([`Semantics::prover`]).

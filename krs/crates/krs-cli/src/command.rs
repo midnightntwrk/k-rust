@@ -27,6 +27,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 mod agreement;
+mod cases;
 mod collected;
 mod collector;
 mod counters;
@@ -64,6 +65,8 @@ pub enum CommandKind {
     Search,
     /// Prove the definition's claims, as kprove does.
     Prove,
+    /// Run a batch of named cases and report each one's verdict.
+    Cases,
 }
 
 impl CommandKind {
@@ -79,6 +82,7 @@ impl CommandKind {
             Self::Run => "run",
             Self::Search => "search",
             Self::Prove => "prove",
+            Self::Cases => "cases",
         }
     }
 
@@ -130,15 +134,19 @@ pub enum Command {
     Search(SearchRequest),
     /// Prove claims (`krs prove`).
     Prove(ProveRequest),
+    /// Run a batch of cases (`krs cases`).
+    Cases(CasesRequest),
 }
 
+pub use cases::{CASES_SCHEMA, CasesOutput, CasesRequest};
 pub use collected::{
     CollectedDefinition, EmittedDefinition, EmittedRule, RetainedEmission, collect_descriptors,
 };
 #[cfg(feature = "kink")]
 pub(crate) use collected::{PlannedCollection, plan_collection};
 pub use exec::{
-    ColorChoice, ParseRequest, ProgramSource, ProveRequest, RunRequest, SearchRequest, TermOutput,
+    ColorChoice, DEFAULT_VIEW_BUDGET, ParseRequest, ProgramSource, ProveRequest, RunRequest,
+    SearchRequest, TermOutput,
 };
 pub use supervisor::{supervise_prove, watch_supervisor};
 
@@ -155,6 +163,7 @@ impl Command {
             Self::Run(_) => CommandKind::Run,
             Self::Search(_) => CommandKind::Search,
             Self::Prove(_) => CommandKind::Prove,
+            Self::Cases(_) => CommandKind::Cases,
         }
     }
 
@@ -167,6 +176,7 @@ impl Command {
             Self::Run(request) => request.solver,
             Self::Search(request) => request.solver,
             Self::Prove(request) => request.solver,
+            Self::Cases(request) => request.solver,
             _ => krs_exec::BackendOptions::RESOURCE_BOUNDED,
         }
     }
@@ -182,7 +192,8 @@ impl Command {
             | Self::Parse(_)
             | Self::Run(_)
             | Self::Search(_)
-            | Self::Prove(_) => None,
+            | Self::Prove(_)
+            | Self::Cases(_) => None,
         }
     }
 
@@ -209,7 +220,8 @@ impl Command {
             | Self::Parse(_)
             | Self::Run(_)
             | Self::Search(_)
-            | Self::Prove(_) => None,
+            | Self::Prove(_)
+            | Self::Cases(_) => None,
         }
     }
 }
@@ -421,16 +433,18 @@ fn execute_with_sources(
             .map(CommandExecution::without_artifacts),
         Command::EmitK { output, ir } => emit(&prepared, output, *ir, measurement),
         Command::Build { backend, output } => build(&prepared, *backend, output, measurement),
-        Command::Parse(_) | Command::Run(_) | Command::Search(_) | Command::Prove(_) => {
-            exec_command(
-                &prepared,
-                request,
-                sources,
-                metadata.workspace_root.as_deref().map(Path::new),
-                reuse,
-                measurement,
-            )
-        }
+        Command::Parse(_)
+        | Command::Run(_)
+        | Command::Search(_)
+        | Command::Prove(_)
+        | Command::Cases(_) => exec_command(
+            &prepared,
+            request,
+            sources,
+            metadata.workspace_root.as_deref().map(Path::new),
+            reuse,
+            measurement,
+        ),
     };
     // `KRS_CHECK_EXPANDS=1`: a package `krs check` accepts has a printed form (S6 defines a
     // readable rule as the rule `krs expand` prints).
@@ -527,22 +541,138 @@ fn exec_command(
         diagnostic.severity = krs_diagnostic::Severity::Warning;
         warnings.push(diagnostic, DiagnosticStage::Native);
     }
-    match exec::execute(
-        prepared,
-        &request.command,
-        sources,
-        exec::StageReuse {
-            cache: stage_cache.as_ref(),
-            restore: reuse,
-        },
-        measurement,
-    ) {
+    let stage_reuse = exec::StageReuse {
+        cache: stage_cache.as_ref(),
+        restore: reuse,
+    };
+    let result = if let Command::Cases(cases) = &request.command {
+        let observers = |name: &str| prepare_observer(request, name, workspace_root);
+        cases::execute(
+            prepared,
+            cases,
+            sources,
+            stage_reuse,
+            &observers,
+            measurement,
+        )
+    } else {
+        read_case(request, workspace_root)
+            .map_err(|error| error.warned(warnings.clone()))
+            .and_then(|read| {
+                exec::execute(
+                    prepared,
+                    &request.command,
+                    sources,
+                    stage_reuse,
+                    read,
+                    measurement,
+                )
+            })
+    };
+    match result {
         Ok(mut outcome) => {
             outcome.warnings = warnings;
             Ok(CommandExecution::without_artifacts(outcome))
         }
         Err(error) => Err(error.warned(warnings)),
     }
+}
+
+/// The case of a `run` or `search`, read once, and the observer definition its views are
+/// evaluated in, prepared, when it names one other than the definition it runs on.
+fn read_case(
+    request: &CommandRequest,
+    workspace_root: Option<&Path>,
+) -> Result<exec::ReadCase, CommandError> {
+    let (path, name) = match &request.command {
+        Command::Run(run) => (run.case.as_deref(), run.case_name.as_deref()),
+        Command::Search(search) => (search.case.as_deref(), search.case_name.as_deref()),
+        _ => (None, None),
+    };
+    // A case that cannot be read is read again by the run, which reports what is wrong with it.
+    let Some(case) = path.and_then(|path| exec::readable_case(path, name)) else {
+        return Ok(exec::ReadCase::default());
+    };
+    let observer = match exec::named_observer(&case.case) {
+        Some(observer) => prepare_observer(request, observer, workspace_root)
+            .map_err(CommandError::InvalidRequest)?,
+        None => None,
+    };
+    Ok(exec::ReadCase {
+        case: Some(case),
+        observer,
+    })
+}
+
+/// The observer definition `name` (`PACKAGE:DEFINITION`, as `--dependency` names a definition)
+/// for the definition `request` selects: the facet `name` composed with that definition and its
+/// dependencies, prepared as every command prepares a definition, so that its module imports the
+/// configured one ([`krs_exec::views`], "The observer"); `None` when `name` is that definition
+/// itself.
+///
+/// # Errors
+///
+/// Returns the reason as text: a name of another form, and any failure to prepare the facet.
+fn prepare_observer(
+    request: &CommandRequest,
+    name: &str,
+    workspace_root: Option<&Path>,
+) -> Result<Option<exec::ObserverDefinition>, String> {
+    let (package, definition) = name
+        .rsplit_once(':')
+        .filter(|(package, definition)| !package.is_empty() && !definition.is_empty())
+        .ok_or_else(|| {
+            format!(
+                "the observer `{name}` is no definition: an observer is named `PACKAGE:DEFINITION`, as --dependency names one"
+            )
+        })?;
+    let selector = FacetSelector {
+        package: crate::PackageSelector::Name(package.to_owned()),
+        definition: definition.to_owned(),
+    };
+    let subject = matches!(&request.root.package, crate::PackageSelector::Name(root) if root == package)
+        && request.root.definition == definition;
+    if subject {
+        return Ok(None);
+    }
+    let mut dependencies = vec![request.root.clone()];
+    dependencies.extend(
+        request
+            .dependencies
+            .iter()
+            .filter(|dependency| **dependency != selector)
+            .cloned(),
+    );
+    let observer = CommandRequest {
+        command: Command::Check {
+            backend: None,
+            partition: false,
+        },
+        root: selector,
+        dependencies,
+        ..request.clone()
+    };
+    let refuse = |error: CommandError| format!("the observer `{name}` cannot be prepared: {error}");
+    let measurement = &mut Measurement::disabled();
+    let metadata = cargo_metadata(&observer.manifest_path).map_err(refuse)?;
+    let plan = plan_collector(&observer, &metadata, &mut measurement.timings).map_err(refuse)?;
+    let directory = generate_collector(&metadata, &plan, measurement).map_err(refuse)?;
+    let executable =
+        build_collector_measured(&directory, &plan, None, measurement).map_err(refuse)?;
+    let collected = run_collector(&directory, &executable, measurement).map_err(refuse)?;
+    let prepared = prepare(
+        collected.stdout,
+        collected.warnings,
+        observer.profile,
+        measurement,
+    )
+    .map_err(refuse)?;
+    require_route(prepared.lowered.definition(), Route::NativeRust).map_err(refuse)?;
+    let definition = prepared.lowered.definition().clone();
+    // A store inside the workspace is not used, as for the definition the case runs on, whose
+    // command warns about it.
+    let cache = StageCache::new(&definition, workspace_root).ok().flatten();
+    Ok(Some(exec::ObserverDefinition { definition, cache }))
 }
 
 fn validate_request(request: &CommandRequest) -> Result<(), CommandError> {

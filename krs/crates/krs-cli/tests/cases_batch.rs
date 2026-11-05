@@ -1,0 +1,619 @@
+//! `krs cases` runs a batch of named cases, the definition loaded once per worker: one verdict
+//! record per case in document order (`krs-cases/1`) and a summary, exit 0 when every case is
+//! met, 1 when one is unmet or refused, 3 when one is inconclusive otherwise; `--jobs N` prints
+//! what `--jobs 1` prints, views and their budget included. A case's views are evaluated in the
+//! definition it runs on or in the observer it names, and each evaluation is bounded by a budget
+//! of polls.
+//!
+//! The cases run on `fixtures/ends`, which copies each input into its own cell, steps `finish(v)`
+//! to `done(v)` and `toss(v)` to `done(0)` or `done(1)`, and declares the views `EventCount`
+//! (total) and `RegisterOrder` (left to the implementation on two or more keys). The observer,
+//! [`OBSERVER`], is a second package of the workspace that depends on `ends`.
+
+use std::fmt::Write as _;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Output;
+use std::sync::{Arc, Mutex, Weak};
+
+use krs_test_support::{
+    SharedFixtureTarget, TempDir, fixture_build_env, krs_command, shared_fixture_target, temp_dir,
+};
+use serde_json::{Value, json};
+
+const ENDS: &str = include_str!("fixtures/ends/src/lib.rs");
+const PACKAGE: &str = "krs-cli-cases-ends-fixture";
+const OBSERVER_PACKAGE: &str = "krs-cli-cases-observe-fixture";
+
+/// An observer of `ends`: `WithRead` appends a read to an event log, built with the compared
+/// definition's constructor (which makes this package's module import the configured one),
+/// `Spin` climbs forever, so that its evaluation never ends, and `NotedStamp` gives a value of a
+/// sort only the observer declares, with no document where it is `noted`, whose K text only the
+/// observer's printer prints.
+const OBSERVER: &str = r#"//! An observer of the `ends` fixture, imported by no definition.
+
+use k::Term;
+use k::builtin::{Int, List};
+
+/// The log with one more read.
+#[k::function(total, internal)]
+pub fn WithRead(log: Term<List>) -> Term<List> {
+    [..log, ends::CpuEvent::Read(0)]
+}
+
+/// A view whose evaluation does not end.
+#[k::function(total, internal)]
+pub fn Spin(log: Term<List>) -> Term<Int> {
+    Climb(log, 0)
+}
+
+/// `Climb(log, n + 1)`, for ever.
+#[k::function(total, internal)]
+pub fn Climb(log: Term<List>, n: Term<Int>) -> Term<Int> {
+    Climb(log, n + 1)
+}
+
+k::sorts! {
+    Stamp;
+}
+
+/// A stamp of a log: its length.
+#[k::constructor(sort = Stamp, syntax = "tag({n})")]
+pub struct Tag {
+    pub n: Term<Int>,
+}
+
+/// `noted(x)` has the sort of `x`: a constructor of this package alone, parametric, so that no
+/// form of the typed encoding writes a value that holds it.
+#[k::constructor(sort = S, syntax = "noted({inner})")]
+pub struct Noted<S: ?Sized> {
+    pub inner: Term<S>,
+}
+
+/// A log's stamp, noted when the log is not empty.
+#[k::function(total, internal)]
+pub fn NotedStamp(log: Term<List>) -> Term<Stamp> {
+    if log.len() > 0 { Noted { inner: Tag { n: log.len() } } } else { Tag { n: 0 } }
+}
+"#;
+
+/// The workspace of `ends` and its observer, shared by the tests of this process, which run
+/// `krs` on it one at a time.
+struct Workspace {
+    directory: TempDir,
+    _target: SharedFixtureTarget,
+    target: PathBuf,
+    turn: Mutex<()>,
+}
+
+fn manifest(name: &str, namespace: &str, dependencies: &str) -> String {
+    let krs = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../krs")
+        .canonicalize()
+        .unwrap();
+    let krs_literal = serde_json::to_string(krs.to_str().unwrap()).unwrap();
+    format!(
+        "[package]\nname = \"{name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nk = {{ package = \"krs\", path = {krs_literal} }}\n{dependencies}\n[package.metadata.krs]\nk-namespace = \"{namespace}\"\n\n[package.metadata.krs.definitions.main]\n"
+    )
+}
+
+fn workspace() -> Arc<Workspace> {
+    static WORKSPACE: Mutex<Weak<Workspace>> = Mutex::new(Weak::new());
+    let mut slot = WORKSPACE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(workspace) = slot.upgrade() {
+        return workspace;
+    }
+    let target = shared_fixture_target();
+    let directory = temp_dir();
+    let root = directory.path();
+    for (member, source, manifest) in [
+        ("language", ENDS, manifest(PACKAGE, "ORG-KRS-CLI-CASES", "")),
+        (
+            "observe",
+            OBSERVER,
+            manifest(
+                OBSERVER_PACKAGE,
+                "ORG-KRS-CLI-CASES-OBSERVE",
+                &format!("ends = {{ package = \"{PACKAGE}\", path = \"../language\" }}\n"),
+            ),
+        ),
+    ] {
+        fs::create_dir_all(root.join(member).join("src")).unwrap();
+        fs::write(root.join(member).join("src/lib.rs"), source).unwrap();
+        fs::write(root.join(member).join("Cargo.toml"), manifest).unwrap();
+    }
+    fs::write(
+        root.join("Cargo.toml"),
+        "[workspace]\nmembers = [\"language\", \"observe\"]\nresolver = \"3\"\n",
+    )
+    .unwrap();
+    let workspace = Arc::new(Workspace {
+        directory,
+        target: target.path().to_path_buf(),
+        _target: target,
+        turn: Mutex::new(()),
+    });
+    *slot = Arc::downgrade(&workspace);
+    workspace
+}
+
+impl Workspace {
+    /// The `ends` package's directory, where `krs` runs and the case documents are written.
+    fn path(&self) -> PathBuf {
+        self.directory.path().join("language")
+    }
+
+    fn write(&self, relative: &str, contents: impl AsRef<[u8]>) {
+        let path = self.path().join(relative);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, contents).unwrap();
+    }
+
+    /// `krs VERB --package ends --definition main ARGUMENTS`, from the `ends` package.
+    fn krs(&self, verb: &str, arguments: &[&str]) -> Output {
+        let _turn = self
+            .turn
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut process = krs_command!();
+        fixture_build_env(&mut process, &self.target);
+        process
+            .current_dir(self.path())
+            .arg(verb)
+            .args(["--package", PACKAGE, "--definition", "main"])
+            .args(arguments)
+            .output()
+            .unwrap()
+    }
+}
+
+/// The inputs of a case whose program is `pgm`, with `regs` as the register file.
+fn inputs(pgm: &Value, regs: &Value) -> Value {
+    json!({
+        "pgm": pgm,
+        "regs": regs,
+        "f": {"Flags": {"zf": true, "cf": false}},
+        "pc": 256,
+        "bus": [{"Read": {"addr": 5}}],
+        "memory": {"5": 6},
+        "ime": true,
+        "w": 9,
+        "z": 4,
+    })
+}
+
+/// A named case on `ends` whose program is `pgm`, expecting `expect`.
+fn case(name: &str, pgm: &Value, expect: &Value) -> Value {
+    json!({"name": name, "inputs": inputs(pgm, &json!({"A": 1})), "expect": expect})
+}
+
+/// `finish(3)`, which ends `done(3)`.
+fn finish() -> Value {
+    json!({"Finish": {"value": 3}})
+}
+
+/// An expectation of `finish(3)`'s end on `k`, `pc` and `bus`.
+fn finished(pc: i64, bus: &Value) -> Value {
+    json!({
+        "halt": "stuck",
+        "compare": ["k", "pc", "bus"],
+        "cells": {"k": {"$seq": [{"Done": {"value": 3}}]}, "pc": pc, "bus": bus},
+    })
+}
+
+fn stdout(output: &Output) -> String {
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+fn stderr(output: &Output) -> String {
+    String::from_utf8_lossy(&output.stderr).into_owned()
+}
+
+/// The JSON records of `krs cases --output json`, one per line.
+fn records(output: &Output) -> Vec<Value> {
+    stdout(output)
+        .lines()
+        .map(|line| {
+            serde_json::from_str(line).unwrap_or_else(|error| {
+                panic!(
+                    "a line is not JSON ({error}): {line}\nstderr:\n{}",
+                    stderr(output)
+                )
+            })
+        })
+        .collect()
+}
+
+/// The batch: a document of three named cases (met, unmet, and an include of a JSON file) whose
+/// included file holds three more (inconclusive, no expectation, and refused for a view with no
+/// value).
+fn write_batch(workspace: &Workspace) {
+    let read = json!([{"Read": {"addr": 5}}]);
+    let met = case("a-met", &finish(), &finished(256, &read));
+    let unmet = case("a-unmet", &finish(), &finished(257, &read));
+    let document = format!(
+        "{}\n{}\n[[case]]\n\"$data-file\" = \"more/cases.json\"\n",
+        toml_case(&met),
+        toml_case(&unmet)
+    );
+    workspace.write("cases.toml", document);
+    let toss = json!({"Toss": {"value": 0}});
+    let regs = json!({"A": 1, "B": 2});
+    let more = json!([
+        case(
+            "b-toss",
+            &toss,
+            &json!({"halt": "stuck", "compare": ["pc"], "cells": {"pc": 256}})
+        ),
+        {"name": "b-plain", "inputs": inputs(&finish(), &json!({"A": 1}))},
+        {
+            "name": "b-refused",
+            "inputs": inputs(&finish(), &regs),
+            "expect": {
+                "halt": "stuck",
+                "compare": ["regs"],
+                "views": {"regs": "RegisterOrder"},
+                "cells": {"regs": regs},
+            },
+        },
+    ]);
+    workspace.write("more/cases.json", more.to_string());
+}
+
+/// A named case as a TOML `[[case]]` table, each of its keys an inline value.
+fn toml_case(case: &Value) -> String {
+    let mut table = String::from("[[case]]\n");
+    for (key, value) in case.as_object().unwrap() {
+        let _ = writeln!(table, "{key} = {}", toml_inline(value));
+    }
+    table
+}
+
+/// `value` as a TOML inline value: a table's keys quoted, a string as JSON quotes it (which TOML
+/// reads alike for the strings these cases hold).
+fn toml_inline(value: &Value) -> String {
+    match value {
+        Value::Object(table) => {
+            let members = table
+                .iter()
+                .map(|(key, value)| {
+                    format!("{} = {}", Value::from(key.as_str()), toml_inline(value))
+                })
+                .collect::<Vec<_>>();
+            format!("{{ {} }}", members.join(", "))
+        }
+        Value::Array(items) => {
+            let items = items.iter().map(toml_inline).collect::<Vec<_>>();
+            format!("[{}]", items.join(", "))
+        }
+        Value::Null => panic!("TOML has no null"),
+        scalar => scalar.to_string(),
+    }
+}
+
+#[test]
+fn a_batch_reports_each_case_in_document_order() {
+    let workspace = workspace();
+    write_batch(&workspace);
+    let one = workspace.krs("cases", &["cases.toml", "--output", "json", "--jobs", "1"]);
+    assert_eq!(one.status.code(), Some(1), "{}", stderr(&one));
+    let lines = records(&one);
+    let verdicts = lines
+        .iter()
+        .take(lines.len() - 1)
+        .map(|record| {
+            assert_eq!(record["schema"], "krs-cases/1", "{record}");
+            (
+                record["case"].as_str().unwrap().to_owned(),
+                record["verdict"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let expected = [
+        ("cases.toml#a-met", "met"),
+        ("cases.toml#a-unmet", "unmet"),
+        ("cases.toml#b-toss", "inconclusive"),
+        ("cases.toml#b-plain", "ran"),
+        ("cases.toml#b-refused", "refused"),
+    ]
+    .map(|(case, verdict)| (case.to_owned(), verdict.to_owned()));
+    assert_eq!(verdicts, expected, "{}", stdout(&one));
+    assert_eq!(lines[0]["halt"], "stuck");
+    assert_eq!(lines[0]["steps"], 1);
+    assert_eq!(lines[1]["difference"]["format"], "krs-difference/2");
+    assert_eq!(lines[1]["difference"]["path"], "pc");
+    assert!(
+        lines[2]["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("which has 2 successors")),
+        "{}",
+        lines[2]
+    );
+    assert_eq!(lines[3]["halt"], "stuck");
+    assert!(
+        lines[4]["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("RegisterOrder") && reason.contains("no value")),
+        "{}",
+        lines[4]
+    );
+    // A refused record names the views its expectation writes, as a checked one does.
+    assert_eq!(
+        lines[4]["views"],
+        json!({"regs": "RegisterOrder"}),
+        "{}",
+        lines[4]
+    );
+    assert_eq!(
+        lines[5],
+        json!({
+            "schema": "krs-cases/1",
+            "summary": {"cases": 5, "met": 1, "unmet": 1, "inconclusive": 1, "refused": 1, "ran": 1},
+            "status": 1,
+        })
+    );
+
+    // Every worker count prints the same records.
+    for jobs in ["2", "3"] {
+        let many = workspace.krs("cases", &["cases.toml", "--output", "json", "--jobs", jobs]);
+        assert_eq!(many.status.code(), Some(1), "{}", stderr(&many));
+        assert_eq!(stdout(&many), stdout(&one), "--jobs {jobs}");
+    }
+
+    // The human records: the verdict lines `krs run --case` prints, named by the case's id.
+    let human = workspace.krs("cases", &["cases.toml", "--jobs", "2"]);
+    assert_eq!(human.status.code(), Some(1), "{}", stderr(&human));
+    let text = stdout(&human);
+    assert!(
+        text.starts_with(
+            "cases.toml#a-met: expectation met\ncases.toml#a-unmet: expectation unmet at `pc`\n  expected: 257\n  actual:   256\ncases.toml#b-toss: expectation inconclusive: "
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("\ncases.toml#b-plain: ran, stuck after 1 step\ncases.toml#b-refused: refused: case `b-refused` of `cases.toml`: "),
+        "{text}"
+    );
+    assert!(
+        text.ends_with("krs cases: 5 cases: 1 met, 1 unmet, 1 inconclusive, 1 refused, 1 ran\n"),
+        "{text}"
+    );
+}
+
+/// The status is 1 when a case is unmet or refused, else 3 when one is inconclusive, else 0;
+/// `--name` selects the named cases whose name it matches, and one that selects none is a usage
+/// error. A document that cannot be read is a refused record, and the next document runs.
+#[test]
+fn the_status_follows_the_verdicts() {
+    let workspace = workspace();
+    write_batch(&workspace);
+    let status = |arguments: &[&str]| {
+        let mut all = vec!["cases.toml"];
+        all.extend(arguments);
+        let output = workspace.krs("cases", &all);
+        (output.status.code(), output)
+    };
+    let (code, output) = status(&["--name", "a-met"]);
+    assert_eq!(code, Some(0), "{}", stderr(&output));
+    assert_eq!(
+        stdout(&output),
+        "cases.toml#a-met: expectation met\nkrs cases: 1 case: 1 met, 0 unmet, 0 inconclusive, 0 refused, 0 ran\n"
+    );
+    let (code, output) = status(&["--name", "c-*"]);
+    assert_eq!(code, Some(2), "{}", stderr(&output));
+    assert!(
+        stderr(&output).contains("--name `c-*` selects no named case of the documents given"),
+        "{}",
+        stderr(&output)
+    );
+    let (code, output) = status(&["--name", "*-t*"]);
+    assert_eq!(code, Some(3), "{}", stderr(&output));
+    let (code, output) = status(&["--name", "b-p*"]);
+    assert_eq!(code, Some(0), "{}", stderr(&output));
+
+    let read = json!([{"Read": {"addr": 5}}]);
+    workspace.write(
+        "one.json",
+        json!({"inputs": inputs(&finish(), &json!({"A": 1})), "expect": finished(256, &read)})
+            .to_string(),
+    );
+    let output = workspace.krs(
+        "cases",
+        &[
+            "missing.toml",
+            "one.json",
+            "--output",
+            "json",
+            "--jobs",
+            "2",
+        ],
+    );
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    let lines = records(&output);
+    assert_eq!(lines[0]["case"], "missing.toml");
+    assert_eq!(lines[0]["verdict"], "refused");
+    assert!(
+        lines[0]["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("could not read the case `missing.toml`")),
+        "{}",
+        lines[0]
+    );
+    assert_eq!(lines[1]["case"], "one.json");
+    assert_eq!(lines[1]["verdict"], "met");
+    assert_eq!(lines[2]["summary"]["cases"], 2);
+
+    // An observer named without a view is refused with the expectation, before the run, and is
+    // not prepared: this one names no package of the workspace, which a preparation would report.
+    let mut expect = finished(256, &read);
+    expect["observer"] = json!("no-such-package:main");
+    workspace.write(
+        "unviewed.json",
+        json!({"case": [case("unviewed", &finish(), &expect)]}).to_string(),
+    );
+    let output = workspace.krs("cases", &["unviewed.json", "--output", "json"]);
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    let lines = records(&output);
+    assert_eq!(lines[0]["verdict"], "refused", "{}", lines[0]);
+    assert!(
+        lines[0]["reason"].as_str().is_some_and(|reason| reason
+            .contains("`observer` names the definition the views are evaluated in, and the expectation names no view")
+            && !reason.contains("cannot be prepared")),
+        "{}",
+        lines[0]
+    );
+    assert_eq!(lines[0]["observer"], "no-such-package:main", "{}", lines[0]);
+}
+
+/// The views cases, written to `file`: views evaluated in the definition the cases run on
+/// (`count`, met and unmet) and in the observer (`observed` met, `spin` without end, `noted` unmet
+/// at a value of the observer's own sort); returns the observer's name.
+fn write_views(workspace: &Workspace, file: &str) -> String {
+    let read = json!([{"Read": {"addr": 5}}]);
+    let observer = format!("{OBSERVER_PACKAGE}:main");
+    let viewed = |bus: &Value, views: &Value, observer: Option<&str>| {
+        let mut expect = finished(256, bus);
+        expect["views"] = views.clone();
+        if let Some(observer) = observer {
+            expect["observer"] = json!(observer);
+        }
+        expect
+    };
+    let cases = json!({"case": [
+        // Raw logs differ, their counts do not.
+        case("count", &finish(), &viewed(&json!([{"Write": {"addr": 1, "value": 2}}]), &json!({"bus": "EventCount"}), None)),
+        case("count-unmet", &finish(), &viewed(&json!([]), &json!({"bus": "EventCount"}), None)),
+        case("observed", &finish(), &viewed(&read, &json!({"bus": "WithRead"}), Some(&observer))),
+        case("spin", &finish(), &viewed(&read, &json!({"bus": "Spin"}), Some(&observer))),
+        case("noted", &finish(), &viewed(&json!([]), &json!({"bus": "NotedStamp"}), Some(&observer))),
+    ]});
+    workspace.write(file, cases.to_string());
+    observer
+}
+
+/// A case's views are evaluated in the definition it runs on, or in the observer its expectation
+/// names: a met or inconclusive verdict prints the views it used, an unmet one shows the viewed
+/// values (K text by the observer's printer where a value of the observer's own sort has no
+/// document), and an evaluation that spends its `--view-budget` of polls is inconclusive, never
+/// met. The budget counts the evaluation's own work, so every worker count prints the same
+/// records.
+#[test]
+fn views_apply_where_cases_name_them() {
+    let workspace = workspace();
+    let observer = write_views(&workspace, "views.json");
+    // A few polls evaluate each view that ends here; `Spin` spends any budget.
+    let output = workspace.krs(
+        "cases",
+        &[
+            "views.json",
+            "--output",
+            "json",
+            "--view-budget",
+            "100000",
+            "--jobs",
+            "1",
+        ],
+    );
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    let lines = records(&output);
+    assert_eq!(lines[0]["verdict"], "met", "{}", lines[0]);
+    assert_eq!(lines[0]["views"], json!({"bus": "EventCount"}));
+    assert!(lines[0].get("observer").is_none(), "{}", lines[0]);
+    assert_eq!(lines[1]["verdict"], "unmet", "{}", lines[1]);
+    let difference = &lines[1]["difference"];
+    assert_eq!(difference["path"], "bus", "{difference}");
+    assert_eq!(difference["views"], json!({"bus": "EventCount"}));
+    assert_eq!(difference["left"]["value"]["document"], 0, "{difference}");
+    assert_eq!(difference["right"]["value"]["document"], 1, "{difference}");
+    assert_eq!(lines[2]["verdict"], "met", "{}", lines[2]);
+    assert_eq!(lines[2]["views"], json!({"bus": "WithRead"}));
+    assert_eq!(lines[2]["observer"], json!(observer));
+    assert_eq!(lines[3]["verdict"], "inconclusive", "{}", lines[3]);
+    assert!(
+        lines[3]["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("it spent its budget of 100000 polls")),
+        "{}",
+        lines[3]
+    );
+    assert_eq!(lines[3]["views"], json!({"bus": "Spin"}));
+    assert_eq!(lines[4]["verdict"], "unmet", "{}", lines[4]);
+    let difference = &lines[4]["difference"];
+    assert_eq!(
+        difference["left"]["value"]["document"],
+        json!({"Tag": {"n": 0}}),
+        "{difference}"
+    );
+    assert_eq!(
+        difference["right"]["value"]["rendering"], "k",
+        "{difference}"
+    );
+    assert_eq!(
+        difference["right"]["value"]["text"], "noted ( tag ( 1 ) )",
+        "{difference}"
+    );
+
+    for jobs in ["2", "5"] {
+        let many = workspace.krs(
+            "cases",
+            &[
+                "views.json",
+                "--output",
+                "json",
+                "--view-budget",
+                "100000",
+                "--jobs",
+                jobs,
+            ],
+        );
+        assert_eq!(stdout(&many), stdout(&output), "--jobs {jobs}");
+    }
+}
+
+/// `krs cases` prints the views a met verdict used, and `krs run --case` evaluates the same views
+/// in the same observer.
+#[test]
+fn krs_run_case_evaluates_the_views_krs_cases_does() {
+    let workspace = workspace();
+    let observer = write_views(&workspace, "views-run.json");
+    let human = workspace.krs(
+        "cases",
+        &[
+            "views-run.json",
+            "--name",
+            "observed",
+            "--view-budget",
+            "100000",
+        ],
+    );
+    assert_eq!(human.status.code(), Some(0), "{}", stderr(&human));
+    assert!(
+        stdout(&human).starts_with(&format!(
+            "views-run.json#observed: expectation met\n  views: `bus` = `WithRead`, in `{observer}`\n"
+        )),
+        "{}",
+        stdout(&human)
+    );
+
+    let run = workspace.krs(
+        "run",
+        &[
+            "--case",
+            "views-run.json",
+            "--case-name",
+            "observed",
+            "--output",
+            "none",
+        ],
+    );
+    assert_eq!(run.status.code(), Some(0), "{}", stderr(&run));
+    assert!(
+        stderr(&run).ends_with(&format!(
+            "krs run: expectation met\n  views: `bus` = `WithRead`, in `{observer}`\n"
+        )),
+        "{}",
+        stderr(&run)
+    );
+}

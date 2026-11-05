@@ -288,7 +288,15 @@
 //!   each read at the cell's declared type as an input's value is,
 //!   its file paths relative to the document that holds the case;
 //! - `compare`: the cells the end is compared on, by declared path,
-//!   by default every leaf cell that is not unobservable.
+//!   by default every leaf cell that is not unobservable;
+//! - `views`: a table of a view by compared leaf cell (its declared path),
+//!   each the name of a function of one parameter ([`views`](crate::views)),
+//!   which the comparison applies to the cell's value on both sides,
+//!   so that the end is compared on what the case observes of the cell;
+//! - `observer`: the definition the views are resolved and evaluated in,
+//!   named as a front end names a definition (krs: `PACKAGE:DEFINITION`, as `--dependency` names one),
+//!   by default the definition the case runs on;
+//!   it is only given with `views`.
 //!
 //! An expectation states every cell it is compared on:
 //! it may omit an unobservable cell, which no use of the definition observes,
@@ -297,11 +305,19 @@
 //! since every value of that cell would meet it, which expects nothing of the cell.
 //! A `compare` that names an unobservable cell is refused too: no observation of it exists to compare.
 //! A cell the expectation states and does not compare is read, and never compared.
+//! A viewed cell is stated as the cell's value, not as the view's:
+//! the view is applied to the stated value as to the actual one,
+//! so one expected end can be compared under several views.
+//! A view that does not apply to its cell, or names no function of the observer, is refused before the case runs,
+//! and one without a value at an end refuses the verdict, naming the view, the side and the cell,
+//! since an observation that does not exist makes the ends neither agree nor differ.
+//! A front end may bound each view's evaluation;
+//! one that the bound or another stop of the evaluation ends before it reaches a value makes the verdict inconclusive, since it may yet have a value.
 //!
 //! Against the ends of the case's run, the expectation is
 //! *met* when every end agrees with it on the halt and on the compared cells;
 //! *unmet* when an end does not, which is reported with the first difference
-//! ([`Difference`](crate::Difference), `krs-difference/2`);
+//! ([`Difference`](crate::Difference), `krs-difference/2`, which names the views it applied);
 //! and *inconclusive* when no end can be compared,
 //! or every known end agrees but not every end is known.
 //! No end can be compared where
@@ -602,13 +618,19 @@ impl CaseRun {
 }
 
 /// What a case expects of its run ([module documentation](self#expectations)): one end, usually
-/// partial, and the cells it is compared on.
+/// partial, the cells it is compared on, and the views it applies to them.
 #[derive(Clone, Debug)]
 pub struct Expectation {
     /// The expected end: the class, and the cells the `expect` table states.
     pub end: crate::End,
-    /// The compared cells.
+    /// The compared cells, with no view resolved: a front end resolves [`Self::views`] in the
+    /// observer ([`crate::Semantics::cell_views`]) into its `views`.
     pub comparison: crate::Comparison,
+    /// The `views` table: a function by declared cell path; empty for none.
+    pub views: BTreeMap<String, String>,
+    /// The `observer`: the definition the views are resolved in, as the document names it;
+    /// `None` for the definition the case runs on.
+    pub observer: Option<String>,
 }
 
 /// The keys of a case, besides a named case's `name`.
@@ -850,7 +872,7 @@ fn case_table(
         Some(_) => {
             return Err(at(
                 position,
-                "`expect` is a table of the expected end: `halt`, `rule`, `cells` and `compare`"
+                "`expect` is a table of the expected end: `halt`, `rule`, `cells`, `compare`, `views` and `observer`"
                     .to_owned(),
             ));
         }
@@ -2781,7 +2803,7 @@ mod tests {
         );
         assert_eq!(
             refusal("expect = [1]\n"),
-            "`expect` is a table of the expected end: `halt`, `rule`, `cells` and `compare`"
+            "`expect` is a table of the expected end: `halt`, `rule`, `cells`, `compare`, `views` and `observer`"
         );
         assert_eq!(
             refusal("[run]\ndepth = -1\n"),

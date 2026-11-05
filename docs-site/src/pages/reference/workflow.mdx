@@ -183,7 +183,7 @@ When the definition declares an exit cell (`#[k::cell(exit)]`), a completed run 
 A definition with a `stream = "stdin"` cell reads standard input into it before the first step; `run` writes what its `stream = "stdout"` cell holds to standard output before the configuration, and `--output json` reports it as `stdout` instead ([console I/O](/reference/language#console-io-and-the-exit-cell)).
 `run` and `search` write each line that `io::log` logs to standard error, one per line and before their own report, as `krun` and `krun --search` do on K's LLVM backend; `--output json` also reports them as `log`.
 
-The current commands are `fmt`, `check`, `expand`, `emit-k`, `build`, `parse`, `run`, `search`, `prove`, and the [corpus loop](#the-corpus-loop)'s `kink`.
+The current commands are `fmt`, `check`, `expand`, `emit-k`, `build`, `parse`, `run`, `search`, `prove`, [`cases`](#run-a-batch-of-cases), and the [corpus loop](#the-corpus-loop)'s `kink`.
 
 ## Inputs by name
 
@@ -231,7 +231,15 @@ An expectation that is no end of the definition, or that leaves out a cell it is
 - `verdict`: `met`, `unmet` or `inconclusive`;
 - `case`: the case's name, in a document of named cases only;
 - `difference`: for `unmet` only, the first difference, a document that names its format (`format`, `krs-difference/2`), the expected end on its `left` side and the actual one on its `right`;
-- `reason`: for `inconclusive` only, the reason as text.
+- `reason`: for `inconclusive` only, the reason as text;
+- `views` and `observer`: the views the comparison applied and the observer it evaluated them in, when the expectation names them.
+
+An expectation may compare a cell on what a view of it gives rather than on its whole value: `views` names, per compared cell, a function of one parameter, which the comparison applies to the expected and to the actual value alike, so the expected value is the cell's, not the view's.
+The views are evaluated in the definition the case runs on, or in the definition `observer` names, `PACKAGE:DEFINITION` as `--dependency` names one: a package of the workspace that depends on the definition's package, refers to it, and that no semantics imports, which krs composes with the definition, so that editing a view changes neither the definition, nor its rules, nor anything keyed by it (the section [Expectations](#expectations) below states the rule).
+A view that does not apply to its cell is refused before the run, and one without a value at an end refuses the case.
+Each evaluation of a view has a budget of `--view-budget POLLS` polls (30000000 by default): a count of the points at which the simplifier polls for a stop, which is the evaluation's own work, so whether the budget stops it does not depend on the host's speed or load.
+An evaluation that spends the budget, or that another stop of the backend ends (the simplifier's stack, the solver's prelude), makes the verdict inconclusive, since the view may yet have a value; a value it reaches is the definition's value, whatever the budget.
+The verdict's lines name the views it applied (``  views: `bus` = `WritesView`, in `sm83-views:main` ``).
 
 ```toml
 # cases/steps.toml: named cases, each stopped after the rule `boundary` of `src/machine.rs`
@@ -534,7 +542,15 @@ with a narrowing:
   each read at the cell's declared type as an input's value is,
   its file paths relative to the document that holds the case;
 - `compare`: the cells the end is compared on, by declared path,
-  by default every leaf cell that is not unobservable.
+  by default every leaf cell that is not unobservable;
+- `views`: a table of a view by compared leaf cell (its declared path),
+  each the name of a function of one parameter (`views`),
+  which the comparison applies to the cell's value on both sides,
+  so that the end is compared on what the case observes of the cell;
+- `observer`: the definition the views are resolved and evaluated in,
+  named as a front end names a definition (krs: `PACKAGE:DEFINITION`, as `--dependency` names one),
+  by default the definition the case runs on;
+  it is only given with `views`.
 
 An expectation states every cell it is compared on:
 it may omit an unobservable cell, which no use of the definition observes,
@@ -543,11 +559,19 @@ but a compared cell it omits is refused, naming the cell and its type, before th
 since every value of that cell would meet it, which expects nothing of the cell.
 A `compare` that names an unobservable cell is refused too: no observation of it exists to compare.
 A cell the expectation states and does not compare is read, and never compared.
+A viewed cell is stated as the cell's value, not as the view's:
+the view is applied to the stated value as to the actual one,
+so one expected end can be compared under several views.
+A view that does not apply to its cell, or names no function of the observer, is refused before the case runs,
+and one without a value at an end refuses the verdict, naming the view, the side and the cell,
+since an observation that does not exist makes the ends neither agree nor differ.
+A front end may bound each view's evaluation;
+one that the bound or another stop of the evaluation ends before it reaches a value makes the verdict inconclusive, since it may yet have a value.
 
 Against the ends of the case's run, the expectation is
 *met* when every end agrees with it on the halt and on the compared cells;
 *unmet* when an end does not, which is reported with the first difference
-(`Difference`, `krs-difference/2`);
+(`Difference`, `krs-difference/2`, which names the views it applied);
 and *inconclusive* when no end can be compared,
 or every known end agrees but not every end is known.
 No end can be compared where
@@ -572,6 +596,33 @@ and the run read no value the definition leaves open.
 A final-state search gives every end within its bounds.
 
 {/* End of the text generated from krs/crates/krs-exec/src/inputs.rs. */}
+
+## Run a batch of cases
+
+```console
+krs cases --package my-semantics --definition main cases/steps.toml cases/boot.toml
+krs cases --package my-semantics --definition main cases/sst.toml --jobs 8 --output json
+krs cases --package my-semantics --definition main cases/steps.toml --name 'ld-*'
+```
+
+`krs cases` runs every case of the case documents it is given, in the order given and the cases of an included file at its place, and checks each against its expectation as `krs run --case` does: the same inputs, `run` table, views and verdict.
+`krs run --case` starts a process, reads the package, restores the compiled stage and loads the definition into the backend for each case; `krs cases` does that once, then loads the definition once per worker and runs every case it is given on it, so a case costs its own run and check.
+`--jobs N` sets the workers (by default the available parallelism).
+Each worker holds its own copy of the definition, and of each observer it uses, so the memory a batch takes grows with N; on a large definition, choose N by the memory free, not by the processors.
+The output is the same for every N, since each case runs from its own configured state, whichever worker runs it, and a view's budget counts work, not time.
+The exception is a verdict that a resource stop decides, which may depend on what runs beside the case or before it on its worker: the simplifier's stack budget, which the workers share; the solver's limits, under which a query a worker's solver decided before is answered from its record of decided answers, and one it did not may come back undecided; and a view's budget that only such reuse lets the evaluation meet.
+A case binds only the inputs it states, and its `run` table alone bounds and stops its run, so `krs cases` takes no FILE, `--input`, `-c`, `--depth` or stop flag; it takes the solver options of `run` and `--view-budget`.
+`--name PATTERN` runs only the named cases whose name PATTERN matches (`*` any text, `?` any one character), and a pattern that selects no case is a usage error.
+
+A case's record is printed as soon as the cases before it are, so a slow case holds back the records after it, never their runs.
+By default each record is the verdict's lines `krs run --case` prints, named by the case's id, the document as given and, for a named case, `#` and its name (`cases/steps.toml#ld-a: expectation met`), `ran, stuck after 3 steps` for a case that states no expectation, or `refused:` and the reason for a case the definition cannot run: a document that cannot be read (one record, after which the next document runs), inputs or an expectation that are refused, an observer that cannot be prepared, or a view without a value at an end.
+A last line counts the verdicts.
+`--output json` prints one document per line instead, each naming its format, `"schema": "krs-cases/1"`:
+
+- a record per case: `case`, its id; `verdict`, `met`, `unmet`, `inconclusive`, `refused` or `ran`; `halt` and `steps`, when the case ran to a state; `difference`, for `unmet` (`krs-difference/2`); `reason`, for `inconclusive` and `refused`; and `views` and `observer`, when the expectation names them, whatever the verdict;
+- then the summary, `{"schema": "krs-cases/1", "summary": {"cases", "met", "unmet", "inconclusive", "refused", "ran"}, "status"}`, `status` being the exit status.
+
+`krs cases` exits 1 when a case is unmet or refused, else 3 when one is inconclusive or states no expectation and has no end (its run halted `indeterminate`, `timeout` or another inconclusive halt), else 0; a usage error exits 2.
 
 ## The corpus loop
 

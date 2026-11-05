@@ -382,14 +382,17 @@ struct PollBudget {
 /// reached the scope's caller (a site that only refines a sound outcome may dismiss it,
 /// [`Stop::forgo_refinement`]).
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct PollBudgetRecord {
-    pub(crate) budget_exhausted: bool,
-    pub(crate) stack_exhausted: bool,
+pub struct PollBudgetRecord {
+    /// The budget refused a poll.
+    pub budget_exhausted: bool,
+    /// A stop for lack of native stack was minted on the scope's thread while it ran.
+    pub stack_exhausted: bool,
 }
 
 impl PollBudgetRecord {
     /// Whether the scope met either stop.
-    pub(crate) fn any(self) -> bool {
+    #[must_use]
+    pub fn any(self) -> bool {
         self.budget_exhausted || self.stack_exhausted
     }
 }
@@ -997,7 +1000,10 @@ impl Drop for StackStopCount {
 /// The budget replaces an enclosing one for the scope and is restored when the scope ends,
 /// including on unwinding; a budget installed under it is the only one in force while it runs.
 /// Returns `action`'s value and what the scope met ([`PollBudgetRecord`]).
-pub(crate) fn with_poll_budget<T>(
+///
+/// A host bounds an operation it runs on this thread with it where the bound must not depend on
+/// the host's speed or load (krs bounds the evaluation of a view so).
+pub fn with_poll_budget<T>(
     polls: u64,
     mode: StepTimeoutMode,
     action: impl FnOnce() -> T,

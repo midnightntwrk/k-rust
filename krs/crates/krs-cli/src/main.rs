@@ -1,10 +1,11 @@
 //! Cargo-style command-line frontend for the KRS definition compiler.
 
 use krs_cli::{
-    Backend, ColorChoice, Command, CommandKind, CommandRequest, DiagnosticSources, FacetSelector,
-    KrsCfg, MessageFormat, PackageSelector, ParseRequest, ProgramSource, ProveRequest,
-    RegistrationMode, RunRequest, SearchMode, SearchRequest, StopCriterion, StopRules, TermOutput,
-    execute_command_reported, supervise_prove, valid_identifier_segment,
+    Backend, CasesOutput, CasesRequest, ColorChoice, Command, CommandKind, CommandRequest,
+    DEFAULT_VIEW_BUDGET, DiagnosticSources, FacetSelector, KrsCfg, MessageFormat, PackageSelector,
+    ParseRequest, ProgramSource, ProveRequest, RegistrationMode, RunRequest, SearchMode,
+    SearchRequest, StopCriterion, StopRules, TermOutput, execute_command_reported, supervise_prove,
+    valid_identifier_segment,
 };
 use krs_fmt::{Edition, FormatOptions, TrailingCommentStyle};
 use krs_ir::measure::Measurement;
@@ -26,11 +27,16 @@ Usage:
              [--stop-after NAME]... [--stop-count N] [--trace] [--coverage]
              [--output pretty|kast|json|kore|none] [--color auto|always|never]
              [--smt-resource-limit UNITS | --smt-clock-ms MS] [--smt-retries N]
+             [--view-budget POLLS]
   krs search --package P --definition D [FILE|-] [--case FILE [--case-name NAME]]
              [--input NAME=JSON]... [-c NAME=TEXT]...
              [--mode final|all|one-step|one-or-more-steps] [--depth N]
              [--max-solutions N] [--trace] [--output pretty|kast|json|kore]
              [--color auto|always|never]
+             [--smt-resource-limit UNITS | --smt-clock-ms MS] [--smt-retries N]
+             [--view-budget POLLS]
+  krs cases  --package P --definition D CASES... [--jobs N] [--name PATTERN]
+             [--output human|json] [--view-budget POLLS]
              [--smt-resource-limit UNITS | --smt-clock-ms MS] [--smt-retries N]
   krs prove  --package P --definition D [--spec-module NAME] [--claim LABEL]... [--depth N]
              [--claim-timeout SECONDS] [--output pretty|kast|json|jsonl|kore]
@@ -53,6 +59,8 @@ Commands:
   run                       Run a program on one path (krun)
   search                    Return the set of reachable final states (krun --search)
   prove                     Prove the definition's claims (kprove)
+  cases                     Run a batch of cases, the definition loaded once per worker, and
+                            report each case's verdict against its expectation
   kink                      The corpus loop over the package's kink/ corpus: results and
                             coverage per case, mutations killed or survived, query and fuzz
   fmt                       Format Rust and KRS rules! bodies using the package's facade aliases
@@ -68,7 +76,7 @@ Options:
                              that backend's route (default: every route)
   --output DIRECTORY         Required for emit-k and build; with expand, an absent or empty
                              directory for the changed module files, whose paths stdout lists
-  --output FORMAT            Result format: pretty (default of run, search, prove), program (parse), kast (default of parse), json, jsonl (prove), kore, none (run)
+  --output FORMAT            Result format: pretty (default of run, search, prove), program (parse), kast (default of parse), json, jsonl (prove), kore, none (run); human (default of cases) or json for cases
   FILE|-                     With run and search, bind the main parameter: the file's bytes
                              when its type is exactly Bytes, else its text, parsed at its sort
   --case FILE                Bind the inputs a case document (.toml or .json) gives by
@@ -77,6 +85,24 @@ Options:
                              in place of the flags; its expect table is checked: exit 0 met,
                              1 unmet, 3 inconclusive
   --case-name NAME           With --case, the case of that name in a document of named cases
+  CASES...                   With cases, the case documents (.toml or .json) whose cases run,
+                             reported in this order: one verdict per case (met, unmet,
+                             inconclusive, refused, or ran for a case with no expectation),
+                             then a summary; exit 0 all met, 1 any unmet or refused, 3 any
+                             inconclusive otherwise
+  --jobs N                   With cases, run the cases on N workers (default: the available
+                             parallelism), each loading its own copy of the definition and of
+                             each observer it uses, so memory grows with N; the output is the
+                             same for every N but for a verdict a resource stop decides: the
+                             simplifier's stack budget, which workers share, or the solver's
+                             limits, whose answers a worker's earlier cases may have decided
+  --name PATTERN             With cases, only the named cases whose name PATTERN matches
+                             (`*` any text, `?` any one character)
+  --view-budget POLLS        With run, search and cases, the polls each evaluation of a view
+                             of a case's expectation may take (default: 30000000), a count of
+                             its own work that the host's speed and load do not change; one
+                             that spends it, or that another stop ends, makes the verdict
+                             inconclusive
   --input NAME=JSON          Bind input NAME to a JSON document of the typed encoding; file
                              paths are relative to the working directory; repeatable
   -c NAME=TEXT               Bind configuration variable NAME ($ENV, ENV, or init parameter env); repeatable
@@ -435,6 +461,12 @@ struct ExecOptions {
     smt_retries: Option<u32>,
     /// `--claim-timeout`.
     claim_timeout: Option<std::time::Duration>,
+    /// `--jobs`.
+    jobs: Option<std::num::NonZeroUsize>,
+    /// `--name`.
+    name: Option<String>,
+    /// `--view-budget`.
+    view_budget: Option<u64>,
 }
 
 impl ExecOptions {
@@ -534,6 +566,7 @@ fn parse(arguments: Vec<OsString>) -> Result<ParseResult, UsageError> {
         "run" => CommandKind::Run,
         "search" => CommandKind::Search,
         "prove" => CommandKind::Prove,
+        "cases" => CommandKind::Cases,
         unknown => return Err(usage(format!("unknown command `{unknown}`"))),
     };
     parse_run(&mut parser, kind)
@@ -645,9 +678,12 @@ fn parse_run(parser: &mut lexopt::Parser, kind: CommandKind) -> Result<ParseResu
 const HIDDEN_OPTIONS: [&str; 3] = ["--worker-protocol", "--worker-claim", "--worker-color"];
 
 /// Long options of the run-family commands, without their leading dashes.
-const EXEC_LONG_OPTIONS: [&str; 22] = [
+const EXEC_LONG_OPTIONS: [&str; 25] = [
     "case",
     "case-name",
+    "jobs",
+    "name",
+    "view-budget",
     "input",
     "depth",
     "stop-before",
@@ -712,6 +748,7 @@ fn exec_option(
             set_once(&mut exec.depth, depth, "--depth")?;
         }
         "stop-before" | "stop-after" | "stop-count" => stop_option(parser, exec, option)?,
+        "jobs" | "name" | "view-budget" => cases_option(parser, exec, option)?,
         "max-solutions" => {
             exec.note("--max-solutions");
             let value = option_value(parser, "maximum solution count")?;
@@ -771,6 +808,46 @@ fn exec_option(
             set_once(&mut exec.color, color, "--color")?;
         }
         _ => unreachable!("exec_option is called only for run options"),
+    }
+    Ok(())
+}
+
+/// Parse `--jobs`, `--name` or `--view-budget`.
+fn cases_option(
+    parser: &mut lexopt::Parser,
+    exec: &mut ExecOptions,
+    option: &'static str,
+) -> Result<(), UsageError> {
+    match option {
+        "jobs" => {
+            exec.note("--jobs");
+            let value = option_value(parser, "worker count")?;
+            let jobs = value
+                .parse::<std::num::NonZeroUsize>()
+                .map_err(|_| usage(format!("--jobs `{value}` is not a positive integer")))?;
+            set_once(&mut exec.jobs, jobs, "--jobs")?;
+        }
+        "name" => {
+            exec.note("--name");
+            let pattern = option_value(parser, "name pattern")?;
+            if pattern.is_empty() {
+                return Err(usage(
+                    "--name needs a pattern; a case's name is never empty",
+                ));
+            }
+            set_once(&mut exec.name, pattern, "--name")?;
+        }
+        "view-budget" => {
+            exec.note("--view-budget");
+            let value = option_value(parser, "polls")?;
+            // A budget of no polls would stop every view at its first poll, which is not the
+            // positive bound the option promises.
+            let budget = value
+                .parse::<std::num::NonZeroU64>()
+                .map_err(|_| usage(format!("--view-budget `{value}` is not a positive integer")))?;
+            set_once(&mut exec.view_budget, budget.get(), "--view-budget")?;
+        }
+        _ => unreachable!("cases_option is called only for --jobs, --name and --view-budget"),
     }
     Ok(())
 }
@@ -978,6 +1055,57 @@ fn case_path(value: String) -> Result<PathBuf, UsageError> {
     }
 }
 
+/// The case documents of `krs cases`, each `.toml` or `.json` (its extension selects how it is
+/// read), at least one.
+fn case_documents(values: Vec<OsString>) -> Result<Vec<PathBuf>, UsageError> {
+    if values.is_empty() {
+        return Err(usage(
+            "krs cases needs at least one case document (.toml or .json)",
+        ));
+    }
+    values
+        .into_iter()
+        .map(|value| {
+            let path = PathBuf::from(value);
+            match path.extension().and_then(|extension| extension.to_str()) {
+                Some("toml" | "json") => Ok(path),
+                _ => Err(usage(format!(
+                    "the case document `{}` is not a `.toml` or `.json` file, which its extension says",
+                    path.display()
+                ))),
+            }
+        })
+        .collect()
+}
+
+/// `krs cases` with its options, which [`exec_command`] checked it accepts.
+fn cases_command(
+    exec: ExecOptions,
+    output: Option<&Path>,
+    solver: krs_exec::BackendOptions,
+) -> Result<Command, UsageError> {
+    Ok(Command::Cases(CasesRequest {
+        documents: case_documents(exec.inputs)?,
+        jobs: exec.jobs,
+        name: exec.name,
+        output: cases_output(output)?,
+        solver,
+        view_budget: exec.view_budget.unwrap_or(DEFAULT_VIEW_BUDGET),
+    }))
+}
+
+/// The `--output` of `krs cases`: `human` (the default) or `json`.
+fn cases_output(output: Option<&Path>) -> Result<CasesOutput, UsageError> {
+    match output.map(Path::to_string_lossy) {
+        None => Ok(CasesOutput::Human),
+        Some(value) if value == "human" => Ok(CasesOutput::Human),
+        Some(value) if value == "json" => Ok(CasesOutput::Json),
+        Some(value) => Err(usage(format!(
+            "unknown --output format `{value}` for krs cases; it prints human or json"
+        ))),
+    }
+}
+
 /// The input name and the JSON document of `--input NAME=JSON`.
 fn typed_input(value: &str) -> Result<(String, String), UsageError> {
     let (name, document) = value
@@ -1009,6 +1137,7 @@ fn exec_options(kind: CommandKind) -> &'static [&'static str] {
             "--smt-resource-limit",
             "--smt-clock-ms",
             "--smt-retries",
+            "--view-budget",
         ],
         CommandKind::Search => &[
             "FILE",
@@ -1021,6 +1150,16 @@ fn exec_options(kind: CommandKind) -> &'static [&'static str] {
             "--max-solutions",
             "--trace",
             "--color",
+            "--smt-resource-limit",
+            "--smt-clock-ms",
+            "--smt-retries",
+            "--view-budget",
+        ],
+        CommandKind::Cases => &[
+            "FILE",
+            "--jobs",
+            "--name",
+            "--view-budget",
             "--smt-resource-limit",
             "--smt-clock-ms",
             "--smt-retries",
@@ -1082,6 +1221,11 @@ fn exec_command(
             format!("{option} does not apply to krs {}", kind.as_str())
         }));
     }
+    let solver = solver(&exec)?;
+    let view_budget = exec.view_budget.unwrap_or(DEFAULT_VIEW_BUDGET);
+    if kind == CommandKind::Cases {
+        return cases_command(exec, output.as_deref(), solver);
+    }
     if exec.inputs.len() > 1 {
         return Err(usage("more than one FILE given"));
     }
@@ -1090,7 +1234,6 @@ fn exec_command(
             "--case-name selects a case of the document --case names; pass --case FILE",
         ));
     }
-    let solver = solver(&exec)?;
     let input = exec.inputs.into_iter().next().map(|input| {
         if input == "-" {
             ProgramSource::Stdin
@@ -1119,6 +1262,7 @@ fn exec_command(
             output,
             color,
             solver,
+            view_budget,
         }),
         CommandKind::Search => Command::Search(SearchRequest {
             input,
@@ -1133,6 +1277,7 @@ fn exec_command(
             output,
             color,
             solver,
+            view_budget,
         }),
         CommandKind::Prove => {
             if !exec.worker && !exec.worker_claims.is_empty() {
@@ -1156,7 +1301,11 @@ fn exec_command(
                 claim_timeout: exec.claim_timeout,
             })
         }
-        CommandKind::Check | CommandKind::Expand | CommandKind::EmitK | CommandKind::Build => {
+        CommandKind::Check
+        | CommandKind::Expand
+        | CommandKind::EmitK
+        | CommandKind::Build
+        | CommandKind::Cases => {
             unreachable!("only run-family commands take run options")
         }
     })
@@ -1202,7 +1351,11 @@ fn finish_run(kind: CommandKind, options: RunOptions) -> Result<ParseResult, Usa
         }));
     }
     let command = match kind {
-        CommandKind::Parse | CommandKind::Run | CommandKind::Search | CommandKind::Prove => {
+        CommandKind::Parse
+        | CommandKind::Run
+        | CommandKind::Search
+        | CommandKind::Prove
+        | CommandKind::Cases => {
             if backend.is_some() {
                 return Err(usage(format!(
                     "--backend does not apply to krs {}; it always uses the in-process k-rust backend",
@@ -2242,6 +2395,7 @@ mod tests {
                 output: TermOutput::Json,
                 color: ColorChoice::Auto,
                 solver: krs_exec::BackendOptions::RESOURCE_BOUNDED,
+                view_budget: DEFAULT_VIEW_BUDGET,
             })
         );
         assert_eq!(
@@ -2271,6 +2425,7 @@ mod tests {
                 output: TermOutput::Pretty,
                 color: ColorChoice::Never,
                 solver: krs_exec::BackendOptions::RESOURCE_BOUNDED,
+                view_budget: DEFAULT_VIEW_BUDGET,
             })
         );
         assert_eq!(
@@ -2592,6 +2747,95 @@ mod tests {
         );
     }
 
+    /// `krs cases` takes case documents, `--jobs`, `--name`, `--output human|json`,
+    /// `--view-budget` and the solver options; it refuses the options of one run.
+    #[test]
+    fn parses_cases_options() {
+        let base = ["--package", "imp", "--definition", "main"];
+        let with = |extra: &[&str]| {
+            let mut args = vec!["cases"];
+            args.extend(base);
+            args.extend(extra);
+            match run(&args).0.command {
+                Command::Cases(request) => request,
+                other => panic!("{other:?}"),
+            }
+        };
+        let failure = |extra: &[&str]| {
+            let mut args = vec!["cases"];
+            args.extend(base);
+            args.extend(extra);
+            error(&args)
+        };
+        assert_eq!(
+            with(&["a.toml", "b.json"]),
+            CasesRequest {
+                documents: vec![PathBuf::from("a.toml"), PathBuf::from("b.json")],
+                jobs: None,
+                name: None,
+                output: CasesOutput::Human,
+                solver: krs_exec::BackendOptions::RESOURCE_BOUNDED,
+                view_budget: DEFAULT_VIEW_BUDGET,
+            }
+        );
+        let request = with(&[
+            "a.toml",
+            "--jobs",
+            "2",
+            "--name",
+            "ld-*",
+            "--output",
+            "json",
+            "--view-budget",
+            "1500",
+            "--smt-retries",
+            "0",
+        ]);
+        assert_eq!(request.jobs, std::num::NonZeroUsize::new(2));
+        assert_eq!(request.name.as_deref(), Some("ld-*"));
+        assert_eq!(request.output, CasesOutput::Json);
+        assert_eq!(request.view_budget, 1500);
+        assert_eq!(request.solver.smt_retry_limit, 0);
+        assert_eq!(
+            failure(&[]),
+            "krs cases needs at least one case document (.toml or .json)"
+        );
+        assert!(failure(&["a.txt"]).contains("not a `.toml` or `.json` file"));
+        assert_eq!(
+            failure(&["a.toml", "--jobs", "0"]),
+            "--jobs `0` is not a positive integer"
+        );
+        assert_eq!(
+            failure(&["a.toml", "--view-budget", "0"]),
+            "--view-budget `0` is not a positive integer"
+        );
+        assert_eq!(
+            failure(&["a.toml", "--output", "pretty"]),
+            "unknown --output format `pretty` for krs cases; it prints human or json"
+        );
+        for option in [&["--case", "a.toml"][..], &["--depth", "1"], &["-c", "x=1"]] {
+            let mut extra = vec!["a.toml"];
+            extra.extend(option);
+            assert_eq!(
+                failure(&extra),
+                format!("{} does not apply to krs cases", option[0])
+            );
+        }
+        let mut args = vec!["run"];
+        args.extend(base);
+        args.extend(["--jobs", "2"]);
+        assert_eq!(error(&args), "--jobs does not apply to krs run");
+        let mut args = vec!["run"];
+        args.extend(base);
+        args.extend(["--view-budget", "2"]);
+        match run(&args).0.command {
+            Command::Run(request) => {
+                assert_eq!(request.view_budget, 2);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
     #[test]
     fn rejects_run_family_options_on_the_wrong_verb() {
         let base = ["--package", "imp", "--definition", "main"];
@@ -2708,6 +2952,40 @@ mod tests {
         assert!(
             matches!(parse(args), Err(UsageError::Message(message)) if message.contains("UTF-8"))
         );
+    }
+
+    /// The synopsis of `krs cases` lists every option it accepts and the `--output` formats.
+    #[test]
+    fn cases_usage_synopsis_matches_the_parser() {
+        let lines: Vec<&str> = USAGE.lines().collect();
+        let start = lines
+            .iter()
+            .position(|line| line.starts_with("  krs cases  "))
+            .expect("a synopsis for krs cases");
+        let synopsis = std::iter::once(lines[start])
+            .chain(
+                lines[start + 1..]
+                    .iter()
+                    .copied()
+                    .take_while(|line| line.starts_with("             ")),
+            )
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(synopsis.contains("[--output human|json]"));
+        for format in ["human", "json"] {
+            assert!(cases_output(Some(Path::new(format))).is_ok());
+        }
+        for option in exec_options(CommandKind::Cases) {
+            let option = if *option == "FILE" {
+                "CASES..."
+            } else {
+                option
+            };
+            assert!(
+                synopsis.contains(option),
+                "krs cases synopsis omits {option}"
+            );
+        }
     }
 
     /// The synopsis of each run-family command lists exactly the `--output`

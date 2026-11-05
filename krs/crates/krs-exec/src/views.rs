@@ -42,12 +42,29 @@
 //! unevaluated, as does a partial function outside its domain, and either is no value. A view
 //! without a value at an end refuses the comparison, naming the view, the side and the cell:
 //! an observation that does not exist makes the ends neither equal nor different.
+//!
+//! The simplification that evaluates a view is not bounded by the definition: a function whose
+//! equations do not reach a value never ends. A caller may bound each evaluation by a budget of
+//! polls ([`CellViews::evaluate_within`]): the points at which the simplification polls for a
+//! stop, so that where the budget stops it is a function of the evaluation, not of the host's
+//! speed or load. An evaluation that stops before it ends, for that budget or for another stop
+//! of the backend (the simplifier's stack, the solver's prelude), has no value yet rather than
+//! none at all: the definition was not shown to give it none. It is reported as an error of its
+//! own ([`EndError::ViewStopped`]), which a front end reports as inconclusive: never as equal,
+//! and never as a refusal of the view. A stop cannot change a value that is computed: an
+//! evaluation that reaches a value gives the definition's value whatever stopped work it
+//! dismissed on the way, so a verdict under a budget is the verdict without one, or
+//! inconclusive. The budget counts the evaluation's own polls, which reuse of answers the
+//! observer's solver decided earlier can only lower; the solver's undecided answers and the
+//! process's stack budget, which threads share, are outside it.
 
 use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
+use k_rust::backend::StepTimeoutMode;
 use k_rust::k_rust_backend::definition::Admission;
+use k_rust::k_rust_backend::stop::with_poll_budget;
 
 use crate::Semantics;
 use crate::ends::{EndCell, EndCells, EndError, Side};
@@ -64,6 +81,10 @@ pub enum EvaluationError {
     Backend(String),
     /// The definition gives the application no value: the result still holds this part.
     NoValue(String),
+    /// The evaluation stopped before it ended, for the caller's budget of polls or another stop
+    /// of the backend ([`Semantics::evaluate_within`]), which this says: whether it has a value
+    /// is not known.
+    Stopped(String),
 }
 
 impl fmt::Display for EvaluationError {
@@ -74,6 +95,10 @@ impl fmt::Display for EvaluationError {
             Self::NoValue(part) => write!(
                 formatter,
                 "the definition gives it no value: its result holds {part}"
+            ),
+            Self::Stopped(stop) => write!(
+                formatter,
+                "its evaluation stopped before it ended ({stop}), so whether it has a value is not known"
             ),
         }
     }
@@ -110,6 +135,9 @@ pub struct CellViews {
     by_symbol: BTreeMap<String, CellView>,
     /// The observer's value index, which writes viewed values; `None` with no view.
     observer: Option<Arc<ValueIndex>>,
+    /// The observer's printer, which prints a viewed value as K text where it has no document
+    /// (its sort may be the observer's alone); `None` with no view.
+    printer: Option<Arc<krs_unparse::Unparser>>,
     /// The compared definition's value index, whose cell tree the ends are read by; `None` with
     /// no view.
     subject: Option<Arc<ValueIndex>>,
@@ -145,6 +173,26 @@ impl CellViews {
     }
 
     /// The observer's index and the view's result type, for the cell `node` when it is viewed.
+    /// The printer of the values `index` writes: the observer's for its value index, which
+    /// writes viewed values, and `None` for another index.
+    pub(crate) fn printer(&self, index: &ValueIndex) -> Option<&krs_unparse::Unparser> {
+        self.observer
+            .as_deref()
+            .filter(|observer| std::ptr::eq(*observer, index))
+            .and(self.printer.as_deref())
+    }
+
+    /// The observer's printer; `None` with no view.
+    pub(crate) fn observer_printer(&self) -> Option<&krs_unparse::Unparser> {
+        self.printer.as_deref()
+    }
+
+    /// Whether the cell `node`, or a cell below it, is viewed.
+    pub(crate) fn holds_view(&self, node: &CellNode) -> bool {
+        self.by_symbol.contains_key(&node.symbol)
+            || node.children.iter().any(|child| self.holds_view(child))
+    }
+
     pub(crate) fn lens(&self, node: &CellNode) -> Option<(&ValueIndex, &InputType)> {
         let view = self.by_symbol.get(&node.symbol)?;
         Some((self.observer.as_deref()?, &view.result))
@@ -184,6 +232,22 @@ impl CellViews {
         observer: &mut Semantics,
         sides: &[Side<'_>],
     ) -> Result<(), EndError> {
+        self.evaluate_within(observer, sides, None)
+    }
+
+    /// [`Self::evaluate`], each evaluation bounded by a budget of `budget` polls when there is
+    /// one ([module documentation](crate::views#evaluation)).
+    ///
+    /// # Errors
+    ///
+    /// Fails as [`Self::evaluate`] does, and returns [`EndError::ViewStopped`] for an evaluation
+    /// that stopped before it ended: it spent `budget`, or another stop of the backend ended it.
+    pub fn evaluate_within(
+        &mut self,
+        observer: &mut Semantics,
+        sides: &[Side<'_>],
+        budget: Option<u64>,
+    ) -> Result<(), EndError> {
         let (Some(index), Some(subject)) = (&self.observer, &self.subject) else {
             return Ok(());
         };
@@ -221,8 +285,19 @@ impl CellViews {
                 )));
             }
             let viewed = observer
-                .evaluate(view.decl.path(), vec![(&*view.parameter, value.clone())])
-                .map_err(|error| refuse(error.to_string()))?;
+                .evaluate_within(
+                    view.decl.path(),
+                    vec![(&*view.parameter, value.clone())],
+                    budget,
+                )
+                .map_err(|error| match error {
+                    EvaluationError::Stopped(_) => EndError::ViewStopped {
+                        cell: view.cell.clone(),
+                        function: view.function.clone(),
+                        message: format!("at the {side} end's `{path}`, {error}"),
+                    },
+                    error => refuse(error.to_string()),
+                })?;
             self.results
                 .entry(symbol)
                 .or_default()
@@ -323,12 +398,30 @@ impl Semantics {
     ///
     /// Returns [`EvaluationError::Application`] for a name that resolves to no function or
     /// arguments that do not fit it, [`EvaluationError::Backend`] for a term the backend
-    /// refuses or a result that is no term of the definition, and [`EvaluationError::NoValue`] when the result holds a part with no KRS
-    /// description: an unevaluated application, `\bottom`, a disjunction.
+    /// refuses or a result that is no term of the definition, [`EvaluationError::NoValue`] when
+    /// the result holds a part with no KRS description (an unevaluated application, `\bottom`,
+    /// a disjunction), and [`EvaluationError::Stopped`] for a simplification that a stop of the
+    /// backend ended before it reached a value.
     pub fn evaluate(
         &mut self,
         function: &str,
         arguments: Vec<(&str, Value)>,
+    ) -> Result<Value, EvaluationError> {
+        self.evaluate_within(function, arguments, None)
+    }
+
+    /// [`Self::evaluate`], the simplification bounded by a budget of `budget` polls, when there
+    /// is one ([module documentation](crate::views#evaluation)).
+    ///
+    /// # Errors
+    ///
+    /// Fails as [`Self::evaluate`] does, and returns [`EvaluationError::Stopped`] for a
+    /// simplification that spent `budget`, or that another stop ended, before it reached a value.
+    pub fn evaluate_within(
+        &mut self,
+        function: &str,
+        arguments: Vec<(&str, Value)>,
+        budget: Option<u64>,
     ) -> Result<Value, EvaluationError> {
         let application = self.values.call(function, arguments)?;
         let kast = self.values.to_kast(&application)?;
@@ -337,18 +430,39 @@ impl Semantics {
                 "the application is no term of the definition: {error}"
             ))
         })?;
-        let simplified = self
-            .backend
-            .simplify_kore(None, &pattern, Admission::Unverified)
-            .map_err(|error| EvaluationError::Backend(error.to_string()))?;
+        let backend = &mut self.backend;
+        // With no budget the scope still records a stack stop a site dismissed on the way.
+        let (simplified, record) = with_poll_budget(
+            budget.unwrap_or(u64::MAX),
+            StepTimeoutMode::Manual(std::time::Duration::ZERO),
+            || backend.simplify_kore(None, &pattern, Admission::Unverified),
+        );
+        let spent = || match budget {
+            Some(budget) if record.budget_exhausted => Some(format!(
+                "it spent its budget of {budget} poll{}",
+                if budget == 1 { "" } else { "s" }
+            )),
+            _ if record.stack_exhausted => {
+                Some("it ran out of the simplifier's native stack".to_owned())
+            }
+            _ => None,
+        };
+        let simplified = simplified.map_err(|error| match (spent(), error.stop_cause()) {
+            (Some(stop), _) => EvaluationError::Stopped(stop),
+            (None, Some(_)) => EvaluationError::Stopped(error.to_string()),
+            (None, None) => EvaluationError::Backend(error.to_string()),
+        })?;
         let value = self.values.decode(&simplified).map_err(|error| {
             EvaluationError::Backend(format!(
                 "the simplified application is no term of the definition: {error}"
             ))
         })?;
-        match opaque_part(&self.values, &value) {
-            Some(part) => Err(EvaluationError::NoValue(part)),
-            None => Ok(value),
+        // A value reached is the definition's value, whatever stopped work was dismissed on the
+        // way; a result short of one is no value only where nothing stopped.
+        match (opaque_part(&self.values, &value), spent()) {
+            (None, _) => Ok(value),
+            (Some(_), Some(stop)) => Err(EvaluationError::Stopped(stop)),
+            (Some(part), None) => Err(EvaluationError::NoValue(part)),
         }
     }
 
@@ -452,6 +566,7 @@ impl Semantics {
         }
         if !views.by_symbol.is_empty() {
             views.observer = Some(Arc::clone(&observer.values));
+            views.printer = Some(Arc::clone(&observer.unparser));
             views.subject = Some(Arc::clone(&self.values));
         }
         Ok(views)

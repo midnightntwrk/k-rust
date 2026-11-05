@@ -464,6 +464,17 @@ pub enum EndError {
         /// Why.
         message: String,
     },
+    /// A view whose evaluation at an end stopped before it ended, for the caller's budget or
+    /// another stop of the backend ([`CellViews::evaluate_within`]): whether it has a value there
+    /// is not known, so a comparison under it is inconclusive, not refused.
+    ViewStopped {
+        /// The viewed cell's declared path.
+        cell: String,
+        /// The view's function as named.
+        function: String,
+        /// Where, and the budget.
+        message: String,
+    },
     /// A state that is no configuration of the definition, or results that are no ends.
     State(String),
 }
@@ -489,6 +500,11 @@ impl fmt::Display for EndError {
             }
             Self::Document { position, message } => write!(formatter, "`{position}`: {message}"),
             Self::View {
+                cell,
+                function,
+                message,
+            }
+            | Self::ViewStopped {
                 cell,
                 function,
                 message,
@@ -1670,16 +1686,23 @@ impl Lens<'_> {
         }
     }
 
-    /// A value's K text, or its KORE where the printer warns: the text and its rendering.
+    /// A value `index` writes as K text, or its KORE where the printer warns: the text and its
+    /// rendering. A viewed value is printed by the observer's printer, since its sort may be
+    /// declared by the observer alone.
     fn k_text(&self, index: &ValueIndex, value: &Value) -> (String, &'static str) {
         match index.encode(value) {
-            Ok(pattern) => self.pattern_text(&pattern),
+            Ok(pattern) => self.pattern_text(self.views.printer(index), &pattern),
             Err(error) => (error.to_string(), "kore"),
         }
     }
 
-    fn pattern_text(&self, pattern: &Pattern) -> (String, &'static str) {
-        let printed = self.unparser.print_kore(
+    /// `pattern` printed by `unparser`, by default this definition's printer.
+    fn pattern_text(
+        &self,
+        unparser: Option<&krs_unparse::Unparser>,
+        pattern: &Pattern,
+    ) -> (String, &'static str) {
+        let printed = unparser.unwrap_or(self.unparser()).print_kore(
             pattern,
             &krs_unparse::Options::new(krs_unparse::Mode::Pretty),
         );
@@ -1824,12 +1847,21 @@ impl Lens<'_> {
             }
             Part::Optional(node, content) | Part::Instance(node, content) => Some((node, content)),
         };
-        // An absent optional cell has a document, `[]`, so a refused part holds content.
+        // An absent optional cell has a document, `[]`, so a refused part holds content. A cell
+        // that holds a viewed value is printed by the observer's printer, whose grammar holds
+        // this definition's too.
         let shown = content
-            .and_then(|(node, content)| self.cell_pattern(node, content))
+            .and_then(|(node, content)| {
+                let printer = if self.views.holds_view(node) {
+                    self.views.observer_printer()
+                } else {
+                    None
+                };
+                Some((printer, self.cell_pattern(node, content)?))
+            })
             .map_or_else(
                 || (String::new(), "kore"),
-                |pattern| self.pattern_text(&pattern),
+                |(printer, pattern)| self.pattern_text(printer, &pattern),
             );
         k_shown(shown, position)
     }
@@ -2006,15 +2038,15 @@ impl Semantics {
     /// # Errors
     ///
     /// Returns a refusal of `comparison`'s cells ([`EndError::UnknownCell`],
-    /// [`EndError::Unobservable`]), and [`EndError::MissingCell`] for a compared cell `end` does
-    /// not state.
+    /// [`EndError::Unobservable`]), [`EndError::View`] for a view of a cell it does not compare,
+    /// and [`EndError::MissingCell`] for a compared cell `end` does not state.
     pub fn check_stated(
         &self,
         comparison: &Comparison,
         end: &End,
         side: &str,
     ) -> Result<(), EndError> {
-        let selection = self.selection(comparison)?;
+        let selection = self.viewed_selection(comparison)?;
         self.lens(&CellViews::default())
             .project(&selection, end, side)
             .map(|_| ())
