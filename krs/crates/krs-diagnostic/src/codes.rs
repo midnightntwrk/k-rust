@@ -523,6 +523,7 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
         STREAMS: "krs::exec::streams" => "Search was requested on a definition with stream cells.",
         UNAVAILABLE: "krs::exec::unavailable" [Environment] => "The requested operation is not available in this build.",
         RESULT: "krs::exec::result" [Internal] => "The backend returned a result KRS cannot read.",
+        CASE: "krs::exec::case" => "A case document is no case document or has no case of the requested name, or its expectation is no partial end of the definition or does not state a cell it is compared on.",
         UNDECIDED: "krs::exec::undecided" => "A run reaches several states under conditions over terms that may have values, which it cannot decide, so it has no one path; `krs search` prints each.",
         STAGE_CACHE: "krs::exec::stage-cache" [Environment] => "The compiled-stage cache directory lies inside the input's Cargo workspace, so it is not used.",
     }

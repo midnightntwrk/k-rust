@@ -14,11 +14,12 @@ use std::path::{Path, PathBuf};
 
 use krs_diagnostic::{Code, codes};
 use krs_exec::{
-    Case, CompiledStage, ConfigInputs, ConfigValue, Coverage, CoverageOptions, ExecError, Halt,
+    Case, CaseDocument, Compared, CompiledStage, ConfigInputs, ConfigValue, Coverage,
+    CoverageOptions, Difference, DifferenceAt, EndError, Ends, ExecError, Expectation, Halt,
     InputError, InputFiles, PrintStyle, Printed, ProgramFile, ProgramInput, ProofReport,
-    ProveOptions, REPORT_SCHEMA, ReadBack, RunOptions, RunReport, SearchMode, SearchOptions,
-    Semantics, SourceText, SpecStage, Step, StepOrigin, StopAt, StopCriterion, Term, Verdict,
-    json_document,
+    ProveOptions, REPORT_SCHEMA, ReadBack, Rendered, RunOptions, RunReport, SearchMode,
+    SearchOptions, Semantics, Side, SourceText, SpecStage, Step, StepOrigin, StopAt, StopCriterion,
+    Term, Verdict, canonical_text, json_document, open_values,
 };
 use krs_ir::measure::Measurement;
 use serde_json::json;
@@ -86,8 +87,12 @@ pub struct ParseRequest {
 pub struct RunRequest {
     /// FILE, bound to the main parameter.
     pub input: Option<ProgramSource>,
-    /// `--case FILE`: a case document, whose inputs are bound by name.
+    /// `--case FILE`: a case document, whose inputs are bound by name, whose `run` table gives
+    /// the depth, the stop rules and the stop count, and whose expectation the run is checked
+    /// against.
     pub case: Option<PathBuf>,
+    /// `--case-name NAME`: the case of that name in a document of named cases.
+    pub case_name: Option<String>,
     /// `--input NAME=JSON` bindings, each a document of the typed encoding, in command-line order.
     pub inputs: Vec<(String, String)>,
     /// `-c NAME=TEXT` bindings, in command-line order.
@@ -111,8 +116,11 @@ pub struct RunRequest {
 pub struct SearchRequest {
     /// FILE, bound to the main parameter.
     pub input: Option<ProgramSource>,
-    /// `--case FILE`: a case document, whose inputs are bound by name.
+    /// `--case FILE`: a case document, whose inputs are bound by name, whose `run` table gives
+    /// the depth, and whose expectation every solution is checked against.
     pub case: Option<PathBuf>,
+    /// `--case-name NAME`: the case of that name in a document of named cases.
+    pub case_name: Option<String>,
     /// `--input NAME=JSON` bindings, each a document of the typed encoding, in command-line order.
     pub inputs: Vec<(String, String)>,
     /// `-c NAME=TEXT` bindings, in command-line order.
@@ -433,27 +441,107 @@ fn dispatch(semantics: &mut Semantics, command: &Command) -> Result<CommandOutco
 #[derive(Clone, Copy)]
 struct Inputs<'a> {
     program: Option<&'a ProgramSource>,
-    case: Option<&'a Path>,
+    case: Option<&'a SelectedCase>,
     typed: &'a [(String, String)],
     variables: &'a [(String, String)],
 }
 
 impl<'a> Inputs<'a> {
-    fn of_run(request: &'a RunRequest) -> Self {
+    fn of_run(request: &'a RunRequest, case: Option<&'a SelectedCase>) -> Self {
         Self {
             program: request.input.as_ref(),
-            case: request.case.as_deref(),
+            case,
             typed: &request.inputs,
             variables: &request.variables,
         }
     }
 
-    fn of_search(request: &'a SearchRequest) -> Self {
+    fn of_search(request: &'a SearchRequest, case: Option<&'a SelectedCase>) -> Self {
         Self {
             program: request.input.as_ref(),
-            case: request.case.as_deref(),
+            case,
             typed: &request.inputs,
             variables: &request.variables,
+        }
+    }
+}
+
+/// The case `--case` and `--case-name` select, with the directory its document's paths are
+/// relative to.
+struct SelectedCase {
+    case: Case,
+    /// The case file as given, for messages.
+    path: PathBuf,
+    /// The case file's directory.
+    base: PathBuf,
+}
+
+impl SelectedCase {
+    fn files(&self) -> CaseFiles {
+        CaseFiles {
+            base: self.base.clone(),
+        }
+    }
+
+    /// The expectation of `case`, if any, read against the definition, refused before the run
+    /// for what every comparison of it would refuse; `None` without a case or an expectation.
+    fn expectation_of(
+        case: Option<&Self>,
+        semantics: &Semantics,
+    ) -> Result<Option<Expectation>, Failure> {
+        let Some((case, expect)) = case.and_then(|case| Some((case, case.case.expect.as_ref()?)))
+        else {
+            return Ok(None);
+        };
+        case.expectation(semantics, expect).map(Some)
+    }
+
+    fn expectation(
+        &self,
+        semantics: &Semantics,
+        expect: &serde_json::Value,
+    ) -> Result<Expectation, Failure> {
+        semantics
+            .expectation(expect, self.case.file.as_deref(), &mut self.files())
+            .map_err(|error| Failure::Exec(self.refusal(&error.to_string())))
+    }
+
+    /// A refusal of the case, naming its file and its name.
+    fn refusal(&self, message: &str) -> ExecError {
+        ExecError::Case(match &self.case.name {
+            Some(name) => format!("case `{name}` of `{}`: {message}", self.path.display()),
+            None => format!("case `{}`: {message}", self.path.display()),
+        })
+    }
+
+    /// The run's stop criterion: the stop flags' (`--stop-before`, `--stop-after`,
+    /// `--stop-count`) or the case's `run` stops (`stop_before`, `stop_after`, `stop_count`),
+    /// which may not both be given: each says where the run ends, and one source bounds it.
+    fn stop(&self, flags: &StopCriterion) -> Result<StopCriterion, Failure> {
+        let own = self
+            .case
+            .run
+            .as_ref()
+            .map_or(StopCriterion::None, krs_exec::CaseRun::stop);
+        match (flags, own) {
+            (StopCriterion::None, own) => Ok(own),
+            (flags, StopCriterion::None) => Ok(flags.clone()),
+            _ => Err(Failure::Usage(format!(
+                "--stop-before, --stop-after and --stop-count, and the `run` stops of the case `{}`, both say where the run ends; give one",
+                self.path.display()
+            ))),
+        }
+    }
+
+    /// The run's depth bound: `--depth` or the case's `run.depth`, which may not both be given.
+    fn depth(&self, flag: Option<u64>) -> Result<Option<u64>, Failure> {
+        let own = self.case.run.as_ref().and_then(|run| run.depth);
+        match (flag, own) {
+            (Some(_), Some(_)) => Err(Failure::Usage(format!(
+                "--depth and the `run.depth` of the case `{}` both bound the run; give one",
+                self.path.display()
+            ))),
+            (flag, own) => Ok(flag.or(own)),
         }
     }
 }
@@ -491,30 +579,106 @@ impl InputFiles for CaseFiles {
     }
 }
 
-/// The case document `path` states, read by its extension (`.toml` or `.json`, which the
-/// command line checked).
-fn read_case(path: &Path) -> Result<Case, Failure> {
+/// The case `--case FILE` and `--case-name NAME` select, if any, and the run's depth bound:
+/// `--depth` (`flag`) or the case's `run.depth`.
+fn case_and_depth(
+    path: Option<&Path>,
+    name: Option<&str>,
+    flag: Option<u64>,
+) -> Result<(Option<SelectedCase>, Option<u64>), Failure> {
+    let Some(path) = path else {
+        return Ok((None, flag));
+    };
+    let case = read_case(path, name)?;
+    let depth = case.depth(flag)?;
+    Ok((Some(case), depth))
+}
+
+/// The most case names a message lists.
+const LISTED_NAMES: usize = 10;
+
+/// `names` as a message lists them: the first [`LISTED_NAMES`], then how many more.
+fn listed_names<'a>(names: impl Iterator<Item = &'a str>) -> String {
+    let names = names.collect::<Vec<_>>();
+    let mut listed = names
+        .iter()
+        .take(LISTED_NAMES)
+        .map(|name| format!("`{name}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    if names.len() > LISTED_NAMES {
+        let _ = write!(listed, ", and {} more", names.len() - LISTED_NAMES);
+    }
+    if listed.is_empty() {
+        listed.push_str("none");
+    }
+    listed
+}
+
+/// The case `--case FILE` and `--case-name NAME` select: the document `path` states, read by its
+/// extension (`.toml` or `.json`, which the command line checked), and its one case or its case
+/// named `name`.
+fn read_case(path: &Path, name: Option<&str>) -> Result<SelectedCase, Failure> {
     let text = std::fs::read_to_string(path).map_err(|error| {
         Failure::Read(format!(
             "could not read the case `{}`: {error}",
             path.display()
         ))
     })?;
-    let case = if path
+    let base = path.parent().map_or_else(PathBuf::new, Path::to_path_buf);
+    let mut files = CaseFiles { base: base.clone() };
+    // The document's own file, named as `files` names every file it reads, so that a file it
+    // includes that includes it back is a cycle.
+    let top = path
+        .canonicalize()
+        .ok()
+        .and_then(|resolved| resolved.to_str().map(str::to_owned));
+    let document = if path
         .extension()
         .is_some_and(|extension| extension == "json")
     {
-        Case::from_json(&text)
+        CaseDocument::from_json(&text, top.as_deref(), &mut files)
     } else {
-        Case::from_toml(&text)
+        CaseDocument::from_toml(&text, top.as_deref(), &mut files)
+    }
+    .map_err(|error| {
+        Failure::Exec(ExecError::Case(format!(
+            "case `{}`: {error}",
+            path.display()
+        )))
+    })?;
+    let case = match (document, name) {
+        (CaseDocument::One(case), None) => case,
+        (CaseDocument::One(_), Some(name)) => {
+            return Err(Failure::Usage(format!(
+                "--case-name `{name}`: the case document `{}` holds one case, which has no name; omit --case-name",
+                path.display()
+            )));
+        }
+        (document @ CaseDocument::Named(_), None) => {
+            return Err(Failure::Usage(format!(
+                "the case document `{}` holds named cases; select one with --case-name NAME: {}",
+                path.display(),
+                listed_names(document.names())
+            )));
+        }
+        (document @ CaseDocument::Named(_), Some(name)) => {
+            // A name the document does not hold is an error in the command line, as a missing
+            // or a superfluous one is: each is corrected in `--case-name`.
+            let Some(case) = document.named(name).cloned() else {
+                return Err(Failure::Usage(format!(
+                    "--case-name `{name}`: the case document `{}` holds no case of that name; its cases are {}",
+                    path.display(),
+                    listed_names(document.names())
+                )));
+            };
+            case
+        }
     };
-    case.map_err(|error| {
-        Failure::Exec(ExecError::Input(InputError {
-            parameter: None,
-            declared: None,
-            position: String::new(),
-            message: format!("case `{}`: {error}", path.display()),
-        }))
+    Ok(SelectedCase {
+        case,
+        path: path.to_path_buf(),
+        base,
     })
 }
 
@@ -591,12 +755,9 @@ fn configure(
     // FILE, the case, `--input` and `-c` bind is bound twice.
     let mut bindings = file_bytes.into_iter().collect::<Vec<_>>();
     bindings.extend(match case {
-        Some(path) => {
-            let mut files = CaseFiles {
-                base: path.parent().map_or_else(PathBuf::new, Path::to_path_buf),
-            };
+        Some(case) => {
             semantics
-                .case_inputs(&read_case(path)?, None, &mut files)?
+                .case_inputs(&case.case, None, &mut case.files())?
                 .variables
         }
         None => Vec::new(),
@@ -639,17 +800,44 @@ fn read_console_input() -> Result<Vec<u8>, Failure> {
 
 fn run(semantics: &mut Semantics, request: &RunRequest) -> Result<CommandOutcome, Failure> {
     let smt = semantics.capabilities().smt;
-    let state = configure(semantics, Inputs::of_run(request), true)?;
-    let report = semantics.run(
-        &state,
-        RunOptions {
-            depth: request.depth,
-            trace: request.trace,
-            coverage: request.coverage.then(CoverageOptions::default),
-            stop: request.stop.clone(),
-            ..RunOptions::default()
-        },
+    let (case, depth) = case_and_depth(
+        request.case.as_deref(),
+        request.case_name.as_deref(),
+        request.depth,
     )?;
+    let stop = match &case {
+        Some(case) => case.stop(&request.stop)?,
+        None => request.stop.clone(),
+    };
+    let state = configure(semantics, Inputs::of_run(request, case.as_ref()), true)?;
+    let expectation = SelectedCase::expectation_of(case.as_ref(), semantics)?;
+    let options = RunOptions {
+        depth,
+        trace: request.trace,
+        coverage: request.coverage.then(CoverageOptions::default),
+        stop: stop.clone(),
+        ..RunOptions::default()
+    };
+    let report = match (semantics.run(&state, options.clone()), &case, &expectation) {
+        (Ok(report), _, _) => report,
+        // A run that cannot decide which of several states it reaches has no one end, so it has
+        // none to compare: the verdict is inconclusive, not a refusal of the case.
+        (Err(error @ ExecError::Undecided { .. }), Some(case), Some(_)) => {
+            return undecided_case(case, &error, request.output);
+        }
+        (Err(error), _, _) => return Err(error.into()),
+    };
+    let checked = match (&case, &expectation) {
+        (Some(case), Some(expectation)) => Some(check_run(
+            semantics,
+            case,
+            expectation,
+            &state,
+            &options,
+            &report,
+        )?),
+        _ => None,
+    };
     let mut stderr = log_text(&report.log);
     if request.output != TermOutput::Json {
         write_trace(&mut stderr, &report.trace);
@@ -658,10 +846,13 @@ fn run(semantics: &mut Semantics, request: &RunRequest) -> Result<CommandOutcome
         }
     }
     let color = request.color.enabled();
-    let printed = match request.output {
-        TermOutput::Json => json_line(&json!({"schema": REPORT_SCHEMA, "run": report}))?,
-        TermOutput::None => String::new(),
-        output => format!(
+    let printed = match (request.output, &checked) {
+        (TermOutput::Json, Some(checked)) => json_line(
+            &json!({"schema": REPORT_SCHEMA, "run": report, "expectation": checked.document()}),
+        )?,
+        (TermOutput::Json, None) => json_line(&json!({"schema": REPORT_SCHEMA, "run": report}))?,
+        (TermOutput::None, _) => String::new(),
+        (output, _) => format!(
             "{}\n",
             print(semantics, &report.state, output, color, &mut stderr)?
         ),
@@ -670,7 +861,7 @@ fn run(semantics: &mut Semantics, request: &RunRequest) -> Result<CommandOutcome
     prints.check(semantics, &report.state)?;
     prints.verdict()?;
     let head = main_cell_head(semantics, &report.state, request.output, &mut stderr);
-    let stops = stops_passed(semantics, &report, &request.stop);
+    let stops = stops_passed(semantics, &report, &stop);
     let _ = write!(
         stderr,
         "krs run: {} after {} step{}{stops}{head}",
@@ -680,29 +871,15 @@ fn run(semantics: &mut Semantics, request: &RunRequest) -> Result<CommandOutcome
     );
     stderr.push('\n');
     if request.output != TermOutput::Json {
-        let notation = match request.output {
-            TermOutput::None => TermOutput::Pretty,
-            output => output,
-        };
-        for term in &report.valueless {
-            let printed = print(semantics, term, notation, false, &mut stderr)?;
-            let printed = printed.trim();
-            let _ = if report.halt == Halt::Undefined {
-                writeln!(
-                    stderr,
-                    "note: `{printed}` has no value: its function is partial and defined by its equations alone, and none applies there, so no state holds it"
-                )
-            } else {
-                writeln!(
-                    stderr,
-                    "note: a rule's condition reads `{printed}`, which has no value (its function is partial and defined by its equations alone, and none applies there), so the rule does not apply"
-                )
-            };
-        }
+        write_valueless(semantics, &report, request.output, &mut stderr)?;
     }
-    let exit_code = match report.exit_code {
-        Some(code) if report.halt.is_complete() => i32::try_from(code & 0xff).unwrap_or(1),
-        _ => i32::from(!report.halt.is_complete()),
+    let exit_code = match (&checked, report.exit_code) {
+        (Some(checked), _) => {
+            checked.write(&mut stderr, "krs run");
+            checked.exit_code()
+        }
+        (None, Some(code)) if report.halt.is_complete() => i32::try_from(code & 0xff).unwrap_or(1),
+        (None, _) => i32::from(!report.halt.is_complete()),
     };
     // Console output comes first, as krun writes it during the run and prints the result after;
     // the JSON report carries it in `stdout` instead.
@@ -716,17 +893,85 @@ fn run(semantics: &mut Semantics, request: &RunRequest) -> Result<CommandOutcome
     Ok(outcome)
 }
 
+/// The notes on the terms with no value a run's state holds or its condition read, printed in
+/// `output`'s notation (pretty for none).
+fn write_valueless(
+    semantics: &Semantics,
+    report: &RunReport,
+    output: TermOutput,
+    stderr: &mut String,
+) -> Result<(), Failure> {
+    let notation = match output {
+        TermOutput::None => TermOutput::Pretty,
+        output => output,
+    };
+    for term in &report.valueless {
+        let printed = print(semantics, term, notation, false, stderr)?;
+        let printed = printed.trim();
+        let _ = if report.halt == Halt::Undefined {
+            writeln!(
+                stderr,
+                "note: `{printed}` has no value: its function is partial and defined by its equations alone, and none applies there, so no state holds it"
+            )
+        } else {
+            writeln!(
+                stderr,
+                "note: a rule's condition reads `{printed}`, which has no value (its function is partial and defined by its equations alone, and none applies there), so the rule does not apply"
+            )
+        };
+    }
+    Ok(())
+}
+
 fn search(semantics: &mut Semantics, request: &SearchRequest) -> Result<CommandOutcome, Failure> {
-    let state = configure(semantics, Inputs::of_search(request), false)?;
-    let report = semantics.search(
-        &state,
-        SearchOptions {
-            mode: request.mode,
-            depth: request.depth,
-            max_solutions: request.max_solutions,
-            trace: request.trace,
-        },
+    let (case, depth) = case_and_depth(
+        request.case.as_deref(),
+        request.case_name.as_deref(),
+        request.depth,
     )?;
+    if let Some(case) = &case
+        && case
+            .case
+            .run
+            .as_ref()
+            .is_some_and(|run| run.stop() != StopCriterion::None)
+    {
+        return Err(Failure::Usage(format!(
+            "the case `{}` names stop rules in `run`, which krs search does not apply: a search's final states are not the ends of runs cut at those rules; run the case with krs run",
+            case.path.display()
+        )));
+    }
+    if request.mode != SearchMode::Final
+        && let Some(case) = case.as_ref().filter(|case| case.case.expect.is_some())
+    {
+        return Err(Failure::Usage(format!(
+            "the case `{}` states an expectation, which is checked against ends: krs search --mode {} returns reachable states, not ends; search with --mode final",
+            case.path.display(),
+            request.mode.as_str()
+        )));
+    }
+    let state = configure(semantics, Inputs::of_search(request, case.as_ref()), false)?;
+    let expectation = SelectedCase::expectation_of(case.as_ref(), semantics)?;
+    let options = SearchOptions {
+        mode: request.mode,
+        depth,
+        max_solutions: request.max_solutions,
+        trace: request.trace,
+    };
+    let report = semantics.search(&state, options)?;
+    let checked = match (&case, &expectation) {
+        (Some(case), Some(expectation)) => {
+            let mut actual = semantics
+                .ends_of(&report, &options)
+                .map_err(|error| end_failure(&error))?;
+            if actual.incomplete.is_none() {
+                actual.incomplete = open_values(&report.implementation_chosen_values)
+                    .map(|reason| format!("the search {reason}"));
+            }
+            Some(check(semantics, case, expectation, &actual)?)
+        }
+        _ => None,
+    };
     let truncated = request
         .max_solutions
         .is_some_and(|limit| report.solutions.len() >= limit);
@@ -735,7 +980,12 @@ fn search(semantics: &mut Semantics, request: &SearchRequest) -> Result<CommandO
     let color = request.color.enabled();
     let mut prints = PrintCheck::new(request.output);
     if request.output == TermOutput::Json {
-        stdout = json_line(&json!({"schema": REPORT_SCHEMA, "search": report}))?;
+        stdout = json_line(&match &checked {
+            Some(checked) => {
+                json!({"schema": REPORT_SCHEMA, "search": report, "expectation": checked.document()})
+            }
+            None => json!({"schema": REPORT_SCHEMA, "search": report}),
+        })?;
     } else {
         for (index, solution) in report.solutions.iter().enumerate() {
             prints.check(semantics, &solution.state)?;
@@ -765,11 +1015,247 @@ fn search(semantics: &mut Semantics, request: &SearchRequest) -> Result<CommandO
             " (incomplete: some paths were not decided)"
         }
     );
-    Ok(outcome(
-        stdout,
-        stderr,
-        i32::from(!report.complete && !truncated),
-    ))
+    let exit_code = match &checked {
+        Some(checked) => {
+            checked.write(&mut stderr, "krs search");
+            checked.exit_code()
+        }
+        None => i32::from(!report.complete && !truncated),
+    };
+    Ok(outcome(stdout, stderr, exit_code))
+}
+
+/// A run's or a search's ends that are no ends of the definition's configurations: the backend
+/// returned a state KRS cannot read as one.
+fn end_failure(error: &EndError) -> Failure {
+    Failure::Exec(ExecError::Result(error.to_string()))
+}
+
+/// The verdict of a case's expectation against the ends of its run or search.
+struct Checked {
+    /// The case's name, in a document of named cases.
+    case: Option<String>,
+    verdict: Compared,
+    /// A note after the verdict's lines: what may decide an inconclusive one.
+    note: Option<&'static str>,
+}
+
+/// Check the end of `report`, the run from `state` under `options`, against `expectation`.
+///
+/// One end that differs is unmet: it is an end the definition reaches. One end that agrees is
+/// met only where it is the definition's only end from `state` ([`Semantics::other_ends`]);
+/// otherwise the verdict is inconclusive, since another path may end otherwise, and a
+/// final-state search, which gives every end, may decide it. The run is followed again for that
+/// only once its end agrees.
+fn check_run(
+    semantics: &mut Semantics,
+    case: &SelectedCase,
+    expectation: &Expectation,
+    state: &krs_exec::State,
+    options: &RunOptions,
+    report: &RunReport,
+) -> Result<Checked, Failure> {
+    let mut actual = semantics
+        .end_of(report)
+        .map_err(|error| end_failure(&error))?;
+    let checked = check(semantics, case, expectation, &actual)?;
+    if !matches!(checked.verdict, Compared::Equal) {
+        return Ok(checked);
+    }
+    let Some(reason) = semantics.other_ends(state, options, report)? else {
+        return Ok(checked);
+    };
+    actual.incomplete = Some(reason);
+    let mut checked = check(semantics, case, expectation, &actual)?;
+    // A search reads the same open values; it decides only where the path chose.
+    if open_values(&report.implementation_chosen_values).is_none() {
+        checked.note = Some("krs search --case checks every final state against the expectation");
+    }
+    Ok(checked)
+}
+
+/// The outcome of `krs run --case` for a case with an expectation whose run reaches several
+/// states under conditions it cannot decide (`error`): the run has no one end, so the verdict is
+/// inconclusive, with the error as its reason; no state is printed, since the run ended in none.
+fn undecided_case(
+    case: &SelectedCase,
+    error: &ExecError,
+    output: TermOutput,
+) -> Result<CommandOutcome, Failure> {
+    let checked = Checked {
+        case: case.case.name.clone(),
+        verdict: Compared::Inconclusive(format!("the run has no one end: {error}")),
+        note: None,
+    };
+    let stdout = if output == TermOutput::Json {
+        json_line(&json!({"schema": REPORT_SCHEMA, "expectation": checked.document()}))?
+    } else {
+        String::new()
+    };
+    let mut stderr = String::new();
+    checked.write(&mut stderr, "krs run");
+    Ok(outcome(stdout, stderr, checked.exit_code()))
+}
+
+/// Check `actual` against `expectation`: every end must agree with it on the class and the
+/// compared cells.
+fn check(
+    semantics: &Semantics,
+    case: &SelectedCase,
+    expectation: &Expectation,
+    actual: &Ends,
+) -> Result<Checked, Failure> {
+    let expected = Ends::one(expectation.end.clone());
+    let verdict = semantics
+        .check_expectation(
+            &expectation.comparison,
+            Side {
+                name: "expected",
+                ends: &expected,
+            },
+            Side {
+                name: "actual",
+                ends: actual,
+            },
+        )
+        .map_err(|error| Failure::Exec(case.refusal(&error.to_string())))?;
+    Ok(Checked {
+        case: case.case.name.clone(),
+        verdict,
+        note: None,
+    })
+}
+
+impl Checked {
+    /// The exit status the verdict gives: 0 met, 1 unmet, 3 inconclusive (no end to compare,
+    /// which calls for another action than ends that differ).
+    const fn exit_code(&self) -> i32 {
+        match self.verdict {
+            Compared::Equal => 0,
+            Compared::Differs(_) => 1,
+            Compared::Inconclusive(_) => 3,
+        }
+    }
+
+    /// The verdict word.
+    const fn word(&self) -> &'static str {
+        match self.verdict {
+            Compared::Equal => "met",
+            Compared::Differs(_) => "unmet",
+            Compared::Inconclusive(_) => "inconclusive",
+        }
+    }
+
+    /// The report's `expectation` object: the verdict, the case's name, and the difference
+    /// (`krs-difference/1`) or the reason.
+    fn document(&self) -> serde_json::Value {
+        let mut document = json!({"verdict": self.word()});
+        if let Some(name) = &self.case {
+            document["case"] = json!(name);
+        }
+        match &self.verdict {
+            Compared::Equal => {}
+            Compared::Differs(difference) => document["difference"] = json!(difference),
+            Compared::Inconclusive(reason) => document["reason"] = json!(reason),
+        }
+        document
+    }
+
+    /// The verdict's lines on stderr: `<command>: expectation met`, else where the first
+    /// difference is with both sides, or why nothing can be concluded.
+    fn write(&self, output: &mut String, command: &str) {
+        match &self.verdict {
+            Compared::Equal => {
+                let _ = writeln!(output, "{command}: expectation met");
+            }
+            Compared::Inconclusive(reason) => {
+                let _ = writeln!(output, "{command}: expectation inconclusive: {reason}");
+            }
+            Compared::Differs(difference) => write_difference(output, command, difference),
+        }
+        if let Some(note) = self.note {
+            let _ = writeln!(output, "note: {note}");
+        }
+    }
+}
+
+/// An unmet expectation's first difference, as `krs run` prints it.
+fn write_difference(output: &mut String, command: &str, difference: &Difference) {
+    let (expected, actual) = (&difference.left, &difference.right);
+    if let (DifferenceAt::Cell, Some(path)) = (difference.at, &difference.path) {
+        let _ = writeln!(output, "{command}: expectation unmet at `{path}`");
+        let _ = writeln!(
+            output,
+            "  expected: {}",
+            rendered_text(expected.value.as_ref())
+        );
+        let _ = writeln!(
+            output,
+            "  actual:   {}",
+            rendered_text(actual.value.as_ref())
+        );
+    } else {
+        let class = |class: &krs_exec::EndClass| match &class.rule {
+            Some(rule) => format!("{} at `{rule}`", class.halt.as_str()),
+            None => class.halt.as_str().to_owned(),
+        };
+        let _ = writeln!(output, "{command}: expectation unmet at the end's halt");
+        let _ = writeln!(output, "  expected: {}", class(&expected.class));
+        let _ = writeln!(output, "  actual:   {}", class(&actual.class));
+    }
+    if !difference.also_differ.is_empty() {
+        let cells = difference
+            .also_differ
+            .iter()
+            .map(|cell| format!("`{cell}`"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let _ = writeln!(output, "  also differ: {cells}");
+    }
+    if actual.ends > 1 {
+        let _ = writeln!(
+            output,
+            "  (one of the {} actual ends; the expectation holds of every end or is unmet)",
+            actual.ends
+        );
+    }
+}
+
+/// A side's value at a difference: its canonical text, or its K text, marked; `nothing` where
+/// the side lacks the position.
+fn rendered_text(value: Option<&Rendered>) -> String {
+    let Some(value) = value else {
+        return "nothing (the position is absent on this side)".to_owned();
+    };
+    let mut text = match (&value.document, &value.text) {
+        (Some(document), _) => canonical_text(document),
+        (None, Some(text)) if value.rendering == "document" => text.clone(),
+        (None, Some(text)) => {
+            let opaque = value
+                .opaque
+                .as_deref()
+                .filter(|opaque| !opaque.is_empty())
+                .map_or_else(String::new, |opaque| format!(" at `{opaque}`"));
+            format!(
+                "{text} ({} text: no document for the part{opaque})",
+                if value.rendering == "kore" {
+                    "KORE"
+                } else {
+                    "K"
+                }
+            )
+        }
+        (None, None) => String::new(),
+    };
+    if value.truncated {
+        let _ = write!(
+            text,
+            " (cut to {} characters, {} cut before)",
+            krs_exec::VALUE_CAP,
+            value.offset
+        );
+    }
+    text
 }
 
 /// `krs prove`: each selected claim proved in turn and printed as it ends ([`ProveOutput`]), or,
@@ -1249,6 +1735,7 @@ pub(super) const fn diagnostic_code(error: &ExecError) -> Code {
         ExecError::Unavailable(_) => codes::exec::UNAVAILABLE,
         ExecError::Result(_) => codes::exec::RESULT,
         ExecError::Undecided(_) => codes::exec::UNDECIDED,
+        ExecError::Case(_) => codes::exec::CASE,
     }
 }
 

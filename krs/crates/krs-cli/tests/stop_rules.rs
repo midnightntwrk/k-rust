@@ -13,6 +13,9 @@
 //!
 //! The third ([`STRICT`]) evaluates `(1 + 2) + 3` through a `#[k::seqstrict]` variant, so its
 //! run is four steps: the heat rule of the left operand, `add`, the cool rule, and `add`.
+//!
+//! The fourth ([`BRANCHING`]) takes `boundary`, the start's one successor, to `toss(0)`, which
+//! has two, `done(1)` and `done(0)`, by the rules of the `nondet` group `toss`.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -212,6 +215,64 @@ k::rules! {
 "#;
 const STRICT_PACKAGE: &str = "krs-exec-strict-fixture";
 
+/// A step with one successor, then a state with two.
+const BRANCHING: &str = r##"
+use k::builtin::{Int, KSequence};
+use k::{KItem, KResult, Term};
+
+k::sorts! {
+    Op: KItem;
+}
+
+#[k::constructors(sort = Op, result = KResult)]
+#[rustfmt::skip]
+pub enum Step {
+    #[k::syntax("#boundary")] Boundary,
+    #[k::syntax("toss({value})")] Toss { value: Int },
+    #[k::syntax("done({value})")] Done { value: Int },
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub count: Int,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(start: Int) -> Self {
+        Self {
+            k: k::k![Step::Boundary],
+            count: start,
+        }
+    }
+}
+
+k::rules! {
+    for Machine;
+
+    boundary: {
+        k: [Step::Boundary, ..],
+        count,
+    } => {
+        k: [Step::Toss { value: count }, ..],
+    };
+}
+
+#[k::rule(nondet = toss)]
+fn toss_heads(k::term![Step::Toss { value }]: Term<Op>) -> Term<Op> {
+    Step::Done(1)
+}
+
+#[k::rule(nondet = toss)]
+fn toss_tails(k::term![Step::Toss { value }]: Term<Op>) -> Term<Op> {
+    Step::Done(0)
+}
+"##;
+const BRANCHING_PACKAGE: &str = "krs-exec-branching-fixture";
+
 /// A Cargo project of the KRS definition `source`, as package `package`.
 fn project(source: &str, package: &str, namespace: &str) -> krs_test_support::TempDir {
     let temporary = temp_dir();
@@ -276,6 +337,12 @@ fn free_running() -> &'static (DefinitionIr, CompiledStage) {
 fn strict() -> &'static (DefinitionIr, CompiledStage) {
     static COMPILED: OnceLock<(DefinitionIr, CompiledStage)> = OnceLock::new();
     COMPILED.get_or_init(|| compile(STRICT, STRICT_PACKAGE, "ORG-KRS-EXEC-STRICT"))
+}
+
+/// [`BRANCHING`]'s Definition IR and compiled stage, built once per test process.
+fn branching() -> &'static (DefinitionIr, CompiledStage) {
+    static COMPILED: OnceLock<(DefinitionIr, CompiledStage)> = OnceLock::new();
+    COMPILED.get_or_init(|| compile(BRANCHING, BRANCHING_PACKAGE, "ORG-KRS-EXEC-BRANCH"))
 }
 
 /// Run `test` on the fixture's semantics, on a thread with the stack every `krs-exec` operation
@@ -763,6 +830,44 @@ fn a_counted_stop_ends_at_the_nth_arrival() {
     });
 }
 
+/// A counted run's other ends are looked for along all its pieces, each from the stop the one
+/// before it passed: in [`BRANCHING`], the run to the first stop after or before `boundary` chose
+/// nothing, but a run counting two stops passes the first and takes one successor of `toss(0)`,
+/// as the uncut run does, at the same step.
+#[test]
+fn other_ends_of_a_counted_run_are_looked_for_past_its_earlier_stops() {
+    on(branching(), |semantics| {
+        let start = initial(semantics);
+        let uncut = RunOptions::default();
+        let report = semantics.run(&start, uncut.clone()).unwrap();
+        let choice = semantics.other_ends(&start, &uncut, &report).unwrap();
+        assert!(
+            choice.as_deref().is_some_and(
+                |reason| reason.contains("the state after 1 step, which has 2 successors")
+            ),
+            "{choice:?}"
+        );
+        for stop in [after("boundary"), before("boundary")] {
+            let first = stopping(counted(&stop, 1));
+            let report = semantics.run(&start, first.clone()).unwrap();
+            assert_eq!(report.halt, Halt::Stopped, "{stop:?}");
+            assert_eq!(
+                semantics.other_ends(&start, &first, &report).unwrap(),
+                None,
+                "{stop:?}"
+            );
+            let second = stopping(counted(&stop, 2));
+            let report = semantics.run(&start, second.clone()).unwrap();
+            assert_eq!((report.halt, report.stops), (Halt::Stuck, 1), "{stop:?}");
+            assert_eq!(
+                semantics.other_ends(&start, &second, &report).unwrap(),
+                choice,
+                "{stop:?}"
+            );
+        }
+    });
+}
+
 /// A run that ends on its own before the Nth arrival reports that end, and how many arrivals
 /// it counted.
 #[test]
@@ -1138,6 +1243,34 @@ fn krs_run_counts_stops_and_reports_them() {
     assert_eq!(status, Some(2), "{stderr}");
     assert!(
         stderr.contains("--stop-count needs --stop-before or --stop-after"),
+        "{stderr}"
+    );
+
+    // A case counts its stops in `run`, beside its rules, and names its stop rule as the flags
+    // do: the run ends at the third frame's work queued, with nothing chosen on the way.
+    fs::write(
+        project.join("counted.json"),
+        serde_json::json!({
+            "run": {"stop_after": ["crate::boundary"], "stop_count": 3},
+            "expect": {"halt": "stopped", "rule": "crate::boundary", "compare": ["count"], "cells": {"count": 2}},
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let (status, _, stderr) = run(&["--case", "counted.json", "--output", "none"]);
+    assert_eq!(status, Some(0), "{stderr}");
+    assert!(
+        stderr.contains("krs run: stopped after 11 steps, after `crate::boundary` (stop 3 of 3)")
+            && stderr.ends_with("\nkrs run: expectation met\n"),
+        "{stderr}"
+    );
+    // The case's stops and the stop flags would both say where the run ends.
+    let (status, _, stderr) = run(&["--case", "counted.json", "--stop-after", "boundary"]);
+    assert_eq!(status, Some(2), "{stderr}");
+    assert!(
+        stderr.contains(
+            "and the `run` stops of the case `counted.json`, both say where the run ends; give one"
+        ),
         "{stderr}"
     );
 }

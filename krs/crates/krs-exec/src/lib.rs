@@ -77,8 +77,8 @@ pub use ends::{
     End, EndCell, EndCells, EndClass, EndError, Ends, Rendered, Side, VALUE_CAP,
 };
 pub use inputs::{
-    Case, InputError, InputFiles, InputType, MainVariable, NoFiles, Parameter, declares_variable,
-    json_document, main_variable, toml_document,
+    Case, CaseDocument, CaseRun, Expectation, InputError, InputFiles, InputType, MainVariable,
+    NoFiles, Parameter, declares_variable, json_document, main_variable, toml_document,
 };
 pub use k_rust::backend::{BackendError, ChosenValueOutput};
 /// The printer crate, for callers that print a term through [`Semantics::unparser`].
@@ -646,6 +646,10 @@ pub enum ExecError {
     /// A configuration value with a part that does not fit the element types of the typed
     /// collection cell the variable fills (`skip` stored in a `Map<Id, Value>` cell).
     CollectionElementSort(Box<ElementSortMismatch>),
+    /// A case document that is none, has no case of a requested name, or whose expectation is no
+    /// partial end of the definition or does not state a cell it is compared on
+    /// ([`Semantics::expectation`]); the message names the position.
+    Case(String),
 }
 
 impl fmt::Display for ExecError {
@@ -659,7 +663,8 @@ impl fmt::Display for ExecError {
             Self::Backend(message)
             | Self::Unavailable(message)
             | Self::Result(message)
-            | Self::Undecided(message) => {
+            | Self::Undecided(message)
+            | Self::Case(message) => {
                 formatter.write_str(message)
             }
             Self::StrayProgram { parameters } => {
@@ -1305,8 +1310,20 @@ impl Semantics {
         document: &serde_json::Value,
         files: &mut dyn InputFiles,
     ) -> Result<ConfigValue, ExecError> {
+        self.decode_input_in(parameter, document, None, files)
+    }
+
+    /// [`Self::decode_input`] of a document written in the data file `from` (a resolved name
+    /// `files` returned), which its paths are relative to, or in the top document (`None`).
+    fn decode_input_in(
+        &self,
+        parameter: &str,
+        document: &serde_json::Value,
+        from: Option<&str>,
+        files: &mut dyn InputFiles,
+    ) -> Result<ConfigValue, ExecError> {
         let parameter = self.parameter(parameter)?;
-        inputs::decode(&self.values, files, document, &parameter.ty)
+        inputs::decode(&self.values, files, from, document, &parameter.ty)
             .map(ConfigValue::from)
             .map_err(|refusal| {
                 ExecError::Input(InputError {
@@ -1344,7 +1361,8 @@ impl Semantics {
 
     /// The inputs of `case`, each decoded at its parameter's declared type
     /// ([`Self::decode_input`]), with `program` (FILE) bound to the main parameter; `files`
-    /// reads the files the case names, relative to the case's own document.
+    /// reads the files the case names, relative to the document the case is written in
+    /// ([`Case::file`]).
     ///
     /// # Errors
     ///
@@ -1358,13 +1376,134 @@ impl Semantics {
         let variables = case
             .inputs
             .iter()
-            .map(|(name, document)| Ok((name.clone(), self.decode_input(name, document, files)?)))
+            .map(|(name, document)| {
+                let value = self.decode_input_in(name, document, case.file.as_deref(), files)?;
+                Ok((name.clone(), value))
+            })
             .collect::<Result<_, ExecError>>()?;
         Ok(ConfigInputs {
             program,
             variables,
             stdin: None,
         })
+    }
+
+    /// The expectation an `expect` table states ([`inputs`], "Expectations"), read against the
+    /// definition: its end as [`Self::read_end_in`] reads an end document, its file paths
+    /// relative to the data file `from` (a resolved name `files` returned) or the top document
+    /// (`None`), and its `compare` narrowing. It is refused here, before the case runs, for any
+    /// cell it is compared on that it does not state, as every comparison of it would be.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecError::Case`] naming the position (`expect.cells.pc`) and the reason.
+    pub fn expectation(
+        &self,
+        document: &serde_json::Value,
+        from: Option<&str>,
+        files: &mut dyn InputFiles,
+    ) -> Result<Expectation, ExecError> {
+        let refuse = |position: &str, message: &str| {
+            ExecError::Case(if position.is_empty() {
+                format!("`expect`: {message}")
+            } else {
+                format!("`expect.{position}`: {message}")
+            })
+        };
+        let serde_json::Value::Object(table) = document else {
+            return Err(refuse(
+                "",
+                "the expected end is a table of `halt`, `rule`, `cells` and `compare`",
+            ));
+        };
+        let mut end_document = table.clone();
+        let compare = match end_document.remove("compare") {
+            None => None,
+            Some(serde_json::Value::Array(paths)) => Some(
+                paths
+                    .iter()
+                    .map(|path| path.as_str().map(str::to_owned))
+                    .collect::<Option<Vec<_>>>()
+                    .ok_or_else(|| {
+                        refuse(
+                            "compare",
+                            "`compare` is an array of cell paths, each a string",
+                        )
+                    })?,
+            ),
+            Some(_) => {
+                return Err(refuse(
+                    "compare",
+                    "`compare` is an array of cell paths, each a string",
+                ));
+            }
+        };
+        if let Some(key) = end_document
+            .keys()
+            .find(|key| !matches!(key.as_str(), "halt" | "rule" | "cells"))
+        {
+            return Err(refuse(
+                key,
+                "an expected end holds `halt`, `rule`, `cells` and `compare` only",
+            ));
+        }
+        // The stop rule is named as a case's `run` names its rules, and denotes the KRS item a
+        // stopped end's class names.
+        if let Some(serde_json::Value::String(rule)) = end_document.get("rule") {
+            let item = self
+                .stop_rule_item(rule)
+                .map_err(|message| refuse("rule", &message))?;
+            end_document.insert("rule".to_owned(), serde_json::Value::String(item));
+        }
+        let end = self
+            .read_end_in(&serde_json::Value::Object(end_document), from, files)
+            .map_err(|error| match error {
+                EndError::Document { position, message } => refuse(&position, &message),
+                EndError::UnknownCell { .. } => refuse("cells", &error.to_string()),
+                other => refuse("", &other.to_string()),
+            })?;
+        let comparison = Comparison {
+            compare,
+            ..Comparison::default()
+        };
+        self.check_stated(&comparison, &end, "expected")
+            .map_err(|error| match &error {
+                EndError::UnknownCell { .. } | EndError::Unobservable { .. } => {
+                    refuse("compare", &error.to_string())
+                }
+                _ => refuse("cells", &error.to_string()),
+            })?;
+        Ok(Expectation { end, comparison })
+    }
+
+    /// The KRS item of the rewrite rules `written` names as a stop rule does ([`StopRules`]),
+    /// by KRS item or K label, or why it names no one item: a stopped end's class is the KRS
+    /// item of the rule it stopped at, so a name for it selects the rules of exactly one.
+    fn stop_rule_item(&self, written: &str) -> Result<String, String> {
+        let ids = if written.contains("::") {
+            self.rules.resolve_item(written)
+        } else {
+            self.rules.resolve_rewrite(written)
+        }
+        .map_err(|error| error.to_string())?;
+        let mut items = BTreeSet::new();
+        for id in &ids {
+            let Some(item) = origin::item(self.provenance.get(id)) else {
+                return Err(format!(
+                    "`{written}` selects a rewrite rule no KRS item wrote, so no stopped end's class names it"
+                ));
+            };
+            items.insert(item);
+        }
+        let mut items = items.into_iter();
+        match (items.next(), items.next()) {
+            (Some(item), None) => Ok(item),
+            (Some(first), Some(second)) => Err(format!(
+                "`{written}` selects the rules of several KRS items (`{first}`, `{second}`{}), and a stopped end's class is one; name one of them",
+                if items.len() > 0 { ", .." } else { "" }
+            )),
+            (None, _) => Err(format!("`{written}` selects no rewrite rule")),
+        }
     }
 
     /// The claims of the generated spec module, in label order.
@@ -1842,6 +1981,145 @@ impl Semantics {
             ..options.clone()
         };
         self.run_from(&state.pattern, &options, stops, Some(taken))
+    }
+
+    /// Why the definition may end otherwise from `state` than at the end of `report`, the run
+    /// from `state` under `options` ([`Self::run`]); `None` when that end is its only one within
+    /// the run's depth bound and stop rules.
+    ///
+    /// A run follows one path, taking one successor of each state, so its end is every end only
+    /// where no state before it has several successors and nothing the definition leaves open
+    /// decided the path. The end may be otherwise:
+    ///
+    /// - where the run read a value the definition leaves open
+    ///   ([`RunReport::implementation_chosen_values`], [`open_values`]): another implementation
+    ///   of the definition may choose another value, and end elsewhere;
+    /// - where a state of the path has several successors: another path goes on from another
+    ///   one. The path is followed again from `state` under the same bound and stop rules with
+    ///   every rule tried at each step (strategy `all`), ending at the first state with several
+    ///   successors (k-rust's `stop_at_branch`, a `branch` leaf), which names it. A state of one
+    ///   successor is stepped to it by either strategy, so where no state has several the path
+    ///   followed again is the run's own, and its end the run's. The step a run resumed after a
+    ///   stop before a rule takes first ([`StopRules::before`]) is that rule's, the one successor
+    ///   of its state, so it chooses nothing.
+    ///
+    /// Under a stop criterion with a count N ([`StopCriterion::Rules`]) the run is its pieces,
+    /// each to its next arrival at a stop and resumed from it before the Nth, so the path is
+    /// followed again piece by piece: each piece from the state the one before it stopped at,
+    /// under the bound the pieces before it left. A piece with no state of several successors is
+    /// the run's own, so it is run again, as the run ran it, to find where the next one starts;
+    /// a count N costs `2N - 1` backend requests, and the first arrival one.
+    ///
+    /// Two successors that are equal are still two, so the reason is conservative there.
+    ///
+    /// # Errors
+    ///
+    /// Fails as [`Self::run`] does.
+    pub fn other_ends(
+        &mut self,
+        state: &State,
+        options: &RunOptions,
+        report: &RunReport,
+    ) -> Result<Option<String>, ExecError> {
+        if let Some(reason) = open_values(&report.implementation_chosen_values) {
+            return Ok(Some(format!("the run {reason}")));
+        }
+        let (stops, count) = match &options.stop {
+            StopCriterion::None => (StopIds::default(), NonZeroU64::MIN),
+            StopCriterion::Rules { rules, count } => (self.stop_ids(rules)?, *count),
+        };
+        let mut start = state.clone();
+        // The steps of the pieces before this one, and the arrivals they ended at.
+        let mut before = 0_u64;
+        let mut arrivals = 0_u64;
+        loop {
+            let depth = options.depth.map(|depth| depth.saturating_sub(before));
+            if let Some(reason) = self.branch_in_piece(&start, depth, &stops, before)? {
+                return Ok(Some(reason));
+            }
+            // This piece is the last where it ends at the Nth arrival, or on its own.
+            if arrivals.saturating_add(1) >= count.get() {
+                return Ok(None);
+            }
+            let piece = self.run_piece(
+                &start,
+                &RunOptions {
+                    depth,
+                    ..RunOptions::default()
+                },
+                &stops,
+            )?;
+            if piece.halt != Halt::Stopped {
+                return Ok(None);
+            }
+            arrivals += 1;
+            before = before.saturating_add(piece.steps);
+            start = piece.resume();
+        }
+    }
+
+    /// Why one piece of a run from `state`, to its first arrival at a stop of `stops` within
+    /// `depth` steps, may end otherwise ([`Self::other_ends`]), the steps of the pieces `before`
+    /// it counted in the step it names; `None` when no state of it has several successors.
+    fn branch_in_piece(
+        &mut self,
+        state: &State,
+        depth: Option<u64>,
+        stops: &StopIds,
+        before: u64,
+    ) -> Result<Option<String>, ExecError> {
+        // The taken step counts as the piece's first and takes one step of the bound.
+        let (depth, taken) = match (&state.taken, depth) {
+            (None, depth) => (depth, 0),
+            (Some(_), None) => (None, 1),
+            (Some(_), Some(depth)) => match depth.checked_sub(1) {
+                Some(depth) => (Some(depth), 1),
+                // The bound allows no step: the piece took none, and chose none.
+                None => return Ok(None),
+            },
+        };
+        let mut request = run_request(
+            &state.pattern,
+            &RunOptions {
+                depth,
+                ..RunOptions::default()
+            },
+            stops,
+        );
+        request.strategy = ExecutionStrategy::All;
+        request.stop_at_branch = true;
+        let leaves = self.backend.execute_kore(request)?.leaves;
+        let Some(branch) = leaves
+            .iter()
+            .find(|leaf| leaf.reason == HaltReasonOutput::Branch)
+        else {
+            return Ok(None);
+        };
+        let after = branch.depth.saturating_add(taken).saturating_add(before);
+        let mut rules = branch
+            .candidates
+            .iter()
+            .flatten()
+            .map(|candidate| {
+                let name = origin::item(self.provenance.get(&candidate.unique_id))
+                    .or_else(|| candidate.label.clone())
+                    .unwrap_or_else(|| candidate.unique_id.clone());
+                format!("`{name}`")
+            })
+            .collect::<Vec<_>>();
+        rules.dedup();
+        let successors = match (rules.is_empty(), branch.remainder.is_some()) {
+            (true, _) => "several successors".to_owned(),
+            (false, false) => format!("{} successors, by {}", rules.len(), rules.join(", ")),
+            (false, true) => format!(
+                "a successor by each of {} and one where none of them applies",
+                rules.join(", ")
+            ),
+        };
+        Ok(Some(format!(
+            "the run took one successor of the state after {after} step{}, which has {successors}, so another path may end otherwise",
+            if after == 1 { "" } else { "s" }
+        )))
     }
 
     /// A run from `start` ([`Self::run`]); `taken` is the step that leads to `start`, which the
@@ -2595,6 +2873,31 @@ impl Semantics {
             })
             .collect()
     }
+}
+
+/// Why ends whose run or search read `values`, values the definition leaves open (k-rust's
+/// implementation-chosen hook values), may not be every end of the definition, as a phrase after
+/// "the run" or "the search" that names each value's hook; `None` when it read none.
+///
+/// Where it read none, every model of the definition that agrees with the inputs gives the same
+/// ends (k-rust's `ExecutionResult::implementation_chosen_values`); where it read one, another
+/// implementation may choose another value there, and end elsewhere.
+#[must_use]
+pub fn open_values(values: &[ChosenValueOutput]) -> Option<String> {
+    if values.is_empty() {
+        return None;
+    }
+    let mut hooks = Vec::<String>::new();
+    for value in values {
+        let hook = format!("`{}`", value.hook);
+        if !hooks.contains(&hook) {
+            hooks.push(hook);
+        }
+    }
+    let hooks = hooks.join(", ");
+    Some(format!(
+        "read values the definition leaves open ({hooks}), so another implementation of it may end otherwise"
+    ))
 }
 
 /// The backend request of a run from `start` under `options`: strategy `any`, as krun follows one

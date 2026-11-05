@@ -21,12 +21,13 @@ KRS definition compiler
 Usage:
   krs <check|expand|emit-k|build> --package PACKAGE --definition NAME [OPTIONS]
   krs parse  --package P --definition D [--sort SORT] [--output kast|program|json|kore] [FILE|-]
-  krs run    --package P --definition D [FILE|-] [--case FILE] [--input NAME=JSON]...
-             [-c NAME=TEXT]... [--depth N] [--stop-before NAME]... [--stop-after NAME]...
-             [--stop-count N] [--trace] [--coverage]
+  krs run    --package P --definition D [FILE|-] [--case FILE [--case-name NAME]]
+             [--input NAME=JSON]... [-c NAME=TEXT]... [--depth N] [--stop-before NAME]...
+             [--stop-after NAME]... [--stop-count N] [--trace] [--coverage]
              [--output pretty|kast|json|kore|none] [--color auto|always|never]
-  krs search --package P --definition D [FILE|-] [--case FILE] [--input NAME=JSON]...
-             [-c NAME=TEXT]... [--mode final|all|one-step|one-or-more-steps] [--depth N]
+  krs search --package P --definition D [FILE|-] [--case FILE [--case-name NAME]]
+             [--input NAME=JSON]... [-c NAME=TEXT]...
+             [--mode final|all|one-step|one-or-more-steps] [--depth N]
              [--max-solutions N] [--trace] [--output pretty|kast|json|kore]
              [--color auto|always|never]
   krs prove  --package P --definition D [--spec-module NAME] [--claim LABEL]... [--depth N]
@@ -67,7 +68,11 @@ Options:
   FILE|-                     With run and search, bind the main parameter: the file's bytes
                              when its type is exactly Bytes, else its text, parsed at its sort
   --case FILE                Bind the inputs a case document (.toml or .json) gives by
-                             parameter name; its file paths are relative to FILE's directory
+                             parameter name; its file paths are relative to FILE's directory.
+                             A case's run table gives the depth, stop rules and stop count,
+                             in place of the flags; its expect table is checked: exit 0 met,
+                             1 unmet, 3 inconclusive
+  --case-name NAME           With --case, the case of that name in a document of named cases
   --input NAME=JSON          Bind input NAME to a JSON document of the typed encoding; file
                              paths are relative to the working directory; repeatable
   -c NAME=TEXT               Bind configuration variable NAME ($ENV, ENV, or init parameter env); repeatable
@@ -388,6 +393,7 @@ struct ExecOptions {
     given: Vec<&'static str>,
     inputs: Vec<OsString>,
     case: Option<PathBuf>,
+    case_name: Option<String>,
     typed: Vec<(String, String)>,
     variables: Vec<(String, String)>,
     depth: Option<u64>,
@@ -617,8 +623,9 @@ fn parse_run(parser: &mut lexopt::Parser, kind: CommandKind) -> Result<ParseResu
 const HIDDEN_OPTIONS: [&str; 3] = ["--worker-protocol", "--worker-claim", "--worker-color"];
 
 /// Long options of the run-family commands, without their leading dashes.
-const EXEC_LONG_OPTIONS: [&str; 17] = [
+const EXEC_LONG_OPTIONS: [&str; 18] = [
     "case",
+    "case-name",
     "input",
     "depth",
     "stop-before",
@@ -659,6 +666,11 @@ fn exec_option(
             exec.note("--case");
             let path = case_path(option_value(parser, "case file")?)?;
             set_once(&mut exec.case, path, "--case")?;
+        }
+        "case-name" => {
+            exec.note("--case-name");
+            let name = option_value(parser, "case name")?;
+            set_once(&mut exec.case_name, name, "--case-name")?;
         }
         "input" => {
             exec.note("--input");
@@ -855,6 +867,7 @@ fn exec_options(kind: CommandKind) -> &'static [&'static str] {
         CommandKind::Run => &[
             "FILE",
             "--case",
+            "--case-name",
             "--input",
             "-c",
             "--depth",
@@ -868,6 +881,7 @@ fn exec_options(kind: CommandKind) -> &'static [&'static str] {
         CommandKind::Search => &[
             "FILE",
             "--case",
+            "--case-name",
             "--input",
             "-c",
             "--mode",
@@ -932,6 +946,11 @@ fn exec_command(
     if exec.inputs.len() > 1 {
         return Err(usage("more than one FILE given"));
     }
+    if exec.case_name.is_some() && exec.case.is_none() {
+        return Err(usage(
+            "--case-name selects a case of the document --case names; pass --case FILE",
+        ));
+    }
     let input = exec.inputs.into_iter().next().map(|input| {
         if input == "-" {
             ProgramSource::Stdin
@@ -950,6 +969,7 @@ fn exec_command(
         CommandKind::Run => Command::Run(RunRequest {
             input,
             case: exec.case,
+            case_name: exec.case_name,
             inputs: exec.typed,
             variables: exec.variables,
             depth: exec.depth,
@@ -962,6 +982,7 @@ fn exec_command(
         CommandKind::Search => Command::Search(SearchRequest {
             input,
             case: exec.case,
+            case_name: exec.case_name,
             inputs: exec.typed,
             variables: exec.variables,
             mode: exec.mode.unwrap_or_default(),
@@ -2042,6 +2063,8 @@ mod tests {
                     "prog.imp",
                     "--case",
                     "cases/sum.toml",
+                    "--case-name",
+                    "sum",
                     "--input",
                     "regs={\"A\": 1}",
                     "--input=$PC=0x100",
@@ -2059,6 +2082,7 @@ mod tests {
             Command::Run(RunRequest {
                 input: Some(ProgramSource::File(PathBuf::from("prog.imp"))),
                 case: Some(PathBuf::from("cases/sum.toml")),
+                case_name: Some("sum".to_owned()),
                 inputs: vec![
                     ("regs".to_owned(), "{\"A\": 1}".to_owned()),
                     ("$PC".to_owned(), "0x100".to_owned()),
@@ -2092,6 +2116,7 @@ mod tests {
             Command::Search(SearchRequest {
                 input: Some(ProgramSource::Stdin),
                 case: Some(PathBuf::from("case.json")),
+                case_name: None,
                 inputs: Vec::new(),
                 variables: Vec::new(),
                 mode: SearchMode::OneStep,
@@ -2286,6 +2311,31 @@ mod tests {
         assert_eq!(
             failure("run", &["--output", "jsonl"]),
             "unknown --output format `jsonl` for krs run"
+        );
+    }
+
+    /// `--case-name` selects a case of the `--case` document, once, and only for run and search.
+    #[test]
+    fn case_name_needs_a_case_and_is_given_once() {
+        let failure = |verb: &str, extra: &[&str]| {
+            let mut args = vec![verb, "--package", "imp", "--definition", "main"];
+            args.extend(extra);
+            error(&args)
+        };
+        assert_eq!(
+            failure("run", &["--case-name", "boot"]),
+            "--case-name selects a case of the document --case names; pass --case FILE"
+        );
+        assert_eq!(
+            failure(
+                "search",
+                &["--case", "a.toml", "--case-name", "x", "--case-name=y"]
+            ),
+            "--case-name specified more than once"
+        );
+        assert_eq!(
+            failure("prove", &["--case-name", "x"]),
+            "--case-name does not apply to krs prove"
         );
     }
 

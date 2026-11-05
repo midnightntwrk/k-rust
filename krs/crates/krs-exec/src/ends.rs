@@ -143,8 +143,8 @@ use krs_ir::{CellCollectionType, CellMultiplicity};
 use serde::Serialize;
 use serde_json::{Map as JsonMap, Value as Json};
 
-use crate::encode::{EncodeError, canonical_text, decode, encode};
-use crate::inputs::{InputType, input_type};
+use crate::encode::{EncodeError, canonical_text, encode};
+use crate::inputs::{InputFiles, InputType, NoFiles, decode_value_in, input_type};
 use crate::origin;
 use crate::report::{Halt, RuleKind, RunReport, SearchReport};
 use crate::values::{CellNode, SortRef, Value, ValueError, ValueIndex};
@@ -939,6 +939,24 @@ impl Semantics {
     /// the cells there), and [`EndError::Document`] for anything else that is no end document, a
     /// `rule` that names no rewrite rule of the definition included.
     pub fn read_end(&self, document: &Json) -> Result<End, EndError> {
+        self.read_end_in(document, None, &mut NoFiles)
+    }
+
+    /// Read an end document as [`Self::read_end`] does, where its values may name files
+    /// (`$file`, `$data-file`): `files` reads each, its path relative to the document that holds
+    /// the end, the file `from` (the resolved name an earlier read of `files` returned), or the top
+    /// document (`None`).
+    ///
+    /// # Errors
+    ///
+    /// Fails as [`Self::read_end`] does, and with [`EndError::Document`] at a value whose file
+    /// cannot be read or includes itself.
+    pub fn read_end_in(
+        &self,
+        document: &Json,
+        from: Option<&str>,
+        files: &mut dyn InputFiles,
+    ) -> Result<End, EndError> {
         let refuse = |position: &str, message: String| EndError::Document {
             position: position.to_owned(),
             message,
@@ -1011,7 +1029,7 @@ impl Semantics {
                 ));
             }
             Some(Json::Object(cells)) => {
-                self.read_document_cells(self.values.cells(), cells, "")?
+                self.read_document_cells(self.values.cells(), cells, "", from, files)?
             }
             Some(_) => {
                 return Err(refuse(
@@ -1066,6 +1084,8 @@ impl Semantics {
         nodes: &[CellNode],
         object: &JsonMap<String, Json>,
         prefix: &str,
+        from: Option<&str>,
+        files: &mut dyn InputFiles,
     ) -> Result<EndCells, EndError> {
         if let Some(field) = object
             .keys()
@@ -1091,12 +1111,18 @@ impl Semantics {
                 message: message.to_owned(),
             };
             let cell = match node.multiplicity {
-                None => self.read_document_content(node, document, &path)?,
+                None => self.read_document_content(node, document, &path, from, files)?,
                 Some(CellMultiplicity::Optional) => match document {
                     Json::Array(items) if items.is_empty() => EndCell::Optional(None),
-                    Json::Array(items) if items.len() == 1 => EndCell::Optional(Some(Box::new(
-                        self.read_document_content(node, &items[0], &format!("{path}[0]"))?,
-                    ))),
+                    Json::Array(items) if items.len() == 1 => {
+                        EndCell::Optional(Some(Box::new(self.read_document_content(
+                            node,
+                            &items[0],
+                            &format!("{path}[0]"),
+                            from,
+                            files,
+                        )?)))
+                    }
                     _ => {
                         return Err(refuse(
                             "an optional cell is `[]` (absent) or `[content]` (present)",
@@ -1111,7 +1137,13 @@ impl Semantics {
                         .iter()
                         .enumerate()
                         .map(|(position, item)| {
-                            self.read_document_content(node, item, &format!("{path}[{position}]"))
+                            self.read_document_content(
+                                node,
+                                item,
+                                &format!("{path}[{position}]"),
+                                from,
+                                files,
+                            )
                         })
                         .collect::<Result<Vec<_>, _>>()?;
                     EndCell::Repeated(self.lens(&CellViews::default()).instances(node, instances))
@@ -1129,9 +1161,11 @@ impl Semantics {
         node: &CellNode,
         document: &Json,
         path: &str,
+        from: Option<&str>,
+        files: &mut dyn InputFiles,
     ) -> Result<EndCell, EndError> {
         match leaf_type(&self.values, node) {
-            Some(ty) => decode(&self.values, document, &ty)
+            Some(ty) => decode_value_in(&self.values, files, from, document, &ty)
                 .map(EndCell::Leaf)
                 .map_err(|error| EndError::Document {
                     position: format!("cells.{path}"),
@@ -1142,6 +1176,8 @@ impl Semantics {
                     &node.children,
                     object,
                     &format!("{path}."),
+                    from,
+                    files,
                 )?)),
                 _ => Err(EndError::Document {
                     position: format!("cells.{path}"),
@@ -2011,6 +2047,27 @@ impl Lens<'_> {
 }
 
 impl Semantics {
+    /// Check that `end` states every cell `comparison` compares, as any comparison of the end
+    /// does, without comparing it: a caller refuses a partial end before it runs what the end is
+    /// compared with. `side` names the end in a refusal.
+    ///
+    /// # Errors
+    ///
+    /// Returns a refusal of `comparison`'s cells ([`EndError::UnknownCell`],
+    /// [`EndError::Unobservable`]), and [`EndError::MissingCell`] for a compared cell `end` does
+    /// not state.
+    pub fn check_stated(
+        &self,
+        comparison: &Comparison,
+        end: &End,
+        side: &str,
+    ) -> Result<(), EndError> {
+        let selection = self.selection(comparison)?;
+        self.lens(&CellViews::default())
+            .project(&selection, end, side)
+            .map(|_| ())
+    }
+
     /// Whether `actual`'s ends meet the expectation `expected` (one end), and else the first end
     /// that does not ([module documentation](crate::ends#results)).
     ///
@@ -2046,13 +2103,18 @@ impl Semantics {
                 actual.name,
             ))));
         }
-        Ok(match (&actual.ends.incomplete, projected.is_empty()) {
-            (Some(reason), _) => Compared::Inconclusive(format!(
-                "every end of the {} side meets the expectation, but its ends are incomplete: {reason}",
+        // No end agrees with nothing: a side without ends is inconclusive for that, whatever
+        // made it incomplete.
+        Ok(match (projected.is_empty(), &actual.ends.incomplete) {
+            (true, Some(reason)) => {
+                Compared::Inconclusive(format!("the {} side has no end: {reason}", actual.name))
+            }
+            (true, None) => Compared::Inconclusive(format!("the {} side has no end", actual.name)),
+            (false, Some(reason)) => Compared::Inconclusive(format!(
+                "every end the {} side has meets the expectation, but it may have others: {reason}",
                 actual.name
             )),
-            (None, true) => Compared::Inconclusive(format!("the {} side has no end", actual.name)),
-            (None, false) => Compared::Equal,
+            (false, None) => Compared::Equal,
         })
     }
 

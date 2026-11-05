@@ -187,11 +187,12 @@ The current commands are `fmt`, `check`, `expand`, `emit-k`, `build`, `parse`, `
 
 ```console
 krs run --package my-semantics --definition main --case cases/boot.toml
+krs run --package my-semantics --definition main --case cases/steps.toml --case-name ld-a
 krs run --package my-semantics --definition main --input 'pc=256' --input 'rom={"$file": "boot.bin"}' -c 'memory=.Map'
 ```
 
 A definition's inputs are the parameters of its `#[k::init]`, and `run` and `search` bind each one by its Rust name (`rom`) or its configuration variable's K name (`ROM` or `$ROM`), from whichever option gives it.
-`--case FILE` binds the inputs a case document gives: a `.toml` file whose `[inputs]` table, or a `.json` file whose `inputs` object, holds one value per input by name; any other top-level key is refused.
+`--case FILE` binds the inputs a case document gives: a `.toml` or `.json` file of one case, whose `inputs` table holds one value per input by name, or of named cases, one of which `--case-name NAME` selects ("Case documents" below states the format).
 `--input NAME=JSON` binds one input to a JSON document, and may be repeated.
 A value of `--case` or `--input` is a document of the typed encoding below, read at the parameter's declared type, element types included, so no K text is needed; `{"$text": ..}` and `{"$text-file": ..}` give K text instead, parsed as `-c` text is.
 A file that a document names is read relative to the document that names it: the case file's directory, the directory of the data file that includes it, or the working directory for an `--input` document.
@@ -209,6 +210,43 @@ rom = { "$file" = "data/boot.bin" }             # the file's bytes, unchanged
 pc = 0x100
 entry = { Load = { addr = 2, len = 3 } }        # the constructor Instr::Load of Op
 # pc = { "$call" = { "Boot" = { n = 0 } } }     # Boot(0), evaluated before the first step
+```
+
+A case may also say how it is run and what end it expects.
+Its `run` table gives the depth bound, the stop rules and the stop count (`depth`, `stop_before`, `stop_after`, `stop_count`), each rule named as `--stop-before` names one, by KRS item (`crate::machine::boundary`) or K label; `--depth` with a case's `run.depth` is refused, since only one may bound the run, and so are the stop flags with a case's stops, since only one may say where it ends.
+The count is the case's, beside its rules, since where a run is observed depends on the program it runs.
+Its `expect` table states the end: the halt, the stop rule for `stopped`, named as `run` names it, and the cells by Rust field path, each value in the encoding below at the cell's declared type.
+It must state every cell it is compared on: by default every cell that is not unobservable, which `compare` may narrow to the cells it names.
+The expectation is met when every end of the definition from the case's inputs agrees with it.
+`krs search --case` checks every final state.
+`krs run` follows one path: an end of it that differs is unmet, and one that agrees is met only when no state of the path has several successors (the path is followed again, trying every rule at each step, to find out) and the run read no value the definition leaves open; otherwise the verdict is inconclusive, and names the state that has several successors and their rules, or the open values.
+With an expectation, `krs run --case` prints its output as without one, then `krs run: expectation met`, or `unmet at` the first differing cell's path with the expected and the actual value as canonical documents (and the other compared cells that differ), or `inconclusive` with the reason: the run has no end to compare, or may have others; a run that cannot decide which of several states it reaches prints no state, only the verdict.
+It exits 0 when the expectation is met, 1 when it is unmet, and 3 when the verdict is inconclusive, in place of the exit cell's status.
+An expectation that is no end of the definition, or that leaves out a cell it is compared on, is refused before the run (`krs::exec::case`), and exits 1 as every refusal does; a `--case-name` the document does not hold is a usage error, exit 2, as a missing or a superfluous one is.
+
+`--output json` adds the verdict to the report as the member `expectation`, beside `run` or `search` (alone when the run reached no one state):
+
+- `verdict`: `met`, `unmet` or `inconclusive`;
+- `case`: the case's name, in a document of named cases only;
+- `difference`: for `unmet` only, the first difference in the `krs-difference/1` format, the expected end on its `left` side and the actual one on its `right`;
+- `reason`: for `inconclusive` only, the reason as text.
+
+```toml
+# cases/steps.toml: named cases, each stopped after the rule `boundary` of `src/machine.rs`
+[run]
+stop_after = ["crate::machine::boundary"] # its KRS item; its K label also names it
+
+[[case]]
+name = "ld-a"
+inputs = { pc = 256, regs = { A = 0 }, rom = { "$hex" = "3e01" } }
+[case.expect]
+halt = "stopped"
+rule = "crate::machine::boundary" # named as `run` names it
+compare = ["pc", "regs"]
+cells = { pc = 258, regs = { A = 1 } }
+
+[[case]]                          # more cases, from a file of them beside this one
+"$data-file" = "sst/3e.json"
 ```
 
 The rest of this section is generated from the module documentation of `krs-exec`'s `inputs` module, the encoding's normative statement.
@@ -331,6 +369,197 @@ position inside the document.
 
 Not in the encoding: `$text` inside a value, sort-parametric productions (refused as
 `ValueIndex::ctor` refuses them), and console input.
+
+#### The canonical document of a value
+
+Every value that has a document at a position has one *canonical document* there,
+which `encode` writes and which decodes back to the value:
+`decode(encode(v, t), t) = v`.
+It is the spelling of a concrete value in every KRS-level report
+(the two sides of a difference, the result of a view),
+so that an expected value and an actual one read alike.
+Each rule writes the form a reader of this encoding writes for the value:
+a shorthand where the position's declared type decides it, a tagged form elsewhere.
+A shorthand is written only where it has exactly one reading at the position,
+by the decoder's own table:
+where the definition gives it a second
+(a constructor whose result sort is a token sort, named like a token's text,
+which a definition KRS emits does not have),
+the tagged form named below is written instead,
+so no canonical document is one the decoder refuses.
+
+- **Int**: at `Int`, an integer where it lies in `-2^63..2^63`
+  (every JSON and TOML reader holds it), otherwise the string of its decimal digits;
+  elsewhere an integer in that range, otherwise `{"$int": "<decimal>"}`.
+- **Bool**: `true` or `false`.
+- **String**: at `String`, the string;
+  elsewhere `{"$string": ..}`,
+  since a bare string at a declared sort may also read as a nullary constructor or a token.
+- **Float**: at `Float`, a string:
+  the K `Float` literal of the shortest decimal digits that read back to the value,
+  a significand with a `.` and at least one fractional digit and an exponent `e<n>`,
+  then `f` for binary32 and nothing for binary64
+  (`1.5e0`, `1.0e300`, `5.0e-324`, `1.5e0f`);
+  `NaN`, `Infinity`, `-Infinity` and `-0.0e0`, suffixed alike.
+  A value of another format is written as its canonical literal (`1e0p11x5`).
+  Elsewhere `{"$float": <that string>}`.
+  Never a JSON number: a reader may round one, and none holds a NaN.
+- **Bytes**: `{"$hex": "<lowercase digits>"}` at every position,
+  `{"$hex": ""}` for the empty value.
+  The array shorthand is read, never written, so a `Bytes` has one spelling.
+- **A token**: at its own token sort, its text,
+  or `{"$token": "<text>"}` where the bare text has another reading at that sort;
+  elsewhere `{"$token": {"sort": S, "text": ..}}`,
+  `S` the shortest `::`-aligned suffix of the sort's path that names it among the sorts.
+  A domain value of a sort that is no token sort has no document.
+- **List, Set**: at a position whose sort is the collection's,
+  the array of the elements' documents at the element type (untyped where none is declared);
+  elsewhere `{"$list": ..}` or `{"$set": ..}` with untyped elements.
+  A set's elements are ordered by the bytes of their canonical text.
+- **K sequence**: `{"$seq": [..]}`, its items untyped.
+- **Map**: at a `Map` position whose key type is declared,
+  where every key has a *key spelling* and none starts with `$`,
+  the object of the key spellings to the values' documents at the value type;
+  otherwise, at a `Map` position, the array of `[key, value]` pairs at the key and value types;
+  elsewhere `{"$map": [[key, value], ..]}` with untyped keys and values.
+  Pairs are ordered by the bytes of the key's canonical text.
+  A key spelling is a string whose only reading at the key type is the key:
+  an `Int` in decimal, a `Bool` as `true` or `false`, a `String` as itself,
+  a token as its text, a nullary constructor as its name.
+  `"12"` at `Val`, with `Int` and `String` subsorts of `Val`, reads two ways,
+  so a map with `Val` keys that holds the `Int` 12 is written in pairs.
+  An object key that starts with `$` would make the object a tagged form,
+  so a map with such a key is written in pairs too.
+- **A constructor**: `{"Name": fields}`,
+  `fields` the array of its fields in declaration order for a tuple variant (fields `0`, `1`, ..),
+  `[]` for none, and the object by field name otherwise,
+  each field's document at its declared sort with no element types.
+  A nullary constructor is the bare string `"Name"` at a declared sort where that string
+  has no other reading: one that neither `String` nor any token sort is at most.
+  `Name` is the shortest `::`-aligned suffix of the declaration's path
+  that selects exactly this declaration among the constructors the decoder resolves at the position
+  (among all constructors at an untyped position).
+- **A function application** (a value `ValueIndex::call` builds):
+  `{"$call": {"Name": arguments}}`,
+  named among the functions as a constructor is among the constructors.
+- **No document**:
+  an `Opaque` part (a variable, an unevaluated application,
+  a freezer or another constructor without a KRS declaration, a matching-logic connective);
+  the application of a parametric constructor, which no form of this encoding writes;
+  a value whose sort is not at most the position's;
+  and a constructor at a declared sort that `Map` is also at most,
+  where its object form reads as a map too and a constructor has no tagged form.
+  The refusal (`EncodeError`) names the part's position,
+  in the notation of `InputError`'s positions
+  (`.Run.log$list[2]`; an element of a set and a key of a map by its index in the value's order),
+  what the part is, and the rule that refuses it.
+  An `Opaque` part and a parametric application are parts a state may hold by its nature;
+  a value with a part of another kind is refused naming that part, wherever they lie,
+  so that the first two never hide a part that says the value is not what its position admits.
+  A caller shows such a value as K text, marked as such,
+  never as a document with K text inside it.
+
+The *canonical text* of a document (`canonical_text`) is its compact JSON,
+with the members of each object ordered by the bytes of their keys,
+written by this crate rather than by a JSON library's map,
+so that it is byte-identical across runs and hosts.
+
+### Case documents
+
+A *case document* is a TOML or a JSON document, by its file's extension,
+that states one case or several named cases (`CaseDocument`).
+A *case* is a table of three keys, each of which may be absent:
+
+- `inputs`: a value for each input, by name
+  (a parameter's Rust name, or its configuration variable's K name with or without `$`),
+  each a document of the encoding, read at the parameter's declared type;
+  a front end may bind the inputs a case does not name in its own ways.
+- `run`: how the case is run:
+  `depth`, at most this many rewrite steps;
+  `stop_before` and `stop_after`, the rules at whose step the run ends,
+  each an array of names of rules as `StopRules` takes them:
+  a KRS item by its Rust path (`crate::machine::boundary`, or a dependency's crate name and
+  its path), or a K label, in full or by a unique suffix after a `.`;
+  and `stop_count`, a positive integer, the arrival at a stop the run ends at
+  (`StopCriterion::Rules`), the first by default,
+  which needs a stop rule to count arrivals at.
+  The count belongs to the case, beside its rules,
+  since where a run is observed depends on the program it runs.
+- `expect`: the end the case expects of its run ("Expectations", below).
+
+A document of one case holds these keys at its top, and no other.
+A document of named cases holds `case`, the *list* of its cases,
+and may hold `run`, the `run` of every case that has none of its own
+(a case's own `run` replaces it whole);
+it holds no other key, so a document is of one kind or the other.
+A JSON document that is an array is a list, and a document of named cases.
+A list is an array (TOML's `[[case]]` tables) of named cases, each a case with a `name`,
+and of *includes*, `{"$data-file": "path"}`,
+each naming a `.json` or `.toml` file whose document is a list
+(an array, or a table whose one key is `case`, as TOML writes a list);
+the file's cases stand at the include's place.
+A path written in an included file, an include's or one in a case's values,
+is relative to that file;
+the caller's `InputFiles` resolves it, under its own rules, as it resolves every path,
+and a file that includes itself, directly or through others, is refused naming the cycle.
+
+A name is a non-empty string that no other case of the document has,
+the cases of included files included,
+so that the document and the name identify a case (`<document>#<name>`).
+A front end selects a case of a document of named cases by its name;
+the one case of a document has no name, and is selected by none.
+
+#### Expectations
+
+`expect` states the end the definition computes for the case,
+as an end document (the section "End documents" of krs-exec's `ends` module)
+with a narrowing:
+
+- `halt` and, for `stopped` only, `rule`: how the run ends,
+  the stop rule named as `run` names its rules, by KRS item or K label,
+  so that one spelling names a rule in both;
+  the name selects the rules of one KRS item, which a stopped end's class names;
+- `cells`: the cells' values by Rust field path, nested by group field
+  (`cpu.regs` is `cells.cpu.regs`),
+  each read at the cell's declared type as an input's value is,
+  its file paths relative to the document that holds the case;
+- `compare`: the cells the end is compared on, by declared path,
+  by default every leaf cell that is not unobservable.
+
+An expectation states every cell it is compared on:
+it may omit an unobservable cell, which no use of the definition observes,
+and a cell `compare` leaves out,
+but a compared cell it omits is refused, naming the cell and its type, before the case runs,
+since every value of that cell would meet it, which expects nothing of the cell.
+A `compare` that names an unobservable cell is refused too: no observation of it exists to compare.
+A cell the expectation states and does not compare is read, and never compared.
+
+Against the ends of the case's run, the expectation is
+*met* when every end agrees with it on the halt and on the compared cells;
+*unmet* when an end does not, which is reported with the first difference
+(`Difference`, `krs-difference/1`);
+and *inconclusive* when no end can be compared,
+or every known end agrees but not every end is known.
+No end can be compared where
+the run halted `indeterminate`, `timeout`, `interrupted`, `unsupported-hook` or `simplification-error`,
+reached several states under conditions it cannot decide,
+ended in a state that carries a constraint,
+or stopped at a rule it does not name.
+Not every end is known where a search was cut by its bounds,
+where a run's path took one of several successors of a state,
+and where the ends rest on a value the definition leaves open
+(an implementation-chosen hook value), which another implementation of it may choose otherwise.
+Inconclusive is never unmet: "no end to compare" and "ends differ" call for different actions.
+"Every end" is the rule because one disagreeing end of a nondeterministic definition
+is a result the definition can produce.
+
+A run follows one path and has at most one end.
+An end of it that disagrees is unmet, since the definition reaches it;
+one that agrees meets the expectation only where it is the definition's only end:
+no state of the path has several successors,
+which the path, followed again trying every rule at each step, shows,
+and the run read no value the definition leaves open.
+A final-state search gives every end within its bounds.
 
 {/* End of the text generated from krs/crates/krs-exec/src/inputs.rs. */}
 

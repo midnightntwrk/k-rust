@@ -7,6 +7,14 @@
 //! shows the values its inputs were given. `fixtures/inferred-main` has one parameter, `entry`,
 //! whose configuration variable is `$ENTRY`, made main by being read in the computation cell.
 //! `fixtures/bytes-main`'s main parameter is a `Bytes`, `rom` (`$ROM`), beside an `Int`.
+//!
+//! A case may also state how it is run and the end it expects; `krs run --case` and
+//! `krs search --case` check the end against it (exit 0 met, 1 unmet, 3 inconclusive), and a
+//! document of named cases is run one case at a time with `--case-name`. These run on
+//! `fixtures/ends`, which copies each input into its own cell, has an unobservable cell at the
+//! top and one in a group, steps `finish(v)` to `done(v)` by the rule `finish`, and `toss(v)` to
+//! `done(0)` or `done(1)`. An inline definition, `STATUS`, has an exit cell and a run that
+//! cannot decide which of two states it reaches.
 
 use std::fmt::Write as _;
 use std::fs;
@@ -17,11 +25,69 @@ use std::sync::{Arc, Mutex, Weak};
 use krs_test_support::{
     SharedFixtureTarget, TempDir, fixture_build_env, krs_command, shared_fixture_target, temp_dir,
 };
-use serde_json::Value;
+use serde_json::{Value, json};
 
 const INPUTS: &str = include_str!("fixtures/inputs/src/lib.rs");
 const INFERRED_MAIN: &str = include_str!("fixtures/inferred-main/src/lib.rs");
 const BYTES_MAIN: &str = include_str!("fixtures/bytes-main/src/lib.rs");
+const ENDS: &str = include_str!("fixtures/ends/src/lib.rs");
+
+/// A definition whose exit cell, `status`, `quit c` sets to `c`; `open a` steps only where
+/// `unsure(a)` holds, which no equation decides at `2`, so a run of `open 2` splits on it and has
+/// no one end.
+const STATUS: &str = r#"
+use k::builtin::{Bool, Int, KSequence};
+use k::KResult;
+use k::Term;
+
+k::sorts! {
+    Stmt;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum StmtSyntax {
+    #[k::syntax("quit {code}")]
+    Quit { code: Int },
+    #[k::syntax("open {a}")]
+    Open { a: Int },
+}
+
+#[k::function(total, internal)]
+pub fn Opaque(a: Term<Int>) -> Term<Int>;
+
+#[k::function(partial, internal)]
+pub fn Unsure(a: Term<Int>) -> Term<Bool>;
+
+#[k::equation]
+#[k::requires(Opaque(a) == 1)]
+fn unsure_one(Unsure(a): Term<Bool>) -> Term<Bool> {
+    true
+}
+
+k::rules! {
+    for Machine;
+    use StmtSyntax::*;
+
+    quit: { k: [Quit(code), ..], status: _ } => { k: [..], status: code };
+    #[k::requires(Unsure(a))]
+    open: { k: [Open(a), ..], status: _ } => { k: [..], status: 1 };
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell(exit)]
+    pub status: Int,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(#[k::config_var(name = "PGM", main)] pgm: Stmt) -> Self {
+        Self { k: k::k![pgm], status: 0 }
+    }
+}
+"#;
 
 /// A fixture materialized as a package, shared by the tests that overlap in this process: its
 /// manifest path keys the collector's directory and result cache, so the tests that share it
@@ -115,6 +181,55 @@ fn inferred_main() -> Arc<Project> {
 fn bytes_main() -> Arc<Project> {
     static PROJECT: Mutex<Weak<Project>> = Mutex::new(Weak::new());
     Project::shared(&PROJECT, "krs-cli-bytes-main-fixture", BYTES_MAIN)
+}
+
+fn ends() -> Arc<Project> {
+    static PROJECT: Mutex<Weak<Project>> = Mutex::new(Weak::new());
+    Project::shared(&PROJECT, "krs-cli-case-ends-fixture", ENDS)
+}
+
+fn status() -> Arc<Project> {
+    static PROJECT: Mutex<Weak<Project>> = Mutex::new(Weak::new());
+    Project::shared(&PROJECT, "krs-cli-case-status-fixture", STATUS)
+}
+
+/// The inputs of a case on `fixtures/ends` whose program is `pgm`: each other input is copied into
+/// its own cell, `w` and `z` into the unobservable ones.
+fn ends_inputs(pgm: &Value) -> Value {
+    json!({
+        "pgm": pgm,
+        "regs": {"A": 1},
+        "f": {"Flags": {"zf": true, "cf": false}},
+        "pc": 256,
+        "bus": [{"Read": {"addr": 5}}],
+        "memory": {"5": 6},
+        "ime": true,
+        "w": 9,
+        "z": 4,
+    })
+}
+
+/// Every observable cell of `fixtures/ends`'s end from [`ends_inputs`], with `k` holding `k`.
+fn ends_cells(k: &Value) -> Value {
+    json!({
+        "k": k,
+        "regs": {"A": 1},
+        "f": {"Flags": {"zf": true, "cf": false}},
+        "pc": 256,
+        "bus": [{"Read": {"addr": 5}}],
+        "memory": {"5": 6},
+        "cpu": {"ime": true},
+        "timer": [],
+        "threads": {"thread": [{"id": 0, "count": 0}]},
+        "objects": {"obj": [{"oid": 0}]},
+        "procs": {"process": [{"pid": 0, "ticks": 0}]},
+        "mark": [],
+    })
+}
+
+/// A named case of a document on `fixtures/ends`.
+fn ends_case(name: &str, pgm: &Value, expect: &Value) -> Value {
+    json!({"name": name, "inputs": ends_inputs(pgm), "expect": expect})
 }
 
 fn stdout(output: &Output) -> String {
@@ -445,7 +560,7 @@ fn refusals_name_parameter_type_and_position() {
     let project = inputs();
     project.write("pc.toml", "[inputs]\npc = 1\n");
     project.write("odd.toml", "[inputs]\npc = 1\n[other]\n");
-    let cases: [(&[&str], &str); 13] = [
+    let cases: [(&[&str], &str); 12] = [
         (
             &["--input", "pc=1", "--input", r#"entry="Nope""#],
             r#"input `entry` (Op): the string "Nope" is no value of Op; it takes a constructor form; its constructors are Halt, Load"#,
@@ -499,10 +614,6 @@ fn refusals_name_parameter_type_and_position() {
             &["--case", "pc.toml", "--input", "$PC=2"],
             "configuration variable `$PC` (init parameter pc) is bound twice",
         ),
-        (
-            &["--case", "odd.toml"],
-            "case `odd.toml`: unknown key `other` in a case; a case has the key `inputs`",
-        ),
     ];
     for (extra, expected) in cases {
         // The other inputs come after, so the refusal concerns the document under test.
@@ -529,4 +640,539 @@ fn refusals_name_parameter_type_and_position() {
             "{arguments:?}"
         );
     }
+    // A case document that is none is the case's refusal, not an input's.
+    let odd = project.krs("run", &["--case", "odd.toml"]);
+    assert_eq!(odd.status.code(), Some(1), "{}", stderr(&odd));
+    assert_eq!(
+        stderr(&odd).lines().next(),
+        Some(
+            "error[krs::exec::case]: case `odd.toml`: unknown key `other` in a case; a case has the keys `inputs`, `run` and `expect`"
+        )
+    );
+}
+
+/// A case whose run meets its expectation exits 0, after the run's own output; one whose run does
+/// not exits 1 and names the first differing cell with both canonical documents, and the cells
+/// that also differ. The expectation omits the unobservable cells, `z` and `cpu.w`, and states
+/// every other; `--output json` carries the verdict and the `krs-difference/1` difference.
+#[test]
+fn a_run_meets_or_misses_its_expectation() {
+    let project = ends();
+    let finish = json!({"Finish": {"value": 3}});
+    let done = json!({"$seq": [{"Done": {"value": 3}}]});
+    let met = json!({"inputs": ends_inputs(&finish), "expect": {"halt": "stuck", "cells": ends_cells(&done)}});
+    project.write("met.json", met.to_string());
+    let run = project.krs("run", &["--case", "met.json"]);
+    assert_eq!(run.status.code(), Some(0), "{}", stderr(&run));
+    assert!(
+        stdout(&run).contains("<k>\n    done(3) ~> .K\n  </k>"),
+        "{}",
+        stdout(&run)
+    );
+    assert!(
+        stderr(&run).ends_with(
+            "krs run: stuck after 1 step; <k> starts with `done(3)`\nkrs run: expectation met\n"
+        ),
+        "{}",
+        stderr(&run)
+    );
+    let report = json(&project.krs("run", &["--case", "met.json", "--output", "json"]));
+    assert_eq!(report["expectation"], json!({"verdict": "met"}));
+
+    let mut cells = ends_cells(&done);
+    cells["pc"] = json!(257);
+    cells["regs"] = json!({"A": 1, "B": 2});
+    let unmet =
+        json!({"inputs": ends_inputs(&finish), "expect": {"halt": "stuck", "cells": cells}});
+    project.write("unmet.json", unmet.to_string());
+    let run = project.krs("run", &["--case", "unmet.json"]);
+    assert_eq!(run.status.code(), Some(1), "{}", stderr(&run));
+    assert!(
+        stderr(&run).ends_with(
+            "krs run: expectation unmet at `regs[\"B\"]`\n  expected: 2\n  actual:   nothing (the position is absent on this side)\n  also differ: `pc`\n"
+        ),
+        "{}",
+        stderr(&run)
+    );
+    let report = json(&project.krs("run", &["--case", "unmet.json", "--output", "json"]));
+    let expectation = &report["expectation"];
+    assert_eq!(expectation["verdict"], "unmet", "{expectation}");
+    let difference = &expectation["difference"];
+    assert_eq!(difference["format"], "krs-difference/1");
+    assert_eq!(difference["path"], "regs[\"B\"]");
+    assert_eq!(difference["also_differ"], json!(["pc"]));
+    assert_eq!(difference["left"]["name"], "expected");
+    assert_eq!(difference["left"]["value"]["document"], 2);
+    assert_eq!(difference["right"]["name"], "actual");
+    assert_eq!(difference["right"]["value"], Value::Null);
+    assert_eq!(
+        difference["not_compared"],
+        json!(["cpu.w", "z"]),
+        "{difference}"
+    );
+
+    // The first differing cell in declaration order, both sides shown as documents.
+    let mut cells = ends_cells(&done);
+    cells["pc"] = json!(257);
+    let unmet =
+        json!({"inputs": ends_inputs(&finish), "expect": {"halt": "stuck", "cells": cells}});
+    project.write("pc.json", unmet.to_string());
+    let run = project.krs("run", &["--case", "pc.json"]);
+    assert_eq!(run.status.code(), Some(1), "{}", stderr(&run));
+    assert!(
+        stderr(&run)
+            .ends_with("krs run: expectation unmet at `pc`\n  expected: 257\n  actual:   256\n"),
+        "{}",
+        stderr(&run)
+    );
+}
+
+/// An expectation must state each cell it is compared on, and may narrow them with `compare`:
+/// one that omits a compared cell is refused before the run, naming the cell and its type; a
+/// narrowing to `pc` needs only `pc`; an unobservable cell may be stated, with any value, and is
+/// never compared, but naming one in `compare` is refused.
+#[test]
+fn an_expectation_states_the_cells_it_is_compared_on() {
+    let project = ends();
+    let finish = json!({"Finish": {"value": 3}});
+    let done = json!({"$seq": [{"Done": {"value": 3}}]});
+    let mut cells = ends_cells(&done);
+    cells.as_object_mut().unwrap().remove("bus");
+    project.write(
+        "partial.json",
+        json!({"inputs": ends_inputs(&finish), "expect": {"halt": "stuck", "cells": cells}})
+            .to_string(),
+    );
+    let run = project.krs("run", &["--case", "partial.json"]);
+    assert_eq!(run.status.code(), Some(1), "{}", stderr(&run));
+    assert_eq!(
+        stderr(&run).lines().next(),
+        Some(
+            "error[krs::exec::case]: case `partial.json`: `expect.cells`: the expected end does not state the compared cell `bus` (List<Event>)"
+        ),
+        "{}",
+        stderr(&run)
+    );
+    assert!(!stdout(&run).contains("<k>"), "{}", stdout(&run));
+
+    project.write(
+        "narrow.json",
+        json!({"inputs": ends_inputs(&finish), "expect": {"halt": "stuck", "compare": ["pc"], "cells": {"pc": 256, "z": 0}}}).to_string(),
+    );
+    let run = project.krs("run", &["--case", "narrow.json"]);
+    assert_eq!(run.status.code(), Some(0), "{}", stderr(&run));
+    assert!(
+        stderr(&run).ends_with("krs run: expectation met\n"),
+        "{}",
+        stderr(&run)
+    );
+
+    let mut cells = ends_cells(&done);
+    cells["z"] = json!(0);
+    cells["cpu"]["w"] = json!(0);
+    project.write(
+        "unobservable.json",
+        json!({"inputs": ends_inputs(&finish), "expect": {"halt": "stuck", "cells": cells}})
+            .to_string(),
+    );
+    let run = project.krs("run", &["--case", "unobservable.json"]);
+    assert_eq!(run.status.code(), Some(0), "{}", stderr(&run));
+
+    project.write(
+        "compare-z.json",
+        json!({"inputs": ends_inputs(&finish), "expect": {"halt": "stuck", "compare": ["z"], "cells": {"z": 4}}}).to_string(),
+    );
+    let run = project.krs("run", &["--case", "compare-z.json"]);
+    assert_eq!(run.status.code(), Some(1), "{}", stderr(&run));
+    assert_eq!(
+        stderr(&run).lines().next(),
+        Some(
+            "error[krs::exec::case]: case `compare-z.json`: `expect.compare`: the cell `z` is unobservable: no use of the definition may observe it, so it is never compared"
+        ),
+        "{}",
+        stderr(&run)
+    );
+}
+
+/// A document of named cases runs the case `--case-name` selects; without a name it lists them,
+/// and a name it does not hold is a usage error, as is a name for the one case of a document. The
+/// document's `run` stops each case before the rule `finish`, so the expected end is stopped
+/// there; a case expecting another halt differs at the halt.
+#[test]
+fn named_cases_are_selected_by_name() {
+    let project = ends();
+    let finish = json!({"Finish": {"value": 3}});
+    // A case names a rule as --stop-before does, by KRS item or K label, in `run` and in
+    // `expect.rule` alike.
+    let stopped = json!({"halt": "stopped", "rule": "crate::finish", "compare": ["k"], "cells": {"k": {"$seq": [{"Finish": {"value": 3}}]}}});
+    let stuck = json!({"halt": "stuck", "compare": ["k"], "cells": {"k": {"$seq": [{"Finish": {"value": 3}}]}}});
+    project.write(
+        "cases/named.json",
+        json!({
+            "run": {"stop_before": ["crate::finish"]},
+            "case": [ends_case("stopped", &finish, &stopped), ends_case("stuck", &finish, &stuck)],
+        })
+        .to_string(),
+    );
+    let run = project.krs(
+        "run",
+        &["--case", "cases/named.json", "--case-name", "stopped"],
+    );
+    assert_eq!(run.status.code(), Some(0), "{}", stderr(&run));
+    assert!(
+        stderr(&run).ends_with("krs run: expectation met\n"),
+        "{}",
+        stderr(&run)
+    );
+    let report = json(&project.krs(
+        "run",
+        &[
+            "--case",
+            "cases/named.json",
+            "--case-name",
+            "stopped",
+            "--output",
+            "json",
+        ],
+    ));
+    assert_eq!(
+        report["expectation"],
+        json!({"verdict": "met", "case": "stopped"})
+    );
+
+    let run = project.krs(
+        "run",
+        &["--case", "cases/named.json", "--case-name", "stuck"],
+    );
+    assert_eq!(run.status.code(), Some(1), "{}", stderr(&run));
+    assert!(
+        stderr(&run).ends_with(
+            "krs run: expectation unmet at the end's halt\n  expected: stuck\n  actual:   stopped at `finish`\n"
+        ),
+        "{}",
+        stderr(&run)
+    );
+
+    let unnamed = project.krs("run", &["--case", "cases/named.json"]);
+    assert_eq!(unnamed.status.code(), Some(2), "{}", stderr(&unnamed));
+    assert!(
+        stderr(&unnamed).contains(
+            "the case document `cases/named.json` holds named cases; select one with --case-name NAME: `stopped`, `stuck`"
+        ),
+        "{}",
+        stderr(&unnamed)
+    );
+    let unknown = project.krs(
+        "run",
+        &["--case", "cases/named.json", "--case-name", "nope"],
+    );
+    assert_eq!(unknown.status.code(), Some(2), "{}", stderr(&unknown));
+    assert!(
+        stderr(&unknown).contains(
+            "--case-name `nope`: the case document `cases/named.json` holds no case of that name; its cases are `stopped`, `stuck`"
+        ),
+        "{}",
+        stderr(&unknown)
+    );
+    project.write(
+        "one.json",
+        json!({"inputs": ends_inputs(&finish)}).to_string(),
+    );
+    let one = project.krs("run", &["--case", "one.json", "--case-name", "stopped"]);
+    assert_eq!(one.status.code(), Some(2), "{}", stderr(&one));
+    assert!(
+        stderr(&one).contains(
+            "--case-name `stopped`: the case document `one.json` holds one case, which has no name; omit --case-name"
+        ),
+        "{}",
+        stderr(&one)
+    );
+    // The case's `run.depth` and `--depth` would both bound the run.
+    project.write(
+        "deep.json",
+        json!({"inputs": ends_inputs(&finish), "run": {"depth": 0}}).to_string(),
+    );
+    let twice = project.krs("run", &["--case", "deep.json", "--depth", "1"]);
+    assert_eq!(twice.status.code(), Some(2), "{}", stderr(&twice));
+    assert!(
+        stderr(&twice).contains(
+            "--depth and the `run.depth` of the case `deep.json` both bound the run; give one"
+        ),
+        "{}",
+        stderr(&twice)
+    );
+}
+
+/// A case names a rule as the stop flags do, by KRS item or K label, in `run` and in
+/// `expect.rule`, and its `run` stops are the run's only stops: the stop flags with them are a
+/// usage error.
+#[test]
+fn a_case_names_its_rules_as_the_stop_flags_do() {
+    let project = ends();
+    let finish = json!({"Finish": {"value": 3}});
+    let stopped = json!({"halt": "stopped", "rule": "crate::finish", "compare": ["k"], "cells": {"k": {"$seq": [{"Finish": {"value": 3}}]}}});
+    project.write(
+        "cases/stops.json",
+        json!({"run": {"stop_before": ["crate::finish"]}, "case": [ends_case("stopped", &finish, &stopped)]})
+            .to_string(),
+    );
+    let run = project.krs(
+        "run",
+        &["--case", "cases/stops.json", "--case-name", "stopped"],
+    );
+    assert_eq!(run.status.code(), Some(0), "{}", stderr(&run));
+    // The case's `run` stops and the stop flags would both say where the run ends.
+    let twice = project.krs(
+        "run",
+        &[
+            "--case",
+            "cases/stops.json",
+            "--case-name",
+            "stopped",
+            "--stop-after",
+            "crate::finish",
+        ],
+    );
+    assert_eq!(twice.status.code(), Some(2), "{}", stderr(&twice));
+    assert!(
+        stderr(&twice).contains(
+            "--stop-before, --stop-after and --stop-count, and the `run` stops of the case `cases/stops.json`, both say where the run ends; give one"
+        ),
+        "{}",
+        stderr(&twice)
+    );
+    // A bare path is no KRS item, which has `::`, so it is read as a K label, which `finish`
+    // is not: the expectation is refused before the run.
+    let mut bare = stopped;
+    bare["rule"] = json!("finish");
+    project.write(
+        "bare-rule.json",
+        json!({"inputs": ends_inputs(&finish), "run": {"stop_before": ["crate::finish"]}, "expect": bare}).to_string(),
+    );
+    let refused = project.krs("run", &["--case", "bare-rule.json"]);
+    assert_eq!(refused.status.code(), Some(1), "{}", stderr(&refused));
+    assert!(
+        stderr(&refused).lines().next().is_some_and(|line| line
+            .starts_with("error[krs::exec::case]: case `bare-rule.json`: `expect.rule`: ")),
+        "{}",
+        stderr(&refused)
+    );
+}
+
+/// A run that stops at a rule it does not name has no end class to compare, so its expectation is
+/// inconclusive, which exits 3, not 1.
+#[test]
+fn an_expectation_without_an_end_to_compare_is_inconclusive() {
+    let project = ends();
+    let finish = json!({"Finish": {"value": 3}});
+    project.write(
+        "unnamed-stop.json",
+        json!({
+            "inputs": ends_inputs(&finish),
+            // Two names select two rules, so the stop does not say which one it was.
+            "run": {"stop_after": ["org_krs_cli_inputs--finish", "org_krs_cli_inputs--toss_heads"]},
+            "expect": {"halt": "stopped", "rule": "org_krs_cli_inputs--finish", "compare": ["pc"], "cells": {"pc": 256}},
+        })
+        .to_string(),
+    );
+    let run = project.krs("run", &["--case", "unnamed-stop.json"]);
+    assert_eq!(run.status.code(), Some(3), "{}", stderr(&run));
+    assert!(
+        stderr(&run).ends_with(
+            "krs run: expectation inconclusive: an end of the actual side stopped at a rule it does not name, so its class cannot be compared\n"
+        ),
+        "{}",
+        stderr(&run)
+    );
+    let report = json(&project.krs("run", &["--case", "unnamed-stop.json", "--output", "json"]));
+    assert_eq!(report["expectation"]["verdict"], "inconclusive");
+}
+
+/// `krs run` follows one path: an end of it that differs is unmet, but one that agrees meets the
+/// expectation only where no state of the path has several successors. `toss(0)` steps to
+/// `done(0)` or `done(1)` by the rules of the `nondet` group `toss`, so an expectation both ends
+/// meet is inconclusive by a run, which points at `krs search --case`, and one neither meets is
+/// unmet; `finish(3)` has one successor at each state, so its run meets an expectation.
+#[test]
+fn a_run_meets_an_expectation_only_on_the_only_path() {
+    let project = ends();
+    let toss = json!({"Toss": {"value": 0}});
+    let both = json!({"halt": "stuck", "compare": ["pc"], "cells": {"pc": 256}});
+    let neither = json!({"halt": "stuck", "compare": ["k"], "cells": {"k": {"$seq": [{"Done": {"value": 2}}]}}});
+    project.write(
+        "choice.json",
+        json!({"case": [ends_case("both", &toss, &both), ends_case("neither", &toss, &neither)]})
+            .to_string(),
+    );
+    let run = project.krs("run", &["--case", "choice.json", "--case-name", "both"]);
+    assert_eq!(run.status.code(), Some(3), "{}", stderr(&run));
+    let text = stderr(&run);
+    let verdict = text
+        .lines()
+        .find(|line| line.starts_with("krs run: expectation"))
+        .unwrap_or_default();
+    assert!(
+        verdict.starts_with(
+            "krs run: expectation inconclusive: every end the actual side has meets the expectation, but it may have others: the run took one successor of the state after 0 steps, which has 2 successors, by `"
+        ) && verdict.ends_with("`, so another path may end otherwise")
+            && verdict.contains("`toss_heads`")
+            && verdict.contains("`toss_tails`"),
+        "{text}"
+    );
+    assert!(
+        text.ends_with(
+            "note: krs search --case checks every final state against the expectation\n"
+        ),
+        "{text}"
+    );
+    let report = json(&project.krs(
+        "run",
+        &[
+            "--case",
+            "choice.json",
+            "--case-name",
+            "both",
+            "--output",
+            "json",
+        ],
+    ));
+    let expectation = &report["expectation"];
+    assert_eq!(expectation["verdict"], "inconclusive", "{expectation}");
+    assert_eq!(expectation["case"], "both", "{expectation}");
+    assert!(
+        expectation["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("which has 2 successors")),
+        "{expectation}"
+    );
+    assert!(expectation.get("difference").is_none(), "{expectation}");
+
+    let run = project.krs("run", &["--case", "choice.json", "--case-name", "neither"]);
+    assert_eq!(run.status.code(), Some(1), "{}", stderr(&run));
+    assert!(
+        stderr(&run).contains("krs run: expectation unmet at `k[0].value`\n  expected: 2\n"),
+        "{}",
+        stderr(&run)
+    );
+}
+
+/// The verdict's status replaces the exit cell's: `quit 7` ends with 7 in the exit cell, which a
+/// run without an expectation exits with, and a case that expects it exits 0, one that expects
+/// another value 1. A run that splits on a condition it cannot decide has no one end, so its
+/// expectation is inconclusive, exit 3, not unmet.
+#[test]
+fn the_verdict_s_status_replaces_the_exit_cell_s() {
+    let project = status();
+    let quit = json!({"pgm": {"Quit": {"code": 7}}});
+    project.write("plain.json", json!({"inputs": quit}).to_string());
+    let run = project.krs("run", &["--case", "plain.json"]);
+    assert_eq!(run.status.code(), Some(7), "{}", stderr(&run));
+    for (name, expected, code) in [("met", 7, 0), ("unmet", 8, 1)] {
+        project.write(
+            &format!("{name}.json"),
+            json!({"inputs": quit, "expect": {"halt": "stuck", "compare": ["status"], "cells": {"status": expected}}})
+                .to_string(),
+        );
+        let run = project.krs("run", &["--case", &format!("{name}.json")]);
+        assert_eq!(run.status.code(), Some(code), "{name}: {}", stderr(&run));
+        assert!(
+            stderr(&run).contains(&format!("krs run: expectation {name}")),
+            "{}",
+            stderr(&run)
+        );
+    }
+
+    let open = json!({"inputs": {"pgm": {"Open": {"a": 2}}}, "expect": {"halt": "stuck", "compare": ["status"], "cells": {"status": 1}}});
+    project.write("open.json", open.to_string());
+    let run = project.krs("run", &["--case", "open.json"]);
+    assert_eq!(run.status.code(), Some(3), "{}", stderr(&run));
+    assert!(
+        stderr(&run).contains(
+            "krs run: expectation inconclusive: the run has no one end: the run reaches 2 states, under conditions over `unsure ( 2 )`"
+        ),
+        "{}",
+        stderr(&run)
+    );
+    assert!(stdout(&run).is_empty(), "{}", stdout(&run));
+    let report = json(&project.krs("run", &["--case", "open.json", "--output", "json"]));
+    assert_eq!(report["expectation"]["verdict"], "inconclusive", "{report}");
+    assert!(report.get("run").is_none(), "{report}");
+}
+
+/// `krs search --case` checks every final state against the expectation: `toss(0)` ends as
+/// `done(0)` or `done(1)`, so an expectation of `done(1)` is unmet by one of them, while one
+/// that leaves `k` out is met by both. A search of reachable states has no ends to check.
+#[test]
+fn a_search_checks_every_end_against_the_expectation() {
+    let project = ends();
+    let toss = json!({"Toss": {"value": 0}});
+    let heads =
+        json!({"halt": "stuck", "cells": ends_cells(&json!({"$seq": [{"Done": {"value": 1}}]}))});
+    let any = json!({"halt": "stuck", "compare": ["pc"], "cells": {"pc": 256}});
+    project.write(
+        "toss.json",
+        json!({"case": [ends_case("heads", &toss, &heads), ends_case("any", &toss, &any)]})
+            .to_string(),
+    );
+    let heads = project.krs("search", &["--case", "toss.json", "--case-name", "heads"]);
+    assert_eq!(heads.status.code(), Some(1), "{}", stderr(&heads));
+    assert!(
+        stderr(&heads).ends_with(
+            "krs search: 2 solutions\nkrs search: expectation unmet at `k[0].value`\n  expected: 1\n  actual:   0\n  (one of the 2 actual ends; the expectation holds of every end or is unmet)\n"
+        ),
+        "{}",
+        stderr(&heads)
+    );
+    let any = project.krs("search", &["--case", "toss.json", "--case-name", "any"]);
+    assert_eq!(any.status.code(), Some(0), "{}", stderr(&any));
+    assert!(
+        stderr(&any).ends_with("krs search: expectation met\n"),
+        "{}",
+        stderr(&any)
+    );
+    let all = project.krs(
+        "search",
+        &["--case", "toss.json", "--case-name", "any", "--mode", "all"],
+    );
+    assert_eq!(all.status.code(), Some(2), "{}", stderr(&all));
+    assert!(
+        stderr(&all).contains("krs search --mode all returns reachable states, not ends"),
+        "{}",
+        stderr(&all)
+    );
+}
+
+/// A named case in an included file reads its paths relative to that file, in its inputs and in
+/// its expectation alike: here both name `mem.json` beside the included file, not beside the
+/// document that includes it.
+#[test]
+fn an_included_case_reads_its_files_beside_it() {
+    let project = ends();
+    let mut inputs = ends_inputs(&json!({"Finish": {"value": 3}}));
+    inputs["memory"] = json!({"$data-file": "mem.json"});
+    let expect = json!({"halt": "stuck", "compare": ["memory"], "cells": {"memory": {"$data-file": "mem.json"}}});
+    project.write(
+        "cases/sub/list.json",
+        json!([{"name": "included", "inputs": inputs, "expect": expect}]).to_string(),
+    );
+    project.write("cases/sub/mem.json", r#"{"7": 8}"#);
+    project.write(
+        "cases/top.toml",
+        "[[case]]\n\"$data-file\" = \"sub/list.json\"\n",
+    );
+    let run = project.krs(
+        "run",
+        &["--case", "cases/top.toml", "--case-name", "included"],
+    );
+    assert_eq!(run.status.code(), Some(0), "{}", stderr(&run));
+    assert!(
+        stdout(&run).contains("<memory>\n    7 |-> 8\n  </memory>"),
+        "{}",
+        stdout(&run)
+    );
+    assert!(
+        stderr(&run).ends_with("krs run: expectation met\n"),
+        "{}",
+        stderr(&run)
+    );
 }

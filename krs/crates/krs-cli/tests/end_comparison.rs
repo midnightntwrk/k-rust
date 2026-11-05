@@ -789,6 +789,25 @@ fn an_inconclusive_run_has_no_end_to_compare() {
                 "{compared:?}"
             );
         }
+        // Every inconclusive halt is no end, so the expectation finds none, and says so rather
+        // than that every end agrees.
+        for halt in [
+            Halt::Indeterminate,
+            Halt::Timeout,
+            Halt::Interrupted,
+            Halt::UnsupportedHook,
+            Halt::SimplificationError,
+        ] {
+            report.halt = halt;
+            let none = semantics.end_of(&report).unwrap();
+            assert_eq!(
+                expectation(semantics, &all, &ends, &none),
+                Compared::Inconclusive(format!(
+                    "the actual side has no end: the run halted `{}`, which is no end of the definition",
+                    halt.as_str()
+                ))
+            );
+        }
         // A stopped end that does not name its rule cannot be compared on its class.
         let mut unnamed: End = ends.ends[0].clone();
         unnamed.class.halt = Halt::Stopped;
