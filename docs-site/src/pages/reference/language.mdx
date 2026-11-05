@@ -316,8 +316,71 @@ A record pattern may name no field at all, as in Rust: `Projection::DerefTruncat
 A result group record names every child, or [updates a matched group](#updating-a-matched-record).
 Any other nested entry, such as `frame: 3`, is a syntax error, and a leaf entry still needs its `Cell(..)` or `KCell(..)` wrapper.
 A rule that names a group and a cell inside it is rejected (`krs::analysis::group-and-descendant`), and so is a configuration in which one `#[k::cell]` struct is the content of two fields, because its K cell sort would name two cells (`krs::analysis::ambiguous-cell-sort`).
+A group therefore has one position in a configuration, which is where [rules for the group](#rules-for-a-cell-group) apply; several instances of a group are a `*` collection of it, which rules for a group do not support yet.
 A repeated (`*`) cell is a collection, not one nested cell: its entry is an instance list, described in [optional cells and cell collections](#optional-cells-and-cell-collections).
 The overlap check counts a group clause as sharing every cell inside the group.
+
+### Rules for a cell group
+
+A `#[k::cell]` struct is a cell group, and any configuration may hold it, a configuration of another crate included: `#[k::cell(nested)] pub core: lib::Core` nests the cells of the dependency's `Core` under `<core>`.
+A sentence may be typed by the group instead of the configuration: a `k::rules!` block's header `for Core;` (`for lib::Core;` in another crate), or a `k::cells!` subject typed `Core`.
+Its subject is then the group at its one position in the definition's configuration.
+It is lowered against that configuration, as the same sentence written for the configuration would be: it names only cells inside the group, and every other cell is framed.
+The library declares the group and the rules that are its meaning:
+
+```rust
+#[k::cell]
+pub struct Core {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub pc: Int,
+    #[k::cell]
+    pub acc: Int,
+}
+
+k::rules! {
+    for Core;
+    use Op::*;
+
+    inc: { k: [Inc(), ..], pc, acc } => { k: [..], pc: int::add(pc, 1), acc: int::add(acc, 1) };
+}
+```
+
+A package whose configuration is `Small { core: lib::Core, mem: Map<Int, Int> }` and one whose configuration is `Big { core: lib::Core, timer: Int, mem: Map<Int, Int> }` both emit `rule [inc]: <k> inc => .K ... </k> <pc> Pc:Int => Pc:Int +Int 1 </pc> <acc> Acc:Int => Acc:Int +Int 1 </acc>`, with the same text in each definition: K completes the cells to their position under `<core>`, and frames `<mem>` and `<timer>`.
+A readable record of a rule for the group names the group's cells as a rule for the configuration does, flat; a `k::cells!` pattern typed by the group names them by field (`pc:`), where one typed by the configuration names them through the group's struct (`lib::Core::pc:`).
+The subject restricts what a sentence may name, never what is framed: a cell the sentence leaves out is framed wherever the group sits, as for every sentence.
+
+The subject is refused where it has no one position, or where the sentence leaves it:
+
+- a cell outside the group, whether the cell that holds the group (`core`), another cell of the configuration (`mem`, or `Small::mem` in a `cells!` entry), or a cell of another group, is `krs::analysis::cell-outside-subject`, at the cell; write the sentence for the configuration to name it;
+- a group that no cell of the definition's configuration holds is `krs::analysis::group-not-in-configuration`, at the type that names it;
+- a group below an optional (`?`) or a collection (`*`) cell, whether that cell holds the group or holds a cell above it, is `krs::analysis::group-subject-position`, at the type that names it: an optional group's cells exist only in some states, and each instance of a collection holds its own copy of the group's cells, so the group has no one fixed position for its rules to apply at.
+  A rule for a group inside a `*` collection, matched in one instance with the others framed, is not supported yet; hold the group at a fixed position, or write the rule for the configuration;
+- a configuration that holds the group twice is refused as it is for any rule (`krs::analysis::ambiguous-cell-sort`), since the fault is the configuration's;
+- a cell of the configuration with the K name of a cell of the group is `krs::analysis::duplicate-cell-name`, naming both cells, because a configuration names each of its cells once and a group's cells keep their names in every configuration that holds it; rename one with `#[k::cell(name = "..")]`.
+
+A group has no initializer of its own, since initial state is a property of a definition: each containing `#[k::init]` writes the group as a record of its struct, `core: lib::Core { k: k::k![pgm], pc: 0, acc: 0 }`.
+A library with a group and no configuration is no definition, so `krs check` of the library alone refuses its rules for the group with `krs::analysis::configuration-count`, whose message says that rules for a group are checked through a definition whose configuration holds it (a library that declares a group and writes no rules for it is refused with the same code, and its help says so); a crate whose configuration holds the group with real initial state is that check.
+
+The rules a library writes for its group are rules of every definition whose configuration holds the group, and a containing definition cannot remove them.
+They are the meaning of the group's cells: a definition that held `Core` without `inc` would hold another machine under the same cell identities, and a claim, a test or a mutation result about `Core` would silently be about that other machine.
+Priority is no way to replace one of them: K orders every rule of a definition by priority, across modules, so a containing definition's `priority = N` rule, with `N` below a library rule's priority (50 by default), is tried before that rule in every state where it matches, and pre-empts every library rule it overlaps there, not one chosen rule.
+Such a rule is accepted, and a definition that writes it holds another machine under the same cell identities, as one without `inc` would.
+What the group leaves to its environment is an open item instead: a computation item that the group's rules produce on the group's computation cell and never consume, such as a bus read `Bus::Read { addr }` or a step boundary where interrupts are checked.
+Each containing definition resolves it with rules for its own configuration, whose readable records name the group's cells flat beside its own (`k`, `acc` and `mem`) and whose `k::cells!` patterns name them through the group's struct (`lib::Core::k:`), and a definition that resolves none ends stuck at the item, so the missing answer is visible in every run that reaches it.
+The item's production must be `pub`, with `internal` when it is not program syntax, for a dependent's rules to name it, since K hides a production that is not `pub` from every importing module ([the module pair](#program-syntax-and-the-module-pair)).
+A library must not give its own open item an `owise` default:
+it would answer the item in every definition that resolves none,
+so a missing answer would no longer end the run stuck at the item.
+
+A record clause of a rule for the group names its computation cell (`k: [..]`), and the name resolves among the group's cells, so the rule rewrites the group's own `KSequence` cell in every configuration that holds it; a group with sequential work of its own holds its own computation cell.
+Since a cell named `k` that is not the main cell is refused (`krs::analysis::main-cell`, stated with the initializer above), a group whose computation cell is named `k` can be held only by a definition where that cell is the main cell; a group meant to sit beside a containing definition's own main cell names its computation cell otherwise, by its field or with `#[k::cell(name = "..")]`.
+The definition's main cell, which a `for Exp` table clause rewrites and the program starts in, is decided by the containing definition's initializer at any depth, so where the group holds the configuration's only `KSequence` cell, as `Core` does in `Small`, the group's `k` is the main cell.
+
+A [function context](#function-contexts) and a context alias may be typed by a group too, and are about the group's cells in the same way: K matches a function context against the configuration the function is evaluated in, and a context alias against the one the computation runs in, so a library's equation that reads `acc` through `k::cells! { acc: k::configuration::Cell(a), .. }: Core` serves every definition that holds `Core`.
+A claim is typed by the configuration, never by a group (`krs::analysis::group-claim`, at the type, in `k::claims!` and on a `#[k::claim]` fn alike): a claim states what one definition's transition system does and leaves every cell it does not name unchanged, so the same claim would state something else in each configuration that holds the group, and a false thing in one whose rules change another cell along the run the claim describes.
+Write it for the configuration of a crate that declares one; a readable claim names the group's cells flat ([readable claims](/verification/reachability-claims#readable-claims)).
 
 ### Optional cells and cell collections
 
@@ -671,7 +734,8 @@ In a claim's start state a block reads the names the state binds and binds none 
 ### Function contexts
 
 A K function can read the configuration it is evaluated in.
-An `#[k::equation]` may end with a second parameter, its **function context**: a `k::cells!` pattern over the configuration struct, framed by an anonymous `..`.
+An `#[k::equation]` may end with a second parameter, its **function context**: a `k::cells!` pattern typed by the configuration struct or by a [cell group](#rules-for-a-cell-group) the configuration holds, framed by an anonymous `..`.
+One typed by a group names only the group's cells, at the group's position, so a library's equation with such a context reads the same cells in every definition that holds the group.
 
 ```rust
 #[k::requires(int::le(0, b))]
@@ -693,7 +757,7 @@ The context is read-only: an equation returns a term, never the configuration, s
 Because a rule that calls such a function reads those cells, the overlap check counts them in the rule's footprint (as unconstrained cells): a rule that writes `<bar>` and a rule on `<k>` that calls `barPlus` are reported as overlapping.
 
 The context names leaf cells with the usual `Cell(..)`/`KCell(..)` wrappers and frames, and its binders are the equation's: the binder list becomes mandatory and declares the subject's binders, then the context's, each in first-occurrence order.
-A context on a `#[k::rule]`, `#[k::simplification]`, or `#[k::alias]` is rejected (``a configuration context belongs only on #[k::equation] (K's [[ ]] function context)``), as are a final parameter that is not `k::cells!` typed by the configuration struct, a context without its anonymous `..` or with a bound `state @ ..` (a function context frames the rest of the configuration with an anonymous `..`), a whole nested cell, and a binder declared at a sort its cell does not have (`krs::analysis::invalid-function-context`).
+A context on a `#[k::rule]`, `#[k::simplification]`, or `#[k::alias]` is rejected (``a configuration context belongs only on #[k::equation] (K's [[ ]] function context)``), as are a final parameter that is not `k::cells!` typed by the configuration struct or a cell group, a context without its anonymous `..` or with a bound `state @ ..` (a function context frames the rest of the configuration with an anonymous `..`), a whole nested cell, and a binder declared at a sort its cell does not have (`krs::analysis::invalid-function-context`).
 
 ### Coverage of total functions
 
@@ -1318,7 +1382,7 @@ A function that is not program syntax may omit `syntax` and gets the default `sy
 Builtin operations such as `+Int` and `andBool` are never program syntax, because `<NS>-SYNTAX` imports builtin sorts only through `INT-SYNTAX`, `BOOL-SYNTAX`, `ID-SYNTAX`, `STRING-SYNTAX`, and `BYTES-SYNTAX`.
 `int-literals = "unsigned"` in `[package.metadata.krs]` selects `UNSIGNED-INT-SYNTAX` instead, so a program's `-1` is a unary minus applied to `1`; rules keep signed literals because `<NS>` imports K's integer module.
 
-A dependency package may hold rules but no configuration: a `for Exp` rule rewrites the computation cell of whichever package declares the configuration.
+A dependency package may hold rules but no configuration: a `for Exp` rule rewrites the computation cell of whichever package declares the configuration, and a `for Core` rule for a [cell group](#rules-for-a-cell-group) the dependency declares rewrites the group's cells in that configuration.
 Its module must import that configuration, while the configured package's `<NS>` imports the dependency, and K rejects the cycle.
 KRS then emits the configuration in a third module, `<NS>-CONFIGURATION`, which imports `<NS>-SYNTAX` and every import of `<NS>` that does not import `<NS>` back; the dependency's module imports `<NS>-CONFIGURATION` instead of `<NS>`, and `<NS>` imports it too.
 A definition without such a dependency keeps the configuration in `<NS>`.
