@@ -275,7 +275,7 @@ match = 'readable-run/result/job/[x\, ..]'
 finding = "S0-16"
 kind = "diagnostic"
 
-# S0-9, diagnostic: 1867 reds
+# S0-9, diagnostic: 1713 reds
 
 # init: 1
 [[family]]
@@ -733,12 +733,6 @@ match = 'sweep/cells/overwrite/c04-hcell/k::fragment![crate::H \{ hl: [x\, ..]\,
 finding = "S0-9"
 kind = "diagnostic"
 
-# sweep: 2
-[[family]]
-match = 'sweep/cells/overwrite/{seq,set}/k::configuration::Cell([..\, x])'
-finding = "S0-9"
-kind = "diagnostic"
-
 # sweep: 3
 [[family]]
 match = 'sweep/cells/result/*/k::fragment![crate::M \{ mm: k::map![y -> x\, ..]\, mn: 0 \}]'
@@ -781,27 +775,9 @@ match = 'sweep/cells/result/{c02-hcell,f10-hcell,f13-hcell}/k::fragment![crate::
 finding = "S0-9"
 kind = "diagnostic"
 
-# sweep: 4
-[[family]]
-match = 'sweep/cells/result/{seq,set}/{k::configuration::Cell([..\, x]),k::configuration::KCell(x\, ..)}'
-finding = "S0-9"
-kind = "diagnostic"
-
 # sweep: 6
 [[family]]
 match = 'sweep/cells/written/olist/{[k::fragment![crate::G \{ a: x\, .. \}]\, ..],k::configuration::Cell([..\, x]),k::configuration::Cell([x\, ..]),k::configuration::Cell(k::map![y -> x\, ..]),k::configuration::KCell(x\, ..),\{ k::fragment![crate::G \{ a: x\, .. \}]\, .. \}}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 2
-[[family]]
-match = 'sweep/cells/{overwrite,result}/set/k::configuration::Cell([x\, ..])'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 44
-[[family]]
-match = 'sweep/cells/{overwrite,result}/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,prog}/{k::configuration::Cell([..\, x]),k::configuration::Cell([x\, ..])}'
 finding = "S0-9"
 kind = "diagnostic"
 
@@ -1006,36 +982,6 @@ kind = "diagnostic"
 # sweep-paths: 168
 [[family]]
 match = 'sweep-paths/cells/*/*/{k::configuration::KCell(..\, x),k::configuration::KCell(x\, ..\, y)}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep-paths: 24
-[[family]]
-match = 'sweep-paths/cells/overwrite/{lacct,lbag,lcounter,lenv,lframe,ljob,logroup,lolist,lomap,lpc,lprog,qset}/{k::configuration::Cell([..\, x]),k::configuration::Cell([x\, ..])}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep-paths: 14
-[[family]]
-match = 'sweep-paths/cells/overwrite/{lseq,lset,qacct,qbag,qcounter,qenv,qframe,qjob,qogroup,qolist,qomap,qpc,qprog,qseq}/k::configuration::Cell([..\, x])'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep-paths: 12
-[[family]]
-match = 'sweep-paths/cells/overwrite/{lset,qacct,qbag,qcounter,qenv,qframe,qjob,qogroup,qolist,qomap,qpc,qprog}/k::configuration::Cell([x\, ..])'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep-paths: 48
-[[family]]
-match = 'sweep-paths/cells/result/{lacct,lbag,lcounter,lenv,lframe,ljob,logroup,lolist,lomap,lpc,lprog,lset,qacct,qbag,qcounter,qenv,qframe,qjob,qogroup,qolist,qomap,qpc,qprog,qset}/{k::configuration::Cell([..\, x]),k::configuration::Cell([x\, ..])}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep-paths: 4
-[[family]]
-match = 'sweep-paths/cells/result/{lseq,qseq}/{k::configuration::Cell([..\, x]),k::configuration::KCell(x\, ..)}'
 finding = "S0-9"
 kind = "diagnostic"
 
