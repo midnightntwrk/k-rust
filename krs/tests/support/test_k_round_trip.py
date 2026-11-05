@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import tempfile
 import unittest
 
@@ -133,6 +134,32 @@ class NormalizationTests(unittest.TestCase):
             (printed / "spec.k").write_text("claim c\n", encoding="utf-8")
             self.assertTrue(differences(authored, printed))
 
+
+    def test_the_symbol_tables_are_compared_by_identity(self) -> None:
+        def table(*entries: tuple[str, str]) -> str:
+            return json.dumps({"schema_version": 4, "entries": [
+                {"identity": {"identity_kind": "label", "identity": identity}, "emitted_name": name,
+                 "source_map_key": f"def.rule.{identity}"}
+                for identity, name in entries
+            ]})
+
+        with tempfile.TemporaryDirectory() as temporary:
+            authored, printed = Path(temporary, "a"), Path(temporary, "b")
+            authored.mkdir()
+            printed.mkdir()
+            for directory in (authored, printed):
+                (directory / "definition.k").write_text("rule a\n", encoding="utf-8")
+            (authored / "symbols.json").write_text(table(("r1", "while"), ("r2", "if")), encoding="utf-8")
+            # The same entries in another order are the same table.
+            (printed / "symbols.json").write_text(table(("r2", "if"), ("r1", "while")), encoding="utf-8")
+            self.assertEqual(differences(authored, printed), [])
+            # The same K under another rule identity is another rule to the table's readers.
+            (printed / "symbols.json").write_text(table(("r2", "if"), ("r3", "while")), encoding="utf-8")
+            self.assertEqual(len(differences(authored, printed)), 2)
+            (printed / "symbols.json").write_text(table(("r2", "if"), ("r1", "loop")), encoding="utf-8")
+            self.assertTrue(differences(authored, printed))
+            (printed / "symbols.json").unlink()
+            self.assertEqual(differences(authored, printed), ["symbols.json: emitted by one side only"])
 
 if __name__ == "__main__":
     unittest.main()

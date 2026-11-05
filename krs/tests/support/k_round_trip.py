@@ -33,10 +33,19 @@ and nowhere else. Each rule maps two K texts that mean the same thing to one tex
 
 Everything else must be equal, and a sentence one side has and the other has not is a
 difference, at any position.
+
+The symbol table, `symbols.json`, is compared too: it names each module, symbol, label and
+context alias the K writes by its identity, and the identity is what a source map, a proof
+and a later emission refer to. A printed rule that emitted the same K under another identity
+would be another rule to everything that reads the table (IMP's `while`, S5.6). Its entries
+carry no variables, so they are compared exactly, as a set keyed by identity: an entry one
+side has and the other has not is a difference, and so is one whose emitted name, kind or
+source-map key differs.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from typing import Iterable
@@ -148,7 +157,8 @@ def normalized(sentence: str, cells: frozenset[str] = DEFAULT_COMPUTATION_CELLS)
 
 
 def differences(authored: Path, printed: Path) -> list[str]:
-    """Each difference between the `.k` artifacts of two emission directories, normalized."""
+    """Each difference between the `.k` artifacts of two emission directories, normalized, and
+    between their symbol tables."""
 
     found: list[str] = []
     cells = computation_cells(path.read_text(encoding="utf-8") for path in sorted(authored.glob("*.k")))
@@ -165,4 +175,48 @@ def differences(authored: Path, printed: Path) -> list[str]:
         for index, (x, y) in enumerate(zip(a, b)):
             if x != y:
                 found.append(f"{name} sentence {index}:\n  authored: {x}\n  printed:  {y}")
+    return found + symbol_differences(authored, printed)
+
+
+SYMBOLS = "symbols.json"
+"""The symbol table an emission writes beside its `.k` artifacts."""
+
+
+def _identity(entry: dict) -> str:
+    return json.dumps(entry.get("identity"), sort_keys=True)
+
+
+def symbol_differences(authored: Path, printed: Path) -> list[str]:
+    """Each difference between the symbol tables of two emission directories."""
+
+    left, right = authored / SYMBOLS, printed / SYMBOLS
+    if not left.is_file() and not right.is_file():
+        return []
+    if not left.is_file() or not right.is_file():
+        return [f"{SYMBOLS}: emitted by one side only"]
+    tables = [json.loads(path.read_text(encoding="utf-8")) for path in (left, right)]
+    found: list[str] = []
+    versions = [table.get("schema_version") for table in tables]
+    if versions[0] != versions[1]:
+        found.append(f"{SYMBOLS}: schema version {versions[0]} authored, {versions[1]} printed")
+    entries: list[dict[str, dict]] = []
+    for side, table in zip(("authored", "printed"), tables):
+        keyed: dict[str, dict] = {}
+        for entry in table.get("entries", []):
+            identity = _identity(entry)
+            if identity in keyed:
+                found.append(f"{SYMBOLS}: {side} names {identity} twice")
+            keyed[identity] = entry
+        entries.append(keyed)
+    a, b = entries
+    for identity in sorted(a.keys() | b.keys()):
+        if identity not in b:
+            found.append(f"{SYMBOLS}: {identity} ({a[identity].get('emitted_name')}) authored only")
+        elif identity not in a:
+            found.append(f"{SYMBOLS}: {identity} ({b[identity].get('emitted_name')}) printed only")
+        elif a[identity] != b[identity]:
+            found.append(
+                f"{SYMBOLS}: {identity}:\n  authored: {json.dumps(a[identity], sort_keys=True)}"
+                f"\n  printed:  {json.dumps(b[identity], sort_keys=True)}"
+            )
     return found
