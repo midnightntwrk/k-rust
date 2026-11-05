@@ -2272,9 +2272,12 @@ fn validate_rule_state<S: RuleValidationStage>(
                 validated?;
             }
             if sequence.notation == DescriptorKSequenceNotation::DotK
-                // A result's anonymous tail at a `KCell(..)` entry is the subject's unnamed rest
-                // of the computation, kept (P6); whether the subject has one pairs the result
-                // with the subject, which the collector judges after each entry's kind.
+                // Every result-side anonymous tail of a K sequence is admitted here, wherever it
+                // stands: it keeps the subject's unnamed rest of the computation (P6), and a `cells!`
+                // result writes one only at a `KCell(..)` content root. Whether the subject
+                // has one pairs the result with the subject, which this check does not see: the
+                // collector's entry table judges it for a rule, and the compiler's frame pairing
+                // for every sentence, each refusing an exact or named subject as `rest-mismatch`.
                 || (side == RuleSide::Right
                     && matches!(sequence.tail, ProtocolRuleFrame::Anonymous { .. }))
             {

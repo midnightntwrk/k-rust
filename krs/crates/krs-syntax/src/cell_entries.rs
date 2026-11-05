@@ -1290,6 +1290,11 @@ enum Root<'s> {
     Other,
 }
 
+/// Whether `spelling`'s content root ends in the anonymous rest `..`.
+fn keeps_anonymous_rest(spelling: &EntrySpelling) -> bool {
+    root(spelling) == Root::Rest(&EntryRest::Anonymous)
+}
+
 fn root(spelling: &EntrySpelling) -> Root<'_> {
     match spelling {
         EntrySpelling::Present(one) | EntrySpelling::Cell(one) | EntrySpelling::Alias(_, one) => {
@@ -2018,6 +2023,9 @@ pub struct SentenceEntry<'s, C> {
     pub kind: &'s EntryKind,
     /// Its spelling, where the reader reads one.
     pub spelling: Option<&'s EntrySpelling>,
+    /// Where the reader reads no spelling, whether the entry's frame is a `KCell(..)` with the
+    /// anonymous rest `..` ([`crate::cell_entry::CellsField::anonymous_rest`]).
+    pub anonymous_rest: bool,
 }
 
 /// What a sentence does with the cells its entries name, which decides what the pairing step
@@ -2161,12 +2169,29 @@ impl<C: PartialEq> Sentence<'_, C> {
             }
             return Ok(lints);
         }
-        for (at, entry, spelling) in entries() {
+        for (at, entry) in self.entries.iter().enumerate() {
             let other = self.entries.iter().find(|other| {
                 other.side != entry.side
                     && matches!(other.side, EntrySide::Subject | EntrySide::Result)
                     && other.cell == entry.cell
             });
+            let Some(spelling) = entry.spelling else {
+                // An entry whose items the reader does not read is paired by its frame alone:
+                // a result's `..` keeps the subject's unnamed rest of the cell (P6), which an
+                // exact subject does not have, a named one that the result does not put back
+                // drops (D2), and an unmatched cell never had.
+                if entry.side == EntrySide::Result
+                    && entry.anonymous_rest
+                    && !other.is_some_and(|other| {
+                        other
+                            .spelling
+                            .map_or(other.anonymous_rest, keeps_anonymous_rest)
+                    })
+                {
+                    return Err((at, root(Refusal::RestMismatch)));
+                }
+                continue;
+            };
             if other.is_some_and(|other| other.spelling.is_none()) {
                 continue;
             }
@@ -3882,6 +3907,7 @@ mod tests {
                     cell: *cell,
                     kind,
                     spelling: Some(spelling),
+                    anonymous_rest: false,
                 })
                 .collect::<Vec<_>>();
             Sentence {
@@ -3998,6 +4024,7 @@ mod tests {
                     .expect("a declared cell")
                     .1,
                 spelling: Some(spelling),
+                anonymous_rest: false,
             })
             .collect::<Vec<_>>();
         Sentence {
@@ -4088,6 +4115,7 @@ mod tests {
                 cell: *cell,
                 kind: if *cell == "job" { &job } else { &plain },
                 spelling: Some(spelling),
+                anonymous_rest: false,
             })
             .collect::<Vec<_>>();
         Sentence {

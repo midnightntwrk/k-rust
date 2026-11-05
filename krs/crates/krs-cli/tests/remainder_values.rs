@@ -512,3 +512,73 @@ pub fn reported(
         named: rule [keep]: <k> keep ~> Tail:K => bump ~> Tail:K </k> claim [reported]: <k> report ~> Tail:K => 5 ~> Tail:K </k>"]]
     .assert_eq(&emitted.join("\n"));
 }
+
+/// Whether a result's `..` at a `KCell(..)` entry has a rest to keep is a fact about the entry's
+/// frame, not its items: a result item the entry table cannot spell (`x + 1`) changes nothing,
+/// in a rule or a claim. The subject's unnamed rest is kept; an exact subject has none, and a
+/// named one the result does not put back is dropped (D2), so both are the table's
+/// `rest-mismatch`.
+#[test]
+fn an_anonymous_result_rest_pairs_by_frame_whatever_its_items() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let sentence = |head: &str, subject: &str| {
+        format!(
+            r"
+#[{head}]
+pub fn keep(
+    x: k::Term<Int>,
+    k::cells! {{ k: k::configuration::KCell(crate::Cmd::Keep(){subject}), crate::Frame::pc: k::configuration::Cell(x), state @ .. }}: crate::Machine,
+) -> crate::Machine {{
+    k::cells! {{ k: k::configuration::KCell(x + 1, ..), ..state }}
+}}
+"
+        )
+    };
+    let subjects = [("unnamed", ", .."), ("exact", ""), ("named", ", tail @ ..")];
+    let heads = [
+        ("rule", r#"k::rule(label = "keep")"#),
+        ("claim", r#"k::claim(all_paths, label = "keep")"#),
+    ];
+    let outcomes = heads.into_iter().flat_map(|(sentence_kind, head)| {
+        subjects.map(|(name, subject)| {
+            let name = format!("{sentence_kind}-{name}");
+            let source = sentence(head, subject);
+            let manifest = package(temporary.path(), &name, &format!("{PREAMBLE}{source}"));
+            let output = manifest.with_file_name("emitted");
+            let (success, _, _) = krs(
+                target.path(),
+                &manifest,
+                "emit-k",
+                &["--output", output.to_str().unwrap()],
+            );
+            if !success {
+                return format!("{name}: {}", first_error(target.path(), &manifest));
+            }
+            let file = if sentence_kind == "rule" {
+                "definition.k"
+            } else {
+                "spec.k"
+            };
+            let k = krs_test_support::without_source_comments(
+                &fs::read_to_string(output.join(file)).unwrap(),
+            );
+            let start = k.find(&format!("{sentence_kind} [keep]:")).unwrap();
+            let lines = k[start..]
+                .lines()
+                .map(str::trim)
+                .take_while(|line| !line.is_empty());
+            format!("{name}: {}", lines.take(3).collect::<Vec<_>>().join(" "))
+        })
+    });
+    expect_test::expect![[r#"
+        [
+            "rule-unnamed: rule [keep]: <k> keep => X:Int +Int 1 ... </k> <pc> X:Int </pc>",
+            "rule-exact: error[krs::syntax::invalid-list-notation]: the entry of the cell `k` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest, or name it in the subject (`rest @ ..`) to drop or move it",
+            "rule-named: error[krs::syntax::invalid-list-notation]: the entry of the cell `k` has a rest (`..`) on one side of the rule only: a result's `..` keeps the rest its subject's `..` matched, and a result without it would keep that rest to K but drop it to a Rust reader; write `..` on both sides to keep the rest, or name it in the subject (`rest @ ..`) to drop or move it",
+            "claim-unnamed: claim [keep]: <k> keep => X:Int +Int 1 ... </k> <pc> X:Int </pc>",
+            "claim-exact: error[krs::syntax::invalid-list-notation]: the result keeps the rest of the computation with `..`, and the subject matched no rest: a result's `..` keeps the rest its subject's `..` matched; write `..` in the subject too, or list the computation's whole new content without `..`",
+            "claim-named: error[krs::syntax::invalid-list-notation]: the subject names the rest of the computation `..tail`, and the result's `..` keeps no named rest, so the rule would drop it: put it back with `..tail`, or keep it unnamed with `..` in the subject",
+        ]
+    "#]].assert_debug_eq(&outcomes.collect::<Vec<_>>());
+}

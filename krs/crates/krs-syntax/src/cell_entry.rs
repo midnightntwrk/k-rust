@@ -541,6 +541,35 @@ pub struct CellsField {
     /// The range of each spelling inside the value, by its path ([`located_spellings`]); empty
     /// where the value is no entry the reading knows.
     pub located: Vec<(Vec<usize>, crate::TokenRange)>,
+    /// Where the value is no entry the reading knows, whether it is a `cells!` `KCell(..)` whose
+    /// rest is the anonymous `..` ([`anonymous_kcell_rest`]): whether a result's `..` has a rest
+    /// to keep is a fact about the entry's frame, not its items (P6), so it is paired though
+    /// its items are not read.
+    pub anonymous_rest: bool,
+}
+
+/// Whether `value` is a `KCell(..)` whose last element is the anonymous rest `..`, read from
+/// its frame alone: the elements before it are not read.
+#[must_use]
+pub fn anonymous_kcell_rest(value: &TokenStream) -> bool {
+    use proc_macro2::{Delimiter, Spacing, TokenTree};
+    let trees = value.clone().into_iter().collect::<Vec<_>>();
+    let [.., TokenTree::Ident(wrapper), TokenTree::Group(content)] = trees.as_slice() else {
+        return false;
+    };
+    if wrapper != "KCell" || content.delimiter() != Delimiter::Parenthesis {
+        return false;
+    }
+    let elements = content.stream().into_iter().collect::<Vec<_>>();
+    let last = elements
+        .split(|tree| matches!(tree, TokenTree::Punct(punct) if punct.as_char() == ','))
+        .rev()
+        .find(|element| !element.is_empty());
+    matches!(
+        last,
+        Some([TokenTree::Punct(first), TokenTree::Punct(second)])
+            if first.as_char() == '.' && first.spacing() == Spacing::Joint && second.as_char() == '.'
+    )
 }
 
 /// The fields of a `cells!` payload, each `key: value`, in authored order; the configuration's
@@ -606,6 +635,7 @@ fn read_fields(tokens: &TokenStream, reading: EntryReading<'_>) -> Option<Vec<Ce
                     .collect(),
                 spelling,
                 value: range,
+                anonymous_rest: false,
             });
             continue;
         }
@@ -619,6 +649,7 @@ fn read_fields(tokens: &TokenStream, reading: EntryReading<'_>) -> Option<Vec<Ce
                 spelling: Some(EntrySpelling::Binder(name.unraw().to_string())),
                 value: range,
                 located: range.map(|range| (Vec::new(), range)).into_iter().collect(),
+                anonymous_rest: false,
             });
             continue;
         }
@@ -651,6 +682,9 @@ fn read_fields(tokens: &TokenStream, reading: EntryReading<'_>) -> Option<Vec<Ce
             located: spelling
                 .as_ref()
                 .map_or_else(Vec::new, |spelling| located_spellings(&value, spelling)),
+            anonymous_rest: spelling.is_none()
+                && form == EntryForm::Cells
+                && anonymous_kcell_rest(&value),
             spelling,
             value: crate::TokenRange::for_tokens(&value).ok(),
         });
@@ -906,8 +940,17 @@ mod cells_fields_tests {
             ))))
         );
         assert!(matches!(fields[1].spelling, Some(EntrySpelling::Cell(_))));
-        // A term with an operator is no entry the reading knows: nothing judges it.
+        // A term with an operator is no entry the reading knows: nothing judges it, but its
+        // frame, whose rest is paired with the subject's.
         assert_eq!(fields[2].spelling, None);
+        assert!(fields[2].anonymous_rest);
+        assert!(!fields[0].anonymous_rest);
+        let rest = |value: &str| super::anonymous_kcell_rest(&value.parse().expect("lexes"));
+        assert!(rest("k::configuration::KCell(x + 1, ..,)"));
+        assert!(!rest("k::configuration::KCell(x + 1, tail @ ..)"));
+        assert!(!rest("k::configuration::KCell(x + 1, ..tail)"));
+        assert!(!rest("k::configuration::KCell(x + 1)"));
+        assert!(!rest("k::configuration::Cell(..)"));
         assert!(fields.iter().all(|field| field.value.is_some()));
     }
 

@@ -38,6 +38,9 @@ pub(super) struct ParsedField<R> {
     /// Where each spelling inside the value is, by its path
     /// ([`krs_syntax::cell_entry::located_spellings`]).
     located: Vec<(Vec<usize>, R)>,
+    /// Where the reader reads no spelling, whether the value's frame is a `KCell(..)` with the
+    /// anonymous rest `..` ([`krs_syntax::cell_entry::CellsField::anonymous_rest`]).
+    anonymous_rest: bool,
 }
 
 /// A `cells!` sentence's authored fields: its subject's, its result's (none for a single-body
@@ -121,6 +124,7 @@ fn located_fields(
             Some(ParsedField {
                 name: field.key.segments.last()?.ident.to_string(),
                 spelling: field.spelling,
+                anonymous_rest: field.anonymous_rest,
                 range: field
                     .value
                     .and_then(|range| super::provenance::token_coordinates(range).ok()),
@@ -211,6 +215,7 @@ impl ParsedCells<Coordinates> {
                 .map(|field| ParsedField {
                     name: field.name.clone(),
                     spelling: field.spelling.clone(),
+                    anonymous_rest: field.anonymous_rest,
                     range: field
                         .range
                         .as_ref()
@@ -314,6 +319,7 @@ pub(super) fn judge_readable(
             cell: entry.cell,
             kind: &entry.kind,
             spelling: entry.field.spelling.as_ref(),
+            anonymous_rest: entry.field.anonymous_rest,
         })
         .collect::<Vec<_>>();
     let judged = Sentence {
@@ -411,6 +417,7 @@ pub(super) fn judge_initializer(
             cell: entry.cell,
             kind: &entry.kind,
             spelling: entry.field.spelling.as_ref(),
+            anonymous_rest: entry.field.anonymous_rest,
         })
         .collect::<Vec<_>>();
     // An initializer's entry pairs with nothing: it is the cell's whole initial content.
@@ -575,6 +582,7 @@ fn judge_sentence(
             cell: entry.cell,
             kind: &entry.kind,
             spelling: entry.field.spelling.as_ref(),
+            anonymous_rest: entry.field.anonymous_rest,
         })
         .collect::<Vec<_>>();
     let judged = Sentence {

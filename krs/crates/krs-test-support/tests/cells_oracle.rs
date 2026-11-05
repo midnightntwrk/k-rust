@@ -1477,6 +1477,7 @@ fn check_2s_the_product_judges_a_sentence_as_the_table_says() {
                     cell: cell.as_str(),
                     kind,
                     spelling: Some(spelling),
+                    anonymous_rest: false,
                 },
             )
             .collect::<Vec<_>>();

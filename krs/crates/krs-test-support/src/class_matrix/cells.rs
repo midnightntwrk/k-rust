@@ -311,7 +311,7 @@ fn computation_result(at: &Placement, segment: &str, rest: &str, construct: &str
     .push(", ..state }\n}\n");
     let mut case = spec.finish(Packaging::Shared(command), &item);
     if at.base == Base::Run {
-        let plans = config_drivers::kept_computation(construct, case.command());
+        let plans = config_drivers::kept_computation(segment, construct, case.command());
         case.k7 = plans.k7;
         case.k7_counters = plans.counters.unwrap_or_default();
     }

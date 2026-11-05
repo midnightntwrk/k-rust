@@ -84,6 +84,29 @@ pub(super) fn collection_error(
     }
 }
 
+/// A result's `..` over a subject with no unnamed rest of the computation for it to keep (P6):
+/// an exact subject has none, and a named one (`rest @ ..`, `named`) that the result does not
+/// put back with `..rest` is dropped (D2). The entry table answers it as `rest-mismatch` at the
+/// author's entry; this answers it for a sentence the table does not judge, a `cells!` claim.
+pub(super) fn kept_rest_mismatch(
+    descriptor: &Descriptor,
+    key: &ProvenanceKey,
+    named: Option<&str>,
+) -> DescriptorLoweringError {
+    let reason = match named {
+        None => "the result keeps the rest of the computation with `..`, and the subject matched no rest: a result's `..` keeps the rest its subject's `..` matched; write `..` in the subject too, or list the computation's whole new content without `..`".to_owned(),
+        Some(rest) => format!(
+            "the subject names the rest of the computation `..{rest}`, and the result's `..` keeps no named rest, so the rule would drop it: put it back with `..{rest}`, or keep it unnamed with `..` in the subject"
+        ),
+    };
+    collection_error(
+        descriptor,
+        krs_diagnostic::codes::syntax::INVALID_LIST_NOTATION,
+        key,
+        reason,
+    )
+}
+
 /// Why an optional cell's entry written as a bare value is a mistake.
 pub(super) fn bare_optional(name: &str) -> String {
     format!(
@@ -216,10 +239,16 @@ fn state_frame(
             ProtocolRuleFrame::Exact | ProtocolRuleFrame::Anonymous { .. },
             Some(ProtocolRuleFrame::Exact),
         )
-        | (
-            ProtocolRuleFrame::Anonymous { .. } | ProtocolRuleFrame::Bind { .. },
-            Some(ProtocolRuleFrame::Anonymous { .. }),
-        ) => true,
+        | (ProtocolRuleFrame::Anonymous { .. }, Some(ProtocolRuleFrame::Anonymous { .. })) => true,
+        // A result's `..` keeps only the subject's unnamed rest (P6, D2).
+        (ProtocolRuleFrame::Exact, Some(ProtocolRuleFrame::Anonymous { key })) if family == "k" => {
+            return Err(kept_rest_mismatch(descriptor, key, None));
+        }
+        (ProtocolRuleFrame::Bind { binding, .. }, Some(ProtocolRuleFrame::Anonymous { key }))
+            if family == "k" =>
+        {
+            return Err(kept_rest_mismatch(descriptor, key, Some(binding)));
+        }
         (
             ProtocolRuleFrame::Bind { binding, .. },
             Some(ProtocolRuleFrame::Reuse {

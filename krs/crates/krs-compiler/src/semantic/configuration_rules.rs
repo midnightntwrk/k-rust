@@ -2154,19 +2154,19 @@ fn state_frames_compatible(subject: RuleStateFrame<'_>, result: RuleStateFrame<'
                 ..
             },
             RuleStateFrame::Exact,
+        )
+        // A result's `..` is the subject's unnamed rest of the computation, kept (P6): the
+        // clause's frame is the subject's, as for a result that writes no rest over it.
+        | (
+            RuleStateFrame::Framed {
+                family: AssociativeStateFamily::KSequence,
+                frame: AssociativeStateFrame::Anonymous { .. },
+            },
+            RuleStateFrame::Framed {
+                family: AssociativeStateFamily::KSequence,
+                frame: AssociativeStateFrame::Anonymous { .. },
+            },
         ) => true,
-        // A result's `..` is the subject's unnamed rest of the cell, kept (P6): the clause's
-        // frame is the subject's, as for a result that writes no rest over it.
-        (
-            RuleStateFrame::Framed {
-                family: subject_family,
-                frame: AssociativeStateFrame::Anonymous { .. },
-            },
-            RuleStateFrame::Framed {
-                family: result_family,
-                frame: AssociativeStateFrame::Anonymous { .. },
-            },
-        ) => subject_family == result_family,
         (
             RuleStateFrame::Framed {
                 family: subject_family,
@@ -2194,16 +2194,40 @@ fn validate_state_frame_pair(
     node: &'static str,
 ) -> Result<(), DescriptorLoweringError> {
     if state_frames_compatible(subject, result) {
-        Ok(())
-    } else {
-        Err(DescriptorLoweringError::unsupported_shape(
-            node,
-            format!(
-                "rule {} uses incompatible subject/result associative state families or frames",
-                descriptor.id()
-            ),
-        ))
+        return Ok(());
     }
+    // A result's `..` over a subject with no unnamed rest of the computation (P6, D2).
+    if let RuleStateFrame::Framed {
+        family: AssociativeStateFamily::KSequence,
+        frame: AssociativeStateFrame::Anonymous { key },
+    } = result
+    {
+        match subject {
+            RuleStateFrame::Exact => {
+                return Err(super::cell_states::kept_rest_mismatch(
+                    descriptor, key, None,
+                ));
+            }
+            RuleStateFrame::Framed {
+                family: AssociativeStateFamily::KSequence,
+                frame: AssociativeStateFrame::Bind { binding, .. },
+            } => {
+                return Err(super::cell_states::kept_rest_mismatch(
+                    descriptor,
+                    key,
+                    Some(binding),
+                ));
+            }
+            RuleStateFrame::Framed { .. } => {}
+        }
+    }
+    Err(DescriptorLoweringError::unsupported_shape(
+        node,
+        format!(
+            "rule {} uses incompatible subject/result associative state families or frames",
+            descriptor.id()
+        ),
+    ))
 }
 
 fn validate_frame_pair(

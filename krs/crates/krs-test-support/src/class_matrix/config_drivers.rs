@@ -386,6 +386,11 @@ pub(super) fn cells(
 ) -> Plans {
     match (kind, side, command) {
         (CellKind::KSequence, Side::Subject, _) => computation_subject(cells_computation(spelling)),
+        // `..` over the exact `KCell(C(x, y))` keeps a rest the subject never matched: the
+        // sentence is refused (`rest-mismatch`, P6).
+        (CellKind::KSequence, Side::Result, _) if spelling == "k::configuration::KCell(x, ..)" => {
+            Plans::skip(SkipKind::Value, super::machine::REFUSED_AT_K2)
+        }
         // `k: KCell(C(x, y))`, the whole cell, rewritten to `k: S`: the program is the command.
         (CellKind::KSequence, _, Some(command)) => {
             computation_result(&apply(command, 2), cells_written(kind, spelling))
@@ -397,18 +402,23 @@ pub(super) fn cells(
 }
 
 /// K7's plan for the computation cell's `cells!` result `spelling` over a subject with a rest
-/// (`cells::KEPT_COMPUTATION_RESULTS`), `KCell(C(x, y), ..)` after `then(cNAME(1, 2), go)`: the
-/// rest, `go`, is what a result's `..` or `..r` keeps.
-pub(super) fn kept_computation(spelling: &str, command: Option<&Command>) -> Plans {
+/// (`cells::KEPT_COMPUTATION_RESULTS`), `KCell(C(x, y), ..)` or `KCell(C(x, y), r @ ..)` by
+/// `segment` (`rest` or `named`), after `then(cNAME(1, 2), go)`: the rest, `go`, is what a
+/// result's `..` over the subject's `..`, or its `..r`, keeps. A result's `..` over the named
+/// rest keeps none (D2), and the sentence is refused.
+pub(super) fn kept_computation(segment: &str, spelling: &str, command: Option<&Command>) -> Plans {
     let Some(command) = command else {
         unreachable!("a computation result case binds the command")
     };
     let rest = || go().program;
-    let written = match spelling {
-        "k::configuration::KCell(x, ..)" | "k::configuration::KCell(x, ..r)" => {
+    let written = match (segment, spelling) {
+        ("named", "k::configuration::KCell(x, ..)" | "k::configuration::KCell(..)") => {
+            return Plans::skip(SkipKind::Value, super::machine::REFUSED_AT_K2);
+        }
+        (_, "k::configuration::KCell(x, ..)" | "k::configuration::KCell(x, ..r)") => {
             Ok(Written::value(Ground::Seq(vec![int(1), rest()])))
         }
-        "k::configuration::KCell(..)" | "k::configuration::KCell(..r)" => {
+        (_, "k::configuration::KCell(..)" | "k::configuration::KCell(..r)") => {
             Ok(Written::value(Ground::Seq(vec![rest()])))
         }
         _ => Err(NOTATION),
