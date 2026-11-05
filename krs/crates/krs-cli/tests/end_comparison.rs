@@ -827,7 +827,8 @@ fn a_stopped_end_names_a_rewrite_rule_of_the_definition() {
                         // The default label of the rule `finish`: the namespace, then the item.
                         after: vec!["org_krs_exec_ends--finish".to_owned()],
                         ..StopRules::default()
-                    },
+                    }
+                    .into(),
                     ..RunOptions::default()
                 },
             )
