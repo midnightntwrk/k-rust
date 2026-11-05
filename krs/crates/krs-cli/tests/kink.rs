@@ -581,6 +581,48 @@ fn run_kills_the_story_edits() {
         ],
         "{document:#}"
     );
+    // A kill's evidence is krs-exec's comparison of the two ends, in the format of every KRS
+    // difference: the cell by Rust field path and both values as their canonical documents.
+    // plus/a's killer t2, `plus(zero, s(zero))`, ends in `s(zero)` and its mutant in `zero`.
+    let killer = rows[0]["executed"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["program"] == "t2")
+        .unwrap_or_else(|| panic!("{:#}", rows[0]));
+    let difference = &killer["difference"];
+    let shown = |document: Value| {
+        serde_json::json!({
+            "rendering": "document",
+            "document": document,
+            "truncated": false,
+            "offset": 0,
+        })
+    };
+    assert_eq!(difference["format"], "krs-difference/1", "{difference:#}");
+    assert_eq!(difference["at"], "cell", "{difference:#}");
+    assert_eq!(difference["cell"], "k", "{difference:#}");
+    assert_eq!(difference["path"], "k[0]", "{difference:#}");
+    assert_eq!(difference["outside"], "mutant", "{difference:#}");
+    assert_eq!(
+        difference["compared"],
+        serde_json::json!(["k"]),
+        "{difference:#}"
+    );
+    for (side, name, value) in [
+        (
+            "left",
+            "baseline",
+            serde_json::json!({"Succ": {"n": "Zero"}}),
+        ),
+        ("right", "mutant", serde_json::json!({"Zero": []})),
+    ] {
+        let side = &difference[side];
+        assert_eq!(side["name"], name, "{difference:#}");
+        // kink compares ends by configuration alone: the evidence states no class.
+        assert_eq!(side.get("class"), None, "{difference:#}");
+        assert_eq!(side["value"], shown(value), "{difference:#}");
+    }
     // `report` prints the stored run document byte for byte as `run` printed it, named by the
     // emission the run judged and with the run's `definition` object, and builds nothing.
     let timings = project.path().join("report-timings.json");
@@ -739,6 +781,182 @@ fn run_kills_the_story_edits() {
             "{edit:#}"
         );
     }
+}
+
+/// A definition with cells kink's slot leaves out: an unobservable cell, and an unobservable
+/// cell inside a group beside an observable one. `run(n)` steps to `done(n + 1)` by the rule
+/// `finish`.
+const LEFT_OUT: &str = r#"use k::builtin::{Int, KSequence, int};
+use k::{KItem, Term};
+
+k::sorts! {
+    Exp: KItem;
+}
+
+#[k::constructors(sort = Exp, result = k::KResult)]
+#[rustfmt::skip]
+pub enum Cmd {
+    #[k::syntax("run({value})")] Run { value: Int },
+    #[k::syntax("done({value})")] Done { value: Int },
+}
+
+#[k::rule]
+fn finish(k::term![Cmd::Run { value }]: Term<Exp>) -> Term<Exp> {
+    Cmd::Done(int::add(value, 1))
+}
+
+#[k::cell]
+pub struct Regs {
+    #[k::cell]
+    pub a: Int,
+    #[k::cell(unobservable)]
+    pub w: Int,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell(nested)]
+    pub regs: Regs,
+    #[k::cell(unobservable)]
+    pub scratch: Int,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self {
+            k: k::k![pgm],
+            regs: Regs { a: 0, w: 0 },
+            scratch: 0,
+        }
+    }
+}
+"#;
+
+/// A kill's evidence compares the cells kink's slot compared and no other: by default every cell
+/// but the unobservable ones (`scratch`, and `regs.w` inside the group `regs`), and under
+/// `[result] cells = ["k"]` only `k` (the group `regs` is then left out whole). Each end is read
+/// with the cells left out not stated, so the evidence is the KRS comparison's, with no note.
+#[test]
+fn a_kills_evidence_compares_the_cells_the_slot_compares() {
+    let mut files = vec![("src/lib.rs".to_owned(), LEFT_OUT.as_bytes().to_vec())];
+    for (corpus, result) in [
+        ("kink", ""),
+        ("corpora/narrow", "[result]\ncells = [\"k\"]\n\n"),
+    ] {
+        files.push((
+            format!("{corpus}/FLOW.toml"),
+            format!(
+                "[spec]\nkrs = {{ definition = \"main\" }}\n\n{result}[[program]]\nid = \"t1\"\nfile = \"cases/t1.exp\"\n"
+            )
+            .into_bytes(),
+        ));
+        files.push((format!("{corpus}/cases/t1.exp"), b"run(1)\n".to_vec()));
+        files.push((
+            format!("{corpus}/mutations/finish.toml"),
+            b"[[mutation]]\nid = \"twice\"\nmisunderstanding = \"adds two\"\n\n  [[mutation.edit]]\n  rule = \"finish\"\n  find = \"+Int 1\"\n  replace = \"+Int 2\"\n"
+                .to_vec(),
+        ));
+    }
+    let project = project_of("krs-cli-kink-left-out", "LEFTOUT", &files);
+    for (corpus, compared, not_compared) in [
+        ("kink", vec!["k", "regs.a"], vec!["regs.w", "scratch"]),
+        (
+            "corpora/narrow",
+            vec!["k"],
+            vec!["regs.a", "regs.w", "scratch"],
+        ),
+    ] {
+        let output = project.kink("run", &["--corpus", corpus]);
+        let run = json(&output);
+        let row = &run["mutations"][0];
+        assert_eq!(row["status"], "killed", "{run:#}");
+        let difference = &row["executed"][0]["difference"];
+        assert_eq!(difference["format"], "krs-difference/1", "{difference:#}");
+        assert_eq!(difference.get("note"), None, "{difference:#}");
+        assert_eq!(difference["path"], "k[0].value", "{difference:#}");
+        assert_eq!(
+            difference["compared"],
+            serde_json::json!(compared),
+            "{difference:#}"
+        );
+        assert_eq!(
+            difference["not_compared"],
+            serde_json::json!(not_compared),
+            "{difference:#}"
+        );
+        assert_eq!(
+            difference["also_differ"],
+            serde_json::json!([]),
+            "{difference:#}"
+        );
+        assert_eq!(difference["left"]["value"]["document"], 2, "{difference:#}");
+        assert_eq!(
+            difference["right"]["value"]["document"], 3,
+            "{difference:#}"
+        );
+        // The kill's slot sides, read from the run, are unchanged by the format.
+        assert_eq!(
+            row["executed"][0]["slots"]["cells"]["sides"]["baseline"]["final_configurations"], 1,
+            "{row:#}"
+        );
+    }
+}
+
+/// A kill's evidence names cells, constructors and fields by the Definition IR's Rust names, and
+/// a field's name never reaches the emitted K. Renaming the field of `Cmd::Done`, the ends'
+/// constructor, under the same syntax leaves the K, and so the execution digest, unchanged, yet
+/// the evidence names the new field: where tier 1 is on (the portable build), the renderer's
+/// identity keeps the stored kill from serving the old name. An edit that only moves text leaves
+/// both the K and the identity unchanged, so the stored kill serves it.
+#[test]
+fn a_kills_evidence_follows_a_renamed_field_that_the_k_does_not_carry() {
+    let corpus = |files: &mut Vec<(String, Vec<u8>)>| {
+        files.push((
+            "kink/FLOW.toml".to_owned(),
+            b"[spec]\nkrs = { definition = \"main\" }\n\n[[program]]\nid = \"t1\"\nfile = \"cases/t1.exp\"\n"
+                .to_vec(),
+        ));
+        files.push(("kink/cases/t1.exp".to_owned(), b"run(1)\n".to_vec()));
+        files.push((
+            "kink/mutations/finish.toml".to_owned(),
+            b"[[mutation]]\nid = \"twice\"\nmisunderstanding = \"adds two\"\n\n  [[mutation.edit]]\n  rule = \"finish\"\n  find = \"+Int 1\"\n  replace = \"+Int 2\"\n"
+                .to_vec(),
+        ));
+    };
+    let mut files = vec![("src/lib.rs".to_owned(), LEFT_OUT.as_bytes().to_vec())];
+    corpus(&mut files);
+    let project = project_of("krs-cli-kink-renamed", "RENAMED", &files);
+    let run = |project: &Project| {
+        let output = project.kink("run", &[]);
+        let run = json(&output);
+        let row = run["mutations"][0].clone();
+        assert_eq!(row["status"], "killed", "{run:#}");
+        let difference = row["executed"][0]["difference"].clone();
+        assert_eq!(difference["format"], "krs-difference/1", "{difference:#}");
+        (row["killer_source"].clone(), difference["path"].clone())
+    };
+    let (_, path) = run(&project);
+    assert_eq!(path, "k[0].value");
+    // Only moved text: the K and the Definition IR up to positions are unchanged.
+    let moved = format!("// moved\n\n{LEFT_OUT}");
+    project.write("src/lib.rs", &moved);
+    let (source, path) = run(&project);
+    assert_eq!(path, "k[0].value");
+    if cfg!(not(feature = "z3-inference")) {
+        assert_eq!(source, "outcome-cache");
+    }
+    let renamed = LEFT_OUT.replace(
+        "#[k::syntax(\"done({value})\")] Done { value: Int }",
+        "#[k::syntax(\"done({total})\")] Done { total: Int }",
+    );
+    assert_ne!(renamed, LEFT_OUT);
+    project.write("src/lib.rs", &renamed);
+    let (source, path) = run(&project);
+    assert_eq!(path, "k[0].total");
+    assert_ne!(source, "outcome-cache");
 }
 
 /// After an edit of the specification, the command builds the edited package once and runs

@@ -66,6 +66,10 @@
 //! Nothing reads it but the report, so it decides no verdict.
 //! A version 1 file (no `difference`) is not current and is ignored,
 //! so its records are recomputed, never read as records without evidence.
+//! Since version 4 the evidence names its format (`format`: kink's own `kink-k/1`, or a front
+//! end's, which the context names as `evidence`; [`crate::evidence`], "The format of the
+//! evidence"); a file of an earlier version is not current, so its records are recomputed with
+//! evidence that names its format.
 //!
 //! [`OutcomeStore::read`] returns only the records that pass every check that needs no corpus
 //! (schema, version, context, record digest, outcome consistent with its slots);
@@ -87,8 +91,9 @@ use std::{
 /// The `schema` field of an outcome file.
 pub const OUTCOMES_SCHEMA: &str = "kink-flow-outcomes";
 /// The outcome file's version: 2 since CF-16 added each record's `difference`; 3 since the file
-/// keeps the mutant's compiled edit (`witness`, module doc).
-pub const OUTCOMES_VERSION: u64 = 3;
+/// keeps the mutant's compiled edit (`witness`, module doc); 4 since each record's `difference`
+/// names its format, and is a front end's evidence where the context names one (`evidence`).
+pub const OUTCOMES_VERSION: u64 = 4;
 /// Domain of a record's integrity digest: v2 since CF-16 added `difference` to the digest.
 pub const RECORD_DOMAIN: &str = "kink-flow/outcome-record/v2";
 /// The tier-1 directory's name in the cache directory.

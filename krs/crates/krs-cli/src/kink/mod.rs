@@ -41,6 +41,7 @@ mod annotate;
 mod checks;
 mod emit;
 mod inputs;
+mod render;
 mod spelling;
 mod stop;
 
@@ -538,21 +539,25 @@ fn bound_manifest(
 }
 
 /// `manifest` with what only the front end knows of `emitted`: how its programs' typed inputs are
-/// read (`decoder`), when one has any, and which sentences are claim helpers. Only claims apply a
-/// claim helper, and the claims are not in the K kink loads, so the emission, which wrote both,
-/// names them.
+/// read (`decoder`), when one has any, how a kill's evidence is shown (by Rust field path and
+/// canonical documents, over the decoder's compile), and which sentences are claim helpers. Only
+/// claims apply a claim helper, and the claims are not in the K kink loads, so the emission,
+/// which wrote both, names them.
 fn with_front_end_facts(
     manifest: kink_flow::FlowManifest,
     emitted: &EmittedDefinition,
     decoder: Arc<inputs::KrsInputs>,
 ) -> kink_flow::FlowManifest {
-    manifest.with_input_decoder(decoder).with_claim_helpers(
-        emitted
-            .rules
-            .iter()
-            .filter(|rule| rule.claim_helper)
-            .map(|rule| (rule.module.clone(), rule.label.clone())),
-    )
+    manifest
+        .with_end_renderer(Arc::new(render::KrsEnds::new(decoder.clone())))
+        .with_input_decoder(decoder)
+        .with_claim_helpers(
+            emitted
+                .rules
+                .iter()
+                .filter(|rule| rule.claim_helper)
+                .map(|rule| (rule.module.clone(), rule.label.clone())),
+        )
 }
 
 /// The command request every stage before kink runs on: `request`'s selection, judged as

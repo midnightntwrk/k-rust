@@ -32,6 +32,7 @@
 mod case_pattern;
 
 use crate::admit::InputDecoder;
+use crate::evidence::{EndRenderer, Renderer};
 use case_pattern::CasePattern;
 use kink_corpus::ProgramSource;
 use std::{
@@ -75,6 +76,11 @@ pub struct FlowManifest {
     /// has none: kink reads K text only, and admission refuses a program with `inputs` without
     /// a decoder (`typed-inputs`).
     pub input_decoder: Decoder,
+    /// The front end's renderer of kill evidence, which the front end that reads the
+    /// definition's ends at its own level sets ([`Self::with_end_renderer`]). A decoded
+    /// `FLOW.toml` has none: kill evidence is kink's own, cells by K label and values as K text
+    /// ([`crate::evidence`], "The format of the evidence").
+    pub end_renderer: Renderer,
     /// The claim helpers among the specification's sentences, each by its K module and its
     /// label as the sentence writes it (bare, or `MODULE.x`): equations of a function that, within
     /// the definition, only claims apply. Claims are proof obligations outside the executable
@@ -446,6 +452,7 @@ impl ManifestFile {
             result: self.result,
             stop: self.stop,
             input_decoder: Decoder::default(),
+            end_renderer: Renderer::default(),
             claim_helpers: BTreeSet::new(),
         })
     }
@@ -526,6 +533,14 @@ impl FlowManifest {
     #[must_use]
     pub fn with_input_decoder(mut self, decoder: Arc<dyn InputDecoder + Send + Sync>) -> Self {
         self.input_decoder = Decoder(Some(decoder));
+        self
+    }
+
+    /// This manifest with `renderer` writing its kill evidence: a front end that reads the
+    /// definition's ends at its own level (the krs front end) sets it on the manifest it decoded.
+    #[must_use]
+    pub fn with_end_renderer(mut self, renderer: Arc<dyn EndRenderer + Send + Sync>) -> Self {
+        self.end_renderer = Renderer(Some(renderer));
         self
     }
 

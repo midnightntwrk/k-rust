@@ -533,6 +533,8 @@ pub struct BaselineRunner<'a> {
     /// What kill evidence and end summaries read from the compiled specification (CF-16), built
     /// on first use.
     ends: OnceCell<EndReader>,
+    /// The front end's renderer of kill evidence (`FlowManifest::end_renderer`).
+    renderer: crate::evidence::Renderer,
 }
 
 impl<'a> BaselineRunner<'a> {
@@ -566,6 +568,7 @@ impl<'a> BaselineRunner<'a> {
             diagnostic: Cell::new(0),
             observable: OnceCell::new(),
             ends: OnceCell::new(),
+            renderer: manifest.end_renderer.clone(),
         })
     }
 
@@ -576,10 +579,12 @@ impl<'a> BaselineRunner<'a> {
     }
 
     /// The command's reader of ends: the printer, cells and maps of the compiled specification
-    /// (CF-16).
+    /// (CF-16), and the front end's renderer of kill evidence.
     pub fn end_reader(&self) -> &EndReader {
         self.ends.get_or_init(|| {
-            EndReader::of(&self.spec.compiled).projecting(self.spec.result.cells().cloned())
+            EndReader::of(&self.spec.compiled)
+                .projecting(self.spec.result.cells().cloned())
+                .rendering(self.renderer.clone(), self.spec.result.not_compared.clone())
         })
     }
 

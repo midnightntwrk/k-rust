@@ -73,6 +73,7 @@ pub use cli::{
     CommandFiles, CommandSpelling, FlowCommand, FrontEnd, KinkFlowSpelling, OutputFormat, Verb,
     dispatch, on_stack,
 };
+pub use evidence::{EndRenderer, Renderer};
 pub use manifest::{
     Budget, Decoder, FlowManifest, KrsSpec, ManifestError, ManifestFile, Program, ResultSection,
     SpecDecl, SpecSection, StopSection,

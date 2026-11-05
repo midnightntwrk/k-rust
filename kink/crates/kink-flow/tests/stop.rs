@@ -278,7 +278,7 @@ fn a_context_without_a_stop_is_the_context_before_stops() {
             .cloned()
             .collect::<Vec<_>>()
     };
-    let context = outcome_context(build, execution, Budget::default(), &projection, None);
+    let context = outcome_context(build, execution, Budget::default(), &projection, None, None);
     assert_eq!(
         keys(&context),
         [
@@ -299,6 +299,7 @@ fn a_context_without_a_stop_is_the_context_before_stops() {
         Budget::default(),
         &projection,
         Some(&stop),
+        None,
     );
     let mut without_stop = with.clone();
     without_stop.as_object_mut().unwrap().remove("stop");
@@ -345,7 +346,8 @@ fn a_context_without_a_stop_is_the_context_before_stops() {
             execution,
             Budget::default(),
             &projection,
-            Some(&three)
+            Some(&three),
+            None,
         ),
         with
     );

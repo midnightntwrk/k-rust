@@ -21,6 +21,11 @@
 //! comparison of values does not decide, so it is no end either. An `undefined` end has no
 //! cells: its state is `\bottom`.
 //!
+//! [`Semantics::read_configuration`] reads an end of a given class from a configuration that
+//! another comparison of configurations projected (kink's kill evidence, which leaves out the
+//! cells its slot does not compare): the cells it names are not stated, as an end document that
+//! omits them does not state them.
+//!
 //! # End documents
 //!
 //! An end is written and read as a document of the typed encoding (the normative statement of
@@ -142,7 +147,7 @@
 //! first `VALUE_CAP`. A cut value carries its window of the canonical text (`text`) instead of the document,
 //! `truncated`, and the characters cut before the window (`offset`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -309,6 +314,9 @@ pub struct CellInfo {
     pub ty: Option<InputType>,
     /// Whether the cell, or a cell holding it, carries `unobservable`.
     pub unobservable: bool,
+    /// The KORE symbol of the cell's label (`Lbl'-LT-'pc'-GT-'`), which a configuration's
+    /// application of the cell is headed by.
+    pub symbol: String,
 }
 
 /// What a comparison compares ([module documentation](crate::ends#compared-cells)).
@@ -708,6 +716,7 @@ impl Semantics {
                     collection: node.collection,
                     ty: leaf_type(index, node),
                     unobservable,
+                    symbol: node.symbol.clone(),
                 });
                 walk(
                     index,
@@ -825,9 +834,43 @@ impl Semantics {
     }
 
     fn read_state(&self, configuration: &Pattern) -> Result<EndCells, EndError> {
+        self.read_stated(configuration, &BTreeSet::new())
+    }
+
+    /// The cells of `configuration`, except the cells whose symbols are in `unstated`, which the
+    /// result does not state.
+    fn read_stated(
+        &self,
+        configuration: &Pattern,
+        unstated: &BTreeSet<&str>,
+    ) -> Result<EndCells, EndError> {
         let mut symbols = Vec::new();
         cell_symbols(self.values.cells(), &mut symbols);
-        self.read_cells(self.values.cells(), configuration, &symbols)
+        self.read_cells(self.values.cells(), configuration, &symbols, unstated)
+    }
+
+    /// The end of class `class` whose cells are `configuration`'s, a configuration of this
+    /// definition, as a comparison of configurations that leaves some cells out holds it: each
+    /// cell whose symbol is in `unstated` is not stated, whatever the configuration holds at its
+    /// position (the comparison replaced it by a placeholder such as `\top` of its sort, which
+    /// denotes every content and so states none), as an end document that omits the cell does
+    /// not state it. Every other cell is read as [`Self::end_of`] reads a run's state.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EndError::State`] for a configuration whose stated cells are not this
+    /// definition's: a cell missing or repeated against its multiplicity, a content that does
+    /// not decode.
+    pub fn read_configuration(
+        &self,
+        configuration: &Pattern,
+        class: EndClass,
+        unstated: &BTreeSet<&str>,
+    ) -> Result<End, EndError> {
+        Ok(End {
+            class,
+            cells: self.read_stated(configuration, unstated)?,
+        })
     }
 
     fn read_cells(
@@ -835,16 +878,20 @@ impl Semantics {
         nodes: &[CellNode],
         parent: &Pattern,
         symbols: &[&str],
+        unstated: &BTreeSet<&str>,
     ) -> Result<EndCells, EndError> {
         let below = cells_below(parent, symbols);
         let mut cells = Vec::with_capacity(nodes.len());
         for node in nodes {
+            if unstated.contains(node.symbol.as_str()) {
+                continue;
+            }
             let mut found = below
                 .iter()
                 .filter(|pattern| {
                     matches!(pattern, Pattern::Application { symbol, .. } if symbol.name == node.symbol)
                 })
-                .map(|pattern| self.read_content(node, pattern, symbols))
+                .map(|pattern| self.read_content(node, pattern, symbols, unstated))
                 .collect::<Result<Vec<_>, _>>()?;
             let count = found.len();
             let cell = match (node.multiplicity, found.pop()) {
@@ -879,6 +926,7 @@ impl Semantics {
         node: &CellNode,
         pattern: &Pattern,
         symbols: &[&str],
+        unstated: &BTreeSet<&str>,
     ) -> Result<EndCell, EndError> {
         if node.children.is_empty() {
             let Pattern::Application { arguments, .. } = pattern else {
@@ -893,6 +941,7 @@ impl Semantics {
                 &node.children,
                 pattern,
                 symbols,
+                unstated,
             )?))
         }
     }

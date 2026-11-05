@@ -249,7 +249,7 @@ pub struct Outside {
 
 /// Every versioned constant outside [`KINK_IDENTITY`]. Each reason names the path that checks
 /// the constant, or says why nothing has to.
-pub const OUTSIDE_IDENTITY: [Outside; 37] = [
+pub const OUTSIDE_IDENTITY: [Outside; 38] = [
     Outside {
         krate: "kink-patch",
         constant: "TEST_MANIFEST_DOMAIN",
@@ -399,6 +399,14 @@ pub const OUTSIDE_IDENTITY: [Outside; 37] = [
         krate: "kink-flow",
         constant: "OUTCOMES_VERSION",
         reason: "the tier-1 outcome file's format, which its reader requires (outcomes.rs)",
+    },
+    Outside {
+        krate: "kink-flow",
+        constant: "K_EVIDENCE_VERSION",
+        reason: "the format of kink's own kill evidence (evidence.rs), named by each difference \
+                 object: evidence is printed for a reader of a kill the slot already proved and \
+                 decides no status; a `killed` outcome record stores it inside its digest, in an \
+                 outcome file whose version its reader requires (outcomes.rs)",
     },
     Outside {
         krate: "kink-flow",

@@ -136,8 +136,11 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// order can name more programs for the same mutation; 20 since `[stop]`: a corpus with a stop
 /// has `stop` (absent without one), each program row's `ends` say how the run reached them
 /// (`halt`), a survivor that edits a rule the stop stops before has `stop_hides_edit`, and a mutant
-/// on which a rule of the stop labels no rewrite rule is `not-admitted`, reason `stop-unresolved`.
-pub const RUN_VERSION: u64 = 20;
+/// on which a rule of the stop labels no rewrite rule is `not-admitted`, reason `stop-unresolved`;
+/// 21 since each executed entry's `difference` names its format (`format`), and is the front end's
+/// evidence, in the front end's format, where a front end renders it (`crate::evidence`, "The
+/// format of the evidence").
+pub const RUN_VERSION: u64 = 21;
 
 /// k-rust's contradicted-claim records of one run as specification diagnostics (re-pin adoption
 /// A-1): each `{claim, symbol, k_label, rule_id, rule_label, application, undefined,
@@ -492,8 +495,30 @@ fn slot_sides(
     }
 }
 
-/// A distinguishing slot's sides read from a kill's `difference` ([`slots_value`]).
+/// A distinguishing slot's sides read from a kill's `difference` ([`slots_value`]): kink's own
+/// evidence names each side's count and classes, a front end's evidence (`krs-difference/1`,
+/// sides `left` and `right`) each side's count of ends (`ends`) and whether it is complete. A
+/// front end's evidence is given only where both sides have an end (`crate::evidence`), so the
+/// exit stop, which under the flow's classifier distinguishes only a side with no end from one
+/// with some, has no sides in it; a document of another shape gives none.
 fn difference_sides(slot: &str, difference: &Value) -> Value {
+    if difference["format"] != crate::evidence::K_EVIDENCE_VERSION {
+        let (baseline, mutant) = (&difference["left"], &difference["right"]);
+        if !matches!(slot, "whole-term" | "cells")
+            || baseline["name"] != "baseline"
+            || mutant["name"] != "mutant"
+        {
+            return Value::Null;
+        }
+        let mut mutant_side = json!({"final_configurations": mutant["ends"]});
+        if mutant["complete"] != true {
+            mutant_side["complete"] = json!(false);
+        }
+        return json!({
+            "baseline": {"final_configurations": baseline["ends"]},
+            "mutant": mutant_side,
+        });
+    }
     let (baseline, mutant) = (&difference["baseline"], &difference["mutant"]);
     if !baseline.is_object() || !mutant.is_object() {
         return Value::Null;

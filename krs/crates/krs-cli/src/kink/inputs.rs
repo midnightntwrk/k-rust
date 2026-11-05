@@ -47,6 +47,11 @@ impl KrsInputs {
         }
     }
 
+    /// The Definition IR the decoder reads.
+    pub(crate) fn definition(&self) -> &DefinitionIr {
+        &self.definition
+    }
+
     /// `body` with this decoder's native compile on this thread, made on first use; `need` says
     /// what the compile is for, in the message of a compile that fails.
     pub(crate) fn with_semantics<T>(

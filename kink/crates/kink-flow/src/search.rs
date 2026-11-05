@@ -2237,31 +2237,40 @@ pub fn run_front(
     let exclusion = runner.definition_exclusion();
     let hints = Hints::read(&cache);
     let mut ok = update.ok();
-    let (tier1, tier1_reason) = match (
-        tier1_refusal(SolverProfile::BUILD),
-        kink_campaign::kink_build(),
-    ) {
-        (Some(reason), _) => (None, Some(reason.to_owned())),
-        (None, Ok(build)) => (
-            Some(OutcomeStore::new(
-                &cache,
-                outcome_context(
-                    build,
-                    update.execution,
-                    manifest.budget,
-                    &spec.result,
-                    manifest.stop_value().as_ref(),
-                ),
-            )),
-            None,
-        ),
-        (None, Err(e)) => (
-            None,
-            Some(format!(
-                "tier 1 is disabled: kink's build identity is unknown ({e}); every mutation runs \
-                 live"
-            )),
-        ),
+    // The front end's evidence identity is asked for only where tier 1 could be on: it may cost
+    // a pass over the front end's definition.
+    let tier1 = match tier1_refusal(SolverProfile::BUILD) {
+        Some(reason) => Err(reason.to_owned()),
+        None => kink_campaign::kink_build()
+            .map_err(|e| {
+                format!(
+                    "tier 1 is disabled: kink's build identity is unknown ({e}); every mutation \
+                     runs live"
+                )
+            })
+            .and_then(|build| {
+                let evidence = manifest.end_renderer.evidence().map_err(|e| {
+                    format!(
+                        "tier 1 is disabled: the front end cannot name what its kill evidence \
+                         depends on ({e}); every mutation runs live"
+                    )
+                })?;
+                Ok(OutcomeStore::new(
+                    &cache,
+                    outcome_context(
+                        build,
+                        update.execution,
+                        manifest.budget,
+                        &spec.result,
+                        manifest.stop_value().as_ref(),
+                        evidence.as_ref(),
+                    ),
+                ))
+            }),
+    };
+    let (tier1, tier1_reason) = match tier1 {
+        Ok(store) => (Some(store), None),
+        Err(reason) => (None, Some(reason)),
     };
     let candidates = manifest
         .programs

@@ -377,13 +377,18 @@ pub fn execution_digest(manifest: &FlowManifest, spec: &AdmittedSpec) -> Executi
 /// which projection an outcome was decided for. `stop` is the manifest's stop
 /// (`FlowManifest::stop_value`: its rules, its count and each program's own count), on which every
 /// end a run reaches depends; absent without one, so a context without a stop is the context it
-/// was before stops existed.
+/// was before stops existed. `evidence` is a front end's kill evidence's format and further
+/// inputs (`Renderer::evidence`, `{format, identity}`), on which the evidence a `killed` record
+/// stores depends: absent for kink's own evidence, so a store written with one renderer, or with
+/// one renderer over other names, never serves another's evidence, and a context without a front
+/// end's renderer is the context it was before renderers existed.
 pub fn outcome_context(
     kink_build: Sha256Digest,
     execution: ExecutionDigest,
     budget: Budget,
     result: &ResultProjection,
     stop: Option<&Value>,
+    evidence: Option<&Value>,
 ) -> Value {
     // The budget object of the result key, so both keys name the same bounds, and the mutants'
     // work budget, which bounds only mutant runs (re-pin L1-1; absent without one, so a
@@ -419,6 +424,9 @@ pub fn outcome_context(
     }
     if let Some(stop) = stop {
         context["stop"] = stop.clone();
+    }
+    if let Some(evidence) = evidence {
+        context["evidence"] = evidence.clone();
     }
     context
 }

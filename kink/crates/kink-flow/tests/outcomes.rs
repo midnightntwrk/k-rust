@@ -477,6 +477,7 @@ fn an_outcome_written_under_another_identity_is_ignored() {
             unobservable: Vec::new(),
         },
         None,
+        None,
     );
     assert_eq!(context["kink"], kink_campaign::kink_identity());
     let identity = kink_patch::sha256(b"mutation");

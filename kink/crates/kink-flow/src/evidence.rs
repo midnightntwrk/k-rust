@@ -94,6 +94,46 @@
 //! them, and a state set that merges a stopped path with a stuck one at the same configuration
 //! keeps one leaf of the two, so which halt the run reports for such an end can depend on the
 //! order the run explored them.
+//!
+//! # The format of the evidence
+//!
+//! Every kill evidence object names its format, `format`. kink's own evidence, above, is
+//! [`K_EVIDENCE_VERSION`] (`kink-k/1`): cells by K label and values as K text, the terms of the
+//! K definition kink judges. A front end that reads the definition's ends at its own level sets an
+//! [`EndRenderer`] on the manifest (`FlowManifest::with_end_renderer`), and the evidence of a kill
+//! is then the renderer's document, in the renderer's format (the krs front end's is
+//! `krs-difference/1`, the document of krs-exec's comparison of ends: cells by Rust field path
+//! and values as their canonical documents). The renderer is given what kink's own evidence
+//! compares: the two sets of projected ends, whether the mutant's is complete, and the cells the
+//! slot leaves out, whose positions hold the projection's placeholder and so state nothing. It
+//! chooses its pair of ends by its own order, under the rule above: an end outside the other set
+//! (a mutant end first, which needs only the baseline's set complete), with its nearest end of
+//! that set.
+//!
+//! The renderer judges no kill: the slot did. Its ends are the slot's ends, and a front end whose
+//! values are equal exactly when their terms are finds a difference wherever the slot did, but it
+//! may not: a difference only in a cell the front end does not declare, an end it cannot read.
+//! kink then gives its own evidence, with `note` saying why the front end's has none, so a kill
+//! never loses its evidence. A side with no end (every path an undefined step) has no end for a
+//! front end to show, so its evidence is kink's own without a note.
+//!
+//! A `killed` record of the outcome store keeps its evidence, and serves it in place of a
+//! recomputation, so the tier-1 context must name every input of the document. The ends are the
+//! record's own; kink's build (`kink_build`, the running executable) fixes the renderer's code;
+//! the execution digest names the K definition, up to positions. A front end's documents can
+//! depend on more than that K: the krs front end names cells, constructors and fields by the
+//! Definition IR's Rust names, and a constructor's field names never reach the K it emits. So
+//! the renderer states its format and the further inputs its documents depend on
+//! ([`EndRenderer::identity`]), and both enter the context as `evidence`
+//! (`digest::outcome_context`, [`Renderer::evidence`]): a store never serves a document that
+//! another renderer, or the same renderer over other names, would not write.
+//!
+//! The renderer writes kill evidence only. A program row's end summaries ([`EndReader::summary`],
+//! `programs[i].ends`) stay kink's under a front end too, K text heads cut to [`HEAD_CAP`]: a
+//! summary is a bounded listing of a program's ends for orientation, while a front end's
+//! document of an end (krs-exec's is the whole end, every cell as its canonical document) has no
+//! bound, and the evidence of a kill, the one place the ends are compared, carries the front
+//! end's reading of the cells that differ.
 
 use k_rust::{
     backend::counter_erased,
@@ -106,6 +146,8 @@ use kink_native::ValidatedDefinition;
 use krs_unparse::{ListSpelling, Mode, Options, Unparser};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
+use std::sync::Arc;
 
 /// The most characters of one printed value the evidence keeps.
 pub const VALUE_CAP: usize = 2000;
@@ -116,6 +158,101 @@ pub const HEAD_CAP: usize = 200;
 pub const PRINT_NODES: usize = 100_000;
 /// The KORE names of K's computation sequence.
 const KSEQ: &str = "kseq";
+/// The format of kink's own kill evidence (module documentation, "The format of the evidence"):
+/// cells by K label, values as K text.
+pub const K_EVIDENCE_VERSION: &str = "kink-k/1";
+
+/// A front end's evidence of a kill at its own level (module documentation, "The format of the
+/// evidence"); kink never reads it. The krs front end implements it with krs-exec's comparison of
+/// ends.
+pub trait EndRenderer {
+    /// The format of the documents [`Self::difference`] writes, which each names as `format`.
+    fn format(&self) -> &'static str;
+
+    /// Every input of the documents [`Self::difference`] writes besides the ends, the K
+    /// definition the execution digest names (up to positions) and the running executable
+    /// (`kink_build`), as a JSON value that differs whenever such an input does (module
+    /// documentation, "The format of the evidence"); `null` when there is none. It enters the
+    /// tier-1 context with the format, so a stored document is served only where this renderer
+    /// would write it again.
+    ///
+    /// # Errors
+    ///
+    /// When the renderer cannot state its inputs: tier 1 is then off for the command, as for an
+    /// unknown build, since no key would name what a stored document depends on.
+    fn identity(&self) -> Result<Value, String>;
+
+    /// The evidence of a kill whose slot distinguished the ends `baseline` (complete) and
+    /// `mutant` (complete when `mutant_complete`, else the one-sided ends that killed): each end
+    /// a final configuration of the K definition kink judges as the slot compared it, with
+    /// `<generatedCounter>`'s content erased and each cell of `not_compared` (by K cell name,
+    /// `scratch` for `<scratch>`) replaced by `\top` of its sort. Neither set is empty. `Err`
+    /// says why the renderer shows no difference (none found, an end it cannot read); kink then
+    /// gives its own evidence with that reason.
+    ///
+    /// # Errors
+    ///
+    /// When the renderer finds no difference between the two sets, or cannot read an end.
+    fn difference(
+        &self,
+        baseline: &BTreeSet<Pattern>,
+        mutant: &BTreeSet<Pattern>,
+        mutant_complete: bool,
+        not_compared: &[String],
+    ) -> Result<Value, String>;
+}
+
+/// A front end's [`EndRenderer`], or none. Two are equal when both are absent or both are the
+/// same renderer value.
+#[derive(Clone, Default)]
+pub struct Renderer(pub Option<Arc<dyn EndRenderer + Send + Sync>>);
+
+impl Renderer {
+    /// The renderer, when a front end set one.
+    #[must_use]
+    pub fn get(&self) -> Option<&(dyn EndRenderer + Send + Sync)> {
+        self.0.as_deref()
+    }
+
+    /// The tier-1 context's `evidence` member: the format of a front end's evidence and its
+    /// further inputs ([`EndRenderer::identity`]), `{format, identity}`; `Ok(None)` for kink's
+    /// own evidence ([`K_EVIDENCE_VERSION`]), which depends on nothing the context does not name.
+    ///
+    /// # Errors
+    ///
+    /// When the front end's renderer cannot state its inputs ([`EndRenderer::identity`]).
+    pub fn evidence(&self) -> Result<Option<Value>, String> {
+        self.get()
+            .map(|renderer| {
+                Ok(json!({
+                    "format": renderer.format(),
+                    "identity": renderer.identity()?,
+                }))
+            })
+            .transpose()
+    }
+}
+
+impl fmt::Debug for Renderer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.get() {
+            Some(renderer) => write!(f, "Renderer(Some({}))", renderer.format()),
+            None => f.write_str("Renderer(None)"),
+        }
+    }
+}
+
+impl PartialEq for Renderer {
+    fn eq(&self, other: &Self) -> bool {
+        match (&self.0, &other.0) {
+            (None, None) => true,
+            (Some(left), Some(right)) => Arc::ptr_eq(left, right),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Renderer {}
 
 /// What kill evidence and end summaries read from the compiled definition: its printer, its cell
 /// symbols (and which are main cells), and its map and list symbols. Built once per command
@@ -124,6 +261,10 @@ pub struct EndReader {
     /// The second slot's cell projection, when it leaves some cell out: the one-sided ends that
     /// killed are projected with it, as the slot projected them ([`Self::test_difference`]).
     projection: Option<CellProjection>,
+    /// The front end's renderer of kill evidence and the cells the slot leaves out, by K name
+    /// ([`Self::rendering`]).
+    renderer: Renderer,
+    not_compared: Vec<String>,
     printer: Result<Unparser, String>,
     cells: BTreeSet<String>,
     main_cells: BTreeSet<String>,
@@ -193,6 +334,8 @@ impl EndReader {
                 .map_err(|error| error.to_string());
         let mut reader = Self {
             projection: None,
+            renderer: Renderer::default(),
+            not_compared: Vec::new(),
             printer,
             cells: BTreeSet::new(),
             main_cells: BTreeSet::new(),
@@ -233,6 +376,16 @@ impl EndReader {
         self
     }
 
+    /// This reader with kill evidence rendered by `renderer` when it holds one (module
+    /// documentation, "The format of the evidence"), for a slot that leaves out the cells
+    /// `not_compared` (by K name; `ResultProjection::not_compared`).
+    #[must_use]
+    pub fn rendering(mut self, renderer: Renderer, not_compared: Vec<String>) -> Self {
+        self.renderer = renderer;
+        self.not_compared = not_compared;
+        self
+    }
+
     /// A reader with no printer and the given cell, main cell, map and list symbols (KORE names;
     /// each collection's concatenation, element and unit), for tests.
     #[cfg(test)]
@@ -244,6 +397,8 @@ impl EndReader {
         };
         Self {
             projection: None,
+            renderer: Renderer::default(),
+            not_compared: Vec::new(),
             printer: Err("no printer".into()),
             cells: cells.iter().map(|cell| (*cell).to_owned()).collect(),
             main_cells: main_cells.iter().map(|cell| (*cell).to_owned()).collect(),
@@ -381,10 +536,41 @@ impl EndReader {
         }
     }
 
-    /// The kill evidence of two end sets (module documentation): `{outside, path, baseline,
-    /// mutant}`, each side `{final_configurations, complete, classes, end, value}`; `None` when
-    /// no end of one is outside the other (no complete pair of sets that a slot distinguished).
+    /// The kill evidence of two end sets (module documentation): the front end's document when
+    /// a renderer is set and both sets have an end, else kink's own ([`K_EVIDENCE_VERSION`]:
+    /// `{format, outside, path, baseline, mutant}`, each side `{final_configurations, complete,
+    /// classes, end, value}`, with `note` when a renderer showed no difference); `None` when no
+    /// end of one is outside the other (no complete pair of sets that a slot distinguished).
     pub fn difference(
+        &self,
+        baseline: &BTreeSet<Pattern>,
+        mutant: &BTreeSet<Pattern>,
+        mutant_complete: bool,
+    ) -> Option<Value> {
+        let mut own = self.own_difference(baseline, mutant, mutant_complete)?;
+        let Some(renderer) = self.renderer.get() else {
+            return Some(own);
+        };
+        if baseline.is_empty() || mutant.is_empty() {
+            return Some(own);
+        }
+        let format = renderer.format();
+        let note = match renderer.difference(baseline, mutant, mutant_complete, &self.not_compared)
+        {
+            Ok(document) if document["format"] == format => return Some(document),
+            Ok(document) => format!(
+                "the front end's evidence names the format {}, not {format}",
+                document["format"]
+            ),
+            Err(reason) => reason,
+        };
+        own["note"] = json!(format!("no {format} evidence: {note}"));
+        Some(own)
+    }
+
+    /// kink's own evidence of two end sets (module documentation): `{format, outside, path,
+    /// baseline, mutant}`; `None` when no end of one is outside the other.
+    fn own_difference(
         &self,
         baseline: &BTreeSet<Pattern>,
         mutant: &BTreeSet<Pattern>,
@@ -433,6 +619,7 @@ impl EndReader {
             )
         };
         Some(json!({
+            "format": K_EVIDENCE_VERSION,
             "outside": outside,
             "path": path,
             "baseline": baseline_side,
@@ -1023,10 +1210,175 @@ mod tests {
         std::fs::write(&path, file.to_string()).unwrap();
         assert!(outcomes.read(identity).is_empty());
         file["records"][&program]["difference"] = difference;
-        file["version"] = json!(1);
+        file["version"] = json!(crate::outcomes::OUTCOMES_VERSION - 1);
         std::fs::write(&path, file.to_string()).unwrap();
         assert!(outcomes.read(identity).is_empty());
         let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    /// A front end's renderer that answers `answer`, with what it was given added to a document.
+    struct Fixed(Result<Value, String>);
+
+    impl EndRenderer for Fixed {
+        fn format(&self) -> &'static str {
+            "test-difference/1"
+        }
+
+        fn identity(&self) -> Result<Value, String> {
+            Ok(json!({"names": "test"}))
+        }
+
+        fn difference(
+            &self,
+            baseline: &BTreeSet<Pattern>,
+            mutant: &BTreeSet<Pattern>,
+            mutant_complete: bool,
+            not_compared: &[String],
+        ) -> Result<Value, String> {
+            self.0.clone().map(|mut document| {
+                document["given"] = json!({
+                    "baseline": baseline.len(),
+                    "mutant": mutant.len(),
+                    "mutant_complete": mutant_complete,
+                    "not_compared": not_compared,
+                });
+                document
+            })
+        }
+    }
+
+    fn rendering(answer: Result<Value, String>) -> EndReader {
+        reader().rendering(
+            Renderer(Some(Arc::new(Fixed(answer)))),
+            vec!["scratch".into()],
+        )
+    }
+
+    #[test]
+    fn a_front_ends_renderer_writes_the_evidence_in_its_format() {
+        let baseline = set(&[config(LOCKED, &[(1, 1)], 0)]);
+        let mutant = set(&[config(LOCKED, &[(1, 2)], 0)]);
+        // kink's own evidence names its format.
+        let own = reader().difference(&baseline, &mutant, true).unwrap();
+        assert_eq!(own["format"], K_EVIDENCE_VERSION);
+        // With a renderer the evidence is its document, given the slot's ends, whether the
+        // mutant's are complete and the cells left out.
+        let document = json!({"format": "test-difference/1"});
+        assert_eq!(
+            rendering(Ok(document.clone()))
+                .difference(&baseline, &mutant, false)
+                .unwrap(),
+            json!({
+                "format": "test-difference/1",
+                "given": {
+                    "baseline": 1,
+                    "mutant": 1,
+                    "mutant_complete": false,
+                    "not_compared": ["scratch"],
+                },
+            })
+        );
+        // A renderer that shows no difference: kink's own evidence, saying why.
+        let fallback = rendering(Err("the ends are equal".into()))
+            .difference(&baseline, &mutant, true)
+            .unwrap();
+        assert_eq!(
+            fallback["note"],
+            "no test-difference/1 evidence: the ends are equal"
+        );
+        let mut without_note = fallback.clone();
+        without_note.as_object_mut().unwrap().remove("note");
+        assert_eq!(without_note, own);
+        // A document that names another format is not taken.
+        let other = rendering(Ok(json!({"format": "other/1"})))
+            .difference(&baseline, &mutant, true)
+            .unwrap();
+        assert_eq!(other["format"], K_EVIDENCE_VERSION);
+        assert!(
+            other["note"].as_str().unwrap().contains("\"other/1\""),
+            "{other:#}"
+        );
+        // A side with no end has no end a front end could show: kink's own evidence, no note.
+        let empty = rendering(Ok(document.clone()))
+            .difference(&baseline, &BTreeSet::new(), true)
+            .unwrap();
+        assert_eq!(empty["format"], K_EVIDENCE_VERSION);
+        assert_eq!(empty.get("note"), None);
+        // Equal sets are no kill: no evidence, whatever the renderer would say.
+        assert_eq!(
+            rendering(Ok(document)).difference(&baseline, &baseline, true),
+            None
+        );
+    }
+
+    #[test]
+    fn a_front_ends_evidence_gives_a_cached_kills_sides_and_names_its_format_in_the_context() {
+        // A cached or one-sided kill's sides are read from its evidence: a front end's names
+        // each side's count of ends and whether it is complete.
+        let document = json!({
+            "format": "krs-difference/1",
+            "left": {"name": "baseline", "ends": 2, "complete": true},
+            "right": {"name": "mutant", "ends": 1, "complete": false},
+        });
+        let slots = crate::report::slots_value(
+            &crate::results::ORACLE_SLOTS,
+            &[OracleOutcome::Agree, OracleOutcome::Distinguish],
+            None,
+            None,
+            false,
+            &document,
+        );
+        assert_eq!(
+            slots["whole-term"]["sides"],
+            json!({
+                "baseline": {"final_configurations": 2},
+                "mutant": {"final_configurations": 1, "complete": false},
+            })
+        );
+        // The tier-1 context names a front end's format and further inputs, and kink's own by
+        // their absence, so a store never serves another renderer's evidence, nor one the same
+        // renderer would write over other names.
+        let context = |evidence: Option<&Value>| {
+            crate::digest::outcome_context(
+                kink_patch::sha256(b"build"),
+                crate::digest::ExecutionDigest {
+                    kind: crate::digest::EXECUTION_DIGEST_KIND,
+                    digest: kink_patch::sha256(b"specification"),
+                },
+                crate::manifest::Budget::default(),
+                &crate::observed::ResultProjection {
+                    state: kink_campaign::StateProjection::WholeTerm,
+                    compared: Some(vec!["k".into()]),
+                    not_compared: Vec::new(),
+                    unobservable: Vec::new(),
+                },
+                None,
+                evidence,
+            )
+        };
+        let own = context(None);
+        assert_eq!(reader().renderer.evidence(), Ok(None));
+        let evidence = rendering(Ok(json!({})))
+            .renderer
+            .evidence()
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            evidence,
+            json!({"format": "test-difference/1", "identity": {"names": "test"}})
+        );
+        let front = context(Some(&evidence));
+        assert_eq!(own.get("evidence"), None);
+        assert_eq!(front["evidence"], evidence);
+        let mut renamed = evidence.clone();
+        renamed["identity"]["names"] = json!("renamed");
+        assert_ne!(
+            crate::digest::context_sha256(&front),
+            crate::digest::context_sha256(&context(Some(&renamed)))
+        );
+        let mut without = front.clone();
+        without.as_object_mut().unwrap().remove("evidence");
+        assert_eq!(without, own);
     }
 
     #[test]
