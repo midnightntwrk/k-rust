@@ -312,7 +312,8 @@
 //! and one without a value at an end refuses the verdict, naming the view, the side and the cell,
 //! since an observation that does not exist makes the ends neither agree nor differ.
 //! A front end may bound each view's evaluation;
-//! one that the bound or another stop of the evaluation ends before it reaches a value makes the verdict inconclusive, since it may yet have a value.
+//! one that the bound or another stop of the evaluation ends before it reaches a value makes the verdict inconclusive, since it may yet have a value,
+//! as does one that ends short of a value after the solver answered a query `Unknown`.
 //!
 //! Against the ends of the case's run, the expectation is
 //! *met* when every end agrees with it on the halt and on the compared cells;

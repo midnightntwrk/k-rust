@@ -52,14 +52,21 @@
 //! stop, so that where the budget stops it is a function of the evaluation, not of the host's
 //! speed or load. An evaluation that stops before it ends, for that budget or for another stop
 //! of the backend (the simplifier's stack, the solver's prelude), has no value yet rather than
-//! none at all: the definition was not shown to give it none. It is reported as an error of its
-//! own ([`EndError::ViewStopped`]), which a front end reports as inconclusive: never as equal,
-//! and never as a refusal of the view. A stop cannot change a value that is computed: an
-//! evaluation that reaches a value gives the definition's value whatever stopped work it
-//! dismissed on the way, so a verdict under a budget is the verdict without one, or
+//! none at all: the definition was not shown to give it none. So has an evaluation that ends
+//! short of a value after the solver answered `Unknown` to a query it asked (a bound of the
+//! solver ran out, or the query is beyond what it decides): a condition so answered was left
+//! undecided by the solver run, not by the definition, and another run of the solver may decide
+//! it. A condition left undecided on decided answers alone (one the definition does not
+//! determine) and a condition decided false are facts about the definition, and the result
+//! short of a value they leave is no value. Both of the first kind are reported as an error of
+//! their own ([`EndError::ViewStopped`]), which a front end reports as inconclusive: never as
+//! equal, and never as a refusal of the view. Neither can change a value that is computed: an
+//! equation applies only where its condition is decided true, so an evaluation that reaches a
+//! value gives the definition's value whatever stopped work it dismissed and whatever answers
+//! were `Unknown` on the way, and a verdict under a budget is the verdict without one, or
 //! inconclusive. The budget counts the evaluation's own polls, which reuse of answers the
-//! observer's solver decided earlier can only lower; the solver's undecided answers and the
-//! process's stack budget, which threads share, are outside it.
+//! observer's solver decided earlier can only lower; the solver's bounds and the process's
+//! stack budget, which threads share, are outside it.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -67,7 +74,7 @@ use std::sync::Arc;
 
 use k_rust::backend::StepTimeoutMode;
 use k_rust::k_rust_backend::definition::Admission;
-use k_rust::k_rust_backend::stop::with_poll_budget;
+use k_rust::k_rust_backend::stop::{with_operation_record, with_poll_budget};
 
 use crate::Semantics;
 use crate::ends::{EndCell, EndCells, EndError, Side};
@@ -88,6 +95,10 @@ pub enum EvaluationError {
     /// of the backend ([`Semantics::evaluate_within`]), which this says: whether it has a value
     /// is not known.
     Stopped(String),
+    /// The evaluation ended short of a value after the solver answered `Unknown` this many
+    /// times to the queries it asked: a condition so answered is undecided by the solver run,
+    /// not by the definition, so whether it has a value is not known.
+    Undecided(usize),
 }
 
 impl fmt::Display for EvaluationError {
@@ -102,6 +113,11 @@ impl fmt::Display for EvaluationError {
             Self::Stopped(stop) => write!(
                 formatter,
                 "its evaluation stopped before it ended ({stop}), so whether it has a value is not known"
+            ),
+            Self::Undecided(answers) => write!(
+                formatter,
+                "the solver answered `Unknown` to {answers} quer{} of its evaluation, which ended short of a value, so whether it has a value is not known",
+                if *answers == 1 { "y" } else { "ies" }
             ),
         }
     }
@@ -244,7 +260,8 @@ impl CellViews {
     /// # Errors
     ///
     /// Fails as [`Self::evaluate`] does, and returns [`EndError::ViewStopped`] for an evaluation
-    /// that stopped before it ended: it spent `budget`, or another stop of the backend ended it.
+    /// that stopped before it ended (it spent `budget`, or another stop of the backend ended it)
+    /// or that ended short of a value after the solver answered `Unknown`.
     pub fn evaluate_within(
         &mut self,
         observer: &mut Semantics,
@@ -294,11 +311,13 @@ impl CellViews {
                     budget,
                 )
                 .map_err(|error| match error {
-                    EvaluationError::Stopped(_) => EndError::ViewStopped {
-                        cell: view.cell.clone(),
-                        function: view.function.clone(),
-                        message: format!("at the {side} end's `{path}`, {error}"),
-                    },
+                    EvaluationError::Stopped(_) | EvaluationError::Undecided(_) => {
+                        EndError::ViewStopped {
+                            cell: view.cell.clone(),
+                            function: view.function.clone(),
+                            message: format!("at the {side} end's `{path}`, {error}"),
+                        }
+                    }
                     error => refuse(error.to_string()),
                 })?;
             self.results
@@ -403,8 +422,10 @@ impl Semantics {
     /// arguments that do not fit it, [`EvaluationError::Backend`] for a term the backend
     /// refuses or a result that is no term of the definition, [`EvaluationError::NoValue`] when
     /// the result holds a part with no KRS description (an unevaluated application, `\bottom`,
-    /// a disjunction), and [`EvaluationError::Stopped`] for a simplification that a stop of the
-    /// backend ended before it reached a value.
+    /// a disjunction) and no stop or `Unknown` solver answer explains it,
+    /// [`EvaluationError::Stopped`] for a simplification that a stop of the backend ended before
+    /// it reached a value, and [`EvaluationError::Undecided`] for one that ended short of a value
+    /// after the solver answered `Unknown`.
     pub fn evaluate(
         &mut self,
         function: &str,
@@ -420,6 +441,8 @@ impl Semantics {
     ///
     /// Fails as [`Self::evaluate`] does, and returns [`EvaluationError::Stopped`] for a
     /// simplification that spent `budget`, or that another stop ended, before it reached a value.
+    /// The simplification is one operation of the backend: what it met
+    /// (`stop::with_operation_record`) is read, whatever record or budget encloses the call.
     pub fn evaluate_within(
         &mut self,
         function: &str,
@@ -434,12 +457,15 @@ impl Semantics {
             ))
         })?;
         let backend = &mut self.backend;
-        // With no budget the scope still records a stack stop a site dismissed on the way.
-        let (simplified, record) = with_poll_budget(
-            budget.unwrap_or(u64::MAX),
-            StepTimeoutMode::Manual(std::time::Duration::ZERO),
-            || backend.simplify_kore(None, &pattern, Admission::Unverified),
-        );
+        // With no budget the scope still records a stack stop a site dismissed on the way; the
+        // operation's record counts the solver's `Unknown` answers it received.
+        let ((simplified, record), operation) = with_operation_record(|| {
+            with_poll_budget(
+                budget.unwrap_or(u64::MAX),
+                StepTimeoutMode::Manual(std::time::Duration::ZERO),
+                || backend.simplify_kore(None, &pattern, Admission::Unverified),
+            )
+        });
         let spent = || match budget {
             Some(budget) if record.budget_exhausted => Some(format!(
                 "it spent its budget of {budget} poll{}",
@@ -460,11 +486,15 @@ impl Semantics {
                 "the simplified application is no term of the definition: {error}"
             ))
         })?;
-        // A value reached is the definition's value, whatever stopped work was dismissed on the
-        // way; a result short of one is no value only where nothing stopped.
+        // A value reached is the definition's value, whatever stopped work was dismissed and
+        // whatever answers were `Unknown` on the way; a result short of one is no value only where
+        // nothing stopped and every answer of the solver was decided.
         match (opaque_part(&self.values, &value), spent()) {
             (None, _) => Ok(value),
             (Some(_), Some(stop)) => Err(EvaluationError::Stopped(stop)),
+            (Some(_), None) if operation.unknown_answers > 0 => {
+                Err(EvaluationError::Undecided(operation.unknown_answers))
+            }
             (Some(part), None) => Err(EvaluationError::NoValue(part)),
         }
     }

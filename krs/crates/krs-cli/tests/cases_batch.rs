@@ -29,7 +29,8 @@ const UNDECIDED_PACKAGE: &str = "krs-cli-cases-undecided-fixture";
 
 /// A definition whose exit cell, `status`, `quit c` sets to `c`; `open a` steps only where
 /// `unsure(a)` holds, which no equation decides at `2`, so a run of `open 2` reaches two states
-/// under a condition it cannot decide and has no one path.
+/// under a condition it cannot decide and has no one path. `OnlyOne(a)` has a value only at `1`,
+/// where its guard holds.
 const UNDECIDED: &str = r#"
 use k::builtin::{Bool, Int, KSequence};
 use k::KResult;
@@ -56,6 +57,15 @@ pub fn Unsure(a: Term<Int>) -> Term<Bool>;
 #[k::equation]
 #[k::requires(Opaque(a) == 1)]
 fn unsure_one(Unsure(a): Term<Bool>) -> Term<Bool> {
+    true
+}
+
+#[k::function(partial, internal)]
+pub fn OnlyOne(a: Term<Int>) -> Term<Bool>;
+
+#[k::equation]
+#[k::requires(a == 1)]
+fn only_one(OnlyOne(a): Term<Bool>) -> Term<Bool> {
     true
 }
 
@@ -773,6 +783,52 @@ fn a_case_whose_run_has_no_one_path_ran_to_no_end() {
         &["--expect", "cases.json#expected", "cases.json#open"],
     );
     assert_eq!(expected.status.code(), Some(3), "{}", stderr(&expected));
+}
+
+/// A view's equation guard that the solver answers `Unknown` (a starved solver, on the guard
+/// `Opaque(2) == 1`) leaves the view's evaluation short of a value for a reason of that solver
+/// run, not of the definition: the comparison is inconclusive (exit 3), naming the answer. The
+/// same view with a solver that decides the guard's queries, where the guard stays undecided on
+/// decided answers, and a view whose guard is decided false (`2 == 1`, decided under the starved
+/// solver as well) have no value: the comparison is refused (exit 2).
+#[test]
+fn a_view_whose_guard_the_solver_answers_unknown_is_inconclusive_not_no_value() {
+    let workspace = workspace();
+    let undecided = workspace.directory.path().join("undecided");
+    let document = json!({"case": [{"name": "two", "inputs": {"pgm": {"Quit": {"code": 2}}}}]});
+    fs::write(undecided.join("views.json"), document.to_string()).unwrap();
+    let compare = |view: &str, solver: &[&str]| {
+        let arguments = [
+            &["views.json#two", "views.json#two", "--view", view][..],
+            solver,
+        ]
+        .concat();
+        workspace.krs_in("undecided", UNDECIDED_PACKAGE, "compare", &arguments)
+    };
+    let starved = ["--smt-resource-limit", "1", "--smt-retries", "0"];
+
+    let unknown = compare("status=Unsure", &starved);
+    assert_eq!(unknown.status.code(), Some(3), "{}", stderr(&unknown));
+    assert!(
+        stdout(&unknown).starts_with(
+            "krs compare: inconclusive: the view `Unsure` of the cell `status`: at the left end's `status`, the solver answered `Unknown` to "
+        ),
+        "{}",
+        stdout(&unknown)
+    );
+
+    let refused = |output: &Output, view: &str| {
+        assert_eq!(output.status.code(), Some(2), "{}", stdout(output));
+        assert!(
+            stderr(output).contains(&format!(
+                "the view `{view}` of the cell `status`: it has no value at the left end's `status`: the definition gives it no value"
+            )),
+            "{}",
+            stderr(output)
+        );
+    };
+    refused(&compare("status=Unsure", &[]), "Unsure");
+    refused(&compare("status=OnlyOne", &starved), "OnlyOne");
 }
 
 /// The solver's bound decides nothing here, so a run ends `indeterminate` and a search is

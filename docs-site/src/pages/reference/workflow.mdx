@@ -264,6 +264,8 @@ An observer that cannot be compiled refuses the case with its diagnostics; a vie
 A view that does not apply to its cell is refused before the run, and one without a value at an end refuses the case.
 Each evaluation of a view has a budget of `--view-budget POLLS` polls (30000000 by default): a count of the points at which the simplifier polls for a stop, which is the evaluation's own work, so whether the budget stops it does not depend on the host's speed or load.
 An evaluation that spends the budget, or that another stop of the backend ends (the simplifier's stack, the solver's prelude), makes the verdict inconclusive, since the view may yet have a value; a value it reaches is the definition's value, whatever the budget.
+So does an evaluation that ends short of a value after the solver answered a query `Unknown` (one of its bounds ran out, as under a small `--smt-resource-limit`, or the query is beyond what it decides): such a condition is undecided by that run of the solver, not by the definition.
+A condition the definition decides false, or that stays undecided on decided answers alone, leaves the view no value, which refuses the case.
 The verdict's lines name the views it applied (``  views: `bus` = `WritesView`, in `sm83-views:main` ``).
 
 ```toml
@@ -591,7 +593,8 @@ A view that does not apply to its cell, or names no function of the observer, is
 and one without a value at an end refuses the verdict, naming the view, the side and the cell,
 since an observation that does not exist makes the ends neither agree nor differ.
 A front end may bound each view's evaluation;
-one that the bound or another stop of the evaluation ends before it reaches a value makes the verdict inconclusive, since it may yet have a value.
+one that the bound or another stop of the evaluation ends before it reaches a value makes the verdict inconclusive, since it may yet have a value,
+as does one that ends short of a value after the solver answered a query `Unknown`.
 
 Against the ends of the case's run, the expectation is
 *met* when every end agrees with it on the halt and on the compared cells;
