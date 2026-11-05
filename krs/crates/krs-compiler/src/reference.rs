@@ -2428,11 +2428,13 @@ fn render_rule(
         parameters.push((name.unraw().to_string(), quote!(#name: #ty)));
     }
 
+    // The `cells!` rule is typed by what the clause is about, and names each cell relative to it.
+    let root = rule_subject_type(rule, descriptor_index);
     let mut left_cells = Vec::new();
     let mut right_cells = Vec::new();
     // A clause without the computation cell leaves it out of both sides (E7).
     if let (Some(head), Some(computation)) = (&rule.head, &rule.computation_cell) {
-        let computation = render_rule_cell_field(&computation.cell, &rule.configuration, package)?;
+        let computation = render_rule_cell_field(&computation.cell, &root, package)?;
         let subject = head
             .items
             .iter()
@@ -2490,7 +2492,7 @@ fn render_rule(
                     cell,
                     before,
                     after.as_ref(),
-                    &rule.configuration,
+                    &root,
                     &mut StateRendering {
                         package,
                         bundle,
@@ -2508,7 +2510,7 @@ fn render_rule(
                 entries: read,
                 ..
             } => {
-                let cell = render_rule_cell_field(&cell.cell, &rule.configuration, package)?;
+                let cell = render_rule_cell_field(&cell.cell, &root, package)?;
                 let pairs = read
                     .iter()
                     .map(|entry| {
@@ -2533,7 +2535,7 @@ fn render_rule(
                 base_binding,
                 update,
             } => {
-                let cell = render_rule_cell_field(&cell.cell, &rule.configuration, package)?;
+                let cell = render_rule_cell_field(&cell.cell, &root, package)?;
                 let base = rust_ident(base_binding)?;
                 let update = render_term(update, false, package, bundle)?;
                 left_cells.push(quote!(#cell: k::configuration::Cell(#base)));
@@ -2565,7 +2567,7 @@ fn render_rule(
                     } else {
                         entries::ListKind::Builtin
                     };
-                    let field = render_rule_cell_field(&cell.cell, &rule.configuration, package)?;
+                    let field = render_rule_cell_field(&cell.cell, &root, package)?;
                     let entry = |list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>,
                                  pattern: bool|
                      -> Result<entries::Entry, ReferenceExpansionError> {
@@ -2623,7 +2625,7 @@ fn render_rule(
                             Ok::<_, ReferenceExpansionError>(rest)
                         })
                         .transpose()?;
-                    let field = render_rule_cell_field(&cell.cell, &rule.configuration, package)?;
+                    let field = render_rule_cell_field(&cell.cell, &root, package)?;
                     let before =
                         render_builtin_list(before, shared.as_ref(), true, package, bundle)?;
                     left_cells.push(quote! {
@@ -2650,7 +2652,7 @@ fn render_rule(
                         Ok::<_, ReferenceExpansionError>(rest)
                     })
                     .transpose()?;
-                let field = render_rule_cell_field(&cell.cell, &rule.configuration, package)?;
+                let field = render_rule_cell_field(&cell.cell, &root, package)?;
                 let before = render_list(before, &list, shared.as_ref(), true, package, bundle)?;
                 left_cells.push(quote! {
                     #field: k::configuration::Cell(#before)
@@ -2670,7 +2672,7 @@ fn render_rule(
             } => {
                 let group = is_group_cell(&cell.cell, descriptor_index);
                 let optional = is_optional_cell(&cell.cell, descriptor_index);
-                let cell = render_rule_cell_field(&cell.cell, &rule.configuration, package)?;
+                let cell = render_rule_cell_field(&cell.cell, &root, package)?;
                 let before = render_term(before, true, package, bundle)?;
                 let after = after
                     .as_ref()
@@ -2701,7 +2703,7 @@ fn render_rule(
             }
         }
     }
-    let configuration = render_declared_path(&rule.configuration, package)?;
+    let root_type = render_declared_path(&root, package)?;
     let name = &clause.rule().item().sig.ident;
     let label = syn::LitStr::new(
         rule.label
@@ -2817,8 +2819,8 @@ fn render_rule(
         #requires
         pub fn #name(
             #(#parameters,)*
-            k::cells! { #subject }: #configuration,
-        ) -> #configuration {
+            k::cells! { #subject }: #root_type,
+        ) -> #root_type {
             k::cells! {
                 #(#right_cells,)*
                 ..#state
@@ -2826,6 +2828,70 @@ fn render_rule(
         }
     })
     .map_err(ReferenceExpansionError::GeneratedRust)
+}
+
+/// The type of a rule's `cells!` subject and result: what the rule is about.
+///
+/// A rule for a cell group names only the group's cells and is a step of the group at its one
+/// position, of one instance of it where an optional cell or a Map collection holds it; its
+/// `cells!` form is typed by the group, whatever holds the group, and names the group's cells
+/// flat. A table clause (`for Sort`) names no cell and runs at the definition's main cell, so
+/// where the main cell lies in an instance it is a step of that instance, about the group the
+/// innermost holder holds. Every other rule is about the whole configuration.
+fn rule_subject_type(rule: &DescriptorHeadRule, index: &DescriptorIndex<'_>) -> StableItemId {
+    match (&rule.subject, &rule.head_sort, &rule.computation_cell) {
+        (Some(krs_ir::DescriptorSubject::Group { declaration }), _, _) => declaration.clone(),
+        (None, Some(_), Some(main)) => instance_group(&rule.configuration, &main.cell, index)
+            .unwrap_or_else(|| rule.configuration.clone()),
+        (None, _, _) => rule.configuration.clone(),
+    }
+}
+
+/// The group held by the innermost optional (`?`) or collection (`*`) cell on the path from
+/// `configuration` to `cell`, absent where every holder on the path is a fixed cell.
+fn instance_group(
+    configuration: &StableItemId,
+    cell: &krs_ir::DescriptorCellIdentity,
+    index: &DescriptorIndex<'_>,
+) -> Option<StableItemId> {
+    fn walk<'a>(
+        owner: &'a StableItemId,
+        cell: &krs_ir::DescriptorCellIdentity,
+        instance: Option<&'a StableItemId>,
+        index: &DescriptorIndex<'a>,
+        visiting: &mut BTreeSet<&'a StableItemId>,
+    ) -> Option<Option<&'a StableItemId>> {
+        for field in &index.cell_owner(owner).ok()?.fields {
+            if field.reference.cell == *cell {
+                return Some(instance);
+            }
+            let krs_ir::ProtocolCellContent::Nested { declaration } = &field.content else {
+                continue;
+            };
+            let group = &declaration.declaration;
+            if !visiting.insert(group) {
+                continue;
+            }
+            let multiplicity = krs_ir::cell_kind::CellView::multiplicity(
+                &krs_ir::cell_kind::DescriptorCell::new(field, index),
+            );
+            let inner = if multiplicity == krs_ir::cell_kind::Multiplicity::One {
+                instance
+            } else {
+                Some(group)
+            };
+            let found = walk(group, cell, inner, index, visiting);
+            visiting.remove(group);
+            if found.is_some() {
+                return found;
+            }
+        }
+        None
+    }
+    let owner = index.get(configuration)?.id();
+    walk(owner, cell, None, index, &mut BTreeSet::new())
+        .flatten()
+        .cloned()
 }
 
 /// Whether a `#[k::requires]` of `item` holds the operator `==`.

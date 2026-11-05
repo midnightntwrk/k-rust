@@ -1838,6 +1838,158 @@ fn group_rules_apply_at_a_fixed_position_in_an_optional_cell_and_in_a_map() {
     "#]].assert_debug_eq(&emitted_inc);
 }
 
+/// A rule a definition writes for the hart, and a table clause, which runs at
+/// the main cell, the hart's `k`.
+const HOLDER_HART_RULES: &str = r"
+k::rules! {
+    for lib::Hart;
+    use lib::Op::*;
+
+    inc: { k: [Inc(), ..], pc } => { k: [..], pc: k::builtin::int::add(pc, 1) };
+}
+
+k::rules! {
+    for lib::Instr;
+    use lib::Op::*;
+
+    tick: Tick() => Inc();
+}
+";
+
+/// The `#[k::rule]` fn labelled `label` in a `krs expand` print, up to its
+/// closing brace.
+fn printed_rule<'a>(print: &'a str, label: &str) -> &'a str {
+    let start = print
+        .find(&format!("#[k::rule(label = \"{label}\")]"))
+        .unwrap_or_else(|| panic!("no rule `{label}` in:\n{print}"));
+    let end = start + print[start..].find("\n}\n").unwrap() + 2;
+    &print[start..end]
+}
+
+/// `krs expand` prints a rule for a group as a `cells!` rule typed by the
+/// group, naming the group's cells flat, whatever holds the group: a fixed
+/// position (`uni`), a Map collection (`smp`) or an optional cell (`opt`'s
+/// rule for `lib::Fpu`). A table clause is typed by the group whose instance
+/// holds the main cell (`smp`), and by the configuration where the main cell
+/// sits at a fixed position (`uni`). Each print checks and emits the
+/// readable rule's K.
+#[test]
+fn a_rule_for_a_group_prints_typed_by_the_group_wherever_the_group_is_held() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let packages = [
+        (
+            "uni",
+            format!("{UNI}{HOLDER_HART_RULES}"),
+            &["inc", "tick"][..],
+        ),
+        ("smp", smp("Map", HOLDER_HART_RULES), &["inc", "tick"][..]),
+        ("opt", opt(FPU_RULE), &["finish"][..]),
+    ];
+    let sources = packages
+        .iter()
+        .map(|(name, source, _)| (*name, source.as_str()))
+        .collect::<Vec<_>>();
+    let readable = instance_definitions(&temporary.path().join("readable"), "", &sources);
+    let mut prints = Vec::new();
+    let mut printed_sources = Vec::new();
+    for (manifest, (package, _, labels)) in readable.iter().zip(&packages) {
+        let (success, print, stderr) = krs_on(target.path(), manifest, package, "expand", &[]);
+        assert!(success, "{package}:\n{stderr}");
+        for label in *labels {
+            prints.push(format!("// {package}\n{}", printed_rule(&print, label)));
+        }
+        printed_sources.push((*package, print));
+    }
+    let sources = printed_sources
+        .iter()
+        .map(|(name, source)| (*name, source.as_str()))
+        .collect::<Vec<_>>();
+    let printed = instance_definitions(&temporary.path().join("printed"), "", &sources);
+    for ((readable, printed), (package, _, labels)) in readable.iter().zip(&printed).zip(&packages)
+    {
+        let (success, _, stderr) = krs_on(target.path(), printed, package, "check", &[]);
+        assert!(success, "printed {package}:\n{stderr}");
+        let (readable, printed) = (
+            emitted(target.path(), readable, package),
+            emitted(target.path(), printed, package),
+        );
+        for label in *labels {
+            let start = format!("rule [{label}]:");
+            assert_eq!(
+                sentence(&readable, &start),
+                sentence(&printed, &start),
+                "{package}"
+            );
+        }
+    }
+    expect_test::expect![[r#"
+        // uni
+        #[k::rule(label = "inc")]
+        pub fn inc(
+            pc: k::Term<k::builtin::Int>,
+            k::cells! {
+                k : k::configuration::KCell(::lib::Op::Inc(), ..), pc :
+                k::configuration::Cell(pc), state @ ..
+            }: ::lib::Hart,
+        ) -> ::lib::Hart {
+            k::cells! {
+                k : k::configuration::KCell(..), pc :
+                k::configuration::Cell(k::builtin::int::add(pc, 1)), ..state
+            }
+        }
+        // uni
+        #[k::rule(label = "tick")]
+        pub fn tick(
+            k::cells! {
+                ::lib::Hart::k : k::configuration::KCell(::lib::Op::Tick(), ..), state @ ..
+            }: crate::Uni,
+        ) -> crate::Uni {
+            k::cells! {
+                ::lib::Hart::k : k::configuration::KCell(::lib::Op::Inc(), ..), ..state
+            }
+        }
+        // smp
+        #[k::rule(label = "inc")]
+        pub fn inc(
+            pc: k::Term<k::builtin::Int>,
+            k::cells! {
+                k : k::configuration::KCell(::lib::Op::Inc(), ..), pc :
+                k::configuration::Cell(pc), state @ ..
+            }: ::lib::Hart,
+        ) -> ::lib::Hart {
+            k::cells! {
+                k : k::configuration::KCell(..), pc :
+                k::configuration::Cell(k::builtin::int::add(pc, 1)), ..state
+            }
+        }
+        // smp
+        #[k::rule(label = "tick")]
+        pub fn tick(
+            k::cells! {
+                k : k::configuration::KCell(::lib::Op::Tick(), ..), state @ ..
+            }: ::lib::Hart,
+        ) -> ::lib::Hart {
+            k::cells! {
+                k : k::configuration::KCell(::lib::Op::Inc(), ..), ..state
+            }
+        }
+        // opt
+        #[k::rule(label = "finish")]
+        pub fn finish(
+            fa: k::Term<k::builtin::Int>,
+            k::cells! {
+                busy : k::configuration::Cell(1), fa : k::configuration::Cell(fa), state @ ..
+            }: ::lib::Fpu,
+        ) -> ::lib::Fpu {
+            k::cells! {
+                busy : k::configuration::Cell(0), fa :
+                k::configuration::Cell(k::builtin::int::add(fa, 1)), ..state
+            }
+        }"#]]
+    .assert_eq(&prints.join("\n"));
+}
+
 /// A boot rule for `Smp`, over the collection's instance records: the first
 /// hart's `spawn` becomes `inc`, and a second hart, keyed `1`, starts with
 /// `dec` and its program counter at 10.
