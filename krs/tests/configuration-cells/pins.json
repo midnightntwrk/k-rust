@@ -8,7 +8,9 @@
     "krs-configuration-cells-objects": "8fa40aba16561970ac7d87508e9b81b3e551ff3875d97e3a4b42e72bfb116b8e",
     "krs-configuration-cells-queue": "7f1e1998155b9a78e6db091517dbc68eab134462fcf2cb7f4a974920c11437bc",
     "krs-configuration-cells-optional-config-var-initial": "1fc5570ecdd2379194c3f124075366590a5d8a659a526d007816f0a97f0459ab",
-    "krs-configuration-cells-set-instances": "b0f2b2c156ce6ea4c959dc5fdc6a11d296d5ea05201fd614629ade71bd509b49"
+    "krs-configuration-cells-set-instances": "b0f2b2c156ce6ea4c959dc5fdc6a11d296d5ea05201fd614629ade71bd509b49",
+    "krs-configuration-cells-group-small": "b0fdc56ae3138c1371e5ba97beffcc6623d24d18e4353c6506239274cd907112",
+    "krs-configuration-cells-group-board": "7b11baa7e60321b0ae8e236f8ca4c21d616af1c8bd0a6e078dce8542e24fa398"
   },
   "emitted": {
     "krs-configuration-cells-framing": {
@@ -34,6 +36,12 @@
     },
     "krs-configuration-cells-set-instances": {
       "definition.k": "500cd0bdbd5a65d73757e1906b64f03ec7ad47bd99dd3bae54a302e0973036af"
+    },
+    "krs-configuration-cells-group-small": {
+      "definition.k": "1ee86b716e7d91a3de5770758c1e1a709ba572324ce92d05d281c84f930dcb57"
+    },
+    "krs-configuration-cells-group-board": {
+      "definition.k": "5f47f228b50fe35a4e29806108419cade59cc3f273847341c9b719a9110dc94e"
     }
   },
   "reference_sha256": {
@@ -44,7 +52,9 @@
     "krs-configuration-cells-queue": "b7db00a509a1368f549eef7c0f29d4568a046f4b5c421ed2059724a61d7a6dee",
     "krs-configuration-cells-optional-config-var-initial": "927678a7469786d3479d0f971ebf574fb9f7c12a24586291dc58399b4d026dce",
     "krs-configuration-cells-set-instances": "7e1ab1bc23c589f969788d4ced5c8ae2e5b0ab90fb14597aacaa681825389ee2",
-    "krs-configuration-cells-threads": "7ddcacbefae7ab7383f99a7ac9edad13110d5dd1b93049d02e678c98279a4d7f"
+    "krs-configuration-cells-threads": "7ddcacbefae7ab7383f99a7ac9edad13110d5dd1b93049d02e678c98279a4d7f",
+    "krs-configuration-cells-group-small": "134ae54726e3144ddb7fa800f5d668064d8d9d137f8894a15b6be239836e3614",
+    "krs-configuration-cells-group-board": "655fa6eb4d1d23aa15acf43094d042a76129fbe7a0e6786f199b0c3d36c8e72b"
   },
   "outcomes": {
     "krs-configuration-cells-framing": {
@@ -346,6 +356,67 @@
           "sacks": "<bag> <key> 5 </key> <s> SetItem ( 5 ) SetItem ( 6 ) </s> <m> 5 |-> 6 </m> </bag>"
         }
       }
+    },
+    "krs-configuration-cells-group-small": {
+      "store-load": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "pc": "5",
+          "acc": "2",
+          "mem": "7 |-> 2"
+        }
+      },
+      "overwrite": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "pc": "6",
+          "acc": "2",
+          "mem": "1 |-> 2"
+        }
+      },
+      "unmapped": {
+        "parse": "accepted",
+        "run": "busRead ( 3 ) ~> done",
+        "cells": {
+          "pc": "2",
+          "acc": "1",
+          "mem": ".Map"
+        }
+      }
+    },
+    "krs-configuration-cells-group-board": {
+      "store-load": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "pc": "5",
+          "acc": "2",
+          "mem": "7 |-> 2",
+          "timer": "2"
+        }
+      },
+      "overwrite": {
+        "parse": "accepted",
+        "run": ".K",
+        "cells": {
+          "pc": "6",
+          "acc": "2",
+          "mem": "1 |-> 2",
+          "timer": "3"
+        }
+      },
+      "unmapped": {
+        "parse": "accepted",
+        "run": "busRead ( 3 ) ~> done",
+        "cells": {
+          "pc": "2",
+          "acc": "1",
+          "mem": ".Map",
+          "timer": "0"
+        }
+      }
     }
   },
   "diagnostics": {
@@ -463,6 +534,16 @@
     },
     "krs-configuration-cells-optional-config-var-initial": {
       "go": []
+    },
+    "krs-configuration-cells-group-small": {
+      "store-load": [],
+      "overwrite": [],
+      "unmapped": []
+    },
+    "krs-configuration-cells-group-board": {
+      "store-load": [],
+      "overwrite": [],
+      "unmapped": []
     }
   },
   "known_round_trip_failures": {
