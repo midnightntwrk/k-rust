@@ -159,6 +159,12 @@ pub enum Refusal {
     /// An instance update (`T { .., ..me }`) whose label names no instance the subject matches
     /// and no value the sentence binds: the update has no base.
     RecordUpdateBase,
+    /// A `cells!` result's record update that is no in-place update of an instance its subject
+    /// labels: a group record's `..base`, or an instance update `..me` whose label names no
+    /// subject instance of the cell, so its base is a record matched elsewhere. `cells!` is the
+    /// reference notation, which names every field: the one update it has rewrites in place the
+    /// instance its subject labels.
+    RecordRemainderInCellsTerm,
     /// A readable map read at a result entry's head, which has no result side yet: the result
     /// is the frame write `Cell(k::map![k -> v, ..])` (a stated limitation of the readable
     /// record's top-level route).
@@ -210,6 +216,7 @@ impl Refusal {
             Self::ComputationBackItem => "computation-back-item",
             Self::ConsListBackItem => "cons-list-back-item",
             Self::RecordUpdateBase => "record-update-base",
+            Self::RecordRemainderInCellsTerm => "record-remainder-in-cells-term",
             Self::MapReadInResult => "map-read-in-result",
             Self::MapCollectionKey => "map-collection-key",
             Self::MapReadValueBinder => "map-read-value-binder",
@@ -267,7 +274,9 @@ impl Refusal {
             Self::RestMismatch => syntax::INVALID_LIST_NOTATION,
             Self::OpenRecordOutsidePattern => syntax::INVALID_RECORD_UPDATE,
             Self::ComputationBackItem => collect::INVALID_CONFIGURATION,
-            Self::RecordUpdateBase => analysis::INVALID_RECORD_UPDATE,
+            Self::RecordUpdateBase | Self::RecordRemainderInCellsTerm => {
+                analysis::INVALID_RECORD_UPDATE
+            }
             Self::MapCollectionKey => analysis::MAP_COLLECTION_KEY,
         }
     }
@@ -276,7 +285,7 @@ impl Refusal {
 impl Refusal {
     /// Every refusal, in declaration order (each at its discriminant): the refusals
     /// [`Self::reason`] is checked over.
-    pub const ALL: [Self; 29] = [
+    pub const ALL: [Self; 30] = [
         Self::WildcardOutsidePattern,
         Self::AliasOutsidePattern,
         Self::NoneInInitializer,
@@ -303,6 +312,7 @@ impl Refusal {
         Self::ComputationBackItem,
         Self::ConsListBackItem,
         Self::RecordUpdateBase,
+        Self::RecordRemainderInCellsTerm,
         Self::MapReadInResult,
         Self::MapCollectionKey,
         Self::MapReadValueBinder,
@@ -424,6 +434,9 @@ impl Refusal {
             ),
             Self::RecordUpdateBase => format!(
                 "the entry of the cell `{cell}` updates a record (`..base`) whose base the sentence does not match: an update takes the fields of a record of its own constructor that the subject names `base @ ..`, such as an instance its subject's instance list labels"
+            ),
+            Self::RecordRemainderInCellsTerm => format!(
+                "the `cells!` entry of the cell `{cell}` takes a record's other children from a base (`..base`) that is no instance its subject labels: `cells!` is the reference notation, which names every child, and its one update rewrites in place the instance of a collection its subject labels"
             ),
             Self::MapReadInResult => format!(
                 "the entry of the cell `{cell}` reads a map (`{{ k -> v, .. }}`) in a result: a map read is a pattern, and a readable record's result has no map write yet (a stated limitation; a `cells!` result has `Cell(k::map![k -> v, ..])`)"
@@ -1582,6 +1595,14 @@ fn pair_content(
 
 /// The group and instance records a result's content writes: a group that exists takes no bare
 /// `..`, and each record's children are paired against their own other sides.
+///
+/// In `cells!`, the reference notation, a record names every child: its one update, `..me`,
+/// rewrites in place the instance of a collection that its subject labels `me @`, the instance
+/// the step matched (R10). A group record's `..base`, and an instance update whose label no
+/// subject instance of the cell has (its base a record matched elsewhere), take children from
+/// another record, and are refused ([`Refusal::RecordRemainderInCellsTerm`]). The refusal comes
+/// after the record's children are paired, each against the instance the update would create: a
+/// child is an entry of its own cell, whose content is wrong whatever the record's base.
 fn pair_records(
     form: EntryForm,
     stack: &[Layer],
@@ -1627,6 +1648,9 @@ fn pair_records(
                 return Err(Refusal::OpenRecordOutsidePattern);
             }
             fields(group, record, other, path)?;
+            if form == EntryForm::Cells && matches!(record.tail, RecordTail::Update(_)) {
+                return Err(Refusal::RecordRemainderInCellsTerm);
+            }
             if aliased {
                 path.pop();
             }
@@ -1649,6 +1673,13 @@ fn pair_records(
                     return Err(Refusal::MapCollectionKey);
                 }
                 fields(group, record, other, path)?;
+                // An update whose other side is a created instance updates no subject instance.
+                if form == EntryForm::Cells
+                    && matches!(record.tail, RecordTail::Update(_))
+                    && other == Other::Created
+                {
+                    return Err(Refusal::RecordRemainderInCellsTerm);
+                }
                 if matches!(item, EntrySpelling::Alias(..)) {
                     path.pop();
                 }
@@ -3252,6 +3283,113 @@ mod tests {
                 false,
                 &|_| Some(Bound::Record("T".to_owned())),
             ),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn a_cells_update_rewrites_in_place_only_an_instance_its_subject_labels() {
+        let cells = EntryForm::Cells;
+        let remainder = Err(Refusal::RecordRemainderInCellsTerm);
+        let threads = [
+            Layer::Instances(Order::List),
+            Layer::Group(GroupKind {
+                name: "T".to_owned(),
+                children: vec![
+                    (
+                        "k".to_owned(),
+                        CellKind {
+                            layers: vec![Layer::Computation],
+                        },
+                    ),
+                    ("n".to_owned(), int()),
+                ],
+            }),
+        ];
+        // `..me` of the subject instance `me @` labels is the update `cells!` has, in place.
+        assert_eq!(
+            result(
+                cells,
+                &threads,
+                "[k::fragment![crate::T { n: x, ..me }], ..]",
+                Some("[me @ k::fragment![crate::T { n: y, .. }], ..]")
+            ),
+            Ok(None)
+        );
+        // A label no subject instance of the cell has takes the record's other children from a
+        // record matched elsewhere, which the reference notation names instead.
+        assert_eq!(
+            result(
+                cells,
+                &threads,
+                "[k::fragment![crate::T { n: x, ..me }], ..]",
+                Some("[..]")
+            ),
+            remainder
+        );
+        assert_eq!(
+            result(
+                cells,
+                &threads,
+                "[k::fragment![crate::T { n: x, ..me }]]",
+                None
+            ),
+            remainder
+        );
+        // The record's children are paired first, against the instance it would create; a base
+        // that is no record of the update's constructor is none at all.
+        assert_eq!(
+            result(
+                cells,
+                &threads,
+                "[k::fragment![crate::T { k: [x, ..], ..me }], ..]",
+                Some("[..]")
+            ),
+            Err(Refusal::RestMismatch)
+        );
+        let spelling = read(cells, "[k::fragment![crate::T { n: x, ..me }], ..]");
+        let subject = read(cells, "[..]");
+        assert_eq!(
+            pair(
+                cells,
+                EntrySide::Result,
+                &threads,
+                &spelling,
+                Some(&subject),
+                false,
+                &|_| Some(Bound::Value),
+            ),
+            Err(Refusal::RecordUpdateBase)
+        );
+        // A group record's `..base` takes its other children from another record, wherever the
+        // base is matched.
+        let g = [Layer::Group(GroupKind {
+            name: "G".to_owned(),
+            children: vec![("a".to_owned(), int()), ("b".to_owned(), int())],
+        })];
+        for subject in [
+            None,
+            Some("_"),
+            Some("saved @ k::fragment![crate::G { a: y, .. }]"),
+        ] {
+            assert_eq!(
+                result(
+                    cells,
+                    &g,
+                    "k::fragment![crate::G { a: x, ..saved }]",
+                    subject
+                ),
+                remainder
+            );
+        }
+        // Readable keeps both: they are readable-record notation.
+        let readable = EntryForm::Readable;
+        assert_eq!(
+            result(readable, &threads, "[T { n: x, ..me }, ..]", Some("[..]")),
+            Ok(None)
+        );
+        assert_eq!(
+            result(readable, &g, "G { a: x, ..saved }", Some("_")),
             Ok(None)
         );
     }
