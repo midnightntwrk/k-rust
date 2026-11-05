@@ -1018,6 +1018,194 @@ fn counted_pieces_sum_to_the_uncut_run() {
     });
 }
 
+/// A run as its pieces would join it, compared field by field ([`staged`]).
+#[derive(Debug, Eq, PartialEq)]
+struct Joined {
+    halt: Halt,
+    steps: u64,
+    state: String,
+    resume: String,
+    trace: Vec<String>,
+    covered: Covered,
+    stops: u64,
+    stop: Option<(StopAt, Option<String>, u64)>,
+}
+
+impl Joined {
+    fn of(report: &RunReport) -> Self {
+        assert_eq!(
+            report
+                .trace
+                .iter()
+                .map(|step| step.index)
+                .collect::<Vec<_>>(),
+            (1..=report.steps).collect::<Vec<_>>(),
+            "{report:?}"
+        );
+        let mut covered = Covered::new();
+        cover(&mut covered, report);
+        Self {
+            halt: report.halt,
+            steps: report.steps,
+            state: report.state.kore().to_string(),
+            resume: report.resume().kore().to_string(),
+            trace: rule_ids(report),
+            covered,
+            stops: report.stops,
+            stop: report.stop.as_ref().map(|stop| {
+                (
+                    stop.at,
+                    stop.rule.as_ref().map(|rule| rule.rule_id.clone()),
+                    stop.nth,
+                )
+            }),
+        }
+    }
+}
+
+/// The staged form of a run under `count` arrivals at a stop of `rules` within `depth` steps:
+/// the run to the first arrival, resumed from each arrival before the `count`th
+/// ([`RunReport::resume`]) with the bound the pieces before it left, its pieces joined: the end
+/// the last piece's, the steps, traces and coverage summed, the arrivals the pieces that stopped.
+fn staged(
+    semantics: &mut Semantics,
+    start: &State,
+    rules: &StopRules,
+    count: u64,
+    depth: Option<u64>,
+) -> Joined {
+    let mut state = start.clone();
+    let mut steps = 0;
+    let mut trace = Vec::new();
+    let mut covered = Covered::new();
+    let mut arrivals = 0;
+    loop {
+        let piece = semantics
+            .run(
+                &state,
+                RunOptions {
+                    depth: depth.map(|depth| depth.saturating_sub(steps)),
+                    trace: true,
+                    coverage: Some(CoverageOptions::default()),
+                    stop: rules.clone().into(),
+                    ..RunOptions::default()
+                },
+            )
+            .unwrap();
+        steps += piece.steps;
+        trace.extend(rule_ids(&piece));
+        cover(&mut covered, &piece);
+        let stopped = piece.halt == Halt::Stopped;
+        arrivals += u64::from(stopped);
+        if !stopped || arrivals == count {
+            return Joined {
+                halt: piece.halt,
+                steps,
+                state: piece.state.kore().to_string(),
+                resume: piece.resume().kore().to_string(),
+                trace,
+                covered,
+                stops: arrivals,
+                stop: piece.stop.as_ref().map(|stop| {
+                    (
+                        stop.at,
+                        stop.rule.as_ref().map(|rule| rule.rule_id.clone()),
+                        arrivals,
+                    )
+                }),
+            };
+        }
+        state = piece.resume();
+    }
+}
+
+/// A fixture, the stops to run it under and the depth bounds to run each under.
+type Row = (
+    &'static (DefinitionIr, CompiledStage),
+    Vec<StopRules>,
+    Vec<Option<u64>>,
+);
+
+/// A counted run is one backend request, and is its staged form: over every fixture, stops
+/// before and after rules named by label and by KRS item, every count up to past the arrivals a
+/// run has, and depth bounds that cut before, at and after arrivals, the run's end, steps,
+/// trace, coverage (with its counts: the fixtures' equations are builtin operations, which no
+/// memo serves), arrivals and stop are those of its pieces resumed and joined. Looking for its
+/// other ends is one request too.
+#[test]
+fn a_counted_run_is_one_request_and_its_staged_pieces_joined() {
+    let both = StopRules {
+        before: vec!["work".to_owned()],
+        after: vec!["boundary".to_owned()],
+    };
+    let table: [Row; 4] = [
+        (
+            compiled(),
+            vec![
+                after("boundary"),
+                before("boundary"),
+                after("work"),
+                before("work"),
+                both.clone(),
+            ],
+            vec![None, Some(2), Some(3), Some(5)],
+        ),
+        (
+            free_running(),
+            vec![
+                after("boundary"),
+                before("work"),
+                after("crate::work_amount"),
+                before("crate::work_amount"),
+                both,
+            ],
+            vec![Some(40), Some(7), Some(11)],
+        ),
+        (
+            strict(),
+            vec![after("crate::Arith::Add"), before("crate::Arith::Add")],
+            vec![None, Some(2)],
+        ),
+        (
+            branching(),
+            vec![after("boundary"), before("boundary")],
+            vec![None, Some(1)],
+        ),
+    ];
+    for (fixture, stops, depths) in table {
+        on(fixture, |semantics| {
+            let start = initial(semantics);
+            for stop in &stops {
+                for count in 1..=4 {
+                    for &depth in &depths {
+                        let context = format!("{stop:?} count {count} depth {depth:?}");
+                        let options = RunOptions {
+                            depth,
+                            trace: true,
+                            coverage: Some(CoverageOptions::default()),
+                            stop: counted(stop, count),
+                            ..RunOptions::default()
+                        };
+                        let before = semantics.execute_requests();
+                        let report = semantics.run(&start, options.clone()).unwrap();
+                        assert_eq!(semantics.execute_requests() - before, 1, "{context}");
+                        assert!(report.stops <= count, "{context}: {report:?}");
+                        let joined = Joined::of(&report);
+                        assert_eq!(
+                            joined,
+                            staged(semantics, &start, stop, count, depth),
+                            "{context}"
+                        );
+                        let before = semantics.execute_requests();
+                        semantics.other_ends(&start, &options, &report).unwrap();
+                        assert_eq!(semantics.execute_requests() - before, 1, "{context}");
+                    }
+                }
+            }
+        });
+    }
+}
+
 /// The uncut run from `start` to where `joined` ended, bounded at as many steps, since the
 /// free-running machine has no own end, takes `joined`'s steps to its state; `joined` numbers
 /// them along the whole path, as the uncut run does.

@@ -431,35 +431,6 @@ pub struct Coverage {
     pub rules: Vec<CoveredRule>,
 }
 
-impl Coverage {
-    /// The coverage of a run followed by another along its path ([`RunReport::followed_by`]).
-    fn followed_by(self, later: Self) -> Self {
-        let mut rules = self
-            .rules
-            .into_iter()
-            .map(|rule| (rule.rule_id.clone(), rule))
-            .collect::<std::collections::BTreeMap<_, _>>();
-        for rule in later.rules {
-            match rules.entry(rule.rule_id.clone()) {
-                std::collections::btree_map::Entry::Vacant(entry) => {
-                    entry.insert(rule);
-                }
-                std::collections::btree_map::Entry::Occupied(mut entry) => {
-                    let listed = entry.get_mut();
-                    listed.matched |= rule.matched;
-                    listed.applied |= rule.applied;
-                    listed.committed |= rule.committed;
-                    listed.applications = listed.applications.saturating_add(rule.applications);
-                }
-            }
-        }
-        Self {
-            offered: self.offered || later.offered,
-            rules: rules.into_values().collect(),
-        }
-    }
-}
-
 /// Where a stop rule ended a run ([`crate::StopRules`]).
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -594,67 +565,6 @@ impl RunReport {
         self.resume
             .clone()
             .unwrap_or_else(|| crate::State::new(self.state.kore().clone()))
-    }
-
-    /// This run, followed by `later`, a run from its [`Self::resume`]: one run along the path
-    /// of both, so each step is the one piece's that took it.
-    ///
-    /// The end is `later`'s (its halt, state, console, exit code, stop and the state it
-    /// resumes from). The steps add up, the traces join with `later`'s steps numbered after
-    /// this run's, the logs join, each chosen value and term with no value is listed once in
-    /// the order a piece first reported it, and the coverage joins: an identity is listed when
-    /// either piece lists it, each predicate holds where it holds in either, and the
-    /// applications add up.
-    pub(crate) fn followed_by(mut self, later: Self) -> Self {
-        let Self {
-            halt,
-            steps,
-            state,
-            trace,
-            stdout,
-            exit_code,
-            log,
-            implementation_chosen_values,
-            valueless,
-            coverage,
-            stop,
-            stops: _,
-            resume,
-        } = later;
-        let offset = self.steps;
-        self.trace.extend(trace.into_iter().map(|step| Step {
-            index: step.index.saturating_add(offset),
-            ..step
-        }));
-        self.log.extend(log);
-        for value in implementation_chosen_values {
-            if !self.implementation_chosen_values.contains(&value) {
-                self.implementation_chosen_values.push(value);
-            }
-        }
-        for term in valueless {
-            if !self
-                .valueless
-                .iter()
-                .any(|listed| listed.kore() == term.kore())
-            {
-                self.valueless.push(term);
-            }
-        }
-        self.coverage = match (self.coverage, coverage) {
-            (Some(earlier), Some(later)) => Some(earlier.followed_by(later)),
-            (earlier, later) => earlier.or(later),
-        };
-        Self {
-            halt,
-            steps: offset.saturating_add(steps),
-            state,
-            stdout,
-            exit_code,
-            stop,
-            resume,
-            ..self
-        }
     }
 }
 

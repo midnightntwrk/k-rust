@@ -157,12 +157,13 @@ pub enum StopCriterion {
     /// An arrival is what ends a run at the stop rules: a step by a stop rule that is its
     /// state's one successor, the run ending at that state for a stop-before rule and at the
     /// step's successor for a stop-after rule; a step by a stop rule from a state with several
-    /// successors is no arrival. The run is a run to the first arrival, resumed from its state
-    /// ([`RunReport::resume`]) until the `count`th, so it holds no counter: its `steps`, trace,
-    /// depth bound and coverage are those of the pieces summed, which are the uncut run's
-    /// ([`StopRules`]: coverage's counts but for an equation instance the uncut run serves from
-    /// its memo, which a later piece evaluates again). A run that ends on its own first reports
-    /// that end, and how many arrivals it counted ([`RunReport::stops`]).
+    /// successors is no arrival. The backend counts the arrivals along the path (k-rust's
+    /// `ExecuteRequest::stop_count`) and takes each one before the `count`th as any other step,
+    /// so the run is one request, one path, and its `steps`, trace, depth bound and coverage are
+    /// the uncut run's up to where it ends. The states it passes are read as the uncut run reads
+    /// the states of its path: only the end is read for a term with no value. A run that ends
+    /// on its own first reports that end, and how many arrivals it counted
+    /// ([`RunReport::stops`]).
     Rules {
         /// The rules a stop is a step by.
         rules: StopRules,
@@ -257,11 +258,30 @@ impl StopRules {
     }
 }
 
-/// The stop rules of one run by `UNIQUE_ID`, as the backend selects them.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+/// The stop rules of one run by `UNIQUE_ID`, as the backend selects them, and the arrival at a
+/// stop the run ends at.
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct StopIds {
     before: Vec<String>,
     after: Vec<String>,
+    count: NonZeroU64,
+}
+
+impl Default for StopIds {
+    fn default() -> Self {
+        Self {
+            before: Vec::new(),
+            after: Vec::new(),
+            count: NonZeroU64::MIN,
+        }
+    }
+}
+
+impl StopIds {
+    /// Whether no rule is selected, so the run has no stop to count.
+    fn is_empty(&self) -> bool {
+        self.before.is_empty() && self.after.is_empty()
+    }
 }
 
 /// What a run's coverage also reports ([`RunOptions::coverage`]).
@@ -988,6 +1008,8 @@ pub struct Semantics {
     print_reads: BTreeMap<read_back::ReadKey, read_back::Read>,
     /// The solver options of every backend of these semantics ([`Self::solver`]).
     solver: BackendOptions,
+    /// The execute requests runs sent the backend ([`Self::execute_requests`]).
+    execute_requests: u64,
 }
 
 /// One author spec module's compiled proof definition (KF-041).
@@ -1145,6 +1167,7 @@ impl Semantics {
             main_cell,
             print_reads: BTreeMap::new(),
             solver,
+            execute_requests: 0,
         })
     }
 
@@ -1243,6 +1266,23 @@ impl Semantics {
     /// The loaded backend, for callers that issue raw k-rust requests.
     pub const fn backend_mut(&mut self) -> &mut Backend {
         &mut self.backend
+    }
+
+    /// How many execute requests [`Self::run`] and [`Self::other_ends`] sent the backend so far.
+    ///
+    /// A run sends one, whatever its stop criterion's count, and one more to check its end
+    /// where [`RunOptions::check_ends`] asks; a run whose end holds a term with no value sends
+    /// one more for each earlier state it follows the path again to. [`Self::other_ends`] sends
+    /// one.
+    #[must_use]
+    pub const fn execute_requests(&self) -> u64 {
+        self.execute_requests
+    }
+
+    /// Send `request` to the backend, counted ([`Self::execute_requests`]).
+    fn execute(&mut self, request: ExecuteRequest) -> Result<KoreExecutionResult, BackendError> {
+        self.execute_requests = self.execute_requests.saturating_add(1);
+        self.backend.execute_kore(request)
     }
 
     /// What this build supports. Every route of this crate executes, searches, and proves; SMT needs the `z3-inference` feature.
@@ -1941,11 +1981,10 @@ impl Semantics {
     /// ([`StopRules::before`]); a depth bound of 0 leaves it untaken, so the run ends where the
     /// stopped run did.
     ///
-    /// Under a stop criterion with a count N ([`StopCriterion::Rules`]), the run is the run to
-    /// its first arrival at a stop, resumed from each arrival before the Nth
-    /// ([`RunReport::resume`]): the report is the last piece's, with the pieces' `steps`,
-    /// traces (numbered along the whole path), logs and coverage summed, and the depth bound is
-    /// the whole path's.
+    /// Under a stop criterion with a count N ([`StopCriterion::Rules`]), the backend counts the
+    /// arrivals at a stop along the path and ends it at the Nth, so the run is one request
+    /// whatever N is: its `steps`, trace, logs, coverage and depth bound are the whole path's,
+    /// as for a run to its first stop.
     ///
     /// # Errors
     ///
@@ -1957,39 +1996,9 @@ impl Semantics {
     /// conditions it cannot decide, or [`ExecError::Result`] when the backend returns several
     /// states under no condition, or none.
     pub fn run(&mut self, state: &State, options: RunOptions) -> Result<RunReport, ExecError> {
-        let (stops, count) = match &options.stop {
-            StopCriterion::None => (StopIds::default(), NonZeroU64::MIN),
-            StopCriterion::Rules { rules, count } => (self.stop_ids(rules)?, *count),
-        };
-        let depth = options.depth;
-        let mut piece = options;
-        let mut report = self.run_piece(state, &piece, &stops)?;
-        let mut arrivals = u64::from(report.halt == Halt::Stopped);
-        // Each piece is a run to the next arrival, resumed where the last one stopped, with the
-        // bound the pieces before it left; an arrival short of the count is passed so.
-        while report.halt == Halt::Stopped && arrivals < count.get() {
-            piece.depth = depth.map(|depth| depth.saturating_sub(report.steps));
-            let next = self.run_piece(&report.resume(), &piece, &stops)?;
-            arrivals += u64::from(next.halt == Halt::Stopped);
-            report = report.followed_by(next);
-        }
-        report.stops = arrivals;
-        if let Some(stop) = &mut report.stop {
-            stop.nth = arrivals;
-        }
-        Ok(report)
-    }
-
-    /// A run from `state` to its first arrival at a stop rule of `stops`, or its own end
-    /// ([`Self::run`]).
-    fn run_piece(
-        &mut self,
-        state: &State,
-        options: &RunOptions,
-        stops: &StopIds,
-    ) -> Result<RunReport, ExecError> {
+        let stops = self.stop_ids(&options.stop)?;
         let Some(taken) = &state.taken else {
-            return self.run_from(&state.pattern, options, stops, None);
+            return self.run_from(&state.pattern, &options, &stops, None);
         };
         // The bound left once the taken step is counted: `None` where the bound allows no step.
         let Some(depth) = options
@@ -2011,11 +2020,8 @@ impl Semantics {
             report.resume = Some(state.clone());
             return Ok(report);
         };
-        let options = RunOptions {
-            depth,
-            ..options.clone()
-        };
-        self.run_from(&state.pattern, &options, stops, Some(taken))
+        let options = RunOptions { depth, ..options };
+        self.run_from(&state.pattern, &options, &stops, Some(taken))
     }
 
     /// Why the definition may end otherwise from `state` than at the end of `report`, the run
@@ -2038,12 +2044,10 @@ impl Semantics {
     ///   stop before a rule takes first ([`StopRules::before`]) is that rule's, the one successor
     ///   of its state, so it chooses nothing.
     ///
-    /// Under a stop criterion with a count N ([`StopCriterion::Rules`]) the run is its pieces,
-    /// each to its next arrival at a stop and resumed from it before the Nth, so the path is
-    /// followed again piece by piece: each piece from the state the one before it stopped at,
-    /// under the bound the pieces before it left. A piece with no state of several successors is
-    /// the run's own, so it is run again, as the run ran it, to find where the next one starts;
-    /// a count N costs `2N - 1` backend requests, and the first arrival one.
+    /// Under a stop criterion with a count N ([`StopCriterion::Rules`]) the path is followed
+    /// again to its Nth arrival at a stop, the backend counting the arrivals as the run's did:
+    /// one request, whatever N is. An arrival is a step by a stop rule that is its state's one
+    /// successor, so it chooses nothing, and the path goes on past each one before the Nth.
     ///
     /// Two successors that are equal are still two, so the reason is conservative there.
     ///
@@ -2059,57 +2063,26 @@ impl Semantics {
         if let Some(reason) = open_values(&report.implementation_chosen_values) {
             return Ok(Some(format!("the run {reason}")));
         }
-        let (stops, count) = match &options.stop {
-            StopCriterion::None => (StopIds::default(), NonZeroU64::MIN),
-            StopCriterion::Rules { rules, count } => (self.stop_ids(rules)?, *count),
-        };
-        let mut start = state.clone();
-        // The steps of the pieces before this one, and the arrivals they ended at.
-        let mut before = 0_u64;
-        let mut arrivals = 0_u64;
-        loop {
-            let depth = options.depth.map(|depth| depth.saturating_sub(before));
-            if let Some(reason) = self.branch_in_piece(&start, depth, &stops, before)? {
-                return Ok(Some(reason));
-            }
-            // This piece is the last where it ends at the Nth arrival, or on its own.
-            if arrivals.saturating_add(1) >= count.get() {
-                return Ok(None);
-            }
-            let piece = self.run_piece(
-                &start,
-                &RunOptions {
-                    depth,
-                    ..RunOptions::default()
-                },
-                &stops,
-            )?;
-            if piece.halt != Halt::Stopped {
-                return Ok(None);
-            }
-            arrivals += 1;
-            before = before.saturating_add(piece.steps);
-            start = piece.resume();
-        }
+        let stops = self.stop_ids(&options.stop)?;
+        self.branch_in_path(state, options.depth, &stops)
     }
 
-    /// Why one piece of a run from `state`, to its first arrival at a stop of `stops` within
-    /// `depth` steps, may end otherwise ([`Self::other_ends`]), the steps of the pieces `before`
-    /// it counted in the step it names; `None` when no state of it has several successors.
-    fn branch_in_piece(
+    /// Why a run from `state`, to its arrival at a stop of `stops` that `stops` counts to within
+    /// `depth` steps, may end otherwise ([`Self::other_ends`]); `None` when no state of it has
+    /// several successors.
+    fn branch_in_path(
         &mut self,
         state: &State,
         depth: Option<u64>,
         stops: &StopIds,
-        before: u64,
     ) -> Result<Option<String>, ExecError> {
-        // The taken step counts as the piece's first and takes one step of the bound.
+        // The taken step counts as the run's first and takes one step of the bound.
         let (depth, taken) = match (&state.taken, depth) {
             (None, depth) => (depth, 0),
             (Some(_), None) => (None, 1),
             (Some(_), Some(depth)) => match depth.checked_sub(1) {
                 Some(depth) => (Some(depth), 1),
-                // The bound allows no step: the piece took none, and chose none.
+                // The bound allows no step: the run took none, and chose none.
                 None => return Ok(None),
             },
         };
@@ -2123,14 +2096,14 @@ impl Semantics {
         );
         request.strategy = ExecutionStrategy::All;
         request.stop_at_branch = true;
-        let leaves = self.backend.execute_kore(request)?.leaves;
+        let leaves = self.execute(request)?.leaves;
         let Some(branch) = leaves
             .iter()
             .find(|leaf| leaf.reason == HaltReasonOutput::Branch)
         else {
             return Ok(None);
         };
-        let after = branch.depth.saturating_add(taken).saturating_add(before);
+        let after = branch.depth.saturating_add(taken);
         // A successor per candidate, and one more where none applies (the remainder); the
         // candidates are named once each, in order, since several can share a name.
         let candidates = branch.candidates.iter().flatten().collect::<Vec<_>>();
@@ -2176,9 +2149,7 @@ impl Semantics {
             unsupported_hooks,
             coverage,
             ..
-        } = self
-            .backend
-            .execute_kore(run_request(start, options, stops))?;
+        } = self.execute(run_request(start, options, stops))?;
         // A hook the backend left unevaluated may leave an equation's condition open, so no
         // application is decided to have no value ([`decided`]).
         let decides = unsupported_hooks.is_empty();
@@ -2194,6 +2165,8 @@ impl Semantics {
         if held && leaf.depth > 0 {
             leaf = self.before_valueless(start, leaf, decides, options.trace, stops)?;
         }
+        // The arrivals the path counted, the one it ends at included.
+        let mut arrivals = leaf.stops.unwrap_or_default();
         let mut proposal = None;
         if leaf.reason == HaltReasonOutput::CutPoint {
             let (read, proposed) =
@@ -2201,10 +2174,15 @@ impl Semantics {
             leaf = read;
             match proposed {
                 Ok(proposed) => proposal = Some(proposed),
-                Err(terms) => valueless.extend(terms),
+                // The step reaches no state, so it is no arrival.
+                Err(terms) => {
+                    valueless.extend(terms);
+                    arrivals = arrivals.saturating_sub(1);
+                }
             }
         }
         if leaf.reason == HaltReasonOutput::Stuck && (options.check_ends || check_ends()) {
+            self.execute_requests = self.execute_requests.saturating_add(1);
             // The definition's heads, borrowed beside the backend ([`Self::heads`]).
             let heads: &dyn valueless::Heads = if decides {
                 self.values.as_ref()
@@ -2234,7 +2212,7 @@ impl Semantics {
                 proposal.as_ref().map(|proposal| proposal.rule_id.as_str()),
             )
         });
-        let stop = self.stop(&leaf, stops, &trace);
+        let stop = self.stop(&leaf, stops, &trace, arrivals);
         let halt = Halt::from_backend(leaf.reason);
         let reached = term(leaf.state, &self.sort_hooks)?;
         let stdout = if self.console.stdout {
@@ -2260,7 +2238,7 @@ impl Semantics {
             valueless,
             coverage,
             stop,
-            stops: 0,
+            stops: arrivals,
             resume,
         })
     }
@@ -2321,8 +2299,12 @@ impl Semantics {
     }
 
     /// The `UNIQUE_ID`s of a run's stop rules, each name resolved among the rewrite rules
-    /// ([`StopRules`]).
-    fn stop_ids(&self, stop: &StopRules) -> Result<StopIds, ExecError> {
+    /// ([`StopRules`]), and the arrival the run ends at.
+    fn stop_ids(&self, criterion: &StopCriterion) -> Result<StopIds, ExecError> {
+        let (stop, count) = match criterion {
+            StopCriterion::None => return Ok(StopIds::default()),
+            StopCriterion::Rules { rules, count } => (rules, *count),
+        };
         let resolve = |names: &[String]| {
             let mut ids = BTreeSet::new();
             for name in names {
@@ -2333,14 +2315,21 @@ impl Semantics {
         Ok(StopIds {
             before: resolve(&stop.before)?,
             after: resolve(&stop.after)?,
+            count,
         })
     }
 
-    /// The stop a run's end is, if it is one: a cut-point leaf names its rule as its one
-    /// candidate's; a terminal leaf names it only in its `detail` text, which is no stable
-    /// encoding, so the rule is the one identity the stop rules select, or the last step of the
-    /// trace.
-    fn stop(&mut self, leaf: &KoreExecutionLeaf, stops: &StopIds, trace: &[Step]) -> Option<Stop> {
+    /// The stop a run's end is, if it is one, the `nth` arrival at a stop: a cut-point leaf names
+    /// its rule as its one candidate's; a terminal leaf names it only in its `detail` text,
+    /// which is no stable encoding, so the rule is the one identity the stop rules select, or the
+    /// last step of the trace.
+    fn stop(
+        &mut self,
+        leaf: &KoreExecutionLeaf,
+        stops: &StopIds,
+        trace: &[Step],
+        nth: u64,
+    ) -> Option<Stop> {
         let (at, rule_id) = match leaf.reason {
             HaltReasonOutput::CutPoint => (
                 StopAt::Before,
@@ -2369,7 +2358,7 @@ impl Semantics {
                 rule_id,
             }
         });
-        Some(Stop { at, rule, nth: 1 })
+        Some(Stop { at, rule, nth })
     }
 
     /// A run's coverage by identity, from k-rust's lists ([`Coverage`]): each identity once, with
@@ -2486,7 +2475,7 @@ impl Semantics {
                 },
                 stops,
             );
-            let leaves = self.backend.execute_kore(request)?.leaves;
+            let leaves = self.execute(request)?.leaves;
             let earlier = match one_path(leaves, self.heads(decides)) {
                 Ok(earlier) => earlier,
                 Err(error) => return Err(self.path_error(error)),
@@ -2944,7 +2933,8 @@ pub fn open_values(values: &[ChosenValueOutput]) -> Option<String> {
 /// The backend request of a run from `start` under `options`: strategy `any`, as krun follows one
 /// path, with the backend's trace kept only for a run that reports one (k-rust keeps it unless
 /// asked not to, an entry per rewrite and simplification of the path), and the stop rules by
-/// `UNIQUE_ID`, which the backend selects as it selects them by label.
+/// `UNIQUE_ID`, which the backend selects as it selects them by label, with the arrival it
+/// counts to.
 fn run_request(start: &Pattern, options: &RunOptions, stops: &StopIds) -> ExecuteRequest {
     let mut request = ExecuteRequest::new(start.clone());
     request.strategy = ExecutionStrategy::Any;
@@ -2952,6 +2942,9 @@ fn run_request(start: &Pattern, options: &RunOptions, stops: &StopIds) -> Execut
     request.trace = options.trace;
     request.cut_point_rules.clone_from(&stops.before);
     request.terminal_rules.clone_from(&stops.after);
+    if !stops.is_empty() {
+        request.stop_count = Some(stops.count);
+    }
     if let Some(coverage) = options.coverage {
         request.collect_coverage = true;
         request.collect_counts = true;

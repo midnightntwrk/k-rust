@@ -212,6 +212,7 @@ fn stop_rules_end_a_run_before_or_after_the_rule_s_step() {
     let before = StopIds {
         before: vec!["bc".to_owned()],
         after: Vec::new(),
+        ..StopIds::default()
     };
     let leaves = backend
         .execute_kore(run_request(&state, &RunOptions::default(), &before))
@@ -230,6 +231,7 @@ fn stop_rules_end_a_run_before_or_after_the_rule_s_step() {
     let after = StopIds {
         before: Vec::new(),
         after: vec!["ab".to_owned()],
+        ..StopIds::default()
     };
     let leaves = backend
         .execute_kore(run_request(&state, &RunOptions::default(), &after))
@@ -245,6 +247,7 @@ fn stop_rules_end_a_run_before_or_after_the_rule_s_step() {
     let first = StopIds {
         before: vec!["ab".to_owned()],
         after: Vec::new(),
+        ..StopIds::default()
     };
     let leaves = backend
         .execute_kore(run_request(&state, &RunOptions::default(), &first))
@@ -708,6 +711,7 @@ fn a_stop_before_a_rule_whose_successor_has_no_value_is_an_undefined_step() {
     let stops = StopIds {
         before: vec!["wrap".to_owned()],
         after: Vec::new(),
+        ..StopIds::default()
     };
     let start = pattern("initial{}()");
     let partial = Named::partial(&["undef"]);

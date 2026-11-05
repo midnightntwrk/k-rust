@@ -138,8 +138,8 @@ Options:
                              dependency crate `lang`), whose every rewrite rule it names, or a
                              K label (exact or unique suffix); repeatable
   --stop-after NAME          With run, end after a step by a rule of NAME; repeatable
-  --stop-count N             With run, end at the Nth stop, resuming past the earlier ones
-                             (default: 1); needs --stop-before or --stop-after
+  --stop-count N             With run, end at the Nth stop, taking the earlier ones as any
+                             other step (default: 1); needs --stop-before or --stop-after
   --trace                    Print each rewrite step with its rule and source
   --coverage                 With run, list the rules and equations the run matched, applied
                              and committed, with their sources (--output json: the report's
