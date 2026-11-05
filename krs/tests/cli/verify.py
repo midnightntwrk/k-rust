@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, entry, krs_gate  # noqa: E402
 from support.diagnostics import krs_diagnostics  # noqa: E402
 from support.hashing import sha256_bytes  # noqa: E402
-from support.lock import k_version  # noqa: E402
+from support.lock import k_version, linked_z3_version  # noqa: E402
 from support.krs import Invocation, build  # noqa: E402
 from support.pins import Ledger  # noqa: E402
 from support.process import compact, run  # noqa: E402
@@ -640,6 +640,36 @@ def dollar_id_claims(
     return artifacts, k
 
 
+Z3_LIBRARY_SHA256 = re.compile(r"[0-9a-f]{64}")
+
+
+def without_z3_build(prove_json: bytes) -> tuple[bytes, str]:
+    """The `krs prove --output json` document without `solver.z3`, and that member checked.
+
+    `solver.z3` names the Z3 build that counted the proof's resource units: Z3's version string
+    and the SHA-256 of its library file, the archive a static link took or the shared library a
+    dynamic link maps. The build is the route's (`KRUST_GATE_Z3`) and the host's, not the
+    definition's, so the pinned artifact leaves it out and the gate checks it here instead: the
+    version is of the release krs links (`Krs.lock [solver] linked`), and the digest is a
+    SHA-256, or null when the build could not name its library. The rest of the document,
+    `solver`'s mode, units and retries included, is the pinned artifact, written as krs writes it
+    (compact, members in krs's order, one line).
+    """
+
+    document = json.loads(prove_json)
+    build = document["solver"].pop("z3", None)
+    release = linked_z3_version()
+    if not isinstance(build, dict) or set(build) != {"library_sha256", "version"}:
+        raise GateError(f"krs prove's solver.z3 is not {{library_sha256, version}}: {build}")
+    version, digest = build["version"], build["library_sha256"]
+    if not isinstance(version, str) or not re.fullmatch(r"(Z3 )?" + re.escape(release) + r"\.\d+", version):
+        raise GateError(f"krs prove's solver.z3.version {version!r} is not of Z3 {release} (Krs.lock [solver] linked)")
+    if digest is not None and not (isinstance(digest, str) and Z3_LIBRARY_SHA256.fullmatch(digest)):
+        raise GateError(f"krs prove's solver.z3.library_sha256 {digest!r} is not a SHA-256")
+    normalized = json.dumps(document, ensure_ascii=False, separators=(",", ":")) + "\n"
+    return normalized.encode("utf-8"), f"solver.z3 version {version!r}, library_sha256 {digest}"
+
+
 def claims_proofs(
     binary: Path, workspace: Path, results: Results, pins: Ledger, *, refresh: bool
 ) -> tuple[dict[str, bytes], Snapshot] | None:
@@ -662,6 +692,7 @@ def claims_proofs(
         verdicts = {report["claim"]: report["verdict"] for report in json.loads(prove.stdout)["prove"]}
         if verdicts != CLAIM_VERDICTS:
             raise GateError(f"krs prove verdicts differ: {verdicts}")
+        prove_document, solver = without_z3_build(prove.stdout)
         proven = cli_command(
             binary, "prove", manifest, target, package=CLAIMS_PACKAGE, extra=("--claim", "foo-reaches-bar"),
         )
@@ -721,10 +752,12 @@ def claims_proofs(
     source_mode = "live" if k.live else "cached"
     results.add(
         "claims_prove", "PASS",
-        f"krs prove and {source_mode} K {k_version()} kprove agree: foo-reaches-bar proven, bar-reaches-foo disproved",
+        f"krs prove and {source_mode} K {k_version()} kprove agree: foo-reaches-bar proven, bar-reaches-foo disproved "
+        f"({solver})",
     )
     artifacts = {f"claims/{name}": (emitted / name).read_bytes() for name in ("definition.k", "spec.k")}
-    artifacts["claims/prove.json"] = prove.stdout
+    # Without `solver.z3`, which names the route's and host's Z3 build (`without_z3_build`).
+    artifacts["claims/prove.json"] = prove_document
     return artifacts, k
 
 

@@ -158,6 +158,19 @@ impl Command {
         }
     }
 
+    /// The solver options of the backends the command builds: what `run`, `search` and `prove`
+    /// were given (`--smt-resource-limit`, `--smt-clock-ms`, `--smt-retries`), and krs's default,
+    /// [`krs_exec::BackendOptions::RESOURCE_BOUNDED`], for every other command.
+    #[must_use]
+    pub const fn solver(&self) -> krs_exec::BackendOptions {
+        match self {
+            Self::Run(request) => request.solver,
+            Self::Search(request) => request.solver,
+            Self::Prove(request) => request.solver,
+            _ => krs_exec::BackendOptions::RESOURCE_BOUNDED,
+        }
+    }
+
     /// The native backend dialect, for the commands that check or compile one.
     #[must_use]
     pub const fn backend(&self) -> Option<Backend> {

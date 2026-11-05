@@ -14,12 +14,12 @@ use std::path::{Path, PathBuf};
 
 use krs_diagnostic::{Code, codes};
 use krs_exec::{
-    Case, CaseDocument, Compared, CompiledStage, ConfigInputs, ConfigValue, Coverage,
-    CoverageOptions, Difference, DifferenceAt, EndError, Ends, ExecError, Expectation, Halt,
-    InputError, InputFiles, PrintStyle, Printed, ProgramFile, ProgramInput, ProofReport,
+    BackendOptions, Case, CaseDocument, Compared, CompiledStage, ConfigInputs, ConfigValue,
+    Coverage, CoverageOptions, Difference, DifferenceAt, EndError, Ends, ExecError, Expectation,
+    Halt, InputError, InputFiles, PrintStyle, Printed, ProgramFile, ProgramInput, ProofReport,
     ProveOptions, REPORT_SCHEMA, ReadBack, Rendered, RunOptions, RunReport, SearchMode,
-    SearchOptions, Semantics, Side, SourceText, SpecStage, Step, StepOrigin, StopAt, StopCriterion,
-    Term, Verdict, canonical_text, json_document, open_values,
+    SearchOptions, Semantics, Side, SolverReport, SourceText, SpecStage, Step, StepOrigin, StopAt,
+    StopCriterion, Term, Verdict, canonical_text, json_document, open_values,
 };
 use krs_ir::measure::Measurement;
 use serde_json::json;
@@ -109,6 +109,8 @@ pub struct RunRequest {
     pub output: TermOutput,
     /// `--color`.
     pub color: ColorChoice,
+    /// `--smt-resource-limit`, `--smt-clock-ms` and `--smt-retries`.
+    pub solver: BackendOptions,
 }
 
 /// `krs search` inputs.
@@ -137,6 +139,8 @@ pub struct SearchRequest {
     pub output: TermOutput,
     /// `--color`.
     pub color: ColorChoice,
+    /// `--smt-resource-limit`, `--smt-clock-ms` and `--smt-retries`.
+    pub solver: BackendOptions,
 }
 
 /// `krs prove` inputs.
@@ -157,6 +161,11 @@ pub struct ProveRequest {
     /// proved in this process, without a supervisor, when this is false and the command is
     /// executed as a library call.
     pub worker: bool,
+    /// `--smt-resource-limit`, `--smt-clock-ms` and `--smt-retries`.
+    pub solver: BackendOptions,
+    /// `--claim-timeout`: the wall-clock time each claim's proof may take
+    /// ([`ProveOptions::claim_timeout`]).
+    pub claim_timeout: Option<std::time::Duration>,
 }
 
 impl ColorChoice {
@@ -222,9 +231,14 @@ pub(super) fn execute(
                     }
                     stage
                 };
-                let mut semantics =
-                    Semantics::from_stage(definition, stage, Some(provider), timings)
-                        .map_err(Failure::Exec)?;
+                let mut semantics = Semantics::from_stage_with_solver(
+                    definition,
+                    stage,
+                    Some(provider),
+                    command.solver(),
+                    timings,
+                )
+                .map_err(Failure::Exec)?;
                 if let Command::Prove(ProveRequest {
                     spec_module: Some(module),
                     ..
@@ -1265,6 +1279,7 @@ fn prove(semantics: &mut Semantics, request: &ProveRequest) -> Result<CommandOut
         module: request.spec_module.clone(),
         claims: request.claims.clone(),
         depth: request.depth,
+        claim_timeout: request.claim_timeout,
     };
     let selection = semantics.prove_selection(&options)?;
     // A leaf is a printed state, as a run's and a search's are.
@@ -1293,7 +1308,12 @@ fn prove(semantics: &mut Semantics, request: &ProveRequest) -> Result<CommandOut
         return Ok(outcome(supervisor::end_event(), String::new(), 0));
     }
     let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
-    let mut printed = ProveOutput::new(request.output, &mut stdout, &mut stderr);
+    let mut printed = ProveOutput::new(
+        request.output,
+        SolverReport::of(semantics.solver()),
+        &mut stdout,
+        &mut stderr,
+    );
     for claim in &selection {
         printed
             .started(&claim.label)
@@ -1378,6 +1398,12 @@ fn claim_text(
                 step.depth
             );
         }
+    }
+    if report.verdict == Verdict::Timeout {
+        let _ = writeln!(
+            stdout,
+            "  the proof did not end within --claim-timeout and was cancelled"
+        );
     }
     if matches!(report.verdict, Verdict::Proven | Verdict::Trusted) {
         return Ok(stdout);

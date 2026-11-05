@@ -25,13 +25,17 @@ Usage:
              [--input NAME=JSON]... [-c NAME=TEXT]... [--depth N] [--stop-before NAME]...
              [--stop-after NAME]... [--stop-count N] [--trace] [--coverage]
              [--output pretty|kast|json|kore|none] [--color auto|always|never]
+             [--smt-resource-limit UNITS | --smt-clock-ms MS] [--smt-retries N]
   krs search --package P --definition D [FILE|-] [--case FILE [--case-name NAME]]
              [--input NAME=JSON]... [-c NAME=TEXT]...
              [--mode final|all|one-step|one-or-more-steps] [--depth N]
              [--max-solutions N] [--trace] [--output pretty|kast|json|kore]
              [--color auto|always|never]
+             [--smt-resource-limit UNITS | --smt-clock-ms MS] [--smt-retries N]
   krs prove  --package P --definition D [--spec-module NAME] [--claim LABEL]... [--depth N]
-             [--output pretty|kast|json|jsonl|kore] [--color auto|always|never]
+             [--claim-timeout SECONDS] [--output pretty|kast|json|jsonl|kore]
+             [--color auto|always|never]
+             [--smt-resource-limit UNITS | --smt-clock-ms MS] [--smt-retries N]
   krs kink <emit|check|results|run|report|query|fuzz> --package P --definition D [OPTIONS]
              (krs kink --help lists the corpus loop's options)
   krs fmt [--check] [--manifest-path PATH] [PATH ...]
@@ -92,6 +96,16 @@ Options:
   --max-solutions N          Stop search after N solutions
   --spec-module NAME         Prove the claims of this author spec module (default: the generated <MAIN>-SPEC)
   --claim LABEL              Prove only this claim (exact label or unique suffix); repeatable
+  --claim-timeout SECONDS    With prove, cancel a claim's proof still running after SECONDS
+                             (decimal) of wall-clock time; its verdict is then timeout
+  --smt-resource-limit UNITS With run, search and prove, bound each Z3 attempt by Z3 resource
+                             units, UNITS for the first and twice the previous for each retry,
+                             and by no clock (the default: 310000 units)
+  --smt-clock-ms MS          Bound each Z3 attempt by the clock instead, MS milliseconds for the
+                             first and twice the previous for each retry; whether a query is
+                             decided then depends on the machine's speed and load
+  --smt-retries N            Retry an undecided Z3 answer N times (default: 3), as long as the
+                             last attempt's doubled bound stays within 4294967295
   --sort SORT                Parse at SORT (default: the sort of the main parameter)
   --color WHEN               Colour pretty output (auto, always, never)
   --timings FILE             Write krs-timings/1 phase timings as JSON
@@ -413,6 +427,14 @@ struct ExecOptions {
     spec_module: Option<String>,
     sort: Option<String>,
     color: Option<ColorChoice>,
+    /// `--smt-resource-limit`.
+    smt_resource_limit: Option<std::num::NonZeroU32>,
+    /// `--smt-clock-ms`.
+    smt_clock_ms: Option<u32>,
+    /// `--smt-retries`.
+    smt_retries: Option<u32>,
+    /// `--claim-timeout`.
+    claim_timeout: Option<std::time::Duration>,
 }
 
 impl ExecOptions {
@@ -623,7 +645,7 @@ fn parse_run(parser: &mut lexopt::Parser, kind: CommandKind) -> Result<ParseResu
 const HIDDEN_OPTIONS: [&str; 3] = ["--worker-protocol", "--worker-claim", "--worker-color"];
 
 /// Long options of the run-family commands, without their leading dashes.
-const EXEC_LONG_OPTIONS: [&str; 18] = [
+const EXEC_LONG_OPTIONS: [&str; 22] = [
     "case",
     "case-name",
     "input",
@@ -639,6 +661,10 @@ const EXEC_LONG_OPTIONS: [&str; 18] = [
     "spec-module",
     "sort",
     "color",
+    "smt-resource-limit",
+    "smt-clock-ms",
+    "smt-retries",
+    "claim-timeout",
     "worker-protocol",
     "worker-claim",
     "worker-color",
@@ -720,6 +746,9 @@ fn exec_option(
         "worker-protocol" | "worker-claim" | "worker-color" => {
             worker_option(parser, exec, option)?;
         }
+        "smt-resource-limit" | "smt-clock-ms" | "smt-retries" | "claim-timeout" => {
+            solver_option(parser, exec, option)?;
+        }
         "spec-module" => {
             exec.note("--spec-module");
             let module = option_value(parser, "spec module")?;
@@ -774,6 +803,65 @@ fn stop_option(
     Ok(())
 }
 
+/// Parse one of the solver options and `--claim-timeout`.
+fn solver_option(
+    parser: &mut lexopt::Parser,
+    exec: &mut ExecOptions,
+    option: &'static str,
+) -> Result<(), UsageError> {
+    let positive = |value: &str, flag: &str| {
+        value
+            .parse::<u32>()
+            .ok()
+            .filter(|value| *value > 0)
+            .ok_or_else(|| usage(format!("{flag} `{value}` is not a positive integer")))
+    };
+    match option {
+        "smt-resource-limit" => {
+            exec.note("--smt-resource-limit");
+            let value = option_value(parser, "resource units")?;
+            let units = positive(&value, "--smt-resource-limit")?;
+            let units = std::num::NonZeroU32::new(units).expect("a positive integer");
+            set_once(&mut exec.smt_resource_limit, units, "--smt-resource-limit")?;
+        }
+        "smt-clock-ms" => {
+            exec.note("--smt-clock-ms");
+            let value = option_value(parser, "milliseconds")?;
+            let ms = positive(&value, "--smt-clock-ms")?;
+            set_once(&mut exec.smt_clock_ms, ms, "--smt-clock-ms")?;
+        }
+        "smt-retries" => {
+            exec.note("--smt-retries");
+            let value = option_value(parser, "retries")?;
+            let retries = value.parse::<u32>().map_err(|_| {
+                usage(format!(
+                    "--smt-retries `{value}` is not a non-negative integer"
+                ))
+            })?;
+            set_once(&mut exec.smt_retries, retries, "--smt-retries")?;
+        }
+        "claim-timeout" => {
+            exec.note("--claim-timeout");
+            let value = option_value(parser, "seconds")?;
+            // A number so small that it rounds to no time at all would cancel every proof
+            // before it starts, which is not the positive bound the option promises.
+            let timeout = value
+                .parse::<f64>()
+                .ok()
+                .and_then(|seconds| std::time::Duration::try_from_secs_f64(seconds).ok())
+                .filter(|timeout| !timeout.is_zero())
+                .ok_or_else(|| {
+                    usage(format!(
+                        "--claim-timeout `{value}` is not a positive number of seconds"
+                    ))
+                })?;
+            set_once(&mut exec.claim_timeout, timeout, "--claim-timeout")?;
+        }
+        _ => unreachable!("solver_option is called only for the solver options"),
+    }
+    Ok(())
+}
+
 /// The KRS item or K label a stop option names, which must not be empty.
 fn stop_name(parser: &mut lexopt::Parser, option: &str) -> Result<String, UsageError> {
     let name = option_value(parser, "stop rule")?;
@@ -798,6 +886,47 @@ fn stop_criterion(
         Some(count) => Ok(StopCriterion::Rules { rules, count }),
         None => Ok(rules.into()),
     }
+}
+
+/// The solver options `--smt-resource-limit`, `--smt-clock-ms` and `--smt-retries` give: krs's
+/// resource-bounded default ([`krs_exec::BackendOptions::RESOURCE_BOUNDED`]) with each given one
+/// in place. `--smt-clock-ms` selects the clock mode, so it and `--smt-resource-limit`, which
+/// bounds the resource mode, are not given together.
+fn solver(exec: &ExecOptions) -> Result<krs_exec::BackendOptions, UsageError> {
+    let mut solver = krs_exec::BackendOptions::RESOURCE_BOUNDED;
+    match (exec.smt_resource_limit, exec.smt_clock_ms) {
+        (Some(_), Some(_)) => {
+            return Err(usage(
+                "--smt-resource-limit and --smt-clock-ms select different solver modes; give one",
+            ));
+        }
+        (Some(units), None) => solver.smt_resource_limit = Some(units),
+        (None, Some(ms)) => {
+            solver.smt_resource_limit = None;
+            solver.smt_timeout_ms = ms;
+        }
+        (None, None) => {}
+    }
+    if let Some(retries) = exec.smt_retries {
+        solver.smt_retry_limit = retries;
+    }
+    // Each retry doubles the previous attempt's bound, a 32-bit count of units or milliseconds
+    // that the backend saturates: a retry past the largest bound would repeat it instead of
+    // doubling it, which is not the ladder these options state, so the last attempt's bound must
+    // fit.
+    let (first, unit, flag) = match solver.smt_resource_limit {
+        Some(units) => (units.get(), "units", "--smt-resource-limit"),
+        None => (solver.smt_timeout_ms, "ms", "--smt-clock-ms"),
+    };
+    let retries = solver.smt_retry_limit;
+    if retries > 32 || u64::from(first) << retries > u64::from(u32::MAX) {
+        return Err(usage(format!(
+            "{retries} retries double the first Z3 attempt's {first} {unit} past {}, the largest \
+             bound of one attempt; give fewer --smt-retries or a smaller {flag}",
+            u32::MAX
+        )));
+    }
+    Ok(solver)
 }
 
 /// Parse one of the hidden options between a supervising `krs prove` and its workers.
@@ -877,6 +1006,9 @@ fn exec_options(kind: CommandKind) -> &'static [&'static str] {
             "--trace",
             "--coverage",
             "--color",
+            "--smt-resource-limit",
+            "--smt-clock-ms",
+            "--smt-retries",
         ],
         CommandKind::Search => &[
             "FILE",
@@ -889,12 +1021,19 @@ fn exec_options(kind: CommandKind) -> &'static [&'static str] {
             "--max-solutions",
             "--trace",
             "--color",
+            "--smt-resource-limit",
+            "--smt-clock-ms",
+            "--smt-retries",
         ],
         CommandKind::Prove => &[
             "--spec-module",
             "--claim",
             "--depth",
             "--color",
+            "--smt-resource-limit",
+            "--smt-clock-ms",
+            "--smt-retries",
+            "--claim-timeout",
             "--worker-protocol",
             "--worker-claim",
             "--worker-color",
@@ -951,6 +1090,7 @@ fn exec_command(
             "--case-name selects a case of the document --case names; pass --case FILE",
         ));
     }
+    let solver = solver(&exec)?;
     let input = exec.inputs.into_iter().next().map(|input| {
         if input == "-" {
             ProgramSource::Stdin
@@ -978,6 +1118,7 @@ fn exec_command(
             coverage: exec.coverage,
             output,
             color,
+            solver,
         }),
         CommandKind::Search => Command::Search(SearchRequest {
             input,
@@ -991,6 +1132,7 @@ fn exec_command(
             trace: exec.trace,
             output,
             color,
+            solver,
         }),
         CommandKind::Prove => {
             if !exec.worker && !exec.worker_claims.is_empty() {
@@ -1010,6 +1152,8 @@ fn exec_command(
                 output,
                 color: exec.worker_color.unwrap_or(color),
                 worker: exec.worker,
+                solver,
+                claim_timeout: exec.claim_timeout,
             })
         }
         CommandKind::Check | CommandKind::Expand | CommandKind::EmitK | CommandKind::Build => {
@@ -2097,6 +2241,7 @@ mod tests {
                 coverage: true,
                 output: TermOutput::Json,
                 color: ColorChoice::Auto,
+                solver: krs_exec::BackendOptions::RESOURCE_BOUNDED,
             })
         );
         assert_eq!(
@@ -2125,6 +2270,7 @@ mod tests {
                 trace: false,
                 output: TermOutput::Pretty,
                 color: ColorChoice::Never,
+                solver: krs_exec::BackendOptions::RESOURCE_BOUNDED,
             })
         );
         assert_eq!(
@@ -2145,6 +2291,8 @@ mod tests {
                 output: TermOutput::Kore,
                 color: ColorChoice::Auto,
                 worker: false,
+                solver: krs_exec::BackendOptions::RESOURCE_BOUNDED,
+                claim_timeout: None,
             })
         );
         assert_eq!(
@@ -2156,6 +2304,8 @@ mod tests {
                 output: TermOutput::Pretty,
                 color: ColorChoice::Auto,
                 worker: false,
+                solver: krs_exec::BackendOptions::RESOURCE_BOUNDED,
+                claim_timeout: None,
             })
         );
         assert_eq!(
@@ -2290,6 +2440,109 @@ mod tests {
         assert_eq!(
             failure("search", &["--stop-after", "tick"]),
             "--stop-after does not apply to krs search"
+        );
+    }
+
+    /// The solver options: krs's resource-bounded default, a resource limit or a clock in its
+    /// place (never both), and the retries of either; `--claim-timeout` is prove's, positive.
+    #[test]
+    fn solver_options_select_one_mode_and_claim_timeout_is_prove_only() {
+        use krs_exec::BackendOptions;
+        let base = ["--package", "imp", "--definition", "main"];
+        let parsed = |verb: &str, extra: &[&str]| {
+            let mut args = vec![verb];
+            args.extend(base);
+            args.extend(extra);
+            run(&args).0.command
+        };
+        assert_eq!(
+            parsed("run", &[]).solver(),
+            BackendOptions::RESOURCE_BOUNDED
+        );
+        assert_eq!(
+            parsed(
+                "search",
+                &["--smt-resource-limit", "5000", "--smt-retries", "0"]
+            )
+            .solver(),
+            BackendOptions {
+                smt_resource_limit: std::num::NonZeroU32::new(5000),
+                smt_retry_limit: 0,
+                ..BackendOptions::RESOURCE_BOUNDED
+            }
+        );
+        let Command::Prove(prove) = parsed(
+            "prove",
+            &["--smt-clock-ms", "250", "--claim-timeout", "1.5"],
+        ) else {
+            panic!("krs prove parses as a prove command");
+        };
+        assert_eq!(
+            prove.solver,
+            BackendOptions {
+                smt_timeout_ms: 250,
+                smt_retry_limit: 3,
+                smt_resource_limit: None,
+            }
+        );
+        assert_eq!(
+            prove.claim_timeout,
+            Some(std::time::Duration::from_millis(1500))
+        );
+        let failure = |verb: &str, extra: &[&str]| {
+            let mut args = vec![verb];
+            args.extend(base);
+            args.extend(extra);
+            error(&args)
+        };
+        assert_eq!(
+            failure("run", &["--smt-resource-limit", "1", "--smt-clock-ms", "1"]),
+            "--smt-resource-limit and --smt-clock-ms select different solver modes; give one"
+        );
+        assert_eq!(
+            failure("prove", &["--smt-resource-limit", "0"]),
+            "--smt-resource-limit `0` is not a positive integer"
+        );
+        assert_eq!(
+            failure("prove", &["--smt-clock-ms", "-5"]),
+            "--smt-clock-ms `-5` is not a positive integer"
+        );
+        assert_eq!(
+            failure("prove", &["--smt-retries", "x"]),
+            "--smt-retries `x` is not a non-negative integer"
+        );
+        assert_eq!(
+            failure("prove", &["--smt-retries", "14"]),
+            "14 retries double the first Z3 attempt's 310000 units past 4294967295, the largest \
+             bound of one attempt; give fewer --smt-retries or a smaller --smt-resource-limit"
+        );
+        assert_eq!(
+            parsed("prove", &["--smt-retries", "13"])
+                .solver()
+                .smt_retry_limit,
+            13
+        );
+        assert_eq!(
+            failure(
+                "run",
+                &["--smt-clock-ms", "1", "--smt-retries", "4294967295"]
+            ),
+            "4294967295 retries double the first Z3 attempt's 1 ms past 4294967295, the largest \
+             bound of one attempt; give fewer --smt-retries or a smaller --smt-clock-ms"
+        );
+        for seconds in ["0", "-1", "NaN", "inf", "soon", "1e-12"] {
+            assert_eq!(
+                failure("prove", &["--claim-timeout", seconds]),
+                format!("--claim-timeout `{seconds}` is not a positive number of seconds")
+            );
+        }
+        assert_eq!(
+            failure("run", &["--claim-timeout", "1"]),
+            "--claim-timeout does not apply to krs run"
+        );
+        assert_eq!(
+            failure("parse", &["--smt-retries", "1"]),
+            "--smt-retries does not apply to krs parse"
         );
     }
 

@@ -823,8 +823,30 @@ endmodule
         trusted: false,
         backend_label: "EMPTY-EVIDENCE-SPEC.empty".into(),
     };
-    let reports = [super::prove_claim(&mut backend, &hooks, &claim, None).unwrap()];
+    // A claim timeout of zero cancels the proof before it starts: the claim times out, with no
+    // leaves, and the backend proves it as before afterwards (the token was the proof's own).
+    let cancelled = super::prove_claim(
+        &mut backend,
+        &hooks,
+        &claim,
+        None,
+        Some(std::time::Duration::ZERO),
+    )
+    .unwrap();
+    assert_eq!(cancelled.verdict, super::Verdict::Timeout);
+    assert!(cancelled.leaves.is_empty());
+    let reports = [super::prove_claim(&mut backend, &hooks, &claim, None, None).unwrap()];
     assert_eq!(reports[0].verdict, super::Verdict::Proven);
+    // A wall the proof does not reach changes nothing.
+    let walled = super::prove_claim(
+        &mut backend,
+        &hooks,
+        &claim,
+        None,
+        Some(std::time::Duration::from_secs(600)),
+    )
+    .unwrap();
+    assert_eq!(walled.verdict, super::Verdict::Proven);
     assert!(reports[0].trusted_claims.is_empty());
     assert!(reports[0].leaves[0].vacuous);
     assert!(!reports[0].leaves[0].certified);
@@ -1240,4 +1262,23 @@ fn a_million_nested_conjuncts_split_on_an_8_mib_thread() {
             );
         }
     });
+}
+
+/// A timeout replaces an undecided or bounded part of a claim, never a refutation: a
+/// counterexample or a failure refutes the claim whatever the parts not yet proven give.
+#[test]
+fn a_timeout_is_weaker_than_an_undecided_part_and_stronger_than_a_refutation() {
+    use super::Verdict::{
+        BreadthBound, DepthBound, Disproved, Failed, Indeterminate, Proven, Timeout,
+    };
+    for refuted in [Disproved, Failed] {
+        assert_eq!(refuted.weakest(Timeout), refuted);
+        assert_eq!(Timeout.weakest(refuted), refuted);
+    }
+    for open in [Indeterminate, DepthBound, BreadthBound, Proven] {
+        assert_eq!(open.weakest(Timeout), Timeout);
+        assert_eq!(Timeout.weakest(open), Timeout);
+    }
+    assert_eq!(Timeout.as_str(), "timeout");
+    assert_eq!(serde_json::to_value(Timeout).unwrap(), "timeout");
 }

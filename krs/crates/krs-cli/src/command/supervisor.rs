@@ -40,7 +40,7 @@ use std::fmt::Write as _;
 use std::io::{BufRead as _, BufReader, Write};
 use std::process::{Command, ExitStatus, Stdio};
 
-use krs_exec::{ClaimInfo, Crash, PROVE_REPORT_SCHEMA, ProofReport, Verdict};
+use krs_exec::{ClaimInfo, Crash, PROVE_REPORT_SCHEMA, ProofReport, SolverReport, Verdict};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_json::value::RawValue;
@@ -53,6 +53,8 @@ use super::exec::{ProveRequest, TermOutput};
 /// document at the end; stderr ends with the count of proven claims.
 pub(super) struct ProveOutput<'a> {
     output: TermOutput,
+    /// The solver the claims are proved with, which the JSON outputs name.
+    solver: SolverReport,
     stdout: &'a mut dyn Write,
     stderr: &'a mut dyn Write,
     /// The reports `--output json` prints at the end.
@@ -65,11 +67,13 @@ pub(super) struct ProveOutput<'a> {
 impl<'a> ProveOutput<'a> {
     pub(super) fn new(
         output: TermOutput,
+        solver: SolverReport,
         stdout: &'a mut dyn Write,
         stderr: &'a mut dyn Write,
     ) -> Self {
         Self {
             output,
+            solver,
             stdout,
             stderr,
             reports: Vec::new(),
@@ -147,13 +151,15 @@ impl<'a> ProveOutput<'a> {
 
     /// Print what follows the last claim, and return the exit status: 0 when every claim is
     /// proven or trusted (a trusted claim is assumed, never proven, and does not fail the run),
-    /// 1 otherwise.
+    /// 1 otherwise. The JSON outputs name the solver the claims were proved with: the document's
+    /// `solver` member, and the summary line's.
     pub(super) fn close(self) -> std::io::Result<i32> {
         let count = |verdict: Verdict| self.verdicts.get(verdict.as_str()).copied().unwrap_or(0);
-        let (proven, trusted, crashed) = (
+        let (proven, trusted, crashed, timeout) = (
             count(Verdict::Proven),
             count(Verdict::Trusted),
             count(Verdict::Crashed),
+            count(Verdict::Timeout),
         );
         match self.output {
             TermOutput::Json => {
@@ -162,10 +168,12 @@ impl<'a> ProveOutput<'a> {
                 struct Document<'a> {
                     prove: &'a [Box<RawValue>],
                     schema: &'static str,
+                    solver: &'a SolverReport,
                 }
                 let document = Document {
                     prove: &self.reports,
                     schema: PROVE_REPORT_SCHEMA,
+                    solver: &self.solver,
                 };
                 serde_json::to_writer(&mut *self.stdout, &document)?;
                 writeln!(self.stdout)?;
@@ -173,6 +181,7 @@ impl<'a> ProveOutput<'a> {
             TermOutput::JsonLines => {
                 let summary = json!({
                     "schema": PROVE_REPORT_SCHEMA,
+                    "solver": self.solver,
                     "summary": {"claims": self.claims, "verdicts": self.verdicts},
                 });
                 writeln!(self.stdout, "{summary}")?;
@@ -186,6 +195,9 @@ impl<'a> ProveOutput<'a> {
         }
         if crashed != 0 {
             let _ = write!(also, ", {crashed} crashed");
+        }
+        if timeout != 0 {
+            let _ = write!(also, ", {timeout} timed out");
         }
         line(
             self.stderr,
@@ -355,7 +367,12 @@ struct Ended {
 pub fn supervise_prove(arguments: &[OsString], request: &ProveRequest) -> i32 {
     let mut stdout = std::io::stdout().lock();
     let mut stderr = std::io::stderr();
-    let mut printed = ProveOutput::new(request.output, &mut stdout, &mut stderr);
+    let mut printed = ProveOutput::new(
+        request.output,
+        SolverReport::of(request.solver),
+        &mut stdout,
+        &mut stderr,
+    );
     // `--color auto` colours when this process's stdout is a terminal; a worker's stdout is the
     // events pipe, so the choice is made here and given to each worker.
     let color = if request.color.enabled() {
@@ -689,7 +706,12 @@ mod tests {
             r#"{{"event":"finished","claim":"SPEC.deep","verdict":"disproved","report":{report},"text":"","warnings":""}}"#
         );
         let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
-        let mut printed = ProveOutput::new(TermOutput::JsonLines, &mut stdout, &mut stderr);
+        let mut printed = ProveOutput::new(
+            TermOutput::JsonLines,
+            krs_exec::SolverReport::of(krs_exec::BackendOptions::RESOURCE_BOUNDED),
+            &mut stdout,
+            &mut stderr,
+        );
         let (mut done, mut ended) = (BTreeSet::new(), ended());
         assert!(event(&line, &mut printed, &mut done, &mut ended).is_ok());
         assert_eq!(ended.finished, 1);
@@ -706,7 +728,12 @@ mod tests {
     #[test]
     fn a_malformed_event_is_an_error() {
         let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
-        let mut printed = ProveOutput::new(TermOutput::Json, &mut stdout, &mut stderr);
+        let mut printed = ProveOutput::new(
+            TermOutput::Json,
+            krs_exec::SolverReport::of(krs_exec::BackendOptions::RESOURCE_BOUNDED),
+            &mut stdout,
+            &mut stderr,
+        );
         let mut done = BTreeSet::new();
         for line in [
             r#"{"event":"finished","claim":"SPEC.deep","verdict":"disproved","report":[}"#,

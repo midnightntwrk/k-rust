@@ -45,10 +45,9 @@ use std::{collections::HashMap, fmt};
 
 use k_rust::{
     backend::{
-        Backend, BackendOptions, EffectOutput, ExecuteRequest, ExecutionCandidateOutput,
-        ExecutionStrategy, HaltReasonOutput, KoreExecutionLeaf, KoreExecutionResult,
-        KoreSearchResponse, ProveRequest, RunCoverageOutput, SearchRequest, SearchTypeArg,
-        TraceEntry,
+        Backend, EffectOutput, ExecuteRequest, ExecutionCandidateOutput, ExecutionStrategy,
+        HaltReasonOutput, KoreExecutionLeaf, KoreExecutionResult, KoreSearchResponse, ProveRequest,
+        RunCoverageOutput, SearchRequest, SearchTypeArg, TraceEntry,
     },
     inner::{ParseError, ProgramError, ProgramParseError},
     k_rust_backend::definition::Admission,
@@ -80,7 +79,9 @@ pub use inputs::{
     Case, CaseDocument, CaseRun, Expectation, InputError, InputFiles, InputType, MainVariable,
     NoFiles, Parameter, declares_variable, json_document, main_variable, toml_document,
 };
-pub use k_rust::backend::{BackendError, ChosenValueOutput};
+pub use k_rust::backend::{
+    BackendError, BackendOptions, ChosenValueOutput, DEFAULT_SMT_RESOURCE_LIMIT,
+};
 /// The printer crate, for callers that print a term through [`Semantics::unparser`].
 pub use krs_unparse as unparse;
 pub use krs_unparse::{Mode as UnparseMode, Printed, Warning as UnparseWarning};
@@ -89,8 +90,8 @@ pub use read_back::{PrintedCell, ReadBack};
 pub use report::{
     Capabilities, ClaimInfo, ConfigVariable, Coverage, CoveredRule, Crash, Halt, Modality,
     NamedRule, PANIC_EXIT_STATUS, PROVE_REPORT_SCHEMA, ProofLeaf, ProofReport, REPORT_SCHEMA,
-    RuleKind, RunReport, SearchReport, Solution, SourceSpan, Step, StepOrigin, Stop, StopAt, Term,
-    Verdict,
+    RuleKind, RunReport, SearchReport, Solution, SolverBuild, SolverReport, SourceSpan, Step,
+    StepOrigin, Stop, StopAt, Term, Verdict,
 };
 pub use values::{Ctor, Decl, Float, SortRef, Value, ValueError, ValueIndex};
 pub use view::{CellError, StateView, View};
@@ -325,6 +326,13 @@ pub struct ProveOptions {
     pub claims: Vec<String>,
     /// At most this many proof transitions, counting semantic rewrites and applied claims.
     pub depth: Option<u64>,
+    /// The wall-clock time one claim's proof may take ([`Semantics::prove_claim`]): a proof
+    /// still running then is cancelled and the claim's verdict is [`Verdict::Timeout`], unless
+    /// a part of the claim already refutes it; the report keeps the leaves of the disjuncts of the
+    /// claim's left-hand side whose proofs ended before. The cancellation takes effect at the
+    /// backend's next stop check, after the Z3 attempt in progress ends. A zero duration cancels
+    /// before the proof starts. `None`: no wall-clock bound.
+    pub claim_timeout: Option<std::time::Duration>,
 }
 
 /// Program text, with the name diagnostics cite: FILE, which binds the main parameter, or a
@@ -970,6 +978,8 @@ pub struct Semantics {
     main_cell: Option<String>,
     /// The printed texts [`Self::read_back`] read, by grammar, cell, sort and text.
     print_reads: BTreeMap<read_back::ReadKey, read_back::Read>,
+    /// The solver options of every backend of these semantics ([`Self::solver`]).
+    solver: BackendOptions,
 }
 
 /// One author spec module's compiled proof definition (KF-041).
@@ -1015,6 +1025,30 @@ impl Semantics {
         sources: Option<SourceText>,
         timings: &mut Timings,
     ) -> Result<Self, ExecError> {
+        Self::from_stage_with_solver(
+            definition,
+            stage,
+            sources,
+            BackendOptions::RESOURCE_BOUNDED,
+            timings,
+        )
+    }
+
+    /// [`Self::from_stage`] with the solver options `solver` for every backend of the semantics,
+    /// the definition's and each author spec module's: [`Self::from_stage`] gives them
+    /// [`BackendOptions::RESOURCE_BOUNDED`], under which whether a query is decided does not depend
+    /// on the machine's speed or load.
+    ///
+    /// # Errors
+    ///
+    /// Fails exactly when [`Self::from_stage`] fails.
+    pub fn from_stage_with_solver(
+        definition: &DefinitionIr,
+        stage: CompiledStage,
+        sources: Option<SourceText>,
+        solver: BackendOptions,
+        timings: &mut Timings,
+    ) -> Result<Self, ExecError> {
         let CompiledStage {
             definition_kore,
             syntax_definition_kore,
@@ -1032,12 +1066,7 @@ impl Semantics {
                 .map_err(|error| ExecError::Backend(error.to_string()))
         })?;
         let mut backend = timings.try_span("exec.backend", |_| {
-            Backend::new(
-                &definition_kore,
-                main_module.clone(),
-                BackendOptions::default(),
-            )
-            .map_err(ExecError::from)
+            Backend::new(&definition_kore, main_module.clone(), solver).map_err(ExecError::from)
         })?;
         let sort_hooks = result_sort_hooks(&mut backend)?;
         let (values, cell_types) = timings.try_span("exec.values", |_| {
@@ -1107,7 +1136,14 @@ impl Semantics {
             spec_provers: BTreeMap::new(),
             main_cell,
             print_reads: BTreeMap::new(),
+            solver,
         })
+    }
+
+    /// The solver options of every backend of these semantics.
+    #[must_use]
+    pub const fn solver(&self) -> BackendOptions {
+        self.solver
     }
 
     /// The author spec modules (KF-041), by name.
@@ -1134,11 +1170,7 @@ impl Semantics {
         if !self.spec_modules.contains(&stage.module) {
             return Err(self.unknown_spec_module(&stage.module));
         }
-        let mut backend = Backend::new(
-            &stage.definition_kore,
-            stage.module.clone(),
-            BackendOptions::default(),
-        )?;
+        let mut backend = Backend::new(&stage.definition_kore, stage.module.clone(), self.solver)?;
         let sort_hooks = result_sort_hooks(&mut backend)?;
         let claims =
             claims::spec_catalog(&stage.definition_kore, &stage.provenance, &mut self.origins)?;
@@ -2630,7 +2662,13 @@ impl Semantics {
         } else {
             claim
         };
-        prove_claim(prover.backend, prover.sort_hooks, claim, options.depth)
+        prove_claim(
+            prover.backend,
+            prover.sort_hooks,
+            claim,
+            options.depth,
+            options.claim_timeout,
+        )
     }
 
     /// The backend and claim catalog of the spec module `module` (`None`: the generated
@@ -3036,12 +3074,50 @@ struct Prover<'a> {
     claims: &'a [ClaimInfo],
 }
 
-/// Prove `claim` on `backend`, at most `depth` proof transitions per disjunct.
+/// Prove `claim` on `backend`, at most `depth` proof transitions per disjunct, within the wall
+/// `timeout` ([`ProveOptions::claim_timeout`]).
 fn prove_claim(
     backend: &mut Backend,
     sort_hooks: &HashMap<String, String>,
     claim: &ClaimInfo,
     depth: Option<u64>,
+    timeout: Option<std::time::Duration>,
+) -> Result<ProofReport, ExecError> {
+    let Some(timeout) = timeout else {
+        return prove_claim_within(backend, sort_hooks, claim, depth, None);
+    };
+    let token = k_rust::backend::CancellationToken::new();
+    if timeout.is_zero() {
+        token.cancel();
+        return prove_claim_within(backend, sort_hooks, claim, depth, Some(&token));
+    }
+    // The wall: a thread that cancels the proof's token when `timeout` passes, unless the proof
+    // ends first and drops the channel's sender, which wakes it.
+    let (ended, wall) = std::sync::mpsc::channel::<()>();
+    let cancel = token.clone();
+    std::thread::scope(|scope| {
+        scope.spawn(move || {
+            if wall.recv_timeout(timeout) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
+                cancel.cancel();
+            }
+        });
+        let report = prove_claim_within(backend, sort_hooks, claim, depth, Some(&token));
+        drop(ended);
+        report
+    })
+}
+
+/// [`prove_claim`], each disjunct's proof run in the scope of `token` when there is one: a proof
+/// the token cancelled ends the claim, whose verdict is then [`Verdict::Timeout`] unless a part
+/// proven before it refutes the claim (a counterexample or a failure, which more time cannot
+/// undo). The report keeps the leaves of the disjuncts whose proofs ended before the cancelled
+/// one, the evidence of such a refutation among them, and has none of the cancelled one's.
+fn prove_claim_within(
+    backend: &mut Backend,
+    sort_hooks: &HashMap<String, String>,
+    claim: &ClaimInfo,
+    depth: Option<u64>,
+    token: Option<&k_rust::backend::CancellationToken>,
 ) -> Result<ProofReport, ExecError> {
     let claim = claim.clone();
     // A claim whose left-hand side is a disjunction is one backend claim per disjunct, each
@@ -3057,11 +3133,28 @@ fn prove_claim(
     let mut leaves = Vec::new();
     let mut trusted_claims = std::collections::BTreeSet::new();
     for selector in selectors {
-        let result = backend.prove_kore(ProveRequest {
+        let request = ProveRequest {
             claim: Some(selector),
             max_depth: depth,
             ..ProveRequest::default()
-        })?;
+        };
+        let result = match token {
+            Some(token) => token.scope(|| backend.prove_kore(request)),
+            None => backend.prove_kore(request),
+        };
+        // A cancelled proof answers `Err` with the `Cancelled` cause unless its verdict no longer
+        // depends on the work the cancellation prevented (k-rust's "Bounding an operation"); only
+        // this function's token cancels it.
+        let result = match result {
+            Err(error)
+                if error.stop_cause() == Some(&k_rust::backend::StopCause::Cancelled)
+                    && token.is_some() =>
+            {
+                verdict = verdict.weakest(Verdict::Timeout);
+                break;
+            }
+            result => result?,
+        };
         let disjunct = Verdict::from_backend(&result.status).ok_or_else(|| {
             ExecError::Result(format!("unknown proof status `{}`", result.status))
         })?;

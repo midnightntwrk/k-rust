@@ -1030,6 +1030,168 @@ fn prove_supervised_records_an_aborted_claim_and_proves_the_rest() {
     );
 }
 
+/// The claims of the claim-timeout test: [`CLAIMS`]' two, and `start-reaches-bar`, whose proof
+/// never ends: `start` steps to `spin`, which alternates with `spun` forever, so no state after
+/// the first matches the claim's left-hand side (no circularity applies) and none is `bar`.
+fn spinning_claims(temporary: &Path) -> PathBuf {
+    let source = CLAIMS
+        .replace(
+            "#[krs::precedence((Foo, Bar))]",
+            "#[krs::precedence((Foo, Bar, Start, Spin, Spun))]",
+        )
+        .replace(
+            "    Bar(),\n}",
+            "    Bar(),\n    #[krs::syntax(\"start\")]\n    Start(),\n    #[krs::syntax(\"spin\")]\n    Spin(),\n    #[krs::syntax(\"spun\")]\n    Spun(),\n}",
+        )
+        .replace(
+            "    foo_to_bar: Foo() => Bar();",
+            "    foo_to_bar: Foo() => Bar();\n    start_to_spin: Start() => Spin();\n    spin_to_spun: Spin() => Spun();\n    spun_to_spin: Spun() => Spin();",
+        );
+    let end = source.rfind('}').unwrap();
+    let source = format!(
+        "{}{}}}\n",
+        &source[..end],
+        r#"
+    /// Never ends: `start` reaches `spin`, and `spin` and `spun` rewrite to each other.
+    #[krs::claim(all_paths, label = "start-reaches-bar")]
+    fn start_reaches_bar(
+        krs::cells! {
+            k: krs::configuration::KCell(Object::Start(), tail @ ..),
+            state @ ..
+        }: Machine,
+    ) -> Machine {
+        krs::cells! {
+            k: krs::configuration::KCell(Object::Bar(), ..tail),
+            ..state
+        }
+    }
+"#
+    );
+    assert!(source.contains("Spun()") && source.contains("spun_to_spin"));
+    materialize(temporary, &source)
+}
+
+/// A prove document's `solver` without its `z3` member, after checking that member: the build of
+/// the Z3 this test links, its version and the digest of its library file, which the `krs` built
+/// beside this test links too (the archive of a static link, the shared library of a dynamic one,
+/// never a digest of `krs` itself).
+fn without_z3_build(solver: &Value) -> Value {
+    let mut solver = solver.clone();
+    let build = solver.as_object_mut().unwrap().remove("z3");
+    let linked = krs_exec::SolverReport::of(krs_exec::BackendOptions::RESOURCE_BOUNDED).z3;
+    assert_eq!(
+        build,
+        linked
+            .as_ref()
+            .map(|linked| serde_json::to_value(linked).unwrap()),
+        "{solver}"
+    );
+    if let Some(linked) = linked.filter(|_| cfg!(all(target_os = "linux", target_arch = "x86_64")))
+    {
+        let digest = linked.library_sha256.expect("a named Z3 library");
+        assert!(
+            digest.len() == 64
+                && digest
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+            "{digest}"
+        );
+    }
+    solver
+}
+
+/// `--claim-timeout` cancels a claim whose proof is still running at the wall, with the verdict
+/// `timeout`, and leaves a claim that ends before it alone; the JSON document names the solver
+/// its claims were proved with: krs's resource-bounded default, or the clock `--smt-clock-ms`
+/// selects, and the Z3 build. The proof that never ends times out on any host, and the claim
+/// that must be proven has a wall of 60 s for a single step, so no verdict here depends on the
+/// host's speed.
+#[test]
+fn prove_claim_timeout_cancels_a_proof_that_does_not_end_and_names_the_solver() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = spinning_claims(temporary.path());
+    let label = |claim: &str| format!("ORG-KRS-CLI-EXEC-SPEC.{claim}");
+    let timed = krs(
+        target.path(),
+        &manifest,
+        "prove",
+        &[
+            "--claim",
+            "start-reaches-bar",
+            "--claim-timeout",
+            "0.5",
+            "--output",
+            "json",
+        ],
+    );
+    assert_eq!(timed.status.code(), Some(1), "{}", stderr(&timed));
+    let document = json(&timed);
+    let reports = document["prove"].as_array().unwrap();
+    assert_eq!(
+        claim_verdicts(reports),
+        [(label("start-reaches-bar"), "timeout".to_owned())]
+    );
+    assert_eq!(reports[0]["leaves"], serde_json::json!([]));
+    assert_eq!(
+        without_z3_build(&document["solver"]),
+        serde_json::json!({"mode": "resource", "retries": 3, "units": 310_000})
+    );
+    assert!(
+        stderr(&timed).ends_with("krs prove: 0 of 1 claim proven, 1 timed out\n"),
+        "{}",
+        stderr(&timed)
+    );
+
+    let clocked = krs(
+        target.path(),
+        &manifest,
+        "prove",
+        &[
+            "--claim",
+            "foo-reaches-bar",
+            "--smt-clock-ms",
+            "125",
+            "--smt-retries",
+            "2",
+            "--claim-timeout",
+            "60",
+            "--output",
+            "jsonl",
+        ],
+    );
+    assert_eq!(clocked.status.code(), Some(0), "{}", stderr(&clocked));
+    let last = String::from_utf8(clocked.stdout.clone())
+        .unwrap()
+        .lines()
+        .last()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .unwrap();
+    assert_eq!(
+        without_z3_build(&last["solver"]),
+        serde_json::json!({"clock_ms": 125, "mode": "clock", "retries": 2})
+    );
+    assert_eq!(
+        last["summary"],
+        serde_json::json!({"claims": 1, "verdicts": {"proven": 1}})
+    );
+
+    let text = krs(
+        target.path(),
+        &manifest,
+        "prove",
+        &["--claim", "start-reaches-bar", "--claim-timeout", "0.5"],
+    );
+    assert_eq!(text.status.code(), Some(1), "{}", stderr(&text));
+    assert_eq!(
+        String::from_utf8_lossy(&text.stdout),
+        format!(
+            "{}: timeout\n  the proof did not end within --claim-timeout and was cancelled\n",
+            label("start-reaches-bar")
+        )
+    );
+}
+
 /// A worker that exits with a status krs never returns (114, Z3's on an internal error) crashes
 /// too. `--output jsonl` prints a record per claim as it ends and a summary; the text output
 /// prints the crashed claim with how its process ended, and no new worker starts after the

@@ -577,6 +577,7 @@ impl Session {
             module,
             claims,
             depth: optional_u64(request, "depth")?,
+            claim_timeout: None,
         };
         Ok(serde_json::to_value(self.semantics()?.prove(&options)?)?)
     }

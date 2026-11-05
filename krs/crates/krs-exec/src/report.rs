@@ -1,7 +1,8 @@
 //! The `krs-exec` report shapes shared by `--output json` and the browser JSON ABI.
 //!
 //! A run or search document is `krs-exec/1` ([`REPORT_SCHEMA`]); a proof document is
-//! `krs-exec/2` ([`PROVE_REPORT_SCHEMA`]), whose verdicts include `crashed`.
+//! `krs-exec/2` ([`PROVE_REPORT_SCHEMA`]), whose verdicts include `crashed` and `timeout` and
+//! which names the solver its claims were proved with ([`SolverReport`]).
 //!
 //! [`REPORT_SCHEMA`] states how the versions are numbered.
 
@@ -23,8 +24,8 @@ use serde::{Deserialize, Serialize, Serializer};
 pub const REPORT_SCHEMA: &str = "krs-exec/1";
 
 /// The schema name a serialized proof envelope carries: a reader of `krs-exec/1` proof documents
-/// knows no `crashed` verdict and no `crash` record, so a proof document is a format of its own
-/// version, while run and search documents, which did not change, keep theirs.
+/// knows no `crashed` or `timeout` verdict and no `crash` record, so a proof document is a format
+/// of its own version, while run and search documents, which did not change, keep theirs.
 pub const PROVE_REPORT_SCHEMA: &str = "krs-exec/2";
 
 /// One configuration or term, kept as KORE and as user-facing KAST.
@@ -697,23 +698,32 @@ pub enum Verdict {
     /// returns) before the claim's proof finished; [`ProofReport::crash`] says how.
     /// Nothing is known about the claim.
     Crashed,
+    /// The claim's proof did not end within the wall-clock time it was given (`krs prove
+    /// --claim-timeout`) and was cancelled, and no part of it proven before refutes the claim.
+    /// It depends on the host's speed and load, unlike every other verdict under a
+    /// resource-bounded solver, so nothing may store it as a fact about the claim.
+    Timeout,
 }
 
 impl Verdict {
     /// The weaker of two backend verdicts, for a claim that holds only if both of its parts do:
-    /// a counterexample before a failure, a failure before an undecided result, and an
-    /// undecided result before a bound.
+    /// a counterexample before a failure, a failure before a timeout, a timeout before an
+    /// undecided result, and an undecided result before a bound. A counterexample or a failure
+    /// refutes the claim whatever the parts not yet proven give, so a timeout does not replace
+    /// it; a timeout replaces an undecided or bounded part, since the claim's verdict then
+    /// depends on the time it was given.
     pub(crate) fn weakest(self, other: Self) -> Self {
         let rank = |verdict: Self| match verdict {
             Self::Disproved => 0,
             Self::Failed => 1,
             // Never a backend verdict: a crash ends the whole claim, so it is never combined.
             Self::Crashed => 2,
-            Self::Indeterminate => 3,
-            Self::DepthBound => 4,
-            Self::BreadthBound => 5,
-            Self::Trusted => 6,
-            Self::Proven => 7,
+            Self::Timeout => 3,
+            Self::Indeterminate => 4,
+            Self::DepthBound => 5,
+            Self::BreadthBound => 6,
+            Self::Trusted => 7,
+            Self::Proven => 8,
         };
         if rank(other) < rank(self) {
             other
@@ -746,6 +756,7 @@ impl Verdict {
             Self::BreadthBound => "breadth-bound",
             Self::Trusted => "trusted",
             Self::Crashed => "crashed",
+            Self::Timeout => "timeout",
         }
     }
 }
@@ -877,6 +888,70 @@ const fn signal_name(signal: i32) -> Option<&'static str> {
         15 => "SIGTERM",
         _ => return None,
     })
+}
+
+/// The solver a proof document's claims were proved with (the document's `solver` member):
+/// whether each Z3 attempt is bounded by Z3 resource units or by the clock, the first attempt's
+/// bound, the retries, each at twice the previous bound, and the Z3 build ([`SolverBuild`]).
+/// Under resource bounds a verdict is a function of the claim, these options and the Z3 build;
+/// under the clock it also depends on the host's speed and load.
+///
+/// The members are in the order every krs JSON document has its keys.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SolverReport {
+    /// The first attempt's wall-clock timeout in milliseconds, in mode `clock`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub clock_ms: Option<u32>,
+    /// `resource` or `clock`.
+    pub mode: String,
+    /// The retries of an undecided answer.
+    pub retries: u32,
+    /// The first attempt's Z3 resource units, in mode `resource`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub units: Option<u32>,
+    /// The Z3 build the process linked, absent in a build without Z3.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub z3: Option<SolverBuild>,
+}
+
+/// The Z3 build that counted a proof's resource units (`solver.z3`, k-rust's `z3_build`): Z3's
+/// version string, and the SHA-256 of the library file Z3's code comes from (the shared library
+/// when krs links Z3 dynamically, the archive the build linked when statically). Two builds of
+/// one version (another compiler, other flags, another architecture) can count the units of one
+/// query differently, so the version alone does not name the solver a verdict depends on; the
+/// library's digest does, and it stays the same across builds of krs that link the same Z3.
+///
+/// The members are in the order every krs JSON document has its keys.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SolverBuild {
+    /// The lowercase hexadecimal SHA-256 of the library file Z3's code comes from; null when it
+    /// cannot be named (a shared library replaced since it was mapped, or a static link whose
+    /// archive the build could not name), and then the document does not say which build
+    /// counted.
+    pub library_sha256: Option<String>,
+    /// Z3's version string (`Z3_get_full_version`).
+    pub version: String,
+}
+
+impl SolverReport {
+    /// The report of the solver options `options` in this process.
+    #[must_use]
+    pub fn of(options: k_rust::backend::BackendOptions) -> Self {
+        let (mode, units, clock_ms) = match options.smt_resource_limit {
+            Some(units) => ("resource", Some(units.get()), None),
+            None => ("clock", None, Some(options.smt_timeout_ms)),
+        };
+        Self {
+            clock_ms,
+            mode: mode.to_owned(),
+            retries: options.smt_retry_limit,
+            units,
+            z3: k_rust::backend::z3_build().map(|build| SolverBuild {
+                library_sha256: build.library_sha256.clone(),
+                version: build.version.to_owned(),
+            }),
+        }
+    }
 }
 
 /// What a compiled definition supports in this build.
