@@ -1407,7 +1407,7 @@ match = 'sweep/{claim,readable}/result/env/{None,x}'
 finding = "S5-H1"
 kind = "diagnostic+rust-syntax"
 
-# S5-K1, diagnostic: 14 reds
+# S5-K1, diagnostic: 10 reds
 
 # sweep: 4
 [[family]]
