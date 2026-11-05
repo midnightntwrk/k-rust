@@ -412,7 +412,10 @@ fn krs(target: &Path, manifest: &Path, command: &str, extra: &[&str]) -> (bool, 
 /// map entry (`via`, a `cells!` rule) binds is looked up after it.
 #[test]
 fn a_computed_instance_is_emitted_with_its_guards() {
-    let rules = emitted_rules(&["probe", "drop", "bump", "next", "via", "check", "find"]);
+    let rules = emitted_rules(
+        &[],
+        &["probe", "drop", "bump", "next", "via", "check", "find"],
+    );
     expect_test::expect![[r"
         rule [probe]:
         <k> probe N:Int => .K ... </k>
@@ -477,7 +480,7 @@ fn a_computed_instance_is_emitted_with_its_guards() {
 /// (`bagc`), are part of the value looked up.
 #[test]
 fn set_and_map_cells_and_two_instances_are_emitted_with_their_guards() {
-    let rules = emitted_rules(&["dup", "dz", "bags", "bagc"]);
+    let rules = emitted_rules(&[], &["dup", "dz", "bags", "bagc"]);
     expect_test::expect![[r"
         rule [dup]:
         <k> dup N:Int => .K ... </k>
@@ -515,11 +518,38 @@ fn set_and_map_cells_and_two_instances_are_emitted_with_their_guards() {
         requires (Krs_Instance0:Int ==K (N:Int +Int 1)) andThenBool ((Krs_Instance1:Set ==K SetItem(N:Int +Int 2) |Set SetItem(N:Int +Int 1)) andThenBool ((Krs_Instance2:Int ==K (N:Int +Int 1)) andThenBool (Krs_Instance3:Int ==K (N:Int +Int 2))))"]].assert_eq(&rules);
 }
 
-/// The emitted rules `labels` of [`SOURCE`], one line each.
-fn emitted_rules(labels: &[&str]) -> String {
+/// A rule that removes or creates an instance changes its collection, though
+/// it mentions none of the instance's cells: `drop_one` and its readable twin
+/// `drop_any` (label `drop-any`) are K's `<obj> _ </obj> => .Bag`, and
+/// `make_one` adds an instance of the template's cells where its guard holds.
+#[test]
+fn a_rule_that_only_removes_or_creates_an_instance_changes_a_cell() {
+    let extra = "#[k::rule(label = \"drop_one\")]\nfn drop_one(\n    k::cells! { Objects::obj: { k::fragment![crate::Obj { .. }], rest @ .. }, state @ .. }: Machine,\n) -> Machine {\n    k::cells! { Objects::obj: { ..rest }, ..state }\n}\n\n#[k::requires(a > 0)]\n#[k::rule(label = \"make_one\")]\nfn make_one(\n    a: k::Term<Int>,\n    k::cells! { Meta::a: k::configuration::Cell(a), Objects::obj: { instances0 @ .. }, state @ .. }: Machine,\n) -> Machine {\n    k::cells! { Objects::obj: { k::fragment![crate::Obj { .. }], ..instances0 }, ..state }\n}\n\nk::rules! {\n    for Machine;\n\n    drop_any: { obj: { Obj { .. }, .. } } => { obj: { .. } };\n}\n";
+    let rules = emitted_rules(&[("EXTRA", extra)], &["drop_one", "drop-any", "make_one"]);
+    expect_test::expect![[r"
+        rule [drop_one]:
+        (<obj>
+        .Bag ...
+        </obj> => .Bag)
+        rule [drop-any]:
+        (<obj>
+        .Bag ...
+        </obj> => .Bag)
+        rule [make_one]:
+        <a> A:Int </a>
+        (.Bag => <obj>
+        .Bag ...
+        </obj>)
+        requires A:Int >Int 0"]]
+    .assert_eq(&rules);
+}
+
+/// The emitted rules `labels` of [`SOURCE`] with the rules `replaced`, one
+/// line each.
+fn emitted_rules(replaced: &[(&str, &str)], labels: &[&str]) -> String {
     let target = shared_fixture_target();
     let temporary = temp_dir();
-    let manifest = package(temporary.path(), &source(&[]));
+    let manifest = package(temporary.path(), &source(replaced));
     let output = temporary.path().join("emitted");
     let (success, _, stderr) = krs(
         target.path(),

@@ -290,8 +290,8 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the sentence.
         range: Option<Box<SourceRange>>,
     },
-    /// A rule changes no cell, on either route (KF-015): once enabled it
-    /// repeats forever and changes nothing.
+    /// A rule changes no cell, on any route (KF-015): if it applies, it
+    /// applies again forever and changes nothing.
     RuleChangesNoCell {
         /// The rule.
         rule: Box<StableItemId>,
@@ -1603,7 +1603,7 @@ impl fmt::Display for DescriptorLoweringError {
             }
             Self::RuleChangesNoCell { rule, .. } => write!(
                 formatter,
-                "rule `{}` changes no cell: every cell it names keeps its content, so once enabled it applies again to the configuration it leaves, forever, and changes nothing",
+                "rule `{}` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing",
                 rule.item_name()
             ),
             Self::GroupAndDescendant {

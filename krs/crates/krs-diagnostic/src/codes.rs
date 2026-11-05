@@ -247,7 +247,7 @@ register_codes! {
         MISSING_PRECEDENCE_CHAIN: "krs::analysis::missing-precedence-chain" => "A constructor family without `#[k::precedence]` has a variant that can sit directly at the edge of another of its variants.",
         PRIVATE_PRODUCTION_IN_SPEC: "krs::analysis::private-production-in-spec" => "A claim or a spec-module sentence names a private production, which proof modules cannot see.",
         ALWAYS_ENABLED_RULE: "krs::analysis::always-enabled-rule" => "A rule whose every cell pattern matches every content, with no guard, matches every configuration, so execution never terminates.",
-        RULE_CHANGES_NO_CELL: "krs::analysis::rule-changes-no-cell" => "A rule that changes no cell repeats forever and changes nothing.",
+        RULE_CHANGES_NO_CELL: "krs::analysis::rule-changes-no-cell" => "A rule that changes no cell, if it applies, applies again forever and changes nothing.",
         GROUP_SUBJECT_POSITION: "krs::analysis::group-subject-position" => "A sentence typed by a cell group names a group that sits below an optional (`?`) or a collection (`*`) cell, so its cells have no one fixed position in the configuration.",
         GROUP_NOT_IN_CONFIGURATION: "krs::analysis::group-not-in-configuration" => "A sentence typed by a cell group names a group that no cell of the definition's configuration holds.",
         GROUP_CLAIM: "krs::analysis::group-claim" => "A claim is typed by a cell group: a claim states what its definition's transition system does, so it is typed by the configuration.",

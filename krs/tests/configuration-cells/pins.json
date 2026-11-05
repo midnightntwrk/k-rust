@@ -424,7 +424,7 @@
       "error[krs::analysis::always-enabled-rule]: rule `burn` is always enabled, so execution never terminates: every cell pattern it names is a variable or `_` of the cell's sort, and it has no requires guard"
     ],
     "identity-framed-rule": [
-      "error[krs::analysis::rule-changes-no-cell]: rule `idle` changes no cell: every cell it names keeps its content, so once enabled it applies again to the configuration it leaves, forever, and changes nothing"
+      "error[krs::analysis::rule-changes-no-cell]: rule `idle` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing"
     ],
     "group-and-leaf": [
       "error[krs::analysis::group-and-descendant]: rule `peek` selects the nested cell `frame` and the cell `pc` inside it; the whole-cell entry `frame` already names every cell below it, so select one or the other"

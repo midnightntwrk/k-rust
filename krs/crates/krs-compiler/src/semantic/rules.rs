@@ -894,20 +894,35 @@ pub(super) fn matches_every_content(
 }
 
 /// Whether no clause of a rule changes its cell: each only reads it or
-/// restates it. An optional or collection clause (KF-023) changes something
-/// unless it only reads; its parts say so.
+/// restates it. An optional cell (KF-023) changes when it goes from present
+/// to absent or from absent to present, and a collection clause whenever it
+/// removes or creates an instance, whether or not it mentions the instance's
+/// children (`<obj> _ </obj> => .Bag` mentions none); a kept instance changes
+/// only where one of its children does.
 pub(super) fn changes_no_cell(clauses: &[ConfigurationClause<SemanticId, SemanticTerm>]) -> bool {
-    clauses
-        .iter()
-        .flat_map(ConfigurationClause::parts)
-        .all(|part| match part {
-            krs_ir::ClausePart::Matched { before, after, .. } => match after {
-                krs_ir::PartPost::Preserve => true,
-                krs_ir::PartPost::Local | krs_ir::PartPost::Removed => false,
-                krs_ir::PartPost::Replace(term) => same_term(before, term),
-            },
-            krs_ir::ClausePart::Written { .. } => false,
-        })
+    use krs_ir::{InstanceClause, Presence};
+    let fixed = |clause: &FixedCellClause<SemanticId, SemanticTerm>| match clause.after() {
+        CellPost::Preserve => true,
+        CellPost::Local => false,
+        CellPost::Replace { term } => same_term(clause.before(), term),
+    };
+    clauses.iter().all(|clause| match clause {
+        ConfigurationClause::Fixed(clause) => fixed(clause),
+        ConfigurationClause::Optional(clause) => match (clause.before(), clause.after()) {
+            (_, None) | (Presence::Absent, Some(Presence::Absent)) => true,
+            (Presence::Present { term: before }, Some(Presence::Present { term })) => {
+                same_term(before, term)
+            }
+            (Presence::Present { .. }, Some(Presence::Absent))
+            | (Presence::Absent, Some(Presence::Present { .. })) => false,
+        },
+        ConfigurationClause::Instances(clause) => {
+            clause.instances().all(|instance| match instance {
+                InstanceClause::Kept { children, .. } => children.iter().all(fixed),
+                InstanceClause::Removed { .. } | InstanceClause::Created { .. } => false,
+            })
+        }
+    })
 }
 
 /// Whether `result` restates the items of the k sequence `before`; the item
