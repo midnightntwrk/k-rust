@@ -290,7 +290,8 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the sentence.
         range: Option<Box<SourceRange>>,
     },
-    /// A readable rule without the computation cell changes no cell (KF-015).
+    /// A rule changes no cell, on either route (KF-015): once enabled it
+    /// repeats forever and changes nothing.
     RuleChangesNoCell {
         /// The rule.
         rule: Box<StableItemId>,
@@ -352,8 +353,9 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the cell's name.
         range: Option<Box<SourceRange>>,
     },
-    /// A readable rule without the computation cell matches every
-    /// configuration, so execution never terminates (KF-015).
+    /// A rule whose every cell pattern matches every content, with no
+    /// guard, matches every configuration, so execution never terminates
+    /// (KF-015).
     AlwaysEnabledRule {
         /// The rule.
         rule: Box<StableItemId>,
@@ -1601,7 +1603,7 @@ impl fmt::Display for DescriptorLoweringError {
             }
             Self::RuleChangesNoCell { rule, .. } => write!(
                 formatter,
-                "rule `{}` changes no cell: every cell it names keeps its content and it leaves the computation cell out, so applying it changes nothing",
+                "rule `{}` changes no cell: every cell it names keeps its content, so once enabled it applies again to the configuration it leaves, forever, and changes nothing",
                 rule.item_name()
             ),
             Self::GroupAndDescendant {
@@ -1665,7 +1667,7 @@ impl fmt::Display for DescriptorLoweringError {
             },
             Self::AlwaysEnabledRule { rule, .. } => write!(
                 formatter,
-                "rule `{}` is always enabled, so execution never terminates: it leaves the computation cell out, every cell pattern is a variable or `_` of the cell's sort, and it has no requires guard",
+                "rule `{}` is always enabled, so execution never terminates: every cell pattern it names is a variable or `_` of the cell's sort, and it has no requires guard",
                 rule.item_name()
             ),
             Self::InvalidSpecModule { reason, .. }

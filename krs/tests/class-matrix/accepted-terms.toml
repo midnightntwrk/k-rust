@@ -4305,24 +4305,6 @@ rule [case-TAG]:
 syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
 """
 
-[accept."terms/cells/guard-restated/k::is!(Int, x)"]
-k = """
-rule [case-TAG]:
-<k> cTAG ( V0:KItem , 0 ) => cTAG ( V0:KItem , 0 ) ... </k>
-requires isInt(V0:KItem)
-
-syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
-"""
-
-[accept."terms/cells/guard-restated/true"]
-k = """
-rule [case-TAG]:
-<k> cTAG ( V0:KItem , 0 ) => cTAG ( V0:KItem , 0 ) ... </k>
-requires true
-
-syntax Stmt ::= "cTAG" "(" KItem "," KItem ")" [symbol(cmdCTAG), format(%1%2%3%4 %5%6)]
-"""
-
 [accept.'terms/cells/item-root/"s"']
 k = '''
 rule [case-TAG]:

@@ -1817,6 +1817,11 @@ deviation = "krs::analysis::collection-entry @ entry"
 # S0-16: an author mistake reported unlocated, at the wrong entry, or under an internal code (C5)
 # The two left: S5 reads `job: [x, ..]` results by declared kind
 
+# S6-1b-1: a readable claim whose result writes no cell prints as a `cells!` claim the macro refuses
+["k3/claim/nochange/kinds/pc/x"]
+finding = "S6-1b-1"
+deviation = "printed surface refused: krs::syntax::invalid-state-macro @ item"
+
 # S0-17: a readable claim's start state, or a readable subject's Set collection instance cell, accepts `k::matches!` and
 # `let` blocks that the printed `cells!` subject refuses. Results conform since S6-1a; a `cells!` subject admitting
 # them meets the collector's `invalid-configuration`, so the subject half waits on S6 phase 2.

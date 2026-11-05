@@ -745,7 +745,7 @@ fn cells_mark(mark: &str, decl: &Decl, side: RuleSide) -> Written {
         text,
         spelling,
         binders: match (side, binder) {
-            (RuleSide::Subject, Some(ty)) => vec![("x", ty)],
+            (RuleSide::Subject | RuleSide::NoChange, Some(ty)) => vec![("x", ty)],
             _ => Vec::new(),
         },
     }
@@ -1010,12 +1010,13 @@ fn readable_case(family: Family, side: RuleSide, cell_name: &str, mark: &Written
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "One `cells!` rule case keeps its text and its template visibly paired."
+)]
 fn cells_case(side: RuleSide, cell_name: &str, mark: &Written) -> Generated {
-    let entry_side = if side == RuleSide::Subject {
-        Side::Subject
-    } else {
-        Side::Result
-    };
+    let entry_side = side.entry_side();
+    let subject_only = matches!(side, RuleSide::Subject | RuleSide::NoChange);
     let spec = CaseSpec {
         family: Family::Cells,
         base: Base::Kinds,
@@ -1029,10 +1030,10 @@ fn cells_case(side: RuleSide, cell_name: &str, mark: &Written) -> Generated {
         construct: mark.text.clone(),
     };
     let tag = spec.tag();
-    let arity = if side == RuleSide::Subject { 0 } else { 2 };
+    let arity = if subject_only { 0 } else { 2 };
     let command = Command::for_case(&spec.id(), arity);
     let mut parameters: Vec<(&str, String)> = Vec::new();
-    if side != RuleSide::Subject {
+    if !subject_only {
         parameters.push(("x", INT.to_owned()));
         parameters.push(("y", INT.to_owned()));
     }
@@ -1049,21 +1050,24 @@ fn cells_case(side: RuleSide, cell_name: &str, mark: &Written) -> Generated {
         item.push(&format!("    {name}: {ty},\n"));
     }
     let key = key(cell_name);
-    let tail = || Spelling::KCell(seq(vec![], splice("tail")));
     let mut entries = Vec::new();
     let mut context = Context::default();
-    if side == RuleSide::Subject {
+    if subject_only {
         item.push(&format!(
             "    k::cells! {{ k: k::configuration::KCell(crate::Cmd::{}(), tail @ ..), ",
             command.name
         ))
         .entry(&key, &mark.text)
-        .push(concat!(
-            ", state @ .. }: crate::Machine,\n",
-            ") -> crate::Machine {\n",
-            "    k::cells! { k: k::configuration::KCell(..tail), ..state }\n",
-            "}\n",
-        ));
+        .push(", state @ .. }: crate::Machine,\n) -> crate::Machine {\n");
+        // A result that restates the subject's computation writes no cell.
+        if side == RuleSide::NoChange {
+            item.push(&format!(
+                "    k::cells! {{ k: k::configuration::KCell(crate::Cmd::{}(), ..tail), ..state }}\n}}\n",
+                command.name
+            ));
+        } else {
+            item.push("    k::cells! { k: k::configuration::KCell(..tail), ..state }\n}\n");
+        }
         entries.push(entry(
             "k",
             Side::Subject,
@@ -1092,7 +1096,16 @@ fn cells_case(side: RuleSide, cell_name: &str, mark: &Written) -> Generated {
         .entry(&key, &mark.text)
         .push(", ..state }\n}\n");
     }
-    entries.push(entry("k", Side::Result, tail()));
+    let restated = if side == RuleSide::NoChange {
+        vec![call(vec![])]
+    } else {
+        Vec::new()
+    };
+    entries.push(entry(
+        "k",
+        Side::Result,
+        Spelling::KCell(seq(restated, splice("tail"))),
+    ));
     let case = spec.finish(Packaging::Shared(command), &item);
     Generated {
         case,
@@ -1411,7 +1424,7 @@ fn generate() -> Vec<Generated> {
 }
 
 /// The cases the ticket lists beside the array: a rule that writes no cell
-/// (`rule-changes-no-cell`), a rule naming a group and a cell below it (`group-and-descendant`),
+/// (`rule-changes-no-cell`, readable and `cells!`, and the claim that is no rule), a rule naming a group and a cell below it (`group-and-descendant`),
 /// L4's 2-child group record written whole, `Some(_)` in a result, and a `cells!` result
 /// fragment whose bare `..` leaves `b` open over a matched group. L4's record naming one of the two children
 /// is written in both forms, readable `G { a: x }` and its `cells!` fragment (D-4).
@@ -1453,11 +1466,20 @@ fn listed() -> Vec<Generated> {
             &written("Some(_)", some(wild())),
         ));
     }
-    out.push(readable_case(
-        Family::Readable,
+    // A rule that writes no cell, on both routes, and a claim that the configuration reaches
+    // itself: a claim is no step of execution, so it is no rule that repeats forever.
+    for family in [Family::Readable, Family::Claim] {
+        out.push(readable_case(
+            family,
+            RuleSide::NoChange,
+            "pc",
+            &readable_mark("value:binder", decl("pc")),
+        ));
+    }
+    out.push(cells_case(
         RuleSide::NoChange,
         "pc",
-        &readable_mark("value:binder", decl("pc")),
+        &cells_mark("leaf", decl("pc"), RuleSide::NoChange),
     ));
     out.push(cells_case(
         RuleSide::Result,

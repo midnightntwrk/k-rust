@@ -319,6 +319,19 @@ fn subject_cell_wildcard_keeps_its_rule_side_and_declares_a_fresh_variable() {
         unreachable!();
     };
     sequence.items[0].value = variable(ProvenanceRole::RuleRightReference, 0, "X");
+    // The rule empties `env`, so it is a step that changes a cell.
+    let owner = rule.subject_configuration.configuration.clone();
+    rule.result.as_mut().unwrap().cells.push(rule_cell(
+        &owner,
+        RuleSide::Right,
+        1,
+        "env",
+        CellWrapper::Cell,
+        ProtocolRuleStateTerm::Map(ProtocolRuleMap {
+            payload_key: key(ProvenanceRole::RuleRightMapPayload, 0),
+            body: ProtocolRuleMapBody::Empty { explicit_dot: true },
+        }),
+    ));
     rule.bindings
         .retain(|binding| matches!(binding.name.as_str(), "X" | "tail" | "state"));
     let expected_keys = rule.expected_provenance_keys(ItemKind::Rule).unwrap();
@@ -344,6 +357,45 @@ fn subject_cell_wildcard_keeps_its_rule_side_and_declares_a_fresh_variable() {
             .iter()
             .any(|variable| variable.id().as_str() == "__krs_wildcard_0"
                 && variable.sort() == &krs_ir_levels::SemanticSortRef::map())
+    );
+}
+
+/// A `cells!` transition whose result restates the cell it rewrites and only
+/// reads the other is a step from a configuration to itself: once enabled it
+/// repeats forever and changes nothing, so it is refused, as a readable rule is.
+#[test]
+fn a_cells_rule_whose_result_restates_its_subject_changes_no_cell() {
+    let mut bundle = bundle();
+    let mut descriptors = bundle.descriptors.clone();
+    let rule = descriptors
+        .iter_mut()
+        .find_map(|descriptor| match &mut descriptor.payload {
+            DescriptorPayload::ConfigurationRule(rule) => Some(rule),
+            _ => None,
+        })
+        .unwrap();
+    rule.subject.cells[1].value = ProtocolRuleStateTerm::Term(DescriptorTerm::Wildcard {
+        key: key(ProvenanceRole::RuleLeftWildcard, 0),
+    });
+    let ProtocolRuleStateTerm::KSequence(sequence) =
+        &mut rule.result.as_mut().unwrap().cells[0].value
+    else {
+        unreachable!();
+    };
+    sequence.items[0].value = variable(ProvenanceRole::RuleRightReference, 0, "X");
+    rule.bindings
+        .retain(|binding| matches!(binding.name.as_str(), "X" | "tail" | "state"));
+    let expected_keys = rule.expected_provenance_keys(ItemKind::Rule).unwrap();
+    let descriptor = descriptors
+        .iter_mut()
+        .find(|descriptor| matches!(&descriptor.payload, DescriptorPayload::ConfigurationRule(_)))
+        .unwrap();
+    descriptor.provenance = provenance(key(ProvenanceRole::RuleDeclaration, 0), expected_keys);
+    bundle.descriptors = descriptors;
+    let error = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap_err();
+    assert!(
+        error.to_string().contains("rule `var` changes no cell"),
+        "unexpected error: {error}"
     );
 }
 

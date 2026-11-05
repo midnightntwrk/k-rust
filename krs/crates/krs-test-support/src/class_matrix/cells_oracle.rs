@@ -1825,6 +1825,22 @@ impl EntryCase {
     }
 }
 
+/// Whether the result entry `result` restates the subject entry `subject`: the same cell, and
+/// the same spelling once a kept `..t` reads as the rest `t @ ..` it keeps.
+fn restates(result: &Entry, subject: &Entry) -> bool {
+    let kept = |spelling: &Spelling| match spelling {
+        Spelling::KCell(Seq {
+            items,
+            rest: Some((Rest::Splice(name), at)),
+        }) => Spelling::KCell(Seq {
+            items: items.clone(),
+            rest: Some((Rest::Named(name.clone()), *at)),
+        }),
+        other => other.clone(),
+    };
+    result.cell == subject.cell && kept(&result.spelling) == subject.spelling
+}
+
 /// Step 5, the rule-level rows, judged after the entries are admitted, from the whole sentence:
 /// `entry` is the case's own entry, `template` the rest of its sentence.
 ///
@@ -1835,7 +1851,9 @@ impl EntryCase {
 ///   once;
 /// - `always-enabled-rule`: every subject entry of a rule constrains nothing (Q1's [`total`])
 ///   and there is no guard, so the rule matches every configuration;
-/// - `rule-changes-no-cell`: a rule writes no cell;
+/// - `rule-changes-no-cell`: a rule writes no cell: it has no result entry, or each restates
+///   its cell's subject entry (a kept `..t` for the rest `t @ ..` it names), so once enabled it
+///   repeats forever and changes nothing, on either route; a claim is no step and is not judged;
 /// - `unused-configuration-variable`: no initializer value names a configuration variable;
 /// - `main-cell-not-k`: the program is placed in a computation cell, and not in the one named
 ///   `k`, which K takes as the computation cell by its name, whatever order the entries come in.
@@ -1859,7 +1877,13 @@ pub fn rule_outcome(template: &Template, entry: &Entry, outcome: Outcome) -> Opt
             {
                 return Some("always-enabled-rule");
             }
-            if !entries().any(|entry| entry.side == Side::Result) {
+            let subjects = entries()
+                .filter(|entry| entry.side == Side::Subject)
+                .collect::<Vec<_>>();
+            if entries()
+                .filter(|entry| entry.side == Side::Result)
+                .all(|result| subjects.iter().any(|subject| restates(result, subject)))
+            {
                 return Some("rule-changes-no-cell");
             }
             None

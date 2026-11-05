@@ -196,7 +196,7 @@ const STATUSES: &[&str] = &[
     "186 no driver: the function is internal: it has no program syntax, and no base sentence can name the case's function",
     "3 no driver: the function the case declares for the solver has no driver command",
     "5376 no driver: the path sweep's cases witness the compiler's verdict on each sweep cell below a marked ancestor; the path base has no driver commands to set its cells up",
-    "1266 no driver: the readable, claim and `cells!` families read cells the machine, typed and kinds bases start at fixed values, and those bases have no driver commands to set them up (a claim needs a prover besides)",
+    "1268 no driver: the readable, claim and `cells!` families read cells the machine, typed and kinds bases start at fixed values, and those bases have no driver commands to set them up (a claim needs a prover besides)",
     "4 no driver: the sentence cannot take both attributes, and is refused",
     "160 no driver: the simplification holds under the condition false only, which no input satisfies, so its twin has nothing to evaluate",
     "7 no value: a cell's value, which the generator's ground terms do not write",

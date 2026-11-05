@@ -2501,8 +2501,9 @@ fn slots() -> Vec<Slot> {
         )
         .holding(Holds::Only(&["x", "1"])),
         // The condition of a `cells!` rule whose result restates every cell it names: the rule
-        // is the step the author wrote, a rewrite of the restated computation item into itself
-        // (finding NT-11-3, S4 of NT-18's review).
+        // writes no cell, so once enabled it repeats forever, and it is refused whatever its
+        // condition, as a readable rule is (`rule-changes-no-cell`, 2026-11-05; NT-11-3 had
+        // lowered it as a step from a configuration to itself).
         slot(
             "cells",
             "guard-restated",

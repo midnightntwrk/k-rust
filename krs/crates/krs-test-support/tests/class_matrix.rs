@@ -97,17 +97,18 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             // 7 kinds × 13 spellings × 2 sides, 8 typed cells × 4 contents × 2 sides, the kinds
             // base's 15 stacks × 9 marks (S5.0g), and its listed cases: a group named with its
             // child, the 2-child group record written whole and naming one child on each side,
-            // `Some(_)` in a result, and (readable only) a rule that writes no cell; and item
+            // `Some(_)` in a result, and a rule that writes no cell (readable, claim, `cells!`); and item
             // 3b's groups (`kinds::groups`), 42 entries in each readable form.
             (Family::Readable, 182 + 64 + 15 * 9 + 7 + 42),
-            (Family::Claim, 182 + 64 + 15 * 9 + 6 + 42),
+            (Family::Claim, 182 + 64 + 15 * 9 + 7 + 42),
             // 7 kinds × (13 subject + 13 result spellings), the kinds base's 15 stacks × 9
             // marks, S5-F1's result fragment with a bare `..` (and its machine-base twin on the
-            // one-child group), the 2-child group's fragment naming one child on each side, and
+            // one-child group), the 2-child group's fragment naming one child on each side, a rule
+            // that restates its subject (`rule-changes-no-cell`), and
             // item 3b's groups (44 entries: 2 lints are `cells!`-only), G6's 12 entries in a
             // function context, a context alias and a context (`cells!`-only), and the
             // computation cell's 6 results that write a rest (`cells::computation_results`).
-            (Family::Cells, 182 + 15 * 9 + 2 + 2 + 44 + 12 * 3 + 6),
+            (Family::Cells, 182 + 15 * 9 + 2 + 3 + 44 + 12 * 3 + 6),
             // 7 kinds × 19 values, the computation cell's remainder, 3 field orders and the
             // nested group's, the optional cell declared `initial` written present, the 4 main-cell
             // shapes × 3 forms of a sentence that names no cell, 8 typed cells × 4 contents, and
@@ -2527,7 +2528,7 @@ fn a_name_or_sort_rule_refuses_a_spelling_at_every_sibling() {
 
 /// The term positions where the table accepts no construct, and why that is the position's own
 /// fact rather than a generator's mistake.
-const POSITIONS_WITHOUT_AN_ACCEPTED_CASE: [(&str, &str); 9] = [
+const POSITIONS_WITHOUT_AN_ACCEPTED_CASE: [(&str, &str); 10] = [
     (
         "terms/alias/subject-root",
         "a static clause's whole subject is the production it expands, marked as the clause is, and no construct of the catalog is one (the base marks the command of the clause's other slots): the slot shows what each construct is refused for there",
@@ -2547,6 +2548,10 @@ const POSITIONS_WITHOUT_AN_ACCEPTED_CASE: [(&str, &str); 9] = [
     (
         "terms/alias/subject/set-concat",
         "a set's concatenation in a static clause's subject is refused by its head, whatever element it holds (NT-14: static expansion matches it in one order of its parts): the three elements show that it is told before them",
+    ),
+    (
+        "terms/cells/guard-restated",
+        "a `cells!` rule whose result restates every cell it names writes no cell, so it is refused (`rule-changes-no-cell`, both routes since S6-1b) whatever its condition: the two conditions show that no guard makes it a step",
     ),
     (
         "terms/desugar/subject-root",

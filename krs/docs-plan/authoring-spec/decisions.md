@@ -368,8 +368,11 @@ bug — report it, don't guess.
   marker is written: an explicit `k: ..` would be inconsistent with this
   decision. Such a rule is rejected when it changes no cell, and when every
   cell pattern is an unguarded variable or `_` of the cell's sort, because
-  it is then always enabled and execution never terminates. The reference
-  surface stays K-faithful and gains no new error.
+  it is then always enabled and execution never terminates. A `k::cells!`
+  rule is judged the same way (2026-11-05): a rule whose result restates
+  its subject is legal K, but once enabled it repeats forever and changes
+  nothing, so it is refused on both routes. A claim is no step and is
+  judged by neither check.
   *E7 note: a record value follows the cell's declared type (2026-10,
   KF-016).* In a cell entry, and inside `Some(..)` of an optional cell,
   a record `Frame { pc: p, gas: g }` whose path rustc resolves to a

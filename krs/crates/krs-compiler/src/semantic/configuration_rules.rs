@@ -28,8 +28,9 @@ use super::origin::{
 };
 use super::references::require_cell_field;
 use super::rules::{
-    check_group_descendants, framework_k_item_sort, lower_nondet_group, lower_rule_label,
-    lower_rule_priority, omitted_leaf_cells, require_fixed_configuration,
+    check_group_descendants, check_step_effect, framework_k_item_sort, lower_nondet_group,
+    lower_rule_label, lower_rule_priority, matches_every_content, omitted_leaf_cells,
+    require_fixed_configuration,
 };
 use krs_ir::cell_kind::Multiplicity;
 
@@ -688,6 +689,19 @@ pub(super) fn lower_configuration_rule_descriptor(
         ));
     }
 
+    // Whether every cell the subject names matches every content; its
+    // remainder matches whatever it leaves out.
+    let mut matches_every_configuration = true;
+    for (cell, clause) in rule.subject.cells.iter().zip(&clauses) {
+        let declared = require_cell_field(&cell.field.cell, declarations)?;
+        let sort = match &declared.content {
+            ProtocolCellContent::Leaf { sort, .. } => semantic_sort_ref(&sort.sort),
+            ProtocolCellContent::Nested { declaration } => {
+                SemanticSortRef::Cell(declaration.declaration.clone())
+            }
+        };
+        matches_every_configuration &= matches_every_content(clause, Some(&sort));
+    }
     let body = FixedConfigurationRewrite::new(
         semantic_origin(
             descriptor,
@@ -719,6 +733,17 @@ pub(super) fn lower_configuration_rule_descriptor(
     let (existentials, ensures) = lower_existentials(&mut terms, rule, &result_sorts)?;
     let (variables, guards) = terms.finish();
     let requires = super::set_instances::guarded_requires(descriptor, requires, guards)?;
+    // A step of execution changes a cell and is not enabled everywhere, as a
+    // readable rule must (`check_step_effect`), judged once its entries and
+    // its condition are admitted: a guard constrains it.
+    if rule.sentence_kind == krs_ir::ConfigurationSentenceKind::Transition {
+        check_step_effect(
+            descriptor,
+            &rule.pattern_key,
+            body.clauses(),
+            matches_every_configuration && requires.is_none(),
+        )?;
+    }
     check_moved_remainders(&unused_moved, requires.as_ref(), ensures.as_ref())?;
     Ok(SemanticRule::new_configuration(
         semantic_origin(
@@ -865,8 +890,7 @@ fn lower_configuration_rule_clauses(
             "configuration remainder",
         )?;
     }
-    let mut restated = Vec::new();
-    let mut clauses = rule
+    let clauses = rule
         .subject
         .cells
         .iter()
@@ -875,7 +899,6 @@ fn lower_configuration_rule_clauses(
             if super::cell_states::is_cell_state(&subject.value)
                 || result.is_some_and(|result| super::cell_states::is_cell_state(&result.value))
             {
-                restated.push(None);
                 return lower_configuration_state_clause(
                     terms,
                     subject,
@@ -885,41 +908,10 @@ fn lower_configuration_rule_clauses(
                     result_sorts,
                 );
             }
-            let (clause, after) = lower_configuration_rule_clause(
-                terms,
-                subject,
-                result,
-                subject_sorts,
-                result_sorts,
-            )?;
-            let computation = computation_cell(&subject.field.cell, terms.declarations)?;
-            restated.push(after.map(|after| (computation, after)));
-            Ok(ConfigurationClause::Fixed(clause))
+            lower_configuration_rule_clause(terms, subject, result, subject_sorts, result_sorts)
+                .map(ConfigurationClause::Fixed)
         })
         .collect::<Result<Vec<_>, _>>()?;
-    // A rule with a result is the rewrite of its subject into it: a step, even
-    // where the result restates the subject. Where every cell is restated or
-    // read, a cell it restates keeps the rewrite the author wrote, the
-    // computation cell's first, so the rule is that step rather than a rule
-    // with no rewrite.
-    if rule.result.is_some()
-        && rule.sentence_kind == krs_ir::ConfigurationSentenceKind::Transition
-        && super::rules::changes_no_cell(&clauses)
-    {
-        let restated_at = |computation_only: bool| {
-            restated.iter().position(|after| {
-                after
-                    .as_ref()
-                    .is_some_and(|(computation, _)| !computation_only || *computation)
-            })
-        };
-        if let Some(index) = restated_at(true).or_else(|| restated_at(false))
-            && let Some((_, after)) = restated[index].take()
-            && let ConfigurationClause::Fixed(clause) = &mut clauses[index]
-        {
-            *clause = rewritten_to(clause, after);
-        }
-    }
     // A context (KF-021) need not rewrite anything.
     if rule.result.is_none()
         && rule.sentence_kind != krs_ir::ConfigurationSentenceKind::Context
@@ -1095,21 +1087,6 @@ impl super::cell_states::StateLowering for CellsStateLowering<'_, '_> {
     }
 }
 
-/// `clause` with its post-state the rewrite to `after`, every other field kept.
-fn rewritten_to(
-    clause: &FixedCellClause<SemanticId, SemanticTerm>,
-    after: SemanticTerm,
-) -> FixedCellClause<SemanticId, SemanticTerm> {
-    FixedCellClause::new(
-        clause.origin().clone(),
-        clause.cell().clone(),
-        clause.before().clone(),
-        CellPost::Replace { term: after },
-        clause.frame().clone(),
-    )
-    .with_kind(clause.kind())
-}
-
 /// The post-state of a cell a rule reads without restating it: rewritten in
 /// place when it holds a `k::rewrite!` (KF-011), otherwise unchanged.
 fn unrestated_post(before: &SemanticTerm) -> CellPost<SemanticTerm> {
@@ -1120,22 +1097,15 @@ fn unrestated_post(before: &SemanticTerm) -> CellPost<SemanticTerm> {
     }
 }
 
-/// Lowers one leaf or group cell entry of a `cells!` rule, and the result's
-/// term when the result restates the cell unchanged, which the clause only
-/// reads.
+/// Lowers one leaf or group cell entry of a `cells!` rule. A result that
+/// restates the cell unchanged only reads it.
 fn lower_configuration_rule_clause(
     terms: &mut StateRuleTerms<'_>,
     subject: &DescriptorRuleCell,
     result: Option<&DescriptorRuleCell>,
     subject_sorts: &BTreeMap<String, SemanticSortRef>,
     result_sorts: &BTreeMap<String, SemanticSortRef>,
-) -> Result<
-    (
-        FixedCellClause<SemanticId, SemanticTerm>,
-        Option<SemanticTerm>,
-    ),
-    DescriptorLoweringError,
-> {
+) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let descriptor = terms.descriptor;
     let declared = require_cell_field(&subject.field.cell, terms.declarations)?;
     let name = &subject.field.cell.field;
@@ -1197,7 +1167,6 @@ fn lower_configuration_rule_clause(
     )?;
     let subject_frame = rule_state_frame(&subject.value);
     let mut frame = lower_subject_cell_frame(descriptor, &subject.value)?;
-    let mut restated = None;
     let post = if let Some(result) = result {
         let base = MapBase::of(Some(&before), Some(&subject.value), Some(&result.value))?;
         let after = terms.result_state_term(
@@ -1222,7 +1191,6 @@ fn lower_configuration_rule_clause(
         if !matches!(frame, CellContentFrame::MovedMapRemainder { .. })
             && semantic_terms_equivalent(&before, &after)
         {
-            restated = Some(after);
             CellPost::Preserve
         } else {
             CellPost::Replace { term: after }
@@ -1230,15 +1198,12 @@ fn lower_configuration_rule_clause(
     } else {
         unrestated_post(&before)
     };
-    Ok((
-        FixedCellClause::new(
-            semantic_origin(descriptor, subject.field.key.clone(), "rule-cell-clause")?,
-            semantic_cell_id(&subject.field.cell)?,
-            before,
-            post,
-            frame,
-        ),
-        restated,
+    Ok(FixedCellClause::new(
+        semantic_origin(descriptor, subject.field.key.clone(), "rule-cell-clause")?,
+        semantic_cell_id(&subject.field.cell)?,
+        before,
+        post,
+        frame,
     ))
 }
 
@@ -1252,13 +1217,7 @@ fn lower_configuration_group_clause(
     declaration: &StableItemId,
     subject_sorts: &BTreeMap<String, SemanticSortRef>,
     result_sorts: &BTreeMap<String, SemanticSortRef>,
-) -> Result<
-    (
-        FixedCellClause<SemanticId, SemanticTerm>,
-        Option<SemanticTerm>,
-    ),
-    DescriptorLoweringError,
-> {
+) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let descriptor = terms.descriptor;
     let group_entry = |cell: &DescriptorRuleCell| {
         cell.wrapper.is_none() && matches!(cell.value, ProtocolRuleStateTerm::Group(_))
@@ -1281,13 +1240,11 @@ fn lower_configuration_group_clause(
         subject_sorts,
         true,
     )?;
-    let mut restated = None;
     let post = match result {
         Some(result) => {
             let after =
                 terms.state_term(&result.value, &sort, &result.field.key, result_sorts, false)?;
             if semantic_terms_equivalent(&before, &after) {
-                restated = Some(after);
                 CellPost::Preserve
             } else {
                 CellPost::Replace { term: after }
@@ -1295,14 +1252,11 @@ fn lower_configuration_group_clause(
         }
         None => unrestated_post(&before),
     };
-    Ok((
-        FixedCellClause::whole(
-            semantic_origin(descriptor, subject.field.key.clone(), "rule-group-clause")?,
-            semantic_cell_id(&subject.field.cell)?,
-            before,
-            post,
-        ),
-        restated,
+    Ok(FixedCellClause::whole(
+        semantic_origin(descriptor, subject.field.key.clone(), "rule-group-clause")?,
+        semantic_cell_id(&subject.field.cell)?,
+        before,
+        post,
     ))
 }
 

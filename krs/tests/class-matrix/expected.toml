@@ -1910,8 +1910,16 @@ match = '{claim,readable}/result/kinds/counter/Some(_)'
 class = "wildcard-outside-pattern"
 at = "spelling"
 
+# rule-changes-no-cell, on both routes (2026-11-05): a rule that writes no cell is legal K, but once
+# enabled it repeats forever and changes nothing. `claim/nochange/..` is accepted: a claim is no step
+# of execution, and that a configuration reaches itself is no mistake
 [[refuse]]
-match = 'readable/nochange/kinds/pc/x'
+match = '{cells/nochange/kinds/pc/k::configuration::Cell(x),readable/nochange/kinds/pc/x}'
+class = "rule-changes-no-cell"
+at = "item"
+
+[[refuse]]
+match = 'terms/cells/guard-restated/{true,k::is!(Int\, x)}'
 class = "rule-changes-no-cell"
 at = "item"
 
@@ -7247,6 +7255,15 @@ k = """
 rule [case-TAG]:
 <k> cTAG => .K ... </k>
 <stack> ... </stack>
+
+syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
+"""
+
+[accept."claim/nochange/kinds/pc/x"]
+k = """
+claim [case-TAG]:
+<k> cTAG ... </k>
+<pc> V0:Int </pc>
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
