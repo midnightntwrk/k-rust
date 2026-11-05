@@ -492,12 +492,17 @@ fn the_identity_is_an_object_of_its_components() {
         assert_eq!(identity_difference(&old).as_deref(), Some("one_sided"));
     }
     // The counted stop is a component: an identity written before it (every other component
-    // equal) differs at it.
+    // equal) differs at it. v2: a run to the Nth stop event is one request, whose depth bound
+    // bounds each whole path and whose work budget follows k-rust's exploration, so one written
+    // under v1, which staged the run, differs too.
     assert_eq!(identity["stop"], kink_campaign::STOP_VERSION);
-    assert_eq!(kink_campaign::STOP_VERSION, "kink-campaign/stop/v1");
+    assert_eq!(kink_campaign::STOP_VERSION, "kink-campaign/stop/v2");
     let mut before = identity.clone();
     before.as_object_mut().unwrap().remove("stop");
     assert_eq!(identity_difference(&before).as_deref(), Some("stop"));
+    let mut staged = identity.clone();
+    staged["stop"] = "kink-campaign/stop/v1".into();
+    assert_eq!(identity_difference(&staged).as_deref(), Some("stop"));
     assert_eq!(identity_difference(&identity), None);
     // Re-pin L2-1: coverage v2 (equations, matched and applied) is another coverage reading, so
     // an identity written under v1 (f0fc3a1: every other component equal) differs at it, and
