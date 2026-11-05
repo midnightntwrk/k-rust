@@ -210,12 +210,13 @@ def base_environment(overrides: Mapping[str, str]) -> tuple[dict[str, str], list
 def build_krs(environment: Mapping[str, str]) -> Path:
     """Build the release `krs` from this checkout into a persistent scratch target."""
 
-    from support.tools import checkout_scratch
+    from support.tools import checkout_scratch, require_linked_z3, z3_cargo_arguments
 
     target = Path(os.environ.get("KRS_PERF_KRS_TARGET", os.fspath(checkout_scratch() / "perf-krs-target")))
     print(f"building release krs into {target}", flush=True)
     completed = subprocess.run(
-        ["cargo", "+stable", "build", "--release", "--locked", "--offline", "-p", "krs-cli", "--bin", "krs"],
+        ["cargo", "+stable", "build", "--release", "--locked", "--offline", "-p", "krs-cli", "--bin", "krs",
+         *z3_cargo_arguments("kink")],
         cwd=ROOT,
         env={**environment, "CARGO_TARGET_DIR": os.fspath(target)},
         capture_output=True,
@@ -224,6 +225,7 @@ def build_krs(environment: Mapping[str, str]) -> Path:
     )
     if completed.returncode != 0:
         raise GateError(f"building krs failed:\n{completed.stderr[-4000:]}")
+    require_linked_z3(target / "release/krs", environment)
     return target / "release/krs"
 
 

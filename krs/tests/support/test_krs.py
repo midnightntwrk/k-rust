@@ -17,16 +17,21 @@ class BuildTests(unittest.TestCase):
         binary = Path("/tools/debug/krs")
         with (
             patch.object(krs.tools, "z3_environment", return_value={"LIBRARY_PATH": "z3"}),
+            patch.object(krs.tools, "z3_cargo_arguments", return_value=["--no-default-features"]),
             patch.object(krs.tools, "workspace_debug_binary", return_value=binary),
+            patch.object(krs.tools, "require_linked_z3") as linked,
             patch.object(krs.process, "run") as runner,
             patch.object(Path, "is_file", return_value=True),
         ):
             self.assertEqual(krs.build({"CARGO_NET_OFFLINE": "true", "CARGO_TARGET_DIR": "/gate/fixtures"}), binary)
         runner.assert_called_once_with(
-            ["cargo", "+stable", "build", "--locked", "-p", "krs-cli", "--bin", "krs"],
+            ["cargo", "+stable", "build", "--locked", "-p", "krs-cli", "--bin", "krs", "--no-default-features"],
             cwd=ROOT,
             environment={"LIBRARY_PATH": "z3", "CARGO_NET_OFFLINE": "true", "CARGO_TARGET_DIR": "/tools"},
             timeout=600,
+        )
+        linked.assert_called_once_with(
+            binary, {"LIBRARY_PATH": "z3", "CARGO_NET_OFFLINE": "true", "CARGO_TARGET_DIR": "/tools"}
         )
 
     def test_caller_environment_layers_over_z3_and_missing_binary_fails(self) -> None:

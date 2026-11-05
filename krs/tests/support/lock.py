@@ -48,8 +48,16 @@ def msrv() -> str:
     return str(value("cargo", "msrv"))
 
 
-def z3_version() -> str:
-    return str(value("solver", "version"))
+def linked_z3_version() -> str:
+    """The Z3 release krs links (`[solver] linked`), which a krs-cli test requires it to report."""
+
+    return str(value("solver", "linked"))
+
+
+def reference_z3_version() -> str:
+    """The Z3 release the reference oracle runs with (`[solver] reference`): the `z3` beside K."""
+
+    return str(value("solver", "reference"))
 
 
 def krs_ir_schema() -> int:

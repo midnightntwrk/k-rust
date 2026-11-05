@@ -38,7 +38,7 @@ from support.reference import (  # noqa: E402
     Key, Output, Snapshot, add_child_arguments, add_refresh_argument, indented_json,
     json_without_members, reduce_kore_exec_log, reduce_kprove_temp, repository_inputs,
 )
-from support.tools import k_executable, k_tool, z3_environment  # noqa: E402
+from support.tools import k_executable, k_tool, z3_environment, z3_library_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -175,6 +175,9 @@ def compile_definitions(
     run(
         ["cargo", "run", "--locked", "--quiet", "--manifest-path", ARTIFACT_MANIFEST, "--", artifacts],
         timeout=WATCHDOG_SECONDS,
+        # The probe takes k-rust's `z3-inference` alone, so on either route it links the library
+        # these paths name, which `z3_library_dir` checks is the release krs links.
+        environment=z3_library_environment(),
     )
     labels, claims = emitted_claims(artifacts, ACTUAL_MODULE, len(expected_labels), gate=gate, environment=z3_environment())
     if labels != list(expected_labels):

@@ -17,7 +17,7 @@ from typing import Any, Mapping, Sequence
 
 from support import GateError, ROOT
 from support import process
-from support.tools import tool_target, z3_environment
+from support.tools import require_linked_z3, tool_target, z3_cargo_arguments, z3_environment
 
 
 SESSION_EXIT_TIMEOUT_SECONDS = 30
@@ -25,22 +25,31 @@ REQUEST_TIMEOUT_SECONDS = 900
 
 
 def build(*, environment: Mapping[str, str] | None = None) -> Path:
-    """Build the locked release gate in the shared tool target directory (`tools.tool_target`)."""
+    """Build the locked release gate in the shared tool target directory (`tools.tool_target`).
+
+    It acquires Z3 by `tools.z3_route` and fails unless the binary links the Z3
+    release `Krs.lock` pins (`tools.require_linked_z3`).
+    """
 
     target = tool_target()
     binary = target / "release" / "krs-gate"
+    build_environment = {
+        **z3_environment(),
+        **(environment or {}),
+        "CARGO_NET_OFFLINE": "true",
+        "CARGO_TARGET_DIR": os.fspath(target),
+    }
     process.run(
-        ["cargo", "+stable", "build", "--locked", "--offline", "--release", "-p", "krs-gate", "--bins"],
-        environment={
-            **z3_environment(),
-            **(environment or {}),
-            "CARGO_NET_OFFLINE": "true",
-            "CARGO_TARGET_DIR": os.fspath(target),
-        },
+        [
+            "cargo", "+stable", "build", "--locked", "--offline", "--release", "-p", "krs-gate", "--bins",
+            *z3_cargo_arguments(),
+        ],
+        environment=build_environment,
         timeout=900,
     )
     if not binary.is_file():
         raise GateError(f"Cargo did not produce the gate binary at {binary}")
+    require_linked_z3(binary, build_environment)
     return binary
 
 

@@ -392,7 +392,7 @@ def wrapped_executable(path: Path) -> Path:
 
 
 def verify_java_tools(tools: Mapping[str, str]) -> None:
-    """Require the `Krs.lock` K, kore-exec, LLVM backend, and Z3 versions."""
+    """Require the `Krs.lock` K, kore-exec, LLVM backend, and reference Z3 versions."""
 
     version = run([tools["kompile"], "--version"], timeout=30)
     if not k_version_matches(version, lock.k_version()):
@@ -405,8 +405,8 @@ def verify_java_tools(tools: Mapping[str, str]) -> None:
     if llvm.parent.parent.name.split("-", 1)[-1] != expected or llvm.name != "llvm-kompile":
         raise GateError(f"LLVM backend version differs from Krs.lock: {llvm} is not {expected}'s llvm-kompile")
     z3 = run([tools["z3"], "--version"], timeout=30).stdout.strip()
-    if z3 != f"Z3 version {lock.z3_version()} - 64 bit":
-        raise GateError(f"Z3 version differs from Krs.lock: {z3}")
+    if z3 != f"Z3 version {lock.reference_z3_version()} - 64 bit":
+        raise GateError(f"Z3 version differs from Krs.lock [solver] reference: {z3}")
 
 
 def kompile_exported_tests(context: Context, exports: Path) -> Snapshot:

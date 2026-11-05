@@ -45,8 +45,8 @@ Hosted mode runs: fetch, expectations, oracle, check, pipeline, tour-minimal, ba
 Resource rules: the runner waits while the 1-minute load exceeds LOAD_MAX (default 40) before each step;
 cargo runs at nice -n 19 with -j JOBS (default 4); pack builds take the heavy-build flock (build.sh).
 Every step's output goes to OUT/logs/<step>.log; OUT/run.toml records the steps, exit codes, and wall times.
-Environment: KRS_GATE_SCRATCH (the scratch root SCRATCH, default /var/tmp), KRS_Z3_LIB (default: the Nix store
-Z3 4.12.5), CARGO_TARGET_ROOT (default SCRATCH/krs-<checkout>-<key>/browser-pack-target). Every output location, including
+Environment: KRS_GATE_SCRATCH (the scratch root SCRATCH, default /var/tmp), KRUST_GATE_Z3 and KRS_Z3_LIB (how krs and
+krs-gate link Z3, as for the other gates: tests/support/tools.py, z3_route), CARGO_TARGET_ROOT (default SCRATCH/krs-<checkout>-<key>/browser-pack-target). Every output location, including
 the steps' own scratch directories, is under OUT or CARGO_TARGET_ROOT.
 """
 
@@ -69,7 +69,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT  # noqa: E402
 from support.checkouts import git, git_revision  # noqa: E402
 from support.process import BASE_ENVIRONMENT, run  # noqa: E402
-from support.tools import checkout_scratch, scratch_root, z3_environment, z3_library_dir  # noqa: E402
+from support.tools import checkout_scratch, scratch_root, z3_environment, z3_library_dir, z3_route  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 WORKER = ROOT / "browser/worker"
@@ -101,7 +101,9 @@ class Runner:
         self.target_root = Path(os.environ.get("CARGO_TARGET_ROOT", checkout_scratch() / "browser-pack-target"))
         self.cli_target = self.target_root / "cli"
         self.krs_bin = self.cli_target / "debug/krs"
-        self.env = {**os.environ, **BASE_ENVIRONMENT, **z3_environment(), "KRS_Z3_LIB": str(z3_library_dir()),
+        # The parity scripts build krs and krs-gate on the same route; on `system` they link the checked library.
+        z3 = {"KRS_Z3_LIB": str(z3_library_dir())} if z3_route() == "system" else {}
+        self.env = {**os.environ, **BASE_ENVIRONMENT, **z3_environment(), **z3,
                     "LOAD_MAX": str(int(LOAD_MAX)), "PYTHONDONTWRITEBYTECODE": "1"}
         self.staged = self.out / "staged"
         self.fetched = self.out / "fetched"

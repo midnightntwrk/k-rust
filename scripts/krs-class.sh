@@ -31,8 +31,11 @@ alone (KRS_CLASS_CLOSURE=0 skips K3); KRS_CLASS_RUN=0 skips K7, which runs on K6
 KRS_CLASS_RUN_SECONDS is its time limit per program (default 60); KRS_CLASS_DEPENDS=0 skips K7's
 dependency check, which runs each conforming case again without what it states, and KRS_CHECK_ENDS=0
 skips K7's check that each run reported stuck ended where no rule applies. K6 compiles natively,
-as \`krs check\` does, so the test links the Z3 release krs/Krs.lock pins, found through KRS_Z3_LIB
-or the Nix store (KRS_NIX_STORE, default /nix/store). Exit status 0
+as \`krs check\` does, so the test links the Z3 release krs/Krs.lock [solver] linked names, on the
+route the other KRS gates take (KRUST_GATE_Z3): by default downloaded at build time and linked
+statically, under KRUST_GATE_Z3=system the library found through KRS_Z3_LIB or the Nix store
+(KRS_NIX_STORE, default /nix/store); krs-cli's z3_version test, built the same way, runs first and
+fails a build that links another release. Exit status 0
 when every case conforms or is pending as recorded, 1 otherwise, 2 on a usage error.
 EOF
 }
@@ -121,28 +124,50 @@ else
   trap report_and_remove EXIT
 fi
 
-# K6 judges what `krs check` judges, k-rust's native compile included, so the test builds with the
-# solver profile krs/Krs.lock pins and links its Z3 release, as the other KRS gates do
-# (krs/tests/support/tools.py, z3_library_dir).
-z3_version=$(awk -F'"' '/^\[solver\]/ { solver = 1 } solver && /^version/ { print $2; exit }' \
-  "$workspace/krs/Krs.lock")
-z3_lib=
-for candidate in ${KRS_Z3_LIB:+"$KRS_Z3_LIB" "$KRS_Z3_LIB/lib"} \
-  "${KRS_NIX_STORE:-/nix/store}"/*-z3-"$z3_version"-lib/lib; do
-  if [[ -f $candidate/libz3.so ]]; then
-    z3_lib=$candidate
-    break
-  fi
-done
-if [[ -z $z3_lib ]]; then
-  echo "[krs-class] Z3 $z3_version was not found; set KRS_Z3_LIB to its shared-library directory" >&2
-  exit 2
-fi
-export LIBRARY_PATH=$z3_lib${LIBRARY_PATH:+:$LIBRARY_PATH}
-export LD_LIBRARY_PATH=$z3_lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+# K6 judges what `krs check` judges, k-rust's native compile included, so the test links the Z3
+# release krs/Krs.lock [solver] linked names, on the route the other KRS gates take
+# (krs/tests/support/tools.py, z3_route and z3_library_dir).
+case ${KRUST_GATE_Z3:-gh-release} in
+  gh-release) z3_features=z3-inference-gh-release ;;
+  system)
+    z3_features=z3-inference
+    z3_version=$(awk -F'"' '/^\[solver\]/ { solver = 1 } solver && /^linked/ { print $2; exit }' \
+      "$workspace/krs/Krs.lock")
+    # KRS_Z3_LIB wins when set; the store's static library wraps the release's published build.
+    if [[ -n ${KRS_Z3_LIB:-} ]]; then
+      candidates=("$KRS_Z3_LIB" "$KRS_Z3_LIB/lib")
+    else
+      candidates=("${KRS_NIX_STORE:-/nix/store}"/*-z3-static-"$z3_version"/lib
+        "${KRS_NIX_STORE:-/nix/store}"/*-z3-"$z3_version"-lib/lib)
+    fi
+    z3_lib=
+    for candidate in "${candidates[@]}"; do
+      if [[ -f $candidate/libz3.so || -f $candidate/libz3.a ]]; then
+        z3_lib=$candidate
+        break
+      fi
+    done
+    if [[ -z $z3_lib ]]; then
+      echo "[krs-class] Z3 $z3_version was not found; set KRS_Z3_LIB to its library directory" >&2
+      exit 2
+    fi
+    export LIBRARY_PATH=$z3_lib${LIBRARY_PATH:+:$LIBRARY_PATH}
+    export LD_LIBRARY_PATH=$z3_lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
+    ;;
+  *)
+    echo "[krs-class] KRUST_GATE_Z3 must be gh-release or system, not $KRUST_GATE_Z3" >&2
+    exit 2
+    ;;
+esac
+class_build=(--locked --manifest-path "$workspace/Cargo.toml"
+  --target-dir "${KRS_CLASS_TARGET_DIR:-$workspace/target/gates}"
+  -p krs-cli --no-default-features --features "$z3_features")
+
+# On either route the z3_version test asks the linked Z3 for its release, so a build that links
+# another release (a wrong KRS_Z3_LIB, a z3-sys provider naming another library) fails before any
+# case is judged.
+RUSTC_WRAPPER='' cargo test "${class_build[@]}" --test z3_version
 
 KRS_CLASS_WORKERS=$workers KRS_CLASS_SCRATCH=$scratch KRS_CLASS_RECORD=$record RUSTC_WRAPPER='' \
-  cargo test --locked --manifest-path "$workspace/Cargo.toml" \
-  --target-dir "${KRS_CLASS_TARGET_DIR:-$workspace/target/gates}" \
-  -p krs-cli --no-default-features --features z3-inference --test class_matrix -- \
+  cargo test "${class_build[@]}" --test class_matrix -- \
   --ignored --exact --test-threads=1 --show-output "${shards[@]//-/_}"

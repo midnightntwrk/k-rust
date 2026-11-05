@@ -5,6 +5,15 @@ name: KRS
 # checks KRS owns: its tour verifiers, gate support tests, repository hygiene, the feature and
 # target variants of its crates, the lint of its standalone test packages, its documentation, the
 # separate semantics workspace, and the browser worker.
+# CI's workspace job builds KRS's crates with the default features, which download the published
+# build of the Z3 release Krs.lock [solver] linked names and link it statically; its `z3_version`
+# test checks the release. The tours build every Z3-linking crate they need (krs, krs-gate, the
+# test binaries tour-proof-evidence lists) on the other route (`KRUST_GATE_Z3=system`):
+# `z3-inference` linked to the shared library of the same published build, which
+# .github/actions/krs-z3 installs, and the gate support checks each krs and krs-gate it builds.
+# The checks job requires each Z3-linking crate built alone to select the download by default, and
+# its `z3-inference` alone to select none, which the workspace build cannot show, since workspace
+# feature unification selects the download for every member.
 
 on:
   pull_request:
@@ -29,6 +38,8 @@ jobs:
     defaults:
       run:
         working-directory: krs
+    env:
+      KRUST_GATE_Z3: system
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -89,6 +100,19 @@ jobs:
         run: |
           cargo +stable fetch --locked
           cargo +stable fetch --locked --manifest-path semantics/Cargo.toml
+
+      - name: Check how KRS's Z3-linking crates acquire Z3 when built alone
+        run: |
+          z3_sys_features() {
+            cargo +stable tree --locked --offline -e features -i z3-sys --prefix none --format '{p}|{f}' "$@" \
+              | grep -E '^z3-sys v' | sort -u
+          }
+          for package in krs-cli krs-exec krs-k-rust krs-gate; do
+            [[ $(z3_sys_features -p "$package") =~ ^z3-sys\ v[^\|]+\|gh-release$ ]] \
+              || { echo "::error::$package built alone does not select z3-sys/gh-release"; exit 1; }
+          done
+          [[ $(z3_sys_features -p krs-cli --no-default-features --features z3-inference,kink) =~ ^z3-sys\ v[^\|]+\|$ ]] \
+            || { echo "::error::krs-cli's z3-inference selects a Z3 acquisition feature"; exit 1; }
 
       - name: Check repository hygiene
         run: python3 tests/repo-hygiene/verify.py

@@ -24,7 +24,9 @@ def build(
     """Build the locked CLI and require Cargo to produce its debug binary.
 
     It builds in the shared tool target directory (`tools.tool_target`), whatever
-    `CARGO_TARGET_DIR` the caller's `environment` sets for the packages it compiles.
+    `CARGO_TARGET_DIR` the caller's `environment` sets for the packages it compiles,
+    acquires Z3 by `tools.z3_route`, and fails unless the binary links the Z3
+    release `Krs.lock` pins (`tools.require_linked_z3`).
     `--offline` is not implied; a caller that needs it sets `CARGO_NET_OFFLINE`.
     """
 
@@ -35,13 +37,17 @@ def build(
         "CARGO_TARGET_DIR": os.fspath(binary.parents[1]),
     }
     process.run(
-        ["cargo", "+stable", "build", "--locked", "-p", "krs-cli", "--bin", "krs"],
+        [
+            "cargo", "+stable", "build", "--locked", "-p", "krs-cli", "--bin", "krs",
+            *tools.z3_cargo_arguments("kink"),
+        ],
         cwd=ROOT,
         environment=env,
         timeout=timeout,
     )
     if not binary.is_file():
         raise GateError(f"Cargo did not produce the KRS binary at {binary}")
+    tools.require_linked_z3(binary, env)
     return binary
 
 

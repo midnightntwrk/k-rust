@@ -1,14 +1,32 @@
 name: KRS solver library
 description: >-
-  Install the Z3 4.12.5 shared library that KRS's Krs.lock pins and export
-  KRS_Z3_LIB, which the KRS gates and tour verifiers read.
+  Install the shared library of the Z3 build Krs.lock [solver] linked names,
+  the release's published x86-64 Linux build that krs's default features
+  download, and export KRS_Z3_LIB, which the KRS gates and tour verifiers link
+  on the KRUST_GATE_Z3=system route.
 
 runs:
   using: composite
   steps:
     - name: Install the pinned solver library
       shell: bash
+      env:
+        # The published archive and its digest. A change of Krs.lock [solver] linked must change
+        # both, which the step checks.
+        ASSET: z3-4.16.0-x64-glibc-2.39
+        ASSET_SHA256: 7288c49a5bd6dbafd7b0b0d1f65956b91672da24b08f09242919af159be3418e
       run: |
-        python3 -m venv "$RUNNER_TEMP/krs-z3"
-        "$RUNNER_TEMP/krs-z3/bin/pip" install --disable-pip-version-check z3-solver==4.12.5.0
-        "$RUNNER_TEMP/krs-z3/bin/python" -c 'import pathlib,z3; print("KRS_Z3_LIB=" + str(pathlib.Path(z3.__file__).parent / "lib"))' >> "$GITHUB_ENV"
+        version=$(python3 -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["solver"]["linked"])' \
+          "$GITHUB_WORKSPACE/krs/Krs.lock")
+        if [[ $ASSET != "z3-$version-"* ]]; then
+          echo "::error::Krs.lock [solver] linked is $version, but .github/actions/krs-z3 installs $ASSET"
+          exit 1
+        fi
+        archive="$RUNNER_TEMP/$ASSET.zip"
+        curl --fail --silent --show-error --location --retry 3 --output "$archive" \
+          "https://github.com/Z3Prover/z3/releases/download/z3-$version/$ASSET.zip"
+        echo "$ASSET_SHA256  $archive" | sha256sum --check --strict -
+        # Only the shared library: with no archive beside it, a `z3-inference` build links it dynamically.
+        unzip -q -j "$archive" "$ASSET/bin/libz3.so" -d "$RUNNER_TEMP/krs-z3"
+        rm "$archive"
+        echo "KRS_Z3_LIB=$RUNNER_TEMP/krs-z3" >> "$GITHUB_ENV"

@@ -248,13 +248,14 @@ function browserNormalized(d: BrowserDiagnostic): Normalized {
 /** Lowers a browser bundle natively: krs check with the cargo shim returning the bundle as the collector's stdout. */
 function lowerNatively(c: DiagnosticCase, bundlePath: string): { stderr: string; exit: number } {
   const pkg = c.id === "D003" ? ["wrong-result", "diagnostic-wrong-result"] : ["overlap", "diagnostic-overlap"];
-  const z3 = process.env.KRS_Z3_LIB ?? "/nix/store/bncr69nhmgvphbynb1a3g4a2jb9b8vj0-z3-4.12.5-lib/lib";
+  // krs links Z3 statically unless it was built on the KRUST_GATE_Z3=system route, which links KRS_Z3_LIB.
+  const z3 = process.env.KRUST_GATE_Z3 === "system" ? process.env.KRS_Z3_LIB : undefined;
   const realCargo = Bun.which("cargo");
   if (!realCargo) throw new Error("cargo is required for native lowering");
   const result = Bun.spawnSync(
     ["nice", "-n", "19", values["krs-bin"]!, "check", "--message-format=json", "--manifest-path", join(nativeDir, "workspace", pkg[0]!, "Cargo.toml"), "--package", pkg[1]!, "--definition", "main"],
     {
-      env: { ...process.env, PATH: `${join(nativeDir, "lower-shim")}:${process.env.PATH}`, KRS_DIAGNOSTICS_REAL_CARGO: realCargo, KRS_DIAGNOSTICS_BUNDLE: bundlePath, LD_LIBRARY_PATH: z3, CARGO_TARGET_DIR: join(nativeDir, "target-krs") },
+      env: { ...process.env, PATH: `${join(nativeDir, "lower-shim")}:${process.env.PATH}`, KRS_DIAGNOSTICS_REAL_CARGO: realCargo, KRS_DIAGNOSTICS_BUNDLE: bundlePath, ...(z3 ? { LD_LIBRARY_PATH: z3 } : {}), CARGO_TARGET_DIR: join(nativeDir, "target-krs") },
       stdout: "pipe",
       stderr: "pipe",
     },

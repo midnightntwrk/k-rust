@@ -633,10 +633,15 @@ To iterate on a few cases, run the test directly with a glob over case IDs, and 
 per case and verdict to a directory:
 
 ```sh
-z3=${KRS_Z3_LIB:-$(ls -d /nix/store/*-z3-4.12.5-lib/lib | head -n 1)}
-LIBRARY_PATH=$z3 LD_LIBRARY_PATH=$z3 KRS_CLASS_FILTER='readable/result/pc/*' KRS_CLASS_OUT=/tmp/class \
-  cargo test -p krs-cli --no-default-features --features z3-inference --test class_matrix -- --ignored readable
+KRS_CLASS_FILTER='readable/result/pc/*' KRS_CLASS_OUT=/tmp/class \
+  cargo test -p krs-cli --no-default-features --features z3-inference-gh-release --test class_matrix -- --ignored readable
 ```
+
+`z3-inference-gh-release` downloads and links the Z3 release `krs/Krs.lock` `[solver] linked` names,
+as `scripts/krs-class.sh` does by default. To link a copy of that release the machine already has,
+build with `--features z3-inference` and its library directory first on `LIBRARY_PATH` and
+`LD_LIBRARY_PATH`, and run `--test z3_version` with the same features, which fails when the build
+links another release.
 
 K6 judges with the sort inference `krs check` uses, Z3's, so the test refuses to judge K6 when it
 was built without `z3-inference`; `KRS_CLASS_NATIVE=0` runs the other checks without it.

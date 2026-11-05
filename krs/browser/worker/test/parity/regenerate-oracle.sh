@@ -17,7 +17,10 @@
 #
 # Environment: KRS_GATE_SCRATCH (the scratch root SCRATCH, default /var/tmp),
 # CLI_TARGET (default SCRATCH/krs-parity-cli-target; krs and krs-gate are built
-# from this checkout on every run), KRS_Z3_LIB, LOAD_MAX (default 40).
+# from this checkout on every run), KRUST_GATE_Z3 and KRS_Z3_LIB, LOAD_MAX (default 40).
+# krs and krs-gate link Z3 as the KRS gates build them (krs/tests/support/tools.py, z3_route):
+# by default the release Krs.lock [solver] linked names, downloaded and linked statically;
+# under KRUST_GATE_Z3=system the library in KRS_Z3_LIB, which must then be set.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -26,7 +29,34 @@ SCRATCH=${KRS_GATE_SCRATCH:-/var/tmp}
 OUT=${1:-$SCRATCH/krs-parity-oracle}
 ORACLE_TOML=${2:-$OUT/oracle.toml}
 LOAD_MAX=${LOAD_MAX:-40}
-Z3=${KRS_Z3_LIB:-$(ls -d /nix/store/*-z3-4.12.5-lib/lib | head -1)}
+# z3_check is the KRS gates' Z3 check (krs/tests/support/tools.py): `z3_check library` prints the
+# library directory a KRUST_GATE_Z3=system build links, and fails unless KRS_Z3_LIB holds the
+# Krs.lock [solver] linked release (z3_library_dir); `z3_check linked BINARY...` fails unless each
+# binary links that release under the route's library paths (require_linked_z3).
+z3_check() {
+  python3 - "$HERE/../../../../tests" "$@" <<'PY'
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from support import GateError
+from support.tools import require_linked_z3, z3_environment, z3_library_dir
+try:
+    if sys.argv[2] == "library":
+        print(z3_library_dir())
+    else:
+        for binary in sys.argv[3:]:
+            require_linked_z3(Path(binary), z3_environment())
+except GateError as error:
+    sys.exit(f"error: {error}")
+PY
+}
+case ${KRUST_GATE_Z3:-gh-release} in
+  gh-release) Z3= ;;
+  system)
+    : "${KRS_Z3_LIB:?KRUST_GATE_Z3=system needs KRS_Z3_LIB, the library directory of Krs.lock [solver] linked}"
+    Z3=$(z3_check library) ;;
+  *) echo "KRUST_GATE_Z3 must be gh-release or system, not $KRUST_GATE_Z3" >&2; exit 2 ;;
+esac
 CLI_TARGET=${CLI_TARGET:-$SCRATCH/krs-parity-cli-target}
 KRS_BIN=$CLI_TARGET/debug/krs
 GATE_BIN=$CLI_TARGET/debug/krs-gate
@@ -48,11 +78,15 @@ fi
 REV=$(git -C "$REPO" rev-parse HEAD)
 
 # One package per invocation, so krs-gate's features never unify into the krs binary.
-for package in krs-cli:krs krs-gate:krs-gate; do
+for package in krs-cli:krs:z3-inference,kink krs-gate:krs-gate:z3-inference; do
+  IFS=: read -r name binary features <<<"$package"
+  route=()
+  [[ -n $Z3 ]] && route=(--no-default-features --features "$features")
   wait_for_load
-  (cd "$REPO" && LIBRARY_PATH=$Z3${LIBRARY_PATH:+:$LIBRARY_PATH} LD_LIBRARY_PATH=$Z3${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH} \
-    nice -n 19 ionice -c3 cargo +stable build --locked --offline -j 4 -p "${package%%:*}" --bin "${package##*:}" --target-dir "$CLI_TARGET")
+  (cd "$REPO" && env ${Z3:+"LIBRARY_PATH=$Z3${LIBRARY_PATH:+:$LIBRARY_PATH}"} ${Z3:+"LD_LIBRARY_PATH=$Z3${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"} \
+    nice -n 19 ionice -c3 cargo +stable build --locked --offline -j 4 -p "$name" --bin "$binary" "${route[@]}" --target-dir "$CLI_TARGET")
 done
+z3_check linked "$KRS_BIN" "$GATE_BIN"
 
 export_at() { # DIR: fresh git archive of HEAD
   rm -rf "$1"
@@ -81,14 +115,14 @@ emit() { # NAME EXPORT
   rm -rf "${OUT:?}/$name"
   wait_for_load
   local started=$SECONDS
-  in_export "$export" env LD_LIBRARY_PATH="$Z3" CARGO_TARGET_DIR="$OUT/target-$name" CARGO_BUILD_JOBS=4 \
+  in_export "$export" env ${Z3:+"LD_LIBRARY_PATH=$Z3"} CARGO_TARGET_DIR="$OUT/target-$name" CARGO_BUILD_JOBS=4 \
     "$KRS_BIN" emit-k --manifest-path "$REPO/tests/tour-minimal/Cargo.toml" \
     --package krs-tour-minimal --definition main --ir --output "$OUT/$name" \
     >"$OUT/$name.stdout" 2>"$OUT/$name.stderr"
   local collector
   collector=$(find "$OUT/target-$name" -type f -path '*/debug/krs-generated-collector-*' -perm -u+x -print -quit)
   [[ -x $collector ]] || { echo "no native collector built under $OUT/target-$name" >&2; exit 2; }
-  in_export "$export" env LD_LIBRARY_PATH="$Z3" "$collector" >"$OUT/$name/collector-stdout.json"
+  in_export "$export" env ${Z3:+"LD_LIBRARY_PATH=$Z3"} "$collector" >"$OUT/$name/collector-stdout.json"
   echo $((SECONDS - started)) >"$OUT/$name.seconds"
 }
 
@@ -99,7 +133,7 @@ export_at "$OUT/src-e1"
 emit native "$OUT/src-base"
 emit native-e1 "$OUT/src-e1"
 
-LD_LIBRARY_PATH=$Z3${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH} python3 - "$OUT" "$REPO" "$REV" "$ORACLE_TOML" "$KRS_BIN" "$PATCH" "$GATE_BIN" <<'PY'
+env ${Z3:+"LD_LIBRARY_PATH=$Z3${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"} python3 - "$OUT" "$REPO" "$REV" "$ORACLE_TOML" "$KRS_BIN" "$PATCH" "$GATE_BIN" <<'PY'
 import hashlib, json, subprocess, sys
 from pathlib import Path
 

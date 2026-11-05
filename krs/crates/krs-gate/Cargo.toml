@@ -8,12 +8,15 @@ publish = false
 description = "Native KRS gate protocol and compiler"
 
 [features]
-default = ["z3-inference"]
-z3-inference = ["k-rust/z3-inference", "krs-exec/z3-inference", "krs-k-rust/z3-inference"]
+default = ["z3-inference-gh-release"]
+# Links the Z3 the build environment provides.
+z3-inference = ["k-rust/z3-inference", "krs-cli/z3-inference", "krs-exec/z3-inference", "krs-k-rust/z3-inference"]
+# Links k-rust's release download, the Z3 krs links (krs-cli's default).
+z3-inference-gh-release = ["z3-inference", "krs-cli/z3-inference-gh-release"]
 
 [dependencies]
 k-rust = { version = "=0.8.0", path = "../../../crates/k-rust", default-features = false }
-krs-cli = { path = "../krs-cli" }
+krs-cli = { path = "../krs-cli", default-features = false, features = ["kink"] }
 krs-compiler = { path = "../krs-compiler" }
 krs-diagnostic = { path = "../krs-diagnostic" }
 krs-exec = { path = "../krs-exec", default-features = false }

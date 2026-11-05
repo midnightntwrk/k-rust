@@ -20,8 +20,10 @@
 # any of them fails.
 # A job count follows memory, not CPU load: load fluctuates far more, and an oversubscribed CPU only
 # slows a run, while exhausted memory fails it. It is at least 1 and at most the CPU count.
-# The gates find the Z3 4.12.5 library through KRS_Z3_LIB or the Nix store, and K 7.1.337, which a
-# cold reference cache needs, through KRS_K_BIN or PATH (krs/README.md, "Prerequisites").
+# The gates build krs with the Z3 release Krs.lock [solver] linked names: downloaded at build time
+# by default, or under KRUST_GATE_Z3=system the library in KRS_Z3_LIB or the Nix store. K 7.1.337,
+# which a cold reference cache needs, is found through KRS_K_BIN or PATH (krs/README.md,
+# "Prerequisites").
 set -euo pipefail
 script=$(realpath "${BASH_SOURCE[0]}")
 cd "$(dirname "$script")/.."

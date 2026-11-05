@@ -13,11 +13,16 @@ path = "src/main.rs"
 doc = false
 
 [features]
-default = ["z3-inference", "kink"]
+default = ["z3-inference-gh-release", "kink"]
 # kink's Z3 solver profile is on exactly when k-rust's `z3-inference` is (kink-native asserts it
 # at compile time), so the solver feature forwards to kink-flow's `z3`; `--no-default-features`
-# builds both portable.
+# builds both portable. `z3-inference` links the Z3 the build environment provides (for example
+# under `with-z3-static-4.16.0`).
 z3-inference = ["krs-exec/z3-inference", "krs-k-rust/z3-inference", "kink-flow?/z3"]
+# The default: k-rust's release download, the Z3 `Krs.lock` `[solver] linked` names, linked
+# statically, so the Z3 krs links is a property of the build, not of the environment it runs in.
+# The `z3_version` test fails a build that links any other.
+z3-inference-gh-release = ["z3-inference", "k-rust/z3-inference-gh-release"]
 # `krs kink <verb>`: the corpus loop over kink-flow as a library (src/kink).
 kink = ["dep:kink-flow", "dep:kink-corpus", "dep:k-rust", "dep:toml"]
 

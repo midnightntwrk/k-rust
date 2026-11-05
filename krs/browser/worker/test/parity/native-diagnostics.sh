@@ -19,8 +19,8 @@
 # Environment: KRS_GATE_SCRATCH (the scratch root SCRATCH, default /var/tmp), REPO (default: this
 # checkout), KRS_BIN, ORACLE_DIR (regenerate-oracle.sh output at this revision: collector binary and
 # exports), ASSETS (staged worker assets: expander module, pack), FORK_BUILD (the fork build of the
-# pack's fork commit, default /var/tmp/krs-browser-fork/R-22) or TWIN (its native rustc), KRS_Z3_LIB,
-# LOAD_MAX (default 40).
+# pack's fork commit, default /var/tmp/krs-browser-fork/R-22) or TWIN (its native rustc),
+# KRUST_GATE_Z3 and KRS_Z3_LIB, LOAD_MAX (default 40).
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -34,7 +34,36 @@ ASSETS=${ASSETS:-$SCRATCH/krs-diagnostics-assets}
 FORK_BUILD=${FORK_BUILD:-/var/tmp/krs-browser-fork/R-22}
 TWIN=${TWIN:-$FORK_BUILD/build/x86_64-unknown-linux-gnu/stage1/bin/rustc}
 LOAD_MAX=${LOAD_MAX:-40}
-Z3=${KRS_Z3_LIB:-$(find /nix/store -maxdepth 1 -name '*-z3-4.12.5-lib' -type d | head -1)/lib}
+# z3_check is the KRS gates' Z3 check (krs/tests/support/tools.py): `z3_check library` prints the
+# library directory a KRUST_GATE_Z3=system build links, and fails unless KRS_Z3_LIB holds the
+# Krs.lock [solver] linked release (z3_library_dir); `z3_check linked BINARY...` fails unless each
+# binary links that release under the route's library paths (require_linked_z3).
+z3_check() {
+  python3 - "$HERE/../../../../tests" "$@" <<'PY'
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from support import GateError
+from support.tools import require_linked_z3, z3_environment, z3_library_dir
+try:
+    if sys.argv[2] == "library":
+        print(z3_library_dir())
+    else:
+        for binary in sys.argv[3:]:
+            require_linked_z3(Path(binary), z3_environment())
+except GateError as error:
+    sys.exit(f"error: {error}")
+PY
+}
+# KRS_BIN links Z3 statically unless it was built on the KRUST_GATE_Z3=system route
+# (regenerate-oracle.sh), which links the library in KRS_Z3_LIB; either way it must link the
+# Krs.lock [solver] linked release.
+Z3=
+if [[ ${KRUST_GATE_Z3:-gh-release} == system ]]; then
+  : "${KRS_Z3_LIB:?KRUST_GATE_Z3=system needs KRS_Z3_LIB}"
+  Z3=$(z3_check library)
+fi
+z3_check linked "$KRS_BIN"
 REAL_CARGO=$(command -v cargo)
 FIXTURES=$WORKER/test/fixtures
 CASES=$OUT/cases
@@ -144,7 +173,7 @@ krs_check() { # ID PACKAGE-DIR PACKAGE
   wait_for_load
   set +e
   low env PATH="$OUT/lower-shim:$PATH" KRS_DIAGNOSTICS_WRAPPER="$OUT/lower-shim/collector" \
-    KRS_DIAGNOSTICS_TEE="$dir/native-bundle.json" LD_LIBRARY_PATH="$Z3" \
+    KRS_DIAGNOSTICS_TEE="$dir/native-bundle.json" ${Z3:+"LD_LIBRARY_PATH=$Z3"} \
     CARGO_TARGET_DIR="$OUT/target-krs" CARGO_BUILD_JOBS=4 \
     "$KRS_BIN" check --message-format=json --manifest-path "$OUT/workspace/$2/Cargo.toml" --package "$3" --definition main \
     >"$dir/stdout" 2>"$dir/stderr"

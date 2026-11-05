@@ -10,18 +10,54 @@ version = 1
 # The emitted K is much smaller than the semantics it ports (KEVM about 2,400 lines, KMIR about 1,400, KWasm about 80), so no KRS row compares with kevm/compile, kmir/compile or kwasm/compile.
 
 # Builds the `krs` tool and writes the wrapper `${prepared}/krs-tool/krs`, the argv[0] of every krs workload.
-# The tool links the Nix Z3 4.12.5 library (krs/AGENTS.local.md): the step takes it from KRS_Z3_LIB, or else from the one `*-z3-4.12.5-lib/lib` directory of the Nix store, and the wrapper exports it for the tool and the Cargo builds it starts.
+# The tool links the Z3 release krs/Krs.lock [solver] linked names on the route the KRS gates take (krs/tests/support/tools.py, z3_route).
+# By default krs-cli's default features download that release at build time (z3-sys's build script, which `--offline` does not stop) and link it statically, so neither the tool nor the Cargo builds it starts need a library path.
+# Under KRUST_GATE_Z3=system the tool builds with `z3-inference` alone, linked to the library directory KRS_Z3_LIB names, and the wrapper exports it.
+# A mislinked tool fails the step, by the KRS gates' checks (krs/tests/support/tools.py): before the build, KRS_Z3_LIB must hold that release (z3_library_dir); after it, the tool must link it (require_linked_z3).
+# Placeholders take the `${name}` form, so the script reads the environment with printenv.
 [[prepare]]
 name = "krs-tool"
 engine = "command"
 argv = [
   "bash", "-c",
   '''set -euo pipefail
-z3=$(printenv KRS_Z3_LIB || ls -d /nix/store/*-z3-4.12.5-lib/lib | head -n 1)
-test -d "$z3"
-export LIBRARY_PATH="$z3" LD_LIBRARY_PATH="$z3" CARGO_TARGET_DIR="${prepared}/krs-tool/target"
-cargo +stable build --release --locked --offline --manifest-path "${workspace}/Cargo.toml" -p krs-cli --bin krs
-printf '#!/bin/sh\nexport LIBRARY_PATH=%s LD_LIBRARY_PATH=%s\nexec %s "$@"\n' "$z3" "$z3" "${prepared}/krs-tool/target/release/krs" >"${prepared}/krs-tool/krs.partial"
+export CARGO_TARGET_DIR="${prepared}/krs-tool/target"
+# `z3_check library` prints the checked library directory; `z3_check linked BINARY` checks a build.
+z3_check() {
+  python3 - "${workspace}/krs/tests" "$@" <<'PY'
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from support import GateError
+from support.tools import require_linked_z3, z3_environment, z3_library_dir
+try:
+    if sys.argv[2] == "library":
+        print(z3_library_dir())
+    else:
+        require_linked_z3(Path(sys.argv[3]), z3_environment())
+except GateError as error:
+    sys.exit(f"krs-tool: {error}")
+PY
+}
+route=$(printenv KRUST_GATE_Z3 || true)
+features= z3=
+case "$route" in
+  "" | gh-release) ;;
+  system)
+    printenv KRS_Z3_LIB >/dev/null || { echo "KRUST_GATE_Z3=system needs KRS_Z3_LIB" >&2; exit 2; }
+    z3=$(z3_check library)
+    features="--no-default-features --features z3-inference,kink"
+    export LIBRARY_PATH="$z3" LD_LIBRARY_PATH="$z3" ;;
+  *) echo "KRUST_GATE_Z3 must be gh-release or system, not $route" >&2; exit 2 ;;
+esac
+# $features is split into its arguments on purpose.
+cargo +stable build --release --locked --offline --manifest-path "${workspace}/Cargo.toml" -p krs-cli --bin krs $features
+z3_check linked "${prepared}/krs-tool/target/release/krs"
+if [ -n "$z3" ]; then
+  printf '#!/bin/sh\nexport LIBRARY_PATH=%s LD_LIBRARY_PATH=%s\nexec %s "$@"\n' "$z3" "$z3" "${prepared}/krs-tool/target/release/krs" >"${prepared}/krs-tool/krs.partial"
+else
+  printf '#!/bin/sh\nexec %s "$@"\n' "${prepared}/krs-tool/target/release/krs" >"${prepared}/krs-tool/krs.partial"
+fi
 chmod +x "${prepared}/krs-tool/krs.partial"
 mv "${prepared}/krs-tool/krs.partial" "${prepared}/krs-tool/krs"
 ''',

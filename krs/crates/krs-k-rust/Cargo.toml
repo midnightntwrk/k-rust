@@ -8,8 +8,11 @@ publish = false
 description = "Versioned KRS adapter for the pinned k-rust frontend"
 
 [features]
-default = ["z3-inference"]
+default = ["z3-inference-gh-release"]
+# Links the Z3 the build environment provides.
 z3-inference = ["k-rust/z3-inference"]
+# Links k-rust's release download, the Z3 krs links (krs-cli's default).
+z3-inference-gh-release = ["z3-inference", "k-rust/z3-inference-gh-release"]
 # The re-derivation check of a K mutation (`lift`), which reads the baseline's in-process
 # lowering and re-derives sentences with krs-compiler; the native route does not need it.
 lift = ["dep:krs-compiler"]

@@ -11,7 +11,7 @@ k-rust = { version = "=0.8.0", path = "../../../../../crates/k-rust", default-fe
 krs-collector = { path = "../../../../crates/krs-collector" }
 krs-compiler = { path = "../../../../crates/krs-compiler" }
 krs-ir = { path = "../../../../crates/krs-ir" }
-krs-k-rust = { path = "../../../../crates/krs-k-rust" }
+krs-k-rust = { path = "../../../../crates/krs-k-rust", default-features = false, features = ["z3-inference"] }
 imp = { package = "krs-imp-definition", path = "../../rust-definition" }
 
 [workspace]

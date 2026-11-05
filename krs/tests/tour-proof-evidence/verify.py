@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, entry  # noqa: E402
 from support.pins import Ledger  # noqa: E402
 from support.process import run  # noqa: E402
-from support.tools import target_environment, z3_environment  # noqa: E402
+from support.tools import target_environment, z3_cargo_arguments, z3_environment  # noqa: E402
 
 
 def text(relative: str) -> str:
@@ -28,14 +28,20 @@ def require_fragments(relative: str, *fragments: str) -> str:
     return value
 
 
+# The packages this gate lists tests of whose default features download and link Z3.
+Z3_PACKAGES = {"krs-k-rust"}
+
+
 def require_named_tests(package: str, target: tuple[str, ...], *expected: str) -> None:
     """Require one Rust test binary to list every `expected` test name.
 
-    Cargo builds the binary, so the qualified Z3 library must be available.
+    Cargo builds the binary; a package that links Z3 (`krs-k-rust`) builds on
+    the gates' Z3 route (`z3_cargo_arguments`), as `krs` does.
     """
 
+    route = z3_cargo_arguments() if package in Z3_PACKAGES else []
     listed = run(
-        ["cargo", "+stable", "test", "--locked", "-p", package, *target, "--", "--list"],
+        ["cargo", "+stable", "test", "--locked", "-p", package, *target, *route, "--", "--list"],
         cwd=ROOT,
         environment={**z3_environment(), **target_environment()},
         timeout=1800,

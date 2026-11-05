@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import ctypes
 from hashlib import sha256
+import mmap
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
+from typing import Mapping
 
 from support import REPOSITORY, ROOT, GateError
 from support.process import compact, run
@@ -83,35 +87,212 @@ def workspace_debug_binary(name: str) -> Path:
     return tool_target() / "debug" / f"{name}{suffix}"
 
 
-def z3_library_dir() -> Path:
-    """Locate the qualified Z3 shared-library directory.
+Z3_ROUTES = ("gh-release", "system")
 
-    `KRS_Z3_LIB` wins when set; it may name the library directory itself or the
-    package root that contains `lib/`. Otherwise the Nix store is searched for
-    the `Krs.lock` solver version.
+
+def z3_route() -> str:
+    """How the `krs` and `krs-gate` a gate builds acquire Z3: `KRUST_GATE_Z3`.
+
+    The variable is the one the repository's other gates read. `gh-release`,
+    the default, builds with the crates' default features, which download the
+    Z3 release `Krs.lock` `[solver] linked` names and link it statically; the
+    download is `z3-sys`'s build script, which runs once per build-script output
+    directory and ignores `--offline`, so an offline machine takes the other
+    route. `system` builds with `z3-inference` alone, linked to the library
+    `z3_library_dir` locates and checks (`z3_environment`), unless a `z3-sys`
+    provider such as a `pkg-config` file names another. Either way the build is
+    checked afterwards (`require_linked_z3`).
     """
 
-    from support.lock import z3_version
+    route = os.environ.get("KRUST_GATE_Z3") or "gh-release"
+    if route not in Z3_ROUTES:
+        raise GateError(f"KRUST_GATE_Z3 must be one of {', '.join(Z3_ROUTES)}, not {route!r}")
+    return route
 
-    version = z3_version()
+
+def z3_cargo_arguments(*features: str) -> list[str]:
+    """The Cargo arguments that select `z3_route` for a build of a Z3-linking KRS crate.
+
+    `features` are the package's other default features a `system` build keeps,
+    since it turns the default features off.
+    """
+
+    if z3_route() == "gh-release":
+        return []
+    return ["--no-default-features", "--features", ",".join(("z3-inference", *features))]
+
+
+# `Z3_get_full_version` returns the C string literal `Z3_FULL_VERSION`, so a
+# library or an executable that links Z3 statically holds it, NUL-terminated.
+# Releases before 4.13 spell it without the `Z3 ` prefix, which this pattern does
+# not recognize; such a release is reported as unrecognized, not as a match.
+Z3_FULL_VERSION = re.compile(rb"Z3 (\d+\.\d+\.\d+)\.\d+\x00")
+
+
+def embedded_z3_releases(path: Path) -> set[str]:
+    """The Z3 releases whose full-version literal `path` holds."""
+
+    try:
+        with open(path, "rb") as file:
+            if os.fstat(file.fileno()).st_size == 0:
+                return set()
+            with mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ) as content:
+                return {match.group(1).decode() for match in Z3_FULL_VERSION.finditer(content)}
+    except OSError as error:
+        raise GateError(f"cannot read {path}: {error}") from error
+
+
+_LIBRARY_RELEASES: dict[tuple[str, int, int], str] = {}
+
+
+def z3_library_release(library: Path) -> str:
+    """The Z3 release of the library file `library`.
+
+    A shared library is asked (`Z3_get_version`); an archive cannot be loaded,
+    so its release is the one its full-version literal names. A gate asks for
+    the same library many times, so the answer is kept per file and version
+    of its content (path, size and modification time).
+    """
+
+    try:
+        status = library.stat()
+    except OSError as error:
+        raise GateError(f"cannot read {library}: {error}") from error
+    key = (os.fspath(library.resolve()), status.st_size, status.st_mtime_ns)
+    if key not in _LIBRARY_RELEASES:
+        _LIBRARY_RELEASES[key] = _read_library_release(library)
+    return _LIBRARY_RELEASES[key]
+
+
+def _read_library_release(library: Path) -> str:
+    if library.suffix == ".a":
+        releases = embedded_z3_releases(library)
+        if len(releases) != 1:
+            found = ", ".join(sorted(releases)) or "none"
+            raise GateError(f"cannot tell which Z3 release {library} holds (full-version literals: {found})")
+        return releases.pop()
+    try:
+        loaded = ctypes.CDLL(os.fspath(library))
+        parts = [ctypes.c_uint() for _ in range(4)]
+        loaded.Z3_get_version(*(ctypes.byref(part) for part in parts))
+    except (OSError, AttributeError) as error:
+        raise GateError(f"cannot ask {library} for its Z3 version: {error}") from error
+    return ".".join(str(part.value) for part in parts[:3])
+
+
+def z3_directory_release(directory: Path) -> str:
+    """The Z3 release a link against `directory` takes: its `libz3.so`, else its `libz3.a`."""
+
+    shared = directory / "libz3.so"
+    return z3_library_release(shared if shared.is_file() else directory / "libz3.a")
+
+
+def z3_library_dir() -> Path:
+    """Locate the directory of the Z3 library a build from the environment links.
+
+    `KRS_Z3_LIB` wins when set; it may name the library directory itself or the
+    package root that contains `lib/`, and it must hold the `Krs.lock`
+    `[solver] linked` release, or the gate fails rather than link another.
+    Otherwise the Nix store is searched for that release, static
+    (`*-z3-static-VERSION`, which wraps the release's published build, the one
+    the `gh-release` route downloads) before shared (`*-z3-VERSION-lib`). A
+    directory qualifies when it holds `libz3.so` or `libz3.a` of that release;
+    the linker takes the archive when no shared library is beside it, and the
+    build then links Z3 statically.
+    """
+
+    from support.lock import linked_z3_version
+
+    version = linked_z3_version()
     configured = os.environ.get("KRS_Z3_LIB")
-    candidates = [Path(configured)] if configured else []
+    if configured:
+        directory = library_directory(Path(configured))
+        if directory is None:
+            raise GateError(f"KRS_Z3_LIB={configured} holds neither libz3.so nor libz3.a (nor does its lib/)")
+        release = z3_directory_release(directory)
+        if release != version:
+            raise GateError(
+                f"KRS_Z3_LIB={configured} holds Z3 {release}, but krs links Z3 {version} "
+                "(Krs.lock [solver] linked): point it at that release's library directory, or unset it"
+            )
+        return directory
+    candidates = sorted(nix_store().glob(f"*-z3-static-{version}/lib"))
     candidates.extend(sorted(nix_store().glob(f"*-z3-{version}-lib/lib")))
     for candidate in candidates:
-        for directory in (candidate, candidate / "lib"):
-            if directory.joinpath("libz3.so").is_file():
-                return directory
-    raise GateError(f"Z3 {version} was not found; set KRS_Z3_LIB to its shared-library directory")
+        directory = library_directory(candidate)
+        if directory is not None and z3_directory_release(directory) == version:
+            return directory
+    raise GateError(f"Z3 {version} was not found; set KRS_Z3_LIB to its library directory")
 
 
-def z3_environment() -> dict[str, str]:
-    """Link-time and run-time library paths with the qualified Z3 first."""
+def library_directory(candidate: Path) -> Path | None:
+    """`candidate` or its `lib/`, whichever first holds `libz3.so` or `libz3.a`."""
+
+    for directory in (candidate, candidate / "lib"):
+        if any(directory.joinpath(name).is_file() for name in ("libz3.so", "libz3.a")):
+            return directory
+    return None
+
+
+def z3_library_environment() -> dict[str, str]:
+    """Link-time and run-time library paths with the linked Z3 release first.
+
+    A build that takes k-rust's `z3-inference` alone links that library: the
+    `system` route's `krs` and `krs-gate`, and the IMP artifact probe on either
+    route.
+    """
 
     z3 = os.fspath(z3_library_dir())
     return {
         name: os.pathsep.join(item for item in (z3, os.environ.get(name)) if item)
         for name in ("LIBRARY_PATH", "LD_LIBRARY_PATH")
     }
+
+
+def z3_environment() -> dict[str, str]:
+    """The library paths the `z3_route` build of `krs` and `krs-gate` needs.
+
+    On the `system` route, `z3_library_environment`; on the `gh-release` route,
+    none, since that build links the downloaded archive statically whatever the
+    paths hold, so it needs no Z3 on the machine.
+    """
+
+    return z3_library_environment() if z3_route() == "system" else {}
+
+
+def require_linked_z3(binary: Path, environment: Mapping[str, str] | None = None) -> None:
+    """Fail unless `binary` links the `Krs.lock` `[solver] linked` Z3 release.
+
+    A static link holds the release's full-version literal. Otherwise the
+    `libz3` the dynamic loader resolves for `binary` under `environment` (what
+    the gate runs it with) is asked for its version. This checks the build
+    itself, so it also catches a release a `z3-sys` provider or
+    `Z3_SYS_Z3_VERSION` substituted.
+    """
+
+    from support.lock import linked_z3_version
+
+    version = linked_z3_version()
+    embedded = embedded_z3_releases(binary)
+    if embedded:
+        if embedded != {version}:
+            raise GateError(
+                f"{binary} links Z3 {', '.join(sorted(embedded))}, but krs links Z3 {version} (Krs.lock [solver] linked)"
+            )
+        return
+    listed = run(["ldd", binary], environment=environment, timeout=60, check=False)
+    resolved = [line.strip() for line in listed.stdout.splitlines() if line.strip().startswith("libz3.")]
+    if not resolved:
+        raise GateError(f"{binary} links no Z3 this check recognizes; krs links Z3 {version} (Krs.lock [solver] linked)")
+    name, _, location = resolved[0].partition(" => ")
+    library = Path(location.rsplit(" (", 1)[0].strip())
+    if not location or location.startswith("not found") or not library.is_file():
+        raise GateError(f"{binary} needs {name}, which its run environment does not provide")
+    release = z3_library_release(library)
+    if release != version:
+        raise GateError(
+            f"{binary} loads Z3 {release} from {library}, but krs links Z3 {version} (Krs.lock [solver] linked)"
+        )
 
 
 def find_k_tool(name: str) -> str | None:

@@ -55,7 +55,7 @@ Every run uses a scratch copy of the semantics workspace (`semantics/Cargo.toml`
 Edits apply to that copy only; the repository's `semantics/` is never written.
 Each cell has its own Cargo target under the same directory.
 
-Every command receives `CARGO_NET_OFFLINE=true`, `RUSTUP_TOOLCHAIN=stable`, and the qualified Z3 library paths from `tests/support`.
+Every command receives `CARGO_NET_OFFLINE=true`, `RUSTUP_TOOLCHAIN=stable`, and the library paths of the gates' Z3 route (`z3_environment` in `tests/support/tools.py`); the release `krs` the harness builds links Z3 on that route, and the build fails unless it links the release `Krs.lock` `[solver] linked` names.
 Ambient variables that change Cargo or rustc behavior (`RUSTFLAGS`, `RUSTC_WRAPPER`, `CARGO_INCREMENTAL`, `CARGO_PROFILE_*`, `CARGO_BUILD_*`, `RUSTC_BOOTSTRAP`, and similar) are removed and listed in each receipt.
 `--env KEY=VALUE` sets one back explicitly for every command of the run, including the settle runs, and is recorded as an override.
 `RUSTC_BOOTSTRAP` is reserved for profiling modes: `--env RUSTC_BOOTSTRAP=...` is rejected without one.

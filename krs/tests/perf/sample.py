@@ -574,7 +574,7 @@ def render(summary: Mapping[str, Any], limit: int = 15) -> str:
 def build_profiling_krs() -> Path:
     """Build the release `krs` with line tables and symbols into its own scratch target."""
 
-    from support.tools import checkout_scratch, z3_environment
+    from support.tools import checkout_scratch, require_linked_z3, z3_cargo_arguments, z3_environment
 
     target = Path(os.environ.get("KRS_PERF_PROFILING_KRS_TARGET",
                                  os.fspath(checkout_scratch() / "perf-krs-profiling-target")))
@@ -585,10 +585,12 @@ def build_profiling_krs() -> Path:
     environment.update(z3_environment())
     environment.update({**PROFILING_KRS_ENVIRONMENT, "CARGO_TARGET_DIR": os.fspath(target)})
     completed = subprocess.run(
-        ["cargo", "+stable", "build", "--release", "--locked", "--offline", "-p", "krs-cli", "--bin", "krs"],
+        ["cargo", "+stable", "build", "--release", "--locked", "--offline", "-p", "krs-cli", "--bin", "krs",
+         *z3_cargo_arguments("kink")],
         cwd=ROOT, env=environment, capture_output=True, text=True, check=False)
     if completed.returncode != 0:
         raise GateError(f"building the profiling krs failed:\n{completed.stderr[-4000:]}")
+    require_linked_z3(target / "release/krs", environment)
     return target / "release/krs"
 
 

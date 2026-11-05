@@ -294,15 +294,118 @@ class ToolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             library = Path(temporary, "lib")
             library.mkdir()
-            (library / "libz3.so").write_bytes(b"")
-            for configured in (library, Path(temporary)):
-                with mock.patch.dict(os.environ, {"KRS_Z3_LIB": os.fspath(configured)}):
-                    self.assertEqual(tools.z3_library_dir(), library)
-            with mock.patch.dict(
-                os.environ, {"KRS_Z3_LIB": os.fspath(library), "LIBRARY_PATH": "/old"}
+            (library / "libz3.a").write_bytes(b"\x00Z3 9.9.9.0\x00 other strings")
+            with mock.patch.object(lock, "linked_z3_version", return_value="9.9.9"):
+                for configured in (library, Path(temporary)):
+                    with mock.patch.dict(os.environ, {"KRS_Z3_LIB": os.fspath(configured)}):
+                        self.assertEqual(tools.z3_library_dir(), library)
+                with mock.patch.dict(
+                    os.environ,
+                    {"KRS_Z3_LIB": os.fspath(library), "LIBRARY_PATH": "/old", "KRUST_GATE_Z3": "system"},
+                ):
+                    environment = tools.z3_environment()
+                    self.assertEqual(environment, tools.z3_library_environment())
+                self.assertEqual(environment["LIBRARY_PATH"], f"{library}{os.pathsep}/old")
+
+    def test_a_shared_library_beside_an_archive_is_the_one_asked(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            for name in ("libz3.so", "libz3.a"):
+                Path(temporary, name).write_bytes(b"\x00Z3 1.1.1.0\x00")
+            with mock.patch.object(tools, "z3_library_release", return_value="9.9.9") as release:
+                self.assertEqual(tools.z3_directory_release(Path(temporary)), "9.9.9")
+            release.assert_called_once_with(Path(temporary, "libz3.so"))
+
+    def test_krs_z3_lib_must_hold_the_linked_release(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            Path(temporary, "libz3.a").write_bytes(b"Z3 4.12.9.0\x00")
+            with (
+                mock.patch.dict(os.environ, {"KRS_Z3_LIB": temporary}),
+                mock.patch.object(lock, "linked_z3_version", return_value="9.9.9"),
             ):
-                environment = tools.z3_environment()
-            self.assertEqual(environment["LIBRARY_PATH"], f"{library}{os.pathsep}/old")
+                with self.assertRaisesRegex(GateError, "holds Z3 4.12.9, but krs links Z3 9.9.9"):
+                    tools.z3_library_dir()
+            Path(temporary, "libz3.a").write_bytes(b"no version literal")
+            os.utime(Path(temporary, "libz3.a"), ns=(1, 1))
+            with mock.patch.dict(os.environ, {"KRS_Z3_LIB": temporary}):
+                with self.assertRaisesRegex(GateError, "cannot tell which Z3 release"):
+                    tools.z3_library_dir()
+            with mock.patch.dict(os.environ, {"KRS_Z3_LIB": os.path.join(temporary, "missing")}):
+                with self.assertRaisesRegex(GateError, "holds neither libz3.so nor libz3.a"):
+                    tools.z3_library_dir()
+
+    def test_z3_library_searches_the_store_for_the_linked_release(self) -> None:
+        with tempfile.TemporaryDirectory() as store:
+            mislabelled = Path(store, "a-z3-static-9.9.9", "lib")
+            static = Path(store, "b-z3-static-9.9.9", "lib")
+            shared = Path(store, "0-z3-9.9.9-lib", "lib")
+            for directory in (mislabelled, static, shared):
+                directory.mkdir(parents=True)
+            (mislabelled / "libz3.a").write_bytes(b"Z3 9.9.8.0\x00")
+            (static / "libz3.a").write_bytes(b"Z3 9.9.9.0\x00")
+            (shared / "libz3.so").write_bytes(b"")
+            with (
+                mock.patch.dict(os.environ, {"KRS_NIX_STORE": store}),
+                mock.patch.object(lock, "linked_z3_version", return_value="9.9.9"),
+            ):
+                os.environ.pop("KRS_Z3_LIB", None)
+                self.assertEqual(tools.z3_library_dir(), static)
+
+    def test_the_download_route_needs_no_local_z3(self) -> None:
+        with tempfile.TemporaryDirectory() as store:
+            with mock.patch.dict(os.environ, {"KRS_NIX_STORE": store, "KRUST_GATE_Z3": "gh-release"}):
+                os.environ.pop("KRS_Z3_LIB", None)
+                self.assertEqual(tools.z3_environment(), {})
+                os.environ["KRUST_GATE_Z3"] = "system"
+                with self.assertRaisesRegex(GateError, "was not found; set KRS_Z3_LIB"):
+                    tools.z3_environment()
+
+    def test_a_build_must_link_the_linked_release(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
+            lock, "linked_z3_version", return_value="9.9.9"
+        ):
+            binary = Path(temporary, "krs")
+            binary.write_bytes(b"code Z3 9.9.9.0\x00 more code")
+            tools.require_linked_z3(binary)
+            binary.write_bytes(b"code Z3 9.9.8.0\x00 more code")
+            with self.assertRaisesRegex(GateError, "links Z3 9.9.8, but krs links Z3 9.9.9"):
+                tools.require_linked_z3(binary)
+
+            binary.write_bytes(b"dynamically linked")
+            library = Path(temporary, "libz3.so")
+            library.write_bytes(b"")
+
+            def ldd(line: str) -> subprocess.CompletedProcess[str]:
+                return subprocess.CompletedProcess(["ldd"], 0, f"\tlibc.so.6 => /lib/libc.so.6 (0x1)\n{line}\n", "")
+
+            with mock.patch.object(tools, "run", return_value=ldd("")):
+                with self.assertRaisesRegex(GateError, "links no Z3 this check recognizes"):
+                    tools.require_linked_z3(binary)
+            with mock.patch.object(tools, "run", return_value=ldd("\tlibz3.so.4.12 => not found")):
+                with self.assertRaisesRegex(GateError, "needs libz3.so.4.12, which its run environment"):
+                    tools.require_linked_z3(binary)
+            resolved = ldd(f"\tlibz3.so => {library} (0x7f00)")
+            with mock.patch.object(tools, "run", return_value=resolved) as runner:
+                with mock.patch.object(tools, "z3_library_release", return_value="9.9.9"):
+                    tools.require_linked_z3(binary, {"LD_LIBRARY_PATH": temporary})
+                runner.assert_called_once_with(
+                    ["ldd", binary], environment={"LD_LIBRARY_PATH": temporary}, timeout=60, check=False
+                )
+                with mock.patch.object(tools, "z3_library_release", return_value="9.9.8"):
+                    with self.assertRaisesRegex(GateError, f"loads Z3 9.9.8 from {library}"):
+                        tools.require_linked_z3(binary)
+
+    def test_the_z3_route_selects_the_build_features(self) -> None:
+        with mock.patch.dict(os.environ, {"KRUST_GATE_Z3": ""}):
+            self.assertEqual(tools.z3_route(), "gh-release")
+            self.assertEqual(tools.z3_cargo_arguments("kink"), [])
+        with mock.patch.dict(os.environ, {"KRUST_GATE_Z3": "system"}):
+            self.assertEqual(
+                tools.z3_cargo_arguments("kink"), ["--no-default-features", "--features", "z3-inference,kink"]
+            )
+            self.assertEqual(tools.z3_cargo_arguments(), ["--no-default-features", "--features", "z3-inference"])
+        with mock.patch.dict(os.environ, {"KRUST_GATE_Z3": "bundled"}):
+            with self.assertRaisesRegex(GateError, "KRUST_GATE_Z3 must be one of"):
+                tools.z3_route()
 
     def test_k_tools_prefer_krs_k_bin_and_check_the_version(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -549,7 +652,8 @@ class LockTests(unittest.TestCase):
     def test_krs_lock_supplies_the_toolchain_pins(self) -> None:
         self.assertRegex(lock.k_version(), r"^\d+\.\d+\.\d+$")
         self.assertRegex(lock.msrv(), r"^\d+\.\d+\.\d+$")
-        self.assertRegex(lock.z3_version(), r"^\d+\.\d+\.\d+$")
+        self.assertRegex(lock.linked_z3_version(), r"^\d+\.\d+\.\d+$")
+        self.assertRegex(lock.reference_z3_version(), r"^\d+\.\d+\.\d+$")
         self.assertGreater(lock.krs_ir_schema(), 0)
 
     def test_stable_rustc_at_or_above_the_msrv(self) -> None:
