@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use krs_ir::{BuiltinOperation, BuiltinSort, NodeOrigin, NonEmpty};
 use krs_ir_levels::{
     DefinitionApplicationRef, DefinitionSortRef, DefinitionTerm, ListOperands, MapEntry,
@@ -24,7 +22,6 @@ fn context() -> EmitContext<'static> {
     EmitContext {
         index: krs_ir_levels::k_surface::DefinitionIndex::default(),
         group_relations: super::GroupRelations::default(),
-        repeated_ancestors: BTreeMap::new(),
         naming: VariableNaming::default(),
         lexicon: TokenLexicon::default(),
         spec_identifiers: None,

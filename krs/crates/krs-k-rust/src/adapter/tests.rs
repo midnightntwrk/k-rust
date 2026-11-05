@@ -1518,6 +1518,320 @@ fn complete_cell_terms_use_the_pinned_frontend_structured_shape() {
     assert!(matches!(cell_body(right, "<right>"), Term::Token { token, .. } if token == "2"));
 }
 
+/// `<harts> <hart multiplicity="*" type="Map"> <id> <pc> <flag multiplicity="?"> <jobs> <job
+/// multiplicity="*" type="Map"> <jid> </job> </jobs> </hart> </harts>` beside `<mem>`: the cells
+/// of `hart`, `flag` and `job` included, lie in its instances.
+#[expect(
+    clippy::too_many_lines,
+    reason = "Declares and initializes each cell of the nested configuration together."
+)]
+fn harts_definition() -> DefinitionIr {
+    let cell = |name: &str| SymbolId::new(format!("instances.cell.{name}")).unwrap();
+    let leaf = |name: &str| {
+        FixedCell::leaf(
+            node(&format!("instances.cell.{name}.declaration")),
+            cell(name),
+            name,
+            Vec::new(),
+            DefinitionSortRef::int(),
+        )
+        .unwrap()
+    };
+    let start = |name: &str| {
+        FixedInitializerCell::term(
+            node(&format!("instances.cell.{name}.initializer")),
+            cell(name),
+            DefinitionTerm::token(
+                node(&format!("instances.cell.{name}.initializer.body")),
+                DefinitionSortRef::int(),
+                "0",
+            )
+            .unwrap(),
+        )
+    };
+    let collection = |name: &str| {
+        vec![
+            CellAttribute::Multiplicity {
+                origin: node(&format!("instances.cell.{name}.multiplicity")),
+                value: krs_ir::CellMultiplicity::Star,
+            },
+            CellAttribute::CollectionType {
+                origin: node(&format!("instances.cell.{name}.type")),
+                value: krs_ir::CellCollectionType::Map,
+            },
+        ]
+    };
+    let flag = FixedCell::leaf(
+        node("instances.cell.flag.declaration"),
+        cell("flag"),
+        "flag",
+        vec![CellAttribute::Multiplicity {
+            origin: node("instances.cell.flag.multiplicity"),
+            value: krs_ir::CellMultiplicity::Optional,
+        }],
+        DefinitionSortRef::int(),
+    )
+    .unwrap();
+    let jobs = FixedCell::nested(
+        node("instances.cell.jobs.declaration"),
+        cell("jobs"),
+        "jobs",
+        Vec::new(),
+        vec![
+            FixedCell::nested(
+                node("instances.cell.job.declaration"),
+                cell("job"),
+                "job",
+                collection("job"),
+                vec![leaf("jid")],
+            )
+            .unwrap(),
+        ],
+    )
+    .unwrap();
+    let hart = FixedCell::nested(
+        node("instances.cell.hart.declaration"),
+        cell("hart"),
+        "hart",
+        collection("hart"),
+        vec![leaf("id"), leaf("pc"), flag, jobs],
+    )
+    .unwrap();
+    let configuration = FixedConfiguration::new(
+        node("instances.configuration"),
+        semantic_id("instances.configuration"),
+        ConfigurationRoot::GeneratedTop,
+        vec![
+            FixedCell::nested(
+                node("instances.cell.harts.declaration"),
+                cell("harts"),
+                "harts",
+                Vec::new(),
+                vec![hart],
+            )
+            .unwrap(),
+            leaf("mem"),
+        ],
+        node("instances.initializer"),
+        semantic_id("instances.initializer"),
+        Vec::new(),
+        vec![
+            FixedInitializerCell::children(
+                node("instances.cell.harts.initializer"),
+                cell("harts"),
+                vec![
+                    FixedInitializerCell::children(
+                        node("instances.cell.hart.initializer"),
+                        cell("hart"),
+                        vec![
+                            start("id"),
+                            start("pc"),
+                            start("flag"),
+                            FixedInitializerCell::children(
+                                node("instances.cell.jobs.initializer"),
+                                cell("jobs"),
+                                vec![
+                                    FixedInitializerCell::children(
+                                        node("instances.cell.job.initializer"),
+                                        cell("job"),
+                                        vec![start("jid")],
+                                    )
+                                    .unwrap(),
+                                ],
+                            )
+                            .unwrap(),
+                        ],
+                    )
+                    .unwrap(),
+                ],
+            )
+            .unwrap(),
+            start("mem"),
+        ],
+    )
+    .unwrap();
+    let module_id = ModuleId::new(MODULE).unwrap();
+    DefinitionIr::new(
+        module_id.clone(),
+        vec![DefinitionModule::new(
+            node("instances.module"),
+            module_id,
+            Vec::new(),
+            Vec::new(),
+            vec![DefinitionSentence::Configuration(configuration)],
+        )],
+    )
+    .unwrap()
+}
+
+/// The label of a native application, and its arguments.
+fn application(term: &Term) -> (&str, &[Term]) {
+    let Term::Apply { label, arguments } = term else {
+        panic!("expected an application, got {term:?}")
+    };
+    (label.name.as_str(), arguments.as_slice())
+}
+
+/// A cell term written open on the right, `<name>(#noDots, content, #dots)`: its content.
+fn open_cell<'t>(term: &'t Term, name: &str) -> &'t Term {
+    let (label, arguments) = application(term);
+    assert_eq!(label, format!("<{name}>"), "{term:?}");
+    let [left, content, right] = arguments else {
+        panic!("a written cell has its two frames: {term:?}")
+    };
+    assert_eq!(application(left).0, "#noDots");
+    assert_eq!(application(right).0, "#dots");
+    content
+}
+
+/// A sentence about one instance states it: a rule's or a context's clauses, a leaf (`pc`), an
+/// optional cell created (`flag`) and an instance record of a collection inside the instance
+/// (`job`), and a context alias's cell, are written inside the one instance cell, open on the
+/// right (`<hart> <pc> .. </pc> (.Bag => <flag> ..) <job> .. ... </hart>`), so each matches in
+/// one instance. A sentence whose cells lie in an instance and outside it has no one instance
+/// cell to hold its clauses, and is refused.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Builds each clause kind, the context alias and the refused sentence together."
+)]
+fn clauses_inside_an_instance_are_written_inside_the_instance_cell() {
+    let definition = harts_definition();
+    let mut adapter = Adapter::new(&definition, true);
+    let cell = |name: &str| SymbolId::new(format!("instances.cell.{name}")).unwrap();
+    let token = |key: &str, value: &str| {
+        DefinitionTerm::token(node(key), DefinitionSortRef::int(), value).unwrap()
+    };
+    let pc = krs_ir::ConfigurationClause::Fixed(krs_ir::FixedCellClause::new(
+        node("instances.rule.pc"),
+        cell("pc"),
+        token("instances.rule.pc.before", "0"),
+        krs_ir::CellPost::Replace {
+            term: token("instances.rule.pc.after", "1"),
+        },
+        CellContentFrame::Exact,
+    ));
+    let flag = krs_ir::ConfigurationClause::Optional(krs_ir::OptionalCellClause::new(
+        node("instances.rule.flag"),
+        cell("flag"),
+        krs_ir::CellClauseKind::Content,
+        krs_ir::Presence::Absent,
+        Some(krs_ir::Presence::Present {
+            term: token("instances.rule.flag.after", "1"),
+        }),
+        CellContentFrame::Exact,
+    ));
+    let job = krs_ir::ConfigurationClause::Instances(krs_ir::InstancesClause::new(
+        node("instances.rule.job"),
+        cell("job"),
+        krs_ir::InstanceOrdering::Unordered,
+        vec![krs_ir::InstanceClause::Kept {
+            origin: node("instances.rule.job.instance"),
+            label: None,
+            children: vec![krs_ir::FixedCellClause::new(
+                node("instances.rule.jid"),
+                cell("jid"),
+                token("instances.rule.jid.before", "0"),
+                krs_ir::CellPost::Preserve,
+                CellContentFrame::Exact,
+            )],
+            open: true,
+        }],
+        Vec::new(),
+        true,
+    ));
+    let mem = krs_ir::ConfigurationClause::Fixed(krs_ir::FixedCellClause::new(
+        node("instances.rule.mem"),
+        cell("mem"),
+        token("instances.rule.mem.before", "0"),
+        krs_ir::CellPost::Preserve,
+        CellContentFrame::Exact,
+    ));
+    let sentence = |kind, clauses: Vec<krs_ir::ConfigurationClause<SymbolId, DefinitionTerm>>| {
+        RuleSentence::new_configuration(
+            node("instances.rule"),
+            LabelIdentity::new(LabelId::new("instances.step").unwrap(), "step").unwrap(),
+            kind,
+            Vec::new(),
+            krs_ir::FixedConfigurationRewrite::new(
+                node("instances.rule.body"),
+                semantic_id("instances.configuration"),
+                clauses,
+                Vec::new(),
+            )
+            .unwrap(),
+        )
+    };
+    let clauses = vec![pc.clone(), flag, job];
+    let rule = sentence(
+        krs_ir::ConfigurationSentenceKind::Transition,
+        clauses.clone(),
+    );
+    let Sentence::Rule { body: rule, .. } = adapter.rule(&rule, MODULE, 0).unwrap() else {
+        panic!("a configuration rule stays a native rule")
+    };
+    // A `#[k::context]`'s cells are placed as a rule's, so k-rust's heating and cooling rules
+    // are about the same instance.
+    let context = sentence(krs_ir::ConfigurationSentenceKind::Context, clauses);
+    let Sentence::Context { body: context, .. } = adapter.context(&context, MODULE, 2).unwrap()
+    else {
+        panic!("a configuration context stays a native context")
+    };
+    for body in [rule, context] {
+        let (label, cells) = application(open_cell(&body, "hart"));
+        assert_eq!(label, "#cells");
+        let [pc, flag, job] = cells else {
+            panic!("the instance's three clauses: {body:?}")
+        };
+        assert_eq!(application(pc).0, "<pc>");
+        assert!(
+            matches!(flag, Term::Rewrite { right, .. } if application(right).0 == "<flag>"),
+            "the optional cell is created inside the instance: {flag:?}"
+        );
+        assert_eq!(application(job).0, "<job>");
+    }
+
+    let mixed = sentence(krs_ir::ConfigurationSentenceKind::Transition, vec![pc, mem]);
+    let error = adapter.rule(&mixed, MODULE, 3).unwrap_err();
+    assert!(
+        matches!(&error, AdapterError::MissingReference { target, .. }
+            if target.contains("instances.cell.pc") && target.contains("instances.cell.mem")),
+        "{error:?}"
+    );
+
+    let here = semantic_id("here");
+    let alias = ContextAliasSentence::new(
+        node("instances.alias"),
+        context_alias_id(),
+        node("instances.alias.name"),
+        "instances_eval".to_owned(),
+        node("instances.alias.here"),
+        here.clone(),
+        Vec::new(),
+        FixedConfigurationPattern::new(
+            node("instances.alias.pattern"),
+            semantic_id("instances.configuration"),
+            vec![FixedCellPattern::new(
+                node("instances.alias.cell.pc"),
+                cell("pc"),
+                DefinitionTerm::variable(
+                    node("instances.alias.here-use"),
+                    DefinitionSortRef::int(),
+                    here,
+                ),
+                CellContentFrame::Exact,
+            )],
+            Vec::new(),
+        )
+        .unwrap(),
+    );
+    let Sentence::ContextAlias { body, .. } = adapter.context_alias(&alias, MODULE, 1).unwrap()
+    else {
+        panic!("a context alias stays a native context alias")
+    };
+    assert_eq!(application(open_cell(&body, "hart")).0, "<pc>");
+}
+
 #[test]
 #[expect(
     clippy::too_many_lines,

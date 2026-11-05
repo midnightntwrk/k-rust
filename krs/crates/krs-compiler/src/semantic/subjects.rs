@@ -221,8 +221,7 @@ fn typed_parts(descriptor: &Descriptor) -> Vec<TypedPart<'_>> {
 ///   List collection), which the collector refuses before;
 /// - [`DescriptorLoweringError::CellOutsideSubject`] for a named cell outside the scope;
 /// - [`DescriptorLoweringError::GroupInstance`] for a sentence about one instance that writes the
-///   instance's Map key, or states a form not emitted inside an instance yet
-///   ([`check_instance_sentence`]);
+///   instance's Map key ([`check_instance_sentence`]);
 /// - [`DescriptorLoweringError::MainCell`] for a main cell inside a Set collection's instance
 ///   ([`check_main_cell_holders`]).
 pub(super) fn check_subjects(
@@ -258,7 +257,7 @@ pub(super) fn check_subjects(
         if let (Some(tree), Some(part)) = (&tree, parts.first())
             && let Some(scope) = scopes.get(&part.subject)
         {
-            check_instance_sentence(descriptor, part, &parts, tree, scope)
+            check_instance_sentence(descriptor, part, tree, scope)
                 .map_err(|error| error.within(descriptor.id(), None))?;
         }
     }
@@ -477,84 +476,35 @@ fn not_emitted(
 }
 
 /// Checks a sentence about one instance of its group (its scope has an instance,
-/// [`SubjectScope::instance`]): it writes a Map instance's key only as what it matched, and
-/// states only what is emitted inside an instance today.
+/// [`SubjectScope::instance`]): it writes a Map instance's key only as what it matched.
 ///
-/// - A Map collection's key, its instance's first child, is the instance's identity, whole, be it
-///   a leaf or a group: a local step writes nothing at or inside it except the subject's own
-///   binder for it or the same literal (`krs_syntax::cell_entries::keeps_key`, the predicate
-///   the collector applies to the authored entries, here over the terms the descriptor holds).
-/// - A rule's clause is emitted inside the instance only for a leaf cell (the emitter wraps a
-///   leaf clause in its innermost collection's instance, and an optional holder's leaves have
-///   one place); a clause for a whole group, an optional cell or a collection inside the
-///   instance is not emitted there yet, nor is a context alias or a `#[k::context]`. A function
-///   context is refused later ([`check_instance_contexts`]), once its callers are judged.
+/// A Map collection's key, its instance's first child, is the instance's identity, whole, be it a
+/// leaf or a group: a local step writes nothing at or inside it except the subject's own binder
+/// for it or the same literal (`krs_syntax::cell_entries::keeps_key`, the predicate the collector
+/// applies to the authored entries, here over the terms the descriptor holds).
+///
+/// Every clause of a rule, a context alias and a `#[k::context]` inside an instance is emitted
+/// inside the instance's cell on both emission routes, so each matches in the one instance the
+/// sentence is about. A function context is refused later ([`check_instance_contexts`]), once its
+/// callers are judged.
 fn check_instance_sentence(
     descriptor: &Descriptor,
     part: &TypedPart<'_>,
-    parts: &[TypedPart<'_>],
     tree: &ConfigurationTree<'_>,
     scope: &SubjectScope,
 ) -> Result<(), DescriptorLoweringError> {
-    let (Some(instance), Some(DescriptorSubject::Group { declaration: group })) =
+    let (Some(_), Some(DescriptorSubject::Group { declaration: group })) =
         (scope.instance, part.subject)
     else {
         return Ok(());
     };
-    let range = |key: Option<&ProvenanceKey>| key.and_then(|key| key_range(descriptor, key));
-    // A context alias and a `#[k::context]` are instantiated into heating and cooling rules
-    // whose hole is the instance's computation. The K text route already writes a
-    // `#[k::context]` inside its instance; the native route's placement is unverified, and a
-    // context alias has no instance arm, so both wait for stage 2a's emission and its tests.
-    let context = match descriptor.payload() {
-        DescriptorPayload::ContextAlias(_) => Some("a context alias"),
-        DescriptorPayload::ConfigurationRule(rule)
-            if rule.sentence_kind == krs_ir::ConfigurationSentenceKind::Context =>
-        {
-            Some("a context")
-        }
-        _ => None,
-    };
-    if let Some(context) = context {
-        return Err(not_emitted(
-            tree,
-            group,
-            scope,
-            instance,
-            context,
-            range(part.key),
-        ));
-    }
     if !matches!(
         descriptor.payload(),
         DescriptorPayload::ConfigurationRule(_) | DescriptorPayload::HeadRule(_)
     ) {
         return Ok(());
     }
-    check_instance_key(descriptor, tree, group, scope)?;
-    for (cell, key) in parts.iter().flat_map(|part| &part.cells) {
-        let Some(index) = cell_index(tree, cell) else {
-            continue;
-        };
-        let what = match (&tree.cells[index].multiplicity, &tree.cells[index].group) {
-            (Multiplicity::One, None) => continue,
-            (Multiplicity::One, Some(_)) => "a whole group",
-            (Multiplicity::Optional, _) => "an optional cell",
-            (Multiplicity::Many(_), _) => "a collection cell",
-        };
-        return Err(not_emitted(
-            tree,
-            group,
-            scope,
-            instance,
-            &format!(
-                "the rule names `{}`, {what}, and a clause for anything but a leaf cell",
-                tree.fields[index].1.rust_field
-            ),
-            range(*key).or_else(|| range(part.key)),
-        ));
-    }
-    Ok(())
+    check_instance_key(descriptor, tree, group, scope)
 }
 
 /// The key of the instance a scope is about, where its anchor is a Map collection: the

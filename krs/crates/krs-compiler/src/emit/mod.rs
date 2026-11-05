@@ -12,8 +12,8 @@ use std::{
 
 use krs_diagnostic::{Diagnostic, Location, ToDiagnostic, codes};
 use krs_ir::{
-    ByteRange, CellAttribute, FixedCell, FixedCellContent, GroupAssociativity, ProductionGroupId,
-    SentenceKind, SourceMapKey, StableText,
+    ByteRange, FixedCell, FixedCellContent, GroupAssociativity, ProductionGroupId, SentenceKind,
+    SourceMapKey, StableText,
 };
 use krs_ir_levels::{
     DefinitionIr, DefinitionModule, DefinitionSentence, DefinitionSortRef, ModuleRole,
@@ -330,7 +330,6 @@ pub fn spec_modules_in_import_order(definition: &DefinitionIr) -> Vec<&Definitio
 struct EmitContext<'a> {
     index: DefinitionIndex<'a>,
     group_relations: GroupRelations,
-    repeated_ancestors: BTreeMap<SymbolId, SymbolId>,
     naming: VariableNaming,
     lexicon: TokenLexicon,
     /// In an author spec module (KF-041), the `Id` tokens its grammar lexes,
@@ -342,21 +341,16 @@ impl<'a> EmitContext<'a> {
     fn new(definition: &'a DefinitionIr) -> Self {
         let index = DefinitionIndex::new(definition);
         let mut group_relations = GroupRelations::default();
-        let mut repeated_ancestors = BTreeMap::new();
         for sentence in definition
             .modules()
             .iter()
             .flat_map(DefinitionModule::sentences)
         {
             group_relations.add(sentence);
-            if let DefinitionSentence::Configuration(configuration) = sentence {
-                collect_repeated_ancestors(configuration.cells(), &mut repeated_ancestors, None);
-            }
         }
         Self {
             index,
             group_relations: group_relations.closed(),
-            repeated_ancestors,
             naming: VariableNaming::new(definition),
             lexicon: TokenLexicon::new(definition),
             spec_identifiers: None,
@@ -481,8 +475,18 @@ impl<'a> EmitContext<'a> {
             .ok_or_else(|| EmitError::InvalidReference(format!("missing fixed cell {id}")))
     }
 
-    fn repeated_ancestor(&self, id: &SymbolId) -> Option<&SymbolId> {
-        self.repeated_ancestors.get(id)
+    /// The one instance a sentence's `cells` lie in, whose cell its clauses are written in
+    /// ([`DefinitionIndex::sentence_instance`]).
+    fn sentence_instance<'c>(
+        &self,
+        cells: impl IntoIterator<Item = &'c SymbolId>,
+    ) -> Result<Option<&SymbolId>, EmitError> {
+        self.index
+            .sentence_instance(cells)
+            .map_err(|error| EmitError::UnsupportedShape {
+                node: "sentence about one instance",
+                detail: error.to_string(),
+            })
     }
 
     /// The parent of a nested cell (KF-023: an exact or List collection
@@ -697,33 +701,6 @@ pub fn declared_cell_types(
         }
     }
     Ok(out)
-}
-
-fn collect_repeated_ancestors(
-    cells: &[FixedCell<DefinitionSortRef, SymbolId>],
-    repeated_ancestors: &mut BTreeMap<SymbolId, SymbolId>,
-    repeated_ancestor: Option<&SymbolId>,
-) {
-    for cell in cells {
-        let repeated_ancestor = if cell.attributes().iter().any(|attribute| {
-            matches!(
-                attribute,
-                CellAttribute::Multiplicity {
-                    value: krs_ir::CellMultiplicity::Star,
-                    ..
-                }
-            )
-        }) {
-            Some(cell.id())
-        } else {
-            repeated_ancestor
-        };
-        if let FixedCellContent::Children { children } = cell.content() {
-            collect_repeated_ancestors(children, repeated_ancestors, repeated_ancestor);
-        } else if let Some(ancestor) = repeated_ancestor {
-            repeated_ancestors.insert(cell.id().clone(), ancestor.clone());
-        }
-    }
 }
 
 /// Renders single Definition IR sentences of one definition as [`emit_k`] renders them in its

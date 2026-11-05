@@ -29,6 +29,7 @@ pub struct DefinitionIndex<'a> {
     groups: BTreeMap<ProductionGroupId, &'a str>,
     cells: BTreeMap<SymbolId, &'a str>,
     cell_parents: BTreeMap<SymbolId, SymbolId>,
+    instance_holders: BTreeMap<SymbolId, SymbolId>,
     context_aliases: BTreeMap<StableItemId, &'a str>,
 }
 
@@ -60,7 +61,7 @@ impl<'a> DefinitionIndex<'a> {
                             .insert(symbol.id().clone(), symbol.emitted_name());
                     }
                     DefinitionSentence::Configuration(configuration) => {
-                        index.collect_cells(configuration.cells());
+                        index.collect_cells(configuration.cells(), None);
                     }
                     DefinitionSentence::ContextAlias(alias) => {
                         index
@@ -122,6 +123,47 @@ impl<'a> DefinitionIndex<'a> {
         self.cell_parents.get(id)
     }
 
+    /// Returns the instance a cell lies in: the innermost optional (`?`) or collection (`*`)
+    /// cell strictly above it. A sentence's clause for the cell is written inside that cell,
+    /// so that every clause of a sentence about one instance matches in the same instance; a
+    /// cell outside every `?` and `*` cell has none.
+    #[must_use]
+    pub fn instance_holder(&self, id: &SymbolId) -> Option<&SymbolId> {
+        self.instance_holders.get(id)
+    }
+
+    /// Returns the one instance that every cell of a sentence lies in ([`Self::instance_holder`]),
+    /// or `None` when they all lie outside every `?` and `*` cell.
+    ///
+    /// A sentence about one instance names only cells of that instance, and a sentence about the
+    /// configuration names no cell inside an instance except through its instance record; so its
+    /// clauses are written inside that one instance's cell, or at the top.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MixedInstances`] for two cells that lie in different instances, or one in an
+    /// instance and one outside every instance: no single instance cell holds both.
+    pub fn sentence_instance<'c>(
+        &self,
+        cells: impl IntoIterator<Item = &'c SymbolId>,
+    ) -> Result<Option<&SymbolId>, MixedInstances> {
+        let mut first = None::<(&SymbolId, Option<&SymbolId>)>;
+        for cell in cells {
+            let holder = self.instance_holder(cell);
+            match first {
+                None => first = Some((cell, holder)),
+                Some((_, instance)) if instance == holder => {}
+                Some((named, _)) => {
+                    return Err(MixedInstances {
+                        first: named.clone(),
+                        other: cell.clone(),
+                    });
+                }
+            }
+        }
+        Ok(first.and_then(|(_, instance)| instance))
+    }
+
     /// Returns K's generated sort name of a fixed cell, such as `FrameCell`
     /// for `<frame>` (see [`cell_sort_name`]).
     #[must_use]
@@ -135,17 +177,57 @@ impl<'a> DefinitionIndex<'a> {
         self.context_aliases.get(id).copied()
     }
 
-    fn collect_cells(&mut self, cells: &'a [FixedCell<DefinitionSortRef, SymbolId>]) {
+    /// Indexes `cells` and their descendants; `holder` is the innermost `?` or `*` cell
+    /// strictly above `cells`.
+    fn collect_cells(
+        &mut self,
+        cells: &'a [FixedCell<DefinitionSortRef, SymbolId>],
+        holder: Option<&SymbolId>,
+    ) {
         for cell in cells {
             self.cells.insert(cell.id().clone(), cell.name());
+            if let Some(holder) = holder {
+                self.instance_holders
+                    .insert(cell.id().clone(), holder.clone());
+            }
             if let FixedCellContent::Children { children } = cell.content() {
                 for child in children {
                     self.cell_parents
                         .insert(child.id().clone(), cell.id().clone());
                 }
-                self.collect_cells(children);
+                let holds_instances = cell.attributes().iter().any(|attribute| {
+                    matches!(attribute, krs_ir::CellAttribute::Multiplicity { .. })
+                });
+                self.collect_cells(
+                    children,
+                    if holds_instances {
+                        Some(cell.id())
+                    } else {
+                        holder
+                    },
+                );
             }
         }
+    }
+}
+
+/// Two cells of one sentence that lie in different instances
+/// ([`DefinitionIndex::sentence_instance`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MixedInstances {
+    /// The sentence's first cell.
+    pub first: SymbolId,
+    /// A later cell that lies in another instance than `first`, or in none.
+    pub other: SymbolId,
+}
+
+impl std::fmt::Display for MixedInstances {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "the cells {} and {} of one sentence lie in different instances, so no one instance cell holds its clauses",
+            self.first, self.other
+        )
     }
 }
 

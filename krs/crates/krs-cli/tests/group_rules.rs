@@ -1781,8 +1781,8 @@ fn instance_definitions(root: &Path, lib_rules: &str, packages: &[(&str, &str)])
 /// (`opt`), in both spellings: each definition checks. A rule that restates
 /// a Map instance's key, as the binder its subject matched it with (`dec`) or
 /// as the same literal (`tick`), is admitted. In `smp` the emitted rule names
-/// the instance's leaf cells inside the instance's cell `<hart>`, and the one
-/// hart runs.
+/// the instance's leaf cells inside the instance's cell `<hart>`, and in `opt`
+/// inside the optional cell `<fpu>`; the one hart runs.
 #[test]
 fn group_rules_apply_at_a_fixed_position_in_an_optional_cell_and_in_a_map() {
     let target = shared_fixture_target();
@@ -1807,6 +1807,8 @@ fn group_rules_apply_at_a_fixed_position_in_an_optional_cell_and_in_a_map() {
         }
         let flat = emitted(target.path(), &manifests[1], "smp");
         emitted_inc.push(sentence(&flat, "rule [inc]:").to_owned());
+        let flat = emitted(target.path(), &manifests[2], "opt");
+        emitted_inc.push(sentence(&flat, "rule [finish]:").to_owned());
         // The one hart steps by `dec`, which restates its key.
         let program = manifests[1].with_file_name("program.txt");
         fs::write(&program, "dec").unwrap();
@@ -1829,7 +1831,9 @@ fn group_rules_apply_at_a_fixed_position_in_an_optional_cell_and_in_a_map() {
     expect_test::expect![[r#"
         [
             "rule [inc]: <hart> <k> inc => .K ... </k> <pc> Pc:Int => Pc:Int +Int 1 </pc> ... </hart>",
+            "rule [finish]: <fpu> <busy> 1 => 0 </busy> <fa> Fa:Int => Fa:Int +Int 1 </fa> ... </fpu>",
             "rule [inc]: <hart> <k> inc ~> Tail:K => .K ~> Tail:K </k> <pc> Pc:Int => Pc:Int +Int 1 </pc> ... </hart>",
+            "rule [finish]: <fpu> <busy> 1 => 0 </busy> <fa> Fa:Int => Fa:Int +Int 1 </fa> ... </fpu>",
         ]
     "#]].assert_debug_eq(&emitted_inc);
 }
@@ -2427,25 +2431,6 @@ impl Pool {
 }
 "#;
 
-/// A `#[k::context]` over `k::cells!` typed by the hart.
-const HART_CONTEXT: &str = r#"
-#[k::constructors(sort = lib::Instr, result = k::KResult)]
-pub enum Hop {
-    #[k::syntax("hop ( {n} )")]
-    Hop { n: lib::Instr },
-}
-
-#[k::context(hole = h)]
-fn hop_operand(
-    h: lib::Instr,
-    k::cells! {
-        k: k::configuration::KCell(Hop::Hop(h), ..),
-        state @ ..
-    }: lib::Hart,
-) {
-}
-"#;
-
 /// A function whose context reads the optional unit's `fa`, and a
 /// simplification that mentions it only in its left-hand side, which is a
 /// pattern and evaluates nothing.
@@ -2631,50 +2616,25 @@ fn a_sentence_about_one_instance_is_refused_where_its_meaning_does_not_hold() {
     "#]].assert_debug_eq(&outcomes);
 }
 
-/// What stage 2 emits is refused inside an instance as `group-subject-position`,
-/// "not emitted yet": an instance record of a collection inside the instance
-/// (in both spellings), a context alias, a `#[k::context]`, and a function
-/// context the caller rule admits: applied from its own instance, or named only
-/// in a simplification's left-hand side, which is a pattern.
+/// A function context inside an instance is refused as `group-subject-position`, "not emitted
+/// yet", where the caller rule admits it: applied from its own instance, or named only in a
+/// simplification's left-hand side, which is a pattern. The function reads the instance it is
+/// evaluated in, and passing that instance to the function is not emitted yet.
 #[test]
-fn a_form_inside_an_instance_that_is_not_emitted_yet_is_refused() {
+fn a_function_context_inside_an_instance_is_refused_as_not_emitted_yet() {
     let outcomes = instance_outcomes(&[
-        ("inner-record", cores(INNER_RECORD_RULE), "many"),
-        ("inner-record-cells", cores(INNER_RECORD_CELLS_RULE), "many"),
-        ("alias", smp("Map", HART_ALIAS), "smp"),
         (
             "function-context",
             smp("Map", &format!("{PC_PLUS}{HART_CALLER}")),
             "smp",
         ),
-        ("context", smp("Map", HART_CONTEXT), "smp"),
         ("simplification", opt(FA_PLUS), "opt"),
     ]);
     expect_test::expect![[r#"
         [
             [
-                "inner-record",
-                "error[krs::analysis::group-subject-position]: the cell group `Core` is held by the Map collection cell `core` of configuration `Many`, so a sentence about `Core` is a local step of one instance; the rule names `job`, a collection cell, and a clause for anything but a leaf cell inside an instance is not emitted yet",
-                "--> many/src/lib.rs: `job: [j @ Job {`",
-            ],
-            [
-                "inner-record-cells",
-                "error[krs::analysis::group-subject-position]: the cell group `Core` is held by the Map collection cell `core` of configuration `Many`, so a sentence about `Core` is a local step of one instance; the rule names `job`, a collection cell, and a clause for anything but a leaf cell inside an instance is not emitted yet",
-                "--> many/src/lib.rs: `job: [j @ k::fra`",
-            ],
-            [
-                "alias",
-                "error[krs::analysis::group-subject-position]: the cell group `Hart` is held by the Map collection cell `hart` of configuration `Smp`, so a sentence about `Hart` is a local step of one instance; a context alias inside an instance is not emitted yet",
-                "--> smp/src/lib.rs: `lib::Hart,`",
-            ],
-            [
                 "function-context",
                 "error[krs::analysis::group-subject-position]: the cell group `Hart` is held by the Map collection cell `hart` of configuration `Smp`, so a sentence about `Hart` is a local step of one instance; a function context inside an instance is not emitted yet",
-                "--> smp/src/lib.rs: `lib::Hart,`",
-            ],
-            [
-                "context",
-                "error[krs::analysis::group-subject-position]: the cell group `Hart` is held by the Map collection cell `hart` of configuration `Smp`, so a sentence about `Hart` is a local step of one instance; a context inside an instance is not emitted yet",
                 "--> smp/src/lib.rs: `lib::Hart,`",
             ],
             [
@@ -2684,6 +2644,355 @@ fn a_form_inside_an_instance_that_is_not_emitted_yet_is_refused() {
             ],
         ]
     "#]].assert_debug_eq(&outcomes);
+}
+
+/// A configuration whose instances are `Cpu`s keyed by `id`, each holding a
+/// group of registers, an optional reservation and a Map collection of jobs,
+/// with the rules for `Cpu` that name each of them, a context alias through
+/// which `wait` is strict and a `#[k::context]` that evaluates the operand of
+/// `hop`; `here` is the instance's own program counter.
+const CPUS: &str = r#"
+use k::builtin::{Int, KSequence, int};
+
+k::sorts! {
+    Exp;
+    Value: Exp + k::KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = lib::Instr, result = k::KResult)]
+#[k::precedence(right (Seq))]
+pub enum Code {
+    #[k::syntax("{first} ; {second}")]
+    Seq { first: lib::Instr, second: lib::Instr },
+}
+
+#[k::constructors(sort = lib::Instr, result = k::KResult)]
+#[rustfmt::skip]
+pub enum CpuOp {
+    #[k::syntax("swap")] Swap(),
+    #[k::syntax("reserve")] Reserve(),
+    #[k::syntax("release")] Release(),
+    #[k::syntax("post")] Post(),
+    #[k::syntax("work")] Work(),
+    #[k::syntax("wait ( {n} )")] #[k::strict(using = cpu_eval)] Wait { n: Exp },
+    #[k::syntax("hop ( {n} )")] Hop { n: Exp },
+}
+
+#[k::constructors(sort = Exp, result = k::KResult)]
+pub enum Reg {
+    #[k::syntax("here")]
+    Here(),
+}
+
+#[k::cell]
+pub struct Cpus {
+    #[k::cell(multiplicity = "*", cell_type = "Map", initial, nested)]
+    pub cpu: Cpu,
+}
+
+#[k::cell]
+pub struct Cpu {
+    #[k::cell]
+    pub id: Int,
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub pc: Int,
+    #[k::cell(nested)]
+    pub regs: Regs,
+    #[k::cell(multiplicity = "?")]
+    pub reservation: Option<Int>,
+    #[k::cell(nested)]
+    pub jobs: Jobs,
+}
+
+#[k::cell]
+pub struct Regs {
+    #[k::cell]
+    pub a: Int,
+    #[k::cell]
+    pub b: Int,
+}
+
+#[k::cell]
+pub struct Jobs {
+    #[k::cell(multiplicity = "*", cell_type = "Map", nested)]
+    pub job: Job,
+}
+
+#[k::cell]
+pub struct Job {
+    #[k::cell]
+    pub jid: Int,
+    #[k::cell]
+    pub payload: Int,
+}
+
+#[k::configuration]
+pub struct Rack {
+    #[k::cell(nested)]
+    pub cpus: Cpus,
+}
+
+impl Rack {
+    #[k::init]
+    pub fn init(pgm: lib::Instr) -> Self {
+        Self {
+            cpus: Cpus {
+                cpu: Cpu {
+                    id: 0,
+                    k: k::k![pgm],
+                    pc: 1,
+                    regs: Regs { a: 1, b: 2 },
+                    reservation: k::absent!(0),
+                    jobs: Jobs { job: Job { jid: 0, payload: 0 } },
+                },
+            },
+        }
+    }
+}
+
+#[k::context_alias(name = cpu_eval, here = site)]
+fn cpu_eval(
+    k::cells! {
+        k: k::configuration::KCell(site, tail @ ..),
+        state @ ..
+    }: Cpu,
+) {
+}
+
+#[k::context(hole = h)]
+fn hop_operand(
+    h: Exp,
+    k::cells! {
+        k: k::configuration::KCell(CpuOp::Hop(h), ..),
+        state @ ..
+    }: Cpu,
+) {
+}
+
+k::rules! {
+    for Cpu;
+    use Code::*;
+    use CpuOp::*;
+    use Reg::*;
+
+    seq: { k: [Seq { first, second }, ..] } => { k: [first, second, ..] };
+    swap: { k: [Swap(), ..], regs: Regs { a, b } } => { k: [..], regs: Regs { a: b, b: a } };
+    reserve: { k: [Reserve(), ..], pc, reservation: None } => { k: [..], reservation: Some(pc) };
+    release: { k: [Release(), ..], pc, reservation: Some(r) } => { k: [..], pc: int::add(pc, r), reservation: None };
+    post: { id: me, k: [Post(), ..], job: { .. } } => { k: [..], job: { Job { jid: me, payload: 0 }, .. } };
+    work: { k: [Work(), ..], job: { j @ Job { payload: p, .. }, .. } } => { k: [..], job: { Job { payload: int::add(p, 1), ..j }, .. } };
+    here: { k: [Here(), ..], pc } => { k: [pc, ..] };
+    wait: { k: [Wait { n }, ..], pc } => { k: [..], pc: int::add(pc, n) } where n: Int;
+    hop: { k: [Hop { n }, ..], pc } => { k: [..], pc: int::add(pc, n) } where n: Int;
+}
+"#;
+
+/// Every clause of a rule about one instance is emitted inside the
+/// instance's cell, `<cpu> .. ... </cpu>`, with the cells of a context alias
+/// and of a `#[k::context]` typed by the instance's group: a whole group child
+/// (`swap`), an optional child created and deleted (`reserve`, `release`), an
+/// instance record of the collection inside the instance, created and updated
+/// (`post`, `work`), the alias `cpu_eval` and the context `hop_operand`. So
+/// each clause matches in the one instance the sentence is about, and the one
+/// cpu runs every form: from pc 1, `release` adds the reserved 1, and `wait
+/// ( here )` and `hop ( here )` each double the program counter to 8.
+#[test]
+fn every_clause_of_a_sentence_about_one_instance_is_emitted_inside_it() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = instance_definitions(temporary.path(), "", &[("rack", CPUS)]).remove(0);
+    let (success, _, stderr) = krs_on(target.path(), &manifest, "rack", "check", &[]);
+    assert!(success, "{stderr}");
+    let flat = emitted(target.path(), &manifest, "rack");
+    let sentences = [
+        "rule [swap]:",
+        "rule [reserve]:",
+        "rule [release]:",
+        "rule [post]:",
+        "rule [work]:",
+        "context alias [cpuEval]:",
+        "context [hop-operand]:",
+    ]
+    .map(|start| sentence(&flat, start).to_owned());
+    let program = manifest.with_file_name("program.txt");
+    fs::write(
+        &program,
+        "swap ; reserve ; release ; post ; work ; wait ( here ) ; hop ( here )",
+    )
+    .unwrap();
+    let (success, stdout, stderr) = krs_on(
+        target.path(),
+        &manifest,
+        "rack",
+        "run",
+        &[program.to_str().unwrap()],
+    );
+    assert!(success, "{stdout}\n{stderr}");
+    let end = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+    let cpu = cell(&end, "cpu");
+    expect_test::expect![[r#"
+        (
+            [
+                "rule [swap]: <cpu> <k> swap => .K ... </k> (<regs> <a> A:Int </a> <b> B:Int </b> </regs> => <regs> <a> B:Int </a> <b> A:Int </b> </regs>) ... </cpu>",
+                "rule [reserve]: <cpu> <k> reserve => .K ... </k> <pc> Pc:Int </pc> (.Bag => <reservation> Pc:Int </reservation>) ... </cpu>",
+                "rule [release]: <cpu> <k> release => .K ... </k> <pc> Pc:Int => Pc:Int +Int R:Int </pc> (<reservation> R:Int </reservation> => .Bag) ... </cpu>",
+                "rule [post]: <cpu> <k> post => .K ... </k> <id> Me:Int </id> (.Bag => <job> <jid> Me:Int </jid> <payload> 0 </payload> </job>) ... </cpu>",
+                "rule [work]: <cpu> <k> work => .K ... </k> <job> <payload> P:Int => P:Int +Int 1 </payload> ... </job> ... </cpu>",
+                "context alias [cpuEval]: <cpu> <k> HERE ~> Tail:K </k> ... </cpu>",
+                "context [hop-operand]: <cpu> <k> hop ( HOLE:Exp ) ... </k> ... </cpu>",
+            ],
+            "<id> 0 </id> <k> .K </k> <pc> 8 </pc> <regs> <a> 2 </a> <b> 1 </b> </regs> .ReservationCell <jobs> <job> <jid> 0 </jid> <payload> 1 </payload> </job> </jobs>",
+        )
+    "#]].assert_debug_eq(&(sentences, cpu));
+}
+
+/// The forms stage 1 held behind "not emitted yet" are admitted and emitted
+/// inside the instance: an instance record of a List collection inside a
+/// `Core`, in both spellings, and a context alias typed by `lib::Hart` in a Map
+/// collection ([`every_clause_of_a_sentence_about_one_instance_is_emitted_inside_it`]
+/// runs a `#[k::context]`).
+#[test]
+fn a_form_inside_an_instance_is_emitted_inside_the_instance() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let emitted_forms = [
+        (
+            "inner-record",
+            cores(INNER_RECORD_RULE),
+            "many",
+            "rule [work]:",
+        ),
+        (
+            "inner-record-cells",
+            cores(INNER_RECORD_CELLS_RULE),
+            "many",
+            "rule [work]:",
+        ),
+        (
+            "alias",
+            smp("Map", HART_ALIAS),
+            "smp",
+            "context alias [hartEval]:",
+        ),
+    ]
+    .iter()
+    .map(|(name, source, package, start)| {
+        let manifest =
+            instance_definitions(&temporary.path().join(name), "", &[(package, source)]).remove(0);
+        let (success, _, stderr) = krs_on(target.path(), &manifest, package, "check", &[]);
+        assert!(success, "{name}:\n{stderr}");
+        let flat = emitted(target.path(), &manifest, package);
+        sentence(&flat, start).to_owned()
+    })
+    .collect::<Vec<_>>();
+    expect_test::expect![[r#"
+        [
+            "rule [work]: <core> <k> inc => .K ... </k> <jobs> <job> <payload> P:Int => P:Int +Int 1 </payload> </job> ... </jobs> ... </core>",
+            "rule [work]: <core> <k> inc ~> Tail:K => .K ~> Tail:K </k> <jobs> <job> <payload> P:Int => P:Int +Int 1 </payload> </job> ... </jobs> ... </core>",
+            "context alias [hartEval]: <hart> <k> HERE ~> Tail:K </k> ... </hart>",
+        ]
+    "#]].assert_debug_eq(&emitted_forms);
+}
+
+/// Rules for `Smp` over the harts and a library rule for each hart: `race`
+/// starts a second hart keyed `1`, and both harts `store` their own id as an
+/// open item `write(..)`, which the definition's `write` resolves into `mem`
+/// at address 0; `ticks` starts a second hart that runs `tick`, which the
+/// library restricts to the hart keyed `0` (`id: 0`).
+const SMP_RACE: &str = r#"
+#[k::constructors(sort = lib::Instr, result = k::KResult)]
+#[rustfmt::skip]
+pub enum Bus {
+    #[k::syntax("race")] Race(),
+    #[k::syntax("ticks")] Ticks(),
+    #[k::syntax("store")] Store(),
+    #[k::syntax("write ( {value} )")] Write { value: Int },
+}
+
+k::rules! {
+    for lib::Hart;
+    use Bus::*;
+
+    store: { id: me, k: [Store(), ..] } => { k: [Write { value: me }, ..] };
+}
+
+k::rules! {
+    for Smp;
+    use Bus::*;
+    use lib::Op::*;
+
+    race: {
+        hart: { me @ lib::Hart { k: [Race(), ..], .. }, .. },
+    } => {
+        hart: { lib::Hart { k: [Store(), ..], ..me }, lib::Hart { id: 1, k: [Store()], pc: 0 }, .. },
+    };
+    ticks: {
+        hart: { me @ lib::Hart { k: [Ticks(), ..], .. }, .. },
+    } => {
+        hart: { lib::Hart { k: [Tick(), ..], ..me }, lib::Hart { id: 1, k: [Tick()], pc: 0 }, .. },
+    };
+    write: {
+        hart: { me @ lib::Hart { k: [Write { value }, ..], .. }, .. },
+        mem,
+    } => {
+        hart: { lib::Hart { k: [..], ..me }, .. },
+        mem: map::update(mem, 0, value),
+    };
+}
+"#;
+
+/// Two harts that store at one address race: each hart's `store` is a local
+/// step of that hart, and the definition's `write` steps over the shared
+/// memory decide which store is last, so `krs search --mode final` reaches
+/// both orders, `0 |-> 0` (hart 1 wrote first) and `0 |-> 1`, each with both
+/// harts done. A rule restricted by `id: 0` is a step of hart 0 alone:
+/// `ticks` runs `tick` in both harts, hart 0 counts two and hart 1 is stuck at
+/// its `tick`, in the one final state.
+#[test]
+fn two_harts_race_on_a_store_and_a_rule_restricted_by_its_key_steps_one_hart() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = instance_definitions(
+        temporary.path(),
+        HART_RULES,
+        &[("smp", &smp("Map", SMP_RACE))],
+    )
+    .remove(0);
+    let flat = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let finals = ["race", "ticks"].map(|text| {
+        let program = manifest.with_file_name(format!("{text}.txt"));
+        fs::write(&program, text).unwrap();
+        let (success, stdout, stderr) = krs_on(
+            target.path(),
+            &manifest,
+            "smp",
+            "search",
+            &[program.to_str().unwrap(), "--mode", "final"],
+        );
+        assert!(success, "{text}:\n{stdout}\n{stderr}");
+        flat(&stdout)
+            .split("<generatedTop> ")
+            .skip(1)
+            .map(|state| {
+                let state = &state[..state.find(" </generatedTop>").unwrap()];
+                format!("{} mem: {}", harts(state).join(" | "), cell(state, "mem"))
+            })
+            .collect::<Vec<_>>()
+    });
+    expect_test::expect![[r#"
+        [
+            [
+                "<id> 0 </id> <k> .K </k> <pc> 0 </pc> | <id> 1 </id> <k> .K </k> <pc> 0 </pc> mem: 0 |-> 0",
+                "<id> 0 </id> <k> .K </k> <pc> 0 </pc> | <id> 1 </id> <k> .K </k> <pc> 0 </pc> mem: 0 |-> 1",
+            ],
+            [
+                "<id> 0 </id> <k> .K </k> <pc> 2 </pc> | <id> 1 </id> <k> tick ~> .K </k> <pc> 0 </pc> mem: .Map",
+            ],
+        ]
+    "#]].assert_debug_eq(&finals);
 }
 
 /// The whole key is a Map instance's identity, so no sentence about the

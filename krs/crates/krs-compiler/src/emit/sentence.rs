@@ -1,5 +1,3 @@
-use std::collections::BTreeSet;
-
 use krs_ir::{
     BuiltinSort, CellAttribute, CellContentFrame, CellPost, ClaimModality, ConfigurationClause,
     ConfigurationRoot, FixedCell, FixedCellContent, FixedCellPattern, FixedConfiguration,
@@ -909,50 +907,62 @@ fn emit_rule(
     }
 }
 
-/// Emits the cell clauses of a configuration rule or context, grouping the
-/// cells of a repeated ancestor inside it.
+/// Emits the cell clauses of a configuration rule or context. Where its cells lie in an instance,
+/// below a `?` or `*` cell ([`sentence_instance`](krs_ir_levels::k_surface::DefinitionIndex::sentence_instance)), every clause is written inside
+/// that cell, `<hart> .. ... </hart>`: the sentence is about one instance, so all of its clauses
+/// match in that one instance, and cell completion supplies the cells above it and frames the
+/// other instances.
 fn emit_configuration_clauses(
     body: &krs_ir::FixedConfigurationRewrite<SymbolId, DefinitionTerm>,
     names: &SentenceVariables,
     context: &EmitContext<'_>,
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
-    let mut emitted_repeated = BTreeSet::new();
+    let instance =
+        context.sentence_instance(body.clauses().iter().map(ConfigurationClause::cell))?;
+    let indent = open_instance(instance, context, writer)?;
     for (index, clause) in body.clauses().iter().enumerate() {
-        if let ConfigurationClause::Instances(instances) = clause {
-            writer.push("\n");
-            emit_instances_clause(instances, index, names, context, 4, writer)?;
-            continue;
-        }
-        let Some(ancestor) = context.repeated_ancestor(clause.cell()) else {
-            writer.push("\n");
-            emit_clause_item(clause, names, context, 4, writer)?;
-            continue;
-        };
-        if !emitted_repeated.insert(ancestor.clone()) {
-            continue;
-        }
-        writer.push("\n    <");
-        writer.push(context.cell_name(ancestor)?);
-        writer.push(">");
-        for nested in body
-            .clauses()
-            .iter()
-            .filter(|candidate| context.repeated_ancestor(candidate.cell()) == Some(ancestor))
-        {
-            writer.push("\n");
-            emit_clause_item(nested, names, context, 8, writer)?;
-        }
+        writer.push("\n");
+        emit_clause(clause, index, names, context, indent, writer)?;
+    }
+    close_instance(instance, context, writer)
+}
+
+/// Opens the cell of the instance a sentence's clauses lie in, if any, and returns the
+/// indentation of its clauses.
+fn open_instance(
+    instance: Option<&SymbolId>,
+    context: &EmitContext<'_>,
+    writer: &mut Writer,
+) -> Result<usize, EmitError> {
+    let Some(instance) = instance else {
+        return Ok(4);
+    };
+    writer.push("\n    <");
+    writer.push(context.cell_name(instance)?);
+    writer.push(">");
+    Ok(8)
+}
+
+/// Closes the cell [`open_instance`] opened, open on the right for the instance's other cells.
+fn close_instance(
+    instance: Option<&SymbolId>,
+    context: &EmitContext<'_>,
+    writer: &mut Writer,
+) -> Result<(), EmitError> {
+    if let Some(instance) = instance {
         writer.push("\n        ...\n    </");
-        writer.push(context.cell_name(ancestor)?);
+        writer.push(context.cell_name(instance)?);
         writer.push(">");
     }
     Ok(())
 }
 
-/// Emits one exactly-once or optional clause.
-fn emit_clause_item(
+/// Emits one clause of a configuration rule or context at `indent`; `index` is its position in
+/// the rule, which names a collection clause's generated rest variable.
+fn emit_clause(
     clause: &ConfigurationClause<SymbolId, DefinitionTerm>,
+    index: usize,
     names: &SentenceVariables,
     context: &EmitContext<'_>,
     indent: usize,
@@ -965,9 +975,9 @@ fn emit_clause_item(
         ConfigurationClause::Optional(clause) => {
             emit_optional_clause(clause, names, context, indent, writer)
         }
-        ConfigurationClause::Instances(_) => Err(EmitError::InvalidReference(
-            "a collection clause is emitted on its own".into(),
-        )),
+        ConfigurationClause::Instances(clause) => {
+            emit_instances_clause(clause, index, names, context, indent, writer)
+        }
     }
 }
 
@@ -1817,10 +1827,16 @@ fn emit_context_alias(
     )?;
     writer.push("]:");
     let names = context.naming.context_alias(sentence);
-    for cell in sentence.body().cells() {
+    // The alias is instantiated into heating and cooling rules, so its cells in an instance are
+    // written inside the instance's cell, as a rule's are ([`emit_configuration_clauses`]).
+    let cells = sentence.body().cells();
+    let instance = context.sentence_instance(cells.iter().map(FixedCellPattern::cell))?;
+    let indent = open_instance(instance, context, writer)?;
+    for cell in cells {
         writer.push("\n");
-        emit_context_alias_cell(cell, sentence, &names, context, writer)?;
+        emit_context_alias_cell(cell, sentence, &names, context, indent, writer)?;
     }
+    close_instance(instance, context, writer)?;
     // `result = S`, K's `result(S)` (KF-021).
     if let Some(result) = sentence.result() {
         writer.push("\n    [result(");
@@ -1837,11 +1853,13 @@ fn emit_context_alias_cell(
     sentence: &ContextAliasSentence,
     names: &SentenceVariables,
     context: &EmitContext<'_>,
+    indent: usize,
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
     let start = writer.source.len();
     let name = context.cell_name(cell.cell())?;
-    writer.push("    <");
+    writer.push(&" ".repeat(indent));
+    writer.push("<");
     writer.push(name);
     writer.push("> ");
     writer.append_rendered(render_context_term(

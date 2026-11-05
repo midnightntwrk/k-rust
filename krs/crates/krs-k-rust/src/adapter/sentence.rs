@@ -1062,27 +1062,23 @@ impl Adapter<'_> {
         sentence_index: usize,
         sentence: &RuleSentence,
     ) -> Result<NativeTerm, AdapterError> {
-        let mut cells = Vec::new();
+        let mut clauses = Vec::new();
         for (index, clause) in rewrite.clauses().iter().enumerate() {
             let index = u32::try_from(index).unwrap_or(u32::MAX);
-            match clause {
+            let adapted = match clause {
                 ConfigurationClause::Fixed(clause) => {
-                    cells.push(self.fixed_clause(
-                        clause,
-                        module,
-                        sentence_index,
-                        index,
-                        vec![index],
-                    )?);
+                    vec![self.fixed_clause(clause, module, sentence_index, index, vec![index])?]
                 }
                 ConfigurationClause::Optional(clause) => {
-                    cells.push(self.optional_clause(clause, module, sentence_index, index)?);
+                    vec![self.optional_clause(clause, module, sentence_index, index)?]
                 }
                 ConfigurationClause::Instances(clause) => {
-                    cells.extend(self.instances_clause(clause, module, sentence_index, index)?);
+                    self.instances_clause(clause, module, sentence_index, index)?
                 }
-            }
+            };
+            clauses.push((clause.cell(), clause.origin(), adapted));
         }
+        let mut cells = self.in_instances(clauses)?;
         if sentence.claim().is_some() {
             cells.push(native_claim_counter(sentence_index));
         }
@@ -1447,6 +1443,46 @@ impl Adapter<'_> {
         }
     }
 
+    /// The cells of a sentence's clauses, each clause given by its cell, its origin and its
+    /// adapted cells. Where the clauses' cells lie in an instance, below a `?` or `*` cell
+    /// ([`DefinitionIndex::sentence_instance`](krs_ir_levels::k_surface::DefinitionIndex::sentence_instance)),
+    /// they are placed inside that cell, open on the right: the sentence is about one instance,
+    /// so all of its clauses match in that one instance, and cell completion supplies the cells
+    /// above it and frames the other instances.
+    fn in_instances(
+        &self,
+        clauses: Vec<(&SymbolId, &NodeOrigin, Vec<NativeTerm>)>,
+    ) -> Result<Vec<NativeTerm>, AdapterError> {
+        let Some(&(_, origin, _)) = clauses.first() else {
+            return Ok(Vec::new());
+        };
+        let instance = self
+            .index
+            .sentence_instance(clauses.iter().map(|(cell, _, _)| *cell))
+            .map_err(|error| AdapterError::MissingReference {
+                key: clauses
+                    .iter()
+                    .find(|(cell, _, _)| **cell == error.other)
+                    .map_or(origin, |(_, other, _)| *other)
+                    .key()
+                    .clone(),
+                kind: "instance cell holding every clause of a sentence about one instance",
+                target: error.to_string(),
+            })?;
+        let cells = clauses
+            .into_iter()
+            .flat_map(|(_, _, adapted)| adapted)
+            .collect::<Vec<_>>();
+        match instance {
+            Some(instance) => Ok(vec![incomplete_cell(
+                self.cell_name(instance, origin)?,
+                native_cells(cells),
+                true,
+            )]),
+            None => Ok(cells),
+        }
+    }
+
     fn configuration_pattern(
         &mut self,
         pattern: &FixedConfigurationPattern<SymbolId, DefinitionTerm>,
@@ -1476,10 +1512,12 @@ impl Adapter<'_> {
                 }
                 let cell_content =
                     self.term(cell.pattern(), module, sentence_index, vec![index], context)?;
-                self.framed_cell(cell.cell(), cell_content, cell.frame(), cell.origin())
+                let adapted =
+                    self.framed_cell(cell.cell(), cell_content, cell.frame(), cell.origin())?;
+                Ok((cell.cell(), cell.origin(), vec![adapted]))
             })
             .collect::<Result<Vec<_>, AdapterError>>()?;
-        Ok(native_cells(cells))
+        Ok(native_cells(self.in_instances(cells)?))
     }
 
     /// The `#cells` an equation's function context reads (KF-025); its term
