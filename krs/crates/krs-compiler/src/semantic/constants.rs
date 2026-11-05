@@ -502,6 +502,7 @@ fn check_constant(
         in_key: false,
         instance_guards: None,
         head_pending: false,
+        head_place: super::infer::HeadPlace::Sentence,
         declared_binders: BTreeMap::new(),
         configuration_variables: BTreeMap::new(),
         subject_keys: BTreeMap::new(),

@@ -191,8 +191,8 @@ fn a_key_reads_by_its_construct_and_is_built_below_a_computed_one() {
         Admission::Refuse(Class::LetOutsideTerm)
     );
     // A key a `cells!` subject computes denotes what the same key of a readable rule does, so it
-    // holds a `let` as that key does; a `cells!` result's key is a cell's content, which holds
-    // none (S0-17's boundary).
+    // holds a `let` as that key does; a `cells!` result's key is built, as any result term is,
+    // so it computes (S0-17).
     let cells_key = Position {
         form: Form::CellsRule,
         ..key
@@ -209,7 +209,7 @@ fn a_key_reads_by_its_construct_and_is_built_below_a_computed_one() {
             },
             Construct::Let
         ),
-        Admission::Refuse(Class::LetOutsideTerm)
+        Admission::Admit
     );
     assert_eq!(
         admits(cells_key, Construct::SortTest),
@@ -654,8 +654,9 @@ fn claims_hold_the_symbolic_islands() {
         assert_eq!(admits(result, Construct::SortTest), Admission::Admit);
     }
     // A readable claim's states and conditions hold `let` and `k::matches!` as a rule's do: KRS
-    // lifts them into functions the claim's spec module declares (NT-15); a `cells!` claim's cell
-    // values are `cells!` values.
+    // lifts them into functions the claim's spec module declares (NT-15); a `cells!` claim's
+    // result values are built, as a readable claim's are, and its start state's are `cells!`
+    // subject values (S0-17).
     for slot in [Slot::Subject, Slot::Result, Slot::Requires, Slot::Ensures] {
         let position = Position::root(Form::ReadableClaim, slot);
         assert_eq!(
@@ -672,8 +673,11 @@ fn claims_hold_the_symbolic_islands() {
     let requires = Position::root(Form::CellsClaim, Slot::Requires);
     assert_eq!(admits(requires, Construct::Let), Admission::Admit);
     let result = Position::root(Form::CellsClaim, Slot::Result);
+    assert_eq!(admits(result, Construct::Let), Admission::Admit);
+    assert_eq!(admits(result, Construct::Matches), Admission::Admit);
+    let subject = Position::root(Form::CellsClaim, Slot::Subject);
     assert_eq!(
-        admits(result, Construct::Let),
+        admits(subject, Construct::Let),
         Admission::Refuse(Class::LetOutsideTerm)
     );
     let rule = Position::root(Form::RuleFn, Slot::Result);
@@ -748,7 +752,7 @@ fn an_initializer_builds_concrete_values() {
 }
 
 #[test]
-fn a_cells_value_names_every_field_and_holds_no_let_or_test() {
+fn a_cells_value_names_every_field_and_computes_only_where_built() {
     for form in [Form::CellsRule, Form::CellsLocalRule, Form::CellsClaim] {
         for slot in [Slot::Subject, Slot::Result] {
             let position = Position::root(form, slot);
@@ -758,15 +762,23 @@ fn a_cells_value_names_every_field_and_holds_no_let_or_test() {
                     Admission::Refuse(Class::RecordRemainderInCellsTerm)
                 );
             }
-            assert_eq!(
-                admits(position, Construct::Let),
-                Admission::Refuse(Class::LetOutsideTerm)
-            );
-            assert_eq!(
-                admits(position, Construct::Matches),
-                Admission::Refuse(Class::MatchesOutsideCondition)
-            );
         }
+    }
+    // A result value is built, so a `let` or a test computes it, as in a readable result; a
+    // subject value holds neither outside a key the subject computes (S0-17).
+    for form in [Form::CellsRule, Form::CellsLocalRule, Form::CellsClaim] {
+        let result = Position::root(form, Slot::Result);
+        assert_eq!(admits(result, Construct::Let), Admission::Admit);
+        assert_eq!(admits(result, Construct::Matches), Admission::Admit);
+        let subject = Position::root(form, Slot::Subject);
+        assert_eq!(
+            admits(subject, Construct::Let),
+            Admission::Refuse(Class::LetOutsideTerm)
+        );
+        assert_eq!(
+            admits(subject, Construct::Matches),
+            Admission::Refuse(Class::MatchesOutsideCondition)
+        );
     }
     // A pattern's group record leaves the group's other children unconstrained; a result
     // builds the group, which has no value for them (S5-F2).

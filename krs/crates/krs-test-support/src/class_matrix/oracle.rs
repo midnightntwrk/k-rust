@@ -727,8 +727,9 @@ const fn alternatives(position: Position) -> Option<Refusal> {
 /// over evaluated terms looks up is computed from names bound elsewhere, so it holds either, as it
 /// holds a function's application (a selection is told by [`in_selection`]); a pattern that meets
 /// unevaluated terms (a simplification's, a static clause's) would match a key that is the
-/// generated function's application, which no term holds. A `cells!` cell value's boundary is
-/// S0-17's (S6), except a key a `cells!` subject computes, which denotes what the same key of a
+/// generated function's application, which no term holds. A `cells!` result's cell value is
+/// built, as a readable result's is (S0-17); a `cells!` subject's holds neither, a claim's start
+/// state included, except a key the subject computes, which denotes what the same key of a
 /// readable rule does.
 const fn local_term(construct: Construct, position: Position) -> Option<Refusal> {
     let class = if matches!(construct, Construct::Matches) {
@@ -749,6 +750,7 @@ const fn local_term(construct: Construct, position: Position) -> Option<Refusal>
         Some(resolution(class))
     } else if (matches!(position.kind, Kind::Matched) && !claim_state)
         || (in_cells_value(position)
+            && matches!(position.slot, Slot::Subject)
             && !(in_pattern_key && (claim_state || position.form.matches_evaluated_terms())))
         || (in_pattern_key && !claim_state && !position.form.matches_evaluated_terms())
     {

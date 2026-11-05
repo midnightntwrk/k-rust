@@ -793,10 +793,10 @@ impl Class {
                 "`k::fragment!` names a nested cell term, and an initializer builds its nested cells with their structs"
             }
             Self::LetOutsideTerm => {
-                "a `let` block (K's #let) computes a term, the application `#fun(P => B)(E)` of a function generated for that block, and no term a pattern meets is an application of it, so a pattern holding one never matches: it stands where a term is built or a condition computed, and in a key or a set's element that a pattern over evaluated terms computes from names it binds elsewhere and looks up, never where a key selects an entry by matching; a `cells!` cell value holds none for now, in a result as in a pattern, outside a key its subject computes: write the block in a rule's or an equation's result or condition, a fn body, or an initializer"
+                "a `let` block (K's #let) computes a term, the application `#fun(P => B)(E)` of a function generated for that block, and no term a pattern meets is an application of it, so a pattern holding one never matches: it stands where a term is built or a condition computed, and in a key or a set's element that a pattern over evaluated terms computes from names it binds elsewhere and looks up, never where a key selects an entry by matching; a `cells!` subject's cell value holds none, outside a key the subject computes: write the block in a rule's or an equation's result or condition, a fn body, or an initializer"
             }
             Self::MatchesOutsideCondition => {
-                "`k::matches!` (K's :=K) computes a Bool by matching a term, the application of a function generated for that test, and no term a pattern meets is an application of it, so a pattern holding one never matches: it stands where a term is built or a condition computed, and in a key or a set's element that a pattern over evaluated terms computes from names it binds elsewhere and looks up, never where a key selects an entry by matching; a `cells!` cell value holds none for now, in a result as in a pattern, outside a key its subject computes: write the test in a rule's or an equation's result or condition, a fn body, or an initializer"
+                "`k::matches!` (K's :=K) computes a Bool by matching a term, the application of a function generated for that test, and no term a pattern meets is an application of it, so a pattern holding one never matches: it stands where a term is built or a condition computed, and in a key or a set's element that a pattern over evaluated terms computes from names it binds elsewhere and looks up, never where a key selects an entry by matching; a `cells!` subject's cell value holds none, outside a key the subject computes: write the test in a rule's or an equation's result or condition, a fn body, or an initializer"
             }
             Self::MlInInitializer => {
                 "a matching-logic predicate states a property of a symbolic state, and an initializer builds one concrete state"
@@ -1012,10 +1012,11 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
         // one. A claim's states hold applications, which denote their values, so its start state
         // holds either, as its end state and conditions do; KRS lifts a claim's into functions the
         // definition declares, since the provers lower them only in a definition's sentences
-        // (NT-15). A `cells!` value is a cell's content (S6 decides whether that changes for
-        // readable rules written as `cells!` rules), except a key a `cells!` subject computes,
-        // which denotes what the same key of a readable rule does. A key a pattern over evaluated terms looks up
-        // is computed from names the pattern binds elsewhere and looked up, so it holds either,
+        // (NT-15). A `cells!` result's cell value is built, as a readable result's is, so it
+        // computes; a `cells!` subject's holds neither, a claim's start state and a Set
+        // collection's instance included, outside a key the subject computes, which denotes what
+        // the same key of a readable rule does. A key a pattern over evaluated terms looks up is
+        // computed from names the pattern binds elsewhere and looked up, so it holds either,
         // as it holds a function's application: the value is a function of those names, which
         // KRS lifts into a function of its own and applies there, so no binder of the construct
         // stands in the sentence's left side. Below `@` or `|` a key selects an entry by matching
@@ -1040,7 +1041,9 @@ pub const fn admits(position: Position, construct: Construct) -> Admission {
                 Rule::LetOutsideTerm
             };
             if position.in_local_pattern()
-                || (cells_value(position) && !key_computed)
+                || (cells_value(position)
+                    && matches!(position.slot, Slot::Subject)
+                    && !key_computed)
                 || (in_pattern_key && !key_computed)
                 || (pattern
                     && !form.is_claim()

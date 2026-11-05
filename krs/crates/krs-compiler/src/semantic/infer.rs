@@ -19,6 +19,16 @@ use super::error::DescriptorLoweringError;
 use super::origin::{semantic_cell_id, semantic_origin};
 use super::record_updates::Fill;
 
+/// Where a sentence's head stands, which tells what fixes a parametric head's instance (KF-027).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum HeadPlace {
+    /// The root of an equation's or a rule fn's subject: only its turbofish fixes the instance.
+    Sentence,
+    /// An item of a computation sequence, a `KItem`, which fixes an instance at `KItem` as the
+    /// turbofish does.
+    SequenceItem,
+}
+
 pub(super) struct StructuredTermBuilder<'a> {
     pub(super) descriptor: &'a Descriptor,
     pub(super) catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
@@ -67,6 +77,8 @@ pub(super) struct StructuredTermBuilder<'a> {
     /// Whether the next term lowered is the head of an equation or rule,
     /// whose parametric instance its turbofish fixes (KF-027).
     pub(super) head_pending: bool,
+    /// Where that head stands (NT-30-2).
+    pub(super) head_place: HeadPlace,
     /// The builtin domain chosen for each operator (`a + b`).
     pub(super) operators: super::operators::OperatorInference,
     /// The sentence's record updates `Ctor { f: e, ..t }` (F5).
@@ -3811,6 +3823,8 @@ impl StructuredTermBuilder<'_> {
             lowered.push(self.lower_record_field(argument, field, sort.as_ref(), record)?);
         }
         let mut solved_instance = Vec::with_capacity(signature.parameters.len());
+        // Whether every parameter is fixed at `KItem` and read only at arguments of that sort.
+        let mut at_k_item = true;
         for (index, parameter) in signature.parameters.iter().enumerate() {
             let parameter_sort = SemanticSortRef::Parameter(parameter.clone());
             let positions = signature
@@ -3852,6 +3866,8 @@ impl StructuredTermBuilder<'_> {
                 continue;
             };
             let fixed = turbofish[index].clone();
+            at_k_item &= fixed == self.k_item_sort
+                && positions.iter().all(|(sort, _)| *sort == self.k_item_sort);
             if head {
                 if bound.is_some_and(|bound| *bound != fixed) {
                     return Err(self.parametric_instance_error(
@@ -3927,13 +3943,20 @@ impl StructuredTermBuilder<'_> {
                 "application result sort {result_sort} is not admissible at sort {expected}"
             )));
         }
+        // A head's instance is fixed by K's strict cast of each variable at a parametric
+        // position, since a semantic cast leaves K free to solve the parameter above the
+        // variable's sort. An item of a computation sequence fixed at `KItem`, whose parametric
+        // arguments are all of sort `KItem`, has no such freedom: an item is a `KItem`, so the
+        // instance is `KItem` from below and above, and `X:KItem` denotes what `X::KItem` does
+        // (every `KItem`), as the same item of a `cells!` rule writes it (NT-30-2).
+        let instance_fixed = head && !(self.head_place == HeadPlace::SequenceItem && at_k_item);
         Ok(SemanticTerm::parametric_application(
             semantic_origin(self.descriptor, reference.key.clone(), "term-application")?,
             result_sort,
             ApplicationRef::Declared(id.clone()),
             lowered,
             solved_instance,
-            head,
+            instance_fixed,
         ))
     }
 

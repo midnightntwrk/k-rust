@@ -1335,6 +1335,7 @@ fn lower_initializer_term(
         in_key: false,
         instance_guards: None,
         head_pending: false,
+        head_place: super::infer::HeadPlace::Sentence,
         operators: super::operators::OperatorInference::default(),
         declared_binders: BTreeMap::new(),
         configuration_variables: binding_sorts.clone(),

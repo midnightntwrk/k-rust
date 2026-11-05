@@ -544,6 +544,7 @@ pub(super) fn lower_head_rule_descriptor(
         // The guards of the Set collection instances the pattern looks up.
         instance_guards: Some(super::set_instances::InstanceGuards::after(0)),
         head_pending: false,
+        head_place: super::infer::HeadPlace::Sentence,
         operators: super::operators::OperatorInference::default(),
         declared_binders,
         configuration_variables: BTreeMap::new(),
@@ -1336,10 +1337,12 @@ fn lower_head_rule_computation_clause(
     for (index, item) in head.items.iter().enumerate() {
         // Only the first item is the sentence's head (KF-027).
         builder.head_pending = index == 0;
+        builder.head_place = super::infer::HeadPlace::SequenceItem;
         let k_item = builder.k_item_sort.clone();
         subject_items.push(builder.lower(item, head_item_sort(item, head_sort, &k_item), true)?);
     }
     builder.head_pending = false;
+    builder.head_place = super::infer::HeadPlace::Sentence;
     // The matched items have no key of their own (the head's is the first item's), so a
     // sequence whose items share no sort is located at the rule.
     let subject_item_sort = match subject_items.as_slice() {
@@ -2211,6 +2214,7 @@ pub(super) fn lower_structured_rule_descriptor(
         instance_guards: super::function_patterns::matches_evaluated_sentence(descriptor.payload())
             .then(|| super::set_instances::InstanceGuards::after(0)),
         head_pending: false,
+        head_place: super::infer::HeadPlace::Sentence,
         operators: super::operators::OperatorInference::default(),
         declared_binders,
         configuration_variables: BTreeMap::new(),

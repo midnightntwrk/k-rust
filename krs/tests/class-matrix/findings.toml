@@ -52,11 +52,6 @@ owner = "kept: rustc parses the const item before any KRS attribute runs; the au
 kind = "diagnostic"
 what = "a constant's whole value that rustc cannot parse gets no KRS answer, and rustc then expands nothing in the crate, so every other KRS diagnostic of it waits on that error"
 
-["NT-30-2"]
-owner = "S6"
-kind = "bug"
-what = "a readable or claim item root `Wrap::<KItem>(x)` fixes the head's instance with a strict cast (`X::KItem`), while the printed `cells!` rule writes `X:KItem`: the same set for a variable, two spellings; which one the routes share is S6's question"
-
 ["S0-14"]
 owner = "S5"
 kind = "bug"
@@ -76,7 +71,7 @@ what = "an author mistake reported unlocated, at the wrong entry, or under an in
 ["S0-17"]
 owner = "S6"
 kind = "bug"
-what = "a readable or `for Stmt` result, or a readable subject's Set collection instance cell, accepts `k::matches!` and `let` blocks that the `cells!` rule `krs expand` prints refuses (a subject's computed key no longer differs: NT-31)"
+what = "a readable claim's start state, or a readable subject's Set collection instance cell, accepts `k::matches!` and `let` blocks that the `cells!` subject `krs expand` prints refuses (results no longer differ: S6-1a; a subject's computed key: NT-31)"
 
 ["S0-9"]
 owner = "S5"
