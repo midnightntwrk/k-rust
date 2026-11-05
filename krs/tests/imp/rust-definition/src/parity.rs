@@ -1857,10 +1857,7 @@ fn readable_expansion_is_complete_deterministic_reference_rust() {
         "splice result was not expanded"
     );
     let done = &rules["done"];
-    assert!(
-        done.contains("KCell (..)"),
-        "erase result was not expanded"
-    );
+    assert!(done.contains("KCell (..)"), "erase result was not expanded");
 
     let var = &rules["var"];
     assert!(var.contains("Cell (map ! [name -> value , ..])"));

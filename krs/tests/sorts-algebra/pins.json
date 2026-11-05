@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "expand": {
-    "krs-sorts-algebra-functions": "d27f8f4086bdc94f316459c3a86b41adba62c4a022e3b136e6be0ed3524722a3",
-    "krs-sorts-algebra-constructors": "1af386b0c6e766455f634e8f6521ad3efaceb1e426b9645c42fbef67d945024d"
+    "krs-sorts-algebra-functions": "9c17d224bc868fd77f4f32abc4f6fb60b71c16eb8513c6285a03f3b6db0a0da7",
+    "krs-sorts-algebra-constructors": "69d99db742f72223da25cabe8fcfdc87e429197a8f0033d0131ea9539c598842"
   },
   "emitted": {
     "krs-sorts-algebra-functions": {

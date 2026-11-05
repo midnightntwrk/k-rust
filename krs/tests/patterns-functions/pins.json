@@ -1,13 +1,13 @@
 {
   "schema": 1,
   "expand": {
-    "krs-patterns-functions-aliases": "0d0e304a40e0387e3db4a4b9e5e9fefdad67209a28c5a76c17293921f5ef589b",
-    "krs-patterns-functions-alternatives": "e653316779f3d8ff0b9a21c5d8e829269eb83baaf67f16846d317cbe4fdc58d7",
-    "krs-patterns-functions-matches": "4825b9f25c8396e70b9aeefe48944af6c0435206ba031e646be9207401515494",
-    "krs-patterns-functions-lets": "b2b5e427d943341fdd36bdec70374491ca40966802fb50d7ac61028ade1901b6",
-    "krs-patterns-functions-contexts": "59b7b10614675509d38fdc2d0b619dbe4f3b1172cf528a9b44f5202ab0aba10b",
-    "krs-patterns-functions-sugar": "464535f3657b94046a40e7b1eff94142115be2a672f430f351cfdf5167579bf6",
-    "krs-patterns-functions-bits": "b71a04e4535921d31316711d950b8096f70f3395e2730d0ae57558619de35366"
+    "krs-patterns-functions-aliases": "16e39f72400d7d64261071f568ae4e24dffd3c15ebcb5c29c9d4354c7a3ca957",
+    "krs-patterns-functions-alternatives": "18b78f96ef7455b8229017d71d2fa6fb2ab45fbc532e2cf3533456211a5a6216",
+    "krs-patterns-functions-matches": "8a5e76f593503b6d83e38fdbc0cb7e1765afd1b77050059f8ba96bd0cc1478bb",
+    "krs-patterns-functions-lets": "42a5da26e0b2bacc9f8bc8a4848aa5a97ce75439178942cf8e46ab8cc77502b1",
+    "krs-patterns-functions-contexts": "ce535472354a1f94cd3896c75954b224e8da54ae28694435cb456c705ab61981",
+    "krs-patterns-functions-sugar": "8632c5400c916cc05bf63fc46af4dab197e5c3f2171fefe9e18c803534cf494e",
+    "krs-patterns-functions-bits": "15cb2995eff0ed9812533b3518b2d1eaddce891596b59d4f6e31b5a67f7d26eb"
   },
   "emitted": {
     "krs-patterns-functions-aliases": {
