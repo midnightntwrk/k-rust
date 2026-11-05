@@ -1438,6 +1438,12 @@ impl RuleWalk {
     const fn in_set_element(&self) -> bool {
         self.set_elements > 0 && !self.in_matches_pattern && !self.in_let_pattern
     }
+
+    /// Whether the term stands in the subject's pattern: on the left side, outside the right
+    /// side of a `k::rewrite!`, which is a term the rule builds, and outside a set's element.
+    const fn in_subject_pattern(&self, side: ValidationSide) -> bool {
+        matches!(side, ValidationSide::Left) && !self.in_rewrite_right && !self.in_set_element()
+    }
 }
 
 fn builtin_token_role(
@@ -2670,7 +2676,7 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
     }
 
     fn matches(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
-        if (matches!(self.side, ValidationSide::Left) && !self.walk.in_set_element())
+        if self.walk.in_subject_pattern(self.side)
             || self.walk.in_matches_pattern
             || self.walk.in_let_pattern
         {
@@ -2691,7 +2697,7 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
         key: &ProvenanceKey,
         sort: Option<&S::Sort>,
     ) -> Result<(), Self::Error> {
-        if (matches!(self.side, ValidationSide::Left) && !self.walk.in_set_element())
+        if self.walk.in_subject_pattern(self.side)
             || self.walk.in_matches_pattern
             || self.walk.in_let_pattern
         {

@@ -3811,19 +3811,19 @@ impl StructuredTermBuilder<'_> {
             .map_err(|detail| self.invalid_term(detail))?;
         let mut lowered = Vec::with_capacity(sorts.len());
         let mut variables = Vec::with_capacity(sorts.len());
+        let mut wildcards = Vec::with_capacity(sorts.len());
         for ((argument, sort), (field, _)) in ordered.into_iter().zip(&sorts).zip(&signature.fields)
         {
             // A record rest (`..`) is a wildcard, so it counts as a variable.
-            variables.push(argument.is_none_or(|argument| {
-                matches!(
-                    argument,
-                    DescriptorTerm::Variable { .. } | DescriptorTerm::Wildcard { .. }
-                )
-            }));
+            let wildcard =
+                argument.is_none_or(|argument| matches!(argument, DescriptorTerm::Wildcard { .. }));
+            variables.push(wildcard || matches!(argument, Some(DescriptorTerm::Variable { .. })));
+            wildcards.push(wildcard);
             lowered.push(self.lower_record_field(argument, field, sort.as_ref(), record)?);
         }
         let mut solved_instance = Vec::with_capacity(signature.parameters.len());
-        // Whether every parameter is fixed at `KItem` and read only at arguments of that sort.
+        // Whether every parameter is the result sort, fixed at `KItem`, and read only at named
+        // variables of that sort.
         let mut at_k_item = true;
         for (index, parameter) in signature.parameters.iter().enumerate() {
             let parameter_sort = SemanticSortRef::Parameter(parameter.clone());
@@ -3866,8 +3866,14 @@ impl StructuredTermBuilder<'_> {
                 continue;
             };
             let fixed = turbofish[index].clone();
-            at_k_item &= fixed == self.k_item_sort
-                && positions.iter().all(|(sort, _)| *sort == self.k_item_sort);
+            at_k_item &= signature.result_sort == parameter_sort
+                && fixed == self.k_item_sort
+                && positions.iter().all(|(sort, _)| *sort == self.k_item_sort)
+                && signature
+                    .fields
+                    .iter()
+                    .zip(&wildcards)
+                    .all(|((_, sort), wildcard)| *sort != parameter_sort || !*wildcard);
             if head {
                 if bound.is_some_and(|bound| *bound != fixed) {
                     return Err(self.parametric_instance_error(
@@ -3945,10 +3951,14 @@ impl StructuredTermBuilder<'_> {
         }
         // A head's instance is fixed by K's strict cast of each variable at a parametric
         // position, since a semantic cast leaves K free to solve the parameter above the
-        // variable's sort. An item of a computation sequence fixed at `KItem`, whose parametric
-        // arguments are all of sort `KItem`, has no such freedom: an item is a `KItem`, so the
-        // instance is `KItem` from below and above, and `X:KItem` denotes what `X::KItem` does
-        // (every `KItem`), as the same item of a `cells!` rule writes it (NT-30-2).
+        // variable's sort. An item of a computation sequence whose result sort is its parameter
+        // (`S ::= wrap(S)`), fixed at `KItem`, and whose parametric arguments are all named
+        // variables of sort `KItem`, has no such freedom: an item is a `KItem`, so the instance
+        // is `KItem` from above, and each variable's sort `KItem` bounds it from below; `X:KItem`
+        // then denotes what `X::KItem` does (every `KItem`), as the same item of a `cells!` rule
+        // writes it (NT-30-2). A production whose result sort is fixed (`Stmt ::= box(S)`) gets
+        // no bound from the item, and a wildcard has no sort of its own to bound the instance,
+        // so both keep the strict cast.
         let instance_fixed = head && !(self.head_place == HeadPlace::SequenceItem && at_k_item);
         Ok(SemanticTerm::parametric_application(
             semantic_origin(self.descriptor, reference.key.clone(), "term-application")?,

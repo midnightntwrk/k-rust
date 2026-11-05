@@ -445,6 +445,56 @@ fn unhold_twice(k::term![FrameSyntax::Hold(FrameSyntax::Hold(s))]: Term<Frame>) 
     ));
 }
 
+/// A head's parametric instance is fixed by K's strict cast of each variable at a parametric
+/// position. A computation item at a readable rule's head whose production's result sort is its
+/// parameter (`S ::= wrap(S)`), fixed at `KItem`, is a `KItem` from above, and a named variable
+/// of sort `KItem` bounds it from below, so `X:KItem` denotes what `X::KItem` does (NT-30-2). A
+/// production whose result sort is fixed (`Stmt ::= boxed(S)`) gets no bound from the item, and
+/// a wildcard has no sort of its own to bound the instance: both keep the strict cast.
+#[test]
+fn a_k_item_head_item_keeps_the_strict_cast_unless_the_item_bounds_its_instance() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(
+        temporary.path(),
+        "head-items",
+        &format!(
+            "{}{}",
+            r#"
+#[k::constructor(sort = S, syntax = "wrap ( {inner} )")]
+pub struct Wrap<S: ?Sized> {
+    pub inner: Term<S>,
+}
+
+#[k::constructor(sort = S, syntax = "twin ( {a} , {b} )")]
+pub struct Twin<S: ?Sized> {
+    pub a: Term<S>,
+    pub b: Term<S>,
+}
+
+#[k::constructor(sort = Stmt, syntax = "boxed ( {inner} )")]
+pub struct Boxed<S: ?Sized> {
+    pub inner: Term<S>,
+}
+"#,
+            rules(
+                "wrap_named: { k: [Wrap::<KItem>(x), ..] } => { k: [Hold(x), ..] };\n    twin_wild: { k: [Twin::<KItem>(x, _), ..] } => { k: [Hold(x), ..] };\n    boxed_named: { k: [Boxed::<KItem>(x), ..] } => { k: [Hold(x), ..] };"
+            ),
+        ),
+    );
+    let definition = emitted(target.path(), &manifest);
+    expect_test::expect![[r#"
+        [
+            "<k> wrap ( X:KItem ) => hold ( X:KItem ) ... </k>",
+            "<k> twin ( X::KItem , _::KItem ) => hold ( X:KItem ) ... </k>",
+            "<k> boxed ( X::KItem ) => hold ( X:KItem ) ... </k>",
+        ]
+    "#]]
+    .assert_debug_eq(
+        &["wrap-named", "twin-wild", "boxed-named"].map(|label| rule(&definition, label)),
+    );
+}
+
 /// A binder that is narrowed to `Stmt` rather than `Value` runs on every
 /// statement: `holdit` saves the second statement of a `seq` and `unhold`
 /// restores it, so `seq(skip, skip)` runs to an empty computation.

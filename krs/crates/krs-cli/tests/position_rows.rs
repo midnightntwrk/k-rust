@@ -371,15 +371,20 @@ fn a_rewrite_in_a_map_key_is_refused_at_the_rewrite() {
 }
 
 /// Single-body rules whose rewrites build their right sides with a `let` and a `k::matches!` test:
-/// each names its own binders, which the right side reads within their scope.
+/// each names its own binders, which the right side reads within their scope. The `cells!` rules
+/// write the same rewrites in a cell's value, whose right side is built as a term rule's is.
 const RIGHT_SIDE_SCOPES: &str = r#"
 #[k::constructors(sort = Exp, result = KResult)]
-#[k::precedence((Step, Test, No, Yes))]
+#[k::precedence((Step, Test, Hold, Check, No, Yes))]
 pub enum StepSyntax {
     #[k::syntax("step({e}, {flag})")]
     Step { e: KItem, flag: Exp },
     #[k::syntax("test({e}, {flag})")]
     Test { e: KItem, flag: Exp },
+    #[k::syntax("hold({e}, {flag})")]
+    Hold { e: KItem, flag: Exp },
+    #[k::syntax("check({e}, {flag})")]
+    Check { e: KItem, flag: Exp },
     #[k::syntax("no")]
     No(),
     #[k::syntax("yes")]
@@ -401,14 +406,48 @@ fn twin(
         flag: k::rewrite!(StepSyntax::No() => StepSyntax::Yes()),
     }]: Term<Exp>,
 ) {}
+
+#[k::rule(label = "hold")]
+pub fn hold(
+    p: KItem,
+    k::cells! {
+        k: k::configuration::KCell(StepSyntax::Hold {
+            e: k::rewrite!(p => { let ExpSyntax::Pair { a: x, b: y } = p; ExpSyntax::Pair { a: y, b: x } }),
+            flag: k::rewrite!(StepSyntax::No() => StepSyntax::Yes()),
+        }, ..),
+        state @ ..
+    }: Machine,
+) {}
+
+#[k::rule(label = "check")]
+pub fn check(
+    p: KItem,
+    k::cells! {
+        k: k::configuration::KCell(StepSyntax::Check {
+            e: k::rewrite!(p => k::matches!(p, ExpSyntax::Pair { a: x, b: x })),
+            flag: k::rewrite!(StepSyntax::No() => StepSyntax::Yes()),
+        }, ..),
+        state @ ..
+    }: Machine,
+) {}
 "#;
 
-/// The emitted term rule labelled `label`, one line.
-fn rule<'a>(k: &'a str, label: &str) -> &'a str {
-    k.lines()
-        .find(|line| line.ends_with(&format!("[label({label})]")))
+/// The emitted rule labelled `label`, one line: a term rule's line, or a configuration rule's
+/// header and its cell's line.
+fn rule(k: &str, label: &str) -> String {
+    let lines = k.lines().collect::<Vec<_>>();
+    let header = format!("rule [{label}]:");
+    lines
+        .iter()
+        .position(|line| line.trim() == header)
+        .map(|at| format!("{header} {}", lines[at + 1].trim()))
+        .or_else(|| {
+            lines
+                .iter()
+                .find(|line| line.ends_with(&format!("[label({label})]")))
+                .map(|line| line.trim().to_owned())
+        })
         .unwrap_or_else(|| panic!("rule `{label}` is emitted:\n{k}"))
-        .trim()
 }
 
 /// A rewrite's right side binds names of its own with a `let` and a `k::matches!` pattern; the
@@ -429,12 +468,17 @@ fn a_right_side_reads_the_names_it_binds() {
     let k = fs::read_to_string(output.join("definition.k")).unwrap();
     expect_test::expect![[r"
         rule step ( (P:KItem => ( #let pair ( X:Exp , Y:Exp ) = P:KItem #in pair ( Y:Exp , X:Exp ) )) , (no => yes) ) [label(swap)]
-        rule test ( (P:KItem => ( pair ( X:Exp , X:Exp ) :=K P:KItem )) , (no => yes) ) [label(twin)]"]].assert_eq(&format!("{}\n{}", rule(&k, "swap"), rule(&k, "twin")));
+        rule test ( (P:KItem => ( pair ( X:Exp , X:Exp ) :=K P:KItem )) , (no => yes) ) [label(twin)]
+        rule [hold]: <k> hold ( (P:KItem => ( #let pair ( X:Exp , Y:Exp ) = P:KItem #in pair ( Y:Exp , X:Exp ) )) , (no => yes) ) ... </k>
+        rule [check]: <k> check ( (P:KItem => ( pair ( X:Exp , X:Exp ) :=K P:KItem )) , (no => yes) ) ... </k>"]].assert_eq(&["swap", "twin", "hold", "check"].map(|label| rule(&k, label)).join("\n"));
     let program = manifest.with_file_name("program.txt");
     let runs = [
         "step(pair(1, 2), no)",
         "test(pair(1, 1), no)",
         "test(pair(1, 2), no)",
+        "hold(pair(1, 2), no)",
+        "check(pair(1, 1), no)",
+        "check(pair(1, 2), no)",
     ]
     .map(|source| {
         fs::write(&program, source).unwrap();
@@ -456,6 +500,9 @@ fn a_right_side_reads_the_names_it_binds() {
             "step(pair(1, 2), no) => <k> step(pair(2, 1), yes) ~> .K </k>",
             "test(pair(1, 1), no) => <k> test(true, yes) ~> .K </k>",
             "test(pair(1, 2), no) => <k> test(false, yes) ~> .K </k>",
+            "hold(pair(1, 2), no) => <k> hold(pair(2, 1), yes) ~> .K </k>",
+            "check(pair(1, 1), no) => <k> check(true, yes) ~> .K </k>",
+            "check(pair(1, 2), no) => <k> check(false, yes) ~> .K </k>",
         ]
     "#]]
     .assert_debug_eq(&runs);
