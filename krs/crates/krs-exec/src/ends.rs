@@ -3,10 +3,11 @@
 //!
 //! # Ends
 //!
-//! An *end* is how a complete run ended ([`EndClass`]: its halt word, and for `stopped` the stop
-//! rule's KRS item) and the content of its cells ([`EndCells`]), read from the final state by the
-//! configuration's declaration: a leaf cell holds a value, a group cell its cells, an optional
-//! cell its content or nothing, and a repeated cell its instances. The instances of a `List`
+//! An *end* is how a complete run ended ([`EndClass`]: its halt word, and for `stopped` the KRS
+//! item of the stop rule, with the package that declares it) and the content of its cells
+//! ([`EndCells`]), read from the final state by the configuration's declaration: a leaf cell
+//! holds a value, a group cell its cells, an optional cell its content or nothing, and a repeated
+//! cell its instances. The instances of a `List`
 //! cell collection are in the collection's order; those of a `Set` or `Map` collection are a
 //! set, kept in the order of their canonical text (instances with equal texts, which only values
 //! with no document can have, in the order of the values), each once, so that two ends holding
@@ -26,14 +27,22 @@
 //! values is [`crate::inputs`], "The canonical document of a value"):
 //!
 //! ```json
-//! {"halt": "stopped", "rule": "machine::boundary", "cells": {"pc": 257, "cpu": {"ime": true}}}
+//! {"halt": "stopped", "rule": "crate::machine::boundary", "cells": {"pc": 257, "cpu": {"ime": true}}}
 //! ```
 //!
 //! - `halt` is the halt word of a complete run (`stuck`, `depth-bound`, `undefined`, `stopped`);
-//!   `rule` names the stop rule's KRS item when, and only when, `halt` is `stopped`. It is
-//!   spelled as a run's stop names it ([`crate::NamedRule::item`]: a Rust path below the item's
-//!   crate root, `machine::boundary`, with no crate name) and must name the item of a rewrite
-//!   rule of the definition: a rule the definition does not have stops none of its runs.
+//!   `rule` names the stop rule's KRS item when, and only when, `halt` is `stopped`.
+//!   It is any name a stop accepts ([`crate::StopRules`], `--stop-before`): the item's Rust path
+//!   with `crate::` for an item of the definition's main package
+//!   (`crate::machine::boundary`), with its crate's name for an item of a dependency
+//!   (`lang::step`), or a K label of one of its rules.
+//!   The name must select rewrite rules of the definition, and all of one item:
+//!   a rule the definition does not have stops none of its runs,
+//!   and a stopped end's class is one item, so a name that selects two items' rules is refused.
+//!   The class holds the item, which [`Semantics::end_document`] writes by one name of it: its
+//!   path with `crate::` or its crate's name where that selects its rules alone, else the first
+//!   label of its rules that does. So two packages' items at one path are two classes, and the
+//!   name a document writes reads back as the item.
 //! - `cells` nests by group field as [`crate::StateView`] paths do (`cpu.regs` is
 //!   `cells.cpu.regs`; TOML dotted keys give it); a leaf cell holds its value's document at the
 //!   cell's declared type; an optional cell is `[]` (absent) or `[content]`; a repeated cell is
@@ -145,8 +154,7 @@ use serde_json::{Map as JsonMap, Value as Json};
 
 use crate::encode::{EncodeError, canonical_text, encode};
 use crate::inputs::{InputFiles, InputType, NoFiles, decode_value_in, input_type};
-use crate::origin;
-use crate::report::{Halt, RuleKind, RunReport, SearchReport};
+use crate::report::{Halt, RunReport, SearchReport};
 use crate::values::{CellNode, SortRef, Value, ValueError, ValueIndex};
 use crate::view::{self, View, cell_symbols, cells_below};
 use crate::views::CellViews;
@@ -154,7 +162,12 @@ use crate::{SearchMode, SearchOptions, Semantics};
 use krs_ir::BuiltinSort;
 
 /// The format of a [`Difference`] document.
-pub const DIFFERENCE_FORMAT: &str = "krs-difference/1";
+///
+/// A side's class names a stopped end's rule by a name a stop accepts ([`EndClass::rule`]:
+/// `crate::finish`, `lang::step`, or a K label); a `krs-difference/1` document named it by the
+/// item's Rust path below its crate root (`finish`). A reader of `krs-difference/1` would read
+/// `crate::finish` as a path through a module `crate`, so the format took a version of its own.
+pub const DIFFERENCE_FORMAT: &str = "krs-difference/2";
 
 /// The most characters of one value's text a [`Difference`] shows.
 pub const VALUE_CAP: usize = 2000;
@@ -164,9 +177,12 @@ pub const VALUE_CAP: usize = 2000;
 pub struct EndClass {
     /// The halt: [`Halt::is_complete`] holds of it.
     pub halt: Halt,
-    /// The stop rule's KRS item, as a Rust path below its crate root, for a stopped end; `None`
-    /// for every other end, and for a stopped run that does not name its rule
-    /// ([`crate::Stop::rule`]).
+    /// The stop rule's KRS item for a stopped end, by the one name of it that selects its rules
+    /// alone ([module documentation](crate::ends#end-documents)): `crate::machine::boundary`
+    /// for an item of the definition's main package, `lang::step` for a dependency's, a K label
+    /// where neither selects the item alone. Two classes name one item exactly when their names
+    /// are equal. `None` for every other end, and for a stopped run that does not name its rule
+    /// ([`crate::Stop::rule`]) or whose rule's item no name selects alone.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rule: Option<String>,
 }
@@ -711,7 +727,7 @@ impl Semantics {
                     .stop
                     .as_ref()
                     .and_then(|stop| stop.rule.as_ref())
-                    .and_then(|rule| rule.item.clone())
+                    .and_then(|rule| self.rules.class_name(&rule.rule_id))
             })
             .flatten();
         let class = EndClass { halt, rule };
@@ -970,13 +986,14 @@ impl Semantics {
         };
         let rule = match (object.get("rule"), halt) {
             (Some(Json::String(rule)), Halt::Stopped) => Some(
-                self.rule_item(rule)
+                self.rules
+                    .stop_item(rule)
                     .map_err(|message| refuse("rule", message))?,
             ),
             (Some(_), Halt::Stopped) => {
                 return Err(refuse(
                     "rule",
-                    "the rule is a KRS item's path, a string".to_owned(),
+                    "the rule is a name a stop accepts, a string".to_owned(),
                 ));
             }
             (None, Halt::Stopped) => {
@@ -1012,41 +1029,6 @@ impl Semantics {
             class: EndClass { halt, rule },
             cells,
         })
-    }
-
-    /// The KRS item of a rewrite rule of the definition that `written` names
-    /// ([module documentation](crate::ends#end-documents)), or why it names none.
-    fn rule_item(&self, written: &str) -> Result<String, String> {
-        let mut items = self
-            .provenance
-            .iter()
-            .filter(|(id, _)| {
-                self.rules
-                    .get(id)
-                    .is_some_and(|rule| rule.kind == RuleKind::Rule)
-            })
-            .filter_map(|(_, provenance)| origin::item(Some(provenance)))
-            .collect::<Vec<_>>();
-        items.sort_unstable();
-        items.dedup();
-        if items.iter().any(|item| item == written) {
-            return Ok(written.to_owned());
-        }
-        if let Some((_, below)) = written.split_once("::")
-            && items.iter().any(|item| item == below)
-        {
-            return Err(format!(
-                "a rule is named by its KRS item's path below its crate root, with no crate name: `{below}`, not `{written}`"
-            ));
-        }
-        Err(format!(
-            "`{written}` is the KRS item of no rewrite rule of the definition; the rewrite rules' items are {}",
-            items
-                .iter()
-                .map(|item| format!("`{item}`"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ))
     }
 
     fn read_document_cells(

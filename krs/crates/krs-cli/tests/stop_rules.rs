@@ -482,7 +482,7 @@ fn a_run_stops_after_a_named_rule_and_resumes_from_its_state() {
             rule.label.as_deref().unwrap().ends_with(".boundary"),
             "{rule:?}"
         );
-        assert_eq!(rule.item.as_deref(), Some("boundary"), "{rule:?}");
+        assert_eq!(rule.item.as_deref(), Some("crate::boundary"), "{rule:?}");
         // The run ends at the rule's successor: the work is queued, nothing is counted yet.
         assert_eq!(observe(semantics, &first), (0, "#work".to_owned()));
 
@@ -515,7 +515,7 @@ fn a_run_stops_before_a_named_rule_and_resumes_past_it() {
         assert_eq!(stop.at, StopAt::Before);
         assert_eq!(
             stop.rule.as_ref().unwrap().item.as_deref(),
-            Some("boundary")
+            Some("crate::boundary")
         );
         assert_eq!(observe(semantics, &first), (0, "#boundary".to_owned()));
         // The next run takes the boundary step first, then does the work, and stops at the next
@@ -762,7 +762,7 @@ fn a_counted_stop_ends_at_the_nth_arrival() {
         assert_eq!((stop.at, stop.nth), (StopAt::After, 3));
         assert_eq!(
             stop.rule.as_ref().unwrap().item.as_deref(),
-            Some("boundary")
+            Some("crate::boundary")
         );
         assert_eq!(observe(semantics, &third), (2, "#work".to_owned()));
         let bounded = semantics
@@ -1064,7 +1064,7 @@ fn a_stop_named_by_krs_item_selects_every_sentence_of_the_item() {
             .unwrap();
         assert_eq!((item.halt, item.steps), (Halt::Stopped, 4), "{item:?}");
         let rule = item.stop.as_ref().unwrap().rule.as_ref().unwrap();
-        assert_eq!(rule.item.as_deref(), Some("work_amount"), "{rule:?}");
+        assert_eq!(rule.item.as_deref(), Some("crate::work_amount"), "{rule:?}");
         // The name a report gives the stop selects it again.
         assert_eq!(
             semantics.stop_name(&rule.rule_id).as_deref(),
@@ -1086,7 +1086,7 @@ fn a_stop_named_by_krs_item_selects_every_sentence_of_the_item() {
         assert_eq!((first.halt, first.steps), (Halt::Stopped, 1));
         assert_eq!(
             first.stop.unwrap().rule.unwrap().item.as_deref(),
-            Some("work_amount")
+            Some("crate::work_amount")
         );
         // A rule at the crate root is its own item, as it is its own label's suffix.
         let root = run(semantics, &start, &after("crate::boundary"));
@@ -1135,7 +1135,7 @@ fn a_stop_named_by_a_strict_variant_selects_its_heat_and_cool_rules() {
         assert_eq!(rule_ids(&cool), rule_ids(&whole)[..3]);
         let rule = cool.stop.as_ref().unwrap().rule.as_ref().unwrap();
         assert_eq!(rule.rule_id, cool.trace[2].rule_id);
-        assert_eq!(rule.item.as_deref(), Some("Arith::Add"), "{rule:?}");
+        assert_eq!(rule.item.as_deref(), Some("crate::Arith::Add"), "{rule:?}");
         assert_eq!(
             semantics.stop_name(&rule.rule_id).as_deref(),
             Some("crate::Arith::Add")

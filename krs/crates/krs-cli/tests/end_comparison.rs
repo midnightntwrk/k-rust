@@ -28,6 +28,24 @@ const FIXTURE: &str = include_str!("fixtures/ends/src/lib.rs");
 const PACKAGE: &str = "krs-exec-ends-fixture";
 const OBSERVER: &str = include_str!("fixtures/ends-observe/src/lib.rs");
 const OBSERVER_PACKAGE: &str = "krs-exec-ends-observe-fixture";
+const SHADOW_PACKAGE: &str = "krs-exec-ends-shadow-fixture";
+
+/// A package that depends on the fixture and composes its definition, with a rewrite rule of its
+/// own at the whole of the spelling of the fixture's rule `finish`
+/// (`krs_exec_ends_fixture::finish`, the fixture's crate name and the rule's path), so that the
+/// spelling selects both packages' items. The rule has a lower priority than the fixture's,
+/// which applies to every `finish(v)`, so a run of `finish(3)` stops at the fixture's rule.
+const SHADOW: &str = r"//! The `ends` fixture with a rule at the spelling of its rule `finish`.
+
+pub mod krs_exec_ends_fixture {
+    use k::Term;
+
+    #[k::rule(priority = 60)]
+    fn finish(k::term![ends::Cmd::Finish { value }]: Term<ends::Stmt>) -> Term<ends::Stmt> {
+        ends::Cmd::Done(0)
+    }
+}
+";
 
 /// The Cargo manifest of a fixture package named `name`, with `dependencies` and a `[workspace]`
 /// table when it stands alone.
@@ -130,6 +148,42 @@ fn observer_compiled() -> &'static (DefinitionIr, CompiledStage) {
         emit(
             &manifest,
             OBSERVER_PACKAGE,
+            &["--dependency", &format!("{PACKAGE}:main")],
+        )
+    })
+}
+
+/// The shadow package's Definition IR and compiled stage ([`SHADOW`]), composed with the
+/// fixture's definition; built once per test process.
+fn shadow_compiled() -> &'static (DefinitionIr, CompiledStage) {
+    static COMPILED: OnceLock<(DefinitionIr, CompiledStage)> = OnceLock::new();
+    COMPILED.get_or_init(|| {
+        let temporary = temp_dir();
+        write_package(
+            temporary.path(),
+            "language",
+            FIXTURE,
+            &manifest(PACKAGE, "ORG-KRS-EXEC-ENDS", "", false),
+        );
+        let manifest = write_package(
+            temporary.path(),
+            "shadow",
+            SHADOW,
+            &manifest(
+                SHADOW_PACKAGE,
+                "ORG-KRS-EXEC-ENDS-SHADOW",
+                &format!("ends = {{ package = \"{PACKAGE}\", path = \"../language\" }}\n"),
+                false,
+            ),
+        );
+        fs::write(
+            temporary.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"language\", \"shadow\"]\nresolver = \"3\"\n",
+        )
+        .unwrap();
+        emit(
+            &manifest,
+            SHADOW_PACKAGE,
             &["--dependency", &format!("{PACKAGE}:main")],
         )
     })
@@ -625,7 +679,7 @@ fn the_difference_document_has_the_format_krs_difference_1() {
         assert_eq!(
             serde_json::to_value(&difference).unwrap(),
             json!({
-                "format": "krs-difference/1",
+                "format": "krs-difference/2",
                 "at": "cell",
                 "cell": "f",
                 "path": "f.zf",
@@ -929,12 +983,13 @@ fn a_stopped_end_names_a_rewrite_rule_of_the_definition() {
             end.class,
             EndClass {
                 halt: Halt::Stopped,
-                rule: Some("finish".to_owned()),
+                rule: Some("crate::finish".to_owned()),
             }
         );
         assert_eq!(end.value("k"), Some(&Value::seq([done(semantics, 3)])));
+        // The document names the rule as the stop flags do.
         let document = semantics.end_document(end).unwrap();
-        assert_eq!(document["rule"], json!("finish"));
+        assert_eq!(document["rule"], json!("crate::finish"));
         assert_eq!(&semantics.read_end(&document).unwrap(), end);
         let all = Comparison::default();
         let same = Ends::one(semantics.read_end(&document).unwrap());
@@ -942,16 +997,32 @@ fn a_stopped_end_names_a_rewrite_rule_of_the_definition() {
             expectation(semantics, &all, &same, &stopped),
             Compared::Equal
         );
+        // Any name a stop accepts names the class: the item's K label reads as the item.
+        let labelled = edited(semantics, &stopped, |document| {
+            document["rule"] = json!("org_krs_exec_ends--finish");
+        });
+        assert_eq!(labelled.ends[0].class, end.class);
+        assert_eq!(
+            expectation(semantics, &all, &labelled, &stopped),
+            Compared::Equal
+        );
         // Another rewrite rule of the definition is another class.
         let other = edited(semantics, &stopped, |document| {
-            document["rule"] = json!("toss_heads");
+            document["rule"] = json!("crate::toss_heads");
         });
         let difference = differs(expectation(semantics, &all, &other, &stopped));
         assert_eq!(difference.at, DifferenceAt::Class);
-        assert_eq!(difference.left.class.rule.as_deref(), Some("toss_heads"));
-        assert_eq!(difference.right.class.rule.as_deref(), Some("finish"));
-        // A rule the definition does not have stops none of its runs, and a rule is named
-        // without its crate's name: both are refused, not compared.
+        assert_eq!(
+            difference.left.class.rule.as_deref(),
+            Some("crate::toss_heads")
+        );
+        assert_eq!(
+            difference.right.class.rule.as_deref(),
+            Some("crate::finish")
+        );
+        // A name no stop accepts is refused, not compared: a rule the definition does not have
+        // stops none of its runs; a bare path is a K label, which `finish` is not; and the main
+        // package's items are named with `crate::`, as Rust names them inside the crate.
         let refused = |rule: &str| {
             let mut document = document.clone();
             document["rule"] = json!(rule);
@@ -963,16 +1034,104 @@ fn a_stopped_end_names_a_rewrite_rule_of_the_definition() {
                 other => panic!("`{rule}` is refused: {other:?}"),
             }
         };
-        let message = refused("finsh");
-        assert!(
-            message.contains("`finish`") && message.contains("`toss_heads`"),
-            "{message}"
+        assert_eq!(refused("finsh"), "no rewrite rule has label `finsh`");
+        assert_eq!(
+            refused("finish"),
+            "no rewrite rule has label `finish`; did you mean `crate::finish`?"
         );
         let message = refused("krs_exec_ends_fixture::finish");
         assert!(
-            message.contains("`finish`, not `krs_exec_ends_fixture::finish`"),
+            message.starts_with(
+                "no rewrite rule is written by KRS item `krs_exec_ends_fixture::finish`"
+            ),
             "{message}"
         );
+    });
+}
+
+/// A stopped end's class is computed from the stop rule's identity: where the item's spelling
+/// also selects another package's item, the class names it by a label, which reads back as the
+/// item, and the other item is another class.
+#[test]
+fn a_stopped_end_names_a_dependency_item_its_spelling_does_not_name_alone() {
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn_scoped(scope, || {
+                let (definition, compiled) = shadow_compiled();
+                let semantics = &mut Semantics::from_stage(
+                    definition,
+                    compiled.clone(),
+                    None,
+                    &mut Timings::disabled(),
+                )
+                .unwrap();
+                let finish = ctor(semantics, "Cmd::Finish", vec![("value", 3.into())]);
+                let variables = variables(semantics, finish);
+                let state = state(semantics, variables);
+                let report = semantics
+                    .run(
+                        &state,
+                        RunOptions {
+                            stop: StopRules {
+                                after: vec!["org_krs_exec_ends--finish".to_owned()],
+                                ..StopRules::default()
+                            }
+                            .into(),
+                            ..RunOptions::default()
+                        },
+                    )
+                    .unwrap();
+                // The report spells the item with its crate, which names the shadow's item too.
+                let rule = report.stop.as_ref().and_then(|stop| stop.rule.as_ref());
+                assert_eq!(
+                    rule.and_then(|rule| rule.item.as_deref()),
+                    Some("krs_exec_ends_fixture::finish")
+                );
+                let stopped = semantics.end_of(&report).unwrap();
+                let [end] = stopped.ends.as_slice() else {
+                    panic!("one end: {stopped:?}");
+                };
+                assert_eq!(
+                    end.class,
+                    EndClass {
+                        halt: Halt::Stopped,
+                        rule: Some("org_krs_exec_ends--finish".to_owned()),
+                    }
+                );
+                let document = semantics.end_document(end).unwrap();
+                assert_eq!(document["rule"], json!("org_krs_exec_ends--finish"));
+                assert_eq!(&semantics.read_end(&document).unwrap(), end);
+                // The spelling selects both items, so it names no class.
+                let mut ambiguous = document.clone();
+                ambiguous["rule"] = json!("krs_exec_ends_fixture::finish");
+                assert!(
+                    matches!(
+                        semantics.read_end(&ambiguous),
+                        Err(EndError::Document { ref position, .. }) if position == "rule"
+                    ),
+                    "{:?}",
+                    semantics.read_end(&ambiguous)
+                );
+                // The shadow's item at that path is another class, named with `crate::`.
+                let shadowed = edited(semantics, &stopped, |document| {
+                    document["rule"] = json!("crate::krs_exec_ends_fixture::finish");
+                });
+                assert_eq!(
+                    shadowed.ends[0].class.rule.as_deref(),
+                    Some("crate::krs_exec_ends_fixture::finish")
+                );
+                let difference = differs(expectation(
+                    semantics,
+                    &Comparison::default(),
+                    &shadowed,
+                    &stopped,
+                ));
+                assert_eq!(difference.at, DifferenceAt::Class);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     });
 }
 

@@ -1764,7 +1764,7 @@ Each command compiles the selected definition with the k-rust backend linked int
 
 A run ends `stuck` when no rule applies; K has no separate finished state, so a program is finished when `<k>` holds only `.K`.
 Proof verdicts are k-rust's `proven`, `disproved`, `failed`, `indeterminate`, `depth-bound`, and `breadth-bound`; `trusted` for a [trusted claim](/verification/reachability-claims#trusted-claims), which is assumed without proof; `crashed` for a claim whose proof process ended abnormally; and `timeout` for a claim whose proof `--claim-timeout` cancelled ([proving a batch of claims](/verification/reachability-claims#proving-a-batch-of-claims)).
-`--output json` prints a report whose configurations are KAST JSON, as `krun --output json` prints them: a `krs-exec/1` report for `krs run` and `krs search`, and a `krs-exec/2` report for `krs prove`, the version that has the `crashed` and `timeout` verdicts and names the solver the claims were proved with (`solver`).
+`--output json` prints a report whose configurations are KAST JSON, as `krun --output json` prints them: a `krs-exec/3` report for `krs run`, whose stop rule names its KRS item as a stop names it (`crate::boundary`), a `krs-exec/1` report for `krs search`, and a `krs-exec/2` report for `krs prove`, the version that has the `crashed` and `timeout` verdicts and names the solver the claims were proved with (`solver`).
 `krs prove --output jsonl` prints a `krs-exec/2` record per claim as its proof ends, then a summary line.
 
 ### Printing through the grammar

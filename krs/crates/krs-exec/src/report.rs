@@ -1,10 +1,11 @@
 //! The `krs-exec` report shapes shared by `--output json` and the browser JSON ABI.
 //!
-//! A run or search document is `krs-exec/1` ([`REPORT_SCHEMA`]); a proof document is
-//! `krs-exec/2` ([`PROVE_REPORT_SCHEMA`]), whose verdicts include `crashed` and `timeout` and
-//! which names the solver its claims were proved with ([`SolverReport`]).
+//! A run document is `krs-exec/3` ([`RUN_REPORT_SCHEMA`]), whose stop rule's item names the
+//! item with its package; a search document is `krs-exec/1` ([`SEARCH_REPORT_SCHEMA`]); a proof
+//! document is `krs-exec/2` ([`PROVE_REPORT_SCHEMA`]), whose verdicts include `crashed` and
+//! `timeout` and which names the solver its claims were proved with ([`SolverReport`]).
 //!
-//! [`REPORT_SCHEMA`] states how the versions are numbered.
+//! The crate documentation, "Report versions", states how the versions are numbered.
 
 use k_rust::{
     backend::{ChosenValueOutput, HaltReasonOutput},
@@ -14,18 +15,30 @@ use k_rust::{
 };
 use serde::{Deserialize, Serialize, Serializer};
 
-/// The schema name a serialized run or search envelope carries.
+/// The schema name a serialized run envelope carries (`krs run`; [report
+/// versions](crate#report-versions)).
 ///
-/// A `krs-exec/N` name states which shape a document has, so a reader can refuse one it does not
-/// know. Each document kind (run, search, proof) carries the version of its own last change, and
-/// the numbers are one sequence shared by every kind: a change to any kind's shape takes the
-/// number after the highest any kind uses, never a number another kind already uses. A version
-/// therefore names one shape of each kind, whatever kind a reader expects.
-pub const REPORT_SCHEMA: &str = "krs-exec/1";
+/// A run document's stop rule names its item with the package that declares it, as a stop names
+/// an item ([`NamedRule::item`]: `crate::boundary`), and the difference of its expectation is a
+/// `krs-difference/2` document ([`crate::DIFFERENCE_FORMAT`]); a `krs-exec/1` run document named
+/// the item by its Rust path below its crate root (`boundary`). A reader of `krs-exec/1` would
+/// read `crate::boundary` as a path through a module `crate`, so a run document is a format of
+/// its own version.
+pub const RUN_REPORT_SCHEMA: &str = "krs-exec/3";
+
+/// The schema name a serialized search envelope carries (`krs search`; [report
+/// versions](crate#report-versions)).
+///
+/// A search document names no rule's item. The difference of its expectation names its own
+/// format (`format`, [`crate::DIFFERENCE_FORMAT`]) and is read by it, so a reader that knows only
+/// an earlier difference format refuses the difference rather than misreading it; the search
+/// document keeps `krs-exec/1`.
+pub const SEARCH_REPORT_SCHEMA: &str = "krs-exec/1";
 
 /// The schema name a serialized proof envelope carries: a reader of `krs-exec/1` proof documents
 /// knows no `crashed` or `timeout` verdict and no `crash` record, so a proof document is a format
-/// of its own version, while run and search documents, which did not change, keep theirs.
+/// of its own version, while run and search documents, which that change left alone, kept
+/// theirs.
 pub const PROVE_REPORT_SCHEMA: &str = "krs-exec/2";
 
 /// One configuration or term, kept as KORE and as user-facing KAST.
@@ -465,7 +478,17 @@ pub struct NamedRule {
     /// K's label, as the definition carries it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
-    /// The KRS item that wrote the rule, as a Rust path below its crate root.
+    /// The KRS item that wrote the rule, with the package that declares it, spelled as a stop
+    /// spells an item ([`crate::StopRules`]): its Rust path with `crate::` for an item of the
+    /// definition's main package (`crate::interrupt::boundary_fetch`), with its crate's name for
+    /// a dependency's (`lang::step`).
+    ///
+    /// A stop reads the spelling as this item alone except in two cases, where it selects
+    /// another item's rules too and is refused as ambiguous: two packages of one crate name each
+    /// have an item at the path, or the main package has an item at the whole of a dependency
+    /// item's spelling (`crate::lang::step` beside the dependency `lang`'s `step`). There the
+    /// rule's `label` names it to a stop; a stopped end's class always holds a name a stop
+    /// accepts ([`crate::EndClass::rule`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub item: Option<String>,
     /// Where it came from.

@@ -280,8 +280,8 @@
 //! with a narrowing:
 //!
 //! - `halt` and, for `stopped` only, `rule`: how the run ends,
-//!   the stop rule named as `run` names its rules, by KRS item or K label,
-//!   so that one spelling names a rule in both;
+//!   the stop rule named as `run` and every end document name rules, by KRS item or K label,
+//!   so that one spelling names a rule in all of them;
 //!   the name selects the rules of one KRS item, which a stopped end's class names;
 //! - `cells`: the cells' values by Rust field path, nested by group field
 //!   (`cpu.regs` is `cells.cpu.regs`),
@@ -301,7 +301,7 @@
 //! Against the ends of the case's run, the expectation is
 //! *met* when every end agrees with it on the halt and on the compared cells;
 //! *unmet* when an end does not, which is reported with the first difference
-//! ([`Difference`](crate::Difference), `krs-difference/1`);
+//! ([`Difference`](crate::Difference), `krs-difference/2`);
 //! and *inconclusive* when no end can be compared,
 //! or every known end agrees but not every end is known.
 //! No end can be compared where

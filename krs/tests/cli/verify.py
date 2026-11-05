@@ -251,7 +251,7 @@ def run_commands(
         if run_json.returncode != 0:
             raise ValueError(compact(run_json))
         report = json.loads(run_json.stdout)
-        if report.get("schema") != "krs-exec/1" or report["run"]["halt"] != "stuck" or report["run"]["steps"] != 1:
+        if report.get("schema") != "krs-exec/3" or report["run"]["halt"] != "stuck" or report["run"]["steps"] != 1:
             raise ValueError(f"krs run report differs: {report}")
         if b"krs run: stuck after 1 step; <k> starts with `bar" not in run_json.stderr:
             raise ValueError(f"krs run status line differs: {run_json.stderr!r}")

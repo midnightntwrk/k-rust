@@ -183,8 +183,8 @@ RUN_OPERATIONS = frozenset({"execute", "search", "exec.run", "exec.search"})
 def chosen_values(result: Mapping[str, Any]) -> set[str]:
     """The open values a k-rust run or search read, as k-rust marks them, each spelled `<hook> <class>`.
 
-    A raw `execute` or `search` response lists them as `implementationChosenValues`, a `krs-exec/1`
-    report as `implementation_chosen_values`; both omit an empty list.
+    A raw `execute` or `search` response lists them as `implementationChosenValues`, a `krs-exec`
+    run or search report as `implementation_chosen_values`; both omit an empty list.
     """
 
     marks = result.get("implementationChosenValues", result.get("implementation_chosen_values", []))
@@ -460,7 +460,7 @@ class Session:
         variables: Mapping[str, str] | None = None, depth: int | None = None, trace: bool = False,
         print_style: str | None = None,
     ) -> dict[str, Any]:
-        """Run surface inputs through krs-exec, as `krs run` does, and return its `krs-exec/1` run report.
+        """Run surface inputs through krs-exec, as `krs run` does, and return its `krs-exec/3` run report.
 
         With ``print_style="pretty"`` the report also carries ``printed``: the final state as `krs run`
         prints it (`krun --output pretty`), ``{"text": ..., "warnings": [...]}``.

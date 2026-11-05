@@ -654,7 +654,7 @@ fn refusals_name_parameter_type_and_position() {
 /// A case whose run meets its expectation exits 0, after the run's own output; one whose run does
 /// not exits 1 and names the first differing cell with both canonical documents, and the cells
 /// that also differ. The expectation omits the unobservable cells, `z` and `cpu.w`, and states
-/// every other; `--output json` carries the verdict and the `krs-difference/1` difference.
+/// every other; `--output json` carries the verdict and the `krs-difference/2` difference.
 #[test]
 fn a_run_meets_or_misses_its_expectation() {
     let project = ends();
@@ -695,10 +695,11 @@ fn a_run_meets_or_misses_its_expectation() {
         stderr(&run)
     );
     let report = json(&project.krs("run", &["--case", "unmet.json", "--output", "json"]));
+    assert_eq!(report["schema"], "krs-exec/3");
     let expectation = &report["expectation"];
     assert_eq!(expectation["verdict"], "unmet", "{expectation}");
     let difference = &expectation["difference"];
-    assert_eq!(difference["format"], "krs-difference/1");
+    assert_eq!(difference["format"], "krs-difference/2");
     assert_eq!(difference["path"], "regs[\"B\"]");
     assert_eq!(difference["also_differ"], json!(["pc"]));
     assert_eq!(difference["left"]["name"], "expected");
@@ -847,7 +848,7 @@ fn named_cases_are_selected_by_name() {
     assert_eq!(run.status.code(), Some(1), "{}", stderr(&run));
     assert!(
         stderr(&run).ends_with(
-            "krs run: expectation unmet at the end's halt\n  expected: stuck\n  actual:   stopped at `finish`\n"
+            "krs run: expectation unmet at the end's halt\n  expected: stuck\n  actual:   stopped at `crate::finish`\n"
         ),
         "{}",
         stderr(&run)
@@ -1015,8 +1016,8 @@ fn a_run_meets_an_expectation_only_on_the_only_path() {
         verdict.starts_with(
             "krs run: expectation inconclusive: every end the actual side has meets the expectation, but it may have others: the run took one successor of the state after 0 steps, which has 2 successors, by `"
         ) && verdict.ends_with("`, so another path may end otherwise")
-            && verdict.contains("`toss_heads`")
-            && verdict.contains("`toss_tails`"),
+            && verdict.contains("`crate::toss_heads`")
+            && verdict.contains("`crate::toss_tails`"),
         "{text}"
     );
     assert!(

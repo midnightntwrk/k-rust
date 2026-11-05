@@ -103,7 +103,7 @@ impl Origins {
 }
 
 /// The KRS item that wrote an emitted rule identity, with the package that declares it.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) struct ItemPath {
     /// The declaring package's K namespace, which tells the definition's packages apart.
     pub(crate) namespace: String,

@@ -196,8 +196,10 @@ impl Rules {
 
     /// The name of `item` that [`Self::resolve_item`] reads as it whatever else the definition
     /// declares: `crate::` and its path for an item of the root package, its crate name and its
-    /// path otherwise.
-    fn spelling(&self, item: &ItemPath) -> String {
+    /// path otherwise. It names the item alone except where two packages of one crate name each
+    /// have an item at its path, or the root package has an item at the whole of a dependency
+    /// item's spelling.
+    pub(crate) fn spelling(&self, item: &ItemPath) -> String {
         let krate = if item.namespace == self.root {
             "crate"
         } else {
@@ -223,6 +225,90 @@ impl Rules {
                     .clone()
                     .filter(|label| selects(self.resolve_rewrite(label)))
             })
+    }
+
+    /// The name of the KRS item that wrote the rewrite rule `id`, as a stopped end's class names
+    /// it ([`crate::EndClass::rule`]); `None` for an identity that is no rewrite rule, that no
+    /// item wrote, or whose item no name a stop accepts selects alone ([`Self::item_name`]).
+    pub(crate) fn class_name(&self, id: &str) -> Option<String> {
+        let rule = self.by_id.get(id)?;
+        if rule.kind != RuleKind::Rule {
+            return None;
+        }
+        self.item_name(rule.item.as_ref()?)
+    }
+
+    /// The name of the KRS item `requested` names as a stop does ([`crate::StopRules`]: by KRS
+    /// item or K label), as a stopped end's class names it ([`Self::item_name`]), or why it names
+    /// no one item: a stopped end's class is the KRS item of the rule it stopped at, so a name
+    /// for a class selects the rewrite rules of exactly one item.
+    pub(crate) fn stop_item(&self, requested: &str) -> Result<String, String> {
+        let ids = if requested.contains("::") {
+            self.resolve_item(requested)
+        } else {
+            self.resolve_rewrite(requested)
+        }
+        .map_err(|error| error.to_string())?;
+        let mut items = std::collections::BTreeSet::new();
+        for id in &ids {
+            let Some(item) = self.by_id.get(id).and_then(|rule| rule.item.as_ref()) else {
+                return Err(format!(
+                    "`{requested}` selects a rewrite rule no KRS item wrote, so no stopped end's class names it"
+                ));
+            };
+            items.insert(item);
+        }
+        let mut items = items.into_iter();
+        match (items.next(), items.next()) {
+            (Some(item), None) => self.item_name(item).ok_or_else(|| {
+                format!(
+                    "`{requested}` selects the rules of the KRS item `{}`, which no name a stop accepts selects alone",
+                    self.spelling(item)
+                )
+            }),
+            (Some(first), Some(second)) => Err(format!(
+                "`{requested}` selects the rules of several KRS items (`{}`, `{}`{}), and a stopped end's class is one; name one of them",
+                self.spelling(first),
+                self.spelling(second),
+                if items.len() > 0 { ", .." } else { "" }
+            )),
+            (None, _) => Err(format!("`{requested}` selects no rewrite rule")),
+        }
+    }
+
+    /// The one name of `item` that a stopped end's class holds: a name a stop accepts that
+    /// selects rewrite rules of `item` and of no other item, so that two classes are equal
+    /// exactly when they name one item, and a document that writes the name reads back as the
+    /// item. It is the item's spelling ([`Self::spelling`]) where that names the item alone,
+    /// else the first label, in label order, of the item's rewrite rules that selects rules of
+    /// the item alone; `None` where neither does.
+    fn item_name(&self, item: &ItemPath) -> Option<String> {
+        let of_item = |selected: Result<Vec<String>, ExecError>| {
+            selected.is_ok_and(|ids| {
+                !ids.is_empty()
+                    && ids.iter().all(|id| {
+                        self.by_id
+                            .get(id)
+                            .is_some_and(|rule| rule.item.as_ref() == Some(item))
+                    })
+            })
+        };
+        let spelling = self.spelling(item);
+        if of_item(self.resolve_item(&spelling)) {
+            return Some(spelling);
+        }
+        let mut labels = self
+            .by_id
+            .values()
+            .filter(|rule| rule.kind == RuleKind::Rule && rule.item.as_ref() == Some(item))
+            .filter_map(|rule| rule.label.as_deref())
+            .collect::<Vec<_>>();
+        labels.sort_unstable();
+        labels.dedup();
+        labels
+            .into_iter()
+            .find(|label| of_item(self.resolve_rewrite(label)))
+            .map(str::to_owned)
     }
 
     /// A did-you-mean for a rule label written as a Rust identifier (`boundary_fetch` for
@@ -510,6 +596,114 @@ mod tests {
         assert_eq!(
             bare.resolve_rewrite("work_amount").unwrap_err().to_string(),
             "no rewrite rule has label `work_amount`; did you mean `crate::work_amount`?"
+        );
+    }
+
+    /// A stopped end's class names the item with its package: two packages' items at one path
+    /// are two classes, each named by a name a stop accepts that selects the item's rules alone,
+    /// and every name of the item a stop accepts reads as that one class name.
+    #[test]
+    fn a_class_names_its_item_with_its_package() {
+        let rules = Rules::from_entries(
+            "VM",
+            [
+                by(
+                    rule("v1", Some("VM.step"), RuleKind::Rule),
+                    "VM",
+                    "vm",
+                    "step",
+                ),
+                by(
+                    rule("l1", Some("LANG.step"), RuleKind::Rule),
+                    "LANG",
+                    "lang",
+                    "step",
+                ),
+                by(
+                    rule("l2", Some("LANG.frame"), RuleKind::Rule),
+                    "LANG",
+                    "lang",
+                    "ppu::frame",
+                ),
+                by(
+                    rule("v2", Some("VM.local-step"), RuleKind::Rule),
+                    "VM",
+                    "vm",
+                    "lang::step",
+                ),
+                by(
+                    rule("o1", Some("OLD.frame"), RuleKind::Rule),
+                    "OLD",
+                    "lang",
+                    "ppu::frame",
+                ),
+                by(
+                    rule("o2", Some("OLD.tick"), RuleKind::Rule),
+                    "OLD",
+                    "lang",
+                    "tick",
+                ),
+                by(
+                    rule("e1", Some("VM.tick-eq"), RuleKind::Equation),
+                    "VM",
+                    "vm",
+                    "tick",
+                ),
+                rule("n1", Some("VM.unwritten"), RuleKind::Rule),
+                by(
+                    rule("s1", Some("VM.shared"), RuleKind::Rule),
+                    "VM",
+                    "vm",
+                    "a",
+                ),
+                by(
+                    rule("s2", Some("VM.shared"), RuleKind::Rule),
+                    "VM",
+                    "vm",
+                    "b",
+                ),
+            ],
+        );
+        // An item its spelling names alone is named by it, with `crate::` for the root's.
+        assert_eq!(rules.class_name("v1").as_deref(), Some("crate::step"));
+        assert_eq!(rules.class_name("v2").as_deref(), Some("crate::lang::step"));
+        assert_eq!(rules.class_name("o2").as_deref(), Some("lang::tick"));
+        // `lang::step` also names the root's `crate::lang::step`, and `lang::ppu::frame` the
+        // items of two packages of crate name `lang`: each is named by its label.
+        assert_eq!(rules.class_name("l1").as_deref(), Some("LANG.step"));
+        assert_eq!(rules.class_name("l2").as_deref(), Some("LANG.frame"));
+        assert_eq!(rules.class_name("o1").as_deref(), Some("OLD.frame"));
+        // No class names an equation or a rule no item wrote.
+        assert_eq!(rules.class_name("e1"), None);
+        assert_eq!(rules.class_name("n1"), None);
+        // Every name of an item a stop accepts reads as its class name.
+        assert_eq!(rules.stop_item("crate::step").unwrap(), "crate::step");
+        assert_eq!(rules.stop_item("VM.step").unwrap(), "crate::step");
+        assert_eq!(rules.stop_item("OLD.tick").unwrap(), "lang::tick");
+        assert_eq!(rules.stop_item("lang::tick").unwrap(), "lang::tick");
+        assert_eq!(rules.stop_item("LANG.step").unwrap(), "LANG.step");
+        assert_eq!(rules.stop_item("local-step").unwrap(), "crate::lang::step");
+        // A name that selects no one item is refused, as an ambiguous stop is.
+        assert!(rules.stop_item("lang::step").is_err());
+        assert!(rules.stop_item("frame").is_err());
+        assert_eq!(rules.class_name("s1").as_deref(), Some("crate::a"));
+        assert_eq!(
+            rules.stop_item("VM.shared").unwrap_err(),
+            "`VM.shared` selects the rules of several KRS items (`crate::a`, `crate::b`), and a stopped end's class is one; name one of them"
+        );
+        assert_eq!(
+            rules.stop_item("VM.unwritten").unwrap_err(),
+            "`VM.unwritten` selects a rewrite rule no KRS item wrote, so no stopped end's class names it"
+        );
+        // A root item is also read without `crate::`, as Rust reads a path at the crate root.
+        let rules = self::rules();
+        assert_eq!(
+            rules.stop_item("interrupt::boundary").unwrap(),
+            "crate::interrupt::boundary"
+        );
+        assert_eq!(
+            rules.stop_item("boundary-halted").unwrap(),
+            "crate::interrupt::boundary"
         );
     }
 

@@ -17,9 +17,10 @@ use krs_exec::{
     BackendOptions, Case, CaseDocument, Compared, CompiledStage, ConfigInputs, ConfigValue,
     Coverage, CoverageOptions, Difference, DifferenceAt, EndError, Ends, ExecError, Expectation,
     Halt, InputError, InputFiles, PrintStyle, Printed, ProgramFile, ProgramInput, ProofReport,
-    ProveOptions, REPORT_SCHEMA, ReadBack, Rendered, RunOptions, RunReport, SearchMode,
-    SearchOptions, Semantics, Side, SolverReport, SourceText, SpecStage, Step, StepOrigin, StopAt,
-    StopCriterion, Term, Verdict, canonical_text, json_document, open_values,
+    ProveOptions, RUN_REPORT_SCHEMA, ReadBack, Rendered, RunOptions, RunReport,
+    SEARCH_REPORT_SCHEMA, SearchMode, SearchOptions, Semantics, Side, SolverReport, SourceText,
+    SpecStage, Step, StepOrigin, StopAt, StopCriterion, Term, Verdict, canonical_text,
+    json_document, open_values,
 };
 use krs_ir::measure::Measurement;
 use serde_json::json;
@@ -862,9 +863,11 @@ fn run(semantics: &mut Semantics, request: &RunRequest) -> Result<CommandOutcome
     let color = request.color.enabled();
     let printed = match (request.output, &checked) {
         (TermOutput::Json, Some(checked)) => json_line(
-            &json!({"schema": REPORT_SCHEMA, "run": report, "expectation": checked.document()}),
+            &json!({"schema": RUN_REPORT_SCHEMA, "run": report, "expectation": checked.document()}),
         )?,
-        (TermOutput::Json, None) => json_line(&json!({"schema": REPORT_SCHEMA, "run": report}))?,
+        (TermOutput::Json, None) => {
+            json_line(&json!({"schema": RUN_REPORT_SCHEMA, "run": report}))?
+        }
         (TermOutput::None, _) => String::new(),
         (output, _) => format!(
             "{}\n",
@@ -996,9 +999,9 @@ fn search(semantics: &mut Semantics, request: &SearchRequest) -> Result<CommandO
     if request.output == TermOutput::Json {
         stdout = json_line(&match &checked {
             Some(checked) => {
-                json!({"schema": REPORT_SCHEMA, "search": report, "expectation": checked.document()})
+                json!({"schema": SEARCH_REPORT_SCHEMA, "search": report, "expectation": checked.document()})
             }
-            None => json!({"schema": REPORT_SCHEMA, "search": report}),
+            None => json!({"schema": SEARCH_REPORT_SCHEMA, "search": report}),
         })?;
     } else {
         for (index, solution) in report.solutions.iter().enumerate() {
@@ -1102,7 +1105,7 @@ fn undecided_case(
         note: None,
     };
     let stdout = if output == TermOutput::Json {
-        json_line(&json!({"schema": REPORT_SCHEMA, "expectation": checked.document()}))?
+        json_line(&json!({"schema": RUN_REPORT_SCHEMA, "expectation": checked.document()}))?
     } else {
         String::new()
     };
@@ -1161,7 +1164,7 @@ impl Checked {
     }
 
     /// The report's `expectation` object: the verdict, the case's name, and the difference
-    /// (`krs-difference/1`) or the reason.
+    /// (`krs-difference/2`) or the reason.
     fn document(&self) -> serde_json::Value {
         let mut document = json!({"verdict": self.word()});
         if let Some(name) = &self.case {

@@ -15,8 +15,15 @@
 //! - [`Semantics::evaluate`] computes a function's value as a consequence of the definition, and [`Semantics::cell_views`] resolves the views a comparison applies to cells; the documentation of [`views`] is their normative statement.
 //!
 //! The crate is filesystem-free: the caller supplies Definition IR, program text, and (optionally) the authored source text that trace origins are positioned in.
-//! The serialized reports form the `krs-exec` JSON shapes that `--output json` prints: `krs-exec/1` for a run and a search, `krs-exec/2` for a proof ([`REPORT_SCHEMA`] states how the versions are numbered).
+//! The serialized reports form the `krs-exec` JSON shapes that `--output json` prints: `krs-exec/3` for a run ([`RUN_REPORT_SCHEMA`]), `krs-exec/1` for a search ([`SEARCH_REPORT_SCHEMA`]), `krs-exec/2` for a proof ([`PROVE_REPORT_SCHEMA`]).
 //! Every operation can recurse deeply through large terms: callers run it on a thread with a large stack, as the CLI and the gate session do (64 MiB).
+//!
+//! # Report versions
+//!
+//! A `krs-exec/N` name states which shape a document has, so a reader can refuse one it does not know.
+//! A kind's version must change when a reader of its old version would read a document of the new shape falsely, a field that keeps its name and changes what it denotes included.
+//! Each document kind (run, search, proof) carries the version of its own last change, and the numbers are one sequence shared by every kind: a change to any kind's shape takes the number after the highest any kind uses, never a number another kind already uses.
+//! A version therefore names one shape of each kind, whatever kind a reader expects.
 
 mod cell_types;
 mod claims;
@@ -89,9 +96,9 @@ pub use origin::Origins;
 pub use read_back::{PrintedCell, ReadBack};
 pub use report::{
     Capabilities, ClaimInfo, ConfigVariable, Coverage, CoveredRule, Crash, Halt, Modality,
-    NamedRule, PANIC_EXIT_STATUS, PROVE_REPORT_SCHEMA, ProofLeaf, ProofReport, REPORT_SCHEMA,
-    RuleKind, RunReport, SearchReport, Solution, SolverBuild, SolverReport, SourceSpan, Step,
-    StepOrigin, Stop, StopAt, Term, Verdict,
+    NamedRule, PANIC_EXIT_STATUS, PROVE_REPORT_SCHEMA, ProofLeaf, ProofReport, RUN_REPORT_SCHEMA,
+    RuleKind, RunReport, SEARCH_REPORT_SCHEMA, SearchReport, Solution, SolverBuild, SolverReport,
+    SourceSpan, Step, StepOrigin, Stop, StopAt, Term, Verdict,
 };
 pub use values::{Ctor, Decl, Float, SortRef, Value, ValueError, ValueIndex};
 pub use view::{CellError, StateView, View};
@@ -1479,14 +1486,6 @@ impl Semantics {
                 "an expected end holds `halt`, `rule`, `cells` and `compare` only",
             ));
         }
-        // The stop rule is named as a case's `run` names its rules, and denotes the KRS item a
-        // stopped end's class names.
-        if let Some(serde_json::Value::String(rule)) = end_document.get("rule") {
-            let item = self
-                .stop_rule_item(rule)
-                .map_err(|message| refuse("rule", &message))?;
-            end_document.insert("rule".to_owned(), serde_json::Value::String(item));
-        }
         let end = self
             .read_end_in(&serde_json::Value::Object(end_document), from, files)
             .map_err(|error| match error {
@@ -1506,36 +1505,6 @@ impl Semantics {
                 _ => refuse("cells", &error.to_string()),
             })?;
         Ok(Expectation { end, comparison })
-    }
-
-    /// The KRS item of the rewrite rules `written` names as a stop rule does ([`StopRules`]),
-    /// by KRS item or K label, or why it names no one item: a stopped end's class is the KRS
-    /// item of the rule it stopped at, so a name for it selects the rules of exactly one.
-    fn stop_rule_item(&self, written: &str) -> Result<String, String> {
-        let ids = if written.contains("::") {
-            self.rules.resolve_item(written)
-        } else {
-            self.rules.resolve_rewrite(written)
-        }
-        .map_err(|error| error.to_string())?;
-        let mut items = BTreeSet::new();
-        for id in &ids {
-            let Some(item) = origin::item(self.provenance.get(id)) else {
-                return Err(format!(
-                    "`{written}` selects a rewrite rule no KRS item wrote, so no stopped end's class names it"
-                ));
-            };
-            items.insert(item);
-        }
-        let mut items = items.into_iter();
-        match (items.next(), items.next()) {
-            (Some(item), None) => Ok(item),
-            (Some(first), Some(second)) => Err(format!(
-                "`{written}` selects the rules of several KRS items (`{first}`, `{second}`{}), and a stopped end's class is one; name one of them",
-                if items.len() > 0 { ", .." } else { "" }
-            )),
-            (None, _) => Err(format!("`{written}` selects no rewrite rule")),
-        }
     }
 
     /// The claims of the generated spec module, in label order.
@@ -2128,23 +2097,27 @@ impl Semantics {
             return Ok(None);
         };
         let after = branch.depth.saturating_add(taken).saturating_add(before);
-        let mut rules = branch
-            .candidates
-            .iter()
-            .flatten()
-            .map(|candidate| {
-                let name = origin::item(self.provenance.get(&candidate.unique_id))
-                    .or_else(|| candidate.label.clone())
-                    .unwrap_or_else(|| candidate.unique_id.clone());
-                format!("`{name}`")
-            })
-            .collect::<Vec<_>>();
-        rules.dedup();
-        let successors = match (rules.is_empty(), branch.remainder.is_some()) {
-            (true, _) => "several successors".to_owned(),
-            (false, false) => format!("{} successors, by {}", rules.len(), rules.join(", ")),
-            (false, true) => format!(
-                "a successor by each of {} and one where none of them applies",
+        // A successor per candidate, and one more where none applies (the remainder); the
+        // candidates are named once each, in order, since several can share a name.
+        let candidates = branch.candidates.iter().flatten().collect::<Vec<_>>();
+        let mut rules = Vec::<String>::new();
+        for candidate in &candidates {
+            let name = self
+                .rules
+                .stop_name(&candidate.unique_id)
+                .or_else(|| candidate.label.clone())
+                .unwrap_or_else(|| candidate.unique_id.clone());
+            let name = format!("`{name}`");
+            if !rules.contains(&name) {
+                rules.push(name);
+            }
+        }
+        let successors = match (candidates.len(), branch.remainder.is_some()) {
+            (0, _) => "several successors".to_owned(),
+            (count, false) => format!("{count} successors, by {}", rules.join(", ")),
+            (count, true) => format!(
+                "{} successors, by {} and one where none of them applies",
+                count + 1,
                 rules.join(", ")
             ),
         };
@@ -2361,7 +2334,7 @@ impl Semantics {
             let provenance = self.provenance.get(&rule_id);
             NamedRule {
                 label: self.rules.get(&rule_id).and_then(|rule| rule.label.clone()),
-                item: origin::item(provenance),
+                item: origin::item_path(provenance).map(|item| self.rules.spelling(&item)),
                 origin: self.origins.step_origin(provenance),
                 rule_id,
             }
