@@ -638,6 +638,8 @@ struct NamingPass {
     /// The configured module's configuration module, when a dependency
     /// package's rules import the configured module back (FU-18).
     configuration: Option<ConfigurationSplit>,
+    /// The keys each function evaluated in one instance of a Map collection receives.
+    instance_keys: crate::instance_keys::InstanceKeys,
 }
 
 /// The configuration of the configured module `<NS>`, moved into a module
@@ -746,7 +748,10 @@ impl NamingPass {
         reason = "Keeps naming and collision checks together for all semantic item kinds."
     )]
     fn run(theory: &SemanticTheory) -> Result<Self, LoweringError> {
-        let mut pass = Self::default();
+        let mut pass = Self {
+            instance_keys: crate::instance_keys::InstanceKeys::of(theory.modules()),
+            ..Self::default()
+        };
         let mut identities = Claims::new();
         let mut emitted = Claims::new();
         let mut labels = Claims::new();
@@ -1105,6 +1110,33 @@ fn name_fixed_cells(
 struct OriginPass {
     /// Each Definition IR key this pass gave, with the semantic key it lowers from.
     semantic_keys: BTreeMap<SourceMapKey, SourceMapKey>,
+    /// The term the sentence being lowered passes for each Map collection's key, by collection
+    /// cell ([`crate::instance_keys`]).
+    keys: BTreeMap<krs_ir::SemanticId, KeyArgument>,
+}
+
+/// The term a sentence passes a function for one instance key.
+#[derive(Clone)]
+struct KeyArgument {
+    sort: DefinitionSortRef,
+    kind: KeyArgumentKind,
+}
+
+#[derive(Clone)]
+enum KeyArgumentKind {
+    Variable(krs_ir::SemanticId),
+    Token(String),
+}
+
+impl KeyArgument {
+    fn term(self, origin: NodeOrigin) -> Result<DefinitionTerm, LoweringError> {
+        Ok(match self.kind {
+            KeyArgumentKind::Variable(variable) => {
+                DefinitionTerm::variable(origin, self.sort, variable)
+            }
+            KeyArgumentKind::Token(value) => DefinitionTerm::token(origin, self.sort, value)?,
+        })
+    }
 }
 
 impl OriginPass {
@@ -1255,7 +1287,11 @@ fn lower_module(
                     )?,
                     names.production(production.id())?,
                     lower_sort_ref(production.result_sort(), names)?,
-                    lower_production_items(production, names, origins)?,
+                    [
+                        lower_production_items(production, names, origins)?,
+                        key_items(production, names, origins)?,
+                    ]
+                    .concat(),
                     lower_production_attributes(production, names, origins)?,
                 )?
                 .with_parameters(production.parameters().to_vec())
@@ -1470,13 +1506,43 @@ fn lower_rule_sentence(
         .filter(|variable| !dropped.contains(variable.id()))
         .cloned()
         .collect::<Vec<_>>();
-    let variables = lower_variables(&kept, names)?;
+    let (keys, key_variables, bound) = sentence_keys(rule, names)?;
+    let mut variables = lower_variables(&kept, names)?;
+    variables.extend(key_variables);
+    let outer = std::mem::replace(&mut origins.keys, keys);
+    let sentence = lower_rule_sentence_body(rule, variables, &bound, names, origins, stdin);
+    origins.keys = outer;
+    sentence
+}
+
+/// [`lower_rule_sentence`] with its `variables` lowered and the keys it passes bound
+/// ([`OriginPass::keys`]; `bound`, the key cells it binds to its holders' variables).
+fn lower_rule_sentence_body(
+    rule: &krs_ir_levels::SemanticRule,
+    variables: Vec<krs_ir_levels::DefinitionVariable>,
+    bound: &[(krs_ir::SemanticId, krs_ir::SemanticId, DefinitionSortRef)],
+    names: &NamingPass,
+    origins: &mut OriginPass,
+    stdin: &BTreeSet<krs_ir::SemanticId>,
+) -> Result<RuleSentence, LoweringError> {
     let label = names.rules.get(rule.id()).cloned().ok_or_else(|| {
         LoweringError::unsupported_shape("rule", format!("no naming entry for {}", rule.id()))
     })?;
     let rule_origin = rule.label().map_or(rule.origin(), |value| value.origin());
     let origin = origins.lower(rule_origin, "rule", Some(rule.id()), None)?;
     let sentence = match rule.relational_body() {
+        // A term rule at the head of the main cell that passes the keys of the instances
+        // holding the main cell is written as the main cell's clause, beside the key cells.
+        RuleBodyRef::Term(body) if names.instance_keys.completes(rule) => {
+            let lowered = main_cell_rewrite(body, rule.id(), names, origins)?;
+            RuleSentence::new_configuration(
+                origin,
+                label,
+                krs_ir::ConfigurationSentenceKind::Transition,
+                variables,
+                bind_key_clauses(lowered, bound, body.origin(), rule.id(), names, origins)?,
+            )
+        }
         RuleBodyRef::Term(body) => RuleSentence::new(
             origin,
             label,
@@ -1484,13 +1550,16 @@ fn lower_rule_sentence(
             variables,
             lower_rule_rewrite(body, names, origins)?,
         )?,
-        RuleBodyRef::Configuration { kind, body } => RuleSentence::new_configuration(
-            origin,
-            label,
-            kind,
-            variables,
-            lower_configuration_rewrite(body, names, origins, stdin)?,
-        ),
+        RuleBodyRef::Configuration { kind, body } => {
+            let lowered = lower_configuration_rewrite(body, names, origins, stdin)?;
+            RuleSentence::new_configuration(
+                origin,
+                label,
+                kind,
+                variables,
+                bind_key_clauses(lowered, bound, body.origin(), rule.id(), names, origins)?,
+            )
+        }
         RuleBodyRef::Predicate(body) => RuleSentence::new_predicate(
             origin,
             label,
@@ -1502,7 +1571,15 @@ fn lower_rule_sentence(
             ),
         ),
     };
-    lower_rule_metadata(sentence, rule, names, origins)
+    let sentence = lower_rule_metadata(sentence, rule, names, origins)?;
+    match (sentence.function_context(), rule.function_context()) {
+        (Some(context), Some(semantic)) if !bound.is_empty() => {
+            let context =
+                bind_key_cells(context, bound, semantic.origin(), rule.id(), names, origins)?;
+            Ok(sentence.with_function_context(Some(context)))
+        }
+        _ => Ok(sentence),
+    }
 }
 
 /// The naming of a lowered theory, kept to lower one rule of it again: a rule lowered here is
@@ -2699,6 +2776,372 @@ fn lower_production_items(
         .collect()
 }
 
+/// The items of the keys a function evaluated in one instance receives after its own arguments
+/// ([`crate::instance_keys`]), one per Map collection, outermost first:
+/// `#instance ( Key , .. )`, each key at its key cell's sort, after the authored items, so that
+/// its own arguments keep their positions.
+fn key_items(
+    production: &SemanticProduction,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<Vec<ProductionItem>, LoweringError> {
+    let holders = names.instance_keys.function(production.id());
+    if holders.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut items = Vec::new();
+    let origin = |origins: &mut OriginPass, index: usize| {
+        origins.lower_inserted(
+            production.origin(),
+            "instance-key-item",
+            Some(production.id()),
+            Some(&index.to_string()),
+            krs_ir::InsertedNode::GeneratedBinder,
+        )
+    };
+    let terminal = |origin: NodeOrigin, text: &str| {
+        ProductionItem::terminal(origin, text).map_err(|error| {
+            LoweringError::InvalidProductionTemplate {
+                production: Box::new(production.id().clone()),
+                detail: error.to_string(),
+            }
+        })
+    };
+    items.push(terminal(origin(origins, 0)?, "#instance")?);
+    items.push(terminal(origin(origins, 1)?, "(")?);
+    for (index, holder) in holders.iter().enumerate() {
+        let holder = names.instance_keys.holder(holder).ok_or_else(|| {
+            LoweringError::unsupported_shape(
+                "instance key",
+                format!("{holder} is no Map collection"),
+            )
+        })?;
+        let sort = holder.sort.as_ref().ok_or_else(|| {
+            LoweringError::unsupported_shape(
+                "instance key",
+                format!("the key of {} is a group of cells", holder.name),
+            )
+        })?;
+        if index != 0 {
+            items.push(terminal(origin(origins, 2 * index + 1)?, ",")?);
+        }
+        items.push(ProductionItem::non_terminal(
+            origin(origins, 2 * index + 2)?,
+            krs_ir::ProductionFieldId::new(holder.field())?,
+            lower_sort_ref(sort, names)?,
+        ));
+    }
+    items.push(terminal(origin(origins, 2 * holders.len() + 1)?, ")")?);
+    Ok(items)
+}
+
+/// The keys a function evaluated in one instance receives, applied at `term`: the terms the
+/// sentence being lowered passes for them ([`OriginPass::keys`]).
+fn key_arguments(
+    term: &SemanticTerm,
+    production: &StableItemId,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<Vec<DefinitionTerm>, LoweringError> {
+    names
+        .instance_keys
+        .function(production)
+        .iter()
+        .map(|holder| {
+            let argument = origins.keys.get(holder).cloned().ok_or_else(|| {
+                LoweringError::unsupported_shape(
+                    "instance key",
+                    format!(
+                        "{production} is applied where no key of the instances of {holder} is bound"
+                    ),
+                )
+            })?;
+            let origin = origins.lower_inserted(
+                term.origin(),
+                "instance-key",
+                None,
+                Some(holder.as_str()),
+                krs_ir::InsertedNode::GeneratedBinder,
+            )?;
+            argument.term(origin)
+        })
+        .collect()
+}
+
+/// The sentence's bindings of the keys it passes ([`crate::instance_keys::KeyBinding`]): the
+/// term passed for each Map collection, the variables to declare, and each key cell to bind to
+/// the holder's variable, with that variable and its sort.
+#[expect(
+    clippy::type_complexity,
+    reason = "The three results are consumed once, each at its own place in lowering."
+)]
+fn sentence_keys(
+    rule: &krs_ir_levels::SemanticRule,
+    names: &NamingPass,
+) -> Result<
+    (
+        BTreeMap<krs_ir::SemanticId, KeyArgument>,
+        Vec<krs_ir_levels::DefinitionVariable>,
+        Vec<(krs_ir::SemanticId, krs_ir::SemanticId, DefinitionSortRef)>,
+    ),
+    LoweringError,
+> {
+    use crate::instance_keys::KeyTerm;
+    let bindings = names.instance_keys.bindings(rule).map_err(|refusal| {
+        LoweringError::unsupported_shape(
+            "instance key",
+            format!(
+                "{} cannot pass the keys of its instance: {refusal:?}",
+                rule.id()
+            ),
+        )
+    })?;
+    let mut keys = BTreeMap::new();
+    let mut variables = Vec::new();
+    let mut bound = Vec::new();
+    for binding in bindings {
+        let holder = names.instance_keys.holder(&binding.holder).ok_or_else(|| {
+            LoweringError::unsupported_shape(
+                "instance key",
+                format!("{} is no Map collection", binding.holder),
+            )
+        })?;
+        let sort = holder
+            .sort
+            .as_ref()
+            .ok_or_else(|| {
+                LoweringError::unsupported_shape(
+                    "instance key",
+                    format!("the key of {} is a group of cells", holder.name),
+                )
+            })
+            .and_then(|sort| lower_sort_ref(sort, names))?;
+        let kind = match binding.term {
+            KeyTerm::Variable(variable) => {
+                if binding.bind {
+                    bound.push((holder.key.clone(), variable.clone(), sort.clone()));
+                }
+                if !rule
+                    .variables()
+                    .iter()
+                    .any(|declared| *declared.id() == variable)
+                {
+                    variables.push(krs_ir_levels::DefinitionVariable::new(
+                        variable.clone(),
+                        sort.clone(),
+                    ));
+                }
+                KeyArgumentKind::Variable(variable)
+            }
+            KeyTerm::Token(token) => {
+                let SemanticTermKind::Token { value } = token.kind() else {
+                    unreachable!("a key literal is a token");
+                };
+                KeyArgumentKind::Token(written_token(token.sort(), value))
+            }
+        };
+        keys.insert(binding.holder, KeyArgument { sort, kind });
+    }
+    Ok((keys, variables, bound))
+}
+
+/// `body` with each key cell of `bound` matched by its holder's variable: where the rule matches
+/// the cell with a wildcard, the variable replaces it, and otherwise a clause KRS adds reads the
+/// cell. `semantic` is the rule body's origin, which the added nodes lower from.
+fn bind_key_clauses(
+    body: FixedConfigurationRewrite<SymbolId, DefinitionTerm>,
+    bound: &[(krs_ir::SemanticId, krs_ir::SemanticId, DefinitionSortRef)],
+    semantic: &NodeOrigin,
+    item: &StableItemId,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<FixedConfigurationRewrite<SymbolId, DefinitionTerm>, LoweringError> {
+    if bound.is_empty() {
+        return Ok(body);
+    }
+    let mut clauses = body.clauses().to_vec();
+    let mut omitted = body.omitted_siblings().to_vec();
+    for (cell, variable, sort) in bound {
+        let symbol = lower_cell_id(cell, names)?;
+        let binder = DefinitionTerm::variable(
+            key_origin(origins, semantic, "instance-key-binder", item, cell)?,
+            sort.clone(),
+            variable.clone(),
+        );
+        omitted.retain(|omitted| *omitted != symbol);
+        match clauses.iter_mut().find(|clause| *clause.cell() == symbol) {
+            Some(ConfigurationClause::Fixed(clause)) => {
+                *clause = FixedCellClause::new(
+                    clause.origin().clone(),
+                    symbol,
+                    binder,
+                    clause.after().clone(),
+                    clause.frame().clone(),
+                )
+                .with_kind(clause.kind());
+            }
+            Some(_) => {
+                return Err(LoweringError::unsupported_shape(
+                    "instance key",
+                    format!("the key cell {cell} is written as no leaf clause"),
+                ));
+            }
+            None => clauses.push(ConfigurationClause::Fixed(FixedCellClause::new(
+                key_origin(origins, semantic, "instance-key-cell", item, cell)?,
+                symbol,
+                binder,
+                CellPost::Preserve,
+                CellContentFrame::Exact,
+            ))),
+        }
+    }
+    FixedConfigurationRewrite::new(
+        body.origin().clone(),
+        body.configuration().clone(),
+        clauses,
+        omitted,
+    )
+    .map_err(state_shape_error)
+}
+
+/// A term rule's rewrite `body` as the clause of the main cell it runs at, the head of the
+/// computation: `<k> FROM => TO ... </k>`, or the single-body rule's term in place, with every
+/// other leaf cell of the configuration left as it is. K completes a term rule to the same
+/// clause; writing it lets the sentence name the key cells of the instances holding the main
+/// cell ([`bind_key_clauses`]).
+fn main_cell_rewrite(
+    body: &krs_ir_levels::IrRewrite<krs_ir_levels::SemanticLevel>,
+    item: &StableItemId,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<FixedConfigurationRewrite<SymbolId, DefinitionTerm>, LoweringError> {
+    let main = names.instance_keys.main().ok_or_else(|| {
+        LoweringError::unsupported_shape(
+            "instance key",
+            format!("{item} passes instance keys from a configuration without one main cell"),
+        )
+    })?;
+    let semantic = body.origin();
+    let inserted = |origins: &mut OriginPass, role: &'static str| {
+        origins.lower_inserted(
+            semantic,
+            role,
+            Some(item),
+            None,
+            krs_ir::InsertedNode::CellFrame,
+        )
+    };
+    let sequence = |origin: NodeOrigin, term: DefinitionTerm| {
+        DefinitionTerm::k_sequence(origin, term.sort().clone(), vec![term])
+    };
+    let (before, after) = if let Some(local) = body.local_term() {
+        let local = lower_term(local, names, origins)?;
+        (
+            sequence(inserted(origins, "main-cell-subject")?, local),
+            CellPost::Local,
+        )
+    } else {
+        let from = lower_term(body.from(), names, origins)?;
+        let to = lower_term(body.to(), names, origins)?;
+        (
+            sequence(inserted(origins, "main-cell-subject")?, from),
+            CellPost::Replace {
+                term: sequence(inserted(origins, "main-cell-result")?, to),
+            },
+        )
+    };
+    let cell = lower_cell_id(&main.cell, names)?;
+    let clause = FixedCellClause::new(
+        inserted(origins, "main-cell-clause")?,
+        cell.clone(),
+        before,
+        after,
+        CellContentFrame::KSequenceTail {
+            origin: inserted(origins, "main-cell-tail")?,
+            binding: None,
+        },
+    );
+    let omitted = main
+        .leaves
+        .iter()
+        .filter(|leaf| **leaf != main.cell)
+        .map(|leaf| lower_cell_id(leaf, names))
+        .collect::<Result<Vec<_>, _>>()?;
+    FixedConfigurationRewrite::new(
+        inserted(origins, "main-cell-rewrite")?,
+        main.configuration.clone(),
+        vec![ConfigurationClause::Fixed(clause)],
+        omitted,
+    )
+    .map_err(state_shape_error)
+}
+
+/// [`bind_key_clauses`] for an equation's function context: its cells.
+fn bind_key_cells(
+    context: &krs_ir_levels::DefinitionFunctionContext,
+    bound: &[(krs_ir::SemanticId, krs_ir::SemanticId, DefinitionSortRef)],
+    semantic: &NodeOrigin,
+    item: &StableItemId,
+    names: &NamingPass,
+    origins: &mut OriginPass,
+) -> Result<krs_ir_levels::DefinitionFunctionContext, LoweringError> {
+    let pattern = context.cells();
+    let mut cells = pattern.cells().to_vec();
+    let mut omitted = pattern.omitted_siblings().to_vec();
+    for (cell, variable, sort) in bound {
+        let symbol = lower_cell_id(cell, names)?;
+        let binder = DefinitionTerm::variable(
+            key_origin(origins, semantic, "instance-key-binder", item, cell)?,
+            sort.clone(),
+            variable.clone(),
+        );
+        omitted.retain(|omitted| *omitted != symbol);
+        match cells.iter_mut().find(|pattern| *pattern.cell() == symbol) {
+            Some(pattern) => {
+                *pattern = FixedCellPattern::new(
+                    pattern.origin().clone(),
+                    symbol,
+                    binder,
+                    pattern.frame().clone(),
+                );
+            }
+            None => cells.push(FixedCellPattern::new(
+                key_origin(origins, semantic, "instance-key-cell", item, cell)?,
+                symbol,
+                binder,
+                CellContentFrame::Exact,
+            )),
+        }
+    }
+    Ok(krs_ir_levels::IrFunctionContext::new(
+        context.origin().clone(),
+        FixedConfigurationPattern::new(
+            pattern.origin().clone(),
+            pattern.configuration().clone(),
+            cells,
+            omitted,
+        )
+        .map_err(state_shape_error)?,
+    ))
+}
+
+/// The origin of a node KRS adds to bind the key cell `cell`, lowered from `semantic`.
+fn key_origin(
+    origins: &mut OriginPass,
+    semantic: &NodeOrigin,
+    role: &'static str,
+    item: &StableItemId,
+    cell: &krs_ir::SemanticId,
+) -> Result<NodeOrigin, LoweringError> {
+    origins.lower_inserted(
+        semantic,
+        role,
+        Some(item),
+        Some(cell.as_str()),
+        krs_ir::InsertedNode::GeneratedBinder,
+    )
+}
+
 fn lower_production_attributes(
     production: &SemanticProduction,
     names: &NamingPass,
@@ -3025,10 +3468,18 @@ fn lower_term(
                     operation.try_map_sort(|sort| lower_sort_ref(sort, names))?,
                 ),
             },
-            arguments
-                .iter()
-                .map(|argument| lower_term(argument, names, origins))
-                .collect::<Result<Vec<_>, _>>()?,
+            {
+                let mut lowered = arguments
+                    .iter()
+                    .map(|argument| lower_term(argument, names, origins))
+                    .collect::<Result<Vec<_>, _>>()?;
+                // A function evaluated in one instance receives its keys after its own
+                // arguments.
+                if let ApplicationRef::Declared(production) = application {
+                    lowered.extend(key_arguments(term, production, names, origins)?);
+                }
+                lowered
+            },
             instance
                 .iter()
                 .map(|sort| lower_sort_ref(sort, names))

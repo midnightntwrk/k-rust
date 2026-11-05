@@ -2144,17 +2144,6 @@ pub fn sample(
 }
 "#;
 
-/// A rule for the hart that applies `pcPlus`: inside the instance the
-/// context reads.
-const HART_CALLER: &str = r"
-k::rules! {
-    for lib::Hart;
-    use lib::Op::*;
-
-    jump: { k: [Inc(), ..], pc } => { k: [..], pc: crate::PcPlus(pc) };
-}
-";
-
 /// A context alias typed by the hart.
 const HART_ALIAS: &str = r#"
 #[k::constructors(sort = lib::Instr, result = k::KResult)]
@@ -2431,36 +2420,6 @@ impl Pool {
 }
 "#;
 
-/// A function whose context reads the optional unit's `fa`, and a
-/// simplification that mentions it only in its left-hand side, which is a
-/// pattern and evaluates nothing.
-const FA_PLUS: &str = r#"
-use k::Term;
-
-#[k::function(total, sort = Int, syntax = "faPlus({n})")]
-pub struct FaPlus {
-    pub n: Term<Int>,
-}
-
-#[k::equation]
-fn fa_plus(
-    n: Term<Int>,
-    a: Term<Int>,
-    k::term![FaPlus(n)]: Term<Int>,
-    k::cells! {
-        fa: k::configuration::Cell(a),
-        ..
-    }: lib::Fpu,
-) -> Term<Int> {
-    k::builtin::int::add(a, n)
-}
-
-#[k::simplification]
-fn fa_plus_same(k::term![k::builtin::int::sub(FaPlus(n), FaPlus(n))]: Term<Int>) -> Term<Int> {
-    0
-}
-"#;
-
 /// The outcome of `krs check` on each case: its name, then each diagnostic's
 /// headline, location and help. A case is its name, the source of its one
 /// package beside `lib` and that package's name; the holder cases take the
@@ -2520,6 +2479,11 @@ fn meaning_cases() -> Vec<(&'static str, String, &'static str)> {
             "smp",
         ),
         ("set-main", SET_MAIN.to_owned(), "pool"),
+        (
+            "initializer",
+            smp("Map", PC_PLUS).replace("pc: 0 },", "pc: crate::PcPlus(0) },"),
+            "smp",
+        ),
     ]
 }
 
@@ -2536,7 +2500,10 @@ fn meaning_cases() -> Vec<(&'static str, String, &'static str)> {
 /// - a function whose context reads one hart, applied by a rule for the
 ///   configuration, directly or through a function without a context of its
 ///   own, is `instance-context-caller`, at the application;
-/// - a main cell inside a Set instance is `main-cell`.
+/// - a main cell inside a Set instance is `main-cell`;
+/// - the initializer, which builds the configuration and so is evaluated in
+///   no hart, applying that function is `instance-context-caller`, at the
+///   application.
 #[test]
 fn a_sentence_about_one_instance_is_refused_where_its_meaning_does_not_hold() {
     let outcomes = instance_outcomes(&meaning_cases());
@@ -2612,38 +2579,717 @@ fn a_sentence_about_one_instance_is_refused_where_its_meaning_does_not_hold() {
                 "error[krs::analysis::main-cell]: the computation cell `k` sits in an instance of the Set collection cell `obj` of configuration `Pool`: a sentence that names no cell (a term rule, a context, a strict production's heating) runs at the computation cell, so it is a local step of the instance that holds it, and a Set identifies an instance by its whole content, so a step that makes that instance equal to another merges the two, removing an instance the step never touched; hold the instances in a Map collection keyed by an id",
                 "--> pool/src/lib.rs: `obj: Obj,`",
             ],
+            [
+                "initializer",
+                "error[krs::analysis::instance-context-caller]: `PcPlus` reads the cell group `Hart` through its function context in one instance of the Map collection cell `hart`, the instance it is evaluated in, and the initializer builds the configuration, so it is evaluated in no instance and determines none: a function has one value for its arguments, so it is applied only from a sentence about one instance of that holder (a rule, a context alias or a function context for the group, or for a group inside its instance)",
+                "--> smp/src/lib.rs: `crate::PcPlus(0)`",
+            ],
         ]
     "#]].assert_debug_eq(&outcomes);
 }
 
-/// A function context inside an instance is refused as `group-subject-position`, "not emitted
-/// yet", where the caller rule admits it: applied from its own instance, or named only in a
-/// simplification's left-hand side, which is a pattern. The function reads the instance it is
-/// evaluated in, and passing that instance to the function is not emitted yet.
+/// The library's function whose context reads the hart's `pc`, `pcPlus(n)`,
+/// and one without a context of its own that applies it, `viaPc(n)`; the
+/// library holds [`HART_RULES`] beside them.
+const LIB_PC_PLUS: &str = r#"
+use k::Term;
+
+/// The program counter of the hart it is evaluated in, plus `n`.
+#[k::function(total, sort = Int, syntax = "pcPlus ( {n} )")]
+pub struct PcPlus {
+    pub n: Term<Int>,
+}
+
+#[k::equation]
+fn pc_plus(
+    n: Term<Int>,
+    p: Term<Int>,
+    k::term![PcPlus(n)]: Term<Int>,
+    k::cells! {
+        pc: k::configuration::Cell(p),
+        ..
+    }: Hart,
+) -> Term<Int> {
+    k::builtin::int::add(p, n)
+}
+
+#[k::function(total, sort = Int, syntax = "viaPc ( {n} )")]
+pub struct ViaPc {
+    pub n: Term<Int>,
+}
+
+#[k::equation]
+fn via_pc(n: Term<Int>, k::term![ViaPc(n)]: Term<Int>) -> Term<Int> {
+    PcPlus(n)
+}
+"#;
+
+/// Instructions and rules for `lib::Hart` that apply the library's functions:
+/// `jump` leaves the key out, `hop` restates it as its binder `me` and
+/// `tock` as the literal `1`.
+const HART_JUMPS: &str = r#"
+#[k::constructors(sort = lib::Instr, result = k::KResult)]
+#[rustfmt::skip]
+pub enum Far {
+    #[k::syntax("jump")] Jump(),
+    #[k::syntax("hop")] Hop(),
+    #[k::syntax("tock")] Tock(),
+    #[k::syntax("start")] Start(),
+}
+
+k::rules! {
+    for lib::Hart;
+    use Far::*;
+
+    jump: { k: [Jump(), ..], pc } => { k: [..], pc: lib::PcPlus(100) };
+    hop: { id: me, k: [Hop(), ..], pc } => { id: me, k: [..], pc: lib::ViaPc(1000) };
+    tock: { id: 1, k: [Tock(), ..], pc } => { id: 1, k: [..], pc: lib::PcPlus(1) };
+}
+"#;
+
+/// A rule for `holder` that starts a second hart keyed `1` at `pc` 10 beside
+/// the first: the first runs `jump ; hop`, the second `jump ; hop ; tock`.
+fn start_rule(holder: &str) -> String {
+    format!(
+        r"
+k::rules! {{
+    for {holder};
+    use Far::*;
+
+    start: {{
+        hart: {{ me @ lib::Hart {{ k: [Start(), ..], .. }}, .. }},
+    }} => {{
+        hart: {{ lib::Hart {{ k: [Jump(), Hop(), ..], ..me }}, lib::Hart {{ id: 1, k: [Jump(), Hop(), Tock()], pc: 10 }}, .. }},
+    }};
+}}
+"
+    )
+}
+
+/// A configuration whose instances are clusters keyed by `cid`, each holding a
+/// Map collection of harts, starting with one cluster and one hart, with
+/// `rules` appended.
+fn clusters(rules: &str) -> String {
+    format!(
+        r#"
+use k::builtin::Int;
+
+#[k::cell]
+pub struct Clusters {{
+    #[k::cell(multiplicity = "*", cell_type = "Map", initial, nested)]
+    pub cluster: Cluster,
+}}
+
+#[k::cell]
+pub struct Cluster {{
+    #[k::cell]
+    pub cid: Int,
+    #[k::cell(nested)]
+    pub harts: Harts,
+}}
+
+#[k::cell]
+pub struct Harts {{
+    #[k::cell(multiplicity = "*", cell_type = "Map", initial, nested)]
+    pub hart: lib::Hart,
+}}
+
+#[k::configuration]
+pub struct Board {{
+    #[k::cell(nested)]
+    pub clusters: Clusters,
+}}
+
+impl Board {{
+    #[k::init]
+    pub fn init(pgm: lib::Instr) -> Self {{
+        Self {{
+            clusters: Clusters {{
+                cluster: Cluster {{
+                    cid: 0,
+                    harts: Harts {{ hart: lib::Hart {{ id: 0, k: k::k![pgm], pc: 0 }} }},
+                }},
+            }},
+        }}
+    }}
+}}
+
+{rules}
+"#
+    )
+}
+
+/// The emitted sentences that start with each of `starts`, the harts of the
+/// end state of `krs run` of `start`, and the number of final states `krs
+/// search --mode final` finds with their harts, each whitespace-flattened.
+fn jumps(
+    target: &Path,
+    manifest: &Path,
+    package: &str,
+    starts: &[&str],
+) -> (Vec<String>, Vec<String>, (usize, Vec<String>)) {
+    let flat = emitted(target, manifest, package);
+    let sentences = starts
+        .iter()
+        .map(|start| sentence(&flat, start).to_owned())
+        .collect();
+    let program = manifest.with_file_name("program.txt");
+    fs::write(&program, "start").unwrap();
+    let program = program.to_str().unwrap();
+    let whitespace = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let (success, stdout, stderr) = krs_on(target, manifest, package, "run", &[program]);
+    assert!(success, "{stdout}\n{stderr}");
+    let run = harts(&whitespace(&stdout));
+    let (success, stdout, stderr) = krs_on(
+        target,
+        manifest,
+        package,
+        "search",
+        &[program, "--mode", "final"],
+    );
+    assert!(success, "{stdout}\n{stderr}");
+    // Each final state holds one `<harts>`, in `smp` and in `board`'s one cluster.
+    let searched = whitespace(&stdout);
+    let searched = (searched.matches("<harts> ").count(), harts(&searched));
+    (sentences, run, searched)
+}
+
+/// A library function whose context reads the hart's `pc`, applied by rules
+/// for the hart in `smp`, has one value per hart: it receives the hart's key
+/// `id` after its own argument (`#instance ( Int )`), its equation's context
+/// matches the hart with that key, and each rule passes its own hart's key:
+/// the binder or literal its subject matches `id` with, or a key cell KRS adds
+/// (`jump`), as does a `for Instr` clause, which runs at the main cell inside
+/// the hart (`skip`). `viaPc`, without a context of its own, receives the key
+/// and passes it on. Two harts at different program counters each read their own:
+/// hart 0 from 0 ends at `0 + 100 + 1000`, hart 1 from 10 at
+/// `10 + 100 + 1000 + 1`, and every interleaving reaches that one final state.
 #[test]
-fn a_function_context_inside_an_instance_is_refused_as_not_emitted_yet() {
-    let outcomes = instance_outcomes(&[
+fn a_function_context_reads_the_instance_it_is_evaluated_in() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = instance_definitions(
+        temporary.path(),
+        &format!("{HART_RULES}{LIB_PC_PLUS}"),
+        &[(
+            "smp",
+            &smp(
+                "Map",
+                &format!("{HART_JUMPS}{}{PADS}{SKIP_RULE}", start_rule("Smp")),
+            ),
+        )],
+    )
+    .remove(0);
+    let outcome = jumps(
+        target.path(),
+        &manifest,
+        "smp",
+        &[
+            "syntax Int ::= \"pcPlus\"",
+            "syntax Int ::= \"viaPc\"",
+            "rule [[ pcPlus",
+            "rule viaPc",
+            "rule [jump]:",
+            "rule [hop]:",
+            "rule [tock]:",
+            "rule [skip]:",
+        ],
+    );
+    expect_test::expect![[r##"
         (
-            "function-context",
-            smp("Map", &format!("{PC_PLUS}{HART_CALLER}")),
+            [
+                "syntax Int ::= \"pcPlus\" \"(\" Int \")\" \"#instance\" \"(\" Int \")\" [symbol(pcPlus), function, total]",
+                "syntax Int ::= \"viaPc\" \"(\" Int \")\" \"#instance\" \"(\" Int \")\" [symbol(viaPc), function, total]",
+                "rule [[ pcPlus ( N:Int ) #instance ( Krs_KeyHart:Int ) => P:Int +Int N:Int ]] <hart> <pc> P:Int </pc> <id> Krs_KeyHart:Int </id> ... </hart> [label(org_krs_groups_lib--pc_plus)]",
+                "rule viaPc ( N:Int ) #instance ( Krs_KeyHart:Int ) => pcPlus ( N:Int ) #instance ( Krs_KeyHart:Int ) [label(org_krs_groups_lib--via_pc)]",
+                "rule [jump]: <hart> <k> jump => .K ... </k> <pc> Pc:Int => pcPlus ( 100 ) #instance ( Krs_KeyHart:Int ) </pc> <id> Krs_KeyHart:Int </id> ... </hart>",
+                "rule [hop]: <hart> <k> hop => .K ... </k> <id> Me:Int </id> <pc> Pc:Int => viaPc ( 1000 ) #instance ( Me:Int ) </pc> ... </hart>",
+                "rule [tock]: <hart> <k> tock => .K ... </k> <id> 1 </id> <pc> Pc:Int => pcPlus ( 1 ) #instance ( 1 ) </pc> ... </hart>",
+                "rule [skip]: <hart> <k> skip ( N:Int ) => pad ( pcPlus ( N:Int ) #instance ( Krs_KeyHart:Int ) ) ... </k> <id> Krs_KeyHart:Int </id> ... </hart>",
+            ],
+            [
+                "<id> 0 </id> <k> .K </k> <pc> 1100 </pc>",
+                "<id> 1 </id> <k> .K </k> <pc> 1111 </pc>",
+            ],
+            (
+                1,
+                [
+                    "<id> 0 </id> <k> .K </k> <pc> 1100 </pc>",
+                    "<id> 1 </id> <k> .K </k> <pc> 1111 </pc>",
+                ],
+            ),
+        )
+    "##]].assert_debug_eq(&outcome);
+}
+
+/// Instructions `#[k::rule]` fns over a term rewrite, applying `pcPlus`.
+const TAPS: &str = r#"
+use k::Term;
+
+#[k::constructors(sort = lib::Instr, result = k::KResult)]
+#[rustfmt::skip]
+pub enum Tap {
+    #[k::syntax("tap ( {n} )")] Tap { n: Int },
+    #[k::syntax("tapped ( {n} )")] Tapped { n: Int },
+    #[k::syntax("mark ( {s} , {n} )")] Mark { s: Int, n: Int },
+}
+
+/// A term rule, which runs at the head of the main cell.
+#[k::rule(label = "tap")]
+fn tap(k::term![Tap::Tap { n }]: Term<lib::Instr>) -> Term<lib::Instr> {
+    Tap::Tapped { n: lib::PcPlus(n) }
+}
+
+/// A single-body term rule, which rewrites its subject in place.
+#[k::rule(label = "mark")]
+fn mark(k::term![Tap::Mark { s: k::rewrite!(0 => 1), n: k::rewrite!(n => lib::PcPlus(n)) }]: Term<lib::Instr>) {}
+"#;
+
+/// A simplification that names `pcPlus` only in its left-hand side.
+const SAME_SIMPLIFICATION: &str = r"
+use k::Term;
+
+#[k::simplification]
+fn same(k::term![k::builtin::int::sub(lib::PcPlus(n), lib::PcPlus(n))]: Term<Int>) -> Term<Int> {
+    0
+}
+";
+
+/// A `#[k::rule]` fn over a term that is not `anywhere` runs at the head of
+/// the main cell, which sits in a hart, so it is about that hart, as a `for
+/// Instr` clause is: it is written as the main cell's clause beside the key
+/// cell KRS adds, and passes the hart's key, in both the two-sided and the
+/// single-body form. With the hart at `pc` 3, `tap(5)` ends as `tapped(8)` and
+/// `mark(0, 5)` as `mark(1, 8)`.
+#[test]
+fn a_term_rule_at_the_main_cell_passes_the_key_of_its_instance() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = instance_definitions(
+        temporary.path(),
+        &format!("{HART_RULES}{LIB_PC_PLUS}"),
+        &[("smp", &smp("Map", TAPS).replace("pc: 0 },", "pc: 3 },"))],
+    )
+    .remove(0);
+    let flat = emitted(target.path(), &manifest, "smp");
+    let sentences = ["rule [tap]:", "rule [mark]:"].map(|start| sentence(&flat, start).to_owned());
+    let whitespace = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let ends = ["tap ( 5 )", "mark ( 0 , 5 )"].map(|program| {
+        let path = manifest.with_file_name("program.txt");
+        fs::write(&path, program).unwrap();
+        let (success, stdout, stderr) = krs_on(
+            target.path(),
+            &manifest,
+            "smp",
+            "run",
+            &[path.to_str().unwrap()],
+        );
+        assert!(success, "{stdout}\n{stderr}");
+        harts(&whitespace(&stdout))
+    });
+    expect_test::expect![[r#"
+        (
+            [
+                "rule [tap]: <hart> <k> tap ( N:Int ) => tapped ( pcPlus ( N:Int ) #instance ( Krs_KeyHart:Int ) ) ... </k> <id> Krs_KeyHart:Int </id> ... </hart>",
+                "rule [mark]: <hart> <k> mark ( (0 => 1) , (N:Int => pcPlus ( N:Int ) #instance ( Krs_KeyHart:Int )) ) ... </k> <id> Krs_KeyHart:Int </id> ... </hart>",
+            ],
+            [
+                [
+                    "<id> 0 </id> <k> tapped ( 8 ) ~> .K </k> <pc> 3 </pc>",
+                ],
+                [
+                    "<id> 0 </id> <k> mark ( 1 , 8 ) ~> .K </k> <pc> 3 </pc>",
+                ],
+            ],
+        )
+    "#]].assert_debug_eq(&(sentences, ends));
+}
+
+/// A simplification rewrites wherever its left-hand side occurs, so it passes
+/// the keys its left-hand side's applications receive: both applications of
+/// `pcPlus` it matches share one key variable, so it states a fact about the
+/// two applications in one hart.
+#[test]
+fn a_simplification_passes_the_key_its_left_hand_side_matches() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = instance_definitions(
+        temporary.path(),
+        &format!("{HART_RULES}{LIB_PC_PLUS}"),
+        &[("smp", &smp("Map", SAME_SIMPLIFICATION))],
+    )
+    .remove(0);
+    let flat = emitted(target.path(), &manifest, "smp");
+    expect_test::expect!["rule pcPlus ( N:Int ) #instance ( Krs_KeyHart:Int ) -Int pcPlus ( N:Int ) #instance ( Krs_KeyHart:Int ) => 0 [simplification, label(org_krs_groups_smp--same)]"].assert_eq(sentence(&flat, "rule pcPlus ( N:Int ) #instance"));
+}
+
+/// In a Map collection of harts inside each instance of a Map collection of
+/// clusters, the library's function receives both keys, the cluster's first:
+/// its equation's context matches the hart with its key inside the cluster
+/// with its key, and a rule for the hart passes its cluster's key from a key
+/// cell KRS adds in the cluster's cell, around the hart's. The two harts of a
+/// cluster each read their own program counter.
+#[test]
+fn a_function_context_in_a_nested_collection_receives_every_enclosing_key() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = instance_definitions(
+        temporary.path(),
+        &format!("{HART_RULES}{LIB_PC_PLUS}"),
+        &[(
+            "board",
+            &clusters(&format!("{HART_JUMPS}{}", start_rule("Cluster"))),
+        )],
+    )
+    .remove(0);
+    let outcome = jumps(
+        target.path(),
+        &manifest,
+        "board",
+        &[
+            "syntax Int ::= \"pcPlus\"",
+            "rule [[ pcPlus",
+            "rule [jump]:",
+            "rule [hop]:",
+        ],
+    );
+    expect_test::expect![[r##"
+        (
+            [
+                "syntax Int ::= \"pcPlus\" \"(\" Int \")\" \"#instance\" \"(\" Int \",\" Int \")\" [symbol(pcPlus), function, total]",
+                "rule [[ pcPlus ( N:Int ) #instance ( Krs_KeyCluster:Int , Krs_KeyHart:Int ) => P:Int +Int N:Int ]] <cluster> <cid> Krs_KeyCluster:Int </cid> <hart> <pc> P:Int </pc> <id> Krs_KeyHart:Int </id> ... </hart> ... </cluster> [label(org_krs_groups_lib--pc_plus)]",
+                "rule [jump]: <cluster> <cid> Krs_KeyCluster:Int </cid> <hart> <k> jump => .K ... </k> <pc> Pc:Int => pcPlus ( 100 ) #instance ( Krs_KeyCluster:Int , Krs_KeyHart:Int ) </pc> <id> Krs_KeyHart:Int </id> ... </hart> ... </cluster>",
+                "rule [hop]: <cluster> <cid> Krs_KeyCluster:Int </cid> <hart> <k> hop => .K ... </k> <id> Me:Int </id> <pc> Pc:Int => viaPc ( 1000 ) #instance ( Krs_KeyCluster:Int , Me:Int ) </pc> ... </hart> ... </cluster>",
+            ],
+            [
+                "<id> 0 </id> <k> .K </k> <pc> 1100 </pc>",
+                "<id> 1 </id> <k> .K </k> <pc> 1111 </pc>",
+            ],
+            (
+                1,
+                [
+                    "<id> 0 </id> <k> .K </k> <pc> 1100 </pc>",
+                    "<id> 1 </id> <k> .K </k> <pc> 1111 </pc>",
+                ],
+            ),
+        )
+    "##]].assert_debug_eq(&outcome);
+}
+
+/// `faPlus(n)`, whose context reads the unit's `fa`.
+const FA_PLUS_EQUATION: &str = r#"
+use k::Term;
+
+#[k::function(total, sort = Int, syntax = "faPlus({n})")]
+pub struct FaPlus {
+    pub n: Term<Int>,
+}
+
+#[k::equation]
+fn fa_plus(
+    n: Term<Int>,
+    a: Term<Int>,
+    k::term![FaPlus(n)]: Term<Int>,
+    k::cells! {
+        fa: k::configuration::Cell(a),
+        ..
+    }: lib::Fpu,
+) -> Term<Int> {
+    k::builtin::int::add(a, n)
+}
+"#;
+
+/// A rule for the unit that applies `faPlus`, whose context reads its `fa`.
+const FPU_CALLER: &str = r"
+k::rules! {
+    for lib::Fpu;
+
+    finish: { busy: 1, fa } => { busy: 0, fa: crate::FaPlus(1) };
+}
+";
+
+/// An optional cell holds at most one instance, so a function whose context
+/// reads the optional unit receives no key: its context is read inside the
+/// unit's cell.
+#[test]
+fn a_function_context_in_an_optional_cell_is_read_inside_it() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = instance_definitions(
+        temporary.path(),
+        "",
+        &[("opt", &opt(&format!("{FA_PLUS_EQUATION}{FPU_CALLER}")))],
+    )
+    .remove(0);
+    let (success, _, stderr) = krs_on(target.path(), &manifest, "opt", "check", &[]);
+    assert!(success, "{stderr}");
+    let flat = emitted(target.path(), &manifest, "opt");
+    let sentences = [
+        "syntax Int ::= \"faPlus\"",
+        "rule [[ faPlus",
+        "rule [finish]:",
+    ]
+    .map(|start| sentence(&flat, start).to_owned());
+    expect_test::expect![[r#"
+        [
+            "syntax Int ::= \"faPlus\" \"(\" Int \")\" [symbol(faPlus), function, total]",
+            "rule [[ faPlus ( N:Int ) => A:Int +Int N:Int ]] <fpu> <fa> A:Int </fa> ... </fpu> [label(org_krs_groups_opt--fa_plus)]",
+            "rule [finish]: <fpu> <busy> 1 => 0 </busy> <fa> Fa:Int => faPlus ( 1 ) </fa> ... </fpu>",
+        ]
+    "#]].assert_debug_eq(&sentences);
+}
+
+/// The refusal cases' marker for a library of [`HART_RULES`] and [`LIB_PC_PLUS`].
+const LIB_LIBRARY: &str = "library";
+
+/// Instructions a rule for `Instr` rewrites, applying `pcPlus`.
+const PADS: &str = r#"
+#[k::constructors(sort = lib::Instr, result = k::KResult)]
+#[rustfmt::skip]
+pub enum Pad {
+    #[k::syntax("skip ( {n} )")] Skip { n: Int },
+    #[k::syntax("pad ( {n} )")] Padded { n: Int },
+}
+"#;
+
+/// A `for Instr` clause, which runs at the head of the computation cell, the
+/// main cell, inside a hart.
+const SKIP_RULE: &str = r"
+k::rules! {
+    for lib::Instr;
+    use Pad::*;
+
+    skip: Skip { n } => Padded { n: lib::PcPlus(n) };
+}
+";
+
+/// An `anywhere` rule, which rewrites wherever its left-hand side occurs.
+const ANYWHERE_SKIP: &str = r#"
+use k::Term;
+
+#[k::rule(anywhere, label = "skip")]
+fn skip(k::term![Pad::Skip { n }]: Term<lib::Instr>) -> Term<lib::Instr> {
+    Pad::Padded { n: lib::PcPlus(n) }
+}
+"#;
+
+/// A simplification whose right-hand side applies `pcPlus`, which its
+/// left-hand side does not.
+const UNBOUND_SIMPLIFICATION: &str = r"
+use k::Term;
+
+#[k::simplification]
+fn add_zero(k::term![k::builtin::int::add(n, 0)]: Term<Int>) -> Term<Int> {
+    lib::PcPlus(n)
+}
+";
+
+/// A function whose context reads a node, whose key is the group `cpu`.
+const NODE_CONTEXT: &str = r#"
+use k::Term;
+
+#[k::function(total, sort = Int, syntax = "nodePc ( {n} )")]
+pub struct NodePc {
+    pub n: Term<Int>,
+}
+
+#[k::equation]
+fn node_pc(
+    n: Term<Int>,
+    p: Term<Int>,
+    k::term![NodePc(n)]: Term<Int>,
+    k::cells! {
+        Cpu::pc: k::configuration::Cell(p),
+        ..
+    }: Node,
+) -> Term<Int> {
+    k::builtin::int::add(p, n)
+}
+"#;
+
+/// A term rule, written before the context it reaches, that applies
+/// `nodePc` in its condition.
+const NODE_CALLER: &str = r#"
+#[k::rule(label = "poke")]
+#[k::requires(k::builtin::int::eq(crate::NodePc(0), 0))]
+fn poke(k::term![lib::Op::Tick()]: k::Term<lib::Instr>) -> k::Term<lib::Instr> {
+    lib::Op::Inc()
+}
+"#;
+
+/// A `#[k::context]` that names no cell, whose condition applies `pcPlus`.
+const GUARDED_CONTEXT: &str = r"
+use k::Term;
+
+#[k::context(hole = n)]
+#[k::requires(k::builtin::int::eq(lib::PcPlus(0), 0))]
+fn skip_operand(k::term![Pad::Skip { n }]: Term<lib::Instr>) {}
+";
+
+/// A function whose context reads a unit's key, and a rule for the unit that
+/// matches the key with the constructor pattern `h(n)` and applies it.
+const UNIT_PROBE: &str = r#"
+use k::Term;
+
+#[k::function(total, sort = lib::Instr, syntax = "probe ( {m} )")]
+pub struct Probe {
+    pub m: Term<Hid>,
+}
+
+#[k::equation]
+fn probe(
+    m: Term<Hid>,
+    k::term![Probe(m)]: Term<lib::Instr>,
+    k::cells! {
+        id: k::configuration::Cell(m),
+        ..
+    }: Unit,
+) -> Term<lib::Instr> {
+    lib::Op::Inc()
+}
+
+k::rules! {
+    for Unit;
+
+    look: { id: HidC::H(n), k: [lib::Op::Tick(), ..] } => { k: [crate::Probe(HidC::H(n)), ..] };
+}
+"#;
+
+/// The sentences that cannot pass a function the key of the instance it is
+/// evaluated in are refused, at the application or the context:
+/// - an `anywhere` rule and a simplification, which rewrite wherever their
+///   left-hand side occurs, whose right-hand side applies `pcPlus` while their
+///   left-hand side applies nothing that receives the key, so they determine
+///   no instance (`instance-context-caller`);
+/// - a context in a Map collection keyed by a group of cells: passing such a
+///   key is not emitted yet (`group-subject-position`), refused at the
+///   context whichever sentence passes the key first;
+/// - a rule that matches its key cell with a constructor pattern, so no one
+///   term of it is the key it passes (`group-subject-position`, at the
+///   pattern).
+/// - a `#[k::context]` that names no cell, which runs at the main cell inside
+///   the hart but is K's `context`, which binds no key cell: passing the key
+///   from it is not emitted yet (`group-subject-position`, at the
+///   application).
+#[test]
+fn a_sentence_that_cannot_pass_an_instance_key_is_refused() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let outcomes = [
+        (
+            "anywhere",
+            LIB_LIBRARY,
+            smp("Map", &format!("{PADS}{ANYWHERE_SKIP}")),
             "smp",
         ),
-        ("simplification", opt(FA_PLUS), "opt"),
-    ]);
+        (
+            "simplification",
+            LIB_LIBRARY,
+            smp("Map", UNBOUND_SIMPLIFICATION),
+            "smp",
+        ),
+        (
+            "group-key",
+            "",
+            composite(&format!("{NODE_CALLER}{NODE_CONTEXT}")),
+            "grid",
+        ),
+        ("key-pattern", "", tagged(UNIT_PROBE), "tagged"),
+        (
+            "context",
+            LIB_LIBRARY,
+            smp("Map", &format!("{PADS}{GUARDED_CONTEXT}")),
+            "smp",
+        ),
+    ]
+    .iter()
+    .map(|(name, lib_rules, source, package)| {
+        let lib_rules = if *lib_rules == LIB_LIBRARY {
+            format!("{HART_RULES}{LIB_PC_PLUS}")
+        } else {
+            String::new()
+        };
+        let manifest = instance_definitions(
+            &temporary.path().join(name),
+            &lib_rules,
+            &[(package, source)],
+        )
+        .remove(0);
+        let mut report = vec![(*name).to_owned()];
+        report.extend(check_report(target.path(), &manifest, package));
+        report
+    })
+    .collect::<Vec<_>>();
     expect_test::expect![[r#"
         [
             [
-                "function-context",
-                "error[krs::analysis::group-subject-position]: the cell group `Hart` is held by the Map collection cell `hart` of configuration `Smp`, so a sentence about `Hart` is a local step of one instance; a function context inside an instance is not emitted yet",
-                "--> smp/src/lib.rs: `lib::Hart,`",
+                "anywhere",
+                "error[krs::analysis::instance-context-caller]: `PcPlus` is evaluated in one instance of the Map collection cell `hart` (its function context reads that instance, or the context of a function it applies does), so it receives that instance's key `id`, and this sentence rewrites wherever its left-hand side matches (a simplification, an `anywhere` rule, a desugar), which applies no function receiving that key, so it determines no instance: a function has one value for its arguments, so such a sentence applies it only where its left-hand side applies a function evaluated in the same instance",
+                "--> smp/src/lib.rs: `lib::PcPlus(n) }`",
             ],
             [
                 "simplification",
-                "error[krs::analysis::group-subject-position]: the cell group `Fpu` is held by the optional cell `fpu` of configuration `Opt`, so a sentence about `Fpu` is a local step of one instance; a function context inside an instance is not emitted yet",
-                "--> opt/src/lib.rs: `lib::Fpu,`",
+                "error[krs::analysis::instance-context-caller]: `PcPlus` is evaluated in one instance of the Map collection cell `hart` (its function context reads that instance, or the context of a function it applies does), so it receives that instance's key `id`, and this sentence rewrites wherever its left-hand side matches (a simplification, an `anywhere` rule, a desugar), which applies no function receiving that key, so it determines no instance: a function has one value for its arguments, so such a sentence applies it only where its left-hand side applies a function evaluated in the same instance",
+                "--> smp/src/lib.rs: `lib::PcPlus(n)`",
+            ],
+            [
+                "group-key",
+                "error[krs::analysis::group-subject-position]: the instances of the Map collection cell `node` are keyed by `cpu`, a group of cells, and a function evaluated in one of them receives that instance's key: passing a key that is a group of cells is not emitted yet; key the instances by a leaf cell, declared first",
+                "--> grid/src/lib.rs: `Node,`",
+            ],
+            [
+                "key-pattern",
+                "error[krs::analysis::group-subject-position]: the sentence matches `id`, the key of the instances of the Map collection cell `unit`, with a pattern that is no variable, literal or `_`, and passes that key to a function evaluated in its instance, so no one term of the pattern is the key it passes; bind the key to a variable and test it in the condition",
+                "--> tagged/src/lib.rs: `HidC::H(n), k: [`",
+            ],
+            [
+                "context",
+                "error[krs::analysis::group-subject-position]: `PcPlus` is evaluated in one instance of the Map collection cell `hart` (its function context reads that instance, or the context of a function it applies does), so it receives that instance's key `id`, and this context names no cell: it runs at the main cell, inside that instance, but it is emitted as K's `context`, which binds no key cell, so passing the instance's key from it is not emitted yet; write it as a context alias typed by the cell group, which names the instance's cells",
+                "--> smp/src/lib.rs: `lib::PcPlus(0),`",
             ],
         ]
     "#]].assert_debug_eq(&outcomes);
+}
+
+/// A function evaluated in one hart, of the program's sort.
+const AT_PC: &str = r#"
+use k::Term;
+
+#[k::function(partial, sort = lib::Instr, syntax = "atPc ( {n} )")]
+pub struct AtPc {
+    pub n: Term<Int>,
+}
+
+#[k::equation]
+fn at_pc(
+    n: Term<Int>,
+    k::term![AtPc(n)]: Term<lib::Instr>,
+    k::cells! {
+        pc: k::configuration::Cell(n),
+        ..
+    }: lib::Hart,
+) -> Term<lib::Instr> {
+    lib::Op::Inc()
+}
+"#;
+
+/// An input is evaluated in no instance, so `$call` of a function that
+/// receives an instance's key is refused with the reason.
+#[test]
+fn an_input_does_not_apply_a_function_evaluated_in_an_instance() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest =
+        instance_definitions(temporary.path(), "", &[("smp", &smp("Map", AT_PC))]).remove(0);
+    let (success, stdout, stderr) = krs_on(
+        target.path(),
+        &manifest,
+        "smp",
+        "run",
+        &["--input", r#"pgm={"$call": {"AtPc": [0]}}"#, "--depth", "0"],
+    );
+    assert!(!success, "{stdout}");
+    expect_test::expect!["error[krs::exec::variable]: input `pgm` (Instr): `$call`: `smp::AtPc` is evaluated in one instance of the Map collection cell `hart` (its function context reads that instance, or the context of a function it applies does), so it receives the instance's key, and an input is evaluated in no instance: a function has one value for its arguments, so it is applied only from a sentence about one instance"].assert_eq(stderr.trim_end());
 }
 
 /// A configuration whose instances are `Cpu`s keyed by `id`, each holding a

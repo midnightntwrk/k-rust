@@ -23,11 +23,12 @@ use krs_ir::subject::{CellTree, SubjectError, SubjectScope, TreeCell, instance_p
 use krs_ir::{
     Descriptor, DescriptorCellDeclaration, DescriptorCellField, DescriptorCellIdentity,
     DescriptorConfigurationReference, DescriptorIndex, DescriptorPayload, DescriptorSubject,
-    DescriptorTerm, ProtocolCellContent, ProtocolHeadRuleExtra, ProvenanceKey, StableItemId,
+    DescriptorTerm, ProtocolCellContent, ProtocolHeadRuleExtra, ProvenanceKey, SourceRange,
+    StableItemId,
 };
-use krs_ir_levels::{
-    IrCondition, RuleBodyRef, SemanticModule, SemanticRule, SemanticTerm, SemanticTermKind,
-};
+use krs_ir_levels::{SemanticModule, SemanticRule, SemanticTerm};
+
+use crate::instance_keys::{defined_function, evaluated_applications, term_applications};
 
 use super::error::DescriptorLoweringError;
 use super::origin::key_range;
@@ -432,49 +433,6 @@ fn holder_text(tree: &ConfigurationTree<'_>, index: usize) -> String {
     format!("the {kind} cell `{}`", tree.fields[index].1.rust_field)
 }
 
-/// How the group a scope is about sits in its instance `instance`: held by the holder itself, or
-/// inside one of its instances.
-fn group_in_instance(
-    tree: &ConfigurationTree<'_>,
-    group: &StableItemId,
-    scope: &SubjectScope,
-    instance: usize,
-) -> String {
-    let held = if scope.anchor == Some(instance) {
-        "is held by"
-    } else {
-        "sits in an instance of"
-    };
-    format!(
-        "the cell group `{}` {held} {} of configuration `{}`",
-        group.item_name(),
-        holder_text(tree, instance),
-        tree.configuration.item_name()
-    )
-}
-
-/// The refusal of a form a sentence about one instance states that is not emitted inside an
-/// instance yet.
-fn not_emitted(
-    tree: &ConfigurationTree<'_>,
-    group: &StableItemId,
-    scope: &SubjectScope,
-    instance: usize,
-    what: &str,
-    range: Option<krs_ir::SourceRange>,
-) -> DescriptorLoweringError {
-    DescriptorLoweringError::GroupInstance {
-        code: krs_diagnostic::codes::analysis::GROUP_SUBJECT_POSITION,
-        reason: format!(
-            "{}, so a sentence about `{}` is a local step of one instance; {what} inside an instance is not emitted yet",
-            group_in_instance(tree, group, scope, instance),
-            group.item_name()
-        ),
-        range: range.map(Box::new),
-        item: None,
-    }
-}
-
 /// Checks a sentence about one instance of its group (its scope has an instance,
 /// [`SubjectScope::instance`]): it writes a Map instance's key only as what it matched.
 ///
@@ -483,10 +441,10 @@ fn not_emitted(
 /// for it or the same literal (`krs_syntax::cell_entries::keeps_key`, the predicate the collector
 /// applies to the authored entries, here over the terms the descriptor holds).
 ///
-/// Every clause of a rule, a context alias and a `#[k::context]` inside an instance is emitted
-/// inside the instance's cell on both emission routes, so each matches in the one instance the
-/// sentence is about. A function context is refused later ([`check_instance_contexts`]), once its
-/// callers are judged.
+/// Every clause of a rule, a context alias, a `#[k::context]` and a function context inside an
+/// instance is emitted inside the instance's cell on both emission routes, so each matches in the
+/// one instance the sentence is about; a function context's callers are judged later
+/// ([`check_instance_contexts`]).
 fn check_instance_sentence(
     descriptor: &Descriptor,
     part: &TypedPart<'_>,
@@ -796,71 +754,8 @@ fn rule_path(
     }
 }
 
-/// Every declared application at or below `term`, in preorder.
-fn applications<'a>(
-    term: &'a SemanticTerm,
-    output: &mut Vec<(&'a StableItemId, &'a SemanticTerm)>,
-) {
-    if let SemanticTermKind::Application {
-        application: krs_ir::ApplicationRef::Declared(production),
-        ..
-    } = term.kind()
-    {
-        output.push((production, term));
-    }
-    for child in term.children() {
-        applications(child, output);
-    }
-}
-
-/// The terms a rule evaluates functions in: an equation's or a simplification's right-hand side
-/// and requires, since its left-hand side is the pattern it is about, not an application it
-/// evaluates; every term of any other sentence.
-fn evaluated_terms(rule: &SemanticRule) -> Vec<&SemanticTerm> {
-    let pattern_left = matches!(
-        rule.kind(),
-        krs_ir::SentenceKind::Equation | krs_ir::SentenceKind::Simplification
-    );
-    let mut terms = match rule.relational_body() {
-        RuleBodyRef::Term(body) if pattern_left => vec![body.to()],
-        RuleBodyRef::Term(body) => vec![body.from(), body.to()],
-        RuleBodyRef::Predicate(body) if pattern_left => body.rhs().terms(),
-        RuleBodyRef::Predicate(body) => body
-            .lhs()
-            .terms()
-            .into_iter()
-            .chain(body.rhs().terms())
-            .collect(),
-        RuleBodyRef::Configuration { body, .. } => body
-            .parts()
-            .iter()
-            .flat_map(krs_ir::ClausePart::terms)
-            .collect(),
-    };
-    terms.extend(rule.requires().into_iter().flat_map(IrCondition::terms));
-    terms.extend(rule.ensures().into_iter().flat_map(IrCondition::terms));
-    terms
-}
-
-/// The function an equation defines: the declared head of its left-hand side.
-fn defined_function(rule: &SemanticRule) -> Option<&StableItemId> {
-    if rule.kind() != krs_ir::SentenceKind::Equation {
-        return None;
-    }
-    let RuleBodyRef::Term(body) = rule.relational_body() else {
-        return None;
-    };
-    match body.from().kind() {
-        SemanticTermKind::Application {
-            application: krs_ir::ApplicationRef::Declared(function),
-            ..
-        } => Some(function),
-        _ => None,
-    }
-}
-
-/// Judges every function whose context reads one instance of a group, then refuses those
-/// contexts, which are not emitted inside an instance yet.
+/// Judges every function whose context reads one instance of a group, and every sentence that
+/// passes such a function the keys of its instance.
 ///
 /// A function context typed by a group reads the group's cells in the configuration the
 /// function is evaluated in. Where the group sits in an optional cell or a Map collection, that
@@ -872,14 +767,19 @@ fn defined_function(rule: &SemanticRule) -> Option<&StableItemId> {
 /// argument, so the application is refused (`instance-context-caller`) where the sentence
 /// writes it. An equation without a context of its own is evaluated where its caller is, so the
 /// functions it applies are judged against its caller's holders, through any number of such
-/// equations. A held-once group has no holders, so every caller qualifies.
+/// equations. The initializer builds the configuration, so it is evaluated in no instance and
+/// applies no such function. A held-once group has no holders, so every caller qualifies.
+///
+/// The function then receives the key of each Map collection on that path as a hidden argument
+/// ([`crate::instance_keys`]), and every sentence that applies it passes the keys of its own
+/// instance; [`check_instance_keys`] refuses the sentences that cannot.
 ///
 /// # Errors
 ///
 /// - [`DescriptorLoweringError::GroupInstance`] with `instance-context-caller` at the first
-///   application whose sentence lies outside the instance a reached context reads;
-/// - [`DescriptorLoweringError::GroupInstance`] with `group-subject-position` for a function
-///   context inside an instance, whose emission is a later stage.
+///   application whose sentence lies outside the instance a reached context reads, then at the
+///   first such application in the initializer;
+/// - the first refusal of [`check_instance_keys`].
 pub(super) fn check_instance_contexts(
     modules: &[SemanticModule],
     declarations: &DescriptorIndex<'_>,
@@ -888,8 +788,8 @@ pub(super) fn check_instance_contexts(
         .iter()
         .flat_map(SemanticModule::rules)
         .collect::<Vec<_>>();
-    // Each equation with a context typed by a group in an instance, and its descriptor's
-    // context: the definition has none unless it holds a group in an optional cell or a Map.
+    // Each context typed by a group: the definition has none in an instance unless it holds a
+    // group in an optional cell or a Map.
     let contexts = rules
         .iter()
         .filter(|rule| rule.function_context().is_some())
@@ -900,22 +800,19 @@ pub(super) fn check_instance_contexts(
             };
             let context = sentence.function_context.as_ref()?;
             context.configuration.subject.as_ref()?;
-            Some((*rule, descriptor, context))
+            Some(context)
         })
         .collect::<Vec<_>>();
-    let Some((_, _, first)) = contexts.first() else {
+    let Some(first) = contexts.first() else {
         return Ok(());
     };
     let Ok(tree) = configuration_tree(&first.configuration.configuration, declarations) else {
         return Ok(());
     };
-    let in_instance = contexts
-        .into_iter()
-        .filter(|(_, _, context)| {
-            !subject_path(&tree, context.configuration.subject.as_ref()).is_empty()
-        })
-        .collect::<Vec<_>>();
-    if in_instance.is_empty() {
+    if contexts
+        .iter()
+        .all(|context| subject_path(&tree, context.configuration.subject.as_ref()).is_empty())
+    {
         return Ok(());
     }
     let main = declarations
@@ -925,24 +822,212 @@ pub(super) fn check_instance_contexts(
         .and_then(|reference| cell_index(&tree, &reference.cell))
         .map(|index| instance_path(&tree, index))
         .unwrap_or_default();
-    check_callers(&rules, declarations, &tree, &main)?;
-    let (rule, descriptor, context) = in_instance[0];
-    let subject = context.configuration.subject.as_ref();
-    let scope = scope(&tree, subject).unwrap_or_default();
-    let (Some(instance), Some(DescriptorSubject::Group { declaration })) =
-        (scope.instance, subject)
-    else {
+    let equations = context_equations(&rules);
+    check_callers(&rules, &equations, declarations, &tree, &main)?;
+    check_initializer(modules, &equations, declarations, &tree, &main)?;
+    check_instance_keys(modules, &rules, declarations)
+}
+
+/// Each function's equations.
+fn context_equations<'r>(
+    rules: &[&'r SemanticRule],
+) -> BTreeMap<&'r StableItemId, Vec<&'r SemanticRule>> {
+    let mut equations = BTreeMap::<&StableItemId, Vec<&SemanticRule>>::new();
+    for rule in rules {
+        if let Some(function) = defined_function(rule) {
+            equations.entry(function).or_default().push(rule);
+        }
+    }
+    equations
+}
+
+/// Refuses the first sentence that cannot pass the keys a function it applies receives
+/// ([`crate::instance_keys::KeyRefusal`]), where it applies the function or writes the key's
+/// pattern.
+///
+/// # Errors
+///
+/// - [`DescriptorLoweringError::GroupInstance`] with `group-subject-position` for a key that
+///   is a group of cells, which KRS does not pass yet, at the first function context that reads
+///   such an instance, and for a key cell matched by a pattern that is no variable, literal or
+///   wildcard, and for a `#[k::context]` that names no cell, which binds no key cell yet;
+/// - [`DescriptorLoweringError::GroupInstance`] with `instance-context-caller` for a sentence
+///   that rewrites wherever its left-hand side matches (a simplification, an `anywhere` rule, a
+///   desugar), whose left-hand side receives no key its right-hand side or condition passes,
+///   for an equation whose pattern applies a function receiving a key the equation does not
+///   receive, and for a term rule whose main cell lies in no instance a function it applies is
+///   evaluated in.
+fn check_instance_keys(
+    modules: &[SemanticModule],
+    rules: &[&SemanticRule],
+    declarations: &DescriptorIndex<'_>,
+) -> Result<(), DescriptorLoweringError> {
+    let keys = crate::instance_keys::InstanceKeys::of(modules);
+    if keys.is_empty() {
         return Ok(());
+    }
+    let holder_of = |cell: &krs_ir::SemanticId| {
+        keys.holder(cell)
+            .expect("a refused key is a Map collection's")
     };
-    Err(not_emitted(
-        &tree,
-        declaration,
-        &scope,
-        instance,
-        "a function context",
-        key_range(descriptor, &context.configuration.key),
-    )
-    .within(rule.id(), None))
+    // A key that is a group of cells is refused once, at the context that reads its instance,
+    // whichever sentence passes it.
+    if let Some((cell, reader)) = keys.group_key() {
+        return Err(DescriptorLoweringError::GroupInstance {
+            code: krs_diagnostic::codes::analysis::GROUP_SUBJECT_POSITION,
+            reason: format!(
+                "the instances of the Map collection cell `{}` are keyed by `{}`, a group of cells, and a function evaluated in one of them receives that instance's key: passing a key that is a group of cells is not emitted yet; key the instances by a leaf cell, declared first",
+                holder_of(cell).name,
+                holder_of(cell).key_name,
+            ),
+            range: declarations
+                .get(reader)
+                .and_then(|descriptor| match descriptor.payload() {
+                    DescriptorPayload::StructuredRule(sentence) => sentence
+                        .function_context
+                        .as_ref()
+                        .and_then(|context| key_range(descriptor, &context.configuration.key)),
+                    _ => None,
+                })
+                .map(Box::new),
+            item: Some(Box::new(reader.clone())),
+        });
+    }
+    for rule in rules {
+        let Err(refusal) = keys.bindings(rule) else {
+            continue;
+        };
+        let (code, reason, range) = key_refusal(&keys, refusal);
+        return Err(DescriptorLoweringError::GroupInstance {
+            code,
+            reason,
+            range,
+            item: Some(Box::new(rule.id().clone())),
+        });
+    }
+    Ok(())
+}
+
+/// The code, reason and location of the refusal of a sentence that cannot pass the keys a
+/// function it applies receives ([`check_instance_keys`]).
+fn key_refusal(
+    keys: &crate::instance_keys::InstanceKeys,
+    refusal: crate::instance_keys::KeyRefusal<'_>,
+) -> (krs_diagnostic::Code, String, Option<Box<SourceRange>>) {
+    use crate::instance_keys::KeyRefusal;
+    let holder_of = |cell: &krs_ir::SemanticId| {
+        keys.holder(cell)
+            .expect("a refused key is a Map collection's")
+    };
+    let receives = |function: &StableItemId, cell: &krs_ir::SemanticId| {
+        format!(
+            "`{}` is evaluated in one instance of the Map collection cell `{}` (its function context reads that instance, or the context of a function it applies does), so it receives that instance's key `{}`",
+            function.item_name(),
+            holder_of(cell).name,
+            holder_of(cell).key_name,
+        )
+    };
+    let at = |term: &SemanticTerm| term.origin().origin().exact_authored_range().map(Box::new);
+    match refusal {
+        KeyRefusal::Unbound {
+            function,
+            application,
+            holder: cell,
+        } => (
+            krs_diagnostic::codes::analysis::INSTANCE_CONTEXT_CALLER,
+            format!(
+                "{}, and this sentence rewrites wherever its left-hand side matches (a simplification, an `anywhere` rule, a desugar), which applies no function receiving that key, so it determines no instance: a function has one value for its arguments, so such a sentence applies it only where its left-hand side applies a function evaluated in the same instance",
+                receives(function, &cell)
+            ),
+            at(application),
+        ),
+        KeyRefusal::InPattern {
+            function,
+            application,
+            holder: cell,
+        } => (
+            krs_diagnostic::codes::analysis::INSTANCE_CONTEXT_CALLER,
+            format!(
+                "{}, and this equation writes it in a pattern, which evaluates nothing, while the equation itself receives no such key, so the pattern determines no instance: a function has one value for its arguments, so it is applied only where the equation is evaluated in that instance",
+                receives(function, &cell)
+            ),
+            at(application),
+        ),
+        KeyRefusal::Outside {
+            function,
+            application,
+            holder: cell,
+        } => (
+            krs_diagnostic::codes::analysis::INSTANCE_CONTEXT_CALLER,
+            format!(
+                "{}, and this term rule runs at the head of the main cell, which lies in no such instance, so it determines none: a function has one value for its arguments, so it is applied only from a sentence about one instance of that holder",
+                receives(function, &cell)
+            ),
+            at(application),
+        ),
+        KeyRefusal::Context {
+            function,
+            application,
+            holder: cell,
+        } => (
+            krs_diagnostic::codes::analysis::GROUP_SUBJECT_POSITION,
+            format!(
+                "{}, and this context names no cell: it runs at the main cell, inside that instance, but it is emitted as K's `context`, which binds no key cell, so passing the instance's key from it is not emitted yet; write it as a context alias typed by the cell group, which names the instance's cells",
+                receives(function, &cell)
+            ),
+            at(application),
+        ),
+        KeyRefusal::Pattern {
+            holder: cell,
+            pattern,
+        } => (
+            krs_diagnostic::codes::analysis::GROUP_SUBJECT_POSITION,
+            format!(
+                "the sentence matches `{}`, the key of the instances of the Map collection cell `{}`, with a pattern that is no variable, literal or `_`, and passes that key to a function evaluated in its instance, so no one term of the pattern is the key it passes; bind the key to a variable and test it in the condition",
+                holder_of(&cell).key_name,
+                holder_of(&cell).name,
+            ),
+            at(pattern),
+        ),
+        KeyRefusal::GroupKey => {
+            unreachable!("a key that is a group of cells is refused above")
+        }
+    }
+}
+
+/// The first context `applied` reaches, through equations without a context of their own,
+/// whose holders a sentence with holders `path` does not extend: the equation, its function and
+/// the context's holders.
+fn reached_outside<'r>(
+    applied: &'r StableItemId,
+    path: &[usize],
+    equations: &BTreeMap<&'r StableItemId, Vec<&'r SemanticRule>>,
+    declarations: &DescriptorIndex<'_>,
+    tree: &ConfigurationTree<'_>,
+    main: &[usize],
+) -> Option<(&'r SemanticRule, &'r StableItemId, Vec<usize>)> {
+    let mut pending = vec![applied];
+    let mut visited = BTreeSet::new();
+    while let Some(function) = pending.pop() {
+        if !visited.insert(function) {
+            continue;
+        }
+        for equation in equations.get(function).into_iter().flatten() {
+            if equation.function_context().is_none() {
+                pending.extend(
+                    evaluated_applications(equation)
+                        .into_iter()
+                        .map(|(callee, _)| callee),
+                );
+                continue;
+            }
+            let needed = rule_path(equation, declarations, tree, main);
+            if !path.starts_with(&needed) {
+                return Some((equation, function, needed));
+            }
+        }
+    }
+    None
 }
 
 /// The caller rule of [`check_instance_contexts`]: each application in a sentence that determines
@@ -950,68 +1035,98 @@ pub(super) fn check_instance_contexts(
 /// equations without contexts, only contexts whose holders its own extend.
 fn check_callers(
     rules: &[&SemanticRule],
+    equations: &BTreeMap<&StableItemId, Vec<&SemanticRule>>,
     declarations: &DescriptorIndex<'_>,
     tree: &ConfigurationTree<'_>,
     main: &[usize],
 ) -> Result<(), DescriptorLoweringError> {
-    let mut equations = BTreeMap::<&StableItemId, Vec<&SemanticRule>>::new();
-    for rule in rules {
-        if let Some(function) = defined_function(rule) {
-            equations.entry(function).or_default().push(rule);
-        }
-    }
     for rule in rules {
         // An equation without a context of its own is evaluated where its caller is.
         if defined_function(rule).is_some() && rule.function_context().is_none() {
             continue;
         }
         let path = rule_path(rule, declarations, tree, main);
-        let mut applied = Vec::new();
-        for term in evaluated_terms(rule) {
-            applications(term, &mut applied);
-        }
-        for (applied, application) in applied {
-            let mut pending = vec![applied];
-            let mut visited = BTreeSet::new();
-            while let Some(function) = pending.pop() {
-                if !visited.insert(function) {
-                    continue;
-                }
-                for equation in equations.get(function).into_iter().flatten() {
-                    if equation.function_context().is_none() {
-                        let mut callees = Vec::new();
-                        for term in evaluated_terms(equation) {
-                            applications(term, &mut callees);
-                        }
-                        pending.extend(callees.into_iter().map(|(callee, _)| callee));
-                        continue;
-                    }
-                    let needed = rule_path(equation, declarations, tree, main);
-                    if path.starts_with(&needed) {
-                        continue;
-                    }
-                    return Err(caller_outside(
-                        tree,
-                        declarations,
-                        rule,
-                        (applied, application),
-                        (equation, function),
-                        (&needed, &path),
-                    ));
-                }
+        for (applied, application) in evaluated_applications(rule) {
+            if let Some((equation, function, needed)) =
+                reached_outside(applied, &path, equations, declarations, tree, main)
+            {
+                return Err(caller_outside(
+                    tree,
+                    declarations,
+                    (rule.id(), Caller::Sentence),
+                    (applied, application),
+                    (equation, function),
+                    (&needed, &path),
+                ));
             }
         }
     }
     Ok(())
 }
 
-/// The refusal of the application `application` of `applied` in `rule`, whose holders `path`
-/// do not extend `needed`, the holders of the context of `function`'s equation `equation`, which
-/// the application reaches.
+/// The initializer's part of the caller rule of [`check_instance_contexts`]: the initializer
+/// builds the configuration, so it is evaluated in no instance, and it applies no function that
+/// reaches a context in one.
+fn check_initializer(
+    modules: &[SemanticModule],
+    equations: &BTreeMap<&StableItemId, Vec<&SemanticRule>>,
+    declarations: &DescriptorIndex<'_>,
+    tree: &ConfigurationTree<'_>,
+    main: &[usize],
+) -> Result<(), DescriptorLoweringError> {
+    fn terms<'c>(
+        cells: &'c [krs_ir::FixedInitializerCell<krs_ir::SemanticId, SemanticTerm>],
+        output: &mut Vec<&'c SemanticTerm>,
+    ) {
+        for cell in cells {
+            match cell.content() {
+                krs_ir::FixedInitializerContent::Term { term } => output.push(term),
+                krs_ir::FixedInitializerContent::Children { children } => terms(children, output),
+            }
+        }
+    }
+    let Some(configuration) = modules.iter().find_map(SemanticModule::configuration) else {
+        return Ok(());
+    };
+    let mut initial = Vec::new();
+    terms(configuration.initializer(), &mut initial);
+    let mut applied = Vec::new();
+    for term in initial {
+        term_applications(term, &mut applied);
+    }
+    for (applied, application) in applied {
+        if let Some((equation, function, needed)) =
+            reached_outside(applied, &[], equations, declarations, tree, main)
+        {
+            return Err(caller_outside(
+                tree,
+                declarations,
+                (tree.configuration, Caller::Initializer),
+                (applied, application),
+                (equation, function),
+                (&needed, &[]),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// What applies a function [`caller_outside`] refuses.
+#[derive(Clone, Copy)]
+enum Caller {
+    /// A sentence.
+    Sentence,
+    /// The configuration's initializer.
+    Initializer,
+}
+
+/// The refusal of the application `application` of `applied` in `item` (a sentence, or the
+/// configuration whose initializer writes it), whose holders `path` do not extend `needed`, the
+/// holders of the context of `function`'s equation `equation`, which the application reaches.
 fn caller_outside(
     tree: &ConfigurationTree<'_>,
     declarations: &DescriptorIndex<'_>,
-    rule: &SemanticRule,
+    (item, caller): (&StableItemId, Caller),
     (applied, application): (&StableItemId, &SemanticTerm),
     (equation, function): (&SemanticRule, &StableItemId),
     (needed, path): (&[usize], &[usize]),
@@ -1041,17 +1156,23 @@ fn caller_outside(
             function.item_name()
         )
     };
+    let caller = match caller {
+        Caller::Sentence => "this sentence is not inside such an instance, so it determines none",
+        Caller::Initializer => {
+            "the initializer builds the configuration, so it is evaluated in no instance and determines none"
+        }
+    };
     DescriptorLoweringError::GroupInstance {
         code: krs_diagnostic::codes::analysis::INSTANCE_CONTEXT_CALLER,
         reason: format!(
-            "{reads}{group} through its function context in one instance of {holder}, the instance it is evaluated in, and this sentence is not inside such an instance, so it determines none: a function has one value for its arguments, so it is applied only from a sentence about one instance of that holder (a rule, a context alias or a function context for the group, or for a group inside its instance)"
+            "{reads}{group} through its function context in one instance of {holder}, the instance it is evaluated in, and {caller}: a function has one value for its arguments, so it is applied only from a sentence about one instance of that holder (a rule, a context alias or a function context for the group, or for a group inside its instance)"
         ),
         range: application
             .origin()
             .origin()
             .exact_authored_range()
             .map(Box::new),
-        item: Some(Box::new(rule.id().clone())),
+        item: Some(Box::new(item.clone())),
     }
 }
 

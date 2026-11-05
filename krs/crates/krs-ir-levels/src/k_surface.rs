@@ -133,36 +133,56 @@ impl<'a> DefinitionIndex<'a> {
         self.instance_holders.get(id)
     }
 
-    /// Returns the one instance that every cell of a sentence lies in ([`Self::instance_holder`]),
-    /// or `None` when they all lie outside every `?` and `*` cell.
+    /// Returns the instances a sentence's cells lie in ([`Self::instance_holder`]), outermost
+    /// first: the instance each cell lies in and the instances enclosing it, from the outermost
+    /// one some cell lies in directly; empty when every cell lies outside every `?` and `*` cell.
     ///
-    /// A sentence about one instance names only cells of that instance, and a sentence about the
-    /// configuration names no cell inside an instance except through its instance record; so its
-    /// clauses are written inside that one instance's cell, or at the top.
+    /// A sentence about one instance names cells of that instance, and, where it passes the
+    /// keys of the instances enclosing it, the key cell of each of those; a sentence about the
+    /// configuration names no cell inside an instance except through its instance record. So
+    /// each clause is written inside the cell of the instance it lies in, nested in the cells
+    /// of the enclosing instances the sentence names, or at the top.
     ///
     /// # Errors
     ///
-    /// Returns [`MixedInstances`] for two cells that lie in different instances, or one in an
-    /// instance and one outside every instance: no single instance cell holds both.
-    pub fn sentence_instance<'c>(
+    /// Returns [`MixedInstances`] for two cells that lie in no one chain of nested instances, or
+    /// one in an instance and one outside every instance: no nesting of instance cells holds
+    /// both.
+    pub fn sentence_instances<'c>(
         &self,
         cells: impl IntoIterator<Item = &'c SymbolId>,
-    ) -> Result<Option<&SymbolId>, MixedInstances> {
-        let mut first = None::<(&SymbolId, Option<&SymbolId>)>;
-        for cell in cells {
-            let holder = self.instance_holder(cell);
-            match first {
-                None => first = Some((cell, holder)),
-                Some((_, instance)) if instance == holder => {}
-                Some((named, _)) => {
-                    return Err(MixedInstances {
-                        first: named.clone(),
-                        other: cell.clone(),
-                    });
-                }
+    ) -> Result<Vec<&SymbolId>, MixedInstances> {
+        let chains = cells
+            .into_iter()
+            .map(|cell| (cell, self.instance_chain(cell)))
+            .collect::<Vec<_>>();
+        let Some((deepest, chain)) = chains.iter().max_by_key(|(_, chain)| chain.len()) else {
+            return Ok(Vec::new());
+        };
+        let mut outermost = chain.len();
+        for (cell, other) in &chains {
+            if other.is_empty() != chain.is_empty() || !chain.starts_with(other) {
+                return Err(MixedInstances {
+                    first: (*deepest).clone(),
+                    other: (*cell).clone(),
+                });
             }
+            outermost = outermost.min(other.len().saturating_sub(1));
         }
-        Ok(first.and_then(|(_, instance)| instance))
+        Ok(chain[outermost.min(chain.len())..].to_vec())
+    }
+
+    /// The instances `cell` lies in, outermost first ([`Self::instance_holder`], then the
+    /// instance that holder lies in, and so on).
+    fn instance_chain(&self, cell: &SymbolId) -> Vec<&SymbolId> {
+        let mut chain = Vec::new();
+        let mut current = self.instance_holder(cell);
+        while let Some(holder) = current {
+            chain.push(holder);
+            current = self.instance_holder(holder);
+        }
+        chain.reverse();
+        chain
     }
 
     /// Returns K's generated sort name of a fixed cell, such as `FrameCell`
@@ -212,8 +232,27 @@ impl<'a> DefinitionIndex<'a> {
     }
 }
 
+/// The field of the hidden argument in which a function evaluated in one instance of the Map
+/// collection cell `holder` receives that instance's key, after its own arguments: a function has
+/// one value for its arguments, so the instance its context reads is one of them.
+#[must_use]
+pub fn instance_key_field(holder: &str) -> String {
+    format!("{}{INSTANCE_KEY}{holder}", krs_ir::ir::RESERVED_MARKER)
+}
+
+/// The Map collection cell whose instance key a production's field receives, where the field is
+/// such a hidden argument ([`instance_key_field`]).
+#[must_use]
+pub fn instance_key_holder(field: &str) -> Option<&str> {
+    field
+        .strip_prefix(krs_ir::ir::RESERVED_MARKER)?
+        .strip_prefix(INSTANCE_KEY)
+}
+
+const INSTANCE_KEY: &str = "key_";
+
 /// Two cells of one sentence that lie in different instances
-/// ([`DefinitionIndex::sentence_instance`]).
+/// ([`DefinitionIndex::sentence_instances`]).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MixedInstances {
     /// The sentence's first cell.

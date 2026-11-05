@@ -94,7 +94,12 @@ the outcomes must agree:
   by the labels of its heating and cooling rules (`krs-gate kore-compare`).
   A search of two harts that each run every form reaches one final state on
   both routes, and a search of two harts storing at one address reaches both
-  orders of the stores, a load reading `0` and `1`. `nested`'s round trip is
+  orders of the stores, a load reading `0` and `1`. `nested` declares
+  `pcPlus`, whose function context typed by `Hart` reads the program counter
+  of the hart it is evaluated in, and a rule `leap` for `Hart` that applies
+  it: the function receives the hart's key and its cluster's, so two harts
+  that leap each read their own counter, and every order of their steps
+  reaches one final state on both routes. `nested`'s round trip is
   a known failure (`known_round_trip_failures`): `krs expand` prints its rules
   for `Cluster` as `cells!` rules typed by the configuration, which name the
   harts of a cluster flat;
@@ -530,6 +535,17 @@ GROUP_HARTS_PAIR = Program(
     search=("128",),
     cells=(("pc", "24"), ("a", "1"), ("b", "2"), ("payload", "2"), ("mem", "1 |-> 128")),
 )
+# Two harts each `leap` past their own program counter, which `pcPlus` reads through its function
+# context: hart 1 from pc 1 leaps 10 and reports `11 + 10 * 1 + 100 * 0` at address 1, and hart 0
+# from pc 0 leaps 100 before it joins hart 1 and loads the report. Every order of their steps reads
+# each hart's own counter, so it reaches that one final state, on both routes.
+GROUP_HARTS_LEAP = Program(
+    "leap",
+    "spawn { post ; inc ; leap ( 10 ) ; report ( 1 ) } ; leap ( 100 ) ; join ( 1 ) ; load ( 1 )",
+    "accepted", "21",
+    search=("21",),
+    cells=(("pc", "100"), ("mem", "1 |-> 21")),
+)
 GROUP_HARTS_PROGRAMS = {
     "krs-configuration-cells-group-harts-smp": (
         Program("forms", f"{GROUP_HARTS_FORMS} ; store ( 0 ) ; load ( 0 )", "accepted", "0",
@@ -542,6 +558,7 @@ GROUP_HARTS_PROGRAMS = {
                 cells=(*GROUP_HARTS_CELLS, ("mem", "0 |-> 0"))),
         GROUP_HARTS_RACE,
         GROUP_HARTS_PAIR,
+        GROUP_HARTS_LEAP,
     ),
     # `opt` answers no bus item, so the load stays open; after `swap` the register `a` is 2, so
     # `guard`'s operand is not evaluated and the hart is stuck at it.

@@ -430,7 +430,21 @@ Every clause of a sentence about one instance is written inside the instance's c
 A context alias and a `#[k::context]` typed by the group are written the same way, `context alias [hartEval]: <hart> <k> HERE ~> Tail:K </k> ... </hart>`, so the heating and cooling rules K generates from them have their hole in the computation of one instance.
 Both emission routes write that instance cell, the K text and the definition handed to the native frontend, and cell completion supplies the cells above it and frames every other instance.
 So the text of a library's rule depends on where the definition holds the group: inside `<hart>` in an optional cell or a collection, without it at a fixed position, with the same body.
-A function context inside an instance is still refused as `krs::analysis::group-subject-position` with the reason "not emitted yet", once its callers are judged: the function would have to receive the instance it reads, which is not emitted yet.
+A function context inside an instance reads its instance through the instance's keys.
+The function receives, after its own arguments, the key of each Map collection on the path of the cells it reads, outermost first; an optional cell holds at most one instance, so it adds none.
+Its equation's context matches each instance's key cell with that key, so it matches at most one instance, and the function has one value for its arguments: `pcPlus(n)` reading a `Hart`'s `pc`, with the harts in a Map collection keyed by `id`, emits `syntax Int ::= "pcPlus" "(" Int ")" "#instance" "(" Int ")"` and `rule [[ pcPlus ( N:Int ) #instance ( Krs_KeyHart:Int ) => P:Int +Int N:Int ]] <hart> <pc> P:Int </pc> <id> Krs_KeyHart:Int </id> ... </hart>`.
+Every sentence that applies such a function passes the keys of its own instance:
+- a rule about the instance passes the key its subject matches, as the binder (`id: me` passes `Me:Int`) or the literal (`id: 1` passes `1`), or reads the key cell where its subject leaves it out (`<id> Krs_KeyHart:Int </id>`); a key of an enclosing instance is read in that instance's cell, around the instance's own (`<cluster> <cid> Krs_KeyCluster:Int </cid> <hart> .. </hart> ... </cluster>`);
+- a `for Sort` clause runs at the main cell, so it passes the keys of the instance that holds the main cell, as a rule about that instance does;
+- a `#[k::rule]` fn over a term that is not `anywhere` runs at the head of the main cell too, so it is written as the main cell's clause beside the key cell, as a `for Sort` clause is: `rule [tap]: <hart> <k> tap ( N:Int ) => tapped ( pcPlus ( N:Int ) #instance ( Krs_KeyHart:Int ) ) ... </k> <id> Krs_KeyHart:Int </id> ... </hart>`;
+- an equation without a context of its own receives the keys of the functions it reaches and passes them on;
+- a sentence that rewrites wherever its left-hand side occurs (a simplification, an `anywhere` rule, a desugar) passes the keys its left-hand side's applications receive, so one whose right-hand side or condition applies such a function its left-hand side does not apply is `krs::analysis::instance-context-caller`: it determines no instance.
+
+A Map collection keyed by a group of cells is refused where a function receives its key, as `krs::analysis::group-subject-position` with the reason "not emitted yet".
+A key cell matched by a pattern that is no variable, literal or `_` is refused as `krs::analysis::group-subject-position` too, since no one term of the pattern is the key to pass.
+A `#[k::context]` that names no cell is K's `context`, which binds no key cell, so one that applies such a function is refused as `krs::analysis::group-subject-position` with the reason "not emitted yet"; a context alias typed by the group names the instance's cells.
+The initializer builds the configuration, so it is evaluated in no instance, and an initializer term that applies such a function is `krs::analysis::instance-context-caller`, at the application.
+An input of a run or a case is evaluated in no instance, so a `$call` of such a function there is refused with the reason.
 
 ### Optional cells and cell collections
 

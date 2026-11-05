@@ -1203,7 +1203,31 @@ impl ValueIndex {
         fields: impl IntoIterator<Item = (&'a str, Value)>,
     ) -> Result<Value, ValueError> {
         let decl = self.function_decl(name)?;
+        if let Some(reason) = self.instance_function(&decl) {
+            return Err(ValueError::Unencodable(reason));
+        }
         self.apply(decl, fields)
+    }
+
+    /// Why the function `decl` cannot be applied outside a sentence, where it is evaluated in
+    /// one instance of a Map collection: it receives that instance's key as a hidden argument
+    /// (`krs_ir_levels::k_surface::instance_key_field`), and an input is evaluated in no instance.
+    /// `None` for every other production.
+    pub(crate) fn instance_function(&self, decl: &Decl) -> Option<String> {
+        let holders = self
+            .ctors_by_decl
+            .get(decl)?
+            .fields
+            .iter()
+            .filter_map(|field| krs_ir_levels::k_surface::instance_key_holder(field))
+            .map(|holder| format!("`{holder}`"))
+            .collect::<Vec<_>>();
+        (!holders.is_empty()).then(|| {
+            format!(
+                "`{decl}` is evaluated in one instance of the Map collection cell {} (its function context reads that instance, or the context of a function it applies does), so it receives the instance's key, and an input is evaluated in no instance: a function has one value for its arguments, so it is applied only from a sentence about one instance",
+                holders.join(" and ")
+            )
+        })
     }
 
     /// The application of the production `decl` to `fields`, given by name in any order.

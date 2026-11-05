@@ -1445,10 +1445,11 @@ impl Adapter<'_> {
 
     /// The cells of a sentence's clauses, each clause given by its cell, its origin and its
     /// adapted cells. Where the clauses' cells lie in an instance, below a `?` or `*` cell
-    /// ([`DefinitionIndex::sentence_instance`](krs_ir_levels::k_surface::DefinitionIndex::sentence_instance)),
+    /// ([`DefinitionIndex::sentence_instances`](krs_ir_levels::k_surface::DefinitionIndex::sentence_instances)),
     /// they are placed inside that cell, open on the right: the sentence is about one instance,
     /// so all of its clauses match in that one instance, and cell completion supplies the cells
-    /// above it and frames the other instances.
+    /// above it and frames the other instances. A key cell of an enclosing instance, which the
+    /// sentence passes a function, is placed in that instance's cell, around the instance's own.
     fn in_instances(
         &self,
         clauses: Vec<(&SymbolId, &NodeOrigin, Vec<NativeTerm>)>,
@@ -1456,9 +1457,9 @@ impl Adapter<'_> {
         let Some(&(_, origin, _)) = clauses.first() else {
             return Ok(Vec::new());
         };
-        let instance = self
+        let chain = self
             .index
-            .sentence_instance(clauses.iter().map(|(cell, _, _)| *cell))
+            .sentence_instances(clauses.iter().map(|(cell, _, _)| *cell))
             .map_err(|error| AdapterError::MissingReference {
                 key: clauses
                     .iter()
@@ -1469,18 +1470,33 @@ impl Adapter<'_> {
                 kind: "instance cell holding every clause of a sentence about one instance",
                 target: error.to_string(),
             })?;
-        let cells = clauses
-            .into_iter()
-            .flat_map(|(_, _, adapted)| adapted)
-            .collect::<Vec<_>>();
-        match instance {
-            Some(instance) => Ok(vec![incomplete_cell(
+        if chain.is_empty() {
+            return Ok(clauses
+                .into_iter()
+                .flat_map(|(_, _, adapted)| adapted)
+                .collect());
+        }
+        // Each instance's cell, innermost first, holds the clauses that lie in it and the cell
+        // of the instance inside it.
+        let mut levels = chain.iter().map(|_| Vec::new()).collect::<Vec<_>>();
+        for (cell, _, adapted) in clauses {
+            let holder = self.index.instance_holder(cell);
+            let level = chain
+                .iter()
+                .position(|instance| Some(*instance) == holder)
+                .expect("every clause lies in an instance of the chain");
+            levels[level].extend(adapted);
+        }
+        let mut inner = None;
+        for (instance, mut cells) in chain.iter().zip(levels).rev() {
+            cells.extend(inner);
+            inner = Some(incomplete_cell(
                 self.cell_name(instance, origin)?,
                 native_cells(cells),
                 true,
-            )]),
-            None => Ok(cells),
+            ));
         }
+        Ok(inner.into_iter().collect())
     }
 
     fn configuration_pattern(
@@ -1520,8 +1536,9 @@ impl Adapter<'_> {
         Ok(native_cells(self.in_instances(cells)?))
     }
 
-    /// The `#cells` an equation's function context reads (KF-025); its term
-    /// paths start at `2`, after the rewrite's endpoints.
+    /// The `#cells` an equation's function context reads (KF-025), inside the instances they
+    /// lie in ([`Self::in_instances`]); its term paths start at `2`, after the rewrite's
+    /// endpoints.
     fn function_context(
         &mut self,
         context: &krs_ir_levels::DefinitionFunctionContext,
@@ -1562,10 +1579,13 @@ impl Adapter<'_> {
                     vec![2, index],
                     TermContext::Normal,
                 )?;
-                self.framed_cell(cell.cell(), pattern, cell.frame(), cell.origin())
+                let adapted =
+                    self.framed_cell(cell.cell(), pattern, cell.frame(), cell.origin())?;
+                Ok((cell.cell(), cell.origin(), vec![adapted]))
             })
             .collect::<Result<Vec<_>, AdapterError>>()?;
-        Ok(native_cells(cells))
+        // The cells of an instance are read inside the instance's cell, as a rule's are.
+        Ok(native_cells(self.in_instances(cells)?))
     }
 
     /// A replaced cell's pattern: `before`, joined with the remainder a moved frame binds on

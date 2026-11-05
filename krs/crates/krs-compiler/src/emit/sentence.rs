@@ -876,10 +876,17 @@ fn emit_rule(
             if let Some(function_context) = function_context {
                 writer.push(" ]]");
                 let start = writer.source.len();
-                for cell in function_context.cells().cells() {
-                    writer.push("\n");
-                    emit_function_context_cell(cell, &names, context, writer)?;
-                }
+                // The cells of an instance are read inside the instance's cell, as a rule's
+                // are ([`emit_configuration_clauses`]).
+                let cells = function_context.cells().cells();
+                emit_in_instances(
+                    cells.iter().map(FixedCellPattern::cell),
+                    context,
+                    writer,
+                    |index, indent, writer| {
+                        emit_function_context_cell(&cells[index], &names, context, indent, writer)
+                    },
+                )?;
                 writer.record(function_context.origin().key(), start, writer.source.len())?;
             }
             emit_requires(sentence, &names, context, writer)?;
@@ -908,50 +915,70 @@ fn emit_rule(
 }
 
 /// Emits the cell clauses of a configuration rule or context. Where its cells lie in an instance,
-/// below a `?` or `*` cell ([`sentence_instance`](krs_ir_levels::k_surface::DefinitionIndex::sentence_instance)), every clause is written inside
+/// below a `?` or `*` cell ([`sentence_instances`](krs_ir_levels::k_surface::DefinitionIndex::sentence_instances)), every clause is written inside
 /// that cell, `<hart> .. ... </hart>`: the sentence is about one instance, so all of its clauses
 /// match in that one instance, and cell completion supplies the cells above it and frames the
-/// other instances.
+/// other instances. A key cell of an enclosing instance the sentence passes a function is
+/// written in that instance's cell, around the instance's own.
 fn emit_configuration_clauses(
     body: &krs_ir::FixedConfigurationRewrite<SymbolId, DefinitionTerm>,
     names: &SentenceVariables,
     context: &EmitContext<'_>,
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
-    let instance =
-        context.sentence_instance(body.clauses().iter().map(ConfigurationClause::cell))?;
-    let indent = open_instance(instance, context, writer)?;
-    for (index, clause) in body.clauses().iter().enumerate() {
-        writer.push("\n");
-        emit_clause(clause, index, names, context, indent, writer)?;
-    }
-    close_instance(instance, context, writer)
+    let clauses = body.clauses();
+    emit_in_instances(
+        clauses.iter().map(ConfigurationClause::cell),
+        context,
+        writer,
+        |index, indent, writer| emit_clause(&clauses[index], index, names, context, indent, writer),
+    )
 }
 
-/// Opens the cell of the instance a sentence's clauses lie in, if any, and returns the
-/// indentation of its clauses.
-fn open_instance(
-    instance: Option<&SymbolId>,
+/// Writes the items whose cells are `cells`, each on its own line by `emit` (given the item's
+/// index and its indentation), inside the cells of the instances they lie in
+/// ([`DefinitionIndex::sentence_instances`](krs_ir_levels::k_surface::DefinitionIndex::sentence_instances)):
+/// each instance's cell holds the items that lie in it directly, then the cell of the next
+/// instance, open on the right for the instance's other cells. Items outside every instance
+/// are written at the top.
+fn emit_in_instances<'c>(
+    cells: impl IntoIterator<Item = &'c SymbolId>,
     context: &EmitContext<'_>,
     writer: &mut Writer,
-) -> Result<usize, EmitError> {
-    let Some(instance) = instance else {
-        return Ok(4);
-    };
-    writer.push("\n    <");
-    writer.push(context.cell_name(instance)?);
-    writer.push(">");
-    Ok(8)
-}
-
-/// Closes the cell [`open_instance`] opened, open on the right for the instance's other cells.
-fn close_instance(
-    instance: Option<&SymbolId>,
-    context: &EmitContext<'_>,
-    writer: &mut Writer,
+    mut emit: impl FnMut(usize, usize, &mut Writer) -> Result<(), EmitError>,
 ) -> Result<(), EmitError> {
-    if let Some(instance) = instance {
-        writer.push("\n        ...\n    </");
+    let cells = cells.into_iter().collect::<Vec<_>>();
+    let chain = context.sentence_instances(cells.iter().copied())?;
+    let mut indent = 4;
+    if chain.is_empty() {
+        for index in 0..cells.len() {
+            writer.push("\n");
+            emit(index, indent, writer)?;
+        }
+        return Ok(());
+    }
+    for instance in &chain {
+        writer.push("\n");
+        writer.push(&" ".repeat(indent));
+        writer.push("<");
+        writer.push(context.cell_name(instance)?);
+        writer.push(">");
+        indent += 4;
+        for (index, cell) in cells.iter().enumerate() {
+            if context.instance_holder(cell) == Some(*instance) {
+                writer.push("\n");
+                emit(index, indent, writer)?;
+            }
+        }
+    }
+    for instance in chain.iter().rev() {
+        writer.push("\n");
+        writer.push(&" ".repeat(indent));
+        writer.push("...");
+        indent -= 4;
+        writer.push("\n");
+        writer.push(&" ".repeat(indent));
+        writer.push("</");
         writer.push(context.cell_name(instance)?);
         writer.push(">");
     }
@@ -1830,13 +1857,14 @@ fn emit_context_alias(
     // The alias is instantiated into heating and cooling rules, so its cells in an instance are
     // written inside the instance's cell, as a rule's are ([`emit_configuration_clauses`]).
     let cells = sentence.body().cells();
-    let instance = context.sentence_instance(cells.iter().map(FixedCellPattern::cell))?;
-    let indent = open_instance(instance, context, writer)?;
-    for cell in cells {
-        writer.push("\n");
-        emit_context_alias_cell(cell, sentence, &names, context, indent, writer)?;
-    }
-    close_instance(instance, context, writer)?;
+    emit_in_instances(
+        cells.iter().map(FixedCellPattern::cell),
+        context,
+        writer,
+        |index, indent, writer| {
+            emit_context_alias_cell(&cells[index], sentence, &names, context, indent, writer)
+        },
+    )?;
     // `result = S`, K's `result(S)` (KF-021).
     if let Some(result) = sentence.result() {
         writer.push("\n    [result(");
@@ -1883,11 +1911,13 @@ fn emit_function_context_cell(
     cell: &FixedCellPattern<SymbolId, DefinitionTerm>,
     names: &SentenceVariables,
     context: &EmitContext<'_>,
+    indent: usize,
     writer: &mut Writer,
 ) -> Result<(), EmitError> {
     let start = writer.source.len();
     let name = context.cell_name(cell.cell())?;
-    writer.push("    <");
+    writer.push(&" ".repeat(indent));
+    writer.push("<");
     writer.push(name);
     writer.push("> ");
     writer.append_rendered(render_term(cell.pattern(), context, names, false)?)?;

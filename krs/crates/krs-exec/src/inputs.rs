@@ -94,7 +94,10 @@
 //! reader of a case sees which parts are data and which are computed. Any function may be applied,
 //! partial and `internal` ones included, as the initializer's body may apply them; the
 //! configuration holds the application, which the definition's equations evaluate when the first
-//! state is simplified, before the first step.
+//! state is simplified, before the first step. A function evaluated in one instance of a Map
+//! collection (its function context reads a cell group held there, or it applies such a
+//! function) is refused: it receives the instance's key, and an input is evaluated in no
+//! instance.
 //!
 //! ## Shorthands
 //!
@@ -2555,6 +2558,9 @@ impl<'a> Decoder<'a> {
                     )),
                     error => self.refuse(&format!("`$call`: {error}")),
                 })?;
+                if let Some(reason) = self.values.instance_function(&decl) {
+                    return Err(self.refuse(&format!("`$call`: {reason}")));
+                }
                 self.construct(&decl, name, arguments, false)
             }
             other => Err(self.refuse(&format!(

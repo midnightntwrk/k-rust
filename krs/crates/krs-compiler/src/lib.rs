@@ -12,6 +12,7 @@ mod edit_origin;
 mod emit;
 mod equation_domain;
 mod error;
+mod instance_keys;
 mod int_facts;
 mod lowering;
 mod mutant_theory;
