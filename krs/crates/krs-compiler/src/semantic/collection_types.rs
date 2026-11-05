@@ -122,7 +122,7 @@ impl SortType {
 
     /// The type of a production's field or result: its sort and the element
     /// types its declaration states.
-    fn of_production(
+    pub(super) fn of_production(
         sort: &DescriptorSortRef,
         arguments: &[krs_ir::ConstructorSortArgumentDescriptor],
     ) -> Self {

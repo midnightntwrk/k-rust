@@ -27,7 +27,7 @@ use krs_ir::{
     ProductionAttribute, ProductionGroupId, SchemaVersion, SemanticId, SentenceKind, SetOperation,
     SourceMapKey, StableItemId,
 };
-use krs_ir::{FixedConfiguration, FixedConfigurationRewrite};
+use krs_ir::{CellSortArgument, FixedConfiguration, FixedConfigurationRewrite};
 
 impl SortKey for DefinitionModule {
     type Key = ModuleId;
@@ -1243,6 +1243,13 @@ pub struct ProductionSentence {
     attributes: Vec<DefinitionProductionAttribute>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     parameters: Vec<crate::SortParameterId>,
+    /// The element types of each field declared at a typed collection (`Reg8` and `Int` of
+    /// `regs: Map<Reg8, Int>`), by field; a field declared without them has no entry.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    field_arguments: BTreeMap<krs_ir::ProductionFieldId, Vec<CellSortArgument<DefinitionSortRef>>>,
+    /// The element types of a function's typed collection result; empty otherwise.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    result_arguments: Vec<CellSortArgument<DefinitionSortRef>>,
 }
 
 impl ProductionSentence {
@@ -1277,6 +1284,8 @@ impl ProductionSentence {
             items,
             attributes,
             parameters: Vec::new(),
+            field_arguments: BTreeMap::new(),
+            result_arguments: Vec::new(),
         })
     }
     /// Declares the production's sort parameters, in declaration order: K's
@@ -1291,6 +1300,39 @@ impl ProductionSentence {
     #[must_use]
     pub fn parameters(&self) -> &[crate::SortParameterId] {
         &self.parameters
+    }
+    /// Declares the element types of the fields and of the result that the
+    /// production's declaration states for its typed collections. K erases
+    /// them; they type every value at those positions, as a cell's element
+    /// types do. [`DefinitionIr::new`] checks that each typed field is a
+    /// field of the production and that every element type fits its sort.
+    #[must_use]
+    pub fn with_arguments(
+        mut self,
+        field_arguments: BTreeMap<
+            krs_ir::ProductionFieldId,
+            Vec<CellSortArgument<DefinitionSortRef>>,
+        >,
+        result_arguments: Vec<CellSortArgument<DefinitionSortRef>>,
+    ) -> Self {
+        self.field_arguments = field_arguments;
+        self.result_arguments = result_arguments;
+        self
+    }
+    /// Returns the element types of `field`'s typed collection sort; empty
+    /// for a field declared without them and for every other field.
+    #[must_use]
+    pub fn field_arguments(
+        &self,
+        field: &krs_ir::ProductionFieldId,
+    ) -> &[CellSortArgument<DefinitionSortRef>] {
+        self.field_arguments.get(field).map_or(&[], Vec::as_slice)
+    }
+    /// Returns the element types of a function's typed collection result;
+    /// empty otherwise.
+    #[must_use]
+    pub fn result_arguments(&self) -> &[CellSortArgument<DefinitionSortRef>] {
+        &self.result_arguments
     }
     /// Returns sentence provenance.
     #[must_use]
@@ -2030,9 +2072,13 @@ pub enum DefinitionValidationError {
     InitializerTreeMismatch,
     /// A structured initializer leaf term has the wrong sort.
     InitializerLeafSortMismatch,
-    /// A leaf cell's element types do not fit its content sort: a `Map`
-    /// takes two, a `List` or `Set` one, and any other sort none.
+    /// A leaf cell's, a configuration variable's, or a production position's
+    /// element types do not fit its sort: a `Map` takes two, a `List` or
+    /// `Set` one, and any other sort none.
     CellArgumentArity,
+    /// A production declares element types for a field it does not have,
+    /// or an empty list of them for one of its fields.
+    ProductionArgumentField(SymbolId),
     /// A Map term did not carry builtin Map sort.
     MapSortMismatch,
     /// A Map operation had a wrong result or operand sort.
@@ -2326,7 +2372,11 @@ impl fmt::Display for DefinitionValidationError {
                 formatter.write_str("initializer leaf term must match its cell content sort")
             }
             Self::CellArgumentArity => formatter.write_str(
-                "a cell's element types must be two for a Map, one for a List or Set, and none for any other sort",
+                "the element types of a cell, a configuration variable, or a production's field or result must be two for a Map, one for a List or Set, and none for any other sort",
+            ),
+            Self::ProductionArgumentField(id) => write!(
+                formatter,
+                "production {id} declares element types for a field it does not have, or none for a field it lists"
             ),
             Self::MapSortMismatch => formatter.write_str("Map term must have builtin Map sort"),
             Self::MapOperationSignature(operation) => {
@@ -2456,6 +2506,14 @@ fn validate_production(
             require_sort::<DefinitionLevel>(symbols, sort)?;
         }
     }
+    crate::ir_validation::require_production_arguments::<DefinitionLevel>(
+        symbols,
+        sentence.symbol.id(),
+        &sentence.result_sort,
+        &sentence.items,
+        &sentence.field_arguments,
+        &sentence.result_arguments,
+    )?;
     for attribute in &sentence.attributes {
         match attribute {
             ProductionAttribute::Group { group, .. } => {

@@ -1222,6 +1222,94 @@ fn configuration_variable_element_types_fit_their_collection_and_name_declared_s
     assert!(theory(vec![int(), undeclared]).is_err());
 }
 
+#[test]
+fn production_element_types_name_a_field_of_it_and_fit_its_sort() {
+    let int = || krs_ir::CellSortArgument {
+        sort: SemanticSortRef::int(),
+        arguments: Vec::new(),
+    };
+    let cell_id = SemanticId::new("cell").unwrap();
+    let configuration = FixedConfiguration::new(
+        testing::origin("configuration"),
+        SemanticId::new("configuration").unwrap(),
+        krs_ir::ConfigurationRoot::GeneratedTop,
+        vec![
+            FixedCell::leaf(
+                testing::origin("cell"),
+                cell_id.clone(),
+                "main",
+                vec![],
+                SemanticSortRef::int(),
+            )
+            .unwrap(),
+        ],
+        testing::origin("initializer"),
+        SemanticId::new("initializer").unwrap(),
+        vec![],
+        vec![FixedInitializerCell::term(
+            testing::origin("initialized-cell"),
+            cell_id,
+            SemanticTerm::token(testing::origin("zero"), SemanticSortRef::int(), "0").unwrap(),
+        )],
+    )
+    .unwrap();
+    let id = testing::item("registers", "Swap", ItemKind::Constructor);
+    // `Swap(regs: Map<Int, Int>) -> Map<Int, Int>`, its field's element types stated at `field`.
+    let theory = |field: &str,
+                  fields: Vec<krs_ir::CellSortArgument<SemanticSortRef>>,
+                  result: Vec<krs_ir::CellSortArgument<SemanticSortRef>>| {
+        let production = crate::SemanticProduction::new(
+            testing::origin("production"),
+            id.clone(),
+            SemanticSortRef::map(),
+            vec![GrammarProductionItem::non_terminal(
+                testing::origin("regs"),
+                ProductionFieldId::new("regs").unwrap(),
+                SemanticSortRef::map(),
+            )],
+            vec![
+                ProductionAttribute::Function {
+                    origin: testing::origin("function"),
+                },
+                ProductionAttribute::Total {
+                    origin: testing::origin("total"),
+                },
+            ],
+        )
+        .unwrap()
+        .with_arguments(
+            BTreeMap::from([(ProductionFieldId::new(field).unwrap(), fields)]),
+            result,
+        );
+        crate::SemanticTheory::new(vec![crate::SemanticModule::new(
+            testing::origin("module"),
+            krs_ir::ModuleId::new("REGISTERS").unwrap(),
+            vec![],
+            vec![],
+            vec![],
+            vec![production],
+            vec![],
+            vec![],
+            Some(configuration.clone()),
+            vec![],
+        )])
+    };
+    assert!(theory("regs", vec![int(), int()], vec![int(), int()]).is_ok());
+    let field = Err(SemanticValidationError::ProductionArgumentField(Box::new(
+        id.clone(),
+    )));
+    assert_eq!(theory("pc", vec![int(), int()], Vec::new()), field);
+    assert_eq!(theory("regs", Vec::new(), Vec::new()), field);
+    assert_eq!(
+        theory("regs", vec![int()], Vec::new()),
+        Err(SemanticValidationError::CellArgumentArity)
+    );
+    assert_eq!(
+        theory("regs", vec![int(), int()], vec![int()]),
+        Err(SemanticValidationError::CellArgumentArity)
+    );
+}
+
 /// A configuration with a map cell `env`, an optional map cell `opt`, and a Map collection `obj`
 /// (in `objs`) whose instances hold a map cell `slots`.
 fn moved_frame_configuration() -> Configuration<SemanticLevel> {

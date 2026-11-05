@@ -57,6 +57,9 @@ macro_rules! validation_error {
             }
             ValidationError::InitializerLeafSortMismatch => $public::InitializerLeafSortMismatch,
             ValidationError::CellArgumentArity => $public::CellArgumentArity,
+            ValidationError::ProductionArgumentField(id) => {
+                $public::ProductionArgumentField($identity(id))
+            }
             ValidationError::InitializerTreeMismatch => $public::InitializerTreeMismatch,
             ValidationError::InvalidAliasProduction => $public::InvalidAliasProduction,
             ValidationError::InvalidAliasRoot(id) => $public::InvalidAliasRoot($identity(id)),

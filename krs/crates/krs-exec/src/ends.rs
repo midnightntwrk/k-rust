@@ -81,8 +81,8 @@
 //!
 //! A comparison may apply *views* to compared leaf cells ([`Comparison::views`]; the normative
 //! statement is [`crate::views`]). The projected end then holds, at each viewed cell, the view's
-//! value at the cell's value instead of the cell's value, written at the view's result sort by the
-//! definition that declares the view; everything below compares and shows projected ends, so a
+//! value at the cell's value instead of the cell's value, written at the view's declared result
+//! type, element types included, by the definition that declares the view; everything below compares and shows projected ends, so a
 //! difference at a viewed cell is between viewed values and its path descends into them, and the
 //! difference lists the views it applied (`views`). A set collection's instances are then the set
 //! of their viewed projections.
@@ -1790,11 +1790,11 @@ impl Lens<'_> {
                     else {
                         break;
                     };
-                    let field_sort = index
+                    let field_type = index
                         .info(a.decl())
-                        .and_then(|info| info.field_sorts.get(position).cloned().flatten());
+                        .and_then(|info| info.field_types.get(position).cloned().flatten());
                     segments.push(format!(".{}", a.fields()[position].0));
-                    ty = field_sort.map_or_else(InputType::untyped, InputType::of);
+                    ty = field_type.unwrap_or_else(InputType::untyped);
                     left = &a.fields()[position].1;
                     right = &b.fields()[position].1;
                 }

@@ -236,7 +236,13 @@ fn lower_module_descriptor(
                     semantic_sort_parents,
                 )?;
             }
-            lower_grammar_descriptor(descriptor, grammar, declaration, sentences)?;
+            lower_grammar_descriptor(
+                descriptor,
+                grammar,
+                declaration,
+                declarations.descriptors,
+                sentences,
+            )?;
         }
         DescriptorPayload::StructuredRule(rule) => {
             sentences.rules.push(lower_structured_rule_descriptor(

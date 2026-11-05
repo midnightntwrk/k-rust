@@ -303,9 +303,11 @@ object keys refused (`json_document`); a TOML parser refuses them itself.
 
 A document is decoded at a *position*. A position is a declared type: a sort and, for a
 collection, its element types (`Map<Int, Int>`, the type of the parameter or of an element
-inside it). A position is *untyped* where the declared type says nothing: a `K` sort, the
-elements of a collection whose element types are not declared (the field of a constructor
-declared `List`, the elements of `$list`), and the field of a sort no KRS declaration names.
+inside it). A parameter, a cell, a constructor's field and a function's argument or result
+each have the type their declaration states, element types included (`regs: Map<Reg8, Int>`).
+A position is *untyped* where the declared type says nothing: a `K` sort, the elements of a
+collection whose element types are not declared (a field declared `List`, the elements of
+`$list`), and the field of a sort no KRS declaration names.
 
 Every document has at most one reading at a position. Shorthands are read only where the
 position's type decides them; elsewhere a *tagged form* states the reading. Where a shorthand
@@ -358,8 +360,8 @@ none; at a position of a declared sort a bare string `"Name"` is a nullary const
 `Name` is the declaration's path or a `::`-aligned suffix of it (`Register::A`, `A`), resolved
 among the constructors whose result sort is at most the position's sort (among all
 constructors at an untyped position); a name that selects several is refused naming them.
-Each field is decoded at its declared sort, with no element types: a field declared `List` has
-untyped elements.
+Each field is decoded at its declared type, element types included: a field declared
+`Map<Reg8, Int>` reads `{"B": 1}`, and one declared `List` has untyped elements.
 
 At a declared sort that `Map` is at most (`KItem`, a field declared `KItem`), an object is also
 a map's object shorthand, so `{"Name": fields}` reads two ways there and is refused. The tagged
@@ -477,7 +479,7 @@ so no canonical document is one the decoder refuses.
 - **A constructor**: `{"Name": fields}`,
   `fields` the array of its fields in declaration order for a tuple variant (fields `0`, `1`, ..),
   `[]` for none, and the object by field name otherwise,
-  each field's document at its declared sort with no element types.
+  each field's document at its declared type, element types included.
   A nullary constructor is the bare string `"Name"` at a declared sort where that string
   has no other reading: one that neither `String` nor any token sort is at most.
   Where `{"Name": fields}` has another reading at the position

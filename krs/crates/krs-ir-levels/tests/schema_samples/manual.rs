@@ -182,7 +182,14 @@ impl Sample for ProductionSentence {
                 sample::<Vec<ProductionItem>>(),
                 sample::<Vec<DefinitionProductionAttribute>>(),
             )
-            .unwrap(),
+            .unwrap()
+            .with_arguments(
+                BTreeMap::from([(
+                    sample::<ProductionFieldId>(),
+                    sample::<Vec<CellSortArgument<DefinitionSortRef>>>(),
+                )]),
+                sample::<Vec<CellSortArgument<DefinitionSortRef>>>(),
+            ),
         ]
     }
 }
@@ -443,7 +450,14 @@ impl Sample for SemanticProduction {
                 sample::<RustVisibility>(),
                 Some(sample::<ExplicitSymbol>()),
             )
-            .unwrap(),
+            .unwrap()
+            .with_arguments(
+                BTreeMap::from([(
+                    sample::<ProductionFieldId>(),
+                    sample::<Vec<CellSortArgument<SemanticSortRef>>>(),
+                )]),
+                sample::<Vec<CellSortArgument<SemanticSortRef>>>(),
+            ),
         ]
     }
 }

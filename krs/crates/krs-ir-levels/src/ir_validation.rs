@@ -202,6 +202,7 @@ pub(crate) enum ValidationError<L: Validation> {
     ExistentialScopeViolation(SemanticId),
     InitializerLeafSortMismatch,
     CellArgumentArity,
+    ProductionArgumentField(L::Declaration),
     InitializerTreeMismatch,
     InvalidAliasProduction,
     InvalidAliasRoot(L::RuleId),
@@ -288,8 +289,8 @@ pub(crate) fn require_sort<L: Validation>(
     Ok(())
 }
 
-/// Every element type of a leaf cell or a configuration variable names a
-/// declared sort, and each
+/// Every element type of a leaf cell, a configuration variable, or a
+/// production's field or result names a declared sort, and each
 /// collection sort carries the number of element types it takes: two for a
 /// `Map`, one for a `List` or `Set`, none for a bare collection or any other
 /// sort.
@@ -310,6 +311,37 @@ fn require_cell_arguments<L: Validation>(
     for argument in arguments {
         require_sort::<L>(declarations, &argument.sort)?;
         require_cell_arguments::<L>(declarations, &argument.sort, &argument.arguments)?;
+    }
+    Ok(())
+}
+
+/// The element types a production declares fit their positions: the result's
+/// fit the result sort and each typed field's fit that field's sort, as a
+/// cell's fit its content sort ([`require_cell_arguments`]). Each typed field
+/// is a nonterminal field of the production and has at least one element
+/// type, so an untyped position has one form, no entry.
+pub(crate) fn require_production_arguments<L: Validation>(
+    declarations: &Declarations<L>,
+    id: &L::Declaration,
+    result_sort: &L::Sort,
+    items: &[GrammarProductionItem<L::Sort>],
+    field_arguments: &BTreeMap<ProductionFieldId, Vec<CellSortArgument<L::Sort>>>,
+    result_arguments: &[CellSortArgument<L::Sort>],
+) -> Result<(), L::Error> {
+    require_cell_arguments::<L>(declarations, result_sort, result_arguments)?;
+    for (field, arguments) in field_arguments {
+        let sort = items.iter().find_map(|item| match item.kind() {
+            GrammarProductionItemKind::NonTerminal { field: name, sort } if name == field => {
+                Some(sort)
+            }
+            _ => None,
+        });
+        let Some(sort) = sort.filter(|_| !arguments.is_empty()) else {
+            return Err(L::error(ValidationError::ProductionArgumentField(
+                id.clone(),
+            )));
+        };
+        require_cell_arguments::<L>(declarations, sort, arguments)?;
     }
     Ok(())
 }

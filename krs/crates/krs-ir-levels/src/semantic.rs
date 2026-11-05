@@ -22,11 +22,11 @@ use crate::ir_validation::{
 };
 use krs_ir::sorted::{SortKey, SortedByKey};
 use krs_ir::{
-    ApplicationRef, BuiltinOperation, BuiltinSort, FixedConfiguration, FixedConfigurationRewrite,
-    GrammarProductionItem, GrammarProductionItemKind, GroupAssociativitySentence, HookOperation,
-    ItemKind, ListOperation, MapOperation, ModuleId, NodeOrigin, PrecedenceRelation,
-    ProductionAttribute, ProductionGroupId, SchemaVersion, SemanticId, SentenceKind, SetOperation,
-    SourceMapKey, StableItemId,
+    ApplicationRef, BuiltinOperation, BuiltinSort, CellSortArgument, FixedConfiguration,
+    FixedConfigurationRewrite, GrammarProductionItem, GrammarProductionItemKind,
+    GroupAssociativitySentence, HookOperation, ItemKind, ListOperation, MapOperation, ModuleId,
+    NodeOrigin, PrecedenceRelation, ProductionAttribute, ProductionGroupId, SchemaVersion,
+    SemanticId, SentenceKind, SetOperation, SourceMapKey, StableItemId,
 };
 
 impl SortKey for SemanticModule {
@@ -459,6 +459,14 @@ impl SemanticTheory {
                             require_sort::<SemanticLevel>(&declarations, sort)?;
                         }
                     }
+                    crate::ir_validation::require_production_arguments::<SemanticLevel>(
+                        &declarations,
+                        &production.id,
+                        &production.result_sort,
+                        &production.items,
+                        &production.field_arguments,
+                        &production.result_arguments,
+                    )?;
                     for attribute in &production.attributes {
                         if let ProductionAttribute::Strictness { result_sort, .. } = attribute {
                             require_sort::<SemanticLevel>(&declarations, result_sort.sort())?;
@@ -1026,6 +1034,13 @@ pub struct SemanticProduction {
     explicit_symbol: Option<krs_ir::ExplicitSymbol>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     parameters: Vec<crate::SortParameterId>,
+    /// The element types of each field declared at a typed collection, by field; a field
+    /// declared without them has no entry.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    field_arguments: BTreeMap<krs_ir::ProductionFieldId, Vec<CellSortArgument<SemanticSortRef>>>,
+    /// The element types of a function's typed collection result; empty otherwise.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    result_arguments: Vec<CellSortArgument<SemanticSortRef>>,
 }
 
 impl SemanticProduction {
@@ -1051,6 +1066,8 @@ impl SemanticProduction {
             visibility: krs_ir::RustVisibility::Inherited,
             explicit_symbol: None,
             parameters: Vec::new(),
+            field_arguments: BTreeMap::new(),
+            result_arguments: Vec::new(),
         })
     }
     /// Creates and validates a production with exact author-facing API metadata.
@@ -1077,6 +1094,8 @@ impl SemanticProduction {
             visibility,
             explicit_symbol,
             parameters: Vec::new(),
+            field_arguments: BTreeMap::new(),
+            result_arguments: Vec::new(),
         })
     }
     /// Declares the production's sort parameters, in declaration order: K's
@@ -1091,6 +1110,37 @@ impl SemanticProduction {
     #[must_use]
     pub fn parameters(&self) -> &[crate::SortParameterId] {
         &self.parameters
+    }
+    /// Declares the element types of the fields and of the result that the
+    /// production's declaration states for its typed collections. K erases
+    /// them; they type every value at those positions, as a cell's element
+    /// types do. [`SemanticTheory::new`] checks that each typed field is a
+    /// field of the production and that every element type fits its sort.
+    #[must_use]
+    pub fn with_arguments(
+        mut self,
+        field_arguments: BTreeMap<
+            krs_ir::ProductionFieldId,
+            Vec<CellSortArgument<SemanticSortRef>>,
+        >,
+        result_arguments: Vec<CellSortArgument<SemanticSortRef>>,
+    ) -> Self {
+        self.field_arguments = field_arguments;
+        self.result_arguments = result_arguments;
+        self
+    }
+    /// Returns the element types of each typed field, by field.
+    #[must_use]
+    pub const fn field_arguments(
+        &self,
+    ) -> &BTreeMap<krs_ir::ProductionFieldId, Vec<CellSortArgument<SemanticSortRef>>> {
+        &self.field_arguments
+    }
+    /// Returns the element types of a function's typed collection result;
+    /// empty otherwise.
+    #[must_use]
+    pub fn result_arguments(&self) -> &[CellSortArgument<SemanticSortRef>] {
+        &self.result_arguments
     }
     /// Returns the authored production ID.
     #[must_use]
@@ -2089,9 +2139,13 @@ pub enum SemanticValidationError {
     InitializerTreeMismatch,
     /// A structured initializer leaf term has the wrong sort.
     InitializerLeafSortMismatch,
-    /// A leaf cell's element types do not fit its content sort: a `Map`
-    /// takes two, a `List` or `Set` one, and any other sort none.
+    /// A leaf cell's, a configuration variable's, or a production position's
+    /// element types do not fit its sort: a `Map` takes two, a `List` or
+    /// `Set` one, and any other sort none.
     CellArgumentArity,
+    /// A production declares element types for a field it does not have,
+    /// or an empty list of them for one of its fields.
+    ProductionArgumentField(Box<StableItemId>),
     /// A Map term did not carry builtin Map sort.
     MapSortMismatch,
     /// A Map operation had a wrong result or operand sort.
@@ -2399,7 +2453,11 @@ impl fmt::Display for SemanticValidationError {
                 formatter.write_str("initializer leaf term must match its cell content sort")
             }
             Self::CellArgumentArity => formatter.write_str(
-                "a cell's element types must be two for a Map, one for a List or Set, and none for any other sort",
+                "the element types of a cell, a configuration variable, or a production's field or result must be two for a Map, one for a List or Set, and none for any other sort",
+            ),
+            Self::ProductionArgumentField(id) => write!(
+                formatter,
+                "production {id} declares element types for a field it does not have, or none for a field it lists"
             ),
             Self::MapSortMismatch => formatter.write_str("Map term must have builtin Map sort"),
             Self::MapOperationSignature(operation) => {

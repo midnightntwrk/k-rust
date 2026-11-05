@@ -40,6 +40,8 @@ use krs_ir_levels::{
 };
 use num_bigint::BigInt;
 
+use crate::inputs::InputType;
+
 /// The KRS declaration of a constructor or a sort: the Rust path of the item that declares it,
 /// from its crate root (`sm83::machine::Register::A`).
 ///
@@ -567,15 +569,38 @@ pub(crate) struct CtorInfo {
     /// The KORE symbol name.
     symbol: String,
     pub(crate) fields: Vec<Arc<str>>,
-    /// Each field's declared sort, in field order; `None` for a sort no KRS declaration and no
-    /// builtin names (a cell sort, a sort parameter).
-    pub(crate) field_sorts: Vec<Option<SortRef>>,
-    /// The result sort, with the same `None`.
-    pub(crate) result: Option<SortRef>,
+    /// Each field's declared type, in field order: its sort and, for a typed collection, the
+    /// element types the declaration states (`Map<Reg8, Int>`), as a parameter's or a cell's
+    /// type is; `None` for a sort no KRS declaration and no builtin names (a cell sort, a sort
+    /// parameter).
+    pub(crate) field_types: Vec<Option<InputType>>,
+    /// The result's declared type, with the same `None`.
+    pub(crate) result: Option<InputType>,
     /// Whether the production is a function (`#[k::function]`, a `fn` declaration): its
     /// application is computed by the definition's equations, not data.
     pub(crate) function: bool,
     pub(crate) parameters: usize,
+}
+
+/// The declared type of a production's field or result: the sort `sort_ref` names and the element
+/// types the declaration states. An element type whose sort KRS names none of (a sort parameter,
+/// a cell sort) is the untyped position, which takes any term, so the type never claims more than
+/// the declaration states; a position whose own sort KRS names none of has no type.
+fn position_type(
+    sort_ref: &impl Fn(&DefinitionSortRef) -> Option<SortRef>,
+    sort: &DefinitionSortRef,
+    arguments: &[krs_ir::CellSortArgument<DefinitionSortRef>],
+) -> Option<InputType> {
+    Some(InputType {
+        sort: sort_ref(sort)?,
+        arguments: arguments
+            .iter()
+            .map(|argument| {
+                position_type(sort_ref, &argument.sort, &argument.arguments)
+                    .unwrap_or_else(InputType::untyped)
+            })
+            .collect(),
+    })
 }
 
 /// One collection kind's builder symbols, by KORE name.
@@ -924,12 +949,19 @@ impl ValueIndex {
                         let Some(decl) = decl_of(production.symbol()) else {
                             continue;
                         };
-                        let (fields, field_sorts) = production
+                        let (fields, field_types) = production
                             .items()
                             .iter()
                             .filter_map(|item| match item.kind() {
                                 krs_ir::GrammarProductionItemKind::NonTerminal { field, sort } => {
-                                    Some((Arc::from(field.as_str()), sort_ref(sort)))
+                                    Some((
+                                        Arc::from(field.as_str()),
+                                        position_type(
+                                            &sort_ref,
+                                            sort,
+                                            production.field_arguments(field),
+                                        ),
+                                    ))
                                 }
                                 _ => None,
                             })
@@ -938,8 +970,12 @@ impl ValueIndex {
                             decl: decl.clone(),
                             symbol: kore_symbol_name(production.symbol().emitted_name()),
                             fields,
-                            field_sorts,
-                            result: sort_ref(production.result_sort()),
+                            field_types,
+                            result: position_type(
+                                &sort_ref,
+                                production.result_sort(),
+                                production.result_arguments(),
+                            ),
                             function: attributes.iter().any(|attribute| {
                                 matches!(attribute, krs_ir::ProductionAttribute::Function { .. })
                             }),
@@ -1682,7 +1718,14 @@ impl ValueIndex {
     /// sort no KRS declaration names.
     pub(crate) fn value_sort(&self, value: &Value) -> Option<SortRef> {
         Some(SortRef::Builtin(match value {
-            Value::Ctor(ctor) => return self.ctors_by_decl.get(&ctor.decl)?.result.clone(),
+            Value::Ctor(ctor) => {
+                return self
+                    .ctors_by_decl
+                    .get(&ctor.decl)?
+                    .result
+                    .as_ref()
+                    .map(|result| result.sort.clone());
+            }
             Value::Token { sort, .. } => return Some(sort.clone()),
             Value::Opaque(_) => return None,
             Value::Int(_) => BuiltinSort::Int,
@@ -1901,8 +1944,8 @@ fn index_at(text: &str, ctors: &[(&str, &str, &[&str])], result: Option<&SortRef
             decl: Decl(format!("t::S::{name}").into()),
             symbol: (*symbol).to_owned(),
             fields: fields.iter().map(|field| Arc::from(*field)).collect(),
-            field_sorts: vec![None; fields.len()],
-            result: result.cloned(),
+            field_types: vec![None; fields.len()],
+            result: result.cloned().map(InputType::of),
             function: false,
             parameters: 0,
         });

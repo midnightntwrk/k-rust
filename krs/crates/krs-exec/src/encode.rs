@@ -573,7 +573,7 @@ impl Encoder<'_> {
             )
         })?;
         let function = info.function;
-        let field_sorts = info.field_sorts.clone();
+        let field_types = info.field_types.clone();
         let name = self.ctor_name(ctor, ty, function)?;
         let fields = ctor.fields();
         // The bare name where the decoder reads it as this constructor alone: at a declared
@@ -604,11 +604,11 @@ impl Encoder<'_> {
                 .all(|(index, (field, _))| field.as_ref() == index.to_string());
         let mut documents = Vec::with_capacity(fields.len());
         for (index, (field, item)) in fields.iter().enumerate() {
-            let field_type = field_sorts
+            let field_type = field_types
                 .get(index)
                 .cloned()
                 .flatten()
-                .map_or_else(InputType::untyped, InputType::of);
+                .unwrap_or_else(InputType::untyped);
             let document = self.at(format!("{prefix}{field}"), |encoder| {
                 encoder.encode(item, &field_type)
             })?;

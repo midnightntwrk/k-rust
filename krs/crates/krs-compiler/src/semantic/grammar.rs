@@ -1,13 +1,17 @@
+use std::collections::BTreeMap;
+
 use krs_ir::{
-    Descriptor, DescriptorApplicationRef, DescriptorDeclaration, DescriptorProduction,
-    DescriptorProductionAttribute, DescriptorProductionItem, DescriptorProductionOwner,
-    GeneratedProductionKind, GrammarDescriptor, GroupAssociativitySentence, LayoutSentence,
-    LexicalSentence, PrecedenceRelation, ProductionAttribute, StableItemId, TokenProductionContent,
+    CellSortArgument, Descriptor, DescriptorApplicationRef, DescriptorDeclaration, DescriptorIndex,
+    DescriptorProduction, DescriptorProductionAttribute, DescriptorProductionItem,
+    DescriptorProductionOwner, GeneratedProductionKind, GrammarDescriptor,
+    GroupAssociativitySentence, LayoutSentence, LexicalSentence, PrecedenceRelation,
+    ProductionAttribute, ProductionFieldId, StableItemId, TokenProductionContent,
     generated_production_id,
 };
 use krs_ir_levels::{SemanticProduction, SemanticProductionItem, SemanticSortRef, SemanticSubsort};
 
 use super::catalog::semantic_sort_ref;
+use super::collection_types::SortType;
 use super::error::DescriptorLoweringError;
 use super::origin::semantic_origin;
 use super::package::ModuleSentences;
@@ -16,6 +20,7 @@ pub(super) fn lower_grammar_descriptor(
     descriptor: &Descriptor,
     grammar: &GrammarDescriptor,
     declaration: &DescriptorDeclaration,
+    descriptors: &DescriptorIndex<'_>,
     module: &mut ModuleSentences,
 ) -> Result<(), DescriptorLoweringError> {
     match grammar {
@@ -24,6 +29,7 @@ pub(super) fn lower_grammar_descriptor(
                 descriptor,
                 production,
                 declaration,
+                descriptors,
             )?);
         }
         GrammarDescriptor::Tokens { productions } => {
@@ -32,6 +38,7 @@ pub(super) fn lower_grammar_descriptor(
                     descriptor,
                     production,
                     declaration,
+                    descriptors,
                 )?);
             }
         }
@@ -159,8 +166,10 @@ fn lower_grammar_production(
     descriptor: &Descriptor,
     production: &DescriptorProduction,
     declaration: &DescriptorDeclaration,
+    descriptors: &DescriptorIndex<'_>,
 ) -> Result<SemanticProduction, DescriptorLoweringError> {
     let id = production_owner_id(descriptor, production)?;
+    let (field_arguments, result_arguments) = declared_arguments(descriptors, production, &id);
     let items = production
         .items
         .iter()
@@ -196,7 +205,54 @@ fn lower_grammar_production(
         declaration.visibility.clone(),
         declaration.explicit_symbol.clone(),
     )?
-    .with_parameters(parameters))
+    .with_parameters(parameters)
+    .with_arguments(field_arguments, result_arguments))
+}
+
+/// The element types of one typed collection position, in order.
+type ElementTypes = Vec<CellSortArgument<SemanticSortRef>>;
+
+/// The element types a constructor's or function's declaration states for its typed collection
+/// fields and result (`Reg8` and `Int` of `regs: Map<Reg8, Int>`), keyed by the production's
+/// fields. K erases them, so the production keeps them for every reader that types a value at one
+/// of those positions; a field declared without them has no entry. A token production has no
+/// constructor declaration and none.
+fn declared_arguments(
+    descriptors: &DescriptorIndex<'_>,
+    production: &DescriptorProduction,
+    id: &StableItemId,
+) -> (BTreeMap<ProductionFieldId, ElementTypes>, ElementTypes) {
+    let DescriptorProductionOwner::Constructor { .. } = &production.owner else {
+        return (BTreeMap::new(), Vec::new());
+    };
+    let Ok(constructor) = descriptors.constructor(id) else {
+        return (BTreeMap::new(), Vec::new());
+    };
+    let fields = production
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            DescriptorProductionItem::NonTerminal { field, .. } => Some(field),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let field_arguments = constructor
+        .fields
+        .iter()
+        .filter(|field| !field.arguments.is_empty())
+        .filter_map(|field| {
+            let name = fields
+                .iter()
+                .find(|production_field| production_field.as_str() == field.name)?;
+            Some((
+                (*name).clone(),
+                SortType::of_production(&field.sort.sort, &field.arguments).ir_arguments(),
+            ))
+        })
+        .collect();
+    let result_arguments =
+        SortType::of_production(&constructor.sort, &constructor.arguments).ir_arguments();
+    (field_arguments, result_arguments)
 }
 
 /// Rejects what K and k-rust do not accept on a parametric production

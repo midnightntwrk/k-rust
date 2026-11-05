@@ -1258,7 +1258,17 @@ fn lower_module(
                     lower_production_items(production, names, origins)?,
                     lower_production_attributes(production, names, origins)?,
                 )?
-                .with_parameters(production.parameters().to_vec()),
+                .with_parameters(production.parameters().to_vec())
+                .with_arguments(
+                    production
+                        .field_arguments()
+                        .iter()
+                        .map(|(field, arguments)| {
+                            Ok((field.clone(), lower_cell_arguments(arguments, names)?))
+                        })
+                        .collect::<Result<_, LoweringError>>()?,
+                    lower_cell_arguments(production.result_arguments(), names)?,
+                ),
             ))
         })?);
     }

@@ -142,7 +142,8 @@ struct CellView {
     decl: Decl,
     /// Its parameter's name.
     parameter: Arc<str>,
-    /// The type a viewed value is written at: the function's result sort.
+    /// The type a viewed value is written at: the function's declared result type, element types
+    /// included (`Map<Reg8, Int>`, whose keys are then written `"B"`).
     result: InputType,
 }
 
@@ -562,7 +563,11 @@ impl Semantics {
                     info.fields.len()
                 )));
             };
-            let Some(Some(parameter_sort)) = info.field_sorts.first() else {
+            let Some(Some(InputType {
+                sort: parameter_sort,
+                ..
+            })) = info.field_types.first()
+            else {
                 return Err(refuse(format!(
                     "the parameter `{parameter}` of `{decl}` has a sort with no KRS declaration"
                 )));
@@ -590,10 +595,7 @@ impl Semantics {
                     function: function.clone(),
                     decl: decl.clone(),
                     parameter: parameter.clone(),
-                    result: info
-                        .result
-                        .clone()
-                        .map_or_else(InputType::untyped, InputType::of),
+                    result: info.result.clone().unwrap_or_else(InputType::untyped),
                 },
             );
         }
