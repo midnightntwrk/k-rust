@@ -10,7 +10,7 @@ use krs_syntax::{
 
 const ONLY_ON_EQUATIONS: &str =
     "a configuration context belongs only on #[k::equation] (K's [[ ]] function context)";
-const SHAPE: &str = "a function context is a final `k::cells! { cell: .., .. }` parameter typed by the configuration struct";
+const SHAPE: &str = "a function context is a final `k::cells! { cell: .., .. }` parameter typed by the configuration struct or a cell group it holds";
 const REMAINDER: &str =
     "a function context frames the rest of the configuration with an anonymous `..`";
 

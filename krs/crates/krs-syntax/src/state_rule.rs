@@ -1143,8 +1143,8 @@ pub const FUNCTION_CONTEXT_ONLY_ON_EQUATIONS: &str =
     "a configuration context belongs only on #[k::equation] (K's [[ ]] function context)";
 
 /// The diagnostic for a function context that is not a `cells!` pattern typed
-/// by the configuration struct (KF-025).
-pub const FUNCTION_CONTEXT_SHAPE: &str = "a function context is a final `k::cells! { cell: .., .. }` parameter typed by the configuration struct";
+/// by the configuration struct or by a cell group the configuration holds (KF-025).
+pub const FUNCTION_CONTEXT_SHAPE: &str = "a function context is a final `k::cells! { cell: .., .. }` parameter typed by the configuration struct or a cell group it holds";
 
 /// The diagnostic for a function context without its trailing anonymous `..`
 /// (KF-025).

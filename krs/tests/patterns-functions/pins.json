@@ -421,7 +421,7 @@
       "error[krs::syntax::invalid-function-context]: a configuration context belongs only on #[k::equation] (K's [[ ]] function context)"
     ],
     "context-shape": [
-      "error[krs::syntax::invalid-function-context]: a function context is a final `k::cells! { cell: .., .. }` parameter typed by the configuration struct"
+      "error[krs::syntax::invalid-function-context]: a function context is a final `k::cells! { cell: .., .. }` parameter typed by the configuration struct or a cell group it holds"
     ],
     "context-binders": [
       "error[krs::syntax::unsupported-rule-signature]: unsupported rule signature: typed term parameters must declare every term binder of the subject and function context, in first-occurrence order (hole binders included; `_`, remainders, HERE, instance labels and local binders excluded); a sentence with a function context declares every binder, here `n, b`"
