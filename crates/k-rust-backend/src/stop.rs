@@ -360,9 +360,9 @@ struct Registry {
     deadline: Option<(Instant, StepTimeoutMode)>,
     /// The budget of polls of the enclosing [`with_poll_budget`] scope, if any.
     polls: Option<PollBudget>,
-    /// The stops for lack of native stack minted in the enclosing [`counting_stack_stops`]
-    /// scope so far, if one is open.
-    stack_stops: Option<Cell<usize>>,
+    /// What the work inside the innermost open [`with_operation_record`] scope (or
+    /// [`counting_stack_stops`], [`StackStopCount`]) met so far, if one is open.
+    record: Option<Cell<OperationRecord>>,
 }
 
 /// A budget of polls ([`with_poll_budget`]): a bound on the work of a computation that is a
@@ -404,7 +404,7 @@ impl Registry {
         #[cfg(not(target_arch = "wasm32"))]
         deadline: None,
         polls: None,
-        stack_stops: None,
+        record: None,
     };
 
     /// The raised cause of widest scope, if any: the signals are read in decreasing
@@ -451,8 +451,11 @@ impl Registry {
                 ..budget.record.get()
             });
         }
-        if let Some(count) = &self.stack_stops {
-            count.set(count.get() + 1);
+        if let Some(record) = &self.record {
+            record.set(OperationRecord {
+                stack_stops: record.get().stack_stops.saturating_add(1),
+                ..record.get()
+            });
         }
     }
 
@@ -909,72 +912,149 @@ pub(crate) fn dismiss_a_stack_stop() {
     Stop::out_of_stack(StackLimit::ThreadBudget(0)).forgo_refinement();
 }
 
-/// Runs `action` with no count of stack stops open, and restores the enclosing count afterwards,
-/// also when `action` unwinds: a stop for lack of native stack minted inside is counted by no
-/// [`counting_stack_stops`] scope around it. For work that only describes a run to its caller
-/// (`coverage::isolated`), whose stops are no part of the run.
+/// Runs `action` with no [`OperationRecord`] open, and restores the enclosing one afterwards,
+/// also when `action` unwinds: a stop for lack of native stack minted inside, and a solver's
+/// `Unknown` answer received inside, are recorded by no [`with_operation_record`] (or
+/// [`counting_stack_stops`]) scope around it. For work that only describes a run to its caller
+/// (`coverage::isolated`), whose stops and answers are no part of the run.
 pub(crate) fn uncounted_stack_stops<T>(action: impl FnOnce() -> T) -> T {
-    struct Restore(Option<Cell<usize>>);
+    struct Restore(Option<Cell<OperationRecord>>);
     impl Drop for Restore {
         fn drop(&mut self) {
-            let count = self.0.take();
-            REGISTRY.with(|registry| registry.borrow_mut().stack_stops = count);
+            let record = self.0.take();
+            REGISTRY.with(|registry| registry.borrow_mut().record = record);
         }
     }
-    let _restore = Restore(REGISTRY.with(|registry| registry.borrow_mut().stack_stops.take()));
+    let _restore = Restore(REGISTRY.with(|registry| registry.borrow_mut().record.take()));
     action()
 }
 
-/// Runs `action` and counts the stops for lack of native stack ([`StopCause::StackExhausted`])
-/// minted on this thread while it runs, whether they end a computation or a site that only
-/// refines a sound outcome dismisses them ([`Stop::forgo_refinement`]): such a stop leaves no
-/// trace in the outcome, and whether it happens depends on the thread's stack and on the stack
-/// other threads hold, so a caller that promises its outcome is a function of its inputs needs
-/// the count. A scope opened inside another adds its count to the outer one when it ends; a
-/// [`detached`] computation inside (a definition loaded on first use) counts in neither.
-pub(crate) fn counting_stack_stops<T>(action: impl FnOnce() -> T) -> (T, usize) {
-    struct Restore(Option<Cell<usize>>);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            let previous = self.0.take();
-            REGISTRY.with(|registry| {
-                let mut registry = registry.borrow_mut();
-                let inner = registry.stack_stops.take().map_or(0, Cell::into_inner);
-                registry.stack_stops = previous.map(|outer| Cell::new(outer.get() + inner));
-            });
+/// What one operation met that its outcome does not show and that is no function of its
+/// inputs ([`with_operation_record`]).
+///
+/// Both counts are facts about the run of the operation, not about what it computed: a caller
+/// that promises its outcome is a function of its inputs (a cached answer, a verdict) reads them
+/// to know whether the outcome may rest on something else.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct OperationRecord {
+    /// The `Unknown` answers of the solver the work received: an `Unknown` from
+    /// [`SmtSolver::is_sat`] or [`SmtSolver::check_predicates`], and an `Unknown` from
+    /// [`SmtSolver::get_model`] other than the one that reports an approximate model (a fact
+    /// about the query), each counted once, where it reaches the work that asked, after the
+    /// solver's own retries. Such an answer is a fact about the solver's bounds and
+    /// incompleteness, not about the query: the work treats it as "not decided", so a condition
+    /// it answered stays undecided, while a condition left undecided on decided answers alone
+    /// (one the definition does not determine) adds nothing here. Counted where the work
+    /// queries through a counting solver (`smt::UndecidedCounting`): every operation of the
+    /// `k-rust` facade does (`Backend::with_solver`), as do the backend's executions, proofs and
+    /// equation-condition decisions.
+    ///
+    /// [`SmtSolver::is_sat`]: crate::smt::SmtSolver::is_sat
+    /// [`SmtSolver::check_predicates`]: crate::smt::SmtSolver::check_predicates
+    /// [`SmtSolver::get_model`]: crate::smt::SmtSolver::get_model
+    pub unknown_answers: usize,
+    /// The stops for lack of native stack ([`StopCause::StackExhausted`]) minted on the thread
+    /// while the work ran, whether they ended a computation or a site that only refines a sound
+    /// outcome dismissed them ([`Stop::forgo_refinement`]): such a stop leaves no trace in the
+    /// outcome, and whether it happens depends on the thread's stack and on the stack other
+    /// threads hold.
+    pub stack_stops: usize,
+}
+
+impl OperationRecord {
+    /// Whether the work met either.
+    #[must_use]
+    pub const fn any(self) -> bool {
+        self.unknown_answers > 0 || self.stack_stops > 0
+    }
+
+    const fn plus(self, other: Self) -> Self {
+        Self {
+            unknown_answers: self.unknown_answers.saturating_add(other.unknown_answers),
+            stack_stops: self.stack_stops.saturating_add(other.stack_stops),
         }
     }
-    let previous =
-        REGISTRY.with(|registry| registry.borrow_mut().stack_stops.replace(Cell::new(0)));
-    let restore = Restore(previous);
+}
+
+/// Note in the innermost open [`OperationRecord`], if any, that the work received an `Unknown`
+/// answer of its solver (`smt::UndecidedCounting`, once per answer).
+pub(crate) fn note_unknown_answer() {
+    REGISTRY.with(|registry| {
+        if let Some(record) = &registry.borrow().record {
+            record.set(OperationRecord {
+                unknown_answers: record.get().unknown_answers.saturating_add(1),
+                ..record.get()
+            });
+        }
+    });
+}
+
+/// Runs `action` and returns what it met ([`OperationRecord`]): the solver's `Unknown` answers
+/// it received and the stops for lack of native stack minted on this thread while it ran.
+///
+/// The scope composes with every other scope on the thread: it leaves an enclosing poll budget
+/// ([`with_poll_budget`]) and step deadline in force, and when it ends it adds its record to the
+/// enclosing [`OperationRecord`], if one is open, so a scope opened around work that opens others
+/// (the backend's own counts of stack stops included) records everything inside. A [`detached`]
+/// computation inside (a definition loaded on first use) and work that only describes a run
+/// (`coverage::isolated`) are recorded in neither. Restored on every exit, also when `action`
+/// unwinds.
+///
+/// A host reads it around one operation whose outcome it must know to be a function of the
+/// operation's inputs: krs reads it around the evaluation of a view, kink around its
+/// judgements of a run.
+pub fn with_operation_record<T>(action: impl FnOnce() -> T) -> (T, OperationRecord) {
+    let open = StackStopCount::start();
     let value = action();
-    let count =
-        REGISTRY.with(|registry| registry.borrow().stack_stops.as_ref().map_or(0, Cell::get));
-    drop(restore);
-    (value, count)
+    let record = open.finish_record();
+    (value, record)
+}
+
+/// Runs `action` and counts the stops for lack of native stack ([`StopCause::StackExhausted`])
+/// minted on this thread while it runs ([`OperationRecord::stack_stops`]); see
+/// [`with_operation_record`], whose record it opens.
+pub(crate) fn counting_stack_stops<T>(action: impl FnOnce() -> T) -> (T, usize) {
+    let (value, record) = with_operation_record(action);
+    (value, record.stack_stops)
 }
 
 /// An open count of stack stops on this thread: [`counting_stack_stops`] as a guard, for a
 /// caller that cannot run its work inside a closure (the term simplifier's routed level,
 /// `simplify::simplify_on_stack`, keeps the record's state off its recursive frame). The count
 /// is closed by [`StackStopCount::finish`], or by the drop, also when the work unwinds; counts
-/// close in the reverse order they start.
+/// close in the reverse order they start. It is an [`OperationRecord`] scope: what it records
+/// is added to the enclosing one when it closes.
 pub(crate) struct StackStopCount {
-    /// The enclosing count, restored at the close with this one's added.
-    previous: Option<Cell<usize>>,
+    /// The enclosing record, restored at the close with this one's added.
+    previous: Option<Cell<OperationRecord>>,
 }
 
 impl StackStopCount {
     pub(crate) fn start() -> Self {
         Self {
-            previous: REGISTRY
-                .with(|registry| registry.borrow_mut().stack_stops.replace(Cell::new(0))),
+            previous: REGISTRY.with(|registry| {
+                registry
+                    .borrow_mut()
+                    .record
+                    .replace(Cell::new(OperationRecord::default()))
+            }),
         }
     }
 
     /// The stops counted since [`StackStopCount::start`], closing the count.
     pub(crate) fn finish(self) -> usize {
-        REGISTRY.with(|registry| registry.borrow().stack_stops.as_ref().map_or(0, Cell::get))
+        self.finish_record().stack_stops
+    }
+
+    /// What was recorded since [`StackStopCount::start`], closing the record.
+    fn finish_record(self) -> OperationRecord {
+        REGISTRY.with(|registry| {
+            registry
+                .borrow()
+                .record
+                .as_ref()
+                .map_or_else(OperationRecord::default, Cell::get)
+        })
     }
 }
 
@@ -983,8 +1063,11 @@ impl Drop for StackStopCount {
         let previous = self.previous.take();
         REGISTRY.with(|registry| {
             let mut registry = registry.borrow_mut();
-            let inner = registry.stack_stops.take().map_or(0, Cell::into_inner);
-            registry.stack_stops = previous.map(|outer| Cell::new(outer.get() + inner));
+            let inner = registry
+                .record
+                .take()
+                .map_or_else(OperationRecord::default, Cell::into_inner);
+            registry.record = previous.map(|outer| Cell::new(outer.get().plus(inner)));
         });
     }
 }
@@ -1274,7 +1357,7 @@ mod tests {
                 && registry.solvers.is_empty()
                 && no_deadline
                 && registry.polls.is_none()
-                && registry.stack_stops.is_none()
+                && registry.record.is_none()
         })
     }
 
@@ -1922,5 +2005,37 @@ mod tests {
              prelude) is unsatisfiable"
         );
         assert_eq!(StopCause::Cancelled.to_string(), "Request cancelled");
+    }
+
+    /// An operation record counts every stack stop minted inside it, a dismissed one included,
+    /// beside the poll budget it runs under and inside, without replacing either budget: an
+    /// enclosing budget's record still sees the stop, and the backend's own counts opened inside
+    /// (`counting_stack_stops`) add theirs to it. A count set aside (`uncounted_stack_stops`) adds
+    /// nothing, and nothing is left open afterwards.
+    #[cfg(not(target_family = "wasm"))]
+    #[test]
+    fn an_operation_record_counts_stack_stops_and_composes_with_budgets_and_counts() {
+        let ((record, own), budget) = with_poll_budget(u64::MAX, MANUAL, || {
+            with_operation_record(|| {
+                dismiss_a_stack_stop();
+                let ((), inner) = counting_stack_stops(dismiss_a_stack_stop);
+                uncounted_stack_stops(dismiss_a_stack_stop);
+                let ((), nested) = with_poll_budget(u64::MAX, AVERAGE, dismiss_a_stack_stop);
+                assert!(nested.stack_exhausted);
+                inner
+            })
+        });
+        assert_eq!(record, 1);
+        assert_eq!(
+            own,
+            OperationRecord {
+                unknown_answers: 0,
+                stack_stops: 3,
+            }
+        );
+        assert!(own.any());
+        assert!(budget.stack_exhausted && !budget.budget_exhausted);
+        assert!(registry_is_empty());
+        assert!(!OperationRecord::default().any());
     }
 }

@@ -3789,14 +3789,18 @@ pub(crate) const APPROXIMATE_MODEL_REASON: &str =
 ///
 /// Each count is also added to this thread's [`undecided_on_thread`], which a caller reads
 /// before and after work that queries through such a solver to learn whether that work received
-/// an undecided answer (`simplify::ConditionMemo`).
-pub(crate) struct UndecidedCounting<'a> {
+/// an undecided answer (`simplify::ConditionMemo`). An answer that passes through several such
+/// solvers (one forwarding to another) is counted by each, and once, by the first one the asking
+/// work called, in the open [`crate::stop::OperationRecord`] of this thread
+/// ([`crate::stop::with_operation_record`]).
+pub struct UndecidedCounting<'a> {
     inner: &'a dyn SmtSolver,
     undecided: std::sync::atomic::AtomicUsize,
 }
 
 impl<'a> UndecidedCounting<'a> {
-    pub(crate) fn new(inner: &'a dyn SmtSolver) -> Self {
+    /// A solver that forwards every query to `inner`, counting its undecided answers.
+    pub fn new(inner: &'a dyn SmtSolver) -> Self {
         Self {
             inner,
             undecided: std::sync::atomic::AtomicUsize::new(0),
@@ -3808,17 +3812,38 @@ impl<'a> UndecidedCounting<'a> {
         self.undecided.load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    fn count(&self, undecided: bool) {
-        if undecided {
+    /// `ask`'s answer from the inner solver, counted when `undecided` holds of it: here, on this
+    /// thread, and, when no other counting solver is forwarding a query on this thread (this one
+    /// was called by the work that asked), in the open operation record.
+    fn forward<A>(&self, ask: impl FnOnce() -> A, undecided: impl FnOnce(&A) -> bool) -> A {
+        struct Leave;
+        impl Drop for Leave {
+            fn drop(&mut self) {
+                FORWARDING_ON_THREAD.set(FORWARDING_ON_THREAD.get() - 1);
+            }
+        }
+        FORWARDING_ON_THREAD.set(FORWARDING_ON_THREAD.get() + 1);
+        let answer = {
+            let _leave = Leave;
+            ask()
+        };
+        if undecided(&answer) {
             self.undecided
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             UNDECIDED_ON_THREAD.set(UNDECIDED_ON_THREAD.get() + 1);
+            if FORWARDING_ON_THREAD.get() == 0 {
+                crate::stop::note_unknown_answer();
+            }
         }
+        answer
     }
 }
 
 thread_local! {
     static UNDECIDED_ON_THREAD: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// The queries counting solvers are forwarding on this thread now: one per layer of
+    /// [`UndecidedCounting`] a query in flight has passed.
+    static FORWARDING_ON_THREAD: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// The undecided answers every [`UndecidedCounting`] delivered on this thread so far, one per
@@ -3833,9 +3858,10 @@ impl SmtSolver for UndecidedCounting<'_> {
         predicates: &[Predicate],
         substitution: &Substitution,
     ) -> Stoppable<Result<Satisfiability, SmtError>> {
-        let answer = self.inner.is_sat(predicates, substitution);
-        self.count(matches!(answer, Ok(Ok(Satisfiability::Unknown(_)))));
-        answer
+        self.forward(
+            || self.inner.is_sat(predicates, substitution),
+            |answer| matches!(answer, Ok(Ok(Satisfiability::Unknown(_)))),
+        )
     }
 
     fn check_predicates(
@@ -3844,18 +3870,22 @@ impl SmtSolver for UndecidedCounting<'_> {
         substitution: &Substitution,
         checked: &[Predicate],
     ) -> Stoppable<Result<Validity, SmtError>> {
-        let answer = self.inner.check_predicates(known, substitution, checked);
-        self.count(matches!(answer, Ok(Ok(Validity::Unknown(_)))));
-        answer
+        self.forward(
+            || self.inner.check_predicates(known, substitution, checked),
+            |answer| matches!(answer, Ok(Ok(Validity::Unknown(_)))),
+        )
     }
 
     fn get_model(&self, query: &ModelQuery<'_>) -> Stoppable<Result<ModelResult, SmtError>> {
-        let answer = self.inner.get_model(query);
-        self.count(matches!(
-            &answer,
-            Ok(Ok(ModelResult::Unknown(reason))) if reason != APPROXIMATE_MODEL_REASON
-        ));
-        answer
+        self.forward(
+            || self.inner.get_model(query),
+            |answer| {
+                matches!(
+                    answer,
+                    Ok(Ok(ModelResult::Unknown(reason))) if reason != APPROXIMATE_MODEL_REASON
+                )
+            },
+        )
     }
 
     fn prelude_signal(&self) -> Option<&PreludeSignal> {
@@ -4086,6 +4116,60 @@ mod tests {
             }
         }
         assert_eq!(counting.undecided(), 3);
+    }
+
+    /// The operation record counts each `Unknown` answer once, where the asking work receives it,
+    /// however many counting solvers it passed (each still counts it itself), and nothing for a
+    /// decided answer. It composes: a record opened inside adds its count to the enclosing one,
+    /// an enclosing poll budget stays in force inside it, and work set aside from the run
+    /// (`stop::uncounted_stack_stops`) adds nothing.
+    #[test]
+    fn the_operation_record_counts_each_received_unknown_answer_once_and_composes() {
+        let unknown = || Some(Ok(Satisfiability::Unknown("resource limit".to_owned())));
+        let solver = Scripted {
+            satisfiability: std::cell::RefCell::new(vec![
+                unknown(),
+                Some(Ok(Satisfiability::Sat)),
+                unknown(),
+                unknown(),
+                unknown(),
+            ]),
+            validity: std::cell::RefCell::new(Vec::new()),
+            signal: PreludeSignal::default(),
+        };
+        let inner = UndecidedCounting::new(&solver);
+        let outer = UndecidedCounting::new(&inner);
+        let ask = |solver: &dyn SmtSolver| {
+            let _answer = solver.is_sat(&[], &Substitution::new()).unwrap();
+        };
+        let mut nested = crate::stop::OperationRecord::default();
+        let (budget, record) = crate::stop::with_operation_record(|| {
+            let ((), budget) = crate::stop::with_poll_budget(
+                1,
+                crate::timeout::StepTimeoutMode::Manual(std::time::Duration::ZERO),
+                || {
+                    ask(&outer);
+                    ask(&outer);
+                    ((), nested) = crate::stop::with_operation_record(|| ask(&inner));
+                    crate::stop::uncounted_stack_stops(|| ask(&outer));
+                    let ((), inside) = crate::stop::with_operation_record(|| {
+                        assert!(crate::stop::check().is_ok(), "the budget's one poll passes");
+                        crate::stop::check()
+                            .expect_err("the enclosing budget is in force")
+                            .forgo_refinement();
+                    });
+                    assert_eq!(inside, crate::stop::OperationRecord::default());
+                },
+            );
+            budget
+        });
+        assert!(budget.budget_exhausted);
+        assert_eq!(nested.unknown_answers, 1);
+        assert_eq!(record.unknown_answers, 2, "{record:?}");
+        assert_eq!(record.stack_stops, 0);
+        assert_eq!((outer.undecided(), inner.undecided()), (2, 3));
+        let ((), outside) = crate::stop::with_operation_record(|| ask(&outer));
+        assert_eq!(outside.unknown_answers, 1);
     }
 
     fn symbol(name: &str, smt: Option<SmtType>, arguments: Vec<Sort>, result: Sort) -> Arc<Symbol> {

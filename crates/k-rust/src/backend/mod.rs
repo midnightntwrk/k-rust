@@ -103,6 +103,13 @@
 //! result on a fresh and on a reused `Backend` (docs/compatibility.md, "Determinism and
 //! concurrency").
 //!
+//! Every operation, an execution's result aside, can also be read as a whole by a host that must
+//! know whether its outcome is a function of its inputs: run inside
+//! [`k_rust_backend::stop::with_operation_record`], the operation's record counts the `Unknown`
+//! answers of the solver it received (a condition so answered stays undecided, while one left
+//! undecided on decided answers alone counts nothing) and the stops for lack of native stack it
+//! met, a dismissed one included, whatever poll budget or record encloses the call.
+//!
 //! An execution cancelled by a watchdog thread, with names from `k_rust` alone:
 //!
 //! ```
@@ -3366,7 +3373,13 @@ impl Backend {
             .map_err(E::from)?;
             self.solvers.insert(module.clone(), solver);
         }
-        let solver = self.solvers.get(&module).expect("solver was inserted");
+        // The operation queries the solver through a counter of its `Unknown` answers, which
+        // gives them to an open `stop::with_operation_record` of the caller: the solver's answers
+        // and identity are unchanged.
+        let solver = k_rust_backend::smt::UndecidedCounting::new(
+            self.solvers.get(&module).expect("solver was inserted"),
+        );
+        let solver: &dyn SmtSolver = &solver;
         // The operation boundary. Its entry poll sees the prelude signal of a solver whose
         // prelude an earlier operation found failed, and a request stopped before it starts, so
         // neither runs; its exit poll sees a prelude failure found during this operation, also
