@@ -188,6 +188,10 @@ pub enum ExecutionFailureKind {
     /// `unsupportedHooks` list (re-pin adoption A-1,
     /// [`kink_native::exclusion::Exclusion::UnsupportedHook`]).
     UnsupportedHook,
+    /// The run went on past a step of a selected stop rule that had another successor, on
+    /// k-rust's `passedStops` list, so its leaves need not be the ends of the truncated system
+    /// its stop states ([`kink_native::exclusion::Exclusion::PassedStop`]).
+    PassedStop,
 }
 
 impl ExecutionFailureKind {
@@ -205,7 +209,8 @@ impl ExecutionFailureKind {
             | Self::AllowanceRefusal
             | Self::EqualsCondition
             | Self::ImplementationChosenValue
-            | Self::UnsupportedHook => MutantStatus::Unknown,
+            | Self::UnsupportedHook
+            | Self::PassedStop => MutantStatus::Unknown,
             Self::TimeLimit => MutantStatus::Timeout,
             Self::Infrastructure => MutantStatus::Error,
         }
@@ -226,6 +231,7 @@ impl ExecutionFailureKind {
             Self::EqualsCondition => Exclusion::EqualsCondition,
             Self::ImplementationChosenValue => Exclusion::ImplementationChosenValue,
             Self::UnsupportedHook => Exclusion::UnsupportedHook,
+            Self::PassedStop => Exclusion::PassedStop,
             Self::Indeterminate | Self::ResourceLimit | Self::TimeLimit | Self::Infrastructure => {
                 return None;
             }
@@ -246,6 +252,7 @@ impl From<kink_native::exclusion::Exclusion> for ExecutionFailureKind {
             Exclusion::EqualsCondition => Self::EqualsCondition,
             Exclusion::ImplementationChosenValue => Self::ImplementationChosenValue,
             Exclusion::UnsupportedHook => Self::UnsupportedHook,
+            Exclusion::PassedStop => Self::PassedStop,
         }
     }
 }

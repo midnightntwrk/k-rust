@@ -21,6 +21,23 @@
 //! An unevaluated function, any other anywhere head or an uninterpreted application makes the path `SolverUnknown` before terminal classification.
 //! The runner judges each compared end under the other side's definition too (kink-campaign `runner::judge_across`).
 //!
+//! A stop leaf of a run with stop rules ([`crate::execution::StopRules`]; CF-21) is read as a stuck
+//! leaf is: a `CutPoint` leaf, whose one successor is a step of a rule the run stops before, and a
+//! `TerminalRule` leaf, the successor of a step of a rule it stops after, are each a final
+//! configuration of the truncated system (the system that ends a path at every step of a
+//! selected rule), by a fact of the leaf's own path and not of the order the run explored in:
+//! k-rust stops a path only where the rule's step is the state's one successor, decided within the
+//! step, so every instance of the leaf stops there, and an undecided step keeps a branch, a
+//! predicate or a diagnostic instead. The leaf is complete under the stuck leaf's conditions (a
+//! decided or feasible state with a terminal value) and its terminal is classified by its term;
+//! the halt itself is evidence, never part of the compared end. A state set merges a stop leaf
+//! only with leaves whose subtrees in the truncated system are equal (a cut point by its
+//! configuration, a terminal leaf only with leaves that say "final"), so whichever of two merged
+//! labels survives, the end is the same configuration. The adapter admits a stop halt only for a
+//! request that selected such a rule ([`HaltClass::admitted_by`]), and a run that went on past a
+//! selected rule's step is excluded before any end is read
+//! ([`crate::exclusion::Exclusion::PassedStop`]).
+//!
 //! A `Trivial` leaf is an undefined step: under its predicate, a rule applies to every instance of
 //! its pre-step state and no instance has a defined successor, because the rule's result
 //! (`ensures`, right-hand-side definedness) is `\bottom` there. It is complete when its pre-step
@@ -424,9 +441,14 @@ pub fn discarded(leaf: &crate::execution::AdaptedLeaf) -> Option<DiscardReason> 
         (HaltClass::Vacuous, _) => DiscardReason::Vacuous,
         // A breadth-bound leaf's state was never normalised (re-pin finding A-11): it is never
         // discarded, so it always keeps its run incomplete.
-        (HaltClass::Stuck | HaltClass::Trivial | HaltClass::DepthBound, LeafFeasibility::Unsat) => {
-            DiscardReason::Unsat
-        }
+        (
+            HaltClass::Stuck
+            | HaltClass::Trivial
+            | HaltClass::DepthBound
+            | HaltClass::CutPoint
+            | HaltClass::TerminalRule,
+            LeafFeasibility::Unsat,
+        ) => DiscardReason::Unsat,
         _ => return None,
     };
     (!diagnosed(leaf)).then_some(reason)
@@ -442,20 +464,24 @@ fn diagnosed(leaf: &crate::execution::AdaptedLeaf) -> bool {
 }
 
 /// The stop of a leaf with halt class `halt`, before its state is read, or the contract
-/// violation it is. `None` is a stuck or trivial leaf: it is complete as `complete_term` says (a
-/// stuck leaf needs a feasible or decided state and a terminal value; a trivial leaf needs a
-/// feasible state, or one ground term without a path condition that has a terminal value or is
-/// shown to exist), and `SolverUnknown` otherwise, because a symbolic or constrained leaf may be
-/// infeasible.
+/// violation it is. `None` is a stuck, stop (`CutPoint`, `TerminalRule`) or trivial leaf: it is
+/// complete as `complete_term` says (a stuck or stop leaf needs a feasible or decided state and a
+/// terminal value; a trivial leaf needs a feasible state, or one ground term without a path
+/// condition that has a terminal value or is shown to exist), and `SolverUnknown` otherwise,
+/// because a symbolic or constrained leaf may be infeasible.
 /// An `Indeterminate` leaf is `BackendLimit` here; [`indeterminate_stop`]
 /// refines it by its cause. A requested depth bound keeps its limit stop only for a decided or
 /// feasible state (see `decided_stop`); a breadth-bound or work-bound leaf is `BackendLimit`,
 /// without a real prefix, because its state was never normalised (re-pin findings A-11, A-05). A
 /// vacuous leaf that is not discarded is `SolverUnknown`.
-/// The adapter rejects unrequested bound halts. Exhaustive over `HaltClass`.
+/// The adapter rejects unrequested bound and stop halts ([`HaltClass::admitted_by`]): a stop leaf
+/// reaches the bridge only from a run that selected its rule, and is then a final configuration
+/// of that run's truncated system (see the module documentation). Exhaustive over `HaltClass`.
 pub const fn halt_stop(halt: HaltClass) -> Result<Option<PathStop>, BridgeFailure> {
     Ok(Some(match halt {
-        HaltClass::Stuck | HaltClass::Trivial => return Ok(None),
+        HaltClass::Stuck | HaltClass::Trivial | HaltClass::CutPoint | HaltClass::TerminalRule => {
+            return Ok(None);
+        }
         HaltClass::Vacuous => PathStop::SolverUnknown,
         HaltClass::Indeterminate | HaltClass::UnsupportedHook | HaltClass::SimplificationError => {
             PathStop::BackendLimit
@@ -473,12 +499,9 @@ pub const fn halt_stop(halt: HaltClass) -> Result<Option<PathStop>, BridgeFailur
         // admits it only for a request that set `max_work`.
         HaltClass::WorkBound => PathStop::BackendLimit,
         // Every request answers a cancellation with an error (`cancelled_result: error`, re-pin
-        // L1-1, finding A-03), so a cancelled leaf is outside the contract, as the adapter says.
-        HaltClass::Branch
-        | HaltClass::CutPoint
-        | HaltClass::TerminalRule
-        | HaltClass::Timeout
-        | HaltClass::Cancelled => {
+        // L1-1, finding A-03), and no request stops at a branch, so a cancelled or branch leaf is
+        // outside the contract, as the adapter says.
+        HaltClass::Branch | HaltClass::Timeout | HaltClass::Cancelled => {
             return Err(BridgeFailure::ContractViolation(halt));
         }
     }))
@@ -507,13 +530,13 @@ pub(crate) const fn decided_stop(stop: PathStop, feasible: bool) -> PathStop {
 }
 
 /// The path of a leaf, or the contract violation it is (see [`halt_stop`]). `decided` is the
-/// leaf's state when it is decided (see `SplitState::decided_term`); for a stuck or trivial leaf
-/// that is its terminal term. `feasible` says the adapter showed the state feasible; it keeps a
-/// limit stop real. `complete_term` is the term of a stuck or trivial leaf that is not decided
-/// but complete, by `complete_term`'s contract: a stuck leaf's state is feasible and its term has
-/// a terminal value; a trivial leaf's state is feasible, or it is one ground term without a path
-/// condition that has a terminal value or that is shown to exist. A stuck terminal is classified
-/// by `classify`; a trivial one is an undefined step.
+/// leaf's state when it is decided (see `SplitState::decided_term`); for a stuck, stop or trivial
+/// leaf that is its terminal term. `feasible` says the adapter showed the state feasible; it
+/// keeps a limit stop real. `complete_term` is the term of a stuck, stop or trivial leaf that is
+/// not decided but complete, by `complete_term`'s contract: a stuck or stop leaf's state is
+/// feasible and its term has a terminal value; a trivial leaf's state is feasible, or it is one
+/// ground term without a path condition that has a terminal value or that is shown to exist. A
+/// stuck or stop leaf's terminal is classified by `classify`; a trivial one is an undefined step.
 pub(crate) fn leaf_path(
     halt: HaltClass,
     decided: Option<Pattern>,
@@ -544,11 +567,11 @@ pub(crate) fn leaf_path(
 
 /// The complete term of a leaf whose state is `split`, of halt `halt`, which the adapter showed
 /// feasible when `feasible` (see the module documentation); [`leaf_path`] reads it when the state
-/// is not decided. Not one term gives `None`. A stuck leaf's term is an end, compared by its
-/// terminal value, so it needs one (`value`, TV-01) and a feasible state. A trivial leaf's term is
-/// an undefined step's pre-step configuration, which no judgement reads as data: it needs only to
-/// exist, so it is complete when its state is feasible, or when it is one ground term without a
-/// path condition that has a terminal value or that `exists` shows to exist
+/// is not decided. Not one term gives `None`. A stuck or stop leaf's term is an end, compared by
+/// its terminal value, so it needs one (`value`, TV-01) and a feasible state. A trivial leaf's
+/// term is an undefined step's pre-step configuration, which no judgement reads as data: it
+/// needs only to exist, so it is complete when its state is feasible, or when it is one ground
+/// term without a path condition that has a terminal value or that `exists` shows to exist
 /// ([`ObservationDecider::configuration_exists`]); its terminal term is its value when it has
 /// one, else the term itself (kink27 R3-UNDEF-BRIDGE). Every slot reads a leaf through this one
 /// contract.
@@ -800,17 +823,24 @@ pub fn leaf_terms(
 /// as KORE text and its halt, without the adapter's feasibility or diagnostics (kink-flow's
 /// in-campaign witness filter, fz26 FZ-COMPARABLE-B).
 ///
-/// For a `stuck` or `trivial` leaf it gives the term [`leaf_terms`] gives a leaf the adapter did
-/// not show feasible: the state's only term when the state is decided (no path predicate, no free
-/// variable), and [`LeafTerm::Undecided`] otherwise. Without the feasibility, a constrained leaf
+/// For a `stuck`, stop (`cut-point`, `terminal`) or `trivial` leaf it gives the term
+/// [`leaf_terms`] gives a leaf the adapter did not show feasible: the state's only term when the
+/// state is decided (no path predicate, no free variable), and [`LeafTerm::Undecided`] otherwise. Without the feasibility, a constrained leaf
 /// the solver shows feasible, whose term the bridge would read, is `Undecided` here; a decided
 /// state is never refuted by the solver, so no leaf the bridge discards as `Unsat` gives a term.
 /// Without the diagnostics, every `Vacuous` leaf is [`LeafTerm::Discarded`], where the bridge
 /// keeps a diagnosed one ([`discarded`]).
 ///
+/// Without the request, a stop halt is read as an end, as the bridge reads it ([`halt_stop`]):
+/// whether the run that recorded the leaf selected the rule is the adapter's to check when it
+/// admits the leaf ([`HaltClass::admitted_by`]), and the caller's to know of a leaf it holds as
+/// text. A stop leaf is a final configuration only of its run's truncated system, so a caller
+/// that compares it with another run's leaf must know that both ran with the same stop rules.
+///
 /// # Errors
 ///
-/// As [`leaf_terms`]: a halt outside the bridge's contract, or a state with no decided sort.
+/// As [`leaf_terms`]: a halt outside the bridge's contract (a branch, timeout or cancelled
+/// leaf, which no request admits), or a state with no decided sort.
 pub fn leaf_term(
     state: &Pattern,
     halt: HaltClass,
@@ -1011,27 +1041,34 @@ pub fn paths_from_execution_existing(
     Ok(paths.finish())
 }
 
-/// The clean, ground, stuck terminals of a work-bound run (re-pin L1-2, decision 6, finding
-/// A-15): the leaves a one-sided kill may read. Empty unless the run is a complete run cut short
-/// by its work budget and nothing else:
-/// - it did not time out (decision 6 rejects cancelled runs) and counted no stack stop;
+/// The clean, ground, stuck or stopped terminals of a work-bound run (re-pin L1-2, decision 6,
+/// finding A-15; stop leaves since CF-21): the leaves a one-sided kill may read. Empty unless the
+/// run is a complete run cut short by its work budget and nothing else:
+/// - it did not time out (decision 6 rejects cancelled runs), counted no stack stop and went on
+///   past no stop rule ([`crate::execution::RunFacts::passed_stops`]: a leaf below a passed stop
+///   need not be final in the truncated system);
 /// - its last leaf, and only that one, is `WorkBound` (k-rust checks the budget before it expands
 ///   a state, so every earlier leaf is a state whose own expansion finished);
-/// - every other leaf is `Stuck`, `Trivial` or `Vacuous`, no leaf carries a diagnostic, and every
-///   path but the work-bound leaf's is complete (a depth, breadth or undecided stop, a diagnosed
-///   leaf or a stuck term that is not a value makes the run more than work-bound); a `Trivial`
-///   leaf completes when its pre-step configuration is shown to exist (`exists`, see
+/// - every other leaf is `Stuck`, `CutPoint`, `TerminalRule`, `Trivial` or `Vacuous`, no leaf
+///   carries a diagnostic (a cut point's proposed successor included), and every path but the
+///   work-bound leaf's is complete (a depth, breadth or undecided stop, a diagnosed leaf or a
+///   stuck term that is not a value makes the run more than work-bound); a `Trivial` leaf
+///   completes when its pre-step configuration is shown to exist (`exists`, see
 ///   [`paths_from_execution_existing`]), not only by a terminal value;
 /// - no complete terminal is a semantic crash.
 ///
 /// A terminal is one leaf's: halt `Stuck` (no rule applies to it: k-rust decides the halt after
 /// normalising the state, and an applied candidate whose result is undefined gives a `Trivial`
-/// leaf instead), no contradicted claim, and a state that is decided (one term, no path predicate,
-/// no free variable) with a definition-independent value (`value`, against this execution's own
+/// leaf instead), `CutPoint` (its one successor is a step of a rule the run stops before) or
+/// `TerminalRule` (it is the successor of such a step of a rule the run stops after), no
+/// contradicted claim, and a state that is decided (one term, no path predicate, no free
+/// variable) with a definition-independent value (`value`, against this execution's own
 /// definition, TV-01), classified `Normal` or `Stuck`. Its configuration is reached by the run's
-/// initial state and final in every model of the definition, so it is a final configuration of
-/// every completion of the run. These are the leaf's own-path conditions of the per-path
-/// principle for claims (re-pin L1-2-fix-1: a contradiction on the leaf's own path voids it, one
+/// initial state and final, in every model of the definition, in the system the run computes (the
+/// truncated system of its stop rules, the definition's own without them): a stuck leaf has no
+/// successor, and a stop leaf's stop is a fact of its own path, decided within its step without a
+/// diagnostic. So it is a final configuration of every completion of the run. These are the
+/// leaf's own-path conditions of the per-path principle for claims (re-pin L1-2-fix-1: a contradiction on the leaf's own path voids it, one
 /// on another path does not; kink-campaign `OneSided`).
 #[must_use]
 pub fn work_bound_stuck_terminals(
@@ -1046,12 +1083,17 @@ pub fn work_bound_stuck_terminals(
     };
     if execution.timed_out
         || execution.stack_stops != 0
+        || !execution.facts.passed_stops.is_empty()
         || last.halt != HaltClass::WorkBound
         || leaves.iter().any(diagnosed)
         || !explored.iter().all(|leaf| {
             matches!(
                 leaf.halt,
-                HaltClass::Stuck | HaltClass::Trivial | HaltClass::Vacuous
+                HaltClass::Stuck
+                    | HaltClass::CutPoint
+                    | HaltClass::TerminalRule
+                    | HaltClass::Trivial
+                    | HaltClass::Vacuous
             )
         })
     {
@@ -1087,7 +1129,11 @@ pub fn work_bound_stuck_terminals(
                 .ok()?;
             let terminal = path.execution_terminal?;
             let leaf = explored.get(ordinal)?;
-            if leaf.halt != HaltClass::Stuck || leaf.contradicted_total.is_some() {
+            if !matches!(
+                leaf.halt,
+                HaltClass::Stuck | HaltClass::CutPoint | HaltClass::TerminalRule
+            ) || leaf.contradicted_total.is_some()
+            {
                 return None;
             }
             let decided = split_state(&leaf.branch.state, context.sorts)
@@ -1151,7 +1197,11 @@ fn paths_from_judged_steps(
         }
         if matches!(
             leaf.halt,
-            HaltClass::Stuck | HaltClass::Trivial | HaltClass::DepthBound
+            HaltClass::Stuck
+                | HaltClass::Trivial
+                | HaltClass::DepthBound
+                | HaltClass::CutPoint
+                | HaltClass::TerminalRule
         ) && feasibility == LeafFeasibility::Unsat
             && !diagnosed(leaf)
         {
@@ -1364,7 +1414,11 @@ fn tree_from_judged_steps(
         }
         if matches!(
             leaf.halt,
-            HaltClass::Stuck | HaltClass::Trivial | HaltClass::DepthBound
+            HaltClass::Stuck
+                | HaltClass::Trivial
+                | HaltClass::DepthBound
+                | HaltClass::CutPoint
+                | HaltClass::TerminalRule
         ) && feasibility == LeafFeasibility::Unsat
             && !diagnosed(leaf)
         {
@@ -1585,7 +1639,7 @@ fn term_conjunct(state: &Pattern, sorts: &SymbolSorts) -> Option<Pattern> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::execution::{AdaptedLeaf, ExecutionBudget};
+    use crate::execution::{AdaptedLeaf, ExecutionBudget, StopRules};
     use crate::feasibility::TestInitialState;
     use k_rust::backend::TransitionIdOutput;
     use k_rust::kore::parser::parse_pattern;
@@ -1885,6 +1939,7 @@ mod tests {
             remainder_diagnostics: Vec::new(),
             undefined_rule: None,
             contradicted_total: None,
+            proposal: None,
         }
     }
 
@@ -1912,7 +1967,7 @@ mod tests {
         use Expected::{Complete, Discarded, Incomplete, Violation};
         use LeafFeasibility::{Solver as Z, Unsat as N};
         #[rustfmt::skip]
-        let rows: [Row; 50] = [
+        let rows: [Row; 60] = [
             // Halts without solver facts.
             (H::Stuck, GROUND, U, 1, Complete(Normal, GROUND)),
             (H::Stuck, CRASH, U, 1, Complete(SemanticCrash, CRASH)),
@@ -1924,8 +1979,22 @@ mod tests {
             (H::Trivial, SYMBOLIC, F, 1, Complete(UndefinedStep, SYMBOLIC)),
             (H::Vacuous, GROUND, U, 1, Discarded(DiscardReason::Vacuous)),
             (H::Branch, GROUND, U, 1, Violation),
-            (H::CutPoint, GROUND, U, 1, Violation),
-            (H::TerminalRule, GROUND, U, 1, Violation),
+            // CF-21: a stop leaf (admitted only for a request that selected its rule) is a final
+            // configuration of the truncated system, read as a stuck leaf is: complete for a
+            // decided or feasible state with a terminal value, classified by its term, and
+            // discarded when refuted. Before: a contract violation (kink sent no stop rule).
+            (H::CutPoint, GROUND, U, 1, Complete(Normal, GROUND)),
+            (H::CutPoint, CRASH, U, 1, Complete(SemanticCrash, CRASH)),
+            (H::CutPoint, SYMBOLIC, U, 1, Incomplete(P::SolverUnknown)),
+            (H::CutPoint, SYMBOLIC, F, 1, Complete(Normal, SYMBOLIC)),
+            (H::CutPoint, CONSTRAINED, Z, 1, Complete(Normal, GROUND)),
+            (H::CutPoint, CONSTRAINED, N, 1, Discarded(DiscardReason::Unsat)),
+            (H::TerminalRule, GROUND, U, 1, Complete(Normal, GROUND)),
+            (H::TerminalRule, CRASH, U, 1, Complete(SemanticCrash, CRASH)),
+            (H::TerminalRule, SYMBOLIC, U, 1, Incomplete(P::SolverUnknown)),
+            (H::TerminalRule, SYMBOLIC, F, 1, Complete(Normal, SYMBOLIC)),
+            (H::TerminalRule, CONSTRAINED, Z, 1, Complete(Normal, GROUND)),
+            (H::TerminalRule, CONSTRAINED, N, 1, Discarded(DiscardReason::Unsat)),
             (H::DepthBound, GROUND, U, 1, Incomplete(P::DepthLimit)),
             (H::DepthBound, SYMBOLIC, U, 1, Incomplete(P::SolverUnknown)),
             (H::DepthBound, SYMBOLIC, F, 1, Incomplete(P::DepthLimit)),
@@ -2323,44 +2392,62 @@ mod tests {
             ..unbounded
         };
         // Re-pin L1-1: a work budget is a request option beside the budget (`ResultRun`), and
-        // every request answers a cancellation with an error.
-        let excluded = |budget: &ExecutionBudget, max_work: Option<u64>| {
+        // every request answers a cancellation with an error. CF-21: stop rules are a request
+        // option too, each direction admitting its own halt.
+        let excluded = |budget: &ExecutionBudget, max_work: Option<u64>, stop: &StopRules| {
             HaltClass::ALL
                 .into_iter()
-                .filter(|halt| !halt.admitted_by(budget, max_work))
+                .filter(|halt| !halt.admitted_by(budget, max_work, stop))
                 .collect::<std::collections::BTreeSet<_>>()
         };
-        let always_excluded = [
-            H::Branch,
-            H::CutPoint,
-            H::TerminalRule,
-            H::Timeout,
-            H::Cancelled,
-        ]
-        .into_iter()
-        .collect::<std::collections::BTreeSet<_>>();
+        let before = StopRules {
+            before: vec!["r".to_owned()],
+            after: Vec::new(),
+        };
+        let after = StopRules {
+            before: Vec::new(),
+            after: vec!["r".to_owned()],
+        };
+        let both = StopRules {
+            before: vec!["r".to_owned()],
+            after: vec!["s".to_owned()],
+        };
+        let always_excluded = [H::Branch, H::Timeout, H::Cancelled]
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>();
+        let with = |extra: &[HaltClass]| {
+            always_excluded
+                .iter()
+                .chain(extra)
+                .copied()
+                .collect::<std::collections::BTreeSet<_>>()
+        };
         assert_eq!(
-            excluded(&unbounded, None),
-            [
-                H::Branch,
+            excluded(&unbounded, None, &StopRules::NONE),
+            with(&[
                 H::CutPoint,
                 H::TerminalRule,
                 H::DepthBound,
                 H::BreadthBound,
-                H::Timeout,
-                H::Cancelled,
                 H::WorkBound,
-            ]
-            .into_iter()
-            .collect()
+            ])
         );
         for halt in HaltClass::ALL {
             assert_eq!(
                 halt.adapter_admits(&unbounded),
-                halt.admitted_by(&unbounded, None)
+                halt.admitted_by(&unbounded, None, &StopRules::NONE)
             );
         }
-        assert_eq!(excluded(&bounded, Some(1)), always_excluded);
+        assert_eq!(
+            excluded(&bounded, Some(1), &StopRules::NONE),
+            with(&[H::CutPoint, H::TerminalRule])
+        );
+        assert_eq!(
+            excluded(&bounded, Some(1), &before),
+            with(&[H::TerminalRule])
+        );
+        assert_eq!(excluded(&bounded, Some(1), &after), with(&[H::CutPoint]));
+        assert_eq!(excluded(&bounded, Some(1), &both), always_excluded);
         assert_eq!(
             HaltClass::ALL
                 .into_iter()
@@ -2384,6 +2471,7 @@ mod tests {
             remainder_diagnostics: Vec::new(),
             undefined_rule: None,
             contradicted_total: None,
+            proposal: None,
         };
         let diagnostic = BackendDiagnosticOutput::UnsupportedHookUnevaluated {
             hook: "TEST.hook".into(),
@@ -2498,6 +2586,7 @@ mod tests {
                     remainder_diagnostics: Vec::new(),
                     undefined_rule: None,
                     contradicted_total: None,
+                    proposal: None,
                 },
                 AdaptedLeaf {
                     halt: H::Stuck,
@@ -2509,6 +2598,7 @@ mod tests {
                     remainder_diagnostics: Vec::new(),
                     undefined_rule: None,
                     contradicted_total: None,
+                    proposal: None,
                 },
             ],
             effects: Vec::new(),
@@ -2567,6 +2657,15 @@ mod tests {
             kind: Normal,
             state: parse_pattern(state).expect("term"),
         };
+        let proposal_diagnosed = || {
+            let mut leaf = leaf(H::CutPoint, GROUND, U, 1);
+            leaf.candidate_diagnostics =
+                vec![vec![BackendDiagnosticOutput::UnsupportedHookUnevaluated {
+                    hook: "TEST.hook".into(),
+                    reason: "unavailable".into(),
+                }]];
+            leaf
+        };
         let execution = |leaves: Vec<AdaptedLeaf>| AdaptedExecution {
             leaves,
             effects: Vec::new(),
@@ -2603,6 +2702,19 @@ mod tests {
             ("an unsupported hook too", execution(vec![leaf(H::UnsupportedHook, GROUND, U, 1), ground(), bound()]), vec![]),
             ("a simplification error too", execution(vec![leaf(H::SimplificationError, GROUND, U, 1), ground(), bound()]), vec![]),
             ("no leaf", execution(vec![]), vec![]),
+            // CF-21: a clean ground stop leaf is final in the truncated system by a fact of its
+            // own path, so it is read as a stuck leaf is.
+            ("a ground cut-point leaf before the work bound",
+                execution(vec![leaf(H::CutPoint, GROUND, U, 1), bound()]), vec![terminal(GROUND)]),
+            ("a ground terminal leaf before the work bound",
+                execution(vec![leaf(H::TerminalRule, GROUND, U, 1), bound()]), vec![terminal(GROUND)]),
+            ("stop leaves beside a stuck leaf",
+                execution(vec![leaf(H::CutPoint, GROUND, U, 1), ground(), leaf(H::TerminalRule, GROUND, U, 1), bound()]),
+                vec![terminal(GROUND), terminal(GROUND), terminal(GROUND)]),
+            ("a symbolic stop leaf (complete through feasibility)",
+                execution(vec![leaf(H::CutPoint, SYMBOLIC, F, 1), bound()]), vec![]),
+            ("a crashed stop leaf", execution(vec![leaf(H::TerminalRule, CRASH, U, 1), bound()]), vec![]),
+            ("a diagnosed proposal", execution(vec![proposal_diagnosed(), bound()]), vec![]),
         ];
         for (id, execution, expected) in rows {
             assert_eq!(
@@ -2625,6 +2737,23 @@ mod tests {
             Vec::new(),
             "a timed-out run"
         );
+        // CF-21: a run that went on past a stop rule gives none, its stuck leaves included: a
+        // leaf below the passed step need not be final in the truncated system.
+        for leaves in [
+            vec![ground(), bound()],
+            vec![leaf(H::CutPoint, GROUND, U, 1), bound()],
+        ] {
+            let mut passed = execution(leaves);
+            passed.facts.passed_stops = vec![k_rust::backend::PassedStopOutput {
+                rule: "r".into(),
+                depth: 0,
+            }];
+            assert_eq!(
+                work_bound_stuck_terminals(&passed, &bridge_context(&sorts), &value, &|_| false),
+                Vec::new(),
+                "a passed stop"
+            );
+        }
         // A term that is not a definition-independent value.
         assert_eq!(
             work_bound_stuck_terminals(

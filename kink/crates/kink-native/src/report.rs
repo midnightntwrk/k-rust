@@ -403,6 +403,7 @@ mod tests {
             remainder_diagnostics: Vec::new(),
             undefined_rule: None,
             contradicted_total: None,
+            proposal: None,
         };
         let event = Event {
             index: 0,

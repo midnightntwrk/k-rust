@@ -23,7 +23,7 @@ use kink_native::bridge::{BridgeContext, paths_from_execution_values};
 use kink_native::coverage::{RuleAuthors, TestCoverage};
 use kink_native::execution::{
     AdaptedExecution, ExecutionAdapter, ExecutionBudget, HaltClass, ResultModality, ResultRun,
-    SolverProfile,
+    SolverProfile, StopRules,
 };
 use kink_native::feasibility::TestInitialState;
 use kink_native::step_events::ObservationDecider;
@@ -398,7 +398,7 @@ mod kink_tier {
             // A stepped run (never under a work budget) and a result run without one admit no
             // work-bound leaf.
             assert!(!HaltClass::WorkBound.adapter_admits(&budget()));
-            assert!(HaltClass::WorkBound.admitted_by(&budget(), Some(1)));
+            assert!(HaltClass::WorkBound.admitted_by(&budget(), Some(1), &StopRules::NONE));
         });
     }
 }

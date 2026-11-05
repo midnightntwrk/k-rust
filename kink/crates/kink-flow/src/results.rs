@@ -286,7 +286,8 @@ pub const fn host_exclusion(exclusion: Exclusion) -> bool {
         | Exclusion::ShortCircuitReading
         | Exclusion::EqualsCondition
         | Exclusion::ImplementationChosenValue
-        | Exclusion::UnsupportedHook => false,
+        | Exclusion::UnsupportedHook
+        | Exclusion::PassedStop => false,
     }
 }
 
@@ -1315,6 +1316,11 @@ fn exclusion_hint(exclusion: Exclusion, records: bool) -> String {
         Exclusion::UnsupportedHook => {
             "the run, or the definition's load, left an application unevaluated as an \
              unsupported hook"
+        }
+        Exclusion::PassedStop => {
+            "the run went on past a step of a stop rule that had another successor (k-rust's \
+             list of the run's passed stops), so its ends need not be the ends of the observation \
+             the stop states"
         }
     };
     format!("the run is excluded ({}): {why}", exclusion.name())
@@ -2356,7 +2362,7 @@ pub fn data_marked(mut rows: Vec<Value>, data: &kink_native::data::DataFacts) ->
 mod tests {
     use super::*;
 
-    const EXCLUSIONS: [Exclusion; 9] = [
+    const EXCLUSIONS: [Exclusion; 10] = [
         Exclusion::StackStop,
         Exclusion::LoadStackStop,
         Exclusion::ContradictedClaim,
@@ -2366,6 +2372,7 @@ mod tests {
         Exclusion::EqualsCondition,
         Exclusion::ImplementationChosenValue,
         Exclusion::UnsupportedHook,
+        Exclusion::PassedStop,
     ];
 
     #[test]

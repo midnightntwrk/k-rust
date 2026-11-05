@@ -28,10 +28,27 @@
 //! (a successor the step's own normalization showed defined), and an equation among `applied`,
 //! whose instance gave a result. A rewrite candidate rolled back because its successor was
 //! undefined, and an undefined step's rule, are applied but not committed: no path takes them,
-//! so they are not fired. kink-flow's `fired_by` reads them; they are not part of the canonical value
+//! so they are not fired. Nor is the step a `cut-point` leaf proposes (a run that stops before a
+//! rule, [`crate::execution::StopRules`]): the step built its successor, so its rule is applied,
+//! but the run stopped before taking it, so k-rust does not commit it and no path of the run
+//! takes it ([`crate::execution::StopProposal`]); a run resumed from the successor takes it and
+//! commits it there. kink-flow's `fired_by` reads them; they are not part of the canonical value
 //! ([`TestCoverage::value`]), which schedules read, so [`COVERAGE_DOMAIN`] did not move.
 //!
 //! Both cover every state the run explored, the states a state-set result merges away included.
+//!
+//! A run is complete ([`TestCoverage::complete`]) when it explored every state its system reaches
+//! from its initial state, so its coverage is a fact of the run and not of where it was cut
+//! short. A run with stop rules computes the truncated system of its rules, the system that ends
+//! a path at every step of a selected rule (see [`crate::bridge`]): a clean `cut-point` or
+//! `terminal` leaf has no successor there, as a stuck leaf has none in the definition's own
+//! system, so it leaves its run complete as a stuck leaf does, and the coverage of such a run is
+//! the coverage of that truncated system. A run that resumes from a stop leaf is another run; a
+//! staged run is complete only when every one of its runs is and none of its stop leaves is left
+//! to resume. Before stop rules every stop leaf was refused by the adapter, so no coverage value
+//! computed under [`COVERAGE_DOMAIN`] `kink/coverage/v4` held one, and admitting them changes
+//! none of those values: the domain did not move, and a stopped run is told from an unstopped
+//! one by its request (`kink-native/execution-request/v3`).
 //! Before L2-1 (`kink/coverage/v1`) the rule ids were the rewrite rules among `applied` only, so
 //! an equation edit was never covered (ticket CS-T09), and an execution without run coverage was
 //! read from its leaves' branch identities and traces. Such an execution (only a hand-built
@@ -232,10 +249,12 @@ impl RuleAuthors {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TestCoverage {
     pub test_id: String,
-    /// The run did not time out and every leaf is `Stuck`, `Trivial` or `Vacuous` with no
-    /// diagnostic (leaf, candidate or remainder). A run that is not complete (a work-bound,
-    /// depth-bound or undecided leaf, a diagnostic) covers only what it explored before it
-    /// stopped, which depends on where it stopped.
+    /// The run did not time out and every leaf is `Stuck`, `Trivial`, `Vacuous`, `CutPoint` or
+    /// `TerminalRule` with no diagnostic (leaf, candidate or remainder; a cut point's proposed
+    /// step is a candidate). A run that is not complete (a work-bound, depth-bound or undecided
+    /// leaf, a diagnostic) covers only what it explored before it stopped, which depends on where
+    /// it stopped. A stop leaf is final in its run's truncated system, so it does not make the
+    /// run incomplete (module documentation).
     pub complete: bool,
     /// The matched compiled ids (README corpus-scale 4.5): k-rust's `matched`, which includes
     /// `applied`.
@@ -263,7 +282,11 @@ fn leaf_complete(
 ) -> bool {
     matches!(
         halt,
-        HaltClass::Stuck | HaltClass::Trivial | HaltClass::Vacuous
+        HaltClass::Stuck
+            | HaltClass::Trivial
+            | HaltClass::Vacuous
+            | HaltClass::CutPoint
+            | HaltClass::TerminalRule
     ) && diagnostics.iter().all(|list| list.is_empty())
         && candidate_diagnostics.iter().all(Vec::is_empty)
 }
@@ -511,5 +534,40 @@ mod retired_tests {
             .map(|n| format!("kink/coverage/v{n}"))
             .collect::<Vec<_>>();
         assert_eq!(RETIRED_COVERAGE_DOMAINS.as_slice(), earlier.as_slice());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A leaf leaves its run complete exactly when it is final in the system the run computes
+    /// and carries no diagnostic: a stuck, trivial or vacuous leaf, and a stop leaf of a run with
+    /// stop rules, which is final in its truncated system. Every bound, undecided or refused halt
+    /// leaves the run incomplete.
+    #[test]
+    fn stop_leaves_leave_their_run_complete() {
+        let diagnostic = BackendDiagnosticOutput::UnsupportedHookUnevaluated {
+            hook: "TEST.hook".into(),
+            reason: "unavailable".into(),
+        };
+        for halt in HaltClass::ALL {
+            let final_leaf = matches!(
+                halt,
+                HaltClass::Stuck
+                    | HaltClass::Trivial
+                    | HaltClass::Vacuous
+                    | HaltClass::CutPoint
+                    | HaltClass::TerminalRule
+            );
+            assert_eq!(leaf_complete(halt, [&[], &[]], &[]), final_leaf, "{halt:?}");
+            let diagnosed = std::slice::from_ref(&diagnostic);
+            assert!(!leaf_complete(halt, [diagnosed, &[]], &[]), "{halt:?}");
+            assert!(!leaf_complete(halt, [&[], diagnosed], &[]), "{halt:?}");
+            assert!(
+                !leaf_complete(halt, [&[], &[]], &[vec![diagnostic.clone()]]),
+                "{halt:?}: a diagnosed candidate, such as a cut point's proposed step"
+            );
+        }
     }
 }

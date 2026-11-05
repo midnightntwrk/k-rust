@@ -20,6 +20,9 @@
 //! of open values read, contradicted claims, allowance refusals, unsupported hooks and
 //! short-circuit readings, and the count of undecided solver answers, which the exclusions read
 //! ([`crate::exclusion`]), with what the adapter knows of the recording ([`RecordedRun`]).
+//! A result run may also carry stop rules ([`StopRules`]): its paths then end at a step of a
+//! selected rule that is its state's one successor, and its facts list each selected rule it went
+//! on past because the step had another successor ([`RunFacts::passed_stops`]).
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -34,12 +37,13 @@ use std::{
 };
 
 use k_rust::backend::{
-    BACKEND_SCHEMA_VERSION, Backend, BackendDiagnosticOutput, BackendError, CancelledResultOutput,
-    ChosenValueOutput, ContradictedClaimOutput, ContradictedTotalOutput, EffectOutput,
-    ExecuteRequest, ExecutionStrategy, HaltReasonOutput, KoreExecutionLeaf, KoreExecutionResult,
-    ObservationEventOutput, ObservedInOutput, ObservedRequest, ResultModalityOutput,
-    RunCoverageOutput, SearchFailureOutput, ShortCircuitReadingOutput, TraceEntry,
-    TransitionClassOutput, TransitionIdOutput, UnevaluatedHookOutput,
+    BACKEND_SCHEMA_VERSION, Backend, BackendCapabilities, BackendDiagnosticOutput, BackendError,
+    CancelledResultOutput, ChosenValueOutput, ContradictedClaimOutput, ContradictedTotalOutput,
+    EffectOutput, ExecuteRequest, ExecutionStrategy, HaltReasonOutput, KoreExecutionLeaf,
+    KoreExecutionResult, ObservationEventOutput, ObservedInOutput, ObservedRequest,
+    PassedStopOutput, ResultModalityOutput, RunCoverageOutput, SearchFailureOutput,
+    ShortCircuitReadingOutput, TraceEntry, TransitionClassOutput, TransitionIdOutput,
+    UnevaluatedHookOutput,
 };
 use k_rust::kore::ast::Pattern;
 use k_rust_backend::stop::{CancellationToken, StopCause};
@@ -89,18 +93,27 @@ impl HaltClass {
     ];
 
     /// Whether the adapter's request can yield this halt under `budget`, for a request without
-    /// a work budget (every stepped run, and a result run without `max_work`).
+    /// a work budget and without stop rules (every stepped run, and a result run without
+    /// `max_work` or a [`StopRules`]).
     #[must_use]
     pub const fn adapter_admits(self, budget: &ExecutionBudget) -> bool {
-        self.admitted_by(budget, None)
+        self.admitted_by(budget, None, &NO_STOP_RULES)
     }
 
-    /// Whether the adapter's request can yield this halt under `budget` and `max_work`. A
-    /// `Cancelled` leaf never: every request answers a cancellation with an error
-    /// (`cancelled_result: error`, re-pin finding A-03). A `work-bound` leaf exactly when the
-    /// request set `max_work`.
+    /// Whether the adapter's request can yield this halt under `budget`, `max_work` and `stop`.
+    /// A `Cancelled` leaf never: every request answers a cancellation with an error
+    /// (`cancelled_result: error`, re-pin finding A-03). A `Branch` leaf never: the request does
+    /// not stop at a branch. A `work-bound` leaf exactly when the request set `max_work`; a
+    /// `cut-point` leaf exactly when `stop` names a rule to stop before (`cut_point_rules`), and
+    /// a `terminal` leaf exactly when it names one to stop after (`terminal_rules`): k-rust stops
+    /// a path at no other rule.
     #[must_use]
-    pub const fn admitted_by(self, budget: &ExecutionBudget, max_work: Option<u64>) -> bool {
+    pub const fn admitted_by(
+        self,
+        budget: &ExecutionBudget,
+        max_work: Option<u64>,
+        stop: &StopRules,
+    ) -> bool {
         match self {
             Self::Stuck
             | Self::Trivial
@@ -111,11 +124,9 @@ impl HaltClass {
             Self::DepthBound => budget.max_depth.is_some(),
             Self::BreadthBound => budget.max_breadth.is_some(),
             Self::WorkBound => max_work.is_some(),
-            Self::Branch
-            | Self::CutPoint
-            | Self::TerminalRule
-            | Self::Timeout
-            | Self::Cancelled => false,
+            Self::CutPoint => !stop.before.is_empty(),
+            Self::TerminalRule => !stop.after.is_empty(),
+            Self::Branch | Self::Timeout | Self::Cancelled => false,
         }
     }
 
@@ -263,6 +274,70 @@ pub struct ResultRun {
     pub max_work: Option<u64>,
 }
 
+/// The stop rules of a result run (k-rust `cut_point_rules` and `terminal_rules`), each rule
+/// named as k-rust selects it: by its label or its `UNIQUE_ID`. The names are passed as given;
+/// that each selects a rewrite rule of the definition run is the caller's to check.
+///
+/// A selected rule stops a path only where its step is the state's one successor
+/// (k-rust `docs/compatibility.md`, "Passed stops"):
+/// - a rule of `before` ends the path at the state the step leaves, as a `cut-point` leaf that
+///   proposes the step's successor without taking it ([`AdaptedLeaf::proposal`]);
+/// - a rule of `after` ends the path at the step's successor, as a `terminal` leaf.
+///
+/// Each such leaf is a final configuration of the truncated system, the system that ends a path
+/// at every step of a selected rule: a cut-point leaf's one successor is by a rule of `before`,
+/// and a terminal leaf was reached by a step of a rule of `after`. Neither is a fact of the
+/// order in which the run explored its states, so the bridge reads both as it reads a stuck leaf
+/// ([`crate::bridge::halt_stop`]). A step of a selected rule that has another successor stops
+/// nothing, and k-rust lists the rule ([`RunFacts::passed_stops`]); the run's leaves are then not
+/// the truncated system's final configurations, and the run is excluded
+/// ([`crate::exclusion::Exclusion::PassedStop`]).
+///
+/// The default names no rule: the run ends where its paths end, as before stop rules existed.
+#[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct StopRules {
+    /// The rules a path stops before (`cut_point_rules`).
+    pub before: Vec<String>,
+    /// The rules a path stops after (`terminal_rules`).
+    pub after: Vec<String>,
+}
+
+impl StopRules {
+    /// No stop rule: the run ends where its paths end.
+    pub const NONE: Self = Self {
+        before: Vec::new(),
+        after: Vec::new(),
+    };
+
+    /// Whether this names no rule.
+    #[must_use]
+    pub const fn is_none(&self) -> bool {
+        self.before.is_empty() && self.after.is_empty()
+    }
+}
+
+/// No stop rule ([`StopRules::NONE`]), for a request that selects none.
+static NO_STOP_RULES: StopRules = StopRules::NONE;
+
+/// What one request asks for besides its [`ExecutionBudget`]: `run`'s modality and work budget,
+/// and the stop rules `stop`. The request is built from it ([`request`]), and the halts its
+/// result may hold are read from it ([`HaltClass::admitted_by`]).
+#[derive(Clone, Copy, Debug)]
+struct Requested<'a> {
+    run: ResultRun,
+    stop: &'a StopRules,
+}
+
+impl Requested<'static> {
+    /// `run` without stop rules.
+    const fn unstopped(run: ResultRun) -> Self {
+        Self {
+            run,
+            stop: &NO_STOP_RULES,
+        }
+    }
+}
+
 /// k-rust's run coverage of one run (`collect_coverage`, `RunCoverageOutput`), by `UNIQUE_ID`:
 /// every rule and equation the run applied, every one whose condition it began to decide
 /// (`matched`, a superset; the two are what kink schedules by, [`crate::coverage::TestCoverage`]),
@@ -335,6 +410,12 @@ pub struct RunFacts {
     /// list, and a run that listed nothing cannot be told from one that was never asked
     /// ([`RecordedRun`]).
     pub short_circuit_readings: Option<Vec<ShortCircuitReadingOutput<Pattern>>>,
+    /// Every selected stop rule the run went on past at a step where the rule was not its
+    /// state's one successor, each once with the shallowest depth at which it did
+    /// (`passedStops`, k-rust `docs/compatibility.md`, "Passed stops"), in order of depth and
+    /// name. Empty for a run without stop rules ([`StopRules`]). Any entry excludes the run
+    /// ([`crate::exclusion::Exclusion::PassedStop`]); the entries name the step.
+    pub passed_stops: Vec<PassedStopOutput>,
     /// Whether the run started from a state without free variables ([`RecordedRun::ground`]).
     pub ground: bool,
 }
@@ -379,6 +460,7 @@ impl RunFacts {
             short_circuit_readings: recorded
                 .short_circuit_readings
                 .then_some(short_circuit_readings),
+            passed_stops: std::mem::take(&mut result.passed_stops),
             ground: recorded.ground,
         }
     }
@@ -417,6 +499,44 @@ pub struct AdaptedLeaf {
     /// inconsistent there, so the run is no evidence (re-pin decision 2, finding A-13;
     /// [`crate::exclusion::Exclusion::ContradictedClaim`]).
     pub contradicted_total: Option<ContradictedTotalOutput<Pattern>>,
+    /// The step a `CutPoint` leaf stopped before, exactly for that halt ([`StopRules::before`]).
+    pub proposal: Option<StopProposal>,
+}
+
+/// The step a `cut-point` leaf stopped before: its one successor, by a rule the request selected
+/// to stop before. The successor is normalized and defined, as every successor a step keeps, but
+/// the run did not take the step: no path commits it, so the rule is applied but not committed in
+/// the run's coverage ([`RunCoverage`]). A run resumed from the successor takes the step.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StopProposal {
+    /// The successor the step would reach.
+    pub successor: Pattern,
+    /// The rule's `UNIQUE_ID`.
+    pub rule_id: String,
+    /// The rule's label, when it has one.
+    pub label: Option<String>,
+}
+
+impl StopProposal {
+    /// The proposal of a leaf of halt `halt` whose step candidates are `candidates`: `None` for
+    /// every halt but `CutPoint`, whose one candidate it is. A cut-point leaf with another number
+    /// of candidates is outside k-rust's contract (a cut point is a step with one successor).
+    fn of(
+        halt: HaltClass,
+        candidates: Option<&[k_rust::backend::ExecutionCandidateOutput<Pattern>]>,
+    ) -> Result<Option<Self>, ExecutionAdapterFailure> {
+        if halt != HaltClass::CutPoint {
+            return Ok(None);
+        }
+        match candidates {
+            Some([candidate]) => Ok(Some(Self {
+                successor: candidate.state.clone(),
+                rule_id: candidate.unique_id.clone(),
+                label: candidate.label.clone(),
+            })),
+            _ => Err(ExecutionAdapterFailure::ContractViolation(halt)),
+        }
+    }
 }
 
 /// The rule whose application a `Trivial` leaf's undefined step is: it applies to every
@@ -616,8 +736,10 @@ pub enum ExecutionAdapterFailure {
 /// applicable priority that is defined there (k-rust KK-73), so the events of the other
 /// successors are missing; and it follows one collection candidate per rule, so an instance
 /// matched only through another candidate may have a defined successor although its leaf is
-/// `Trivial`. Stop-at-branch, cut-point and terminal rules are off, so no leaf stops at a branch or
-/// a designated rule.
+/// `Trivial`. Stop-at-branch is off, so no leaf stops at a branch. The cut-point and terminal
+/// rules are `requested.stop`'s ([`StopRules`]), none by default, so a leaf stops at a selected
+/// rule only where the caller asked for it; a request without a stop is the request before stop
+/// rules existed, field for field.
 ///
 /// The request is a full struct literal with no struct-update base (no defaults taken from
 /// `ExecuteRequest::new`), so a field k-rust adds at a later pin is a compile error that forces a
@@ -630,8 +752,8 @@ pub enum ExecutionAdapterFailure {
 /// - `cancelled_result: error`: a cancelled run answers `Err` with stop cause `Cancelled`, which
 ///   [`settle`] makes a timeout, and k-rust builds none of the leaves a timed-out run's caller
 ///   never reads (finding A-03);
-/// - `max_work`: `run.max_work` (none for a stepped run and by default); its `work-bound` leaf
-///   is admitted exactly then ([`HaltClass::admitted_by`]).
+/// - `max_work`: `requested.run.max_work` (none for a stepped run and by default); its
+///   `work-bound` leaf is admitted exactly then ([`HaltClass::admitted_by`]).
 ///
 /// - `collect_offered: false` (k-rust 58720d2e5, KINK-04/3): no offered coverage is asked for,
 ///   which is the behaviour before that field existed; asking changes no other field of the
@@ -650,7 +772,8 @@ pub enum ExecutionAdapterFailure {
 ///
 /// Step timeouts stay off: a step deadline is host-dependent, which an Execute-promise run must
 /// not be (finding A-03).
-fn request(state: Pattern, budget: ExecutionBudget, run: ResultRun) -> ExecuteRequest {
+fn request(state: Pattern, budget: ExecutionBudget, requested: Requested<'_>) -> ExecuteRequest {
+    let Requested { run, stop } = requested;
     ExecuteRequest {
         state,
         module_name: None,
@@ -659,8 +782,8 @@ fn request(state: Pattern, budget: ExecutionBudget, run: ResultRun) -> ExecuteRe
         max_simplification_iterations: budget.max_simplification_iterations,
         strategy: ExecutionStrategy::All,
         stop_at_branch: false,
-        cut_point_rules: Vec::new(),
-        terminal_rules: Vec::new(),
+        cut_point_rules: stop.before.clone(),
+        terminal_rules: stop.after.clone(),
         step_timeout_ms: None,
         moving_average_timeout: false,
         assume_state_defined: false,
@@ -695,13 +818,18 @@ fn request(state: Pattern, budget: ExecutionBudget, run: ResultRun) -> ExecuteRe
 /// KINK-R4 asks for the committed transitions within v2: k-rust states that asking changes no
 /// other field of the result, and nothing that decides a verdict or a schedule reads them; the one
 /// store that holds them, kink-flow's result records, moved its own `RESULT_SCHEMA_VERSION`.
-pub const EXECUTION_REQUEST_VERSION: &str = "kink-native/execution-request/v2";
+/// v3 (CF-21): a result run may carry stop rules ([`StopRules`],
+/// [`ExecutionAdapter::execute_result_stopped`]), which the request sends as `cut_point_rules` and
+/// `terminal_rules`; their leaves are admitted exactly then and read as final configurations of
+/// the truncated system, and a run that passed a stop is excluded. A run without a stop sends the
+/// request of v2, field for field, and is adapted and judged as under v2.
+pub const EXECUTION_REQUEST_VERSION: &str = "kink-native/execution-request/v3";
 
-/// The request of a stepped run: an observed path set without a work budget.
-const STEPPED: ResultRun = ResultRun {
+/// The request of a stepped run: an observed path set without a work budget or stop rules.
+const STEPPED: Requested<'static> = Requested::unstopped(ResultRun {
     modality: ResultModality::PathSet,
     max_work: None,
-};
+});
 
 /// Event-free and stepped execution in one expected solver profile.
 #[derive(Clone, Debug, PartialEq)]
@@ -767,7 +895,29 @@ impl ExecutionAdapter {
         budget: ExecutionBudget,
         run: ResultRun,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
+        self.execute_result_stopped(backend, state, budget, run, &StopRules::NONE)
+    }
+
+    /// [`Self::execute_result`] with the stop rules `stop` ([`StopRules`]): its paths also end at a
+    /// step of a selected rule that is its state's one successor, as a `cut-point` leaf before
+    /// the step ([`AdaptedLeaf::proposal`] names it) or a `terminal` leaf after it, and the run's
+    /// facts list each selected rule it went on past because the step had another successor
+    /// ([`RunFacts::passed_stops`]). With [`StopRules::NONE`] it is [`Self::execute_result`].
+    ///
+    /// A backend that does not list passed stops (its `passed_stops` capability off) cannot be
+    /// asked for a stop: an empty list would not tell a run that passed none from one whose
+    /// backend lists none, so the adapter answers [`ExecutionAdapterFailure::Backend`] and runs
+    /// nothing.
+    pub fn execute_result_stopped(
+        &self,
+        backend: &mut Backend,
+        state: &Pattern,
+        budget: ExecutionBudget,
+        run: ResultRun,
+        stop: &StopRules,
+    ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         self.check_profile(backend)?;
+        stops_listed(stop, backend.capabilities())?;
         let (inhabitation, rewrites) = with_definition(backend, |definition| {
             let inhabitation = Inhabitation::of(definition);
             match uninhabited_variable(definition, &inhabitation, state) {
@@ -776,7 +926,8 @@ impl ExecutionAdapter {
                 Err(error) => Err(ExecutionAdapterFailure::InvalidState(error)),
             }
         })?;
-        self.result_once(backend, state, budget, run, &inhabitation, &rewrites)
+        let requested = Requested { run, stop };
+        self.result_once(backend, state, budget, requested, &inhabitation, &rewrites)
     }
 
     fn result_once(
@@ -784,13 +935,18 @@ impl ExecutionAdapter {
         backend: &mut Backend,
         state: &Pattern,
         budget: ExecutionBudget,
-        run: ResultRun,
+        requested: Requested<'_>,
         inhabitation: &Inhabitation,
         rewrites: &BTreeSet<String>,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         let recorded = RecordedRun::of(backend, state);
-        let (result, timed_out) =
-            execute_with_watchdog(backend, state.clone(), budget, run, Backend::execute_kore)?;
+        let (result, timed_out) = execute_with_watchdog(
+            backend,
+            state.clone(),
+            budget,
+            requested,
+            Backend::execute_kore,
+        )?;
         let feasibility = if timed_out {
             vec![LeafFeasibility::Unknown; result.leaves.len()]
         } else {
@@ -809,7 +965,7 @@ impl ExecutionAdapter {
             result,
             timed_out,
             &budget,
-            run.max_work,
+            requested,
             feasibility,
             rewrites,
             recorded,
@@ -862,7 +1018,7 @@ impl ExecutionAdapter {
                     result,
                     true,
                     &budget,
-                    None,
+                    STEPPED,
                     feasibility,
                     &rewrites,
                     recorded,
@@ -895,7 +1051,7 @@ impl ExecutionAdapter {
             result,
             false,
             &budget,
-            None,
+            STEPPED,
             feasibility,
             &rewrites,
             recorded,
@@ -964,11 +1120,14 @@ impl ExecutionAdapter {
         })
     }
 
+    /// The adapted execution of `result`, the answer to a request of `budget` and `requested`,
+    /// which give the halts its leaves may hold ([`HaltClass::admitted_by`]); the result names
+    /// its own modality.
     fn adapt(
         result: KoreExecutionResult,
         timed_out: bool,
         budget: &ExecutionBudget,
-        max_work: Option<u64>,
+        requested: Requested<'_>,
         feasibility: Vec<LeafFeasibility>,
         rewrites: &BTreeSet<String>,
         recorded: RecordedRun,
@@ -990,12 +1149,14 @@ impl ExecutionAdapter {
             .zip(feasibility)
             .map(|(leaf, feasibility)| {
                 let halt = HaltClass::from_output(leaf.reason);
-                if !halt.admitted_by(budget, max_work) {
+                if !halt.admitted_by(budget, requested.run.max_work, requested.stop) {
                     return Err(ExecutionAdapterFailure::ContractViolation(halt));
                 }
+                let proposal = StopProposal::of(halt, leaf.candidates.as_deref())?;
                 Ok(AdaptedLeaf {
                     halt,
                     feasibility,
+                    proposal,
                     undefined_rule: UndefinedStepRule::of(halt, leaf.rule_id, leaf.rule_label),
                     contradicted_total: leaf.contradicted_total,
                     cause: leaf.cause,
@@ -1061,11 +1222,15 @@ impl ExecutionAdapter {
         feasibility: Vec<LeafFeasibility>,
         recorded: RecordedRun,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
+        let run = ResultRun {
+            max_work,
+            ..ResultRun::default()
+        };
         Self::adapt(
             result,
             timed_out,
             budget,
-            max_work,
+            Requested::unstopped(run),
             feasibility,
             &BTreeSet::new(),
             recorded,
@@ -1073,11 +1238,29 @@ impl ExecutionAdapter {
     }
 }
 
+/// Refuses stop rules `stop` on a backend whose `capabilities` do not list passed stops
+/// (`BackendCapabilities::passed_stops`): such a backend answers an empty list whether or not the
+/// run went on past a stop rule, so a run that passed one could not be told from one that passed
+/// none, and its leaves could be read as ends of the truncated system they need not be. A
+/// request without stop rules passes none, so it needs nothing.
+fn stops_listed(
+    stop: &StopRules,
+    capabilities: BackendCapabilities,
+) -> Result<(), ExecutionAdapterFailure> {
+    if stop.is_none() || capabilities.passed_stops {
+        Ok(())
+    } else {
+        Err(ExecutionAdapterFailure::Backend(
+            "a run with stop rules needs a backend that lists passed stops".to_owned(),
+        ))
+    }
+}
+
 fn execute_with_watchdog(
     backend: &mut Backend,
     state: Pattern,
     budget: ExecutionBudget,
-    run: ResultRun,
+    requested: Requested<'_>,
     execute: impl FnOnce(&mut Backend, ExecuteRequest) -> Result<KoreExecutionResult, BackendError>,
 ) -> Result<(KoreExecutionResult, bool), ExecutionAdapterFailure> {
     let token = CancellationToken::new();
@@ -1099,12 +1282,13 @@ fn execute_with_watchdog(
             }
         })
     };
-    let outcome = token.scope(|| execute(backend, request(state, budget, run)));
+    let outcome = token.scope(|| execute(backend, request(state, budget, requested)));
     // Stop the watchdog, then read whether it fired before the run ended.
     drop(done);
     watchdog.join().expect("watchdog thread does not panic");
-    let (result, timed_out) = settle(outcome, fired.load(Ordering::Acquire), run.modality)?;
-    assert_eq!(result.modality, run.modality.output());
+    let modality = requested.run.modality;
+    let (result, timed_out) = settle(outcome, fired.load(Ordering::Acquire), modality)?;
+    assert_eq!(result.modality, modality.output());
     Ok((result, timed_out))
 }
 
@@ -1554,8 +1738,13 @@ mod tests {
         // An `Err` whose stop cause is `Cancelled`, with the watchdog not fired: Timeout.
         let token = CancellationToken::new();
         token.cancel();
-        let cancelled = token
-            .scope(|| backend.execute_kore(request(state.clone(), budget, ResultRun::default())));
+        let cancelled = token.scope(|| {
+            backend.execute_kore(request(
+                state.clone(),
+                budget,
+                Requested::unstopped(ResultRun::default()),
+            ))
+        });
         let error = cancelled
             .as_ref()
             .expect_err("a cancelled entry answers Err");
@@ -1572,7 +1761,11 @@ mod tests {
             },
             arguments: Vec::new(),
         };
-        let failed = backend.execute_kore(request(unknown.clone(), budget, ResultRun::default()));
+        let failed = backend.execute_kore(request(
+            unknown.clone(),
+            budget,
+            Requested::unstopped(ResultRun::default()),
+        ));
         let error = failed.as_ref().expect_err("an unknown symbol fails");
         assert_eq!(error.stop_cause(), None);
         assert!(matches!(
@@ -1581,7 +1774,11 @@ mod tests {
         ));
         assert!(
             settle(
-                backend.execute_kore(request(unknown, budget, ResultRun::default())),
+                backend.execute_kore(request(
+                    unknown,
+                    budget,
+                    Requested::unstopped(ResultRun::default())
+                )),
                 true,
                 ResultModality::StateSet
             )
@@ -1589,7 +1786,11 @@ mod tests {
         );
         // An `Ok` result: a timeout exactly when the watchdog fired or a leaf is `Cancelled`.
         let complete = backend
-            .execute_kore(request(state.clone(), budget, ResultRun::default()))
+            .execute_kore(request(
+                state.clone(),
+                budget,
+                Requested::unstopped(ResultRun::default()),
+            ))
             .unwrap();
         assert!(
             complete
@@ -1646,27 +1847,402 @@ mod tests {
         };
         for run in [
             ResultRun::default(),
-            STEPPED,
+            STEPPED.run,
             ResultRun {
                 modality: ResultModality::StateSet,
                 max_work: Some(11),
             },
         ] {
-            let request = request(state.clone(), budget, run);
-            assert_eq!(request.result_modality, run.modality.output());
-            assert_eq!(request.max_work, run.max_work);
-            assert!(request.collect_coverage);
-            assert!(!request.trace);
-            assert_eq!(request.cancelled_result, CancelledResultOutput::Error);
-            assert_eq!(request.step_timeout_ms, None);
-            assert!(!request.moving_average_timeout);
-            assert_eq!(request.max_depth, Some(3));
-            assert_eq!(request.max_simplification_iterations, 7);
+            // A stop is sent as the backend's stop rules, before as cut points and after as
+            // terminal rules, and changes no other field.
+            let stop = StopRules {
+                before: vec!["before".to_owned()],
+                after: vec!["after".to_owned(), "MAIN.after".to_owned()],
+            };
+            for (stop, before, after) in [
+                (&StopRules::NONE, Vec::new(), Vec::new()),
+                (&stop, stop.before.clone(), stop.after.clone()),
+            ] {
+                let request = request(state.clone(), budget, Requested { run, stop });
+                assert_eq!(request.result_modality, run.modality.output());
+                assert_eq!(request.max_work, run.max_work);
+                assert!(request.collect_coverage);
+                assert!(request.collect_committed);
+                assert!(!request.trace);
+                assert_eq!(request.cancelled_result, CancelledResultOutput::Error);
+                assert_eq!(request.step_timeout_ms, None);
+                assert!(!request.moving_average_timeout);
+                assert_eq!(request.max_depth, Some(3));
+                assert_eq!(request.max_simplification_iterations, 7);
+                assert!(matches!(request.strategy, ExecutionStrategy::All));
+                assert!(!request.stop_at_branch);
+                // Without a stop the request selects no stop rule: the request of v2.
+                assert_eq!(request.cut_point_rules, before);
+                assert_eq!(request.terminal_rules, after);
+            }
         }
         assert_eq!(ResultRun::default().modality, ResultModality::StateSet);
         assert_eq!(ResultRun::default().max_work, None);
-        assert_eq!(STEPPED.modality, ResultModality::PathSet);
-        assert_eq!(STEPPED.max_work, None);
+        assert_eq!(STEPPED.run.modality, ResultModality::PathSet);
+        assert_eq!(STEPPED.run.max_work, None);
+        assert!(STEPPED.stop.is_none());
+    }
+
+    /// A stop is refused on a backend that does not list passed stops, before anything runs: its
+    /// empty list would not tell a run that passed a stop rule from one that passed none. A
+    /// request without stop rules needs no list. The in-process backend lists them.
+    #[test]
+    fn a_stop_needs_a_backend_that_lists_passed_stops() {
+        use k_rust::backend::BackendOptions;
+        let mut backend = Backend::new(
+            r"[]
+            module MAIN
+                sort SortS{} []
+                symbol Lbla{}() : SortS{} [constructor{}()]
+            endmodule []",
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .expect("backend");
+        let listing = backend.capabilities();
+        assert!(listing.passed_stops);
+        let unlisting = BackendCapabilities {
+            passed_stops: false,
+            ..listing
+        };
+        let stop = StopRules {
+            before: Vec::new(),
+            after: vec!["next".to_owned()],
+        };
+        assert_eq!(stops_listed(&StopRules::NONE, listing), Ok(()));
+        assert_eq!(stops_listed(&stop, listing), Ok(()));
+        assert_eq!(stops_listed(&StopRules::NONE, unlisting), Ok(()));
+        assert!(matches!(
+            stops_listed(&stop, unlisting),
+            Err(ExecutionAdapterFailure::Backend(_))
+        ));
+        // With a listing backend the stopped run goes ahead.
+        let state = Pattern::Application {
+            symbol: Symbol {
+                name: "Lbla".to_owned(),
+                sort_parameters: Vec::new(),
+            },
+            arguments: Vec::new(),
+        };
+        let budget = ExecutionBudget {
+            time: Duration::from_secs(10),
+            max_simplification_iterations: 10,
+            max_depth: None,
+            max_breadth: None,
+        };
+        let adapter = ExecutionAdapter::new(SolverProfile::of(&backend));
+        let stopped = adapter
+            .execute_result_stopped(&mut backend, &state, budget, ResultRun::default(), &stop)
+            .expect("a listing backend runs a stop");
+        assert!(stopped.facts().passed_stops.is_empty());
+    }
+
+    /// CF-21: a stop halt is admitted exactly for a request that selected a rule in its
+    /// direction, a cut point before and a terminal leaf after; under any other request it is a
+    /// contract violation and the adapter publishes no leaf. A cut-point leaf exposes the one step
+    /// it stopped before, and one that proposes another number of successors is outside k-rust's
+    /// contract. The run's passed stops reach its facts as k-rust lists them.
+    #[test]
+    fn unrequested_stop_halts_are_contract_violations() {
+        let constant = |name: &str| Pattern::Application {
+            symbol: Symbol {
+                name: name.to_owned(),
+                sort_parameters: Vec::new(),
+            },
+            arguments: Vec::new(),
+        };
+        let candidate = |name: &str| k_rust::backend::ExecutionCandidateOutput {
+            state: constant(name),
+            unique_id: format!("id-{name}"),
+            label: Some(name.to_owned()),
+            diagnostics: Vec::new(),
+        };
+        let leaf = |reason, candidates| KoreExecutionLeaf {
+            state: constant("Lblunit"),
+            diagnostics: Vec::new(),
+            candidates,
+            remainder: None,
+            depth: 1,
+            reason,
+            rule_id: None,
+            rule_label: None,
+            contradicted_total: None,
+            cause: None,
+            detail: None,
+            trace: Vec::new(),
+            branch: Vec::new(),
+            effects: Vec::new(),
+            observations: Vec::new(),
+        };
+        let result = |leaf, passed_stops| KoreExecutionResult {
+            modality: ResultModalityOutput::StateSet,
+            leaves: vec![leaf],
+            effects: Vec::new(),
+            discarded: Vec::new(),
+            coverage: None,
+            work: 2,
+            expanded: 1,
+            stack_stops: 0,
+            smt_unknowns: 0,
+            implementation_chosen_values: Vec::new(),
+            contradicted_claims: Vec::new(),
+            allowance_refusals: Vec::new(),
+            unsupported_hooks: Vec::new(),
+            short_circuit_readings: Vec::new(),
+            passed_stops,
+            state_matches: None,
+        };
+        let budget = ExecutionBudget {
+            time: Duration::from_secs(1),
+            max_simplification_iterations: 1,
+            max_depth: None,
+            max_breadth: None,
+        };
+        let adapt = |leaf, passed_stops, stop: &StopRules| {
+            ExecutionAdapter::adapt(
+                result(leaf, passed_stops),
+                false,
+                &budget,
+                Requested {
+                    run: ResultRun::default(),
+                    stop,
+                },
+                vec![LeafFeasibility::Syntactic],
+                &BTreeSet::new(),
+                RecordedRun {
+                    short_circuit_readings: true,
+                    ground: true,
+                },
+            )
+        };
+        let before = StopRules {
+            before: vec!["next".to_owned()],
+            after: Vec::new(),
+        };
+        let after = StopRules {
+            before: Vec::new(),
+            after: vec!["next".to_owned()],
+        };
+        let cut = || leaf(HaltReasonOutput::CutPoint, Some(vec![candidate("Lblnext")]));
+        let terminal = || leaf(HaltReasonOutput::Terminal, None);
+        let violation = ExecutionAdapterFailure::ContractViolation;
+        for stop in [&StopRules::NONE, &after] {
+            assert_eq!(
+                adapt(cut(), Vec::new(), stop),
+                Err(violation(HaltClass::CutPoint))
+            );
+        }
+        for stop in [&StopRules::NONE, &before] {
+            assert_eq!(
+                adapt(terminal(), Vec::new(), stop),
+                Err(violation(HaltClass::TerminalRule))
+            );
+        }
+        let stopped = adapt(cut(), Vec::new(), &before).expect("a requested cut point");
+        assert_eq!(stopped.leaves()[0].halt, HaltClass::CutPoint);
+        assert_eq!(
+            stopped.leaves()[0].proposal,
+            Some(StopProposal {
+                successor: constant("Lblnext"),
+                rule_id: "id-Lblnext".to_owned(),
+                label: Some("Lblnext".to_owned()),
+            })
+        );
+        let ended = adapt(terminal(), Vec::new(), &after).expect("a requested terminal leaf");
+        assert_eq!(ended.leaves()[0].halt, HaltClass::TerminalRule);
+        assert_eq!(ended.leaves()[0].proposal, None);
+        for candidates in [
+            None,
+            Some(Vec::new()),
+            Some(vec![candidate("Lbla"), candidate("Lblb")]),
+        ] {
+            assert_eq!(
+                adapt(
+                    leaf(HaltReasonOutput::CutPoint, candidates.clone()),
+                    Vec::new(),
+                    &before
+                ),
+                Err(violation(HaltClass::CutPoint)),
+                "{candidates:?}"
+            );
+        }
+        // A stuck leaf proposes nothing, under a stop as without one.
+        for stop in [&StopRules::NONE, &before, &after] {
+            let stuck = adapt(leaf(HaltReasonOutput::Stuck, None), Vec::new(), stop).unwrap();
+            assert_eq!(stuck.leaves()[0].proposal, None);
+            assert!(stuck.facts().passed_stops.is_empty());
+        }
+        let passed = vec![PassedStopOutput {
+            rule: "next".to_owned(),
+            depth: 3,
+        }];
+        let listed = adapt(terminal(), passed.clone(), &after).unwrap();
+        assert_eq!(listed.facts().passed_stops, passed);
+    }
+
+    /// CF-21, end to end on k-rust: a run that stops before a rule ends at the state its step
+    /// leaves, a cut point proposing the step's successor, which the run's coverage applies but
+    /// does not commit; a run that stops after it ends at the successor; the bridge reads both as
+    /// complete ends, and neither run is excluded. Where the stop rule's step has another
+    /// successor, the run stops nothing, lists the rule as passed with the step's depth, and is
+    /// excluded (`passed-stop`), in both directions.
+    #[test]
+    fn requested_stop_leaves_are_complete() {
+        use crate::bridge::{BridgeContext, paths_from_execution};
+        use crate::exclusion::{DefinitionExclusions, Exclusion};
+        use k_rust::backend::BackendOptions;
+        use kink_pattern::{CollectionStop, ExecutionTerminalKind, PathStop, SymbolSorts};
+        let constructor = |name: &str| {
+            format!(
+                "symbol Lbl{name}{{}}() : SortS{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]"
+            )
+        };
+        let rule = |from: &str, to: &str| {
+            format!(
+                r#"axiom{{}} \rewrites{{SortS{{}}}}(\and{{SortS{{}}}}(Lbl{from}{{}}(), \top{{SortS{{}}}}()), Lbl{to}{{}}()) [label{{}}("{from}-{to}"), UNIQUE'Unds'ID{{}}("id-{from}-{to}")]"#
+            )
+        };
+        let source = format!(
+            "[]\nmodule MAIN\n    sort SortS{{}} []\n    {}\n    {}\nendmodule []",
+            ["a", "b", "c", "x", "y", "z"]
+                .map(constructor)
+                .join("\n    "),
+            [
+                rule("a", "b"),
+                rule("b", "c"),
+                rule("x", "y"),
+                rule("x", "z")
+            ]
+            .join("\n    "),
+        );
+        let kore = k_rust::kore::parser::parse_definition(&source).expect("KORE");
+        let mut backend = Backend::from_definition(kore.clone(), "MAIN", BackendOptions::default())
+            .expect("backend");
+        let exclusions = {
+            let selected = backend.select_definition(None).expect("definition");
+            DefinitionExclusions::of(&kore, &selected, &[])
+        };
+        let sorts = SymbolSorts::from_definition(&kore);
+        let context = BridgeContext {
+            test_id: "t",
+            classify: &|_| ExecutionTerminalKind::Normal,
+            sorts: &sorts,
+        };
+        let constant = |name: &str| Pattern::Application {
+            symbol: Symbol {
+                name: format!("Lbl{name}"),
+                sort_parameters: Vec::new(),
+            },
+            arguments: Vec::new(),
+        };
+        let budget = ExecutionBudget {
+            time: Duration::from_secs(30),
+            max_simplification_iterations: 100,
+            max_depth: None,
+            max_breadth: None,
+        };
+        let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
+        let mut run = |start: &str, before: &[&str], after: &[&str]| {
+            let stop = StopRules {
+                before: before.iter().map(|name| (*name).to_owned()).collect(),
+                after: after.iter().map(|name| (*name).to_owned()).collect(),
+            };
+            adapter
+                .execute_result_stopped(
+                    &mut backend,
+                    &constant(start),
+                    budget,
+                    ResultRun::default(),
+                    &stop,
+                )
+                .expect("the run is adapted")
+        };
+        let summary = |execution: &AdaptedExecution| {
+            execution
+                .leaves()
+                .iter()
+                .map(|leaf| (leaf.halt, leaf.branch.state.clone(), leaf.branch.depth))
+                .collect::<Vec<_>>()
+        };
+        let ends = |execution: &AdaptedExecution| {
+            let bridged = paths_from_execution(execution, &context, &|_| true).expect("bridged");
+            assert_eq!(bridged.collection.stop, CollectionStop::SearchExhausted);
+            bridged
+                .paths
+                .into_iter()
+                .map(|path| {
+                    assert!(path.complete);
+                    assert_eq!(path.stop, PathStop::Terminal);
+                    path.execution_terminal.expect("terminal").state
+                })
+                .collect::<Vec<_>>()
+        };
+
+        // Without a stop: the run's own end.
+        let own = run("a", &[], &[]);
+        assert_eq!(summary(&own), [(HaltClass::Stuck, constant("c"), 2)]);
+        assert_eq!(exclusions.run_exclusion(&own), None);
+
+        // Before `b-c`: a cut point at `b`, proposing `c` by `b-c`, which is applied and not
+        // committed.
+        let cut = run("a", &["b-c"], &[]);
+        assert_eq!(summary(&cut), [(HaltClass::CutPoint, constant("b"), 1)]);
+        let proposal = cut.leaves()[0].proposal.as_ref().expect("a proposal");
+        assert_eq!(proposal.successor, constant("c"));
+        assert_eq!(proposal.rule_id, "id-b-c");
+        assert!(cut.facts().passed_stops.is_empty());
+        assert_eq!(exclusions.run_exclusion(&cut), None);
+        assert_eq!(ends(&cut), [constant("b")]);
+        let coverage = cut.coverage().expect("coverage");
+        assert!(coverage.applied.contains("id-b-c"));
+        assert!(!coverage.committed.contains("id-b-c"));
+        assert!(coverage.committed.contains("id-a-b"));
+
+        // After `b-c`: a terminal leaf at `c`, which the run committed.
+        let terminal = run("a", &[], &["b-c"]);
+        assert_eq!(
+            summary(&terminal),
+            [(HaltClass::TerminalRule, constant("c"), 2)]
+        );
+        assert_eq!(terminal.leaves()[0].proposal, None);
+        assert_eq!(exclusions.run_exclusion(&terminal), None);
+        assert_eq!(ends(&terminal), [constant("c")]);
+        assert!(
+            terminal
+                .coverage()
+                .expect("coverage")
+                .committed
+                .contains("id-b-c")
+        );
+
+        // `x-y` is one of two successors of `x`: no stop, the rule is passed at depth 0, and the
+        // run is excluded.
+        for (before, after) in [(&["x-y"][..], &[][..]), (&[][..], &["x-y"][..])] {
+            let passed = run("x", before, after);
+            assert!(
+                passed
+                    .leaves()
+                    .iter()
+                    .all(|leaf| leaf.halt == HaltClass::Stuck),
+                "{before:?} {after:?}"
+            );
+            assert_eq!(
+                passed.facts().passed_stops,
+                [PassedStopOutput {
+                    rule: "x-y".to_owned(),
+                    depth: 0,
+                }]
+            );
+            assert_eq!(
+                exclusions.run_exclusion(&passed),
+                Some(Exclusion::PassedStop)
+            );
+        }
     }
 
     #[test]
@@ -1745,7 +2321,7 @@ mod tests {
             };
             assert!(!HaltClass::WorkBound.adapter_admits(&budget), "{budget:?}");
             assert!(
-                HaltClass::WorkBound.admitted_by(&budget, Some(1)),
+                HaltClass::WorkBound.admitted_by(&budget, Some(1), &StopRules::NONE),
                 "{budget:?}"
             );
             for leaves in [
@@ -1762,7 +2338,7 @@ mod tests {
                             result(leaves.clone()),
                             timed_out,
                             &budget,
-                            None,
+                            Requested::unstopped(ResultRun::default()),
                             feasibility.clone(),
                             &BTreeSet::new(),
                             RecordedRun {
@@ -1779,7 +2355,10 @@ mod tests {
                         result(leaves.clone()),
                         timed_out,
                         &budget,
-                        Some(1),
+                        Requested::unstopped(ResultRun {
+                            max_work: Some(1),
+                            ..ResultRun::default()
+                        }),
                         feasibility.clone(),
                         &BTreeSet::new(),
                         RecordedRun {

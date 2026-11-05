@@ -1032,7 +1032,7 @@ fn symbolic_terminal_terms_are_unknown_to_state_oracles() {
     }
 }
 
-/// The side of a single leaf that halted with `halt`, as the bridge reads it: a stuck
+/// The side of a single leaf that halted with `halt`, as the bridge reads it: a stuck or stop
 /// leaf is a ground normal terminal, and a trivial leaf a ground undefined step.
 fn halt_side(
     projection: &StateProjection,
@@ -1372,8 +1372,11 @@ fn runner_mapping_is_exhaustive() {
         (H::Trivial, Ok(value(&[]))),
         (H::Vacuous, Ok(OracleSide::Unknown)),
         (H::Branch, infrastructure.clone()),
-        (H::CutPoint, infrastructure.clone()),
-        (H::TerminalRule, infrastructure.clone()),
+        // A stop leaf is final in its run's truncated system and compared as a stuck leaf is.
+        // Before: a contract violation (kink sent no stop rule); the adapter still refuses it
+        // without a stop (`HaltClass::admitted_by`).
+        (H::CutPoint, Ok(value(std::slice::from_ref(&done)))),
+        (H::TerminalRule, Ok(value(std::slice::from_ref(&done)))),
         // Requested bounds are incomplete paths; the adapter rejects an unrequested one first.
         (H::DepthBound, Ok(OracleSide::Unknown)),
         (H::BreadthBound, Ok(OracleSide::Unknown)),
@@ -1440,7 +1443,7 @@ fn runner_mapping_is_exhaustive() {
     }
     let bridge = [
         BridgeFailure::NoLeaves,
-        BridgeFailure::ContractViolation(H::CutPoint),
+        BridgeFailure::ContractViolation(H::Branch),
         BridgeFailure::UndecodableState(String::new()),
         BridgeFailure::UndecidedStateSort,
         BridgeFailure::DuplicatePathIdentity("root".to_owned()),

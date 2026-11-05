@@ -190,6 +190,15 @@
 //! - [`Exclusion::UnsupportedHook`] (re-pin adoption A-1): the run or its load left an application
 //!   unevaluated as an unsupported hook (`unsupportedHooks`, [`RunFacts::unsupported_hooks`]),
 //!   whatever became of the work that met it (compat 92).
+//! - [`Exclusion::PassedStop`] (CF-21): a run with stop rules
+//!   ([`crate::execution::StopRules`]) went on past a step of a selected rule because the step had
+//!   another successor (`passedStops`, [`RunFacts::passed_stops`]). A stop rule stops a path only
+//!   where its step is the state's one successor, so where k-rust lists one, the run went on past
+//!   a step at which the truncated system (the system that ends a path at every step of a
+//!   selected rule) ends: its leaves need not be that system's final configurations, and a kill
+//!   read from them would not be a fact of the observation the stop states. The list names each
+//!   such rule with the shallowest depth at which it was passed. A run without stop rules lists
+//!   none.
 //! - [`Exclusion::EqualsCondition`]: a rewrite rule or equation of the definition has a condition
 //!   that equates two terms (K `{ A #Equals B }`), which k-rust 501f18b9 names as a gap of its own
 //!   answers when the terms may be undefined ("Two gaps remain", `docs/compatibility.md`): such
@@ -261,8 +270,10 @@ use crate::execution::{AdaptedExecution, AdaptedLeaf, HaltClass, RunFacts};
 /// it is excluded only by an entry that counts, or when its backend lists none, where before a
 /// definition the analysis clears excluded it whatever the list held and a flagged one did not
 /// read the state. It narrows what is excluded on a cleared definition, and excludes no run of a
-/// flagged one that its list did not already exclude.
-pub const DEFINITION_EXCLUSION_VERSION: &str = "kink-native/definition-exclusion/v7";
+/// flagged one that its list did not already exclude. v8 (CF-21): a run is also excluded by any
+/// entry of k-rust's `passedStops` (`passed-stop`), a stop rule it went on past; a run without
+/// stop rules lists none, so no such run is excluded that v7 judged.
+pub const DEFINITION_EXCLUSION_VERSION: &str = "kink-native/definition-exclusion/v8";
 
 /// The hooks for which k-rust 8f8ad57c5 says it may compute a value the definition leaves open,
 /// the hooks for which its classifier `chosen_value` (`k-rust-backend/src/builtin.rs`;
@@ -980,6 +991,9 @@ pub enum Exclusion {
     /// The run or its load left an application unevaluated as an unsupported hook (k-rust's
     /// `unsupportedHooks`; re-pin adoption A-1).
     UnsupportedHook,
+    /// The run went on past a step of a selected stop rule that had another successor (k-rust's
+    /// `passedStops`, [`RunFacts::passed_stops`], which names the rule and the depth; CF-21).
+    PassedStop,
 }
 
 impl Exclusion {
@@ -996,6 +1010,7 @@ impl Exclusion {
             Self::EqualsCondition => "equals-condition",
             Self::ImplementationChosenValue => "implementation-chosen-value",
             Self::UnsupportedHook => "unsupported-hook",
+            Self::PassedStop => "passed-stop",
         }
     }
 }
@@ -1693,8 +1708,9 @@ impl DefinitionExclusions {
     /// definition leaves open on the run's list; a short-circuit reading that counts on the run's
     /// list, on a definition whose analysis flags a rule ([`Self::short_circuit_excludes`]; CF-03,
     /// which replaced the leaf check [`Self::short_circuit_step`] it subsumes); an allowance
-    /// refusal (on a leaf or on the run's list); and an unsupported hook on the run's list (re-pin
-    /// adoption A-1 added the lists). A timed-out run is a timeout before it is anything else, and
+    /// refusal (on a leaf or on the run's list); an unsupported hook on the run's list (re-pin
+    /// adoption A-1 added the lists); and a stop rule the run went on past, on its `passedStops`
+    /// list (CF-21). A timed-out run is a timeout before it is anything else, and
     /// is not asked. The run's initial state is judged on its own ([`Self::state_exclusion`]).
     #[must_use]
     pub fn run_exclusion(&self, execution: &AdaptedExecution) -> Option<Exclusion> {
@@ -1720,6 +1736,9 @@ impl DefinitionExclusions {
         }
         if !facts.unsupported_hooks.is_empty() {
             return Some(Exclusion::UnsupportedHook);
+        }
+        if !facts.passed_stops.is_empty() {
+            return Some(Exclusion::PassedStop);
         }
         None
     }

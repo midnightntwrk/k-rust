@@ -644,6 +644,9 @@ fn exclusion_cause(exclusion: Exclusion, what: &str) -> String {
             "the run or its definition's load left an application unevaluated as an unsupported \
              hook (unsupported-hook)"
         }
+        Exclusion::PassedStop => {
+            "the run went on past a step of a stop rule that had another successor (passed-stop)"
+        }
     };
     format!("{what}: {why}")
 }

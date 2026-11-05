@@ -728,6 +728,12 @@ fn failure_cause(kind: ExecutionFailureKind, budget: Budget) -> String {
              it"
             .into()
         }
+        ExecutionFailureKind::PassedStop => {
+            "passed-stop: a run of this program went on past a step of a stop rule that had \
+             another successor, so its ends need not be the ends of the observation the stop \
+             states"
+                .into()
+        }
         ExecutionFailureKind::EqualsCondition => {
             "equals-condition: a rule or equation condition of the mutant equates two terms \
              ({ A #Equals B }), which k-rust may decide wrongly when they may be undefined"
