@@ -453,7 +453,7 @@ fn expand_writes_a_list_cells_brackets_as_written() {
         .expect("the readable rule is written");
     let start = stdout[..start].rfind("#[k::rule(").unwrap();
     let end = start + stdout[start..].find("\n}\n").unwrap() + 3;
-    expect_test::expect![[r##"
+    expect_test::expect![[r#"
         #[k::rule(label = "bump")]
         pub fn bump(
             i: k::Term<k::builtin::Int>,
@@ -470,7 +470,7 @@ fn expand_writes_a_list_cells_brackets_as_written() {
                 ::ProjectionElem::Field(k::builtin::int::add(i, 1), f_ty), ..rest]), ..state
             }
         }
-    "##]]
+    "#]]
     .assert_eq(&stdout[start..end]);
 }
 
