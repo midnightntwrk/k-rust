@@ -49,7 +49,7 @@ impl KrsInputs {
 
     /// `body` with this decoder's native compile on this thread, made on first use; `need` says
     /// what the compile is for, in the message of a compile that fails.
-    fn with_semantics<T>(
+    pub(crate) fn with_semantics<T>(
         &self,
         need: &str,
         body: impl FnOnce(&Semantics) -> Result<T, String>,

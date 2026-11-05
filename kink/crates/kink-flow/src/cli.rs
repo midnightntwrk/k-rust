@@ -621,6 +621,9 @@ pub fn run_command(
             let (document, ok) = crate::report::report_spelled(manifest, options, front.spelling);
             (document, exit(ok))
         }
+        FlowCommand::Query { .. } | FlowCommand::Fuzz { .. } if manifest.stop.is_some() => {
+            (stop_unsupported(command), EXIT_CORPUS)
+        }
         FlowCommand::Query { patterns, options } => match PatternList::read(patterns) {
             Err(error) => (pattern_list_refused(&error), EXIT_CORPUS),
             Ok(list) => {
@@ -633,6 +636,29 @@ pub fn run_command(
         }
     };
     (front.annotated(document), status)
+}
+
+/// The document of `query` or `fuzz` on a corpus with `[stop]`: refused at stage `stop`, reason
+/// `unsupported-verb`. Both search runs of the specification with their own requests (a pattern
+/// search, a fuzzer's replays and confirmation), none of which ends a path at a stop yet, so
+/// their answers would be about the definition's own runs, not the observation the corpus states.
+fn stop_unsupported(command: &FlowCommand) -> Value {
+    let detail = format!(
+        "{} does not run a stopped corpus yet: its searches end no path at [stop], so its answers \
+         would not be about the runs this corpus observes; use `check`, `results` and `run`, or \
+         a manifest without [stop]",
+        command.verb().as_str()
+    );
+    let mut document = match command {
+        FlowCommand::Fuzz { .. } => crate::fuzz::stop_refused(&detail),
+        _ => command.manifest_refused(&ManifestError::new("stop", &detail)),
+    };
+    if let Some(spec) = document.get_mut("spec").and_then(Value::as_object_mut) {
+        spec.insert("stage".into(), json!("stop"));
+        spec.insert("reason".into(), json!("unsupported-verb"));
+        spec.insert("detail".into(), json!(detail));
+    }
+    document
 }
 
 /// `fuzz` on a decoded manifest.
@@ -1224,6 +1250,7 @@ pub fn check_corpus_mutations(
                 record,
                 spec: None,
                 programs: Vec::new(),
+                stop: manifest.stop_value(),
             },
             list,
             mutations: None,
@@ -1249,6 +1276,7 @@ pub fn check_corpus_mutations(
             record,
             spec: Some(spec),
             programs,
+            stop: manifest.stop_value(),
         },
         list,
         mutations,
@@ -1325,8 +1353,10 @@ fn check_admission(manifest: &FlowManifest) -> (Value, u8) {
 /// applied (`applied`), since `check` compiles no mutant and so cannot read `run`'s witness rule
 /// ([`crate::check`]); 8 (CF-40c2) names the first `unmatched-rule`, after the predicate it
 /// reads (k-rust `matched`), so that each coverage predicate has one name in every kink-flow
-/// document, and says `matches` for `reaches` in both warnings' text.
-pub const CHECK_VERSION: u64 = 8;
+/// document, and says `matches` for `reaches` in both warnings' text; 9 adds `stop` for a corpus
+/// with `[stop]` (absent without one), the warnings `stop-hides-edit` and `stop-rule-deleted`,
+/// and the specification's refusal at stage `stop` (`stop-unresolved`, `backend-error`).
+pub const CHECK_VERSION: u64 = 9;
 
 fn header(spec: Value, programs: Vec<Value>, data: Value, result: Value) -> Value {
     json!({
@@ -1449,7 +1479,12 @@ pub fn check_document(admission: &FlowAdmission) -> Value {
         .spec
         .as_ref()
         .map_or(Value::Null, |spec| spec.result.value());
-    header(spec, programs, data, result)
+    let mut document = header(spec, programs, data, result);
+    // Absent without a stop, so a document without one is the document it was before stops.
+    if let Some(stop) = &admission.stop {
+        document["stop"] = stop.clone();
+    }
+    document
 }
 
 /// Why the baseline has no data under `[spec] assume_joined`, so that no mutation can have a

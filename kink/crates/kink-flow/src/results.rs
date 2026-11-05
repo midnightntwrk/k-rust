@@ -200,24 +200,31 @@ pub fn execution_budget(budget: Budget) -> ExecutionBudget {
 /// code, versioned or not; packet CACHE-ID-fix-1), kink's semantics identity `kink` (the k-rust
 /// revision, the definition exclusions, the execution request, ...; packet CACHE-ID, re-pin
 /// R0-tail review 1 minor), the execution digest `{kind, digest}` (`digest::execution_digest`),
-/// the program digest and the budget ([`budget_value`]). A record written by another build, or
-/// by one before CACHE-ID-fix-1 (whose key has no `kink_build`), misses and is recomputed.
-/// `kink_build` is `None` when the executable cannot be read; such a key is never read or
-/// written ([`update_results`]).
+/// the program digest and the budget ([`budget_value`]), and the program's stop
+/// (`FlowManifest::program_stop`: the rules and the program's count) when the manifest declares
+/// one; without one the key has no `stop`, and is the key it was before stops existed. A record
+/// written by another build, or by one before CACHE-ID-fix-1 (whose key has no `kink_build`),
+/// misses and is recomputed. `kink_build` is `None` when the executable cannot be read; such a
+/// key is never read or written ([`update_results`]).
 pub fn result_key(
     execution: ExecutionDigest,
     program: Sha256Digest,
     budget: Budget,
     kink_build: Option<Sha256Digest>,
+    stop: Option<Value>,
 ) -> Value {
-    json!({
+    let mut key = json!({
         "schema_version": RESULT_SCHEMA_VERSION,
         "kink_build": kink_build.map(|build| build.to_string()),
         "kink": kink_campaign::kink_identity(),
         "execution": execution.value(),
         "program": program.to_string(),
         "budget": budget_value(budget),
-    })
+    });
+    if let Some(stop) = stop {
+        key["stop"] = stop;
+    }
+    key
 }
 
 /// The bounds of a program run that a stored class depends on, `{max_depth,
@@ -511,6 +518,9 @@ pub struct BaselineRunner<'a> {
     baseline_max_work: Option<u64>,
     /// `[budget] smt_resource_limit`: the solver budget of every run of the command.
     smt_resource_limit: std::num::NonZeroU32,
+    /// `[stop]`: where every result run of the command ends besides its own end, each program
+    /// with its own count (`FlowManifest::campaign_stop`).
+    stop: kink_campaign::Stop,
     authors: RuleAuthors,
     /// The command's session (every call uses the all-normal classifier; the session re-applies
     /// a call's classifier on every reused baseline run, flow F-16).
@@ -546,6 +556,7 @@ impl<'a> BaselineRunner<'a> {
             budget: execution_budget(manifest.budget),
             baseline_max_work: manifest.budget.baseline_max_work,
             smt_resource_limit: manifest.budget.smt_resource_limit,
+            stop: manifest.campaign_stop(),
             authors: RuleAuthors::of(&spec.compiled),
             session: RefCell::new(
                 BaselineSession::new(&spec.validator)
@@ -638,7 +649,7 @@ impl<'a> BaselineRunner<'a> {
     /// result run of the call is bounded by `[budget] baseline_max_work`, whatever `options` say,
     /// so every baseline of a command has one bound and the results update and the kill search
     /// share the session's runs; likewise every run's solver queries by `[budget]
-    /// smt_resource_limit`.
+    /// smt_resource_limit`, and every result run, baseline and mutant, ends at `[stop]`.
     pub fn call(
         &self,
         tests: &[TestCase],
@@ -648,6 +659,7 @@ impl<'a> BaselineRunner<'a> {
         let mut options = options.clone();
         options.run.baseline_max_work = self.baseline_max_work;
         options.run.smt_resource_limit = self.smt_resource_limit;
+        options.run.stop = self.stop;
         let options = &options;
         let campaign = Campaign {
             validator: &self.spec.validator,
@@ -677,6 +689,7 @@ impl<'a> BaselineRunner<'a> {
     ) -> Result<CampaignRun, CampaignFailure> {
         let mut options = options.clone();
         options.run.baseline_max_work = self.baseline_max_work;
+        options.run.stop = self.stop;
         let campaign = Campaign {
             validator: &self.spec.validator,
             module: &self.module,
@@ -754,7 +767,14 @@ impl<'a> BaselineRunner<'a> {
                     cause: None,
                     baseline: Some(CampaignReport::baseline_row(evidence)),
                     final_configuration: None,
-                    ends: final_ends(&evidence.run).map(|ends| self.end_reader().summaries(ends)),
+                    ends: final_ends(&evidence.run).map(|ends| {
+                        if self.stop.is_none() {
+                            self.end_reader().summaries(ends)
+                        } else {
+                            self.end_reader()
+                                .halted_summaries(ends, &evidence.stop_ends)
+                        }
+                    }),
                     coverage: run.baseline_coverage.first().cloned(),
                     wall_ms: None,
                     specification_diagnostics: crate::report::specification_diagnostics_value(
@@ -895,8 +915,11 @@ impl<'a> BaselineRunner<'a> {
             Err(e) => return self.error(format!("{refused}; no diagnostic run: {e}")),
         };
         let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
-        let execution = match adapter.execute_result(
+        // The campaign's request: with a stop, the staged run to the program's count.
+        let execution = match self.stop.execute_result(
+            &adapter,
             &mut backend,
+            &test.id,
             &test.initial_state,
             self.budget,
             ResultRun {
@@ -1855,17 +1878,24 @@ pub fn result_cache_value() -> Value {
 /// `kink-flow results`: the results document and whether the command found no corpus or
 /// infrastructure error (the caller's exit status).
 pub fn results(manifest: &FlowManifest, options: &ResultsOptions) -> (Value, bool) {
+    // Every document names the stop, a refused specification's too, as `check` and `run` do.
+    let stopped = |mut document: Value| {
+        if let Some(stop) = manifest.stop_value() {
+            document["stop"] = stop;
+        }
+        document
+    };
     let (mut record, admitted) = admit_spec(manifest);
     let Some((spec, mut inputs)) = admitted else {
         return (
-            document(
+            stopped(document(
                 &record,
                 None,
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
                 Value::Null,
-            ),
+            )),
             false,
         );
     };
@@ -1876,14 +1906,14 @@ pub fn results(manifest: &FlowManifest, options: &ResultsOptions) -> (Value, boo
         Err(e) => {
             record.refusal = Some(runner_refusal(e));
             return (
-                document(
+                stopped(document(
                     &record,
                     None,
                     Vec::new(),
                     Vec::new(),
                     Vec::new(),
                     Value::Null,
-                ),
+                )),
                 false,
             );
         }
@@ -1902,14 +1932,14 @@ pub fn results(manifest: &FlowManifest, options: &ResultsOptions) -> (Value, boo
         update.rows.into_iter().map(|row| row.row).collect(),
         &spec.data,
     );
-    let mut document = document(
+    let mut document = stopped(document(
         &record,
         Some(update.spec_digest),
         programs,
         rules,
         update.mismatches,
         runner.baseline_runs(),
-    );
+    ));
     document["spec"]["execution_digest"] = update.execution.value();
     document["result_cache"] = result_cache_value();
     document["data"] = spec.data.value();
@@ -2019,7 +2049,13 @@ fn program_row(
         Err(refusal) => return refused(None, refusal),
     };
     let digest = program_digest(program, &case);
-    let key = result_key(context.execution, digest, manifest.budget, context.build);
+    let key = result_key(
+        context.execution,
+        digest,
+        manifest.budget,
+        context.build,
+        manifest.program_stop(program),
+    );
     let path = context.directory.join(format!("{digest}.json"));
     // Without a build identity, or under the Z3 profile, no record is honoured (packet
     // CACHE-ID-fix-1).
@@ -2253,7 +2289,13 @@ pub fn current_record(
 ) -> Option<Value> {
     let build = result_store().ok()?;
     let digest = program_digest(program, inputs);
-    let key = result_key(execution, digest, manifest.budget, Some(build));
+    let key = result_key(
+        execution,
+        digest,
+        manifest.budget,
+        Some(build),
+        manifest.program_stop(program),
+    );
     let path = cache
         .join("results")
         .join(execution.digest.to_string())
@@ -2292,6 +2334,11 @@ fn document(
     });
     json!({
         "schema": "kink-flow-results",
+        // 9 since `[stop]`: a corpus with a stop has `stop` (absent without one), its rules, its
+        // count and each program's own count (`counts`), and each comparable program's `ends`
+        // say how the run reached them (`halt`: `stop` or `own`); a specification on which a
+        // rule of the stop labels no rewrite rule is refused at stage `stop`. A corpus without a
+        // stop has the document it had.
         // 8 since CF-45: a claim helper no comparable program matched (an equation of a function
         // only claims apply, which the front end names, `FlowManifest::claim_helpers`) has status
         // `claim-helper` (summary `claim_helper`), no longer `uncovered`, so the uncovered rules
@@ -2326,7 +2373,7 @@ fn document(
         // 2 since re-pin L2-1: a rule's status `no-coverage-signal` (summary
         // `no_coverage_signal`) replaced `not-observable`, equations are covered, and every rule
         // carries `fired_by`.
-        "version": 8,
+        "version": 9,
         "k_rust_revision": crate::k_rust_revision(),
         "profile": SolverProfile::BUILD.name(),
         "result_schema_version": RESULT_SCHEMA_VERSION,
@@ -2536,6 +2583,7 @@ mod tests {
             ends: [end.clone()].into(),
             undefined_steps: false,
             one_sided_ends: BTreeSet::new(),
+            stop_ends: BTreeSet::new(),
             payloads: BTreeMap::new(),
         };
         ProgramResult {

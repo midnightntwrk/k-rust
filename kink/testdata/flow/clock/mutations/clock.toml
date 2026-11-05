@@ -1,0 +1,36 @@
+# kink-flow mutations of the free-running clock, judged against a stop before `frame`.
+
+[[mutation]]
+id = "tick-twice"
+misunderstanding = "a tick advances the count by two"
+
+  [[mutation.edit]]
+  rule = "tick"
+  find = "clock(N +Int 1, P +Int 1)"
+  replace = "clock(N +Int 2, P +Int 1)"
+
+[[mutation]]
+id = "frame-jump"
+misunderstanding = "a frame advances the count by five: only its right-hand side changes"
+
+  [[mutation.edit]]
+  rule = "frame"
+  find = "clock(N +Int 1, 0)"
+  replace = "clock(N +Int 5, 0)"
+
+[[mutation]]
+id = "frame-deleted"
+misunderstanding = "the clock has no frame rule: the stop names no rule of the mutant"
+
+  [[mutation.edit]]
+  rule = "frame"
+  delete = true
+
+[[mutation]]
+id = "halt-early"
+misunderstanding = "the clock halts once the count passes 2: it ends on its own before the stop"
+
+  [[mutation.edit]]
+  rule = "halt"
+  find = "N >Int 1000000"
+  replace = "N >Int 2"

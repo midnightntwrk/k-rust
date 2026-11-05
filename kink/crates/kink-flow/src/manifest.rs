@@ -17,6 +17,11 @@
 //! inside the manifest's directory by the program-file rule, so the decoded programs are the
 //! whole corpus for both front ends.
 //!
+//! `[stop]` names where every program's run ends besides its own end ([`StopSection`]): rules to
+//! stop before or after, and a count, which a program may override (`stop_count`). A K corpus
+//! names each rule by its exact K label; a KRS corpus by KRS item or label, which the krs front
+//! end maps to the exact labels before kink-flow reads them.
+//!
 //! One schema serves both front ends. `[spec]` declares the specification in one of two ways
 //! ([`SpecDecl`]): a K specification (`entry`, `main_module`, ...), which kink-flow loads as
 //! written, or a KRS package's emitted K (`krs = { definition = "main" }`), which the krs front
@@ -62,6 +67,9 @@ pub struct FlowManifest {
     /// `[result]`: the cells the programs' second slot compares, when the manifest narrows them;
     /// `None` compares every cell the specification does not declare unobservable.
     pub result: Option<ResultSection>,
+    /// `[stop]`: where every program's run ends besides its own end, when the manifest says;
+    /// `None`: every run ends where its paths end.
+    pub stop: Option<StopSection>,
     /// The front end's reading of typed inputs (a program's `inputs`), which the front end that
     /// knows the inputs' declared types sets ([`Self::with_input_decoder`]). A decoded `FLOW.toml`
     /// has none: kink reads K text only, and admission refuses a program with `inputs` without
@@ -136,6 +144,43 @@ pub struct ResultSection {
     /// each nonempty, without repeats. Every other cell is left out, except the cells that
     /// enclose one of these; an unobservable cell inside one of these is left out too.
     pub cells: Vec<String>,
+}
+
+/// `[stop]`: where every program's run ends besides its own end, for a definition that never
+/// terminates (kink-campaign `Stop`). A path ends at its `count`th stop event, a step by a rule
+/// of `before` or `after` that is its state's one successor (before the step for a rule of
+/// `before`, after it for a rule of `after`), or where the definition's own run ends, whichever
+/// comes first. Its ends are what every slot compares, so a kill is relative to the stop.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StopSection {
+    /// `before`: the rules a path stops before, each named by its exact K label, sorted and
+    /// without repeats.
+    pub before: Vec<String>,
+    /// `after`: the rules a path stops after, likewise.
+    pub after: Vec<String>,
+    /// `count`: the stop event a path ends at, for every program without its own `stop_count`;
+    /// default 1.
+    pub count: std::num::NonZeroU64,
+}
+
+impl StopSection {
+    /// The rules as kink-native names them.
+    #[must_use]
+    pub fn rules(&self) -> kink_native::execution::StopRules {
+        kink_native::execution::StopRules {
+            before: self.before.clone(),
+            after: self.after.clone(),
+        }
+    }
+
+    /// Whether `label` is one of the rules the stop names, before or after.
+    #[must_use]
+    pub fn names(&self, label: &str) -> bool {
+        self.before
+            .iter()
+            .chain(&self.after)
+            .any(|name| name == label)
+    }
 }
 
 /// `[budget]`: the bounds of every program run.
@@ -222,6 +267,10 @@ pub struct Program {
     /// link is the same case in every tool. `None` for every other program, whose inputs' paths
     /// are relative to the manifest's directory.
     pub case: Option<String>,
+    /// `stop_count`: the stop event this program's run ends at, in place of `[stop] count`: the
+    /// count is a property of the observation of one program (a console ROM that needs more
+    /// frames than another), while the rules are the corpus's. Only with `[stop]`.
+    pub stop_count: Option<std::num::NonZeroU64>,
 }
 
 /// A manifest that cannot be read or decoded. `key` names the offending key (for example
@@ -265,6 +314,8 @@ pub struct ManifestFile {
     pub programs: Vec<Program>,
     /// `[result]`, as [`FlowManifest::result`].
     pub result: Option<ResultSection>,
+    /// `[stop]`, as [`FlowManifest::stop`], its rules as written.
+    pub stop: Option<StopSection>,
 }
 
 /// How a manifest's `[spec]` declares its specification.
@@ -311,13 +362,14 @@ impl ManifestFile {
     pub fn decode(text: &str, directory: &Path) -> Result<Self, ManifestError> {
         let top: Table = toml::from_str(text)
             .map_err(|e| ManifestError::new("", format!("invalid TOML: {e}")))?;
-        known_keys(&top, "", &["spec", "budget", "result", "program"])?;
+        known_keys(&top, "", &["spec", "budget", "result", "stop", "program"])?;
         let spec = spec(top.get("spec").ok_or_else(|| missing("spec"))?)?;
         let budget = match top.get("budget") {
             None => Budget::default(),
             Some(value) => budget(value)?,
         };
         let result = top.get("result").map(result).transpose()?;
+        let stop = top.get("stop").map(stop).transpose()?;
         let no_entries = Vec::new();
         let entries = match top.get("program") {
             None => &no_entries,
@@ -336,6 +388,13 @@ impl ManifestFile {
                         format!("duplicate program id: {first} and {origin} both give it"),
                     ));
                 }
+                if stop.is_none() && program.stop_count.is_some() {
+                    return Err(ManifestError::new(
+                        join(&program_key(&program.id), "stop_count"),
+                        "a count of stop events needs rules to stop at: declare [stop] before or \
+                         after, or remove stop_count",
+                    ));
+                }
                 origins.insert(program.id.clone(), origin);
                 programs.push(program);
             }
@@ -346,6 +405,7 @@ impl ManifestFile {
             budget,
             programs,
             result,
+            stop,
         })
     }
 
@@ -384,6 +444,7 @@ impl ManifestFile {
             budget: self.budget,
             programs: self.programs,
             result: self.result,
+            stop: self.stop,
             input_decoder: Decoder::default(),
             claim_helpers: BTreeSet::new(),
         })
@@ -419,6 +480,45 @@ impl FlowManifest {
     /// ([`ManifestFile::decode`], then [`ManifestFile::bind`] with no specification).
     pub fn decode(text: &str, directory: &Path) -> Result<Self, ManifestError> {
         ManifestFile::decode(text, directory)?.bind(None)
+    }
+
+    /// The campaign stop of every program's run (kink-campaign `Stop`): `[stop]`'s rules and
+    /// count, with each program's own `stop_count` as its test's count; [`kink_campaign::Stop::NONE`]
+    /// without `[stop]`.
+    #[must_use]
+    pub fn campaign_stop(&self) -> kink_campaign::Stop {
+        let Some(section) = &self.stop else {
+            return kink_campaign::Stop::NONE;
+        };
+        let Some(mut stop) = kink_campaign::Stop::new(section.rules(), section.count) else {
+            return kink_campaign::Stop::NONE;
+        };
+        for program in &self.programs {
+            if let Some(count) = program.stop_count {
+                stop = stop.with_test_count(&program.id, count);
+            }
+        }
+        stop
+    }
+
+    /// The stop every document names (`stop`): `{before, after, count}`, with `counts`, each
+    /// program's own count by id, when a program has one ([`kink_campaign::Stop::value`]); `None`
+    /// without `[stop]`, and then no document has the key.
+    #[must_use]
+    pub fn stop_value(&self) -> Option<serde_json::Value> {
+        self.campaign_stop().value()
+    }
+
+    /// The stop of the run of `program`, as its result key names it: `{before, after, count}`
+    /// with the program's own count; `None` without `[stop]`, and then the key has no `stop`.
+    #[must_use]
+    pub fn program_stop(&self, program: &Program) -> Option<serde_json::Value> {
+        let section = self.stop.as_ref()?;
+        Some(serde_json::json!({
+            "before": section.before,
+            "after": section.after,
+            "count": program.stop_count.unwrap_or(section.count).get(),
+        }))
     }
 
     /// This manifest with `decoder` reading its programs' typed inputs: a front end that knows
@@ -711,6 +811,77 @@ fn result(value: &Value) -> Result<ResultSection, ManifestError> {
     Ok(ResultSection { cells })
 }
 
+/// `[stop]`: `before` and `after`, each an array of nonempty rule names without repeats, sorted,
+/// at least one name in all and none in both; `count`, a positive integer, default 1.
+fn stop(value: &Value) -> Result<StopSection, ManifestError> {
+    let section = table(value, "stop")?;
+    known_keys(section, "stop", &["before", "after", "count"])?;
+    let names = |name: &str| -> Result<Vec<String>, ManifestError> {
+        let key = join("stop", name);
+        let entries = match section.get(name) {
+            None => return Ok(Vec::new()),
+            Some(Value::Array(entries)) => entries,
+            Some(_) => {
+                return Err(ManifestError::new(
+                    key,
+                    "expected an array of rule names (exact K labels in a K corpus)",
+                ));
+            }
+        };
+        let mut names = Vec::with_capacity(entries.len());
+        for (index, entry) in entries.iter().enumerate() {
+            let name = match entry {
+                Value::String(name) if !name.trim().is_empty() => name.clone(),
+                _ => {
+                    return Err(ManifestError::new(
+                        format!("{key}[{index}]"),
+                        "expected a nonempty string, a rule's name",
+                    ));
+                }
+            };
+            if names.contains(&name) {
+                return Err(ManifestError::new(key, format!("names `{name}` twice")));
+            }
+            names.push(name);
+        }
+        names.sort();
+        Ok(names)
+    };
+    let before = names("before")?;
+    let after = names("after")?;
+    if before.is_empty() && after.is_empty() {
+        return Err(ManifestError::new(
+            "stop",
+            "names no rule: give `before` or `after` the rules every run stops at; without \
+             [stop] every run ends where its paths end",
+        ));
+    }
+    if let Some(name) = before.iter().find(|name| after.contains(name)) {
+        return Err(ManifestError::new(
+            "stop",
+            format!(
+                "names `{name}` in both before and after: a path stops before its step, so it \
+                 never stops after it; name it once"
+            ),
+        ));
+    }
+    let count = positive(section, "stop", "count", 1)?;
+    Ok(StopSection {
+        before,
+        after,
+        count: std::num::NonZeroU64::new(count).expect("positive"),
+    })
+}
+
+/// `stop_count` of a program entry named `key`: a positive integer, when given.
+fn stop_count(entry: &Table, key: &str) -> Result<Option<std::num::NonZeroU64>, ManifestError> {
+    entry
+        .contains_key("stop_count")
+        .then(|| positive(entry, key, "stop_count", 1))
+        .transpose()
+        .map(|count| count.and_then(std::num::NonZeroU64::new))
+}
+
 /// One `[[program]]` entry: a listed program, or the matches of its `files` or `cases` pattern
 /// under `directory` in the order of their ids, each with the entry it came from.
 fn program_entry(
@@ -817,10 +988,11 @@ fn files_entry(
     known_keys(
         entry,
         position,
-        &["files", "start_sort", "variables", "inputs"],
+        &["files", "start_sort", "variables", "inputs", "stop_count"],
     )?;
     let key = join(position, "files");
     let start_sort = optional_string(entry, position, "start_sort")?;
+    let stop_count = stop_count(entry, position)?;
     let variables = variables(entry, position)?;
     let inputs = inputs(entry, position)?;
     Ok(pattern_matches(pattern, &key, directory, Matches::Texts)?
@@ -833,13 +1005,15 @@ fn files_entry(
                 variables: variables.clone(),
                 inputs: inputs.clone(),
                 case: None,
+                stop_count,
             };
             (program, key.clone())
         })
         .collect())
 }
 
-/// `cases = "<pattern>"`: each match is a case document, the whole case.
+/// `cases = "<pattern>"`: each match is a case document, the whole case, observed with the
+/// entry's `stop_count` when it has one.
 fn cases_entry(
     position: &str,
     entry: &Table,
@@ -847,13 +1021,19 @@ fn cases_entry(
     directory: &Path,
 ) -> Result<Vec<(Program, String)>, ManifestError> {
     no_id(entry, position)?;
-    if let Some(key) = entry.keys().find(|key| *key != "cases") {
+    // The count of stop events is how the corpus observes a program, not part of the case, so
+    // it is the one key beside the pattern; it applies to every matched case.
+    if let Some(key) = entry
+        .keys()
+        .find(|key| *key != "cases" && *key != "stop_count")
+    {
         return Err(ManifestError::new(
             join(position, key),
             "a case document states its whole case, so an entry with `cases` has no other key \
-             (share a value between cases through a file the documents include)",
+             but `stop_count` (share a value between cases through a file the documents include)",
         ));
     }
+    let stop_count = stop_count(entry, position)?;
     let key = join(position, "cases");
     let matches = pattern_matches(pattern, &key, directory, Matches::CaseDocuments)?;
     let root = fs::canonicalize(directory).map_err(|e| {
@@ -873,6 +1053,7 @@ fn cases_entry(
                 start_sort: None,
                 variables: Vec::new(),
                 inputs,
+                stop_count,
             };
             Ok((program, key.clone()))
         })
@@ -913,7 +1094,15 @@ fn program(position: &str, entry: &Table) -> Result<Program, ManifestError> {
     known_keys(
         entry,
         &key,
-        &["id", "file", "text", "start_sort", "variables", "inputs"],
+        &[
+            "id",
+            "file",
+            "text",
+            "start_sort",
+            "variables",
+            "inputs",
+            "stop_count",
+        ],
     )?;
     // Neither `file` nor `text`: a case of a definition without `$PGM`, whose variables are all
     // bound by name; admission refuses it on a definition that declares `$PGM`.
@@ -943,6 +1132,7 @@ fn program(position: &str, entry: &Table) -> Result<Program, ManifestError> {
     }
     let inputs = inputs(entry, &key)?;
     let variables = variables(entry, &key)?;
+    let stop_count = stop_count(entry, &key)?;
     Ok(Program {
         id,
         source,
@@ -950,6 +1140,7 @@ fn program(position: &str, entry: &Table) -> Result<Program, ManifestError> {
         variables,
         inputs,
         case: None,
+        stop_count,
     })
 }
 

@@ -93,6 +93,191 @@ impl Machine {
 }
 "#;
 
+/// A definition that never ends on its own: `tick(n)` steps to `tick(n + 1)` forever, so a run's
+/// end is where a stop puts it.
+const TICKER: &str = r#"use k::builtin::{Int, KSequence, int};
+use k::{KItem, Term};
+
+k::sorts! {
+    Exp: KItem;
+}
+
+#[k::constructors(sort = Exp, result = k::KResult)]
+#[rustfmt::skip]
+pub enum ExpSyntax {
+    #[k::syntax("tick({value})")] Tick { value: Int },
+}
+
+#[k::rule]
+fn tick(k::term![ExpSyntax::Tick { value }]: Term<Exp>) -> Term<Exp> {
+    ExpSyntax::Tick(int::add(value, 1))
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self { k: k::k![pgm] }
+    }
+}
+"#;
+
+/// A corpus of [`TICKER`] whose runs stop at `stop` (a `[stop]` table), with the one case
+/// `tick(0)`.
+fn ticker_flow(stop: &str) -> Vec<u8> {
+    format!(
+        "[spec]\nkrs = {{ definition = \"main\" }}\n\n{stop}\n[[program]]\nid = \"t0\"\nfile = \"cases/t0.tick\"\n"
+    )
+    .into_bytes()
+}
+
+fn ticker() -> Arc<Project> {
+    static PROJECT: Mutex<Weak<Project>> = Mutex::new(Weak::new());
+    Project::shared(&PROJECT, || {
+        let mut files = vec![("src/lib.rs".to_owned(), TICKER.as_bytes().to_vec())];
+        for (corpus, stop) in [
+            ("kink", "[stop]\nafter = [\"crate::tick\"]\ncount = 3\n"),
+            ("corpora/before", "[stop]\nbefore = [\"crate::tick\"]\n"),
+            ("corpora/unknown", "[stop]\nafter = [\"crate::nothing\"]\n"),
+        ] {
+            files.push((format!("{corpus}/FLOW.toml"), ticker_flow(stop)));
+            files.push((format!("{corpus}/cases/t0.tick"), b"tick(0)\n".to_vec()));
+        }
+        project_of("krs-cli-kink-ticker", "TICKER", &files)
+    })
+}
+
+/// A library crate `lang` of a language that never ends on its own: `step` turns `tick(n)` into
+/// `tock(n)`, and the context `tick_value` evaluates a `tick`'s value first, so K writes a heat
+/// and a cool rule for that one item.
+const CONSOLE_LANG: &str = r#"use k::builtin::{Int, int};
+use k::{KItem, KResult, Term};
+
+k::sorts! {
+    Op: KItem;
+    #[k::bracket("(", ")")]
+    Exp;
+    Value: Exp + KResult;
+    impl Value for Int;
+}
+
+#[k::constructors(sort = Op, result = KResult)]
+#[rustfmt::skip]
+pub enum Step {
+    #[k::syntax("tick({value})")] Tick { value: Exp },
+    #[k::syntax("tock({value})")] Tock { value: Int },
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+#[k::precedence(left (Add))]
+pub enum Arith {
+    #[k::syntax("{lhs} + {rhs}")]
+    Add { lhs: Exp, rhs: Exp },
+}
+
+k::rules! {
+    for Exp;
+    use Arith::*;
+    add: Add { lhs, rhs } => int::add(lhs, rhs) where lhs: Int, rhs: Int;
+}
+
+k::rules! {
+    for Op;
+    use Step::*;
+    step: Tick { value } => Tock { value } where value: Int;
+}
+
+#[k::context(hole = h)]
+fn tick_value(k::term![Step::Tick(h)]: Term<Op>) {}
+"#;
+
+/// A console over [`CONSOLE_LANG`]: its configuration rule `frame` counts a frame at each `tock`
+/// and starts the next `tick`, so a run of `tick(0)` takes `step`, `frame`, the heat rule, `add`
+/// and the cool rule in turn, forever.
+const CONSOLE: &str = r"use k::builtin::{Int, KSequence};
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub frames: Int,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: lang::Op) -> Self {
+        Self { k: k::k![pgm], frames: 0 }
+    }
+}
+
+k::rules! {
+    for Machine;
+    frame: { k: [lang::Step::Tock { value }, ..], frames } => { k: [lang::Step::Tick { value: lang::Arith::Add { lhs: value, rhs: 1 } }, ..], frames: frames + 1 };
+}
+";
+
+/// The console package, which depends on its language crate `lang` (`--dependency lang:main`),
+/// with a corpus that stops after the console's own `frame` (`kink`) and one that stops at the
+/// language crate's items (`corpora/lang`).
+fn console() -> Arc<Project> {
+    static PROJECT: Mutex<Weak<Project>> = Mutex::new(Weak::new());
+    Project::shared(&PROJECT, || {
+        let mut files = vec![
+            ("src/lib.rs".to_owned(), CONSOLE.as_bytes().to_vec()),
+            (
+                "lang/src/lib.rs".to_owned(),
+                CONSOLE_LANG.as_bytes().to_vec(),
+            ),
+        ];
+        for (corpus, stop) in [
+            ("kink", "[stop]\nafter = [\"crate::frame\"]\ncount = 2\n"),
+            (
+                "corpora/lang",
+                "[stop]\nafter = [\"lang::step\", \"lang::tick_value\"]\n",
+            ),
+        ] {
+            files.push((
+                format!("{corpus}/FLOW.toml"),
+                format!(
+                    "[spec]\nkrs = {{ definition = \"main\" }}\n\n{stop}\n[[program]]\nid = \"t0\"\nfile = \"cases/t0.op\"\n"
+                )
+                .into_bytes(),
+            ));
+            files.push((format!("{corpus}/cases/t0.op"), b"tick(0)\n".to_vec()));
+        }
+        let project = project_of("krs-cli-kink-console", "CONSOLE", &files);
+        let krs = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../krs")
+            .canonicalize()
+            .unwrap();
+        let krs_literal = serde_json::to_string(krs.to_str().unwrap()).unwrap();
+        let package = |name: &str, namespace: &str, dependencies: &str| {
+            format!(
+                "[package]\nname = \"{name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nk = {{ package = \"krs\", path = {krs_literal} }}\n{dependencies}\n[package.metadata.krs]\nk-namespace = \"{namespace}\"\n\n[package.metadata.krs.definitions.main]\n"
+            )
+        };
+        project.write("lang/Cargo.toml", package("lang", "LANG", ""));
+        project.write(
+            "Cargo.toml",
+            format!(
+                "{}\n[workspace]\n",
+                package(
+                    "krs-cli-kink-console",
+                    "CONSOLE",
+                    "lang = { path = \"lang\" }\n"
+                )
+            ),
+        );
+        project
+    })
+}
+
 /// The story's three edits (`docs-site/story/plus/kink/mutations/plus.toml`), the K patches the
 /// introduction's mutation scenes make, each anchored by its Rust item and with the
 /// misunderstanding the scenes quote.
@@ -1933,4 +2118,142 @@ fn a_mutation_of_a_group_rule_is_judged_in_every_definition_that_holds_the_group
             "{name}: {document:#}"
         );
     }
+}
+
+/// A corpus of a definition that never ends on its own names its stop by KRS item, as `krs run
+/// --stop-after` does: the front end hands kink-flow the rule's K label, every document names the
+/// stop with the labels each name selects, the run ends at its third stop, and a mutation is
+/// judged relative to the stop. A name that selects no rewrite rule refuses the corpus.
+#[test]
+fn a_stop_named_by_krs_item_ends_the_runs_of_a_definition_that_never_stops() {
+    let project = ticker();
+    let output = project.kink("results", &[]);
+    assert_status(&output, 0);
+    let document = json(&output);
+    let stop = &document["stop"];
+    let labels = strings(&stop["after"]);
+    // A term rule's label is its `label(..)` attribute, which K keeps as written.
+    assert_eq!(labels, ["ticker--tick"], "{stop:#}");
+    assert_eq!(stop["before"], serde_json::json!([]), "{stop:#}");
+    assert_eq!(stop["count"], 3, "{stop:#}");
+    assert_eq!(
+        stop["krs"]["items"]["crate::tick"],
+        serde_json::json!(labels),
+        "{stop:#}"
+    );
+    let program = &document["programs"][0];
+    assert_eq!(program["class"], "comparable", "{program:#}");
+    let end = &program["ends"][0];
+    assert_eq!(end["halt"], "stop", "{program:#}");
+    let head = end["head"]["text"].as_str().unwrap();
+    assert!(head.contains('3') && !head.contains('4'), "{program:#}");
+
+    // A mutation of the stopped rule's right-hand side, after its label: killed relative to the
+    // stop, which reaches its third tick on the mutant too.
+    let definition = project.read("kink/definition.k");
+    let rule = definition
+        .lines()
+        .find(|line| line.contains("label(ticker--tick)"))
+        .unwrap_or_else(|| panic!("no rule ticker--tick:\n{definition}"));
+    let find = "+Int 1";
+    assert!(rule.contains(find), "{rule}");
+    project.write(
+        "kink/mutations/tick.toml",
+        format!(
+            "[[mutation]]\nid = \"twice\"\nmisunderstanding = \"a tick adds two\"\n\n  [[mutation.edit]]\n  rule = \"tick\"\n  find = {find:?}\n  replace = \"+Int 2\"\n"
+        ),
+    );
+    let output = project.kink("run", &[]);
+    let run = json(&output);
+    assert_eq!(
+        run["stop"]["krs"]["items"]["crate::tick"],
+        serde_json::json!(labels)
+    );
+    let row = &run["mutations"][0];
+    assert_eq!(row["status"], "killed", "{run:#}\n{definition}");
+
+    // Stopped before `tick` with the count 1, the run never takes its step: `check` warns that
+    // an edit of only its right-hand side changes no end.
+    let output = project.kink(
+        "check",
+        &[
+            "--corpus",
+            "corpora/before",
+            "--mutations",
+            "kink/mutations/tick.toml",
+        ],
+    );
+    let check = json(&output);
+    assert_eq!(
+        check["stop"]["krs"]["items"]["crate::tick"],
+        serde_json::json!(labels)
+    );
+    let warnings = check["mutations"][0]["warnings"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{check:#}"))
+        .iter()
+        .map(|warning| warning["reason"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(warnings.contains(&"stop-hides-edit"), "{check:#}");
+
+    // An item that wrote no rule selects nothing: the corpus is refused before kink-flow runs.
+    let output = project.kink("results", &["--corpus", "corpora/unknown"]);
+    assert_status(&output, 1);
+    let refused = json(&output);
+    assert_eq!(refused["spec"]["stage"], "stop", "{refused:#}");
+    assert_eq!(refused["spec"]["reason"], "stop-unresolved", "{refused:#}");
+    let detail = refused["spec"]["detail"].as_str().unwrap();
+    assert!(detail.contains("after `crate::nothing`"), "{detail}");
+}
+
+/// A stop names a configuration rule of the root package, an item of a dependency crate and an
+/// item K lowers to several rewrite rules exactly as `krs run --stop-after` names them: the front
+/// end maps each to the K labels of the rules it selects, which the K kink-flow loads has, and
+/// the run of the console ends at its second frame.
+#[test]
+fn a_stop_names_configuration_rules_and_a_dependencys_items_as_krs_run_does() {
+    let project = console();
+    let dependency = ["--dependency", "lang:main"];
+    let output = project.kink("results", &dependency);
+    assert_status(&output, 0);
+    let document = json(&output);
+    let stop = &document["stop"];
+    // A configuration rule's label is written `rule [frame]:`, which K qualifies by the module.
+    assert_eq!(strings(&stop["after"]), ["CONSOLE.frame"], "{stop:#}");
+    assert_eq!(
+        stop["krs"]["items"],
+        serde_json::json!({"crate::frame": ["CONSOLE.frame"]}),
+        "{stop:#}"
+    );
+    let program = &document["programs"][0];
+    assert_eq!(program["class"], "comparable", "{program:#}");
+    let end = &program["ends"][0];
+    assert_eq!(end["halt"], "stop", "{program:#}");
+    // After the second frame: the next tick's value is `1 + 1`, not yet evaluated.
+    let head = end["head"]["text"].as_str().unwrap();
+    assert!(head.contains("tick") && head.contains('+'), "{program:#}");
+
+    let mut arguments = vec!["--corpus", "corpora/lang"];
+    arguments.extend(dependency);
+    let output = project.kink("check", &arguments);
+    assert_status(&output, 0);
+    let check = json(&output);
+    let items = &check["stop"]["krs"]["items"];
+    // A dependency's item by its crate name, and the context's heat and cool rules by its one
+    // name.
+    assert_eq!(
+        items["lang::step"],
+        serde_json::json!(["LANG.step"]),
+        "{items:#}"
+    );
+    let context = strings(&items["lang::tick_value"]);
+    assert_eq!(context.len(), 2, "{items:#}");
+    assert!(
+        context.iter().all(|label| label.starts_with("LANG.")),
+        "{items:#}"
+    );
+    let mut labels = context.clone();
+    labels.push("LANG.step");
+    labels.sort_unstable();
+    assert_eq!(strings(&check["stop"]["after"]), labels, "{check:#}");
 }

@@ -112,6 +112,7 @@ text = "2"
             variables: vec![("N".into(), "1".into())],
             inputs: toml::Table::new(),
             case: None,
+            stop_count: None,
         }
     );
     // A literal component may name a hidden directory; `*` and `?` match within one name.
@@ -431,6 +432,7 @@ fn a_case_document_is_the_whole_case() {
                 variables: Vec::new(),
                 inputs,
                 case: Some("cases/boot/case.toml".into()),
+                stop_count: None,
             },
             Program {
                 id: "cases/empty/case.toml".into(),
@@ -439,6 +441,7 @@ fn a_case_document_is_the_whole_case() {
                 variables: Vec::new(),
                 inputs: toml::Table::new(),
                 case: Some("cases/empty/case.toml".into()),
+                stop_count: None,
             }
         ]
     );

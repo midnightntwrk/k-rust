@@ -62,9 +62,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// The query document's schema and version.
+/// The query document's schema and version. Version 2 adds the refusal at stage `stop` (reason
+/// `unsupported-verb`) of a corpus with `[stop]`.
 pub const QUERY_SCHEMA: &str = "kink-flow-query";
-pub const QUERY_VERSION: u64 = 1;
+pub const QUERY_VERSION: u64 = 2;
 /// A cached answer's schema, and its key's `schema_version`.
 pub const RECORD_SCHEMA: &str = "kink-flow-pattern";
 /// The record's format and what its answers mean: it changes whenever what counts as a hit or a

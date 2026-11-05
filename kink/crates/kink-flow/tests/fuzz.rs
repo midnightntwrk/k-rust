@@ -1900,6 +1900,7 @@ endmodule
                     variables: Vec::new(),
                     inputs: toml::Table::new(),
                     case: None,
+                    stop_count: None,
                 };
                 confirm_program(
                     &manifest,

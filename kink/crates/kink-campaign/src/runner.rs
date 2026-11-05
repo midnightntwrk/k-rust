@@ -170,7 +170,7 @@ use k_rust::kore::{
     walk,
 };
 use kink_native::bridge::{
-    BridgeContext, BridgeFailure, BridgedPaths, OpenApplication, diagnosed, discarded,
+    BridgeContext, BridgeFailure, BridgedPaths, OpenApplication, diagnosed, discarded, leaf_keys,
     open_applications, paths_from_execution_existing, tree_from_steps, validate_test_initial_state,
     work_bound_stuck_terminals,
 };
@@ -361,6 +361,13 @@ pub struct TestEvidence {
     /// empty on every other evidence. Read by no comparison, fold, status or score (the slot
     /// reads the terminals themselves), and not encoded in the campaign report.
     pub one_sided_ends: BTreeSet<Pattern>,
+    /// The ends of [`Self::ends`] that some path of the run reached at its last stop ([`Stop`]):
+    /// a stop leaf of the run's last stage, a `cut-point` or `terminal` leaf, rather than a leaf
+    /// where the definition's own run ends. Evidence for a reader of where each end came from:
+    /// both kinds are ends of the truncated system and compared alike, and two paths can reach
+    /// one end each way. Empty for a run without a stop. Read by no comparison, fold, status or
+    /// score, and not encoded in the campaign report.
+    pub stop_ends: BTreeSet<Pattern>,
     /// For each pattern slot (by its index in the test's oracles), the terms its relation
     /// decisions read ([`ReadTerms`]): the payloads, bound values and assumptions of every
     /// relation the side's own decider decided other than by syntactic identity, and of every
@@ -656,6 +663,32 @@ impl Stop {
                     .unwrap_or(counted.count),
             )
         })
+    }
+
+    /// The result run of the test `test_id` from `initial`, as a campaign makes it
+    /// ([`RunOptions::stop`]): without a stop, `adapter`'s one request; with one, the staged run
+    /// that ends each path at its `N`th stop event, `N` the test's count ([`Self::of_test`]), by
+    /// resuming (see the module documentation). For a caller that runs a test again outside a
+    /// campaign, such as a diagnostic run, so that it runs the request the campaign ran.
+    ///
+    /// # Errors
+    ///
+    /// The adapter's failure of any request of the run.
+    pub fn execute_result(
+        self,
+        adapter: &ExecutionAdapter,
+        backend: &mut Backend,
+        test_id: &str,
+        initial: &Pattern,
+        budget: ExecutionBudget,
+        run: ResultRun,
+    ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
+        match self.of_test(test_id) {
+            None => adapter.execute_result(backend, initial, budget, run),
+            Some((rules, count)) => {
+                staged_result_run(adapter, backend, initial, budget, run, rules, count)
+            }
+        }
     }
 
     /// The stop as a JSON object, `{before, after, count}`, with `counts` (`{test_id: count}`)
@@ -1419,6 +1452,7 @@ impl<'v> BaselineSession<'v> {
                         ends: BTreeSet::new(),
                         undefined_steps: false,
                         one_sided_ends: BTreeSet::new(),
+                        stop_ends: BTreeSet::new(),
                         payloads: BTreeMap::new(),
                     },
                     (**cache).clone(),
@@ -3427,23 +3461,14 @@ impl Runtime {
                 modality: self.modality,
                 max_work,
             };
-            match self.stop.of_test(&test.id) {
-                None => self.adapter.execute_result(
-                    &mut self.backend,
-                    &test.initial_state,
-                    campaign.budget,
-                    run,
-                ),
-                Some((rules, count)) => staged_result_run(
-                    &self.adapter,
-                    &mut self.backend,
-                    &test.initial_state,
-                    campaign.budget,
-                    run,
-                    rules,
-                    count,
-                ),
-            }
+            self.stop.execute_result(
+                &self.adapter,
+                &mut self.backend,
+                &test.id,
+                &test.initial_state,
+                campaign.budget,
+                run,
+            )
         };
         cache.coverage = self.coverage.as_ref().map(|authors| match &execution {
             Ok(execution) => TestCoverage::of_execution(&test.id, execution, authors),
@@ -3531,6 +3556,7 @@ impl Runtime {
             _ => RunNotes::default(),
         };
         let mut ends = BTreeSet::new();
+        let mut stop_ends = BTreeSet::new();
         let mut undefined_steps = false;
         let run = match &executed.execution {
             Err(failure) => SideRun::Failed(failure.into()),
@@ -3618,14 +3644,30 @@ impl Runtime {
                                 .collect();
                             // An undefined step's pre-step term is no end (kink27 R1-UNDEF). The
                             // sides have read the paths, so their ends move into the evidence.
-                            let complete = bridged
-                                .paths
-                                .into_iter()
-                                .filter_map(|path| path.execution_terminal);
-                            for terminal in complete {
+                            // A path's key names its leaf ([`leaf_keys`]), so the paths of
+                            // stop leaves are known by key.
+                            let stopped = execution
+                                .leaves()
+                                .iter()
+                                .zip(leaf_keys(execution.leaves()))
+                                .filter(|(leaf, _)| {
+                                    matches!(
+                                        leaf.halt,
+                                        HaltClass::CutPoint | HaltClass::TerminalRule
+                                    )
+                                })
+                                .map(|(_, key)| key)
+                                .collect::<BTreeSet<_>>();
+                            for path in bridged.paths {
+                                let Some(terminal) = path.execution_terminal else {
+                                    continue;
+                                };
                                 if terminal.kind == ExecutionTerminalKind::UndefinedStep {
                                     undefined_steps = true;
                                 } else {
+                                    if path.path_key.is_some_and(|key| stopped.contains(&key)) {
+                                        stop_ends.insert(terminal.state.clone());
+                                    }
                                     ends.insert(terminal.state);
                                 }
                             }
@@ -3643,6 +3685,7 @@ impl Runtime {
                 ends,
                 undefined_steps,
                 one_sided_ends: BTreeSet::new(),
+                stop_ends,
                 payloads: BTreeMap::new(),
             },
             terminals,
@@ -5176,6 +5219,7 @@ mod tests {
                             ends: BTreeSet::new(),
                             undefined_steps: false,
                             one_sided_ends: BTreeSet::new(),
+                            stop_ends: BTreeSet::new(),
                             payloads: BTreeMap::new(),
                         },
                         Vec::new()
@@ -5639,6 +5683,7 @@ mod tests {
                 ends: BTreeSet::new(),
                 undefined_steps: false,
                 one_sided_ends: BTreeSet::new(),
+                stop_ends: BTreeSet::new(),
                 payloads: BTreeMap::new(),
             };
             let before = evidence.clone();
@@ -5862,6 +5907,7 @@ mod tests {
                     ends: BTreeSet::from([end.clone()]),
                     undefined_steps: false,
                     one_sided_ends: BTreeSet::new(),
+                    stop_ends: BTreeSet::new(),
                     payloads: BTreeMap::new(),
                 };
                 let sides = |evidence: &TestEvidence| match &evidence.run {

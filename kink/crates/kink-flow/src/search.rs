@@ -2167,6 +2167,7 @@ pub fn run_front(
             Accounting {
                 mismatches,
                 schedule: json!(schedule_name(options.schedule)),
+                stop: manifest.stop.as_ref().map(|_| manifest),
                 ..Accounting::NONE
             },
         ));
@@ -2244,7 +2245,13 @@ pub fn run_front(
         (None, Ok(build)) => (
             Some(OutcomeStore::new(
                 &cache,
-                outcome_context(build, update.execution, manifest.budget, &spec.result),
+                outcome_context(
+                    build,
+                    update.execution,
+                    manifest.budget,
+                    &spec.result,
+                    manifest.stop_value().as_ref(),
+                ),
             )),
             None,
         ),
@@ -2481,6 +2488,7 @@ pub fn run_front(
                 exclusion: exclusion.clone(),
                 result: spec.result.value(),
                 execution: update.execution.value(),
+                stop: manifest.stop.as_ref().map(|_| manifest),
             },
         ));
         match store.write_json(&report_path, &document) {
@@ -2523,6 +2531,7 @@ pub fn run_front(
             exclusion,
             result: spec.result.value(),
             execution: update.execution.value(),
+            stop: manifest.stop.as_ref().map(|_| manifest),
         },
     ));
     // The stored report is the document the command prints: write it unless the last write
@@ -2893,6 +2902,9 @@ struct Accounting<'m> {
     /// The execution digest `{kind, digest}` that keyed the result cache and tier 1
     /// (`digest::execution_digest`), so a reader can see why a store hit or missed.
     execution: Value,
+    /// The manifest, when it declares `[stop]`: the document names the stop (`stop`), and each
+    /// survivor that edits a rule the stop stops before says so (`stop_hides_edit`).
+    stop: Option<&'m FlowManifest>,
 }
 
 impl Accounting<'_> {
@@ -2907,6 +2919,7 @@ impl Accounting<'_> {
         exclusion: Value::Null,
         result: Value::Null,
         execution: Value::Null,
+        stop: None,
     };
 }
 
@@ -2930,6 +2943,12 @@ fn document(
     accounting: Accounting<'_>,
 ) -> Value {
     let refusal = record.refusal.as_ref();
+    let mut mutations = mutations;
+    if let Some(hides) = accounting.stop.and_then(crate::check::StopHides::of) {
+        for row in &mut mutations {
+            hides.annotate_survivor(row);
+        }
+    }
     let survivors = survivors(&mutations);
     // The kill matrix of a full run, from its rows (`report::matrix`); null under first-kill, whose
     // rows hold only the cells up to the first kill, and when the specification is refused.
@@ -2947,7 +2966,7 @@ fn document(
             )
         })
         .collect::<Map<_, _>>();
-    json!({
+    let mut document = json!({
         "schema": RUN_SCHEMA,
         "version": RUN_VERSION,
         "k_rust_revision": crate::k_rust_revision(),
@@ -2984,7 +3003,12 @@ fn document(
         "matrix": matrix,
         "untargeted_rules": accounting.untargeted_rules,
         "data": accounting.data,
-    })
+    });
+    // Absent without a stop, so a document without one is the document it was before stops.
+    if let Some(stop) = accounting.stop.and_then(FlowManifest::stop_value) {
+        document["stop"] = stop;
+    }
+    document
 }
 
 /// The run document's `kink_build`: the build that wrote it (kink-campaign `identity::kink_build`,

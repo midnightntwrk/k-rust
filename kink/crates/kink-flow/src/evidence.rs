@@ -86,6 +86,14 @@
 //! cell. Its class is the class the exit-stop slot projects it to: the flow's classifier's answer
 //! for it (`results::classify`, the classifier of every campaign call of the flow, digest
 //! `CLASSIFIER`), `normal` for every end.
+//!
+//! The ends of a run with a stop (`[stop]`) also say how the run reached them, `halt`: `stop`
+//! where some path of the run reached the end at its last stop, `own` where every path that
+//! reached it ended on its own (stuck, or an end of the definition). It is evidence for a reader,
+//! never compared: the slot compares ends of the truncated system whichever way a path reached
+//! them, and a state set that merges a stopped path with a stuck one at the same configuration
+//! keeps one leaf of the two, so which halt the run reports for such an end can depend on the
+//! order the run explored them.
 
 use k_rust::{
     backend::counter_erased,
@@ -338,6 +346,41 @@ impl EndReader {
         Value::Array(ends.into_iter().map(|end| self.summary(end)).collect())
     }
 
+    /// The summaries of the ends of a run with a stop, in the set's order, each with `halt`
+    /// (module documentation, "An end's summary"): `stop` where some path of the run reached the
+    /// end at its last stop (its projection is one of `stopped`'s, the run's stop ends,
+    /// kink-campaign `TestEvidence::stop_ends`, projected as the slot projects them), `own` where
+    /// every path that reached it ended on its own. Evidence only: both are ends of the truncated
+    /// system, compared alike.
+    pub fn halted_summaries<'t>(
+        &self,
+        ends: impl IntoIterator<Item = &'t Pattern>,
+        stopped: &BTreeSet<Pattern>,
+    ) -> Value {
+        let stopped = stopped
+            .iter()
+            .map(|end| self.compared(end))
+            .collect::<BTreeSet<_>>();
+        Value::Array(
+            ends.into_iter()
+                .map(|end| {
+                    let mut summary = self.summary(end);
+                    summary["halt"] = json!(if stopped.contains(end) { "stop" } else { "own" });
+                    summary
+                })
+                .collect(),
+        )
+    }
+
+    /// An end as the second slot compares it: with the cells it leaves out replaced
+    /// ([`Self::projecting`]), else with `<generatedCounter>`'s content erased.
+    fn compared(&self, end: &Pattern) -> Pattern {
+        match &self.projection {
+            Some(projection) => projection.project(end).into_owned(),
+            None => counter_erased(end).into_owned(),
+        }
+    }
+
     /// The kill evidence of two end sets (module documentation): `{outside, path, baseline,
     /// mutant}`, each side `{final_configurations, complete, classes, end, value}`; `None` when
     /// no end of one is outside the other (no complete pair of sets that a slot distinguished).
@@ -410,10 +453,7 @@ impl EndReader {
                 let one_sided = mutant
                     .one_sided_ends
                     .iter()
-                    .map(|end| match &self.projection {
-                        Some(projection) => projection.project(end).into_owned(),
-                        None => counter_erased(end).into_owned(),
-                    })
+                    .map(|end| self.compared(end))
                     .collect();
                 self.difference(baseline_set, &one_sided, false)
             }
@@ -847,6 +887,7 @@ mod tests {
             ends: set(ends),
             undefined_steps: false,
             one_sided_ends: BTreeSet::new(),
+            stop_ends: BTreeSet::new(),
             payloads: BTreeMap::new(),
         }
     }

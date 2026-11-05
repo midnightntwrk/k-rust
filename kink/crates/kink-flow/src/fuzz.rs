@@ -161,9 +161,10 @@ pub const FUZZ_SCHEMA: &str = "kink-flow-fuzz";
 /// for any other, in place of `reached` or `unreached`, the last run's `mutation.reaching` is
 /// `mutation.witnesses`, and the warnings `reaching-not-computed`, `no-reaching-program` and
 /// `template-not-reaching` are `witnesses-not-computed`, `no-witness` and `template-not-a-witness`;
-/// a version 5 document's names are the old ones. `tests/formats.rs` ties the version to the
-/// document's shape.
-pub const FUZZ_VERSION: u32 = 6;
+/// a version 5 document's names are the old ones. Version 7 adds the refusal at stage `stop`
+/// (reason `unsupported-verb`) of a corpus with `[stop]`, with its `stopped` value `refused` and
+/// its `action`. `tests/formats.rs` ties the version to the document's shape.
+pub const FUZZ_VERSION: u32 = 7;
 /// The cases of a campaign that names neither `--cases` nor `--work`.
 pub const DEFAULT_CASES: u64 = 1000;
 /// The `max_work` of every case when `--max-work` is not given.
@@ -575,6 +576,17 @@ pub fn input_refused(file: &str, error: &dyn std::fmt::Display) -> Value {
     document
 }
 
+/// The document of a fuzz job on a corpus with `[stop]`, which `fuzz` does not run yet: the
+/// specification refused at stage `stop`, reason `unsupported-verb`, with `detail`.
+pub fn stop_refused(detail: &str) -> Value {
+    let mut document = document();
+    document["spec"] =
+        Refusal::new("stop", "unsupported-verb".to_owned(), detail.to_owned()).value();
+    document["stopped"] = json!("refused");
+    document["action"] = json!("remove [stop] to fuzz this corpus");
+    document
+}
+
 /// The baseline or a mutant as a k-rust-fuzz definition: `side`'s loaded definition and compiled
 /// artifacts with the baseline's source table (a mutant shares the baseline's sources), on the
 /// route kink runs (`Backend::from_definition`).
@@ -929,6 +941,7 @@ fn fragment(template: &Template, instance: &Instance, case: &WitnessCase) -> Fra
         variables: variables.clone(),
         inputs: Table::new(),
         case: None,
+        stop_count: None,
     };
     let inputs = CaseInputs {
         text,
@@ -1156,6 +1169,7 @@ fn template_program(template: &Template, instance: &Instance) -> Program {
         variables: instance.variables.clone(),
         inputs: Table::new(),
         case: None,
+        stop_count: None,
     }
 }
 

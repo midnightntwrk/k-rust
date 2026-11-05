@@ -107,8 +107,11 @@ use std::{path::Path, sync::OnceLock};
 /// KORE text (kink-campaign report version 6, run digest domain `kink-flow/run/v2`), and a
 /// comparable record no longer repeats its ends in `final_configuration`, which holds only an
 /// unknown record's diagnostic leaves; what counts as comparable is unchanged, but every v11
-/// record's row and run digest are another encoding, so none is honoured.
-pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v12";
+/// record's row and run digest are another encoding, so none is honoured. v13: a record of a
+/// program run with a stop (kink-flow `[stop]`) holds ends that say how the run reached them
+/// (`halt`), and a comparable record is an end set of the truncated system, keyed by its stop
+/// (the key's `stop`); a record of a program run without a stop is unchanged.
+pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v13";
 
 /// One component of [`KINK_IDENTITY`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

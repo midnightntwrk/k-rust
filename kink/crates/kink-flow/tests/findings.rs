@@ -541,6 +541,7 @@ mod kink_tier {
                     execution_digest(&manifest, &spec),
                     manifest.budget,
                     &spec.result,
+                    None,
                 ),
             );
             let record = OutcomeRecord {

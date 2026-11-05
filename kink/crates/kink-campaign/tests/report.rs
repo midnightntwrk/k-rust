@@ -1339,6 +1339,7 @@ fn a_deep_end_is_written_as_kore_text_and_read_back() {
             ends: [end.clone()].into(),
             undefined_steps: false,
             one_sided_ends: Default::default(),
+            stop_ends: Default::default(),
             payloads: Default::default(),
         };
         CampaignReport::baseline_row(&evidence)

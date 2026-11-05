@@ -9,8 +9,12 @@
 //! resolution, the kill definition and the caches are those of a K corpus over the same file.
 //!
 //! The front end adds, on the way in, how a case's typed inputs are read (the encoding KRS
-//! derives from the definition's declared types, the `inputs` submodule) and the mutations its
-//! own checks refuse (`checks`); on the way out, to every rule a document names, the KRS item and
+//! derives from the definition's declared types, the `inputs` submodule), the exact K labels of
+//! the rules `[stop]` names by KRS item or label as `krs run --stop-before` does (the `stop`
+//! submodule, over the native compile the `inputs` submodule makes; a name that selects no
+//! rewrite rule refuses the corpus at stage `stop`, reason `stop-unresolved`), and the mutations
+//! its own checks refuse (`checks`); on the way out, the labels each `[stop]` name selects
+//! (`stop.krs.items`), to every rule a document names, the KRS item and
 //! the Rust position the sentence was emitted from (`annotate`), and next steps spelled as
 //! `krs kink` commands (`spelling`).
 //!
@@ -38,6 +42,7 @@ mod checks;
 mod emit;
 mod inputs;
 mod spelling;
+mod stop;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -410,17 +415,16 @@ fn run_flow(
     let Built { emitted, kept } = built;
     let output = command.output();
     let verb = command.verb();
-    let manifest = match declared.bind(Some(bound_spec(emitted))) {
-        Ok(manifest) => manifest,
-        Err(error) => {
-            let mut document = command.manifest_refused(&error);
+    let (manifest, stop_items) = match bound_manifest(&command, declared, emitted) {
+        Ok(bound) => bound,
+        Err(mut document) => {
             document["definition"] = definition;
             return finish(outcome, &document, EXIT_CORPUS, output);
         }
     };
-    let manifest = with_front_end_facts(manifest, emitted);
     resolve_rule(&mut command, emitted);
-    let annotator = annotate::Annotator::new(emitted, manifest.clone(), judged_list(&command));
+    let annotator = annotate::Annotator::new(emitted, manifest.clone(), judged_list(&command))
+        .naming_stop(stop_items);
     let sources = outcome.sources.clone();
     let baseline = kept.as_ref().map(|kept| checks::Baseline {
         emitted,
@@ -510,25 +514,45 @@ fn run_flow(
     finish(outcome, &document, status_code, output)
 }
 
+/// The corpus `declared` bound to the K of `emitted`, with what only the front end knows of it
+/// ([`with_front_end_facts`]) and the rules `[stop]` names by KRS item or label as the exact K
+/// labels kink-flow reads ([`stop::bind`]), and the labels each name selects; or `command`'s
+/// document refusing the corpus.
+fn bound_manifest(
+    command: &FlowCommand,
+    declared: ManifestFile,
+    emitted: &EmittedDefinition,
+) -> Result<(kink_flow::FlowManifest, Option<Value>), Value> {
+    let manifest = declared
+        .bind(Some(bound_spec(emitted)))
+        .map_err(|error| command.manifest_refused(&error))?;
+    // The decoder reads typed inputs and binds programs, and fuzz templates' own, to the main
+    // parameter; it compiles nothing until one needs it, and the stop's names resolve over the
+    // same compile.
+    let decoder = Arc::new(inputs::KrsInputs::new(emitted.ir.clone()));
+    stop::bind(
+        with_front_end_facts(manifest, emitted, decoder.clone()),
+        &decoder,
+    )
+    .map_err(|unbound| refused(command, "stop", unbound.reason, &unbound.detail))
+}
+
 /// `manifest` with what only the front end knows of `emitted`: how its programs' typed inputs are
-/// read, when one has any, and which sentences are claim helpers. Only claims apply a claim
-/// helper, and the claims are not in the K kink loads, so the emission, which wrote both, names
-/// them.
+/// read (`decoder`), when one has any, and which sentences are claim helpers. Only claims apply a
+/// claim helper, and the claims are not in the K kink loads, so the emission, which wrote both,
+/// names them.
 fn with_front_end_facts(
     manifest: kink_flow::FlowManifest,
     emitted: &EmittedDefinition,
+    decoder: Arc<inputs::KrsInputs>,
 ) -> kink_flow::FlowManifest {
-    // The decoder reads typed inputs and binds programs, and fuzz templates' own, to the main
-    // parameter; it compiles nothing until one needs it.
-    manifest
-        .with_input_decoder(Arc::new(inputs::KrsInputs::new(emitted.ir.clone())))
-        .with_claim_helpers(
-            emitted
-                .rules
-                .iter()
-                .filter(|rule| rule.claim_helper)
-                .map(|rule| (rule.module.clone(), rule.label.clone())),
-        )
+    manifest.with_input_decoder(decoder).with_claim_helpers(
+        emitted
+            .rules
+            .iter()
+            .filter(|rule| rule.claim_helper)
+            .map(|rule| (rule.module.clone(), rule.label.clone())),
+    )
 }
 
 /// The command request every stage before kink runs on: `request`'s selection, judged as

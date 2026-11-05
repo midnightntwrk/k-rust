@@ -32,6 +32,10 @@
 //! its anchor names, whatever the rule's label spells. An edit anchored by the text it finds alone
 //! names no rule once that text is gone, and is left as kink-flow reports it.
 //!
+//! A corpus's `[stop]` names rules by KRS item or label, which the front end maps to K labels
+//! before kink-flow reads them, so every document's `stop` names the labels; the front end adds
+//! `krs = {items}` to it, each name as the corpus wrote it with the labels it selects.
+//!
 //! The table and the K are the same emission, so a labelled baseline rule with no table entry
 //! means the front end cannot name it: such rules are listed under the document's
 //! `krs.unnamed_rules` rather than named by a guess. That holds only of a document of this
@@ -111,6 +115,9 @@ pub(crate) struct Annotator {
     /// The anchors of the command's mutation list, read on first need: a row of a mutation the
     /// command refused, which names its offending edit.
     anchors: OnceLock<Anchors>,
+    /// Each `[stop]` name as the corpus wrote it, with the labels it selects; `None` without a
+    /// stop.
+    stop_items: Option<Value>,
 }
 
 impl Annotator {
@@ -184,7 +191,15 @@ impl Annotator {
             loaded_labels: OnceLock::new(),
             load_anchors: Box::new(load_anchors),
             anchors: OnceLock::new(),
+            stop_items: None,
         }
+    }
+
+    /// This annotator naming the corpus's stop: `items`, each `[stop]` name as written with the
+    /// labels it selects, is added to every document's `stop` as `krs.items`.
+    pub(crate) fn naming_stop(mut self, items: Option<Value>) -> Self {
+        self.stop_items = items;
+        self
     }
 
     /// The table's `krs` object of a sentence of `module` stored with `label` (bare or
@@ -258,6 +273,12 @@ impl Annotator {
     /// twice gives what applying it once does.
     pub(crate) fn annotate(&self, document: &mut Value) {
         self.anchor_refused_edits(document);
+        if let (Some(items), Some(stop)) = (
+            &self.stop_items,
+            document.get_mut("stop").and_then(Value::as_object_mut),
+        ) {
+            stop.insert("krs".into(), json!({ "items": items }));
+        }
         let mut unnamed = Vec::new();
         kink_flow::visit_rules(document, &mut |rule: &RuleRef, object| {
             let label = rule

@@ -133,8 +133,11 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// kink-flow document (README, "Coverage predicates"); 19 since a rewrite rule edit that is not
 /// confined to its right-hand side or `ensures` (its left-hand side, an attribute, a deletion) is
 /// witnessed by `matched`, no longer by `applied`, so a row's `witnesses` and each call's program
-/// order can name more programs for the same mutation.
-pub const RUN_VERSION: u64 = 19;
+/// order can name more programs for the same mutation; 20 since `[stop]`: a corpus with a stop
+/// has `stop` (absent without one), each program row's `ends` say how the run reached them
+/// (`halt`), a survivor that edits a rule the stop stops before has `stop_hides_edit`, and a mutant
+/// on which a rule of the stop labels no rewrite rule is `not-admitted`, reason `stop-unresolved`.
+pub const RUN_VERSION: u64 = 20;
 
 /// k-rust's contradicted-claim records of one run as specification diagnostics (re-pin adoption
 /// A-1): each `{claim, symbol, k_label, rule_id, rule_label, application, undefined,
@@ -358,6 +361,12 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
              it whatever the check says, since the specification is one of its models: change a \
              right-hand side or a rewrite rule instead; a narrowing ranked before another \
              equation of its function widens that one, and the mutant may have no model"
+        }
+        "not-admitted" if reason == Some("stop-unresolved") => {
+            "keep the stop's rule a labelled rewrite rule: the edit removes or renames the label a \
+             rule of [stop] names, or turns that rule into an equation, so the observation the \
+             stop states is not defined on the mutant; edit the rule's sides instead, or name \
+             another rule in [stop]"
         }
         "not-admitted" => "fix the mutation: the mutant does not compile (reason)",
         "invalid-mutation" => "fix the mutation: it does not resolve (reason, edit, detail)",

@@ -7,9 +7,12 @@
 //! read), the below-floor case check of every loaded file, the semantic-input canonical check,
 //! the compile with its kompile warnings, the representation gate (TB-03), the declaration
 //! census (VI-T13), the cells the programs' second slot compares (stage `result`:
-//! [`crate::observed`]), the input backend, and the definition's full critical-pair check on that
-//! backend (stage `assume-joined`: every name of `[spec] assume_joined` must name exactly one
-//! finding that can be assumed; fz26 KINK-BASELINE-FINDINGS). Then each program is admitted on
+//! [`crate::observed`]), the input backend, the rules of `[stop]` on that backend (stage `stop`,
+//! reason `stop-unresolved`: each name must be the exact label of a rewrite rule of the
+//! specification, or the observation the stop states is not defined on it), and the definition's
+//! full critical-pair check on that backend (stage `assume-joined`: every name of `[spec]
+//! assume_joined` must name exactly one finding that can be assumed; fz26
+//! KINK-BASELINE-FINDINGS). Then each program is admitted on
 //! its own: its file is read inside the manifest's directory, its typed inputs are decoded by
 //! the front end's [`InputDecoder`], its configuration is assembled, the concrete-state check and
 //! the input gate run, and its initial configuration must have a value on the baseline. A
@@ -315,6 +318,9 @@ pub struct FlowAdmission {
     pub record: AdmissionRecord,
     pub spec: Option<AdmittedSpec>,
     pub programs: Vec<ProgramAdmission>,
+    /// The manifest's stop as documents name it (`FlowManifest::stop_value`), whether or not the
+    /// specification is admitted; `None` without `[stop]`.
+    pub stop: Option<serde_json::Value>,
 }
 
 impl FlowAdmission {
@@ -350,6 +356,7 @@ pub fn admit(manifest: &FlowManifest) -> FlowAdmission {
             record,
             spec: None,
             programs: Vec::new(),
+            stop: manifest.stop_value(),
         };
     };
     let mut session = inputs.session(&spec);
@@ -362,6 +369,7 @@ pub fn admit(manifest: &FlowManifest) -> FlowAdmission {
         record,
         spec: Some(spec),
         programs,
+        stop: manifest.stop_value(),
     }
 }
 
@@ -973,6 +981,9 @@ fn admit_definition(
         manifest.budget.backend_options(),
     )
     .map_err(|e| input_gate_refusal(e.to_string()))?;
+    if let Some(stop) = &manifest.stop {
+        stop_resolved(stop, &mut backend)?;
+    }
     let (data, exclusions) = baseline_data(
         &mut backend,
         &kore,
@@ -992,6 +1003,46 @@ fn admit_definition(
         },
         backend,
     ))
+}
+
+/// Every name of `[stop]` labels a rewrite rule of the specification `backend` loads (kink-native
+/// `StopRules::unresolved`: exactly, by label; a `UNIQUE_ID` or an equation's label selects no
+/// step), or the specification is refused at stage `stop`, reason `stop-unresolved`, naming each
+/// name that does not: a stop no rule of the specification can take states no observation of it.
+/// A backend that cannot list its rules refuses it at stage `stop`, reason `backend-error`.
+fn stop_resolved(
+    stop: &crate::manifest::StopSection,
+    backend: &mut Backend,
+) -> Result<(), AdmissionRefusal> {
+    // A failure to read the rules is the backend's, not a fault of the names: its own reason.
+    let unresolved = stop.rules().unresolved(backend).map_err(|failure| AdmissionRefusal {
+        stage: "stop".into(),
+        reason: "backend-error".into(),
+        detail: format!(
+            "the specification's rewrite rules could not be read from its backend, so the stop's \
+             names could not be checked: {failure:?}"
+        ),
+    })?;
+    if unresolved.is_empty() {
+        return Ok(());
+    }
+    let side = |name: &String| {
+        if stop.before.contains(name) {
+            format!("before `{name}`")
+        } else {
+            format!("after `{name}`")
+        }
+    };
+    Err(AdmissionRefusal {
+        stage: "stop".into(),
+        reason: "stop-unresolved".into(),
+        detail: format!(
+            "[stop] {}: no rewrite rule of the specification has this label (a stop names a \
+             rewrite rule by its exact K label, `MODULE.label`; an equation's label names no \
+             step)",
+            unresolved.iter().map(side).collect::<Vec<_>>().join(", ")
+        ),
+    })
 }
 
 fn input_gate_refusal(detail: String) -> AdmissionRefusal {

@@ -809,13 +809,18 @@ const CORPUS_MINIMUMS: Minimums = at_least(250, 200, 60, 50);
 /// 500 ms manifests are the only ones the clock may leave uncompared (both timed out): its
 /// minimum of compared pairs is 9 below the 29 compared; every other minimum is what was
 /// compared.
-const CORPUS: [(&str, &[&str], Minimums); 30] = [
+const CORPUS: [(&str, &[&str], Minimums); 31] = [
     ("bytes-map", &["FLOW.toml"], at_least(1, 0, 0, 0)),
     (
         "calc",
         &["FLOW-bad-program.toml", "FLOW.toml"],
         at_least(42, 36, 12, 14),
     ),
+    // The free-running clock (no minimum: it is there for `tests/stop.rs`). Listed but not run
+    // by a differential test: its definition never ends on its own, so its runs end only at its
+    // `[stop]`, which this differential does not apply; kink-campaign `tests/stop.rs` checks that
+    // a state set and a path set of a staged run agree.
+    ("clock", &["FLOW.toml"], at_least(0, 0, 0, 0)),
     ("collections/cellmap", &["FLOW.toml"], at_least(6, 4, 2, 2)),
     ("collections/collenv", &["FLOW.toml"], at_least(9, 6, 2, 2)),
     ("collections/collimp", &["FLOW.toml"], at_least(8, 6, 3, 3)),

@@ -1,0 +1,13 @@
+# kink-flow corpus manifest for the stop: clock.k never ends on its own, so every run ends where
+# [stop] puts it, before the first frame.
+[spec]
+entry = "clock.k"
+main_module = "CLOCK"
+syntax_module = "CLOCK-SYNTAX"
+
+[stop]
+before = ["CLOCK.frame"]
+
+[[program]]
+id = "zero"
+text = "clock(0, 0)"

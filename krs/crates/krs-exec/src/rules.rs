@@ -78,6 +78,16 @@ impl Rules {
         self.by_id.get(id)
     }
 
+    /// The rewrite rules the stop name `requested` selects ([`crate::StopRules`]): by KRS item
+    /// when it holds `::` ([`Self::resolve_item`]), else by label ([`Self::resolve_rewrite`]).
+    pub(crate) fn resolve_stop(&self, requested: &str) -> Result<Vec<String>, ExecError> {
+        if requested.contains("::") {
+            self.resolve_item(requested)
+        } else {
+            self.resolve_rewrite(requested)
+        }
+    }
+
     /// The rewrite rules `requested` names, by label: exactly, or by a unique `.`-suffix as
     /// `krs prove --claim` accepts a claim label (`boundary-fetch` for `SM83.boundary-fetch`).
     ///

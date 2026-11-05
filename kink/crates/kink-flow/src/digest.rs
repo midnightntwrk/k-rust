@@ -374,12 +374,16 @@ pub fn execution_digest(manifest: &FlowManifest, spec: &AdmittedSpec) -> Executi
 /// programs' second slot compares: the context names the slots, and the cells left out when
 /// there are any. The execution digest already holds every `unobservable` declaration and
 /// `[result] cells`; the cells left out are named here too, so that the context says on its face
-/// which projection an outcome was decided for.
+/// which projection an outcome was decided for. `stop` is the manifest's stop
+/// (`FlowManifest::stop_value`: its rules, its count and each program's own count), on which every
+/// end a run reaches depends; absent without one, so a context without a stop is the context it
+/// was before stops existed.
 pub fn outcome_context(
     kink_build: Sha256Digest,
     execution: ExecutionDigest,
     budget: Budget,
     result: &ResultProjection,
+    stop: Option<&Value>,
 ) -> Value {
     // The budget object of the result key, so both keys name the same bounds, and the mutants'
     // work budget, which bounds only mutant runs (re-pin L1-1; absent without one, so a
@@ -412,6 +416,9 @@ pub fn outcome_context(
     // Absent when nothing is left out, so a whole-term context is unchanged.
     if result.cells().is_some() {
         context["not_compared"] = json!(result.not_compared);
+    }
+    if let Some(stop) = stop {
+        context["stop"] = stop.clone();
     }
     context
 }

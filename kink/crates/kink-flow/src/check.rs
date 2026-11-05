@@ -42,6 +42,19 @@
 //!   matched the rule: such an edit shows only at a state where the rule was a candidate whose
 //!   condition the run did not decide (k-rust `offered`, which kink does not collect), such as
 //!   one where a higher priority group took the step a raised priority now gives the rule.
+//! - `stop-hides-edit`: an edited rule that `[stop]` stops before, where some program's count is
+//!   one. Such a program's run ends at the state from which the rule's step is the one successor,
+//!   before the step, so the rule's right-hand side and `ensures` build nothing any end holds:
+//!   an edit of only those survives on that program whatever it changes. With a count `N` above
+//!   1 the run takes the rule's first `N - 1` steps, and an edit of the rule's left-hand side,
+//!   `requires` or attributes changes where the stops are, so either can still be killed. Like
+//!   `unapplied-rule`, the warning is about the edited rule, since `check` compiles no mutant to
+//!   tell which part an edit changes; the run document repeats it on a survivor
+//!   (`stop_hides_edit`).
+//! - `stop-rule-deleted`: the mutation deletes a rule `[stop]` names. A deleted rule takes its
+//!   label with it, so the stop names no rule of the mutant, and `run` reports the mutant
+//!   `not-admitted` (`stop-unresolved`) instead of judging it; the edit's other changes are never
+//!   observed. Given in place of `stop-hides-edit` for that rule.
 //!
 //! The two coverage warnings, `unmatched-rule` and `unapplied-rule`, are given only when every
 //! program has a current result record and every comparable program's coverage is complete;
@@ -380,6 +393,84 @@ pub fn check_mutations(
     }
 }
 
+/// What a stop before a rule hides (`stop-hides-edit`, module documentation): the rules `[stop]`
+/// stops before, by exact label, and the programs whose count is 1, on which no such rule's step
+/// is ever taken.
+pub(crate) struct StopHides {
+    before: BTreeSet<String>,
+    count_one: Vec<String>,
+}
+
+/// The most program ids a `stop-hides-edit` text names.
+const HIDING_PROGRAMS_SHOWN: usize = 5;
+
+impl StopHides {
+    /// `None` when `manifest` declares no stop, stops before no rule, or has no program whose
+    /// count is 1: no edit is then hidden from every program by the stop.
+    pub(crate) fn of(manifest: &FlowManifest) -> Option<Self> {
+        let stop = manifest.stop.as_ref()?;
+        let count_one = manifest
+            .programs
+            .iter()
+            .filter(|program| program.stop_count.unwrap_or(stop.count).get() == 1)
+            .map(|program| program.id.clone())
+            .collect::<Vec<_>>();
+        (!stop.before.is_empty() && !count_one.is_empty()).then(|| Self {
+            before: stop.before.iter().cloned().collect(),
+            count_one,
+        })
+    }
+
+    /// `label`, a rule's label as the loaded specification gives it (`MODULE.x` for a `rule [x]:`,
+    /// the attribute's text for `[label(x)]`), the label the backend selects a stop by, when the
+    /// stop stops before that rule.
+    pub(crate) fn before(&self, label: Option<&str>) -> Option<String> {
+        let label = label?;
+        self.before.contains(label).then(|| label.to_owned())
+    }
+
+    /// The warning's text for the rule `label`.
+    pub(crate) fn detail(&self, label: &str) -> String {
+        let shown = self
+            .count_one
+            .iter()
+            .take(HIDING_PROGRAMS_SHOWN)
+            .map(|id| format!("{id:?}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let more = self.count_one.len().saturating_sub(HIDING_PROGRAMS_SHOWN);
+        let more = if more > 0 {
+            format!(" and {more} more")
+        } else {
+            String::new()
+        };
+        format!(
+            "[stop] stops before {label}, and the run of every program whose count is 1 \
+             ({shown}{more}) ends before its step: an edit of only its right-hand side or ensures \
+             changes no end of those programs (an edit of its left-hand side, requires or \
+             attributes moves the stops, and a count above 1 takes its earlier steps)"
+        )
+    }
+
+    /// `row`, a run document's mutation row, with `stop_hides_edit` when it survived and edits a
+    /// rule the stop stops before: the warning `check` gives, repeated on the survivor.
+    pub(crate) fn annotate_survivor(&self, row: &mut Value) {
+        if row["status"] != "survived" {
+            return;
+        }
+        let hidden = row["rules"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|rule| self.before(rule["label"].as_str()))
+            .map(|label| self.detail(&label))
+            .collect::<Vec<_>>();
+        if !hidden.is_empty() {
+            row["stop_hides_edit"] = json!(hidden);
+        }
+    }
+}
+
 fn warnings(
     manifest: &FlowManifest,
     loaded: &LoadedSource,
@@ -440,6 +531,47 @@ fn warnings(
             detail,
             next,
         ));
+    }
+    if let (Some(resolved), Some(stop)) = (resolved, manifest.stop.as_ref()) {
+        let hides = StopHides::of(manifest);
+        for rule in &resolved.rules {
+            // A deleted rule takes its label with it (a K label names one rule): the stop then
+            // names no rule of the mutant, so `run` does not admit it, and nothing of the edit
+            // is hidden from a program, since no program runs it.
+            if let (None, Some(label)) = (&rule.after, rule.label.as_deref())
+                && stop.names(label)
+            {
+                findings.push(Finding::warning(
+                    "stop-rule-deleted",
+                    rule.edits.first().copied(),
+                    Some(rule.at.clone()),
+                    format!(
+                        "the mutation deletes {label}, which [stop] names: no rule of the mutant \
+                         has the label, so the stop states no observation of the mutant and \
+                         `run` reports it not-admitted (stop-unresolved) rather than judging it"
+                    ),
+                    Some(format!(
+                        "edit {label} rather than deleting it, or stop at another rule"
+                    )),
+                ));
+                continue;
+            }
+            let hidden = hides
+                .as_ref()
+                .and_then(|hides| Some((hides, hides.before(rule.label.as_deref())?)));
+            if let Some((hides, label)) = hidden {
+                findings.push(Finding::warning(
+                    "stop-hides-edit",
+                    rule.edits.first().copied(),
+                    Some(rule.at.clone()),
+                    hides.detail(&label),
+                    Some(format!(
+                        "stop after {label}, or give the programs a count above 1, if the edit \
+                         changes only what the step builds"
+                    )),
+                ));
+            }
+        }
     }
     let (Some(resolved), Some(coverage)) = (resolved, coverage) else {
         return findings;

@@ -75,7 +75,7 @@ pub use cli::{
 };
 pub use manifest::{
     Budget, Decoder, FlowManifest, KrsSpec, ManifestError, ManifestFile, Program, ResultSection,
-    SpecDecl, SpecSection,
+    SpecDecl, SpecSection, StopSection,
 };
 pub use mutation::{
     EditAction, EditSpec, EditedRule, InvalidMutation, InvalidReason, LabelMatch, Mutation,

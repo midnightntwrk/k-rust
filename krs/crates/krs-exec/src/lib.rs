@@ -1517,6 +1517,30 @@ impl Semantics {
         })
     }
 
+    /// The rewrite rules the stop name `written` selects, exactly as a run's stop selects them
+    /// ([`StopRules`]: a name with `::` by KRS item, `crate::` for the root package and a
+    /// dependency's crate name for its items, any other by K label), each as its `UNIQUE_ID` and
+    /// its label (`None` for a rule with none), in identity order: for a front end that hands
+    /// the stop to another engine by label (`krs kink`). An item selects every rewrite rule it
+    /// lowers to, those K generates from it (a context's heat and cool rules) included.
+    ///
+    /// # Errors
+    ///
+    /// The error a run's stop refuses `written` with: [`ExecError::UnknownRule`],
+    /// [`ExecError::AmbiguousRule`], [`ExecError::UnknownItem`] or
+    /// [`ExecError::AmbiguousItem`].
+    pub fn stop_rules(&self, written: &str) -> Result<Vec<(String, Option<String>)>, ExecError> {
+        Ok(self
+            .rules
+            .resolve_stop(written)?
+            .into_iter()
+            .map(|id| {
+                let label = self.rules.get(&id).and_then(|rule| rule.label.clone());
+                (id, label)
+            })
+            .collect())
+    }
+
     /// The claims of the generated spec module, in label order.
     #[must_use]
     pub fn claims(&self) -> &[ClaimInfo] {
@@ -2302,11 +2326,7 @@ impl Semantics {
         let resolve = |names: &[String]| {
             let mut ids = BTreeSet::new();
             for name in names {
-                ids.extend(if name.contains("::") {
-                    self.rules.resolve_item(name)?
-                } else {
-                    self.rules.resolve_rewrite(name)?
-                });
+                ids.extend(self.rules.resolve_stop(name)?);
             }
             Ok::<_, ExecError>(ids.into_iter().collect::<Vec<_>>())
         };
