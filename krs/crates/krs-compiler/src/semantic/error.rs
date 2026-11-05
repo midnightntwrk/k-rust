@@ -2,7 +2,9 @@ use std::error::Error;
 use std::fmt;
 
 use krs_diagnostic::{Diagnostic, Location, ToDiagnostic, codes};
-use krs_ir::{BuiltinSort, IrIdentityError, ItemKind, SourceRange, StableItemId};
+use krs_ir::{
+    BuiltinSort, DescriptorCellIdentity, IrIdentityError, ItemKind, SourceRange, StableItemId,
+};
 use krs_ir_levels::SemanticValidationError;
 
 /// The lexical rule a definition breaks (KF-004).
@@ -107,6 +109,10 @@ pub enum DescriptorLoweringError {
     ConfigurationCount {
         /// The names of the configurations selected, in descriptor order.
         names: Vec<String>,
+        /// The names of the `#[k::cell]` groups selected, in descriptor order, when no
+        /// configuration is: rules for a group are checked through a definition whose
+        /// configuration holds it.
+        groups: Vec<String>,
         /// The exact authored range of the second configuration, when there are several.
         range: Option<Box<SourceRange>>,
         /// The exact authored range of the first configuration, when there are several.
@@ -311,6 +317,39 @@ pub enum DescriptorLoweringError {
         /// Rust fields whose content it is, in declaration order.
         fields: Vec<String>,
         /// Sole exact authored range of the second field.
+        range: Option<Box<SourceRange>>,
+    },
+    /// Two cells of the configuration have one K cell name: K names each cell of a
+    /// configuration once, so the cells of a group take their names in every configuration
+    /// that holds it.
+    DuplicateCellName {
+        /// The configuration.
+        configuration: Box<StableItemId>,
+        /// The shared K cell name.
+        name: String,
+        /// The first cell with the name, in preorder: its owner and its Rust field.
+        first: (Box<StableItemId>, String),
+        /// The second cell with the name: its owner and its Rust field.
+        second: (Box<StableItemId>, String),
+        /// Sole exact authored range of the field to rename: a cell the configuration's own
+        /// package declares when one of the two is, else the second.
+        range: Option<Box<SourceRange>>,
+        /// Exact authored range of the other cell's field.
+        other_range: Option<Box<SourceRange>>,
+    },
+    /// A configuration-typed sentence names, through its owner (`Group::cell`), a cell outside
+    /// its subject: a cell the configuration does not hold, or, for a sentence about a group, a
+    /// cell outside that group.
+    CellOutsideSubject {
+        /// The sentence.
+        item: Box<StableItemId>,
+        /// The cell it names.
+        cell: Box<DescriptorCellIdentity>,
+        /// The configuration the sentence is lowered against.
+        configuration: Box<StableItemId>,
+        /// The group the sentence is about, absent when it is about the whole configuration.
+        group: Option<Box<StableItemId>>,
+        /// Sole exact authored range of the cell's name.
         range: Option<Box<SourceRange>>,
     },
     /// A readable rule without the computation cell matches every
@@ -1001,6 +1040,16 @@ macro_rules! by_subject_slots {
                 declaration: $named_item,
                 ..
             }
+            | DescriptorLoweringError::DuplicateCellName {
+                range: $named_range,
+                configuration: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::CellOutsideSubject {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
             | DescriptorLoweringError::AlwaysEnabledRule {
                 range: $named_range,
                 rule: $named_item,
@@ -1575,6 +1624,45 @@ impl fmt::Display for DescriptorLoweringError {
                 declaration.item_name(),
                 quoted_fields(fields)
             ),
+            Self::DuplicateCellName {
+                name,
+                first,
+                second,
+                ..
+            } => write!(
+                formatter,
+                "cells `{}::{}` and `{}::{}` both have the K cell name `{name}`; a configuration names each of its cells once",
+                first.0.item_name(),
+                first.1,
+                second.0.item_name(),
+                second.1
+            ),
+            Self::CellOutsideSubject {
+                item,
+                cell,
+                configuration,
+                group,
+                ..
+            } => match group {
+                Some(group) => write!(
+                    formatter,
+                    "`{}` is about the group `{}` and names the cell `{}::{}`, which is not inside `{}`",
+                    item.item_name(),
+                    group.item_name(),
+                    cell.owner.item_name(),
+                    cell.field,
+                    group.item_name()
+                ),
+                None => write!(
+                    formatter,
+                    "`{}` names the cell `{}::{}`, but the configuration `{}` does not hold the group `{}`",
+                    item.item_name(),
+                    cell.owner.item_name(),
+                    cell.field,
+                    configuration.item_name(),
+                    cell.owner.item_name()
+                ),
+            },
             Self::AlwaysEnabledRule { rule, .. } => write!(
                 formatter,
                 "rule `{}` is always enabled, so execution never terminates: it leaves the computation cell out, every cell pattern is a variable or `_` of the cell's sort, and it has no requires guard",
@@ -1682,6 +1770,8 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::AlwaysEnabledRule { .. } => codes::analysis::ALWAYS_ENABLED_RULE,
             Self::GroupAndDescendant { .. } => codes::analysis::GROUP_AND_DESCENDANT,
             Self::AmbiguousCellSort { .. } => codes::analysis::AMBIGUOUS_CELL_SORT,
+            Self::DuplicateCellName { .. } => codes::analysis::DUPLICATE_CELL_NAME,
+            Self::CellOutsideSubject { .. } => codes::analysis::CELL_OUTSIDE_SUBJECT,
             Self::InvalidTokenSort { .. } => codes::analysis::INVALID_TOKEN_SORT,
             Self::TokenCollision { .. } => codes::analysis::TOKEN_COLLISION,
             Self::InvalidSortTest { .. } => codes::analysis::INVALID_SORT_TEST,
@@ -1816,6 +1906,42 @@ impl ToDiagnostic for DescriptorLoweringError {
             } => diagnostic.with_secondary(
                 krs_diagnostic::Label::new(Location::Source((**first).clone()))
                     .with_message("the first configuration"),
+            ),
+            Self::ConfigurationCount { names, groups, .. }
+                if names.is_empty() && !groups.is_empty() =>
+            {
+                let quoted = groups
+                    .iter()
+                    .map(|name| format!("`{name}`"))
+                    .collect::<Vec<_>>();
+                diagnostic.with_help(match quoted.as_slice() {
+                    [one] => format!(
+                        "{one} is a cell group, not a configuration: rules for a group are checked through a definition whose configuration holds it"
+                    ),
+                    [init @ .., last] => format!(
+                        "{} and {last} are cell groups, not configurations: rules for a group are checked through a definition whose configuration holds it",
+                        init.join(", ")
+                    ),
+                    [] => unreachable!("the guard requires a group"),
+                })
+            }
+            Self::AmbiguousCellSort { .. } => diagnostic.with_help(
+                "a group has one position in a configuration, where its rules apply; several instances of a group are a `*` collection of it, which rules for the group do not support yet",
+            ),
+            Self::DuplicateCellName { other_range, .. } => {
+                let diagnostic = diagnostic.with_help(
+                    "rename one of the two cells with `#[k::cell(name = \"..\")]`",
+                );
+                match other_range {
+                    Some(other) => diagnostic.with_secondary(
+                        krs_diagnostic::Label::new(Location::Source((**other).clone()))
+                            .with_message("the other cell with this name"),
+                    ),
+                    None => diagnostic,
+                }
+            }
+            Self::CellOutsideSubject { group: Some(_), .. } => diagnostic.with_help(
+                "a sentence about a group names only the cells inside the group; write it for the configuration to name other cells",
             ),
             Self::InvalidStaticClause { other, help, .. } => {
                 let diagnostic = match other {

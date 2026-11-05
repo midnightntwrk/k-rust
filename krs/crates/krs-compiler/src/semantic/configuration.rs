@@ -55,6 +55,7 @@ pub(super) fn lower_fixed_configuration_descriptor(
         },
     )?;
     check_unambiguous_cell_sorts(&cells)?;
+    check_unique_cell_names(descriptor.id(), &cells)?;
 
     let mut binding_sorts = BTreeMap::new();
     let mut variables = Vec::with_capacity(configuration.initializer.variables.len());
@@ -276,6 +277,66 @@ fn check_unambiguous_cell_sorts(
                     .origin()
                     .exact_authored_range()
                     .map(Box::new),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Rejects two cells of the configuration with one K cell name. K names each cell of a
+/// configuration once, and a cell keeps its name at any depth, so a group's cells take their
+/// names in every configuration that holds the group: a cell beside the group, or in another
+/// group, may not reuse one. Sibling fields with one name are refused where the struct is
+/// declared; this finds the clashes across owners, naming both.
+///
+/// The clash is the configuration's choice of cells, so the error points at a cell its own
+/// package declares, which its author can rename, and not at a dependency's field when one of
+/// the two is local.
+fn check_unique_cell_names(
+    configuration: &StableItemId,
+    cells: &[FixedCell<SemanticSortRef, SemanticId>],
+) -> Result<(), DescriptorLoweringError> {
+    type Cell = FixedCell<SemanticSortRef, SemanticId>;
+    /// Each cell in preorder, beside its owner: the configuration, or the group it is a field of.
+    fn preorder<'a>(
+        owner: &'a StableItemId,
+        cells: &'a [Cell],
+        out: &mut Vec<(&'a StableItemId, &'a Cell)>,
+    ) {
+        for cell in cells {
+            out.push((owner, cell));
+            if let (Some(declaration), krs_ir::FixedCellContent::Children { children }) =
+                (cell.declaration(), cell.content())
+            {
+                preorder(declaration, children, out);
+            }
+        }
+    }
+    let range = |cell: &Cell| cell.origin().origin().exact_authored_range().map(Box::new);
+    let field = |owner: &StableItemId, cell: &Cell| {
+        (
+            Box::new(owner.clone()),
+            cell.field().unwrap_or_else(|| cell.name()).to_owned(),
+        )
+    };
+    let mut all = Vec::new();
+    preorder(configuration, cells, &mut all);
+    let mut seen = BTreeMap::new();
+    for (owner, cell) in all {
+        if let Some((first_owner, first)) = seen.insert(cell.name(), (owner, cell)) {
+            let local = |owner: &StableItemId| owner.package() == configuration.package();
+            let (primary, other) = if local(first_owner) && !local(owner) {
+                (first, cell)
+            } else {
+                (cell, first)
+            };
+            return Err(DescriptorLoweringError::DuplicateCellName {
+                configuration: Box::new(configuration.clone()),
+                name: cell.name().to_owned(),
+                first: field(first_owner, first),
+                second: field(owner, cell),
+                range: range(primary),
+                other_range: range(other),
             });
         }
     }

@@ -43,6 +43,7 @@ mod smt;
 mod spec_modules;
 mod statics;
 mod subject_roots;
+mod subjects;
 mod token_collisions;
 mod tokens;
 mod visibility;
@@ -289,6 +290,15 @@ fn lower_bundle(
                 .iter()
                 .map(|descriptor| descriptor.id().item_name().to_owned())
                 .collect(),
+            groups: if configurations.is_empty() {
+                descriptors
+                    .iter()
+                    .filter(|descriptor| matches!(descriptor.payload(), DescriptorPayload::Cell(_)))
+                    .map(|descriptor| descriptor.id().item_name().to_owned())
+                    .collect()
+            } else {
+                Vec::new()
+            },
             range: range(1),
             first: range(0),
             item: configurations

@@ -20,7 +20,9 @@ pub(super) fn validate_all_stable_references(
         validate_descriptor_references(descriptor, declarations)
             .map_err(|error| error.within(descriptor.id(), None))?;
     }
-    Ok(())
+    // Every reference resolves, so each sentence's subject can be judged against the one
+    // configuration.
+    super::subjects::check_subjects(descriptors, declarations)
 }
 
 /// The stable references of one descriptor, each naming a declaration of its kind.

@@ -890,3 +890,173 @@ fn a_librarys_group_rules_alone_are_refused_with_where_they_are_checked() {
         ]
     "#]].assert_debug_eq(&check_report(target.path(), &lib, "lib"));
 }
+
+/// A workspace of `lib` (the group, without rules) and `small`, whose source
+/// is `small` in full; the manifest of `small`.
+fn small_package(root: &Path, small: &str) -> PathBuf {
+    write_package(root, "lib", LIB, "");
+    let manifest = write_package(root, "small", small, "lib = { path = \"../lib\" }\n");
+    fs::write(
+        root.join("Cargo.toml"),
+        "[workspace]\nmembers = [\"lib\", \"small\"]\nresolver = \"3\"\n",
+    )
+    .unwrap();
+    manifest
+}
+
+/// A second group of the library, which `Small` does not hold.
+const OTHER_GROUP: &str = r"
+/// A group no configuration of these tests holds.
+#[k::cell]
+pub struct Other {
+    #[k::cell]
+    pub x: Int,
+}
+";
+
+/// A `cells!` rule for `Small` that names, through its group, the cell
+/// `lib::Other::x`, which `Small` does not hold.
+const SMALL_OTHER_CELLS_RULE: &str = r#"
+#[k::rule(label = "poke")]
+pub fn poke(
+    k::cells! {
+        lib::Core::k: k::configuration::KCell(lib::Op::Inc(), tail @ ..),
+        lib::Other::x: k::configuration::Cell(_),
+        state @ ..
+    }: Small,
+) -> Small {
+    k::cells! {
+        lib::Core::k: k::configuration::KCell(..tail),
+        lib::Other::x: k::configuration::Cell(1),
+        ..state
+    }
+}
+"#;
+
+/// A `cells!` rule names a cell through its group as written; a cell of a
+/// group the configuration does not hold is refused at the name, where it
+/// used to reach lowering as a broken rewrite.
+#[test]
+fn a_cells_rule_naming_a_cell_the_configuration_does_not_hold_is_refused() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let small = workspace(temporary.path(), OTHER_GROUP, SMALL_OTHER_CELLS_RULE);
+    expect_test::expect![[r#"
+        [
+            "error[krs::analysis::cell-outside-subject]: `poke` names the cell `Other::x`, but the configuration `Small` does not hold the group `Other`",
+            "--> small/src/lib.rs: `x: k::configurat`",
+        ]
+    "#]].assert_debug_eq(&check_report(target.path(), &small, "small"));
+}
+
+/// A configuration whose own cell `pc` has the K name of the group's cell
+/// `pc`: K names each cell of a configuration once, at any depth. `{fields}`
+/// declares the two fields, in either order.
+const SMALL_PC_BESIDE_CORE: &str = r"
+use k::builtin::Int;
+
+#[k::configuration]
+pub struct Small {
+{fields}
+}
+
+impl Small {
+    #[k::init]
+    pub fn init(pgm: lib::Prog) -> Self {
+        Self {
+            core: lib::Core { k: k::k![pgm], pc: 0, acc: 0 },
+            pc: 0,
+        }
+    }
+}
+";
+
+/// A group's cell names are taken in every configuration that holds it: a
+/// cell beside the group with one of them is refused, naming both cells. The
+/// error points at the containing configuration's own cell, which its author
+/// can rename, whichever of the two fields comes first.
+#[test]
+fn a_cell_with_the_name_of_a_group_cell_is_refused_naming_both_cells() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let core = "    #[k::cell(nested)]\n    pub core: lib::Core,";
+    let pc = "    #[k::cell]\n    pub pc: Int,";
+    let reports = [("core-first", [core, pc]), ("pc-first", [pc, core])].map(|(name, fields)| {
+        let source = SMALL_PC_BESIDE_CORE.replace("{fields}", &fields.join("\n"));
+        let small = small_package(&temporary.path().join(name), &source);
+        check_report(target.path(), &small, "small")
+    });
+    expect_test::expect![[r#"
+        [
+            [
+                "error[krs::analysis::duplicate-cell-name]: cells `Core::pc` and `Small::pc` both have the K cell name `pc`; a configuration names each of its cells once",
+                "--> small/src/lib.rs: `pc: Int,`",
+                "= help: rename one of the two cells with `#[k::cell(name = \"..\")]`",
+            ],
+            [
+                "error[krs::analysis::duplicate-cell-name]: cells `Small::pc` and `Core::pc` both have the K cell name `pc`; a configuration names each of its cells once",
+                "--> small/src/lib.rs: `pc: Int,`",
+                "= help: rename one of the two cells with `#[k::cell(name = \"..\")]`",
+            ],
+        ]
+    "#]].assert_debug_eq(&reports);
+}
+
+/// A configuration that holds the group twice.
+const SMALL_TWO_CORES: &str = r"
+#[k::configuration]
+pub struct Small {
+    #[k::cell(nested)]
+    pub left: lib::Core,
+    #[k::cell(nested)]
+    pub right: lib::Core,
+}
+
+impl Small {
+    #[k::init]
+    pub fn init(pgm: lib::Prog) -> Self {
+        Self {
+            left: lib::Core { k: k::k![pgm], pc: 0, acc: 0 },
+            right: lib::Core { k: k::k![], pc: 0, acc: 0 },
+        }
+    }
+}
+";
+
+/// A group held by two fields has no one position; the refusal says that
+/// several instances of a group are a collection, which rules for the group
+/// do not support yet.
+#[test]
+fn a_group_held_twice_is_refused_with_the_advice_for_its_rules() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let small = small_package(temporary.path(), SMALL_TWO_CORES);
+    expect_test::expect![[r#"
+        [
+            "error[krs::analysis::ambiguous-cell-sort]: cell declaration `Core` is the content of more than one cell field (`left`, `right`), so its K cell sort is ambiguous; declare one struct per nested cell",
+            "--> small/src/lib.rs: `right: lib::Core`",
+            "= help: a group has one position in a configuration, where its rules apply; several instances of a group are a `*` collection of it, which rules for the group do not support yet",
+        ]
+    "#]].assert_debug_eq(&check_report(target.path(), &small, "small"));
+}
+
+/// The library alone declares a group and no configuration: it is no
+/// definition, and the refusal says where its group's rules are checked.
+#[test]
+fn a_library_of_groups_alone_is_refused_with_where_its_rules_are_checked() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let small = workspace(temporary.path(), "", SMALL_RULES);
+    let lib = small
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("lib/Cargo.toml");
+    expect_test::expect![[r#"
+        [
+            "error[krs::analysis::configuration-count]: the definition has no `#[k::configuration]`; every definition declares its state with exactly one",
+            "= help: `Core` is a cell group, not a configuration: rules for a group are checked through a definition whose configuration holds it",
+        ]
+    "#]].assert_debug_eq(&check_report(target.path(), &lib, "lib"));
+}

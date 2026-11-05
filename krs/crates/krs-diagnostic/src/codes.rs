@@ -254,6 +254,7 @@ register_codes! {
         GROUP_AND_DESCENDANT: "krs::analysis::group-and-descendant" => "A rule selects a nested cell together with a cell inside it.",
         AMBIGUOUS_CELL_SORT: "krs::analysis::ambiguous-cell-sort" => "One cell declaration is the content of two cell fields, so its K cell sort is ambiguous.",
         CELL_OUTSIDE_SUBJECT: "krs::analysis::cell-outside-subject" => "A configuration-typed sentence names a cell outside its subject: for a sentence about a cell group, a cell outside that group; for any sentence, a cell of a group the configuration does not hold.",
+        DUPLICATE_CELL_NAME: "krs::analysis::duplicate-cell-name" => "Two cells of the configuration have one K cell name, such as a group's cell and a cell beside the group: K names each cell of a configuration once.",
         INVALID_TOKEN_SORT: "krs::analysis::invalid-token-sort" => "A token sort has constructors or a repeated token, a token alias names a sort that cannot take tokens, a program production needs a token sort whose tokens are all private, or `k::lexeme!` names a sort that is not a token sort.",
         TOKEN_COLLISION: "krs::analysis::token-collision" => "A token regex is one of K's own token regexes at another precedence, or at precedence high enough to lex a configuration cell name or cell property as its own token.",
         DUPLICATE_LEXICAL: "krs::analysis::duplicate-lexical" => "A `k::lexical!` name is declared more than once in the definition.",
