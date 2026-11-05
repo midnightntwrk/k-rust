@@ -654,8 +654,9 @@ pub struct ReplayedAttempt {
 
 /// Run `script`'s attempt ladder under `options` on one fresh Z3 context, as the solver runs an
 /// uncached query: the attempts share the context, each on a fresh solver, until one decides the
-/// script or the retries are spent. A crash of Z3 can depend on the attempts before it, so a
-/// replay runs them all.
+/// script, one meets an internal error of Z3 (its reason is the error's text, as the solver
+/// stops there), or the retries are spent. A crash of Z3 can depend on the attempts before it,
+/// so a replay runs them all.
 ///
 /// # Errors
 ///
@@ -674,17 +675,19 @@ pub fn replay(
             let attempted = run_attempt(script, &ladder, attempt, limit, true)
                 .map_err(|rejected| rejected.message)?;
             let checked = &attempted.checked;
+            let reason = matches!(checked.result, SatResult::Unknown)
+                .then(|| super::reason_unknown(&attempted.solver));
+            let decided_or_faulted = reason.as_deref().is_none_or(super::internal_error);
             attempts.push(ReplayedAttempt {
                 attempt,
                 timeout_ms: limit.0,
                 rlimit: limit.1,
                 result: answer_text(checked.result),
-                reason: matches!(checked.result, SatResult::Unknown)
-                    .then(|| super::reason_unknown(&attempted.solver)),
+                reason,
                 rlimit_used: checked.rlimit_used.unwrap_or(0),
                 wall: checked.wall.unwrap_or_default(),
             });
-            if !matches!(checked.result, SatResult::Unknown) {
+            if decided_or_faulted {
                 break;
             }
             timeout = timeout.saturating_mul(2);

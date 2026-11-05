@@ -832,6 +832,11 @@ pub enum SmtFailureOutput<K = Value> {
         reason: String,
     },
     InconsistentGroundTruth,
+    /// The solver met an internal error of its own on the query and answered nothing; `reason`
+    /// is the solver's text for the error. A defect of the solver, never an undecided query.
+    SolverFault {
+        reason: String,
+    },
     /// The solver rejected the query's script; `message` is the solver's. `translationBlamed`,
     /// present (and `true`) only when it holds, says that the script held no text but what
     /// k-rust's translation wrote itself (no `smt-hook` or `smtlib` text of the definition, no
@@ -1820,6 +1825,7 @@ fn smt_failure_output<K: WireKore>(
         SmtError::Unavailable => SmtFailureOutput::Unavailable,
         SmtError::Unknown(reason) => SmtFailureOutput::Unknown { reason },
         SmtError::InconsistentGroundTruth => SmtFailureOutput::InconsistentGroundTruth,
+        SmtError::SolverFault(reason) => SmtFailureOutput::SolverFault { reason },
         SmtError::MalformedScript {
             message,
             translation_blamed,

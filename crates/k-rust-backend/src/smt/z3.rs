@@ -74,6 +74,8 @@
 
 #[cfg(test)]
 mod alias_tests;
+#[cfg(test)]
+mod fault_tests;
 pub mod trace;
 mod typed_cache;
 
@@ -191,6 +193,48 @@ fn run_attempt(
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct RejectedScript {
     message: String,
+}
+
+/// Why a script got no answer from Z3: Z3 rejected it, or an attempt met an internal error of
+/// Z3 ([`internal_error`]), whose text this is.
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum Unanswered {
+    Rejected(RejectedScript),
+    Fault(String),
+}
+
+/// Whether `reason`, Z3's reason for an unknown answer, is an internal error of Z3.
+///
+/// Z3 4.16.0 raises an internal error (an `UNREACHABLE`, `VERIFY` or `NOT_IMPLEMENTED_YET` it
+/// reached, or a fatal error) as an exception on a context made through its API
+/// (`invoke_exit_action`); the check catches it and answers unknown, with the exception's text,
+/// `unreachable`, `internal fatal` or `not implemented yet`, as its reason. Z3 4.12.5 ends the
+/// process instead (`UNREACHABLE` with exit status 114), which nothing in the process observes.
+/// Both versions raise `formula has not been simplified` (4.16.0 followed by ` : ` and the
+/// formula) where the search's internalizer meets a core operator its callers must have
+/// rewritten, the same broken precondition as the bit-vector theory's `UNREACHABLE` on a
+/// `bvult` (`word::internalized_operators`). The operators differ by version: `=>` only on
+/// 4.12.5 (4.16.0 internalizes it), `distinct` on both, and `=` over Bool or `xor` with more
+/// than two operands on both.
+///
+/// Such an answer is no undecided query: an unknown says the solver ran within its bounds, and
+/// the retries exist to spend more of them on it; this is a defect of the solver met on the
+/// query. So the query's attempts end there, and its failure is the solver's
+/// (`SmtError::SolverFault`), which a consumer does not answer with more budget. The answer of a
+/// retry would not be unsound for the error: the attempts share the Z3 context's terms and
+/// declarations, each on a fresh solver, and the error unwinds the solver it interrupted as an
+/// exception, as the cancellation of a check does, and the attempt drops that solver.
+///
+/// Z3 records the exception's text only when no event cancelled the check: it keeps the reason
+/// of the event that did (`timeout` for its timer, `interrupted`) over the exception's
+/// (`check_sat_result::set_reason_unknown`). So under a clock, an internal error met after the
+/// timer fired reads as a timeout, and is retried as one; under [`Z3Options::resource_limit`]
+/// alone, which cancels through no event, it reads as itself.
+fn internal_error(reason: &str) -> bool {
+    matches!(
+        reason,
+        "unreachable" | "internal fatal" | "not implemented yet"
+    ) || reason.starts_with("formula has not been simplified")
 }
 
 /// Load `script` into `solver`, or say why Z3 rejected it. Every script reaches Z3 through here.
@@ -641,7 +685,13 @@ impl Z3Solver {
             }
             Ok(Satisfiability::Unsat) => PreludeFailure::Inconsistent,
             Ok(Satisfiability::Unknown(reason)) => PreludeFailure::Unknown(reason.into()),
-            Err(rejected) => PreludeFailure::Malformed(rejected.message.into()),
+            // Undecided, with Z3's error as the reason. A failed prelude already ends every
+            // operation of the solver and names the reason, so the error changes no outcome
+            // here; for a query it does (`SmtError::SolverFault`).
+            Err(Unanswered::Fault(reason)) => PreludeFailure::Unknown(reason.into()),
+            Err(Unanswered::Rejected(rejected)) => {
+                PreludeFailure::Malformed(rejected.message.into())
+            }
         };
         *state = PreludeState::Failed(failure.clone());
         Err(self.prelude_stop(failure))
@@ -673,6 +723,15 @@ impl Z3Solver {
                 Some(failure) => Err(self.prelude_stop(failure)),
                 None => Ok(Satisfiability::Unknown(reason)),
             },
+        }
+    }
+
+    /// Confirm an internal error of Z3 on a query against the prelude, as an unknown answer is:
+    /// once the prelude failed, no answer or failure of a query means anything.
+    fn confirm_fault(&self, reason: String) -> Stoppable<SmtError> {
+        match self.prelude_failure() {
+            Some(failure) => Err(self.prelude_stop(failure)),
+            None => Ok(SmtError::SolverFault(reason)),
         }
     }
 
@@ -709,9 +768,9 @@ impl Z3Solver {
 
     /// Solve `script` through the result cache. A stop observed before the lookup ends the
     /// query: its answer is not needed, and neither the cache nor Z3 is consulted. Only answers
-    /// are cached; a rejected script is not, so the cache never answers for a script Z3 did not
-    /// read.
-    fn solve(&self, script: &str) -> Stoppable<Result<Satisfiability, RejectedScript>> {
+    /// are cached; a rejected script or an internal error is not, so the cache never answers for
+    /// a script Z3 did not read or did not answer.
+    fn solve(&self, script: &str) -> Stoppable<Result<Satisfiability, Unanswered>> {
         let _span = measure::algorithm_span(Algorithm::BackendSmtCache);
         stop::check()?;
         measure::bump(Counter::SmtQueries);
@@ -737,8 +796,10 @@ impl Z3Solver {
     /// Solve `script` with Z3, doubling the timeout on each retry of an unknown answer. Each
     /// attempt is preceded by a poll, so a stop raised meanwhile ends the query instead of
     /// starting another attempt. A script Z3 rejects is not checked, and not retried: the
-    /// rejection does not depend on the timeout.
-    fn solve_uncached(&self, script: &str) -> Stoppable<Result<Satisfiability, RejectedScript>> {
+    /// rejection does not depend on the timeout. An unknown answer from an internal error of Z3
+    /// ends the query's attempts with that error ([`internal_error`]): the query is not undecided
+    /// within the solver's bounds, which is what the retries are for.
+    fn solve_uncached(&self, script: &str) -> Stoppable<Result<Satisfiability, Unanswered>> {
         measure::bump(Counter::SmtSolverRuns);
         #[cfg(test)]
         self.uncached_solve_count.fetch_add(1, Ordering::Relaxed);
@@ -751,18 +812,20 @@ impl Z3Solver {
                 let limit = self.attempt_limit(&ladder, timeout, attempt);
                 let attempted = match run_attempt(script, &ladder, attempt, limit, false) {
                     Ok(attempted) => attempted,
-                    Err(rejected) => return Ok(Err(rejected)),
+                    Err(rejected) => return Ok(Err(Unanswered::Rejected(rejected))),
                 };
                 match attempted.checked.result {
                     SatResult::Sat => return Ok(Ok(Satisfiability::Sat)),
                     SatResult::Unsat => return Ok(Ok(Satisfiability::Unsat)),
-                    SatResult::Unknown if attempt < self.options.retry_limit => {
-                        timeout = timeout.saturating_mul(2);
-                    }
                     SatResult::Unknown => {
-                        return Ok(Ok(Satisfiability::Unknown(reason_unknown(
-                            &attempted.solver,
-                        ))));
+                        let reason = reason_unknown(&attempted.solver);
+                        if internal_error(&reason) {
+                            return Ok(Err(Unanswered::Fault(reason)));
+                        }
+                        if attempt == self.options.retry_limit {
+                            return Ok(Ok(Satisfiability::Unknown(reason)));
+                        }
+                        timeout = timeout.saturating_mul(2);
                     }
                 }
             }
@@ -786,7 +849,10 @@ impl Z3Solver {
         }
         match self.solve(&script)? {
             Ok(answer) => self.confirm_answer(answer).map(Ok),
-            Err(rejected) => self.confirm_rejection(rejected, query, &script).map(Err),
+            Err(Unanswered::Rejected(rejected)) => {
+                self.confirm_rejection(rejected, query, &script).map(Err)
+            }
+            Err(Unanswered::Fault(reason)) => self.confirm_fault(reason).map(Err),
         }
     }
 
@@ -812,7 +878,7 @@ impl Z3Solver {
                 // then.
                 let attempted = match run_attempt(query.base(), &ladder, attempt, limit, false) {
                     Ok(attempted) => attempted,
-                    Err(rejected) => return Ok(Err(rejected)),
+                    Err(rejected) => return Ok(Err(Unanswered::Rejected(rejected))),
                 };
                 let solver = &attempted.solver;
                 match attempted.checked.result {
@@ -827,22 +893,27 @@ impl Z3Solver {
                         return Ok(Ok(ModelAttempt::Sat(model)));
                     }
                     SatResult::Unsat => return Ok(Ok(ModelAttempt::Unsat)),
-                    SatResult::Unknown if attempt < self.options.retry_limit => {
-                        timeout = timeout.saturating_mul(2);
-                    }
                     SatResult::Unknown => {
-                        return Ok(Ok(ModelAttempt::Unknown(reason_unknown(solver))));
+                        let reason = reason_unknown(solver);
+                        if internal_error(&reason) {
+                            return Ok(Err(Unanswered::Fault(reason)));
+                        }
+                        if attempt == self.options.retry_limit {
+                            return Ok(Ok(ModelAttempt::Unknown(reason)));
+                        }
+                        timeout = timeout.saturating_mul(2);
                     }
                 }
             }
             unreachable!("the retry loop always returns")
         })?;
         match outcome {
-            Err(rejected) => Ok(Err(self.confirm_rejection(
+            Err(Unanswered::Rejected(rejected)) => Ok(Err(self.confirm_rejection(
                 rejected,
                 query,
                 query.base(),
             )?)),
+            Err(Unanswered::Fault(reason)) => Ok(Err(self.confirm_fault(reason)?)),
             Ok(ModelAttempt::Sat(model)) => {
                 // confirm_answer returns its argument unchanged; only the prelude check matters
                 // here.

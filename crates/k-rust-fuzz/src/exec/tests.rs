@@ -1931,6 +1931,15 @@ fn a_halt_is_read_by_its_typed_cause() {
             Some(smt_failure(SmtFailureOutput::InconsistentGroundTruth)),
             unjudged(UnjudgedReason::HaltSmt),
         ),
+        // An internal error of the solver leaves the halt without an answer, and k-rust is not
+        // at fault.
+        (
+            H::SimplificationError,
+            Some(smt_failure(SmtFailureOutput::SolverFault {
+                reason: "unreachable".into(),
+            })),
+            unjudged(UnjudgedReason::HaltSmt),
+        ),
         (
             H::SimplificationError,
             Some(F::Builtin {

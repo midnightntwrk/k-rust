@@ -1328,6 +1328,7 @@ fn simplify_fault(error: SimplificationError, result_sort: &BackendSort) -> RpcF
         error @ SmtError::Translation(_)
         | error @ SmtError::Unavailable
         | error @ SmtError::InconsistentGroundTruth
+        | error @ SmtError::SolverFault(_)
         | error @ SmtError::MalformedScript { .. }
         | error @ SmtError::MissingModel
         | error @ SmtError::MissingModelValue(_)

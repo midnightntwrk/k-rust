@@ -683,7 +683,9 @@ pub enum Verdict {
     Disproved,
     /// The proof failed without a counterexample.
     Failed,
-    /// The backend could not decide (no SMT solver, or an undecided condition).
+    /// The backend could not decide (no SMT solver, an undecided condition, or an internal
+    /// error of the solver on a condition, which a leaf's `detail` names as a defect of the
+    /// solver; a Z3 that ends the process on the error gives [`Self::Crashed`] instead).
     Indeterminate,
     /// The `--depth` bound stopped the proof.
     DepthBound,

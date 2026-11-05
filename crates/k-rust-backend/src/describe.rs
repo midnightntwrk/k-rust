@@ -525,6 +525,11 @@ impl Display for SmtError {
             Self::InconsistentGroundTruth => {
                 formatter.write_str("the solver found the path condition unsatisfiable")
             }
+            Self::SolverFault(reason) => write!(
+                formatter,
+                "the solver met an internal error and answered nothing ({reason}); this is a \
+                 defect of the solver"
+            ),
             Self::MalformedScript {
                 message,
                 translation_blamed,

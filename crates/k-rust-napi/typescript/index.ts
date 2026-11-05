@@ -1008,6 +1008,8 @@ export type SmtFailure =
   | { kind: 'unavailable' }
   | { kind: 'unknown'; reason: string }
   | { kind: 'inconsistent-ground-truth' }
+  /** An internal error of the solver: it answered nothing; `reason` is its text for the error. */
+  | { kind: 'solver-fault'; reason: string }
   /** `translationBlamed` (only ever `true`): the script held only text k-rust's translation wrote, so the rejection is a defect of k-rust. */
   | { kind: 'malformed-script'; message: string; translationBlamed?: true }
   | { kind: 'missing-model' }

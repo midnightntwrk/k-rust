@@ -89,8 +89,9 @@ pub enum UnjudgedReason {
     HaltIterationLimit,
     /// A step needed a solver answer it did not get (an SMT failure as the cause of a
     /// `simplification-error` or `indeterminate` halt): the query does not translate to
-    /// SMT-LIB, the build has no solver, the solver answered `unknown`, or it rejected a script
-    /// that holds text the definition or a user prelude supplied.
+    /// SMT-LIB, the build has no solver, the solver answered `unknown` or met an internal error
+    /// of its own (`solver-fault`), or it rejected a script that holds text the definition or a
+    /// user prelude supplied.
     HaltSmt,
     /// A leaf's simplification met a construct k-rust leaves undecided by design: equations of
     /// one priority that give different results (`conflicting-results`), or an unsupported hook.
@@ -798,9 +799,9 @@ fn incomplete_leaf(leaf: &LeafReport) -> Option<UnjudgedReason> {
 ///   whose satisfiability is an error) is read as below; any other cause keeps
 ///   [`UnjudgedReason::HaltIndeterminate`].
 /// - A solver failure: no answer for the query ([`UnjudgedReason::HaltSmt`]) when it does not
-///   translate, the build has no solver, the solver answered `unknown`, or it rejected a script
-///   not blamed on k-rust's translation (the definition's or the user's SMT text may be at
-///   fault); internal when the ground truth k-rust passed is inconsistent, the rejected script
+///   translate, the build has no solver, the solver answered `unknown` or met an internal error
+///   of its own (`solver-fault`), or it rejected a script not blamed on k-rust's translation
+///   (the definition's or the user's SMT text may be at fault); internal when the ground truth k-rust passed is inconsistent, the rejected script
 ///   holds only k-rust's own text (`translationBlamed`), or the model k-rust asked for is
 ///   missing or unreadable.
 #[must_use]
@@ -904,6 +905,9 @@ fn smt_cause<K>(error: &SmtFailureOutput<K>, detail: Option<&str>) -> HaltCause 
         // An unsatisfiable path condition shows the state empty, not k-rust wrong: a state
         // keeps a condition whose earlier checks the solver left undecided.
         | SmtFailureOutput::InconsistentGroundTruth
+        // An internal error of the solver is a defect of the solver, not of k-rust: the halt has
+        // no answer to judge, as for an undecided query.
+        | SmtFailureOutput::SolverFault { .. }
         | SmtFailureOutput::MalformedScript {
             translation_blamed: false,
             ..

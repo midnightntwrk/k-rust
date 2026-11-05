@@ -3623,6 +3623,11 @@ pub enum SmtError {
     /// consumer needed an answer. Never a stop.
     Unknown(String),
     InconsistentGroundTruth,
+    /// The solver met an internal error of its own on the query, so it answered nothing about
+    /// it; the payload is the solver's text for the error. The error is a defect of the solver,
+    /// not a bound reached: the query is neither undecided within the solver's bounds
+    /// ([`Self::Unknown`]) nor retried. Never a stop.
+    SolverFault(String),
     /// The solver rejected the query's script (a parse or sort error, an undeclared or a
     /// redeclared symbol), so it answered nothing about it; `message` is the solver's message.
     /// The prelude is known to load when this is returned, so the query's own text is at fault:
