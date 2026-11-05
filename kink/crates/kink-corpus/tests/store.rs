@@ -756,10 +756,13 @@ mod kink_tier {
             let outcome = run_definition(&workspace(), &manifest, "clean", &written_store).unwrap();
             let entry = outcome.campaign.unwrap();
             assert_eq!(entry["kink_build"], this);
-            assert_eq!(
-                entry["run_options"],
-                json!({"result_modality":"state-set","work":null,"one_sided":"off"})
-            );
+            // Under the Z3 profile a run also records the resource limit of its solver queries'
+            // first attempts (kink-campaign `RunOptions::value`); the no-Z3 profile has no solver.
+            let mut recorded = json!({"result_modality":"state-set","work":null,"one_sided":"off"});
+            if SolverProfile::BUILD == SolverProfile::Z3 {
+                recorded["smt_resource_limit"] = json!(kink_native::SMT_RESOURCE_LIMIT.get());
+            }
+            assert_eq!(entry["run_options"], recorded);
             assert_eq!(outcome.admission["kink_build"], this);
             for (name, key, value) in entries {
                 let store = copy_store(&written_store, name);
