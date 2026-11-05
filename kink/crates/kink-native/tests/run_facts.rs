@@ -248,7 +248,10 @@ fn every_adapted_run_carries_the_run_level_facts() {
 /// association-open rule, every rule with two or more names among them, failing closed), so the
 /// mark passage is re-pinned by digest again at the same lines; MAIN-KINK-GATE-RED's five moved
 /// passages were re-pinned by digest before the kink hand-over (fz26 KINK-REPINS, main `602746a9d`:
-/// 859 down 5, the other four down 22, byte-identical; the mark passage still at its lines)):
+/// 859 down 5, the other four down 22, byte-identical; the mark passage still at its lines);
+/// the stop-rule sentence of the mark passage gained a link to the new "Passed stops" section
+/// (k-rust `8d953bb45`), its statement unchanged (a cut-point or terminal rule stops the run only
+/// as the state's one successor), so the mark passage is re-pinned by digest at its lines):
 /// - 92: the run-level record keeps what the diagnostic channel drops (`allowanceRefusals`,
 ///   `unsupportedHooks`, of the run and of the load);
 /// - 879: a result whose `allowanceRefusals` is empty is the result under every allowance of at
@@ -351,7 +354,7 @@ const A1_PASSAGES: [passage::Passage; 7] = [
         anchor: "### Marks in executions",
         opening: "A mark is noted where the evaluator takes",
         lines: 26,
-        digest: "5715c6861e9feb6dde9d56d81e8d3a852a493b9b9ba900760f9e3f8ec423905b",
+        digest: "ec708dba158dbf3bc20be34541365aba7071755caf78c220632de200240560bb",
     },
     passage::Passage {
         file: "docs/compatibility.md",
