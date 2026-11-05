@@ -188,15 +188,15 @@
     "output": "a93378b39088e12b88415d89bf6336a155727ef1b1a6a04422cc8092c3fea12f"
   },
   "tour-minimal-depth-0": {
-    "inputs": "1ac11a854aa07c7b1a535153fda883a817243e7ac9b15bf9b95cc5311a8bdef2",
+    "inputs": "a5d8efc273b3ba02d585362e6e74ea772608434b5f41446217d5f7a23ec6a83d",
     "output": "c8b4fdb588880c24c568efce9f52ae211c92bacb20ce704ac5ef87746e1b109f"
   },
   "tour-minimal-run": {
-    "inputs": "88cf7572f23c98bc17c07068323862be87b1a1d8dddb5f168626575f96f89efe",
+    "inputs": "a416046c834280d0c2334a9c31fc437ee02c68913e326931acf3704ba77368a6",
     "output": "bb548b8301e527e87d5a9305f1e564e57e5d3b07d7517d55e8afb4312449b0c8"
   },
   "tour-minimal-trace": {
-    "inputs": "2457e2ce1b0f12b29520d106be019168c94f56e6b4c47a9b8aa0584f3f5509db",
+    "inputs": "d98302405c6cadbb779dbf072812e844d09ccfdaa8ff77530ea2209c03f3f823",
     "output": "e231b99cabb6341261079fc9630278b3c29dd0047d371e1a3b9f6d0b9d04a028"
   }
 }
