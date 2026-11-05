@@ -607,6 +607,11 @@ pub(crate) struct CellNode {
     /// The KORE symbol of the cell's label.
     pub(crate) symbol: String,
     pub(crate) multiplicity: Option<krs_ir::CellMultiplicity>,
+    /// A repeated cell's collection type: whether its instances are a list, a set or a map.
+    pub(crate) collection: Option<krs_ir::CellCollectionType>,
+    /// Whether the cell itself carries `unobservable`; a cell inside an unobservable cell is
+    /// unobservable too ([`crate::Semantics::cells`]).
+    pub(crate) unobservable: bool,
     pub(crate) children: Vec<CellNode>,
     /// A leaf cell's declared content sort and its element types, as the Definition IR states
     /// them; `None` for a group cell.
@@ -1800,6 +1805,8 @@ fn cell_nodes(
             field: cell.field().unwrap_or(cell.name()).to_owned(),
             symbol: kore_symbol_name(&format!("<{}>", cell.name())),
             multiplicity: cell.multiplicity(),
+            collection: cell.collection_type(),
+            unobservable: cell.is_unobservable(),
             children: match cell.content() {
                 krs_ir::FixedCellContent::Children { children } => cell_nodes(children),
                 krs_ir::FixedCellContent::Term { .. } => Vec::new(),

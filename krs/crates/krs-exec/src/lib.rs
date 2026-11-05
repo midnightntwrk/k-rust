@@ -11,6 +11,7 @@
 //! - [`Semantics::prove`] proves the selected claims, as kprove does;
 //! - [`Semantics::unparse`] prints a term through the definition's grammar, as `krun --output pretty` does, and [`Semantics::unparse_program`] prints a parsed program as `kast --output program` does (`krs-unparse`).
 //! - [`Semantics::values`] names constructors and sorts by their KRS declarations, so a configuration variable can be given as a [`Value`] ([`ConfigValue::Value`]), and [`Semantics::views`] reads a result's cells as values by their Rust field names.
+//! - [`Semantics::end_of`] and [`Semantics::ends_of`] read a run's or a search's ends, [`Semantics::read_end`] and [`Semantics::end_document`] read and write an end as a document of the typed encoding, and [`Semantics::compare_ends`] and [`Semantics::check_expectation`] compare ends on their observable cells by Rust field path; the documentation of [`ends`] is their normative statement.
 //!
 //! The crate is filesystem-free: the caller supplies Definition IR, program text, and (optionally) the authored source text that trace origins are positioned in.
 //! The serialized reports form the `krs-exec` JSON shapes that `--output json` prints: `krs-exec/1` for a run and a search, `krs-exec/2` for a proof ([`REPORT_SCHEMA`] states how the versions are numbered).
@@ -22,6 +23,7 @@ mod configuration;
 mod console;
 mod decided;
 mod encode;
+pub mod ends;
 pub mod inputs;
 mod origin;
 mod overloads;
@@ -68,6 +70,10 @@ pub use stage::{CompiledStage, SPEC_STAGE_FORMAT, STAGE_FORMAT, SpecStage};
 
 pub use configuration::Configuration;
 pub use encode::{EncodeError, EncodeErrorKind, canonical_text, decode, encode};
+pub use ends::{
+    CellInfo, Compared, Comparison, DIFFERENCE_FORMAT, Difference, DifferenceAt, DifferenceSide,
+    End, EndCell, EndCells, EndClass, EndError, Ends, Rendered, Side, VALUE_CAP,
+};
 pub use inputs::{
     Case, InputError, InputFiles, InputType, MainVariable, NoFiles, Parameter, declares_variable,
     json_document, main_variable, toml_document,

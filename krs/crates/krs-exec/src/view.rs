@@ -343,9 +343,13 @@ impl<'t> StateView<'t> {
     }
 
     /// The paths of the repeated cells below this view's root, in declaration order, below no
-    /// other repeated cell: with [`Self::leaf_paths`], every cell a walk through
-    /// [`Self::instances`] reaches. A repeated cell inside a repeated cell is listed by its
-    /// instances' views.
+    /// other repeated cell; a repeated cell inside a repeated cell is listed by its instances'
+    /// views. With [`Self::leaf_paths`], a walk through [`Self::instances`] reaches every leaf
+    /// cell of a configuration whose repeated cells are groups, as KRS declares every one (a
+    /// `multiplicity = "*"` cell is `nested`). The instance of a repeated leaf cell, which only
+    /// Definition IR built by other means holds, is a view with no paths, so neither
+    /// [`Self::leaf_paths`] nor [`Self::value`] reads its content;
+    /// [`crate::Semantics::end_of`] reads every cell, such an instance's content included.
     #[must_use]
     pub fn repeated_paths(&self) -> Vec<String> {
         let mut paths = Vec::new();
@@ -425,5 +429,10 @@ impl<'t> StateView<'t> {
     #[must_use]
     pub fn constraints(&self) -> &[&'t Pattern] {
         &self.constraints
+    }
+
+    /// The term of this view's root cell (the configuration, for a state's view).
+    pub(crate) const fn term(&self) -> &'t Pattern {
+        self.term
     }
 }
