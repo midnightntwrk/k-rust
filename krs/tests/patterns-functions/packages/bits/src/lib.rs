@@ -2,8 +2,8 @@
 //!
 //! The definition is pure sugar: `krs-patterns-functions-bits-long` writes the
 //! guards and field terms each `k::bits!` template stands for. Both emit the
-//! same K, byte for byte, once the hidden binder of an unnamed template
-//! (`Krs_Bits0`) is renamed to the long form's `Op`.
+//! same K, byte for byte, once the generated binder of an unnamed template
+//! (`Bits`) is renamed to the long form's `Op`.
 //!
 //! - `decodeOf(4)` is `inc rb` and `decodeOf(61)` is `dec ra`: `00 yyy 100`
 //!   and `00 yyy 101` bind the field `y` and index the operand table `R8`;

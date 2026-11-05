@@ -108,7 +108,7 @@ The `bits` package decodes SM83-style opcodes with `k::bits!` templates in
 `k::equations!` rows, an `#[k::equation]` fn, and `k::rules!` transitions; its
 emitted K equals that of `bits-long`, which writes each template's range and
 fixed-run guard and its fields' `bitRangeInt` terms by hand, byte for byte once
-the hidden binder `Krs_Bits0` of an unnamed template is renamed to `Op`; the
+the generated binder `Bits` of an unnamed template is renamed to `Op`; the
 two `kindOf` transitions, whose templates differ in the top bit, pass the
 overlap check; and `decodeOf(4)` is `inc rb`, `decodeOf(118)` `halt`,
 `decodeOf(65)` `ld rb, rc`, `decodeOf(256)` and `decodeOf(-1)` `unknown`, and
@@ -275,7 +275,7 @@ BITS_PROGRAMS = (
     Program("imm-jal-forward", "immOf(2147479791)", "accepted", "1048574"),
 )
 # The hidden binder of an unnamed template, and the long form's name for it.
-BITS_HIDDEN_BINDER = ("Krs_Bits0", "Op")
+BITS_HIDDEN_BINDER = ("Bits", "Op")
 
 NEGATIVE = (
     "alias-ref",
@@ -586,8 +586,8 @@ def verify_bits(harness: FixtureGate) -> None:
         )
     emitted_fragments(emitted, (
         "rule decode ( 118 ) => halt [label(",
-        "rule decode ( Krs_Bits0:Int ) => inc r8 ( bitRangeInt(Krs_Bits0:Int, 3, 3) )",
-        "requires (((Krs_Bits0:Int >=Int 0) andThenBool (Krs_Bits0:Int <Int 256)) andThenBool ((bitRangeInt(Krs_Bits0:Int, 6, 2)) ==Int 0)) andThenBool ((bitRangeInt(Krs_Bits0:Int, 0, 3)) ==Int 4) [label(",
+        "rule decode ( Bits:Int ) => inc r8 ( bitRangeInt(Bits:Int, 3, 3) )",
+        "requires (((Bits:Int >=Int 0) andThenBool (Bits:Int <Int 256)) andThenBool ((bitRangeInt(Bits:Int, 6, 2)) ==Int 0)) andThenBool ((bitRangeInt(Bits:Int, 0, 3)) ==Int 4) [label(",
     ))
     harness.compare(emitted, BITS_PROGRAMS, sort="Exp", kore=True)
 

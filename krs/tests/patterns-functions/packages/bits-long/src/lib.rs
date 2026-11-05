@@ -1,6 +1,6 @@
 //! The long form of `krs-patterns-functions-bits`: the guards and field
 //! terms its `k::bits!` templates stand for, written out. Both emit the same
-//! K, byte for byte, once the sugar's hidden binder `Krs_Bits0` is renamed to
+//! K, byte for byte, once the sugar's generated binder `Bits` is renamed to
 //! this package's `Op`.
 
 use k::builtin::KSequence;
