@@ -12993,10 +12993,31 @@ syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
 """
 
 [accept."sweep/cells/result/seq/k::configuration::Cell([x, ..])"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<seq> V1:Int : V2:Ints => V0:Int : V2:Ints </seq>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/cells/result/stack/k::configuration::Cell([.., x])"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<stack> ListItem(V1:KItem) V2:List => V2:List ListItem(V0:Int) </stack>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/cells/result/stack/k::configuration::Cell([x, ..])"]
+k = """
+rule [case-TAG]:
+<k> cTAG ( V0:Int ) => .K ... </k>
+<stack> ListItem(V1:KItem) V2:List => ListItem(V0:Int) V2:List </stack>
+
+syntax Stmt ::= "cTAG" "(" Int ")" [symbol(cmdCTAG), format(%1%2%3%4)]
+"""
 
 [accept."sweep/cells/subject/acct/{ k::fragment![crate::Gm { ma: x, .. }], .. }"]
 k = """
@@ -13103,7 +13124,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 k = """
 rule [case-TAG]:
 <k> cTAG => .K ... </k>
-<seq> V0:Int : ... </seq>
+<seq> V0:Int : V1:Ints </seq>
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
@@ -13150,7 +13171,7 @@ syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 k = """
 rule [case-TAG]:
 <k> cTAG => .K ... </k>
-<stack> _ ListItem(V0:KItem) </stack>
+<stack> V0:List ListItem(V1:KItem) </stack>
 
 syntax Stmt ::= "cTAG" [symbol(cmdCTAG), format(%1)]
 """
