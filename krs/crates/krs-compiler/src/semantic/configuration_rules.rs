@@ -563,8 +563,15 @@ fn with_named_list_rests(
     {
         return Ok(None);
     }
+    let rests = rule
+        .subject
+        .cells
+        .iter()
+        .chain(rule.result.iter().flat_map(|result| &result.cells))
+        .filter(|cell| ends_in_kept_rest(&cell.value))
+        .map(|cell| &cell.field.cell);
+    let mut names = super::cons_lists::ListRests::of(rests);
     let mut rule = rule.clone();
-    let mut names = super::cons_lists::ListRests::default();
     let mut variables = Vec::new();
     let mut matched = BTreeSet::new();
     let mut name = |cell: &DescriptorCellReference,
@@ -574,7 +581,7 @@ fn with_named_list_rests(
         let DescriptorTerm::KeptRest { key } = term else {
             return Ok(());
         };
-        let id = names.name(&cell.cell, declarations)?;
+        let id = names.name(&cell.cell)?;
         if !variables.iter().any(|variable| *variable.id() == id) {
             let declared = require_cell_field(&cell.cell, declarations)?;
             let ProtocolCellContent::Leaf { sort, .. } = &declared.content else {

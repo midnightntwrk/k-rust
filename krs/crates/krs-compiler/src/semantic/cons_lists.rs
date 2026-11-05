@@ -25,14 +25,14 @@
 //! expected sort is unknown or no list has nothing the brackets could
 //! denote, and is an error rather than a guess.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
     ApplicationRef, CollectionOperandSort, Descriptor, DescriptorApplicationRef,
     DescriptorApplicationReference, DescriptorCellIdentity, DescriptorCellReference,
-    DescriptorIndex, DescriptorPayload, DescriptorProductionAttribute, DescriptorProductionItem,
-    GrammarDescriptor, ListNotation, ListOperation, NodeOrigin, ProtocolHeadRuleListRest,
-    ProvenanceKey, SemanticId, StableItemId,
+    DescriptorPayload, DescriptorProductionAttribute, DescriptorProductionItem, GrammarDescriptor,
+    ListNotation, ListOperation, NodeOrigin, ProtocolHeadRuleListRest, ProvenanceKey, SemanticId,
+    StableItemId,
 };
 use krs_ir_levels::{ListOperands, SemanticSortRef, SemanticTerm, SemanticVariable};
 
@@ -154,34 +154,50 @@ struct ListSpine<'t> {
 const CONS_LIST_BACK: &str = "a cons list is matched and built from its front, so its back is no constructor pattern: `..` may only end its brackets; name the elements before the rest";
 
 /// The names one sentence gives its list cells' unnamed rests: one variable per cell, which both
-/// sides of the cell name, and never one for two cells. A cell its sentence's configuration owns
-/// names its rest `__krs_rest_<field>`; a nested cell's adds its owner's name,
-/// `__krs_rest_<owner>_<field>`, since two groups may hold fields of one spelling; and a name
-/// another cell of the sentence already has takes the first free suffix `_2`, `_3`, ...
+/// sides of the cell name, and never one for two cells. A rest is named by its cell's field,
+/// `__krs_rest_<field>`; a field that two of the sentence's cells spell alike (`Left::stack`,
+/// `Right::stack`) names each one's rest with its owner's name too,
+/// `__krs_rest_<owner>_<field>`; and a name another cell of the sentence already has takes the
+/// first free suffix `_2`, `_3`, ...
 #[derive(Clone, Debug, Default)]
 pub(super) struct ListRests {
+    /// The fields more than one of the sentence's cells with an unnamed rest spell.
+    shared: BTreeSet<String>,
     names: BTreeMap<DescriptorCellIdentity, SemanticId>,
 }
 
 impl ListRests {
+    /// The names of a sentence whose list cells with an unnamed rest are `cells`.
+    pub(super) fn of<'a>(cells: impl IntoIterator<Item = &'a DescriptorCellIdentity>) -> Self {
+        let cells = cells.into_iter().collect::<BTreeSet<_>>();
+        let mut fields = BTreeMap::<&str, usize>::new();
+        for cell in &cells {
+            *fields.entry(cell.field.as_str()).or_default() += 1;
+        }
+        Self {
+            shared: fields
+                .into_iter()
+                .filter(|(_, count)| *count > 1)
+                .map(|(field, _)| field.to_owned())
+                .collect(),
+            names: BTreeMap::new(),
+        }
+    }
+
     /// The name of `cell`'s unnamed rest in the sentence.
     pub(super) fn name(
         &mut self,
         cell: &DescriptorCellIdentity,
-        declarations: &DescriptorIndex<'_>,
     ) -> Result<SemanticId, DescriptorLoweringError> {
         if let Some(id) = self.names.get(cell) {
             return Ok(id.clone());
         }
         let field = cell.field.strip_prefix("r#").unwrap_or(&cell.field);
         let marker = krs_ir::ir::RESERVED_MARKER;
-        let top_level = declarations.get(&cell.owner).is_some_and(|owner| {
-            matches!(owner.payload(), DescriptorPayload::FixedConfiguration(_))
-        });
-        let base = if top_level {
-            format!("{marker}rest_{field}")
-        } else {
+        let base = if self.shared.contains(&cell.field) {
             format!("{marker}rest_{}_{field}", cell.owner.item_name())
+        } else {
+            format!("{marker}rest_{field}")
         };
         let mut name = base.clone();
         let mut ordinal = 2_usize;
@@ -734,7 +750,7 @@ impl StructuredTermBuilder<'_> {
         cell: &DescriptorCellReference,
         sort: &SemanticSortRef,
     ) -> Result<SemanticId, DescriptorLoweringError> {
-        let id = self.list_rests.name(&cell.cell, self.declarations)?;
+        let id = self.list_rests.name(&cell.cell)?;
         if !self.wildcards.iter().any(|variable| *variable.id() == id) {
             self.wildcards
                 .push(SemanticVariable::new(id.clone(), sort.clone()));
