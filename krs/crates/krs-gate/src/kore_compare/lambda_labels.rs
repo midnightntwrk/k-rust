@@ -249,7 +249,7 @@ fn sentence_lambdas(sentence: &Sentence) -> BTreeSet<String> {
 }
 
 /// Rename the declared and applied symbols of `sentence` for which `rename` returns a name.
-fn rename_symbols(sentence: &mut Sentence, rename: &impl Fn(&str) -> Option<String>) {
+pub(super) fn rename_symbols(sentence: &mut Sentence, rename: &impl Fn(&str) -> Option<String>) {
     if let Sentence::SymbolDeclaration { symbol, .. } = sentence
         && let Some(name) = rename(&symbol.name)
     {

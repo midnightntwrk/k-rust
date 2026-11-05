@@ -6,6 +6,7 @@
 //! N33 withholds `injective` from a reference equation-head declaration that the native route declares without it; N37 removes the private configuration-value transport from the native module.
 //! N51 removes from the native module each selector domain and inverse that equals the pair rebuilt from its projection's identity equation; N52 removes five exactly named definedness rules of k-rust's builtin `domains.md` (`divInt` and `bitRangeInt`, and AM-12's `^Int`, `^%Int`, and `log2Int`).
 //! It names the generated lambda symbols of `#fun`, `#let`, and `:=K` after their definitions and uses rather than by the `#lambda<hints>_<n>` spelling each frontend chooses (`lambda_labels`).
+//! It pairs the freezer symbols of contexts by the labels of the heating and cooling rules that use them rather than by the `#freezer<hint>_<n>` spelling each frontend chooses (`freezer_labels`).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Write as _};
@@ -19,6 +20,7 @@ use k_rust::kore::parser::parse_definition;
 use k_rust::kore::printer::Printer;
 
 mod declared_differences;
+mod freezer_labels;
 mod lambda_labels;
 
 /// Compare the requested module using the command-line arguments after `kore-compare`.
@@ -330,6 +332,8 @@ fn compare_modules(
         declared_differences::remove_builtin_definedness_rules(&mut actual)?;
     let reference_injective_withheld =
         declared_differences::withhold_reference_injective(&mut reference, &actual);
+    // Before normalization, which orders a freezer's no-confusion pairs by its name.
+    freezer_labels::pair_freezer_labels(&reference, &mut actual, policy)?;
     normalize_module(&mut reference, policy)?;
     normalize_module(&mut actual, policy)?;
     // Renaming a symbol leaves the per-sentence variable and sort-variable
@@ -1273,6 +1277,35 @@ mod tests {
         assert_eq!(normalized(java), normalized(native));
         let other = "[] module M axiom{R, Q0} \\implies{R}(\\top{R}(), \\equals{R, Q0}(\\ceil{SortInt{}, R}(VarX : SortInt{}), \\top{R}())) [simplification{}()] endmodule []";
         assert_ne!(normalized(java), normalized(other));
+    }
+
+    /// A module with one context's freezer `freezer`, its constructor axiom, and the heating
+    /// and cooling rules that use it, the heated term headed by `heated`.
+    fn freezer_module(freezer: &str, heated: &str) -> String {
+        format!(
+            "[] module M \
+             symbol Lbl'Hash'freezer{freezer}{{}}() : SortKItem{{}} [constructor{{}}(), functional{{}}()] \
+             axiom{{}} \\not{{SortKItem{{}}}}(\\and{{SortKItem{{}}}}(Lbl'Hash'freezer{freezer}{{}}(), Lblother{{}}())) [constructor{{}}()] \
+             axiom{{}} \\rewrites{{SortK{{}}}}(Lbl{heated}{{}}(), Lbl'Hash'freezer{freezer}{{}}()) [label{{}}(\"M.ctx-heat\")] \
+             axiom{{}} \\rewrites{{SortK{{}}}}(Lbl'Hash'freezer{freezer}{{}}(), Lbl{heated}{{}}()) [label{{}}(\"M.ctx-cool\")] \
+             endmodule []"
+        )
+    }
+
+    /// Two routes that name one context's freezer differently compare equal, its declaration,
+    /// constructor axiom and rules paired by the labels of the rules; rules that differ beyond
+    /// the freezer's name still differ.
+    #[test]
+    fn context_freezers_pair_by_their_heating_and_cooling_labels() {
+        let reference = freezer_module("opHop0'Unds'", "hop");
+        let native = freezer_module("'Unds'2", "hop");
+        compare_kore(&reference, &native, "M", &ComparePolicy::default()).unwrap();
+        let other = freezer_module("'Unds'2", "jump");
+        let error = compare_kore(&reference, &other, "M", &ComparePolicy::default()).unwrap_err();
+        assert!(
+            error.to_string().contains("KORE sentence multisets differ"),
+            "{error}"
+        );
     }
 
     #[cfg(unix)]
