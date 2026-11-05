@@ -392,6 +392,7 @@ pub fn rewrites_keep(term: &DescriptorTerm) -> bool {
         DescriptorTerm::Variable { .. }
         | DescriptorTerm::Literal { .. }
         | DescriptorTerm::Wildcard { .. }
+        | DescriptorTerm::KeptRest { .. }
         | DescriptorTerm::BuiltinToken { .. }
         | DescriptorTerm::Anonymous { .. }
         | DescriptorTerm::Lexeme { .. } => true,
