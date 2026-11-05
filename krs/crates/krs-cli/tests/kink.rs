@@ -9,7 +9,9 @@
 //! `fixtures/bytes-main` program files bound to a main parameter that is not `$PGM`. A
 //! definition of guarded transitions, a nondet group, a branching function, a division in a
 //! condition and a claim helper gives the front end's own mutation checks something to refuse,
-//! each checked against `krs check` of a Rust source that emits the mutant.
+//! each checked against `krs check` of a Rust source that emits the mutant. The
+//! configuration-cells gate's cell group gives a mutation of a rule a library writes for its group,
+//! judged in each of the two definitions that hold the group.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -1717,4 +1719,218 @@ fn a_program_file_binds_a_text_main_parameter_not_named_pgm() {
         document["programs"][0]["class"], "comparable",
         "{document:#}"
     );
+}
+
+/// The configuration-cells gate's cell group: `group-core` declares the group `Core` and the
+/// rules typed by it, and no configuration; `group-small` (`Small { core, mem }`) and
+/// `group-board` (`Board { core, timer, mem }`) each hold the group and resolve its bus items.
+const GROUP_CORE: &str =
+    include_str!("../../../tests/configuration-cells/packages/group-core/src/lib.rs");
+const GROUP_SMALL: &str =
+    include_str!("../../../tests/configuration-cells/packages/group-small/src/lib.rs");
+const GROUP_BOARD: &str =
+    include_str!("../../../tests/configuration-cells/packages/group-board/src/lib.rs");
+
+/// The group's package, which every definition below composes.
+const GROUP_CORE_PACKAGE: &str = "krs-configuration-cells-group-core";
+
+/// One corpus for both definitions: a program that never reads the bus, and one that stores and
+/// loads back through it.
+const GROUP_FLOW: &str = "[spec]\nkrs = { definition = \"main\" }\n\n[[program]]\nid = \"count\"\nfile = \"cases/count.prog\"\n\n[[program]]\nid = \"store-load\"\nfile = \"cases/store-load.prog\"\n";
+
+/// One edit of the group's `reply` rule, anchored by its module-qualified label, which is the
+/// same in every definition that holds the group: the library's module is its namespace.
+const GROUP_MUTATIONS: &str = r#"[[mutation]]
+id = "reply-adds"
+misunderstanding = "adds the value a load reads to the accumulator instead of loading it"
+
+  [[mutation.edit]]
+  rule = "KRS-GROUP-CORE.reply"
+  find = "_ => Value:Int"
+  replace = "Acc:Int => Acc:Int +Int Value:Int"
+"#;
+
+/// Writes into `directory` a workspace of the gate's three group packages, each of the two
+/// definitions with the corpus and the mutation list above.
+fn group_workspace(directory: &Path) {
+    let krs = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../krs")
+        .canonicalize()
+        .unwrap();
+    let krs_literal = serde_json::to_string(krs.to_str().unwrap()).unwrap();
+    let write = |relative: &str, contents: &str| {
+        let path = directory.join(relative);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, contents).unwrap();
+    };
+    for (name, source) in [
+        ("core", GROUP_CORE),
+        ("small", GROUP_SMALL),
+        ("board", GROUP_BOARD),
+    ] {
+        let dependency = if name == "core" {
+            String::new()
+        } else {
+            format!(
+                "group-core = {{ package = \"{GROUP_CORE_PACKAGE}\", path = \"../group-core\" }}\n"
+            )
+        };
+        write(&format!("group-{name}/src/lib.rs"), source);
+        write(
+            &format!("group-{name}/Cargo.toml"),
+            &format!(
+                "[package]\nname = \"krs-configuration-cells-group-{name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nk = {{ package = \"krs\", path = {krs_literal} }}\n{dependency}\n[package.metadata.krs]\nk-namespace = \"KRS-GROUP-{}\"\n\n[package.metadata.krs.definitions.main]\n",
+                name.to_ascii_uppercase()
+            ),
+        );
+        if name != "core" {
+            write(&format!("group-{name}/kink/FLOW.toml"), GROUP_FLOW);
+            write(
+                &format!("group-{name}/kink/cases/count.prog"),
+                "inc ; inc ; done\n",
+            );
+            write(
+                &format!("group-{name}/kink/cases/store-load.prog"),
+                "inc ; inc ; store ( 7 ) ; inc ; load ( 7 ) ; done\n",
+            );
+            write(
+                &format!("group-{name}/kink/mutations/core.toml"),
+                GROUP_MUTATIONS,
+            );
+        }
+    }
+    write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"group-core\", \"group-small\", \"group-board\"]\nresolver = \"3\"\n",
+    );
+}
+
+/// `krs kink VERB ARGUMENTS` on the definition of `group-<name>`, composed with the group's.
+fn group_kink(
+    target: &Path,
+    workspace: &Path,
+    name: &str,
+    verb: &str,
+    arguments: &[&str],
+) -> Output {
+    let mut process = krs_command!();
+    fixture_build_env(&mut process, target);
+    process
+        .current_dir(workspace.join(format!("group-{name}")))
+        .args(["kink", verb])
+        .args(arguments)
+        .args([
+            "--package",
+            &format!("krs-configuration-cells-group-{name}"),
+            "--definition",
+            "main",
+            "--dependency",
+            &format!("{GROUP_CORE_PACKAGE}:main"),
+        ]);
+    process.output().unwrap()
+}
+
+/// A mutation of a rule the library writes for its cell group is one mutation of each definition
+/// that holds the group: the anchor `KRS-GROUP-CORE.reply` names the same sentence in `small`
+/// and in `board`, `check` names it by the library's Rust item and position, in the library's
+/// package, in both, and `run` kills it in both by the one program that loads through the bus,
+/// whatever cells each definition holds beside the group.
+#[test]
+fn a_mutation_of_a_group_rule_is_judged_in_every_definition_that_holds_the_group() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    group_workspace(temporary.path());
+    let mut named = Vec::new();
+    for name in ["small", "board"] {
+        let output = group_kink(target.path(), temporary.path(), name, "check", &[]);
+        assert_status(&output, 0);
+        let check = json(&output);
+        let rows = check["mutations"].as_array().unwrap();
+        assert_eq!(rows.len(), 1, "{name}: {check:#}");
+        let row = &rows[0];
+        assert_eq!(row["id"], "core/reply-adds", "{name}: {row:#}");
+        assert_eq!(row["outcome"], "ok", "{name}: {row:#}");
+        assert_eq!(row["refusals"], serde_json::json!([]), "{name}: {row:#}");
+        assert_eq!(row["warnings"], serde_json::json!([]), "{name}: {row:#}");
+        let rules = row["rules"].as_array().unwrap();
+        assert_eq!(rules.len(), 1, "{name}: {row:#}");
+        let rule = &rules[0];
+        assert_eq!(rule["label"], "KRS-GROUP-CORE.reply", "{name}: {rule:#}");
+        assert_eq!(rule["module"], "KRS-GROUP-CORE", "{name}: {rule:#}");
+        assert_eq!(
+            rule["krs"],
+            serde_json::json!({
+                "item": "reply",
+                "package": GROUP_CORE_PACKAGE,
+                "file": "src/lib.rs",
+                "line": line_of(GROUP_CORE, "    reply: {"),
+                "column": 5,
+                "kind": "rule",
+                "claim_helper": false,
+            }),
+            "{name}: {rule:#}"
+        );
+        // The Rust the edit stands for is the library's `acc` entry. An edit's Rust lies in the
+        // item of the rule that lists the edit (`rules[].edits`), so its file is relative to that
+        // rule's package (`rules[].krs.package`): here the library's, not the selected
+        // definition's.
+        let edits = row["krs"]["edits"].as_array().unwrap();
+        assert_eq!(edits.len(), 1, "{name}: {row:#}");
+        let holder = rules
+            .iter()
+            .filter(|rule| {
+                rule["edits"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&edits[0]["edit"])
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(holder, [rule], "{name}: {row:#}");
+        let rust = edits[0]["rust"].as_array().unwrap();
+        assert_eq!(rust.len(), 1, "{name}: {row:#}");
+        assert_eq!(
+            (&rule["krs"]["package"], &rust[0]["file"]),
+            (
+                &serde_json::json!(GROUP_CORE_PACKAGE),
+                &serde_json::json!("src/lib.rs")
+            ),
+            "{name}: {row:#}"
+        );
+        assert_eq!(rust[0]["text"], "acc", "{name}: {row:#}");
+        assert_eq!(
+            rust[0]["line"].as_u64(),
+            Some(line_of(GROUP_CORE, "        acc: _,")),
+            "{name}: {row:#}"
+        );
+        named.push((
+            rule["before"].clone(),
+            rule["after"].clone(),
+            row["krs"].clone(),
+        ));
+    }
+    // The emitted rule, its edit and their Rust are the same in both definitions.
+    assert_eq!(named[0], named[1]);
+
+    for name in ["small", "board"] {
+        let output = group_kink(target.path(), temporary.path(), name, "run", &["--full"]);
+        assert_status(&output, 0);
+        let document = json(&output);
+        let verdicts = document["mutations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                (
+                    row["id"].as_str().unwrap(),
+                    row["status"].as_str().unwrap(),
+                    strings(&row["killed_by"]),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            verdicts,
+            [("core/reply-adds", "killed", vec!["store-load"])],
+            "{name}: {document:#}"
+        );
+    }
 }

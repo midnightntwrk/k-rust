@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Configuration-cells feature gate: rules that leave `k` out (KF-015),
-whole nested-cell variables (KF-016), and optional cells and cell
-collections (KF-023).
+whole nested-cell variables (KF-016), optional cells and cell collections
+(KF-023), and rules typed by a cell group that a library declares.
 
 Each fixture package runs natively through k-rust and through Java K, and
 the outcomes must agree:
@@ -59,6 +59,21 @@ the outcomes must agree:
   computation cell out, removes the front instance `[Job { payload: 0 }, ..]`
   of the List collection; a search of `enqueue 4 enqueue 0 drop front`
   reaches `front` (retired first) and `0` (read first) on both routes;
+- `group-core`, `group-small` and `group-board`: rules for a cell group.
+  `group-core` declares the group `Core { k, pc, acc }`, the program syntax
+  and the rules typed by the group (`for Core`), and no configuration; its
+  `load` and `store` leave the open items `busRead(addr)` and
+  `busWrite(addr, value)` on the group's computation cell. `group-small`
+  holds the group in `Small { core, mem }` and resolves both items from
+  `mem`; `group-board` holds it in `Board { core, timer, mem }`, resolves
+  them alike and advances `timer` in the same step. Each definition emits the
+  library's modules with the same text apart from the configuration module
+  the main one imports, and its configuration holds the group's cells
+  beside its own: only `board`'s holds a `<timer>`. Both programs that
+  store and load end with an empty computation cell and the same `pc`, `acc`
+  and `mem` in both definitions on both routes, and `board`'s timer counts
+  the bus accesses; a load of an address `mem` does not map is stuck at
+  `busRead` in both;
 - negative fixtures: a rule without the computation cell whose only pattern
   is an unguarded variable (`krs::analysis::always-enabled-rule`), one
   that writes its cell back unchanged (`krs::analysis::rule-changes-no-cell`),
@@ -88,6 +103,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import re
 import shutil
 import sys
 import tempfile
@@ -415,6 +431,51 @@ QUEUE_K = (
     "    </queue>\n",
 )
 
+GROUP_CORE = "krs-configuration-cells-group-core"
+GROUP_SMALL = Fixture(MANIFEST, "krs-configuration-cells-group-small", dependencies=(f"{GROUP_CORE}:main",))
+GROUP_BOARD = Fixture(MANIFEST, "krs-configuration-cells-group-board", dependencies=(f"{GROUP_CORE}:main",))
+GROUP_MODULE = "KRS-GROUP-CORE"
+# Each program, the whole computation cell and the other cells it ends with in both
+# definitions, and `board`'s timer: one tick per `load` and `store` the bus answers. Each load
+# reads a value other than the accumulator it replaces, so a load that leaves the accumulator
+# unchanged ends differently; `overwrite` reads the second of two stores at one address, and
+# `unmapped` is stuck at the read of an address `mem` does not map, in both definitions.
+GROUP_RUNS = (
+    (
+        "store-load", "inc ; inc ; store ( 7 ) ; inc ; load ( 7 ) ; done", ".K",
+        (("pc", "5"), ("acc", "2"), ("mem", "7 |-> 2")), "2",
+    ),
+    (
+        "overwrite", "inc ; store ( 1 ) ; inc ; store ( 1 ) ; inc ; load ( 1 ) ; done", ".K",
+        (("pc", "6"), ("acc", "2"), ("mem", "1 |-> 2")), "3",
+    ),
+    (
+        "unmapped", "inc ; load ( 3 ) ; done", "busRead ( 3 ) ~> done",
+        (("pc", "2"), ("acc", "1"), ("mem", ".Map")), "0",
+    ),
+)
+GROUP_SMALL_PROGRAMS = tuple(
+    Program(name, text, "accepted", run, cells=cells, whole=True)
+    for name, text, run, cells, _ in GROUP_RUNS
+)
+GROUP_BOARD_PROGRAMS = tuple(
+    Program(name, text, "accepted", run, cells=(*cells, ("timer", timer)), whole=True)
+    for name, text, run, cells, timer in GROUP_RUNS
+)
+# The cells of each definition's configuration, in order, and the group's own, the same text in
+# both.
+GROUP_CELLS = {
+    "krs-configuration-cells-group-small": ("core", "k", "pc", "acc", "mem"),
+    "krs-configuration-cells-group-board": ("core", "k", "pc", "acc", "timer", "mem"),
+}
+GROUP_CORE_CELLS = (
+    "    <core>\n"
+    "      <k> $PGM:Prog </k>\n"
+    "      <pc> 0 </pc>\n"
+    "      <acc> 0 </acc>\n"
+    "    </core>\n"
+)
+
 NEGATIVE = (
     "unguarded-framed-rule",
     "identity-framed-rule",
@@ -540,6 +601,67 @@ def verify_emitted(harness: FixtureGate, fixture: Fixture, texts: tuple[str, ...
     return emitted
 
 
+def modules(source: str) -> dict[str, str]:
+    """The body of each module of an emitted definition, by name."""
+
+    return {
+        match.group(1): match.group(2)
+        for match in re.finditer(r"^module (\S+)\n(.*?)^endmodule$", source, re.MULTILINE | re.DOTALL)
+    }
+
+
+def library_modules(source: str, configuration: str) -> dict[str, str]:
+    """The emitted modules of the group's library, without the main one's import of `configuration`'s module."""
+
+    library = {
+        name: body for name, body in modules(source).items()
+        if name == GROUP_MODULE or name.startswith(f"{GROUP_MODULE}-")
+    }
+    if set(library) != {GROUP_MODULE, f"{GROUP_MODULE}-SYNTAX"}:
+        raise GateError(f"the library's modules are {sorted(library)}, not {GROUP_MODULE} and its syntax:\n{source}")
+    imported = f"  imports {configuration}\n"
+    if imported not in library[GROUP_MODULE]:
+        raise GateError(f"{GROUP_MODULE} does not import {configuration}:\n{library[GROUP_MODULE]}")
+    library[GROUP_MODULE] = library[GROUP_MODULE].replace(imported, "", 1)
+    return library
+
+
+def configuration_text(source: str, configuration: str) -> str:
+    """The `configuration` declaration of the module `configuration`."""
+
+    body = modules(source).get(configuration, "")
+    match = re.search(r"^  configuration\n(.*)", body, re.MULTILINE | re.DOTALL)
+    if match is None:
+        raise GateError(f"no configuration in module {configuration}:\n{source}")
+    return match.group(1)
+
+
+def verify_group(harness: FixtureGate) -> None:
+    library = {}
+    for fixture, configuration, programs in (
+        (GROUP_SMALL, "KRS-GROUP-SMALL-CONFIGURATION", GROUP_SMALL_PROGRAMS),
+        (GROUP_BOARD, "KRS-GROUP-BOARD-CONFIGURATION", GROUP_BOARD_PROGRAMS),
+    ):
+        harness.check(fixture)
+        harness.expand(fixture)
+        emitted = harness.emit(fixture)
+        source = emitted.source.read_text(encoding="utf-8")
+        library[fixture.package] = library_modules(source, configuration)
+        cells = configuration_text(source, configuration)
+        declared = tuple(re.findall(r"<([a-z][\w-]*)>", cells))
+        if declared != GROUP_CELLS[fixture.package] or GROUP_CORE_CELLS not in cells:
+            raise GateError(
+                f"{fixture.package}: the configuration does not hold the cells {GROUP_CELLS[fixture.package]}, "
+                f"the group's as declared:\n{cells}"
+            )
+        harness.compare(emitted, programs, sort="Prog")
+    if library[GROUP_SMALL.package] != library[GROUP_BOARD.package]:
+        raise GateError(
+            "the group's modules differ between its definitions:\n"
+            + json.dumps(library, indent=2)
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--record", action="store_true", help="run the gate and rewrite the output pins it measured")
@@ -590,6 +712,12 @@ def main() -> int:
         print(
             "PASS queue: enqueue appends at the back and dequeue removes the front, first in first out; "
             "brackets read by the cell's declared type"
+        )
+
+        verify_group(harness)
+        print(
+            "PASS group: the library's rules for Core run in small and board alike, each resolving the bus "
+            "with its own rules; only board's timer counts the bus accesses; an unmapped load is stuck at busRead"
         )
 
         for name in NEGATIVE:

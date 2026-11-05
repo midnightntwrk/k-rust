@@ -5,9 +5,11 @@
 //! oracle read (`krs_syntax::ConfigurationCell`), must give each cell the same `CellKind`. This
 //! compares them over the class matrix's bases and the configuration-cells fixture packages,
 //! whose cells hold every kind: plain, Map, List and cons-list leaves, computations, groups,
-//! optional leaves and groups, and List, Set and Map collections. The ports are compared by
-//! `krs-ports-emit` (`krs-gate cell-kinds`).
+//! optional leaves and groups, and List, Set and Map collections. A fixture library another
+//! fixture package depends on, such as a cell group with no configuration, is compared in the
+//! definitions that hold it. The ports are compared by `krs-ports-emit` (`krs-gate cell-kinds`).
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -15,20 +17,26 @@ use krs_ir::{DescriptorBundle, DescriptorIndex};
 use krs_test_support::class_matrix::Base;
 use krs_test_support::{fixture_build_env, krs_command, shared_fixture_target, temp_dir};
 
-/// Emits the `main` definition of the package at `manifest` and returns its descriptor bundle.
+/// Emits the `main` definition of the package at `manifest`, composed with the `main` definition
+/// of each package of `dependencies`, and returns its descriptor bundle.
 fn emitted_bundle(
     target: &Path,
     manifest: &Path,
     package: &str,
+    dependencies: &[String],
     output: &Path,
 ) -> DescriptorBundle {
     let mut process = krs_command!();
     fixture_build_env(&mut process, target);
-    let emitted = process
+    process
         .args(["emit-k", "--ir", "--manifest-path"])
         .arg(manifest)
         .args(["--package", package, "--definition", "main", "--output"])
-        .arg(output)
+        .arg(output);
+    for dependency in dependencies {
+        process.args(["--dependency", &format!("{dependency}:main")]);
+    }
+    let emitted = process
         .env("NO_COLOR", "1")
         .env("KRS_STAGE_CACHE_DIR", target.join("stages"))
         .output()
@@ -87,6 +95,7 @@ fn every_class_base_cell_has_one_kind_collected_and_parsed() {
             target.path(),
             &manifest,
             &name,
+            &[],
             &temporary.path().join(format!("{name}-emitted")),
         );
         let cells = agree(&name, &bundle, &[source]);
@@ -96,6 +105,52 @@ fn every_class_base_cell_has_one_kind_collected_and_parsed() {
     assert!(compared > 0, "the bases declare cells");
 }
 
+/// The fixture packages, by directory name, that the fixture package in `directory` depends on by
+/// path: each dependency whose path is a sibling directory of `packages`.
+fn fixture_dependencies(packages: &Path, directory: &Path) -> Vec<String> {
+    let manifest = fs::read_to_string(directory.join("Cargo.toml"))
+        .unwrap()
+        .parse::<toml_edit::DocumentMut>()
+        .unwrap();
+    let Some(dependencies) = manifest
+        .get("dependencies")
+        .and_then(toml_edit::Item::as_table_like)
+    else {
+        return Vec::new();
+    };
+    let mut names = dependencies
+        .iter()
+        .filter_map(|(_, dependency)| {
+            let path = directory.join(dependency.get("path")?.as_str()?);
+            let path = path.canonicalize().ok()?;
+            (path.parent()? == packages).then(|| path.file_name()?.to_str().map(str::to_owned))?
+        })
+        .collect::<Vec<_>>();
+    names.sort();
+    names
+}
+
+/// The Rust sources under `directory`'s `src`.
+fn package_sources(directory: &Path) -> Vec<String> {
+    let mut sources = Vec::new();
+    let mut paths = vec![directory.join("src")];
+    while let Some(path) = paths.pop() {
+        for entry in fs::read_dir(path).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                paths.push(path);
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                sources.push(fs::read_to_string(path).unwrap());
+            }
+        }
+    }
+    sources
+}
+
+/// Every fixture package's cells, each compared in the definition of a package that is no other
+/// fixture package's dependency. A library another package depends on is compared in each such
+/// definition that holds it, with the library's sources beside the package's own, and is not
+/// emitted on its own: a library of rules for a cell group declares no configuration.
 #[test]
 fn every_configuration_cells_fixture_cell_has_one_kind_collected_and_parsed() {
     let target = shared_fixture_target();
@@ -110,31 +165,46 @@ fn every_configuration_cells_fixture_cell_has_one_kind_collected_and_parsed() {
         .collect::<Vec<_>>();
     names.sort();
     assert!(!names.is_empty());
-    for name in names {
-        let directory = packages.join(&name);
+    let dependencies = names
+        .iter()
+        .map(|name| {
+            (
+                name.clone(),
+                fixture_dependencies(&packages, &packages.join(name)),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let libraries = dependencies.values().flatten().collect::<BTreeSet<_>>();
+    let mut held = BTreeSet::new();
+    for name in &names {
+        if libraries.contains(name) {
+            continue;
+        }
+        let directory = packages.join(name);
         let package = format!("krs-configuration-cells-{name}");
         let bundle = emitted_bundle(
             target.path(),
             &directory.join("Cargo.toml"),
             &package,
-            &temporary.path().join(&name),
+            &dependencies[name]
+                .iter()
+                .map(|dependency| format!("krs-configuration-cells-{dependency}"))
+                .collect::<Vec<_>>(),
+            &temporary.path().join(name),
         );
-        let mut sources = Vec::new();
-        let mut paths = vec![directory.join("src")];
-        while let Some(path) = paths.pop() {
-            for entry in fs::read_dir(path).unwrap() {
-                let path = entry.unwrap().path();
-                if path.is_dir() {
-                    paths.push(path);
-                } else if path.extension().is_some_and(|extension| extension == "rs") {
-                    sources.push(fs::read_to_string(path).unwrap());
-                }
-            }
+        let mut sources = package_sources(&directory);
+        for dependency in &dependencies[name] {
+            sources.extend(package_sources(&packages.join(dependency)));
+            held.insert(dependency);
         }
-        let cells = agree(&name, &bundle, &sources);
+        let cells = agree(name, &bundle, &sources);
         assert!(cells > 0, "{name} declares cells");
         println!("{name}: {cells} cells agree");
     }
+    assert_eq!(
+        held, libraries,
+        "every library is compared in a definition that holds it"
+    );
 }
 
 /// A configuration whose `saved` cell is an explicit `Cell<KSequence>`: a leaf of sort `K`,
@@ -191,6 +261,7 @@ fn an_explicit_cell_of_ksequence_is_a_leaf_in_both_views() {
         target.path(),
         &manifest,
         name,
+        &[],
         &temporary.path().join("emitted"),
     );
     assert_eq!(agree(name, &bundle, &[EXPLICIT_WRAPPERS.to_owned()]), 3);

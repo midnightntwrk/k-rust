@@ -159,6 +159,10 @@ class Program:
 
     The text is the pretty-printed cell content with whitespace runs collapsed
     to one space; it is compared only for a program with a `run` expectation."""
+    whole: bool = False
+    """When set, the native route requires `run` to be the whole final computation
+    cell, as the Java route reads it from `krun`'s output, instead of its first
+    item: for a run that stops with more than one item left."""
 
 
 @dataclass
@@ -665,8 +669,8 @@ def _native_outcome(session: krs_gate.Session, program: Program) -> dict[str, An
         return {"parse": ACCEPTED, "run": "branches: " + ", ".join(reasons)}
     session.execute(pattern, keep=program.name)
     try:
-        if program.run == ".K":
-            session.expect(program.name, "k", text=".K")
+        if program.run == ".K" or program.whole:
+            session.expect(program.name, "k", text=program.run)
         else:
             session.expect(program.name, "k", head=program.run)
         actual = program.run

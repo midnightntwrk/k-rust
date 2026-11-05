@@ -1,6 +1,9 @@
 [workspace]
 members = [
     "packages/framing",
+    "packages/group-board",
+    "packages/group-core",
+    "packages/group-small",
     "packages/groups",
     "packages/objects",
     "packages/optional",
