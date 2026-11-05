@@ -11,7 +11,9 @@
 //! cell collection are in the collection's order; those of a `Set` or `Map` collection are a
 //! set, kept in the order of their canonical text (instances with equal texts, which only values
 //! with no document can have, in the order of the values), each once, so that two ends holding
-//! the same instances are equal.
+//! the same instances are equal. A `Map` collection is a map from key to instance: an instance's
+//! key is its first cell, which is the instance's identity, so an end holds at most one instance
+//! per key, and two ends' instances with one key are the same instance, compared cell by cell.
 //!
 //! [`Semantics::end_of`] reads a run's end and [`Semantics::ends_of`] a final-state search's
 //! ends. A run that halted inconclusively (`indeterminate`, `timeout`, `interrupted`,
@@ -57,13 +59,16 @@
 //!
 //! A document may state any subset of the cells ([`Semantics::read_end`]): a stated cell is
 //! decoded at its declared type, and a path the configuration does not declare is refused,
-//! listing the cells there. Whether a document states enough is a property of a comparison: a
-//! compared cell it does not state is refused, naming the cell and its type, and a cell it states
-//! that is not compared (an unobservable cell, or one a narrowing leaves out) is never read
-//! again. The refusal names an instance of a `List` collection by its index and an instance of a
-//! set collection by its canonical text (`objects.obj{{}}.oid`), as a difference does: an end is
-//! a value, which keeps no position in the document it was read from, and a set's instances have
-//! none. [`Semantics::end_document`] writes an end's document, which reads back as the end.
+//! listing the cells there. Two instances of a `Map` collection that state one key are refused,
+//! naming the key: a map holds one instance per key. Whether a document states enough is a
+//! property of a comparison: a compared cell it does not state is refused, naming the cell and
+//! its type, and a cell it states that is not compared (an unobservable cell, or one a narrowing
+//! leaves out) is never read again. The refusal names an instance as a difference does: an
+//! instance of a `List` collection by its index, one of a `Map` collection by its key
+//! (`procs.process[1].ticks`), and one of a `Set` collection by its canonical text
+//! (`objects.obj{{}}.oid`), as is a `Map` instance that does not state its key: an end is a value,
+//! which keeps no position in the document it was read from, and a set's instances have none.
+//! [`Semantics::end_document`] writes an end's document, which reads back as the end.
 //!
 //! # Compared cells
 //!
@@ -74,6 +79,13 @@
 //! `threads.thread.count`); a group's path names its leaves, the unobservable ones excepted.
 //! Naming an unobservable cell, or one inside an unobservable cell, is refused: such a cell has no
 //! observation to compare. The computation cell is a cell like any other.
+//!
+//! A comparison that compares a cell of a `Map` collection's instances compares the whole of
+//! their key, the instance's first cell: instances are paired by key, so without the key two
+//! instances could not be told apart, and their projections could merge into one. A comparison
+//! that compares some of an instance's cells but not all of its key is refused, naming the key,
+//! as one is whose key is, or holds, an unobservable cell, and so is a view at or inside a key,
+//! which could give two instances one key.
 //!
 //! An end *projected* onto the compared cells keeps its class and those cells: an optional cell
 //! holding a compared cell keeps whether it is present, and a repeated cell holding one keeps its
@@ -109,9 +121,12 @@
 //!   its nearest end of `R`, which needs `R` complete. The nearest end is the one with the fewest
 //!   differing compared leaves, the first in order among equals; differing classes count one.
 //!   A leaf held by both ends counts one when its values differ, a map's differing entries
-//!   counted one by one; content only one end holds (an optional cell's, an instance of a `List`
-//!   collection past the other's last, an instance of a set collection the other does not hold)
-//!   counts each compared leaf in it, since no leaf of the other end stands at its position.
+//!   counted one by one, and two instances of a `Map` collection with one key are compared as two
+//!   instances of a `List` collection at one index are, by their leaves; content only one end holds
+//!   (an optional cell's, an instance of a `List` collection past the other's last, an instance of
+//!   a `Map` collection at a key the other does not hold, an instance of a `Set` collection the
+//!   other does not hold) counts each compared leaf in it, since no leaf of the other end stands
+//!   at its position.
 //!   With no such end and both sets complete, they are equal; else the result is inconclusive.
 //!
 //! # The first difference
@@ -120,18 +135,26 @@
 //! cell tree): the first that differs is the difference's `cell`, and every other compared cell
 //! that differs is listed in `also_differ`, so that declaration order does not hide them. The
 //! instances of a `List` collection are compared index by index (`threads.thread[0].count`, the
-//! whole instance for an index past one side's end); in a set collection the difference is the
-//! first instance, by canonical text, that one side holds and the other does not
-//! (`threads.thread{<instance text>}`). An optional cell present on one side only differs as
-//! `[]` against `[content]`.
+//! whole instance for an index past one side's end); those of a `Map` collection key by key, in
+//! the order of the keys' canonical texts, each key written as a value map's key is
+//! (`procs.process[1].ticks`, `harts.hart["boot"].pc`, the whole instance for a key one side
+//! lacks), so `[2]` is a key in a `Map` collection as it is a position in a `List` collection;
+//! in a `Set` collection the difference is the first instance, by canonical text, that one side
+//! holds and the other does not (`objects.obj{<instance text>}`). An optional cell present on
+//! one side only differs as `[]` against `[content]`.
 //!
 //! Inside a leaf's value the difference descends while both sides are the same constructor (to
-//! its first differing field, `.zf` or `.0`), both maps (to the first differing key in the order
-//! of its canonical text at the key type, `["B"]` or `[49152]`, a side lacking the key showing
-//! null), both lists or both K sequences (to the first differing index, `[2]`, null past a side's
-//! end), and both sets (to the first element, by canonical text, that one holds and the other does
-//! not, `{<element text>}`, which ends the descent). The path is the cell's Rust field path
-//! followed by those segments: `f.zf`, `bus[2]`, `memory[5]`, `regs["B"]`.
+//! its first differing field, named as a position of the value's document names it, the
+//! constructor's name and the field's: `.Flags.zf`, `.Pair.0`, `$ctor(Pair).a` where the document
+//! writes the tagged form, and no further where the value has no document there), both maps (to
+//! the first differing key in the order of its canonical text at the key type, `["B"]` or
+//! `[49152]`, a side lacking the key showing null), both lists or both K sequences (to the first
+//! differing index, `[2]`, null past a side's end), and both sets (to the first element, by
+//! canonical text, that one holds and the other does not, `{<element text>}`, which ends the
+//! descent). The path is the cell's Rust field path followed by those segments: `f.Flags.zf`,
+//! `bus[2]`, `bus[0].Write.value`, `memory[5]`, `regs["B"]`. A path thus names what each part
+//! belongs to, and a segment is read by the declared type of the position it descends into, so a
+//! difference is read with its definition.
 //!
 //! Each side's value is shown as its canonical document at the type of its position; a value with
 //! no document there (an `Opaque` part, a parametric application) is shown whole as K text
@@ -157,7 +180,7 @@ use krs_ir::{CellCollectionType, CellMultiplicity};
 use serde::Serialize;
 use serde_json::{Map as JsonMap, Value as Json};
 
-use crate::encode::{EncodeError, canonical_text, encode};
+use crate::encode::{EncodeError, canonical_text, encode, field_position};
 use crate::inputs::{InputFiles, InputType, NoFiles, decode_value_in, input_type};
 use crate::report::{Halt, RunReport, SearchReport};
 use crate::values::{CellNode, SortRef, Value, ValueError, ValueIndex};
@@ -172,7 +195,16 @@ use krs_ir::BuiltinSort;
 /// `crate::finish`, `lang::step`, or a K label); a `krs-difference/1` document named it by the
 /// item's Rust path below its crate root (`finish`). A reader of `krs-difference/1` would read
 /// `crate::finish` as a path through a module `crate`, so the format took a version of its own.
-pub const DIFFERENCE_FORMAT: &str = "krs-difference/2";
+///
+/// `krs-difference/3` reads `path`, `cell` and `segments` differently from `krs-difference/2` in
+/// two places ([module documentation](crate::ends#the-first-difference)): a constructor's field
+/// is named with the constructor, as a position of the value's document names it (`f.Flags.zf`,
+/// `bus[0].Idles.count`, where version 2 wrote `f.zf` and `bus[0].count`); and an instance of a
+/// `Map` collection is named by its key and paired with the other side's instance of that key
+/// (`procs.process[1].ticks`, where version 2 wrote the instance's whole text and compared the
+/// instances as a set's). A reader of version 2 would take `.Flags` for a field and `[1]` for a
+/// `List` position, so the format takes the next version.
+pub const DIFFERENCE_FORMAT: &str = "krs-difference/3";
 
 /// The most characters of one value's text a [`Difference`] shows.
 pub const VALUE_CAP: usize = 2000;
@@ -408,12 +440,12 @@ pub struct Difference {
     pub format: &'static str,
     /// Whether the classes or a cell differ.
     pub at: DifferenceAt,
-    /// The differing cell's path, instances indexed (`threads.thread[0].count`); `None` at the
-    /// class.
+    /// The differing cell's path, instances indexed (`threads.thread[0].count`) or keyed
+    /// (`procs.process[1].ticks`); `None` at the class.
     pub cell: Option<String>,
     /// The cell's path followed by the segments; `None` at the class.
     pub path: Option<String>,
-    /// The segments inside the cell's value (`.zf`, `[2]`, `["B"]`, `{<text>}`).
+    /// The segments inside the cell's value (`.Flags.zf`, `[2]`, `["B"]`, `{<text>}`).
     pub segments: Vec<String>,
     /// The side whose end is outside the other's set (for an expectation, the actual side).
     pub outside: String,
@@ -446,11 +478,21 @@ pub enum EndError {
         /// The path as written.
         path: String,
     },
+    /// A comparison compares cells of a `Map` collection's instances but not the whole of their
+    /// key ([module documentation](crate::ends#compared-cells)).
+    UncomparedKey {
+        /// The collection's declared path.
+        collection: String,
+        /// The key cell's declared path.
+        key: String,
+        /// Whether the key is, or holds, an unobservable cell, which no comparison compares.
+        unobservable: bool,
+    },
     /// An end does not state a compared cell.
     MissingCell {
         /// The side's name.
         side: String,
-        /// The cell's path, instances indexed.
+        /// The cell's path, instances indexed or keyed.
         path: String,
         /// The cell's declared type, or what kind of cell it is.
         what: String,
@@ -500,6 +542,23 @@ impl fmt::Display for EndError {
                 formatter,
                 "the cell `{path}` is unobservable: no use of the definition may observe it, so it is never compared"
             ),
+            Self::UncomparedKey {
+                collection,
+                key,
+                unobservable,
+            } => {
+                write!(
+                    formatter,
+                    "the comparison compares cells of the Map collection `{collection}` but not the whole of its key `{key}`: a Map collection's instances are paired by their key, the instance's first cell and its identity, so a comparison of their cells compares the key"
+                )?;
+                if *unobservable {
+                    formatter.write_str(
+                        ", and the key is, or holds, an unobservable cell, which no comparison compares; leave the collection's cells out of the comparison",
+                    )
+                } else {
+                    write!(formatter, "; compare `{key}` too")
+                }
+            }
             Self::MissingCell { side, path, what } => write!(
                 formatter,
                 "the {side} end does not state the compared cell `{path}` ({what})"
@@ -619,6 +678,65 @@ fn describe(index: &ValueIndex, node: &CellNode) -> String {
 
 const fn is_list(node: &CellNode) -> bool {
     matches!(node.collection, Some(CellCollectionType::List))
+}
+
+/// The key cell of the instances of `node` when it is a `Map` collection: the instance's first
+/// cell, its identity; `None` for any other cell, and for a repeated leaf cell, which has no cell
+/// of its own (KRS declares every repeated cell as a group, and a repeated leaf cell's instances
+/// compare as a set's).
+fn map_key(node: &CellNode) -> Option<&CellNode> {
+    match (node.multiplicity, node.collection) {
+        (Some(CellMultiplicity::Star), Some(CellCollectionType::Map)) => node.children.first(),
+        _ => None,
+    }
+}
+
+/// The key of `instance`, an instance of the cell `node`: its key cell's content, where `node`
+/// is a `Map` collection and the instance states its key.
+fn instance_key<'e>(node: &CellNode, instance: &'e EndCell) -> Option<&'e EndCell> {
+    let key = map_key(node)?;
+    let EndCell::Group(cells) = instance else {
+        return None;
+    };
+    cells.get(&key.field)
+}
+
+/// Whether the selection of `node` compares every leaf at or below it.
+fn whole(selection: &Selection, node: &CellNode) -> bool {
+    if node.children.is_empty() {
+        selection.compared
+    } else {
+        selection
+            .children
+            .iter()
+            .zip(&node.children)
+            .all(|(selection, child)| whole(selection, child))
+    }
+}
+
+/// Whether `node` is, or holds, an unobservable cell.
+fn holds_unobservable(node: &CellNode) -> bool {
+    node.unobservable || node.children.iter().any(holds_unobservable)
+}
+
+/// Refuse a selection that compares a cell of a `Map` collection's instances but not the whole of
+/// their key ([module documentation](crate::ends#compared-cells)).
+fn check_keys(nodes: &[CellNode], selection: &[Selection], prefix: &str) -> Result<(), EndError> {
+    for (node, selected) in nodes.iter().zip(selection) {
+        let path = format!("{prefix}{}", node.field);
+        if selected.compared
+            && let Some(key) = map_key(node)
+            && !whole(&selected.children[0], key)
+        {
+            return Err(EndError::UncomparedKey {
+                key: format!("{path}.{}", key.field),
+                collection: path,
+                unobservable: holds_unobservable(key),
+            });
+        }
+        check_keys(&node.children, &selected.children, &format!("{path}."))?;
+    }
+    Ok(())
 }
 
 fn tagged(name: &str, body: Json) -> Json {
@@ -978,6 +1096,22 @@ impl Lens<'_> {
                 .unwrap_or(Json::Null),
         )
     }
+
+    /// The text that names an instance of the `Map` collection `node` by its key `key` in a path
+    /// and orders it among the collection's keys (`2`, `"boot"`): a leaf key's text as a value
+    /// map's key segment writes it, at the key cell's declared type; a group key's canonical text.
+    fn key_text(&self, node: &CellNode, key: &EndCell) -> String {
+        let Some(key_node) = map_key(node) else {
+            unreachable!("only a Map collection's instances have keys")
+        };
+        match key {
+            EndCell::Leaf(value) => {
+                let (index, ty) = self.leaf(key_node);
+                self.value_text(index, value, &ty)
+            }
+            content => self.order_text(key_node, content),
+        }
+    }
 }
 
 impl Semantics {
@@ -1164,7 +1298,27 @@ impl Semantics {
                             )
                         })
                         .collect::<Result<Vec<_>, _>>()?;
-                    EndCell::Repeated(self.lens(&CellViews::default()).instances(node, instances))
+                    let no_views = CellViews::default();
+                    let lens = self.lens(&no_views);
+                    for (position, instance) in instances.iter().enumerate() {
+                        let Some(key) = instance_key(node, instance) else {
+                            continue;
+                        };
+                        if let Some(first) = instances[..position]
+                            .iter()
+                            .position(|other| instance_key(node, other) == Some(key))
+                        {
+                            return Err(EndError::Document {
+                                position: format!("cells.{path}[{position}]"),
+                                message: format!(
+                                    "the instance has the key {} of the instance at [{first}]: a Map collection holds one instance per key, its first cell `{}`",
+                                    lens.key_text(node, key),
+                                    node.children[0].field
+                                ),
+                            });
+                        }
+                    }
+                    EndCell::Repeated(lens.instances(node, instances))
                 }
             };
             cells.push((node.field.clone(), cell));
@@ -1374,13 +1528,15 @@ impl Semantics {
             ),
         };
         let selected = chosen.is_none();
-        Ok(build(
+        let selection = build(
             nodes,
             chosen.as_deref().unwrap_or(&[]),
             &mut Vec::new(),
             selected,
             false,
-        ))
+        );
+        check_keys(nodes, &selection, "")?;
+        Ok(selection)
     }
 
     /// [`Self::selection`] of `comparison`, whose views must have been resolved for this
@@ -1409,7 +1565,35 @@ impl Semantics {
                 message: "the comparison does not compare the cell, so the view would change nothing it decides".to_owned(),
             });
         }
+        for (cell, function) in &named {
+            if let Some(collection) = self.keyed_by(cell)? {
+                return Err(EndError::View {
+                    cell: cell.clone(),
+                    function: function.clone(),
+                    message: format!(
+                        "the cell is, or is inside, the key of the Map collection `{collection}`, its instances' identity: the instances are paired by key, and a view of the key could give two instances one key"
+                    ),
+                });
+            }
+        }
         Ok(selection)
+    }
+
+    /// The declared path of the `Map` collection whose key the cell at the declared `path` is, or
+    /// is inside, if any.
+    fn keyed_by(&self, path: &str) -> Result<Option<String>, EndError> {
+        let chain = self.resolve_cell(path)?;
+        let mut nodes = self.values.cells();
+        let mut fields = Vec::new();
+        for (depth, position) in chain.iter().enumerate() {
+            let node = &nodes[*position];
+            fields.push(node.field.as_str());
+            if map_key(node).is_some() && chain.get(depth + 1) == Some(&0) {
+                return Ok(Some(fields.join(".")));
+            }
+            nodes = &node.children;
+        }
+        Ok(None)
     }
 
     /// The positions in the cell tree of the cell at the declared `path`.
@@ -1520,9 +1704,10 @@ impl Lens<'_> {
                     })
                 }
                 (Some(CellMultiplicity::Star), EndCell::Repeated(instances)) => {
-                    // A `List` collection's instance is named by its index, a set collection's
-                    // by its canonical text, as a difference names it; the instance is the end's
-                    // own, not yet viewed, so it is named without the views.
+                    // A `List` collection's instance is named by its index, a `Map` collection's
+                    // by its key, a set collection's (and a `Map` instance that does not state
+                    // its key) by its canonical text, as a difference names it; the instance is
+                    // the end's own, not yet viewed, so it is named without the views.
                     let no_views = CellViews::default();
                     let unviewed = self.semantics.lens(&no_views);
                     let instances = instances
@@ -1531,6 +1716,8 @@ impl Lens<'_> {
                         .map(|(position, instance)| {
                             let at = if is_list(node) {
                                 format!("{path}[{position}]")
+                            } else if let Some(key) = instance_key(node, instance) {
+                                format!("{path}[{}]", unviewed.key_text(node, key))
                             } else {
                                 format!("{path}{{{}}}", unviewed.order_text(node, instance))
                             };
@@ -1626,37 +1813,108 @@ impl Lens<'_> {
                         }
                     }
                 }
-                (EndCell::Repeated(a), EndCell::Repeated(b)) => {
-                    let alone = a
-                        .iter()
-                        .filter(|instance| !b.contains(instance))
-                        .chain(b.iter().filter(|instance| !a.contains(instance)))
-                        .collect::<Vec<_>>();
-                    let weight = alone.iter().map(|instance| leaves(instance)).sum();
-                    let only = alone
-                        .into_iter()
-                        .map(|instance| (self.order_text(node, instance), instance))
-                        .min_by(|(x, xi), (y, yi)| {
-                            x.as_bytes().cmp(y.as_bytes()).then_with(|| xi.cmp(yi))
-                        });
-                    if let Some((text, instance)) = only {
-                        let held = |side: &[EndCell]| {
-                            side.contains(instance)
-                                .then_some(Part::Instance(node, instance))
-                        };
-                        output.push(Unit {
-                            cell: path,
-                            segments: vec![format!("{{{text}}}")],
-                            ty: InputType::untyped(),
-                            index: self.semantics.values.as_ref(),
-                            left: held(a.as_slice()),
-                            right: held(b.as_slice()),
-                            weight,
-                        });
+                (EndCell::Repeated(a), EndCell::Repeated(b)) => match self.paired(node, a, b) {
+                    Some(pairs) => {
+                        for (text, a, b) in pairs {
+                            let path = format!("{path}[{text}]");
+                            match (a, b) {
+                                (Some(a), Some(b)) => self.content_units(node, a, b, path, output),
+                                (a, b) => output.push(Unit {
+                                    cell: path,
+                                    segments: Vec::new(),
+                                    ty: InputType::untyped(),
+                                    index: self.semantics.values.as_ref(),
+                                    left: a.map(|a| Part::Instance(node, a)),
+                                    right: b.map(|b| Part::Instance(node, b)),
+                                    weight: a.or(b).map_or(0, leaves),
+                                }),
+                            }
+                        }
                     }
-                }
+                    None => self.set_units(node, a, b, path, output),
+                },
                 (a, b) => self.content_units(node, a, b, path, output),
             }
+        }
+    }
+
+    /// The differing instances of two sides of the `Map` collection `node`, paired by key, in the
+    /// order of the keys' texts (keys with equal texts in the order of the keys), each with its
+    /// key's text and the instance each side holds there; `None` where `node` is no `Map`
+    /// collection of groups, or an instance does not state its key, or a side holds two
+    /// instances with one key, which a projected end of the definition does not.
+    #[expect(
+        clippy::type_complexity,
+        reason = "a key's text and the instance each side holds there"
+    )]
+    fn paired<'e>(
+        &self,
+        node: &CellNode,
+        left: &'e [EndCell],
+        right: &'e [EndCell],
+    ) -> Option<Vec<(String, Option<&'e EndCell>, Option<&'e EndCell>)>> {
+        map_key(node)?;
+        let keyed = |side: &'e [EndCell]| {
+            let map = side
+                .iter()
+                .map(|instance| Some((instance_key(node, instance)?, instance)))
+                .collect::<Option<BTreeMap<_, _>>>()?;
+            (map.len() == side.len()).then_some(map)
+        };
+        let (left, right) = (keyed(left)?, keyed(right)?);
+        let mut pairs = left
+            .keys()
+            .chain(right.keys().filter(|key| !left.contains_key(*key)))
+            .filter_map(|key| {
+                let (a, b) = (left.get(key).copied(), right.get(key).copied());
+                (a != b).then(|| (self.key_text(node, key), *key, a, b))
+            })
+            .collect::<Vec<_>>();
+        pairs.sort_by(|(x, xk, ..), (y, yk, ..)| {
+            x.as_bytes().cmp(y.as_bytes()).then_with(|| xk.cmp(yk))
+        });
+        Some(
+            pairs
+                .into_iter()
+                .map(|(text, _, a, b)| (text, a, b))
+                .collect(),
+        )
+    }
+
+    /// The difference of two sides of the set collection `node`: the first instance, by canonical
+    /// text, that one side holds and the other does not.
+    fn set_units<'e>(
+        &'e self,
+        node: &'e CellNode,
+        a: &'e [EndCell],
+        b: &'e [EndCell],
+        path: String,
+        output: &mut Vec<Unit<'e>>,
+    ) {
+        let alone = a
+            .iter()
+            .filter(|instance| !b.contains(instance))
+            .chain(b.iter().filter(|instance| !a.contains(instance)))
+            .collect::<Vec<_>>();
+        let weight = alone.iter().map(|instance| leaves(instance)).sum();
+        let only = alone
+            .into_iter()
+            .map(|instance| (self.order_text(node, instance), instance))
+            .min_by(|(x, xi), (y, yi)| x.as_bytes().cmp(y.as_bytes()).then_with(|| xi.cmp(yi)));
+        if let Some((text, instance)) = only {
+            let held = |side: &[EndCell]| {
+                side.contains(instance)
+                    .then_some(Part::Instance(node, instance))
+            };
+            output.push(Unit {
+                cell: path,
+                segments: vec![format!("{{{text}}}")],
+                ty: InputType::untyped(),
+                index: self.semantics.values.as_ref(),
+                left: held(a),
+                right: held(b),
+                weight,
+            });
         }
     }
 
@@ -1790,10 +2048,15 @@ impl Lens<'_> {
                     else {
                         break;
                     };
+                    // The field is named as a position of the value's document names it; a value
+                    // with no document there has no such position, and is shown whole.
+                    let Some(segment) = field_position(index, left, &ty, position) else {
+                        break;
+                    };
                     let field_type = index
                         .info(a.decl())
                         .and_then(|info| info.field_types.get(position).cloned().flatten());
-                    segments.push(format!(".{}", a.fields()[position].0));
+                    segments.push(segment);
                     ty = field_type.unwrap_or_else(InputType::untyped);
                     left = &a.fields()[position].1;
                     right = &b.fields()[position].1;

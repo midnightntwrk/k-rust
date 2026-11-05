@@ -253,9 +253,13 @@ An expectation that is no end of the definition, or that leaves out a cell it is
 
 - `verdict`: `met`, `unmet` or `inconclusive`;
 - `case`: the case's name, in a document of named cases only;
-- `difference`: for `unmet` only, the first difference, a document that names its format (`format`, `krs-difference/2`), the expected end on its `left` side and the actual one on its `right`;
+- `difference`: for `unmet` only, the first difference, a document that names its format (`format`, `krs-difference/3`), the expected end on its `left` side and the actual one on its `right`;
 - `reason`: for `inconclusive` only, the reason as text;
 - `views` and `observer`: the views the comparison applied and the observer it evaluated them in, when the expectation names them.
+
+A difference names the first position where the ends differ by its `path`, which the human line prints too: the cell's Rust field path, an instance of a `List` collection by its index (`threads.thread[0].count`) and one of a `Map` collection by its key (`procs.process[1].ticks`, `harts.hart["boot"].pc`), followed by the segments inside the cell's value, each spelled as a position of the value's document spells it: a constructor's field with its constructor (`f.Flags.zf`, `bus[0].Idles.count`), a map's key and a list's index in brackets (`regs["B"]`, `bus[2]`).
+A `Map` collection is a map from key to instance, its key being the instance's first cell: two ends' instances with one key are the same instance, so a changed cell of one is one difference at its key, and a comparison that compares cells of the collection compares the whole of the key (one that leaves it out, or views it, is refused).
+Version 3 of the format reads `path` differently from version 2 in these two places, so it takes the next version: version 2 named a constructor's field without its constructor (`f.zf`), and named an instance of a `Map` collection by its whole text, comparing the instances as a set's.
 
 An expectation may compare a cell on what a view of it gives rather than on its whole value: `views` names, per compared cell, a function of one parameter, which the comparison applies to the expected and to the actual value alike, so the expected value is the cell's, not the view's.
 The views are evaluated in the definition the case runs on, or in the definition `observer` names, `PACKAGE:DEFINITION` as `--dependency` names one: a package of the workspace that depends on the definition's package and that no semantics imports, so that editing a view changes neither the definition, nor its rules, nor anything keyed by it (the section [Expectations](#expectations) below states the rule).
@@ -601,7 +605,7 @@ as does one that ends short of a value after the solver answered a query `Unknow
 Against the ends of the case's run, the expectation is
 *met* when every end agrees with it on the halt and on the compared cells;
 *unmet* when an end does not, which is reported with the first difference
-(`Difference`, `krs-difference/2`, which names the views it applied);
+(`Difference`, `krs-difference/3`, which names the views it applied);
 and *inconclusive* when no end can be compared,
 or every known end agrees but not every end is known.
 No end can be compared where
@@ -649,7 +653,7 @@ By default each record is the verdict's lines `krs run --case` prints, named by 
 A last line counts the verdicts.
 `--output json` prints one document per line instead, each naming its format, `"schema": "krs-cases/2"`:
 
-- a record per case: `case`, its id; `verdict`, `met`, `unmet`, `inconclusive`, `refused` or `ran`; `halt` and `steps`, when the case ran to a state; `difference`, for `unmet` (`krs-difference/2`); `reason`, for `inconclusive` and `refused`, and for `ran` with no end; and `views` and `observer`, when the expectation names them, whatever the verdict;
+- a record per case: `case`, its id; `verdict`, `met`, `unmet`, `inconclusive`, `refused` or `ran`; `halt` and `steps`, when the case ran to a state; `difference`, for `unmet` (`krs-difference/3`); `reason`, for `inconclusive` and `refused`, and for `ran` with no end; and `views` and `observer`, when the expectation names them, whatever the verdict;
 - then the summary, `{"schema": "krs-cases/2", "summary": {"cases", "met", "unmet", "inconclusive", "refused", "ran"}, "status"}`, `status` being the exit status.
 
 Version 2 of the format reads differently from version 1 in two places, so it takes the next version: a case that states no expectation and whose run has no one path is `ran`, with its `reason` and no `halt`, where version 1 recorded it `refused`; and the summary's `status` is the exit status of the four actions ([exit status](#exit-status)), under which a refused case gives 2, where version 1 gave 1.
@@ -685,7 +689,7 @@ An end document that leaves out a cell the comparison compares is refused, namin
 The side may be an end document: an end another implementation reached, checked against what the case expects.
 
 `krs compare` prints `krs compare: equal`, or the first difference as `krs run --case` prints an unmet expectation's: where the sides differ, each side's value labelled `left` and `right`, the other compared cells that differ, and the views it applied; with `--expect`, the lines of `krs run --case`.
-`--output json` prints one document instead, `{"schema": "krs-compare/1", "verdict", ...}`: `verdict` is `equal`, `differs` or `inconclusive` (`met`, `unmet` or `inconclusive` with `--expect`), with `difference` (`krs-difference/2`, the left side on its `left`) or `reason`, and `views` and `observer` when views were applied.
+`--output json` prints one document instead, `{"schema": "krs-compare/1", "verdict", ...}`: `verdict` is `equal`, `differs` or `inconclusive` (`met`, `unmet` or `inconclusive` with `--expect`), with `difference` (`krs-difference/3`, the left side on its `left`) or `reason`, and `views` and `observer` when views were applied.
 It exits by the verdict ([exit status](#exit-status)).
 
 ## The corpus loop
@@ -711,10 +715,10 @@ A claim helper (an equation of a function only claims apply) that no case matche
 A function nothing applies is reached by no program text either, but no claim accounts for it, so it stays `uncovered`.
 `results` lists a case in a rule's `matched_by` when kink's baseline run of the case, which follows every path, `matched` the rule, as `run --coverage` names the predicate, and in its `fired_by` when the run fired it: some path `committed` the rule's step, for a rewrite rule, or the run `applied` it, for an equation, whose application is no step; a case that is not `comparable` is listed under no rule.
 `--output verdicts` (for `results`, `run` and `report`) prints kink-flow's deterministic rendering, which names each rule by its item and gives each case the rules that list it as `matched` and `fired`.
-A kill's `difference` in a `run` document is in the format of every KRS difference, `krs-difference/2`, as an unmet [expectation](#expectations)'s is: the first differing cell by Rust field path and each side's value as its canonical document, `left` the baseline's end and `right` the mutant's, compared on the cells kink compares (every cell but the unobservable ones, or those of `[result] cells`).
+A kill's `difference` in a `run` document is in the format of every KRS difference, `krs-difference/3`, as an unmet [expectation](#expectations)'s is: the first differing cell by Rust field path and each side's value as its canonical document, `left` the baseline's end and `right` the mutant's, compared on the cells kink compares (every cell but the unobservable ones, or those of `[result] cells`).
 kink compares ends by their configuration alone, whichever way a path reached them, so a kill's difference compares no halt and its sides state no `class`; under `[stop]`, each of a program's `ends` says how the baseline's paths reached it (`halt`).
 A [case document](#case-documents) of named cases gives one case per name, whose id is the document's path, `#` and the name (`cases/runs.toml#reset`); kink runs every case as the corpus says (`[stop]`, `stop_count`, `[budget]`), so a case's `run` is refused.
-A case's `expect` is read as `krs run --case` reads it, a case whose expectation is no expectation of the definition is refused, and its row in `results`, `run` and `query` carries `expectation`: `met`, `unmet` with the first difference (`krs-difference/2`, `left` the expected end and `right` the baseline's), or `inconclusive` with why; `check` reads it from the case's stored result.
+A case's `expect` is read as `krs run --case` reads it, a case whose expectation is no expectation of the definition is refused, and its row in `results`, `run` and `query` carries `expectation`: `met`, `unmet` with the first difference (`krs-difference/3`, `left` the expected end and `right` the baseline's), or `inconclusive` with why; `check` reads it from the case's stored result.
 A baseline that misses its own expectation is a finding about the definition against the reference the case was written from: it is reported, and the case is kept, since each of its kills is still a difference from the baseline, so no status or exit status depends on it.
 Under `[stop]` an end kink keeps is stuck or stopped at a rule of the stop, and the ends do not say which, so the halt of an expectation of either is not observed: ends that differ from it on the compared cells make it unmet, and ends that agree on them inconclusive, since met is agreement on the halt as well (the expectation's `detail` says so); an expectation of another halt, which no end has, is unmet at the class; an expectation of an end stopped at a rule the corpus does not stop at, or of a `depth-bound` end, is inconclusive.
 Where that comparison shows no difference (it cannot read an end, for one), the evidence is kink-flow's own (`kink-k/1`: cells by K label, values as K text), with a `note` saying why.

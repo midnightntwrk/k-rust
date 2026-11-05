@@ -102,7 +102,7 @@
 //! K definition kink judges. A front end that reads the definition's ends at its own level sets an
 //! [`EndRenderer`] on the manifest (`FlowManifest::with_end_renderer`), and the evidence of a kill
 //! is then the renderer's document, in the renderer's format (the krs front end's is
-//! `krs-difference/2`, the document of krs-exec's comparison of ends: cells by Rust field path
+//! `krs-difference/3`, the document of krs-exec's comparison of ends: cells by Rust field path
 //! and values as their canonical documents). The renderer is given what kink's own evidence
 //! compares: the two sets of projected ends, whether the mutant's is complete, and the cells the
 //! slot leaves out, whose positions hold the projection's placeholder and so state nothing. It

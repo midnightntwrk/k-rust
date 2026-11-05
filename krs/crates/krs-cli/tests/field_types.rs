@@ -267,7 +267,7 @@ fn a_difference_below_a_field_or_a_view_result_names_the_key_at_its_type() {
                 )
                 .unwrap(),
         );
-        assert_eq!(difference.path.as_deref(), Some(r#"snap.regs["B"]"#));
+        assert_eq!(difference.path.as_deref(), Some(r#"snap.Cpu.regs["B"]"#));
         // Below a view's result, a map keyed by a constructor.
         let named = BTreeMap::from([("snap".to_owned(), "Registers".to_owned())]);
         let mut views = semantics.cell_views(semantics, &named).unwrap();

@@ -19,8 +19,8 @@ use serde::{Deserialize, Serialize, Serializer};
 /// versions](crate#report-versions)).
 ///
 /// A run document's stop rule names its item with the package that declares it, as a stop names
-/// an item ([`NamedRule::item`]: `crate::boundary`), and the difference of its expectation is a
-/// `krs-difference/2` document ([`crate::DIFFERENCE_FORMAT`]); a `krs-exec/1` run document named
+/// an item ([`NamedRule::item`]: `crate::boundary`), and the difference of its expectation names
+/// its own format (`format`, [`crate::DIFFERENCE_FORMAT`]); a `krs-exec/1` run document named
 /// the item by its Rust path below its crate root (`boundary`). A reader of `krs-exec/1` would
 /// read `crate::boundary` as a path through a module `crate`, so a run document is a format of
 /// its own version.

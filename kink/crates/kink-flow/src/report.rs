@@ -513,7 +513,7 @@ fn slot_sides(
 }
 
 /// A distinguishing slot's sides read from a kill's `difference` ([`slots_value`]): kink's own
-/// evidence names each side's count and classes, a front end's evidence (`krs-difference/2`,
+/// evidence names each side's count and classes, a front end's evidence (`krs-difference/3`,
 /// sides `left` and `right`) each side's count of ends (`ends`) and whether it is complete. A
 /// front end's evidence is given only where both sides have an end (`crate::evidence`), so the
 /// exit stop, which under the flow's classifier distinguishes only a side with no end from one

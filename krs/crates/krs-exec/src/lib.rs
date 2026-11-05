@@ -1544,9 +1544,9 @@ impl Semantics {
         };
         self.check_stated(&comparison, &end, "expected")
             .map_err(|error| match &error {
-                EndError::UnknownCell { .. } | EndError::Unobservable { .. } => {
-                    refuse("compare", &error.to_string())
-                }
+                EndError::UnknownCell { .. }
+                | EndError::Unobservable { .. }
+                | EndError::UncomparedKey { .. } => refuse("compare", &error.to_string()),
                 _ => refuse("cells", &error.to_string()),
             })?;
         Ok(Expectation {

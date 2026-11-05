@@ -1,7 +1,8 @@
 //! `krs-exec` ends and their comparison on an authored definition: a run's and a search's ends
 //! read by Rust field path (stopped, undefined and depth-bound ends included), end documents
 //! written and read back, the compared cells (unobservable ones left out, narrowing), the first
-//! difference's path and values (a value with no document shown as K text), the rules for sets
+//! difference's path and values (a value with no document shown as K text, a constructor's field
+//! named with its constructor, a `Map` collection's instances paired by key), the rules for sets
 //! of ends, and what is no end: an inconclusive run and a constrained state.
 //!
 //! The fixture (`fixtures/ends`) copies every configuration variable into its own cell, so a run
@@ -47,6 +48,120 @@ pub mod krs_exec_ends_fixture {
     }
 }
 ";
+
+/// A definition of `Map` collections keyed by an `Int` (`harts.hart`, by `id`), a `String`
+/// (`names.entry`, by `name`) and a constructor (`banks.bank`, by `reg`), and one whose key is
+/// unobservable (`ghosts.ghost`, by `gid`), for the pairing of instances by key.
+const KEYED: &str = r#"//! `Map` collections keyed by an `Int`, a `String`, a constructor, and an unobservable key.
+
+use k::KResult;
+use k::builtin::{Int, KSequence, String};
+
+k::sorts! {
+    Reg;
+    Stmt;
+}
+
+#[k::constructors(sort = Reg, result = KResult)]
+#[k::precedence((A, B))]
+#[rustfmt::skip]
+pub enum Register {
+    #[k::syntax("a")] A,
+    #[k::syntax("b")] B,
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+#[rustfmt::skip]
+pub enum Cmd {
+    #[k::syntax("halt")] Halt,
+}
+
+#[k::cell]
+pub struct Harts {
+    #[k::cell(multiplicity = "*", cell_type = "Map", nested)]
+    pub hart: Hart,
+}
+
+#[k::cell]
+pub struct Hart {
+    #[k::cell]
+    pub id: Int,
+    #[k::cell]
+    pub pc: Int,
+    #[k::cell]
+    pub ra: Int,
+}
+
+#[k::cell]
+pub struct Names {
+    #[k::cell(multiplicity = "*", cell_type = "Map", nested)]
+    pub entry: Entry,
+}
+
+#[k::cell]
+pub struct Entry {
+    #[k::cell]
+    pub name: String,
+    #[k::cell]
+    pub n: Int,
+}
+
+#[k::cell]
+pub struct Banks {
+    #[k::cell(multiplicity = "*", cell_type = "Map", nested)]
+    pub bank: Bank,
+}
+
+#[k::cell]
+pub struct Bank {
+    #[k::cell]
+    pub reg: Reg,
+    #[k::cell]
+    pub value: Int,
+}
+
+#[k::cell]
+pub struct Ghosts {
+    #[k::cell(multiplicity = "*", cell_type = "Map", nested)]
+    pub ghost: Ghost,
+}
+
+#[k::cell]
+pub struct Ghost {
+    #[k::cell(unobservable)]
+    pub gid: Int,
+    #[k::cell]
+    pub v: Int,
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell(nested)]
+    pub harts: Harts,
+    #[k::cell(nested)]
+    pub names: Names,
+    #[k::cell(nested)]
+    pub banks: Banks,
+    #[k::cell(nested)]
+    pub ghosts: Ghosts,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(#[k::config_var(name = "PGM", main)] pgm: Stmt) -> Self {
+        Self {
+            k: k::k![pgm],
+            harts: Harts { hart: Hart { id: 0, pc: 0, ra: 0 } },
+            names: Names { entry: Entry { name: "", n: 0 } },
+            banks: Banks { bank: Bank { reg: Register::A, value: 0 } },
+            ghosts: Ghosts { ghost: Ghost { gid: 0, v: 0 } },
+        }
+    }
+}
+"#;
+const KEYED_PACKAGE: &str = "krs-exec-ends-keyed-fixture";
 
 /// The Cargo manifest of a fixture package named `name`, with `dependencies` and a `[workspace]`
 /// table when it stands alone.
@@ -190,9 +305,27 @@ fn shadow_compiled() -> &'static (DefinitionIr, CompiledStage) {
     })
 }
 
-/// Run `test` on the fixture's semantics, on a thread with the stack every `krs-exec` operation
-/// needs.
-fn with_semantics(test: impl FnOnce(&mut Semantics) + Send) {
+/// The keyed fixture's Definition IR and compiled stage ([`KEYED`]), built once per test process.
+fn keyed_compiled() -> &'static (DefinitionIr, CompiledStage) {
+    static COMPILED: OnceLock<(DefinitionIr, CompiledStage)> = OnceLock::new();
+    COMPILED.get_or_init(|| {
+        let temporary = temp_dir();
+        let manifest = write_package(
+            temporary.path(),
+            "keyed",
+            KEYED,
+            &manifest(KEYED_PACKAGE, "ORG-KRS-EXEC-ENDS-KEYED", "", true),
+        );
+        emit(&manifest, KEYED_PACKAGE, &[])
+    })
+}
+
+/// Run `test` on the semantics of `compiled`, on a thread with the stack every `krs-exec`
+/// operation needs.
+fn with_compiled(
+    compiled: fn() -> &'static (DefinitionIr, CompiledStage),
+    test: impl FnOnce(&mut Semantics) + Send,
+) {
     std::thread::scope(|scope| {
         std::thread::Builder::new()
             .stack_size(64 << 20)
@@ -211,6 +344,12 @@ fn with_semantics(test: impl FnOnce(&mut Semantics) + Send) {
             .join()
             .unwrap();
     });
+}
+
+/// Run `test` on the fixture's semantics, on a thread with the stack every `krs-exec` operation
+/// needs.
+fn with_semantics(test: impl FnOnce(&mut Semantics) + Send) {
+    with_compiled(compiled, test);
 }
 
 fn ctor(semantics: &Semantics, name: &str, fields: Vec<(&str, Value)>) -> Value {
@@ -556,8 +695,10 @@ fn a_difference_names_the_rust_path_and_both_canonical_documents() {
         let difference = at(&|document| document["cells"]["f"]["Flags"]["zf"] = json!(true));
         assert_eq!(difference.at, DifferenceAt::Cell);
         assert_eq!(difference.cell.as_deref(), Some("f"));
-        assert_eq!(difference.path.as_deref(), Some("f.zf"));
-        assert_eq!(difference.segments, [".zf"]);
+        // A constructor's field is named with the constructor, as the value's document names
+        // the position.
+        assert_eq!(difference.path.as_deref(), Some("f.Flags.zf"));
+        assert_eq!(difference.segments, [".Flags.zf"]);
         assert_eq!(shown(&difference.left), json!(true));
         assert_eq!(shown(&difference.right), json!(false));
         assert!(difference.also_differ.is_empty());
@@ -571,6 +712,15 @@ fn a_difference_names_the_rust_path_and_both_canonical_documents() {
             json!({"Write": {"addr": 3, "value": 4}})
         );
         assert_eq!(shown(&difference.right), json!({"Read": {"addr": 3}}));
+        let difference = at(&|document| {
+            document["cells"]["bus"][0] = json!({"Read": {"addr": 9}});
+        });
+        assert_eq!(difference.path.as_deref(), Some("bus[0].Read.addr"));
+        assert_eq!(difference.segments, ["[0]", ".Read.addr"]);
+        assert_eq!(
+            (shown(&difference.left), shown(&difference.right)),
+            (json!(9), json!(1))
+        );
 
         let difference = at(&|document| document["cells"]["memory"]["5"] = json!(70));
         assert_eq!(difference.path.as_deref(), Some("memory[5]"));
@@ -645,7 +795,7 @@ fn a_difference_names_the_rust_path_and_both_canonical_documents() {
 }
 
 #[test]
-fn the_difference_document_has_the_format_krs_difference_1() {
+fn the_difference_document_has_the_format_krs_difference_3() {
     with_semantics(|semantics| {
         let ends = reference(semantics);
         let expected = edited(semantics, &ends, |document| {
@@ -680,11 +830,11 @@ fn the_difference_document_has_the_format_krs_difference_1() {
         assert_eq!(
             serde_json::to_value(&difference).unwrap(),
             json!({
-                "format": "krs-difference/2",
+                "format": "krs-difference/3",
                 "at": "cell",
                 "cell": "f",
-                "path": "f.zf",
-                "segments": [".zf"],
+                "path": "f.Flags.zf",
+                "segments": [".Flags.zf"],
                 "outside": "actual",
                 "also_differ": [],
                 "compared": ["f", "pc"],
@@ -746,7 +896,7 @@ fn sets_of_ends_meet_an_expectation_at_every_end_and_differ_by_the_pair_rule() {
         // An expectation is met only when every end agrees with it.
         let heads = stuck(&|_| {});
         let difference = differs(expectation(semantics, &all, &heads, &search));
-        assert_eq!(difference.path.as_deref(), Some("k[0].value"));
+        assert_eq!(difference.path.as_deref(), Some("k[0].Done.value"));
         assert_eq!(difference.outside, "actual");
         assert_eq!(shown(&difference.left), json!(1));
         assert_eq!(shown(&difference.right), json!(0));
@@ -790,7 +940,7 @@ fn sets_of_ends_meet_an_expectation_at_every_end_and_differ_by_the_pair_rule() {
         // The end of the left set outside the right one, when the right one is complete.
         let difference = differs(compare(&all, &search, &heads));
         assert_eq!(difference.outside, "left");
-        assert_eq!(difference.path.as_deref(), Some("k[0].value"));
+        assert_eq!(difference.path.as_deref(), Some("k[0].Done.value"));
         assert_eq!(shown(&difference.left), json!(0));
         let unknown = Ends {
             ends: heads.ends.clone(),
@@ -1283,7 +1433,8 @@ fn map_collections_and_optional_groups_are_read_and_compared() {
             json!({"process": [{"pid": 0, "ticks": 0}]})
         );
         assert_eq!(document["cells"]["mark"], json!([]));
-        // Its instances are a set.
+        // Its instances are a map from key to instance: their order in a document is no
+        // difference, and an instance at a key the other side lacks is named by its key.
         let two = |first: i64, second: i64| {
             edited(semantics, &ends, |document| {
                 document["cells"]["procs"]["process"] =
@@ -1292,12 +1443,20 @@ fn map_collections_and_optional_groups_are_read_and_compared() {
         };
         assert_eq!(two(1, 0), two(0, 1));
         let difference = differs(expectation(semantics, &all, &two(1, 0), &ends));
-        assert_eq!(
-            difference.path.as_deref(),
-            Some(r#"procs.process{{"pid":1,"ticks":0}}"#)
-        );
+        assert_eq!(difference.cell.as_deref(), Some("procs.process[1]"));
+        assert_eq!(difference.path.as_deref(), Some("procs.process[1]"));
         assert_eq!(shown(&difference.left), json!({"pid": 1, "ticks": 0}));
         assert_eq!(difference.right.value, None);
+        // An instance at a key both sides hold is compared cell by cell.
+        let ticked = edited(semantics, &ends, |document| {
+            document["cells"]["procs"]["process"] = json!([{"pid": 0, "ticks": 4}]);
+        });
+        let difference = differs(expectation(semantics, &all, &ticked, &ends));
+        assert_eq!(difference.path.as_deref(), Some("procs.process[0].ticks"));
+        assert_eq!(
+            (shown(&difference.left), shown(&difference.right)),
+            (json!(4), json!(0))
+        );
 
         // An optional group present on one side only, and on both.
         let marked = |seen: i64| {
@@ -1341,6 +1500,283 @@ fn map_collections_and_optional_groups_are_read_and_compared() {
             semantics.check_expectation(&all, side("expected", &incomplete), side("actual", &ends)),
             Err(EndError::MissingCell { path, .. }) if path == "objects.obj{{}}.oid"
         ));
+    });
+}
+
+/// The keyed fixture's end document holding `cells` beside an empty `ghosts`, read as an end.
+fn keyed_end(semantics: &Semantics, mut cells: Json) -> Ends {
+    cells["k"] = json!({"$seq": []});
+    for (cell, collection) in [("harts", "hart"), ("names", "entry"), ("banks", "bank")] {
+        if cells.get(cell).is_none() {
+            cells[cell] = json!({ collection: [] });
+        }
+    }
+    cells["ghosts"] = json!({"ghost": []});
+    Ends::one(
+        semantics
+            .read_end(&json!({"halt": "stuck", "cells": cells}))
+            .unwrap(),
+    )
+}
+
+/// Harts `1`, `2` and `3` at `pc` `10`, `pc2` and `30`, every `ra` `0`.
+fn harts(pc2: i64) -> Json {
+    json!({"hart": [
+        {"id": 1, "pc": 10, "ra": 0},
+        {"id": 2, "pc": pc2, "ra": 0},
+        {"id": 3, "pc": 30, "ra": 0},
+    ]})
+}
+
+/// Every cell of the keyed fixture but the collection whose key is unobservable.
+fn keyed_comparison() -> Comparison {
+    Comparison {
+        compare: Some(vec![
+            "k".to_owned(),
+            "harts".to_owned(),
+            "names".to_owned(),
+            "banks".to_owned(),
+        ]),
+        ..Comparison::default()
+    }
+}
+
+/// A `Map` collection is a map from key to instance: two ends' instances with one key are one
+/// instance, compared cell by cell, so one changed `pc` is one difference at `[2]`, and the nearest
+/// end is the one with the fewest differing leaves counted so. An instance at a key one side
+/// lacks is shown whole.
+#[test]
+fn map_collection_instances_are_paired_by_key() {
+    with_compiled(keyed_compiled, |semantics| {
+        let compare = keyed_comparison();
+        let left = keyed_end(semantics, json!({"harts": harts(20)}));
+        let right = keyed_end(semantics, json!({"harts": harts(24)}));
+        let difference = differs(
+            semantics
+                .compare_ends(&compare, side("left", &left), side("right", &right))
+                .unwrap(),
+        );
+        assert_eq!(difference.cell.as_deref(), Some("harts.hart[2].pc"));
+        assert_eq!(difference.path.as_deref(), Some("harts.hart[2].pc"));
+        assert!(difference.segments.is_empty(), "{difference:?}");
+        assert!(difference.also_differ.is_empty(), "{difference:?}");
+        assert_eq!(
+            (shown(&difference.left), shown(&difference.right)),
+            (json!(20), json!(24))
+        );
+        // Every pair that differs is listed, in the order of the keys.
+        let shifted = keyed_end(
+            semantics,
+            json!({"harts": {"hart": [
+                {"id": 1, "pc": 11, "ra": 0},
+                {"id": 2, "pc": 20, "ra": 0},
+                {"id": 3, "pc": 30, "ra": 5},
+            ]}}),
+        );
+        let difference = differs(
+            semantics
+                .compare_ends(&compare, side("left", &left), side("right", &shifted))
+                .unwrap(),
+        );
+        assert_eq!(difference.path.as_deref(), Some("harts.hart[1].pc"));
+        assert_eq!(difference.also_differ, ["harts.hart[3].ra"]);
+
+        // The nearest end counts one leaf for the changed `pc`, fewer than the three of an end
+        // that lacks a hart, which a comparison of the instances as a set would have chosen
+        // (it counts the six leaves of two whole instances for the changed `pc`).
+        let without_three = keyed_end(
+            semantics,
+            json!({"harts": {"hart": [
+                {"id": 1, "pc": 10, "ra": 0},
+                {"id": 2, "pc": 24, "ra": 0},
+            ]}}),
+        );
+        let mut both = left.clone();
+        both.ends.extend(without_three.ends.clone());
+        let difference = differs(
+            semantics
+                .compare_ends(&compare, side("left", &both), side("right", &right))
+                .unwrap(),
+        );
+        assert_eq!(difference.outside, "right");
+        assert_eq!(difference.path.as_deref(), Some("harts.hart[2].pc"));
+        assert_eq!(shown(&difference.left), json!(20));
+
+        // An instance at a key the other side lacks is shown whole, and the other side holds
+        // nothing there.
+        let difference = differs(
+            semantics
+                .compare_ends(
+                    &compare,
+                    side("left", &without_three),
+                    side("right", &right),
+                )
+                .unwrap(),
+        );
+        assert_eq!(difference.path.as_deref(), Some("harts.hart[3]"));
+        assert_eq!(difference.left.value, None);
+        assert_eq!(
+            shown(&difference.right),
+            json!({"id": 3, "pc": 30, "ra": 0})
+        );
+    });
+}
+
+/// A `Map` collection's key is written as a value map's key is (a `String`, a constructor); a
+/// missing compared cell is named by its instance's key; two instances with one key are no end of
+/// the definition.
+#[test]
+fn map_collection_keys_are_written_as_map_keys_and_held_once() {
+    with_compiled(keyed_compiled, |semantics| {
+        let compare = keyed_comparison();
+        let left = keyed_end(semantics, json!({"harts": harts(20)}));
+        let entry = |n: i64| {
+            keyed_end(
+                semantics,
+                json!({"names": {"entry": [{"name": "boot", "n": n}, {"name": "idle", "n": 0}]}}),
+            )
+        };
+        let difference = differs(
+            semantics
+                .compare_ends(&compare, side("left", &entry(1)), side("right", &entry(2)))
+                .unwrap(),
+        );
+        assert_eq!(difference.path.as_deref(), Some(r#"names.entry["boot"].n"#));
+        let bank = |value: i64| {
+            keyed_end(
+                semantics,
+                json!({"banks": {"bank": [{"reg": "A", "value": 0}, {"reg": "B", "value": value}]}}),
+            )
+        };
+        let difference = differs(
+            semantics
+                .compare_ends(&compare, side("left", &bank(1)), side("right", &bank(2)))
+                .unwrap(),
+        );
+        assert_eq!(difference.path.as_deref(), Some(r#"banks.bank["B"].value"#));
+        assert_eq!(
+            serde_json::to_value(&difference).unwrap()["format"],
+            "krs-difference/3"
+        );
+
+        // A compared cell an instance does not state is named by the instance's key.
+        let unstated = keyed_end(semantics, json!({"harts": {"hart": [{"id": 2, "pc": 20}]}}));
+        assert_eq!(
+            semantics.check_expectation(
+                &compare,
+                side("expected", &unstated),
+                side("actual", &left)
+            ),
+            Err(EndError::MissingCell {
+                side: "expected".to_owned(),
+                path: "harts.hart[2].ra".to_owned(),
+                what: "Int".to_owned(),
+            })
+        );
+        // Two instances with one key are no end of the definition.
+        let twice = json!({"halt": "stuck", "cells": {
+            "harts": {"hart": [{"id": 2, "pc": 1, "ra": 0}, {"id": 2, "pc": 2, "ra": 0}]},
+        }});
+        match semantics.read_end(&twice) {
+            Err(EndError::Document { position, message }) => {
+                assert_eq!(position, "cells.harts.hart[1]");
+                assert!(
+                    message.contains("the key 2 of the instance at [0]"),
+                    "{message}"
+                );
+            }
+            other => panic!("expected a refusal of the second instance, got {other:?}"),
+        }
+    });
+}
+
+/// A comparison that compares cells of a `Map` collection's instances compares the whole of
+/// their key, the instance's identity: a narrowing that leaves the key out is refused, naming
+/// it, as is a comparison of a collection whose key is unobservable (the default comparison
+/// included), and a view of a key; a narrowing that names the key compares by it.
+#[test]
+fn a_comparison_of_a_map_collections_cells_compares_its_key() {
+    with_compiled(keyed_compiled, |semantics| {
+        let left = keyed_end(semantics, json!({"harts": harts(20)}));
+        let right = keyed_end(semantics, json!({"harts": harts(24)}));
+        let narrowed = |paths: &[&str]| Comparison {
+            compare: Some(paths.iter().map(|path| (*path).to_owned()).collect()),
+            ..Comparison::default()
+        };
+        let refused = semantics
+            .compare_ends(
+                &narrowed(&["harts.hart.pc"]),
+                side("left", &left),
+                side("right", &right),
+            )
+            .unwrap_err();
+        assert_eq!(
+            refused,
+            EndError::UncomparedKey {
+                collection: "harts.hart".to_owned(),
+                key: "harts.hart.id".to_owned(),
+                unobservable: false,
+            }
+        );
+        assert!(
+            refused
+                .to_string()
+                .ends_with("; compare `harts.hart.id` too"),
+            "{refused}"
+        );
+        assert_eq!(
+            semantics.check_comparison(&narrowed(&["harts.hart.pc"])),
+            Err(refused)
+        );
+        let difference = differs(
+            semantics
+                .compare_ends(
+                    &narrowed(&["harts.hart.id", "harts.hart.pc"]),
+                    side("left", &left),
+                    side("right", &right),
+                )
+                .unwrap(),
+        );
+        assert_eq!(difference.path.as_deref(), Some("harts.hart[2].pc"));
+        assert_eq!(difference.compared, ["harts.hart.id", "harts.hart.pc"]);
+
+        // The default comparison compares `ghosts.ghost.v`, whose key no comparison compares.
+        let ghosts = semantics
+            .check_comparison(&Comparison::default())
+            .unwrap_err();
+        assert_eq!(
+            ghosts,
+            EndError::UncomparedKey {
+                collection: "ghosts.ghost".to_owned(),
+                key: "ghosts.ghost.gid".to_owned(),
+                unobservable: true,
+            }
+        );
+        assert!(
+            ghosts
+                .to_string()
+                .contains("the key is, or holds, an unobservable cell"),
+            "{ghosts}"
+        );
+    });
+    // A view of a key could give two instances one key.
+    with_semantics(|semantics| {
+        let ends = reference(semantics);
+        let both = [("expected", &ends), ("actual", &ends)];
+        let comparison = viewed(semantics, &[("procs.process.pid", "Doubled")], &both).unwrap();
+        let refused = semantics
+            .check_expectation(&comparison, side("expected", &ends), side("actual", &ends))
+            .unwrap_err();
+        assert!(
+            matches!(&refused, EndError::View { cell, .. } if cell == "procs.process.pid"),
+            "{refused:?}"
+        );
+        assert!(
+            refused
+                .to_string()
+                .contains("the key of the Map collection `procs.process`"),
+            "{refused}"
+        );
     });
 }
 
@@ -1697,7 +2133,7 @@ fn a_view_declared_by_an_observer_package_is_evaluated_there_and_shown_at_its_so
                 .unwrap(),
         );
         // The viewed value is of the observer's sort `Summary`, written by the observer.
-        assert_eq!(difference.path.as_deref(), Some("bus.events"));
+        assert_eq!(difference.path.as_deref(), Some("bus.Counted.events"));
         assert_eq!(shown(&difference.left), json!(2));
         assert_eq!(shown(&difference.right), json!(3));
         assert_eq!(
@@ -1908,7 +2344,8 @@ fn toml_table(table: &Json) -> String {
 
 /// The fixture and its observer as a workspace, with the documents `krs compare` reads in the
 /// fixture's package: `end.toml`, the end of `finish(3)` from the reference state; `moved.json`,
-/// that end with `pc` and `bus` changed; `partial.json`, that end without `pc`; `cases.toml`,
+/// that end with `pc` and `bus` changed; `read.json`, that end with the address of `bus`'s first
+/// event changed; `partial.json`, that end without `pc`; `cases.toml`,
 /// the named cases `finish` and `toss` from the reference state; and `expect.json`, a case that
 /// expects `finish(3)`'s end on `k` and `pc`.
 struct CompareWorkspace {
@@ -1958,6 +2395,9 @@ impl CompareWorkspace {
         moved["cells"]["pc"] = json!(257);
         moved["cells"]["bus"] = json!([{"Write": {"addr": 9, "value": 9}}, {"Read": {"addr": 2}}]);
         write("moved.json", moved.to_string());
+        let mut read = end.clone();
+        read["cells"]["bus"][0] = json!({"Read": {"addr": 9}});
+        write("read.json", read.to_string());
         let mut partial = end;
         partial["cells"].as_object_mut().unwrap().remove("pc");
         write("partial.json", partial.to_string());
@@ -2012,7 +2452,7 @@ impl CompareWorkspace {
 /// `krs compare` reads each side as an end document or a case document, whose case it runs
 /// (`FILE#NAME` naming a named case), and prints `equal` or the first difference in the lines
 /// `krs run --case` prints, with the cells that also differ, or as a `krs-compare/1` document
-/// whose difference is a `krs-difference/2` document; `--compare` narrows the compared cells, and
+/// whose difference is a `krs-difference/3` document; `--compare` narrows the compared cells, and
 /// `--view` compares a cell on a view's value, evaluated in the compared definition or in the
 /// observer `--observer` names. Two runs that may end elsewhere are inconclusive (exit 3);
 /// `--expect` checks a side against a case's expectation; an end document that leaves out a
@@ -2056,6 +2496,33 @@ fn compare_ends_and_runs(workspace: &CompareWorkspace) {
     assert_eq!(
         difference["right"]["value"]["document"], 256,
         "{difference}"
+    );
+
+    // A constructor's field is named with its constructor, in the human line as in the document.
+    let (code, stdout, stderr) = workspace.compare(&["read.json", "end.toml", "--compare", "bus"]);
+    assert_eq!(code, Some(1), "{stderr}");
+    assert_eq!(
+        stdout,
+        "krs compare: differs at `bus[0].Read.addr`\n  left:  9\n  right: 1\n"
+    );
+    let (code, stdout, stderr) = workspace.compare(&[
+        "read.json",
+        "end.toml",
+        "--compare",
+        "bus",
+        "--output",
+        "json",
+    ]);
+    assert_eq!(code, Some(1), "{stderr}");
+    let document: Json = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        document["difference"]["path"], "bus[0].Read.addr",
+        "{document}"
+    );
+    assert_eq!(
+        document["difference"]["segments"],
+        json!(["[0]", ".Read.addr"]),
+        "{document}"
     );
 
     // Narrowed to cells both sides agree on.
@@ -2115,7 +2582,7 @@ fn compare_under_views(workspace: &CompareWorkspace) {
     assert_eq!(code, Some(1), "{stderr}");
     let document: Json = serde_json::from_str(&stdout).unwrap();
     let difference = &document["difference"];
-    assert_eq!(difference["path"], "bus.events", "{difference}");
+    assert_eq!(difference["path"], "bus.Counted.events", "{difference}");
     assert_eq!(
         difference["views"],
         json!({"bus": "LogShape"}),

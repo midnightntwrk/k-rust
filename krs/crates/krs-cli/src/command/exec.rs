@@ -1456,7 +1456,7 @@ impl Checked {
     }
 
     /// The report's `expectation` object: the verdict, the case's name, the difference
-    /// (`krs-difference/2`) or the reason, and the views applied and their observer.
+    /// (`krs-difference/3`) or the reason, and the views applied and their observer.
     pub(super) fn document(&self) -> serde_json::Value {
         let mut document = json!({"verdict": self.word()});
         if let Some(name) = &self.case {

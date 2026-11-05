@@ -654,7 +654,7 @@ fn refusals_name_parameter_type_and_position() {
 /// A case whose run meets its expectation exits 0, after the run's own output; one whose run does
 /// not exits 1 and names the first differing cell with both canonical documents, and the cells
 /// that also differ. The expectation omits the unobservable cells, `z` and `cpu.w`, and states
-/// every other; `--output json` carries the verdict and the `krs-difference/2` difference.
+/// every other; `--output json` carries the verdict and the `krs-difference/3` difference.
 #[test]
 fn a_run_meets_or_misses_its_expectation() {
     let project = ends();
@@ -699,7 +699,7 @@ fn a_run_meets_or_misses_its_expectation() {
     let expectation = &report["expectation"];
     assert_eq!(expectation["verdict"], "unmet", "{expectation}");
     let difference = &expectation["difference"];
-    assert_eq!(difference["format"], "krs-difference/2");
+    assert_eq!(difference["format"], "krs-difference/3");
     assert_eq!(difference["path"], "regs[\"B\"]");
     assert_eq!(difference["also_differ"], json!(["pc"]));
     assert_eq!(difference["left"]["name"], "expected");
@@ -1051,7 +1051,7 @@ fn a_run_meets_an_expectation_only_on_the_only_path() {
     let run = project.krs("run", &["--case", "choice.json", "--case-name", "neither"]);
     assert_eq!(run.status.code(), Some(1), "{}", stderr(&run));
     assert!(
-        stderr(&run).contains("krs run: expectation unmet at `k[0].value`\n  expected: 2\n"),
+        stderr(&run).contains("krs run: expectation unmet at `k[0].Done.value`\n  expected: 2\n"),
         "{}",
         stderr(&run)
     );
@@ -1119,7 +1119,7 @@ fn a_search_checks_every_end_against_the_expectation() {
     assert_eq!(heads.status.code(), Some(1), "{}", stderr(&heads));
     assert!(
         stderr(&heads).ends_with(
-            "krs search: 2 solutions\nkrs search: expectation unmet at `k[0].value`\n  expected: 1\n  actual:   0\n  (one of the 2 actual ends; the expectation holds of every end or is unmet)\n"
+            "krs search: 2 solutions\nkrs search: expectation unmet at `k[0].Done.value`\n  expected: 1\n  actual:   0\n  (one of the 2 actual ends; the expectation holds of every end or is unmet)\n"
         ),
         "{}",
         stderr(&heads)

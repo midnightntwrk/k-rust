@@ -415,7 +415,7 @@ fn a_batch_reports_each_case_in_document_order() {
     assert_eq!(verdicts, expected, "{}", stdout(&one));
     assert_eq!(lines[0]["halt"], "stuck");
     assert_eq!(lines[0]["steps"], 1);
-    assert_eq!(lines[1]["difference"]["format"], "krs-difference/2");
+    assert_eq!(lines[1]["difference"]["format"], "krs-difference/3");
     assert_eq!(lines[1]["difference"]["path"], "pc");
     assert!(
         lines[2]["reason"]

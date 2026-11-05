@@ -320,7 +320,7 @@
 //! Against the ends of the case's run, the expectation is
 //! *met* when every end agrees with it on the halt and on the compared cells;
 //! *unmet* when an end does not, which is reported with the first difference
-//! ([`Difference`](crate::Difference), `krs-difference/2`, which names the views it applied);
+//! ([`Difference`](crate::Difference), `krs-difference/3`, which names the views it applied);
 //! and *inconclusive* when no end can be compared,
 //! or every known end agrees but not every end is known.
 //! No end can be compared where

@@ -564,7 +564,8 @@ impl Encoder<'_> {
         })
     }
 
-    fn ctor(&mut self, ctor: &Ctor, ty: &InputType) -> Result<Json, EncodeError> {
+    /// How the constructor application `ctor` is written at `ty`: its name and its form.
+    fn ctor_form(&self, ctor: &Ctor, ty: &InputType) -> Result<CtorForm, EncodeError> {
         let decl = ctor.decl();
         let info = self.values.info(decl).ok_or_else(|| {
             self.refuse(
@@ -573,30 +574,42 @@ impl Encoder<'_> {
             )
         })?;
         let function = info.function;
-        let field_types = info.field_types.clone();
         let name = self.ctor_name(ctor, ty, function)?;
+        // The constructor form where it reads as the constructor alone; at a declared sort that
+        // `Map` is at most, where an object is a map too, the tagged form `$ctor`.
+        let tagged_ctor = !function
+            && !ty.is_untyped()
+            && !inputs::sole_reading(self.values, &tagged(&name, Json::Array(Vec::new())), ty);
+        Ok(CtorForm {
+            name,
+            function,
+            tagged: tagged_ctor,
+        })
+    }
+
+    fn ctor(&mut self, ctor: &Ctor, ty: &InputType) -> Result<Json, EncodeError> {
+        let form = self.ctor_form(ctor, ty)?;
+        let field_types = self
+            .values
+            .info(ctor.decl())
+            .map(|info| info.field_types.clone())
+            .unwrap_or_default();
         let fields = ctor.fields();
         // The bare name where the decoder reads it as this constructor alone: at a declared
         // sort that neither `String` nor a token sort is at most, by the decoder's table.
-        if !function
+        if !form.function
             && fields.is_empty()
             && let SortRef::Declared(_) = &ty.sort
-            && inputs::sole_reading(self.values, &Json::String(name.clone()), ty)
+            && inputs::sole_reading(self.values, &Json::String(form.name.clone()), ty)
         {
-            return Ok(Json::String(name));
+            return Ok(Json::String(form.name));
         }
-        // The constructor form where it reads as the constructor alone; at a declared sort that
-        // `Map` is at most, where an object is a map too, the tagged form `$ctor`.
-        let tag_ctor = !function
-            && !ty.is_untyped()
-            && !inputs::sole_reading(self.values, &tagged(&name, Json::Array(Vec::new())), ty);
-        let prefix = if function {
-            format!("$call({name}).")
-        } else if tag_ctor {
-            format!("$ctor({name}).")
-        } else {
-            format!(".{name}.")
-        };
+        let prefix = form.prefix();
+        let CtorForm {
+            name,
+            function,
+            tagged: tag_ctor,
+        } = form;
         let tuple = !fields.is_empty()
             && fields
                 .iter()
@@ -633,6 +646,60 @@ impl Encoder<'_> {
             form
         })
     }
+}
+
+/// How a constructor application is written at a position: its shortest name there, and its
+/// form, which a field's position names ([`CtorForm::prefix`]).
+struct CtorForm {
+    name: String,
+    /// The application of a function, written `$call`.
+    function: bool,
+    /// The tagged constructor form `$ctor`, where the plain form has another reading.
+    tagged: bool,
+}
+
+impl CtorForm {
+    /// The position of the form's fields, before a field's name: `.Name.`, `$ctor(Name).` or
+    /// `$call(Name).`, as the decoder spells it.
+    fn prefix(&self) -> String {
+        let name = &self.name;
+        if self.function {
+            format!("$call({name}).")
+        } else if self.tagged {
+            format!("$ctor({name}).")
+        } else {
+            format!(".{name}.")
+        }
+    }
+}
+
+/// The position of the field at `position` of the constructor application `value` at the
+/// position `ty`, relative to the value, as the encoder and the decoder spell it (`.Idles.count`,
+/// `$ctor(Pair).a`, `$call(Boot).n`); `None` where `value` is no constructor application with
+/// that field, or whose application has no document at `ty`: parametric, of a sort not at most
+/// `ty`'s, or with no name there.
+pub(crate) fn field_position(
+    values: &ValueIndex,
+    value: &Value,
+    ty: &InputType,
+    position: usize,
+) -> Option<String> {
+    let Value::Ctor(ctor) = value else {
+        return None;
+    };
+    // A parametric constructor's application has no form ([`Encoder::encode`]).
+    if !ctor.sort_args().is_empty() {
+        return None;
+    }
+    let (field, _) = ctor.fields().get(position)?;
+    let encoder = Encoder {
+        values,
+        path: Vec::new(),
+        inherent: None,
+    };
+    encoder.check_sort(value, ty).ok()?;
+    let form = encoder.ctor_form(ctor, ty).ok()?;
+    Some(format!("{}{field}", form.prefix()))
 }
 
 /// The shortest `::`-aligned suffix of `path` that `selects`, the whole path last.
