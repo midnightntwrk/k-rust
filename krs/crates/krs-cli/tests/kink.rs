@@ -908,8 +908,8 @@ fn a_kills_evidence_compares_the_cells_the_slot_compares() {
 /// A kill's evidence names cells, constructors and fields by the Definition IR's Rust names, and
 /// a field's name never reaches the emitted K. Renaming the field of `Cmd::Done`, the ends'
 /// constructor, under the same syntax leaves the K, and so the execution digest, unchanged, yet
-/// the evidence names the new field: where tier 1 is on (the portable build), the renderer's
-/// identity keeps the stored kill from serving the old name. An edit that only moves text leaves
+/// the evidence names the new field: the renderer's identity keeps the stored kill (tier 1 is on
+/// in both profiles) from serving the old name. An edit that only moves text leaves
 /// both the K and the identity unchanged, so the stored kill serves it.
 #[test]
 fn a_kills_evidence_follows_a_renamed_field_that_the_k_does_not_carry() {
@@ -945,9 +945,7 @@ fn a_kills_evidence_follows_a_renamed_field_that_the_k_does_not_carry() {
     project.write("src/lib.rs", &moved);
     let (source, path) = run(&project);
     assert_eq!(path, "k[0].value");
-    if cfg!(not(feature = "z3-inference")) {
-        assert_eq!(source, "outcome-cache");
-    }
+    assert_eq!(source, "outcome-cache");
     let renamed = LEFT_OUT.replace(
         "#[k::syntax(\"done({value})\")] Done { value: Int }",
         "#[k::syntax(\"done({total})\")] Done { total: Int }",
@@ -1331,9 +1329,9 @@ entry = { Load = { addr = 2, len = 3 } }
         program
     };
     let first_output = project.kink("results", &[]);
-    // The result cache is off in the Z3 profile (kink-flow `result_store`), where only the
-    // digests say what reruns.
+    // The result cache is on in both profiles (kink-flow `result_store`).
     let cache_on = json(&first_output)["result_cache"]["enabled"] == true;
+    assert!(cache_on, "{}", json(&first_output));
     let first = program(&first_output);
     // The same map, written otherwise.
     project.write(
@@ -1640,7 +1638,7 @@ fn run_refuses_what_check_refuses() {
         assert_eq!(row["reason"], reason, "{row:#}");
     }
     // A refused mutation ran nothing, so it has no tier-1 record and no hint; the mutation
-    // that ran has its records wherever tier 1 is on (not under the Z3 profile).
+    // that ran has its records (tier 1 is on in both profiles).
     let cached = cached_mutations(&project.path().join("kink/run-cache"));
     for (id, _) in refused {
         assert!(
@@ -1648,9 +1646,7 @@ fn run_refuses_what_check_refuses() {
             "{id} has a record or a hint: {cached:?}"
         );
     }
-    if !cfg!(feature = "z3-inference") {
-        assert!(cached.contains("toss-keeps"), "{cached:?}");
-    }
+    assert!(cached.contains("toss-keeps"), "{cached:?}");
     let refused = row(&document, "overlap");
     assert!(
         refused["action"]
@@ -2579,9 +2575,8 @@ fn program_row(document: &Value, id: &str) -> Value {
 /// a stop rule is not observed: ends that agree on the compared cells are inconclusive, ends that
 /// differ on them unmet, and the row says the halt was not compared; an expectation of a halt no
 /// end of the truncated system has is unmet at the class, with the baseline's class left
-/// unstated. `check` reports each expectation from the case's current result record (none in the
-/// Z3 profile, where the result cache is off), and refuses a case whose expectation is no
-/// expectation of the definition.
+/// unstated. `check` reports each expectation from the case's current result record, and refuses
+/// a case whose expectation is no expectation of the definition.
 #[test]
 fn a_case_expectation_is_reported_and_its_case_kept() {
     let project = project_of(
@@ -2646,21 +2641,8 @@ fn a_case_expectation_is_reported_and_its_case_kept() {
     assert_status(&output, 0);
     let check = json(&output);
     assert_eq!(check["version"], 10, "{check:#}");
-    if results["result_cache"]["enabled"] == true {
-        assert_eq!(verdicts(&check), expected, "{check:#}");
-    } else {
-        for (_, verdict) in verdicts(&check) {
-            assert_eq!(verdict.as_deref(), Some("inconclusive"), "{check:#}");
-        }
-        let detail = program_row(&check, "cases/runs.toml#met")["expectation"]["detail"].clone();
-        assert!(
-            detail
-                .as_str()
-                .unwrap()
-                .starts_with("the case has no current result record"),
-            "{check:#}"
-        );
-    }
+    assert_eq!(results["result_cache"]["enabled"], true, "{results:#}");
+    assert_eq!(verdicts(&check), expected, "{check:#}");
 
     expectations_under_a_stop(&project);
     a_refused_expectation(&project);

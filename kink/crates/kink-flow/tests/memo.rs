@@ -16,12 +16,9 @@
 //!   cannot show (the copy keeps the member the key omits). A source file changed after the
 //!   admission read it and before resolution reads no record (`memo::sources_unchanged`).
 
-// Under Z3 the tests of the caches (off by design) compile out, and their helpers with them.
-#![cfg_attr(feature = "z3", allow(dead_code, unused_imports))]
-
 use kink_corpus::Store;
 use kink_flow::{
-    EditAction, FlowManifest, Mutation, MutationList, admit_spec,
+    Budget, EditAction, FlowManifest, Mutation, MutationList, admit_spec,
     digest::spec_digest,
     memo::{self, CENSUS_MEMO_VERSION, Facts, MemoUse, RESOLUTION_MEMO_VERSION},
     results::CACHE_DIRECTORY,
@@ -159,7 +156,7 @@ fn row<'d>(document: &'d Value, id: &str) -> &'d Value {
 }
 
 /// What a memo key is built from: the specification digest of the fixture's admission, kink's
-/// build and the mutation `id` of `list`.
+/// build and the mutation `id` of `list`; the fixture's solver is [`budget`]'s.
 struct KeyParts {
     spec: kink_patch::Sha256Digest,
     build: kink_patch::Sha256Digest,
@@ -168,6 +165,11 @@ struct KeyParts {
 
 fn key_parts(dir: &Path, list: &str, id: &str) -> KeyParts {
     let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
+    assert_eq!(
+        manifest.budget.backend_options(),
+        budget().backend_options(),
+        "the memo fixtures run under kink's solver"
+    );
     let (_, admitted) = admit_spec(&manifest);
     let (spec, _) = admitted.expect("the fixture is admitted");
     let mutations = MutationList::read(&dir.join(list)).unwrap();
@@ -216,24 +218,40 @@ fn resolution_key_of(
     spec: Sha256Digest,
     mutation: &Mutation,
 ) -> Value {
-    json!({
+    with_solver(json!({
         "version": version,
         "kink_build": build.to_string(),
         "kink": kink,
         "spec": spec.to_string(),
         "mutation": edits_of(mutation),
-    })
+    }))
 }
 
 /// A census memo key built here from every input it must name: the memo version, kink's build,
 /// kink's semantics identity and the specification digest.
 fn census_key_of(version: &str, build: Sha256Digest, kink: &Value, spec: Sha256Digest) -> Value {
-    json!({
+    with_solver(json!({
         "version": version,
         "kink_build": build.to_string(),
         "kink": kink,
         "spec": spec.to_string(),
-    })
+    }))
+}
+
+/// The budget of every fixture here: the default one, whose solver is kink's
+/// (`kink_native::BACKEND_OPTIONS`).
+fn budget() -> Budget {
+    Budget::default()
+}
+
+/// `key` with the solver every memo key names under the Z3 profile, `smt`: the result key's member
+/// for [`budget`] (kink-native `solver_value`), absent under the no-Z3 profile. k-rust's load can
+/// ask Z3 (sort inference), so a memo's value can depend on the Z3 build.
+fn with_solver(mut key: Value) -> Value {
+    if let Some(solver) = kink_native::solver_value(kink_native::BACKEND_OPTIONS) {
+        key["smt"] = solver;
+    }
+    key
 }
 
 /// kink's semantics identity with one component changed: the identity of another kink.
@@ -314,16 +332,12 @@ fn compare(name: &str, list: &str, rounds: &[&str]) {
 mod kink_tier {
     use super::*;
 
-    // Portable only: tests the warm-path memos, off under Z3 by design as tier 1 is.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn memos_change_no_row_record_or_hint_on_calc() {
         compare("calc", "MUTATIONS-statuses.toml", &ROUNDS[..2]);
     }
 
-    // Portable only: tests the warm-path memos, off under Z3 by design as tier 1 is.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn memos_change_no_row_record_or_hint_on_markdown() {
@@ -335,8 +349,6 @@ mod kink_tier {
     /// VI-T13 guard) is used by a warm run under exactly its key (the positive control), and `run
     /// --verify` refuses the specification with the live census and reports the record in the
     /// refused document's `mismatches`, writing nothing.
-    // Portable only: tests the warm-path memos, off under Z3 by design as tier 1 is.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_stored_census_admitting_what_the_live_census_refuses_is_reported_by_verify() {
@@ -384,7 +396,7 @@ mod kink_tier {
         let spec = spec_digest(&manifest, &files);
         let build = kink_campaign::kink_build().expect("the test binary is readable");
         let (key, path) = (
-            memo::census_key(spec, build),
+            memo::census_key(spec, build, budget()),
             memo::census_path(&cache, spec),
         );
         let live = memo::read_census(&path, &key).expect("the cold run wrote the census");
@@ -434,8 +446,6 @@ mod kink_tier {
     /// `calc.k` changed. With memos the run gives the document a run without memos gives under the
     /// same change, the survivor's forged record (under exactly the admitted key) is not read, and
     /// the memo directory is unchanged.
-    // Portable only: tests the warm-path memos, off under Z3 by design as tier 1 is.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_source_changed_after_admission_reads_no_record() {
@@ -446,7 +456,7 @@ mod kink_tier {
         assert_eq!(timeless(&cold), timeless(&cold_off));
         let cache = with.join(CACHE_DIRECTORY);
         let parts = key_parts(&with, LIST, SURVIVOR);
-        let key = memo::resolution_key(parts.spec, parts.build, &parts.mutation);
+        let key = memo::resolution_key(parts.spec, parts.build, budget(), &parts.mutation);
         let path = memo::resolution_path(&cache, parts.spec, &parts.mutation);
         let lie = forged(&memo::read_facts(&path, &key).expect("the cold run wrote the facts"));
         memo::write_facts(&Store::new(&cache), &path, &key, &lie);
@@ -499,8 +509,6 @@ mod kink_tier {
     /// The census memo is read under exactly its key: a forged flagged census refuses the
     /// specification there (the positive control), `--verify` admits it with the live census and
     /// reports the record, and the same record under another build or identity is not used.
-    // Portable only: tests the warm-path memos, off under Z3 by design as tier 1 is.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_census_record_is_used_under_exactly_its_key() {
@@ -514,7 +522,7 @@ mod kink_tier {
         let identity = kink_campaign::kink_identity();
         let key = census_key_of(CENSUS_MEMO_VERSION, parts.build, &identity, parts.spec);
         assert_eq!(
-            memo::census_key(parts.spec, parts.build),
+            memo::census_key(parts.spec, parts.build, budget()),
             key,
             "the census key does not name each of its inputs"
         );
@@ -562,7 +570,7 @@ mod kink_tier {
             (
                 "build",
                 census_key_of(CENSUS_MEMO_VERSION, other_build, &identity, parts.spec),
-                Some(memo::census_key(parts.spec, other_build)),
+                Some(memo::census_key(parts.spec, other_build, budget())),
             ),
             (
                 "kink",
@@ -587,7 +595,7 @@ mod kink_tier {
             (
                 "spec",
                 census_key_of(CENSUS_MEMO_VERSION, parts.build, &identity, other_spec),
-                Some(memo::census_key(other_spec, parts.build)),
+                Some(memo::census_key(other_spec, parts.build, budget())),
             ),
         ] {
             assert_ne!(stale, key, "{component}");
@@ -604,8 +612,6 @@ mod kink_tier {
 
     /// A byte of a source file or of the mutation's text changes the key: no record of the old
     /// inputs is read, and the rows are the rows a run without memos gives on the new inputs.
-    // Portable only: tests the warm-path memos, off under Z3 by design as tier 1 is.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_changed_source_byte_or_mutation_text_misses() {
@@ -617,7 +623,7 @@ mod kink_tier {
         search(&dir, LIST, MemoUse::On, RunMode::Search);
         search(&reference, LIST, MemoUse::Off, RunMode::Search);
         let parts = key_parts(&dir, LIST, SURVIVOR);
-        let key = memo::resolution_key(parts.spec, parts.build, &parts.mutation);
+        let key = memo::resolution_key(parts.spec, parts.build, budget(), &parts.mutation);
         let path = memo::resolution_path(&cache, parts.spec, &parts.mutation);
         let lie = forged(&memo::read_facts(&path, &key).unwrap());
         memo::write_facts(&store, &path, &key, &lie);
@@ -649,8 +655,8 @@ mod kink_tier {
         fs::write(&list, &changed).unwrap();
         fs::write(reference.join(LIST), &changed).unwrap();
         let new = key_parts(&dir, LIST, SURVIVOR);
-        let key_now = memo::resolution_key(new.spec, new.build, &new.mutation);
-        let old_entry = memo::resolution_key(new.spec, new.build, &edited.mutation);
+        let key_now = memo::resolution_key(new.spec, new.build, budget(), &new.mutation);
+        let old_entry = memo::resolution_key(new.spec, new.build, budget(), &edited.mutation);
         assert_ne!(key_now, old_entry);
         let path_now = memo::resolution_path(&cache, new.spec, &new.mutation);
         memo::write_facts(&store, &path_now, &old_entry, &lie);
@@ -670,8 +676,6 @@ mod kink_tier {
 
     /// The resolution memo is read under exactly its key, and only there; `--verify` reports a
     /// record that differs from the live resolution and writes nothing.
-    // Portable only: tests the warm-path memos, off under Z3 by design as tier 1 is.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_resolution_record_is_used_under_exactly_its_key() {
@@ -692,7 +696,7 @@ mod kink_tier {
             &parts.mutation,
         );
         assert_eq!(
-            memo::resolution_key(parts.spec, parts.build, &parts.mutation),
+            memo::resolution_key(parts.spec, parts.build, budget(), &parts.mutation),
             key,
             "the resolution key does not name each of its inputs"
         );
@@ -784,6 +788,7 @@ mod kink_tier {
                 Some(memo::resolution_key(
                     parts.spec,
                     other_build,
+                    budget(),
                     &parts.mutation,
                 )),
             ),
@@ -821,6 +826,7 @@ mod kink_tier {
                 Some(memo::resolution_key(
                     other_spec,
                     parts.build,
+                    budget(),
                     &parts.mutation,
                 )),
             ),
@@ -836,6 +842,7 @@ mod kink_tier {
                 Some(memo::resolution_key(
                     parts.spec,
                     parts.build,
+                    budget(),
                     &other_mutation,
                 )),
             ),
@@ -877,8 +884,6 @@ mod kink_tier {
     /// would give that field's mutation the base's facts, which tier 1 decides: `killed` for an
     /// `invalid-mutation` (review L1-4-1: dropping all fields but `replace` reported markdown's
     /// ghost-rule killed).
-    // Portable only: tests the warm-path memos, off under Z3 by design as tier 1 is.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn mutations_differing_in_one_field_never_share_a_record() {
@@ -917,7 +922,7 @@ mod kink_tier {
             assert!(
                 memo::read_facts(
                     &base,
-                    &memo::resolution_key(parts.spec, parts.build, &parts.mutation)
+                    &memo::resolution_key(parts.spec, parts.build, budget(), &parts.mutation)
                 )
                 .is_some()
             );
@@ -934,16 +939,12 @@ mod kink_tier {
 mod heavy {
     use super::*;
 
-    // Portable only: tests the warm-path memos, off under Z3 by design as tier 1 is.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "heavy"]
     fn memos_change_no_row_record_or_hint_on_calc_in_three_rounds() {
         compare("calc", "MUTATIONS-statuses.toml", &ROUNDS);
     }
 
-    // Portable only: tests the warm-path memos, off under Z3 by design as tier 1 is.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "heavy"]
     fn memos_change_no_row_record_or_hint_on_markdown_in_three_rounds() {
@@ -1043,11 +1044,11 @@ fn the_resolution_key_pins_every_field_of_the_edits() {
     let cache = Path::new("/nonexistent");
     let base = &list.mutations[0];
     assert_eq!(base.id, "base");
-    let base_key = memo::resolution_key(spec, build, base);
+    let base_key = memo::resolution_key(spec, build, budget(), base);
     for mutation in &list.mutations[1..] {
         assert_ne!(mutation.edits, base.edits, "{}", mutation.id);
         assert_ne!(
-            memo::resolution_key(spec, build, mutation),
+            memo::resolution_key(spec, build, budget(), mutation),
             base_key,
             "the key does not name {}",
             mutation.id
@@ -1060,7 +1061,7 @@ fn the_resolution_key_pins_every_field_of_the_edits() {
         );
     }
     for mutation in &list.mutations {
-        let key = memo::resolution_key(spec, build, mutation);
+        let key = memo::resolution_key(spec, build, budget(), mutation);
         let edits = key["mutation"].as_array().unwrap();
         let mut text = format!(
             "[[mutation]]\nid = \"{}\"\nmisunderstanding = \"a test mutation\"\n",
@@ -1105,16 +1106,42 @@ fn the_memo_keys_name_every_input() {
     let identity = kink_campaign::kink_identity();
     for mutation in &list.mutations {
         assert_eq!(
-            memo::resolution_key(spec, build, mutation),
+            memo::resolution_key(spec, build, budget(), mutation),
             resolution_key_of(RESOLUTION_MEMO_VERSION, build, &identity, spec, mutation),
             "{}",
             mutation.id
         );
     }
     assert_eq!(
-        memo::census_key(spec, build),
+        memo::census_key(spec, build, budget()),
         census_key_of(CENSUS_MEMO_VERSION, build, &identity, spec)
     );
+    // The solver: under the Z3 profile another unit budget is another key, differing exactly in
+    // `smt`; under the no-Z3 profile no key names a solver.
+    let other = Budget {
+        smt_resource_limit: std::num::NonZeroU32::MIN,
+        ..budget()
+    };
+    let mutation = &list.mutations[0];
+    for (key, other) in [
+        (
+            memo::census_key(spec, build, budget()),
+            memo::census_key(spec, build, other),
+        ),
+        (
+            memo::resolution_key(spec, build, budget(), mutation),
+            memo::resolution_key(spec, build, other, mutation),
+        ),
+    ] {
+        let z3 = kink_native::execution::SolverProfile::BUILD
+            == kink_native::execution::SolverProfile::Z3;
+        assert_eq!(key.get("smt").is_some(), z3, "{key:#}");
+        assert_eq!(key != other, z3, "{key:#}");
+        let (mut key, mut other) = (key, other);
+        key.as_object_mut().unwrap().remove("smt");
+        other.as_object_mut().unwrap().remove("smt");
+        assert_eq!(key, other);
+    }
 }
 
 /// Serves the bytes of the fixture file `file` once, through a named pipe at its path, while

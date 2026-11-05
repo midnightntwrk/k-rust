@@ -25,6 +25,7 @@
 //! on past because the step had another successor ([`RunFacts::passed_stops`]).
 
 use std::{
+    cell::Cell,
     collections::{BTreeMap, BTreeSet},
     num::NonZeroUsize,
     sync::{
@@ -388,6 +389,13 @@ pub struct RunFacts {
     /// every leaf's feasibility itself, so an undecided answer can make a comparison unknown,
     /// never a kill).
     pub smt_unknowns: usize,
+    /// kink's own count beside k-rust's: the undecided answers the solver gave the questions the
+    /// adapter asked about the run's leaves (their feasibility, `crate::feasibility`, "Undecided
+    /// answers"), outside the run's request; 0 in a build without a solver, for a timed-out run
+    /// and for a result adapted from outside ([`ExecutionAdapter::adapt_result`]) unless its
+    /// caller states the count ([`AdaptedExecution::with_decider_smt_unknowns`]). Reported,
+    /// never an exclusion, for the reason `smt_unknowns` is not one.
+    pub decider_smt_unknowns: usize,
     /// Every distinct value the definition leaves open that the run read
     /// (`implementationChosenValues`): its hook and class.
     pub implementation_chosen_values: Vec<ChosenValueOutput>,
@@ -453,6 +461,7 @@ impl RunFacts {
         let short_circuit_readings = std::mem::take(&mut result.short_circuit_readings);
         Self {
             smt_unknowns: result.smt_unknowns,
+            decider_smt_unknowns: 0,
             implementation_chosen_values: std::mem::take(&mut result.implementation_chosen_values),
             contradicted_claims: std::mem::take(&mut result.contradicted_claims),
             allowance_refusals: std::mem::take(&mut result.allowance_refusals),
@@ -712,6 +721,15 @@ impl AdaptedExecution {
     pub const fn facts(&self) -> &RunFacts {
         &self.facts
     }
+
+    /// This execution with `count` added to [`RunFacts::decider_smt_unknowns`]: the undecided
+    /// solver answers that the caller of [`ExecutionAdapter::adapt_result`] took when it judged
+    /// the leaf feasibility it gave there, which the result does not carry.
+    #[must_use]
+    pub const fn with_decider_smt_unknowns(mut self, count: usize) -> Self {
+        self.facts.decider_smt_unknowns = self.facts.decider_smt_unknowns.saturating_add(count);
+        self
+    }
 }
 
 /// The execution of a run made of several result runs of one definition (kink-campaign's
@@ -849,6 +867,7 @@ impl RunFacts {
         }
         let Self {
             smt_unknowns,
+            decider_smt_unknowns,
             implementation_chosen_values,
             contradicted_claims,
             allowance_refusals,
@@ -858,6 +877,9 @@ impl RunFacts {
             ground: _,
         } = other;
         self.smt_unknowns = self.smt_unknowns.saturating_add(smt_unknowns);
+        self.decider_smt_unknowns = self
+            .decider_smt_unknowns
+            .saturating_add(decider_smt_unknowns);
         union(
             &mut self.implementation_chosen_values,
             implementation_chosen_values,
@@ -1146,6 +1168,7 @@ impl ExecutionAdapter {
             requested,
             Backend::execute_kore,
         )?;
+        let undecided = Cell::new(0);
         let feasibility = if timed_out {
             vec![LeafFeasibility::Unknown; result.leaves.len()]
         } else {
@@ -1154,13 +1177,13 @@ impl ExecutionAdapter {
                     .leaves
                     .iter()
                     .map(|leaf| {
-                        leaf_feasibility(definition, solver, inhabitation, &leaf.state)
+                        leaf_feasibility(definition, solver, inhabitation, &leaf.state, &undecided)
                             .map_err(host_stack_refused)
                     })
                     .collect::<Result<Vec<_>, _>>()
             })?
         };
-        Self::adapt(
+        let mut adapted = Self::adapt(
             result,
             timed_out,
             &budget,
@@ -1168,7 +1191,9 @@ impl ExecutionAdapter {
             feasibility,
             rewrites,
             recorded,
-        )
+        )?;
+        adapted.facts.decider_smt_unknowns = undecided.get();
+        Ok(adapted)
     }
 
     /// Execute once with every rewrite transition observed, retaining the states of each step:
@@ -1235,18 +1260,19 @@ impl ExecutionAdapter {
             Ok(states) => states,
             Err(failure) => return Ok(Err(failure)),
         };
+        let undecided = Cell::new(0);
         let feasibility = backend.with_solver(None, |definition, solver| {
             result
                 .leaves
                 .iter()
                 .map(|leaf| {
-                    leaf_feasibility(definition, solver, &inhabitation, &leaf.state)
+                    leaf_feasibility(definition, solver, &inhabitation, &leaf.state, &undecided)
                         .map_err(host_stack_refused)
                 })
                 .collect::<Result<Vec<_>, _>>()
         })?;
         // Step observations are consumed only by the configuration sequence, which took them.
-        let adapted = Self::adapt(
+        let mut adapted = Self::adapt(
             result,
             false,
             &budget,
@@ -1255,6 +1281,7 @@ impl ExecutionAdapter {
             &rewrites,
             recorded,
         )?;
+        adapted.facts.decider_smt_unknowns = undecided.get();
         Ok(Ok(SteppedExecution { adapted, states }))
     }
 

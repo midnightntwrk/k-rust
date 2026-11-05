@@ -5,8 +5,6 @@
 //! result records. Since F-14 the killer cache is tier 2 of the outcome cache (`hints.json`,
 //! keyed by the hint key); a test that pins the warm cost of a killer deletes tier 1
 //! (`outcomes/`) first, so that the hint, not a cached outcome, decides the calls.
-// Under Z3 the result cache is off, and the tests of its records are compiled out.
-#![cfg_attr(feature = "z3", allow(dead_code, unused_imports))]
 
 mod flow_support;
 
@@ -542,11 +540,7 @@ note = "requires and right-hand side"
             ])
         );
         // The witnesses are read from the compiled mutant, which the outcome file keeps: a warm
-        // run decides every row from tier 1 with no compile and names the same witnesses. Tier 1
-        // is off under Z3.
-        if cfg!(feature = "z3") {
-            return;
-        }
+        // run decides every row from tier 1 with no compile and names the same witnesses.
         let (warm, _) = search(&dir.join("FLOW.toml"), &mutations, &[]);
         for id in ["guard-dropped", "operands-swapped", "both"] {
             let row = mutation(&warm, id);
@@ -983,9 +977,7 @@ note = "right-hand side"
             mutation(&document, "sgn-plus-one")["inconsistent_pairs"],
             json!([])
         );
-        // Under Z3 no record is written: tier 1 is off by design (search::tier1_refusal).
-        let written = if cfg!(feature = "z3") { 0 } else { 1 };
-        assert_eq!(document["outcome_cache"]["records_written"], written);
+        assert_eq!(document["outcome_cache"]["records_written"], 1);
 
         let (again, ok) = search(&dir.join("FLOW.toml"), &dir.join("MUTATIONS.toml"), &[]);
         assert!(ok);
@@ -1315,9 +1307,6 @@ note = "right-hand side"
         );
     }
 
-    // Portable only: the drift check compares a stored result record, and the result cache is
-    // off under Z3 by design (`results::RESULT_CACHE_Z3`).
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_baseline_mismatch_stops_the_run_without_a_verdict() {

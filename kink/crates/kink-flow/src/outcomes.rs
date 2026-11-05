@@ -22,8 +22,13 @@
 //! test, both sides and every slot, before anything here sees it: a cancelled run is a timeout;
 //! kink sets no step timeout; a stack stop, a load stack stop or an allowance refusal on either
 //! side makes that side's run `failed` (kink-native `exclusion`), so the test is not compared, and
-//! on the baseline the program is not comparable; and under the Z3 profile tier 1 is off
-//! (`search::tier1_refusal`).
+//! on the baseline the program is not comparable; and under the Z3 profile every query of kink's
+//! backends is bounded by Z3 resource units, never by the clock (`[budget] smt_resource_limit`),
+//! so none times out: an undecided answer is a function of the query, the units and the Z3 build,
+//! which the context names, and the promise covers such a run. kink's own queries outside a run
+//! (leaf feasibility, the observation decider) are bounded the same way, so an outcome they
+//! decide is a function of the context too; with a solver the clock bounds, or a Z3 build that
+//! cannot be named, tier 1 is off (`search::tier1_refusal`).
 //!
 //! `<cache>/outcomes/<context digest>/<mutation identity>.json` holds one mutation's records:
 //! `{schema: "kink-flow-outcomes", version: 3, context, context_sha256, mutation_identity,

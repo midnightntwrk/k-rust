@@ -69,6 +69,16 @@
 //! k-rust relied on stays in the leaf predicate (the evidence behind [`LeafFeasibility::Solver`]),
 //! so every model of the path predicate does.
 //!
+//! **Undecided answers.** Every solver question kink asks outside a run, of a leaf or of a
+//! path, goes through one function, which counts each `Unknown` the solver answers (after
+//! k-rust's retries) in a counter its caller holds: the leaf calls take the counter, and
+//! [`BackendRelations`] (with it [`crate::step_events::ObservationDecider`]) keeps its own
+//! ([`BackendRelations::smt_unknowns`]). The count is reported beside k-rust's `smtUnknowns`,
+//! never an exclusion: an undecided answer makes a leaf or a path `Unknown`, which can make a
+//! comparison unknown and never a kill. Under a resource-bounded solver whether a question is
+//! decided is a function of the question, the unit budget and the Z3 build, so the count of a
+//! judgement is too; it says where a larger budget could decide more.
+//!
 //! **Variable identity (T-VI).** Names are read verbatim (`definition.rs:1046-1066`).
 //! Printing is injective with capture-avoiding binder renaming (`term/names.rs:33-61`,
 //! `externalize.rs:791-880`): a printed response read back is a bijective renaming of the
@@ -283,10 +293,22 @@ pub(crate) fn free_constructor(symbol: &Symbol) -> bool {
 
 /// The solver's answer to `query`, or `None` when it has none. A stop withholds only a
 /// refinement: every caller's outcome without an answer (`Unknown`, not proved) is sound, so
-/// the stop is dismissed and its owner observes it again.
-pub(crate) fn solver_answer(solver: &dyn SmtSolver, query: &[Predicate]) -> Option<Satisfiability> {
+/// the stop is dismissed and its owner observes it again. An undecided answer
+/// (`Satisfiability::Unknown`) adds one to `undecided` (module documentation, "Undecided
+/// answers"); a stop and a solver error are no answer and add nothing.
+pub(crate) fn solver_answer(
+    solver: &dyn SmtSolver,
+    query: &[Predicate],
+    undecided: &Cell<usize>,
+) -> Option<Satisfiability> {
     match solver.is_sat(query, &Substitution::new()) {
-        Ok(answer) => answer.ok(),
+        Ok(answer) => {
+            let answer = answer.ok();
+            if matches!(answer, Some(Satisfiability::Unknown(_))) {
+                undecided.set(undecided.get().saturating_add(1));
+            }
+            answer
+        }
         Err(stop) => {
             stop.forgo_refinement();
             None
@@ -365,14 +387,16 @@ pub(crate) fn on_stack_for<R>(
 /// The feasibility of a leaf state per the module documentation. Only the solver's `Sat` and
 /// `Unsat` are used, and `Sat` only when the query translates exactly; `NoSolver` contributes
 /// nothing. `Err` is the host's refusal of the stack the leaf needs
-/// ([`admitted_leaf_feasibility`]), which is no answer about the leaf.
+/// ([`admitted_leaf_feasibility`]), which is no answer about the leaf. An undecided solver
+/// answer adds one to `undecided`.
 pub(crate) fn leaf_feasibility(
     definition: &BackendDefinition,
     solver: &dyn SmtSolver,
     inhabitation: &Inhabitation,
     state: &Pattern,
+    undecided: &Cell<usize>,
 ) -> Result<LeafFeasibility, SegmentRefused> {
-    admitted_leaf_feasibility(definition, solver, inhabitation, state, |_| true)
+    admitted_leaf_feasibility(definition, solver, inhabitation, state, undecided, |_| true)
 }
 
 /// Leaf feasibility under the observation decider's definition-independent query policy, on
@@ -380,27 +404,36 @@ pub(crate) fn leaf_feasibility(
 /// 501f18b9 admission restates the admitted predicate's definedness from the admitting
 /// definition, so a mutant leaf is admitted under the mutant's definition, never the baseline's
 /// (re-pin finding A-12; [`crate::step_events::ObservationDecider::for_leaves_of`]). `Err` as
-/// for [`leaf_feasibility`].
+/// and `undecided` as for [`leaf_feasibility`].
 pub(crate) fn shared_leaf_feasibility(
     definition: &BackendDefinition,
     solver: &dyn SmtSolver,
     inhabitation: &Inhabitation,
     state: &Pattern,
+    undecided: &Cell<usize>,
 ) -> Result<LeafFeasibility, SegmentRefused> {
     if contains_non_strict_injection(definition, state)
         || contains_untrusted_domain_value(definition, state)
     {
         return Ok(LeafFeasibility::Unknown);
     }
-    admitted_leaf_feasibility(definition, solver, inhabitation, state, |constraints| {
-        constraints
-            .iter()
-            .all(|predicate| shared_predicate_interpreted(definition, predicate))
-    })
+    admitted_leaf_feasibility(
+        definition,
+        solver,
+        inhabitation,
+        state,
+        undecided,
+        |constraints| {
+            constraints
+                .iter()
+                .all(|predicate| shared_predicate_interpreted(definition, predicate))
+        },
+    )
 }
 
 /// The feasibility of the leaf state `pattern` once admitted to `definition`, where the solver is
-/// asked only about constraints that `askable` accepts (otherwise the answer is `Unknown`).
+/// asked only about constraints that `askable` accepts (otherwise the answer is `Unknown`), each
+/// undecided answer counted in `undecided`.
 ///
 /// The leaf is as deep as the run made it (k-rust writes a builtin collection as a right-nested
 /// chain, one level per element, and any other term a step nests is one level deeper per step),
@@ -428,6 +461,7 @@ fn admitted_leaf_feasibility(
     solver: &dyn SmtSolver,
     inhabitation: &Inhabitation,
     pattern: &Pattern,
+    undecided: &Cell<usize>,
     askable: impl FnOnce(&[Predicate]) -> bool,
 ) -> Result<LeafFeasibility, SegmentRefused> {
     on_stack_for(definition, &[pattern], |associated| {
@@ -448,7 +482,7 @@ fn admitted_leaf_feasibility(
         if !askable(&internal.constraints) {
             return LeafFeasibility::Unknown;
         }
-        match solver_answer(solver, &internal.constraints) {
+        match solver_answer(solver, &internal.constraints, undecided) {
             Some(Satisfiability::Unsat) => LeafFeasibility::Unsat,
             Some(Satisfiability::Sat) if instances && translates_exactly(&internal.constraints) => {
                 LeafFeasibility::Solver
@@ -783,6 +817,8 @@ pub struct BackendRelations<'a> {
     /// [`crate::step_events::ObservationDecider`], one of its judgements) needed, not yet handed
     /// to a caller ([`Self::host_refusal_during`]).
     host_refusal: Cell<Option<SegmentRefused>>,
+    /// The undecided solver answers of this decider's questions ([`Self::smt_unknowns`]).
+    undecided: Cell<usize>,
 }
 
 impl<'a> BackendRelations<'a> {
@@ -803,7 +839,22 @@ impl<'a> BackendRelations<'a> {
             inhabitation,
             variables,
             host_refusal: Cell::new(None),
+            undecided: Cell::new(0),
         }
+    }
+
+    /// How many of the solver's answers to this decider's questions were undecided
+    /// (`Satisfiability::Unknown`, after k-rust's retries) since it was built: its relation
+    /// queries and, for an [`crate::step_events::ObservationDecider`], its leaf feasibility
+    /// (module documentation, "Undecided answers"). Reported, never an exclusion.
+    #[must_use]
+    pub fn smt_unknowns(&self) -> usize {
+        self.undecided.get()
+    }
+
+    /// The counter of [`Self::smt_unknowns`], for a leaf question asked on this decider's behalf.
+    pub(crate) const fn undecided(&self) -> &Cell<usize> {
+        &self.undecided
     }
 
     /// `work`'s result, or the first refusal by the host to map a stack that one of the decisions
@@ -958,7 +1009,7 @@ impl<'a> BackendRelations<'a> {
                 .iter()
                 .all(|predicate| predicate.free_variables().is_subset(stable))
         });
-        match solver_answer(self.solver, &query) {
+        match solver_answer(self.solver, &query, &self.undecided) {
             Some(Satisfiability::Unsat) => Feasibility::Unsat,
             Some(Satisfiability::Sat) if idempotent && stable && translates_exactly(&query) => {
                 Feasibility::Sat
@@ -1288,7 +1339,7 @@ mod tests {
             .with_solver(None, |definition, solver| {
                 let inhabitation = Inhabitation::of(definition);
                 let feasibility = |pattern: &Pattern| {
-                    leaf_feasibility(definition, solver, &inhabitation, pattern)
+                    leaf_feasibility(definition, solver, &inhabitation, pattern, &Cell::new(0))
                         .expect("the host maps the stack")
                 };
                 Ok::<_, BackendError>((
@@ -1338,8 +1389,14 @@ mod tests {
                     "SortProg",
                 );
                 Ok::<_, BackendError>(
-                    leaf_feasibility(definition, solver, &Inhabitation::of(definition), &state)
-                        .expect("the host maps the stack"),
+                    leaf_feasibility(
+                        definition,
+                        solver,
+                        &Inhabitation::of(definition),
+                        &state,
+                        &Cell::new(0),
+                    )
+                    .expect("the host maps the stack"),
                 )
             })
             .expect("definition");
@@ -1439,7 +1496,8 @@ mod tests {
                 &definition,
                 &k_rust_backend::smt::NoSolver,
                 &inhabitation,
-                &state
+                &state,
+                &Cell::new(0),
             ),
             Ok(LeafFeasibility::Unknown)
         );
@@ -1618,15 +1676,25 @@ mod tests {
                     answer: answer.clone(),
                     queries: std::cell::RefCell::default(),
                 };
-                let feasible =
-                    BackendRelations::shared(definition, &solver, TestInitialState::of_test(state))
-                        .feasible(path, assumptions);
+                let relations =
+                    BackendRelations::shared(definition, &solver, TestInitialState::of_test(state));
+                let feasible = relations.feasible(path, assumptions);
+                let undecided = relations.smt_unknowns();
+                drop(relations);
                 let asked = solver.queries.into_inner();
                 let expected_queries = query.iter().cloned().collect::<Vec<_>>();
-                if feasible != *expected || asked != expected_queries {
+                // Only an `Unknown` the solver was asked for is an undecided answer.
+                let expected_undecided = usize::from(
+                    query.is_some() && matches!(answer, Ok(Satisfiability::Unknown(_))),
+                );
+                if feasible != *expected
+                    || asked != expected_queries
+                    || undecided != expected_undecided
+                {
                     failures.push(format!(
-                        "{id} under {answer:?}: expected {expected:?} asking {expected_queries:?}, \
-                         got {feasible:?} asking {asked:?}"
+                        "{id} under {answer:?}: expected {expected:?} asking {expected_queries:?} \
+                         with {expected_undecided} undecided, got {feasible:?} asking {asked:?} \
+                         with {undecided} undecided"
                     ));
                 }
             }
@@ -2051,10 +2119,15 @@ mod tests {
                     states
                         .iter()
                         .map(|(id, state)| {
-                            (
-                                format!("{answer:?} {id}"),
-                                leaf_feasibility(definition, &solver, &inhabitation, state),
-                            )
+                            let undecided = Cell::new(0);
+                            let feasibility = leaf_feasibility(
+                                definition,
+                                &solver,
+                                &inhabitation,
+                                state,
+                                &undecided,
+                            );
+                            (format!("{answer:?} {id}"), feasibility, undecided.get())
                         })
                         .collect::<Vec<_>>()
                 })
@@ -2074,9 +2147,61 @@ mod tests {
             U, U, U, U, U, Syntactic,
         ];
         assert_eq!(answers.len(), expected.len());
-        for ((id, answer), expected) in answers.into_iter().zip(expected) {
+        for (index, ((id, answer, undecided), expected)) in
+            answers.into_iter().zip(expected).enumerate()
+        {
             assert_eq!(answer, Ok(expected), "{id}");
+            // Each constrained state asks the solver once, and only its `Unknown` is counted as
+            // undecided: neither a decided answer nor the solver's unavailability, and no state
+            // without a predicate, which asks nothing.
+            let asked_unknown = index / 6 == 2 && index % 6 != 5;
+            assert_eq!(undecided, usize::from(asked_unknown), "{id}");
         }
+    }
+
+    /// The observation decider counts each undecided answer to the questions it asks about a
+    /// leaf in the counter its relation queries use ([`BackendRelations::smt_unknowns`]); a
+    /// decided answer adds nothing.
+    #[test]
+    fn the_observation_decider_counts_its_undecided_answers() {
+        use crate::step_events::ObservationDecider;
+        let mut guarded = backend("guardedmem.k", "GUARDEDMEM");
+        guarded
+            .with_solver(None, |definition, _| {
+                let x = support::var("X", "SortInt");
+                let guard = equals(
+                    "SortBool",
+                    Pattern::DomainValue {
+                        sort: k_rust::kompile::initial_configuration::kore_sort("SortBool"),
+                        value: "true".into(),
+                    },
+                    support::app(
+                        &hooked(definition, "INT.ge"),
+                        vec![x.clone(), support::int(0)],
+                    ),
+                );
+                let state = constrained(guarded_state(x), guard);
+                let initial = TestInitialState::of_test(&state);
+                let undecided = Scripted(Ok(Satisfiability::Unknown("scripted".into())));
+                let decider = ObservationDecider::new(definition, &undecided, initial);
+                for count in 1..=2 {
+                    assert_eq!(
+                        decider.shared_leaf_feasibility(&state),
+                        LeafFeasibility::Unknown
+                    );
+                    assert_eq!(decider.smt_unknowns(), count);
+                    assert_eq!(decider.relations().smt_unknowns(), count);
+                }
+                let decided = Scripted(Ok(Satisfiability::Unsat));
+                let decider = ObservationDecider::new(definition, &decided, initial);
+                assert_eq!(
+                    decider.shared_leaf_feasibility(&state),
+                    LeafFeasibility::Unsat
+                );
+                assert_eq!(decider.smt_unknowns(), 0);
+                Ok::<_, BackendError>(())
+            })
+            .expect("definition");
     }
 
     #[cfg(feature = "z3")]
@@ -2102,7 +2227,7 @@ mod tests {
                 ] {
                     let state = constrained(guarded_state(x.clone()), constraint);
                     assert_eq!(
-                        leaf_feasibility(definition, solver, &inhabitation, &state),
+                        leaf_feasibility(definition, solver, &inhabitation, &state, &Cell::new(0)),
                         Ok(expected)
                     );
                 }
@@ -2536,7 +2661,13 @@ mod tests {
                             .collect::<Vec<_>>(),
                         ["Ex-hW-b0", "V"]
                     );
-                    let row = leaf_feasibility(definition, solver, &inhabitation, &printed);
+                    let row = leaf_feasibility(
+                        definition,
+                        solver,
+                        &inhabitation,
+                        &printed,
+                        &Cell::new(0),
+                    );
                     Ok::<_, BackendError>((binders, row))
                 })
                 .expect("binder row");
@@ -2661,7 +2792,13 @@ mod tests {
                                 body: Box::new(equals("SortInt", w.clone(), support::int(2))),
                             },
                         );
-                        rows.push(leaf_feasibility(definition, solver, &inhabitation, &state));
+                        rows.push(leaf_feasibility(
+                            definition,
+                            solver,
+                            &inhabitation,
+                            &state,
+                            &Cell::new(0),
+                        ));
                     }
                     Ok::<_, BackendError>(rows)
                 })
@@ -2840,6 +2977,7 @@ mod tests {
                             solver,
                             &Inhabitation::of(definition),
                             &invalid_state,
+                            &Cell::new(0),
                         ),
                         Ok(LeafFeasibility::Unknown)
                     );

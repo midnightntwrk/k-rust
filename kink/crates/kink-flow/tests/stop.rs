@@ -570,9 +570,7 @@ fn query_and_fuzz_refuse_a_stopped_corpus() {
     );
 }
 
-/// The outcome cache's tests: tier 1 is off under the Z3 profile by design, so they compile only
-/// in the portable build (kink README, "kink-flow's tests are profile-aware").
-#[cfg(not(feature = "z3"))]
+/// The outcome cache's tests.
 mod kink_tier {
     use super::*;
 

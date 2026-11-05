@@ -1,6 +1,4 @@
 //! Digests, the result cache and `kink-flow results` (flow F-03 deliverables 1-6).
-// Under Z3 the result cache is off, and the tests of its records are compiled out.
-#![cfg_attr(feature = "z3", allow(dead_code, unused_imports))]
 
 use kink_campaign::{
     Campaign, CampaignOptions, CampaignReport, ScheduleMode, TestCase, run_campaign_multi,
@@ -160,17 +158,9 @@ fn read_json(path: &Path) -> Value {
     serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap()
 }
 
-/// The stored record of program `id`, or `None` under the Z3 profile, where the result cache is
-/// off (`results::RESULT_CACHE_Z3`) and no record is written. A test that reads a record for what
-/// the run computed asserts the rest of its claims under both profiles.
-fn stored_record(manifest: &Path, document: &Value, id: &str) -> Option<Value> {
-    let path = record_path(manifest, document, id);
-    if cfg!(feature = "z3") {
-        assert!(!path.exists(), "{}", path.display());
-        None
-    } else {
-        Some(read_json(&path))
-    }
+/// The stored record of program `id`, which the result cache wrote in both profiles.
+fn stored_record(manifest: &Path, document: &Value, id: &str) -> Value {
+    read_json(&record_path(manifest, document, id))
 }
 
 fn manifest_spec_digest(manifest: &FlowManifest) -> String {
@@ -596,17 +586,16 @@ mod kink_tier {
         assert_eq!(status, EXIT_OK, "{document:#}");
         assert_eq!(rows(&document), expect(&[("store", "comparable", false)]));
         assert_eq!(document["rules"][0]["matched_by"], json!(["store"]));
-        if let Some(record) = stored_record(&manifest, &document, "store") {
-            assert_eq!(record["class"], "comparable");
-            assert!(
-                !record["baseline"].is_null() && !record["run_sha256"].is_null(),
-                "{record:#}"
-            );
-            let finals = record_final_configuration(&record).unwrap();
-            assert_eq!(finals.len(), 1);
-            let text = finals[0];
-            assert!(text.contains("\\dv{SortBytes{}}(\"a\")"), "{text}");
-        }
+        let record = stored_record(&manifest, &document, "store");
+        assert_eq!(record["class"], "comparable");
+        assert!(
+            !record["baseline"].is_null() && !record["run_sha256"].is_null(),
+            "{record:#}"
+        );
+        let finals = record_final_configuration(&record).unwrap();
+        assert_eq!(finals.len(), 1);
+        let text = finals[0];
+        assert!(text.contains("\\dv{SortBytes{}}(\"a\")"), "{text}");
     }
 
     /// fz26 KRUST-ANYWHERE-HEAD: on SIMPLE (TRIAL2's stream-free copy,
@@ -821,23 +810,19 @@ text = 'h(opaque(1), 2)'
             .cloned()
             .unwrap();
         assert_eq!(half["fired_by"], json!(["zero", "five"]), "{half:#}");
-        if let Some(record) = stored_record(&dir.join("FLOW.toml"), &document, "zero") {
-            let holds = |key: &str, label: &str| {
-                record["coverage"][key]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .any(|sentence| sentence["label"] == label)
-            };
-            assert!(holds("applied_sentences", "PICK.bad"), "{record:#}");
-            assert!(!holds("fired_sentences", "PICK.bad"), "{record:#}");
-            assert!(holds("fired_sentences", "PICK.good"), "{record:#}");
-        }
+        let record = stored_record(&dir.join("FLOW.toml"), &document, "zero");
+        let holds = |key: &str, label: &str| {
+            record["coverage"][key]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|sentence| sentence["label"] == label)
+        };
+        assert!(holds("applied_sentences", "PICK.bad"), "{record:#}");
+        assert!(!holds("fired_sentences", "PICK.bad"), "{record:#}");
+        assert!(holds("fired_sentences", "PICK.good"), "{record:#}");
     }
 
-    // Portable only: it tests the result cache, which is off under Z3 by design
-    // (`results::RESULT_CACHE_Z3`; `the_z3_profile_stores_no_result`).
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn editing_one_program_recomputes_exactly_that_one() {
@@ -870,9 +855,6 @@ text = 'h(opaque(1), 2)'
         assert_ne!(read_json(&new)["run_sha256"], read_json(&old)["run_sha256"]);
     }
 
-    // Portable only: it tests the result cache, which is off under Z3 by design
-    // (`results::RESULT_CACHE_Z3`; `the_z3_profile_stores_no_result`).
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_fresh_cache_fills_every_program_and_a_second_run_computes_nothing() {
@@ -1187,9 +1169,6 @@ text = 'h(opaque(1), 2)'
     /// keeps, while the specification digest, which names the bytes, changes; the rule rows show
     /// the shifted lines, read from the current load. An edit of a rule recomputes every program
     /// under a new execution directory.
-    // Portable only: it tests the result cache, which is off under Z3 by design
-    // (`results::RESULT_CACHE_Z3`; `the_z3_profile_stores_no_result`).
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_layout_edit_keeps_every_record_and_a_rule_edit_recomputes_every_program() {
@@ -1265,9 +1244,6 @@ text = 'h(opaque(1), 2)'
         assert_eq!(directories, expected);
     }
 
-    // Portable only: it tests the result cache, which is off under Z3 by design
-    // (`results::RESULT_CACHE_Z3`; `the_z3_profile_stores_no_result`).
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_record_is_used_only_under_its_own_key() {
@@ -1308,11 +1284,13 @@ text = 'h(opaque(1), 2)'
         assert!(rows(&third).iter().all(|(_, _, cached)| *cached));
         assert_eq!(spec_hex(&third), spec_hex(&first));
         assert_eq!(program_digests(&third), program_digests(&first));
-        assert_eq!(
-            read_json(&add)["key"]["budget"],
-            json!({"max_depth": 100_000, "max_simplification_iterations": 10_000,
-                   "max_breadth": null})
-        );
+        let mut budget = json!({"max_depth": 100_000, "max_simplification_iterations": 10_000,
+                                "max_breadth": null});
+        // Under the Z3 profile the key also names the solver: kink's units, retries and Z3 build.
+        if let Some(solver) = kink_native::solver_value(kink_native::BACKEND_OPTIONS) {
+            budget["smt"] = solver;
+        }
+        assert_eq!(read_json(&add)["key"]["budget"], budget);
         // Another depth bound: every program is recomputed under the new key.
         fs::write(
             &manifest,
@@ -1375,13 +1353,12 @@ module MU
 
         let (manifest, trusted) = flow("undefined-map-trusted", "");
         assert_eq!(rows(&trusted), expect(&[("one", "comparable", false)]));
-        if let Some(record) = stored_record(&manifest, &trusted, "one") {
-            assert_eq!(
-                record_final_configuration(&record),
-                Some(Vec::new()),
-                "{record:#}"
-            );
-        }
+        let record = stored_record(&manifest, &trusted, "one");
+        assert_eq!(
+            record_final_configuration(&record),
+            Some(Vec::new()),
+            "{record:#}"
+        );
 
         let (_, distrusted) = flow(
             "undefined-map-distrusted",
@@ -1448,9 +1425,8 @@ endmodule
         let (document, status) = run(&manifest, false);
         assert_eq!(status, EXIT_OK, "{document:#}");
         // At this k-rust pin the run stops `indeterminate` at depth 1, so the row is `unknown`.
-        if document["programs"][0]["class"] == "comparable"
-            && let Some(record) = stored_record(&manifest, &document, "one")
-        {
+        if document["programs"][0]["class"] == "comparable" {
+            let record = stored_record(&manifest, &document, "one");
             assert_ne!(
                 record_final_configuration(&record),
                 Some(Vec::new()),
@@ -1479,52 +1455,50 @@ endmodule
         assert_eq!(document["rules"][0]["status"], "covered");
         assert_eq!(document["rules"][0]["matched_by"], json!(["store"]));
         let path = record_path(&manifest, &document, "store");
-        if let Some(mut record) = stored_record(&manifest, &document, "store") {
-            assert_eq!(record["class"], "comparable");
-            assert!(record["baseline"].is_object() && record["run_sha256"].is_string());
-            let finals = record_final_configuration(&record).unwrap();
-            assert_eq!(finals.len(), 1);
-            let text = finals[0];
-            assert!(
-                text.contains("Lbl'UndsPipe'-'-GT-Unds'")
-                    && text.contains("\\dv{SortInt{}}(\"2\")"),
-                "{text}"
-            );
-            // Re-pin L2-1 (coverage v2): the run also reaches the prelude's map equations, so the
-            // rule is one of the reached sentences rather than the only one.
-            let reached = |key: &str| {
-                record["coverage"][key]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .any(|sentence| sentence["label"] == "MAP-STORE.store")
-            };
-            assert!(
-                reached("sentences") && reached("applied_sentences") && reached("fired_sentences"),
-                "{record:#}"
-            );
-            // U1: a v1 record is recomputed, never trusted under the v2 value rule.
-            // Re-pin R0b: v4, because the exclusions change what counts as comparable. Re-pin
-            // adoption A-1: v5, because a record holds the baseline run's specification diagnostics
-            // and undecided solver answers, and k-rust's run-level lists exclude a baseline run.
-            // KINK-R4: v6, because a record's coverage holds the fired sentences `fired_by` lists.
-            // kink27 R1-UNDEF: v7, because an undefined step's pre-step configuration is no final
-            // configuration of a record. kink27 R3-UNDEF-BRIDGE: v8. CF-16: v9, because a
-            // comparable record holds its ends' summaries. v10, because the key names the execution
-            // digest and the bounds a stored class depends on, and no host-dependent class is
-            // stored. v11 (CF-03), because a record holds the readings that excluded its run. v12
-            // (v12), because a record holds each end once, as KORE text.
-            assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v13");
-            record["key"]["schema_version"] = json!("kink-flow/result/v1");
-            fs::write(&path, record.to_string()).unwrap();
-            let (recomputed, status) = run(&manifest, false);
-            assert_eq!(status, EXIT_OK);
-            assert_eq!(rows(&recomputed), expect(&[("store", "comparable", false)]));
-            assert_eq!(
-                read_json(&path)["key"]["schema_version"],
-                RESULT_SCHEMA_VERSION
-            );
-        }
+        let mut record = stored_record(&manifest, &document, "store");
+        assert_eq!(record["class"], "comparable");
+        assert!(record["baseline"].is_object() && record["run_sha256"].is_string());
+        let finals = record_final_configuration(&record).unwrap();
+        assert_eq!(finals.len(), 1);
+        let text = finals[0];
+        assert!(
+            text.contains("Lbl'UndsPipe'-'-GT-Unds'") && text.contains("\\dv{SortInt{}}(\"2\")"),
+            "{text}"
+        );
+        // Re-pin L2-1 (coverage v2): the run also reaches the prelude's map equations, so the
+        // rule is one of the reached sentences rather than the only one.
+        let reached = |key: &str| {
+            record["coverage"][key]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|sentence| sentence["label"] == "MAP-STORE.store")
+        };
+        assert!(
+            reached("sentences") && reached("applied_sentences") && reached("fired_sentences"),
+            "{record:#}"
+        );
+        // U1: a v1 record is recomputed, never trusted under the v2 value rule.
+        // Re-pin R0b: v4, because the exclusions change what counts as comparable. Re-pin
+        // adoption A-1: v5, because a record holds the baseline run's specification diagnostics
+        // and undecided solver answers, and k-rust's run-level lists exclude a baseline run.
+        // KINK-R4: v6, because a record's coverage holds the fired sentences `fired_by` lists.
+        // kink27 R1-UNDEF: v7, because an undefined step's pre-step configuration is no final
+        // configuration of a record. kink27 R3-UNDEF-BRIDGE: v8. CF-16: v9, because a
+        // comparable record holds its ends' summaries. v10, because the key names the execution
+        // digest and the bounds a stored class depends on, and no host-dependent class is
+        // stored. v11 (CF-03), because a record holds the readings that excluded its run. v12
+        // (v12), because a record holds each end once, as KORE text.
+        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v13");
+        record["key"]["schema_version"] = json!("kink-flow/result/v1");
+        fs::write(&path, record.to_string()).unwrap();
+        let (recomputed, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_OK);
+        assert_eq!(rows(&recomputed), expect(&[("store", "comparable", false)]));
+        assert_eq!(
+            read_json(&path)["key"]["schema_version"],
+            RESULT_SCHEMA_VERSION
+        );
 
         let (searched, status) = kink_flow::cli::run(
             &manifest,
@@ -1555,9 +1529,6 @@ endmodule
     /// record claims `unknown`, and the row is the live `comparable`. Re-pin L1-2-land: so is one
     /// whose key lacks the one-sided rule's component (`one_sided`, as at 830c18e) or names another
     /// version of it.
-    // Portable only: it tests the result cache, which is off under Z3 by design
-    // (`results::RESULT_CACHE_Z3`; `the_z3_profile_stores_no_result`).
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_record_written_under_another_identity_is_recomputed() {
@@ -1650,13 +1621,11 @@ endmodule
         assert_eq!(output.status.code(), Some(i32::from(EXIT_OK)));
         let document: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(document["summary"]["comparable"], 4);
-        // Under Z3 the result cache is off, so nothing is written (`results::RESULT_CACHE_Z3`).
-        assert_eq!(
+        assert!(
             cache
                 .join("results")
                 .join(execution_hex(&document))
-                .is_dir(),
-            !cfg!(feature = "z3")
+                .is_dir()
         );
         assert!(!dir.join(CACHE_DIRECTORY).exists());
         let output = Command::new(binary)
@@ -1666,11 +1635,7 @@ endmodule
             .unwrap();
         assert_eq!(output.status.code(), Some(i32::from(EXIT_OK)));
         let document: Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert!(
-            rows(&document)
-                .iter()
-                .all(|(_, _, cached)| *cached != cfg!(feature = "z3"))
-        );
+        assert!(rows(&document).iter().all(|(_, _, cached)| *cached));
 
         // A refused program is a corpus error; the others still get results.
         let output = Command::new(binary)
@@ -1736,9 +1701,6 @@ endmodule
         }
     }
 
-    // Portable only: it tests the result cache, which is off under Z3 by design
-    // (`results::RESULT_CACHE_Z3`; `the_z3_profile_stores_no_result`).
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn verify_passes_on_an_untouched_cache_and_fails_after_a_hand_edited_record() {
@@ -1839,9 +1801,6 @@ endmodule
     /// build, or under none (the key of a build before CACHE-ID-fix-1), and the row is the live
     /// `comparable`. Then two real builds: the `kink-flow` binary and this test binary write the
     /// same cache in turn, and each recomputes every record the other wrote.
-    // Portable only: it tests the result cache, which is off under Z3 by design
-    // (`results::RESULT_CACHE_Z3`; `the_z3_profile_stores_no_result`).
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_record_written_by_another_build_is_recomputed() {
@@ -1936,9 +1895,6 @@ endmodule
     /// function of the key, which names the bound: its record is written and read back, with no
     /// diagnostic run. A bound that does not stop a run is the run without it (countdown's run
     /// digest is the one it has without a bound), and another bound recomputes every program.
-    // Portable only: it tests the result cache, which is off under Z3 by design
-    // (`results::RESULT_CACHE_Z3`; `the_z3_profile_stores_no_result`).
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_timeout_is_rerun_by_the_next_command_and_a_work_bound_is_cached_with_its_bound() {
@@ -2283,46 +2239,67 @@ endmodule
             first["spec"]["execution_digest"],
             json!({"kind": "kink-flow/spec/v1", "digest": first["spec"]["digest"]})
         );
-        // The fallback only costs misses: the second command reads every record (under Z3 the
-        // result cache is off, so it computes every program again).
+        // The fallback only costs misses: the second command reads every record.
         let (second, status) = run(&manifest, false);
         assert_eq!(status, EXIT_OK, "{second:#}");
         assert!(
             rows(&second)
                 .iter()
-                .all(|(_, class, cached)| class == "comparable" && *cached != cfg!(feature = "z3"))
+                .all(|(_, class, cached)| class == "comparable" && *cached)
         );
     }
 
-    /// Under the Z3 profile the result cache is off: kink's own solver queries outside a run
-    /// record no undecided answer, so no baseline class is yet established as a function of its
-    /// key. No record is written, the document says why,
-    /// and a second command computes every program again.
-    #[cfg(feature = "z3")]
+    /// The result cache is on in both profiles: under Z3 every solver query of a command is
+    /// bounded by Z3 resource units, so a class is a function of a key that names the units and
+    /// the Z3 build (`budget.smt`). A record holds both undecided-answer counts, a row repeats
+    /// them, and a second command reads every record and computes nothing.
     #[test]
     #[ignore = "kink"]
-    fn the_z3_profile_stores_no_result() {
-        let manifest = fixture("calc", "z3-off").join("FLOW.toml");
+    fn the_result_cache_is_on_in_both_profiles() {
+        let manifest = fixture("calc", "z3-on").join("FLOW.toml");
         let (first, status) = run(&manifest, false);
         assert_eq!(status, EXIT_OK, "{first:#}");
         assert_eq!(
             first["result_cache"],
-            json!({"enabled": false, "reason": kink_flow::results::RESULT_CACHE_Z3})
+            json!({"enabled": true, "reason": null})
         );
-        assert!(
-            !manifest
-                .parent()
-                .unwrap()
-                .join(CACHE_DIRECTORY)
-                .join("results")
-                .exists()
-        );
+        for program in first["programs"].as_array().unwrap() {
+            let id = program["id"].as_str().unwrap();
+            let record = stored_record(&manifest, &first, id);
+            for count in ["smt_unknowns", "decider_smt_unknowns"] {
+                assert!(record[count].is_u64(), "{id}: {record:#}");
+                assert_eq!(program[count], record[count], "{id}");
+            }
+            assert_eq!(
+                record["key"]["budget"].get("smt").is_some(),
+                SolverProfile::BUILD == SolverProfile::Z3,
+                "{id}: {record:#}"
+            );
+        }
         let (second, _) = run(&manifest, false);
         assert!(
             rows(&second)
                 .iter()
-                .all(|(_, class, cached)| class == "comparable" && !cached)
+                .all(|(_, class, cached)| class == "comparable" && *cached)
         );
-        assert_eq!(second["summary"]["computed"], 4);
+        assert_eq!(second["summary"]["computed"], 0);
     }
+}
+
+/// The result store is refused exactly for a solver the clock bounds under the Z3 profile,
+/// whose answers depend on the host's load ([`kink_flow::results::RESULT_CACHE_Z3`]); kink's
+/// own budget is resource-bounded and keeps it on.
+#[test]
+fn the_result_store_is_off_only_for_a_clock_bounded_solver_under_z3() {
+    let resource = kink_native::BACKEND_OPTIONS;
+    let clock = k_rust::backend::BackendOptions {
+        smt_resource_limit: None,
+        ..resource
+    };
+    let off = |solver| kink_flow::results::result_store(solver).err();
+    assert_ne!(off(resource), Some(kink_flow::results::RESULT_CACHE_Z3));
+    assert_eq!(
+        off(clock) == Some(kink_flow::results::RESULT_CACHE_Z3),
+        SolverProfile::BUILD == SolverProfile::Z3 && kink_native::solver_named().is_ok()
+    );
 }

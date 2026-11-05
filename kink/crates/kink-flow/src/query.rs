@@ -34,7 +34,10 @@
 //! reports every difference (`mismatches`: `{pattern, program, record, cached, live}`) and exits 1
 //! on one; it writes no pattern record. Each live answer is judged with the program's live
 //! baseline run (`ProgramRow::live`), not with a stored result record `--verify` found different.
-//! The cache is off under the Z3 profile, as tier 1 is, and when kink's build identity is unknown.
+//! The cache is off where tier 1 is (`search::tier1_refusal`: under the Z3 profile with a solver
+//! the clock bounds, or whose build cannot be named) and when kink's build identity is unknown.
+//! Under the Z3 profile with kink's resource-bounded solver an answer is a function of its key,
+//! which names the solver's units and Z3 build (the budget's `smt`).
 //!
 //! No answer enters a result record, an outcome record, a hint or a run document: pattern answers
 //! feed no kill and no mutation verdict.
@@ -85,8 +88,10 @@ pub const RECORD_SCHEMA: &str = "kink-flow-pattern";
 /// search's `shortCircuitReadings` list to hold no entry that counts, as a run's list is judged,
 /// where before no `no` was given on such a definition, and an initial state that applies a
 /// reading-dependent function is judged by the same list on every definition, as a run's is; a
-/// `no` may now be given where a v5 answer was `unknown`, and a `hit` is unchanged).
-pub const ANSWER_SCHEMA_VERSION: &str = "kink-flow/pattern-answer/v6";
+/// `no` may now be given where a v5 answer was `unknown`, and a `hit` is unchanged; v7: answers
+/// are stored under the Z3 profile too, where the solver is resource-bounded and the key's budget
+/// names its units and Z3 build, so a record may hold an answer that rests on solver answers).
+pub const ANSWER_SCHEMA_VERSION: &str = "kink-flow/pattern-answer/v7";
 /// Domain of a record's digest.
 pub const PATTERN_RECORD_DOMAIN: &str = "kink-flow/pattern-answer/v1";
 /// The cache's directory in the cache directory.
@@ -206,14 +211,13 @@ fn read_record(path: &Path, key: &Value) -> Option<Stored> {
     })
 }
 
-/// Why the cache is off for this command, or `None`.
-fn cache_refusal(build: Option<Sha256Digest>) -> Option<String> {
-    if tier1_refusal(SolverProfile::BUILD).is_some() {
-        return Some(
-            "the pattern cache is off under the z3 profile, as tier 1 is: a solver query can time \
-             out and k-rust reports no per-run signal that one did"
-                .to_owned(),
-        );
+/// Why the cache is off for this command, whose backends are built with `solver`, or `None`.
+fn cache_refusal(
+    build: Option<Sha256Digest>,
+    solver: k_rust::backend::BackendOptions,
+) -> Option<String> {
+    if let Some(reason) = tier1_refusal(SolverProfile::BUILD, solver) {
+        return Some(format!("the pattern cache is off, as tier 1 is: {reason}"));
     }
     build.is_none().then(|| {
         "kink's build identity is unknown (the executable cannot be read): the pattern cache is \
@@ -280,7 +284,7 @@ pub(crate) fn query_with(
     let mut exclusions = searcher.exclusions().clone();
     adjust(&mut exclusions);
     let build = kink_campaign::kink_build().ok();
-    let refusal = cache_refusal(build);
+    let refusal = cache_refusal(build, manifest.budget.backend_options());
     let cache_build = build.filter(|_| refusal.is_none());
     let store = Store::new(&cache);
     let spec_digest = update.spec_digest;
@@ -668,7 +672,8 @@ pub fn pattern_list_refused(error: &ManifestError) -> Value {
 }
 
 #[cfg(test)]
-// Under Z3 the tests of the pattern cache (off by design) compile out, and their helpers with them.
+// Under Z3 the one test here compiles out, since its subject is a cached `no`, and its helpers
+// with it.
 #[cfg_attr(feature = "z3", allow(dead_code, unused_imports))]
 mod tests {
     //! A cached answer is judged again with the current command's facts (F-18 fix 1): the load
@@ -717,7 +722,7 @@ mod tests {
     mod kink_tier {
         use super::*;
 
-        // Portable only: tests the pattern cache, off under Z3 by design as tier 1 is.
+        // Portable only: its cached answer is a `no`, an answer the Z3 profile never gives.
         #[cfg(not(feature = "z3"))]
         #[test]
         #[ignore = "kink"]

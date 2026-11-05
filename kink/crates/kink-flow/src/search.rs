@@ -28,9 +28,11 @@
 //!    `no-comparable-program` row of an empty O, and otherwise null when there is neither. What is decided before any compile
 //!    (tier 1, the compiles ahead) depends only on the set of programs in O, not on their
 //!    order. The order changes which killing program is found first and the cost,
-//!    never a status in the no-Z3 profile while no `budget.time_ms` bound fires (under Z3 a
-//!    reused backend's cache of solver answers can make it move one between killed, unknown and
-//!    survived, never to a false kill; review L2-1-tail-1 D1, D2).
+//!    never a status while no `budget.time_ms` bound fires, in either profile: under Z3 every
+//!    solver query is bounded by Z3 resource units (`[budget] smt_resource_limit`), so its
+//!    answer does not depend on what a reused backend asked before ([`tier1_refusal`]; under a
+//!    clock-bounded solver it could move a status between killed, unknown and survived, never
+//!    to a false kill; review L2-1-tail-1 D1, D2).
 //! 3. Tier 1 (README 7.5.3): the valid outcome records of the programs of O, under a key that
 //!    names every input of the outcome (kink's build, the k-rust revision, the solver profile,
 //!    the specification's execution digest, the budget, the oracles, the mutation's identity,
@@ -86,8 +88,8 @@
 //!   ([`crate::report::matrix`]).
 //!
 //! A tier-1 record is the outcome of one executed test, and the schedule decides only whether a
-//! test is executed, never what an executed test's request, sides or slots are; in the no-Z3
-//! profile a program's outcome does not depend on which programs ran before it in the call
+//! test is executed, never what an executed test's request, sides or slots are; wherever tier 1
+//! is on, a program's outcome does not depend on which programs ran before it in the call
 //! (step 2). So a record does not depend on the schedule, the tier-1 context does not name it,
 //! and the records either schedule writes serve both. A full row's status is the first-kill
 //! row's: both are kink-campaign's fold over the same per-program outcomes, in which a kill ranks
@@ -194,25 +196,37 @@ pub const REPORT_FILE: &str = "report.json";
 /// The status of a mutation that does not resolve to a patch (README 5.5).
 pub const INVALID_MUTATION: &str = "invalid-mutation";
 
-/// Why tier 1 is off for a build of `profile`, or `None` when it may be used (re-pin decision 5,
-/// finding B-09). Under the Z3 profile a solver query can time out (k-rust's per-query timeout).
-/// k-rust counts a run's undecided answers (`smtUnknowns`), but kink's own solver queries outside
-/// a run (leaf feasibility, the observation decider) carry no such count, so a Z3 result is not a
-/// function of the inputs a key names and the Execute promise does not cover it: tier 1 then
-/// neither reads nor writes, and neither do the result cache, the memos and the pattern cache. The
-/// profile is the build's (`SolverProfile::BUILD`, kink-native's `z3` feature), so it follows
-/// workspace feature unification: a kink-flow linked with a Z3 kink-native has it off.
-pub const fn tier1_refusal(profile: SolverProfile) -> Option<&'static str> {
+/// Why tier 1 is off for a build of `profile` whose backends are built with `solver`, or `None`
+/// when it may be used (re-pin decision 5, finding B-09). An outcome is a function of its key
+/// only if every solver answer it rests on is: the answers to a run's queries and to kink's own
+/// queries outside a run (leaf feasibility, the observation decider), each of which kink counts
+/// when undecided (k-rust's `smtUnknowns` and kink-native's `decider_smt_unknowns`, reported,
+/// never an exclusion). Without Z3 no solver is asked. Under the Z3 profile with `solver` bounded
+/// by Z3 resource units (`[budget] smt_resource_limit`, which every command's backends take) an
+/// answer, decided or not, is a function of the query, the units and the Z3 build, whatever the
+/// host's load and whatever the backend asked before (k-rust's Execute promise covers that
+/// mode), and the context names the units and the build (`results::budget_value`): tier 1 reads
+/// and writes, as do the result cache, the memos and the pattern cache, unless the build cannot
+/// be named (kink-native `UNNAMED_Z3_BUILD`). Under a clock-bounded `solver` an answer depends on
+/// the host's load, which no key names, and all of them are off. The profile is the build's
+/// (`SolverProfile::BUILD`, kink-native's `z3` feature), so it follows workspace feature
+/// unification.
+pub fn tier1_refusal(
+    profile: SolverProfile,
+    solver: k_rust::backend::BackendOptions,
+) -> Option<&'static str> {
     match profile {
         SolverProfile::NoZ3 => None,
-        SolverProfile::Z3 => Some(
-            "tier 1 is disabled under the z3 profile: a solver query can time out, and although \
-             k-rust counts a run's undecided answers, kink's own solver queries outside a run \
-             (leaf feasibility, the observation decider) carry no such count, so no outcome is \
-             cached or read; every mutation runs live",
-        ),
+        SolverProfile::Z3 if solver.smt_resource_limit.is_none() => Some(TIER1_CLOCK),
+        SolverProfile::Z3 => kink_native::solver_named().err(),
     }
 }
+
+/// Why tier 1 is off under the Z3 profile when its solver is bounded by the clock
+/// ([`tier1_refusal`]).
+pub const TIER1_CLOCK: &str = "tier 1 is disabled under the z3 profile when solver queries are \
+     bounded by the clock: an answer then depends on the host's load, which no key can name, so \
+     no outcome is cached or read; every mutation runs live";
 
 /// The `killer_source` of a status decided by a valid tier-1 `killed` record.
 pub const SOURCE_OUTCOME_CACHE: &str = "outcome-cache";
@@ -316,19 +330,21 @@ pub const DEFAULT_COMPILE_WORKERS: usize = 4;
 /// programs whose coverage witnesses the mutant's compiled edit, then the rest; README 5.6 step 2
 /// and 6.4).
 ///
-/// The order never changes a status in the no-Z3 profile while no wall-clock bound
-/// (`budget.time_ms`) fires (README 6.4; a run near the bound can time out in one order and
-/// finish in another, review L2-1-tail-1 D2): under FirstKill a Killed
+/// The order never changes a status while no wall-clock bound (`budget.time_ms`) fires (README
+/// 6.4; a run near the bound can time out in one order and finish in another, review
+/// L2-1-tail-1 D2): under FirstKill a Killed
 /// status comes from any killing test and ranks above every other status, and a mutant-scope
 /// failure arises before any test runs (F-05 review 1), so the order changes only which killing
 /// program is found first (and hence becomes the hint and the reported killer) and what the
 /// search costs. That needs each program's outcome to be independent of the programs run before
-/// it in the same call, which k-rust's Execute promise gives without Z3 only: under Z3 a solver
-/// query can time out and the mutant's reused backend caches satisfiability answers across
-/// programs, so the order can move a status between killed, unknown and survived (a timed-out
-/// query is unknown, a warmed answer can kill or agree, and with no kill the fold reads survived;
-/// never a false kill: a kill is still a proved distinction; re-pin L2-1-tail, review L2-1-1 D4,
-/// review L2-1-tail-1 D1).
+/// it in the same call, which k-rust's Execute promise gives without Z3, and under Z3 for
+/// resource-bounded queries (`[budget] smt_resource_limit`), whose answers are functions of the
+/// query, the units and the Z3 build. Under a clock-bounded solver it would not: a query could
+/// time out and the mutant's reused backend caches satisfiability answers across programs, so the
+/// order could move a status between killed, unknown and survived (a timed-out query is unknown,
+/// a warmed answer can kill or agree, and with no kill the fold reads survived; never a false
+/// kill: a kill is still a proved distinction; re-pin L2-1-tail, review L2-1-1 D4, review
+/// L2-1-tail-1 D1).
 ///
 /// Under [`ProgramOrder::Cost`] the order comes from measured wall times, so the killer found
 /// first, the hint, and the SET of tier-1 records written (under FirstKill the programs after
@@ -2047,15 +2063,13 @@ fn executed_entries(
             entry["baseline_ms"] = json!(baseline_run.map(|b| millis(b.run.wall)));
             entry["baseline_reused"] = json!(baseline_run.map(|b| b.reused));
             // Re-pin adoption A-1: what the mutant's run says about the specification, and its
-            // undecided solver answers (D-7 (a1)), when there are any.
+            // undecided solver answers (D-7 (a1)), k-rust's and kink's, when there are any.
             if let Some(notes) = notes {
                 if !notes.contradicted_claims.is_empty() {
                     entry["specification_diagnostics"] =
                         specification_diagnostics_value(&notes.contradicted_claims);
                 }
-                if notes.smt_unknowns > 0 {
-                    entry["smt_unknowns"] = json!(notes.smt_unknowns);
-                }
+                undecided_answers(&mut entry, notes);
                 // CF-03: the readings that count against the mutant's run, the step that
                 // excluded it.
                 if !notes.short_circuit_readings.is_empty() {
@@ -2076,6 +2090,19 @@ fn executed_entries(
             Some(entry)
         })
         .collect()
+}
+
+/// Writes on an executed entry of a live mutant run the undecided solver answers of the run that
+/// `notes` describes, each count when it is not zero: k-rust's in the run (`smt_unknowns`) and
+/// kink's own about the run (`decider_smt_unknowns`, its leaf feasibility and observation
+/// decider). Reported, never an exclusion (decision D-7 (a1)).
+fn undecided_answers(entry: &mut Value, notes: &kink_campaign::RunNotes) {
+    if notes.smt_unknowns > 0 {
+        entry["smt_unknowns"] = json!(notes.smt_unknowns);
+    }
+    if notes.decider_smt_unknowns > 0 {
+        entry["decider_smt_unknowns"] = json!(notes.decider_smt_unknowns);
+    }
 }
 
 /// The first killing program of a live call, the one whose executed entry shows the mutant's
@@ -2175,12 +2202,13 @@ pub fn run_front(
         (document, false)
     };
     let verify = mode == RunMode::Verify;
-    // Re-pin L1-4: the memos of the warm path (`memo`), under the conditions tier 1 has (no Z3
-    // profile, a known build) and unless `--no-memo`. `--verify` reads none of them for a
-    // decision and writes none: it compares each stored record with the live value.
+    // Re-pin L1-4: the memos of the warm path (`memo`), under the conditions tier 1 has
+    // (answers that are functions of the key, a known build) and unless `--no-memo`. `--verify`
+    // reads none of them for a decision and writes none: it compares each stored record with the
+    // live value.
     let memo_build = match (
         options.memo,
-        tier1_refusal(SolverProfile::BUILD),
+        tier1_refusal(SolverProfile::BUILD, manifest.budget.backend_options()),
         kink_campaign::kink_build(),
     ) {
         (MemoUse::On, None, Ok(build)) => Some(build),
@@ -2193,7 +2221,7 @@ pub fn run_front(
         };
         let spec = spec_digest(manifest, &loaded.files);
         let (key, path) = (
-            memo::census_key(spec, build),
+            memo::census_key(spec, build, manifest.budget),
             memo::census_path(&cache, spec),
         );
         let stored = memo::read_census(&path, &key);
@@ -2239,7 +2267,7 @@ pub fn run_front(
     let mut ok = update.ok();
     // The front end's evidence identity is asked for only where tier 1 could be on: it may cost
     // a pass over the front end's definition.
-    let tier1 = match tier1_refusal(SolverProfile::BUILD) {
+    let tier1 = match tier1_refusal(SolverProfile::BUILD, manifest.budget.backend_options()) {
         Some(reason) => Err(reason.to_owned()),
         None => kink_campaign::kink_build()
             .map_err(|e| {
@@ -2345,7 +2373,7 @@ pub fn run_front(
             }
             let memo = consult.map(|build| {
                 (
-                    memo::resolution_key(update.spec_digest, build, mutation),
+                    memo::resolution_key(update.spec_digest, build, manifest.budget, mutation),
                     memo::resolution_path(&cache, update.spec_digest, mutation),
                 )
             });
@@ -2864,8 +2892,7 @@ fn witnesses(candidate: &Candidate<'_>, witness: &EditWitness) -> bool {
 /// `wall_ms` ascending, then corpus order) or in corpus order ([`ProgramOrder`]). A live call
 /// keeps it inside each of its two tiers, the programs whose coverage witnesses the compiled
 /// edit and the rest ([`Search::call_untimed`]). The order changes only which killing program is
-/// found first and the cost, never a status in the no-Z3 profile (README 6.4; under Z3 see
-/// README.md's coverage paragraph).
+/// found first and the cost, never a status while no `budget.time_ms` bound fires (README 6.4).
 fn order(candidates: &[Candidate<'_>], program_order: ProgramOrder) -> Vec<usize> {
     let mut order = (0..candidates.len()).collect::<Vec<_>>();
     if program_order == ProgramOrder::Cost {
@@ -3052,6 +3079,28 @@ pub fn report_path(manifest: &FlowManifest, cache: Option<&Path>) -> PathBuf {
 mod tests {
     use super::*;
     use kink_patch::{Claim, SentenceOrigin, UNREAD_EQUATION_CLAIM};
+
+    /// An executed entry carries each count of undecided solver answers, k-rust's and kink's,
+    /// exactly when it is not zero, whatever the other count is.
+    #[test]
+    fn an_entry_carries_each_nonzero_count_of_undecided_answers() {
+        for (smt, decider) in [(0, 0), (2, 0), (0, 3), (2, 3)] {
+            let notes = kink_campaign::RunNotes {
+                smt_unknowns: smt,
+                decider_smt_unknowns: decider,
+                ..kink_campaign::RunNotes::default()
+            };
+            let mut entry = json!({"program": "p"});
+            undecided_answers(&mut entry, &notes);
+            for (count, value) in [("smt_unknowns", smt), ("decider_smt_unknowns", decider)] {
+                assert_eq!(
+                    entry.get(count),
+                    (value > 0).then(|| json!(value)).as_ref(),
+                    "{count} of ({smt}, {decider})"
+                );
+            }
+        }
+    }
 
     /// Re-pin R0-tail (R0c-fix-4 review minor 2): a refusal the compiled reading's cross-check
     /// gives is named in the row's `removed_claims`, from the plan's claims. No input is known to

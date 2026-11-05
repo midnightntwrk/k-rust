@@ -110,8 +110,12 @@ use std::{path::Path, sync::OnceLock};
 /// record's row and run digest are another encoding, so none is honoured. v13: a record of a
 /// program run with a stop (kink-flow `[stop]`) holds ends that say how the run reached them
 /// (`halt`), and a comparable record is an end set of the truncated system, keyed by its stop
-/// (the key's `stop`); a record of a program run without a stop is unchanged.
-pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v13";
+/// (the key's `stop`); a record of a program run without a stop is unchanged. v14: a record holds
+/// `decider_smt_unknowns`, the undecided solver answers of kink's own questions about the baseline
+/// run (its leaf feasibility and observation decider), beside k-rust's `smt_unknowns`, outside the
+/// key and the run digest; and records are written under the Z3 profile too, where the solver is
+/// resource-bounded and the key's budget names its units and Z3 build.
+pub const RESULT_SCHEMA_VERSION: &str = "kink-flow/result/v14";
 
 /// One component of [`KINK_IDENTITY`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

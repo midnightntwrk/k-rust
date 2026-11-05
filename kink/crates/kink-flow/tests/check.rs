@@ -1958,23 +1958,7 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
         assert_eq!(status, EXIT_OK, "{document:#}");
         let (document, status) = check_list(&manifest, &list, None);
         assert_eq!(status, EXIT_CORPUS, "{document:#}");
-        if cfg!(feature = "z3") {
-            assert_eq!(document["coverage"]["decides"], false, "{document:#}");
-            assert_eq!(
-                document["coverage"]["detail"],
-                format!(
-                    "no unmatched-rule or unapplied-rule warning is given: it needs a current \
-                     result record of every program, and {}",
-                    kink_flow::results::RESULT_CACHE_Z3
-                )
-            );
-            assert_eq!(
-                row(&document, "mul-becomes-add")["warnings"],
-                serde_json::json!([])
-            );
-        } else {
-            unreached_rule_from_the_cached_results(&dir, &manifest, &list, &document);
-        }
+        unreached_rule_from_the_cached_results(&dir, &manifest, &list, &document);
 
         let (document, status) = run(&manifest, &list, &RunOptions::default());
         assert_eq!(status, EXIT_CORPUS, "{document:#}");
@@ -2029,8 +2013,6 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
     /// why and names the remedy. Bounded by `[budget] baseline_max_work` instead, the program is a
     /// cached `unknown`, which is not comparable, and the coverage decides from the comparable
     /// programs' records.
-    // Portable only: under Z3 the result cache is off, which the test above covers.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_timeout_keeps_check_from_deciding_coverage_until_it_is_bounded_by_work() {
@@ -2124,7 +2106,6 @@ inputs = { n = 1, rom = { "$file" = "rom.bin" } }
     /// refutes its guard, no program applies the rule, so no program can kill an edit of its
     /// right-hand side alone. The warning is given for every edit of the rule (it reads the rule,
     /// not the edit), and once a program applies the rule it is gone.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn check_warns_of_a_rule_every_program_refutes() {

@@ -399,6 +399,13 @@ pub struct RunNotes {
     /// k-rust's count of the undecided solver answers the run's decisions took (`smtUnknowns`;
     /// always 0 without Z3). Reported only (decision D-7 (a1)): never an exclusion.
     pub smt_unknowns: usize,
+    /// kink's count beside it: the undecided solver answers of the questions kink asked outside
+    /// the run to judge it (kink-native `feasibility`, "Undecided answers"): the adapter's leaf
+    /// feasibility (`RunFacts::decider_smt_unknowns`), the observation decider's leaf feasibility
+    /// and relation queries for its state and pattern slots, and, on the mutant's evidence of a
+    /// pair, the judgements of [`judge_across`] under both definitions. Always 0 without Z3.
+    /// Reported only, never an exclusion, as `smt_unknowns` is.
+    pub decider_smt_unknowns: usize,
     /// Whether a leaf of the run contradicts a claim by decision 2's leaf rule (kink-native
     /// `DefinitionExclusions::contradiction_on_a_leaf`): the one contradiction for which
     /// admission keeps a baseline and makes only its test unknown ([`admit`]). A record on the
@@ -2905,7 +2912,7 @@ fn judge_across(
     };
     // Under the mutant's definition: the baseline's terminals and payloads, and both sides'
     // bindings.
-    let under_mutant = mutant_runtime.judge_ends(
+    let (under_mutant, undecided_under_mutant) = mutant_runtime.judge_ends(
         test,
         &compared(baseline),
         &[bindings(baseline), bindings(mutant), payloads(baseline)].concat(),
@@ -2913,7 +2920,7 @@ fn judge_across(
     // Under the baseline's definition: the mutant's terminals, then its one-sided terminals.
     let mutant_ends = compared(mutant);
     let terminals = mutant_ends.len();
-    let under_baseline = baseline_runtime.judge_ends(
+    let (under_baseline, undecided_under_baseline) = baseline_runtime.judge_ends(
         test,
         &mutant_ends
             .into_iter()
@@ -2925,6 +2932,12 @@ fn judge_across(
     // the ends: the pair's mutant run fails as infrastructure, which kink-flow's outcome cache
     // never stores. Both judgements run first, so that both backends' solver state evolves as
     // without the refusal.
+    // Both judgements are kink's questions about the mutant's run.
+    mutant.notes.decider_smt_unknowns = mutant
+        .notes
+        .decider_smt_unknowns
+        .saturating_add(undecided_under_mutant)
+        .saturating_add(undecided_under_baseline);
     let (Ok(under_mutant), Ok(under_baseline)) = (under_mutant, under_baseline) else {
         mutant.run = SideRun::Failed(ExecutionFailureKind::Infrastructure);
         mutant.payloads.clear();
@@ -3086,14 +3099,24 @@ pub enum CrossCause {
 type PatternSide = (OracleSide, BTreeSet<Pattern>);
 
 /// The pattern-slot sides of one run ([`Runtime::step_sides`]), or the host's refusal of a stack
-/// that judging them needed.
-type StepSides = Result<Vec<PatternSide>, SegmentRefused>;
+/// that judging them needed, and the undecided solver answers the judgement took.
+struct StepSides {
+    sides: Result<Vec<PatternSide>, SegmentRefused>,
+    /// The decider's [`ObservationDecider::smt_unknowns`] ([`RunNotes::decider_smt_unknowns`]).
+    smt_unknowns: usize,
+}
 
 /// `evidence` with its pattern slots replaced by `patterns`, or each made `Unknown` without them
 /// (`None`). A host's refusal of a stack the judgement of the pattern slots needed is a fact about
 /// the host, not about the run, so it fails the run as infrastructure instead of becoming a side.
 fn replace_patterns(test: &TestCase, evidence: &mut TestEvidence, patterns: Option<&StepSides>) {
-    let patterns = match patterns {
+    if let Some(patterns) = patterns {
+        evidence.notes.decider_smt_unknowns = evidence
+            .notes
+            .decider_smt_unknowns
+            .saturating_add(patterns.smt_unknowns);
+    }
+    let patterns = match patterns.map(|patterns| &patterns.sides) {
         Some(Err(_)) => {
             if matches!(evidence.run, SideRun::Sides { .. }) {
                 evidence.run = SideRun::Failed(ExecutionFailureKind::Infrastructure);
@@ -3541,7 +3564,7 @@ impl Runtime {
         };
         let collections_trusted = exclusions.collections_trusted();
         let own = self.data.as_ref().map_or(DataEnds::None, data_ends);
-        let notes = match &executed.execution {
+        let mut notes = match &executed.execution {
             Ok(execution) if !execution.timed_out() => RunNotes {
                 contradicted_claims: execution.facts().contradicted_claims.clone(),
                 short_circuit_readings: exclusions
@@ -3550,6 +3573,7 @@ impl Runtime {
                     .cloned()
                     .collect(),
                 smt_unknowns: execution.facts().smt_unknowns,
+                decider_smt_unknowns: execution.facts().decider_smt_unknowns,
                 leaf_contradiction: exclusions.contradiction_on_a_leaf(execution),
                 across: Vec::new(),
             },
@@ -3597,6 +3621,9 @@ impl Runtime {
                     });
                 let state_exclusion =
                     exclusions.state_exclusion(definition, &test.initial_state, execution.facts());
+                notes.decider_smt_unknowns = notes
+                    .decider_smt_unknowns
+                    .saturating_add(decider.smt_unknowns());
                 Ok::<_, k_rust::backend::BackendError>((bridged, state_exclusion, one_sided))
             }) {
                 // No decider: every slot is unknown, unless the run is excluded, which is read
@@ -3717,7 +3744,7 @@ impl Runtime {
         // A host refusal anywhere below, the bridge's `BridgeFailure::HostStackRefused` included,
         // is the refusal `host_refusal_during` returns.
         let evaluate = |decider: &ObservationDecider<'_>| {
-            decider.host_refusal_during(|| {
+            let sides = decider.host_refusal_during(|| {
                 let bridged = execution.and_then(|execution| {
                     tree_from_steps(
                         &BridgeContext {
@@ -3768,7 +3795,11 @@ impl Runtime {
                         (side, relations.read())
                     })
                     .collect::<Vec<_>>()
-            })
+            });
+            StepSides {
+                sides,
+                smt_unknowns: decider.smt_unknowns(),
+            }
         };
         let initial = || TestInitialState::of_test(&test.initial_state);
         let own = self.data.as_ref().map_or(DataEnds::None, data_ends);
@@ -3798,11 +3829,12 @@ impl Runtime {
                 })
             }
         };
-        sides.unwrap_or_else(|_| {
-            Ok(vec![
+        sides.unwrap_or_else(|_| StepSides {
+            sides: Ok(vec![
                 (OracleSide::Unknown, BTreeSet::new());
                 test.oracles.len()
-            ])
+            ]),
+            smt_unknowns: 0,
         })
     }
 
@@ -3817,7 +3849,7 @@ impl Runtime {
         test: &TestCase,
         terminals: &[Pattern],
         bindings: &[Pattern],
-    ) -> Result<EndJudgement, SegmentRefused> {
+    ) -> (Result<EndJudgement, SegmentRefused>, usize) {
         let refused = || EndJudgement {
             terminals: vec![false; terminals.len()],
             independent: Vec::new(),
@@ -3828,11 +3860,11 @@ impl Runtime {
                 .collect(),
         };
         if terminals.is_empty() && bindings.is_empty() {
-            return Ok(refused());
+            return (Ok(refused()), 0);
         }
         let ends = self.data.as_ref().map_or(DataEnds::None, data_ends);
         if ends == DataEnds::None {
-            return Ok(refused());
+            return (Ok(refused()), 0);
         }
         let trusted = self.exclusions.collections_trusted();
         self.backend
@@ -3844,7 +3876,7 @@ impl Runtime {
                 )
                 .trusting_collections(trusted)
                 .judging_data(ends, ends);
-                Ok::<_, k_rust::backend::BackendError>(decider.host_refusal_during(|| {
+                let judgement = decider.host_refusal_during(|| {
                     let terminals = terminals
                         .iter()
                         .map(|end| decider.terminal_value(end).as_ref() == Some(end))
@@ -3877,9 +3909,10 @@ impl Runtime {
                             .collect(),
                         independent: independent.into_iter().cloned().collect(),
                     }
-                }))
+                });
+                Ok::<_, k_rust::backend::BackendError>((judgement, decider.smt_unknowns()))
             })
-            .unwrap_or_else(|_| Ok(refused()))
+            .unwrap_or_else(|_| (Ok(refused()), 0))
     }
 }
 
@@ -4630,6 +4663,20 @@ mod tests {
                 let judged = runtime.judge(&campaign, test, &executed(undecided));
                 assert!(matches!(judged.run, SideRun::Sides { .. }));
                 assert_eq!(judged.notes.smt_unknowns, 3);
+                assert_eq!(
+                    admit(&tests, std::slice::from_ref(&judged)),
+                    BaselineAdmission::Accepted
+                );
+                // So does kink's own count about the run: the adapter's undecided answers about
+                // the leaves reach the notes (the counter's leaves are ground, so the observation
+                // decider adds none of its own).
+                let mut counted = executed(raw());
+                counted.execution = counted
+                    .execution
+                    .map(|execution| execution.with_decider_smt_unknowns(2));
+                let judged = runtime.judge(&campaign, test, &counted);
+                assert!(matches!(judged.run, SideRun::Sides { .. }));
+                assert_eq!(judged.notes.decider_smt_unknowns, 2);
                 assert_eq!(
                     admit(&tests, std::slice::from_ref(&judged)),
                     BaselineAdmission::Accepted
@@ -5472,6 +5519,7 @@ mod tests {
                                 mutant_cache.stepped.as_ref(),
                                 None,
                             )
+                            .sides
                             .expect("the host maps the stacks the leaves need")
                             .into_iter()
                             .map(|(side, _)| side)
@@ -5686,6 +5734,22 @@ mod tests {
                 stop_ends: BTreeSet::new(),
                 payloads: BTreeMap::new(),
             };
+            // The undecided answers the judgement of the pattern slots took are kink's questions
+            // about this run: they add to its notes, and the slots take the judged sides.
+            let mut counted = evidence.clone();
+            counted.notes.decider_smt_unknowns = 1;
+            let judged = StepSides {
+                sides: Ok(vec![
+                    (OracleSide::Unknown, BTreeSet::new()),
+                    (OracleSide::Unknown, BTreeSet::new()),
+                ]),
+                smt_unknowns: 2,
+            };
+            replace_patterns(&test, &mut counted, Some(&judged));
+            assert_eq!(counted.notes.decider_smt_unknowns, 3);
+            assert!(
+                matches!(&counted.run, SideRun::Sides { sides } if sides[1] == OracleSide::Unknown)
+            );
             let before = evidence.clone();
             replace_patterns(&test, &mut evidence, None);
             let SideRun::Sides { sides: after } = evidence.run else {

@@ -54,10 +54,16 @@
 //! solver that could not be created) and kink cannot tell when, and a stack stop or an allowance
 //! refusal is a fact of the host. Such a program's row says why it was not cached
 //! (`not_cached`), and the next command runs it again; a stored record of such a class is never
-//! read. Under the Z3 profile the cache is off ([`RESULT_CACHE_Z3`]): a run's solver queries are
-//! bounded by Z3 resource units (`[budget] smt_resource_limit`, which the key names with the Z3
-//! build), but kink's own queries outside a run record no undecided answer, so a baseline class
-//! is not yet established as a function of its key. A baseline bounded by `[budget] baseline_max_work`
+//! read. Under the Z3 profile every solver query of a command, a run's and kink's own outside a
+//! run (leaf feasibility, the observation decider), is bounded by Z3 resource units (`[budget]
+//! smt_resource_limit`), so its answer, decided or not, is a function of the query, the units and
+//! the Z3 build, which the key names ([`budget_value`]): a class is then a function of its key,
+//! and the cache is on. The record counts the undecided answers, k-rust's (`smt_unknowns`) and
+//! kink's (`decider_smt_unknowns`), reported and never an exclusion: a stored class is the class
+//! the same run gets again, and the counts say where a larger budget could decide more. The cache
+//! is off where the key cannot name the solver: a solver the clock bounds ([`RESULT_CACHE_Z3`]),
+//! whose answers depend on the host's load, and a Z3 build that cannot be named (kink-native
+//! `UNNAMED_Z3_BUILD`). A baseline bounded by `[budget] baseline_max_work`
 //! that the bound stops is `unknown`, a function of the key, which names the bound.
 
 use crate::{
@@ -427,6 +433,11 @@ pub struct ProgramResult {
     /// k-rust's count of the baseline run's undecided solver answers (`smtUnknowns`; decision
     /// D-7 (a1): reported, never an exclusion); 0 without a run or without Z3.
     pub smt_unknowns: usize,
+    /// kink's count of the undecided solver answers of the questions it asked outside the
+    /// baseline run to judge it (kink-campaign `RunNotes::decider_smt_unknowns`; for a diagnostic
+    /// run, its adapter's leaf feasibility); reported, never an exclusion; 0 without a run or
+    /// without Z3. Outside the key and the run digest.
+    pub decider_smt_unknowns: usize,
     /// The entries of the baseline run's `shortCircuitReadings` list that exclude it
     /// (`short-circuit-reading`; kink-native
     /// `DefinitionExclusions::counting_short_circuit_readings`, or `state_short_circuit_readings`
@@ -451,6 +462,7 @@ impl ProgramResult {
             wall_ms: None,
             specification_diagnostics: json!([]),
             smt_unknowns: 0,
+            decider_smt_unknowns: 0,
             short_circuit_readings: json!([]),
             host: None,
         }
@@ -787,6 +799,7 @@ impl<'a> BaselineRunner<'a> {
                         &evidence.notes.contradicted_claims,
                     ),
                     smt_unknowns: evidence.notes.smt_unknowns,
+                    decider_smt_unknowns: evidence.notes.decider_smt_unknowns,
                     short_circuit_readings: json!([]),
                     host: None,
                 }
@@ -812,6 +825,7 @@ impl<'a> BaselineRunner<'a> {
                     wall_ms: None,
                     specification_diagnostics: json!([]),
                     smt_unknowns: 0,
+                    decider_smt_unknowns: 0,
                     short_circuit_readings: json!([]),
                     host: Some(HostDependence::Time),
                 }
@@ -848,6 +862,7 @@ impl<'a> BaselineRunner<'a> {
                     wall_ms: None,
                     specification_diagnostics: json!([]),
                     smt_unknowns: 0,
+                    decider_smt_unknowns: 0,
                     short_circuit_readings: json!([]),
                     host: None,
                 }
@@ -875,6 +890,7 @@ impl<'a> BaselineRunner<'a> {
             wall_ms: None,
             specification_diagnostics: json!([]),
             smt_unknowns: 0,
+            decider_smt_unknowns: 0,
             short_circuit_readings: json!([]),
             host: Some(HostDependence::Failure),
         }
@@ -957,6 +973,7 @@ impl<'a> BaselineRunner<'a> {
                 wall_ms: None,
                 specification_diagnostics: json!([]),
                 smt_unknowns: 0,
+                decider_smt_unknowns: 0,
                 short_circuit_readings: json!([]),
                 host: Some(HostDependence::Time),
             };
@@ -1080,6 +1097,7 @@ impl<'a> BaselineRunner<'a> {
                 &execution.facts().contradicted_claims,
             ),
             smt_unknowns: execution.facts().smt_unknowns,
+            decider_smt_unknowns: execution.facts().decider_smt_unknowns,
             short_circuit_readings: crate::exclusion::readings_value(&readings),
             host: host_dependence(
                 class,
@@ -1560,6 +1578,7 @@ fn record_facts(
         "wall_ms": result.wall_ms,
         "specification_diagnostics": result.specification_diagnostics,
         "smt_unknowns": result.smt_unknowns,
+        "decider_smt_unknowns": result.decider_smt_unknowns,
         "short_circuit_readings": result.short_circuit_readings,
     })
 }
@@ -1836,7 +1855,7 @@ pub fn update_results(
                     spec_digest,
                     execution,
                     build,
-                    store: result_store(),
+                    store: result_store(manifest.budget.backend_options()),
                     directory: &directory,
                     cache,
                     writer: &store,
@@ -1855,29 +1874,30 @@ pub fn update_results(
     }
 }
 
-/// Why the result cache is off under the Z3 profile.
-pub const RESULT_CACHE_Z3: &str = "the result cache is off under the z3 profile: a run's solver \
-     queries are resource-bounded, but kink's own solver queries outside a run (leaf feasibility, \
-     the observation decider) record no undecided answer, so a baseline class is not yet \
-     established as a function of its key; every program runs live";
+/// Why the result cache is off under the Z3 profile when solver queries are bounded by the clock.
+pub const RESULT_CACHE_Z3: &str = "the result cache is off under the z3 profile when solver \
+     queries are bounded by the clock: an answer then depends on the host's load, which no key \
+     can name, so a baseline class is not a function of its key; every program runs live";
 /// Why the result cache is off when kink's build identity is unknown (packet CACHE-ID-fix-1).
 pub const RESULT_CACHE_NO_BUILD: &str = "kink's build identity is unknown (the executable cannot \
      be read): the result cache is neither read nor written";
 
-/// kink's build identity when the result cache is on, else why it is off: under the Z3 profile
-/// when the key cannot name the Z3 build (kink-native `UNNAMED_Z3_BUILD`), and otherwise
-/// ([`RESULT_CACHE_Z3`]), and when the executable cannot be read ([`RESULT_CACHE_NO_BUILD`]).
-pub fn result_store() -> Result<Sha256Digest, &'static str> {
+/// kink's build identity when the result cache of runs on backends built with `solver` is on,
+/// else why it is off: under the Z3 profile when the key cannot name the Z3 build (kink-native
+/// `UNNAMED_Z3_BUILD`) and when the clock bounds `solver` ([`RESULT_CACHE_Z3`]; kink-native
+/// `solver_answers_keyed`), and when the executable cannot be read ([`RESULT_CACHE_NO_BUILD`]).
+pub fn result_store(solver: k_rust::backend::BackendOptions) -> Result<Sha256Digest, &'static str> {
     kink_native::solver_named()?;
-    if matches!(SolverProfile::BUILD, SolverProfile::Z3) {
+    if !kink_native::solver_answers_keyed(solver) {
         return Err(RESULT_CACHE_Z3);
     }
     kink_campaign::kink_build().map_err(|_| RESULT_CACHE_NO_BUILD)
 }
 
-/// The results document's `result_cache`: `{enabled, reason}`.
-pub fn result_cache_value() -> Value {
-    let store = result_store();
+/// The results document's `result_cache` for runs on backends built with `solver`:
+/// `{enabled, reason}`.
+pub fn result_cache_value(solver: k_rust::backend::BackendOptions) -> Value {
+    let store = result_store(solver);
     json!({"enabled": store.is_ok(), "reason": store.err()})
 }
 
@@ -1947,7 +1967,7 @@ pub fn results(manifest: &FlowManifest, options: &ResultsOptions) -> (Value, boo
         runner.baseline_runs(),
     ));
     document["spec"]["execution_digest"] = update.execution.value();
-    document["result_cache"] = result_cache_value();
+    document["result_cache"] = result_cache_value(manifest.budget.backend_options());
     document["data"] = spec.data.value();
     document["result"] = spec.result.value();
     document["spec"]["exclusion"] = runner.definition_exclusion();
@@ -2020,6 +2040,7 @@ fn program_row(
         row["wall_ms"] = record["wall_ms"].clone();
         row["specification_diagnostics"] = record["specification_diagnostics"].clone();
         row["smt_unknowns"] = record["smt_unknowns"].clone();
+        row["decider_smt_unknowns"] = record["decider_smt_unknowns"].clone();
         // CF-16: each end's computation head and class (null unless comparable).
         row["ends"] = record.get("ends").cloned().unwrap_or(Value::Null);
         // The step that excluded a `short-circuit-reading` run (empty otherwise).
@@ -2082,8 +2103,8 @@ fn program_row(
         manifest.program_stop(program),
     );
     let path = context.directory.join(format!("{digest}.json"));
-    // Without a build identity, or under the Z3 profile, no record is honoured (packet
-    // CACHE-ID-fix-1).
+    // Where the store is off (no build identity, an unnamed Z3 build or a solver the clock
+    // bounds: `result_store`), no record is honoured (packet CACHE-ID-fix-1).
     let stored = context
         .store
         .ok()
@@ -2322,7 +2343,7 @@ pub fn current_record(
     inputs: &CaseInputs,
     cache: &Path,
 ) -> Option<Value> {
-    let build = result_store().ok()?;
+    let build = result_store(manifest.budget.backend_options()).ok()?;
     let digest = program_digest(program, inputs);
     let key = result_key(
         execution,
@@ -2378,7 +2399,10 @@ fn document(
         // `results` document back: the program of a named case of a case document, id
         // `<path>#<name>`; the row of a program with an expectation carries `expectation`
         // (`crate::expect`); and a program whose expectation no front end reads is refused at
-        // stage `inputs` (`typed-expectation`, `expectation-value`).
+        // stage `inputs` (`typed-expectation`, `expectation-value`). Added to 9 without a new
+        // version for the same reason: a row's `decider_smt_unknowns`, kink's own undecided
+        // solver answers beside k-rust's `smt_unknowns`, and under the Z3 profile a result cache
+        // that is on where the solver is resource-bounded.
         // 8 since CF-45: a claim helper no comparable program matched (an equation of a function
         // only claims apply, which the front end names, `FlowManifest::claim_helpers`) has status
         // `claim-helper` (summary `claim_helper`), no longer `uncovered`, so the uncovered rules
@@ -2636,6 +2660,7 @@ mod tests {
             wall_ms: Some(1),
             specification_diagnostics: json!([]),
             smt_unknowns: 0,
+            decider_smt_unknowns: 0,
             short_circuit_readings: json!([]),
             host: None,
         }

@@ -9,9 +9,6 @@
 //! list gives the same statuses under corpus order, under the measured cost order and under a
 //! forged reversed cost order).
 
-// Under Z3 the tests of the caches (off by design) compile out, and their helpers with them.
-#![cfg_attr(feature = "z3", allow(dead_code, unused_imports))]
-
 mod flow_support;
 
 use kink_campaign::{FinalResult, OracleOutcome, OracleSide, OracleValue, SideRun};
@@ -304,21 +301,29 @@ fn outcome_records(cache: &Path) -> BTreeMap<(String, String, String), String> {
     out
 }
 
-/// The undecided solver answers (`smt_unknowns`) of a run document: its programs' baseline runs
-/// (every program row carries the count) and every executed entry of a live mutant run (an entry
-/// carries it only when it is not zero).
+/// The undecided solver answers of a run document, k-rust's in a run (`smt_unknowns`) and kink's
+/// in its judgement of the run (`decider_smt_unknowns`): its programs' baseline runs (every
+/// program row carries both counts) and every executed entry of a live mutant run (an entry
+/// carries each only when it is not zero).
 fn undecided_answers(document: &Value) -> u64 {
-    let programs = document["programs"].as_array().unwrap().iter().map(|row| {
-        row["smt_unknowns"]
-            .as_u64()
-            .expect("a program row's smt_unknowns")
-    });
+    const COUNTS: [&str; 2] = ["smt_unknowns", "decider_smt_unknowns"];
+    let programs = document["programs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|row| {
+            COUNTS.map(|count| {
+                row[count]
+                    .as_u64()
+                    .unwrap_or_else(|| panic!("a program row's {count}"))
+            })
+        });
     let entries = document["mutations"]
         .as_array()
         .unwrap()
         .iter()
         .flat_map(|row| row["executed"].as_array().into_iter().flatten())
-        .map(|entry| entry["smt_unknowns"].as_u64().unwrap_or(0));
+        .flat_map(|entry| COUNTS.map(|count| entry[count].as_u64().unwrap_or(0)));
     programs.chain(entries).sum()
 }
 
@@ -353,16 +358,10 @@ fn statuses_do_not_depend_on_the_order(
     let _ = fs::remove_file(hints_path(&cache));
     let _ = fs::remove_file(cache.join(REPORT_FILE));
     let reversed = search(&flow, &list, ProgramOrder::Cost);
-    // Under Z3 the result cache is off (`results::RESULT_CACHE_Z3`): there is no record to forge,
-    // and every program runs live again.
     let programs = reversed["programs"].as_array().unwrap();
     assert_eq!(
         programs.iter().filter(|p| p["cached"] == false).count(),
-        if cfg!(feature = "z3") {
-            programs.len()
-        } else {
-            0
-        },
+        0,
         "the forged wall_ms keeps every record in use"
     );
 
@@ -375,10 +374,10 @@ fn statuses_do_not_depend_on_the_order(
 
     assert_eq!(statuses(&reversed), statuses(&by_corpus), "{name} reversed");
     assert_eq!(statuses(&by_cost), statuses(&by_corpus), "{name} cost");
-    // Under Z3 (caches off by design) the order can move a status only through an undecided
-    // solver answer, a query that timed out, which a backend reused in schedule order may answer
-    // from its cache in another order (src/search.rs, README `run` step 3). No run of these
-    // fixtures takes one, so their statuses cannot depend on the order.
+    // Under Z3 every solver query is resource-bounded, so an answer, decided or not, does not
+    // depend on what a backend reused in schedule order asked before (src/search.rs, README `run`
+    // step 3), and the statuses cannot depend on the order whatever the counts. Both counts are
+    // reported, and no run of these fixtures takes an undecided answer, k-rust's or kink's.
     if cfg!(feature = "z3") {
         for document in [&by_corpus, &reversed, &by_cost] {
             assert_eq!(
@@ -469,26 +468,18 @@ mod kink_tier {
     fn calc_statuses_do_not_depend_on_the_order() {
         let ([by_corpus, reversed, _], shared) =
             statuses_do_not_depend_on_the_order("calc", "FLOW.toml", "MUTATIONS.toml");
-        // Under Z3 tier 1 is off by design (search::tier1_refusal): no record to compare.
-        assert_eq!(
-            shared > 0,
-            !cfg!(feature = "z3"),
-            "the byte-equality check compared records"
-        );
+        assert!(shared > 0, "the byte-equality check compared records");
         // The forged costs did reorder the search: inside each tier the survivor ran its programs
         // in reverse corpus order (corpus order: add, nested, sub, inline; add, nested and inline
-        // reach the add rule). Under Z3 the result cache is off, so there is no record whose cost
-        // to forge and the cost order is the one this command measured.
+        // reach the add rule).
         assert_eq!(
             mutation(&by_corpus, "add-swaps-operands")["calls"],
             json!([{"programs": ["add", "nested", "inline", "sub"], "status": "survived"}])
         );
-        if !cfg!(feature = "z3") {
-            assert_eq!(
-                mutation(&reversed, "add-swaps-operands")["calls"],
-                json!([{"programs": ["inline", "nested", "add", "sub"], "status": "survived"}])
-            );
-        }
+        assert_eq!(
+            mutation(&reversed, "add-swaps-operands")["calls"],
+            json!([{"programs": ["inline", "nested", "add", "sub"], "status": "survived"}])
+        );
         assert_eq!(reversed["order"], "cost");
     }
 
@@ -552,15 +543,11 @@ mod kink_tier {
                 .join(format!("{}.json", spin["digest"].as_str().unwrap()))
                 .exists()
         );
-        // Under Z3 the result cache is off (`results::RESULT_CACHE_Z3`): the document says so
-        // once, no row says `not_cached`, and nothing is recorded or reused.
-        let z3 = cfg!(feature = "z3");
-        assert_eq!(document["result_cache"]["enabled"], !z3);
-        assert_eq!(
+        assert_eq!(document["result_cache"]["enabled"], true);
+        assert!(
             spin["not_cached"]
                 .as_str()
                 .is_some_and(|reason| reason.starts_with("timeout: ")),
-            !z3,
             "{spin:#}"
         );
         let record = directory.join(format!(
@@ -592,19 +579,15 @@ mod kink_tier {
             ]
         };
         assert_eq!(classes(&document), expected(false));
-        if z3 {
-            assert!(!record.exists());
-        } else {
-            let record = read_json(&record);
-            assert_eq!(record["class"], "comparable");
-            assert!(record["key"]["budget"].get("time_ms").is_none());
-            assert_eq!(record["key"]["budget"]["max_depth"], 1_000_000_000_u64);
-        }
+        let record = read_json(&record);
+        assert_eq!(record["class"], "comparable");
+        assert!(record["key"]["budget"].get("time_ms").is_none());
+        assert_eq!(record["key"]["budget"]["max_depth"], 1_000_000_000_u64);
         assert_eq!(
             classes(&results_document(&manifest, None)),
             vec![
                 ("spin".to_owned(), "timeout".to_owned(), false),
-                ("countdown".to_owned(), "comparable".to_owned(), !z3),
+                ("countdown".to_owned(), "comparable".to_owned(), true),
             ]
         );
 
@@ -820,11 +803,6 @@ text = 'h(opaque(1), 2)'
         // and the sides read from it.
         let warm = search(&manifest, &dir.join("MUTATIONS.toml"), ProgramOrder::Corpus);
         let cached = entry(&warm, "add-becomes-sub", "add");
-        if cfg!(feature = "z3") {
-            // Under Z3 the warm run kills live: tier 1 is off by design (search::tier1_refusal).
-            assert_eq!(cached["cached"], false);
-            return;
-        }
         assert_eq!(cached["cached"], true);
         assert_eq!(
             cached["slots"],

@@ -78,7 +78,8 @@ use super::inputs::{KrsInputs, ManifestFiles};
 /// The renderer of one emission's kill evidence, over the decoder's native compile.
 pub(crate) struct KrsEnds {
     inputs: Arc<KrsInputs>,
-    /// The renderer's identity, computed on first use (tier 1 is off under Z3, which never asks).
+    /// The renderer's identity, computed on first use (tier 1's context names it, in both
+    /// profiles; a run with tier 1 off never asks).
     identity: OnceLock<Result<Value, String>>,
 }
 

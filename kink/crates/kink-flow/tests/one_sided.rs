@@ -688,14 +688,9 @@ mod kink_tier {
         // Under the budget: the exit stop (normal, no code) is the baseline's, so that slot is
         // unknown; the whole term distinguishes one-sidedly, from the explored part's end.
         killed(false, true, "unknown");
-        // The re-run takes the killed outcome from tier 1 (keyed with the work budget). Under Z3
-        // tier 1 is off by design (search::tier1_refusal): the re-run kills live, as the first did.
-        if cfg!(feature = "z3") {
-            assert_eq!(entry(&second), entry(&first));
-        } else {
-            killed(true, true, "unknown");
-            assert_eq!(difference(&second), difference(&first));
-        }
+        // The re-run takes the killed outcome from tier 1 (keyed with the work budget).
+        killed(true, true, "unknown");
+        assert_eq!(difference(&second), difference(&first));
         // Without a budget the mutant's run is complete and both slots compare.
         killed(false, false, "agree");
     }

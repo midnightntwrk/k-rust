@@ -78,6 +78,12 @@
 //! `full` (null under first-kill and on a row no fold decided). A full row's `executed` lists
 //! every program in corpus order, its cached and live cells merged.
 //!
+//! Version 23: an executed entry of a live run on which kink's own solver questions about
+//! it (its leaf feasibility and observation decider, kink-campaign
+//! `RunNotes::decider_smt_unknowns`) took an undecided answer carries `decider_smt_unknowns`, and
+//! a program's row carries its baseline run's always; reported, never an exclusion, as
+//! `smt_unknowns` is.
+//!
 //! Nothing here reads or changes a verdict: every status is the kill search's, which is the
 //! campaign runner's fold over live and cached outcomes (README 7.5.3).
 
@@ -144,8 +150,11 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// through the front end's renderer: the row of a program with an expectation carries
 /// `expectation`, met, unmet with the first difference, or inconclusive with why
 /// (`crate::expect`), and a program whose expectation no front end reads is refused at stage
-/// `inputs` (`typed-expectation`, `expectation-value`).
-pub const RUN_VERSION: u64 = 22;
+/// `inputs` (`typed-expectation`, `expectation-value`); 23 since each executed entry and each
+/// program row carries `decider_smt_unknowns`, the undecided solver answers of kink's own
+/// questions about the run beside k-rust's `smt_unknowns` (an entry only when it is not zero),
+/// and under the Z3 profile the outcome cache is on where the solver is resource-bounded.
+pub const RUN_VERSION: u64 = 23;
 
 /// k-rust's contradicted-claim records of one run as specification diagnostics (re-pin adoption
 /// A-1): each `{claim, symbol, k_label, rule_id, rule_label, application, undefined,

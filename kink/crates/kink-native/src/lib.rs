@@ -134,8 +134,44 @@ pub fn solver_named() -> Result<(), &'static str> {
     }
 }
 
+/// Whether every solver answer of a backend built with `options` is a function of the question,
+/// the budget and the Z3 build, which [`solver_value`] names: always under the no-Z3 profile,
+/// where no solver is asked; under the Z3 profile when `options` bound every attempt by Z3
+/// resource units (`smt_resource_limit`), since whether such an attempt answers is then a
+/// function of the question, the units and the build (k-rust `docs/compatibility.md`,
+/// "Execute", clock-free solver mode), never of the host's load or of other solver work in the
+/// process.
+/// Not when the clock bounds the attempts (`smt_resource_limit` `None`): an answer then depends
+/// on the host's load, which no key can name. A store of answers kink computed reads and writes
+/// only where this holds (and [`solver_named`] does): then a stored answer is the answer the
+/// same question gets again, however many of its solver answers were undecided.
+#[must_use]
+pub const fn solver_answers_keyed(options: k_rust::backend::BackendOptions) -> bool {
+    matches!(
+        execution::SolverProfile::BUILD,
+        execution::SolverProfile::NoZ3
+    ) || options.smt_resource_limit.is_some()
+}
+
 #[cfg(test)]
 mod tests {
+    /// kink's own options are keyed under both profiles; clock-bounded options only without Z3.
+    #[test]
+    fn answers_are_keyed_under_resource_bounds_or_without_z3() {
+        assert!(super::solver_answers_keyed(super::BACKEND_OPTIONS));
+        assert!(super::solver_answers_keyed(super::backend_options(
+            std::num::NonZeroU32::MIN
+        )));
+        let clock = k_rust::backend::BackendOptions {
+            smt_resource_limit: None,
+            ..super::BACKEND_OPTIONS
+        };
+        assert_eq!(
+            super::solver_answers_keyed(clock),
+            super::execution::SolverProfile::BUILD == super::execution::SolverProfile::NoZ3
+        );
+    }
+
     /// The solver is named exactly when the key's value names the build: always without Z3, where
     /// there is no member, and under Z3 when the library's digest is known.
     #[test]

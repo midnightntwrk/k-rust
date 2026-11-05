@@ -141,14 +141,9 @@ mod kink_tier {
             ("twice", "agree", false)
         );
 
-        // A re-run: the agreement is cached, the unknown outcome is not. Under Z3 tier 1 is off by
-        // design (search::tier1_refusal): both run live again, in the first run's order.
+        // A re-run: the agreement is cached, the unknown outcome is not.
         let second = executed(&search(&manifest));
-        let expected = if cfg!(feature = "z3") {
-            [("countdown", "unknown", false), ("twice", "agree", false)]
-        } else {
-            [("twice", "agree", true), ("countdown", "unknown", false)]
-        };
+        let expected = [("twice", "agree", true), ("countdown", "unknown", false)];
         assert_eq!(
             second
                 .iter()

@@ -3,9 +3,6 @@
 //! kill search; `results --verify` runs every program live; the drift check still stops a run on
 //! a hand-edited record. Every document reports `baseline_runs: {live, reused}`.
 
-// Under Z3 the tests of the caches (off by design) compile out, and their helpers with them.
-#![cfg_attr(feature = "z3", allow(dead_code, unused_imports))]
-
 mod flow_support;
 
 use kink_flow::{
@@ -194,17 +191,13 @@ mod kink_tier {
             fresh["baseline_runs"],
             json!({"live": 4, "reused": 0, "diagnostic": 0})
         );
-        // Under Z3 the result cache is off (`results::RESULT_CACHE_Z3`): the second command runs
-        // every program live again.
         let cached = results_with(&manifest, false);
-        let live = if cfg!(feature = "z3") { 4 } else { 0 };
-        assert_eq!(cached["summary"]["computed"], live);
+        assert_eq!(cached["summary"]["computed"], 0);
         assert_eq!(
             cached["baseline_runs"],
-            json!({"live": live, "reused": 0, "diagnostic": 0})
+            json!({"live": 0, "reused": 0, "diagnostic": 0})
         );
-        // A fresh session per command: `--verify` runs every program live, none is reused. Under
-        // Z3 no record is stored, so there is nothing to compare a run with.
+        // A fresh session per command: `--verify` runs every program live, none is reused.
         let verified = results_with(&manifest, true);
         assert_eq!(verified["summary"]["mismatches"], 0);
         assert_eq!(
@@ -216,16 +209,10 @@ mod kink_tier {
                 .as_array()
                 .unwrap()
                 .iter()
-                .all(|p| if cfg!(feature = "z3") {
-                    p["verify"].is_null()
-                } else {
-                    p["verify"] == "match"
-                })
+                .all(|p| p["verify"] == "match")
         );
     }
 
-    // Portable only: its warm and hinted runs test tier 1, off under Z3 by design.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn each_program_baseline_runs_live_at_most_once_per_run_command() {
@@ -275,11 +262,6 @@ mod kink_tier {
         assert_eq!(verdicts(&verified), calc_verdicts());
         let calls = call_programs(&verified);
         assert_eq!(baseline_runs(&verified), (4, calls.len() as u64));
-        // The drift check compares a stored result record; under Z3 the result cache is off.
-        if cfg!(feature = "z3") {
-            return;
-        }
-
         // A hand-edited record: the program's record is cached, so the first call that runs it
         // runs its baseline live in this command, and the drift check compares that run with the
         // record and stops the run without a verdict.

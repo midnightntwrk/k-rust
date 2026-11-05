@@ -19,8 +19,6 @@
 //! - A tier-1 store that says `killed` (as a run before this ticket wrote it) decides nothing.
 //! - `check` fails on each, with and without `--mutations`, naming each finding with what to do
 //!   by its verdict, while its program stays `ok`; with every finding named it passes.
-// Under Z3 the result cache is off, and the tests of its records are compiled out.
-#![cfg_attr(feature = "z3", allow(dead_code, unused_imports))]
 
 mod flow_support;
 
@@ -445,9 +443,6 @@ mod kink_tier {
     /// (the name names no finding any more), and with the name updated to the new positions the
     /// execution digest is the original's and every record is reused. Without the premise the
     /// digest differs, since the premise decides which ends are data.
-    // Portable only: it tests the result cache, which is off under Z3 by design
-    // (`results::RESULT_CACHE_Z3`).
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn the_key_names_what_is_assumed_not_how_it_is_named() {
@@ -513,9 +508,6 @@ mod kink_tier {
     /// R2-B1's warm cache: a tier-1 record that says `killed`, under exactly the current context
     /// (as a run before this ticket, with the same build, wrote it), decides nothing on a
     /// baseline with findings left. Fail at base: the record decided `killed` with no call.
-    // Portable only: under Z3 tier 1 is off, so a forged record is never read, and the result
-    // cache that names the baseline run digest is off too.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_cached_kill_decides_nothing_on_a_baseline_with_findings() {

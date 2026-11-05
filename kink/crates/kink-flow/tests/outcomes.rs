@@ -6,9 +6,6 @@
 //! The tests read the run document, `outcomes/` and `hints.json`, and edit them by hand only
 //! to forge what a corrupted or hostile cache would hold.
 
-// Under Z3 the tests of the caches (off by design) compile out, and their helpers with them.
-#![cfg_attr(feature = "z3", allow(dead_code, unused_imports))]
-
 mod flow_support;
 
 use k_rust::definition::AttributeKey;
@@ -990,24 +987,18 @@ fn the_known_stack_gap_names_the_load_counts_beside_stack_stops() {
 mod heavy {
     use super::*;
 
-    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "heavy"]
     fn warm_and_forged_hints_on_register() {
         warm_and_forged("register", "FLOW.toml", "MUTATIONS.toml");
     }
 
-    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "heavy"]
     fn warm_and_forged_hints_on_markdown() {
         warm_and_forged("markdown", "FLOW.toml", "MUTATIONS.toml");
     }
 
-    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "heavy"]
     fn partially_cached_statuses_are_cold_statuses_on_register() {
@@ -1015,8 +1006,6 @@ mod heavy {
         partial("register", "FLOW.toml", "MUTATIONS.toml");
     }
 
-    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "heavy"]
     fn partially_cached_statuses_are_cold_statuses_on_markdown() {
@@ -1024,28 +1013,34 @@ mod heavy {
     }
 }
 
-/// Merge packet M-1 (S-1): under the Z3 profile both of kink-flow's verdict caches are off by
-/// design, tier 1 (the outcome records, and with it the warm-path memos) and the pattern cache: a
-/// solver query can time out and k-rust reports no per-run signal that one did. The kink-tier
-/// tests whose subject is a cache compile only in the portable build; this light test keeps the
-/// Z3 side of them in k-rust's own (Z3) test run. The kink-tier pins of both profiles are
-/// tier_one_is_off_exactly_under_the_z3_profile (below) and query.rs's
-/// the_pattern_cache_is_off_exactly_under_the_z3_profile.
+/// Merge packet M-1 (S-1), CF-33: under the Z3 profile both of kink-flow's verdict caches are on,
+/// tier 1 (the outcome records, and with it the warm-path memos) and the pattern cache, since
+/// every solver query of kink's backends is bounded by Z3 resource units and the keys name the
+/// units and the Z3 build. This light test keeps the Z3 side of the cache tests in k-rust's own
+/// (Z3) test run. The kink-tier pins of both profiles are
+/// tier_one_is_off_exactly_for_a_clock_bounded_solver (below) and query.rs's
+/// the_pattern_cache_is_on_in_both_profiles.
 #[cfg(feature = "z3")]
 #[test]
-fn both_caches_are_off_under_the_z3_profile() {
+fn both_caches_are_on_under_the_z3_profile() {
     use kink_flow::{query::QueryOptions, search::tier1_refusal};
     use kink_native::execution::SolverProfile;
     assert_eq!(SolverProfile::BUILD, SolverProfile::Z3);
-    let reason = tier1_refusal(SolverProfile::BUILD).expect("tier 1 is off under the z3 profile");
-    let dir = fixture("calc", "z3-caches-off");
+    assert_eq!(
+        tier1_refusal(SolverProfile::BUILD, kink_native::BACKEND_OPTIONS),
+        None
+    );
+    let dir = fixture("calc", "z3-caches-on");
     let manifest = dir.join("FLOW.toml");
     let (run, ok) = search(&manifest, &dir.join("MUTATIONS.toml"), &["add-becomes-sub"]);
     assert!(ok, "{run:#}");
-    assert_eq!(run["outcome_cache"]["enabled"], false, "{run:#}");
-    assert_eq!(run["outcome_cache"]["reason"], json!(reason), "{run:#}");
-    assert_eq!(run["outcome_cache"]["records_written"], 0, "{run:#}");
-    assert!(!cache_of(&manifest).join(OUTCOMES_DIRECTORY).exists());
+    assert_eq!(run["outcome_cache"]["enabled"], true, "{run:#}");
+    assert_eq!(run["outcome_cache"]["reason"], Value::Null, "{run:#}");
+    assert!(
+        run["outcome_cache"]["records_written"].as_u64().unwrap() > 0,
+        "{run:#}"
+    );
+    assert!(cache_of(&manifest).join(OUTCOMES_DIRECTORY).exists());
     let patterns = dir.join("PATTERNS.toml");
     let (query, status) = std::thread::Builder::new()
         .stack_size(kink_corpus::cli::DEFINITION_STACK_BYTES)
@@ -1054,10 +1049,8 @@ fn both_caches_are_off_under_the_z3_profile() {
         .join()
         .unwrap();
     assert_eq!(status, EXIT_OK, "{query:#}");
-    assert_eq!(query["pattern_cache"]["enabled"], false, "{query:#}");
-    let why = query["pattern_cache"]["reason"].as_str().unwrap();
-    assert!(why.contains("z3 profile"), "{why}");
-    assert!(!cache_of(&dir.join("FLOW.toml")).join("patterns").exists());
+    assert_eq!(query["pattern_cache"]["enabled"], true, "{query:#}");
+    assert_eq!(query["pattern_cache"]["reason"], Value::Null, "{query:#}");
 }
 
 mod kink_tier {
@@ -1126,21 +1119,14 @@ misunderstanding = "a test mutation"
             "{row:#}"
         );
         assert_eq!(row["removed_claims"]["unsupported"], json!([]));
-        if kink_native::execution::SolverProfile::BUILD
-            == kink_native::execution::SolverProfile::NoZ3
-        {
-            let file = read_json(&outcome_file(&manifest, &document, "denominator"));
-            assert_eq!(file["removed_claims"], row["removed_claims"], "{file:#}");
-            assert_eq!(
-                file["context"]["kink"]["claim_removal"],
-                json!(kink_patch::CLAIM_REMOVAL_VERSION)
-            );
-        }
+        let file = read_json(&outcome_file(&manifest, &document, "denominator"));
+        assert_eq!(file["removed_claims"], row["removed_claims"], "{file:#}");
+        assert_eq!(
+            file["context"]["kink"]["claim_removal"],
+            json!(kink_patch::CLAIM_REMOVAL_VERSION)
+        );
     }
 
-    // Portable only: the drift check compares a stored result record, and the result cache is
-    // off under Z3 by design (`results::RESULT_CACHE_Z3`).
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_program_id_with_a_colon_and_the_count_mismatch_have_their_reasons() {
@@ -1174,39 +1160,47 @@ misunderstanding = "a test mutation"
         assert_eq!(drift_reason(None, false), None);
     }
 
-    /// Re-pin R0b deliverable 9 (decision 5, finding B-09): tier 1 is off exactly under the Z3
-    /// profile, which follows kink-native's `z3` feature (and so workspace feature unification): a
-    /// Z3 build's run reads and writes no outcome and says why; a no-Z3 build's run writes records.
+    /// Re-pin R0b deliverable 9 (decision 5, finding B-09), CF-33: tier 1 is off exactly for a
+    /// solver the clock bounds under the Z3 profile, which follows kink-native's `z3` feature (and
+    /// so workspace feature unification), since such an answer depends on the host's load. kink's
+    /// own resource-bounded budget keeps it on in both profiles: a run writes records and a second
+    /// run reads them.
     #[test]
     #[ignore = "kink"]
-    fn tier_one_is_off_exactly_under_the_z3_profile() {
-        use kink_flow::search::tier1_refusal;
+    fn tier_one_is_off_exactly_for_a_clock_bounded_solver() {
+        use kink_flow::search::{TIER1_CLOCK, tier1_refusal};
         use kink_native::execution::SolverProfile;
-        assert_eq!(tier1_refusal(SolverProfile::NoZ3), None);
-        let reason = tier1_refusal(SolverProfile::Z3).expect("the z3 profile has no tier 1");
-        assert!(reason.contains("z3 profile"), "{reason}");
+        let resource = kink_native::BACKEND_OPTIONS;
+        let clock = k_rust::backend::BackendOptions {
+            smt_resource_limit: None,
+            ..resource
+        };
+        assert_eq!(tier1_refusal(SolverProfile::NoZ3, resource), None);
+        assert_eq!(tier1_refusal(SolverProfile::NoZ3, clock), None);
+        assert_eq!(tier1_refusal(SolverProfile::Z3, clock), Some(TIER1_CLOCK));
+        assert!(TIER1_CLOCK.contains("z3 profile"), "{TIER1_CLOCK}");
+        assert_eq!(
+            tier1_refusal(SolverProfile::Z3, resource),
+            kink_native::solver_named().err()
+        );
         let dir = fixture("map-store", "tier-one-profile");
         let manifest = dir.join("FLOW.toml");
         let (document, ok) = search(&manifest, &dir.join("MUTATIONS.toml"), &[]);
         assert!(ok, "{document:#}");
         let cache = &document["outcome_cache"];
-        match SolverProfile::BUILD {
-            SolverProfile::NoZ3 => {
-                assert_eq!(cache["enabled"], true, "{cache:#}");
-                assert!(cache["records_written"].as_u64().unwrap() > 0, "{cache:#}");
-                assert!(cache_of(&manifest).join(OUTCOMES_DIRECTORY).exists());
-            }
-            SolverProfile::Z3 => {
-                assert_eq!(cache["enabled"], false, "{cache:#}");
-                assert_eq!(cache["reason"], json!(reason), "{cache:#}");
-                assert_eq!(cache["records_written"], 0, "{cache:#}");
-                assert!(!cache_of(&manifest).join(OUTCOMES_DIRECTORY).exists());
-            }
-        }
+        assert_eq!(cache["enabled"], true, "{cache:#}");
+        assert!(cache["records_written"].as_u64().unwrap() > 0, "{cache:#}");
+        assert!(cache_of(&manifest).join(OUTCOMES_DIRECTORY).exists());
+        let (again, ok) = search(&manifest, &dir.join("MUTATIONS.toml"), &[]);
+        assert!(ok, "{again:#}");
+        assert_eq!(statuses(&again), statuses(&document));
+        assert_eq!(
+            again["outcome_cache"]["mutations_from_cache"],
+            document["mutations"].as_array().unwrap().len(),
+            "{again:#}"
+        );
     }
 
-    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn unknowns_are_never_cached() {
@@ -1289,8 +1283,6 @@ misunderstanding = "a test mutation"
     /// that no longer compiles (here `plus-unbound`, rejected) next to a cached agreement, which
     /// says the mutant ran, is the corpus error `outcome-conflict`: no verdict, nothing written,
     /// the run stops.
-    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_rejected_mutant_next_to_cached_agreements_is_an_outcome_conflict() {
@@ -1318,8 +1310,6 @@ misunderstanding = "a test mutation"
         );
     }
 
-    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_new_program_runs_alone_and_only_for_survivors() {
@@ -1353,8 +1343,6 @@ misunderstanding = "a test mutation"
         );
     }
 
-    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_corpus_error_writes_no_record_and_keeps_the_hints_written() {
@@ -1480,19 +1468,13 @@ misunderstanding = "a test mutation"
             } else {
                 assert_eq!(entry("contra"), None, "{row:#}");
             }
-            if kink_native::execution::SolverProfile::BUILD
-                == kink_native::execution::SolverProfile::NoZ3
-            {
-                assert!(
-                    outcome_file(&manifest, &document, "denominator").exists(),
-                    "{order:?}"
-                );
-            }
+            assert!(
+                outcome_file(&manifest, &document, "denominator").exists(),
+                "{order:?}"
+            );
         }
     }
 
-    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn partially_cached_statuses_are_cold_statuses_on_loop() {
@@ -1597,52 +1579,46 @@ misunderstanding = "a test mutation"
                 ),
             ]
         );
-        if kink_native::execution::SolverProfile::BUILD
-            == kink_native::execution::SolverProfile::NoZ3
-        {
-            assert!(!outcome_file(&manifest, &document, "choice-of-two").exists());
-            for id in ["choice-agrees", "choice-differs"] {
-                assert!(outcome_file(&manifest, &document, id).exists(), "{id}");
-            }
-            let file = read_json(&outcome_file(&manifest, &document, "value-plus-one"));
-            let record = file["records"]
-                .as_object()
-                .unwrap()
-                .values()
-                .next()
-                .unwrap()
-                .clone();
-            assert_eq!(
-                record["allowance_bytes"],
-                json!(k_rust::k_rust_backend::allowance::Allowance::of_process().bytes()),
-                "{record:#}"
-            );
-            assert!(file["context"].get("allowance_bytes").is_none(), "{file:#}");
-            // The allowance is outside the digest: the record seals without it.
-            let sealed = record_sha256(
-                file["context_sha256"].as_str().unwrap(),
-                file["mutation_identity"].as_str().unwrap(),
-                file["records"].as_object().unwrap().keys().next().unwrap(),
-                record["baseline_run_sha256"].as_str().unwrap(),
-                record["outcome"].as_str().unwrap(),
-                &record["slots"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|slot| slot.as_str().unwrap())
-                    .collect::<Vec<_>>(),
-                record["mutant_run_sha256"].as_str().unwrap(),
-                &record["difference"],
-            );
-            assert_eq!(record["record_sha256"], json!(sealed.to_string()));
+        assert!(!outcome_file(&manifest, &document, "choice-of-two").exists());
+        for id in ["choice-agrees", "choice-differs"] {
+            assert!(outcome_file(&manifest, &document, id).exists(), "{id}");
         }
+        let file = read_json(&outcome_file(&manifest, &document, "value-plus-one"));
+        let record = file["records"]
+            .as_object()
+            .unwrap()
+            .values()
+            .next()
+            .unwrap()
+            .clone();
+        assert_eq!(
+            record["allowance_bytes"],
+            json!(k_rust::k_rust_backend::allowance::Allowance::of_process().bytes()),
+            "{record:#}"
+        );
+        assert!(file["context"].get("allowance_bytes").is_none(), "{file:#}");
+        // The allowance is outside the digest: the record seals without it.
+        let sealed = record_sha256(
+            file["context_sha256"].as_str().unwrap(),
+            file["mutation_identity"].as_str().unwrap(),
+            file["records"].as_object().unwrap().keys().next().unwrap(),
+            record["baseline_run_sha256"].as_str().unwrap(),
+            record["outcome"].as_str().unwrap(),
+            &record["slots"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|slot| slot.as_str().unwrap())
+                .collect::<Vec<_>>(),
+            record["mutant_run_sha256"].as_str().unwrap(),
+            &record["difference"],
+        );
+        assert_eq!(record["record_sha256"], json!(sealed.to_string()));
     }
 
     /// F-14 review 1 m3 (flow F-16): a hinted program that does not kill runs again in the cold
     /// call; it is listed once in `executed` (with the cold call's run, the one the status folds)
     /// and its record is counted once in `records_written`.
-    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_hinted_program_run_twice_is_listed_and_counted_once() {
@@ -1679,8 +1655,6 @@ misunderstanding = "a test mutation"
         assert_eq!(records(&manifest, &document, "add-swaps-operands").len(), 4);
     }
 
-    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn warm_and_forged_hints_on_loop() {
@@ -1699,8 +1673,6 @@ misunderstanding = "a test mutation"
         warm_and_forged("loop", "FLOW-search.toml", "MUTATIONS.toml");
     }
 
-    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_comment_or_layout_edit_keeps_every_result_and_outcome() {
@@ -1754,8 +1726,6 @@ misunderstanding = "a test mutation"
         }
     }
 
-    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_mixed_cached_and_live_status_is_the_cold_status() {
@@ -1821,8 +1791,6 @@ misunderstanding = "a test mutation"
         );
     }
 
-    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn partially_cached_statuses_are_cold_statuses_on_calc_statuses() {
@@ -1861,8 +1829,6 @@ misunderstanding = "a test mutation"
         assert_eq!(hints(&manifest)[&key].1, "inline");
     }
 
-    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn warm_and_forged_hints_on_calc_statuses() {
@@ -1873,8 +1839,6 @@ misunderstanding = "a test mutation"
     /// exist gives the status a cold run gives (error, reason infrastructure), not the corpus
     /// error `outcome-conflict`; the run goes on, the cached agreements do not enter the row, and
     /// nothing is written.
-    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn an_infrastructure_failure_next_to_cached_agreements_is_the_cold_status() {
@@ -1923,16 +1887,12 @@ misunderstanding = "a test mutation"
         );
     }
 
-    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn warm_and_forged_hints_on_calc() {
         warm_and_forged("calc", "FLOW.toml", "MUTATIONS.toml");
     }
 
-    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn hand_edited_contexts_and_records_are_ignored() {
@@ -2007,8 +1967,6 @@ misunderstanding = "a test mutation"
         );
     }
 
-    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_change_of_an_input_misses_tier_1() {
@@ -2092,8 +2050,6 @@ misunderstanding = "a test mutation"
         assert_eq!(statuses(&edited), statuses(&cold));
     }
 
-    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn run_verify_reproves_every_record_and_reports_a_forged_one() {
@@ -2182,8 +2138,6 @@ misunderstanding = "a test mutation"
         assert_ne!(hints_before, hints_forged);
     }
 
-    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn partially_cached_statuses_are_cold_statuses_on_calc() {
@@ -2259,8 +2213,6 @@ misunderstanding = "a test mutation"
         assert!(checked >= 21 + 5 + 4 + 4);
     }
 
-    // Portable only: tests the outcome cache (tier 1), off under Z3 by design.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_stored_timeout_record_is_never_honoured() {

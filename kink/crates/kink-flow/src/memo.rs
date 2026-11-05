@@ -44,6 +44,12 @@
 //!   resolution;
 //! - kink's build (`kink_build`, which also fixes the linked k-rust, the load options and every
 //!   algorithm with or without a version) and its semantics identity (`kink`);
+//! - under the Z3 profile, the solver (`smt`, the result key's: kink-native `solver_value` of
+//!   `[budget]`, the units, the retries and the Z3 build). k-rust's load infers the sorts of a
+//!   term the portable inference does not support by asking Z3, with neither a clock nor a unit
+//!   bound, so what a load gives can depend on the Z3 build, never on the host's load. No memo
+//!   value depends on the units, so naming them only makes a record miss when they change; the
+//!   member is absent under the no-Z3 profile, where no load asks a solver;
 //! - the record's format and meaning ([`RESOLUTION_MEMO_VERSION`]).
 //!
 //! kink-flow `tests/memo.rs` builds both keys member by member from these inputs and requires
@@ -83,12 +89,12 @@
 //! `declaration_census`, the VI-T13 admission gate), a function of the compiled baseline and of
 //! kink's build (its reference prelude, the hooks k-rust implements). The compiled baseline is
 //! the compile of the admitted load under fixed options, so the key is the specification digest,
-//! `kink_build` and `kink` ([`census_key`]); the premise is compile determinism (C-12), the one
-//! every kill rests on.
+//! `kink_build`, `kink` and, under the Z3 profile, the solver `smt` ([`census_key`]); the premise
+//! is compile determinism (C-12), the one every kill rests on.
 //!
-//! Both are off under the Z3 profile, as tier 1 is (`search::tier1_refusal`: k-rust's load can
-//! ask Z3, whose queries can time out), when kink's build identity is unknown, and with `run
-//! --no-memo`. `run --verify` reads no memo: it resolves every mutation and runs every census
+//! Both are off where tier 1 is (`search::tier1_refusal`: under the Z3 profile with a solver the
+//! clock bounds, or whose build cannot be named), when kink's build identity is unknown, and with
+//! `run --no-memo`. `run --verify` reads no memo: it resolves every mutation and runs every census
 //! live and reports each stored record that differs (`resolution-mismatch`, a census mismatch in
 //! `mismatches`, also when the live census refuses the specification, and also for a mutation
 //! `--only` does not select or a corpus error left unsearched). No memo is ever written by
@@ -96,7 +102,10 @@
 //! resolution needs (the host premise above), a run with and without memos writes the same
 //! document, outcomes and hints.
 
-use crate::mutation::{EditAction, EditSpec, EditedRule, Mutation};
+use crate::{
+    manifest::Budget,
+    mutation::{EditAction, EditSpec, EditedRule, Mutation},
+};
 use kink_corpus::{LoadedSource, Store};
 use kink_native::DeclarationCensus;
 use kink_patch::{SentenceRef, Sha256Digest, canonical_json, parse_json, payload_digest, sha256};
@@ -106,10 +115,13 @@ use std::{fs, path::Path};
 /// The format and meaning of a resolution memo record (its key's `version` and its digest's
 /// domain).
 /// v2 since kink27 R5-WEAKENING added the facts' `weakening`; v3 since the edited rules lost
-/// `requires_edited` (the kill search reads the edit from the compiled mutant).
-pub const RESOLUTION_MEMO_VERSION: &str = "kink-flow/resolution-memo/v3";
+/// `requires_edited` (the kill search reads the edit from the compiled mutant); v4 since the memo
+/// is read and written under the Z3 profile too, its key naming the solver (`smt`).
+pub const RESOLUTION_MEMO_VERSION: &str = "kink-flow/resolution-memo/v4";
 /// The format and meaning of a census memo record (its key's `version` and its digest's domain).
-pub const CENSUS_MEMO_VERSION: &str = "kink-flow/census-memo/v1";
+/// v2 since the memo is read and written under the Z3 profile too, its key naming the solver
+/// (`smt`).
+pub const CENSUS_MEMO_VERSION: &str = "kink-flow/census-memo/v2";
 /// The memos' directory in the cache directory: `memo/resolutions/<spec digest>/<entry
 /// digest>.json` and `memo/census/<spec digest>.json`.
 pub const MEMO_DIRECTORY: &str = "memo";
@@ -284,26 +296,47 @@ pub fn mutation_entry(mutation: &Mutation) -> Value {
     )
 }
 
-/// The resolution memo key of `mutation` under the specification digest `spec` and kink's build
-/// `build` (module docs: every input resolution reads).
-pub fn resolution_key(spec: Sha256Digest, build: Sha256Digest, mutation: &Mutation) -> Value {
-    json!({
-        "version": RESOLUTION_MEMO_VERSION,
-        "kink_build": build.to_string(),
-        "kink": kink_campaign::kink_identity(),
-        "spec": spec.to_string(),
-        "mutation": mutation_entry(mutation),
-    })
+/// The resolution memo key of `mutation` under the specification digest `spec`, kink's build
+/// `build` and the solver of `budget` (module docs: every input resolution reads).
+pub fn resolution_key(
+    spec: Sha256Digest,
+    build: Sha256Digest,
+    budget: Budget,
+    mutation: &Mutation,
+) -> Value {
+    with_solver(
+        json!({
+            "version": RESOLUTION_MEMO_VERSION,
+            "kink_build": build.to_string(),
+            "kink": kink_campaign::kink_identity(),
+            "spec": spec.to_string(),
+            "mutation": mutation_entry(mutation),
+        }),
+        budget,
+    )
 }
 
-/// The census memo key of the specification digest `spec` under kink's build `build`.
-pub fn census_key(spec: Sha256Digest, build: Sha256Digest) -> Value {
-    json!({
-        "version": CENSUS_MEMO_VERSION,
-        "kink_build": build.to_string(),
-        "kink": kink_campaign::kink_identity(),
-        "spec": spec.to_string(),
-    })
+/// The census memo key of the specification digest `spec` under kink's build `build` and the
+/// solver of `budget`.
+pub fn census_key(spec: Sha256Digest, build: Sha256Digest, budget: Budget) -> Value {
+    with_solver(
+        json!({
+            "version": CENSUS_MEMO_VERSION,
+            "kink_build": build.to_string(),
+            "kink": kink_campaign::kink_identity(),
+            "spec": spec.to_string(),
+        }),
+        budget,
+    )
+}
+
+/// `key` with `smt`, the solver of `budget` (kink-native `solver_value`, the result key's member),
+/// under the Z3 profile; unchanged under the no-Z3 profile, where no load asks a solver.
+fn with_solver(mut key: Value, budget: Budget) -> Value {
+    if let Some(solver) = kink_native::solver_value(budget.backend_options()) {
+        key["smt"] = solver;
+    }
+    key
 }
 
 /// Where the resolution memo keeps the record of `mutation` under the specification digest

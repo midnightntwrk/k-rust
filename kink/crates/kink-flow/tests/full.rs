@@ -5,8 +5,6 @@
 //! Every first-kill run here is in corpus order (`ProgramOrder::Corpus`), so that its killers do
 //! not depend on host timing. Statuses are always compared with a first-kill or a cold run of the
 //! same files: the full schedule may change which cells run, never a status.
-// Under Z3 the outcome cache is off, and the tests of its records are compiled out.
-#![cfg_attr(feature = "z3", allow(dead_code, unused_imports))]
 
 mod flow_support;
 
@@ -766,7 +764,6 @@ mod kink_tier {
 
     /// "Outcomes it proves are cached as usual": a warm full run is decided by tier 1, a later
     /// first-kill run too, and the memos change nothing.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn full_outcomes_are_cached_as_usual() {
@@ -828,7 +825,6 @@ mod kink_tier {
 
     /// One store serves both schedules: a full run after a first-kill run calls, per mutation,
     /// exactly the programs with no record, and leaves the store a cold full run leaves.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn first_kill_records_serve_a_full_run() {
@@ -870,7 +866,6 @@ mod kink_tier {
     /// Cached and live cells mix soundly: with any one record of a cold full run deleted, and
     /// with the records of a run over the corpus without its first program, a full run has the
     /// cold full run's statuses and `killed_by`.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn partially_cached_full_equals_cold_full() {
@@ -928,7 +923,6 @@ mod kink_tier {
 
     /// Why `killed_by` is full-only: the first-kill killer is history (a valid killed record
     /// decides before a cheaper killer is tried), `killed_by` is not.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn the_first_kill_killer_is_history_but_killed_by_is_not() {
@@ -972,7 +966,6 @@ mod kink_tier {
     /// A full run's hint is the first of `killed_by` (corpus order), on a live and on a cached
     /// row alike, and a row with no kill removes it; a hint naming no comparable program is
     /// reported (`stale_killer`) and replaced.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn full_hints_follow_killed_by() {
@@ -1024,7 +1017,6 @@ mod kink_tier {
     /// corpus error `outcome-conflict`: no verdict, nothing written, the run stops, and the row
     /// keeps the cached kill's entry (the rejected mutant ran no test, so the call adds none).
     /// `run --full --verify`, its next step, reports the forged kill.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn a_cached_kill_next_to_a_rejected_mutant_is_an_outcome_conflict() {
@@ -1121,7 +1113,6 @@ mod kink_tier {
     /// A mutant-scope infrastructure failure next to a cached kill gives the status a cold full
     /// run gives (error, reason infrastructure), not a corpus error: the cached kill leaves the
     /// row and the counts, as a cached agreement does, and nothing is written.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn an_infrastructure_failure_next_to_a_cached_kill_is_the_cold_status() {
@@ -1185,7 +1176,6 @@ mod kink_tier {
 
     /// `run --verify --full`: every program runs live, every record is compared, nothing is
     /// written; a forged record is reported.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn verify_full() {

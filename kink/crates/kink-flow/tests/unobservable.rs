@@ -130,23 +130,18 @@ fn a_change_only_to_an_unobservable_cell_survives_and_every_document_names_the_c
     assert_eq!(document["result"], expected);
     assert_eq!(document["programs"][0]["class"], "comparable");
     // The recorded final configuration is the projected one: <scratch>'s content is `\top`.
-    // Under Z3 the result cache is off (`results::RESULT_CACHE_Z3`) and nothing is recorded.
     let results = dir.join(".kink-flow/results");
-    if cfg!(feature = "z3") {
-        assert!(!results.exists());
-    } else {
-        let spec = fs::read_dir(&results)
-            .unwrap()
-            .next()
-            .unwrap()
-            .unwrap()
-            .path();
-        let record = fs::read_dir(spec).unwrap().next().unwrap().unwrap().path();
-        let record: Value = serde_json::from_str(&fs::read_to_string(record).unwrap()).unwrap();
-        let end = kink_flow::results::record_final_configuration(&record).unwrap()[0];
-        assert!(end.contains("\\top{SortScratchCell{}}()"), "{end}");
-        assert!(!end.contains("SortScratchCell{}, "), "{end}");
-    }
+    let spec = fs::read_dir(&results)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let record = fs::read_dir(spec).unwrap().next().unwrap().unwrap().path();
+    let record: Value = serde_json::from_str(&fs::read_to_string(record).unwrap()).unwrap();
+    let end = kink_flow::results::record_final_configuration(&record).unwrap()[0];
+    assert!(end.contains("\\top{SortScratchCell{}}()"), "{end}");
+    assert!(!end.contains("SortScratchCell{}, "), "{end}");
 
     let document = search(&manifest);
     assert_eq!(
@@ -179,13 +174,11 @@ fn a_change_only_to_an_unobservable_cell_survives_and_every_document_names_the_c
     assert!(found);
     assert_eq!(stored["result"], expected);
 
-    // The outcome cache keeps the verdicts: a second run decides both from tier 1, which the z3
-    // profile turns off (kink-flow `search::tier1_refusal`), so there both run live again.
+    // The outcome cache keeps the verdicts: a second run decides both from tier 1.
     let again = search(&manifest);
     assert_eq!(statuses(&again), statuses(&document));
     assert_eq!(
-        again["outcome_cache"]["mutations_from_cache"],
-        if cfg!(feature = "z3") { 0 } else { 2 },
+        again["outcome_cache"]["mutations_from_cache"], 2,
         "{again:#}"
     );
 }

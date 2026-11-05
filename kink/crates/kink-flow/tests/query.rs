@@ -1,9 +1,6 @@
 //! Per-input pattern checks: `PATTERNS.toml`, the lowering, the answers, the cache and
 //! `kink-flow query` (flow F-18 deliverables 1-6).
 
-// Under Z3 the tests of the caches (off by design) compile out, and their helpers with them.
-#![cfg_attr(feature = "z3", allow(dead_code, unused_imports))]
-
 use k_rust::backend::{
     BACKEND_SCHEMA_VERSION, CancelledResultOutput, ExecuteRequest, ExecutionStrategy,
     ResultModalityOutput, SearchPatternRequest, SearchTypeArg,
@@ -37,8 +34,8 @@ fn flow(name: &str) -> PathBuf {
 
 /// The answer to a pattern that a complete exploration never matches: `no` in the portable
 /// profile, `unknown` under Z3. `pattern::judge` gives no `no` under the Z3 profile because a
-/// solver query can time out and k-rust's search responses carry no `smtUnknowns` count to show
-/// that none did (k-in-k2 ADDENDUM-5 KINK-28; adoption A-5, repin-58720d2e ADOPTION.md section 5),
+/// solver query can be left undecided and k-rust's search responses carry no `smtUnknowns` count
+/// to show that none was (k-in-k2 ADDENDUM-5 KINK-28; adoption A-5, repin-58720d2e ADOPTION.md section 5),
 /// so the Z3 answer is the more conservative `unknown`.
 const NO: &str = if cfg!(feature = "z3") {
     "unknown"
@@ -143,13 +140,21 @@ fn expect(rows: &[(&str, &str, &str)]) -> Vec<(String, String, String)> {
         .collect()
 }
 
+/// Whether each row whose answer the cache can hold (a `hit` or a `no`; under Z3 a would-be `no`
+/// is `unknown`, see NO, and is never cached) was read from the cache.
 fn cached(document: &Value) -> Vec<bool> {
     document["rows"]
         .as_array()
         .unwrap()
         .iter()
+        .filter(|row| cacheable(row))
         .map(|row| row["cached"].as_bool().unwrap())
         .collect()
+}
+
+/// Whether the cache can hold the answer of `row`.
+fn cacheable(row: &Value) -> bool {
+    matches!(row["answer"].as_str(), Some("hit" | "no"))
 }
 
 /// Every pattern record under the default cache of `dir`.
@@ -872,7 +877,9 @@ fn spec_dir(
     dir
 }
 
-/// The result record of `program` in `document`'s cache under `dir`.
+/// The result record of `program` in `document`'s cache under `dir`. Portable only, as its
+/// users are: they forge a stored `no`, an answer the Z3 profile never gives.
+#[cfg(not(feature = "z3"))]
 fn result_record(dir: &Path, document: &Value, program: &str) -> PathBuf {
     let digest = document["programs"]
         .as_array()
@@ -893,7 +900,8 @@ fn result_record(dir: &Path, document: &Value, program: &str) -> PathBuf {
         .join(format!("{digest}.json"))
 }
 
-/// Rewrite one field of a JSON file.
+/// Rewrite one field of a JSON file. Portable only, as [`result_record`] is.
+#[cfg(not(feature = "z3"))]
 fn forge(path: &Path, field: &str, value: Value) {
     let mut record: Value = serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
     record[field] = value;
@@ -957,7 +965,7 @@ pattern = "<k> lookup(_) ~> _ </k>"
     }
 
     /// Flow F-18: answers feed no verdict store. A query writes result records and pattern records
-    /// only (none under Z3): no outcome, hint, memo or run document.
+    /// only: no outcome, hint, memo or run document.
     #[test]
     #[ignore = "kink"]
     fn a_query_writes_no_verdict_store() {
@@ -969,50 +977,38 @@ pattern = "<k> lookup(_) ~> _ </k>"
             .flatten()
             .map(|entry| entry.unwrap().file_name().into_string().unwrap())
             .collect::<BTreeSet<_>>();
-        // Under Z3 no record at all: the pattern cache and the result cache are off by design, as
-        // tier 1 is.
-        let expected = if cfg!(feature = "z3") {
-            BTreeSet::new()
-        } else {
+        assert_eq!(
+            names,
             BTreeSet::from(["patterns".to_owned(), "results".to_owned()])
-        };
-        assert_eq!(names, expected);
+        );
     }
 
-    /// Flow F-18 deliverable 4: the pattern cache is off exactly under the Z3 profile (as tier 1 is),
-    /// which follows kink-native's `z3` feature; there a completed exploration is not a `no` (a solver
-    /// query can time out silently) while a hit stays a hit. Under no-Z3 the cache is on.
+    /// Flow F-18 deliverable 4, CF-33: the pattern cache is on in both profiles (as tier 1 is):
+    /// under Z3 the search's solver queries are bounded by Z3 resource units, which the key's
+    /// budget names with the Z3 build. Under Z3 a completed exploration is still not a `no` (see
+    /// NO), so it is not cached, while a hit stays a hit and is cached.
     #[test]
     #[ignore = "kink"]
-    fn the_pattern_cache_is_off_exactly_under_the_z3_profile() {
+    fn the_pattern_cache_is_on_in_both_profiles() {
         let dir = fixture("calc", "profile");
         let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
         assert_eq!(status, EXIT_OK, "{document:#}");
         assert_eq!(document["profile"], SolverProfile::BUILD.name());
+        assert_eq!(document["pattern_cache"]["enabled"], true);
+        assert_eq!(document["pattern_cache"]["reason"], Value::Null);
+        assert!(!records(&dir).is_empty());
         assert_eq!(row(&document, "result-three", "add")["answer"], "hit");
         let refuted = row(&document, "result-four", "add");
-        match SolverProfile::BUILD {
-            SolverProfile::Z3 => {
-                assert_eq!(document["pattern_cache"]["enabled"], false);
-                assert!(
-                    document["pattern_cache"]["reason"]
-                        .as_str()
-                        .unwrap()
-                        .contains("z3 profile")
-                );
-                assert!(records(&dir).is_empty());
-                assert_eq!(refuted["answer"], "unknown");
-                assert!(refuted["cause"].as_str().unwrap().contains("z3 profile"));
-                let (again, _) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
-                assert!(cached(&again).iter().all(|c| !c));
-            }
-            SolverProfile::NoZ3 => {
-                assert_eq!(document["pattern_cache"]["enabled"], true);
-                assert_eq!(document["pattern_cache"]["reason"], Value::Null);
-                assert!(!records(&dir).is_empty());
-                assert_eq!(refuted["answer"], "no");
-            }
+        assert_eq!(refuted["answer"], NO);
+        if SolverProfile::BUILD == SolverProfile::Z3 {
+            assert!(refuted["cause"].as_str().unwrap().contains("z3 profile"));
         }
+        let (again, _) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
+        assert_eq!(row(&again, "result-three", "add")["cached"], true);
+        assert_eq!(
+            row(&again, "result-four", "add")["cached"],
+            SolverProfile::BUILD == SolverProfile::NoZ3
+        );
     }
 
     /// Flow F-18 deliverable 2: a pattern that does not parse, that k-rust's pattern compiler
@@ -1364,8 +1360,8 @@ programs = ["add"]
         assert_eq!(output.status.code(), Some(i32::from(EXIT_OK)));
         let document: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(document["schema"], "kink-flow-query");
-        // Under Z3 `unknown`, not `no` (see NO): no claim is refuted, and the pattern cache is off
-        // by design, as tier 1 is, so the cache holds no pattern record.
+        // Under Z3 `unknown`, not `no` (see NO): no claim is refuted, and an `unknown` is never
+        // cached, so the cache holds no pattern record.
         assert_eq!(answers(&document), expect(&[("result-four", "add", NO)]));
         let refuted = if cfg!(feature = "z3") {
             json!([])
@@ -1506,8 +1502,6 @@ programs = ["add"]
     /// Flow F-18 tail: `--verify` compares a stored hit's witness too. A record that keeps the hit
     /// but carries another witness (its digest recomputed) is used as it is by a plain query, and
     /// `--verify` reports it as a mismatch although both answers are hits.
-    // Portable only: tests the pattern cache, off under Z3 by design as tier 1 is.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn verify_reports_a_forged_witness() {
@@ -1623,18 +1617,16 @@ programs = ["add"]
         let (again, _) = plain(&dir.join("FLOW-timeout.toml"), &patterns);
         assert_eq!(row(&again, "zero", "spin")["cached"], false);
         assert_eq!(row(&again, "zero", "spin")["answer"], "unknown");
-        // The hit is cached, except under Z3, where the pattern cache is off by design.
-        assert_eq!(
-            row(&again, "spin-five", "spin")["cached"],
-            !cfg!(feature = "z3")
-        );
+        // The hit is cached.
+        assert_eq!(row(&again, "spin-five", "spin")["cached"], true);
     }
 
     /// Flow F-18 deliverable 4 (the CACHE-ID rule): a forged record under the current key is
     /// honoured (whoever can write the cache can forge an answer), and `--verify` re-derives every
     /// answer, reports the forged one and exits 1, writing nothing. A record whose digest does not
     /// recompute is not used.
-    // Portable only: tests the pattern cache, off under Z3 by design as tier 1 is.
+    // Portable only: its forged and stored records are `no` answers, and under Z3 no answer is
+    // `no` (see NO): a stored `no` is judged again under the profile and never used.
     #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
@@ -1725,8 +1717,6 @@ programs = ["add"]
     /// cached answer (the key names the execution digest, the loaded definition without
     /// positions), and editing a rule of the specification or the budget's bounds recomputes
     /// every row; the time bound is not one of them.
-    // Portable only: tests the pattern cache, off under Z3 by design as tier 1 is.
-    #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]
     fn the_cache_is_reused_and_invalidated_by_key() {
@@ -1749,6 +1739,7 @@ programs = ["add"]
                 .as_array()
                 .unwrap()
                 .iter()
+                .filter(|r| cacheable(r))
                 .all(|r| r["wall_ms"].is_null())
         );
         for (a, b) in first["rows"]
@@ -1764,10 +1755,17 @@ programs = ["add"]
         fs::write(dir.join("programs/add.calc"), "1 + 3\n").unwrap();
         let (edited, _) = plain(&manifest, &patterns);
         for row in edited["rows"].as_array().unwrap() {
-            assert_eq!(row["cached"], row["program"] != "add", "{row:#}");
+            assert_eq!(
+                row["cached"],
+                row["program"] != "add" && cacheable(row),
+                "{row:#}"
+            );
         }
-        assert_eq!(row(&edited, "result-three", "add")["answer"], "no");
-        assert_eq!(row(&edited, "result-three", "add")["claim"], "refuted");
+        assert_eq!(row(&edited, "result-three", "add")["answer"], NO);
+        assert_eq!(
+            row(&edited, "result-three", "add")["claim"],
+            if NO == "no" { "refuted" } else { "unconfirmed" }
+        );
 
         // A comment and blank lines: every cached answer stands.
         let spec = fs::read_to_string(dir.join("calc.k")).unwrap();
@@ -1811,7 +1809,8 @@ programs = ["add"]
     /// another run digest, or of class unknown, under the same key makes the command search again
     /// (an unknown then gives unknown), and a stored timeout is never read, so the program runs
     /// again; a cached hit does not depend on the baseline.
-    // Portable only: tests the pattern cache, off under Z3 by design as tier 1 is.
+    // Portable only: its forged and stored records are `no` answers, and under Z3 no answer is
+    // `no` (see NO): a stored `no` is judged again under the profile and never used.
     #[cfg(not(feature = "z3"))]
     #[test]
     #[ignore = "kink"]

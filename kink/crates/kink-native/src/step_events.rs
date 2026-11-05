@@ -820,6 +820,14 @@ impl<'a> ObservationDecider<'a> {
         self
     }
 
+    /// How many of the solver's answers to this decider's questions were undecided since it was
+    /// built: its leaf feasibility and its relation queries
+    /// ([`BackendRelations::smt_unknowns`]). Reported, never an exclusion.
+    #[must_use]
+    pub fn smt_unknowns(&self) -> usize {
+        self.relations.smt_unknowns()
+    }
+
     /// The relation decider of this decider's leaves (the leaf definition's), for pattern slots.
     #[must_use]
     pub const fn relations(&self) -> &BackendRelations<'a> {
@@ -1397,6 +1405,7 @@ impl<'a> ObservationDecider<'a> {
             self.leaf_solver,
             &self.leaf_inhabitation,
             state,
+            self.relations.undecided(),
         )
         .unwrap_or_else(|host| {
             self.record_host_refusal(host);

@@ -59,8 +59,8 @@
 //! The two coverage warnings, `unmatched-rule` and `unapplied-rule`, are given only when every
 //! program has a current result record and every comparable program's coverage is complete;
 //! otherwise the document's `coverage` says why there is no such warning. A program whose result
-//! is never cached (a timeout, an error, an `unknown` the host caused, or every program under the
-//! Z3 profile, where the result cache is off) has no record, so while the corpus holds one
+//! is never cached (a timeout, an error, an `unknown` the host caused, or every program where the
+//! result cache is off, `results::result_store`) has no record, so while the corpus holds one
 //! neither warning is given: which programs are comparable is then a fact of the host's run, not
 //! of the cached results.
 //!
@@ -404,7 +404,7 @@ pub fn corpus_coverage(
 ) -> CorpusCoverage {
     let execution = execution_digest(manifest, spec);
     let mut coverage = CorpusCoverage {
-        cache_off: result_store().err(),
+        cache_off: result_store(manifest.budget.backend_options()).err(),
         no_signal: no_coverage_signal(spec),
         ..CorpusCoverage::default()
     };
