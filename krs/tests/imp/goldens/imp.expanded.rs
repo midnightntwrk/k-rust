@@ -155,22 +155,22 @@ impl Machine {
 pub fn eval_neg(
     value: k::Term<k::builtin::Int>,
     k::cells! {
-        k : k::configuration::KCell(crate ::imp::Op::Neg(value), tail @ ..), state @ ..
+        k : k::configuration::KCell(crate ::imp::Op::Neg(value), ..), state @ ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
-        k : k::configuration::KCell(k::builtin::int::sub(0, value), ..tail), ..state
+        k : k::configuration::KCell(k::builtin::int::sub(0, value), ..), ..state
     }
 }
 #[k::rule(label = "eval-not")]
 pub fn eval_not(
     value: k::Term<k::builtin::Bool>,
     k::cells! {
-        k : k::configuration::KCell(crate ::imp::Op::Not(value), tail @ ..), state @ ..
+        k : k::configuration::KCell(crate ::imp::Op::Not(value), ..), state @ ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
-        k : k::configuration::KCell(k::builtin::bool::not(value), ..tail), ..state
+        k : k::configuration::KCell(k::builtin::bool::not(value), ..), ..state
     }
 }
 #[k::rule(label = "eval-add")]
@@ -178,12 +178,11 @@ pub fn eval_add(
     lhs: k::Term<k::builtin::Int>,
     rhs: k::Term<k::builtin::Int>,
     k::cells! {
-        k : k::configuration::KCell(crate ::imp::Op::Add(lhs, rhs), tail @ ..), state @
-        ..
+        k : k::configuration::KCell(crate ::imp::Op::Add(lhs, rhs), ..), state @ ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
-        k : k::configuration::KCell(k::builtin::int::add(lhs, rhs), ..tail), ..state
+        k : k::configuration::KCell(k::builtin::int::add(lhs, rhs), ..), ..state
     }
 }
 #[k::rule(label = "eval-sub")]
@@ -191,12 +190,11 @@ pub fn eval_sub(
     lhs: k::Term<k::builtin::Int>,
     rhs: k::Term<k::builtin::Int>,
     k::cells! {
-        k : k::configuration::KCell(crate ::imp::Op::Sub(lhs, rhs), tail @ ..), state @
-        ..
+        k : k::configuration::KCell(crate ::imp::Op::Sub(lhs, rhs), ..), state @ ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
-        k : k::configuration::KCell(k::builtin::int::sub(lhs, rhs), ..tail), ..state
+        k : k::configuration::KCell(k::builtin::int::sub(lhs, rhs), ..), ..state
     }
 }
 #[k::rule(label = "eval-mul")]
@@ -204,12 +202,11 @@ pub fn eval_mul(
     lhs: k::Term<k::builtin::Int>,
     rhs: k::Term<k::builtin::Int>,
     k::cells! {
-        k : k::configuration::KCell(crate ::imp::Op::Mul(lhs, rhs), tail @ ..), state @
-        ..
+        k : k::configuration::KCell(crate ::imp::Op::Mul(lhs, rhs), ..), state @ ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
-        k : k::configuration::KCell(k::builtin::int::mul(lhs, rhs), ..tail), ..state
+        k : k::configuration::KCell(k::builtin::int::mul(lhs, rhs), ..), ..state
     }
 }
 #[k::rule(label = "eval-div")]
@@ -217,12 +214,11 @@ pub fn eval_div(
     lhs: k::Term<k::builtin::Int>,
     rhs: k::Term<k::builtin::Int>,
     k::cells! {
-        k : k::configuration::KCell(crate ::imp::Op::Div(lhs, rhs), tail @ ..), state @
-        ..
+        k : k::configuration::KCell(crate ::imp::Op::Div(lhs, rhs), ..), state @ ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
-        k : k::configuration::KCell(k::builtin::int::div(lhs, rhs), ..tail), ..state
+        k : k::configuration::KCell(k::builtin::int::div(lhs, rhs), ..), ..state
     }
 }
 #[k::rule(label = "eval-ge")]
@@ -230,11 +226,11 @@ pub fn eval_ge(
     lhs: k::Term<k::builtin::Int>,
     rhs: k::Term<k::builtin::Int>,
     k::cells! {
-        k : k::configuration::KCell(crate ::imp::Op::Ge(lhs, rhs), tail @ ..), state @ ..
+        k : k::configuration::KCell(crate ::imp::Op::Ge(lhs, rhs), ..), state @ ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
-        k : k::configuration::KCell(k::builtin::int::ge(lhs, rhs), ..tail), ..state
+        k : k::configuration::KCell(k::builtin::int::ge(lhs, rhs), ..), ..state
     }
 }
 #[k::rule(label = "eval-gt")]
@@ -242,11 +238,11 @@ pub fn eval_gt(
     lhs: k::Term<k::builtin::Int>,
     rhs: k::Term<k::builtin::Int>,
     k::cells! {
-        k : k::configuration::KCell(crate ::imp::Op::Gt(lhs, rhs), tail @ ..), state @ ..
+        k : k::configuration::KCell(crate ::imp::Op::Gt(lhs, rhs), ..), state @ ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
-        k : k::configuration::KCell(k::builtin::int::gt(lhs, rhs), ..tail), ..state
+        k : k::configuration::KCell(k::builtin::int::gt(lhs, rhs), ..), ..state
     }
 }
 #[k::rule(label = "eval-le")]
@@ -254,11 +250,11 @@ pub fn eval_le(
     lhs: k::Term<k::builtin::Int>,
     rhs: k::Term<k::builtin::Int>,
     k::cells! {
-        k : k::configuration::KCell(crate ::imp::Op::Le(lhs, rhs), tail @ ..), state @ ..
+        k : k::configuration::KCell(crate ::imp::Op::Le(lhs, rhs), ..), state @ ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
-        k : k::configuration::KCell(k::builtin::int::le(lhs, rhs), ..tail), ..state
+        k : k::configuration::KCell(k::builtin::int::le(lhs, rhs), ..), ..state
     }
 }
 #[k::rule(label = "eval-lt")]
@@ -266,11 +262,11 @@ pub fn eval_lt(
     lhs: k::Term<k::builtin::Int>,
     rhs: k::Term<k::builtin::Int>,
     k::cells! {
-        k : k::configuration::KCell(crate ::imp::Op::Lt(lhs, rhs), tail @ ..), state @ ..
+        k : k::configuration::KCell(crate ::imp::Op::Lt(lhs, rhs), ..), state @ ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
-        k : k::configuration::KCell(k::builtin::int::lt(lhs, rhs), ..tail), ..state
+        k : k::configuration::KCell(k::builtin::int::lt(lhs, rhs), ..), ..state
     }
 }
 #[k::rule(label = "eval-bool-eq")]
@@ -278,11 +274,11 @@ pub fn eval_bool_eq(
     lhs: k::Term<k::builtin::Bool>,
     rhs: k::Term<k::builtin::Bool>,
     k::cells! {
-        k : k::configuration::KCell(crate ::imp::Op::Eq(lhs, rhs), tail @ ..), state @ ..
+        k : k::configuration::KCell(crate ::imp::Op::Eq(lhs, rhs), ..), state @ ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
-        k : k::configuration::KCell(k::builtin::bool::eq(lhs, rhs), ..tail), ..state
+        k : k::configuration::KCell(k::builtin::bool::eq(lhs, rhs), ..), ..state
     }
 }
 #[k::rule(label = "eval-int-eq")]
@@ -290,11 +286,11 @@ pub fn eval_int_eq(
     lhs: k::Term<k::builtin::Int>,
     rhs: k::Term<k::builtin::Int>,
     k::cells! {
-        k : k::configuration::KCell(crate ::imp::Op::Eq(lhs, rhs), tail @ ..), state @ ..
+        k : k::configuration::KCell(crate ::imp::Op::Eq(lhs, rhs), ..), state @ ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
-        k : k::configuration::KCell(k::builtin::int::eq(lhs, rhs), ..tail), ..state
+        k : k::configuration::KCell(k::builtin::int::eq(lhs, rhs), ..), ..state
     }
 }
 #[k::rule(label = "eval-bool-ne")]
@@ -302,11 +298,11 @@ pub fn eval_bool_ne(
     lhs: k::Term<k::builtin::Bool>,
     rhs: k::Term<k::builtin::Bool>,
     k::cells! {
-        k : k::configuration::KCell(crate ::imp::Op::Ne(lhs, rhs), tail @ ..), state @ ..
+        k : k::configuration::KCell(crate ::imp::Op::Ne(lhs, rhs), ..), state @ ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
-        k : k::configuration::KCell(k::builtin::bool::ne(lhs, rhs), ..tail), ..state
+        k : k::configuration::KCell(k::builtin::bool::ne(lhs, rhs), ..), ..state
     }
 }
 #[k::rule(label = "eval-int-ne")]
@@ -314,56 +310,53 @@ pub fn eval_int_ne(
     lhs: k::Term<k::builtin::Int>,
     rhs: k::Term<k::builtin::Int>,
     k::cells! {
-        k : k::configuration::KCell(crate ::imp::Op::Ne(lhs, rhs), tail @ ..), state @ ..
+        k : k::configuration::KCell(crate ::imp::Op::Ne(lhs, rhs), ..), state @ ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
-        k : k::configuration::KCell(k::builtin::int::ne(lhs, rhs), ..tail), ..state
+        k : k::configuration::KCell(k::builtin::int::ne(lhs, rhs), ..), ..state
     }
 }
 #[k::rule(label = "and-true")]
 pub fn and_true(
     rhs: crate::imp::Expr,
     k::cells! {
-        k : k::configuration::KCell(crate ::imp::Op::And(true, rhs), tail @ ..), state @
-        ..
+        k : k::configuration::KCell(crate ::imp::Op::And(true, rhs), ..), state @ ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
-        k : k::configuration::KCell(rhs, ..tail), ..state
+        k : k::configuration::KCell(rhs, ..), ..state
     }
 }
 #[k::rule(label = "and-false")]
 pub fn and_false(
     k::cells! {
-        k : k::configuration::KCell(crate ::imp::Op::And(false, _), tail @ ..), state @
-        ..
+        k : k::configuration::KCell(crate ::imp::Op::And(false, _), ..), state @ ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
-        k : k::configuration::KCell(false, ..tail), ..state
+        k : k::configuration::KCell(false, ..), ..state
     }
 }
 #[k::rule(label = "or-true")]
 pub fn or_true(
     k::cells! {
-        k : k::configuration::KCell(crate ::imp::Op::Or(true, _), tail @ ..), state @ ..
+        k : k::configuration::KCell(crate ::imp::Op::Or(true, _), ..), state @ ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
-        k : k::configuration::KCell(true, ..tail), ..state
+        k : k::configuration::KCell(true, ..), ..state
     }
 }
 #[k::rule(label = "or-false")]
 pub fn or_false(
     rhs: crate::imp::Expr,
     k::cells! {
-        k : k::configuration::KCell(crate ::imp::Op::Or(false, rhs), tail @ ..), state @
-        ..
+        k : k::configuration::KCell(crate ::imp::Op::Or(false, rhs), ..), state @ ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
-        k : k::configuration::KCell(rhs, ..tail), ..state
+        k : k::configuration::KCell(rhs, ..), ..state
     }
 }
 /// Expose the right-associated statement pair as K sequencing.
@@ -372,12 +365,12 @@ pub fn step(
     s1: crate::imp::Stmt,
     s2: crate::imp::Stmt,
     k::cells! {
-        k : k::configuration::KCell(crate ::imp::StmtSyntax::Sequence(s1, s2), tail @
-        ..), state @ ..
+        k : k::configuration::KCell(crate ::imp::StmtSyntax::Sequence(s1, s2), ..), state
+        @ ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
-        k : k::configuration::KCell(s1, s2, ..tail), ..state
+        k : k::configuration::KCell(s1, s2, ..), ..state
     }
 }
 /// Select the true branch of an evaluated conditional.
@@ -386,11 +379,11 @@ pub fn if_true(
     s1: crate::imp::Stmt,
     k::cells! {
         k : k::configuration::KCell(crate ::imp::StmtSyntax::IfThenElse(true, s1, _),
-        tail @ ..), state @ ..
+        ..), state @ ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
-        k : k::configuration::KCell(s1, ..tail), ..state
+        k : k::configuration::KCell(s1, ..), ..state
     }
 }
 /// Select the false branch of an evaluated conditional.
@@ -399,11 +392,11 @@ pub fn if_false(
     s2: crate::imp::Stmt,
     k::cells! {
         k : k::configuration::KCell(crate ::imp::StmtSyntax::IfThenElse(false, _, s2),
-        tail @ ..), state @ ..
+        ..), state @ ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
-        k : k::configuration::KCell(s2, ..tail), ..state
+        k : k::configuration::KCell(s2, ..), ..state
     }
 }
 /// Normalize the no-else form with an explicit empty branch.
@@ -412,13 +405,13 @@ pub fn if_else(
     c: crate::imp::Expr,
     s: crate::imp::Stmt,
     k::cells! {
-        k : k::configuration::KCell(crate ::imp::StmtSyntax::IfThen(c, s), tail @ ..),
-        state @ ..
+        k : k::configuration::KCell(crate ::imp::StmtSyntax::IfThen(c, s), ..), state @
+        ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
         k : k::configuration::KCell(crate ::imp::StmtSyntax::IfThenElse(c, s, crate
-        ::imp::StmtSyntax::EmptyBlock()), ..tail), ..state
+        ::imp::StmtSyntax::EmptyBlock()), ..), ..state
     }
 }
 /// Unfold one loop test without making the constructor strict.
@@ -427,14 +420,13 @@ pub fn r#while(
     c: crate::imp::Expr,
     s: crate::imp::Stmt,
     k::cells! {
-        k : k::configuration::KCell(crate ::imp::StmtSyntax::While(c, s), tail @ ..),
-        state @ ..
+        k : k::configuration::KCell(crate ::imp::StmtSyntax::While(c, s), ..), state @ ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
         k : k::configuration::KCell(crate ::imp::StmtSyntax::IfThen(c, crate
         ::imp::StmtSyntax::Block(crate ::imp::StmtSyntax::Sequence(s, crate
-        ::imp::StmtSyntax::While(c, s)))), ..tail), ..state
+        ::imp::StmtSyntax::While(c, s)))), ..), ..state
     }
 }
 /// Expose a nonempty block body followed by an empty block.
@@ -442,12 +434,11 @@ pub fn r#while(
 pub fn block(
     s: crate::imp::Stmt,
     k::cells! {
-        k : k::configuration::KCell(crate ::imp::StmtSyntax::Block(s), tail @ ..), state
-        @ ..
+        k : k::configuration::KCell(crate ::imp::StmtSyntax::Block(s), ..), state @ ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
-        k : k::configuration::KCell(s, crate ::imp::StmtSyntax::EmptyBlock(), ..tail),
+        k : k::configuration::KCell(s, crate ::imp::StmtSyntax::EmptyBlock(), ..),
         ..state
     }
 }
@@ -455,12 +446,12 @@ pub fn block(
 #[k::rule(label = "done")]
 pub fn done(
     k::cells! {
-        k : k::configuration::KCell(crate ::imp::StmtSyntax::EmptyBlock(), tail @ ..),
-        state @ ..
+        k : k::configuration::KCell(crate ::imp::StmtSyntax::EmptyBlock(), ..), state @
+        ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
-        k : k::configuration::KCell(..tail), ..state
+        k : k::configuration::KCell(..), ..state
     }
 }
 /// Replace an identifier at the head of `k` with its mapped value.
@@ -469,12 +460,12 @@ pub fn var(
     name: k::Term<k::builtin::Id>,
     value: crate::imp::Value,
     k::cells! {
-        k : k::configuration::KCell(name, tail @ ..), env :
-        k::configuration::Cell(map![name -> value, rest0 @ ..]), state @ ..
+        k : k::configuration::KCell(name, ..), env : k::configuration::Cell(map![name ->
+        value, ..]), state @ ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
-        k : k::configuration::KCell(value, ..tail), ..state
+        k : k::configuration::KCell(value, ..), ..state
     }
 }
 /// Consume a value assignment and update the environment map.
@@ -484,12 +475,12 @@ pub fn assign(
     value: crate::imp::Value,
     e: k::Term<k::builtin::Map>,
     k::cells! {
-        k : k::configuration::KCell(crate ::imp::StmtSyntax::Assign(name, value), tail @
-        ..), env : k::configuration::Cell(e), state @ ..
+        k : k::configuration::KCell(crate ::imp::StmtSyntax::Assign(name, value), ..),
+        env : k::configuration::Cell(e), state @ ..
     }: crate::imp::Machine,
 ) -> crate::imp::Machine {
     k::cells! {
-        k : k::configuration::KCell(..tail), env :
+        k : k::configuration::KCell(..), env :
         k::configuration::Cell(k::builtin::map::update(e, name, value)), ..state
     }
 }

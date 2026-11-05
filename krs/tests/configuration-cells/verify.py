@@ -196,7 +196,7 @@ PUSH_REFERENCE = (
     "    s: k::Term<k::builtin::List>,\n"
     "    f: crate::Frame,\n"
     "    k::cells! {\n"
-    "        k : k::configuration::KCell(crate ::Cmd::Push(), tail @ ..), stack :\n"
+    "        k : k::configuration::KCell(crate ::Cmd::Push(), ..), stack :\n"
     "        k::configuration::Cell(s), frame : f, state @ ..\n"
     "    }: crate::Machine,\n"
     ") -> crate::Machine {\n"
@@ -230,9 +230,9 @@ OPTIONAL_K = (
 OPTIONAL_REFERENCE = (
     "    pub counter: Option<k::configuration::Cell<Int>>,\n",
     "            counter: k::absent!(k::configuration::Cell::new(0)),\n",
-    "        k : k::configuration::KCell(crate ::Cmd::Enable(), tail @ ..), counter : None,\n",
-    "        k : k::configuration::KCell(..tail), counter : Some(k::configuration::Cell(0)),\n",
-    "        k : k::configuration::KCell(..tail), mark : Some(k::fragment![crate ::Mark { seen\n",
+    "        k : k::configuration::KCell(crate ::Cmd::Enable(), ..), counter : None, state @\n",
+    "        k : k::configuration::KCell(..), counter : Some(k::configuration::Cell(0)),\n",
+    "        k : k::configuration::KCell(..), mark : Some(k::fragment![crate ::Mark { seen : n\n",
 )
 
 THREADS = Fixture(MANIFEST, "krs-configuration-cells-threads")

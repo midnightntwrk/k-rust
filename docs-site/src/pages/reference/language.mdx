@@ -151,7 +151,8 @@ Discarding the rest of the computation, or capturing it as a value, needs the `c
 There the remainder `tail @ ..` is a value of sort `K` the result may write, for instance in a `KSequence` field: `fn park(s: k::Term<List>, k::cells! { k: KCell(Park(), tail @ ..), stack: Cell(s), state @ .. }: Machine) -> Machine { k::cells! { k: KCell(Resume()), stack: Cell(list::concat(list::item(Saved { body: tail }), s)), ..state } }` emits `<k> park ~> Tail:K => resume </k>`.
 A remainder the result does not put back with `..tail` has been moved, and the computation cell's new content is what the result lists; a bound remainder the rule neither puts back nor uses is an error.
 A record whose result leaves `k` out only reads it, as for any [cell a rule only reads](#cells-a-rule-only-reads): `tick: { k: [Boundary(), ..], left: n } => { left: int::sub(n, 1) }` emits `<k> boundary ... </k>`, and so does a result that restates the matched items unchanged, `k: [Boundary(), ..]`.
-`krs expand` writes the `cells!` entry `k: k::configuration::KCell(v, crate::Op::Store { addr: a }, tail @ ..)`, `KCell(crate::Op::Run { n })` for a whole cell, and `KCell(crate::Op::Boundary, ..)` for a read.
+In `cells!`, `..` also ends a result's `KCell(..)` to keep the rest the subject's `KCell(.., ..)` matched, so `k: KCell(x, ..)` ⇒ `k: KCell(y, ..)` means what the readable `[x, ..]` ⇒ `[y, ..]` means; after an exact subject or a named `tail @ ..`, a result `..` is refused (`rest-mismatch`), since there is no unnamed rest to keep.
+`krs expand` writes the readable form's rest as that `..`: the `cells!` entry `k: k::configuration::KCell(v, crate::Op::Store { addr: a }, ..)` and its result `KCell(.., ..)`, `KCell(crate::Op::Run { n })` for a whole cell, and `KCell(crate::Op::Boundary, ..)` for a read.
 
 ### List notation
 

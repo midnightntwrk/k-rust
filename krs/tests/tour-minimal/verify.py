@@ -65,8 +65,8 @@ def verify_expansion(source: str) -> None:
         '#[k::syntax("bar", format = "bar")]',
         "k::configuration::KCell::new(k::k![Object::Foo()])",
         '#[k::rule(label = "foo-to-bar")]',
-        "crate ::Object::Foo(), tail @ ..",
-        "crate ::Object::Bar(), ..tail",
+        "crate ::Object::Foo(), ..",
+        "crate ::Object::Bar(), ..",
     )
     missing = [fragment for fragment in required if fragment not in source]
     if missing:
