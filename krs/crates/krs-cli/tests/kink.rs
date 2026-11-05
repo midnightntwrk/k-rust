@@ -599,7 +599,7 @@ fn run_kills_the_story_edits() {
             "offset": 0,
         })
     };
-    assert_eq!(difference["format"], "krs-difference/1", "{difference:#}");
+    assert_eq!(difference["format"], "krs-difference/2", "{difference:#}");
     assert_eq!(difference["at"], "cell", "{difference:#}");
     assert_eq!(difference["cell"], "k", "{difference:#}");
     assert_eq!(difference["path"], "k[0]", "{difference:#}");
@@ -874,7 +874,7 @@ fn a_kills_evidence_compares_the_cells_the_slot_compares() {
         let row = &run["mutations"][0];
         assert_eq!(row["status"], "killed", "{run:#}");
         let difference = &row["executed"][0]["difference"];
-        assert_eq!(difference["format"], "krs-difference/1", "{difference:#}");
+        assert_eq!(difference["format"], "krs-difference/2", "{difference:#}");
         assert_eq!(difference.get("note"), None, "{difference:#}");
         assert_eq!(difference["path"], "k[0].value", "{difference:#}");
         assert_eq!(
@@ -935,7 +935,7 @@ fn a_kills_evidence_follows_a_renamed_field_that_the_k_does_not_carry() {
         let row = run["mutations"][0].clone();
         assert_eq!(row["status"], "killed", "{run:#}");
         let difference = row["executed"][0]["difference"].clone();
-        assert_eq!(difference["format"], "krs-difference/1", "{difference:#}");
+        assert_eq!(difference["format"], "krs-difference/2", "{difference:#}");
         (row["killer_source"].clone(), difference["path"].clone())
     };
     let (_, path) = run(&project);
@@ -2611,7 +2611,7 @@ fn a_case_expectation_is_reported_and_its_case_kept() {
     assert_eq!(met["difference"], Value::Null, "{met:#}");
     let unmet = program_row(&results, "cases/runs.toml#unmet")["expectation"].clone();
     let difference = &unmet["difference"];
-    assert_eq!(difference["format"], "krs-difference/1", "{unmet:#}");
+    assert_eq!(difference["format"], "krs-difference/2", "{unmet:#}");
     assert_eq!(difference["path"], "k[0].value", "{unmet:#}");
     assert_eq!(difference["left"]["name"], "expected", "{unmet:#}");
     assert_eq!(difference["left"]["value"]["document"], 4, "{unmet:#}");

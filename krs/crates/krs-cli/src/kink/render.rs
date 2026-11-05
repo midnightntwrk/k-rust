@@ -1,6 +1,6 @@
 //! A kill's evidence at the KRS level: kink-flow's [`EndRenderer`] implemented with krs-exec's
 //! comparison of ends, so that a kill's difference is the document that comparison writes
-//! wherever KRS shows two ends differ (`krs-difference/1`, as `krs run --case` shows an unmet
+//! wherever KRS shows two ends differ (`krs-difference/2`, as `krs run --case` shows an unmet
 //! expectation): the cell by Rust field path and both values as their canonical documents.
 //!
 //! kink gives the renderer the two sets of ends its slot compared, final configurations of the
