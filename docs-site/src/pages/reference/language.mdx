@@ -325,7 +325,7 @@ The overlap check counts a group clause as sharing every cell inside the group.
 
 A `#[k::cell]` struct is a cell group, and any configuration may hold it, a configuration of another crate included: `#[k::cell(nested)] pub core: lib::Core` nests the cells of the dependency's `Core` under `<core>`.
 A sentence may be typed by the group instead of the configuration: a `k::rules!` block's header `for Core;` (`for lib::Core;` in another crate), or a `k::cells!` subject typed `Core`.
-Its subject is then the group at its one position in the definition's configuration.
+Its subject is then the group at its one position in the definition's configuration, in one instance of each optional cell or Map collection that holds it ([below](#a-group-held-in-an-optional-cell-or-a-collection)).
 It is lowered against that configuration, as the same sentence written for the configuration would be: it names only cells inside the group, and every other cell is framed.
 The library declares the group and the rules that are its meaning:
 
@@ -356,8 +356,7 @@ The subject is refused where it has no one position, or where the sentence leave
 
 - a cell outside the group, whether the cell that holds the group (`core`), another cell of the configuration (`mem`, or `Small::mem` in a `cells!` entry), or a cell of another group, is `krs::analysis::cell-outside-subject`, at the cell; write the sentence for the configuration to name it;
 - a group that no cell of the definition's configuration holds is `krs::analysis::group-not-in-configuration`, at the type that names it;
-- a group below an optional (`?`) or a collection (`*`) cell, whether that cell holds the group or holds a cell above it, is `krs::analysis::group-subject-position`, at the type that names it: an optional group's cells exist only in some states, and each instance of a collection holds its own copy of the group's cells, so the group has no one fixed position for its rules to apply at.
-  A rule for a group inside a `*` collection, matched in one instance with the others framed, is not supported yet; hold the group at a fixed position, or write the rule for the configuration;
+- a group in an instance of a Set or a List collection, whether that collection holds the group or holds a cell above it, is `krs::analysis::group-subject-position`, at the type that names it, naming the collection; the reasons are [below](#a-group-held-in-an-optional-cell-or-a-collection);
 - a configuration that holds the group twice is refused as it is for any rule (`krs::analysis::ambiguous-cell-sort`), since the fault is the configuration's;
 - a cell of the configuration with the K name of a cell of the group is `krs::analysis::duplicate-cell-name`, naming both cells, because a configuration names each of its cells once and a group's cells keep their names in every configuration that holds it; rename one with `#[k::cell(name = "..")]`.
 
@@ -382,6 +381,52 @@ The definition's main cell, which a `for Exp` table clause rewrites and the prog
 A [function context](#function-contexts) and a context alias may be typed by a group too, and are about the group's cells in the same way: K matches a function context against the configuration the function is evaluated in, and a context alias against the one the computation runs in, so a library's equation that reads `acc` through `k::cells! { acc: k::configuration::Cell(a), .. }: Core` serves every definition that holds `Core`.
 A claim is typed by the configuration, never by a group (`krs::analysis::group-claim`, at the type, in `k::claims!` and on a `#[k::claim]` fn alike): a claim states what one definition's transition system does and leaves every cell it does not name unchanged, so the same claim would state something else in each configuration that holds the group, and a false thing in one whose rules change another cell along the run the claim describes.
 Write it for the configuration of a crate that declares one; a readable claim names the group's cells flat ([readable claims](/verification/reachability-claims#readable-claims)).
+
+#### A group held in an optional cell or a collection
+
+A rule for a group is a local step of one instance of it.
+A rule applies wherever its pattern matches, and a rule for the group names only the group's cells, so its pattern matches inside one instance of the group; applied there, it rewrites cells of that instance and frames everything else, every other instance and every cell outside the group included.
+So a group may be held in an optional (`?`) cell or as the instance type of a Map collection, as well as at a fixed position, and the library's rules for it are rules of each such definition, with the same body:
+
+```rust
+#[k::cell]
+pub struct Harts {
+    #[k::cell(multiplicity = "*", cell_type = "Map", initial, nested)]
+    pub hart: lib::Hart,
+}
+
+#[k::configuration]
+pub struct Smp {
+    #[k::cell(nested)]
+    pub harts: Harts,
+    #[k::cell]
+    pub mem: Map<Int, Int>,
+}
+```
+
+With `lib::Hart { id, k, pc }` and the library's `inc: { k: [Inc(), ..], pc } => { k: [..], pc: int::add(pc, 1) };` for `Hart`, `Smp` emits `rule [inc]: <hart> <k> inc => .K ... </k> <pc> Pc:Int => Pc:Int +Int 1 </pc> ... </hart>`, a step of one hart, where a definition that holds the hart at a fixed position emits the same body without `<hart>`.
+A rule for the group names the instance's cells flat, readable (`pc`) or in `k::cells! { .. }: lib::Hart` (`pc:`), because the sentence is about one instance; a cell below a further `?` or `*` inside the instance is still written inside that holder's record, and the advice of its refusal names that holder.
+
+Every holder on the group's path must keep the identity of the instance that steps, since the step must change its own instance only:
+
+- an optional cell holds at most one instance, which is the one that steps;
+- a Map collection identifies an instance by its key, the whole value of its first child, which may be a leaf or a group: a step reads the key and never writes another, so a result leaves every cell at or inside the key out, which keeps it, or writes it as the variable its subject matched it with (`{ id: me, k: [Dec(), ..], pc } => { id: me, k: [..], pc: int::add(pc, 3) }`) or as the same literal (`id: 0` on both sides, which restricts the rule to hart 0); any other value, a key the subject does not name, and an in-place `k::rewrite!` at or inside the key whose sides are not the same variable or literal is `krs::analysis::map-collection-key`, in both spellings, as an update that changes an instance's key is, since a key that is not a variable or a literal cannot be shown kept; a group that is a key, or lies inside one, is no subject of a sentence, refused with the same code;
+- a Set collection identifies an instance by its whole content, so a step that makes one instance equal to another merges the two, removing an instance the rule never matched, and two such steps no longer commute: a group in a Set instance is refused with that reason, and a definition with anonymous instances holds them in a Map keyed by an id;
+- a List collection keeps an instance's position, and a rule for its group would apply to the instance at any position, the list's order framed like every other cell the rule does not name; matching one instance between others is not supported yet (k-rust's rule matching takes items at the two ends of a list around one part), so a group in a List instance is refused, naming that gap.
+
+Two local steps of different instances read and write disjoint cells and leave each other's identities alone, so neither disables or changes the other, and both orders reach one state: group rules add only the interleaving of independent steps, and an instance's own rules may still be nondeterministic among themselves.
+What is not one instance's business stays with rules for the configuration over the collection's instance records: creating and removing instances, interaction between instances (shared memory, messages), and scheduling which instance may step; races come from those rules, and a memory model weaker than sequential consistency is the definition's own, with explicit buffers.
+
+The main cell is where a sentence that names no cell runs, so where the definition's main cell sits in an instance, a `for Exp` table clause and a strict production's heating are local steps of that instance: a main cell inside a Set collection's instance is refused (`krs::analysis::main-cell`) for the Set's reason, and so is a main cell that is a Map instance's key or lies inside one, since those sentences would rewrite the instance's identity.
+A definition has one main cell; where the program goes to a computation cell beside per-instance computation cells, the instances get no sort or strictness rules, since those run where the program does.
+
+A function context typed by such a group reads the cells of the instance the function is evaluated in, which is the instance of the sentence whose requires or result applies it.
+A function has one value for its arguments, so it is applied only from a sentence inside that instance: a rule, a context alias or a function context for the group or for a group inside its instance, or a sentence at a main cell inside the instance.
+An application anywhere else, a rule for the configuration, a function context typed by the configuration, or a claim, is `krs::analysis::instance-context-caller`, at the application, also where it reaches the function through equations without a context of their own, which are evaluated where their caller is.
+The left-hand side of an equation or a simplification is the pattern the sentence is about, not an application it evaluates, so a function named only there is not judged.
+A group held once has no holders, so every caller qualifies.
+
+Some forms inside an instance are not emitted yet, and are refused as `krs::analysis::group-subject-position` with the reason "not emitted yet": a rule's clause for anything but a leaf cell of the instance (a whole group, an optional cell, or an instance record of a collection inside the instance), a context alias and a `#[k::context]`, whose heating and cooling rules have their hole in the instance's computation, and a function context, once its callers are judged.
 
 ### Optional cells and cell collections
 
@@ -427,6 +472,7 @@ An instance that leaves cells open or holds a name nothing else binds selects on
 A Map collection's instances are written in the same braces, and only the cell's declared type tells the two apart, so a rule's braced instance's cells, a readable record's or a `cells!` instance record's (`k::fragment![..]` alike), are read as a key is (a pattern, or the term an expression denotes, `n + 1` the call `int::add(n, 1)`); in a Map collection's instance, which is matched, an operator is then refused as a function (`krs::analysis::function-in-pattern`), a sort test as `krs::analysis::invalid-sort-test`, and a record update as `krs::syntax::invalid-record-update`, or first, when its base is no alias of a matched record, as `krs::analysis::invalid-record-update`.
 In the result, a record ending in `..me` updates the labelled instance in place, a record without a label's rest creates an instance (its `..` takes the template defaults, K's right-hand `...`), and a pattern instance the result does not mention is removed; `..ghost` naming no labelled instance is rejected as an update without a base (`krs::analysis::invalid-record-update`), and a label used twice, on two pattern instances or by two result instances updating the same label, as `krs::analysis::duplicate-instance-label`: a label names exactly one pattern instance, which at most one result instance updates.
 A created Map instance states its key, the first child (`krs::analysis::map-collection-key`), and every child a created instance omits needs a template default.
+A rule for the group a collection holds is about one instance and names its cells flat, which a Map or an optional holder admits and a Set or a List refuses ([a group held in an optional cell or a collection](#a-group-held-in-an-optional-cell-or-a-collection)).
 An instance child that is only a name is Rust's field-init shorthand, as at a record's top level: `Account { balance, .. }` is `Account { balance: balance, .. }`, binding `balance` in a pattern and writing the bound `balance` in a created or updated instance.
 An instance record cannot name an optional child yet, so a created instance starts without its optional cells, and `..` defaults one only where its template says so, `k::absent!(..)`: `..` over a child whose template starts an optional cell present, the child itself (`note: Some(1)`) or a cell inside a group child, is rejected (`krs::analysis::no-cell-default`) rather than create an instance that disagrees with its template; write that cell's template `k::absent!(..)`.
 A rule writes a `?` group as a whole group term, which takes no template defaults: it names every child, or takes them from a matched group.
