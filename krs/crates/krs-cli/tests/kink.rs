@@ -1468,27 +1468,41 @@ fn reasons(row: &Value) -> (Vec<&str>, Vec<&str>) {
 )]
 fn check_refuses_what_krs_refuses_of_the_mutations_source() {
     let project = checked();
+    // `check` reads the stored results, which the other tests of this shared project write as
+    // they run: the corpus's results come first, so its warnings do not depend on their order.
+    assert_status(&project.kink("results", &[]), 0);
     // Each test of this shared project reads a list of its own.
     project.write("kink/check-mutations.toml", checked_mutations());
     let output = project.kink("check", &["--mutations", "kink/check-mutations.toml"]);
     assert_status(&output, 1);
     let document = json(&output);
+    // With the corpus's results stored, `check` also warns of the edited rules no case applies
+    // (`unapplied-rule`: no case clamps a negative value) or reaches (`unmatched-rule`: no case
+    // tosses, and none reaches the claim's helper or the priority rule).
     let expected: [(&str, &[&str], &[&str]); 15] = [
         ("overlap", &["krs::analysis::overlapping-rule-heads"], &[]),
         (
             "branch-one",
             &["krs::analysis::overlapping-match-arms"],
-            &["partial-rendering"],
+            &["unapplied-rule", "partial-rendering"],
         ),
-        ("branch-all", &[], &[]),
-        ("toss-keeps", &[], &[]),
-        ("toss-stale", &["krs::analysis::nondet-group"], &[]),
+        ("branch-all", &[], &["unapplied-rule", "unapplied-rule"]),
+        ("toss-keeps", &[], &["unmatched-rule"]),
+        (
+            "toss-stale",
+            &["krs::analysis::nondet-group"],
+            &["unmatched-rule"],
+        ),
         (
             "toss-other",
             &["krs::analysis::overlapping-rule-heads"],
-            &[],
+            &["unmatched-rule"],
         ),
-        ("toss-single", &["krs::analysis::nondet-group"], &[]),
+        (
+            "toss-single",
+            &["krs::analysis::nondet-group"],
+            &["unmatched-rule"],
+        ),
         ("test-only", &["generated-only"], &[]),
         ("divisor", &["derived-mismatch"], &[]),
         ("divisor-both", &[], &[]),
@@ -1496,8 +1510,8 @@ fn check_refuses_what_krs_refuses_of_the_mutations_source() {
         ("layout", &["no-change"], &[]),
         ("renamed", &["no-change"], &[]),
         ("label", &["label-changed"], &[]),
-        ("helper", &[], &["claim-helper"]),
-        ("priority", &["not-judged"], &[]),
+        ("helper", &[], &["unmatched-rule", "claim-helper"]),
+        ("priority", &["not-judged"], &["unmatched-rule"]),
     ];
     for (id, refusals, warnings) in expected {
         let row = row(&document, id);
