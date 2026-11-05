@@ -421,9 +421,10 @@ pub struct CampaignOptions {
 pub use kink_native::AHEAD_PER_WORKER;
 
 /// How a campaign requests its runs besides the campaign's [`ExecutionBudget`] (re-pin lane 1,
-/// L1-1). The default is a state set for every result run and no work budget, which is what
-/// [`run_campaign`] and [`run_campaign_multi`]'s callers in kink use unless they choose otherwise.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+/// L1-1). The default is a state set for every result run, no work budget and kink's solver
+/// budget, which is what [`run_campaign`] and [`run_campaign_multi`]'s callers in kink use unless
+/// they choose otherwise.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RunOptions {
     /// The modality requested for every result run: the run of a test with no pattern oracle,
     /// on the baseline and on every mutant (k-rust's state set by default). A test with a pattern
@@ -447,14 +448,40 @@ pub struct RunOptions {
     /// ends in a `work-bound` leaf, whose side is `Unknown`. `None` (the default): baselines are
     /// bounded by the campaign's [`ExecutionBudget`] only.
     pub baseline_max_work: Option<u64>,
+    /// The first attempt's Z3 resource units of every backend the call's runs execute on, the
+    /// baseline's and each mutant's ([`Self::backend_options`]): with the fixed retries, the
+    /// bound of every Z3 attempt of a run, so whether a query is decided is a function of the
+    /// query, this budget and the Z3 build. The default is [`kink_native::SMT_RESOURCE_LIMIT`].
+    pub smt_resource_limit: std::num::NonZeroU32,
+}
+
+impl Default for RunOptions {
+    fn default() -> Self {
+        Self {
+            result_modality: ResultModality::default(),
+            work: WorkBudget::default(),
+            one_sided: OneSided::default(),
+            baseline_max_work: None,
+            smt_resource_limit: kink_native::SMT_RESOURCE_LIMIT,
+        }
+    }
 }
 
 impl RunOptions {
+    /// The solver options of every backend the call's runs execute on: kink's
+    /// ([`kink_native::BACKEND_OPTIONS`]) with [`Self::smt_resource_limit`].
+    #[must_use]
+    pub const fn backend_options(&self) -> BackendOptions {
+        kink_native::backend_options(self.smt_resource_limit)
+    }
+
     /// Every option as a JSON object, `{result_modality, work, one_sided}`: `work` is null
     /// without a work budget, else `{factor, floor}`; `one_sided` is [`OneSided::name`]; and
     /// `baseline_max_work` only when it is set, so the value of every option set without it, a
     /// kink-corpus index entry's included, is the value it had before the option existed, and
-    /// absence means exactly `None`. A store
+    /// absence means exactly `None`. `smt_resource_limit` is a member under the Z3 profile only:
+    /// under the no-Z3 profile no backend reads it, so it decides nothing a store keeps, and the
+    /// value is the one the options had before it existed. A store
     /// that records the options its runs were made with (kink-corpus index entries, `run_options`)
     /// records this value (re-pin L1-2-land; CACHE-ID review 2 minor 1). Every field is
     /// destructured, without `..`, and every nested option is matched exhaustively, so a new
@@ -467,6 +494,7 @@ impl RunOptions {
             work,
             one_sided,
             baseline_max_work,
+            smt_resource_limit,
         } = *self;
         let work = match work {
             WorkBudget::Unbounded => Value::Null,
@@ -479,6 +507,9 @@ impl RunOptions {
         });
         if let Some(max_work) = baseline_max_work {
             value["baseline_max_work"] = json!(max_work);
+        }
+        if SolverProfile::BUILD == SolverProfile::Z3 {
+            value["smt_resource_limit"] = json!(smt_resource_limit.get());
         }
         value
     }
@@ -762,6 +793,9 @@ struct BaselineKey {
     budget: ExecutionBudget,
     /// The adapter's expected solver profile (`Runtime::prepare`); one per build.
     profile: SolverProfile,
+    /// The solver options of the backend the run executes on (`LoadedSide::load`;
+    /// [`RunOptions::smt_resource_limit`]).
+    solver: BackendOptions,
     /// The modality of the result run (`Runtime::execute`; re-pin L1-1).
     modality: ResultModality,
     /// The result run's work bound (`Runtime::execute`; [`RunOptions::baseline_max_work`]), so a
@@ -1189,6 +1223,7 @@ impl<'v> BaselineSession<'v> {
             module: campaign.module.to_owned(),
             budget: campaign.budget,
             profile: SolverProfile::BUILD,
+            solver: runtime.solver,
             modality: runtime.modality,
             max_work: runtime.baseline_max_work,
         };
@@ -1349,7 +1384,7 @@ fn run_campaign_session(
     let Ok(baseline) = campaign.validator.compile_baseline() else {
         return Err(admission_failure(BaselineAdmission::Invalid));
     };
-    let mut runtime = Runtime::prepare(campaign, &baseline)
+    let mut runtime = Runtime::prepare_with(campaign, &baseline, options.run.backend_options())
         .map_err(|_| admission_failure(BaselineAdmission::Error))?;
     runtime.coverage = Some(RuleAuthors::of(&baseline));
     runtime.modality = options.run.result_modality;
@@ -1387,6 +1422,7 @@ fn run_campaign_session(
         equations: CompiledEquations::of(&baseline),
         support,
         module: campaign.module.to_owned(),
+        solver: options.run.backend_options(),
         assume_joined: session.assume_joined.clone(),
         data,
     };
@@ -2142,7 +2178,8 @@ pub fn claim_free_mutant(
     let infrastructure = |claims: &Withdrawal| {
         MutantRefusal::new(MutantScopeFailure::Infrastructure, claims.clone())
     };
-    let loaded = LoadedSide::load(&side, &admission.module).map_err(|_| infrastructure(&claims))?;
+    let loaded = LoadedSide::load(&side, &admission.module, admission.solver)
+        .map_err(|_| infrastructure(&claims))?;
     let baseline_data = admission
         .data
         .as_ref()
@@ -2234,6 +2271,9 @@ pub struct MutantAdmission {
     equations: Result<CompiledEquations, String>,
     /// The backend's module of every mutant load (the campaign's).
     module: String,
+    /// The solver options of every mutant load's backend, which the mutant's runs execute on
+    /// (the campaign's, [`RunOptions::backend_options`]).
+    solver: BackendOptions,
     assume_joined: Vec<String>,
     data: Result<DataFacts, String>,
 }
@@ -2245,7 +2285,10 @@ impl MutantAdmission {
     /// mutant's are read against, and its data facts, which every mutant's are compared with
     /// (computed here on `compiled` loaded on kink's route). A baseline whose equations do not
     /// internalize again leaves every mutant unchecked (`InconsistentMutant`); one that does not
-    /// load leaves every mutant `Infrastructure`.
+    /// load leaves every mutant `Infrastructure`. Every mutant loads with kink's solver options
+    /// ([`kink_native::BACKEND_OPTIONS`]) unless [`Self::with_solver`] gives others; the data
+    /// facts read the loaded definition only, which no solver option changes (a load runs no
+    /// solver operation).
     #[must_use]
     pub fn new(
         baseline: &kink_patch::Baseline,
@@ -2253,16 +2296,24 @@ impl MutantAdmission {
         module: &str,
         assume_joined: &[String],
     ) -> Self {
-        let data = LoadedSide::load(compiled, module)
+        let data = LoadedSide::load(compiled, module, kink_native::BACKEND_OPTIONS)
             .map(|loaded| DataFacts::of(&loaded.selected, assume_joined))
             .map_err(|_| format!("the baseline does not load for {module}"));
         Self {
             support: ClaimSupport::new(baseline),
             equations: CompiledEquations::of(compiled),
             module: module.to_owned(),
+            solver: kink_native::BACKEND_OPTIONS,
             assume_joined: assume_joined.to_vec(),
             data,
         }
+    }
+
+    /// This admission with `solver` as the solver options of every mutant load.
+    #[must_use]
+    pub const fn with_solver(mut self, solver: BackendOptions) -> Self {
+        self.solver = solver;
+        self
     }
 
     /// The baseline's data facts, unless the baseline did not load.
@@ -2925,6 +2976,8 @@ struct Runtime {
     /// The KORE symbols declared `function` without a hook: the symbols equations define, whose
     /// application left in a leaf's state is one no equation reduces (a run's [`LeafCensus`]).
     functions: BTreeSet<String>,
+    /// The solver options of `backend` ([`LoadedSide::solver`]).
+    solver: BackendOptions,
 }
 
 /// One load of a compiled side on kink's route: its parsed KORE, the backend built from it for a
@@ -2934,15 +2987,20 @@ struct LoadedSide {
     parsed: k_rust::kore::ast::Definition,
     backend: Backend,
     selected: std::sync::Arc<k_rust::k_rust_backend::definition::BackendDefinition>,
+    /// The solver options `backend` was built with.
+    solver: BackendOptions,
 }
 
 impl LoadedSide {
-    fn load(side: &ValidatedDefinition, module: &str) -> Result<Self, Preparation> {
+    fn load(
+        side: &ValidatedDefinition,
+        module: &str,
+        solver: BackendOptions,
+    ) -> Result<Self, Preparation> {
         let parsed = parse_definition(&side.artifacts().definition_kore)
             .map_err(|_| Preparation::Infrastructure)?;
-        let mut backend =
-            Backend::from_definition(parsed.clone(), module, BackendOptions::default())
-                .map_err(|_| Preparation::Infrastructure)?;
+        let mut backend = Backend::from_definition(parsed.clone(), module, solver)
+            .map_err(|_| Preparation::Infrastructure)?;
         // Selecting the default module loads it if the backend has not yet.
         let selected = backend
             .select_definition(None)
@@ -2951,15 +3009,29 @@ impl LoadedSide {
             parsed,
             backend,
             selected,
+            solver,
         })
     }
 }
 
 impl Runtime {
     /// Parses the side's KORE once for its symbol sorts and event-free backend adapter.
+    /// [`Self::prepare_with`] with kink's solver options (tests only: every campaign call names
+    /// its options).
+    #[cfg(test)]
     fn prepare(campaign: &Campaign<'_>, side: &ValidatedDefinition) -> Result<Self, Preparation> {
+        Self::prepare_with(campaign, side, kink_native::BACKEND_OPTIONS)
+    }
+
+    /// The runtime of `side`, loaded for the campaign's module on a backend with the solver
+    /// options `solver`.
+    fn prepare_with(
+        campaign: &Campaign<'_>,
+        side: &ValidatedDefinition,
+        solver: BackendOptions,
+    ) -> Result<Self, Preparation> {
         stage_log::note(campaign, stage_log::Stage::Backend);
-        let loaded = LoadedSide::load(side, campaign.module)?;
+        let loaded = LoadedSide::load(side, campaign.module, solver)?;
         Self::from_loaded(campaign, side, loaded)
     }
 
@@ -2975,6 +3047,7 @@ impl Runtime {
             parsed,
             backend,
             selected,
+            solver,
         } = loaded;
         let symbol_sorts = SymbolSorts::from_definition(&parsed);
         let functions = parsed
@@ -3022,6 +3095,7 @@ impl Runtime {
             exclusions,
             data: None,
             functions,
+            solver,
         })
     }
 
@@ -4164,6 +4238,7 @@ mod tests {
                             module: "COUNTER".into(),
                             budget: campaign.budget,
                             profile: SolverProfile::BUILD,
+                            solver: kink_native::BACKEND_OPTIONS,
                             modality: ResultModality::default(),
                             max_work: None,
                         },
@@ -4411,6 +4486,7 @@ mod tests {
                             module: "COUNTER".into(),
                             budget: campaign.budget,
                             profile: SolverProfile::BUILD,
+                            solver: kink_native::BACKEND_OPTIONS,
                             modality: ResultModality::default(),
                             max_work: None,
                         },
@@ -4463,9 +4539,17 @@ mod tests {
     /// the one-sided rule included, and tells each value apart.
     #[test]
     fn the_run_options_record_names_every_option() {
+        // The solver budget is a member under the Z3 profile only, where a backend reads it.
+        let z3 = SolverProfile::BUILD == SolverProfile::Z3;
+        let solver = |mut value: Value| {
+            if z3 {
+                value["smt_resource_limit"] = json!(kink_native::SMT_RESOURCE_LIMIT.get());
+            }
+            value
+        };
         assert_eq!(
             RunOptions::default().value(),
-            json!({"result_modality": "state-set", "work": null, "one_sided": "off"})
+            solver(json!({"result_modality": "state-set", "work": null, "one_sided": "off"}))
         );
         let options = RunOptions {
             result_modality: ResultModality::PathSet,
@@ -4475,15 +4559,21 @@ mod tests {
             },
             one_sided: OneSided::NoCrashClassifier,
             baseline_max_work: None,
+            smt_resource_limit: kink_native::SMT_RESOURCE_LIMIT,
         };
         assert_eq!(
             options.value(),
-            json!({
+            solver(json!({
                 "result_modality": "path-set",
                 "work": {"factor": 4, "floor": 10_000},
                 "one_sided": "no-crash-classifier",
-            })
+            }))
         );
+        let other_budget = RunOptions {
+            smt_resource_limit: std::num::NonZeroU32::new(1).unwrap(),
+            ..options
+        };
+        assert_eq!(other_budget.value() != options.value(), z3);
         // A baseline work bound is a member only when it is set.
         assert_eq!(
             RunOptions {
@@ -4491,12 +4581,12 @@ mod tests {
                 ..options
             }
             .value(),
-            json!({
+            solver(json!({
                 "result_modality": "path-set",
                 "work": {"factor": 4, "floor": 10_000},
                 "one_sided": "no-crash-classifier",
                 "baseline_max_work": 20_000,
-            })
+            }))
         );
         for changed in [
             RunOptions {

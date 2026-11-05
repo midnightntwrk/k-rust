@@ -9,7 +9,7 @@
 use crate::{
     BudgetMutants, CAMPAIGN_REPORT_VERSION, Campaign, CampaignOptions, ManifestOperator,
     MultiManifestInput, MutantId, OperatorId, RunOptions, ScheduleMode, SelectionPolicy, TestCase,
-    campaign_manifest_multi_with_budget, campaign_report_multi, run_campaign_multi,
+    campaign_manifest_multi_with_options, campaign_report_multi, run_campaign_multi,
 };
 use k_rust::{definition::json, kompile::CompileOptions, kore::ast::Pattern};
 use kink_native::{
@@ -110,9 +110,10 @@ pub fn replay_with_budget(
 /// own options (kink-corpus `corpus_run_options`) replays with the same ones, so the replayed
 /// campaign is run as the stored one was (re-pin L1-2-land; CACHE-ID review 2 minor 1). Every
 /// verdict is re-derived under `run`, so `Reproduced` says that this build, with these options,
-/// regenerates the stored report byte for byte; the campaign manifest does not record run
-/// options, so a report made with others is not refused as such: it diverges wherever its
-/// verdicts differ.
+/// regenerates the stored report byte for byte. The campaign manifest records the solver options
+/// of `run` ([`campaign_manifest_multi_with_options`]), so a report made under other solver
+/// options is refused as another declaration; it records no other run option, so a report made
+/// with others is not refused as such: it diverges wherever its verdicts differ.
 pub fn replay_with_options(
     report: &str,
     baseline_artifact: &str,
@@ -143,7 +144,9 @@ fn replay_checked(
         return Err(ReplayRefusal::ManifestDigest);
     }
     check_environment(manifest)?;
-    if manifest["schema"] != "kink-campaign-manifest" || manifest["version"] != 5 {
+    if manifest["schema"] != "kink-campaign-manifest"
+        || manifest["version"] != crate::manifest::CAMPAIGN_MANIFEST_VERSION
+    {
         return Err(ReplayRefusal::Schema);
     }
     if manifest.get("budget_mutants") != Some(&budget.map_or(Value::Null, BudgetMutants::value)) {
@@ -266,7 +269,7 @@ fn replay_checked(
         .map_err(|e| ReplayRefusal::Selection(e.to_string()))?;
         generations.push(generation);
     }
-    let regenerated_manifest = campaign_manifest_multi_with_budget(
+    let regenerated_manifest = campaign_manifest_multi_with_options(
         &MultiManifestInput {
             campaign: &campaign,
             generations: &generations,
@@ -277,6 +280,7 @@ fn replay_checked(
             classifier: declaration.classifier,
         },
         budget,
+        &run,
     )
     .map_err(|_| ReplayRefusal::Declaration)?;
     if regenerated_manifest.text() != manifest_text {

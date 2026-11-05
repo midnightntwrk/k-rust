@@ -42,7 +42,12 @@ fn a_minimal_manifest_takes_every_default() {
             max_depth: 100_000,
             work_factor: None,
             baseline_max_work: None,
+            smt_resource_limit: kink_native::SMT_RESOURCE_LIMIT,
         }
+    );
+    assert_eq!(
+        manifest.budget.backend_options(),
+        kink_native::BACKEND_OPTIONS
     );
     assert_eq!((DEFAULT_TIME_MS, DEFAULT_MAX_DEPTH), (10_000, 100_000));
     assert_eq!(
@@ -80,6 +85,7 @@ time_ms = 250
 max_depth = 7
 work_factor = 3
 baseline_max_work = 20000
+smt_resource_limit = 50000
 
 [[program]]
 id = "from-file"
@@ -104,7 +110,18 @@ text = "1 + 2"
             max_depth: 7,
             work_factor: Some(3),
             baseline_max_work: Some(20_000),
+            smt_resource_limit: std::num::NonZeroU32::new(50_000).unwrap(),
         }
+    );
+    // `smt_resource_limit` bounds the first attempt of every solver query of a run in Z3
+    // resource units; the retries and the clock-free mode are kink's.
+    assert_eq!(
+        manifest.budget.backend_options(),
+        kink_native::backend_options(std::num::NonZeroU32::new(50_000).unwrap())
+    );
+    assert_eq!(
+        manifest.budget.backend_options().smt_retry_limit,
+        kink_native::BACKEND_OPTIONS.smt_retry_limit
     );
     // Re-pin L1-1: `work_factor` calibrates the mutants' work budget from each program's
     // baseline work; absent, there is none.
@@ -366,6 +383,18 @@ fn required_keys_types_and_bounds_are_checked() {
         "budget.baseline_max_work",
         "must be positive",
     );
+    assert_error(
+        &format!("{SPEC}[budget]\nsmt_resource_limit = 0\n"),
+        "budget.smt_resource_limit",
+        "must be positive",
+    );
+    for units in ["536870912", "4294967296"] {
+        assert_error(
+            &format!("{SPEC}[budget]\nsmt_resource_limit = {units}\n"),
+            "budget.smt_resource_limit",
+            "must be at most 536870911, so that each of the 3 retries doubles it within 4294967295",
+        );
+    }
     assert_error(
         &format!("{SPEC}[[program]]\nid = \"v\"\ntext = \"1\"\nvariables = {{ N = 42 }}\n"),
         "program \"v\".variables.N",

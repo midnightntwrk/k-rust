@@ -188,6 +188,7 @@ const fn calibrated(factor: u64, floor: u64) -> RunOptions {
         work: WorkBudget::Calibrated { factor, floor },
         one_sided: OneSided::Off,
         baseline_max_work: None,
+        smt_resource_limit: kink_native::SMT_RESOURCE_LIMIT,
     }
 }
 
@@ -319,6 +320,7 @@ mod kink_tier {
                 work: WorkBudget::Unbounded,
                 one_sided: OneSided::Off,
                 baseline_max_work: None,
+                smt_resource_limit: kink_native::SMT_RESOURCE_LIMIT,
             };
             for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
                 for options in [

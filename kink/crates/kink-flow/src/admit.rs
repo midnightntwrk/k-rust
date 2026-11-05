@@ -47,10 +47,7 @@
 pub use crate::exclusion::ExclusionScope;
 use crate::manifest::{Decoder, FlowManifest, Program};
 use crate::observed::{ResultProjection, result_projection};
-use k_rust::{
-    backend::{Backend, BackendOptions},
-    kast::Term,
-};
+use k_rust::{backend::Backend, kast::Term};
 use kink_campaign::TestCase;
 use kink_corpus::{
     CorpusSource, InputAssembler, InputError, InputGrammar, LoadedSource, ProgramSource,
@@ -968,12 +965,12 @@ fn admit_definition(
         reason: refusal.reason().into(),
         detail: refusal.to_string(),
     })?;
-    // The input backend (kink-corpus `input_backend`: the compiled KORE for the main module with
-    // default options, refused as `inputs`/`input-gate`).
+    // The input backend (kink-corpus `input_backend`: the compiled KORE for the main module,
+    // refused as `inputs`/`input-gate`), with the corpus's solver budget.
     let mut backend = Backend::from_definition(
         kore.clone(),
         k_rust::kast::identifier::encode(&spec.main_module),
-        BackendOptions::default(),
+        manifest.budget.backend_options(),
     )
     .map_err(|e| input_gate_refusal(e.to_string()))?;
     let (data, exclusions) = baseline_data(

@@ -54,8 +54,10 @@
 //! solver that could not be created) and kink cannot tell when, and a stack stop or an allowance
 //! refusal is a fact of the host. Such a program's row says why it was not cached
 //! (`not_cached`), and the next command runs it again; a stored record of such a class is never
-//! read. Under the Z3 profile the cache is off: a solver query is bounded by the clock, so no
-//! baseline class is a function of its key. A baseline bounded by `[budget] baseline_max_work`
+//! read. Under the Z3 profile the cache is off ([`RESULT_CACHE_Z3`]): a run's solver queries are
+//! bounded by Z3 resource units (`[budget] smt_resource_limit`, which the key names with the Z3
+//! build), but kink's own queries outside a run record no undecided answer, so a baseline class
+//! is not yet established as a function of its key. A baseline bounded by `[budget] baseline_max_work`
 //! that the bound stops is `unknown`, a function of the key, which names the bound.
 
 use crate::{
@@ -66,7 +68,7 @@ use crate::{
     mutation::qualified_label,
 };
 use k_rust::{
-    backend::{Backend, BackendOptions},
+    backend::Backend,
     definition::{AttributeKey, Sentence},
     kast::identifier::{decode_sort_name, label_or_name},
     kore::{
@@ -220,11 +222,15 @@ pub fn result_key(
 
 /// The bounds of a program run that a stored class depends on, `{max_depth,
 /// max_simplification_iterations, max_breadth}` and `baseline_max_work` when it is set: each
-/// stops a run deterministically, so a stored `unknown` depends on it. `time_ms` is not a member:
-/// no stored class depends on it, since a run the watchdog stopped is never stored and a run it
-/// did not stop is the uncancelled request, whose result does not depend on the bound. The
-/// result key, the tier-1 context (`digest::outcome_context`) and the pattern key
-/// (`query::answer_key`) all take this object, so the three name the same bounds.
+/// stops a run deterministically, so a stored `unknown` depends on it. Under the Z3 profile it
+/// also has `smt` (kink-native `solver_value`): `[budget] smt_resource_limit`, the retries and
+/// the Z3 build, on which whether each solver query of a run is decided depends; under the no-Z3
+/// profile no backend reads them, and the member is absent, so a no-Z3 key is the key it was
+/// before the member existed. `time_ms` is not a member: no stored class depends on it, since a
+/// run the watchdog stopped is never stored and a run it did not stop is the uncancelled
+/// request, whose result does not depend on the bound. The result key, the tier-1 context
+/// (`digest::outcome_context`) and the pattern key (`query::answer_key`) all take this object, so
+/// the three name the same bounds.
 pub fn budget_value(budget: Budget) -> Value {
     let mut value = json!({
         "max_depth": budget.max_depth,
@@ -233,6 +239,9 @@ pub fn budget_value(budget: Budget) -> Value {
     });
     if let Some(max_work) = budget.baseline_max_work {
         value["baseline_max_work"] = json!(max_work);
+    }
+    if let Some(solver) = kink_native::solver_value(budget.backend_options()) {
+        value["smt"] = solver;
     }
     value
 }
@@ -500,6 +509,8 @@ pub struct BaselineRunner<'a> {
     budget: ExecutionBudget,
     /// `[budget] baseline_max_work`: the work bound of every baseline result run of the command.
     baseline_max_work: Option<u64>,
+    /// `[budget] smt_resource_limit`: the solver budget of every run of the command.
+    smt_resource_limit: std::num::NonZeroU32,
     authors: RuleAuthors,
     /// The command's session (every call uses the all-normal classifier; the session re-applies
     /// a call's classifier on every reused baseline run, flow F-16).
@@ -534,6 +545,7 @@ impl<'a> BaselineRunner<'a> {
             generations: vec![generation],
             budget: execution_budget(manifest.budget),
             baseline_max_work: manifest.budget.baseline_max_work,
+            smt_resource_limit: manifest.budget.smt_resource_limit,
             authors: RuleAuthors::of(&spec.compiled),
             session: RefCell::new(
                 BaselineSession::new(&spec.validator)
@@ -625,7 +637,8 @@ impl<'a> BaselineRunner<'a> {
     /// no step observation, and every baseline run through the command's session. Every baseline
     /// result run of the call is bounded by `[budget] baseline_max_work`, whatever `options` say,
     /// so every baseline of a command has one bound and the results update and the kill search
-    /// share the session's runs.
+    /// share the session's runs; likewise every run's solver queries by `[budget]
+    /// smt_resource_limit`.
     pub fn call(
         &self,
         tests: &[TestCase],
@@ -634,6 +647,7 @@ impl<'a> BaselineRunner<'a> {
     ) -> Result<CampaignRun, CampaignFailure> {
         let mut options = options.clone();
         options.run.baseline_max_work = self.baseline_max_work;
+        options.run.smt_resource_limit = self.smt_resource_limit;
         let options = &options;
         let campaign = Campaign {
             validator: &self.spec.validator,
@@ -871,7 +885,7 @@ impl<'a> BaselineRunner<'a> {
                 Backend::from_definition(
                     parsed.clone(),
                     k_rust::kast::identifier::encode(self.main_module),
-                    BackendOptions::default(),
+                    kink_native::backend_options(self.smt_resource_limit),
                 )
                 .map(|backend| (parsed, backend))
                 .map_err(|e| e.to_string())
@@ -1813,15 +1827,19 @@ pub fn update_results(
 }
 
 /// Why the result cache is off under the Z3 profile.
-pub const RESULT_CACHE_Z3: &str = "the result cache is off under the z3 profile: a solver query is \
-     bounded by the clock, so no baseline class is a function of its key; every program runs live";
+pub const RESULT_CACHE_Z3: &str = "the result cache is off under the z3 profile: a run's solver \
+     queries are resource-bounded, but kink's own solver queries outside a run (leaf feasibility, \
+     the observation decider) record no undecided answer, so a baseline class is not yet \
+     established as a function of its key; every program runs live";
 /// Why the result cache is off when kink's build identity is unknown (packet CACHE-ID-fix-1).
 pub const RESULT_CACHE_NO_BUILD: &str = "kink's build identity is unknown (the executable cannot \
      be read): the result cache is neither read nor written";
 
 /// kink's build identity when the result cache is on, else why it is off: under the Z3 profile
-/// ([`RESULT_CACHE_Z3`]) and when the executable cannot be read ([`RESULT_CACHE_NO_BUILD`]).
+/// when the key cannot name the Z3 build (kink-native `UNNAMED_Z3_BUILD`), and otherwise
+/// ([`RESULT_CACHE_Z3`]), and when the executable cannot be read ([`RESULT_CACHE_NO_BUILD`]).
 pub fn result_store() -> Result<Sha256Digest, &'static str> {
+    kink_native::solver_named()?;
     if matches!(SolverProfile::BUILD, SolverProfile::Z3) {
         return Err(RESULT_CACHE_Z3);
     }

@@ -617,7 +617,7 @@ pub fn loaded_definition(
     let mut backend = k_rust::backend::Backend::from_definition(
         parsed,
         encode(&side.definition().main_module),
-        k_rust::backend::BackendOptions::default(),
+        crate::BACKEND_OPTIONS,
     )
     .map_err(|e| e.to_string())?;
     backend.select_definition(None).map_err(|e| e.to_string())

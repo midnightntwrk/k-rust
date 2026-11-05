@@ -157,6 +157,12 @@ pub struct Budget {
     /// Absent (the default): baselines are bounded by `time_ms` and `max_depth` only, so no class
     /// a corpus has without it changes.
     pub baseline_max_work: Option<u64>,
+    /// `smt_resource_limit`: the Z3 resource units of the first attempt of every solver query
+    /// of the corpus's runs, each of the fixed retries at twice the previous units, and no clock
+    /// ([`Self::backend_options`]). Whether a query is decided is then a function of the query,
+    /// this budget and the Z3 build, never of the host's load, so it enters every key a stored
+    /// answer has (`results::budget_value`). Default: [`kink_native::SMT_RESOURCE_LIMIT`].
+    pub smt_resource_limit: std::num::NonZeroU32,
 }
 
 impl Default for Budget {
@@ -166,11 +172,19 @@ impl Default for Budget {
             max_depth: DEFAULT_MAX_DEPTH,
             work_factor: None,
             baseline_max_work: None,
+            smt_resource_limit: kink_native::SMT_RESOURCE_LIMIT,
         }
     }
 }
 
 impl Budget {
+    /// The solver options of every backend the corpus's runs execute on: kink's
+    /// ([`kink_native::BACKEND_OPTIONS`]) with [`Self::smt_resource_limit`].
+    #[must_use]
+    pub const fn backend_options(self) -> k_rust::backend::BackendOptions {
+        kink_native::backend_options(self.smt_resource_limit)
+    }
+
     /// The campaign work budget of the mutants' runs.
     #[must_use]
     pub const fn work(self) -> kink_campaign::WorkBudget {
@@ -608,8 +622,38 @@ fn budget(value: &Value) -> Result<Budget, ManifestError> {
     known_keys(
         budget,
         "budget",
-        &["time_ms", "max_depth", "work_factor", "baseline_max_work"],
+        &[
+            "time_ms",
+            "max_depth",
+            "work_factor",
+            "baseline_max_work",
+            "smt_resource_limit",
+        ],
     )?;
+    let smt_resource_limit = positive(
+        budget,
+        "budget",
+        "smt_resource_limit",
+        u64::from(kink_native::SMT_RESOURCE_LIMIT.get()),
+    )?;
+    // Each of the fixed retries doubles the previous attempt's units, a 32-bit count the backend
+    // saturates: the last attempt's units must fit, or a retry would repeat its bound instead of
+    // doubling it.
+    let most = u32::MAX >> kink_native::BACKEND_OPTIONS.smt_retry_limit;
+    let smt_resource_limit = u32::try_from(smt_resource_limit)
+        .ok()
+        .filter(|units| *units <= most)
+        .and_then(std::num::NonZeroU32::new)
+        .ok_or_else(|| {
+            ManifestError::new(
+                "budget.smt_resource_limit",
+                format!(
+                    "must be at most {most}, so that each of the {} retries doubles it within {}",
+                    kink_native::BACKEND_OPTIONS.smt_retry_limit,
+                    u32::MAX
+                ),
+            )
+        })?;
     Ok(Budget {
         time_ms: positive(budget, "budget", "time_ms", DEFAULT_TIME_MS)?,
         max_depth: positive(budget, "budget", "max_depth", DEFAULT_MAX_DEPTH)?,
@@ -621,6 +665,7 @@ fn budget(value: &Value) -> Result<Budget, ManifestError> {
             .contains_key("baseline_max_work")
             .then(|| positive(budget, "budget", "baseline_max_work", 1))
             .transpose()?,
+        smt_resource_limit,
     })
 }
 

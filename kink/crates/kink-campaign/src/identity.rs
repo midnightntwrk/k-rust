@@ -240,7 +240,7 @@ pub struct Outside {
 
 /// Every versioned constant outside [`KINK_IDENTITY`]. Each reason names the path that checks
 /// the constant, or says why nothing has to.
-pub const OUTSIDE_IDENTITY: [Outside; 36] = [
+pub const OUTSIDE_IDENTITY: [Outside; 37] = [
     Outside {
         krate: "kink-patch",
         constant: "TEST_MANIFEST_DOMAIN",
@@ -362,6 +362,14 @@ pub const OUTSIDE_IDENTITY: [Outside; 36] = [
         constant: "CAMPAIGN_REPORT_VERSION",
         reason: "the campaign report's format: replay, kink-corpus resume and its summary refuse \
                  a report of another version",
+    },
+    Outside {
+        krate: "kink-campaign",
+        constant: "CAMPAIGN_MANIFEST_VERSION",
+        reason: "the campaign manifest's format: replay and kink-corpus's summary refuse a \
+                 manifest of another version (replay.rs, summary.rs); the solver options a \
+                 run's verdict depends on are not named by a version: the manifest records \
+                 those of its runs (backend_options), so its text and digest name them",
     },
     Outside {
         krate: "kink-corpus",

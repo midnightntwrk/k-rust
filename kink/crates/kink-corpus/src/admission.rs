@@ -9,7 +9,7 @@ use crate::{
     },
 };
 use k_rust::{
-    backend::{Backend, BackendOptions},
+    backend::Backend,
     builtin,
     kast::identifier::{decode_sort_name, label_or_name},
     kompile::{CompilationBackend, CompileOptions},
@@ -519,7 +519,7 @@ pub fn input_backend(
     Backend::new(
         &compiled.artifacts().definition_kore,
         k_rust::kast::identifier::encode(main_module),
-        BackendOptions::default(),
+        kink_native::BACKEND_OPTIONS,
     )
     .map_err(|e| AdmissionRefusal::new("inputs", "input-gate", e))
 }

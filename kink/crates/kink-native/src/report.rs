@@ -227,10 +227,12 @@ fn path_value(path: &PathInput, execution: &AdaptedExecution) -> Value {
 /// its pre-step term; paths now use raw leaf ordinals (`bridge::leaf_keys`). Version 6
 /// adds the path `undefined_rule`, the compiled `id` and qualified `label` of the rule whose
 /// application is the undefined step of a `Trivial` leaf (null for every other path, and for a
-/// `Trivial` leaf k-rust names no rule for).
-pub const REPORT_VERSION: u64 = 6;
+/// `Trivial` leaf k-rust names no rule for). Version 7 adds `budget.smt_resource_limit`, the
+/// first attempt's Z3 resource units of the backend options (null in clock mode): with the
+/// retries, the bound every Z3 attempt of the run had.
+pub const REPORT_VERSION: u64 = 7;
 
-/// Builds the exact version-6 step-3 report schema.
+/// Builds the exact version-7 step-3 report schema.
 #[must_use]
 pub fn step3_report(input: ReportInput<'_>) -> Value {
     let budget = input.budget;
@@ -241,6 +243,10 @@ pub fn step3_report(input: ReportInput<'_>) -> Value {
         "max_breadth": budget.max_breadth.map(|width| width.get()),
         "smt_timeout_ms": input.backend_options.smt_timeout_ms,
         "smt_retry_limit": input.backend_options.smt_retry_limit,
+        "smt_resource_limit": input
+            .backend_options
+            .smt_resource_limit
+            .map(std::num::NonZeroU32::get),
     });
     let result = match input.result {
         ReportResult::Ok { evaluation, .. } if evaluation.outcome == PatternOutcome::Error => {
@@ -376,7 +382,7 @@ mod tests {
         BackendOptions {
             smt_timeout_ms: 4000,
             smt_retry_limit: 2,
-            smt_resource_limit: None,
+            smt_resource_limit: std::num::NonZeroU32::new(50_000),
         }
     }
 
@@ -533,6 +539,7 @@ mod tests {
                 "max_breadth",
                 "smt_timeout_ms",
                 "smt_retry_limit",
+                "smt_resource_limit",
             ])
         );
         assert_eq!(
@@ -592,7 +599,7 @@ mod tests {
             BTreeSet::from(["left", "right"])
         );
         assert_eq!(report["schema"], "kink-step3-report");
-        assert_eq!(report["version"], 6);
+        assert_eq!(report["version"], 7);
         assert_eq!(path["cause"], Value::Null);
         assert_eq!(path["undefined_rule"], Value::Null);
         assert_eq!(report["discarded"], json!([]));
@@ -609,6 +616,7 @@ mod tests {
         assert_eq!(report["budget"]["time_ms"], 1250);
         assert_eq!(report["budget"]["smt_timeout_ms"], 4000);
         assert_eq!(report["budget"]["smt_retry_limit"], 2);
+        assert_eq!(report["budget"]["smt_resource_limit"], 50_000);
     }
 
     #[test]

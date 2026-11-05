@@ -2291,8 +2291,9 @@ endmodule
         );
     }
 
-    /// Under the Z3 profile the result cache is off: a solver query is bounded by the clock, so
-    /// no baseline class is a function of its key. No record is written, the document says why,
+    /// Under the Z3 profile the result cache is off: kink's own solver queries outside a run
+    /// record no undecided answer, so no baseline class is yet established as a function of its
+    /// key. No record is written, the document says why,
     /// and a second command computes every program again.
     #[cfg(feature = "z3")]
     #[test]

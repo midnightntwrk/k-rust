@@ -258,7 +258,7 @@ fn read_report(
         .to_string()
             != digest
         || campaign["schema"] != "kink-campaign-manifest"
-        || campaign["version"] != 5
+        || campaign["version"] != kink_campaign::CAMPAIGN_MANIFEST_VERSION
         || campaign["profile"] != profile
     {
         return Err(invalid("campaign manifest or report identity"));

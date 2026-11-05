@@ -16,7 +16,7 @@ use crate::{
 use k_rust::kore::ast::Pattern;
 use kink_campaign::{
     Campaign, CampaignFailureKind, CampaignOptions, ManifestOperator, MultiManifestInput,
-    RunOptions, campaign_manifest_multi_with_budget, campaign_report_multi, run_campaign_multi,
+    RunOptions, campaign_manifest_multi_with_options, campaign_report_multi, run_campaign_multi,
 };
 use kink_native::execution::SolverProfile;
 use kink_patch::{
@@ -152,7 +152,8 @@ pub fn run_definition(
         .iter()
         .map(ManifestOperator::Spec)
         .collect::<Vec<_>>();
-    let declaration = campaign_manifest_multi_with_budget(
+    let options = corpus_run_options();
+    let declaration = campaign_manifest_multi_with_options(
         &MultiManifestInput {
             campaign: &campaign,
             generations: &generations,
@@ -163,9 +164,9 @@ pub fn run_definition(
             universe: Some(&universe),
         },
         budget_mutants,
+        &options,
     )
     .map_err(|e| StoreError::Invalid(e.to_string()))?;
-    let options = corpus_run_options();
     let run = match run_campaign_multi(
         &campaign,
         &generations,

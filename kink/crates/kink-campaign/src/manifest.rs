@@ -93,6 +93,14 @@ fn digest_value(domain: &str, value: &Value) -> String {
     payload_digest(domain, canonical_json(value).as_bytes()).to_string()
 }
 
+/// The campaign manifest's version. Version 6 adds `backend_options.smt_resource_limit`, the
+/// first attempt's Z3 resource units of every run's backend (null in clock mode), and its runs
+/// are bounded as `backend_options` states, by resource units unless a caller selects the clock
+/// ([`crate::RunOptions::smt_resource_limit`], [`kink_native::BACKEND_OPTIONS`]), where version
+/// 5's were bounded by the clock: a version-5 manifest describes runs whose undecided answers
+/// depended on the host's load.
+pub const CAMPAIGN_MANIFEST_VERSION: u64 = 6;
+
 pub fn campaign_manifest(input: &ManifestInput<'_>) -> Result<CampaignManifest, ManifestError> {
     let universe = input
         .operators
@@ -122,10 +130,23 @@ pub fn campaign_manifest_multi(
 }
 
 /// Records an explicitly declared sampling budget alongside the supplied generations.
-/// Code operators cannot be sampled by a spec budget.
+/// Code operators cannot be sampled by a spec budget. The manifest declares runs with the
+/// default [`crate::RunOptions`] ([`campaign_manifest_multi_with_options`]).
 pub fn campaign_manifest_multi_with_budget(
     input: &MultiManifestInput<'_>,
     budget: Option<&BudgetMutants>,
+) -> Result<CampaignManifest, ManifestError> {
+    campaign_manifest_multi_with_options(input, budget, &crate::RunOptions::default())
+}
+
+/// [`campaign_manifest_multi_with_budget`] for a campaign run with `run`: the manifest's
+/// `backend_options` are the solver options of every backend those runs execute on
+/// ([`crate::RunOptions::backend_options`]), on which whether each Z3 query of a run is decided
+/// depends, so a manifest names the solver budget of the runs its report embeds.
+pub fn campaign_manifest_multi_with_options(
+    input: &MultiManifestInput<'_>,
+    budget: Option<&BudgetMutants>,
+    run: &crate::RunOptions,
 ) -> Result<CampaignManifest, ManifestError> {
     let campaign = input.campaign;
     let validator = campaign.validator;
@@ -307,13 +328,13 @@ pub fn campaign_manifest_multi_with_budget(
             mutants.push(json!({"mutant_id":index,"same_as":same_as,"operator":operator_index,"census":census,"patch_sha256":patch_digest,"semantic_input_sha256":semantic_digest,"structure_sha256":structure_digest,"kore_sha256":kore_digest,"validation":validation}));
         }
     }
-    let backend = BackendOptions::default();
+    let backend: BackendOptions = run.backend_options();
     let value = json!({
-        "schema":"kink-campaign-manifest","version":5,
+        "schema":"kink-campaign-manifest","version":CAMPAIGN_MANIFEST_VERSION,
         "k_rust":{"revision":K_RUST_REVISION,"provenance_format":k_rust::definition::json::PROVENANCE_FORMAT,"provenance_version":k_rust::definition::json::PROVENANCE_VERSION},
         "kink":crate::identity::kink_identity(),
         "profile":SolverProfile::BUILD.name(), "compile_options":"default",
-        "backend_options":{"smt_timeout_ms":backend.smt_timeout_ms,"smt_retry_limit":backend.smt_retry_limit},
+        "backend_options":{"smt_timeout_ms":backend.smt_timeout_ms,"smt_retry_limit":backend.smt_retry_limit,"smt_resource_limit":backend.smt_resource_limit.map(std::num::NonZeroU32::get)},
         "budget":{"time_ms":u64::try_from(campaign.budget.time.as_millis()).unwrap_or(u64::MAX),"max_simplification_iterations":campaign.budget.max_simplification_iterations,"max_depth":campaign.budget.max_depth,"max_breadth":campaign.budget.max_breadth.map(|v| v.get())},
         "budget_mutants":budget.map(BudgetMutants::value),
         "schedule":match input.schedule { ScheduleMode::Full => "full", ScheduleMode::FirstKill => "first-kill" },

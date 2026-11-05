@@ -1482,27 +1482,27 @@ impl DefinitionExclusions {
     }
 
     /// The exclusions of a compiled side loaded for `module` (its encoded KORE name) on this
-    /// thread, as kink-campaign's runner computes them for a side it prepares.
+    /// thread, as kink-campaign's runner computes them for a side it prepares, under kink's
+    /// solver options ([`crate::BACKEND_OPTIONS`]).
     pub fn of_validated(side: &crate::ValidatedDefinition, module: &str) -> Result<Self, String> {
-        Self::load_validated(side, module).map(|load| load.exclusions)
+        Self::load_validated(side, module, crate::BACKEND_OPTIONS).map(|load| load.exclusions)
     }
 
-    /// [`Self::of_validated`], keeping the backend and the parsed KORE the exclusions were read
-    /// from ([`ValidatedLoad`]), for a client that judges further runs of the side on that load
-    /// (kink-flow's in-campaign witness filter, fz26 FZ-COMPARABLE-B). The exclusions are those
-    /// [`Self::of_validated`] gives.
+    /// [`Self::of_validated`] under the solver options `solver`, keeping the backend and the
+    /// parsed KORE the exclusions were read from ([`ValidatedLoad`]), for a client that judges
+    /// further runs of the side on that load (kink-flow's in-campaign witness filter, fz26
+    /// FZ-COMPARABLE-B). The backend asks Z3 with `solver`, so a client gives it the options of
+    /// the runs it judges: the judgement then has their solver budget, and no clock. The
+    /// exclusions are those [`Self::of_validated`] gives.
     pub fn load_validated(
         side: &crate::ValidatedDefinition,
         module: &str,
+        solver: k_rust::backend::BackendOptions,
     ) -> Result<ValidatedLoad, String> {
         let kore = k_rust::kore::parser::parse_definition(&side.artifacts().definition_kore)
             .map_err(|error| error.to_string())?;
-        let mut backend = k_rust::backend::Backend::from_definition(
-            kore.clone(),
-            module,
-            k_rust::backend::BackendOptions::default(),
-        )
-        .map_err(|error| error.to_string())?;
+        let mut backend = k_rust::backend::Backend::from_definition(kore.clone(), module, solver)
+            .map_err(|error| error.to_string())?;
         let selected = backend
             .select_definition(None)
             .map_err(|error| error.to_string())?;

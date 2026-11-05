@@ -520,7 +520,7 @@ fn check_manifest(manifest: &CampaignManifest) {
     assert_eq!(value["kink"], kink_campaign::kink_identity());
     keys(
         &value["backend_options"],
-        &["smt_timeout_ms", "smt_retry_limit"],
+        &["smt_timeout_ms", "smt_retry_limit", "smt_resource_limit"],
     );
     keys(
         &value["budget"],
@@ -589,7 +589,11 @@ fn check_manifest(manifest: &CampaignManifest) {
         keys(&mutant["validation"], &["outcome", "stage", "detail"]);
     }
     assert_eq!(value["schema"], "kink-campaign-manifest");
-    assert_eq!(value["version"], 5);
+    assert_eq!(value["version"], 6);
+    assert_eq!(
+        value["backend_options"]["smt_resource_limit"],
+        kink_native::SMT_RESOURCE_LIMIT.get()
+    );
     assert_eq!(
         value["profile"],
         if cfg!(feature = "z3") { "z3" } else { "no-z3" }

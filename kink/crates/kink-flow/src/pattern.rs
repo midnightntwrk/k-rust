@@ -178,7 +178,7 @@ use crate::{
 use k_rust::backend::ShortCircuitReadingOutput;
 use k_rust::{
     backend::{
-        BACKEND_SCHEMA_VERSION, Backend, BackendError, BackendOptions, IncompleteSearchOutput,
+        BACKEND_SCHEMA_VERSION, Backend, BackendError, IncompleteSearchOutput,
         KorePatternSearchResponse, SearchFailureOutput, SearchMatchOutput, SearchPatternRequest,
         SearchTypeArg,
     },
@@ -766,7 +766,7 @@ impl Searcher {
         let mut backend = Backend::from_definition(
             kore.clone(),
             k_rust::kast::identifier::encode(main_module),
-            BackendOptions::default(),
+            budget.backend_options(),
         )
         .map_err(|e| format!("cannot build the search backend: {e}"))?;
         // Selecting the default module loads it; its load counts are then final (as

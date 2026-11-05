@@ -1014,12 +1014,15 @@ fn premises(manifest: &FlowManifest, options: &FuzzOptions, report: &FuzzReport)
 /// The definition exclusion of one side, if any, as kink-campaign's runner reads it for every
 /// run on that side (kink-native `DefinitionExclusions::definition_exclusion`, which a rule the
 /// short-circuit analysis flags is not): from the side's compiled KORE loaded for `module` on
-/// this thread, with the load, which the witness filter keeps ([`crate::fuzz_filter`]).
+/// this thread, with the load, which the witness filter keeps ([`crate::fuzz_filter`]). The load's
+/// backend asks Z3 with `solver`, the options of the command's runs (`[budget]
+/// smt_resource_limit`), so the filter judges a witness under the budget its runs had.
 fn side_exclusion(
     side: &ValidatedDefinition,
     module: &str,
+    solver: k_rust::backend::BackendOptions,
 ) -> Result<(ValidatedLoad, Option<(Exclusion, String)>), String> {
-    let load = DefinitionExclusions::load_validated(side, module)?;
+    let load = DefinitionExclusions::load_validated(side, module, solver)?;
     let excluded = load.exclusions.definition_exclusion().map(|exclusion| {
         // What makes it hold, as every kink-flow document says it (`crate::exclusion`).
         let detail = crate::exclusion::detail(
@@ -1651,7 +1654,8 @@ pub fn fuzz_front(
                 &spec.compiled,
                 &k_rust::kast::identifier::encode(&manifest.spec.main_module),
                 &assumed_names(manifest, options),
-            );
+            )
+            .with_solver(manifest.budget.backend_options());
             match claim_free_mutant(
                 &spec.validator,
                 &spec.compiled,
@@ -1705,7 +1709,7 @@ pub fn fuzz_front(
     // Each side's load, in side order, kept for the witness filter.
     let mut loads = Vec::new();
     for (role, side) in sides_to_check {
-        match side_exclusion(side, &module) {
+        match side_exclusion(side, &module, manifest.budget.backend_options()) {
             Ok((load, None)) => {
                 exclusions.insert(role.into(), Value::Null);
                 if options.filter {
