@@ -727,12 +727,6 @@ match = 'sweep/cells/*/*/{k::configuration::KCell(..\, x),k::configuration::KCel
 finding = "S0-9"
 kind = "diagnostic"
 
-# sweep: 14
-[[family]]
-match = 'sweep/cells/overwrite/*/k::configuration::KCell(x\, ..)'
-finding = "S0-9"
-kind = "diagnostic"
-
 # sweep: 1
 [[family]]
 match = 'sweep/cells/overwrite/c04-hcell/k::fragment![crate::H \{ hl: [x\, ..]\, hb: 0 \}]'
@@ -778,12 +772,6 @@ kind = "diagnostic"
 # sweep: 1
 [[family]]
 match = 'sweep/cells/result/u02-acc/\{ k::fragment![crate::A \{ al: [x\, ..]\, ..me \}]\, .. \}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep: 11
-[[family]]
-match = 'sweep/cells/result/{acct,bag,counter,env,frame,job,ogroup,olist,omap,pc,stack}/k::configuration::KCell(x\, ..)'
 finding = "S0-9"
 kind = "diagnostic"
 
@@ -1021,12 +1009,6 @@ match = 'sweep-paths/cells/*/*/{k::configuration::KCell(..\, x),k::configuration
 finding = "S0-9"
 kind = "diagnostic"
 
-# sweep-paths: 28
-[[family]]
-match = 'sweep-paths/cells/overwrite/*/k::configuration::KCell(x\, ..)'
-finding = "S0-9"
-kind = "diagnostic"
-
 # sweep-paths: 24
 [[family]]
 match = 'sweep-paths/cells/overwrite/{lacct,lbag,lcounter,lenv,lframe,ljob,logroup,lolist,lomap,lpc,lprog,qset}/{k::configuration::Cell([..\, x]),k::configuration::Cell([x\, ..])}'
@@ -1048,12 +1030,6 @@ kind = "diagnostic"
 # sweep-paths: 48
 [[family]]
 match = 'sweep-paths/cells/result/{lacct,lbag,lcounter,lenv,lframe,ljob,logroup,lolist,lomap,lpc,lprog,lset,qacct,qbag,qcounter,qenv,qframe,qjob,qogroup,qolist,qomap,qpc,qprog,qset}/{k::configuration::Cell([..\, x]),k::configuration::Cell([x\, ..])}'
-finding = "S0-9"
-kind = "diagnostic"
-
-# sweep-paths: 24
-[[family]]
-match = 'sweep-paths/cells/result/{lacct,lbag,lcounter,lenv,lframe,ljob,logroup,lolist,lomap,lpc,lset,lstack,qacct,qbag,qcounter,qenv,qframe,qjob,qogroup,qolist,qomap,qpc,qset,qstack}/k::configuration::KCell(x\, ..)'
 finding = "S0-9"
 kind = "diagnostic"
 
@@ -1432,12 +1408,6 @@ finding = "S5-H1"
 kind = "diagnostic+rust-syntax"
 
 # S5-K1, diagnostic: 26 reds
-
-# sweep: 4
-[[family]]
-match = 'sweep/cells/written/prog/{[k::fragment![crate::G \{ a: x\, .. \}]\, ..],k::configuration::Cell([..\, x]),k::configuration::Cell([x\, ..]),\{ k::fragment![crate::G \{ a: x\, .. \}]\, .. \}}'
-finding = "S5-K1"
-kind = "diagnostic"
 
 # sweep: 4
 [[family]]
