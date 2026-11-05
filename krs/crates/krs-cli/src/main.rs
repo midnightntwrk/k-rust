@@ -26,7 +26,7 @@ Usage:
   krs run    --package P --definition D [FILE|-] [--case FILE [--case-name NAME]]
              [--input NAME=JSON]... [-c NAME=TEXT]... [--depth N] [--stop-before NAME]...
              [--stop-after NAME]... [--stop-count N] [--trace] [--coverage]
-             [--output pretty|kast|json|kore|none] [--color auto|always|never]
+             [--output pretty|kast|json|kore|end|none] [--color auto|always|never]
              [--smt-resource-limit UNITS | --smt-clock-ms MS] [--smt-retries N]
              [--view-budget POLLS]
   krs search --package P --definition D [FILE|-] [--case FILE [--case-name NAME]]
@@ -86,7 +86,7 @@ Options:
                              that backend's route (default: every route)
   --output DIRECTORY         Required for emit-k and build; with expand, an absent or empty
                              directory for the changed module files, whose paths stdout lists
-  --output FORMAT            Result format: pretty (default of run, search, prove), program (parse), kast (default of parse), json, jsonl (prove), kore, none (run); human (default of cases and compare) or json for cases and compare
+  --output FORMAT            Result format: pretty (default of run, search, prove), program (parse), kast (default of parse), json, jsonl (prove), kore, end (run: the end document krs compare reads), none (run); human (default of cases and compare) or json for cases and compare
   FILE|-                     With run and search, bind the main parameter: the file's bytes
                              when its type is exactly Bytes, else its text, parsed at its sort
   --case FILE                Bind the inputs a case document (.toml or .json) gives by
@@ -1415,6 +1415,7 @@ fn term_output(kind: CommandKind, output: Option<PathBuf>) -> Result<TermOutput,
         ("json", _) => Ok(TermOutput::Json),
         ("kore", _) => Ok(TermOutput::Kore),
         ("none", CommandKind::Run) => Ok(TermOutput::None),
+        ("end", CommandKind::Run) => Ok(TermOutput::End),
         ("jsonl", CommandKind::Prove) => Ok(TermOutput::JsonLines),
         ("program", CommandKind::Parse) => Ok(TermOutput::Program),
         ("pretty", CommandKind::Run | CommandKind::Search | CommandKind::Prove) => {
@@ -2708,6 +2709,10 @@ mod tests {
             panic!("krs run parses as a run command");
         };
         assert_eq!(run.output, TermOutput::Pretty);
+        let Command::Run(run) = with("run", &["prog.imp", "--output", "end"]) else {
+            panic!("krs run parses as a run command");
+        };
+        assert_eq!(run.output, TermOutput::End);
         let Command::Prove(prove) = with("prove", &[]) else {
             panic!("krs prove parses as a prove command");
         };
@@ -3058,6 +3063,26 @@ mod tests {
                 assert_eq!(request.view_budget, 2);
             }
             other => panic!("{other:?}"),
+        }
+    }
+
+    /// An end document states one run's end: neither a search's states nor a proof's, nor a
+    /// parse.
+    #[test]
+    fn only_run_prints_an_end_document() {
+        for verb in ["search", "prove", "parse"] {
+            assert_eq!(
+                error(&[
+                    verb,
+                    "--package",
+                    "imp",
+                    "--definition",
+                    "main",
+                    "--output",
+                    "end"
+                ]),
+                format!("unknown --output format `end` for krs {verb}")
+            );
         }
     }
 

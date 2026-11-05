@@ -63,6 +63,9 @@ pub enum TermOutput {
     Kore,
     /// Nothing on stdout (`run` only).
     None,
+    /// The run's end as an end document ([`krs_exec::ends`], "End documents"), on one line and
+    /// alone, so that stdout is a document `krs compare` reads (`run` only).
+    End,
 }
 
 /// Colour selection for pretty output.
@@ -519,6 +522,7 @@ fn dispatch(
                 TermOutput::Kast
                 | TermOutput::JsonLines
                 | TermOutput::None
+                | TermOutput::End
                 | TermOutput::Pretty
                 | TermOutput::Program => semantics.print(&term, PrintStyle::Kast)?,
             }
@@ -1030,6 +1034,9 @@ fn run(
         }
     }
     let color = request.color.enabled();
+    let end = (request.output == TermOutput::End)
+        .then(|| end_line(semantics, &report))
+        .transpose()?;
     let printed = match (request.output, &checked) {
         (TermOutput::Json, Some(checked)) => json_line(
             &json!({"schema": RUN_REPORT_SCHEMA, "run": report, "expectation": checked.document()}),
@@ -1037,7 +1044,8 @@ fn run(
         (TermOutput::Json, None) => {
             json_line(&json!({"schema": RUN_REPORT_SCHEMA, "run": report}))?
         }
-        (TermOutput::None, _) => String::new(),
+        // `--output end` prints its end document after the run's lines ([`run_outcome`]).
+        (TermOutput::None | TermOutput::End, _) => String::new(),
         (output, _) => format!(
             "{}\n",
             print(semantics, &report.state, output, color, &mut stderr)?
@@ -1063,16 +1071,85 @@ fn run(
         checked.write(&mut stderr, "krs run");
     }
     let exit_code = run_status(checked.as_ref(), report.halt, report.exit_code);
-    // Console output comes first, as krun writes it during the run and prints the result after;
-    // the JSON report carries it in `stdout` instead.
-    let mut stdout = match (&report.stdout, request.output) {
-        (Some(console), output) if output != TermOutput::Json => console.clone(),
-        _ => Vec::new(),
+    Ok(run_outcome(
+        report.stdout.as_deref(),
+        request.output,
+        (printed, end),
+        stderr,
+        exit_code,
+    ))
+}
+
+/// The outcome of a run whose definition's console output is `console`, which printed `printed`
+/// in `output`, or reached `end` under `--output end`, wrote `stderr`, and exits `exit_code`.
+///
+/// Console output comes first, as krun writes it during the run and prints the result after;
+/// the JSON report carries it in `stdout` instead, and `--output end`, whose stdout is the end
+/// document alone, writes it to stderr before its own lines. An end with no end document
+/// exits as a question that could not be asked, whatever the run's own status: the end
+/// `--output end` asks for has no answer in that form.
+fn run_outcome(
+    console: Option<&[u8]>,
+    output: TermOutput,
+    (printed, end): (String, Option<EndLine>),
+    mut stderr: String,
+    mut exit_code: i32,
+) -> CommandOutcome {
+    let printed = match end {
+        Some(EndLine::Document(line)) => line,
+        Some(EndLine::Refused(reason)) => {
+            let _ = writeln!(stderr, "krs run: the end has no end document: {reason}");
+            exit_code = exit_status::UNASKED;
+            String::new()
+        }
+        Some(EndLine::NoEnd) | None => printed,
     };
-    stdout.extend_from_slice(printed.as_bytes());
-    let mut outcome = outcome(String::new(), stderr, exit_code);
-    outcome.stdout = stdout;
-    Ok(outcome)
+    let mut outcome = outcome(String::new(), String::new(), exit_code);
+    match (console, output) {
+        (Some(console), TermOutput::End) => outcome.stderr.extend_from_slice(console),
+        (Some(console), output) if output != TermOutput::Json => {
+            outcome.stdout.extend_from_slice(console);
+        }
+        _ => {}
+    }
+    outcome.stdout.extend_from_slice(printed.as_bytes());
+    outcome.stderr.extend_from_slice(stderr.as_bytes());
+    outcome
+}
+
+/// What `krs run --output end` prints of a run's end.
+enum EndLine {
+    /// The end document ([`Semantics::end_document`]), on one line.
+    Document(String),
+    /// No end: the run halted inconclusively, as its status line says, so nothing is printed.
+    NoEnd,
+    /// An end with no end document, and why: a part of a cell's value with no document at the
+    /// cell's type, at the cell's position; a stopped end whose class names no stop rule, at
+    /// `rule`; or a constraint on the state, which no document of values states and which no
+    /// position holds.
+    Refused(String),
+}
+
+/// The end of the run `report` as `--output end` prints it: always the full end, every cell the
+/// end states, since a viewed value is at its view's result sort and would not read back as an
+/// end.
+fn end_line(semantics: &Semantics, report: &RunReport) -> Result<EndLine, Failure> {
+    if !report.halt.is_complete() {
+        return Ok(EndLine::NoEnd);
+    }
+    let ends = semantics
+        .end_of(report)
+        .map_err(|error| end_failure(&error))?;
+    let [end] = ends.ends.as_slice() else {
+        return Ok(EndLine::Refused(
+            ends.incomplete
+                .unwrap_or_else(|| "the run has no one end".to_owned()),
+        ));
+    };
+    Ok(match semantics.end_document(end) {
+        Ok(document) => EndLine::Document(json_line(&document)?),
+        Err(error) => EndLine::Refused(error.to_string()),
+    })
 }
 
 /// The exit status of a run that ended ([`exit_status`]): its expectation's verdict when it has
@@ -1098,7 +1175,7 @@ fn write_valueless(
     stderr: &mut String,
 ) -> Result<(), Failure> {
     let notation = match output {
-        TermOutput::None => TermOutput::Pretty,
+        TermOutput::None | TermOutput::End => TermOutput::Pretty,
         output => output,
     };
     for term in &report.valueless {
@@ -1891,7 +1968,7 @@ fn main_cell_head(
         return String::new();
     };
     let head = match output {
-        TermOutput::Pretty | TermOutput::Program | TermOutput::None => {
+        TermOutput::Pretty | TermOutput::Program | TermOutput::None | TermOutput::End => {
             semantics.unparse_computation_head(state).map(|head| {
                 head.map(|printed| {
                     // The head printed alone can say what the whole print did not: its own
@@ -1934,7 +2011,7 @@ fn print(
         }
         TermOutput::Kore => PrintStyle::Kore,
         TermOutput::Json | TermOutput::JsonLines => PrintStyle::Json,
-        TermOutput::Kast | TermOutput::None => PrintStyle::Kast,
+        TermOutput::Kast | TermOutput::None | TermOutput::End => PrintStyle::Kast,
     };
     Ok(semantics.print(term, style)?.text)
 }

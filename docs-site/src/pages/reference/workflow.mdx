@@ -178,8 +178,17 @@ A proof ends a path `indeterminate` at the first state whose term matches the cl
 The sentences of K's builtin modules, and those a compiler pass generated from no authored source with neither a KRS item nor a label, are counted on a last line; `--output json` lists every sentence in `coverage.rules`, with its K label, `UNIQUE_ID` and each predicate, beside `coverage.offered`, which says whether rules only offered are listed.
 `run`, `search`, and `prove` print configurations through the definition's grammar by default (`--output pretty`, as `krun --output pretty` prints them), and `--color auto|always|never` colours them from the productions' `color` and `colors` (`auto` colours only when standard output is a terminal and `NO_COLOR` is unset); `parse` prints KAST by default, and `--output program` prints the program back through the grammar, as `kast --output program` does.
 `--output kast`, `json`, or `kore` selects the other formats (`none` prints no configuration from `run`).
+`run --output end` prints the run's end as an end document (`halt`, `rule`, `cells`, [as `krs compare` reads one](#compare-two-ends)), on one line and alone on standard output, so that the output is a side `krs compare` reads as it is.
+It is always the full end, every cell the end states: a view belongs to a comparison, and a viewed value, at its view's result sort, is no end.
+At `--depth 0` it is the configured state, each input applied with `$call` evaluated to its value.
+An inconclusive halt has no end, so nothing is printed and the run exits 3.
+An end with no end document is refused with exit 2 and the reason.
+A cell holding a part the typed encoding has no document for (an unevaluated application) is refused at its position (``the end has no end document: `cells.status`: ...``).
+A stopped end whose class names no stop rule is refused at `rule`: the run names the rule it stopped after only where its `--stop-after` names select one rule or it keeps its `--trace`, and the class names a rule only by a name that selects its item alone.
+A state under a constraint is refused as such, since no position holds the constraint.
 The exit status of `run`, `search` and `prove` says what the caller does next ([exit status](#exit-status)).
-A definition with a `stream = "stdin"` cell reads standard input into it before the first step; `run` writes what its `stream = "stdout"` cell holds to standard output before the configuration, and `--output json` reports it as `stdout` instead ([console I/O](/reference/language#console-io-and-the-exit-cell)).
+A definition with a `stream = "stdin"` cell reads standard input into it before the first step; `run` writes what its `stream = "stdout"` cell holds to standard output before the configuration, `--output json` reports it as `stdout` instead, and `--output end` writes it to standard error, before its own lines ([console I/O](/reference/language#console-io-and-the-exit-cell)).
+Such a cell holds the stream's descriptor and buffer, which are no values of its `List` type, so `--output end` refuses the end of such a definition at that cell.
 `run` and `search` write each line that `io::log` logs to standard error, one per line and before their own report, as `krun` and `krun --search` do on K's LLVM backend; `--output json` also reports them as `log`.
 
 The current commands are `fmt`, `check`, `expand`, `emit-k`, `build`, `parse`, `run`, `search`, `prove`, [`cases`](#run-a-batch-of-cases), [`compare`](#compare-two-ends), and the [corpus loop](#the-corpus-loop)'s `kink`.
@@ -201,6 +210,7 @@ A batch exits 2 when a member is refused or fails, since its answer is then inco
 - `run` exits 0 when the run ends stuck, at the depth bound, undefined or stopped, 3 when it ends at an inconclusive halt (`indeterminate`, `timeout`, `interrupted`, `unsupported-hook`, `simplification-error`) or reaches several states under conditions it cannot decide (it has no one path), and 2 on any failure.
   When the definition declares an exit cell (`#[k::cell(exit)]`), a completed run instead exits with that cell's final value, the program's own status (the OS keeps its low 8 bits), which shares the numbers above: a caller that must tell the program's status from krs's reads `--output json`.
   With an expectation (`--case`), the run exits by its verdict instead, 0 met, 1 unmet and 3 inconclusive, and a refused case or expectation exits 2.
+  With `--output end`, an end with no end document exits 2 whatever the run's own status: the end it was asked for cannot be written.
 - `search` exits 0 when its set of final states is complete or it stopped at `--max-solutions`, and 3 when some path was not decided; with an expectation, it exits by its verdict, as `run` does.
 - `prove` is a batch of its claims: a claim `proven` or `trusted` counts 0 (a `trusted` claim is assumed, never proven, and the summary line counts it separately), `disproved` or `failed` 1, `indeterminate`, `depth-bound`, `breadth-bound` or `timeout` 3, and `crashed` 2, since the process proving it failed and gave no answer; a failure of the batch itself, such as a definition with no claims, a `--claim` that names none, or a crash after the last claim, which leaves the batch's own checks and output unfinished, exits 2.
 - `cases` is a batch of its cases: `met` counts 0, `unmet` 1, `inconclusive` 3, `refused` 2, and `ran` 0, or 3 when the case's run has no end (it halted `indeterminate`, `timeout` or another inconclusive halt, or has no one path); its JSON summary's `status` is the exit status.
@@ -679,7 +689,7 @@ or a case document, whose case is run as `krs run --case` runs it (its inputs an
 `FILE#NAME` names a case of a document of named cases, as the case's id in `krs cases` does.
 The case of a case side is run, not checked: its own `expect` table is no part of the comparison.
 
-An end document states the one end of whatever produced it: another implementation, a recorded run, an expected state written by hand.
+An end document states the one end of whatever produced it: another implementation, a recorded run (`krs run --output end` prints one), an expected state written by hand.
 A run's end is its case's only end exactly where the run chose nowhere: no state on its path had several successors, and it read no value the definition leaves open.
 Where it chose, the definition may end otherwise from the same inputs, so its side is incomplete.
 Two sides are *equal* when their ends are; they *differ* when one side has an end the other, complete, side does not; otherwise the comparison is *inconclusive*, as it is when a side has no end (its run halted `indeterminate`, `timeout` or another inconclusive halt).

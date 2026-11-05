@@ -50,6 +50,7 @@
 //!   path with `crate::` or its crate's name where that selects its rules alone, else the first
 //!   label of its rules that does. So two packages' items at one path are two classes, and the
 //!   name a document writes reads back as the item.
+//!   A stopped end whose class names no item has no end document.
 //! - `cells` nests by group field as [`crate::StateView`] paths do (`cpu.regs` is
 //!   `cells.cpu.regs`; TOML dotted keys give it); a leaf cell holds its value's document at the
 //!   cell's declared type; an optional cell is `[]` (absent) or `[content]`; a repeated cell is
@@ -1364,8 +1365,10 @@ impl Semantics {
     ///
     /// # Errors
     ///
-    /// Returns [`EndError::Document`] naming the first cell whose value has no document at its
-    /// type, with the encoder's reason.
+    /// Returns [`EndError::Document`] at `rule` for a stopped end whose class names no item
+    /// ([`EndClass::rule`] is `None`), since a stopped end's document names its stop rule's item
+    /// and no name would read back as this end's class; else naming the first cell whose value has
+    /// no document at its type, with the encoder's reason.
     pub fn end_document(&self, end: &End) -> Result<Json, EndError> {
         self.lens(&CellViews::default()).end_json(end, true)
     }
@@ -1393,6 +1396,11 @@ impl<'s> Lens<'s> {
         );
         if let Some(rule) = &end.class.rule {
             object.insert("rule".to_owned(), Json::String(rule.clone()));
+        } else if strict && end.class.halt == Halt::Stopped {
+            return Err(EndError::Document {
+                position: "rule".to_owned(),
+                message: "a stopped end names the stop rule's KRS item, and this end's class names none: the run did not name the rule it stopped at, or no name selects that rule's item alone".to_owned(),
+            });
         }
         if end.class.halt != Halt::Undefined || !end.cells.is_empty() {
             let cells = self

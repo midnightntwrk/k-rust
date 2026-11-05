@@ -31,6 +31,115 @@ const PACKAGE: &str = "krs-exec-ends-fixture";
 const OBSERVER: &str = include_str!("fixtures/ends-observe/src/lib.rs");
 const OBSERVER_PACKAGE: &str = "krs-exec-ends-observe-fixture";
 const SHADOW_PACKAGE: &str = "krs-exec-ends-shadow-fixture";
+const OPEN_PACKAGE: &str = "krs-exec-ends-open-fixture";
+
+/// A definition whose ends may have no end document or be no ends at all: `Opaque` is a total
+/// function no equation evaluates, so `quit Opaque(2)` ends with `status` holding an unevaluated
+/// application, which has no document; `open a` steps only where `unsure(a)` holds, which only
+/// the solver decides at `2`, so a run of `open 2` with no solver budget halts `indeterminate`.
+const OPEN: &str = r#"//! Ends with no end document, and runs with no end.
+
+use k::builtin::{Bool, Int, KSequence};
+use k::KResult;
+use k::Term;
+
+k::sorts! {
+    Stmt;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum StmtSyntax {
+    #[k::syntax("quit {code}")]
+    Quit { code: Int },
+    #[k::syntax("open {a}")]
+    Open { a: Int },
+}
+
+#[k::function(total, internal)]
+pub fn Opaque(a: Term<Int>) -> Term<Int>;
+
+#[k::function(partial, internal)]
+pub fn Unsure(a: Term<Int>) -> Term<Bool>;
+
+#[k::equation]
+#[k::requires(Opaque(a) == 1)]
+fn unsure_one(Unsure(a): Term<Bool>) -> Term<Bool> {
+    true
+}
+
+k::rules! {
+    for Machine;
+    use StmtSyntax::*;
+
+    quit: { k: [Quit(code), ..], status: _ } => { k: [..], status: code };
+    #[k::requires(Unsure(a))]
+    open: { k: [Open(a), ..], status: _ } => { k: [..], status: 1 };
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub status: Int,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(#[k::config_var(name = "PGM", main)] pgm: Stmt) -> Self {
+        Self { k: k::k![pgm], status: 0 }
+    }
+}
+"#;
+
+/// A definition with a console and a constrained end: `say n` appends `n` to the
+/// `stream = "stdout"` cell `output`, and `pick` writes to `status` a value the rule's
+/// `ensures` constrains, so the run's end carries a constraint.
+const CONSOLE: &str = r#"//! Console output, and an end under a constraint.
+
+use k::builtin::{Int, KSequence, List, list};
+use k::KResult;
+
+k::sorts! {
+    Stmt;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum StmtSyntax {
+    #[k::syntax("say {n}")]
+    Say { n: Int },
+    #[k::syntax("pick")]
+    Pick(),
+}
+
+k::rules! {
+    for Machine;
+    use StmtSyntax::*;
+
+    say: { k: [Say(n), ..], output: out } => { k: [..], output: list::concat(out, list::item(n)) };
+    #[k::exists(q: Int)]
+    #[k::ensures(q > 0)]
+    pick: { k: [Pick(), ..], status: _ } => { k: [..], status: q };
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub status: Int,
+    #[k::cell(stream = "stdout")]
+    pub output: List,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(#[k::config_var(name = "PGM", main)] pgm: Stmt) -> Self {
+        Self { k: k::k![pgm], status: 0, output: list::empty() }
+    }
+}
+"#;
+const CONSOLE_PACKAGE: &str = "krs-exec-ends-console-fixture";
 
 /// A package that depends on the fixture and composes its definition, with a rewrite rule of its
 /// own at the whole of the spelling of the fixture's rule `finish`
@@ -2342,15 +2451,17 @@ fn toml_table(table: &Json) -> String {
         })
 }
 
-/// The fixture and its observer as a workspace, with the documents `krs compare` reads in the
-/// fixture's package: `end.toml`, the end of `finish(3)` from the reference state; `moved.json`,
-/// that end with `pc` and `bus` changed; `read.json`, that end with the address of `bus`'s first
-/// event changed; `partial.json`, that end without `pc`; `cases.toml`,
-/// the named cases `finish` and `toss` from the reference state; and `expect.json`, a case that
-/// expects `finish(3)`'s end on `k` and `pc`.
+/// The fixture, its observer, [`OPEN`] and [`CONSOLE`] as a workspace, with the documents `krs compare` reads
+/// in the fixture's package: `end.toml`, the end of `finish(3)` from the reference state;
+/// `moved.json`, that end with `pc` and `bus` changed; `read.json`, that end with the address of
+/// `bus`'s first event changed; `partial.json`, that end without `pc`; `cases.toml`, the named
+/// cases `finish` and `toss` from the reference state; and `expect.json`, a case that expects
+/// `finish(3)`'s end on `k` and `pc`.
 struct CompareWorkspace {
     directory: krs_test_support::TempDir,
     target: krs_test_support::SharedFixtureTarget,
+    /// The end document of `finish(3)`'s end, as the definition writes it.
+    end: Json,
 }
 
 impl CompareWorkspace {
@@ -2382,9 +2493,21 @@ impl CompareWorkspace {
                 false,
             ),
         );
+        write_package(
+            root,
+            "open",
+            OPEN,
+            &manifest(OPEN_PACKAGE, "ORG-KRS-EXEC-ENDS-OPEN", "", false),
+        );
+        write_package(
+            root,
+            "console",
+            CONSOLE,
+            &manifest(CONSOLE_PACKAGE, "ORG-KRS-EXEC-ENDS-CONSOLE", "", false),
+        );
         fs::write(
             root.join("Cargo.toml"),
-            "[workspace]\nmembers = [\"language\", \"observe\"]\nresolver = \"3\"\n",
+            "[workspace]\nmembers = [\"language\", \"observe\", \"open\", \"console\"]\nresolver = \"3\"\n",
         )
         .unwrap();
         let language = root.join("language");
@@ -2398,7 +2521,7 @@ impl CompareWorkspace {
         let mut read = end.clone();
         read["cells"]["bus"][0] = json!({"Read": {"addr": 9}});
         write("read.json", read.to_string());
-        let mut partial = end;
+        let mut partial = end.clone();
         partial["cells"].as_object_mut().unwrap().remove("pc");
         write("partial.json", partial.to_string());
         let finish = json!({"Finish": {"value": 3}});
@@ -2426,17 +2549,31 @@ impl CompareWorkspace {
         Self {
             directory,
             target: shared_fixture_target(),
+            end,
         }
     }
 
     /// `krs compare` on the fixture with `arguments`, from its package: the exit status, stdout
     /// and stderr.
     fn compare(&self, arguments: &[&str]) -> (Option<i32>, String, String) {
+        self.krs("language", PACKAGE, "compare", arguments)
+    }
+
+    /// `krs VERB --package PACKAGE --definition main ARGUMENTS` from the workspace member
+    /// `member`: the exit status, stdout and stderr.
+    fn krs(
+        &self,
+        member: &str,
+        package: &str,
+        verb: &str,
+        arguments: &[&str],
+    ) -> (Option<i32>, String, String) {
         let mut process = krs_command!();
         fixture_build_env(&mut process, self.target.path());
         let output = process
-            .current_dir(self.directory.path().join("language"))
-            .args(["compare", "--package", PACKAGE, "--definition", "main"])
+            .current_dir(self.directory.path().join(member))
+            .arg(verb)
+            .args(["--package", package, "--definition", "main"])
             .args(arguments)
             .output()
             .unwrap();
@@ -2633,6 +2770,225 @@ fn compare_against_expectations_and_refusals(workspace: &CompareWorkspace) {
     assert_eq!(code, Some(2), "{stderr}");
     assert!(
         stderr.contains("`end.toml` is an end document, which states one end and no named case"),
+        "{stderr}"
+    );
+}
+
+/// `krs run --output end` prints the run's end as the end document `krs compare` reads, alone on
+/// stdout: the full end of a case's run, which reads back as equal to the case's end; at depth 0,
+/// the configured state, an input applied with `$call` evaluated. An end with no document (an
+/// unevaluated application in a cell) is refused, exit 2, naming its position; an inconclusive
+/// halt has no end, so nothing is printed and the run has no answer (exit 3). A case's own depth
+/// stays its question, so `--depth` beside it is a usage error.
+#[test]
+fn krs_run_output_end_prints_the_end_document_krs_compare_reads() {
+    let workspace = CompareWorkspace::new();
+    let language = workspace.directory.path().join("language");
+    let run = |arguments: &[&str]| workspace.krs("language", PACKAGE, "run", arguments);
+
+    // A case's run: its end document, byte for byte the one the definition writes, which reads
+    // back as equal to the case's end.
+    let (code, stdout, stderr) = run(&[
+        "--case",
+        "cases.toml",
+        "--case-name",
+        "finish",
+        "--output",
+        "end",
+    ]);
+    assert_eq!(code, Some(0), "{stderr}");
+    assert_eq!(stdout, format!("{}\n", workspace.end));
+    assert!(stderr.contains("krs run: stuck after 1 step"), "{stderr}");
+    fs::write(language.join("printed.json"), &stdout).unwrap();
+    let (code, compared, stderr) = workspace.compare(&["printed.json", "cases.toml#finish"]);
+    assert_eq!(
+        (code, compared.as_str()),
+        (Some(0), "krs compare: equal\n"),
+        "{stderr}"
+    );
+
+    // Depth 0 from inputs given on the command line: the configured state, the application of
+    // `Doubled` evaluated to its value.
+    let inputs = reference_inputs(&json!({"Finish": {"value": 3}}));
+    let bindings = inputs
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(name, document)| {
+            let document = if name == "pc" {
+                json!({"$call": {"Doubled": {"n": 128}}})
+            } else {
+                document.clone()
+            };
+            format!("{name}={document}")
+        })
+        .collect::<Vec<_>>();
+    let mut arguments = bindings
+        .iter()
+        .flat_map(|binding| ["--input", binding.as_str()])
+        .collect::<Vec<_>>();
+    arguments.extend(["--depth", "0", "--output", "end"]);
+    let (code, stdout, stderr) = run(&arguments);
+    assert_eq!(code, Some(0), "{stderr}");
+    let start: Json = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(start["halt"], "depth-bound", "{start}");
+    assert_eq!(start["cells"]["pc"], 256, "{start}");
+    assert_eq!(
+        start["cells"]["k"],
+        json!({"$seq": [{"Finish": {"value": 3}}]}),
+        "{start}"
+    );
+    // It reads back as the end of depth 0 from the reference inputs, whose `pc` is that value.
+    fs::write(language.join("start.json"), &stdout).unwrap();
+    fs::write(
+        language.join("start-case.json"),
+        json!({"inputs": inputs, "run": {"depth": 0}}).to_string(),
+    )
+    .unwrap();
+    let (code, compared, stderr) = workspace.compare(&["start.json", "start-case.json"]);
+    assert_eq!(
+        (code, compared.as_str()),
+        (Some(0), "krs compare: equal\n"),
+        "{stderr}"
+    );
+
+    // A case's depth is the case's question.
+    let (code, stdout, stderr) = run(&[
+        "--case",
+        "start-case.json",
+        "--depth",
+        "1",
+        "--output",
+        "end",
+    ]);
+    assert_eq!((code, stdout.as_str()), (Some(2), ""), "{stderr}");
+    assert!(stderr.contains("both bound the run"), "{stderr}");
+
+    // An unevaluated application in a cell has no document: refused, naming its position.
+    let open = |arguments: &[&str]| workspace.krs("open", OPEN_PACKAGE, "run", arguments);
+    let opaque = json!({"Quit": {"code": {"$call": {"Opaque": {"a": 2}}}}});
+    let (code, stdout, stderr) = open(&["--input", &format!("pgm={opaque}"), "--output", "end"]);
+    assert_eq!((code, stdout.as_str()), (Some(2), ""), "{stderr}");
+    assert!(stderr.contains("krs run: stuck after 1 step"), "{stderr}");
+    assert!(
+        stderr.contains("krs run: the end has no end document: `cells.status`: "),
+        "{stderr}"
+    );
+
+    // An inconclusive halt: no end, nothing printed, no answer.
+    let (code, stdout, stderr) = open(&[
+        "--input",
+        &format!("pgm={}", json!({"Open": {"a": 2}})),
+        "--smt-resource-limit",
+        "1",
+        "--smt-retries",
+        "0",
+        "--output",
+        "end",
+    ]);
+    assert_eq!((code, stdout.as_str()), (Some(3), ""), "{stderr}");
+    assert!(
+        stderr.contains("krs run: indeterminate after 0 steps"),
+        "{stderr}"
+    );
+}
+/// `krs run --output end` of a stopped run: the document names the stop rule by a name that
+/// reads back as the rule's item, so it is equal to the case whose run stops there. A run that
+/// does not name the rule it stopped after has an end whose class names no rule, which no
+/// document states: refused at `rule`, exit 2, nothing printed.
+#[test]
+fn krs_run_output_end_names_a_stopped_end_s_rule() {
+    let workspace = CompareWorkspace::new();
+    let language = workspace.directory.path().join("language");
+    let run = |arguments: &[&str]| workspace.krs("language", PACKAGE, "run", arguments);
+    let inputs = reference_inputs(&json!({"Finish": {"value": 3}}));
+    // A stopped end names its stop rule, by a name that reads back as the rule's item: equal
+    // to the case whose run stops there.
+    let plain = inputs
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(name, document)| format!("{name}={document}"))
+        .collect::<Vec<_>>();
+    let stopped = |stops: &[&str]| {
+        let mut arguments = plain
+            .iter()
+            .flat_map(|binding| ["--input", binding.as_str()])
+            .collect::<Vec<_>>();
+        arguments.extend(stops);
+        arguments.extend(["--output", "end"]);
+        run(&arguments)
+    };
+    let (code, stdout, stderr) = stopped(&["--stop-after", "crate::finish"]);
+    assert_eq!(code, Some(0), "{stderr}");
+    let end: Json = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        (&end["halt"], &end["rule"]),
+        (&json!("stopped"), &json!("crate::finish")),
+        "{end}"
+    );
+    fs::write(language.join("stopped.json"), &stdout).unwrap();
+    fs::write(
+        language.join("stopped-case.json"),
+        json!({"inputs": inputs, "run": {"stop_after": ["crate::finish"]}}).to_string(),
+    )
+    .unwrap();
+    let (code, compared, stderr) = workspace.compare(&["stopped.json", "stopped-case.json"]);
+    assert_eq!(
+        (code, compared.as_str()),
+        (Some(0), "krs compare: equal\n"),
+        "{stderr}"
+    );
+    // A run stopped after one of two rules does not name the rule it stopped after, so its end's
+    // class names none and the end has no document: refused at `rule`, nothing printed.
+    let two = [
+        "--stop-after",
+        "crate::finish",
+        "--stop-after",
+        "crate::toss_heads",
+    ];
+    let (code, stdout, stderr) = stopped(&two);
+    assert_eq!((code, stdout.as_str()), (Some(2), ""), "{stderr}");
+    assert!(stderr.contains("krs run: stopped after 1 step"), "{stderr}");
+    assert!(
+        stderr.contains("krs run: the end has no end document: `rule`: "),
+        "{stderr}"
+    );
+    // A run that keeps its trace names the rule of its last step.
+    let (code, stdout, stderr) = stopped(&[two.as_slice(), &["--trace"]].concat());
+    assert_eq!(code, Some(0), "{stderr}");
+    assert_eq!(
+        stdout,
+        fs::read_to_string(language.join("stopped.json")).unwrap()
+    );
+}
+
+/// `krs run --output end` refuses a constraint on the end's state, which no document of values
+/// states and no position holds, and writes the definition's console output to stderr, before
+/// its own lines, so that stdout holds the end document alone.
+#[test]
+fn krs_run_output_end_refuses_a_constraint_and_keeps_the_console_off_stdout() {
+    let workspace = CompareWorkspace::new();
+    // A constraint on the state, which no document of values states and no position holds.
+    let console = |arguments: &[&str]| workspace.krs("console", CONSOLE_PACKAGE, "run", arguments);
+    let (code, stdout, stderr) = console(&["--input", r#"pgm={"Pick":[]}"#, "--output", "end"]);
+    assert_eq!((code, stdout.as_str()), (Some(2), ""), "{stderr}");
+    assert!(
+        stderr.contains("krs run: the end has no end document: the run's end carries a constraint"),
+        "{stderr}"
+    );
+
+    // The console output goes to stderr, before krs's own lines, so that stdout holds the end
+    // document alone. A stdout stream cell holds K's stream state at an end, which has no
+    // document at the cell's type, so this end is refused at the cell.
+    let (code, stdout, stderr) = console(&["--input", r#"pgm={"Say":{"n":7}}"#, "--output", "end"]);
+    assert_eq!((code, stdout.as_str()), (Some(2), ""), "{stderr}");
+    assert!(
+        stderr.starts_with("7krs run: stuck after 2 steps"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("krs run: the end has no end document: `cells.output[0]`: "),
         "{stderr}"
     );
 }
