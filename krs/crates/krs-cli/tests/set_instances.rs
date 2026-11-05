@@ -522,11 +522,15 @@ fn set_and_map_cells_and_two_instances_are_emitted_with_their_guards() {
 /// it mentions none of the instance's cells: `drop_one` and its readable twin
 /// `drop_any` (label `drop-any`) are K's `<obj> _ </obj> => .Bag`, and
 /// `make_one` adds an instance of the template's cells where its guard holds.
+/// A term rule whose result differs from its subject (`touched`) is a step too.
 #[test]
 fn a_rule_that_only_removes_or_creates_an_instance_changes_a_cell() {
-    let extra = "#[k::rule(label = \"drop_one\")]\nfn drop_one(\n    k::cells! { Objects::obj: { k::fragment![crate::Obj { .. }], rest @ .. }, state @ .. }: Machine,\n) -> Machine {\n    k::cells! { Objects::obj: { ..rest }, ..state }\n}\n\n#[k::requires(a > 0)]\n#[k::rule(label = \"make_one\")]\nfn make_one(\n    a: k::Term<Int>,\n    k::cells! { Meta::a: k::configuration::Cell(a), Objects::obj: { instances0 @ .. }, state @ .. }: Machine,\n) -> Machine {\n    k::cells! { Objects::obj: { k::fragment![crate::Obj { .. }], ..instances0 }, ..state }\n}\n\nk::rules! {\n    for Machine;\n\n    drop_any: { obj: { Obj { .. }, .. } } => { obj: { .. } };\n}\n";
-    let rules = emitted_rules(&[("EXTRA", extra)], &["drop_one", "drop-any", "make_one"]);
-    expect_test::expect![[r"
+    let extra = "#[k::rule(label = \"drop_one\")]\nfn drop_one(\n    k::cells! { Objects::obj: { k::fragment![crate::Obj { .. }], rest @ .. }, state @ .. }: Machine,\n) -> Machine {\n    k::cells! { Objects::obj: { ..rest }, ..state }\n}\n\n#[k::requires(a > 0)]\n#[k::rule(label = \"make_one\")]\nfn make_one(\n    a: k::Term<Int>,\n    k::cells! { Meta::a: k::configuration::Cell(a), Objects::obj: { instances0 @ .. }, state @ .. }: Machine,\n) -> Machine {\n    k::cells! { Objects::obj: { k::fragment![crate::Obj { .. }], ..instances0 }, ..state }\n}\n\nk::rules! {\n    for Machine;\n\n    drop_any: { obj: { Obj { .. }, .. } } => { obj: { .. } };\n}\n\n#[k::rule(label = \"touched\", priority = 60)]\nfn touched(k::term![Cmd::Touch(n)]: k::Term<Stmt>) -> k::Term<Stmt> {\n    Cmd::Probe(n)\n}\n";
+    let rules = emitted_rules(
+        &[("EXTRA", extra)],
+        &["drop_one", "drop-any", "make_one", "touched"],
+    );
+    expect_test::expect![[r#"
         rule [drop_one]:
         (<obj>
         .Bag ...
@@ -540,8 +544,23 @@ fn a_rule_that_only_removes_or_creates_an_instance_changes_a_cell() {
         (.Bag => <obj>
         .Bag ...
         </obj>)
-        requires A:Int >Int 0"]]
+        requires A:Int >Int 0
+        rule touch N:Int => probe N:Int [priority(60), label(touched)]"#]]
     .assert_eq(&rules);
+}
+
+/// A term rule whose result is its subject rewrites the item to itself, the
+/// step from a configuration to itself that changes no cell.
+#[test]
+fn a_term_rule_whose_result_is_its_subject_changes_no_cell() {
+    let target = shared_fixture_target();
+    let same = "#[k::rule(label = \"same\")]\nfn same(k::term![Cmd::Touch(n)]: k::Term<Stmt>) -> k::Term<Stmt> {\n    Cmd::Touch(n)\n}\n";
+    expect_test::expect![[r#"
+        (
+            "error[krs::analysis::rule-changes-no-cell]: rule `same` changes no cell: every cell it names keeps its content, so if it applies, it applies again to the configuration it leaves, forever, and changes nothing",
+            "k::term![Cmd::Touch(n)]",
+        )
+    "#]].assert_debug_eq(&check_error(target.path(), &[("EXTRA", same)]));
 }
 
 /// The emitted rules `labels` of [`SOURCE`] with the rules `replaced`, one
@@ -563,6 +582,15 @@ fn emitted_rules(replaced: &[(&str, &str)], labels: &[&str]) -> String {
     );
     let mut rules = Vec::new();
     for label in labels {
+        // A term rule is one line, its label an attribute.
+        let attribute = format!("label({label})]");
+        if let Some(rule) = definition
+            .lines()
+            .find(|line| line.trim_start().starts_with("rule ") && line.ends_with(&attribute))
+        {
+            rules.push(rule.trim().to_owned());
+            continue;
+        }
         let rule = definition
             .lines()
             .skip_while(|line| line.trim() != format!("rule [{label}]:"))

@@ -856,27 +856,33 @@ pub(super) fn check_step_effect(
     clauses: &[ConfigurationClause<SemanticId, SemanticTerm>],
     unconstrained: bool,
 ) -> Result<(), DescriptorLoweringError> {
-    let range = || -> Result<Option<Box<krs_ir::SourceRange>>, DescriptorLoweringError> {
-        Ok(
-            semantic_origin(descriptor, pattern_key.clone(), "framed-rule-pattern")?
-                .origin()
-                .exact_authored_range()
-                .map(Box::new),
-        )
-    };
     if changes_no_cell(clauses) {
         return Err(DescriptorLoweringError::RuleChangesNoCell {
             rule: Box::new(descriptor.id().clone()),
-            range: range()?,
+            range: step_range(descriptor, pattern_key)?,
         });
     }
     if unconstrained {
         return Err(DescriptorLoweringError::AlwaysEnabledRule {
             rule: Box::new(descriptor.id().clone()),
-            range: range()?,
+            range: step_range(descriptor, pattern_key)?,
         });
     }
     Ok(())
+}
+
+/// The exact authored range of a step's subject, where a step's judgement
+/// ([`check_step_effect`]) points.
+fn step_range(
+    descriptor: &Descriptor,
+    pattern_key: &ProvenanceKey,
+) -> Result<Option<Box<krs_ir::SourceRange>>, DescriptorLoweringError> {
+    Ok(
+        semantic_origin(descriptor, pattern_key.clone(), "framed-rule-pattern")?
+            .origin()
+            .exact_authored_range()
+            .map(Box::new),
+    )
 }
 
 /// Whether `clause` matches its cell's every content: a fixed cell whose
@@ -2361,6 +2367,19 @@ pub(super) fn lower_structured_rule_descriptor(
         && rule.evaluation.is_none()
         && restriction.is_none()
         && super::function_patterns::collection_rooted(&rule.subject, catalog);
+    // A transition whose result is its subject rewrites the item to itself:
+    // the step from a configuration to itself that `check_step_effect`
+    // refuses on the cell routes, so it is refused here too.
+    if transition
+        && result
+            .as_ref()
+            .is_some_and(|result| same_term(&subject, result))
+    {
+        return Err(DescriptorLoweringError::RuleChangesNoCell {
+            rule: Box::new(descriptor.id().clone()),
+            range: step_range(descriptor, &rule.pattern_key)?,
+        });
+    }
     let lowered = if cell_result || collection_root {
         SemanticRule::new_configuration(
             origin,
