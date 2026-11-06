@@ -73,7 +73,9 @@ pub(super) fn elaborate(
     };
     closing.rule(&mut rule);
     let mut sorts = inferred.clone();
+    let mut hidden_names = BTreeSet::new();
     for (id, sort) in hidden {
+        hidden_names.insert(id.as_str().to_owned());
         // A parametric production's field has its instance's sort, which only the lowering of
         // the occurrence fixes.
         let Some(sort) = sort else {
@@ -87,6 +89,7 @@ pub(super) fn elaborate(
         rule: &rule,
         declarations,
         sorts: &sorts,
+        hidden: &hidden_names,
     }
     .rule())
 }
@@ -95,6 +98,9 @@ struct Elaborator<'a> {
     rule: &'a DescriptorHeadRule,
     declarations: &'a DescriptorIndex<'a>,
     sorts: &'a BTreeMap<String, SemanticSortRef>,
+    /// The long form's hidden binders: a record update's kept fields, which no node of the
+    /// readable rule writes.
+    hidden: &'a BTreeSet<String>,
 }
 
 type Elaborated<T> = Result<T, Unelaborated>;
@@ -187,7 +193,11 @@ impl Elaborator<'_> {
                 key,
                 sort: descriptor_sort(sort),
             };
-            if rule.claim.is_some() {
+            // A claim quantifies every variable it has; it lists each binder the author wrote,
+            // at the node that declares it. A hidden binder has no node of its own: the long
+            // form writes every hidden binder of an update at the update's base, so listing
+            // them would declare several binders at one node.
+            if rule.claim.is_some() && !self.hidden.contains(&binding.name) {
                 universals.push(DescriptorClaimBinder {
                     declaration_key: sort.key.clone(),
                     name_key: sort.key.clone(),
@@ -1142,6 +1152,12 @@ pub(super) fn shadow_check(
             )));
         }
     };
+    if let Some(universals) = unlisted_universals(rule, readable, &cells) {
+        return Err(disagreement(format!(
+            "lists other claim universals on the `cells!` route: {universals}"
+        )));
+    }
+    let repeated = repeated_node(&json(&cells));
     let mut readable = normalized(readable, false, shadow);
     let mut cells = normalized(&cells, true, shadow);
     for (route, value) in [("readable", &mut readable), ("`cells!`", &mut cells)] {
@@ -1158,12 +1174,75 @@ pub(super) fn shadow_check(
     if difference.is_some() {
         dump(&readable, &cells);
     }
-    match difference {
-        None => Ok(()),
-        Some((path, left, right)) => Err(disagreement(format!(
+    if let Some((path, left, right)) = difference {
+        return Err(disagreement(format!(
             "lowers differently at `{path}`: readable {left}, `cells!` {right}"
-        ))),
+        )));
     }
+    // A source-map key names one node: the IR's validation refuses a rule that gives two of
+    // its nodes one key, as it would refuse the `cells!` lowering if it were the rule's.
+    match repeated {
+        None => Ok(()),
+        Some(key) => {
+            dump(&readable, &cells);
+            Err(disagreement(format!(
+                "lowers on the `cells!` route with two nodes keyed `{key}`"
+            )))
+        }
+    }
+}
+
+/// Where a `cells!` claim's universals are not the binders the readable claim's author wrote,
+/// each at the sort the readable lowering declares it: what the `cells!` route lists, and what
+/// it should. A readable claim lists none (its variables are quantified as every claim
+/// variable is), so the list is checked against the readable rule's variables. A record
+/// update's hidden binders are no authored binders.
+fn unlisted_universals(
+    rule: &DescriptorHeadRule,
+    readable: &SemanticRule,
+    cells: &SemanticRule,
+) -> Option<String> {
+    let listed = cells
+        .claim()?
+        .universals()
+        .iter()
+        .map(|binder| (binder.id().as_str().to_owned(), binder.sort().clone()))
+        .collect::<Vec<_>>();
+    let authored = rule
+        .bindings
+        .iter()
+        .map(|binding| binding.name.as_str())
+        .collect::<BTreeSet<_>>();
+    let expected = readable
+        .variables()
+        .iter()
+        .filter(|variable| authored.contains(variable.id().as_str()))
+        .map(|variable| (variable.id().as_str().to_owned(), variable.sort().clone()))
+        .collect::<BTreeSet<_>>();
+    let once = listed.iter().cloned().collect::<BTreeSet<_>>();
+    (once.len() != listed.len() || once != expected)
+        .then(|| format!("{listed:?}, where the readable binders are {expected:?}"))
+}
+
+/// The first source-map key `rule` (its JSON) gives more than one node: each node's origin is
+/// its key beside its origin stack.
+fn repeated_node(rule: &Value) -> Option<String> {
+    fn keys<'v>(value: &'v Value, seen: &mut BTreeSet<&'v str>) -> Option<&'v str> {
+        match value {
+            Value::Array(items) => items.iter().find_map(|item| keys(item, seen)),
+            Value::Object(fields) => {
+                if fields.len() == 2
+                    && let (Some(Value::String(key)), Some(Value::Array(_))) =
+                        (fields.get("key"), fields.get("origin"))
+                {
+                    return (!seen.insert(key)).then_some(key.as_str());
+                }
+                fields.values().find_map(|field| keys(field, seen))
+            }
+            _ => None,
+        }
+    }
+    keys(rule, &mut BTreeSet::new()).map(str::to_owned)
 }
 
 /// The codes of the diagnostics a refusal gives, in order.
@@ -1218,32 +1297,19 @@ fn dump(
 ///   `semantic_origin_from_stack`), and the authored source each node is located at is compared;
 /// - the order of the declared variables, a set of declarations by name: no term refers to a
 ///   variable by position (sorted by [`shadow_check`], after [`canonical_wildcards`]);
-/// - a `cells!` claim's universals, once each is checked to be a variable of the same sort: a
-///   claim's variables are universally quantified whether or not it lists them, and the list
-///   records only where each is declared.
+/// - a `cells!` claim's universals, once [`unlisted_universals`] has checked them: a claim's
+///   variables are universally quantified whether or not it lists them, and the list records
+///   only where each is declared.
 fn normalized(rule: &SemanticRule, cells: bool, shadow: Shadow) -> Value {
     let mut value = json(rule);
     unlabelled(&mut value, shadow);
     unread_frames(&mut value);
     if cells
-        && let Some(claim) = rule.claim()
-        && !claim.universals().is_empty()
+        && let Some(Value::Array(universals)) = value
+            .get_mut("claim")
+            .and_then(|claim| claim.get_mut("universals"))
     {
-        let declared = rule
-            .variables()
-            .iter()
-            .map(|variable| (variable.id(), variable.sort()))
-            .collect::<BTreeSet<_>>();
-        if claim
-            .universals()
-            .iter()
-            .all(|binder| declared.contains(&(binder.id(), binder.sort())))
-            && let Some(Value::Array(universals)) = value
-                .get_mut("claim")
-                .and_then(|claim| claim.get_mut("universals"))
-        {
-            universals.clear();
-        }
+        universals.clear();
     }
     value
 }

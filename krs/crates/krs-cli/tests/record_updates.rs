@@ -947,3 +947,51 @@ fn a_group_child_below_a_base_is_rebuilt_from_its_children() {
     "#]]
     .assert_debug_eq(&outcomes);
 }
+
+/// A claim's update keeps the fields its base matched and it does not list, each its own
+/// hidden binder: `Tri { a: 0, ..t }` against `t @ Tri { .. }` keeps `b` and `c`. Each binder
+/// is a variable of the claim, quantified as every variable of a claim is, and the claim
+/// proves by the rule that takes the same step.
+#[test]
+fn a_claim_s_update_keeps_each_hidden_field() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(
+        temporary.path(),
+        "claim_hidden",
+        &format!(
+            "{PREAMBLE}
+#[k::constructors(sort = Exp, result = KResult)]
+#[k::precedence((Tri))]
+pub enum Tr {{
+    #[k::syntax(\"tri({{a}}, {{b}}, {{c}})\")]
+    Tri {{ a: Int, b: Int, c: Int }},
+}}
+
+k::rules! {{
+    for Machine;
+    use Cmd::*;
+    use Tr::*;
+
+    reset: {{ k: [Step {{ e: t @ Tri {{ .. }} }}, ..] }} => {{ k: [Tri {{ a: 0, ..t }}, ..] }};
+}}
+
+k::claims! {{
+    for Machine;
+    use Cmd::*;
+    use Tr::*;
+
+    #[k::claim(all_paths)]
+    resets: {{ k: [Step {{ e: t @ Tri {{ .. }} }}] }} => {{ k: [Tri {{ a: 0, ..t }}] }};
+}}
+"
+        ),
+    );
+    let (_, spec) = emitted(target.path(), &manifest);
+    expect_test::expect![[r#"
+        [resets]:
+            <k> step ( tri ( _ , TB:Int , TC:Int ) ) => tri ( 0 , TB:Int , TC:Int ) </k>"#]].assert_eq(&sentence(&spec, "resets"));
+    let (success, stdout, stderr) = krs(target.path(), &manifest, "prove", &[]);
+    assert!(success, "{stdout}\n{stderr}");
+    assert!(stdout.contains("SPEC.resets: proven"), "{stdout}");
+}
