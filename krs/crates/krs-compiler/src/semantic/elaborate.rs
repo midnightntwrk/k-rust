@@ -172,10 +172,15 @@ impl Elaborator<'_> {
                 .sorts
                 .get(&binding.name)
                 .ok_or(Unelaborated("a binding inference gave no sort"))?;
-            // A `where` sort is the binder's declaration; an inferred one is declared where the
-            // rule's subject is written, the nearest node holding its first occurrence.
+            // A `where` sort is the binder's declaration; an inferred one is declared at the
+            // binder's first occurrence in the subject, where a declaration it contradicts is
+            // reported, else at the subject.
             let key = binding.refinement.as_ref().map_or_else(
-                || rule.pattern_key.clone(),
+                || {
+                    first_in_subject(rule, &binding.name)
+                        .unwrap_or(&rule.pattern_key)
+                        .clone()
+                },
                 |refinement| refinement.key.clone(),
             );
             let sort = DescriptorSortReference {
@@ -500,6 +505,92 @@ impl Elaborator<'_> {
             )),
         }
     }
+}
+
+/// Where `name` first occurs in `rule`'s subject, in the order the subject is written: the
+/// computation's head, then each extra's subject side. A binder occurs as a variable (its own
+/// node), as `name @ ..` (its name), or as a map entry's value (the value).
+fn first_in_subject<'r>(rule: &'r DescriptorHeadRule, name: &str) -> Option<&'r ProvenanceKey> {
+    let terms =
+        |terms: Vec<&'r DescriptorTerm>| terms.into_iter().find_map(|term| first_in(term, name));
+    if let Some(key) = rule
+        .head
+        .as_ref()
+        .and_then(|head| terms(head.items.iter().collect()))
+    {
+        return Some(key);
+    }
+    rule.extras.iter().find_map(|extra| match extra {
+        ProtocolHeadRuleExtra::RewriteCell { before, .. } => first_in(before, name),
+        ProtocolHeadRuleExtra::HaveMap { entries, .. } => entries.iter().find_map(|entry| {
+            first_in(&entry.key, name)
+                .or_else(|| (entry.value_binding == name).then_some(&entry.value_key))
+        }),
+        ProtocolHeadRuleExtra::UpdateMap {
+            cell, base_binding, ..
+        } => (base_binding == name).then_some(&cell.key),
+        ProtocolHeadRuleExtra::RewriteState { before, .. } => terms(before.terms()),
+        ProtocolHeadRuleExtra::RewriteList { before, .. } => terms(before.terms()),
+    })
+}
+
+/// Where `name` first occurs in `term`, in preorder.
+fn first_in<'t>(term: &'t DescriptorTerm, name: &str) -> Option<&'t ProvenanceKey> {
+    let children: Vec<&DescriptorTerm> = match term {
+        DescriptorTerm::Variable {
+            key, name: found, ..
+        } => return (found == name).then_some(key),
+        DescriptorTerm::As {
+            binding_key,
+            name: found,
+            pattern,
+            ..
+        } => {
+            if found == name {
+                return Some(binding_key);
+            }
+            vec![pattern]
+        }
+        DescriptorTerm::Application {
+            arguments, update, ..
+        } => match arguments {
+            krs_ir::Arguments::Positional(values) => {
+                values.iter().map(|value| &**value).collect::<Vec<_>>()
+            }
+            krs_ir::Arguments::Named(values) => values.iter().map(|value| &*value.value).collect(),
+        }
+        .into_iter()
+        .chain(update.as_deref())
+        .collect(),
+        DescriptorTerm::Cell { fields, update, .. } => fields
+            .iter()
+            .map(|field| &*field.value)
+            .chain(update.as_deref())
+            .collect(),
+        DescriptorTerm::OrBool { arguments, .. } => arguments.iter().collect(),
+        DescriptorTerm::Or { alternatives, .. } => alternatives.iter().collect(),
+        DescriptorTerm::SortTest { operand, .. } => vec![operand],
+        DescriptorTerm::Matches {
+            subject, pattern, ..
+        } => vec![subject, pattern],
+        DescriptorTerm::Let {
+            pattern,
+            value,
+            body,
+            ..
+        } => vec![pattern, value, body],
+        DescriptorTerm::Closure { body, .. } => vec![body],
+        DescriptorTerm::Rewrite { from, to, .. } => {
+            std::iter::once(&**from).chain(to.as_deref()).collect()
+        }
+        DescriptorTerm::Literal { .. }
+        | DescriptorTerm::Wildcard { .. }
+        | DescriptorTerm::KeptRest { .. }
+        | DescriptorTerm::BuiltinToken { .. }
+        | DescriptorTerm::Anonymous { .. }
+        | DescriptorTerm::Lexeme { .. } => Vec::new(),
+    };
+    children.into_iter().find_map(|child| first_in(child, name))
 }
 
 /// A readable collection entry as `cells!` writes it: the other instances, `..` on both sides, are
