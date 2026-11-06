@@ -8097,7 +8097,12 @@ symbol = "resolve_contexts_pass"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/kompile/passes/resolve_contexts.rs"
-symbol = "resolve_context"
+symbol = "prepare_context"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/resolve_contexts.rs"
+symbol = "freezer_labels"
 
 [[node.cost]]
 mode = "one definition"

@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "kompile.contexts.resolve"
 //! name = "lowering of evaluation contexts"
-//! sites = ["resolve_contexts", "resolve_contexts_pass", "resolve_context"]
+//! sites = ["resolve_contexts", "resolve_contexts_pass", "prepare_context", "freezer_labels"]
 //! variable = "N = context and term nodes; C = generated rules and productions; P = visible productions; V = visible sentences; s = compared sentence size"
 //! counters = []
 //! no_counter = "context lowering has no dedicated counter"
@@ -17,6 +17,7 @@
 //! Lower evaluation contexts into heat/cool rules and freezer productions.
 #![deny(clippy::wildcard_enum_match_arm)]
 
+use super::number_sentences::unique_id_text;
 use crate::provenance::extend_unique_sentences as extend_unique;
 use std::{collections::BTreeMap, collections::BTreeSet, fmt, sync::Arc};
 
@@ -113,20 +114,20 @@ pub(crate) fn resolve_contexts_pass(
                 .map(|label| (label.to_owned(), sentence.attributes().clone()))
         })
         .collect::<BTreeMap<_, _>>();
-    let mut generated = Vec::new();
+    let mut prepared = Vec::new();
     let mut diagnostics = Vec::new();
-    // Invariant: `generated` holds, without duplicates, the sentences resolved from every context of `contexts` before `context`, `labels` every freezer label taken so far, and `diagnostics` their errors; each iteration consumes one context.
+    // Invariant: `prepared` holds the lowering of every context of `contexts` before `context` that has one, in order, and `diagnostics` the errors of the others; each iteration consumes one context.
     for context in contexts {
-        match resolve_context(
-            context,
-            productions,
-            &macro_labels,
-            &sentence_labels,
-            &mut labels,
-        ) {
-            Ok(sentences) => extend_unique(&mut generated, sentences),
+        match prepare_context(context, productions, &macro_labels, &sentence_labels) {
+            Ok(context) => prepared.push(context),
             Err(mut errors) => diagnostics.append(&mut errors),
         }
+    }
+    let freezer_labels = freezer_labels(&prepared, &mut labels);
+    let mut generated = Vec::new();
+    // Invariant: `generated` holds, without duplicates, the sentences of every prepared context before `context`, each around the freezer `freezer_labels` gives it; each iteration consumes one context.
+    for (context, freezer_label) in prepared.into_iter().zip(freezer_labels) {
+        extend_unique(&mut generated, context.lower(freezer_label, productions));
     }
     if !diagnostics.is_empty() {
         diagnostics.sort();
@@ -158,13 +159,33 @@ pub(crate) fn resolve_contexts_pass(
     Ok(output)
 }
 
-fn resolve_context(
+/// A context checked and taken apart, ready to lower around the freezer it is given.
+struct PreparedContext {
+    /// The context's term with its rewrite in place, where the heating and cooling rewrites go.
+    body: Term,
+    requires: Term,
+    /// The term the context rewrites: matched by heating, rebuilt by cooling.
+    cooled: Term,
+    /// What heating puts at the front of the computation.
+    heated: Term,
+    /// The freezer's arguments.
+    variables: Vec<Term>,
+    /// The part of the freezer's name the context's own content gives it.
+    hint: String,
+    /// The context's content, which orders the contexts that share a hint.
+    content: String,
+    attributes: Attributes,
+    heat_attributes: Attributes,
+    cool_attributes: Attributes,
+    origins: Vec<crate::provenance::ProvenanceLink>,
+}
+
+fn prepare_context(
     context: &Sentence,
     productions: &ProductionCatalog<'_>,
     macro_labels: &BTreeSet<LabelHead>,
     sentence_labels: &BTreeMap<String, Attributes>,
-    labels: &mut BTreeSet<Label>,
-) -> Result<Vec<Sentence>, Vec<Diagnostic>> {
+) -> Result<PreparedContext, Vec<Diagnostic>> {
     let Sentence::Context {
         body,
         requires,
@@ -256,34 +277,8 @@ fn resolve_context(
         }
     }
     let cooled = strip_metadata(&cooled);
-    let hint = freezer_hint(&cooled, scan.final_hole_position);
-    let freezer_label = unique_freezer_label(labels, &hint);
-
-    let mut freezer_items = vec![
-        ProductionItem::Terminal(freezer_label.name.clone()),
-        ProductionItem::Terminal("(".into()),
-    ];
-    for index in 0..variables.len() {
-        if index > 0 {
-            freezer_items.push(ProductionItem::Terminal(",".into()));
-        }
-        freezer_items.push(ProductionItem::NonTerminal {
-            sort: Sort::builtin(BuiltinSort::K),
-            name: None,
-        });
-    }
-    freezer_items.push(ProductionItem::Terminal(")".into()));
-    let freezer = Sentence::Production {
-        label: Some(freezer_label.clone()),
-        parameters: Vec::new(),
-        sort: Sort::builtin(BuiltinSort::KItem),
-        items: freezer_items,
-        attributes: Attributes::default(),
-    };
-    let frozen = Term::Apply {
-        label: freezer_label,
-        arguments: variables,
-    };
+    let hint = freezer_hint(&cooled, scan.final_hole_position, attributes);
+    let content = context_content(&body, &requires, attributes);
 
     let heat_attributes = rule_attributes(attributes, AttributeKey::Heat, "-heat");
     let cool_attributes = rule_attributes(attributes, AttributeKey::Cool, "-cool");
@@ -300,37 +295,96 @@ fn resolve_context(
         }
     }
 
-    let heated_and_frozen = Term::sequence([heated.clone(), frozen]);
-    let heat_rewrite = Term::Rewrite {
-        left: Box::new(cooled.clone()),
-        right: Box::new(heated_and_frozen.clone()),
-    };
-    let cool_rewrite = Term::Rewrite {
-        left: Box::new(heated_and_frozen),
-        right: Box::new(cooled),
-    };
-    let mut generated = vec![
-        freezer,
-        Sentence::Rule {
-            body: insert(body.clone(), heat_rewrite, productions).0,
-            requires: requires.clone(),
-            ensures: bool_token(true),
-            attributes: heat_attributes,
-        },
-        Sentence::Rule {
-            body: insert(body, cool_rewrite, productions).0,
-            requires: bool_token(true),
-            ensures: bool_token(true),
-            attributes: cool_attributes,
-        },
-    ];
-    let origins = sentence_origin_links(context);
-    // The freezer, heating, and cooling sentences all derive from this context alone.
-    for sentence in &mut generated {
-        sentence.attributes_mut().union_input_addresses(attributes);
-        seed_generated_sentence_origin(sentence, GeneratingPass::ResolveContexts, origins.clone());
+    Ok(PreparedContext {
+        body,
+        requires,
+        cooled,
+        heated,
+        variables,
+        hint,
+        content,
+        attributes: attributes.clone(),
+        heat_attributes,
+        cool_attributes,
+        origins: sentence_origin_links(context),
+    })
+}
+
+impl PreparedContext {
+    /// The freezer production and the heating and cooling rules around it.
+    fn lower(self, freezer_label: Label, productions: &ProductionCatalog<'_>) -> Vec<Sentence> {
+        let Self {
+            body,
+            requires,
+            cooled,
+            heated,
+            variables,
+            attributes,
+            heat_attributes,
+            cool_attributes,
+            origins,
+            ..
+        } = self;
+        let mut freezer_items = vec![
+            ProductionItem::Terminal(freezer_label.name.clone()),
+            ProductionItem::Terminal("(".into()),
+        ];
+        for index in 0..variables.len() {
+            if index > 0 {
+                freezer_items.push(ProductionItem::Terminal(",".into()));
+            }
+            freezer_items.push(ProductionItem::NonTerminal {
+                sort: Sort::builtin(BuiltinSort::K),
+                name: None,
+            });
+        }
+        freezer_items.push(ProductionItem::Terminal(")".into()));
+        let freezer = Sentence::Production {
+            label: Some(freezer_label.clone()),
+            parameters: Vec::new(),
+            sort: Sort::builtin(BuiltinSort::KItem),
+            items: freezer_items,
+            attributes: Attributes::default(),
+        };
+        let frozen = Term::Apply {
+            label: freezer_label,
+            arguments: variables,
+        };
+        let heated_and_frozen = Term::sequence([heated, frozen]);
+        let heat_rewrite = Term::Rewrite {
+            left: Box::new(cooled.clone()),
+            right: Box::new(heated_and_frozen.clone()),
+        };
+        let cool_rewrite = Term::Rewrite {
+            left: Box::new(heated_and_frozen),
+            right: Box::new(cooled),
+        };
+        let mut generated = vec![
+            freezer,
+            Sentence::Rule {
+                body: insert(body.clone(), heat_rewrite, productions).0,
+                requires,
+                ensures: bool_token(true),
+                attributes: heat_attributes,
+            },
+            Sentence::Rule {
+                body: insert(body, cool_rewrite, productions).0,
+                requires: bool_token(true),
+                ensures: bool_token(true),
+                attributes: cool_attributes,
+            },
+        ];
+        // The freezer, heating, and cooling sentences all derive from this context alone.
+        for sentence in &mut generated {
+            sentence.attributes_mut().union_input_addresses(&attributes);
+            seed_generated_sentence_origin(
+                sentence,
+                GeneratingPass::ResolveContexts,
+                origins.clone(),
+            );
+        }
+        generated
     }
-    Ok(generated)
 }
 
 struct HeatScan<'a, 'definition> {
@@ -539,30 +593,102 @@ fn find_cooled(term: &Term, productions: &ProductionCatalog<'_>) -> Option<Term>
     cooled
 }
 
-fn freezer_hint(cooled: &Term, hole_position: usize) -> String {
-    let Term::Apply { label, arguments } = cooled.unannotated() else {
-        return String::new();
-    };
-    let is_k_cast = label.generated()
-        == Some(GeneratedLabel::SemanticCast {
-            sort_text: BuiltinSort::K.k_name(),
-        });
-    #[expect(
-        clippy::wildcard_enum_match_arm,
-        reason = "Term is syntax; only the listed variants are special here"
-    )]
-    let name = if is_k_cast {
-        arguments
-            .first()
-            .and_then(|argument| match argument.unannotated() {
-                Term::Apply { label, .. } => Some(label.name.as_str()),
-                _ => None,
-            })
-            .unwrap_or(&label.name)
-    } else {
-        &label.name
-    };
+/// The part of a context's freezer name its own content gives it: the head of the term the
+/// context rewrites (for a K sequence, of the item holding the hole, or of its first item when no
+/// item holds it), or else the context's label, followed by the position of the hole among the
+/// context's variables. It reads nothing but the context, so no other context changes it.
+fn freezer_hint(cooled: &Term, hole_position: usize, attributes: &Attributes) -> String {
+    let name = content_head(cooled)
+        .or_else(|| attributes.string(AttributeKey::Label))
+        .unwrap_or_default();
     format!("{name}{hole_position}")
+}
+
+/// The label heading `term`: an application's label, the head of the term inside a sort cast,
+/// and, for a K sequence, the head of the item holding the hole (of the first item when no item
+/// holds it). A variable has no head, whatever sort a cast gives it, and neither has a token, an
+/// empty sequence or a term without a label: each gives `None`. A cast only states the sort of
+/// the term it holds, so the term names the context, not the cast.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Term is syntax; only the listed variants are special here"
+)]
+fn content_head(term: &Term) -> Option<&str> {
+    match term.unannotated() {
+        Term::Apply { label, arguments }
+            if matches!(label.generated(), Some(GeneratedLabel::SemanticCast { .. })) =>
+        {
+            arguments.first().and_then(content_head)
+        }
+        Term::Apply { label, .. } => Some(&label.name),
+        Term::Sequence(items) => items
+            .iter()
+            .find(|item| holds_hole(item))
+            .or_else(|| items.first())
+            .and_then(content_head),
+        _ => None,
+    }
+}
+
+fn holds_hole(term: &Term) -> bool {
+    let mut found = false;
+    term.visit_preorder(&mut |term| {
+        found |= matches!(term, Term::Variable { name, .. } if name == "HOLE");
+    });
+    found
+}
+
+/// The text of a context that two contexts differ in exactly when they denote different
+/// contexts: its term and condition with variables numbered by first occurrence, the way a
+/// rule's identifier text writes them, and its attributes other than where it was read.
+fn context_content(body: &Term, requires: &Term, attributes: &Attributes) -> String {
+    let mut written = Attributes::default();
+    for (key, value) in attributes.wire_entries() {
+        let provenance = AttributeKey::from_name(key)
+            .is_some_and(|key| key.is_provenance_only() || key.is_source_position());
+        if !provenance {
+            written.insert(key, value.clone());
+        }
+    }
+    let rule = Sentence::Rule {
+        body: body.clone(),
+        requires: requires.clone(),
+        ensures: bool_token(true),
+        attributes: Attributes::default(),
+    };
+    unique_id_text(&rule, &written)
+}
+
+/// The freezer label of each prepared context, in order.
+///
+/// A freezer is a symbol of the definition, and its name and the identifiers of the heating and
+/// cooling rules that mention it should change only when the context changes. A context whose
+/// hint no other context shares is named by the hint alone. Contexts sharing a hint are ordered by
+/// their content (declaration order only between contexts written alike) and numbered in that
+/// order, so adding or removing a context renames only contexts of the same hint. A name some
+/// production already has (in `labels`) is skipped.
+fn freezer_labels(prepared: &[PreparedContext], labels: &mut BTreeSet<Label>) -> Vec<Label> {
+    let mut by_hint = BTreeMap::<&str, Vec<usize>>::new();
+    for (index, context) in prepared.iter().enumerate() {
+        by_hint.entry(&context.hint).or_default().push(index);
+    }
+    let mut named = vec![None; prepared.len()];
+    // Invariant: `named` holds the label of every context whose hint precedes `hint`, and `labels` those labels besides the productions' own; each iteration names one hint's contexts.
+    for (hint, mut indices) in by_hint {
+        indices.sort_by(|left, right| {
+            prepared[*left]
+                .content
+                .cmp(&prepared[*right].content)
+                .then(left.cmp(right))
+        });
+        for index in indices {
+            named[index] = Some(unique_freezer_label(labels, hint));
+        }
+    }
+    named
+        .into_iter()
+        .map(|label| label.expect("every context has a hint"))
+        .collect()
 }
 
 fn unique_freezer_label(labels: &mut BTreeSet<Label>, hint: &str) -> Label {
@@ -750,7 +876,7 @@ mod stage_tests {
     use crate::{
         definition::{ProductionItem, Sentence},
         diagnostic::DiagnosticCode,
-        kompile::stage_harness::{render, run_to_stage, sentence_changes},
+        kompile::stage_harness::{labelled, module, render, run_to_stage, sentence_changes},
     };
 
     /// A context `C[HOLE] requires R` says: when `C[HOLE]` is the next computation and `R`
@@ -969,6 +1095,178 @@ endmodule
         ];
         expected.sort();
         assert_eq!(found, expected, "{frozen:#?}");
+    }
+
+    /// The freezer the heating rule labelled `label`-heat uses, and the `UNIQUE_ID`s of the
+    /// heating and cooling rules of `label`, after the stage that numbers sentences.
+    fn freezer_and_ids(source: &str, label: &str) -> (String, String, String) {
+        let run = run_to_stage(source, "number sentences");
+        let rule = |suffix: &str| {
+            let [rule] = labelled(run.output(), "MAIN", &format!("MAIN.{label}{suffix}"))[..]
+            else {
+                panic!("one rule labelled {label}{suffix}")
+            };
+            rule
+        };
+        let (heat, cool) = (rule("-heat"), rule("-cool"));
+        let id = |rule: &Sentence| {
+            rule.attributes()
+                .get_str("UNIQUE_ID")
+                .expect("numbered")
+                .to_owned()
+        };
+        let Sentence::Rule { body, .. } = heat else {
+            panic!("{}", render(heat))
+        };
+        let body = body.to_string();
+        let start = body.find("#freezer").expect("heating freezes");
+        let freezer = body[start..]
+            .split(['(', '`'])
+            .next()
+            .expect("a label")
+            .to_owned();
+        (freezer, id(heat), id(cool))
+    }
+
+    /// A freezer is a symbol of the definition generated for one context, so its name, and the
+    /// identifiers of the heating and cooling rules that mention it, depend on that context
+    /// alone. `hop`'s context rewrites a K sequence, whose first item names it; adding an unrelated
+    /// context before it, one more K sequence and one application, renames nothing of `hop`'s.
+    #[test]
+    fn adding_a_context_leaves_another_contexts_freezer_and_rule_identifiers() {
+        let alone = r#"
+module BOOL
+  syntax Bool ::= Bool "andBool" Bool [function, total, symbol(_andBool_), hook(BOOL.and)]
+                | "notBool" Bool [function, total, symbol(notBool_), hook(BOOL.not)]
+endmodule
+module MAIN
+  syntax K
+  syntax KResult
+  syntax Val ::= "v" [symbol(v)]
+  syntax KResult ::= Val
+  syntax Exp ::= Val
+               | hop(Exp) [symbol(hop)]
+               | jump(Exp) [symbol(jump)]
+               | wrap(Exp) [symbol(wrap)]
+  context [hop]: <k> hop(HOLE:Exp) ~> R:K </k>
+  configuration <k> v </k>
+endmodule
+"#;
+        let hop = "  context [hop]:";
+        let beside = alone.replace(
+            hop,
+            &format!(
+                "  context [jump]: <k> jump(HOLE:Exp) ~> R:K </k>\n  context wrap(HOLE:Exp)\n{hop}"
+            ),
+        );
+        let before = freezer_and_ids(alone, "hop");
+        assert_eq!(before.0, "#freezerhop0_", "{before:?}");
+        assert_eq!(freezer_and_ids(&beside, "hop"), before);
+        assert_eq!(freezer_and_ids(&beside, "jump").0, "#freezerjump0_");
+    }
+
+    /// The heating and cooling rules of module `MAIN` after the stage that numbers sentences,
+    /// each as its body (which names its freezer) and its `UNIQUE_ID`.
+    fn heat_and_cool_rules(source: &str) -> std::collections::BTreeSet<(String, String)> {
+        let run = run_to_stage(source, "number sentences");
+        module(run.output(), "MAIN")
+            .local_sentences
+            .iter()
+            .filter_map(|sentence| {
+                let Sentence::Rule {
+                    body, attributes, ..
+                } = &**sentence
+                else {
+                    return None;
+                };
+                (attributes.get("heat").is_some() || attributes.get("cool").is_some()).then(|| {
+                    let id = attributes
+                        .get_str("UNIQUE_ID")
+                        .expect("numbered")
+                        .to_owned();
+                    (body.to_string(), id)
+                })
+            })
+            .collect()
+    }
+
+    /// A sort-annotated variable is parsed as a sort cast of the variable, and a variable has no
+    /// head whatever its sort, so a K sequence led by one is named by the item holding the hole,
+    /// and a context whose hole item is the hole itself by its label. Adding unrelated contexts
+    /// led by a variable of the same sort, labelled and not, renames none of the other contexts'
+    /// freezers and moves none of their heating or cooling rules' identifiers.
+    #[test]
+    fn a_context_led_by_a_sorted_variable_is_named_by_its_hole_item_or_label() {
+        let alone = r#"
+module BOOL
+  syntax Bool ::= Bool "andBool" Bool [function, total, symbol(_andBool_), hook(BOOL.and)]
+                | "notBool" Bool [function, total, symbol(notBool_), hook(BOOL.not)]
+endmodule
+module MAIN
+  syntax K
+  syntax KResult
+  syntax Val ::= "v" [symbol(v)]
+  syntax KResult ::= Val
+  syntax Exp ::= Val
+               | hop(Exp) [symbol(hop)]
+               | jump(Exp) [symbol(jump)]
+               | wrap(Exp) [symbol(wrap)]
+  context [mine]: <k> V:Val ~> hop(HOLE:Exp) ~> R:K </k>
+  context <k> V:Val ~> hop(HOLE:Exp) </k>
+  context [lead]: <k> HOLE:Exp ~> R:K </k>
+  configuration <k> v </k>
+endmodule
+"#;
+        let mine = "  context [mine]:";
+        let beside = alone.replace(
+            mine,
+            &format!(
+                "  context [other]: <k> W:Val ~> jump(HOLE:Exp) </k>\n  context <k> W:Val ~> wrap(HOLE:Exp) ~> R:K </k>\n  context [also]: <k> HOLE:Exp ~> W:Val </k>\n{mine}"
+            ),
+        );
+        let names = |source: &str| ["mine", "lead"].map(|label| freezer_and_ids(source, label).0);
+        let named = names(alone);
+        assert!(named[0].starts_with("#freezerhop1_"), "{named:?}");
+        assert_eq!(named[1], "#freezerMAIN.lead0_", "{named:?}");
+        assert_eq!(names(&beside), named);
+        assert_eq!(freezer_and_ids(&beside, "other").0, "#freezerjump1_");
+        let (rules_alone, rules_beside) =
+            (heat_and_cool_rules(alone), heat_and_cool_rules(&beside));
+        assert_eq!(rules_alone.len(), 6, "{rules_alone:#?}");
+        let moved = rules_alone.difference(&rules_beside).collect::<Vec<_>>();
+        assert!(moved.is_empty(), "{moved:#?}");
+    }
+
+    /// Contexts whose content gives the same hint are numbered in the order of their content, not
+    /// of their declarations: writing them in the other order names each one alike.
+    #[test]
+    fn contexts_sharing_a_hint_are_numbered_by_content() {
+        let written = r#"
+module BOOL
+  syntax Bool ::= Bool "andBool" Bool [function, total, symbol(_andBool_), hook(BOOL.and)]
+                | "notBool" Bool [function, total, symbol(notBool_), hook(BOOL.not)]
+endmodule
+module MAIN
+  syntax K
+  syntax KResult
+  syntax Val ::= "v" [symbol(v)]
+  syntax KResult ::= Val
+  syntax Exp ::= Val
+               | pair(Exp, Exp) [symbol(pair)]
+  context [first]: pair(HOLE:Exp, E:Exp)
+  context [second]: pair(HOLE:Exp, E:Exp)
+  configuration <k> v </k>
+endmodule
+"#;
+        let swapped = written
+            .replace("[first]", "[placeholder]")
+            .replace("[second]", "[first]")
+            .replace("[placeholder]", "[second]");
+        let names = |source: &str| ["first", "second"].map(|label| freezer_and_ids(source, label));
+        let names_written = names(written);
+        assert_eq!(names_written[0].0, "#freezerpair0_", "{names_written:?}");
+        assert_eq!(names_written[1].0, "#freezerpair0_2", "{names_written:?}");
+        assert_eq!(names(&swapped), names_written);
     }
 
     /// Cooling matches the term the context rewrites HOLE to and plugs HOLE back in; a term
