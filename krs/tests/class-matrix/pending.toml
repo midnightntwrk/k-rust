@@ -2225,14 +2225,6 @@ deviation = "krs::expand::parse @ spelling"
 finding = "S0-9"
 deviation = "krs::expand::parse @ spelling"
 
-["k3/readable/g1-restore/kinds/frame/G { a: x, ..saved }"]
-finding = "S5-G1"
-deviation = "other K than cells/g1-restore/kinds/frame/k::fragment![crate::G { a: x, ..saved }]"
-
-["k3/readable/g1-restore/kinds/stack/[saved @ G { a: z, .. }, ..]"]
-finding = "S5-G1"
-deviation = "other K than cells/g1-restore/kinds/stack/k::configuration::Cell([saved @ k::fragment![crate::G { a: z, .. }], rest @ ..])"
-
 ["readable/g1-a/kinds/account/{ Acct { acounter: Some(x), ..me }, .. }"]
 finding = "S5-G3"
 deviation = "krs::expand::not-a-declaration @ spelling"
