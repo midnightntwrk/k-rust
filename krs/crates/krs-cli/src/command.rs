@@ -410,9 +410,11 @@ struct PreparedDefinition {
     /// command that lowers the definition ([`definition_warnings`]).
     raw_k_warnings: Vec<krs_diagnostic::Diagnostic>,
     /// `k::is!` and `k::project!` terms that test nothing, total functions
-    /// with arguments no equation defines, and tests of a partial construct
-    /// that do not protect it (`krs::analysis::dead-guard`), reported by every
-    /// command that lowers the definition ([`definition_warnings`]).
+    /// with arguments no equation defines, tests of a partial construct
+    /// that do not protect it (`krs::analysis::dead-guard`), and contexts and
+    /// strict positions whose hole can never be a result
+    /// (`krs::analysis::never-cools`), reported by every command that lowers
+    /// the definition ([`definition_warnings`]).
     sort_test_warnings: Vec<krs_diagnostic::Diagnostic>,
     bundle: DescriptorBundle,
     semantic: krs_ir_levels::SemanticTheory,
@@ -1283,7 +1285,8 @@ fn prepare_bundle_with<Kept>(
     count_definition(&mut measurement.counters, &lowered);
     let coverage = krs_compiler::coverage_warnings(semantic.modules())
         .into_iter()
-        .chain(krs_compiler::guard_warnings(semantic.modules()));
+        .chain(krs_compiler::guard_warnings(semantic.modules()))
+        .chain(krs_compiler::never_cooling_warnings(semantic.modules()));
     Ok((
         PreparedDefinition {
             collection_warnings: collected.envelopes,
@@ -1657,8 +1660,9 @@ fn push_trusted_claim_warnings(
 /// `krs::analysis::no-effect-entry` warnings of the entries it admitted, the
 /// `krs::expand::raw-hook` and `krs::semantic::raw-k` warnings of the
 /// package's allowed raw K, the `krs::analysis::trivial-sort-test`,
-/// `krs::analysis::uncovered-total-function`, and
-/// `krs::analysis::stale-underspecified` warnings, then
+/// `krs::analysis::uncovered-total-function`,
+/// `krs::analysis::stale-underspecified`, `krs::analysis::dead-guard`, and
+/// `krs::analysis::never-cools` warnings, then
 /// `warning[krs::partition::not-program-syntax]` for each `program`
 /// production that lowering placed in its package's semantics module.
 ///

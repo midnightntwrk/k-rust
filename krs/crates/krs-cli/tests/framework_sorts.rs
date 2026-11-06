@@ -458,3 +458,285 @@ fn a_context_in_a_definition_with_no_results_heats_and_never_cools() {
         assert!(stderr.contains("stuck after 2 steps"), "{name}: {stderr}");
     }
 }
+
+/// Two contexts in a definition with results: `Val` is below `Exp` and
+/// `KResult`, so a hole of sort `Exp` may be a result; no sort below `Stmt`
+/// is below `KResult`, so a hole of sort `Stmt` never is.
+const RESULTS_CONTEXTS: &str = r#"
+use k::{KResult, Term};
+use k::builtin::{Int, KSequence};
+
+k::sorts! {
+    Exp;
+    Val: Exp + KResult;
+    impl Val for Int;
+    Stmt;
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+pub enum Op {
+    #[k::syntax("neg ( {operand} )")]
+    Neg { operand: Exp },
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum Cmd {
+    #[k::syntax("run ( {body} )")]
+    Run { body: Stmt },
+    #[k::syntax("eval ( {e} )")]
+    Eval { e: Exp },
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(#[k::config_var(name = "PGM", main)] pgm: Stmt) -> Self {
+        Self { k: k::k![pgm] }
+    }
+}
+
+#[k::context(hole = h)]
+fn neg_operand(k::term![Op::Neg(h)]: Term<Exp>) {}
+
+#[k::context(hole = h)]
+fn run_body(k::term![Cmd::Run(h)]: Term<Stmt>) {}
+"#;
+
+/// Steps whose result sort is named: a context's `result = S`, and strict
+/// positions evaluated through context aliases. `Id` is below `Exp` and
+/// `ExecResult` and not below `KResult`. `tr` uses the one alias named
+/// `xlate`, whose result sort is `ExecResult`, so its `Id` position may be a
+/// result. `both` uses the two aliases named `both`: one names no result
+/// sort, so that context cools on the production's `KResult`, which no `Id`
+/// is; the other cools on `ExecResult`. A context with `result = ExecResult`
+/// over an `Id` hole may cool, one with `result = Value` never does.
+const ALIAS_RESULTS: &str = r#"
+use k::{KResult, Term};
+use k::builtin::{Bool, Id, Int, KSequence};
+
+k::sorts! {
+    Exp;
+    impl Exp for Id;
+    Value: Exp + KResult;
+    impl Value for Int;
+    ExecResult: Exp;
+    impl ExecResult for Int, Id;
+}
+
+#[k::constructors(sort = Exp, result = KResult)]
+#[rustfmt::skip]
+pub enum Op {
+    #[k::syntax("tr ( {name} )")] #[k::strict(using = xlate_exec)]
+    Tr { name: Id },
+    #[k::syntax("both ( {name} )")] #[k::strict(using = both_value)]
+    Both { name: Id },
+    #[k::syntax("read ( {name} )")]
+    Read { name: Id },
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+    #[k::cell]
+    pub evaluate: Bool,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Exp, evaluate: Bool) -> Self {
+        Self { k: k::k![pgm], evaluate }
+    }
+}
+
+#[k::context_alias(name = xlate, here = site, result = ExecResult)]
+fn xlate_exec(
+    k::cells! { k: k::configuration::KCell(site, tail @ ..), state @ .. }: Machine,
+) {
+}
+
+#[k::context_alias(name = both, here = site)]
+fn both_value(
+    k::cells! { k: k::configuration::KCell(site, tail @ ..), evaluate: k::configuration::Cell(false), state @ .. }: Machine,
+) {
+}
+
+#[k::context_alias(name = both, here = site, result = ExecResult)]
+fn both_exec(
+    k::cells! { k: k::configuration::KCell(site, tail @ ..), evaluate: k::configuration::Cell(true), state @ .. }: Machine,
+) {
+}
+
+#[k::context(hole = h, result = ExecResult)]
+fn read_exec(k::term![Op::Read(h)]: Term<Exp>) {}
+
+#[k::context(hole = h, result = Value)]
+fn read_value(k::term![Op::Read(h)]: Term<Exp>) {}
+"#;
+
+/// The `warning[krs::analysis::never-cools]` lines `krs check` prints, each
+/// followed by ` @ ` and the location its `-->` line names, from the package's
+/// `src/` on.
+fn never_cools_warnings(target: &Path, manifest: &Path) -> Vec<String> {
+    let (success, _, stderr) = krs(target, manifest, "check", &[]);
+    assert!(success, "{stderr}");
+    let lines = stderr.lines().collect::<Vec<_>>();
+    lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| line.starts_with("warning[krs::analysis::never-cools]"))
+        .map(|(index, line)| {
+            let location = lines
+                .get(index + 1)
+                .and_then(|next| next.trim_start().strip_prefix("--> "))
+                .map_or("no location", |path| {
+                    path.find("src/lib.rs").map_or(path, |start| &path[start..])
+                });
+            format!("{line} @ {location}")
+        })
+        .collect()
+}
+
+/// The `src/lib.rs:LINE:COLUMN` location of `needle`, the first occurrence
+/// inside the first occurrence of `anchor` in `source`.
+fn location_in(source: &str, anchor: &str, needle: &str) -> String {
+    let start = source.find(anchor).expect("the anchor is in the source");
+    let at = start + anchor.find(needle).expect("the needle is in the anchor");
+    let before = &source[..at];
+    let line = before.matches('\n').count() + 1;
+    let column = before.len() - before.rfind('\n').map_or(0, |newline| newline + 1) + 1;
+    format!("src/lib.rs:{line}:{column}")
+}
+
+/// A context, or a strict production's position, whose hole's sort shares no
+/// sort with terms with the step's result sort heats and never cools, so
+/// every command that lowers the definition warns at it, at the context's
+/// `hole` key or the position, naming the step and the hole's sort and saying
+/// what a result is there. In a definition with no results every hole is such
+/// a hole: a context outside an instance and one inside, and each position of
+/// a strict production. Where results exist, the lint follows the sorts: a
+/// hole of a sort with a result sort below it is not warned, and one with
+/// none is. A named result sort is the one judged: a context's
+/// `result = S`, and for a strict position evaluated through context aliases,
+/// each alias's `result = S`, or the production's result sort for an alias
+/// that names none.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one table of packages and the warnings each owes"
+)]
+fn a_hole_that_can_never_be_a_result_is_warned() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let no_results = "a term is a result when its sort is below `KResult`, and the definition declares no sort below `KResult`, so nothing is a result";
+    let tail = |result: &str| {
+        format!(
+            "to the front of the computation and no cooling ever plugs it back, so a run that reaches it stays stuck under the freezer; declare the sorts of evaluated values below `{result}` (or name the `result = S` whose values end the evaluation)"
+        )
+    };
+    let shares_none = |hole: &str, result: &str| {
+        format!(
+            "a term is a result there when its sort is below `{result}`, and no sort with terms is below both `{hole}` and `{result}`"
+        )
+    };
+    let context = |hole: &str, name: &str, sort: &str, reason: &str, result: &str, at: String| {
+        format!(
+            "warning[krs::analysis::never-cools]: the hole `{hole}` of the context `{name}` has sort `{sort}`, which can never be a result: {reason}; the context moves the hole {} @ {at}",
+            tail(result),
+        )
+    };
+    let strict = |position: &str, sort: &str, reason: &str, at: String| {
+        format!(
+            "warning[krs::analysis::never-cools]: the strict position {position} has sort `{sort}`, which can never be a result: {reason}; its heating moves the argument {} @ {at}",
+            tail("KResult"),
+        )
+    };
+    for (name, source, expected) in [
+        (
+            "never-fixed",
+            FIXED_CONTEXT,
+            vec![context(
+                "h",
+                "neg_operand",
+                "Exp",
+                no_results,
+                "KResult",
+                location_in(FIXED_CONTEXT, "= h)]\nfn neg_operand", "h"),
+            )],
+        ),
+        (
+            "never-instance",
+            INSTANCE_CONTEXT,
+            vec![context(
+                "h",
+                "hop_operand",
+                "Exp",
+                no_results,
+                "KResult",
+                location_in(INSTANCE_CONTEXT, "= h)]\nfn hop_operand", "h"),
+            )],
+        ),
+        (
+            "never-strict",
+            USES,
+            vec![
+                strict(
+                    "`lhs` of `Add`",
+                    "Exp",
+                    no_results,
+                    location_in(USES, "sequence = [lhs, rhs]", "lhs"),
+                ),
+                strict(
+                    "`rhs` of `Add`",
+                    "Exp",
+                    no_results,
+                    location_in(USES, "sequence = [lhs, rhs]", "rhs"),
+                ),
+            ],
+        ),
+        (
+            "never-results",
+            RESULTS_CONTEXTS,
+            vec![context(
+                "h",
+                "run_body",
+                "Stmt",
+                &shares_none("Stmt", "KResult"),
+                "KResult",
+                location_in(RESULTS_CONTEXTS, "= h)]\nfn run_body", "h"),
+            )],
+        ),
+        (
+            "never-alias-results",
+            ALIAS_RESULTS,
+            vec![
+                strict(
+                    "`name` of `Op::Both` through the context alias `both`",
+                    "Id",
+                    &shares_none("Id", "KResult"),
+                    location_in(ALIAS_RESULTS, "Both { name: Id }", "name"),
+                ),
+                context(
+                    "h",
+                    "read_value",
+                    "Id",
+                    &shares_none("Id", "Value"),
+                    "Value",
+                    location_in(ALIAS_RESULTS, "= h, result = Value", "h"),
+                ),
+            ],
+        ),
+    ] {
+        let manifest = package(temporary.path(), name, source);
+        assert_eq!(
+            never_cools_warnings(target.path(), &manifest),
+            expected,
+            "{name}"
+        );
+    }
+}
