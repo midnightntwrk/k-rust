@@ -895,6 +895,15 @@ fn keys_cells_rule(binders: &str, map: &str) -> String {
     )
 }
 
+/// A `cells!` rule `r` of `KEYS` that reads `item` at the front of the computation cell and the
+/// entry `entry` of `env`'s map, binding `binders`, and writes `v` wrapped to `acc`: the spelling
+/// of the readable `{ k: [item, ..], env: { entry, .. }, acc: _ } => { acc: Wrap(v) }`.
+fn keys_cells_store(binders: &str, item: &str, entry: &str) -> String {
+    format!(
+        "#[k::rule(label = \"r\")]\npub fn r(\n{binders}    k::cells! {{ k: k::configuration::KCell({item}, ..), env: k::configuration::Cell(k::map![{entry}, ..]), acc: k::configuration::Cell(_), state @ .. }}: Machine,\n) -> Machine {{\n    k::cells! {{ acc: k::configuration::Cell(ExpSyntax::Wrap(v)), ..state }}\n}}\n"
+    )
+}
+
 /// The rule `r` that `krs emit-k` writes for the package, one line each.
 fn emitted_rule(target: &Path, manifest: &Path) -> Vec<String> {
     let output_dir = manifest.parent().unwrap().join("emitted");
@@ -1240,6 +1249,130 @@ fn keys_in_an_order_of_lookups_are_accepted() {
                     "rule [r]:",
                     "<k> done => wrap ( X:KItem ) ... </k>",
                     "<acc> bag ( SetItem(X:KItem) SetItem(size ( X:KItem )) Rest:Set ) </acc>",
+                ],
+            ),
+        ]
+    "#]]
+    .assert_debug_eq(&emitted);
+}
+
+/// A readable key that the readable check admits while it holds an open record, an update or an
+/// alias's name is judged again in the elaborated rule, where each record is closed (`_` for each
+/// field it leaves out) and an update takes its fields from its base. The second judgement refuses
+/// nothing the first admitted: a key holding an open record that the first admits holds no
+/// function, so each `_` the closing adds stands in a selection key, and an update's fields are
+/// terms its base's pattern binds. Each rule is accepted, and emits the rule its closed `cells!`
+/// form emits.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One case per construct the readable check reads in a key, its `cells!` form, and the K both emit."
+)]
+fn a_readable_key_the_readable_check_admits_emits_the_k_of_its_closed_cells_form() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let cases = [
+        (
+            "selection-open-record",
+            keys_rule(
+                "{ k: [Done(), ..], env: { Pair { a: n, .. } -> v, .. }, acc: _ }",
+                "{ acc: Wrap(v) }",
+            ),
+            keys_cells_store(
+                "    n: KItem,\n    v: KItem,\n",
+                "ExpSyntax::Done()",
+                "ExpSyntax::Pair { a: n, b: _ } -> v",
+            ),
+        ),
+        (
+            "selection-open-record-bound",
+            keys_rule(
+                "{ k: [Wrap(x), ..], env: { Pair { a: x, .. } -> v, .. }, acc: _ }",
+                "{ acc: Wrap(v) }",
+            ),
+            keys_cells_store(
+                "    x: KItem,\n    v: KItem,\n",
+                "ExpSyntax::Wrap(x)",
+                "ExpSyntax::Pair { a: x, b: _ } -> v",
+            ),
+        ),
+        (
+            "computed-update",
+            keys_rule(
+                "{ k: [Wrap(p @ Pair { a: x, .. }), ..], env: { Size(Pair { b: Done(), ..p }) -> v, .. }, acc: _ }",
+                "{ acc: Wrap(v) }",
+            ),
+            keys_cells_store(
+                "    x: KItem,\n    v: KItem,\n",
+                "ExpSyntax::Wrap(ExpSyntax::Pair { a: x, b: _ })",
+                "Size(ExpSyntax::Pair { a: x, b: ExpSyntax::Done() }) -> v",
+            ),
+        ),
+        (
+            "alias-name",
+            keys_rule(
+                "{ k: [Wrap(p @ Pair { a: x, .. }), ..], env: { p -> v, .. }, acc: _ }",
+                "{ acc: Wrap(v) }",
+            ),
+            keys_cells_store(
+                "    p: Exp,\n    x: KItem,\n    v: KItem,\n",
+                "ExpSyntax::Wrap(p @ ExpSyntax::Pair { a: x, b: _ })",
+                "p -> v",
+            ),
+        ),
+    ];
+    let emitted = cases.map(|(name, readable, cells)| {
+        let readable_rule = emitted_rule(
+            target.path(),
+            &package(&temporary.path().join(name), KEYS, &readable),
+        );
+        let cells_rule = emitted_rule(
+            target.path(),
+            &package(
+                &temporary.path().join(format!("{name}-cells")),
+                KEYS,
+                &cells,
+            ),
+        );
+        assert_eq!(readable_rule, cells_rule, "{name}");
+        (name, readable_rule)
+    });
+    expect_test::expect![[r#"
+        [
+            (
+                "selection-open-record",
+                [
+                    "rule [r]:",
+                    "<k> done ... </k>",
+                    "<env> pair ( N:KItem , _ ) |-> V:KItem ... </env>",
+                    "<acc> _ => wrap ( V:KItem ) </acc>",
+                ],
+            ),
+            (
+                "selection-open-record-bound",
+                [
+                    "rule [r]:",
+                    "<k> wrap ( X:KItem ) ... </k>",
+                    "<env> pair ( X:KItem , _ ) |-> V:KItem ... </env>",
+                    "<acc> _ => wrap ( V:KItem ) </acc>",
+                ],
+            ),
+            (
+                "computed-update",
+                [
+                    "rule [r]:",
+                    "<k> wrap ( pair ( X:KItem , _ ) ) ... </k>",
+                    "<env> size ( pair ( X:KItem , done ) ) |-> V:KItem ... </env>",
+                    "<acc> _ => wrap ( V:KItem ) </acc>",
+                ],
+            ),
+            (
+                "alias-name",
+                [
+                    "rule [r]:",
+                    "<k> wrap ( ( pair ( X:KItem , _ ) #as P:Exp ) ) ... </k>",
+                    "<env> P:Exp |-> V:KItem ... </env>",
+                    "<acc> _ => wrap ( V:KItem ) </acc>",
                 ],
             ),
         ]
