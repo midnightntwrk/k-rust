@@ -37,10 +37,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
     CellCollectionType, Descriptor, DescriptorApplicationRef, DescriptorApplicationReference,
-    DescriptorCellIdentity, DescriptorHeadRuleExtra, DescriptorIndex, DescriptorPayload,
-    DescriptorTerm, ProtocolHeadRuleExtra, ProtocolHeadRuleListRest, ProtocolInstanceRest,
-    ProtocolRuleCells, ProtocolRuleFrame, ProtocolRuleInstance, ProtocolRuleMapBody,
-    ProtocolRuleStateTerm, ProvenanceKey, SetOperation, StableItemId, TermArgumentRef,
+    DescriptorCellIdentity, DescriptorHeadRule, DescriptorHeadRuleExtra, DescriptorIndex,
+    DescriptorPayload, DescriptorTerm, ProtocolHeadRuleExtra, ProtocolHeadRuleListRest,
+    ProtocolInstanceRest, ProtocolRuleCells, ProtocolRuleFrame, ProtocolRuleInstance,
+    ProtocolRuleMapBody, ProtocolRuleStateTerm, ProvenanceKey, SetOperation, StableItemId,
+    TermArgumentRef,
 };
 
 use super::{
@@ -77,6 +78,132 @@ pub(super) fn check(
         remainders: Vec::new(),
     };
     pattern.sentence(payload);
+    judge(descriptor, &pattern, catalog)
+}
+
+/// Refuses what [`check`] refuses, in the readable rule `rule` before it is elaborated, when one
+/// of its keys, set elements or Set collection instances holds a construct the elaboration
+/// rewrites there: an open constructor record `Ctor { f: e, .. }`, a record update
+/// `Ctor { f: e, ..base }`, or an alias `name @ pattern` or its name.
+///
+/// This check reads each of them where it stands in a key: a pattern-only construct below what
+/// the key computes is built, one outside it makes the key a selection, and an update computes.
+/// The elaborated rule says none of them as written. It names every field of a constructor's
+/// record, `_` for one a pattern leaves out, takes an update's fields from its base, drops an
+/// alias used only as a base, names every child of a labelled group record, and rebuilds a whole
+/// use of a group alias from its children. `cells!` notation writes no open constructor record
+/// and no update, and those rewrites of an alias follow from the updates. So such a key is
+/// judged as written here. A rule whose keys hold none of them keeps its keys as written, and is
+/// the elaborated rule's to judge ([`check`]).
+///
+/// # Errors
+///
+/// As [`check`].
+pub(in crate::semantic) fn check_readable(
+    descriptor: &Descriptor,
+    rule: &DescriptorHeadRule,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
+    declarations: &DescriptorIndex<'_>,
+) -> Result<(), DescriptorLoweringError> {
+    if !matches_evaluated_sentence(descriptor.payload()) {
+        return Ok(());
+    }
+    let mut pattern = Pattern {
+        declarations,
+        outside: BTreeSet::new(),
+        entries: Vec::new(),
+        remainders: Vec::new(),
+    };
+    pattern.readable_rule(rule);
+    let mut aliases = BTreeSet::new();
+    for term in crate::semantic::rules::head_rule_terms(rule) {
+        alias_names(term, &mut aliases);
+    }
+    let rewritten = pattern.entries.iter().any(|entry| match &entry.key {
+        EntryKey::Term(term) => readable_only(term, &aliases),
+        EntryKey::Instance(instance) => instance
+            .fields
+            .iter()
+            .flat_map(|field| field.value.terms())
+            .any(|term| readable_only(term, &aliases)),
+    });
+    if !rewritten {
+        return Ok(());
+    }
+    judge(descriptor, &pattern, catalog)
+}
+
+/// Every name an alias `name @ pattern` in `term` binds.
+fn alias_names<'t>(term: &'t DescriptorTerm, names: &mut BTreeSet<&'t str>) {
+    if let DescriptorTerm::As { name, .. } = term {
+        names.insert(name);
+    }
+    for child in children(term) {
+        alias_names(child, names);
+    }
+}
+
+/// Whether `term` holds an open constructor record, a record update, an alias, or a name one of
+/// `aliases` binds ([`check_readable`]).
+fn readable_only(term: &DescriptorTerm, aliases: &BTreeSet<&str>) -> bool {
+    let here = match term {
+        DescriptorTerm::Application { open, update, .. }
+        | DescriptorTerm::Cell { open, update, .. } => *open || update.is_some(),
+        DescriptorTerm::As { .. } => true,
+        DescriptorTerm::Variable { name, .. } => aliases.contains(name.as_str()),
+        _ => false,
+    };
+    here || children(term)
+        .into_iter()
+        .any(|child| readable_only(child, aliases))
+}
+
+/// The direct subterms of `term`.
+fn children(term: &DescriptorTerm) -> Vec<&DescriptorTerm> {
+    match term {
+        DescriptorTerm::Application {
+            arguments, update, ..
+        } => argument_values(arguments)
+            .chain(update.as_deref())
+            .collect(),
+        DescriptorTerm::Cell { fields, update, .. } => fields
+            .iter()
+            .map(|field| &*field.value)
+            .chain(update.as_deref())
+            .collect(),
+        DescriptorTerm::As { pattern, .. } => vec![pattern],
+        DescriptorTerm::OrBool { arguments, .. } => arguments.iter().collect(),
+        DescriptorTerm::Or { alternatives, .. } => alternatives.iter().collect(),
+        DescriptorTerm::SortTest { operand, .. } => vec![operand],
+        DescriptorTerm::Matches {
+            subject, pattern, ..
+        } => vec![subject, pattern],
+        DescriptorTerm::Let {
+            pattern,
+            value,
+            body,
+            ..
+        } => vec![pattern, value, body],
+        DescriptorTerm::Closure { body, .. } => vec![body],
+        DescriptorTerm::Rewrite { from, to, .. } => {
+            std::iter::once(&**from).chain(to.as_deref()).collect()
+        }
+        DescriptorTerm::Variable { .. }
+        | DescriptorTerm::Literal { .. }
+        | DescriptorTerm::Wildcard { .. }
+        | DescriptorTerm::KeptRest { .. }
+        | DescriptorTerm::BuiltinToken { .. }
+        | DescriptorTerm::Anonymous { .. }
+        | DescriptorTerm::Lexeme { .. } => Vec::new(),
+    }
+}
+
+/// The refusals of [`check`] over `pattern`, the pattern of `descriptor`'s sentence.
+fn judge(
+    descriptor: &Descriptor,
+    pattern: &Pattern<'_, '_>,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
+) -> Result<(), DescriptorLoweringError> {
     let keys = pattern
         .entries
         .iter()
@@ -94,7 +221,7 @@ pub(super) fn check(
             key
         })
         .collect::<Vec<_>>();
-    let order = Order::of(&pattern, &keys);
+    let order = Order::of(pattern, &keys);
     let item = || Box::new(descriptor.id().clone());
     // A computed key's built positions: below a construct it computes.
     let built = order
@@ -452,17 +579,56 @@ impl<'t> Pattern<'t, '_> {
                     self.cells(&context.cells);
                 }
             }
-            DescriptorPayload::HeadRule(rule) => {
-                for item in rule.head.iter().flat_map(|head| &head.items) {
-                    self.term(item);
-                }
-                for extra in &rule.extras {
-                    self.extra(extra);
-                }
-            }
             DescriptorPayload::ConfigurationRule(rule) => self.cells(&rule.subject),
             DescriptorPayload::ContextAlias(alias) => self.cells(&alias.pattern),
             _ => {}
+        }
+    }
+
+    /// A readable rule's pattern, as the author wrote it ([`check_readable`]): the computation's
+    /// items, then each extra's matched side.
+    fn readable_rule(&mut self, rule: &'t DescriptorHeadRule) {
+        for item in rule.head.iter().flat_map(|head| &head.items) {
+            self.term(item);
+        }
+        for extra in &rule.extras {
+            self.extra(extra);
+        }
+    }
+
+    /// The matched side of a readable rule's cell; a map update is what the
+    /// result writes, and its base binding names the whole map.
+    fn extra(&mut self, extra: &'t DescriptorHeadRuleExtra) {
+        match extra {
+            ProtocolHeadRuleExtra::HaveMap { entries, .. } => {
+                let collection = self.collection(None);
+                for entry in entries {
+                    self.entries.push(Entry {
+                        key: EntryKey::Term(&entry.key),
+                        lookup: Lookup::MapKey,
+                        values: vec![&entry.value_binding],
+                        collection,
+                    });
+                }
+            }
+            ProtocolHeadRuleExtra::UpdateMap { base_binding, .. } => {
+                self.outside.insert(base_binding);
+            }
+            ProtocolHeadRuleExtra::RewriteCell { before, .. } => self.term(before),
+            ProtocolHeadRuleExtra::RewriteState { cell, before, .. } => {
+                self.state(Some(&cell.cell), before);
+            }
+            ProtocolHeadRuleExtra::RewriteList { before, .. } => {
+                for term in &before.items {
+                    self.term(term);
+                }
+                if let ProtocolHeadRuleListRest::Term(rest) = &before.rest {
+                    self.term(rest);
+                }
+                for term in &before.back {
+                    self.term(term);
+                }
+            }
         }
     }
 
@@ -553,42 +719,6 @@ impl<'t> Pattern<'t, '_> {
                 self.term(term);
             }
             ProtocolRuleStateTerm::Absent => {}
-        }
-    }
-
-    /// The matched side of a readable rule's cell; a map update is what the
-    /// result writes, and its base binding names the whole map.
-    fn extra(&mut self, extra: &'t DescriptorHeadRuleExtra) {
-        match extra {
-            ProtocolHeadRuleExtra::HaveMap { entries, .. } => {
-                let collection = self.collection(None);
-                for entry in entries {
-                    self.entries.push(Entry {
-                        key: EntryKey::Term(&entry.key),
-                        lookup: Lookup::MapKey,
-                        values: vec![&entry.value_binding],
-                        collection,
-                    });
-                }
-            }
-            ProtocolHeadRuleExtra::UpdateMap { base_binding, .. } => {
-                self.outside.insert(base_binding);
-            }
-            ProtocolHeadRuleExtra::RewriteCell { before, .. } => self.term(before),
-            ProtocolHeadRuleExtra::RewriteState { cell, before, .. } => {
-                self.state(Some(&cell.cell), before);
-            }
-            ProtocolHeadRuleExtra::RewriteList { before, .. } => {
-                for term in &before.items {
-                    self.term(term);
-                }
-                if let ProtocolHeadRuleListRest::Term(rest) = &before.rest {
-                    self.term(rest);
-                }
-                for term in &before.back {
-                    self.term(term);
-                }
-            }
         }
     }
 

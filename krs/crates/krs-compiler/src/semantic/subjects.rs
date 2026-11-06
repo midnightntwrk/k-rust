@@ -166,26 +166,6 @@ fn typed_parts(descriptor: &Descriptor) -> Vec<TypedPart<'_>> {
             }
             parts
         }
-        DescriptorPayload::HeadRule(rule) => {
-            let mut cells = Vec::new();
-            if let Some(computation) = &rule.computation_cell {
-                cells.push((&computation.cell, computation.key.as_ref()));
-            }
-            for extra in &rule.extras {
-                let (ProtocolHeadRuleExtra::HaveMap { cell, .. }
-                | ProtocolHeadRuleExtra::UpdateMap { cell, .. }
-                | ProtocolHeadRuleExtra::RewriteCell { cell, .. }
-                | ProtocolHeadRuleExtra::RewriteState { cell, .. }
-                | ProtocolHeadRuleExtra::RewriteList { cell, .. }) = extra;
-                cells.push((&cell.cell, Some(&cell.key)));
-            }
-            vec![TypedPart {
-                configuration: &rule.configuration,
-                subject: rule.subject.as_ref(),
-                key: rule.configuration_key.as_ref(),
-                cells,
-            }]
-        }
         DescriptorPayload::ContextAlias(alias) => {
             vec![
                 TypedPart::of_reference(&alias.configuration)
@@ -206,6 +186,28 @@ fn typed_parts(descriptor: &Descriptor) -> Vec<TypedPart<'_>> {
         | DescriptorPayload::FixedConfiguration(_)
         | DescriptorPayload::Cell(_)
         | DescriptorPayload::Constant(_) => Vec::new(),
+        // The subjects are judged where the references are, before a readable rule is
+        // elaborated: its inference reads the cells it names, so it names them in scope first.
+        DescriptorPayload::HeadRule(rule) => {
+            let mut cells = Vec::new();
+            if let Some(computation) = &rule.computation_cell {
+                cells.push((&computation.cell, computation.key.as_ref()));
+            }
+            for extra in &rule.extras {
+                let (ProtocolHeadRuleExtra::HaveMap { cell, .. }
+                | ProtocolHeadRuleExtra::UpdateMap { cell, .. }
+                | ProtocolHeadRuleExtra::RewriteCell { cell, .. }
+                | ProtocolHeadRuleExtra::RewriteState { cell, .. }
+                | ProtocolHeadRuleExtra::RewriteList { cell, .. }) = extra;
+                cells.push((&cell.cell, Some(&cell.key)));
+            }
+            vec![TypedPart {
+                configuration: &rule.configuration,
+                subject: rule.subject.as_ref(),
+                key: rule.configuration_key.as_ref(),
+                cells,
+            }]
+        }
     }
 }
 
@@ -504,6 +506,7 @@ fn check_instance_key(
     let inside = |cell: &DescriptorCellIdentity| cells.contains(&cell);
     let refused = match descriptor.payload() {
         DescriptorPayload::ConfigurationRule(rule) => rule_key_write(rule, &inside),
+        // The subjects are judged before a readable rule is elaborated ([`typed_parts`]).
         DescriptorPayload::HeadRule(rule) => head_rule_key_write(rule, &inside),
         _ => None,
     };
@@ -742,22 +745,44 @@ fn rule_path(
     };
     match descriptor.payload() {
         DescriptorPayload::ConfigurationRule(sentence) => {
-            subject_path(tree, sentence.subject_configuration.subject.as_ref())
+            if let Some(subject) = &sentence.subject_configuration.subject {
+                subject_path(tree, Some(subject))
+            } else {
+                // A rule typed by the configuration runs where the cells it matches are:
+                // completion places each in one instance of each holder on its path, whose key
+                // the rule's evaluated applications are passed. The computation cell it matches
+                // decides; a rule that matches none is in the instances every cell it matches
+                // shares. A holder's own entry (an instance list, an optional cell's state)
+                // matches the holder whole, in none of its instances.
+                let paths = sentence.subject.cells.iter().filter_map(|cell| {
+                    let index = cell_index(tree, &cell.field.cell)?;
+                    let mut path = instance_path(tree, index);
+                    if path.last() == Some(&index) {
+                        path.pop();
+                    }
+                    Some((cell.wrapper == Some(krs_ir::CellWrapper::KCell), path))
+                });
+                let mut shared: Option<Vec<usize>> = None;
+                for (computation, path) in paths {
+                    if computation {
+                        return path;
+                    }
+                    shared = Some(match shared {
+                        None => path,
+                        Some(shared) => shared
+                            .into_iter()
+                            .zip(path)
+                            .take_while(|(left, right)| left == right)
+                            .map(|(left, _)| left)
+                            .collect(),
+                    });
+                }
+                shared.unwrap_or_default()
+            }
         }
         DescriptorPayload::ContextAlias(alias) => {
             subject_path(tree, alias.configuration.subject.as_ref())
         }
-        DescriptorPayload::HeadRule(sentence) if sentence.subject.is_some() => {
-            subject_path(tree, sentence.subject.as_ref())
-        }
-        // A configuration-typed record clause runs where its computation cell is: a cell at a
-        // fixed position, or the main cell for a table clause.
-        DescriptorPayload::HeadRule(sentence) => sentence
-            .computation_cell
-            .as_ref()
-            .and_then(|computation| cell_index(tree, &computation.cell))
-            .map(|index| instance_path(tree, index))
-            .unwrap_or_default(),
         DescriptorPayload::StructuredRule(sentence) => match &sentence.function_context {
             Some(context) => subject_path(tree, context.configuration.subject.as_ref()),
             None => main.to_vec(),

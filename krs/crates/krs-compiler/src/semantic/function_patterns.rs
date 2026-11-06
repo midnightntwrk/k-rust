@@ -65,10 +65,10 @@ use std::collections::BTreeMap;
 
 use krs_ir::{
     BuiltinOperation, CellCollectionType, Descriptor, DescriptorApplicationRef,
-    DescriptorCellIdentity, DescriptorHeadRuleExtra, DescriptorIndex, DescriptorPayload,
-    DescriptorTerm, ProtocolHeadRuleExtra, ProtocolHeadRuleListRest, ProtocolRuleInstances,
-    ProtocolRuleMapBody, ProtocolRuleStateTerm, ProvenanceKey, SentenceKind, SetOperation,
-    StableItemId, TermArgumentRef, TermMapOperation,
+    DescriptorCellIdentity, DescriptorHeadRule, DescriptorIndex, DescriptorPayload, DescriptorTerm,
+    ProtocolHeadRuleExtra, ProtocolHeadRuleListRest, ProtocolRuleInstances, ProtocolRuleMapBody,
+    ProtocolRuleStateTerm, ProvenanceKey, SentenceKind, SetOperation, StableItemId,
+    TermArgumentRef, TermMapOperation,
 };
 
 use super::catalog::ProductionSignature;
@@ -106,6 +106,61 @@ pub(super) fn check_function_patterns(
     Ok(())
 }
 
+/// The checks of this module that read a construct of the readable rule `rule` its elaboration
+/// rewrites, made before it is elaborated; the elaborated rule's patterns are
+/// [`check_function_patterns`]' to judge.
+///
+/// - **A record update** `Ctor { f: e, ..base }` in a matched collection instance, when it is
+///   the first construct its subject matches that computes. `..base` has no pattern meaning: it
+///   builds a record from the record `base` matched. A Set collection's computed instance is
+///   built, and looked up, so the update means the record it builds there; a Map or List
+///   collection's instance is matched, and there it means nothing. The elaborated rule cannot
+///   say so: it names every field of an update (the long form), which would give the matched
+///   instance the record that update builds, and the `cells!` notation has no update to write
+///   instead (`cells!` names every field).
+/// - **A function at the root of a `for Sort` clause's subject**, its one computation item,
+///   which the clause rewrites as a whole: there the function may be one the author meant to
+///   define, which the advice says. The elaborated rule matches that item as the first item of
+///   its computation, a slot like any other, and `cells!` writes no `for Sort` clause.
+/// - **A key, a set element or a Set collection's instance holding an open constructor record,
+///   a record update or an alias** ([`key_names::check_readable`]).
+///
+/// A function application found first anywhere else is the elaborated rule's to refuse, before
+/// its keys are judged, as a sentence's patterns are: the long form keeps it, and keeps the
+/// order of the subject's terms.
+///
+/// # Errors
+///
+/// Returns [`DescriptorLoweringError::RecordUpdateInPattern`] at the update's head,
+/// [`DescriptorLoweringError::FunctionInPattern`] at the `for Sort` subject's function, and
+/// [`key_names::check_readable`]'s errors.
+pub(super) fn check_readable_patterns(
+    descriptor: &Descriptor,
+    rule: &DescriptorHeadRule,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
+    declarations: &DescriptorIndex<'_>,
+) -> Result<(), DescriptorLoweringError> {
+    if !matches_evaluated_sentence(descriptor.payload()) {
+        return Ok(());
+    }
+    let patterns = Patterns {
+        catalog,
+        declarations: Some(declarations),
+        place: Place::Pattern,
+    };
+    match patterns.readable_rule(rule) {
+        Err(found)
+            if matches!(found.what, What::RecordUpdate)
+                || found.root == Some(Root::RuleSubject) =>
+        {
+            Err(refusal(descriptor, &found))
+        }
+        // The elaborated rule's patterns are judged before its keys, as a sentence's are.
+        Err(_) => Ok(()),
+        Ok(()) => key_names::check_readable(descriptor, rule, catalog, declarations),
+    }
+}
+
 /// Refuses the first function application in `pattern`, the pattern of a
 /// `let` or a `k::matches!` of `descriptor`'s sentence, wherever it stands:
 /// a local pattern matches the value its term computed, whose functions are
@@ -138,6 +193,8 @@ pub(super) fn matches_evaluated_sentence(payload: &DescriptorPayload) -> bool {
         DescriptorPayload::StructuredRule(rule) => {
             matches_evaluated_terms(rule.sentence_kind, false) && !rule.predicate
         }
+        // The inference front reads a readable rule before it is elaborated
+        // ([`super::elaborate::elaborate_readable_rules`]).
         DescriptorPayload::HeadRule(rule) => {
             matches_evaluated_terms(rule.sentence_kind, rule.claim.is_some())
         }
@@ -155,6 +212,7 @@ pub(super) fn matches_evaluated_sentence(payload: &DescriptorPayload) -> bool {
 pub(super) fn is_claim_sentence(payload: &DescriptorPayload) -> bool {
     match payload {
         DescriptorPayload::StructuredRule(rule) => rule.sentence_kind == SentenceKind::Claim,
+        // As in `matches_evaluated_sentence`: the inference front's.
         DescriptorPayload::HeadRule(rule) => rule.claim.is_some(),
         DescriptorPayload::ConfigurationRule(rule) => rule.claim.is_some(),
         _ => false,
@@ -216,21 +274,6 @@ fn sentence_patterns<'t>(
                 .iter()
                 .flat_map(|context| &context.cells.cells)
                 .try_for_each(|cell| patterns.state(Some(&cell.field.cell), &cell.value))
-        }
-        DescriptorPayload::HeadRule(rule) => {
-            // A `for Sort` clause's subject is its one computation item.
-            let root = if rule.head_sort.is_some() {
-                Root::RuleSubject
-            } else {
-                Root::Slot
-            };
-            rule.head
-                .iter()
-                .flat_map(|head| &head.items)
-                .try_for_each(|item| patterns.term(item, Some(root)))?;
-            rule.extras
-                .iter()
-                .try_for_each(|extra| patterns.extra(extra))
         }
         DescriptorPayload::ConfigurationRule(rule) => rule
             .subject
@@ -567,14 +610,26 @@ impl Patterns<'_> {
             .try_for_each(|child| children.state(None, &child.value))
     }
 
-    /// The matched side of a readable rule's cell: a cell's content, an
-    /// optional cell's state, a list cell's elements and rest. A map read's
-    /// keys are looked up, its values are binders, and a map update is what
-    /// the result writes.
-    fn extra<'t>(&self, extra: &'t DescriptorHeadRuleExtra) -> Result<(), Found<'t>> {
-        let root = Some(Root::Slot);
-        match extra {
-            ProtocolHeadRuleExtra::RewriteCell { before, .. } => self.term(before, root),
+    /// The matched side of a readable rule, in the order its elaboration
+    /// writes it: the computation's items, then each extra's matched side (a
+    /// cell's content, an optional cell's state, an instance list, a list
+    /// cell's elements and rest). A map read's keys are looked up, its values
+    /// are binders, and a map update is what the result writes.
+    fn readable_rule<'t>(&self, rule: &'t DescriptorHeadRule) -> Result<(), Found<'t>> {
+        // A `for Sort` clause's subject is its one computation item.
+        let root = Some(if rule.head_sort.is_some() {
+            Root::RuleSubject
+        } else {
+            Root::Slot
+        });
+        rule.head
+            .iter()
+            .flat_map(|head| &head.items)
+            .try_for_each(|item| self.term(item, root))?;
+        rule.extras.iter().try_for_each(|extra| match extra {
+            ProtocolHeadRuleExtra::RewriteCell { before, .. } => {
+                self.term(before, Some(Root::Slot))
+            }
             ProtocolHeadRuleExtra::RewriteState { cell, before, .. } => {
                 self.state(Some(&cell.cell), before)
             }
@@ -585,14 +640,14 @@ impl Patterns<'_> {
                     .chain(&before.back)
                     .try_for_each(|element| self.entries().term(element, None))?;
                 match &before.rest {
-                    ProtocolHeadRuleListRest::Term(rest) => self.term(rest, root),
+                    ProtocolHeadRuleListRest::Term(rest) => self.term(rest, Some(Root::Slot)),
                     ProtocolHeadRuleListRest::Exact | ProtocolHeadRuleListRest::Shared(_) => Ok(()),
                 }
             }
             ProtocolHeadRuleExtra::HaveMap { .. } | ProtocolHeadRuleExtra::UpdateMap { .. } => {
                 Ok(())
             }
-        }
+        })
     }
 
     /// `term`, matched at `root`, or below a root when `None`.
