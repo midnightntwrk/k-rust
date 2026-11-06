@@ -278,36 +278,25 @@ fn lower_module_descriptor(
             sentences.rules.push(lower_configuration_rule_descriptor(
                 descriptor,
                 rule,
+                declarations.readable.notes(descriptor.id()),
                 declarations.descriptors,
                 semantic_sort_parents,
                 production_catalog,
             )?);
         }
-        DescriptorPayload::HeadRule(rule) => {
-            let (lowered, inferred) = super::rules::lower_head_rule_descriptor(
-                descriptor,
-                rule,
-                declarations.descriptors,
-                semantic_sort_parents,
-                production_catalog,
-            )?;
-            // Scaffolding (S6-2a), removed with the readable lowering in S6-2b: under
-            // `KRS_READABLE_SHADOW` (`1`; `2` compares locations too) a rule whose sorts are
-            // inferred is also lowered as its elaborated `cells!` rule, whether the readable
-            // lowering accepts it or refuses it, and refused where the two lowerings differ.
-            if let Some(shadow) = super::elaborate::shadow() {
-                super::elaborate::shadow_check(
-                    shadow,
-                    descriptor,
-                    rule,
-                    lowered.as_ref(),
-                    &inferred,
-                    declarations.descriptors,
-                    semantic_sort_parents,
-                    production_catalog,
-                )?;
-            }
-            sentences.rules.push(lowered?);
+        // A readable rule that is still one did not elaborate: its refusal is reported here,
+        // where its sentence would be lowered.
+        DescriptorPayload::HeadRule(_) => {
+            return Err(declarations
+                .readable
+                .refusal(descriptor.id())
+                .cloned()
+                .unwrap_or_else(|| {
+                    DescriptorLoweringError::unsupported_shape(
+                        "readable rule",
+                        "a readable rule reached lowering without its elaboration",
+                    )
+                }));
         }
         DescriptorPayload::ContextAlias(alias) => {
             sentences
@@ -407,7 +396,6 @@ fn referenced_packages(descriptors: &[&Descriptor]) -> BTreeSet<PackageId> {
                     collect_rule_cells_packages(result, &mut packages);
                 }
             }
-            DescriptorPayload::HeadRule(rule) => collect_head_rule_packages(rule, &mut packages),
             DescriptorPayload::ContextAlias(alias) => {
                 collect_item_package(&alias.configuration.configuration, &mut packages);
                 for binding in &alias.bindings {
@@ -417,8 +405,9 @@ fn referenced_packages(descriptors: &[&Descriptor]) -> BTreeSet<PackageId> {
                 }
                 collect_rule_cells_packages(&alias.pattern, &mut packages);
             }
-            // Constants are substituted at their uses before lowering.
-            DescriptorPayload::Constant(_) => {}
+            // Constants are substituted at their uses before lowering, and a readable rule left
+            // readable did not elaborate, so its package is not lowered.
+            DescriptorPayload::Constant(_) | DescriptorPayload::HeadRule(_) => {}
         }
     }
     packages
@@ -484,76 +473,6 @@ fn collect_grammar_packages(grammar: &GrammarDescriptor, packages: &mut BTreeSet
         | GrammarDescriptor::Layout { .. }
         | GrammarDescriptor::RawSentence { .. }
         | GrammarDescriptor::SpecModule { .. } => {}
-    }
-}
-
-fn collect_head_rule_packages(
-    rule: &krs_ir::DescriptorHeadRule,
-    packages: &mut BTreeSet<PackageId>,
-) {
-    collect_item_package(&rule.configuration, packages);
-    if let Some(head_sort) = &rule.head_sort {
-        collect_sort_ref_package(&head_sort.sort, packages);
-    }
-    for binding in &rule.bindings {
-        if let Some(refinement) = &binding.refinement {
-            collect_sort_ref_package(&refinement.sort, packages);
-        }
-    }
-    if let Some(head) = &rule.head {
-        for term in &head.items {
-            collect_term_packages(term, packages);
-        }
-        match &head.result {
-            Some(krs_ir::ProtocolHeadRuleResult::Replace(term)) => {
-                collect_term_packages(term, packages);
-            }
-            Some(krs_ir::ProtocolHeadRuleResult::Splice(splice)) => {
-                for term in splice.terms() {
-                    collect_term_packages(term, packages);
-                }
-            }
-            Some(krs_ir::ProtocolHeadRuleResult::Erase) | None => {}
-        }
-    }
-    for extra in &rule.extras {
-        match extra {
-            krs_ir::ProtocolHeadRuleExtra::HaveMap { entries, .. } => {
-                for entry in entries {
-                    collect_term_packages(&entry.key, packages);
-                }
-            }
-            krs_ir::ProtocolHeadRuleExtra::UpdateMap { update, .. } => {
-                collect_term_packages(update, packages);
-            }
-            krs_ir::ProtocolHeadRuleExtra::RewriteCell { before, after, .. } => {
-                collect_term_packages(before, packages);
-                if let Some(after) = after {
-                    collect_term_packages(after, packages);
-                }
-            }
-            krs_ir::ProtocolHeadRuleExtra::RewriteState { before, after, .. } => {
-                for term in before
-                    .terms()
-                    .into_iter()
-                    .chain(after.iter().flat_map(|after| after.terms()))
-                {
-                    collect_term_packages(term, packages);
-                }
-            }
-            krs_ir::ProtocolHeadRuleExtra::RewriteList { before, after, .. } => {
-                for term in before
-                    .terms()
-                    .into_iter()
-                    .chain(after.iter().flat_map(krs_ir::ProtocolHeadRuleList::terms))
-                {
-                    collect_term_packages(term, packages);
-                }
-            }
-        }
-    }
-    if let Some(requires) = &rule.requires {
-        collect_term_packages(&requires.term, packages);
     }
 }
 

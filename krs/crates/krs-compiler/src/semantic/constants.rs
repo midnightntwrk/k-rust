@@ -486,6 +486,7 @@ fn check_constant(
     let binding_names = BTreeSet::new();
     let mut builder = StructuredTermBuilder {
         descriptor,
+        readable: false,
         catalog,
         declarations,
         k_item_sort: super::rules::framework_k_item_sort(declarations)?,
@@ -507,7 +508,6 @@ fn check_constant(
         configuration_variables: BTreeMap::new(),
         subject_keys: BTreeMap::new(),
         operators: super::operators::OperatorInference::default(),
-        list_rests: super::cons_lists::ListRests::default(),
         record_updates: super::record_updates::RecordUpdateState::default(),
         collections: super::infer::CollectionUse::none(),
     };

@@ -250,6 +250,38 @@ fn an_update_keeps_the_fields_it_does_not_list() {
     .assert_debug_eq(&outcomes);
 }
 
+/// An update of a parametric production's record takes the fields it leaves out at the
+/// record's instance, which the base's pattern writes: `..d` over `Duo::<Int>` fills `b` with a
+/// hidden binder of sort `Int`, and `jump`, which steps to `step(duo(1, 7))`, steps to
+/// `duo(2, 7)`, which `unduo` shows as `wrap(2, 7)`.
+#[test]
+fn an_update_of_a_parametric_record_keeps_its_fields_at_its_instance() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let library = format!(
+        "{PREAMBLE}{}",
+        r#"
+#[k::constructor(sort = Exp, syntax = "duo({a}, {b})")]
+pub struct Duo<S: ?Sized> {
+    pub a: Term<S>,
+    pub b: Term<S>,
+}
+
+k::rules! {
+    for Machine;
+    use Cmd::*;
+
+    make_duo: { k: [Jump(), ..] } => { k: [Step { e: Duo::<Int> { a: 1, b: 7 } }, ..] };
+    step_duo: { k: [Step { e: d @ Duo::<Int> { a: x, .. } }, ..] } => { k: [Duo::<Int> { a: int::add(x, 1), ..d }, ..] };
+    unduo: { k: [Duo::<Int> { a: x, b: y }, ..] } => { k: [Wrap { a: x, b: y }, ..] };
+}
+"#
+    );
+    let manifest = package(temporary.path(), "parametric-update", &library);
+    expect_test::expect![[r"jump => k: wrap(2, 7) ~> .K | gas: 5 | stack: .List | frame: <pc> 1 </pc> <fuel> 2 </fuel> <depth> 3 </depth>"]]
+        .assert_eq(&run(target.path(), &manifest, "jump"));
+}
+
 /// `krs expand` writes each update in full: the hidden binders become named
 /// binders, and an alias used only as a base loses its `@`. The expanded
 /// package runs every program to the same configuration.

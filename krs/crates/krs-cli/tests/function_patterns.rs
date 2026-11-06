@@ -990,6 +990,23 @@ fn a_key_is_computed_in_an_order_of_lookups_or_a_selection() {
                     "{ k: [..] }",
                 ),
             ),
+            // `cells!` writes no open record: it names every field of a record, `_` for one a
+            // pattern leaves out.
+            (
+                "built-open-record-cells",
+                &keys_cells_rule(
+                    "    n: KItem,\n    v: KItem,\n",
+                    "Size(ExpSyntax::Pair { a: n, .. }) -> v, ..",
+                ),
+            ),
+            // An open record is a selection, even with every field named.
+            (
+                "selection-open-record-every-field",
+                &keys_rule(
+                    "{ k: [Wrap(n), ..], env: { Pair { a: Size(n), b: n, .. } -> v, .. } }",
+                    "{ k: [..] }",
+                ),
+            ),
             (
                 "self-cycle",
                 &keys_rule(
@@ -1092,6 +1109,26 @@ fn a_key_is_computed_in_an_order_of_lookups_or_a_selection() {
                     [
                         "error[krs::syntax::invalid-record-update]: an open record `Ctor { f: e, .. }` stands below the function `Size` in a map key, which computes the value looked up, so the position is built: `..` stands only in a pattern, where it leaves the fields the record does not name unconstrained; a built term names every field of the record it builds, so it holds no `..`, even with every field named",
                         "--> src/lib.rs:54:40",
+                    ],
+                ),
+            ),
+            (
+                "built-open-record-cells",
+                (
+                    false,
+                    [
+                        "error[krs::analysis::invalid-record-update]: a `cells!` term, the reference notation, names every field of a record, `_` for one a pattern leaves unconstrained, and only a pattern's group record leaves its other children open (`k::fragment![G { c: e, .. }]`); `..base` and `..` are readable-record notation; here it stands in a map key in the subject of a `cells!` rule",
+                        "--> src/lib.rs:55:116",
+                    ],
+                ),
+            ),
+            (
+                "selection-open-record-every-field",
+                (
+                    false,
+                    [
+                        "error[krs::analysis::function-in-pattern]: the function `Size` stands in a map key that also holds an open record `Ctor { .. }`, so the key selects an entry by matching the evaluated keys the map holds rather than computing the key looked up; the function `Size` denotes the value evaluation produces, which no evaluated key is, so the key never matches: bind the selected part elsewhere in the pattern to look the entry up, or match a variable here and relate it to the application in a guard (`requires`)",
+                        "--> src/lib.rs:54:45",
                     ],
                 ),
             ),

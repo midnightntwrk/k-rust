@@ -1317,6 +1317,7 @@ fn lower_initializer_term(
     // the initializer places it.
     let mut builder = StructuredTermBuilder {
         descriptor,
+        readable: false,
         catalog,
         declarations,
         k_item_sort: super::rules::framework_k_item_sort(declarations)?,
@@ -1342,7 +1343,6 @@ fn lower_initializer_term(
         subject_keys: BTreeMap::new(),
         // A record update's base is a configuration variable or a name a `let` binds, a value
         // no pattern matched.
-        list_rests: super::cons_lists::ListRests::default(),
         record_updates: super::record_updates::RecordUpdateState {
             by_value: true,
             ..super::record_updates::RecordUpdateState::default()

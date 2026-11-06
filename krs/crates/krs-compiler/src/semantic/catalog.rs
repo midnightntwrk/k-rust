@@ -244,6 +244,8 @@ pub(super) fn build_production_catalog(
 pub(super) struct DeclarationCatalog<'a> {
     pub(super) descriptors: &'a DescriptorIndex<'a>,
     pub(super) metadata: &'a BTreeMap<StableItemId, DescriptorDeclaration>,
+    /// What each readable rule's elaboration records beside its descriptor.
+    pub(super) readable: &'a super::elaborate::ReadableRules,
 }
 
 /// The item sort of a `[..]` sequence: its items' one most-specific common sort.

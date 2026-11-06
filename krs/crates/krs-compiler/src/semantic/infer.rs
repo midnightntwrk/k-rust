@@ -34,8 +34,15 @@ pub(super) enum HeadPlace {
 const KEPT_REST_UNNAMED: &str =
     "an unnamed list rest stands only as the rest of a `cells!` list cell's root brackets";
 
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "Independent flags of one term's lowering, each read where it applies."
+)]
 pub(super) struct StructuredTermBuilder<'a> {
     pub(super) descriptor: &'a Descriptor,
+    /// Whether the rule was authored readable: its advice names a `where` narrowing, where a
+    /// `cells!` rule's names a typed binder. Compiler-internal, never on the wire.
+    pub(super) readable: bool,
     pub(super) catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
     pub(super) declarations: &'a DescriptorIndex<'a>,
     pub(super) k_item_sort: SemanticSortRef,
@@ -88,8 +95,6 @@ pub(super) struct StructuredTermBuilder<'a> {
     pub(super) operators: super::operators::OperatorInference,
     /// The sentence's record updates `Ctor { f: e, ..t }` (F5).
     pub(super) record_updates: super::record_updates::RecordUpdateState,
-    /// The names of the sentence's list cells' unnamed rests ([`super::cons_lists::ListRests`]).
-    pub(super) list_rests: super::cons_lists::ListRests,
     /// The element types of the sentence's typed collections.
     pub(super) collections: CollectionUse<'a>,
 }

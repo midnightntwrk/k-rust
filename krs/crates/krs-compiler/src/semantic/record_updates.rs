@@ -54,8 +54,9 @@ struct Alias {
     /// The `#[k::cell]` group the record is, for a group record.
     group: Option<StableItemId>,
     fills: BTreeMap<ProductionFieldId, Fill>,
-    /// The sort each hidden binder is declared at: its field's declared sort, or `None` for a
-    /// field of a parametric production, whose sort is its instance's.
+    /// The sort each hidden binder is declared at: its field's declared sort at the record's
+    /// instance, or `None` for a field of a parametric production whose pattern fixes no
+    /// instance.
     hidden_sorts: BTreeMap<SemanticId, Option<SemanticSortRef>>,
 }
 
@@ -78,6 +79,8 @@ struct Base<'a> {
     key: ProvenanceKey,
     record: Record,
     fields: PatternFields<'a>,
+    /// The sort arguments the record's pattern writes (`Ctor::<S> { .. }`), its instance.
+    instance: Vec<SemanticSortRef>,
     /// The fields some update leaves out, or every field of a record rebuilt
     /// whole.
     needed: BTreeSet<ProductionFieldId>,
@@ -256,12 +259,20 @@ fn update_bases<'a>(
                     .cloned(),
             );
         }
+        let instance = match found.pattern {
+            DescriptorTerm::Application { instance, .. } => instance
+                .iter()
+                .map(|sort| semantic_sort_ref(&sort.sort))
+                .collect(),
+            _ => Vec::new(),
+        };
         bases.insert(
             base.clone(),
             Base {
                 key: found.key.clone(),
                 record,
                 fields: pattern_fields,
+                instance,
                 needed,
             },
         );
@@ -402,7 +413,7 @@ fn alias_fills(
                     let id = names.allocate(name, &field)?;
                     hidden_sorts.insert(
                         id.clone(),
-                        field_sort(&base.record, &field, catalog, declarations)?,
+                        field_sort(&base.record, &base.instance, &field, catalog, declarations)?,
                     );
                     Fill::Hidden(id)
                 }
@@ -443,6 +454,7 @@ fn whole_group<'a>(
         key: key.clone(),
         record,
         fields,
+        instance: Vec::new(),
         needed: BTreeSet::new(),
     });
     let before = base.needed.len();
@@ -637,24 +649,35 @@ fn record_children(
 
 /// The sort `field` of `record` is declared at, the sort a hidden binder of it matches: a
 /// production field's sort, a group leaf child's content sort, or a nested group child's cell
-/// sort. `None` for a field of a parametric production, whose sort is that of the record's
-/// instance, which the declaration alone does not fix.
+/// sort. A parametric production's field declared at a parameter has that parameter's sort in
+/// the record's instance, the sort arguments its pattern writes (`instance`); `None` when the
+/// pattern writes none, as the declaration alone does not fix it.
 fn field_sort(
     record: &Record,
+    instance: &[SemanticSortRef],
     field: &ProductionFieldId,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
     declarations: &DescriptorIndex<'_>,
 ) -> Result<Option<SemanticSortRef>, DescriptorLoweringError> {
     match record {
         Record::Production(id) => Ok(catalog.get(id).and_then(|signature| {
-            if signature.parameters.is_empty() {
-                signature
-                    .fields
-                    .iter()
-                    .find(|(declared, _)| declared == field)
-                    .map(|(_, sort)| sort.clone())
-            } else {
-                None
+            let (_, sort) = signature
+                .fields
+                .iter()
+                .find(|(declared, _)| declared == field)?;
+            match sort {
+                SemanticSortRef::Parameter(parameter) => {
+                    if instance.len() != signature.parameters.len() {
+                        return None;
+                    }
+                    signature
+                        .parameters
+                        .iter()
+                        .position(|declared| declared == parameter)
+                        .and_then(|index| instance.get(index))
+                        .cloned()
+                }
+                sort => Some(sort.clone()),
             }
         })),
         Record::Cell(id) => {
@@ -878,7 +901,7 @@ impl RecordUpdates {
     /// The hidden binders the long form names, with the alias each belongs
     /// to, in a stable order.
     /// Each hidden binder with the sort its field is declared at (`None`: a parametric
-    /// production's field, whose sort is its instance's), in [`Self::hidden_binders`]' order.
+    /// production's field whose pattern fixes no instance), in [`Self::hidden_binders`]' order.
     pub(super) fn hidden_binder_sorts(&self) -> Vec<(SemanticId, Option<SemanticSortRef>)> {
         self.hidden_binders()
             .into_iter()
@@ -892,6 +915,19 @@ impl RecordUpdates {
                 (id, sort)
             })
             .collect()
+    }
+
+    /// The field the hidden binder `id` fills, with its base alias's `name @ pattern` key.
+    pub(super) fn hidden_binder_field(
+        &self,
+        id: &SemanticId,
+    ) -> Option<(&ProductionFieldId, &ProvenanceKey)> {
+        self.aliases.values().find_map(|alias| {
+            alias.fills.iter().find_map(|(field, fill)| match fill {
+                Fill::Hidden(hidden) if hidden == id => Some((field, &alias.key)),
+                _ => None,
+            })
+        })
     }
 
     pub(super) fn hidden_binders(&self) -> Vec<SemanticId> {
@@ -1380,14 +1416,28 @@ pub(super) fn head_rule_long_form_in(
                     refinement: None,
                 }),
         );
-    let hidden_sorts = updates.hidden_binder_sorts().into_iter().collect();
+    let hidden_sorts = updates
+        .hidden_binder_sorts()
+        .into_iter()
+        .map(|(id, sort)| {
+            let sort = sort.ok_or_else(|| {
+                let (field, key) = updates
+                    .hidden_binder_field(&id)
+                    .expect("a hidden binder fills a field of its base");
+                (field.clone(), key.clone())
+            });
+            (id, sort)
+        })
+        .collect();
     Ok((rule, hidden_sorts))
 }
 
-/// A readable rule in long form, with the declared sort of each hidden binder it names.
+/// A readable rule in long form, with the declared sort of each hidden binder it names, or the
+/// field of a parametric record it fills and its base alias's key where the base's pattern fixes
+/// no instance.
 pub(super) type HeadRuleLongForm = (
     krs_ir::DescriptorHeadRule,
-    BTreeMap<SemanticId, Option<SemanticSortRef>>,
+    BTreeMap<SemanticId, Result<SemanticSortRef, (ProductionFieldId, ProvenanceKey)>>,
 );
 
 /// The long form of a structured rule's terms, as [`head_rule_long_form`].

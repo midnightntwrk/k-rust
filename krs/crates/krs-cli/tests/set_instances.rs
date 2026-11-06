@@ -655,6 +655,9 @@ fn an_instance_that_is_not_computed_is_refused() {
     let target = shared_fixture_target();
     let cycle = "#[k::rule(label = \"cycle\")]\nfn cycle(\n    v: k::Term<Int>,\n    k::cells! {\n        k: k::configuration::KCell(Cmd::Probe(0), tail @ ..),\n        Objects::obj: {\n            k::fragment![crate::Obj { oid: int::add(v, 2), hits: 0 }],\n            instances0 @ ..\n        },\n        env: k::configuration::Cell(map![int::add(v, 1) -> v, ..]),\n        state @ ..\n    }: Machine,\n) -> Machine {\n    k::cells! { k: k::configuration::KCell(..tail), ..state }\n}\n";
     let open_map = "#[k::rule(label = \"open-map\")]\nfn open_map(\n    n: k::Term<Int>,\n    k::cells! {\n        k: k::configuration::KCell(Cmd::Probe(n), tail @ ..),\n        Sacks::bag: {\n            k::fragment![crate::Bag { key: n + 1, s: set![], m: map![1 -> 2, ..] }],\n            instances0 @ ..\n        },\n        state @ ..\n    }: Machine,\n) -> Machine {\n    k::cells! { k: k::configuration::KCell(..tail), ..state }\n}\n";
+    // The same update in an authored `cells!` rule, which names every field of a record and has
+    // no `..base` to write.
+    let cells_update = "#[k::rule(label = \"cells-update\")]\nfn cells_update(\n    n: k::Term<Int>,\n    v: k::Term<Stmt>,\n    k::cells! {\n        k: k::configuration::KCell(Cmd::Probe(n), v @ Cmd::Mk(_), tail @ ..),\n        Table::row: {\n            k::fragment![crate::Row { id: n, value: Cmd::Mk { oid: 1, ..v } }],\n            instances0 @ ..\n        },\n        state @ ..\n    }: Machine,\n) -> Machine {\n    k::cells! { k: k::configuration::KCell(..tail), ..state }\n}\n";
     let claim = "k::claims! {\n    for Machine;\n    use Cmd::*;\n\n    #[k::claim(all_paths)]\n    spelled: { k: [Probe(n), ..], obj: { Obj { oid: n + 1, hits: 0 } } } => { k: [..] };\n}\n";
     let errors = [
         vec![("PROBE", probe("obj: { Obj { oid: n + 1, .. }, .. }"))],
@@ -675,6 +678,7 @@ fn an_instance_that_is_not_computed_is_refused() {
             "probe: { k: [Probe(n), v @ Mk { .. }, ..], row: { Row { id: n, value: Mk { oid: 1, ..v } }, .. } } => { k: [..] };"
                 .to_owned(),
         )],
+        vec![("EXTRA", cells_update.to_owned())],
         vec![("EXTRA", open_map.to_owned())],
         vec![("EXTRA", claim.to_owned())],
         vec![("PROBE", probe("env: { Meta { a: n + 1, .. } -> v, .. }"))],
@@ -715,6 +719,10 @@ fn an_instance_that_is_not_computed_is_refused() {
             (
                 "error[krs::syntax::invalid-record-update]: a record update `Ctor { f: e, ..base }` stands in a Map collection's instance, which the pattern matches against the instances the collection holds: a Map collection pairs an instance's key cell with the whole instance, key cell included, as the value it maps to, so its cells are values a match compares (decision D1), where a Set collection's computed instance is looked up as the set's element; `..base` builds a record from the record `base` matched, which only a term a sentence builds can say, and a pattern denotes no record by it: name the fields the pattern constrains, and leave out the others with `..`",
                 "Mk",
+            ),
+            (
+                "error[krs::analysis::invalid-record-update]: a `cells!` term, the reference notation, names every field of a record, `_` for one a pattern leaves unconstrained, and only a pattern's group record leaves its other children open (`k::fragment![G { c: e, .. }]`); `..base` and `..` are readable-record notation; here it stands in the subject of a `cells!` rule",
+                "v",
             ),
             (
                 "error[krs::analysis::function-in-pattern]: the operator `+`, a builtin function, stands in a Set collection's instance that also holds `..` in a cell's map, which leaves its other entries open, so the instance selects one by matching the instances the collection holds as they stand, rather than computing the instance looked up; the operator `+`, a builtin function, denotes the value evaluation produces, which no cell of an instance holds, so this pattern describes an instance that never occurs and the sentence never applies: bind the selected part elsewhere in the pattern and write every cell to look the instance up, or match a variable here and relate it to the application in a guard (`requires`)",

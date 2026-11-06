@@ -19,7 +19,7 @@
 
 use krs_ir::{
     BuiltinSort, CollectionDomain, CollectionMethod, CollectionReading, DescriptorApplicationRef,
-    DescriptorApplicationReference, DescriptorPayload, DescriptorTerm, ProvenanceKey,
+    DescriptorApplicationReference, DescriptorTerm, ProvenanceKey,
 };
 use krs_ir_levels::{SemanticSortRef, SemanticTerm};
 
@@ -245,12 +245,11 @@ impl StructuredTermBuilder<'_> {
                     .domains()
                     .first()
                     .map_or("Map", |domain| domain.name());
-                let narrowing =
-                    if matches!(self.descriptor.payload(), DescriptorPayload::HeadRule(_)) {
-                        format!("`where {name}: {collection}`")
-                    } else {
-                        format!("the typed binder `{name}: Term<{collection}>`")
-                    };
+                let narrowing = if self.readable {
+                    format!("`where {name}: {collection}`")
+                } else {
+                    format!("the typed binder `{name}: Term<{collection}>`")
+                };
                 format!(
                     "`{}` has the receiver `{name}`, which no occurrence sorts{sorted}, so it chooses no collection; narrow it ({narrowing}) or write the call you mean: {calls}",
                     method.written()

@@ -274,15 +274,6 @@ fn lower_bundle(
     root: Option<&PackageId>,
 ) -> Result<RetainedLowering, DescriptorLoweringError> {
     let inlined = ordered_descriptors(bundle)?;
-    let retained_descriptors = if retain {
-        inlined
-            .descriptors
-            .iter()
-            .map(|descriptor| descriptor.as_ref().clone())
-            .collect()
-    } else {
-        Vec::new()
-    };
     let descriptors = inlined
         .descriptors
         .iter()
@@ -339,6 +330,27 @@ fn lower_bundle(
         &production_catalog,
         &semantic_sort_parents,
     )?;
+    // A readable rule means its elaborated `cells!` rule: from here on each is read in that one
+    // form, and one that does not elaborate keeps its refusal for its sentence's lowering.
+    let readable = elaborate::elaborate_readable_rules(
+        &descriptors,
+        &declarations,
+        &semantic_sort_parents,
+        &production_catalog,
+    );
+    let descriptors = descriptors
+        .iter()
+        .map(|descriptor| readable.descriptor(descriptor))
+        .collect::<Vec<&Descriptor>>();
+    let declarations = DescriptorIndex::from_descriptors(descriptors.iter().copied());
+    let retained_descriptors = if retain {
+        descriptors
+            .iter()
+            .map(|descriptor| (*descriptor).clone())
+            .collect()
+    } else {
+        Vec::new()
+    };
     // What a head resolves to decides these, about terms whose names and sorts the sentence's
     // lowering resolves: a sentence's name or sort mistake is told before them
     // ([`resolved_first`]).
@@ -384,6 +396,7 @@ fn lower_bundle(
     let declaration_catalog = DeclarationCatalog {
         descriptors: &declarations,
         metadata: &declaration_metadata,
+        readable: &readable,
     };
     let lowered = (|| {
         let mut modules = Vec::with_capacity(packages.len());

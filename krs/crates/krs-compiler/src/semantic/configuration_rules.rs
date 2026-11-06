@@ -19,6 +19,7 @@ use super::catalog::{ProductionSignature, common_sequence_item_sort, semantic_so
 use super::cell_states::content_wrapper;
 use super::collection_types::{CollectionTyping, Root, Walker};
 use super::configuration::{check_stdin_reads, stdin_cells};
+use super::elaborate::ReadableNotes;
 use super::error::DescriptorLoweringError;
 use super::infer::{
     CollectionUse, StructuredTermBuilder, declared_existentials, initial_binding_constraints,
@@ -63,8 +64,10 @@ struct StateRuleTerms<'a> {
     /// Whether a cell of a Set collection's instance the pattern looks up is
     /// being lowered ([`super::set_instances`]).
     looking_up: bool,
-    /// The keys of the anonymous cell frames no token denotes ([`inserted_frames`]).
+    /// The keys of the anonymous cell frames no token denotes ([`ReadableNotes`]).
     inserted_frames: &'a BTreeSet<ProvenanceKey>,
+    /// Whether the rule was authored readable ([`StructuredTermBuilder::readable`]).
+    readable: bool,
     /// The guards of the instances and the keys the pattern looks up, which
     /// the sentence's condition must hold: [`Self::finish`] hands them back.
     guards: super::set_instances::SentenceGuards,
@@ -91,6 +94,7 @@ impl<'a> StateRuleTerms<'a> {
             moved_remainders: Vec::new(),
             looking_up: false,
             inserted_frames: NO_INSERTED_FRAMES,
+            readable: false,
             guards: super::set_instances::SentenceGuards::default(),
         }
     }
@@ -146,6 +150,7 @@ impl<'a> StateRuleTerms<'a> {
         });
         let mut builder = StructuredTermBuilder {
             descriptor: self.descriptor,
+            readable: self.readable,
             catalog: self.catalog,
             declarations: self.declarations,
             k_item_sort: framework_k_item_sort(self.declarations)?,
@@ -167,7 +172,6 @@ impl<'a> StateRuleTerms<'a> {
             declared_binders: self.declared_binders.clone(),
             configuration_variables: BTreeMap::new(),
             subject_keys: BTreeMap::new(),
-            list_rests: super::cons_lists::ListRests::default(),
             record_updates: super::record_updates::RecordUpdateState::default(),
             collections: CollectionUse::new(self.collections),
         };
@@ -229,6 +233,7 @@ impl<'a> StateRuleTerms<'a> {
         let binding_names = binding_sorts.keys().cloned().collect::<BTreeSet<_>>();
         let mut builder = StructuredTermBuilder {
             descriptor: self.descriptor,
+            readable: self.readable,
             catalog: self.catalog,
             declarations: self.declarations,
             k_item_sort: framework_k_item_sort(self.declarations)?,
@@ -250,7 +255,6 @@ impl<'a> StateRuleTerms<'a> {
             declared_binders: self.declared_binders.clone(),
             configuration_variables: BTreeMap::new(),
             subject_keys: BTreeMap::new(),
-            list_rests: super::cons_lists::ListRests::default(),
             record_updates: super::record_updates::RecordUpdateState::default(),
             collections: CollectionUse::new(self.collections),
         };
@@ -737,42 +741,26 @@ fn configuration_rule_typing(
     walker.run(&roots)
 }
 
-pub(super) fn lower_configuration_rule_descriptor(
-    descriptor: &Descriptor,
-    rule: &krs_ir::DescriptorConfigurationRule,
-    declarations: &DescriptorIndex<'_>,
-    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
-    catalog: &BTreeMap<StableItemId, ProductionSignature>,
-) -> Result<SemanticRule, DescriptorLoweringError> {
-    lower_configuration_rule_with_inserted_frames(
-        descriptor,
-        rule,
-        NO_INSERTED_FRAMES,
-        declarations,
-        sort_parents,
-        catalog,
-    )
-}
-
 /// An authored `cells!` rule writes every frame it has: each `..` is a token.
 static NO_INSERTED_FRAMES: &BTreeSet<ProvenanceKey> = &BTreeSet::new();
 
-/// [`lower_configuration_rule_descriptor`] of a rule some of whose anonymous cell frames (`..`)
-/// no token denotes: the frames keyed by `inserted_frames` are the language's, added where the
-/// node of their key is, and are marked inserted ([`InsertedNode::CellFrame`]) as the readable
-/// lowering marks the frame a block-form clause leaves unwritten. A descriptor has no frame
-/// that is there without a token, and its provenance holds parser nodes only, so the mark
-/// travels beside it; only an elaborated readable rule ([`super::elaborate`]) has such frames.
+/// Lowers a configuration rule that is authored `cells!` (`readable` is
+/// `None`) or is a readable rule's elaboration ([`super::elaborate`]), with what the
+/// elaboration records beside it ([`ReadableNotes`]). Some of an elaborated rule's anonymous
+/// cell frames (`..`) no token denotes: the frames keyed by its `inserted_frames` are the
+/// language's, added where the node of their key is, and are marked inserted
+/// ([`InsertedNode::CellFrame`]). A descriptor has no frame that is there without a token, and
+/// its provenance holds parser nodes only, so the mark travels beside it.
 ///
 /// [`InsertedNode::CellFrame`]: krs_ir::InsertedNode::CellFrame
 #[expect(
     clippy::too_many_lines,
     reason = "The rewrite, its conditions, its claim metadata, and its binders are lowered in one ordered pass."
 )]
-pub(super) fn lower_configuration_rule_with_inserted_frames(
+pub(super) fn lower_configuration_rule_descriptor(
     descriptor: &Descriptor,
     rule: &krs_ir::DescriptorConfigurationRule,
-    inserted_frames: &BTreeSet<ProvenanceKey>,
+    readable: Option<&ReadableNotes>,
     declarations: &DescriptorIndex<'_>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
@@ -833,7 +821,8 @@ pub(super) fn lower_configuration_rule_with_inserted_frames(
         declared_binders,
         wildcard_ordinal,
         variables,
-        inserted_frames,
+        inserted_frames: readable.map_or(NO_INSERTED_FRAMES, |notes| &notes.inserted_frames),
+        readable: readable.is_some(),
         ..StateRuleTerms::new(descriptor, declarations, sort_parents, catalog, &typing)
     };
     let clauses = lower_configuration_rule_clauses(

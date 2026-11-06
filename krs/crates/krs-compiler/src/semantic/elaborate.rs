@@ -1,13 +1,13 @@
-//! A readable rule's `cells!` rule (S6 phase 2): the [`DescriptorConfigurationRule`] a readable
-//! rule elaborates to once its binders' sorts are inferred, and the shadow check that lowers it
-//! beside the readable lowering and refuses the rule where the two disagree.
+//! A readable rule's `cells!` rule: the [`DescriptorConfigurationRule`] a readable rule
+//! elaborates to once its binders' sorts are inferred, which is what the rule means. The pass
+//! [`elaborate_readable_rules`] replaces each readable rule's descriptor by its elaboration's
+//! before any descriptor-wide check reads a rule, so every later pass reads one form of a rule.
 //!
 //! The elaborated rule is built in memory and never serialized. Each key it needs and a readable
 //! rule lacks is borrowed from the nearest authored readable node, so a diagnostic on it lands
 //! on source the author wrote.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::OnceLock;
 
 use krs_ir::{
     CellWrapper, ConfigurationSentenceKind, Descriptor, DescriptorClaim, DescriptorClaimBinder,
@@ -19,35 +19,103 @@ use krs_ir::{
     ProtocolRuleKSequence, ProtocolRuleKSequenceItem, ProtocolRuleMap, ProtocolRuleMapBody,
     ProtocolRuleMapItem, ProtocolRuleStateTerm, ProvenanceKey, SentenceKind, StableItemId,
 };
-use krs_ir_levels::{SemanticRule, SemanticSortRef};
+use krs_ir_levels::SemanticSortRef;
 
 type DescriptorRuleCell = krs_ir::ProtocolRuleCell<krs_ir::DescriptorCellReference, DescriptorTerm>;
 use krs_syntax::ProvenanceRole;
-use serde_json::Value;
 
 use super::catalog::ProductionSignature;
 use super::error::DescriptorLoweringError;
 use super::origin::{key_range, role_key};
 use super::references::{declared_multiplicity, require_cell_field};
 
-/// What `KRS_READABLE_SHADOW` asks of every readable rule: `1` lowers it both ways and compares
-/// the two meanings; `2` also compares where each node is located.
-///
-/// Scaffolding for S6-2a: S6-2b lowers readable rules through [`elaborate`] and removes the
-/// switch with the readable lowering, so it has no documentation page.
-#[derive(Clone, Copy, Eq, PartialEq)]
-pub(super) enum Shadow {
-    Meaning,
-    Located,
+/// What a readable rule's elaboration records beside its descriptor, which the descriptor
+/// cannot say: compiler-internal, never on the wire. An authored `cells!` rule has none.
+#[derive(Debug, Default)]
+pub(super) struct ReadableNotes {
+    /// The keys of the rule's anonymous frames the readable author wrote no `..` for.
+    pub(super) inserted_frames: BTreeSet<ProvenanceKey>,
 }
 
-pub(super) fn shadow() -> Option<Shadow> {
-    static SHADOW: OnceLock<Option<Shadow>> = OnceLock::new();
-    *SHADOW.get_or_init(|| match std::env::var("KRS_READABLE_SHADOW").as_deref() {
-        Ok("1") => Some(Shadow::Meaning),
-        Ok("2") => Some(Shadow::Located),
-        _ => None,
-    })
+/// A bundle's readable rules, each replaced by its elaboration ([`elaborate_readable_rules`]).
+#[derive(Debug, Default)]
+pub(super) struct ReadableRules {
+    /// Each readable rule's elaborated descriptor (its id, a `ConfigurationRule` payload) and
+    /// notes, or the refusal its inference, a readable-only check or its elaboration gives.
+    rules: BTreeMap<StableItemId, Result<(Descriptor, ReadableNotes), DescriptorLoweringError>>,
+}
+
+impl ReadableRules {
+    /// The descriptor every later pass reads for `descriptor`: its elaboration's, for a readable
+    /// rule that elaborates, else `descriptor` itself.
+    pub(super) fn descriptor<'a>(&'a self, descriptor: &'a Descriptor) -> &'a Descriptor {
+        match self.rules.get(descriptor.id()) {
+            Some(Ok((elaborated, _))) => elaborated,
+            _ => descriptor,
+        }
+    }
+
+    /// The notes of the rule `id` when it is an elaborated readable rule.
+    pub(super) fn notes(&self, id: &StableItemId) -> Option<&ReadableNotes> {
+        match self.rules.get(id) {
+            Some(Ok((_, notes))) => Some(notes),
+            _ => None,
+        }
+    }
+
+    /// The refusal of the readable rule `id`, which stays a readable rule for lowering to
+    /// report where the rule's sentence is lowered: a sentence's own resolution error.
+    pub(super) fn refusal(&self, id: &StableItemId) -> Option<&DescriptorLoweringError> {
+        match self.rules.get(id) {
+            Some(Err(error)) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+/// Elaborates every readable rule of `descriptors`: its binders' sorts inferred and its
+/// readable-only checks made ([`super::rules::infer_head_rule_sorts`]), then [`elaborate`]d.
+/// Run once the declarations, the sort parents and the production catalog exist, before any
+/// descriptor-wide check reads a rule.
+pub(super) fn elaborate_readable_rules(
+    descriptors: &[&Descriptor],
+    declarations: &DescriptorIndex<'_>,
+    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
+) -> ReadableRules {
+    let rules = descriptors
+        .iter()
+        .filter_map(|descriptor| {
+            let DescriptorPayload::HeadRule(rule) = descriptor.payload() else {
+                return None;
+            };
+            let elaborated = super::rules::infer_head_rule_sorts(
+                descriptor,
+                rule,
+                declarations,
+                sort_parents,
+                catalog,
+            )
+            .and_then(|inferred| elaborate(descriptor, rule, &inferred, declarations, catalog))
+            .and_then(|elaboration| match elaboration {
+                Ok(Elaboration {
+                    descriptor,
+                    inserted_frames,
+                    ..
+                }) => Ok((descriptor, ReadableNotes { inserted_frames })),
+                Err(Unelaborated(form)) => Err(DescriptorLoweringError::unsupported_shape(
+                    "readable rule",
+                    format!("{form} has no `cells!` rule"),
+                )
+                .within(
+                    descriptor.id(),
+                    key_range(descriptor, &rule.pattern_key).as_ref(),
+                )),
+            });
+            Some((descriptor.id().clone(), elaborated))
+        })
+        .collect();
+    ReadableRules { rules }
 }
 
 /// A readable form [`elaborate`] has no `cells!` rule for yet.
@@ -77,13 +145,18 @@ pub(super) fn elaborate(
     keys.rule(&mut rule);
     let mut sorts = inferred.clone();
     for (id, sort) in hidden {
-        // A parametric production's field has its instance's sort, which only the lowering of
-        // the occurrence fixes.
-        let Some(sort) = sort else {
-            return Ok(Err(Unelaborated(
-                "a hidden binder of a parametric production's field",
-            )));
-        };
+        // A parametric production's field has its instance's sort: the sort arguments the base's
+        // pattern writes give it, and a pattern that writes none leaves it unknown.
+        let sort = sort.map_err(|(field, key)| {
+            DescriptorLoweringError::invalid_term(
+                descriptor.id(),
+                format!(
+                    "the field `{}` of a parametric record takes the sort of its instance; write the field, or fix the instance with a turbofish",
+                    field.as_str()
+                ),
+            )
+            .within(descriptor.id(), key_range(descriptor, &key).as_ref())
+        })?;
         sorts.insert(id.as_str().to_owned(), sort);
     }
     let elaborated = match (Elaborator {
@@ -98,7 +171,7 @@ pub(super) fn elaborate(
     };
     let copy = descriptor
         .with_generated_nodes(
-            DescriptorPayload::ConfigurationRule(Box::new(elaborated.clone())),
+            DescriptorPayload::ConfigurationRule(Box::new(elaborated)),
             keys.origins,
         )
         .map_err(|error| {
@@ -106,7 +179,6 @@ pub(super) fn elaborate(
         })?;
     Ok(Ok(Elaboration {
         descriptor: copy,
-        rule: elaborated,
         inserted_frames: keys.inserted_frames,
     }))
 }
@@ -115,7 +187,6 @@ pub(super) fn elaborate(
 pub(super) struct Elaboration {
     /// The readable rule's descriptor with the elaborated rule as its payload.
     pub(super) descriptor: Descriptor,
-    pub(super) rule: DescriptorConfigurationRule,
     /// The keys of the rule's anonymous frames the readable author wrote no `..` for.
     pub(super) inserted_frames: BTreeSet<ProvenanceKey>,
 }
@@ -370,12 +441,14 @@ impl Elaborator<'_> {
                 }
             };
             let sequence =
-                |payload_key: ProvenanceKey, items: Vec<&DescriptorTerm>| DescriptorRuleCell {
+                |payload_key: ProvenanceKey,
+                 tail_key: &ProvenanceKey,
+                 items: Vec<&DescriptorTerm>| DescriptorRuleCell {
                     field: field.clone(),
                     wrapper_key: Some(key.clone()),
                     wrapper: Some(CellWrapper::KCell),
                     value: ProtocolRuleStateTerm::KSequence(ProtocolRuleKSequence {
-                        tail: tail(&payload_key),
+                        tail: tail(tail_key),
                         payload_key,
                         dot_k_key: None,
                         notation: DescriptorKSequenceNotation::Comma,
@@ -388,8 +461,15 @@ impl Elaborator<'_> {
                             .collect(),
                     }),
                 };
-            // The readable lowering locates the computation's subject at the pattern and its
-            // result at the result expression.
+            // The matched sequence is the subject's `k: [..]` entry, where a mistake about the
+            // sequence as a whole (its items' common sort) is told; a `for Sort` clause names
+            // no cell, and its sequence is the clause's pattern. The result's is the result
+            // expression.
+            let mut subject_key = computation
+                .key
+                .clone()
+                .unwrap_or_else(|| rule.pattern_key.clone());
+            keys.key("k-sequence", &mut subject_key);
             let items = head
                 .items
                 .iter()
@@ -405,14 +485,18 @@ impl Elaborator<'_> {
                 // is the language's, at the clause.
                 keys.inserted_frames.insert(rule.pattern_key.clone());
             }
-            subject.push(sequence(rule.pattern_key.clone(), items.iter().collect()));
+            subject.push(sequence(
+                subject_key,
+                &rule.pattern_key,
+                items.iter().collect(),
+            ));
             if let Some(after) = &head.result {
                 let items = match after {
                     ProtocolHeadRuleResult::Replace(term) => vec![term],
                     ProtocolHeadRuleResult::Splice(splice) => splice.terms().collect(),
                     ProtocolHeadRuleResult::Erase => Vec::new(),
                 };
-                result.push(sequence(rule.result_key.clone(), items));
+                result.push(sequence(rule.result_key.clone(), &rule.result_key, items));
             }
         }
         for (ordinal, extra) in rule.extras.iter().enumerate() {
@@ -549,11 +633,26 @@ impl Elaborator<'_> {
                 after,
                 ..
             } => {
+                // `Some(..)` and `None` stay as written, so the `cells!` lowering judges them
+                // against the cell's multiplicity as it judges an authored entry.
                 let state = |state: &ProtocolRuleStateTerm<DescriptorTerm>| match state {
                     ProtocolRuleStateTerm::Absent => Ok(ProtocolRuleStateTerm::Absent),
                     ProtocolRuleStateTerm::Present { value } => match &**value {
                         ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term) => {
-                            content(field, term)
+                            let declared = require_cell_field(&field.cell, self.declarations)
+                                .map_err(|_| Unelaborated("a cell the declarations lack"))?;
+                            Ok(ProtocolRuleStateTerm::Present {
+                                value: Box::new(
+                                    if matches!(
+                                        declared.content,
+                                        ProtocolCellContent::Nested { .. }
+                                    ) {
+                                        ProtocolRuleStateTerm::Group(term.clone())
+                                    } else {
+                                        ProtocolRuleStateTerm::Term(term.clone())
+                                    },
+                                ),
+                            })
                         }
                         _ => Err(Unelaborated("a present state holding no term")),
                     },
@@ -1330,534 +1429,5 @@ fn descriptor_sort(sort: &SemanticSortRef) -> DescriptorSortRef {
         SemanticSortRef::Builtin(sort) => DescriptorSortRef::Builtin(*sort),
         SemanticSortRef::Cell(id) => DescriptorSortRef::Cell(id.clone()),
         SemanticSortRef::Parameter(name) => DescriptorSortRef::Parameter(name.as_str().to_owned()),
-    }
-}
-
-/// Lowers `rule`'s elaboration through the `cells!` lowering and refuses the rule where it
-/// differs from `readable`, the readable lowering of the same rule, accepted or refused: a rule
-/// one lowering accepts and the other refuses is a disagreement, and so is a rule both refuse
-/// with different codes (under [`Shadow::Located`], or at different ranges).
-#[expect(
-    clippy::too_many_arguments,
-    clippy::too_many_lines,
-    reason = "Scaffolding: the readable lowering's inputs and both of its outputs, and one arm per pair of outcomes."
-)]
-pub(super) fn shadow_check(
-    shadow: Shadow,
-    descriptor: &Descriptor,
-    rule: &DescriptorHeadRule,
-    readable: Result<&SemanticRule, &DescriptorLoweringError>,
-    inferred: &BTreeMap<String, SemanticSortRef>,
-    declarations: &DescriptorIndex<'_>,
-    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
-    catalog: &BTreeMap<StableItemId, ProductionSignature>,
-) -> Result<(), DescriptorLoweringError> {
-    let disagreement = |detail: String| DescriptorLoweringError::ParserReferenceDisagreement {
-        id: Box::new(descriptor.id().clone()),
-        detail: format!(
-            "readable shadow: the rule at `{}#{}` {detail}",
-            rule.pattern_key.role().as_str(),
-            rule.pattern_key.ordinal()
-        ),
-        range: key_range(descriptor, &rule.pattern_key).map(Box::new),
-    };
-    let (elaborated, cells) = match elaborate(descriptor, rule, inferred, declarations, catalog) {
-        Ok(Ok(Elaboration {
-            descriptor: copy,
-            rule: elaborated,
-            inserted_frames,
-        })) => {
-            let cells = super::configuration_rules::lower_configuration_rule_with_inserted_frames(
-                &copy,
-                &elaborated,
-                &inserted_frames,
-                declarations,
-                sort_parents,
-                catalog,
-            );
-            (Some(elaborated), cells)
-        }
-        Ok(Err(Unelaborated(form))) => {
-            return Err(disagreement(format!("has no elaboration: {form}")));
-        }
-        // The long form the elaboration starts from refuses the rule: the `cells!` route does.
-        Err(error) => (None, Err(error)),
-    };
-    let dump = |readable: &Value, cells: &Value| {
-        dump(descriptor, rule, elaborated.as_ref(), readable, cells);
-    };
-    let refusal = |error: &DescriptorLoweringError| Value::String(error.to_string());
-    let (readable, cells) = match (readable, cells) {
-        (Ok(readable), Ok(cells)) => (readable, cells),
-        (Ok(readable), Err(error)) => {
-            dump(&normalized(readable, false, shadow), &refusal(&error));
-            return Err(disagreement(format!(
-                "is accepted by the readable lowering and refused by the `cells!` one: {error}"
-            )));
-        }
-        (Err(error), Ok(cells)) => {
-            dump(&refusal(error), &normalized(&cells, true, shadow));
-            return Err(disagreement(format!(
-                "is refused by the readable lowering ({}: {error}) and accepted by the `cells!` one",
-                codes(error).join(", ")
-            )));
-        }
-        (Err(readable), Err(cells)) => {
-            let (left, right) = (codes(readable), codes(&cells));
-            let located = shadow == Shadow::Located && readable.range() != cells.range();
-            if left == right && !located {
-                return Ok(());
-            }
-            dump(&refusal(readable), &refusal(&cells));
-            let at = |error: &DescriptorLoweringError| {
-                error
-                    .range()
-                    .map_or_else(|| "no range".to_owned(), |range| format!("{range:?}"))
-            };
-            return Err(disagreement(format!(
-                "is refused by both lowerings, differently: readable {} at {} ({readable}), `cells!` {} at {} ({cells})",
-                left.join(", "),
-                at(readable),
-                right.join(", "),
-                at(&cells),
-            )));
-        }
-    };
-    if let Some(elaborated) = &elaborated
-        && let Some(universals) = unlisted_universals(elaborated, readable, &cells)
-    {
-        return Err(disagreement(format!(
-            "lists other claim universals on the `cells!` route: {universals}"
-        )));
-    }
-    let repeated = repeated_node(&json(&cells));
-    let mut readable = normalized(readable, false, shadow);
-    let mut cells = normalized(&cells, true, shadow);
-    for (route, value) in [("readable", &mut readable), ("`cells!`", &mut cells)] {
-        canonical_wildcards(value).map_err(|wildcard| {
-            disagreement(format!(
-                "lowers with the wildcard `{wildcard}` occurring other than once on the {route} route"
-            ))
-        })?;
-        canonical_locals(value).map_err(|local| {
-            disagreement(format!(
-                "lowers with the `let` local `{local}` bound other than once on the {route} route"
-            ))
-        })?;
-        if let Some(Value::Array(variables)) = value.get_mut("variables") {
-            variables.sort_by_key(Value::to_string);
-        }
-    }
-    let difference = first_difference(&readable, &cells, "rule");
-    if difference.is_some() {
-        dump(&readable, &cells);
-    }
-    if let Some((path, left, right)) = difference {
-        return Err(disagreement(format!(
-            "lowers differently at `{path}`: readable {left}, `cells!` {right}"
-        )));
-    }
-    // A source-map key names one node: the IR's validation refuses a rule that gives two of
-    // its nodes one key, as it would refuse the `cells!` lowering if it were the rule's.
-    match repeated {
-        None => Ok(()),
-        Some(key) => {
-            dump(&readable, &cells);
-            Err(disagreement(format!(
-                "lowers on the `cells!` route with two nodes keyed `{key}`"
-            )))
-        }
-    }
-}
-
-/// Where a `cells!` claim's universals are not the elaborated rule's binders (the readable
-/// claim's authored binders and its updates' hidden ones), each at the sort the readable lowering
-/// declares it: what the `cells!` route lists, and what it should. A readable claim lists none
-/// (its variables are quantified as every claim variable is), so the list is checked against
-/// the readable rule's variables.
-fn unlisted_universals(
-    elaborated: &DescriptorConfigurationRule,
-    readable: &SemanticRule,
-    cells: &SemanticRule,
-) -> Option<String> {
-    let listed = cells
-        .claim()?
-        .universals()
-        .iter()
-        .map(|binder| (binder.id().as_str().to_owned(), binder.sort().clone()))
-        .collect::<Vec<_>>();
-    let authored = elaborated
-        .bindings
-        .iter()
-        .filter(|binding| matches!(binding.kind, ProtocolRuleBindingKind::Term { .. }))
-        .map(|binding| binding.name.as_str())
-        .collect::<BTreeSet<_>>();
-    let expected = readable
-        .variables()
-        .iter()
-        .filter(|variable| authored.contains(variable.id().as_str()))
-        .map(|variable| (variable.id().as_str().to_owned(), variable.sort().clone()))
-        .collect::<BTreeSet<_>>();
-    let once = listed.iter().cloned().collect::<BTreeSet<_>>();
-    (once.len() != listed.len() || once != expected)
-        .then(|| format!("{listed:?}, where the readable binders are {expected:?}"))
-}
-
-/// The first source-map key `rule` (its JSON) gives more than one node: each node's origin is
-/// its key beside its origin stack.
-fn repeated_node(rule: &Value) -> Option<String> {
-    fn keys<'v>(value: &'v Value, seen: &mut BTreeSet<&'v str>) -> Option<&'v str> {
-        match value {
-            Value::Array(items) => items.iter().find_map(|item| keys(item, seen)),
-            Value::Object(fields) => {
-                if fields.len() == 2
-                    && let (Some(Value::String(key)), Some(Value::Array(_))) =
-                        (fields.get("key"), fields.get("origin"))
-                {
-                    return (!seen.insert(key)).then_some(key.as_str());
-                }
-                fields.values().find_map(|field| keys(field, seen))
-            }
-            _ => None,
-        }
-    }
-    keys(rule, &mut BTreeSet::new()).map(str::to_owned)
-}
-
-/// The codes of the diagnostics a refusal gives, in order.
-fn codes(error: &DescriptorLoweringError) -> Vec<String> {
-    error
-        .to_diagnostics()
-        .iter()
-        .map(|diagnostic| diagnostic.code.to_string())
-        .collect()
-}
-
-/// Under `KRS_READABLE_SHADOW_DUMP=<directory>`, writes a disagreeing rule's elaboration and both
-/// compared lowerings there, one file each, named by the item and the rule's pattern key.
-fn dump(
-    descriptor: &Descriptor,
-    rule: &DescriptorHeadRule,
-    elaborated: Option<&DescriptorConfigurationRule>,
-    readable: &Value,
-    cells: &Value,
-) {
-    let Some(directory) = std::env::var_os("KRS_READABLE_SHADOW_DUMP") else {
-        return;
-    };
-    let stem = format!(
-        "{}-{}{}",
-        descriptor.id(),
-        rule.pattern_key.role().as_str(),
-        rule.pattern_key.ordinal()
-    )
-    .replace(|c: char| !c.is_ascii_alphanumeric() && c != '-', "_");
-    let directory = std::path::Path::new(&directory);
-    let pretty = |value: &Value| serde_json::to_string_pretty(value).unwrap_or_default();
-    // Best effort: a dump that cannot be written leaves the disagreement itself reported.
-    let _ = std::fs::create_dir_all(directory);
-    if let Some(elaborated) = elaborated {
-        let _ = std::fs::write(
-            directory.join(format!("{stem}.elaborated.txt")),
-            format!("{elaborated:#?}"),
-        );
-    }
-    let _ = std::fs::write(
-        directory.join(format!("{stem}.readable.json")),
-        pretty(readable),
-    );
-    let _ = std::fs::write(directory.join(format!("{stem}.cells.json")), pretty(cells));
-}
-
-/// `rule` as data, with what carries no meaning made comparable:
-/// - each origin: it says where a node was written, which no sentence's meaning reads. Under
-///   [`Shadow::Located`] only its route label is cleared (the label of its semantic
-///   transformation frame and the source-map key hashed from it, `origin.rs`
-///   `semantic_origin_from_stack`), and the authored source each node is located at is compared;
-/// - the order of the declared variables, a set of declarations by name: no term refers to a
-///   variable by position (sorted by [`shadow_check`], after [`canonical_wildcards`]);
-/// - a `cells!` claim's universals, once [`unlisted_universals`] has checked them: a claim's
-///   variables are universally quantified whether or not it lists them, and the list records
-///   only where each is declared.
-fn normalized(rule: &SemanticRule, cells: bool, shadow: Shadow) -> Value {
-    let mut value = json(rule);
-    unlabelled(&mut value, shadow);
-    unread_frames(&mut value);
-    if cells
-        && let Some(Value::Array(universals)) = value
-            .get_mut("claim")
-            .and_then(|claim| claim.get_mut("universals"))
-    {
-        universals.clear();
-    }
-    value
-}
-
-/// Drops the name of each K-sequence tail or map remainder frame of `rule` (its JSON) that no other
-/// node reads, and its declaration. A clause's frame is one node standing for the content its
-/// pattern leaves out and its result keeps; a name only that frame bears binds nothing a term or
-/// a condition refers to, so the frame matches and keeps the same content named or not (K's
-/// `<k> A => B ... </k>` and `<k> A ~> T => B ~> T </k>`). The routes differ there: the print
-/// names an instance's open `k` (`tail0 @ ..`, `..tail0`), the readable entry leaves it unnamed.
-fn unread_frames(rule: &mut Value) {
-    fn frames(value: &Value, found: &mut Vec<String>) {
-        match value {
-            Value::Array(items) => items.iter().for_each(|item| frames(item, found)),
-            Value::Object(fields) => {
-                if let (Some(Value::String(kind)), Some(Value::String(binding))) =
-                    (fields.get("frame_kind"), fields.get("binding"))
-                    && matches!(kind.as_str(), "k_sequence_tail" | "map_remainder")
-                {
-                    found.push(binding.clone());
-                }
-                fields.values().for_each(|field| frames(field, found));
-            }
-            _ => {}
-        }
-    }
-    fn count(value: &Value, name: &str) -> usize {
-        match value {
-            Value::String(text) => usize::from(text == name),
-            Value::Array(items) => items.iter().map(|item| count(item, name)).sum(),
-            Value::Object(fields) => fields.values().map(|field| count(field, name)).sum(),
-            _ => 0,
-        }
-    }
-    fn unname(value: &mut Value, name: &str) {
-        match value {
-            Value::Array(items) => items.iter_mut().for_each(|item| unname(item, name)),
-            Value::Object(fields) => {
-                if fields.get("frame_kind").is_some()
-                    && fields.get("binding").and_then(Value::as_str) == Some(name)
-                {
-                    fields.remove("binding");
-                }
-                fields.values_mut().for_each(|field| unname(field, name));
-            }
-            _ => {}
-        }
-    }
-    let Value::Object(fields) = rule else {
-        return;
-    };
-    let mut found = Vec::new();
-    frames(&Value::Object(fields.clone()), &mut found);
-    for name in found {
-        let reads = fields
-            .iter()
-            .filter(|(field, _)| *field != "variables")
-            .map(|(_, value)| count(value, &name))
-            .sum::<usize>();
-        if reads != 1 {
-            continue;
-        }
-        for (field, value) in fields.iter_mut() {
-            if field != "variables" {
-                unname(value, &name);
-            }
-        }
-        if let Some(Value::Array(variables)) = fields.get_mut("variables") {
-            variables.retain(|variable| variable.get("id").and_then(Value::as_str) != Some(&name));
-        }
-    }
-}
-
-/// Renames the wildcards of `rule` (its JSON) `__krs_wildcard_0`, `_1`, .. in the order they
-/// first occur, outside the declared variables. A wildcard is a variable that occurs exactly
-/// once: it binds nothing any other node refers to, so which ordinal it bears says nothing, and
-/// the routes number them in the order each lowers its terms. Renaming them in a fixed order is
-/// an alpha-renaming that makes the two comparable. A wildcard that occurs other than once binds
-/// something; it is returned, and the rule is not renamed.
-fn canonical_wildcards(rule: &mut Value) -> Result<(), String> {
-    fn wildcard(text: &str) -> bool {
-        text.strip_prefix("__krs_wildcard_").is_some_and(|ordinal| {
-            !ordinal.is_empty() && ordinal.bytes().all(|b| b.is_ascii_digit())
-        })
-    }
-    fn occurrences<'a>(value: &'a Value, found: &mut Vec<&'a str>) {
-        match value {
-            Value::String(text) if wildcard(text) => found.push(text),
-            Value::Array(items) => items.iter().for_each(|item| occurrences(item, found)),
-            Value::Object(fields) => fields.values().for_each(|field| occurrences(field, found)),
-            _ => {}
-        }
-    }
-    fn rename(value: &mut Value, names: &BTreeMap<String, String>) {
-        match value {
-            Value::String(text) => {
-                if let Some(name) = names.get(text.as_str()) {
-                    text.clone_from(name);
-                }
-            }
-            Value::Array(items) => items.iter_mut().for_each(|item| rename(item, names)),
-            Value::Object(fields) => fields.values_mut().for_each(|field| rename(field, names)),
-            _ => {}
-        }
-    }
-    let Value::Object(fields) = &*rule else {
-        return Ok(());
-    };
-    let mut found = Vec::new();
-    for (name, field) in fields {
-        if name != "variables" {
-            occurrences(field, &mut found);
-        }
-    }
-    let mut declared = Vec::new();
-    if let Some(variables) = fields.get("variables") {
-        occurrences(variables, &mut declared);
-    }
-    let mut counts = BTreeMap::<&str, usize>::new();
-    for name in found.iter().chain(&declared) {
-        counts.entry(name).or_default();
-    }
-    for name in &found {
-        *counts.entry(name).or_default() += 1;
-    }
-    if let Some((name, _)) = counts.iter().find(|(_, count)| **count != 1) {
-        return Err((*name).to_owned());
-    }
-    let mut names = BTreeMap::new();
-    for name in found {
-        let next = format!("__krs_wildcard_{}", names.len());
-        names.entry(name.to_owned()).or_insert(next);
-    }
-    rename(rule, &names);
-    Ok(())
-}
-
-/// Renumbers the `let` locals of `rule` (`<name>__krs_local_<N>`) `0, 1, ..` by first occurrence,
-/// keeping each one's name, after checking that each is bound by exactly one `binds` list;
-/// returns the first local bound other than once.
-///
-/// A local is a variable its `let` binds, so it denotes nothing outside the term that binds it,
-/// and its ordinal only records how many locals its route had made before it. Renaming every
-/// local of the rule to its first-occurrence position is a bijection on bound names, an
-/// alpha-renaming, which keeps two lowerings that differ in a term's shape different.
-fn canonical_locals(rule: &mut Value) -> Result<(), String> {
-    fn local(text: &str) -> bool {
-        text.rsplit_once("__krs_local_")
-            .is_some_and(|(_, ordinal)| {
-                !ordinal.is_empty() && ordinal.bytes().all(|b| b.is_ascii_digit())
-            })
-    }
-    fn walk<'a>(value: &'a Value, found: &mut Vec<&'a str>, bound: &mut Vec<&'a str>) {
-        match value {
-            Value::String(text) if local(text) => found.push(text),
-            Value::Array(items) => items.iter().for_each(|item| walk(item, found, bound)),
-            Value::Object(fields) => {
-                for (name, field) in fields {
-                    if let ("binds", Value::Array(names)) = (name.as_str(), field) {
-                        bound.extend(names.iter().filter_map(Value::as_str).filter(|n| local(n)));
-                    }
-                    walk(field, found, bound);
-                }
-            }
-            _ => {}
-        }
-    }
-    fn rename(value: &mut Value, names: &BTreeMap<String, String>) {
-        match value {
-            Value::String(text) => {
-                if let Some(name) = names.get(text.as_str()) {
-                    text.clone_from(name);
-                }
-            }
-            Value::Array(items) => items.iter_mut().for_each(|item| rename(item, names)),
-            Value::Object(fields) => fields.values_mut().for_each(|field| rename(field, names)),
-            _ => {}
-        }
-    }
-    let (mut found, mut bound) = (Vec::new(), Vec::new());
-    walk(rule, &mut found, &mut bound);
-    let mut binders = BTreeMap::<&str, usize>::new();
-    for name in &found {
-        binders.entry(name).or_default();
-    }
-    for name in &bound {
-        *binders.entry(name).or_default() += 1;
-    }
-    if let Some((name, _)) = binders.iter().find(|(_, count)| **count != 1) {
-        return Err((*name).to_owned());
-    }
-    let mut names = BTreeMap::new();
-    for name in found {
-        let (base, _) = name.rsplit_once("__krs_local_").unwrap_or((name, ""));
-        let next = format!("{base}__krs_local_{}", names.len());
-        names.entry(name.to_owned()).or_insert(next);
-    }
-    rename(rule, &names);
-    Ok(())
-}
-
-/// Clears every origin `value` holds, or under [`Shadow::Located`] its route label.
-fn unlabelled(value: &mut Value, shadow: Shadow) {
-    match value {
-        Value::Array(items) => items.iter_mut().for_each(|item| unlabelled(item, shadow)),
-        Value::Object(fields) => {
-            if fields.len() == 2
-                && matches!(fields.get("key"), Some(Value::String(_)))
-                && let Some(Value::Array(frames)) = fields.get_mut("origin")
-            {
-                if shadow == Shadow::Located {
-                    frames.iter_mut().for_each(clear_transformation_labels);
-                } else {
-                    frames.clear();
-                }
-                fields.insert("key".to_owned(), Value::Null);
-                return;
-            }
-            fields
-                .values_mut()
-                .for_each(|field| unlabelled(field, shadow));
-        }
-        _ => {}
-    }
-}
-
-fn clear_transformation_labels(frame: &mut Value) {
-    if let Value::Object(fields) = frame {
-        if fields.contains_key("kind") && fields.contains_key("label") {
-            fields.insert("label".to_owned(), Value::Null);
-        }
-        fields.values_mut().for_each(clear_transformation_labels);
-    }
-}
-
-fn json(value: &impl serde::Serialize) -> Value {
-    serde_json::to_value(value).expect("semantic IR serializes")
-}
-
-/// The first path at which `left` and `right` differ, with each side's value there.
-fn first_difference(left: &Value, right: &Value, path: &str) -> Option<(String, String, String)> {
-    let shown = |value: Option<&Value>| {
-        value.map_or_else(
-            || "nothing".to_owned(),
-            |value| {
-                let text = value.to_string();
-                // The first 400 bytes, cut at a character's start.
-                match text.char_indices().map(|(at, _)| at).find(|at| *at >= 400) {
-                    Some(at) if at < text.len() => format!("{}..", &text[..at]),
-                    _ => text,
-                }
-            },
-        )
-    };
-    match (left, right) {
-        (Value::Object(left), Value::Object(right)) => {
-            let keys = left.keys().chain(right.keys()).collect::<BTreeSet<_>>();
-            keys.into_iter()
-                .find_map(|key| match (left.get(key), right.get(key)) {
-                    (Some(l), Some(r)) => first_difference(l, r, &format!("{path}.{key}")),
-                    (l, r) => Some((format!("{path}.{key}"), shown(l), shown(r))),
-                })
-        }
-        (Value::Array(l), Value::Array(r)) if l.len() == r.len() => l
-            .iter()
-            .zip(r)
-            .enumerate()
-            .find_map(|(n, (l, r))| first_difference(l, r, &format!("{path}[{n}]"))),
-        (l, r) if l == r => None,
-        (l, r) => Some((path.to_owned(), shown(Some(l)), shown(Some(r)))),
     }
 }

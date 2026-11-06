@@ -22,9 +22,8 @@ use std::collections::BTreeMap;
 
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinOperator, BuiltinSort, CollectionDomain,
-    CollectionResultSort, DescriptorApplicationRef, DescriptorApplicationReference,
-    DescriptorPayload, DescriptorTerm, OperationSort, OperatorDomain, OperatorReading,
-    ProvenanceKey, SortTestKind,
+    CollectionResultSort, DescriptorApplicationRef, DescriptorApplicationReference, DescriptorTerm,
+    OperationSort, OperatorDomain, OperatorReading, ProvenanceKey, SortTestKind,
 };
 use krs_ir_levels::{SemanticSortRef, SemanticTerm};
 
@@ -570,7 +569,7 @@ impl StructuredTermBuilder<'_> {
             .domains()
             .first()
             .map_or("Int", |domain| domain.name());
-        let narrowing = if matches!(self.descriptor.payload(), DescriptorPayload::HeadRule(_)) {
+        let narrowing = if self.readable {
             format!(
                 "`where {}`",
                 names
