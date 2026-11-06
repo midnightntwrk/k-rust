@@ -156,8 +156,12 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// and under the Z3 profile the outcome cache is on where the solver is resource-bounded; 24
 /// since an executed entry from the outcome cache (`cached: true`) can be an `unknown` with its
 /// `cause` and carries the cached run's undecided-answer counts (CF-33d), and a `mismatches`
-/// entry of a program names each side's `cause`, `smt_unknowns` and `decider_smt_unknowns`.
-pub const RUN_VERSION: u64 = 24;
+/// entry of a program names each side's `cause`, `smt_unknowns` and `decider_smt_unknowns`; 25
+/// since `result` may name cells inside `?` and `*` cells, each left out (or compared) in every
+/// instance, so a survivor of a `cells` slot may be relative to cells left out of each instance,
+/// and a narrowing's `compared` names the key of each Map that encloses a named cell
+/// ([`crate::observed`]).
+pub const RUN_VERSION: u64 = 25;
 
 /// k-rust's contradicted-claim records of one run as specification diagnostics (re-pin adoption
 /// A-1): each `{claim, symbol, k_label, rule_id, rule_label, application, undefined,

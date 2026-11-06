@@ -1649,8 +1649,12 @@ fn admission_status(admission: &FlowAdmission) -> u8 {
 /// named cases of a case document (each a program whose id is the document's path, `#` and its
 /// name), and each case's `expectation`, checked against its current result record without
 /// running it (`crate::expect`; it decides no exit status), and refuses a program whose
-/// expectation no front end reads at stage `inputs` (`typed-expectation`, `expectation-value`).
-pub const CHECK_VERSION: u64 = 10;
+/// expectation no front end reads at stage `inputs` (`typed-expectation`, `expectation-value`);
+/// 11 since `result` may name cells inside `?` and `*` cells, each left out (or compared) in
+/// every instance, and a narrowing's `compared` names the key of each Map that encloses a named
+/// cell; the refusals `unobservable-cell-position` and `result-cell-position` are gone, and a
+/// Map's key left out is refused (`map-key-left-out`) ([`crate::observed`]).
+pub const CHECK_VERSION: u64 = 11;
 
 fn header(spec: Value, programs: Vec<Value>, data: Value, result: Value) -> Value {
     json!({

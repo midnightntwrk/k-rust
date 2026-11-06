@@ -2395,6 +2395,10 @@ fn document(
     });
     json!({
         "schema": "kink-flow-results",
+        // 10 since `result` may name cells inside `?` and `*` cells, each left out (or compared)
+        // in every instance, and a narrowing's `compared` names the key of each Map that encloses
+        // a named cell (`crate::observed`); where the slot is `cells`, a program's ends are then
+        // projected in each instance, with a Map's and a Set's instances sorted.
         // 9 since `[stop]`: a corpus with a stop has `stop` (absent without one), its rules, its
         // count and each program's own count (`counts`), and each comparable program's `ends`
         // say how the run reached them (`halt`: `stop` or `own`); a specification on which a
@@ -2442,7 +2446,7 @@ fn document(
         // 2 since re-pin L2-1: a rule's status `no-coverage-signal` (summary
         // `no_coverage_signal`) replaced `not-observable`, equations are covered, and every rule
         // carries `fired_by`.
-        "version": 9,
+        "version": 10,
         "k_rust_revision": crate::k_rust_revision(),
         "profile": SolverProfile::BUILD.name(),
         "result_schema_version": RESULT_SCHEMA_VERSION,

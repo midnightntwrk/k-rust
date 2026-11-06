@@ -17,15 +17,18 @@
 //! cells can be placed: it is refused at stage `result` only when the layout is needed, and
 //! otherwise the layout only names the compared cells in the documents.
 //!
-//! A position is left out only where every end of the baseline's shape has it at one argument
-//! path, which holds for a cell whose strict ancestors all have multiplicity `1`; an uncompared
-//! cell inside a `?` or `*` cell is refused, naming the enclosing cell. Narrowed to the cells
-//! `C`, the uncompared
-//! positions are every cell outside `C` that is neither inside a cell of `C` nor encloses one,
-//! whose parent encloses a cell of `C` (the siblings of `C` and of its ancestors), and every
-//! maximal unobservable cell inside a cell of `C`. Every strict ancestor of a cell of `C` has
-//! multiplicity `1` (a cell of `C` inside a `?` or `*` cell is refused), so every such sibling has
-//! a fixed position.
+//! A position is left out in every end of the baseline's shape: through cells of multiplicity
+//! `1` it is one argument path, and inside a `?` or `*` cell it is that path relative to each
+//! instance, so the projection leaves the cell out of every instance and compares a Map's or a
+//! Set's instances as a multiset (kink-campaign `CellLayout::position`). A Map holds each
+//! instance by its key, the instance's key cell, so a cell compared inside a Map's instances is
+//! compared per key: narrowed to the cells `C`, the compared cells `K` are the cells of `C` and
+//! the key of every Map that encloses a cell of `C`, each without the cells of `K` inside it. The
+//! uncompared positions are every cell outside `K` that is neither inside a cell of `K` nor
+//! encloses one, whose parent encloses a cell of `K` (the siblings of `K` and of its ancestors),
+//! and every maximal unobservable cell inside a cell of `K`. A Map's key is never left out: an
+//! unobservable cell at or inside one is refused (`map-key-left-out`), since instances that
+//! differ only there would become indistinguishable.
 //!
 //! `<generatedTop>` and `<generatedCounter>` are compilation's cells, not the specification's:
 //! neither is named in a document, neither can be named in `[result] cells`, and the counter's
@@ -57,9 +60,9 @@ pub struct ResultProjection {
     /// [`StateProjection::WholeTerm`] when nothing is left out; otherwise
     /// [`StateProjection::Cells`] over [`Self::not_compared`].
     pub state: StateProjection,
-    /// The maximal cells compared, in configuration preorder: the cells of `[result] cells` when
-    /// the manifest narrows them, otherwise the outermost cells neither left out nor enclosing a
-    /// cell left out. A cell listed here is compared except for the cells of
+    /// The maximal cells compared, in configuration preorder: the cells of `[result] cells` and
+    /// the key of each Map that encloses one when the manifest narrows them, otherwise the
+    /// outermost cells neither left out nor enclosing a cell left out. A cell listed here is compared except for the cells of
     /// [`Self::not_compared`] inside it. `None` when the second slot compares the whole term of a
     /// configuration whose cells cannot be placed (kink-campaign `cell-layout`), so no cell can
     /// be named.
@@ -114,20 +117,13 @@ impl ResultProjection {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ResultRefusal {
     /// The configuration's cells cannot be placed or projected (kink-campaign's reasons:
-    /// `cell-layout`, `unobservable-cell-outside-configuration`, `unobservable-cell-position`).
+    /// `cell-layout`, `unobservable-cell-outside-configuration`, `map-key-left-out`).
     Layout(CellLayoutRefusal),
     /// `[result] cells` names no cell of the configuration (reason `result-cell-unknown`).
     CellUnknown { cell: String, cells: Vec<String> },
     /// `[result] cells` names an unobservable cell, or a cell inside one (reason
     /// `result-cell-unobservable`).
     CellUnobservable { cell: String, unobservable: String },
-    /// `[result] cells` names a cell inside the `?` or `*` cell `enclosing`, whose position
-    /// varies between ends (reason `result-cell-position`).
-    CellPosition {
-        cell: String,
-        enclosing: String,
-        multiplicity: CellMultiplicity,
-    },
 }
 
 impl ResultRefusal {
@@ -138,16 +134,7 @@ impl ResultRefusal {
             Self::Layout(refusal) => refusal.reason(),
             Self::CellUnknown { .. } => "result-cell-unknown",
             Self::CellUnobservable { .. } => "result-cell-unobservable",
-            Self::CellPosition { .. } => "result-cell-position",
         }
-    }
-}
-
-const fn multiplicity_text(multiplicity: CellMultiplicity) -> &'static str {
-    match multiplicity {
-        CellMultiplicity::Optional => "?",
-        CellMultiplicity::Star => "*",
-        CellMultiplicity::One => "1",
     }
 }
 
@@ -178,16 +165,6 @@ impl fmt::Display for ResultRefusal {
                  <{unobservable}>: a manifest may narrow the compared cells but never compare an \
                  unobservable one; drop <{cell}> from [result] cells, or drop `unobservable` from \
                  the declaration of <{unobservable}> if a test may observe it"
-            ),
-            Self::CellPosition {
-                cell,
-                enclosing,
-                multiplicity,
-            } => write!(
-                formatter,
-                "[result] cells names <{cell}>, which lies inside the {} cell <{enclosing}>, so \
-                 its position varies between ends; name <{enclosing}> instead",
-                multiplicity_text(*multiplicity)
             ),
         }
     }
@@ -287,16 +264,18 @@ pub fn result_projection(
                 unobservable: cells[hidden].name.clone(),
             });
         }
-        if let Some(enclosing) = layout.varying_ancestor(at) {
-            return Err(ResultRefusal::CellPosition {
-                cell: name.clone(),
-                enclosing: cells[enclosing].name.clone(),
-                multiplicity: cells[enclosing].multiplicity,
-            });
-        }
         chosen.insert(at);
     }
-    // A named cell inside another named cell adds nothing.
+    // A Map holds each instance by its key, so a cell compared inside its instances is compared
+    // per key: the key of every Map that encloses a named cell is compared with it.
+    let keys = chosen
+        .iter()
+        .flat_map(|&at| layout.ancestors(at))
+        .filter(|&above| cells[above].multiplicity == CellMultiplicity::Star)
+        .filter_map(|holder| cells[holder].key)
+        .collect::<Vec<_>>();
+    chosen.extend(keys);
+    // A compared cell inside another compared cell adds nothing.
     let chosen = chosen
         .iter()
         .copied()
@@ -316,42 +295,24 @@ pub fn result_projection(
                 && !enclosing.contains(&at)
         })
         .collect::<Vec<_>>();
-    left_out.extend(
-        layout
-            .maximal_unobservable()
-            .into_iter()
-            .filter(|&at| layout.ancestors(at).any(|above| chosen.contains(&above))),
-    );
+    // Every unobservable cell at or inside a compared cell is left out; at a compared cell it is
+    // a key, which the projection refuses to leave out.
+    left_out.extend(layout.maximal_unobservable().into_iter().filter(|&at| {
+        std::iter::once(at)
+            .chain(layout.ancestors(at))
+            .any(|above| chosen.contains(&above))
+    }));
     left_out.sort_unstable();
+    left_out.dedup();
 
-    let mut positions = Vec::with_capacity(left_out.len());
-    for &at in &left_out {
-        if let Some(enclosing) = layout.varying_ancestor(at) {
-            return Err(ResultRefusal::Layout(
-                CellLayoutRefusal::UnobservableCellPosition {
-                    cell: cells[at].name.clone(),
-                    enclosing: cells[enclosing].name.clone(),
-                    multiplicity: cells[enclosing].multiplicity,
-                },
-            ));
-        }
-        positions.push(layout.position(at).ok_or_else(|| {
-            ResultRefusal::Layout(CellLayoutRefusal::Layout {
-                cell: Some(cells[at].name.clone()),
-                detail: "the top cell cannot be left out".to_owned(),
-            })
-        })?);
-    }
-    positions.sort();
-    let state = if positions.is_empty() {
+    let state = if left_out.is_empty() {
         StateProjection::WholeTerm
     } else {
-        StateProjection::Cells(CellProjection::new(positions).map_err(|failure| {
-            ResultRefusal::Layout(CellLayoutRefusal::Layout {
-                cell: None,
-                detail: failure.to_string(),
-            })
-        })?)
+        StateProjection::Cells(
+            layout
+                .projection(&left_out)
+                .map_err(ResultRefusal::Layout)?,
+        )
     };
 
     Ok(ResultProjection {

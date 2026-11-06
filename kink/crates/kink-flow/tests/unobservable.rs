@@ -4,10 +4,11 @@
 //!
 //! The fixture is testdata/flow/unobservable: `unobs.k`, whose program `emit(1) ; note(2)` writes
 //! the observed `<out>` and the unobservable `<scratch>`; `plain.k`, the same definition without
-//! the declaration; `nested.k`, the same with both cells inside a wrapper cell `<state>`; and
-//! `collection.k`, an unobservable cell inside a `*` cell. Its mutations change only `<scratch>`
-//! (`note-offset`) or `<out>` (`emit-offset`). The one-sided kill under a `cells` slot runs on
-//! `testdata/k/l1/onesidedcell.k`.
+//! the declaration; `nested.k`, the same with both cells inside a wrapper cell `<state>`;
+//! `collection.k`, an unobservable cell inside the instances of a Map collection; and
+//! `collectionkey.k`, the same Map with its key declared unobservable. Its mutations change only
+//! `<scratch>` (`note-offset`) or `<out>` (`emit-offset`). The one-sided kill under a `cells` slot
+//! runs on `testdata/k/l1/onesidedcell.k`.
 
 use kink_flow::{
     FlowManifest,
@@ -254,14 +255,17 @@ fn a_narrowing_that_compares_an_unobservable_cell_or_names_no_cell_is_refused() 
     }
 }
 
+/// An unobservable cell inside a collection's instances is left out of each instance: a mutant
+/// that changes only `<tmp>` survives, one that changes a thread's key is killed. Narrowed to a
+/// cell inside the instances, the slot compares that cell and the key the Map holds the instance
+/// by; narrowed to cells outside, it leaves the whole collection out.
 #[test]
-fn an_unobservable_cell_inside_a_collection_is_refused_unless_the_narrowing_leaves_the_collection_out()
- {
+fn an_unobservable_cell_inside_a_collection_is_left_out_of_each_instance() {
     let collection = |result: &str| {
         format!(
             "[spec]\nentry = \"collection.k\"\nmain_module = \"COLLECTION\"\n\
              syntax_module = \"COLLECTION-SYNTAX\"\n{result}\n\
-             [[program]]\nid = \"one\"\ntext = \"emit(1)\"\n"
+             [[program]]\nid = \"one\"\ntext = \"spawn(1)\"\n"
         )
     };
     let dir = fixture(
@@ -275,32 +279,100 @@ fn an_unobservable_cell_inside_a_collection_is_refused_unless_the_narrowing_leav
             ),
         ],
     );
-    let admitted =
-        |name: &str| admit(&FlowManifest::read(&dir.join(format!("FLOW-{name}.toml"))).unwrap());
-    let (stage, reason, detail) = refusal(&admitted("collection"));
+    let manifest = |name: &str| dir.join(format!("FLOW-{name}.toml"));
+    let admitted = |name: &str| admit(&FlowManifest::read(&manifest(name)).unwrap());
+    let result_of = |name: &str| {
+        let admission = admitted(name);
+        let spec = admission
+            .spec
+            .as_ref()
+            .unwrap_or_else(|| panic!("{name}: {:?}", admission.record.refusal));
+        spec.result.value()
+    };
     assert_eq!(
-        (stage.as_str(), reason.as_str()),
-        ("result", "unobservable-cell-position")
+        result_of("collection"),
+        result("cells", &["k", "out", "id"], &["tmp"], &["tmp"])
     );
-    assert!(
-        detail.contains("<tmp>") && detail.contains("* cell <thread>"),
-        "{detail}"
-    );
-    let (stage, reason, detail) = refusal(&admitted("inside"));
+    // Narrowed to the key, every other cell is left out, in each instance too.
     assert_eq!(
-        (stage.as_str(), reason.as_str()),
-        ("result", "result-cell-position")
-    );
-    assert!(
-        detail.contains("<id>") && detail.contains("* cell <thread>"),
-        "{detail}"
+        result_of("inside"),
+        result("cells", &["id"], &["k", "out", "tmp"], &["tmp"])
     );
     // Leaving the enclosing <threads> out leaves <tmp> out with it.
+    assert_eq!(
+        result_of("outside"),
+        result("cells", &["k", "out"], &["threads"], &["tmp"])
+    );
+
+    fs::write(
+        dir.join("MUTATIONS.toml"),
+        "[[mutation]]\nid = \"spawn-tmp\"\nmisunderstanding = \"a thread starts with tmp one \
+         more than its key: only the unobservable <tmp> differs\"\n\n  [[mutation.edit]]\n  \
+         rule = \"spawn\"\n  find = \"<tmp> I </tmp>\"\n  replace = \"<tmp> I +Int 1 </tmp>\"\n\n\
+         [[mutation]]\nid = \"spawn-id\"\nmisunderstanding = \"a thread is keyed one more than \
+         asked\"\n\n  [[mutation.edit]]\n  rule = \"spawn\"\n  find = \"<id> I </id>\"\n  \
+         replace = \"<id> I +Int 1 </id>\"\n",
+    )
+    .unwrap();
+    let document = search(&manifest("collection"));
+    assert_eq!(
+        statuses(&document),
+        pairs(&[("spawn-tmp", "survived"), ("spawn-id", "killed")]),
+        "{document:#}"
+    );
+    assert_eq!(
+        document["result"],
+        result("cells", &["k", "out", "id"], &["tmp"], &["tmp"])
+    );
+    // Narrowed to the key, the slot still tells the threads apart by it.
+    let document = search(&manifest("inside"));
+    assert_eq!(
+        statuses(&document),
+        pairs(&[("spawn-tmp", "survived"), ("spawn-id", "killed")]),
+        "{document:#}"
+    );
+}
+
+/// A Map's key is never left out: an unobservable key is refused at stage `result`, whether the
+/// slot leaves out the unobservable cells alone or a narrowing compares a cell of the instances,
+/// whose key it then compares; a narrowing that leaves the whole collection out is admitted.
+#[test]
+fn an_unobservable_map_key_is_refused_unless_the_narrowing_leaves_the_collection_out() {
+    let key = |result: &str| {
+        format!(
+            "[spec]\nentry = \"collectionkey.k\"\nmain_module = \"COLLECTIONKEY\"\n\
+             syntax_module = \"COLLECTIONKEY-SYNTAX\"\n{result}\n\
+             [[program]]\nid = \"one\"\ntext = \"emit(1)\"\n"
+        )
+    };
+    let dir = fixture(
+        "collectionkey",
+        &[
+            ("key", &key("")),
+            ("inside", &key("[result]\ncells = [\"tmp\"]\n")),
+            ("outside", &key("[result]\ncells = [\"out\"]\n")),
+        ],
+    );
+    let admitted =
+        |name: &str| admit(&FlowManifest::read(&dir.join(format!("FLOW-{name}.toml"))).unwrap());
+    for name in ["key", "inside"] {
+        let (stage, reason, detail) = refusal(&admitted(name));
+        assert_eq!(
+            (stage.as_str(), reason.as_str()),
+            ("result", "map-key-left-out"),
+            "{name}: {detail}"
+        );
+        assert!(
+            detail.contains("<id> is left out, but it is the key")
+                && detail.contains("Map cell <thread>"),
+            "{name}: {detail}"
+        );
+    }
     let outside = admitted("outside");
     let spec = outside.spec.as_ref().expect("admitted");
     assert_eq!(
         spec.result.value(),
-        result("cells", &["k", "out"], &["threads"], &["tmp"])
+        result("cells", &["out"], &["k", "threads"], &["id"])
     );
 }
 
