@@ -7,7 +7,8 @@
 //! Map's key is never left out: a projection that would leave it out is refused, naming the key
 //! and what to do instead. A `?` or `*` cell can itself be unobservable: its own position (the
 //! optional cell, the whole collection) is left out whole. The projection of executed ends runs on
-//! `testdata/k/cells/harts.k`.
+//! `testdata/k/cells/harts.k`; the order of a collection's components, and the checks of a
+//! projection's positions, run on hand-built configurations.
 
 #[path = "../../../testdata/k/support.rs"]
 mod support;
@@ -575,4 +576,229 @@ fn the_projection_leaves_each_unobservable_cell_out_of_every_instance() {
     // A position the walk does not reach is left alone: an end without instances.
     let empty = harts.end("free(1)");
     assert_eq!(harts.projection.project(&empty).into_owned(), empty);
+}
+
+/// The application of the parameterless symbol `name` to `arguments`.
+fn app(name: &str, arguments: Vec<Pattern>) -> Pattern {
+    Pattern::Application {
+        symbol: k_rust::kore::ast::Symbol {
+            name: name.to_owned(),
+            sort_parameters: Vec::new(),
+        },
+        arguments,
+    }
+}
+
+/// A constant, the content of a hand-built cell.
+fn constant(name: &str) -> Pattern {
+    app(name, Vec::new())
+}
+
+/// A hand-built configuration `<generatedTop>(C)` whose one argument is a `*` cell's collection
+/// of `kind` holding `<job>(<a>(_), <b>(_))` instances (a Map's keyed by `<a>`), and the position
+/// of `<job>`'s argument `left_out` inside each instance.
+struct Jobs {
+    kind: CollectionKind,
+    position: UnobservedPosition,
+}
+
+impl Jobs {
+    const ELEMENT: &str = "LblJobCellItem";
+    const CONCAT: &str = "Lbl'Unds'JobCellCollection'Unds'";
+    const UNIT: &str = "Lbl'Stop'JobCellCollection";
+    const JOB: &str = "Lbl'-LT-'job'-GT-'";
+
+    fn new(kind: CollectionKind, left_out: u32) -> Self {
+        let cell = if left_out == 0 { "a" } else { "b" };
+        let position = UnobservedPosition {
+            path: vec![0, left_out],
+            symbols: vec![TOP.to_owned(), Self::JOB.to_owned()],
+            cell: cell.to_owned(),
+            sort: sort(&format!("Sort{}Cell", cell.to_uppercase())),
+            heads: vec![format!("Lbl'-LT-'{cell}'-GT-'")],
+            through: vec![Through {
+                at: 1,
+                cell: "job".to_owned(),
+                sort: sort("SortJobCellCollection"),
+                heads: vec![
+                    Self::UNIT.to_owned(),
+                    Self::CONCAT.to_owned(),
+                    Self::ELEMENT.to_owned(),
+                ],
+                collection: Collection {
+                    kind,
+                    element: Self::ELEMENT.to_owned(),
+                    instance: u32::from(kind == CollectionKind::Map),
+                    concat: Self::CONCAT.to_owned(),
+                    unit: Self::UNIT.to_owned(),
+                },
+            }],
+        };
+        Self { kind, position }
+    }
+
+    fn projection(&self) -> CellProjection {
+        CellProjection::new(vec![self.position.clone()]).unwrap()
+    }
+
+    /// The `<job>` instance with `a` and `b` as its cells' contents, `None` standing for the
+    /// position's placeholder.
+    fn job(&self, a: Option<&str>, b: Option<&str>) -> Pattern {
+        let content = |cell: &str, value: Option<&str>| match value {
+            Some(value) => app(&format!("Lbl'-LT-'{cell}'-GT-'"), vec![constant(value)]),
+            None => Pattern::Top {
+                sort: self.position.sort.clone(),
+            },
+        };
+        app(Self::JOB, vec![content("a", a), content("b", b)])
+    }
+
+    /// The configuration holding `instances`, right-nested in the order given; a Map's element
+    /// holds each instance by its `<a>` cell.
+    fn end(&self, instances: &[(Option<&str>, Option<&str>)]) -> Pattern {
+        let elements = instances.iter().map(|&(a, b)| {
+            let instance = self.job(a, b);
+            match self.kind {
+                CollectionKind::Map => app(
+                    Self::ELEMENT,
+                    vec![
+                        app("Lbl'-LT-'a'-GT-'", vec![constant(a.unwrap())]),
+                        instance,
+                    ],
+                ),
+                _ => app(Self::ELEMENT, vec![instance]),
+            }
+        });
+        let collection = elements
+            .rev()
+            .reduce(|rest, element| app(Self::CONCAT, vec![element, rest]))
+            .unwrap_or_else(|| constant(Self::UNIT));
+        app(TOP, vec![collection])
+    }
+}
+
+/// A Map's or a Set's projected collection is a function of the multiset of its projected
+/// instances, whatever order an end writes them in: an end the backend does not normalise (a
+/// work-bound, breadth-bound or stopped leaf keeps its state as given) may write equal
+/// collections in another order. The components are sorted after each instance is projected, so
+/// an uncompared cell's content plays no part in the order: instances whose uncompared cell
+/// precedes the compared one sort by the compared one. A List keeps its order.
+#[test]
+fn the_projection_reads_a_maps_or_a_sets_instances_as_a_multiset_in_any_written_order() {
+    for kind in [CollectionKind::Map, CollectionKind::Set] {
+        // `<b>` left out: the instances differ in the compared `<a>` and the uncompared `<b>`.
+        let jobs = Jobs::new(kind, 1);
+        let projection = jobs.projection();
+        let written = jobs.end(&[(Some("Lbl1"), Some("LblX")), (Some("Lbl2"), Some("LblY"))]);
+        let permuted = jobs.end(&[(Some("Lbl2"), Some("LblZ")), (Some("Lbl1"), Some("LblW"))]);
+        let sorted = jobs.end(&[(Some("Lbl1"), None), (Some("Lbl2"), None)]);
+        assert_eq!(
+            projection.project(&written).into_owned(),
+            sorted,
+            "{kind:?}"
+        );
+        assert_eq!(
+            projection.project(&permuted).into_owned(),
+            sorted,
+            "{kind:?}"
+        );
+        // Without the sort, the permuted end would keep its written order and differ.
+        assert_ne!(
+            jobs.end(&[(Some("Lbl2"), None), (Some("Lbl1"), None)]),
+            sorted,
+            "{kind:?}"
+        );
+        // A compared difference still shows.
+        let other = jobs.end(&[(Some("Lbl1"), Some("LblX")), (Some("Lbl3"), Some("LblY"))]);
+        assert_ne!(
+            projection.project(&other),
+            projection.project(&written),
+            "{kind:?}"
+        );
+    }
+
+    // A Set's `<a>` left out: it precedes the compared `<b>`, so sorting the written instances
+    // before projecting them would order them by `<a>`, keeping `left`'s compared (Y, X) apart
+    // from `right`'s (X, Y). Sorted after projecting, both are (X, Y).
+    let jobs = Jobs::new(CollectionKind::Set, 0);
+    let projection = jobs.projection();
+    let left = jobs.end(&[(Some("Lbl1"), Some("LblY")), (Some("Lbl2"), Some("LblX"))]);
+    let right = jobs.end(&[(Some("Lbl1"), Some("LblX")), (Some("Lbl2"), Some("LblY"))]);
+    let sorted = jobs.end(&[(None, Some("LblX")), (None, Some("LblY"))]);
+    assert_eq!(projection.project(&left).into_owned(), sorted);
+    assert_eq!(projection.project(&right).into_owned(), sorted);
+    assert_ne!(
+        jobs.end(&[(None, Some("LblY")), (None, Some("LblX"))]),
+        sorted
+    );
+
+    // A collection whose instances already hold the placeholder but are out of order is still
+    // changed: the projection sorts it, so it is idempotent and agrees with its sorted
+    // permutation.
+    let jobs = Jobs::new(CollectionKind::Set, 1);
+    let projection = jobs.projection();
+    let unsorted = jobs.end(&[(Some("Lbl2"), None), (Some("Lbl1"), None)]);
+    let sorted = jobs.end(&[(Some("Lbl1"), None), (Some("Lbl2"), None)]);
+    assert!(matches!(
+        projection.project(&unsorted),
+        std::borrow::Cow::Owned(_)
+    ));
+    assert_eq!(projection.project(&unsorted).into_owned(), sorted);
+    assert!(matches!(
+        projection.project(&sorted),
+        std::borrow::Cow::Borrowed(_)
+    ));
+
+    // A List's instances are compared in order: a permutation is another projection.
+    let jobs = Jobs::new(CollectionKind::List, 1);
+    let projection = jobs.projection();
+    let written = jobs.end(&[(Some("Lbl1"), Some("LblX")), (Some("Lbl2"), Some("LblY"))]);
+    let permuted = jobs.end(&[(Some("Lbl2"), Some("LblY")), (Some("Lbl1"), Some("LblX"))]);
+    assert_eq!(
+        projection.project(&permuted).into_owned(),
+        jobs.end(&[(Some("Lbl2"), None), (Some("Lbl1"), None)])
+    );
+    assert_ne!(projection.project(&permuted), projection.project(&written));
+}
+
+/// A collection on a position's path is reached after at least one step of the path and before
+/// its last, in path order: at step 0 it would be the top cell, at the path's length the
+/// position itself, and out of order the walk could not go from one to the next.
+#[test]
+fn a_cell_projection_refuses_a_collection_outside_its_paths_steps_or_out_of_order() {
+    let valid = Jobs::new(CollectionKind::Set, 1).position;
+    assert!(CellProjection::new(vec![valid.clone()]).is_ok());
+    let at = |steps: &[u32]| {
+        let mut position = valid.clone();
+        position.through = steps
+            .iter()
+            .map(|&at| Through {
+                at,
+                ..valid.through[0].clone()
+            })
+            .collect();
+        position
+    };
+    for steps in [&[0][..], &[2], &[3], &[1, 1]] {
+        let refused = CellProjection::new(vec![at(steps)]).unwrap_err();
+        assert_eq!(
+            refused.kind(),
+            kink_campaign::OracleFailureKind::InvalidDeclaration,
+            "{steps:?}"
+        );
+        assert!(
+            refused.to_string().contains("in path order"),
+            "{steps:?}: {refused}"
+        );
+    }
+    // Two collections in path order are admitted.
+    let mut deeper = at(&[1, 2]);
+    deeper.path.push(0);
+    deeper.symbols.push("Lbl'-LT-'b'-GT-'".to_owned());
+    assert!(CellProjection::new(vec![deeper]).is_ok());
+    // Out of order.
+    let mut swapped = at(&[2, 1]);
+    swapped.path.push(0);
+    swapped.symbols.push("Lbl'-LT-'b'-GT-'".to_owned());
+    assert!(CellProjection::new(vec![swapped]).is_err());
 }
