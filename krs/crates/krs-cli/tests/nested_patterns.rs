@@ -843,9 +843,9 @@ fn a_group_record_overlaps_a_binder_of_its_cell_sort() {
             let manifest = library_package(temporary.path(), name, &format!("{TWO_LEVEL}{rules}"));
             check_errors(target.path(), &manifest)
         });
-    expect_test::expect![[r#"
+    expect_test::expect![[r"
         error[krs::analysis::overlapping-rule-heads]: rules `child_binder` and `child_record` can both apply to the same configuration at the same priority; K would take either one (nondeterminism). If that is intended, put both in one group with `#[k::rule(nondet = NAME)]`; otherwise refine a pattern, add disjoint `where` sorts or complementary requires guards, or order them with `owise` or `priority = N`.
-        error[krs::analysis::overlapping-rule-heads]: rules `element_binder` and `element_record` can both apply to the same configuration at the same priority; K would take either one (nondeterminism). If that is intended, put both in one group with `#[k::rule(nondet = NAME)]`; otherwise refine a pattern, add disjoint `where` sorts or complementary requires guards, or order them with `owise` or `priority = N`."#]].assert_eq(&errors.join("\n"));
+        error[krs::analysis::overlapping-rule-heads]: rules `element_binder` and `element_record` can both apply to the same configuration at the same priority; K would take either one (nondeterminism). If that is intended, put both in one group with `#[k::rule(nondet = NAME)]`; otherwise refine a pattern, add disjoint `where` sorts or complementary requires guards, or order them with `owise` or `priority = N`."]].assert_eq(&errors.join("\n"));
 }
 
 /// Optional cells: a leaf `counter` and a group `mark`.
