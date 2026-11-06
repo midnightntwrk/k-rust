@@ -1193,7 +1193,11 @@ fn a_depth_bound_end_is_no_end_an_expectation_meets() {
         assert!(
             refused.contains("`expect.halt`: an expected end is never `depth-bound`")
                 && refused.contains("stop_count = N")
-                && refused.contains(r#"halt = "stopped", rule = "crate::boundary""#),
+                && refused.contains(r#"halt = "stopped", rule = "crate::machine::boundary""#)
+                && refused.contains("`rule` names the one item the run stopped at")
+                && refused.contains("stopped after S steps, before `crate::machine::boundary`")
+                && refused.contains("`depth` may stay in `run` beside the stop as a backstop")
+                && refused.contains("to find N, run the case without its `expect` table"),
             "{refused}"
         );
     });

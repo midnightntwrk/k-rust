@@ -18,6 +18,14 @@
 //! The serialized reports form the `krs-exec` JSON shapes that `--output json` prints: `krs-exec/4` for a run ([`RUN_REPORT_SCHEMA`]), `krs-exec/1` for a search ([`SEARCH_REPORT_SCHEMA`]), `krs-exec/2` for a proof ([`PROVE_REPORT_SCHEMA`]).
 //! Every operation can recurse deeply through large terms: callers run it on a thread with a large stack, as the CLI and the gate session do (64 MiB).
 //!
+//! # Features
+//!
+//! The features choose only how Z3 is linked; every operation exists in every build.
+//! `z3-inference-gh-release` (the default, krs-cli's) links k-rust's release download of Z3, and `z3-inference` links the Z3 the build environment provides.
+//! With `default-features = false` no Z3 is linked: the backend then has no SMT solver ([`Semantics::capabilities`] reports `smt` false, [`z3_version`] is `None`), and every query a step, a simplification or a proof puts to a solver fails as unavailable at once.
+//! A library user that only compiles a definition, configures starts ([`Semantics::configure`], [`Semantics::case_inputs`]) and reads or writes end documents ([`Semantics::read_end`], [`Semantics::end_document`]) needs no feature: reading and writing a document asks no solver, and configuring evaluates the initializer at the values given, where the equations' conditions are ground and the simplifier decides them without one.
+//! A solver matters to a run, a search or a proof whose conditions are not decided at values, where its absence leaves the question undecided (an `indeterminate` halt, an unknown verdict) rather than answered otherwise.
+//!
 //! # Report versions
 //!
 //! A `krs-exec/N` name states which shape a document has, so a reader can refuse one it does not know.
@@ -1660,7 +1668,10 @@ impl Semantics {
         if end_document.get("halt").and_then(serde_json::Value::as_str)
             == Some(Halt::DepthBound.as_str())
         {
-            return Err(refuse("halt", DEPTH_BOUND_EXPECTATION));
+            return Err(refuse(
+                "halt",
+                &format!("{DEPTH_BOUND_REFUSAL}{DEPTH_BOUND_GUIDANCE}"),
+            ));
         }
         let end = self
             .read_end_in(&serde_json::Value::Object(end_document), from, files)
@@ -3432,14 +3443,28 @@ fn compile_spec_definition(
     .map(|(artifacts, _)| artifacts)
 }
 
-/// Why an expectation's `halt` is never `depth-bound` ([`ends`], "Results"), and what states the
-/// state at a point of a run instead.
-const DEPTH_BOUND_EXPECTATION: &str = "an expected end is never `depth-bound`: the depth counts \
-     the compiled definition's steps, the heating and cooling steps of strictness and contexts \
-     included, so the state after N steps is no fact about the definition, and a run that reaches \
-     its bound is not known to have ended; to expect the state at a point of the run, stop the \
-     run at a rule the author wrote and count its arrivals there \
-     (`run = { stop_before = [\"crate::boundary\"], stop_count = N }`) and expect that stop (`halt = \"stopped\", rule = \"crate::boundary\"`)";
+/// The refusal of an expectation whose `halt` is `depth-bound` ([`ends`], "Results"): this
+/// statement, then [`DEPTH_BOUND_GUIDANCE`]. Both are fixed texts, the same for every case, so a
+/// caller that refuses several cases for it may state the guidance once.
+pub const DEPTH_BOUND_REFUSAL: &str = "an expected end is never `depth-bound`";
+
+/// What follows [`DEPTH_BOUND_REFUSAL`] in the refusal: why no expectation is `depth-bound`, and
+/// how to state the state at a point of a run instead, with a stop, its count, and how to find
+/// the count.
+pub const DEPTH_BOUND_GUIDANCE: &str = ": the depth counts the compiled definition's steps, the \
+     heating and cooling steps of strictness and contexts included, so the state after N steps is \
+     no fact about the definition, and a run that reaches its bound is not known to have ended; to \
+     expect the state at a point of the run, stop the run at an item of the definition, count its \
+     arrivals there and expect that stop, for example \
+     `run = { stop_before = [\"crate::machine::boundary\"], stop_count = N }` with \
+     `halt = \"stopped\", rule = \"crate::machine::boundary\"`, where `rule` names the one item \
+     the run stopped at, as the status line of `krs run --case` names it (krs run: stopped after S \
+     steps, before `crate::machine::boundary` (stop N of N)), whichever of several stop items it \
+     is; `depth` may stay in `run` beside the stop as a backstop, under which a run that never reaches the stop ends `depth-bound` and its \
+     expectation is inconclusive; to find N, run the case without its `expect` table and with a \
+     count larger than the run reaches (`krs run --case FILE#NAME --stop-before ITEM --stop-count \
+     1000000` beside a `run` table that holds only `depth`), which prints how many arrivals it \
+     reached (`depth-bound after S steps, A of 1000000 stops reached`)";
 
 /// An expectation's views by cell path, and the observer it names.
 type ExpectationViews = (BTreeMap<String, String>, Option<String>);
