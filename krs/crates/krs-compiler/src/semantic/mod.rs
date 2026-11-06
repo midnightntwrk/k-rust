@@ -35,6 +35,7 @@ mod package;
 mod raw_k;
 mod record_updates;
 pub(crate) use record_updates::{head_rule_long_form, structured_rule_long_form};
+mod elaborate;
 mod references;
 mod restriction;
 mod result_sorts;

@@ -1178,14 +1178,25 @@ pub(crate) fn head_rule_long_form(
     let descriptors = bundle.descriptors().iter().collect::<Vec<_>>();
     let catalog = super::catalog::build_production_catalog(&descriptors)?;
     let declarations = DescriptorIndex::new(bundle);
+    head_rule_long_form_in(descriptor, rule, &catalog, &declarations)
+}
+
+/// [`head_rule_long_form`] over a package's production catalog and
+/// declarations, as the lowering holds them.
+pub(super) fn head_rule_long_form_in(
+    descriptor: &Descriptor,
+    rule: &krs_ir::DescriptorHeadRule,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
+    declarations: &DescriptorIndex<'_>,
+) -> Result<krs_ir::DescriptorHeadRule, DescriptorLoweringError> {
     let updates = RecordUpdates::scan(
         descriptor,
         &super::rules::head_rule_terms(rule),
-        &catalog,
-        &declarations,
+        catalog,
+        declarations,
         true,
     )?;
-    let long = |term: &DescriptorTerm| updates.long_form(term, &catalog, &declarations);
+    let long = |term: &DescriptorTerm| updates.long_form(term, catalog, declarations);
     let mut rule = rule.clone();
     if let Some(head) = &mut rule.head {
         for item in &mut head.items {
