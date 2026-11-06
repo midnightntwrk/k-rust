@@ -9,7 +9,7 @@ It covers three jobs:
 
 `krs kink <verb>` runs this loop over the package, with kink, k-rust's mutation tester, as its engine.
 The running example is the introduction's `plus` specification (`docs-site/story/plus`).
-Steps 1 to 3 of the loop run the introduction's corpus, `kink/`, with its four cases; step 4 adds a fifth case, and from there on the guide runs its own corpus, `guide/`, which holds the introduction's four cases and that one.
+Steps 1 to 3 of the loop run the introduction's corpus, `kink/`, with its four cases; step 4 adds a fifth case, and from there on the loop runs the guide's own corpus, `guide/`, which holds the introduction's four cases and that one.
 
 A mutation is a K patch of the K that KRS emits for the package: one or more text edits of its rules, each anchored by the rule's label.
 kink checks the mutant against every case, and a mutation that no case kills is a target for a new case.
@@ -55,7 +55,8 @@ A program file binds the main parameter of the package's `#[k::init]` function, 
 A case of typed inputs is a [case document](/reference/workflow#case-documents).
 
 Steps 1 to 3 run the introduction's corpus, the default `kink/`, with the guide's own mutation files, which `--mutations guide/mutations` names in place of `kink/mutations/`.
-Step 4 adds a case in the guide's own corpus, `guide/`, which holds the introduction's cases, the new one and the guide's mutation files; every command after it names that corpus with `--corpus guide`.
+Step 4 adds a case in the guide's own corpus, `guide/`, which holds the introduction's cases, the new one and the guide's mutation files; every command of the loop after it names that corpus with `--corpus guide`.
+[When no case comes to mind](#when-no-case-comes-to-mind) goes back to the introduction's corpus, on which `survivors/one` survives.
 
 ## The loop
 
@@ -315,7 +316,7 @@ A run over `refused.toml` judges nothing and exits 2:
 `krs kink fuzz --template ID --kill <topic>/<id>` searches the hole values of a case template for a case that kills a survivor, and `run` confirms the kill with its own oracle.
 A template is a case of the corpus with some of its literals marked as holes.
 Build it on one of the survivor's `witnesses`, the cases whose coverage reaches a rule the mutation edits; `fuzz` warns when the template's case is not one of them.
-On the introduction's four cases, the witnesses of `survivors/one` are `t3` and `t4`, the cases that apply `plus_succ`, and the guide's `TEMPLATES.toml` makes the second argument of `t4` a hole:
+On the introduction's corpus, the default `kink/` with its four cases, the witnesses of `survivors/one` are `t3` and `t4`, the cases that apply `plus_succ`, and the guide's `TEMPLATES.toml` makes the second argument of `t4` a hole:
 
 ```toml
 // [!include ~/snippets/mutation-testing/TEMPLATES.toml]
