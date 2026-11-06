@@ -9,7 +9,13 @@ use std::collections::BTreeMap;
 
 use k_rust::backend::{Backend, CompiledRuleKind};
 
-use crate::{ExecError, UnknownCrate, origin::ItemPath, report::RuleKind};
+use krs_ir::PackageCrateName;
+
+use crate::{
+    ExecError, UnknownCrate,
+    origin::{ItemPath, PackageNames},
+    report::RuleKind,
+};
 
 /// One identity of the catalog.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -29,25 +35,30 @@ pub(crate) struct Rules {
     /// The K namespace of the root package: the package whose module is the definition's main
     /// module, which the backend runs, so every other package's rules run only as its imports.
     root: String,
-    /// The definition's packages by K namespace, each with its crate name as a stop names it
-    /// ([`ItemPath::krate`]), whether or not any of its items wrote an identity of the catalog.
-    packages: BTreeMap<String, String>,
+    /// The definition's packages by K namespace, each with its names ([`PackageNames`]: its
+    /// crate name as a stop names it, [`ItemPath::krate`]), whether or not any of its items
+    /// wrote an identity of the catalog.
+    packages: BTreeMap<String, PackageNames>,
+    /// The crate names the definition records, of the packages whose libraries' crate names
+    /// are not their defaults ([`krs_ir_levels::DefinitionIr::crate_names`]).
+    crate_names: Vec<PackageCrateName>,
 }
 
 impl Rules {
-    /// The catalog of the definition `backend` runs, whose main module is `main_module` and
-    /// whose packages are `packages` (crate name by K namespace), each identity with the item
-    /// `item_of` names.
-    pub(crate) fn new(
+    /// The catalog of `definition`, which `backend` runs and whose main module is
+    /// `main_module`, each identity with the item of the provenance `provenance_of` gives it
+    /// ([`crate::origin::item_path`]).
+    pub(crate) fn new<'p>(
         backend: &Backend,
         main_module: &str,
-        packages: BTreeMap<String, String>,
-        item_of: impl Fn(&str) -> Option<ItemPath>,
+        definition: &krs_ir_levels::DefinitionIr,
+        provenance_of: impl Fn(&str) -> Option<&'p krs_k_rust::EmittedProvenance>,
     ) -> Result<Self, ExecError> {
+        let crate_names = definition.crate_names().to_vec();
         let mut by_id = BTreeMap::new();
         for rule in backend.rule_catalog(None)? {
             // Equal written axioms share one identity (`shared_identity`); they are one rule.
-            let item = item_of(&rule.id);
+            let item = crate::origin::item_path(provenance_of(&rule.id), &crate_names);
             by_id.entry(rule.id).or_insert(CatalogRule {
                 label: rule.label,
                 kind: match rule.kind {
@@ -64,8 +75,14 @@ impl Rules {
         Ok(Self {
             by_id,
             root: main_module.to_owned(),
-            packages,
+            packages: crate::origin::packages(definition),
+            crate_names,
         })
+    }
+
+    /// The crate names the definition records ([`krs_ir_levels::DefinitionIr::crate_names`]).
+    pub(crate) fn crate_names(&self) -> &[PackageCrateName] {
+        &self.crate_names
     }
 
     #[cfg(test)]
@@ -77,20 +94,42 @@ impl Rules {
         let packages = by_id
             .values()
             .filter_map(|rule| rule.item.as_ref())
-            .map(|item| (item.namespace.clone(), item.krate.clone()))
+            .map(|item| {
+                (
+                    item.namespace.clone(),
+                    PackageNames {
+                        krate: item.krate.clone(),
+                        package: item.krate.clone(),
+                    },
+                )
+            })
             .collect();
         Self {
             by_id,
             root: root.to_owned(),
             packages,
+            crate_names: Vec::new(),
         }
     }
 
     /// This catalog with the package of K namespace `namespace` and crate name `krate` too,
     /// whether or not an identity's item is of it.
     #[cfg(test)]
-    pub(crate) fn with_package(mut self, namespace: &str, krate: &str) -> Self {
-        self.packages.insert(namespace.to_owned(), krate.to_owned());
+    pub(crate) fn with_package(self, namespace: &str, krate: &str) -> Self {
+        self.with_library(namespace, krate, krate)
+    }
+
+    /// This catalog with the package of K namespace `namespace`, crate name `krate` and package
+    /// name `package` (with `-` written `_`) too, whether or not an identity's item is of it.
+    #[cfg(test)]
+    pub(crate) fn with_library(mut self, namespace: &str, krate: &str, package: &str) -> Self {
+        self.packages.insert(
+            namespace.to_owned(),
+            PackageNames {
+                krate: krate.to_owned(),
+                package: package.to_owned(),
+            },
+        );
         self
     }
 
@@ -165,9 +204,9 @@ impl Rules {
     /// `requested` wrote, whatever the rules' labels.
     ///
     /// The item is named by its Rust path: `crate::` and its path below the root crate's root,
-    /// or the crate name of the package that declares it ([`ItemPath::krate`]: its Cargo package
-    /// name with `-` written `_`, whatever a depending package's manifest renames it to) and its
-    /// path below that crate's root.
+    /// or the crate name of the package that declares it ([`ItemPath::krate`]: the crate name of
+    /// its library, whatever a depending package's manifest renames it to) and its path below
+    /// that crate's root.
     /// A path that starts with neither is read both ways, as Rust reads a path at the crate
     /// root, and is ambiguous where the root package has an item at it and a package of that
     /// crate name has one at its rest ([`ExecError::AmbiguousItem`]); so is a path two packages
@@ -197,12 +236,14 @@ impl Rules {
 
     /// The first segment of `requested` where it is neither `crate` nor the crate name of a
     /// dependency ([`ItemPath::krate`]) one of whose items wrote an identity of the catalog nor a
-    /// module of the root package's items: the root package's own crate name or `self`, which
-    /// name the root package but are not how a stop names its items; the crate name of a
-    /// dependency none of whose items wrote one, which no item path below it can name; or else a
-    /// name the definition records no package by. Which packages the definition holds is read
-    /// from its packages, not from the catalog, since a package whose items write no rule or
-    /// equation (one that declares only sorts and constructors) has no identity in it.
+    /// module of the root package's items: the root package's own crate name, its package name
+    /// or `self`, which name the root package but are not how a stop names its items; the crate
+    /// name of a dependency none of whose items wrote one, which no item path below it can name;
+    /// the package name of a dependency whose `[lib]` section names its library otherwise,
+    /// which names no crate; or else a name the definition records no package by. Which
+    /// packages the definition holds is read from its packages, not from the catalog, since a
+    /// package whose items write no rule or equation (one that declares only sorts and
+    /// constructors) has no identity in it.
     fn unknown_crate(&self, requested: &str) -> Option<UnknownCrate> {
         let (first, _) = requested.split_once("::")?;
         let module = format!("{first}::");
@@ -218,19 +259,23 @@ impl Rules {
         if known {
             return None;
         }
-        let dependency = self
-            .packages
-            .iter()
-            .any(|(namespace, krate)| *namespace != self.root && krate == first);
+        let dependencies = || {
+            self.packages
+                .iter()
+                .filter(|(namespace, _)| **namespace != self.root)
+                .map(|(_, names)| names)
+        };
         if first == "self"
             || self
                 .packages
                 .get(&self.root)
-                .is_some_and(|krate| krate == first)
+                .is_some_and(|names| names.krate == first || names.package == first)
         {
             Some(UnknownCrate::Root(first.to_owned()))
-        } else if dependency {
+        } else if dependencies().any(|names| names.krate == first) {
             Some(UnknownCrate::NoItem(first.to_owned()))
+        } else if let Some(names) = dependencies().find(|names| names.package == first) {
+            Some(UnknownCrate::PackageName(names.krate.clone()))
         } else {
             Some(UnknownCrate::Unrecorded(first.to_owned()))
         }
@@ -714,9 +759,9 @@ mod tests {
         );
     }
 
-    /// A dependency's item is named by that crate's own name, its package name with `-` written
-    /// `_`: a name a depending manifest renames the dependency to is no crate of the definition,
-    /// and the refusal says so and names the item by the name that selects it.
+    /// A dependency's item is named by that crate's own name, the crate name of its library: a
+    /// name a depending manifest renames the dependency to is no crate of the definition, and the
+    /// refusal says so and names the item by the name that selects it.
     #[test]
     fn a_dependency_is_named_by_its_own_crate_name() {
         let rules = Rules::from_entries(
@@ -747,7 +792,7 @@ mod tests {
         );
         assert_eq!(
             renamed.to_string(),
-            "no rewrite rule is written by KRS item `sm83_core::step`: no sentence of the definition is the item's, and the definition records no package by the name `sm83_core`: a dependency's item is named by its Cargo package name with `-` written `_`, never by a name a depending package's manifest renames it to or a library name its `[lib]` section gives it; did you mean `gb_sm83_core::step`?"
+            "no rewrite rule is written by KRS item `sm83_core::step`: no sentence of the definition is the item's, and the definition records no package by the name `sm83_core`: a dependency's item is named by the crate name of its library, never by a name a depending package's manifest renames it to; did you mean `gb_sm83_core::step`?"
         );
         // `crate::` names the root's items alone.
         let rooted = rules.resolve_item("crate::step").unwrap_err();
@@ -778,6 +823,52 @@ mod tests {
             missing.to_string(),
             "no rewrite rule is written by KRS item `gb_sm83_core::tock`: no sentence of the definition is the item's (an item is named by its Rust path: `crate::` and its path in the root package, or a dependency's own crate name and its path there)"
         );
+    }
+
+    /// A dependency whose `[lib]` section names its library otherwise is named by that crate
+    /// name, which the package sets itself and Rust names the crate by: its package name names
+    /// no crate, and the refusal names the library's crate name and the item by it; the root's
+    /// package name names the root package as its crate name does.
+    #[test]
+    fn a_dependency_is_named_by_its_library_name() {
+        let rules = Rules::from_entries(
+            "VM",
+            [
+                by(
+                    rule("v1", Some("VM.tick"), RuleKind::Rule),
+                    "VM",
+                    "vm_language",
+                    "tick",
+                ),
+                by(
+                    rule("c1", Some("CORE.step"), RuleKind::Rule),
+                    "CORE",
+                    "sm83_isa",
+                    "step",
+                ),
+            ],
+        )
+        .with_library("VM", "vm_language", "vm")
+        .with_library("CORE", "sm83_isa", "gb_sm83_core");
+        assert_eq!(rules.resolve_item("sm83_isa::step").unwrap(), ["c1"]);
+        let spelled = rules.resolve_item("gb_sm83_core::step").unwrap_err();
+        assert!(
+            matches!(&spelled, ExecError::UnknownItem { unknown_crate: Some(UnknownCrate::PackageName(krate)), suggestions, .. }
+                if krate == "sm83_isa" && suggestions == &["sm83_isa::step"]),
+            "{spelled:?}"
+        );
+        assert_eq!(
+            spelled.to_string(),
+            "no rewrite rule is written by KRS item `gb_sm83_core::step`: no sentence of the definition is the item's, and `gb_sm83_core` is the package name of a dependency whose `[lib]` section names its library `sm83_isa`: a dependency's item is named by the crate name of its library, `sm83_isa`; did you mean `sm83_isa::step`?"
+        );
+        for written in ["vm", "vm_language"] {
+            let refused = rules.resolve_item(&format!("{written}::tick")).unwrap_err();
+            assert!(
+                matches!(&refused, ExecError::UnknownItem { unknown_crate: Some(UnknownCrate::Root(name)), suggestions, .. }
+                    if name == written && suggestions == &["crate::tick"]),
+                "{written}: {refused:?}"
+            );
+        }
     }
 
     /// Which packages the definition holds is read from its packages, not from the catalog: a

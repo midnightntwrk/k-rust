@@ -1165,8 +1165,8 @@ fn an_undecided_run_or_search_has_no_answer_and_an_unwritten_output_is_an_error(
     assert_eq!(unmeasured.status.code(), Some(2), "{}", stderr(&unmeasured));
 }
 
-/// A dependency's item is named by its Cargo package name with `-` written `_`, the name the
-/// definition records it by: the observer's manifest renames `ends`' package to `ends`, a name of
+/// A dependency's item is named by the crate name of its library, here its Cargo package name
+/// with `-` written `_`, the name the definition records it by: the observer's manifest renames `ends`' package to `ends`, a name of
 /// its own source alone, so a stop of the observer's definition (composed with `ends`' facet)
 /// written `ends::finish` is refused
 /// naming `krs_cli_cases_ends_fixture::finish`, which stops at the dependency's rule.
@@ -1197,7 +1197,7 @@ fn a_renamed_dependency_is_named_by_its_package_name() {
     let accepted = "krs_cli_cases_ends_fixture::finish";
     assert!(
         stderr(&refused).contains(&format!(
-            "the definition records no package by the name `ends`: a dependency's item is named by its Cargo package name with `-` written `_`, never by a name a depending package's manifest renames it to or a library name its `[lib]` section gives it; did you mean `{accepted}`?"
+            "the definition records no package by the name `ends`: a dependency's item is named by the crate name of its library, never by a name a depending package's manifest renames it to; did you mean `{accepted}`?"
         )),
         "{}",
         stderr(&refused)

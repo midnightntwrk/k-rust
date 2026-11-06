@@ -2,7 +2,9 @@
 
 use std::collections::BTreeMap;
 
-use krs_ir::{LineIndex, NodeOrigin, OriginFrame, SourceFileId, SourceRange};
+use krs_ir::{
+    LineIndex, NodeOrigin, OriginFrame, PackageCrateName, PackageId, SourceFileId, SourceRange,
+};
 use krs_k_rust::{Author, EmittedProvenance, InputSentenceKind};
 
 use crate::{SourceText, report::SourceSpan, report::StepOrigin};
@@ -107,26 +109,28 @@ impl Origins {
 pub(crate) struct ItemPath {
     /// The declaring package's K namespace, which tells the definition's packages apart.
     pub(crate) namespace: String,
-    /// The name a stop gives the declaring package's crate: its Cargo package name with `-`
-    /// written `_`, from the package ID the definition identifies the package by, so that every
-    /// reader of the definition names the item alike. It is never a name a depending package's
-    /// manifest renames the dependency to, and it is the package name even where the package's
-    /// `[lib]` section names its library otherwise, since the definition records no library
-    /// name.
+    /// The name a stop gives the declaring package's crate: the crate name of its library, as
+    /// the definition records it ([`krs_ir_levels::DefinitionIr::crate_name`]), which the
+    /// package itself sets, so that every reader of the definition names the item alike. It is
+    /// never a name a depending package's manifest renames the dependency to.
     pub(crate) krate: String,
     /// The item's Rust path below its crate root (`interrupt::boundary_fetch`, `Arith::Add`
     /// for a variant of the enum family `Arith`).
     pub(crate) path: String,
 }
 
-/// The KRS item that wrote an emitted rule identity ([`ItemPath`]): the item the first frame of
-/// its first KRS author's origin that names an authored item names. An item whose name holds
+/// The KRS item that wrote an emitted rule identity ([`ItemPath`]), with its package's crate
+/// name as `crate_names` records it (a definition's [`krs_ir_levels::DefinitionIr::crate_names`]):
+/// the item the first frame of its first KRS author's origin that names an authored item names. An item whose name holds
 /// KRS's reserved marker (`__krs_`) is one the expansion generated, such as a production's
 /// grammar registration, which no author writes and no Rust path of the source names; the
 /// origin names the authored item it serves in a later frame (a strict variant's heat and cool
 /// rules name the variant once the production is lowered). `None` for a rule of K's builtin
 /// closure, or one whose origin names no authored item.
-pub(crate) fn item_path(provenance: Option<&EmittedProvenance>) -> Option<ItemPath> {
+pub(crate) fn item_path(
+    provenance: Option<&EmittedProvenance>,
+    crate_names: &[PackageCrateName],
+) -> Option<ItemPath> {
     let Some(Author::Krs { origin, .. }) = provenance?.authors().first() else {
         return None;
     };
@@ -156,31 +160,47 @@ pub(crate) fn item_path(provenance: Option<&EmittedProvenance>) -> Option<ItemPa
     let package = item.package();
     Some(ItemPath {
         namespace: package.k_namespace().to_owned(),
-        krate: package.cargo_name().replace('-', "_"),
+        krate: krs_ir::crate_name_in(crate_names, package),
         path,
     })
 }
 
-/// The packages of `definition` by K namespace, each with the name a stop gives its crate
-/// ([`ItemPath::krate`]): the package of each module's and each sentence's origin
-/// ([`packages_of`]). KRS generates a package's module from the items it declares, with the
-/// origin of one of them, so every package of the definition is found here, whether or not any
-/// of its items writes a rule or an equation.
-pub(crate) fn packages(definition: &krs_ir_levels::DefinitionIr) -> BTreeMap<String, String> {
-    packages_of(definition.modules().iter().flat_map(|module| {
-        std::iter::once(module.origin()).chain(
-            module
-                .sentences()
-                .iter()
-                .map(krs_ir_levels::DefinitionSentence::origin),
-        )
-    }))
+/// The names of one package of a definition that a stop's first segment may be.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PackageNames {
+    /// The crate name of its library, by which a stop names it ([`ItemPath::krate`]).
+    pub(crate) krate: String,
+    /// Its Cargo package name with `-` written `_`, which names no crate where its `[lib]`
+    /// section names its library otherwise, and which a refusal then points at `krate` from.
+    pub(crate) package: String,
 }
 
-/// The packages `origins` name by K namespace, each with its crate name as a stop names it: of
-/// each origin, the package of the first frame that names one, the package of its item, or else
-/// the package of the source its range is in.
-fn packages_of<'o>(origins: impl Iterator<Item = &'o NodeOrigin>) -> BTreeMap<String, String> {
+/// The packages of `definition` by K namespace, each with its names ([`PackageNames`]): the
+/// package of each module's and each sentence's origin ([`packages_of`]). KRS generates a
+/// package's module from the items it declares, with the origin of one of them, so every package
+/// of the definition is found here, whether or not any of its items writes a rule or an
+/// equation.
+pub(crate) fn packages(definition: &krs_ir_levels::DefinitionIr) -> BTreeMap<String, PackageNames> {
+    packages_of(
+        definition.modules().iter().flat_map(|module| {
+            std::iter::once(module.origin()).chain(
+                module
+                    .sentences()
+                    .iter()
+                    .map(krs_ir_levels::DefinitionSentence::origin),
+            )
+        }),
+        |package| definition.crate_name(package),
+    )
+}
+
+/// The packages `origins` name by K namespace, each with its names, its crate name as
+/// `crate_name` gives it: of each origin, the package of the first frame that names one, the
+/// package of its item, or else the package of the source its range is in.
+fn packages_of<'o>(
+    origins: impl Iterator<Item = &'o NodeOrigin>,
+    crate_name: impl Fn(&PackageId) -> String,
+) -> BTreeMap<String, PackageNames> {
     let mut packages = BTreeMap::new();
     for origin in origins {
         let package = origin
@@ -200,7 +220,10 @@ fn packages_of<'o>(origins: impl Iterator<Item = &'o NodeOrigin>) -> BTreeMap<St
         if let Some(package) = package {
             packages
                 .entry(package.k_namespace().to_owned())
-                .or_insert_with(|| package.cargo_name().replace('-', "_"));
+                .or_insert_with(|| PackageNames {
+                    krate: crate_name(package),
+                    package: package.default_crate_name(),
+                });
         }
     }
     packages
@@ -209,7 +232,7 @@ fn packages_of<'o>(origins: impl Iterator<Item = &'o NodeOrigin>) -> BTreeMap<St
 /// The Rust path below its crate root of the KRS item that wrote an emitted rule identity
 /// ([`item_path`]).
 pub(crate) fn item(provenance: Option<&EmittedProvenance>) -> Option<String> {
-    item_path(provenance).map(|item| item.path)
+    item_path(provenance, &[]).map(|item| item.path)
 }
 
 /// The pass that turns a non-rule input sentence into rules.
@@ -246,10 +269,10 @@ pub(crate) fn authored_range(origin: &NodeOrigin) -> Option<&SourceRange> {
 mod tests {
     use krs_ir::testing::{digest, origin_in, package};
 
-    use super::packages_of;
+    use super::{PackageNames, packages_of};
 
     /// Every package an origin is in is a package, by K namespace, with its crate name as a stop
-    /// names it, whatever else the origins say of it.
+    /// names it and its package name with `-` written `_`, whatever else the origins say of it.
     #[test]
     fn the_packages_are_those_the_origins_are_in() {
         let core = package("ORG-CORE", "gb-sm83-core");
@@ -259,11 +282,25 @@ mod tests {
             origin_in("b", types, "src/lib.rs", digest(), 0, 3),
             origin_in("c", core, "src/ops.rs", digest(), 4, 9),
         ];
+        // `sm83-types` names its library `sm83_isa` in its `[lib]` section.
+        let crate_name = |package: &krs_ir::PackageId| {
+            if package.cargo_name() == "sm83-types" {
+                "sm83_isa".to_owned()
+            } else {
+                package.default_crate_name()
+            }
+        };
+        let names = |krate: &str, package: &str| PackageNames {
+            krate: krate.to_owned(),
+            package: package.to_owned(),
+        };
         assert_eq!(
-            packages_of(origins.iter()).into_iter().collect::<Vec<_>>(),
+            packages_of(origins.iter(), crate_name)
+                .into_iter()
+                .collect::<Vec<_>>(),
             [
-                ("ORG-CORE".to_owned(), "gb_sm83_core".to_owned()),
-                ("ORG-TYPES".to_owned(), "sm83_types".to_owned()),
+                ("ORG-CORE".to_owned(), names("gb_sm83_core", "gb_sm83_core")),
+                ("ORG-TYPES".to_owned(), names("sm83_isa", "sm83_types")),
             ]
         );
     }

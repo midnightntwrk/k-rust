@@ -961,7 +961,7 @@ fn a_case_names_its_rules_as_the_stop_flags_do() {
     // A crate name no package of the definition has, as a depending manifest's rename of a
     // dependency would be, is refused in a case's `run` and by a stop flag alike, naming the
     // item by the name that selects it.
-    let hint = "the definition records no package by the name `renamed`: a dependency's item is named by its Cargo package name with `-` written `_`, never by a name a depending package's manifest renames it to or a library name its `[lib]` section gives it; did you mean `crate::finish`?";
+    let hint = "the definition records no package by the name `renamed`: a dependency's item is named by the crate name of its library, never by a name a depending package's manifest renames it to; did you mean `crate::finish`?";
     project.write(
         "renamed-stop.json",
         json!({"inputs": ends_inputs(&finish), "run": {"stop_before": ["renamed::finish"]}})

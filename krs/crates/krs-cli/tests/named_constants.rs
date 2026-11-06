@@ -565,6 +565,114 @@ k::rules! {
     assert!(success, "{stderr}");
 }
 
+/// A dependency whose `[lib]` section names its library otherwise than its package name is
+/// named by the library's crate name, by which its own and its dependers' Rust source names it:
+/// a stop flag and a case's `run` stop at its rule by `sm83_isa::step`, and its package name's
+/// spelling `isa_core::step` is refused in both, naming the library's crate name and the item by
+/// it.
+#[test]
+fn a_dependency_is_named_by_its_library_name() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let base = write_package(
+        temporary.path(),
+        "isa-core",
+        r#"
+use k::KResult;
+
+k::sorts! {
+    Common;
+}
+
+#[k::constructors(sort = Common, result = KResult)]
+pub enum Word {
+    #[k::syntax("unit")]
+    Unit(),
+    #[k::syntax("same")]
+    Same(),
+}
+
+k::rules! {
+    for Common;
+    use Word::*;
+    step: Unit() => Same();
+}
+"#,
+        "",
+    );
+    let manifest = fs::read_to_string(&base).unwrap();
+    fs::write(
+        &base,
+        manifest.replacen(
+            "publish = false\n",
+            "publish = false\n\n[lib]\nname = \"sm83_isa\"\n",
+            1,
+        ),
+    )
+    .unwrap();
+    let root = write_package(
+        temporary.path(),
+        "root",
+        r"
+use k::builtin::KSequence;
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init() -> Self {
+        Self { k: k::k![sm83_isa::Word::Unit()] }
+    }
+}
+",
+        "isa-core = { path = \"../isa-core\" }\n",
+    );
+    fs::write(
+        temporary.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"isa-core\", \"root\"]\nresolver = \"3\"\n",
+    )
+    .unwrap();
+    for (name, stop) in [("library", "sm83_isa::step"), ("package", "isa_core::step")] {
+        fs::write(
+            temporary.path().join(format!("{name}.json")),
+            format!(r#"{{"run": {{"stop_before": ["{stop}"]}}}}"#),
+        )
+        .unwrap();
+    }
+    let case = |name: &str| format!("{}/{name}.json", temporary.path().display());
+    let run = |extra: &[&str]| {
+        krs(
+            target.path(),
+            &root,
+            "root",
+            "run",
+            &[&["--dependency", "isa-core:main"][..], extra].concat(),
+        )
+    };
+    let stopped = "krs run: stopped after 0 steps, before `sm83_isa::step` (stop 1 of 1)";
+    for accepted in [
+        run(&["--stop-before", "sm83_isa::step"]),
+        run(&["--case", &case("library")]),
+    ] {
+        let (success, _, stderr) = accepted;
+        assert!(success, "{stderr}");
+        assert!(stderr.contains(stopped), "{stderr}");
+    }
+    let hint = "no rewrite rule is written by KRS item `isa_core::step`: no sentence of the definition is the item's, and `isa_core` is the package name of a dependency whose `[lib]` section names its library `sm83_isa`: a dependency's item is named by the crate name of its library, `sm83_isa`; did you mean `sm83_isa::step`?";
+    for refused in [
+        run(&["--stop-before", "isa_core::step"]),
+        run(&["--case", &case("package")]),
+    ] {
+        let (success, _, stderr) = refused;
+        assert!(!success, "{stderr}");
+        assert!(stderr.contains(hint), "{stderr}");
+    }
+}
+
 /// `krs expand` prints a readable clause over a dependency package's sort with each of the
 /// dependency's declarations by the crate name the source gives it (here a Cargo rename), and the
 /// printed source checks and emits the clause's rewrite.

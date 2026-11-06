@@ -76,7 +76,9 @@
 //! A constructor is written `{"Name": fields}`, with `fields` an object by field name or an array
 //! in declaration order (a tuple variant's fields are named `0`, `1`, ..), and `[]` or `{}` for
 //! none; at a position of a declared sort a bare string `"Name"` is a nullary constructor.
-//! `Name` is the declaration's path or a `::`-aligned suffix of it (`Register::A`, `A`), resolved
+//! `Name` is the declaration's path, the crate name of its package's library and its path below
+//! the crate root (`sm83::machine::Register::A`), or a `::`-aligned suffix of it (`Register::A`,
+//! `A`), resolved
 //! among the constructors whose result sort is at most the position's sort (among all
 //! constructors at an untyped position); a name that selects several is refused naming them.
 //! Each field is decoded at its declared type, element types included: a field declared
@@ -248,7 +250,7 @@
 //!   `stop_before` and `stop_after`, the rules at whose step the run ends,
 //!   each an array of names of rules as [`StopRules`](crate::StopRules) takes them:
 //!   a KRS item as a stop flag names it (`crate::machine::boundary`, or a dependency's crate name,
-//!   its Cargo package name with `-` written `_`, and its path), or a K label, in full or by a
+//!   the crate name of its library, and its path), or a K label, in full or by a
 //!   unique suffix after a `.`;
 //!   and `stop_count`, a positive integer, the arrival at a stop the run ends at
 //!   ([`StopCriterion::Rules`](crate::StopCriterion::Rules)), the first by default,

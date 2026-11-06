@@ -169,9 +169,11 @@ The arrivals at a rule the author wrote are that rule's steps, which the compila
 Each flag is repeatable, and a run that ends so is `stopped`.
 NAME is a KRS item or a K label.
 An item is named by `crate::` and its path in the root package (`crate::tick`, `crate::ppu::frame_end`), never by the root package's own crate name or `self::`, or by a dependency's crate name and its path there (`lang::step`), and selects every rewrite rule the item lowers to (a context's heat and cool rules, a strict production's); a path with neither prefix is read both ways, and a path that names items of two packages is refused (`krs::exec::rule`).
-A dependency's crate name is its Cargo package name with `-` written `_`, whatever a depending package's manifest renames it to: with `isa = { package = "my-isa" }` the root's source calls the crate `isa`, but its item is `my_isa::step`, and `isa::step` is refused naming `my_isa::step`, unless the root package has an item at `isa::step`, which the path also reads as.
+A dependency's crate name is the crate name of its library, by which Rust names the crate: its Cargo package name with `-` written `_`, or the name its `[lib]` section gives the library.
+It is that name whatever a depending package's manifest renames the dependency to: with `isa = { package = "my-isa" }` the root's source calls the crate `isa`, but its item is `my_isa::step`, and `isa::step` is refused naming `my_isa::step`, unless the root package has an item at `isa::step`, which the path also reads as.
 A name in a stop flag, a case document or an end document must denote one item to every reader of the definition and reach every item of it, which a rename, a property of one depending manifest, does not: another package may rename the dependency otherwise, and a package the root reaches only through another has no name in the root's source.
-A package whose `[lib]` section names its library otherwise is also named by its package name, although Rust code names it by the library's name: such a name is read against the definition, which identifies each package by its Cargo package ID and records no library name.
+A package sets its library's name itself, so the name is the same to every reader: where package `my-isa` has `[lib] name = "isa_core"`, its item is `isa_core::step`, and `my_isa::step` is refused naming the library's crate name `isa_core`.
+Two packages of a definition whose libraries have one crate name (`foo-bar` and `foo_bar`, or two libraries a `[lib]` section names alike) are refused when the definition is collected (`krs::collect::duplicate-crate-name`), since that name would name neither package's items alone.
 A label is exact or a unique suffix.
 `--stop-count N` ends the run at its Nth arrival at a stop instead of its first (it needs a stop to count): the backend counts the arrivals along the path and takes each earlier one as any other step, so nothing in the definition counts, the run is one request whatever N is, and its steps, trace and coverage are those of the uncut run up to where it ends ([stop count](/k-rust/compatibility#stop-count)).
 The status line names the stop it ended at by a name the flags accept (``stopped after 11 steps, after `crate::boundary` (stop 3 of 3)``); a run that ends on its own before the Nth arrival reports that end, and the status line (`2 of 3 stops reached`) and `--output json` (`stops`) say how many arrivals it counted; `--depth` stays a bound, so a run that reaches it first is `depth-bound`, never `stopped`.
@@ -390,7 +392,9 @@ or through others, is refused naming the cycle.
 A constructor is written `{"Name": fields}`, with `fields` an object by field name or an array
 in declaration order (a tuple variant's fields are named `0`, `1`, ..), and `[]` or `{}` for
 none; at a position of a declared sort a bare string `"Name"` is a nullary constructor.
-`Name` is the declaration's path or a `::`-aligned suffix of it (`Register::A`, `A`), resolved
+`Name` is the declaration's path, the crate name of its package's library and its path below
+the crate root (`sm83::machine::Register::A`), or a `::`-aligned suffix of it (`Register::A`,
+`A`), resolved
 among the constructors whose result sort is at most the position's sort (among all
 constructors at an untyped position); a name that selects several is refused naming them.
 Each field is decoded at its declared type, element types included: a field declared
@@ -562,7 +566,7 @@ A *case* is a table of three keys, each of which may be absent:
   `stop_before` and `stop_after`, the rules at whose step the run ends,
   each an array of names of rules as `StopRules` takes them:
   a KRS item as a stop flag names it (`crate::machine::boundary`, or a dependency's crate name,
-  its Cargo package name with `-` written `_`, and its path), or a K label, in full or by a
+  the crate name of its library, and its path), or a K label, in full or by a
   unique suffix after a `.`;
   and `stop_count`, a positive integer, the arrival at a stop the run ends at
   (`StopCriterion::Rules`), the first by default,

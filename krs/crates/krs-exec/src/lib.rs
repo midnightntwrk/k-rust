@@ -207,9 +207,9 @@ impl From<StopRules> for StopCriterion {
 /// A name is a KRS item or a K label.
 ///
 /// - A name with `::` is a KRS item, by its Rust path: `crate::` and the path below the root
-///   crate's root (`crate::ppu::frame_end`), or a dependency's own crate name, its Cargo package
-///   name with `-` written `_` whatever a depending manifest renames it to, and the path below
-///   its root (`lang::step`). The root package is
+///   crate's root (`crate::ppu::frame_end`), or a dependency's own crate name, the crate name of
+///   its library whatever a depending manifest renames it to, and the path below its root
+///   (`lang::step`). The root package is
 ///   the one whose module is the definition's main module. A path with neither prefix
 ///   (`ppu::frame_end`) is read both ways, as Rust reads a path at the crate root. The name
 ///   selects every rewrite rule the item lowers to (a context's heat and cool rules, a strict
@@ -549,9 +549,12 @@ impl fmt::Display for ElementSortMismatch {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum UnknownCrate {
     /// A name the definition records no package by, such as a depending manifest's rename of a
-    /// dependency or a library name its `[lib]` section gives it: a stop names a dependency by
-    /// its Cargo package name with `-` written `_`.
+    /// dependency: a stop names a dependency by the crate name of its library.
     Unrecorded(String),
+    /// The package name, with `-` written `_`, of a dependency whose `[lib]` section names its
+    /// library otherwise, with that library's crate name: Rust names the crate by it, and so does
+    /// a stop.
+    PackageName(String),
     /// The root package's own crate name, or `self`: names of the root package, whose items a
     /// stop names `crate::` and their path.
     Root(String),
@@ -949,7 +952,12 @@ fn write_unknown_item(
         match unknown_crate {
             Some(UnknownCrate::Unrecorded(krate)) => write!(
                 formatter,
-                ", and the definition records no package by the name `{krate}`: a dependency's item is named by its Cargo package name with `-` written `_`, never by a name a depending package's manifest renames it to or a library name its `[lib]` section gives it"
+                ", and the definition records no package by the name `{krate}`: a dependency's item is named by the crate name of its library, never by a name a depending package's manifest renames it to"
+            )?,
+            Some(UnknownCrate::PackageName(krate)) => write!(
+                formatter,
+                ", and `{package}` is the package name of a dependency whose `[lib]` section names its library `{krate}`: a dependency's item is named by the crate name of its library, `{krate}`",
+                package = requested.split_once("::").map_or(requested, |(first, _)| first)
             )?,
             Some(UnknownCrate::NoItem(krate)) => write!(
                 formatter,
@@ -1209,10 +1217,9 @@ impl Semantics {
             .collect::<Vec<_>>();
         let spec_definition = (!spec_modules.is_empty()).then(|| Box::new(definition.clone()));
         let main_cell = main_cell_name(definition);
-        let rules =
-            rules::Rules::new(&backend, &main_module, origin::packages(definition), |id| {
-                origin::item_path(sentence_provenance.get(id))
-            })?;
+        let rules = rules::Rules::new(&backend, &main_module, definition, |id| {
+            sentence_provenance.get(id)
+        })?;
         Ok(Self {
             backend,
             sort_hooks,
@@ -2429,7 +2436,8 @@ impl Semantics {
             let provenance = self.provenance.get(&rule_id);
             NamedRule {
                 label: self.rules.get(&rule_id).and_then(|rule| rule.label.clone()),
-                item: origin::item_path(provenance).map(|item| self.rules.spelling(&item)),
+                item: origin::item_path(provenance, self.rules.crate_names())
+                    .map(|item| self.rules.spelling(&item)),
                 origin: self.origins.step_origin(provenance),
                 rule_id,
             }
