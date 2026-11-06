@@ -384,22 +384,25 @@ args = ["run", "kink/cases/t4.nat"]
 # [story:end]
 
 # The guide "Mutation testing a KRS specification" (/verification/mutation-testing): the story's
-# package with the corpus story/plus/guide/ (the story's cases plus t5). results comes first:
-# check reads the cached results. check's document names k-rust's build, so only its
-# mutations are recorded.
+# package. Steps 1-3 run the story's corpus story/plus/kink/ (its four cases) with the guide's
+# mutation files (--mutations guide/mutations); step 4 and after run the guide's corpus
+# story/plus/guide/ (the story's cases plus t5). Step 1 also shows story-kink-results. The JSON
+# documents of results and check name k-rust's build, so only one member of each is recorded:
+# results' summary, check's mutations.
 [[output]]
 id = "mutation-testing-results"
 fixture = "story/plus"
 package = "story-plus"
 definition = "main"
-args = ["kink", "results", "--corpus", "guide", "--output", "verdicts", "--locked"]
+args = ["kink", "results", "--locked"]
+select = "summary"
 
 [[output]]
 id = "mutation-testing-check"
 fixture = "story/plus"
 package = "story-plus"
 definition = "main"
-args = ["kink", "check", "--corpus", "guide", "--locked"]
+args = ["kink", "check", "--mutations", "guide/mutations", "--locked"]
 select = "mutations"
 
 [[output]]

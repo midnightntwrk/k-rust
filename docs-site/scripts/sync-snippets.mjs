@@ -153,6 +153,11 @@ const snippets = [
     start: '#[k::symbol("tour::RootCommon")]',
     end: '#[k::constructor(sort = Expr, syntax = "pair({first},{second})")]',
   },
+  {
+    source: 'story/plus/kink/FLOW.toml',
+    mirror: 'src/snippets/mutation-testing/intro-FLOW.toml',
+    start: '[spec]',
+  },
   { source: 'story/plus/guide/FLOW.toml', mirror: 'src/snippets/mutation-testing/FLOW.toml' },
   { source: 'story/plus/guide/cases/t5.nat', mirror: 'src/snippets/mutation-testing/t5.nat' },
   {
