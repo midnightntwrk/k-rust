@@ -419,9 +419,57 @@ impl Elaborator<'_> {
                         .transpose()?,
                 ))
             }
-            ProtocolHeadRuleExtra::RewriteList { .. } => Err(Unelaborated("list notation")),
+            ProtocolHeadRuleExtra::RewriteList {
+                cell: field,
+                before,
+                after,
+                ..
+            } => Ok((
+                cell(field, content(field, &list_notation(field, before))?)?,
+                after
+                    .as_ref()
+                    .map(|after| cell(field, content(field, &list_notation(field, after))?))
+                    .transpose()?,
+            )),
         }
     }
+}
+
+/// One side of a readable list cell as the `cells!` term its brackets are: the list-notation
+/// levels `cells!` writes (`[a, b, ..r, z]` is `Cons(a, Cons(b, Snoc(r, z)))`), which the `cells!`
+/// lowering types at the cell's list, a cons list's constructors or the builtin `List`. An
+/// anonymous `..` is the list's unnamed rest ([`DescriptorTerm::KeptRest`]), the one rest the
+/// subject matches and the result keeps; exact brackets end in the empty list. Each level is
+/// located at the cell entry, where the readable lowering locates the terms it builds.
+fn list_notation(
+    field: &krs_ir::DescriptorCellReference,
+    list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>,
+) -> DescriptorTerm {
+    let level = |notation, arguments: Vec<DescriptorTerm>| DescriptorTerm::Application {
+        head_class: krs_ir::DescriptorApplicationHeadClass::Applied,
+        reference: krs_ir::DescriptorApplicationReference {
+            key: field.key.clone(),
+            application: krs_ir::DescriptorApplicationRef::ListNotation(notation),
+        },
+        path_key: field.key.clone(),
+        arguments: krs_ir::Arguments::Positional(arguments.into_iter().map(Box::new).collect()),
+        instance: Vec::new(),
+        update: None,
+        open: false,
+    };
+    let rest = match &list.rest {
+        krs_ir::ProtocolHeadRuleListRest::Exact => level(krs_ir::ListNotation::Empty, Vec::new()),
+        krs_ir::ProtocolHeadRuleListRest::Shared(key) => DescriptorTerm::KeptRest {
+            key: key.clone().unwrap_or_else(|| field.key.clone()),
+        },
+        krs_ir::ProtocolHeadRuleListRest::Term(rest) => rest.clone(),
+    };
+    let back = list.back.iter().fold(rest, |list, item| {
+        level(krs_ir::ListNotation::Snoc, vec![list, item.clone()])
+    });
+    list.items.iter().rev().fold(back, |list, item| {
+        level(krs_ir::ListNotation::Cons, vec![item.clone(), list])
+    })
 }
 
 /// Closes a rule's constructor records, as the print writes them: a constructor applied to named
