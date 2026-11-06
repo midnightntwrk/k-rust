@@ -117,7 +117,18 @@ fn invalid(message: impl Into<String>) -> StoreError {
 
 /// Execute one command. Only `definition` reads KINK_CORPUS_TEST_ABORT: it is a
 /// test-only child-process abort hook, never a campaign or manifest input.
+///
+/// `--help` (or `-h`) anywhere before `--` prints the usage on stdout and succeeds: asking for
+/// help is a question the binary answers, not an argument error.
 pub fn execute(args: Vec<OsString>) -> Result<(), StoreError> {
+    if args
+        .iter()
+        .take_while(|arg| *arg != "--")
+        .any(|arg| arg == "--help" || arg == "-h")
+    {
+        let _ = writeln!(std::io::stdout().lock(), "{USAGE}");
+        return Ok(());
+    }
     let args = Arguments::parse(args)?;
     match args.command.as_str() {
         "pin" => {

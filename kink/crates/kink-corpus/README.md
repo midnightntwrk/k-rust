@@ -53,7 +53,10 @@ Each capability of the harness manifest, and the user tool's form of it or why u
 
 ## Commands
 
-The binary prints its usage on every argument error.
+The binary prints its usage on stderr on every argument error, and on stdout for `--help` (or `-h`, anywhere before `--`).
+It exits 0 when the command succeeded (and for `--help`) and 1 otherwise: an argument error, a failed run or write, and a `replay-check` that does not reproduce the report alike, with the reason on stderr.
+It is outside the four-status scheme of kink-flow and `krs kink` (0 rely, 1 act on a finding, 2 fix the input, 3 retry): that scheme tells a user what to do next with an answer about a specification, and the harness gives no such answer.
+Its callers are kink's tests and maintainers' sweeps, which need only success or failure, and read why on stderr.
 
 - `pin --workspace DIR MANIFEST`: rewrites `MANIFEST` with every definition's source files and file inputs pinned by SHA-256.
 - `run --workspace DIR --store DIR MANIFEST`: runs every definition of the manifest, each in a child process (`definition`), so that a definition that aborts the process is recorded as an `error`/`process` row and the others still run; a definition whose completed report is already in the store is resumed rather than run again; then publishes the summary.

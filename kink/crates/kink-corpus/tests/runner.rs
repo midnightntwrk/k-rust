@@ -87,6 +87,31 @@ fn mini() -> Value {
     value["definitions"].as_array_mut().unwrap().push(renamed);
     value
 }
+/// Asking for help is a question the harness answers: the usage on stdout, exit 0; an argument
+/// error prints the same usage on stderr and exits 1, the harness's one failure status.
+#[test]
+fn help_answers_on_stdout_and_an_argument_error_fails() {
+    for args in [&["--help"][..], &["-h"], &["run", "--help"]] {
+        let output = Command::new(env!("CARGO_BIN_EXE_kink-corpus"))
+            .args(args)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(0), "{args:?}");
+        assert!(output.stderr.is_empty(), "{args:?}");
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains("usage: kink-corpus pin"),
+            "{args:?}"
+        );
+    }
+    let output = Command::new(env!("CARGO_BIN_EXE_kink-corpus"))
+        .arg("bogus")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("usage: kink-corpus pin"));
+}
+
 fn command(name: &str, manifest: &Path, store: &Store) -> Command {
     command_at(name, manifest, store, &workspace())
 }
