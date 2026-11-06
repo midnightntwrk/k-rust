@@ -589,15 +589,25 @@ bug — report it, don't guess.
      condition's construct alone) is one kink's analysis flags no rule of.
   2. It warns at each origin, the operator where a dependence starts, not
      at every sentence that applies a dependent function: the author can
-     fix it only there. A dependence that starts in a sentence no KRS author
-     wrote is warned at the nearest KRS sentence of its chain.
-  3. `#[k::function(.., skipped_operand = "reason")]` silences the warnings
-     at the function's equations, as `underspecified` silences the coverage
-     lint; a key that silences nothing is
-     `krs::analysis::stale-skipped-operand`. The key is per item because
-     Rust has no stable attribute on an expression. A rule's warning is
-     fixed by one rule per case, or silenced by moving the expression into
-     a function that states the key.
+     fix it only there. Every origin a sentence depends on is warned, each
+     at its own place, because the author fixes them one at a time; an
+     expression in a `let` block k-rust lifts into a local function is read
+     where the block stands, so writing a `let` changes no origin's warning.
+     A dependence that starts in the prelude is warned at each application
+     of the prelude function that holds it.
+  3. `skipped_operand = "reason"` silences the warnings at the sentences of
+     the item that states it, as `underspecified` silences the coverage
+     lint: on `#[k::function(..)]` every equation of the function, on
+     `#[k::rule(..)]` and `#[k::equation(..)]` the sentence the item writes;
+     a key that silences nothing is `krs::analysis::stale-skipped-operand`,
+     and a finding the lint drops (a construct `dead-guard` reports alone)
+     is nothing a key silences, since removing the key changes no warning.
+     The key is per item because Rust has no stable attribute on an
+     expression, and the item is what the author edits; a rule is an item
+     that carries attributes, and moving its expression into a keyed
+     function only to silence the warning would change the emitted K. A
+     claim is not a sentence of the definition the lint reads, so its marker
+     takes no such key.
 
 ## F. Tooling (co-deliverables, not afterthoughts)
 
