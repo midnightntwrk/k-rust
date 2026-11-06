@@ -223,8 +223,8 @@ fn typed_parts(descriptor: &Descriptor) -> Vec<TypedPart<'_>> {
 /// - [`DescriptorLoweringError::CellOutsideSubject`] for a named cell outside the scope;
 /// - [`DescriptorLoweringError::GroupInstance`] for a sentence about one instance that writes the
 ///   instance's Map key ([`check_instance_sentence`]);
-/// - [`DescriptorLoweringError::MainCell`] for a main cell inside a Set collection's instance
-///   ([`check_main_cell_holders`]).
+/// - [`DescriptorLoweringError::MainCell`] for a main cell inside a Set or a List collection's
+///   instance, or at or inside a Map instance's key ([`check_main_cell_holders`]).
 pub(super) fn check_subjects(
     descriptors: &[&Descriptor],
     declarations: &DescriptorIndex<'_>,
@@ -632,14 +632,17 @@ fn unraw(name: &str) -> &str {
 }
 
 /// Refuses a main cell that is a Map instance's key or lies inside one, and a main cell inside
-/// an instance of a Set collection.
+/// an instance of a Set or a List collection.
 ///
 /// The main cell is where a sentence that names no cell runs (a term rule, a context, a strict
 /// production's heating), so each such sentence is a local step of the instance that holds the
-/// computation. A Set identifies an instance by its whole content: a step that makes the
-/// instance equal to another merges the two, removing an instance the step never touched, so the
-/// step is no local step of its instance. The configuration's own refusals of its main cell
-/// ([`super::configuration`]) are told where it has none.
+/// computation, as a rule for that instance's group is. A Set identifies an instance by its whole
+/// content: a step that makes the instance equal to another merges the two, removing an instance
+/// the step never touched, so the step is no local step of its instance. A List keeps an
+/// instance's position, so the step is about the instance at any position, and matching one
+/// instance between others is not supported. The outermost such holder is named. The
+/// configuration's own refusals of its main cell ([`super::configuration`]) are told where it has
+/// none.
 fn check_main_cell_holders(
     descriptors: &[&Descriptor],
     declarations: &DescriptorIndex<'_>,
@@ -691,18 +694,31 @@ fn check_main_cell_holders(
             item: Some(Box::new(descriptor.id().clone())),
         });
     }
-    let Some(set) = instance_path(tree, index)
-        .into_iter()
-        .find(|&holder| tree.cells[holder].multiplicity == Multiplicity::Many(Order::Set))
+    let Some((holder, order)) =
+        instance_path(tree, index).into_iter().find_map(|holder| {
+            match tree.cells[holder].multiplicity {
+                Multiplicity::Many(order @ (Order::Set | Order::List)) => Some((holder, order)),
+                _ => None,
+            }
+        })
     else {
         return Ok(());
     };
-    let (owner, field) = tree.fields[set];
+    let why = match order {
+        Order::Set => {
+            "and a Set identifies an instance by its whole content, so a step that makes that instance equal to another merges the two, removing an instance the step never touched"
+        }
+        Order::List => {
+            "which in a List is the instance at any position, and matching one instance between others is not supported yet"
+        }
+        Order::Map => unreachable!("only a Set or a List holder is selected"),
+    };
+    let (owner, field) = tree.fields[holder];
     Err(DescriptorLoweringError::MainCell {
         reason: format!(
-            "the computation cell `{}` sits in an instance of {} of configuration `{}`: a sentence that names no cell (a term rule, a context, a strict production's heating) runs at the computation cell, so it is a local step of the instance that holds it, and a Set identifies an instance by its whole content, so a step that makes that instance equal to another merges the two, removing an instance the step never touched; hold the instances in a Map collection keyed by an id",
+            "the computation cell `{}` sits in an instance of {} of configuration `{}`: a sentence that names no cell (a term rule, a context, a strict production's heating) runs at the computation cell, so it is a local step of the instance that holds it, {why}; hold the instances in a Map collection keyed by an id",
             main.cell.field,
-            holder_text(tree, set),
+            holder_text(tree, holder),
             tree.configuration.item_name()
         ),
         range: key_range(owner, &field.reference.key).map(Box::new),
