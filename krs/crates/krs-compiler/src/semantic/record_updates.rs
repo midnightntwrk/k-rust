@@ -953,6 +953,16 @@ impl LongForm<'_, '_> {
                 };
                 let declared = self.fields(&Record::Production(id.clone()))?;
                 let key = reference.key.clone();
+                // A field the application names keeps its own node; a positional argument has
+                // no field token, and a field the long form adds stands at the application.
+                let mut written = match &*arguments {
+                    krs_ir::Arguments::Positional(_) => BTreeMap::new(),
+                    krs_ir::Arguments::Named(values) => written_keys(
+                        values
+                            .iter()
+                            .map(|argument| (&argument.field, &argument.key)),
+                    ),
+                };
                 let mut values = match std::mem::take(arguments) {
                     krs_ir::Arguments::Positional(values) => declared
                         .iter()
@@ -975,7 +985,7 @@ impl LongForm<'_, '_> {
                     .iter()
                     .filter_map(|field| {
                         values.remove(field).map(|value| krs_ir::NamedTermArgument {
-                            key: key.clone(),
+                            key: written.remove(field).unwrap_or_else(|| key.clone()),
                             field: field.clone(),
                             value: Box::new(value),
                         })
@@ -990,44 +1000,60 @@ impl LongForm<'_, '_> {
                 open,
                 update,
                 ..
-            } => {
-                let declared = self.fields(&Record::Cell(declaration.clone()))?;
-                let mut values = std::mem::take(fields)
-                    .into_iter()
-                    .map(|field| (field.field, *field.value))
-                    .collect::<BTreeMap<_, _>>();
-                for (field, value) in &mut values {
-                    *value = self.term(value, self.child_record(alias, field, value))?;
-                }
-                // An open record that is no base's and no update leaves the children it does
-                // not name unconstrained, which its `..` says: it keeps the children written
-                // and stays open. Any other names every child.
-                let keeps_open = *open && alias.is_none() && update.is_none();
-                self.fill(&declared, &mut values, alias, update.take().as_deref(), key)?;
-                if *open && !keeps_open {
-                    for field in &declared {
-                        values
-                            .entry(field.clone())
-                            .or_insert_with(|| DescriptorTerm::Wildcard { key: key.clone() });
-                    }
-                }
-                *open = keeps_open;
-                *fields = declared
-                    .iter()
-                    .filter_map(|field| {
-                        values
-                            .remove(field)
-                            .map(|value| krs_ir::DescriptorCellTermField {
-                                key: key.clone(),
-                                field: field.clone(),
-                                value: Box::new(value),
-                            })
-                    })
-                    .collect();
-            }
+            } => self.cell_record(key, declaration, fields, open, update, alias)?,
             _ => self.children(&mut term)?,
         }
         Ok(term)
+    }
+
+    /// The long form of a group record `Declaration { fields, ..update }` (open if `open`) that
+    /// `alias` may name: [`Self::term`]'s.
+    fn cell_record(
+        &self,
+        key: &ProvenanceKey,
+        declaration: &StableItemId,
+        fields: &mut Vec<krs_ir::DescriptorCellTermField>,
+        open: &mut bool,
+        update: &mut Option<Box<DescriptorTerm>>,
+        alias: Option<&str>,
+    ) -> Result<(), DescriptorLoweringError> {
+        let declared = self.fields(&Record::Cell(declaration.clone()))?;
+        // A child the record writes keeps its own node; one the long form adds stands
+        // at the record.
+        let mut written = written_keys(fields.iter().map(|field| (&field.field, &field.key)));
+        let mut values = std::mem::take(fields)
+            .into_iter()
+            .map(|field| (field.field, *field.value))
+            .collect::<BTreeMap<_, _>>();
+        for (field, value) in &mut values {
+            *value = self.term(value, self.child_record(alias, field, value))?;
+        }
+        // An open record that is no base's and no update leaves the children it does
+        // not name unconstrained, which its `..` says: it keeps the children written
+        // and stays open. Any other names every child.
+        let keeps_open = *open && alias.is_none() && update.is_none();
+        self.fill(&declared, &mut values, alias, update.take().as_deref(), key)?;
+        if *open && !keeps_open {
+            for field in &declared {
+                values
+                    .entry(field.clone())
+                    .or_insert_with(|| DescriptorTerm::Wildcard { key: key.clone() });
+            }
+        }
+        *open = keeps_open;
+        *fields = declared
+            .iter()
+            .filter_map(|field| {
+                values
+                    .remove(field)
+                    .map(|value| krs_ir::DescriptorCellTermField {
+                        key: written.remove(field).unwrap_or_else(|| key.clone()),
+                        field: field.clone(),
+                        value: Box::new(value),
+                    })
+            })
+            .collect();
+        Ok(())
     }
 
     /// `term` naming every child when it is an open group record: the children it does not
@@ -1044,16 +1070,24 @@ impl LongForm<'_, '_> {
             let declared = self.fields(&Record::Cell(declaration.clone()))?;
             let mut values = std::mem::take(fields)
                 .into_iter()
-                .map(|field| (field.field, field.value))
+                .map(|field| (field.field, (field.key, field.value)))
                 .collect::<BTreeMap<_, _>>();
+            // A child the record writes keeps its own node; a `_` for one it leaves out stands
+            // at the record.
             *fields = declared
                 .iter()
-                .map(|field| krs_ir::DescriptorCellTermField {
-                    key: key.clone(),
-                    field: field.clone(),
-                    value: values
-                        .remove(field)
-                        .unwrap_or_else(|| Box::new(DescriptorTerm::Wildcard { key: key.clone() })),
+                .map(|field| {
+                    let (field_key, value) = values.remove(field).unwrap_or_else(|| {
+                        (
+                            key.clone(),
+                            Box::new(DescriptorTerm::Wildcard { key: key.clone() }),
+                        )
+                    });
+                    krs_ir::DescriptorCellTermField {
+                        key: field_key,
+                        field: field.clone(),
+                        value,
+                    }
                 })
                 .collect();
             *open = false;
@@ -1114,7 +1148,7 @@ impl LongForm<'_, '_> {
         base: Option<&DescriptorTerm>,
         key: &ProvenanceKey,
     ) -> Result<(), DescriptorLoweringError> {
-        let variable = |name: &str| DescriptorTerm::Variable {
+        let variable = |key: &ProvenanceKey, name: &str| DescriptorTerm::Variable {
             key: key.clone(),
             path_key: key.clone(),
             name: name.to_owned(),
@@ -1123,7 +1157,9 @@ impl LongForm<'_, '_> {
             if let Some(alias) = alias
                 && let Some(Fill::Hidden(id)) = self.updates.fill(alias, field)
             {
-                let hidden = variable(id.as_str());
+                // The binder is there because the alias is a base: it stands at `alias @ ..`.
+                let key = self.updates.alias_key(alias).unwrap_or(key);
+                let hidden = variable(key, id.as_str());
                 let value = match values.remove(field) {
                     None | Some(DescriptorTerm::Wildcard { .. }) => hidden,
                     Some(pattern) => DescriptorTerm::As {
@@ -1134,13 +1170,19 @@ impl LongForm<'_, '_> {
                     },
                 };
                 values.insert(field.clone(), value);
-            } else if let Some(DescriptorTerm::Variable { name, .. }) = base
+            } else if let Some(DescriptorTerm::Variable {
+                key: base_key,
+                name,
+                ..
+            }) = base
                 && !values.contains_key(field)
                 && let Some(fill) = self.updates.fill(name, field)
             {
+                // A field the update takes from its base is the `..base` that supplies it.
+                let key = base_key;
                 let value = match fill {
-                    Fill::Binder(binder) => variable(binder),
-                    Fill::Hidden(id) => variable(id.as_str()),
+                    Fill::Binder(binder) => variable(key, binder),
+                    Fill::Hidden(id) => variable(key, id.as_str()),
                     Fill::Group(child) => {
                         let group = self
                             .updates
@@ -1229,6 +1271,15 @@ impl LongForm<'_, '_> {
         }
         Ok(())
     }
+}
+
+/// The key of each field a record writes, by field.
+fn written_keys<'a>(
+    fields: impl Iterator<Item = (&'a ProductionFieldId, &'a ProvenanceKey)>,
+) -> BTreeMap<ProductionFieldId, ProvenanceKey> {
+    fields
+        .map(|(field, key)| (field.clone(), key.clone()))
+        .collect()
 }
 
 /// The long form of a readable rule or claim, as `krs expand` writes it
