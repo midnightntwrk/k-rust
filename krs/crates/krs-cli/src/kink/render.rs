@@ -382,7 +382,10 @@ fn expected_views(
     if expectation.comparison.views.is_empty() {
         return Ok(());
     }
-    let observer = observer.unwrap_or(semantics);
+    let (observer, subject) = match observer {
+        Some(observer) => (observer, Some(&*semantics)),
+        None => (semantics, None),
+    };
     let expected = Ends::one(expectation.end.clone());
     let expected = Side {
         name: "expected",
@@ -390,6 +393,7 @@ fn expected_views(
     };
     match expectation.comparison.views.evaluate_within(
         observer,
+        subject,
         &[expected],
         Some(DEFAULT_VIEW_BUDGET),
     ) {
@@ -498,12 +502,13 @@ fn checked_expectation(
         ends: &baseline,
     };
     if !expectation.comparison.views.is_empty() {
-        let observer = match observer {
-            Some(observer) => observer,
-            None => &mut *semantics,
+        let (observer, subject) = match observer {
+            Some(observer) => (observer, Some(&*semantics)),
+            None => (&mut *semantics, None),
         };
         let evaluated = expectation.comparison.views.evaluate_within(
             observer,
+            subject,
             &[expected, baseline],
             Some(DEFAULT_VIEW_BUDGET),
         );
