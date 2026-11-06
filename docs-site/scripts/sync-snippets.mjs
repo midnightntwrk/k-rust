@@ -165,6 +165,10 @@ const snippets = [
   },
   { source: 'story/plus/guide/refused.toml', mirror: 'src/snippets/mutation-testing/refused.toml' },
   {
+    source: 'story/plus/guide/TEMPLATES.toml',
+    mirror: 'src/snippets/mutation-testing/TEMPLATES.toml',
+  },
+  {
     source: '../krs/tests/tour-negatives/src/lib.rs',
     mirror: 'src/snippets/overlapping-rules.rs',
     start: 'k::rules! {',

@@ -206,7 +206,7 @@ kink-flow's README states each, in ["`MUTATIONS.toml`"](https://github.com/midni
 | status | meaning | what to do | exit status |
 | --- | --- | --- | --- |
 | `killed` | some case's result differs on the mutant | nothing | 0 |
-| `survived` | every case ran to a comparable result and agreed | write a case that reaches the edited rule and whose result the edit changes (the row's `witnesses` are the cases whose coverage reaches the edit), or argue that the mutation is equivalent | 0 |
+| `survived` | every case ran to a comparable result and agreed | write a case that reaches the edited rule and whose result the edit changes (the run document's `witnesses` are the cases whose coverage reaches a rule the mutation edits; a definedness claim kink drops from the mutant, such as `plus`'s `total` in `removed_claims`, adds none through coverage), or argue that the mutation is equivalent | 0 |
 | `equivalent` | the mutant compiles to the specification's own executable definition | drop or change the mutation | 0 |
 | `unkillable` | the edit only weakens the specification: it deletes equations, or narrows a `requires` | nothing is run; write the misunderstanding as a replacement instead | 0 |
 | `invalid-mutation` | the mutation does not resolve, or krs refuses it | `check` names the reason and the next step | 2 |
@@ -253,6 +253,21 @@ A run over `refused.toml` judges nothing and exits 2:
 ## When no case comes to mind
 
 `krs kink fuzz --template ID --kill <topic>/<id>` searches the hole values of a case template for a case that kills a survivor, and `run` confirms the kill with its own oracle.
+A template is a case of the corpus with some of its literals marked as holes.
+Build it on one of the survivor's `witnesses`, the cases whose coverage reaches a rule the mutation edits; `fuzz` warns when the template's case is not one of them.
+On the introduction's four cases, the witnesses of `survivors/one` are `t3` and `t4`, the cases that apply `plus_succ`, and the guide's `TEMPLATES.toml` makes the second argument of `t4` a hole:
+
+```toml
+// [!include ~/snippets/mutation-testing/TEMPLATES.toml]
+```
+
+A hole of `Nat`, the sort the cases are written in, is refused unless it says `allow-refused-sort = true`, since a value of a program sort can be program text; with it, the hole's values are built from `Nat`'s constructors, `zero` and `s`.
+`fuzz` reads the survivor's row of the last run, whose `witnesses` are `t3` and `t4`, finds the case that kills `survivors/one`, and prints the `[[program]]` that adds it to `FLOW.toml`:
+
+```console [recorded with krs]
+// [!include ~/snippets/outputs/mutation-testing-fuzz.txt]
+```
+
 `krs kink query` checks whether each case reaches a pattern of interest.
 The [fuzzing guide](/k-rust/fuzzing) teaches templates and holes at the K level, and kink-flow's README, ["Killing a survivor with `fuzz`"](https://github.com/midnightntwrk/k-rust/blob/main/kink/crates/kink-flow/README.md#killing-a-survivor-with-fuzz), states every option.
 

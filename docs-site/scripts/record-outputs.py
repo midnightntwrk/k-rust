@@ -18,7 +18,10 @@ names it (`# the document's "MEMBER"`); stderr and the exit status follow as for
 any entry. It is for a document whose other members are not functions of the
 fixture, such as `krs kink check`'s, whose `k_rust_revision` names k-rust's build:
 the recording fails when stdout is not such an object, or when the member's text
-holds the repository's absolute path.
+holds the repository's absolute path. A member may be a dotted path into nested
+objects (`template.last_run.mutation`), and `select` may list several: the
+recording then shows one object holding each listed path's value under the path,
+in the listed order, after a command line that names them all.
 """
 
 from __future__ import annotations
@@ -85,7 +88,9 @@ def record(binary: Path, entry: dict) -> str:
     )
     command = "$ " + shlex.join(["krs", *arguments(entry)])
     if "select" in entry:
-        text = command + f"  # the document's {json.dumps(entry['select'])}\n" + selected(entry, executed.stdout) + executed.stderr
+        members = entry["select"] if isinstance(entry["select"], list) else [entry["select"]]
+        named = ", ".join(json.dumps(member) for member in members)
+        text = command + f"  # the document's {named}\n" + selected(entry, executed.stdout) + executed.stderr
     else:
         text = command + "\n" + executed.stdout + executed.stderr
     if executed.returncode != 0:
@@ -96,19 +101,32 @@ def record(binary: Path, entry: dict) -> str:
     return text
 
 
-def selected(entry: dict, stdout: str) -> str:
-    """The `select` member of the one JSON object `stdout` holds, as the recording shows it."""
+def member_value(entry: dict, document: object, member: str) -> object:
+    """The value at the dotted path `member` of `document`."""
 
-    member = entry["select"]
+    value = document
+    for key in member.split("."):
+        if not isinstance(value, dict) or key not in value:
+            raise GateError(f"output {entry['id']}: stdout is not a JSON object with the member {member!r}")
+        value = value[key]
+    return value
+
+
+def selected(entry: dict, stdout: str) -> str:
+    """The `select` member (or members) of the one JSON object `stdout` holds, as the recording
+    shows it."""
+
     try:
         document = json.loads(stdout)
     except json.JSONDecodeError as error:
         raise GateError(f"output {entry['id']}: stdout is not one JSON document ({error}), so `select` cannot apply") from None
-    if not isinstance(document, dict) or member not in document:
-        raise GateError(f"output {entry['id']}: stdout is not a JSON object with the member {member!r}")
-    text = json.dumps(document[member], indent=2, ensure_ascii=False) + "\n"
+    if isinstance(entry["select"], list):
+        shown = {member: member_value(entry, document, member) for member in entry["select"]}
+    else:
+        shown = member_value(entry, document, entry["select"])
+    text = json.dumps(shown, indent=2, ensure_ascii=False) + "\n"
     if str(REPOSITORY) in text:
-        raise GateError(f"output {entry['id']}: the member {member!r} holds the checkout path {REPOSITORY}, "
+        raise GateError(f"output {entry['id']}: the selection {entry['select']!r} holds the checkout path {REPOSITORY}, "
                         "which is not a function of the fixture")
     return text
 

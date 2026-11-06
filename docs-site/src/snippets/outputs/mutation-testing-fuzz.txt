@@ -1,0 +1,18 @@
+$ krs kink --package story-plus --definition main fuzz --templates guide/TEMPLATES.toml --template t4-second --kill survivors/one --mutations guide/mutations --locked  # the document's "template.last_run.mutation", "program"
+{
+  "template.last_run.mutation": {
+    "reason": null,
+    "status": "survived",
+    "witnesses": [
+      "t3",
+      "t4"
+    ]
+  },
+  "program": {
+    "confirmed": true,
+    "file": "cases/t4-second-fz-ce42c2d4.nat",
+    "fragment": "[[program]]\nid = \"t4-second-fz-ce42c2d4\"\ntext = \"\"\"\nplus(s(s(zero)), zero)\n\"\"\"\n",
+    "id": "t4-second-fz-ce42c2d4",
+    "premises": []
+  }
+}

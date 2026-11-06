@@ -417,6 +417,17 @@ package = "story-plus"
 definition = "main"
 args = ["kink", "run", "--mutations", "guide/mutations", "--full", "--output", "verdicts", "--locked"]
 
+# fuzz reads the last run document of the corpus, run-before's above, for the survivor's
+# witnesses; its document names k-rust's build, so only the mutation's row as fuzz read it
+# (status and witnesses) and the case it found are recorded.
+[[output]]
+id = "mutation-testing-fuzz"
+fixture = "story/plus"
+package = "story-plus"
+definition = "main"
+args = ["kink", "fuzz", "--templates", "guide/TEMPLATES.toml", "--template", "t4-second", "--kill", "survivors/one", "--mutations", "guide/mutations", "--locked"]
+select = ["template.last_run.mutation", "program"]
+
 [[output]]
 id = "mutation-testing-run-after"
 fixture = "story/plus"

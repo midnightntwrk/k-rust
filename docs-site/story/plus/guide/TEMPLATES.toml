@@ -1,0 +1,15 @@
+# The case templates of the guide "Mutation testing a KRS specification": t4 of the
+# introduction's corpus with its second argument a hole. A hole of `Nat`, the sort the
+# cases are written in, needs `allow-refused-sort = true`: its values are then built
+# from `Nat`'s own constructors, `zero` and `s`.
+
+[[template]]
+id = "t4-second"
+program = "t4"
+
+  [[template.hole]]
+  name = "N"
+  sort = "Nat"
+  find = ", s(zero))"
+  literal = "s(zero)"
+  allow-refused-sort = true
