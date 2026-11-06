@@ -4441,10 +4441,10 @@ fn cid_plus(
 
 /// The cases of [`a_rule_is_inside_the_deepest_instance_its_cells_lie_in`]:
 /// a table clause at the main cell, inside a core, whose `have` names one or
-/// two cells of a thread; a rule for the configuration
-/// that matches a core through the cores' instance list, readable and
-/// `cells!`.
-const DEEPEST_CASES: [(&str, &str); 4] = [
+/// two cells of a thread, with a thread-context call or none; a rule for the
+/// configuration that matches a core through the cores' instance list,
+/// readable and `cells!`.
+const DEEPEST_CASES: [(&str, &str); 5] = [
     (
         "thread-cell",
         r"
@@ -4453,6 +4453,17 @@ k::rules! {
     use Step::*;
 
     go: Go() => Done { n: crate::TvPlus(v) } where have tenv[0 -> let v];
+}
+",
+    ),
+    (
+        "thread-cell-no-call",
+        r"
+k::rules! {
+    for lib::Instr;
+    use Step::*;
+
+    go: Go() => Done { n: v } where have tenv[0 -> let v];
 }
 ",
     ),
@@ -4506,8 +4517,10 @@ pub fn go(
 /// the main cell, in a core, whose `have` reads a thread's map is inside that
 /// thread too, and applies `tvPlus`, passing the core's and the thread's
 /// keys: from `tv` 5 with `tenv` 0 |-> 7 it ends at `done ( 12 )`, and with
-/// `tmem` 1 |-> 20 read beside it, in the same thread, at `done ( 32 )`. A
-/// rule for the
+/// `tmem` 1 |-> 20 read beside it, in the same thread, at `done ( 32 )`.
+/// Without the call the clause is still inside the thread, which then passes
+/// no key: it matches the `tenv` of one thread of the core and ends at
+/// `done ( 7 )`. A rule for the
 /// configuration that matches a core through the cores' instance list is
 /// about the collection whole, so it is inside no core and cannot apply
 /// `cidPlus`, in either spelling: no `cells!` rule matches a computation cell
@@ -4554,6 +4567,11 @@ fn a_rule_is_inside_the_deepest_instance_its_cells_lie_in() {
                 "thread-cell",
                 "rule [go]: <core> <k> go => done ( tvPlus ( V:Int ) #instance ( Krs_KeyCore:Int , Krs_KeyThread:Int ) ) ... </k> <cid> Krs_KeyCore:Int </cid> <thread> <tenv> 0 |-> V:Int ... </tenv> <tid> Krs_KeyThread:Int </tid> ... </thread> ... </core>",
                 "done ( 12 ) ~> .K",
+            ],
+            [
+                "thread-cell-no-call",
+                "rule [go]: <core> <k> go => done ( V:Int ) ... </k> <thread> <tenv> 0 |-> V:Int ... </tenv> ... </thread> ... </core>",
+                "done ( 7 ) ~> .K",
             ],
             [
                 "two-thread-cells",
