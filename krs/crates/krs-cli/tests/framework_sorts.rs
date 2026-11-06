@@ -234,10 +234,14 @@ fn a_definition_that_names_no_framework_sort_has_rules_and_no_framework_module()
     assert!(flat.contains("<k> green ~> .K </k>"), "{stdout}\n{stderr}");
 }
 
-/// A rule variable inferred at `KItem` uses the framework without any
-/// declaration importing it: the module is emitted, imported by nothing.
+/// A rule variable inferred at `KItem` names the framework's sort, so the
+/// rule's module imports the framework module, as it imports the package of
+/// any sort a rule variable has, and as the same rule written with `cells!`,
+/// whose binder carries the sort, does. Whether the author wrote the sort or
+/// inference supplied it is not part of the rule: both bind `X` at `KItem`
+/// in the same K sentence, so both rules' modules import alike.
 #[test]
-fn a_rule_variable_at_k_item_keeps_the_framework_module() {
+fn a_rule_variable_inferred_at_k_item_imports_the_framework_module() {
     let target = shared_fixture_target();
     let temporary = temp_dir();
     let manifest = package(
@@ -250,10 +254,11 @@ fn a_rule_variable_at_k_item_keeps_the_framework_module() {
         without_source_comments(&definition).starts_with("module KRS-FRAMEWORK\n"),
         "{definition}"
     );
-    assert!(
-        !definition.contains("imports KRS-FRAMEWORK"),
-        "{definition}"
-    );
+    let imports = definition
+        .lines()
+        .filter(|line| line.trim() == "imports KRS-FRAMEWORK")
+        .count();
+    assert_eq!(imports, 2, "{definition}");
     assert!(
         definition.contains("<k> yellow ~> X:KItem => .K ... </k>"),
         "{definition}"

@@ -735,9 +735,10 @@ pub(crate) fn derive_rule(
 /// The exact authored range of a descriptor's first anchor of `role`.
 /// Whether the definition uses the framework sorts, so that its K keeps the
 /// framework module: some module imports it, which a module does exactly when
-/// one of its declarations names `KItem` or `KResult` (as with any package),
-/// or some sentence still refers to one of them, such as a rule variable
-/// inferred at `KItem`. Every definition has the framework sorts; only what
+/// one of its declarations or rule sentences names `KItem` or `KResult` (as
+/// with any package; a rule variable at `KItem` names it, whether its sort was
+/// written or inferred), or some sentence still refers to one of them without
+/// an import recording it. Every definition has the framework sorts; only what
 /// it uses is emitted.
 fn uses_framework(modules: &[SemanticModule]) -> bool {
     modules
