@@ -346,10 +346,10 @@ impl Ends {
         }
     }
 
-    /// The ends of this set that the definition reaches, which an expectation is checked
-    /// against ([module documentation](crate::ends#results)): every end but a `depth-bound`
-    /// one, a state at which a step budget ended the run or the search before any step from it,
-    /// and from which the definition may go on. Leaving one out makes the set incomplete, for that reason unless it
+    /// The ends of this set that the definition reaches, which an expectation is checked against
+    /// ([module documentation](crate::ends#results)): every end but a `depth-bound` one, a state at
+    /// which a step budget ended the run or the search before any step from it, and from which the
+    /// definition may go on. Leaving one out makes the set incomplete, for that reason unless it
     /// already was. Borrowed when the set holds no `depth-bound` end.
     #[must_use]
     pub fn reached(&self) -> Cow<'_, Self> {
@@ -945,8 +945,9 @@ impl Semantics {
     }
 
     /// The ends of a final-state search (`=>!`): each solution, `depth-bound` where it is at the
-    /// search's depth bound, whether or not it has a successor, and `stuck` otherwise, `undefined` for `\bottom`; incomplete when the
-    /// search did not explore every path within its bounds or dropped solutions.
+    /// search's depth bound, whether or not it has a successor, and `stuck` otherwise, `undefined`
+    /// for `\bottom`; incomplete when the search did not explore every path within its bounds or
+    /// dropped solutions.
     ///
     /// # Errors
     ///

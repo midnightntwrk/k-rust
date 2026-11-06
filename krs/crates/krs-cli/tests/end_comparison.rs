@@ -1136,8 +1136,9 @@ fn an_inconclusive_run_has_no_end_to_compare() {
 
 /// A `depth-bound` end is where a step budget ended the run, which took no step from it and the
 /// definition may take further: against an expectation it is no end, so a run that reaches its
-/// bound is inconclusive, whatever its cells hold and whether or not its state has a successor, and an expectation of a `depth-bound` end, which no end could meet,
-/// is refused, naming the stop-count form that states a point of a run.
+/// bound is inconclusive, whatever its cells hold and whether or not its state has a successor, and
+/// an expectation of a `depth-bound` end, which no end could meet, is refused, naming the
+/// stop-count form that states a point of a run.
 #[test]
 fn a_depth_bound_end_is_no_end_an_expectation_meets() {
     with_semantics(|semantics| {
