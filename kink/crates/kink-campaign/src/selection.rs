@@ -63,7 +63,12 @@
 //!
 //! kink-flow's kill search reads the same classification ([`CompiledEdit::witness`]) over the
 //! coverage its result records keep by baseline sentence, ordering each mutant's programs once it
-//! compiles (`run_campaign_multi_ordered`).
+//! compiles (`run_campaign_multi_ordered`). Its programs are ground, and it reads the edit as a
+//! ground test witnesses it ([`CompiledEdit::for_ground_tests`]): the definedness claims kink
+//! withdraws from the mutant (`total`, `functional`, `preserves-definedness`) are a change of
+//! the declarations, which the claim-free side's edit reads as `global`, but no ground test can
+//! tell the two definitions apart through them alone, so that edit is the author's patch, the
+//! mutant as written against the baseline.
 //!
 //! k-rust's sets are no over-approximation of what can affect a result (a higher-priority rule
 //! that failed to match is absent, though its failure lets the owise rule fire), so a test that
@@ -73,6 +78,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::{
     backend::{ExecutionRole, execution_role},
+    definition::AttributeKey,
     kore::{
         ast::{Attributes, Definition, Pattern, Sentence},
         parser::parse_definition,
@@ -83,7 +89,7 @@ use kink_native::{
     ValidatedDefinition,
     coverage::{Authorship, RuleAuthors, TestCoverage},
 };
-use kink_patch::SentenceRef;
+use kink_patch::{SentenceRef, Withdrawal};
 use serde_json::{Value, json};
 
 /// The campaign's test scheduling policy.
@@ -220,6 +226,78 @@ impl CompiledEdit {
             Witness::Matched => coverage.rule_ids.contains(id),
             Witness::Applied => coverage.applied_ids.contains(id),
         }
+    }
+}
+
+/// The trusted claims that state only that terms are defined: a symbol's `total` and
+/// `functional` (each of its applications to defined arguments is defined) and a rule's
+/// `preserves-definedness` (its right-hand side is defined wherever its left-hand side is).
+/// Their withdrawal from a mutant ([`kink_patch::ClaimSupport::withdraw`]) adds no ground
+/// witness of its edit through coverage ([`CompiledEdit::for_ground_tests`]).
+pub const DEFINEDNESS_CLAIMS: [AttributeKey; 3] = [
+    AttributeKey::Total,
+    AttributeKey::Functional,
+    AttributeKey::PreservesDefinedness,
+];
+
+/// Whether a ground test witnesses a mutant's edit as the mutant as written gives it, given the
+/// keys of the claims kink withdrew from it (`withdrawn_keys`, [`kink_patch::Claim::key`]):
+/// when every withdrawn claim is one of [`DEFINEDNESS_CLAIMS`]
+/// ([`CompiledEdit::for_ground_tests`]). With no claim withdrawn the two sides are one
+/// definition, and both readings are the same edit.
+#[must_use]
+pub fn ground_reading_is_as_written<'k>(withdrawn_keys: impl IntoIterator<Item = &'k str>) -> bool {
+    withdrawn_keys
+        .into_iter()
+        .all(|key| DEFINEDNESS_CLAIMS.iter().any(|claim| claim.as_str() == key))
+}
+
+impl CompiledEdit {
+    /// The edit as a ground test witnesses it, given the mutant as written (`as_written`, the
+    /// author's patch applied) and the claims kink withdrew from it (`claims`) to build the
+    /// claim-free side every test runs on: the edit of `as_written` against `baseline` when
+    /// every withdrawn claim is one of [`DEFINEDNESS_CLAIMS`] ([`ground_reading_is_as_written`]),
+    /// else `None`, and the claim-free side's own edit ([`Self::between`]) is read instead.
+    ///
+    /// A ground test witnesses an edit when its run under the baseline uses a sentence the
+    /// mutant changes, so that its run can tell the two apart. Withdrawing a definedness claim
+    /// changes no sentence a run uses; it only takes away an answer k-rust reads when it asks
+    /// whether a term is defined. Take a ground test whose baseline coverage is complete and
+    /// reaches no sentence the patch changes. Its run under the claim-free mutant applies the
+    /// baseline's sentences to the same terms and decides the same ground conditions, since
+    /// nothing it uses differs. Each application its equations evaluate is defined because it
+    /// equals the value they compute, which needs no claim. An application they leave
+    /// unevaluated in a step's result contradicts a `total` or `functional` claim, a
+    /// contradicted claim, or leaves a function application in an end, which is no data, on
+    /// either side.
+    ///
+    /// One case escapes coverage: an application in an operand that a short-circuit operator
+    /// skipped in the baseline run (the right operand of `orElseBool` after `true`, say) was
+    /// trusted defined by the claim and never evaluated, so the test's coverage holds none of
+    /// its equations. Without the claim, k-rust's strict reading must establish its definedness,
+    /// and can do so through an equation the patch edited: where that equation now leaves the
+    /// application undefined, the claim-free mutant's step is undefined where the baseline's
+    /// was not. That run is judged as any run is (the withdrawal makes the symbol partial, so
+    /// where the mutant's short-circuit analysis flags the rule that read the operand, the run
+    /// is excluded as `short-circuit-reading`), but its coverage reaches no edited sentence, and
+    /// it is no witness. So the withdrawal adds no witness through coverage, and a test it lets
+    /// reach an edit in this way runs after the witnesses. Witnesses only order the tests and
+    /// name a cached killer; every test still runs, so no status depends on the reading.
+    ///
+    /// The other withdrawn claims are not read so: an `injective`, `smt-hook`, `smtlib` or
+    /// `smt-lemma` withdrawal changes how a step or a solver query is decided. A deleted
+    /// `simplification` lemma removes a sentence, and a run that used the lemma then evaluates the
+    /// terms it rewrote by their equations, which can reach an edited one. For these the
+    /// claim-free side's edit stays the reading, as for a symbolic test, whose run can hold an
+    /// application no equation evaluates wherever a claimed symbol is applied.
+    #[must_use]
+    pub fn for_ground_tests(
+        baseline: &ValidatedDefinition,
+        as_written: &ValidatedDefinition,
+        claims: &Withdrawal,
+    ) -> Option<Self> {
+        ground_reading_is_as_written(claims.withdrawn.iter().map(|claim| claim.key.as_str()))
+            .then(|| Self::between(baseline, as_written))
     }
 }
 
@@ -629,6 +707,36 @@ mod tests {
     const TOP: &str = r"\top{S{}}()";
     const COND: &str = r#"\equals{SortBool{},S{}}(c{}(), \dv{SortBool{}}("true"))"#;
     const ECOND: &str = r#"\equals{SortBool{},R}(c{}(), \dv{SortBool{}}("true"))"#;
+
+    /// A ground test reads the mutant as written's edit exactly when every withdrawn claim is a
+    /// definedness claim; any other withdrawn claim, alone or beside one, keeps the claim-free
+    /// side's edit, since its withdrawal changes how a run is decided.
+    #[test]
+    fn only_definedness_withdrawals_read_the_mutant_as_written() {
+        let definedness = ["total", "functional", "preserves-definedness"];
+        for key in definedness {
+            assert!(ground_reading_is_as_written([key]), "{key}");
+        }
+        assert!(ground_reading_is_as_written(definedness));
+        assert!(ground_reading_is_as_written([]), "no claim withdrawn");
+        for key in [
+            "injective",
+            "smt-hook",
+            "smtlib",
+            "smt-lemma",
+            "simplification",
+        ] {
+            assert!(!ground_reading_is_as_written([key]), "{key}");
+            assert!(
+                !ground_reading_is_as_written(["total", key]),
+                "total and {key}"
+            );
+            assert!(
+                !ground_reading_is_as_written([key, "preserves-definedness"]),
+                "{key} and preserves-definedness"
+            );
+        }
+    }
 
     #[test]
     fn a_changed_rewrite_is_site_local_and_only_a_result_only_change_is_witnessed_by_applied() {

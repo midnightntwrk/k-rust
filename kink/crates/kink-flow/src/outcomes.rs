@@ -88,13 +88,19 @@
 //! and the `claim_removal` version of the context's kink identity,
 //! and is neither read back nor in a record digest.
 //!
-//! `witness` (version 3) is the mutant's compiled edit read through the baseline's rule authors
-//! (`search::EditWitness`: `{global, matched, applied}`, the baseline sentences whose coverage
-//! witnesses the edit by k-rust `matched` and by `applied`), from the live call that wrote the
-//! records, or null.
-//! It is a function of the key: the claim-free mutant is compiled from the mutation's patch under
-//! the context's kink identity, and the baseline's rule authors from the definition the
-//! execution digest names, so it rests on the compile determinism every record rests on.
+//! `witness` (version 3) is the mutant's compiled edit as a ground program witnesses it, read
+//! through the baseline's rule authors (`search::EditWitness`: `{reading, global, matched,
+//! applied}`, the baseline sentences whose coverage witnesses the edit by k-rust `matched` and by
+//! `applied`), from the live call that wrote the records, or null. `reading` is
+//! `ground-programs`: the edit is the claim-free mutant's, or the mutant as written's when only
+//! definedness claims were withdrawn from it (kink-campaign `CompiledEdit::for_ground_tests`).
+//! A file written before `reading` was read from the claim-free side alone; its `witness` is read
+//! when the row's `removed_claims` names no withdrawn claim or one that is not a definedness
+//! claim, where it is the same edit, and is otherwise not read.
+//! It is a function of the key: the mutant as written and the claim-free mutant are compiled
+//! from the mutation's patch under the context's kink identity, and the baseline's rule authors
+//! from the definition the execution digest names, so it rests on the compile determinism every
+//! record rests on.
 //! A row tier 1 decides with no compile reads it for its `witnesses` and for which of several
 //! cached killers it names; it decides no status and orders no call (a live call orders its
 //! programs by its own compiled edit), so it is outside every record digest, and a file whose

@@ -1583,8 +1583,11 @@ pub fn run_campaign_multi_with(
 }
 
 /// A caller's order of a mutant's tests, chosen once the mutant's claim-free side, the definition
-/// every test of the mutant runs on, has compiled ([`run_campaign_multi_ordered`]): given that
-/// side's [`CompiledEdit`] against the compiled baseline, the ids of the tests that run first.
+/// every test of the mutant runs on, has compiled ([`run_campaign_multi_ordered`]): given the
+/// mutant's [`CompiledEdit`] as a ground test witnesses it ([`CompiledEdit::for_ground_tests`]:
+/// the claim-free side's against the compiled baseline, or the mutant as written's when only
+/// definedness claims were withdrawn), the ids of the tests that run first. A caller whose tests
+/// are not ground reads the edit as a ground test would, which changes only the order.
 pub type FirstTests<'f> = dyn FnMut(&CompiledEdit) -> BTreeSet<String> + 'f;
 
 /// [`run_campaign_multi_with`] with each mutant's tests ordered by the caller once the mutant
@@ -2240,7 +2243,7 @@ fn run_mutant(
                 observations,
             );
             let caller_order = first.map(|first| {
-                let first = first(&sides.edit);
+                let first = first(&sides.ground_witness);
                 let mut order = Vec::with_capacity(campaign.tests.len());
                 for runs_first in [true, false] {
                     order.extend(
@@ -2357,6 +2360,7 @@ fn prepare_mutant(
         side,
         claims,
         data,
+        ground_witness,
         loaded,
     } = claim_free_mutant(
         campaign.validator,
@@ -2370,12 +2374,20 @@ fn prepare_mutant(
     )?;
     let fail = |failure| MutantRefusal::new(failure, claims.clone());
     let edit = CompiledEdit::between(compiled_baseline, &side);
+    let ground_witness = ground_witness.unwrap_or_else(|| edit.clone());
     // The claim-free mutant's backend was loaded once, for its facts, and runs its tests; its
     // facts judge its ends and, in each pair, the baseline's (KINK-OVERLOAD-VALUE).
     let mut runtime = Runtime::from_loaded(campaign, &side, loaded)
         .map_err(|_| fail(MutantScopeFailure::Infrastructure))?;
     runtime.data = Some(data);
-    Ok((MutantSides { runtime, edit }, claims))
+    Ok((
+        MutantSides {
+            runtime,
+            edit,
+            ground_witness,
+        },
+        claims,
+    ))
 }
 
 /// A step of [`claim_free_mutant`] that it reports to its caller's stage hook before running it
@@ -2400,6 +2412,10 @@ pub struct ClaimFreeMutant {
     pub claims: Withdrawal,
     /// The claim-free mutant's data facts, on the definition its runs execute on.
     pub data: DataFacts,
+    /// The mutant's edit as a ground test witnesses it, when that is not the claim-free side's
+    /// ([`CompiledEdit::for_ground_tests`]): the mutant as written against the baseline, when
+    /// only definedness claims were withdrawn from it.
+    pub ground_witness: Option<CompiledEdit>,
     /// The claim-free mutant's load, which the runner's runtime takes over.
     loaded: LoadedSide,
 }
@@ -2485,10 +2501,15 @@ pub fn claim_free_mutant(
             claims,
         ));
     }
-    let side = match claims.patch() {
-        None => side,
+    // The mutant as written is read once more before the claim-free side replaces it: for the
+    // edit a ground test witnesses ([`CompiledEdit::for_ground_tests`]).
+    let (side, ground_witness) = match claims.patch() {
+        None => (side, None),
         Some(withdrawing) => match validator.validate(withdrawing) {
-            Ok(side) => side,
+            Ok(withdrawn) => {
+                let witness = CompiledEdit::for_ground_tests(compiled_baseline, &side, &claims);
+                (withdrawn, witness)
+            }
             Err(_) => {
                 return Err(MutantRefusal::new(
                     MutantScopeFailure::StrippedClaimCompileFailure,
@@ -2585,6 +2606,7 @@ pub fn claim_free_mutant(
         side,
         claims,
         data,
+        ground_witness,
         loaded,
     })
 }
@@ -2674,10 +2696,13 @@ impl MutantRefusal {
     }
 }
 
-/// A prepared mutant: the claim-free definition every test runs on, and its compiled edit.
+/// A prepared mutant: the claim-free definition every test runs on, its compiled edit, and that
+/// edit as a ground test witnesses it ([`CompiledEdit::for_ground_tests`]), which a caller's
+/// order reads ([`FirstTests`]).
 struct MutantSides {
     runtime: Runtime,
     edit: CompiledEdit,
+    ground_witness: CompiledEdit,
 }
 
 impl MutantSides {
@@ -5731,9 +5756,11 @@ mod tests {
                     },
                 )]);
                 // The total definition as the mutant side.
+                let edit = CompiledEdit::between(&base_side, &total_side);
                 let mut sides = MutantSides {
                     runtime: Runtime::prepare(&campaign, &total_side).unwrap_or_else(|_| panic!()),
-                    edit: CompiledEdit::between(&base_side, &total_side),
+                    ground_witness: edit.clone(),
+                    edit,
                 };
                 let mut observations = BaselineObservations {
                     runtime: &mut runtime,

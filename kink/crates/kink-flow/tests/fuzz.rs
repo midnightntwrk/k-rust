@@ -825,8 +825,183 @@ fn warning_kinds(document: &Value) -> Vec<&str> {
         .collect()
 }
 
+/// The K that `krs emit-k` writes for the introduction's story (`docs-site/story/plus`), less its
+/// header and `// KRS` comments: natural numbers whose programs are written in `Nat` itself, and
+/// `plus`, declared `total`, defined by `plus_zero` and `plus_succ`.
+const STORY_K: &str = r#"
+module KRS-FRAMEWORK
+  syntax KItem
+  syntax KResult
+  syntax KItem ::= KResult
+endmodule
+module NAT-SYNTAX
+  imports KRS-FRAMEWORK
+  syntax Nat
+  syntax Nat ::= "s" "(" Nat ")" [symbol(natSyntaxSucc), group(krsgroup-ed0b6ff63cf0cba2ebb2a364), format(%1%2%3%4)]
+  syntax Nat ::= "zero" [symbol(natSyntaxZero), group(krsgroup-ed0b6ff63cf0cba2ebb2a364), format(%1)]
+  syntax Nat ::= "plus" "(" Nat "," Nat ")" [symbol(plus), function, total]
+endmodule
+module NAT
+  imports KRS-FRAMEWORK
+  imports NAT-SYNTAX
+  syntax KItem ::= Nat
+  configuration
+    <k> $PGM:Nat </k>
+  rule plus ( s ( M:Nat ) , N:Nat ) => s ( plus ( M:Nat , N:Nat ) ) [label(nat--plus_succ)]
+  rule plus ( zero , N:Nat ) => N:Nat [label(nat--plus_zero)]
+endmodule
+"#;
+
+/// The story's corpus: `t1` and `t2` apply only `plus_zero`, `t3` and `t4` `plus_succ` too.
+const STORY_MANIFEST: &str = r#"[spec]
+entry = "story.k"
+main_module = "NAT"
+syntax_module = "NAT-SYNTAX"
+
+[[program]]
+id = "t1"
+text = "plus(zero, zero)"
+
+[[program]]
+id = "t2"
+text = "plus(zero, s(zero))"
+
+[[program]]
+id = "t3"
+text = "plus(s(zero), s(zero))"
+
+[[program]]
+id = "t4"
+text = "plus(s(s(zero)), s(zero))"
+"#;
+
+/// The story guide's survivor `survivors/one`, an edit of `plus_succ` alone, which every case of
+/// [`STORY_MANIFEST`] leaves alive: their recursive calls pass `s(zero)` already.
+const STORY_MUTATIONS: &str = r#"[[mutation]]
+id = "one"
+note = "passes one instead of n to the recursive call"
+
+  [[mutation.edit]]
+  rule = "plus_succ"
+  find = "s ( plus ( M:Nat , N:Nat ) )"
+  replace = "s ( plus ( M:Nat , s ( zero ) ) )"
+"#;
+
+/// A hole over the second argument of `t4` and one of `t2`, each a `Nat`: the sort programs are
+/// written in, which only the override admits.
+const STORY_TEMPLATES: &str = r#"[[template]]
+id = "t4-second"
+program = "t4"
+
+  [[template.hole]]
+  name = "B"
+  sort = "Nat"
+  find = ", s(zero))"
+  literal = "s(zero)"
+  allow-refused-sort = true
+
+[[template]]
+id = "t2-second"
+program = "t2"
+
+  [[template.hole]]
+  name = "B"
+  sort = "Nat"
+  find = ", s(zero))"
+  literal = "s(zero)"
+  allow-refused-sort = true
+"#;
+
 mod kink_tier {
     use super::*;
+
+    /// A mutant's `witnesses` are the programs whose coverage reaches a sentence the author's
+    /// edit changes: kink withdraws `plus`'s `total` from the mutant of a `plus_succ` edit (the
+    /// row's `removed_claims` still says so), and that withdrawal adds no witness through a
+    /// program's coverage, so `t1` and `t2`, which apply only `plus_zero`, are not witnesses.
+    /// `fuzz` warns from the same set. A hole of the program sort `Nat` with
+    /// `allow-refused-sort = true` is then fuzzed, not refused again where its values are built,
+    /// and the template on the witness `t4` kills the survivor.
+    #[test]
+    #[ignore = "kink"]
+    fn a_story_survivor_is_witnessed_by_its_edit_and_fuzzed_through_a_nat_hole() {
+        let dir = scratch_flow("story", "story.k", STORY_K, STORY_MANIFEST, STORY_MUTATIONS);
+        let cache = scratch("story-cache");
+        let (manifest, mutations, run_cache) = (
+            dir.join("FLOW.toml"),
+            dir.join("MUTATIONS.toml"),
+            cache.clone(),
+        );
+        let (run, _) = on_stack(move || {
+            kink_flow::cli::run(
+                &manifest,
+                &mutations,
+                &RunOptions {
+                    schedule: kink_campaign::ScheduleMode::Full,
+                    cache: Some(run_cache),
+                    ..RunOptions::default()
+                },
+            )
+        });
+        let row = &run["mutations"][0];
+        assert_eq!(row["status"], "survived", "{run:#}");
+        assert_eq!(row["witnesses"], serde_json::json!(["t3", "t4"]), "{row:#}");
+        let removed = row["removed_claims"].to_string();
+        assert!(removed.contains("total"), "{row:#}");
+
+        let options = || FuzzOptions {
+            cache: Some(cache.clone()),
+            ..imp_options(50)
+        };
+        let (document, _) = fuzz_kill(
+            &dir,
+            "MUTATIONS.toml",
+            Some(STORY_TEMPLATES),
+            "t2-second",
+            "one",
+            FuzzOptions {
+                budget: k_rust_fuzz::Budget::Cases(1),
+                ..options()
+            },
+        );
+        assert_eq!(document["job"]["refusal"], Value::Null, "{document:#}");
+        assert_eq!(
+            document["template"]["last_run"]["mutation"]["witnesses"],
+            serde_json::json!(["t3", "t4"]),
+            "{document:#}"
+        );
+        let warning = document["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|warning| warning["kind"] == "template-not-a-witness")
+            .unwrap_or_else(|| panic!("t2 is no witness: {document:#}"));
+        assert!(
+            warning["detail"].as_str().unwrap().contains("(t3, t4)"),
+            "{warning:#}"
+        );
+
+        let (document, ok) = fuzz_kill(
+            &dir,
+            "MUTATIONS.toml",
+            Some(STORY_TEMPLATES),
+            "t4-second",
+            "one",
+            FuzzOptions {
+                confirm: true,
+                ..options()
+            },
+        );
+        assert!(ok, "{:#}", document["action"]);
+        assert_eq!(document["job"]["refusal"], Value::Null, "{document:#}");
+        assert!(warning_kinds(&document).is_empty(), "{document:#}");
+        assert_eq!(document["stopped"], Value::Null, "{document:#}");
+        assert_eq!(document["program"]["confirmed"], true, "{document:#}");
+        assert_eq!(
+            document["template"]["holes"][0]["allow-refused-sort"], true,
+            "{document:#}"
+        );
+    }
 
     /// Design F4 (the review's probe A, kept as a test): every mutant kink builds converts through
     /// `from_artifacts` with the baseline's source table, and both provenance digests compute.

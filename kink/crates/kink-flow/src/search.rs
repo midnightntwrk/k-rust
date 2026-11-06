@@ -15,8 +15,11 @@
 //!    first (the record's `wall_ms`, then corpus order; [`ProgramOrder`], README 6.4). Every
 //!    live call then runs first the programs of the call whose cached coverage witnesses the
 //!    mutant's edit, then the rest, each group in O's order: once the mutant's claim-free side
-//!    compiles, the runner gives its compiled edit (kink-campaign `CompiledEdit::between`, the
-//!    rule its coverage selection reads; `run_campaign_multi_ordered`), and a program witnesses
+//!    compiles, the runner gives its compiled edit as a ground program witnesses it
+//!    (kink-campaign `CompiledEdit::for_ground_tests`: `CompiledEdit::between` of that side, the
+//!    rule its coverage selection reads, or of the mutant as written when only definedness claims
+//!    were withdrawn, whose withdrawal adds no witness through a ground program's coverage;
+//!    `run_campaign_multi_ordered`), and a program witnesses
 //!    it as [`witnesses`] says (applied, k-rust `applied`, for an axiom whose edit is confined to
 //!    its right-hand side or `ensures`; matched, k-rust `matched`, for every other axiom of a
 //!    site-local edit: a rewrite rule's `requires`, left-hand side or attribute, a deleted rewrite
@@ -174,6 +177,7 @@ use kink_campaign::{
     CallRecording, CampaignFailure, CampaignOptions, CampaignReport, CompiledEdit, ManifestTest,
     MutantId, MutantPlan, MutantReport, MutantRun, MutantScopeFailure, MutantStatus, OracleOutcome,
     ScheduleMode, TestCase, TestEvidence, TestPlan, TestRun, Witness, derive_mutant_report,
+    selection::ground_reading_is_as_written,
 };
 use kink_corpus::{Store, admission::AdmissionRecord};
 use kink_native::{
@@ -465,9 +469,9 @@ struct LiveCall {
     /// The candidates in the order the call ran them ([`Search::call_untimed`]): the programs
     /// whose coverage witnesses the mutant's compiled edit first, under the first-kill search.
     order: Vec<usize>,
-    /// The compiled edit of the side the call's programs ran on (kink-campaign
-    /// [`CompiledEdit::between`]) read through the baseline's rule authors; `None` when the
-    /// mutant was refused before that side compiled.
+    /// The mutant's compiled edit as a ground program witnesses it (kink-campaign
+    /// [`CompiledEdit::for_ground_tests`]) read through the baseline's rule authors; `None` when
+    /// the mutant was refused before the side its programs run on compiled.
     witness: Option<EditWitness>,
     baseline: Vec<TestEvidence>,
     recording: CallRecording,
@@ -777,7 +781,8 @@ impl Search<'_, '_> {
         let (stored, witness) = store.read_with_witness(identity);
         // A row decided with no compile reads the compiled edit the file keeps; a live call
         // replaces it with its own ([`Search::set_witnesses`]).
-        let witness = EditWitness::from_value(&witness);
+        let removed_claims = row.get("removed_claims").unwrap_or(&Value::Null);
+        let witness = EditWitness::from_value(&witness, removed_claims);
         if let Some(witness) = &witness {
             row.insert("witnesses".into(), self.witness_programs(order, witness));
         }
@@ -2953,8 +2958,14 @@ fn finish(
     Value::Object(row)
 }
 
-/// A mutant's compiled edit (kink-campaign [`CompiledEdit::between`] on the side the programs
-/// run on, the rule kink-campaign's coverage selection reads) read through the baseline's
+/// The `reading` of a stored [`EditWitness`]: the edit as a ground program witnesses it.
+const GROUND_READING: &str = "ground-programs";
+
+/// A mutant's compiled edit as a ground program witnesses it (kink-campaign
+/// [`CompiledEdit::for_ground_tests`]: [`CompiledEdit::between`] on the side the programs run
+/// on, the rule kink-campaign's coverage selection reads, or on the mutant as written when kink
+/// withdrew only definedness claims from it, whose withdrawal adds no witness through a ground
+/// program's coverage) read through the baseline's
 /// [`RuleAuthors`], since kink-flow's result records keep coverage by baseline sentence: the
 /// baseline sentences behind the removed compiled ids that a run witnesses by k-rust `matched`
 /// (a rewrite rule id whose edit is not confined to its right-hand side or `ensures`, an equation
@@ -3002,7 +3013,8 @@ impl EditWitness {
         witness
     }
 
-    /// `{global, matched: [{module, index}], applied: [{module, index}]}`, each list sorted.
+    /// `{reading, global, matched: [{module, index}], applied: [{module, index}]}`, each list
+    /// sorted; `reading` is [`GROUND_READING`].
     fn value(&self) -> Value {
         let sentences = |set: &BTreeSet<(String, u64)>| {
             set.iter()
@@ -3010,6 +3022,7 @@ impl EditWitness {
                 .collect::<Vec<_>>()
         };
         json!({
+            "reading": GROUND_READING,
             "global": self.global,
             "matched": sentences(&self.matched),
             "applied": sentences(&self.applied),
@@ -3017,7 +3030,34 @@ impl EditWitness {
     }
 
     /// The inverse of [`Self::value`]; `None` for null or a value of another shape.
-    fn from_value(value: &Value) -> Option<Self> {
+    ///
+    /// A value without `reading` was written before the edit was read as a ground program
+    /// witnesses it (kink-campaign [`CompiledEdit::for_ground_tests`]), from the claim-free side
+    /// alone. That is the ground reading exactly when the mutant as written is not read instead:
+    /// when kink withdrew no claim from the mutant (the two sides are one definition) or a claim
+    /// other than a definedness claim (kink-campaign [`ground_reading_is_as_written`]). It is
+    /// read only then, which `removed_claims`, the row's (`report::claims_value`, a function of
+    /// the specification and the mutation, as the stored edit is), tells. Otherwise the
+    /// claim-free side's edit can be wider than the author's: a withdrawn `total` or
+    /// `functional` changes a declaration, which makes it `global`, and a withdrawn
+    /// `preserves-definedness`, a rule attribute, makes a rule the author did not edit, or one
+    /// whose right-hand side alone the author edited, witnessed by `matched`. A row whose
+    /// `removed_claims` does not decode reads no value without `reading`.
+    fn from_value(value: &Value, removed_claims: &Value) -> Option<Self> {
+        match value.get("reading") {
+            None => {
+                let keys = removed_claims["removed"]
+                    .as_array()?
+                    .iter()
+                    .map(|claim| claim["key"].as_str())
+                    .collect::<Option<Vec<_>>>()?;
+                if !keys.is_empty() && ground_reading_is_as_written(keys) {
+                    return None;
+                }
+            }
+            Some(reading) if reading == GROUND_READING => {}
+            Some(_) => return None,
+        }
         let sentences = |key: &str| {
             value[key]
                 .as_array()?
@@ -3263,6 +3303,88 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A stored witness is read back when it has the ground reading, whatever claims were
+    /// withdrawn. One without `reading`, written from the claim-free side alone, is read only
+    /// where that side's edit is the ground reading: no claim withdrawn, or one that is not a
+    /// definedness claim, `global` or not. Where only definedness claims were withdrawn it is
+    /// not read, `global` (a withdrawn `total`) or not (a withdrawn `preserves-definedness`,
+    /// whose rule attribute the claim-free side reads as a site-local edit), nor where the row's
+    /// `removed_claims` does not decode.
+    #[test]
+    fn a_stored_witness_without_reading_is_read_only_where_it_is_the_ground_reading() {
+        let witness = EditWitness {
+            global: false,
+            matched: BTreeSet::from([("M".to_owned(), 3)]),
+            applied: BTreeSet::from([("M".to_owned(), 4)]),
+        };
+        let global = EditWitness {
+            global: true,
+            ..EditWitness::default()
+        };
+        let claims = |keys: &[&str]| {
+            json!({
+                "removed": keys.iter().map(|key| json!({"module": "M", "index": 1, "label": null, "key": key, "value": ""})).collect::<Vec<_>>(),
+                "unsupported": [],
+            })
+        };
+        let legacy = |witness: &EditWitness| {
+            let mut value = witness.value();
+            value.as_object_mut().unwrap().remove("reading");
+            value
+        };
+        for removed in [
+            claims(&[]),
+            claims(&["total"]),
+            claims(&["preserves-definedness"]),
+            claims(&["simplification"]),
+            Value::Null,
+        ] {
+            for stored in [&witness, &global] {
+                assert_eq!(
+                    EditWitness::from_value(&stored.value(), &removed).as_ref(),
+                    Some(stored),
+                    "current reading, removed {removed}"
+                );
+                let mut other = stored.value();
+                other["reading"] = json!("claim-free");
+                assert_eq!(EditWitness::from_value(&other, &removed), None, "{removed}");
+            }
+        }
+        for keys in [
+            &[][..],
+            &["injective"],
+            &["simplification"],
+            &["total", "smt-lemma"],
+        ] {
+            for stored in [&witness, &global] {
+                assert_eq!(
+                    EditWitness::from_value(&legacy(stored), &claims(keys)).as_ref(),
+                    Some(stored),
+                    "legacy, removed {keys:?}"
+                );
+            }
+        }
+        for keys in [
+            &["total"][..],
+            &["functional"],
+            &["preserves-definedness"],
+            &["total", "preserves-definedness"],
+        ] {
+            for stored in [&witness, &global] {
+                assert_eq!(
+                    EditWitness::from_value(&legacy(stored), &claims(keys)),
+                    None,
+                    "legacy, removed {keys:?}"
+                );
+            }
+        }
+        assert_eq!(
+            EditWitness::from_value(&legacy(&witness), &Value::Null),
+            None
+        );
+        assert_eq!(EditWitness::from_value(&Value::Null, &claims(&[])), None);
     }
 
     /// Re-pin R0-tail (R0c-fix-4 review minor 2): a refusal the compiled reading's cross-check
