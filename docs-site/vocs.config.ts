@@ -78,6 +78,16 @@ export default defineConfig({
       ],
     },
     {
+      text: 'A K definition in Lean',
+      collapsed: false,
+      items: [
+        { text: 'Overview', link: '/lean' },
+        { text: 'What a step means in Lean', link: '/lean/what-a-step-means' },
+        { text: 'Proving a property', link: '/lean/proving-a-property' },
+        { text: 'What you have to read', link: '/lean/what-you-have-to-read' },
+      ],
+    },
+    {
       text: 'Try it',
       collapsed: false,
       items: [{ text: 'Compile in the browser', link: '/lessons/tour-minimal' }],

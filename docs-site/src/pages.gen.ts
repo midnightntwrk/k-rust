@@ -18,6 +18,10 @@ type Page =
   | { path: '/k-rust/compatibility'; render: 'static' }
   | { path: '/k-rust/fuzzing'; render: 'static' }
   | { path: '/k-rust'; render: 'static' }
+  | { path: '/lean'; render: 'static' }
+  | { path: '/lean/proving-a-property'; render: 'static' }
+  | { path: '/lean/what-a-step-means'; render: 'static' }
+  | { path: '/lean/what-you-have-to-read'; render: 'static' }
   | { path: '/lessons/tour-minimal'; render: 'static' }
   | { path: '/reference/boundaries'; render: 'static' }
   | { path: '/reference/language'; render: 'static' }

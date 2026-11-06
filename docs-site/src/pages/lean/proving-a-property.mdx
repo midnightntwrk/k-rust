@@ -1,0 +1,88 @@
+---
+title: Proving a property
+description: Determinism by a generic theorem and a decision on the data, the equations of pred, two invariants by a per-rule tactic, and witnesses that the statements are not empty, with Lean's real goal states and costs.
+---
+
+import { Provenance } from '../../components/lean/Provenance'
+import { numbers } from '../../components/lean/numbers'
+import { CostAgreement, CostScene, DeterminismScene, EquationsScene, InvariantScene, StatementsScene, WitnessScene } from '../../components/lean/ProofScenes'
+
+# Proving a property
+
+Lesson 5 of [A K definition in Lean](/lean).
+
+A run of `peano.k` from `run(s(z))` shows one path.
+"A configuration has at most one successor" and "every step keeps the counter cell" are claims about every configuration, including ones no test will reach.
+This lesson states such properties over the step relation of [lesson 4](/lean/what-a-step-means) and proves them, showing the goals exactly as Lean prints them while the proofs run.
+
+Three kinds of proof appear, and they divide the work differently:
+
+- a theorem proved once for every definition, applied to peano by a decision on peano's data;
+- a proof that builds a derivation of the evaluation relation directly;
+- a tactic that splits a step into one case per rule, using generic lemmas only.
+
+## The statements
+
+<StatementsScene />
+
+A statement is fixed before any proof is written.
+Lesson 6 shows that these {numbers.module('PeanoProperties')} lines, with the definitions they use, are what a reader has to read.
+
+## Determinism
+
+<DeterminismScene />
+
+## The equations of `pred`
+
+<EquationsScene />
+
+## Invariants
+
+<InvariantScene />
+
+The tactic needs no lemma about peano.
+It reads the rules from the data, and the side conditions it meets (is this head a constructor? is there a sort below this one?) are decided by the kernel on the data as well.
+
+## Witnesses
+
+An invariant `∀ x y, Step x y → P x → P y` is true for every `P` if `Step` relates nothing, and true for a given `P` if `P` holds of every configuration.
+Determinism is true if `Step` relates nothing.
+Four witnesses rule these out: `Step` relates `run(s(z))` to `run(z)` and `run(z)` to `done(z)`, it relates `done(z)` to nothing, and `done(s(z))` does not satisfy `doneHoldsZero`.
+
+<WitnessScene />
+
+## Costs
+
+<CostScene />
+
+The numbers are thousands of heartbeats, Lean's count of small allocations on the elaborating thread, including kernel checking; they do not depend on the machine's speed.
+The per-proof numbers were measured when this page's data was generated, by elaborating the proof file once.
+For the five proofs that an earlier cost table also measured with a separate harness, the two agree to within about two percent:
+
+<CostAgreement />
+
+The witnesses were not in that table.
+What makes the invariants expensive is known: substitutions that rewrite every hypothesis, existential towers that the tactic builds and splits, and one kernel decision per head of a right-hand side, on string-keyed data.
+Lowering it by changing proofs and tactics, without touching a statement, is the subject of the planned lesson 7.
+
+## What is machine-checked here
+
+- All nine theorems on this page (five properties and four witnesses) are checked by the kernel and use only `propext`, `Classical.choice` and `Quot.sound`; the build pins each one's axiom list, so a new axiom or a `sorry` fails it.
+- The generic theorems they use (`Step.deterministic`, `Eval.det`, `step_iff`) are kernel-checked once, for every definition.
+- None of the proofs is reviewed: the kernel checks each against its statement.
+
+## Reproduce
+
+In the kcore-spec package directory:
+
+```sh
+lake build                                      # includes PeanoProofs and LibraryChecks
+lake env lean KcoreSpec/LibraryChecks.lean      # prints nothing when every axiom list is as pinned
+```
+
+To see a goal state, open `KcoreSpec/PeanoProofs.lean` in an editor with the Lean extension and place the cursor after a tactic; or add `trace_state` after it and run `lake env lean KcoreSpec/PeanoProofs.lean`.
+The goals on this page were printed by Lean's own pretty printer, from the elaborator's info trees, without editing the file.
+
+<Provenance />
+
+Next: [What you have to read](/lean/what-you-have-to-read).
