@@ -240,6 +240,7 @@ krs run --package my-semantics --definition main --input 'pc=256' --input 'rom={
 
 A definition's inputs are the parameters of its `#[k::init]`, and `run` and `search` bind each one by its Rust name (`rom`) or its configuration variable's K name (`ROM` or `$ROM`), from whichever option gives it.
 `--case FILE` binds the inputs a case document gives: a `.toml` or `.json` file of one case, whose `inputs` table holds one value per input by name, or of named cases, one of which `--case-name NAME` selects ("Case documents" below states the format).
+`--case FILE#NAME` selects the same case by its id, the spelling `krs cases` prints and `krs compare` reads, so an id copied from a batch's output re-runs that case; the name follows the first `#` after the `.toml` or `.json` file, and a case named both ways is refused.
 `--input NAME=JSON` binds one input to a JSON document, and may be repeated.
 A value of `--case` or `--input` is a document of the typed encoding below, read at the parameter's declared type, element types included, so no K text is needed; `{"$text": ..}` and `{"$text-file": ..}` give K text instead, parsed as `-c` text is.
 A file that a document names is read relative to the document that names it: the case file's directory, the directory of the data file that includes it, or the working directory for an `--input` document.
@@ -287,6 +288,10 @@ The halt is never `depth-bound`, which is refused: an expectation states what th
 run = { stop_before = ["crate::machine::boundary"], stop_count = 3 }
 expect = { halt = "stopped", rule = "crate::machine::boundary", compare = ["pc"], cells = { pc = 259 } }
 ```
+
+`rule` names the one item the run stopped at, as the status line of `krs run --case` names it (``stopped after S steps, before `crate::machine::boundary` (stop 3 of 3)``), whichever of several stop items it is.
+`depth` may stay in `run` beside the stop as a backstop: a run that never reaches the stop then ends `depth-bound`, and its expectation is inconclusive.
+To find N, run the case without its `expect` table and with a count larger than the run reaches, beside a `run` table that holds only `depth` (`krs run --case FILE#NAME --stop-before ITEM --stop-count 1000000`); the status line says how many arrivals it reached (`depth-bound after S steps, A of 1000000 stops reached`).
 
 The expectation is met when every end of the definition from the case's inputs agrees with it.
 A run that reaches its `run.depth` is inconclusive against the expectation, never met or unmet, whether or not the state at the bound has a successor: the run takes no step from that state, so it is not known to be an end.
@@ -771,6 +776,7 @@ A case binds only the inputs it states, and its `run` table alone bounds and sto
 
 A case's record is printed as soon as the cases before it are, so a slow case holds back the records after it, never their runs.
 By default each record is the verdict's lines `krs run --case` prints, named by the case's id, the document as given and, for a named case, `#` and its name (`cases/steps.toml#ld-a: expectation met`), `ran, stuck after 3 steps` for a case that states no expectation (`ran:` and the reason when its run reaches several states under conditions it cannot decide, so has no end), or `refused:` and the reason for a case the definition cannot run: a document that cannot be read (one record, after which the next document runs), inputs or an expectation that are refused, an observer that cannot be prepared, or a view without a value at an end.
+A case refused because its expectation is a `depth-bound` end gets a one-line record, and the reason and what to state instead are printed once, before the count, naming every case refused for it: the text is the same for each such case, and a corpus migrated from depth bounds has many.
 A last line counts the verdicts.
 `--output json` prints one document per line instead, each naming its format, `"schema": "krs-cases/2"`:
 
@@ -843,7 +849,7 @@ A case side's end, and whether it is its case's only end, depend on the case and
 Each pair's verdict is then the one `krs compare` gives for that pair alone, with the exceptions `krs cases` states for a verdict a resource stop decides.
 
 A pair's record is printed as soon as the pairs before it are.
-By default it is the lines `krs compare` prints for the pair, headed by `pair N` and its sides as written in place of `krs compare` (`pair 3 (ends/a.json, cases/steps.toml#ld-a): equal`), or `refused:` and the reason for a pair that is no question (an unknown key, a missing side, a `compare` or `views` beside `expect`), whose side cannot be read or is refused, or whose observer cannot be prepared;
+By default it is the lines `krs compare` prints for the pair, headed by `pair N`, its sides as written and its `compare`, each view and its `observer` as `--compare`, `--view` and `--observer` give them, in place of `krs compare` (`pair 3 (ends/a.json, cases/steps.toml#ld-a): equal`, `pair 4 (ends/a.json, cases/steps.toml#ld-a, --view bus=WritesView): equal`), so that pairs over the same sides that ask different questions have different headers, or `refused:` and the reason for a pair that is no question (an unknown key, a missing side, a `compare` or `views` beside `expect`), whose side cannot be read or is refused, or whose observer cannot be prepared;
 and `inconclusive:` and the reason where following a case side's run again reaches several states under conditions it cannot decide, where `krs compare` alone exits 3 with that reason.
 A last line counts the verdicts.
 `--output json` prints one `krs-compare/1` document per line instead:
@@ -877,6 +883,11 @@ A claim helper (an equation of a function only claims apply) that no case matche
 A function nothing applies is reached by no program text either, but no claim accounts for it, so it stays `uncovered`.
 `results` lists a case in a rule's `matched_by` when kink's baseline run of the case, which follows every path, `matched` the rule, as `run --coverage` names the predicate, and in its `fired_by` when the run fired it: some path `committed` the rule's step, for a rewrite rule, or the run `applied` it, for an equation, whose application is no step; a case that is not `comparable` is listed under no rule.
 `--output verdicts` (for `results`, `run` and `report`) prints kink-flow's deterministic rendering, which names each rule by its item and gives each case the rules that list it as `matched` and `fired`; its header's `krs_annotation` is the document's `krs.version`, which the names' spelling follows.
+`[result] cells` names the cells kink compares by Rust path, as `compare` in an [expectation](#expectations) and `krs compare --compare` do (`cells = ["regs", "ei_pending", "cpu.pc"]`), and `krs kink` gives kink-flow each cell's K name.
+A K cell name (`eiPending` for `<eiPending>`) is read too, where no cell has that name as its Rust path: a path names one cell and is read first, so a corpus written by paths means what it says whatever the K names are, and a K name is read only where it competes with no path.
+An entry that is neither is refused at stage `result` (`result-cell-unknown`), naming every cell by its path with its K cell, and two entries that name one cell, by its path and by its K name, are refused there too (`result-cell-repeated`).
+Every document's `result`, which names the compared cells as kink-flow does, by K name, gains `krs`: `compared`, `not_compared` and `unobservable` by Rust path, and `cells`, each entry of `[result] cells` as written with the K cell it reads as.
+`run --progress` prints a line on stderr as each phase krs runs first starts (the build and the emission, the binding of the corpus, the checks of the list), then the lines `kink-flow run --progress` prints: one before the baseline results, one as each program gets its baseline row, with its place, its id and its class, one before the list is resolved, and one as each mutation gets its row, with its place, its id and its status; a run prints them without the flag when stderr is a terminal; stdout is the document either way, and a cold `--full` run over many mutations can take minutes.
 A kill's `difference` in a `run` document is in the format of every KRS difference, `krs-difference/3`, as an unmet [expectation](#expectations)'s is: the first differing cell by Rust field path and each side's value as its canonical document, `left` the baseline's end and `right` the mutant's, compared on the cells kink compares (every cell but the unobservable ones, or those of `[result] cells`).
 kink compares ends by their configuration alone, whichever way a path reached them, so a kill's difference compares no halt and its sides state no `class`; under `[stop]`, each of a program's `ends` says how the baseline's paths reached it (`halt`).
 A [case document](#case-documents) of named cases gives one case per name, whose id is the document's path, `#` and the name (`cases/runs.toml#reset`); kink runs every case as the corpus says (`[stop]`, `stop_count`, `[budget]`), so a case's `run` is refused.

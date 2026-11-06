@@ -723,10 +723,17 @@ a reason and a detail; it is never compiled. `check --mutations` gives each reas
 | `host-stack-refused` (status `error`) | The host refused the native stack that encoding the mutation's patch needs: the system would not map a stack segment of the size the patch's depth needs (an address-space limit such as `ulimit -v`, or memory it will not commit). It is the host's limit, neither a fault of the mutation nor a verdict, so the row is `error`, not `invalid-mutation`; rerun where the host grants the stack. Only a deep patch needs a segment: the segment is sized from the patch's own document depth (re-pin L1-3-tail; at L1-3-fix-2 every patch more than 48 term levels deep took a segment sized for `MAX_JSON_DEPTH`, 768 MB in release, and a refusal was reported as `patch-rejected`). |
 | `no-usable-span`, `patch-rejected` | Defensive: a rule's offsets and location name different text of its K view, or kink-patch refused the patch for a reason other than typing (a stale pin, a patch that does not resolve); not expected on rules k-rust loaded. No typing error refuses a mutation (re-pin L2-2-fix-1): a mutant is valid when it compiles, so compilation decides, and kink-patch records the edited rules' errors in compilation's typing view (`SentenceTyper::for_compilation` with `typing_in`) as the row's `typing_diagnostics`. k-rust documents that view's errors as errors compilation stops at, but at 501f18b9 it refuses shapes compilation accepts: a local function with a variable in a cell with children (`CellCompletion`), and a rule `a(X) => b(X)` whose sorts `A` and `B` have a second common supersort in the main module (a non-unique least upper bound). At the pin 8f8ad57c5 that view types the second shape (k-rust KINK-21/1), so its rows carry no typing diagnostic; the first remains. |
 
-## `kink-flow run FLOW.toml MUTATIONS [--only ID]... [--verify] [--order cost|corpus] [--full] [--compile-workers N] [--no-memo] [--cache DIR] [--output json|verdicts]`
+## `kink-flow run FLOW.toml MUTATIONS [--only ID]... [--verify] [--order cost|corpus] [--full] [--compile-workers N] [--no-memo] [--progress] [--cache DIR] [--output json|verdicts]`
 
 Runs the kill search: for each mutation of the list (in file order; with `--only`, only the named ones),
 is there a program of the corpus whose result the mutation changes?
+
+`--progress` prints a line on stderr before the result cache is brought up to date, naming how many mutations and programs the run has;
+one as each program gets its baseline row, with its place, its id, its class and `stored` when its record was already in the cache (``kink-flow: run: baseline of program 2 of 20, `t2`: comparable, stored``);
+one before the list's mutations are resolved;
+and one as each mutation gets its row, with its place, its id and its status (``kink-flow: run: mutation 3 of 81, `calc/add-sub`: killed``);
+the command line prints them without the flag when stderr is a terminal.
+The lines depend on the corpus and the cache alone, never on time, and stdout is the document with or without them, so a caller that reads stderr (a CI step, an agent) asks for them, and its other stderr lines stay the refusals and notes.
 
 1. The result cache is brought up to date first (`results` without `--verify`).
    Only `comparable` programs can kill; the others are never run.
