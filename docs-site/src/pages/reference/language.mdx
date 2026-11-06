@@ -352,6 +352,7 @@ k::rules! {
 
 A package whose configuration is `Small { core: lib::Core, mem: Map<Int, Int> }` and one whose configuration is `Big { core: lib::Core, timer: Int, mem: Map<Int, Int> }` both emit `rule [inc]: <k> inc => .K ... </k> <pc> Pc:Int => Pc:Int +Int 1 </pc> <acc> Acc:Int => Acc:Int +Int 1 </acc>`, with the same text in each definition: K completes the cells to their position under `<core>`, and frames `<mem>` and `<timer>`.
 A readable record of a rule for the group names the group's cells as a rule for the configuration does, flat; a `k::cells!` pattern typed by the group names them by field (`pc:`), where one typed by the configuration names them through the group's struct (`lib::Core::pc:`).
+`krs expand` writes a readable rule for the group as the `#[k::rule]` fn over `k::cells! { .. }: lib::Core`, typed by the group wherever the group is held.
 The subject restricts what a sentence may name, never what is framed: a cell the sentence leaves out is framed wherever the group sits, as for every sentence.
 
 The subject is refused where it has no one position, or where the sentence leaves it:
@@ -420,6 +421,7 @@ Two local steps of different instances read and write disjoint cells and leave e
 What is not one instance's business stays with rules for the configuration over the collection's instance records: creating and removing instances, interaction between instances (shared memory, messages), and scheduling which instance may step; races come from those rules, and a memory model weaker than sequential consistency is the definition's own, with explicit buffers.
 
 The main cell is where a sentence that names no cell runs, so where the definition's main cell sits in an instance, a `for Exp` table clause and a strict production's heating are local steps of that instance: a main cell inside a Set collection's instance is refused (`krs::analysis::main-cell`) for the Set's reason, and so is a main cell that is a Map instance's key or lies inside one, since those sentences would rewrite the instance's identity.
+`krs expand` writes such a table clause as a `#[k::rule]` fn typed by the group the instance holds (`k::cells! { k: .. }: crate::Thread`), and one whose main cell sits at a fixed position as one typed by the configuration.
 A definition has one main cell; where the program goes to a computation cell beside per-instance computation cells, the instances get no sort or strictness rules, since those run where the program does.
 
 A function context typed by such a group reads the cells of the instance the function is evaluated in, which is the instance of the sentence whose requires or result applies it.
