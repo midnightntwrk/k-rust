@@ -3402,8 +3402,8 @@ fn krs_compare_pairs_runs_each_case_once_and_agrees_with_each_comparison_alone()
 }
 
 /// A JSON pairs document: an expectation pair, a side that cannot be read, a pair with an
-/// unknown key; the refused pairs join as 2, printed in order with the human lines. A document
-/// that lists no pair is no batch.
+/// unknown key; the refused pairs join as 2, printed in order with the human lines, each headed by
+/// its sides and the compared cells, views and observer it names. A document that lists no pair is no batch.
 fn compare_mixed_pairs(workspace: &CompareWorkspace, language: &Path) {
     fs::write(
         language.join("pairs/mixed.json"),
@@ -3412,6 +3412,7 @@ fn compare_mixed_pairs(workspace: &CompareWorkspace, language: &Path) {
             {"left": "../missing.json", "right": "../end.toml"},
             {"left": "../end.toml", "right": "../end.toml", "views": {"bus": "LogShape"}, "observe": "x"},
             {"left": "../end.toml", "right": "../many.toml#c3"},
+            {"left": "../end.toml", "right": "../end.toml", "compare": ["k", "pc"], "views": {"bus": "LogShape"}, "observer": "p:two", "observe": "x"},
         ]})
         .to_string(),
     )
@@ -3429,19 +3430,25 @@ fn compare_mixed_pairs(workspace: &CompareWorkspace, language: &Path) {
     );
     assert_eq!(
         lines[2],
-        "pair 3 (../end.toml, ../end.toml): refused: `observe`: a pair holds `left`, `right`, `compare`, `views` and `observer`, or `expect` and `actual`",
+        "pair 3 (../end.toml, ../end.toml, --view bus=LogShape): refused: `observe`: a pair holds `left`, `right`, `compare`, `views` and `observer`, or `expect` and `actual`",
         "{stdout}"
     );
     assert_eq!(
         lines[3], "pair 4 (../end.toml, ../many.toml#c3): equal",
         "{stdout}"
     );
+    // The compared cells and the observer change the question too: the header names them.
     assert_eq!(
         lines[4],
-        "krs compare: 4 pairs: 1 equal, 0 differs, 1 met, 0 unmet, 0 inconclusive, 2 refused",
+        "pair 5 (../end.toml, ../end.toml, --compare k,pc, --view bus=LogShape, --observer p:two): refused: `observe`: a pair holds `left`, `right`, `compare`, `views` and `observer`, or `expect` and `actual`",
         "{stdout}"
     );
-    assert_eq!(lines.len(), 5, "{stdout}");
+    assert_eq!(
+        lines[5],
+        "krs compare: 5 pairs: 1 equal, 0 differs, 1 met, 0 unmet, 0 inconclusive, 3 refused",
+        "{stdout}"
+    );
+    assert_eq!(lines.len(), 6, "{stdout}");
     let (code, stdout, stderr) =
         workspace.compare(&["--pairs", "pairs/mixed.json", "--output", "json"]);
     assert_eq!(code, Some(2), "{stderr}");

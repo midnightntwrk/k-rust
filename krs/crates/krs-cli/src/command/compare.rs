@@ -1039,7 +1039,12 @@ impl Pair {
             spelled("expect"),
             spelled("actual"),
         ) {
-            (Some(left), Some(right), _, _) => format!("pair {number} ({left}, {right})"),
+            (Some(left), Some(right), _, _) => {
+                format!(
+                    "pair {number} ({left}, {right}{})",
+                    pair_question_flags(record)
+                )
+            }
             (_, _, Some(case), Some(actual)) => {
                 format!("pair {number} (--expect {case}, {actual})")
             }
@@ -1128,6 +1133,33 @@ impl Pair {
             view_budget: template.view_budget,
         })
     }
+}
+
+/// What a pair of `left` and `right` asks besides its sides, as its header shows it: its
+/// `compare` as `--compare CELL,...`, each view as `--view CELL=FUNCTION` and its `observer` as
+/// `--observer PACKAGE:DEFINITION` would give them, each after a comma. Each changes the
+/// question, so two pairs over the same sides that ask different questions have different
+/// headers. A key whose value is not of its shape shows nothing; the pair's refusal says why.
+fn pair_question_flags(record: &Json) -> String {
+    let mut text = String::new();
+    if let Some(Json::Array(cells)) = record.get("compare") {
+        let cells = cells.iter().filter_map(Json::as_str).collect::<Vec<_>>();
+        if !cells.is_empty() {
+            let _ = write!(text, ", --compare {}", cells.join(","));
+        }
+    }
+    if let Some(Json::Object(views)) = record.get("views") {
+        for (cell, function) in views
+            .iter()
+            .filter_map(|(cell, function)| Some((cell, function.as_str()?)))
+        {
+            let _ = write!(text, ", --view {cell}={function}");
+        }
+    }
+    if let Some(Json::String(observer)) = record.get("observer") {
+        let _ = write!(text, ", --observer {observer}");
+    }
+    text
 }
 
 /// A pair's `compare`: the compared cells, a non-empty array of cell paths.
