@@ -190,6 +190,22 @@ fn underspecified_wire(
         .transpose()
 }
 
+/// The wire attribute of a function's `skipped_operand` key.
+fn skipped_operand_wire(
+    ledger: &KeyLedger<'_>,
+    function: &krs_syntax::FunctionAttribute,
+) -> crate::Result<Option<WireProductionAttribute>> {
+    function
+        .skipped_operand()
+        .map(|reason| -> crate::Result<_> {
+            Ok(WireProductionAttribute::SkippedOperand {
+                key: ledger.define(function.skipped_operand_key())?,
+                reason: reason.value(),
+            })
+        })
+        .transpose()
+}
+
 /// The wire attribute of a function's SMT key, whose placeholders
 /// [`check_smt_fields`] checked.
 fn smt_wire(
@@ -1262,6 +1278,14 @@ fn constructor_grammar(
         .flatten()
     {
         attributes.push(underspecified);
+    }
+    // `skipped_operand` is KRS-only too.
+    if let Some(skipped_operand) = function
+        .map(|function| skipped_operand_wire(ledger, function))
+        .transpose()?
+        .flatten()
+    {
+        attributes.push(skipped_operand);
     }
     if let Some(marker) = static_marker {
         attributes.insert(
