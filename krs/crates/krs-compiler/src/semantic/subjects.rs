@@ -726,58 +726,59 @@ fn check_main_cell_holders(
 }
 
 /// The holders whose one instance the semantic rule `rule` is a step of, where it is evaluated
-/// ([`subject_path`]): its subject's for a sentence typed by a configuration or a group; its own
-/// context's for an equation with a function context; none for a claim, which is about the
-/// whole transition system; and the main cell's for every other sentence, which runs at the main
-/// cell.
+/// ([`subject_path`]): its subject's for a sentence typed by a group; the instances of the cells
+/// it matches for a rule typed by the configuration ([`crate::instance_keys::rule_instances`],
+/// the one definition lowering binds keys by); its own context's for an equation with a function
+/// context; none for a claim, which is about the whole transition system; and the main cell's for
+/// every other sentence, which runs at the main cell.
+///
+/// # Errors
+///
+/// [`DescriptorLoweringError::GroupInstance`] with `collection-entry` for a rule typed by the
+/// configuration whose cells lie in instances of holders neither of which holds the other, at
+/// the first cell off the deepest one's chain.
 fn rule_path(
     rule: &SemanticRule,
     declarations: &DescriptorIndex<'_>,
     tree: &ConfigurationTree<'_>,
     main: &[usize],
-) -> Vec<usize> {
+) -> Result<Vec<usize>, DescriptorLoweringError> {
     // A claim is about the whole transition system, whatever form it is written in.
     if rule.kind() == krs_ir::SentenceKind::Claim {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let Some(descriptor) = declarations.get(rule.id()) else {
-        return main.to_vec();
+        return Ok(main.to_vec());
     };
-    match descriptor.payload() {
+    Ok(match descriptor.payload() {
         DescriptorPayload::ConfigurationRule(sentence) => {
             if let Some(subject) = &sentence.subject_configuration.subject {
                 subject_path(tree, Some(subject))
             } else {
-                // A rule typed by the configuration runs where the cells it matches are:
-                // completion places each in one instance of each holder on its path, whose key
-                // the rule's evaluated applications are passed. The computation cell it matches
-                // decides; a rule that matches none is in the instances every cell it matches
-                // shares. A holder's own entry (an instance list, an optional cell's state)
-                // matches the holder whole, in none of its instances.
-                let paths = sentence.subject.cells.iter().filter_map(|cell| {
-                    let index = cell_index(tree, &cell.field.cell)?;
-                    let mut path = instance_path(tree, index);
-                    if path.last() == Some(&index) {
-                        path.pop();
-                    }
-                    Some((cell.wrapper == Some(krs_ir::CellWrapper::KCell), path))
-                });
-                let mut shared: Option<Vec<usize>> = None;
-                for (computation, path) in paths {
-                    if computation {
-                        return path;
-                    }
-                    shared = Some(match shared {
-                        None => path,
-                        Some(shared) => shared
-                            .into_iter()
-                            .zip(path)
-                            .take_while(|(left, right)| left == right)
-                            .map(|(left, _)| left)
-                            .collect(),
-                    });
+                // A rule typed by the configuration runs where the cells it matches are. A
+                // `cells!` rule names a cell inside an instance only through its holder's
+                // instance list, whose entry matches the holder whole; only a readable clause
+                // for a sort, elaborated, matches cells inside an instance: the computation
+                // cell it runs at, and the cells its `have` and `update` name.
+                let paths = sentence
+                    .subject
+                    .cells
+                    .iter()
+                    .filter_map(|cell| {
+                        let index = cell_index(tree, &cell.field.cell)?;
+                        let mut path = instance_path(tree, index);
+                        if path.last() == Some(&index) {
+                            path.pop();
+                        }
+                        Some((cell, path))
+                    })
+                    .collect::<Vec<_>>();
+                match crate::instance_keys::rule_instances(
+                    paths.iter().map(|(_, path)| path.clone()),
+                ) {
+                    Some(path) => path,
+                    None => return Err(off_chain(descriptor, tree, &paths)),
                 }
-                shared.unwrap_or_default()
             }
         }
         DescriptorPayload::ContextAlias(alias) => {
@@ -788,6 +789,48 @@ fn rule_path(
             None => main.to_vec(),
         },
         _ => main.to_vec(),
+    })
+}
+
+/// The refusal of a rule typed by the configuration whose matched cells, with their instance
+/// paths `paths`, lie off one chain of nested instances ([`rule_path`]): at the first cell whose
+/// path and an earlier cell's are not one the other's prefix.
+fn off_chain(
+    descriptor: &Descriptor,
+    tree: &ConfigurationTree<'_>,
+    paths: &[(
+        &krs_ir::ProtocolRuleCell<krs_ir::DescriptorCellReference, krs_ir::DescriptorTerm>,
+        Vec<usize>,
+    )],
+) -> DescriptorLoweringError {
+    let ((deep, deepest), (cell, path)) = paths
+        .iter()
+        .enumerate()
+        .find_map(|(at, later)| {
+            paths[..at]
+                .iter()
+                .find(|earlier| {
+                    !earlier.1.starts_with(&later.1) && !later.1.starts_with(&earlier.1)
+                })
+                .map(|earlier| (earlier, later))
+        })
+        .expect("two paths are off one chain");
+    let instance = |path: &[usize]| {
+        path.last()
+            .map(|holder| holder_text(tree, *holder))
+            .expect("a path off another's chain is not empty")
+    };
+    DescriptorLoweringError::GroupInstance {
+        code: krs_diagnostic::codes::analysis::COLLECTION_ENTRY,
+        reason: format!(
+            "the rule matches `{}`, a cell of an instance of {}, and `{}`, a cell of an instance of {}, and neither instance holds the other: a rule is a local step of one instance of each holder on one chain of nested instances, the one holding every cell it matches, and no such instance holds both cells; match the other instance through its holder's instance list in a rule for the configuration",
+            unraw(&deep.field.cell.field),
+            instance(deepest),
+            unraw(&cell.field.cell.field),
+            instance(path),
+        ),
+        range: key_range(descriptor, &cell.field.key).map(Box::new),
+        item: Some(Box::new(descriptor.id().clone())),
     }
 }
 
@@ -1058,7 +1101,9 @@ fn reached_outside<'r>(
                 );
                 continue;
             }
-            let needed = rule_path(equation, declarations, tree, main);
+            let Ok(needed) = rule_path(equation, declarations, tree, main) else {
+                unreachable!("an equation's path is its context's or the main cell's");
+            };
             if !path.starts_with(&needed) {
                 return Some((equation, function, needed));
             }
@@ -1082,7 +1127,7 @@ fn check_callers(
         if defined_function(rule).is_some() && rule.function_context().is_none() {
             continue;
         }
-        let path = rule_path(rule, declarations, tree, main);
+        let path = rule_path(rule, declarations, tree, main)?;
         for (applied, application) in evaluated_applications(rule) {
             if let Some((equation, function, needed)) =
                 reached_outside(applied, &path, equations, declarations, tree, main)
