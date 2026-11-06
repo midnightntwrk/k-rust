@@ -3,7 +3,7 @@
  "provenance": {
   "kcoreSpecCommit": "02404cdca120f3281b0068a20fd2f3c679ddb481",
   "kcoreSpecChange": "oopvuqnykprq",
-  "draftHead": "eae502084e96413b70181576630435a3aa22ecf9",
+  "draftHead": "cba9f3eb80a283f26d9b091843045927c8a88425",
   "leanVersion": "4.34.0",
   "inputs": {
    "KcoreSpec/Core.lean": {
@@ -80,11 +80,11 @@
    },
    "docs-gen/Facts.lean": {
     "sha256": "a4faadc354d7dfa32a4b6d8c41443010a2d6e0dc4d3bad7253f84f95b12cd217",
-    "committed": false
+    "committed": true
    },
    "docs-gen/Goals.lean": {
     "sha256": "d4e007e7b7961dc1a19b1abeb867cd3355d6135632f63d913d112b2c11dd329d",
-    "committed": false
+    "committed": true
    },
    "milestone-1/kore/definition.kore": {
     "sha256": "b1ca7917d266886532f1e73a02b5f5a0fee820292289050a2e301108d67e9a8b",
