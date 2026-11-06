@@ -197,8 +197,10 @@ A batch (cases, compare --pairs, or prove of several claims) exits 2 when a case
 refused or a claim crashed, else 1 when one is a finding, else 3 when one has no answer (in cases, a case with no
 expectation whose run has no end included), else 0. A completed run of a definition with an
 exit cell exits with that cell's value instead, the program's own status, which shares these
-numbers: --output json tells them apart. Every other command exits 0 on success, 2 on a usage
-error and 1 otherwise; krs kink --help gives kink's.
+numbers: --output json tells them apart. A run with an expectation (--case) exits by its
+verdict instead, 0 met, 1 unmet and 3 inconclusive, and with --output end, a run whose end has
+no end document exits 2, whatever its own status. Every other command exits 0 on success, 2 on
+a usage error and 1 otherwise; krs kink --help gives kink's.
 ";
 
 /// `krs kink --help`.
@@ -2618,6 +2620,25 @@ mod tests {
         assert!(
             error(&["fmt", "--stdin", "--manifest-path", "Cargo.toml"]).contains("--stdin cannot")
         );
+    }
+
+    /// The exit paragraph states both exceptions to a run's exit cell status: an expectation's
+    /// verdict, and `--output end`'s refusal of an end with no end document.
+    #[test]
+    fn usage_states_what_replaces_the_exit_cell_status() {
+        let paragraph = USAGE
+            .split_once("Exit status of run")
+            .unwrap()
+            .1
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        for stated in [
+            "A run with an expectation (--case) exits by its verdict instead, 0 met, 1 unmet and 3 inconclusive",
+            "with --output end, a run whose end has no end document exits 2, whatever its own status",
+        ] {
+            assert!(paragraph.contains(stated), "{paragraph}");
+        }
     }
 
     #[test]
