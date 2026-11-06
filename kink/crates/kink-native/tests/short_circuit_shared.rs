@@ -7,14 +7,15 @@
 #[path = "../../../testdata/k/support.rs"]
 mod support;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use k_rust::kompile::CompileOptions;
 use k_rust::kore::ast::{Attributes, Definition, Pattern, Sentence};
 use k_rust::names::KoreAttribute;
 use k_rust_backend::short_circuit::{
-    CausePart, ShortCircuitAnalysis, Witness, equation_parts, rewrite_sides,
+    CausePart, Inlined, ShortCircuitAnalysis, Visit, Witness, equation_parts, is_owise,
+    rewrite_sides,
 };
 use kink_native::exclusion::{CauseLink, DefinitionExclusions, ShortCircuitEffect};
 use kink_native::{BACKEND_OPTIONS, NativeValidator};
@@ -248,6 +249,136 @@ fn operator_witnesses_start_with_direct_witness() {
 }
 
 /// The witness of the one equation of `head` in `kore`.
+/// B2': with nothing inlined, the operator visits of every axiom of the short-circuit fixtures
+/// are exactly the witnesses `condition_operator_witnesses` and `operator_witnesses` enumerate
+/// over its parts, in order, and each application visit names a reading-dependent function; with
+/// every function inlined, an operator visit inside an inlined function is a witness of one of
+/// that function's equations. So the walk `krs check` reads enumerates what the analysis does
+/// where nothing is inlined, and reads an inlined function's equations, not other places.
+#[test]
+fn the_axiom_visits_are_the_witness_enumerations() {
+    on_a_big_stack(|| {
+        for fixture in FIXTURES {
+            with_load(fixture, |kore, _, analysis| {
+                let mut every = BTreeMap::<String, Vec<Inlined<'_>>>::new();
+                for module in &kore.modules {
+                    for sentence in &module.sentences {
+                        if let Sentence::Axiom {
+                            pattern,
+                            attributes,
+                            ..
+                        } = sentence
+                            && let Some((head, condition, right)) = equation_parts(pattern)
+                        {
+                            every.entry(head.to_owned()).or_default().push(Inlined {
+                                condition,
+                                right,
+                                owise: is_owise(attributes),
+                            });
+                        }
+                    }
+                }
+                for module in &kore.modules {
+                    for sentence in &module.sentences {
+                        let Sentence::Axiom {
+                            pattern,
+                            attributes,
+                            ..
+                        } = sentence
+                        else {
+                            continue;
+                        };
+                        let mut expected = Vec::new();
+                        if let Some((conditions, left, right)) = rewrite_sides(pattern) {
+                            for side in conditions.into_iter().chain([left]) {
+                                expected.extend(
+                                    analysis
+                                        .condition_operator_witnesses(side, false)
+                                        .into_iter()
+                                        .map(|(_, witness)| (true, witness)),
+                                );
+                            }
+                            expected.extend(
+                                analysis
+                                    .operator_witnesses(right)
+                                    .into_iter()
+                                    .map(|witness| (false, witness)),
+                            );
+                        } else if let Some((_, condition, right)) = equation_parts(pattern) {
+                            if let Some(condition) = condition {
+                                expected.extend(
+                                    analysis
+                                        .condition_operator_witnesses(
+                                            condition,
+                                            is_owise(attributes),
+                                        )
+                                        .into_iter()
+                                        .map(|(_, witness)| (true, witness)),
+                                );
+                            }
+                            expected.extend(
+                                analysis
+                                    .operator_witnesses(right)
+                                    .into_iter()
+                                    .map(|witness| (false, witness)),
+                            );
+                        }
+                        let Some(visits) =
+                            analysis.axiom_visits(pattern, attributes, &BTreeMap::new())
+                        else {
+                            assert!(expected.is_empty(), "{fixture}: {pattern:?}");
+                            continue;
+                        };
+                        let mut operators = Vec::new();
+                        for visit in visits {
+                            match visit {
+                                Visit::Operator {
+                                    condition,
+                                    witness,
+                                    within,
+                                    ..
+                                } => {
+                                    assert!(within.is_empty(), "{fixture}");
+                                    operators.push((condition, witness));
+                                }
+                                Visit::Applied { symbol, .. } => {
+                                    assert!(analysis.reading_dependent(&symbol), "{fixture}");
+                                }
+                            }
+                        }
+                        assert_eq!(operators, expected, "{fixture}: {pattern:?}");
+                        for visit in analysis
+                            .axiom_visits(pattern, attributes, &every)
+                            .unwrap_or_default()
+                        {
+                            if let Visit::Operator {
+                                witness, within, ..
+                            } = visit
+                                && let Some(function) = within.last()
+                            {
+                                assert!(
+                                    every[function].iter().any(|equation| {
+                                        analysis
+                                            .operator_witnesses(equation.right)
+                                            .contains(&witness)
+                                            || equation.condition.is_some_and(|condition| {
+                                                analysis
+                                                    .condition_operator_witnesses(condition, false)
+                                                    .iter()
+                                                    .any(|(_, found)| *found == witness)
+                                            })
+                                    }),
+                                    "{fixture}: {function}: {witness:?}"
+                                );
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    });
+}
+
 fn equation_witness(kore: &Definition, analysis: &ShortCircuitAnalysis<'_>, head: &str) -> Witness {
     let readings = analysis.equation_readings(kore);
     let mut found = readings.iter().filter(|reading| reading.head == head);

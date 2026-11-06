@@ -761,16 +761,27 @@ impl<'d> ShortCircuitAnalysis<'d> {
     #[must_use]
     pub fn operator_witnesses(&self, pattern: &Pattern) -> Vec<Witness> {
         let mut found = Vec::new();
-        walk::for_each_post_order(pattern, |node| {
-            if let Pattern::Application { symbol, arguments } = node
-                && let Some(operator) = self.operators.get(symbol.name.as_str())
-            {
-                found.extend(operator.skippable.iter().filter_map(|position| {
-                    self.position_witness(&symbol.name, arguments, *position)
-                }));
-            }
-        });
+        walk::for_each_post_order(pattern, |node| found.extend(self.node_witnesses(node)));
         found
+    }
+
+    /// The operator witnesses of `node` itself: where `node` applies a short-circuit operator,
+    /// each skippable position whose `May` has a term outside the other positions' `Must`, with
+    /// the first such term, as [`Self::operator_witnesses`] finds them at that node; none for any
+    /// other node.
+    #[must_use]
+    pub fn node_witnesses(&self, node: &Pattern) -> Vec<Witness> {
+        let Pattern::Application { symbol, arguments } = node else {
+            return Vec::new();
+        };
+        let Some(operator) = self.operators.get(symbol.name.as_str()) else {
+            return Vec::new();
+        };
+        operator
+            .skippable
+            .iter()
+            .filter_map(|position| self.position_witness(&symbol.name, arguments, *position))
+            .collect()
     }
 
     /// Where a rule's or an equation's right-hand side `right` can be undefined in k-rust's
@@ -964,6 +975,57 @@ impl<'d> ShortCircuitAnalysis<'d> {
         }
     }
 
+    /// Every place of the axiom `pattern` with `attributes` where its reading can depend on the
+    /// short-circuit reading, with the equations of the functions of `inline` read in place of
+    /// each of their applications; `None` for an axiom that is neither a rewrite rule nor an
+    /// equation.
+    ///
+    /// The places are those [`Self::operator_witnesses`] and [`Self::condition_operator_witnesses`]
+    /// enumerate, in their order: a rewrite rule's conditions and left-hand side, then its
+    /// right-hand side; an equation's antecedent (without an `owise` equation's guard), then its
+    /// right-hand side; each in post-order, a condition's connectives, conjunctions and
+    /// conjunctive calls walked as [`Self::condition_witness`] walks them. Each operator witness
+    /// is a [`Visit::Operator`], and each application of a function that depends on the reading,
+    /// wherever the axiom's reading depends on it (everywhere but as a conjunctive call at the
+    /// top of a condition), a [`Visit::Applied`].
+    ///
+    /// A function of `inline` is read as if its equations were written where it is applied:
+    /// after the application's arguments, each equation's antecedent, then its right-hand side,
+    /// walked as the place the application stands is (at the top of a condition, as a condition
+    /// term; elsewhere, as a term), with each place it holds marked with the function. So with
+    /// `inline` empty the operator visits are exactly the witnesses of
+    /// [`Self::condition_operator_witnesses`] and [`Self::operator_witnesses`] over the axiom's
+    /// parts. A function applied within its own inlined equations is not inlined again.
+    #[must_use]
+    pub fn axiom_visits(
+        &self,
+        pattern: &Pattern,
+        attributes: &Attributes,
+        inline: &BTreeMap<String, Vec<Inlined<'_>>>,
+    ) -> Option<Vec<Visit>> {
+        let mut walk = Walk {
+            analysis: self,
+            inline,
+            within: Vec::new(),
+            applications: BTreeMap::new(),
+            out: Vec::new(),
+        };
+        if let Some((conditions, left, right)) = rewrite_sides(pattern) {
+            for side in conditions.into_iter().chain([left]) {
+                walk.side(side, false, true);
+            }
+            walk.term(right, false);
+        } else if let Some((_, condition, right)) = equation_parts(pattern) {
+            if let Some(condition) = condition {
+                walk.side(condition, is_owise(attributes), true);
+            }
+            walk.term(right, false);
+        } else {
+            return None;
+        }
+        Some(walk.out)
+    }
+
     /// Whether `witness` originates (the module documentation, "Originating witnesses"): an
     /// operator witness whose term's head depends on no reading, or is not declared `total`.
     /// A function witness never originates.
@@ -999,6 +1061,212 @@ impl<'d> ShortCircuitAnalysis<'d> {
         };
         self.reasons.get_key_value(&key)
     }
+}
+
+/// One place of an axiom where its reading can depend on the short-circuit reading
+/// ([`ShortCircuitAnalysis::axiom_visits`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Visit {
+    /// An operator witness.
+    Operator {
+        /// Whether the place is in the axiom's condition (a rewrite rule's conditions and
+        /// left-hand side, an equation's antecedent), not its right-hand side.
+        condition: bool,
+        /// The witness.
+        witness: Witness,
+        /// The inlined functions whose equations hold the place, outermost first; empty for a
+        /// place of the axiom itself.
+        within: Vec<String>,
+        /// The index of the operator's application among the applications of its symbol the
+        /// walk visits as terms, in its order, whether or not they hold a witness: a conjunction
+        /// the walk reads through at the top of a condition is none of them. It tells apart
+        /// applications whose witnesses are equal, in the order the axiom holds them.
+        occurrence: usize,
+    },
+    /// An application of a function that depends on the reading, which is not inlined.
+    Applied {
+        /// Whether the place is in the axiom's condition.
+        condition: bool,
+        /// The function's symbol.
+        symbol: String,
+        /// How it depends on the reading ([`ShortCircuitAnalysis::dependence`]).
+        dependence: ReadingDependence,
+        /// The inlined functions whose equations hold the place, outermost first.
+        within: Vec<String>,
+    },
+}
+
+/// One equation of a function [`ShortCircuitAnalysis::axiom_visits`] reads in place of its
+/// applications.
+#[derive(Clone, Copy, Debug)]
+pub struct Inlined<'k> {
+    /// Its antecedent, if it has one.
+    pub condition: Option<&'k Pattern>,
+    /// Its right-hand side.
+    pub right: &'k Pattern,
+    /// Whether it is an `owise` equation, whose antecedent's guard is not walked.
+    pub owise: bool,
+}
+
+/// The walk of [`ShortCircuitAnalysis::axiom_visits`].
+struct Walk<'w, 'd, 'k> {
+    analysis: &'w ShortCircuitAnalysis<'d>,
+    inline: &'w BTreeMap<String, Vec<Inlined<'k>>>,
+    /// The inlined functions around the place walked, outermost first.
+    within: Vec<String>,
+    /// The number of applications of each operator symbol walked as terms so far.
+    applications: BTreeMap<String, usize>,
+    out: Vec<Visit>,
+}
+
+impl Walk<'_, '_, '_> {
+    /// A condition side, as [`ShortCircuitAnalysis::condition_operator_witnesses`] walks it.
+    fn side(&mut self, side: &Pattern, owise: bool, condition: bool) {
+        match side {
+            Pattern::And { arguments, .. }
+                if owise && matches!(arguments.first(), Some(Pattern::Not { .. })) =>
+            {
+                for argument in &arguments[1..] {
+                    self.leaves(argument, condition);
+                }
+            }
+            _ => self.leaves(side, condition),
+        }
+    }
+
+    /// [`ShortCircuitAnalysis::condition_leaves`]'s walk.
+    fn leaves(&mut self, side: &Pattern, condition: bool) {
+        match side {
+            Pattern::And { arguments, .. } | Pattern::Or { arguments, .. } => {
+                for argument in arguments {
+                    self.leaves(argument, condition);
+                }
+            }
+            Pattern::Not { argument, .. } => self.leaves(argument, condition),
+            Pattern::Implies { left, right, .. } | Pattern::Iff { left, right, .. } => {
+                self.leaves(left, condition);
+                self.leaves(right, condition);
+            }
+            Pattern::Exists { body, .. } | Pattern::Forall { body, .. } => {
+                self.leaves(body, condition);
+            }
+            Pattern::Equals { left, right, .. } if is_true(right) => {
+                self.condition_term(left, condition);
+            }
+            Pattern::Top { .. } | Pattern::Bottom { .. } => {}
+            other => self.condition_term(other, condition),
+        }
+    }
+
+    /// A condition term, as [`ShortCircuitAnalysis::condition_term_operator_witnesses`] walks it.
+    fn condition_term(&mut self, term: &Pattern, condition: bool) {
+        match term {
+            Pattern::And { arguments, .. } => {
+                for argument in arguments {
+                    self.condition_term(argument, condition);
+                }
+            }
+            Pattern::Application { symbol, arguments }
+                if self.analysis.conjunctions.contains(symbol.name.as_str()) =>
+            {
+                for argument in arguments {
+                    self.condition_term(argument, condition);
+                }
+            }
+            Pattern::Application { symbol, arguments } if self.inlines(&symbol.name) => {
+                for argument in arguments {
+                    self.term(argument, condition);
+                }
+                self.inlined(&symbol.name, true, condition);
+            }
+            Pattern::Application { symbol, arguments }
+                if self.analysis.conjunctive.contains(symbol.name.as_str()) =>
+            {
+                for argument in arguments {
+                    self.term(argument, condition);
+                }
+            }
+            _ => self.term(term, condition),
+        }
+    }
+
+    /// A term, in post-order.
+    fn term(&mut self, term: &Pattern, condition: bool) {
+        for node in post_order(term) {
+            let Pattern::Application { symbol, .. } = node else {
+                continue;
+            };
+            let name = symbol.name.as_str();
+            if self.analysis.operators.contains_key(name) {
+                let count = self.applications.entry(name.to_owned()).or_default();
+                let occurrence = *count;
+                *count += 1;
+                for witness in self.analysis.node_witnesses(node) {
+                    self.out.push(Visit::Operator {
+                        condition,
+                        witness,
+                        within: self.within.clone(),
+                        occurrence,
+                    });
+                }
+            } else if self.inlines(name) {
+                self.inlined(name, false, condition);
+            } else if let Some(dependence) = self.analysis.dependence(node) {
+                self.out.push(Visit::Applied {
+                    condition,
+                    symbol: name.to_owned(),
+                    dependence,
+                    within: self.within.clone(),
+                });
+            }
+        }
+    }
+
+    /// Whether `symbol` is read in place here: a function of the inlined ones, not already
+    /// around the place walked.
+    fn inlines(&self, symbol: &str) -> bool {
+        self.inline.contains_key(symbol) && !self.within.iter().any(|around| around == symbol)
+    }
+
+    /// The equations of the inlined function `symbol`, where it is applied at the top of a
+    /// condition (`top`) or elsewhere.
+    fn inlined(&mut self, symbol: &str, top: bool, condition: bool) {
+        let Some(equations) = self.inline.get(symbol) else {
+            return;
+        };
+        self.within.push(symbol.to_owned());
+        for equation in equations {
+            if let Some(antecedent) = equation.condition {
+                self.side(antecedent, equation.owise, condition);
+            }
+            if top {
+                self.condition_term(equation.right, condition);
+            } else {
+                self.term(equation.right, condition);
+            }
+        }
+        self.within.pop();
+    }
+}
+
+/// The nodes of `pattern` in the post-order of [`walk::for_each_post_order`].
+fn post_order(pattern: &Pattern) -> Vec<&Pattern> {
+    let mut nodes = Vec::new();
+    let mut work = vec![(pattern, false)];
+    while let Some((node, complete)) = work.pop() {
+        if complete {
+            nodes.push(node);
+            continue;
+        }
+        work.push((node, true));
+        work.extend(
+            walk::children(node)
+                .into_iter()
+                .rev()
+                .map(|child| (child, false)),
+        );
+    }
+    nodes
 }
 
 /// Every equation axiom of `kore` ([`equation_parts`]), in sentence order, with its position.
