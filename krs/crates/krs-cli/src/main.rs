@@ -97,7 +97,8 @@ Options:
                              A case's run table gives the depth, stop rules and stop count,
                              in place of the flags; its instances table gives the starting
                              instances of optional and repeated cells; its expect table is
-                             checked: met, unmet or inconclusive
+                             checked: met, unmet or inconclusive. --case FILE#NAME names the
+                             case NAME of a document of named cases, as krs cases prints its id
   --case-name NAME           With --case, the case of that name in a document of named cases
   CASES...                   With cases, the case documents (.toml or .json) whose cases run,
                              reported in this order: one verdict per case (met, unmet,
@@ -360,6 +361,10 @@ fn main() {
             eprintln!("krs kink: {message}\n\n{KINK_USAGE}");
             std::process::exit(2);
         }
+        Err(UsageError::Value(message)) => {
+            eprintln!("krs: {message}");
+            std::process::exit(2);
+        }
         Err(error) => {
             eprintln!("krs: {error}\n\n{USAGE}");
             std::process::exit(2);
@@ -559,6 +564,8 @@ struct ExecOptions {
     given: Vec<&'static str>,
     inputs: Vec<OsString>,
     case: Option<PathBuf>,
+    /// The case `--case FILE#NAME` names by its id.
+    case_id_name: Option<String>,
     case_name: Option<String>,
     typed: Vec<(String, String)>,
     variables: Vec<(String, String)>,
@@ -637,6 +644,9 @@ struct RunOptions {
 enum UsageError {
     Argument(lexopt::Error),
     Message(String),
+    /// A value that is refused for itself (a `--case` that names no case file), which the usage
+    /// would not help to correct: printed without it.
+    Value(String),
     /// A usage error of `krs kink`, shown with its own usage.
     #[cfg(feature = "kink")]
     Kink(String),
@@ -646,7 +656,7 @@ impl fmt::Display for UsageError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Argument(error) => error.fmt(formatter),
-            Self::Message(message) => message.fmt(formatter),
+            Self::Message(message) | Self::Value(message) => message.fmt(formatter),
             #[cfg(feature = "kink")]
             Self::Kink(message) => message.fmt(formatter),
         }
@@ -871,8 +881,9 @@ fn exec_option(
         }
         "case" => {
             exec.note("--case");
-            let path = case_path(option_value(parser, "case file")?)?;
+            let (path, name) = case_path(&option_value(parser, "case file")?)?;
             set_once(&mut exec.case, path, "--case")?;
+            exec.case_id_name = name;
         }
         "case-name" => {
             exec.note("--case-name");
@@ -1247,21 +1258,79 @@ fn worker_option(
     Ok(())
 }
 
-/// The case file `--case` names, which must be `.toml` or `.json`: its extension selects how it
-/// is read.
-fn case_path(value: String) -> Result<PathBuf, UsageError> {
-    let path = PathBuf::from(value);
-    match path.extension().and_then(|extension| extension.to_str()) {
-        Some("toml" | "json") => Ok(path),
-        Some(extension) => Err(usage(format!(
-            "--case `{}` has the extension `.{extension}`; a case file is `.toml` or `.json`",
-            path.display()
-        ))),
-        None => Err(usage(format!(
-            "--case `{}` has no extension; a case file is `.toml` or `.json`",
-            path.display()
-        ))),
+/// The case `--case` names: `FILE`, or `FILE#NAME`, the case NAME of a document of named cases,
+/// as `krs cases` prints the case's id and `krs compare` reads a side ([`SideFile::parse`]); FILE
+/// must be `.toml` or `.json`, its extension selecting how it is read. A refusal is about the
+/// value alone, so it is not followed by the usage ([`UsageError::Value`]).
+fn case_path(value: &str) -> Result<(PathBuf, Option<String>), UsageError> {
+    if let Ok(side) = SideFile::parse(value) {
+        return Ok((side.path, side.name));
     }
+    let refused = |message: String| Err(UsageError::Value(message));
+    // The file a `#` would end: `FILE#NAME` names a case only of a `.toml` or `.json` FILE.
+    let Some((file, name)) = value.split_once('#') else {
+        return match Path::new(value)
+            .extension()
+            .and_then(|extension| extension.to_str())
+        {
+            Some(extension) => refused(format!(
+                "--case `{value}` has the extension `.{extension}`; a case file is `.toml` or `.json`"
+            )),
+            None => refused(format!(
+                "--case `{value}` has no extension; a case file is `.toml` or `.json`"
+            )),
+        };
+    };
+    let id = "; `--case FILE#NAME` names the case NAME of a `.toml` or `.json` FILE, as `krs cases` \
+              prints a case's id (or give `--case FILE --case-name NAME`)";
+    let extension = |path: &str| {
+        Path::new(path)
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .map(str::to_owned)
+    };
+    // `value` reads as FILE#NAME or as a file whose name holds `#`; the refusal names the file
+    // an extension marks: the FILE before `#` when it has one, else `value` whole when it has
+    // one (`a#b.yaml`), else the FILE.
+    match (extension(file), extension(value)) {
+        (Some(extension), _)
+            if matches!(extension.as_str(), "toml" | "json") && name.is_empty() =>
+        {
+            refused(format!(
+                "--case `{value}`: no case name follows `#`; give `--case {file}#NAME`, or \
+                 `--case {file}` for a document of one case"
+            ))
+        }
+        (Some(extension), _) => refused(format!(
+            "--case `{value}` names the file `{file}`, which has the extension `.{extension}`; a \
+             case file is `.toml` or `.json`{id}"
+        )),
+        (None, Some(extension)) => refused(format!(
+            "--case `{value}` has the extension `.{extension}`; a case file is `.toml` or \
+             `.json`{id}"
+        )),
+        (None, None) => refused(format!(
+            "--case `{value}` names the file `{file}`, which has no extension; a case file is \
+             `.toml` or `.json`{id}"
+        )),
+    }
+}
+
+/// The case of the `--case` document that run and search select: the one `--case-name` names,
+/// or the one `--case FILE#NAME` names by its id, given at most once.
+fn selected_case_name(exec: &mut ExecOptions) -> Result<Option<String>, UsageError> {
+    if exec.case_name.is_some() && exec.case.is_none() {
+        return Err(usage(
+            "--case-name selects a case of the document --case names; pass --case FILE",
+        ));
+    }
+    if let (Some(named), Some(name)) = (&exec.case_id_name, &exec.case_name) {
+        return Err(UsageError::Value(format!(
+            "--case names the case `{named}` by its id (FILE#NAME) and --case-name names `{name}`; \
+             give the case once"
+        )));
+    }
+    Ok(exec.case_name.take().or_else(|| exec.case_id_name.take()))
 }
 
 /// The case documents of `krs cases`, each `.toml` or `.json` (its extension selects how it is
@@ -1547,7 +1616,7 @@ fn term_output(kind: CommandKind, output: Option<PathBuf>) -> Result<TermOutput,
 
 fn exec_command(
     kind: CommandKind,
-    exec: ExecOptions,
+    mut exec: ExecOptions,
     output: Option<PathBuf>,
 ) -> Result<Command, UsageError> {
     let accepted = exec_options(kind);
@@ -1569,11 +1638,7 @@ fn exec_command(
     if exec.inputs.len() > 1 {
         return Err(usage("more than one FILE given"));
     }
-    if exec.case_name.is_some() && exec.case.is_none() {
-        return Err(usage(
-            "--case-name selects a case of the document --case names; pass --case FILE",
-        ));
-    }
+    let case_name = selected_case_name(&mut exec)?;
     let input = exec.inputs.into_iter().next().map(|input| {
         if input == "-" {
             ProgramSource::Stdin
@@ -1592,7 +1657,7 @@ fn exec_command(
         CommandKind::Run => Command::Run(RunRequest {
             input,
             case: exec.case,
-            case_name: exec.case_name,
+            case_name,
             inputs: exec.typed,
             variables: exec.variables,
             depth: exec.depth,
@@ -1607,7 +1672,7 @@ fn exec_command(
         CommandKind::Search => Command::Search(SearchRequest {
             input,
             case: exec.case,
-            case_name: exec.case_name,
+            case_name,
             inputs: exec.typed,
             variables: exec.variables,
             mode: exec.mode.unwrap_or_default(),
@@ -3109,6 +3174,74 @@ mod tests {
         assert_eq!(
             failure("prove", &["--case-name", "x"]),
             "--case-name does not apply to krs prove"
+        );
+    }
+
+    /// `--case FILE#NAME` names a case by the id `krs cases` prints, in run and search, as
+    /// `--case FILE --case-name NAME` does; the name follows the first `#` after a `.toml` or
+    /// `.json` file, so it may hold `#`. A case named both ways, a `#` that no name follows and a
+    /// file of another extension are refused for the value alone, without the usage.
+    #[test]
+    fn a_case_id_names_a_case() {
+        let base = ["--package", "imp", "--definition", "main"];
+        let case = |verb: &str, value: &str| {
+            let mut args = vec![verb];
+            args.extend(base);
+            args.extend(["--case", value]);
+            match run(&args).0.command {
+                Command::Run(run) => (run.case, run.case_name),
+                Command::Search(search) => (search.case, search.case_name),
+                _ => panic!("expected run or search"),
+            }
+        };
+        assert_eq!(
+            case("run", "krs/mooneye/mooneye.toml#ei_sequence"),
+            (
+                Some(PathBuf::from("krs/mooneye/mooneye.toml")),
+                Some("ei_sequence".to_owned())
+            )
+        );
+        assert_eq!(
+            case("search", "cases/a.json#x#y"),
+            (Some(PathBuf::from("cases/a.json")), Some("x#y".to_owned()))
+        );
+        assert_eq!(
+            case("run", "cases/a#b.toml"),
+            (Some(PathBuf::from("cases/a#b.toml")), None)
+        );
+        let refused = |extra: &[&str]| {
+            let mut args = vec!["run"];
+            args.extend(base);
+            args.extend(extra);
+            match parse_args(&args) {
+                Err(UsageError::Value(message)) => message,
+                Err(other) => panic!("expected a refusal of the value, got {other}"),
+                Ok(_) => panic!("expected an error for {args:?}"),
+            }
+        };
+        assert_eq!(
+            refused(&["--case", "a.toml#x", "--case-name", "y"]),
+            "--case names the case `x` by its id (FILE#NAME) and --case-name names `y`; give the \
+             case once"
+        );
+        assert_eq!(
+            refused(&["--case", "a.toml#"]),
+            "--case `a.toml#`: no case name follows `#`; give `--case a.toml#NAME`, or `--case \
+             a.toml` for a document of one case"
+        );
+        assert_eq!(
+            refused(&["--case", "cases.yaml#boot"]),
+            "--case `cases.yaml#boot` names the file `cases.yaml`, which has the extension `.yaml`; \
+             a case file is `.toml` or `.json`; `--case FILE#NAME` names the case NAME of a \
+             `.toml` or `.json` FILE, as `krs cases` prints a case's id (or give `--case FILE \
+             --case-name NAME`)"
+        );
+        // A `#` before which no file has an extension is part of the file's name.
+        assert_eq!(
+            refused(&["--case", "a#b.yaml"]),
+            "--case `a#b.yaml` has the extension `.yaml`; a case file is `.toml` or `.json`; \
+             `--case FILE#NAME` names the case NAME of a `.toml` or `.json` FILE, as `krs cases` \
+             prints a case's id (or give `--case FILE --case-name NAME`)"
         );
     }
 

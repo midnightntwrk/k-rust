@@ -562,6 +562,30 @@ fn a_depth_bound_is_a_run_status_never_an_expected_end() {
         "{}",
         lines[2]
     );
+    // The human records state the refusal in one line, and its guidance once, before the count,
+    // naming the cases refused for it.
+    let human = workspace.krs("cases", &["bounded.json"]);
+    assert_eq!(human.status.code(), Some(2), "{}", stderr(&human));
+    let text = stdout(&human);
+    let lines = text.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 5, "{text}");
+    assert!(
+        lines[2].starts_with("bounded.json#bound: refused: ")
+            && lines[2].ends_with(
+                "`expect.halt`: an expected end is never `depth-bound` (why, and what to expect \
+                 instead: below)"
+            ),
+        "{text}"
+    );
+    assert!(
+        lines[3].starts_with(
+            "krs cases: bounded.json#bound: an expected end is never `depth-bound`: the depth \
+             counts"
+        ) && lines[3].contains("krs run --case FILE#NAME --stop-before ITEM --stop-count"),
+        "{text}"
+    );
+    assert_eq!(text.matches("the depth counts").count(), 1, "{text}");
+    assert!(lines[4].starts_with("krs cases: 3 cases: "), "{text}");
     let status = |name: &str| {
         let output = workspace.krs("cases", &["bounded.json", "--name", name]);
         (output.status.code(), stdout(&output))
@@ -618,12 +642,26 @@ fn krs_run_case_is_inconclusive_at_its_depth_bound() {
         "{}",
         stderr(&plain)
     );
-    let refused = run("bound");
+    // The case's id as `krs cases` prints it names the case as `--case-name` does.
+    let refused = workspace.krs(
+        "run",
+        &["--case", "bounded-run.json#bound", "--output", "none"],
+    );
     assert_eq!(refused.status.code(), Some(2), "{}", stderr(&refused));
     assert!(
         stderr(&refused).contains("`expect.halt`: an expected end is never `depth-bound`"),
         "{}",
         stderr(&refused)
+    );
+    // A `#` after a file that is no case document is refused in one line, without the usage.
+    let misnamed = workspace.krs("run", &["--case", "bounded-run.yaml#bound"]);
+    assert_eq!(misnamed.status.code(), Some(2), "{}", stderr(&misnamed));
+    assert_eq!(
+        stderr(&misnamed),
+        "krs: --case `bounded-run.yaml#bound` names the file `bounded-run.yaml`, which has the \
+         extension `.yaml`; a case file is `.toml` or `.json`; `--case FILE#NAME` names the case \
+         NAME of a `.toml` or `.json` FILE, as `krs cases` prints a case's id (or give `--case \
+         FILE --case-name NAME`)\n"
     );
 }
 

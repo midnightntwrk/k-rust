@@ -253,6 +253,18 @@ impl Record {
         document
     }
 
+    /// For a case refused for an expectation of a `depth-bound` end, its reason without the
+    /// refusal's guidance ([`krs_exec::DEPTH_BOUND_GUIDANCE`]).
+    fn depth_bound_refusal(&self) -> Option<&str> {
+        if self.verdict != Verdict::Refused {
+            return None;
+        }
+        self.reason
+            .as_deref()?
+            .strip_suffix(krs_exec::DEPTH_BOUND_GUIDANCE)
+            .filter(|refusal| refusal.ends_with(krs_exec::DEPTH_BOUND_REFUSAL))
+    }
+
     fn human(&self) -> String {
         let mut text = String::new();
         match (&self.checked, self.run, &self.reason) {
@@ -349,6 +361,9 @@ struct Printer {
     pending: BTreeMap<usize, Record>,
     output: CasesOutput,
     tally: Tally,
+    /// Under human output, the cases refused for an expectation of a `depth-bound` end, whose
+    /// records state the refusal alone and whose guidance [`Self::guidance`] states once.
+    depth_bound: Vec<String>,
 }
 
 impl Printer {
@@ -358,12 +373,37 @@ impl Printer {
             self.tally.count(&record);
             let text = match self.output {
                 CasesOutput::Json => format!("{}\n", record.json()),
-                CasesOutput::Human => record.human(),
+                CasesOutput::Human => match record.depth_bound_refusal() {
+                    Some(refusal) => {
+                        self.depth_bound.push(record.id.clone());
+                        format!(
+                            "{}: refused: {refusal} (why, and what to expect instead: below)\n",
+                            record.id
+                        )
+                    }
+                    None => record.human(),
+                },
             };
             write_stdout(&text)?;
             self.next += 1;
         }
         Ok(())
+    }
+
+    /// The guidance of the `depth-bound` refusal, once for every case refused for it, before the
+    /// count: the guidance is the same text for every case, so a batch of cases written the same
+    /// way, as a corpus migrated from depth bounds is, states it once rather than once a case. A
+    /// JSON record keeps its whole reason, since each is read alone.
+    fn guidance(&self) -> String {
+        if self.depth_bound.is_empty() {
+            return String::new();
+        }
+        format!(
+            "krs cases: {}: {}{}\n",
+            self.depth_bound.join(", "),
+            krs_exec::DEPTH_BOUND_REFUSAL,
+            krs_exec::DEPTH_BOUND_GUIDANCE
+        )
     }
 }
 
@@ -405,6 +445,7 @@ impl Batch<'_> {
             pending: BTreeMap::new(),
             output: self.request.output,
             tally: Tally::default(),
+            depth_bound: Vec::new(),
         };
         std::thread::scope(|scope| {
             for worker in 0..jobs {
@@ -466,7 +507,7 @@ impl Batch<'_> {
         })?;
         let summary = match self.request.output {
             CasesOutput::Json => format!("{}\n", printer.tally.json()),
-            CasesOutput::Human => printer.tally.human(),
+            CasesOutput::Human => format!("{}{}", printer.guidance(), printer.tally.human()),
         };
         write_stdout(&summary)?;
         Ok(exec::outcome(
