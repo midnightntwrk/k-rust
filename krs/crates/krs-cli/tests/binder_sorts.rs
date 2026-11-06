@@ -495,6 +495,55 @@ pub struct Boxed<S: ?Sized> {
     );
 }
 
+/// An authored `cells!` rule's first computation item is the sentence's head too, so its
+/// parametric instance is fixed the same way: `Boxed::<dyn StmtSort>(x)` keeps the strict cast, and the
+/// rule applies to the `boxed ( skip )` that `op 1` steps to, which runs to an empty computation.
+#[test]
+fn a_cells_head_item_keeps_the_strict_cast_and_applies() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = package(
+        temporary.path(),
+        "cells-head",
+        &format!(
+            "{}{}",
+            r#"
+#[k::constructor(sort = Stmt, syntax = "boxed ( {inner} )")]
+pub struct Boxed<S: ?Sized> {
+    pub inner: Term<S>,
+}
+
+#[k::rule(label = "unbox")]
+pub fn unbox(
+    x: Term<Stmt>,
+    k::cells! { k: k::configuration::KCell(Boxed::<dyn StmtSort>(x), tail @ ..), state @ .. }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(x, ..tail), ..state }
+}
+"#,
+            rules(
+                "start: { k: [Op(1), ..] } => { k: [Boxed::<Stmt>(Skip()), ..] };\n    skip: { k: [Skip(), ..] } => { k: [..] };"
+            ),
+        ),
+    );
+    let definition = emitted(target.path(), &manifest);
+    assert_eq!(
+        rule(&definition, "unbox"),
+        "<k> boxed ( X::Stmt ) ~> Tail:K => X:Stmt ~> Tail:K </k>"
+    );
+    let program = manifest.with_file_name("program.txt");
+    fs::write(&program, "op 1").unwrap();
+    let (success, stdout, stderr) = krs(
+        target.path(),
+        &manifest,
+        "run",
+        &[program.to_str().unwrap(), "-c", "QUEUE=.List"],
+    );
+    assert!(success, "{stdout}\n{stderr}");
+    let flat = stdout.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(flat.contains("<k> .K </k>"), "{stdout}\n{stderr}");
+}
+
 /// A binder that is narrowed to `Stmt` rather than `Value` runs on every
 /// statement: `holdit` saves the second statement of a `seq` and `unhold`
 /// restores it, so `seq(skip, skip)` runs to an empty computation.

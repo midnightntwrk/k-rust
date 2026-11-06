@@ -68,6 +68,12 @@ struct StateRuleTerms<'a> {
     inserted_frames: &'a BTreeSet<ProvenanceKey>,
     /// Whether the rule was authored readable ([`StructuredTermBuilder::readable`]).
     readable: bool,
+    /// Whether the terms are a configuration rule's, whose matched K sequence begins with the
+    /// sentence's head; a context's and a function context's do not.
+    sequence_heads: bool,
+    /// While an item of a rule's matched K sequence is lowered, whether it is the first, the
+    /// sentence's head ([`StructuredTermBuilder::head_pending`]).
+    sequence_item: Option<bool>,
     /// The guards of the instances and the keys the pattern looks up, which
     /// the sentence's condition must hold: [`Self::finish`] hands them back.
     guards: super::set_instances::SentenceGuards,
@@ -95,6 +101,8 @@ impl<'a> StateRuleTerms<'a> {
             looking_up: false,
             inserted_frames: NO_INSERTED_FRAMES,
             readable: false,
+            sequence_heads: false,
+            sequence_item: None,
             guards: super::set_instances::SentenceGuards::default(),
         }
     }
@@ -166,8 +174,12 @@ impl<'a> StateRuleTerms<'a> {
             locals: super::infer::LocalBinders::default(),
             in_key: in_key || self.looking_up,
             instance_guards,
-            head_pending: false,
-            head_place: super::infer::HeadPlace::Sentence,
+            head_pending: self.sequence_item == Some(true),
+            head_place: if self.sequence_item.is_some() {
+                super::infer::HeadPlace::SequenceItem
+            } else {
+                super::infer::HeadPlace::Sentence
+            },
             operators: super::operators::OperatorInference::default(),
             declared_binders: self.declared_binders.clone(),
             configuration_variables: BTreeMap::new(),
@@ -376,14 +388,22 @@ impl<'a> StateRuleTerms<'a> {
                     .any(|item| matches!(item.value, DescriptorTerm::Wildcard { .. }))
                     .then(|| framework_k_item_sort(self.declarations))
                     .transpose()?;
+                // The first item a pattern matches is the sentence's head: a parametric
+                // application there has its instance fixed by a strict cast, or K may solve it
+                // above the item and the sentence never applies (KF-027). Every item is a `KItem`,
+                // which bounds that instance from above.
                 let items = sequence
                     .items
                     .iter()
-                    .map(|item| {
+                    .enumerate()
+                    .map(|(index, item)| {
                         let expected = k_item
                             .as_ref()
                             .filter(|_| matches!(item.value, DescriptorTerm::Wildcard { .. }));
-                        self.term(&item.value, expected, binding_sorts, subject)
+                        self.sequence_item = (subject && self.sequence_heads).then_some(index == 0);
+                        let lowered = self.term(&item.value, expected, binding_sorts, subject);
+                        self.sequence_item = None;
+                        lowered
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 let item_sort =
@@ -823,6 +843,7 @@ pub(super) fn lower_configuration_rule_descriptor(
         variables,
         inserted_frames: readable.map_or(NO_INSERTED_FRAMES, |notes| &notes.inserted_frames),
         readable: readable.is_some(),
+        sequence_heads: true,
         ..StateRuleTerms::new(descriptor, declarations, sort_parents, catalog, &typing)
     };
     let clauses = lower_configuration_rule_clauses(
