@@ -563,7 +563,7 @@ pub enum EndError {
     /// A view whose evaluation at an end stopped before it ended, for the caller's budget or
     /// another stop of the backend, or ended short of a value after the solver answered
     /// `Unknown` ([`CellViews::evaluate_within`]): whether it has a value there is not known, so a
-    /// comparison under it is inconclusive, not refused.
+    /// comparison under it is inconclusive, not refused, when no view refuses at another value.
     ViewStopped {
         /// The viewed cell's declared path.
         cell: String,

@@ -2318,6 +2318,113 @@ fn a_view_declared_by_an_observer_package_is_evaluated_there_and_shown_at_its_so
     });
 }
 
+/// The views `ClimbAbove` of `cell`, resolved and evaluated in `observer` at the ends of `sides`
+/// within a budget of polls.
+fn climb_above(
+    subject: &Semantics,
+    observer: &mut Semantics,
+    cell: &str,
+    sides: &[Side<'_>],
+) -> Result<(), EndError> {
+    let named = BTreeMap::from([(cell.to_owned(), "ClimbAbove".to_owned())]);
+    let mut views = subject.cell_views(observer, &named)?;
+    views.evaluate_within(observer, sides, Some(10_000))
+}
+
+/// A view with no value at one value refuses the comparison even where its evaluation at another
+/// value stops, whichever is evaluated first: the order of the sides, or of a repeated cell's
+/// instances, chooses the value the refusal names, never whether the comparison is refused.
+#[test]
+fn a_view_with_no_value_refuses_whichever_value_stops_first() {
+    with_observer(|subject, observer| {
+        let ends = reference(subject);
+        let refusal = |result: Result<(), EndError>| match result {
+            Err(error @ EndError::View { .. }) => error.to_string(),
+            other => panic!("expected a view's refusal, got {other:?}"),
+        };
+        let at = |pc: i64| with_cells(subject, &ends, |cells| cells["pc"] = json!(pc));
+        let (up, zero) = (at(1), at(0));
+        for (sides, refused) in [
+            ([side("left", &up), side("right", &zero)], "right"),
+            ([side("left", &zero), side("right", &up)], "left"),
+        ] {
+            let message = refusal(climb_above(subject, observer, "pc", &sides));
+            assert!(
+                message.starts_with(&format!(
+                    "the view `ClimbAbove` of the cell `pc`: it has no value at the {refused} end's `pc`: the definition gives it no value"
+                )),
+                "{message}"
+            );
+        }
+        // With no value refused, the stop is reported.
+        assert!(matches!(
+            climb_above(
+                subject,
+                observer,
+                "pc",
+                &[side("left", &up), side("right", &up)]
+            ),
+            Err(EndError::ViewStopped { .. })
+        ));
+
+        // The instances of a repeated cell, in either order.
+        let threads = |counts: [i64; 2]| {
+            with_cells(subject, &ends, |cells| {
+                cells["threads"]["thread"] = json!([
+                    {"id": 1, "count": counts[0]},
+                    {"id": 2, "count": counts[1]},
+                ]);
+            })
+        };
+        for (counts, refused) in [([1, 0], 1), ([0, 1], 0)] {
+            let ends = threads(counts);
+            let message = refusal(climb_above(
+                subject,
+                observer,
+                "threads.thread.count",
+                &[side("left", &ends)],
+            ));
+            assert!(
+                message.contains(&format!(
+                    "it has no value at the left end's `threads.thread[{refused}].count`: the definition gives it no value"
+                )),
+                "{message}"
+            );
+        }
+
+        // A value with a part that has no KRS description refuses without an evaluation, so a
+        // stop at the other side, in either order, does not hide it.
+        let climbing = threads([1, 1]);
+        let application = only_zero_of_one(subject);
+        let report = reported(subject, |mut configuration| {
+            assert!(replace_cell(
+                &mut configuration,
+                "Lbl'-LT-'count'-GT-'",
+                &application
+            ));
+            configuration
+        });
+        let opaque = subject.end_of(&report).unwrap();
+        for (sides, refused) in [
+            ([side("left", &climbing), side("right", &opaque)], "right"),
+            ([side("left", &opaque), side("right", &climbing)], "left"),
+        ] {
+            let message = refusal(climb_above(
+                subject,
+                observer,
+                "threads.thread.count",
+                &sides,
+            ));
+            assert!(
+                message.contains(&format!(
+                    "it has no value at the {refused} end's `threads.thread[0].count`: the cell holds an unevaluated application of the function "
+                )),
+                "{message}"
+            );
+        }
+    });
+}
+
 /// The comparison of every observable cell under the view `Positive` of `cell`, evaluated at
 /// the ends of `sides`.
 fn positive(semantics: &mut Semantics, cell: &str, sides: &[&Ends]) -> Comparison {

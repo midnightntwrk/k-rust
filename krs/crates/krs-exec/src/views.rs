@@ -67,8 +67,21 @@
 //! inconclusive. The budget counts the evaluation's own polls, which reuse of answers the
 //! observer's solver decided earlier can only lower; the solver's bounds and the process's
 //! stack budget, which threads share, are outside it.
+//!
+//! A view with no value at one viewed value refuses the comparison even where the evaluation at
+//! another value stopped: the refusal holds whatever the budget, and no more work at the other
+//! value makes the missing observation exist. So the error a comparison reports is a refusal
+//! when any viewed value has no value, and a stop only when none has none. Which of the two it
+//! is depends on each value's own result, never on the order the sides or a repeated cell's
+//! instances are given in, which only chooses the value the error names; the exception is a
+//! value whose evaluation ends, within the budget or without an `Unknown` answer, only because
+//! it reuses an answer the observer's solver decided for a value evaluated before it. To find
+//! whether any value has no value, a comparison whose evaluations stop evaluates every distinct
+//! viewed value, so its cost grows with their number, up to one budget for each. A value with a
+//! part that has no KRS description refuses without an evaluation, and since it decides that the
+//! comparison is refused, no value is evaluated when one does.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::Arc;
 
@@ -262,7 +275,12 @@ impl CellViews {
     ///
     /// Fails as [`Self::evaluate`] does, and returns [`EndError::ViewStopped`] for an evaluation
     /// that stopped before it ended (it spent `budget`, or another stop of the backend ended it)
-    /// or that ended short of a value after the solver answered `Unknown`.
+    /// or that ended short of a value after the solver answered `Unknown`, when no value refuses.
+    /// The error names, in the order of `sides` and then of the cells and instances of each end,
+    /// the first value with a part that has no KRS description, or else the first value that
+    /// refuses, or, when none does, the first that stopped. The order the sides are given in
+    /// chooses which value is named, and not the kind of error, except where an evaluation ends
+    /// only by reusing an answer an earlier one decided ([module documentation](crate::views)).
     pub fn evaluate_within(
         &mut self,
         observer: &mut Semantics,
@@ -286,47 +304,62 @@ impl CellViews {
                 }
             }
         }
-        for (symbol, value, side, path) in pending {
-            if self
+        // Each value once, in side then instance order: the order the first refusal and the
+        // first stop are named in.
+        let mut seen = BTreeSet::new();
+        pending.retain(|(symbol, value, _, _)| {
+            !self
                 .results
-                .get(&symbol)
-                .is_some_and(|results| results.contains_key(&value))
-            {
-                continue;
+                .get(symbol)
+                .is_some_and(|results| results.contains_key(value))
+                && seen.insert((symbol.clone(), value.clone()))
+        });
+        // A refusal is a fact about the definition and the value, whatever the budget; a stop
+        // is not. So the comparison is refused when any value refuses, and stopped only when
+        // none does. A value with no KRS description refuses without an evaluation, which
+        // settles the comparison: no evaluation can change that it is refused.
+        for (symbol, value, side, path) in &pending {
+            if let Some(part) = opaque_part(&subject, value) {
+                let view = &self.by_symbol[symbol];
+                return Err(EndError::View {
+                    cell: view.cell.clone(),
+                    function: view.function.clone(),
+                    message: format!(
+                        "it has no value at the {side} end's `{path}`: the cell holds {part}, which has no KRS description to carry to the view"
+                    ),
+                });
             }
+        }
+        let mut stopped = None;
+        for (symbol, value, side, path) in pending {
             let view = &self.by_symbol[&symbol];
             let refuse = |message: String| EndError::View {
                 cell: view.cell.clone(),
                 function: view.function.clone(),
                 message: format!("it has no value at the {side} end's `{path}`: {message}"),
             };
-            if let Some(part) = opaque_part(&subject, &value) {
-                return Err(refuse(format!(
-                    "the cell holds {part}, which has no KRS description to carry to the view"
-                )));
+            match observer.evaluate_within(
+                view.decl.path(),
+                vec![(&*view.parameter, value.clone())],
+                budget,
+            ) {
+                Ok(viewed) => {
+                    self.results
+                        .entry(symbol)
+                        .or_default()
+                        .insert(value, viewed);
+                }
+                Err(error @ (EvaluationError::Stopped(_) | EvaluationError::Undecided(_))) => {
+                    stopped.get_or_insert_with(|| EndError::ViewStopped {
+                        cell: view.cell.clone(),
+                        function: view.function.clone(),
+                        message: format!("at the {side} end's `{path}`, {error}"),
+                    });
+                }
+                Err(error) => return Err(refuse(error.to_string())),
             }
-            let viewed = observer
-                .evaluate_within(
-                    view.decl.path(),
-                    vec![(&*view.parameter, value.clone())],
-                    budget,
-                )
-                .map_err(|error| match error {
-                    EvaluationError::Stopped(_) | EvaluationError::Undecided(_) => {
-                        EndError::ViewStopped {
-                            cell: view.cell.clone(),
-                            function: view.function.clone(),
-                            message: format!("at the {side} end's `{path}`, {error}"),
-                        }
-                    }
-                    error => refuse(error.to_string()),
-                })?;
-            self.results
-                .entry(symbol)
-                .or_default()
-                .insert(value, viewed);
         }
-        Ok(())
+        stopped.map_or(Ok(()), Err)
     }
 
     /// Every viewed leaf value below `cells`, with its side and its path, instances indexed.

@@ -1450,7 +1450,7 @@ fn undecided_case(
 ///
 /// A view without a value at an end refuses the case; one whose evaluation stopped before it
 /// ended (it spent `budget`, or another stop of the backend ended it) makes the verdict
-/// inconclusive, since it may yet have a value.
+/// inconclusive, since it may yet have a value, when no view refuses at another value.
 pub(super) fn check(
     semantics: &mut Semantics,
     observer: Option<&mut Semantics>,

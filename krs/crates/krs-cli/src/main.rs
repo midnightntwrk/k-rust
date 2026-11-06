@@ -137,7 +137,8 @@ Options:
   --view-budget POLLS        With run, search, cases and compare, the polls each evaluation of
                              a view may take (default: 30000000), a count of its own work that
                              the host's speed and load do not change; one that spends it, or
-                             that another stop ends, makes the verdict inconclusive
+                             that another stop ends, makes the verdict inconclusive unless a
+                             view has no value at another value, which refuses it
   --input NAME=JSON          Bind input NAME to a JSON document of the typed encoding; file
                              paths are relative to the working directory; repeatable
   -c NAME=TEXT               Bind configuration variable NAME ($ENV, ENV, or init parameter env); repeatable

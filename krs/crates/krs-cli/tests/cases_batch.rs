@@ -30,7 +30,8 @@ const UNDECIDED_PACKAGE: &str = "krs-cli-cases-undecided-fixture";
 /// A definition whose exit cell, `status`, `quit c` sets to `c`; `open a` steps only where
 /// `unsure(a)` holds, which no equation decides at `2`, so a run of `open 2` reaches two states
 /// under a condition it cannot decide and has no one path. `OnlyOne(a)` has a value only at `1`,
-/// where its guard holds.
+/// where its guard holds. `UnsureAbove(a)` has no value at `0` or below, where its guard is
+/// decided false, and above is as undecided as `Unsure(a)`.
 const UNDECIDED: &str = r#"
 use k::builtin::{Bool, Int, KSequence};
 use k::KResult;
@@ -57,6 +58,15 @@ pub fn Unsure(a: Term<Int>) -> Term<Bool>;
 #[k::equation]
 #[k::requires(Opaque(a) == 1)]
 fn unsure_one(Unsure(a): Term<Bool>) -> Term<Bool> {
+    true
+}
+
+#[k::function(partial, internal)]
+pub fn UnsureAbove(a: Term<Int>) -> Term<Bool>;
+
+#[k::equation]
+#[k::requires(a > 0 && Opaque(a) == 1)]
+fn unsure_above(UnsureAbove(a): Term<Bool>) -> Term<Bool> {
     true
 }
 
@@ -97,7 +107,7 @@ impl Machine {
 /// An observer of `ends`: `WithRead` appends a read to an event log, built with the compared
 /// definition's constructor, `Spin` climbs forever, so that its evaluation never ends, and `NotedStamp` gives a value of a
 /// sort only the observer declares, with no document where it is `noted`, whose K text only the
-/// observer's printer prints.
+/// observer's printer prints; `ClimbAbove` climbs for ever above `0` and has no value elsewhere.
 const OBSERVER: &str = r#"//! An observer of the `ends` fixture, imported by no definition.
 
 use k::Term;
@@ -136,6 +146,20 @@ pub struct Tag {
 #[k::constructor(sort = S, syntax = "noted({inner})")]
 pub struct Noted<S: ?Sized> {
     pub inner: Term<S>,
+}
+
+/// A view of an `Int` whose evaluation climbs for ever above `0`, and that has no value at `0`
+/// or below.
+#[k::function(partial, internal)]
+#[k::requires(n > 0)]
+pub fn ClimbAbove(n: Term<Int>) -> Term<Int> {
+    Rise(n)
+}
+
+/// `Rise(n + 1)`, for ever.
+#[k::function(total, internal)]
+pub fn Rise(n: Term<Int>) -> Term<Int> {
+    Rise(n + 1)
 }
 
 /// A log's stamp, noted when the log is not empty.
@@ -845,6 +869,106 @@ fn krs_run_case_evaluates_the_views_krs_cases_does() {
     );
 }
 
+/// A view with no value at one side refuses the comparison even where its evaluation at the
+/// other side stops (`ClimbAbove` of `pc` at `0` and at `1`): `krs compare` exits 2 in either
+/// order of its sides, and `krs cases` and `krs run --case` refuse a case whichever of the
+/// expected and actual sides has no value.
+#[test]
+fn a_view_with_no_value_refuses_whichever_side_comes_first() {
+    let workspace = workspace();
+    let observer = format!("{OBSERVER_PACKAGE}:main");
+    let at = |pc: i64| {
+        let mut inputs = inputs(&finish(), &json!({"A": 1}));
+        inputs["pc"] = json!(pc);
+        inputs
+    };
+    let expect = |pc: i64| {
+        let mut expect = finished(pc, &json!([{"Read": {"addr": 5}}]));
+        expect["views"] = json!({"pc": "ClimbAbove"});
+        expect["observer"] = json!(observer);
+        expect
+    };
+    let cases = json!({"case": [
+        {"name": "up", "inputs": at(1)},
+        {"name": "zero", "inputs": at(0)},
+        {"name": "expect-up", "inputs": at(0), "expect": expect(1)},
+        {"name": "expect-zero", "inputs": at(1), "expect": expect(0)},
+    ]});
+    workspace.write("order.json", cases.to_string());
+    for (first, second, refused) in [
+        ("order.json#up", "order.json#zero", "right"),
+        ("order.json#zero", "order.json#up", "left"),
+    ] {
+        let output = workspace.krs(
+            "compare",
+            &[
+                first,
+                second,
+                "--view",
+                "pc=ClimbAbove",
+                "--observer",
+                &observer,
+                "--view-budget",
+                "10000",
+            ],
+        );
+        assert_eq!(output.status.code(), Some(2), "{}", stdout(&output));
+        assert!(
+            stderr(&output).contains(&format!(
+                "the view `ClimbAbove` of the cell `pc`: it has no value at the {refused} end's `pc`: the definition gives it no value"
+            )),
+            "{}",
+            stderr(&output)
+        );
+    }
+
+    let output = workspace.krs(
+        "cases",
+        &[
+            "order.json",
+            "--name",
+            "expect-*",
+            "--output",
+            "json",
+            "--view-budget",
+            "10000",
+        ],
+    );
+    assert_eq!(output.status.code(), Some(2), "{}", stderr(&output));
+    let lines = records(&output);
+    for (line, refused) in lines[..2].iter().zip(["actual", "expected"]) {
+        assert_eq!(line["verdict"], "refused", "{line}");
+        assert!(
+            line["reason"]
+                .as_str()
+                .is_some_and(|reason| reason
+                    .contains(&format!("it has no value at the {refused} end's `pc`"))),
+            "{line}"
+        );
+    }
+    for (name, refused) in [("expect-up", "actual"), ("expect-zero", "expected")] {
+        let run = workspace.krs(
+            "run",
+            &[
+                "--case",
+                "order.json",
+                "--case-name",
+                name,
+                "--output",
+                "none",
+                "--view-budget",
+                "10000",
+            ],
+        );
+        assert_eq!(run.status.code(), Some(2), "{name}: {}", stderr(&run));
+        assert!(
+            stderr(&run).contains(&format!("it has no value at the {refused} end's `pc`")),
+            "{name}: {}",
+            stderr(&run)
+        );
+    }
+}
+
 /// A case that states no expectation and whose run reaches several states under conditions it
 /// cannot decide ran to no one end: a `ran` record with no halt and the reason, which counts as no
 /// answer (exit 3), as an inconclusive halt does; `krs run --case` exits 3 on it, and `krs compare`
@@ -923,15 +1047,17 @@ fn a_case_whose_run_has_no_one_path_ran_to_no_end() {
 fn a_view_whose_guard_the_solver_answers_unknown_is_inconclusive_not_no_value() {
     let workspace = workspace();
     let undecided = workspace.directory.path().join("undecided");
-    let document = json!({"case": [{"name": "two", "inputs": {"pgm": {"Quit": {"code": 2}}}}]});
+    let document = json!({"case": [
+        {"name": "two", "inputs": {"pgm": {"Quit": {"code": 2}}}},
+        {"name": "zero", "inputs": {"pgm": {"Quit": {"code": 0}}}},
+    ]});
     fs::write(undecided.join("views.json"), document.to_string()).unwrap();
-    let compare = |view: &str, solver: &[&str]| {
-        let arguments = [
-            &["views.json#two", "views.json#two", "--view", view][..],
-            solver,
-        ]
-        .concat();
+    let compare_sides = |left: &str, right: &str, view: &str, solver: &[&str]| {
+        let arguments = [&[left, right, "--view", view][..], solver].concat();
         workspace.krs_in("undecided", UNDECIDED_PACKAGE, "compare", &arguments)
+    };
+    let compare = |view: &str, solver: &[&str]| {
+        compare_sides("views.json#two", "views.json#two", view, solver)
     };
     let starved = ["--smt-resource-limit", "1", "--smt-retries", "0"];
 
@@ -957,6 +1083,26 @@ fn a_view_whose_guard_the_solver_answers_unknown_is_inconclusive_not_no_value() 
     };
     refused(&compare("status=Unsure", &[]), "Unsure");
     refused(&compare("status=OnlyOne", &starved), "OnlyOne");
+
+    // An `Unknown` answer at one value does not hide a view with no value at another, in either
+    // order of the sides: `UnsureAbove` is undecided at `2` under the starved solver, and has no
+    // value at `0` under any solver.
+    let unknown = compare("status=UnsureAbove", &starved);
+    assert_eq!(unknown.status.code(), Some(3), "{}", stderr(&unknown));
+    for (left, right, side) in [
+        ("views.json#two", "views.json#zero", "right"),
+        ("views.json#zero", "views.json#two", "left"),
+    ] {
+        let output = compare_sides(left, right, "status=UnsureAbove", &starved);
+        assert_eq!(output.status.code(), Some(2), "{}", stdout(&output));
+        assert!(
+            stderr(&output).contains(&format!(
+                "the view `UnsureAbove` of the cell `status`: it has no value at the {side} end's `status`: the definition gives it no value"
+            )),
+            "{}",
+            stderr(&output)
+        );
+    }
 }
 
 /// The solver's bound decides nothing here, so a run ends `indeterminate` and a search is

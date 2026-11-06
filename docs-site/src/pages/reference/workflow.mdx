@@ -295,6 +295,9 @@ Each evaluation of a view has a budget of `--view-budget POLLS` polls (30000000 
 An evaluation that spends the budget, or that another stop of the backend ends (the simplifier's stack, the solver's prelude), makes the verdict inconclusive, since the view may yet have a value; a value it reaches is the definition's value, whatever the budget.
 So does an evaluation that ends short of a value after the solver answered a query `Unknown` (one of its bounds ran out, as under a small `--smt-resource-limit`, or the query is beyond what it decides): such a condition is undecided by that run of the solver, not by the definition.
 A condition the definition decides false, or that stays undecided on decided answers alone, leaves the view no value, which refuses the case.
+A view without a value at one value refuses the case even where its evaluation at another value stopped: the refusal holds whatever the budget, so a stop makes the verdict inconclusive only when no other viewed value refuses.
+Whether a case is refused or inconclusive then depends on each value's own evaluation, not on which side, or which instance of a repeated cell, is evaluated first, which only chooses the value the refusal names; the exception is an evaluation that ends, within the budget or without an `Unknown` answer, only because it reuses an answer the observer's solver decided for a value evaluated before it.
+To know that no value refuses, a verdict whose evaluations stop evaluates every distinct viewed value, so its time grows with their number, up to one budget for each; a value with a part that has no KRS description refuses before any evaluation.
 The verdict's lines name the views it applied (``  views: `bus` = `WritesView`, in `sm83-views:main` ``).
 
 ```toml
