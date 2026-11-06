@@ -438,6 +438,11 @@ pub enum SyntaxErrorKind {
         /// Complete explanation, naming the fix.
         reason: String,
     },
+    /// An item's `skipped_operand` key was malformed.
+    InvalidSkippedOperand {
+        /// Complete explanation, naming the fix.
+        reason: String,
+    },
     /// A `concrete`, `symbolic`, or `smt_lemma` key was malformed (KF-043).
     InvalidMatchRestriction {
         /// Complete explanation, naming the fix.
@@ -572,6 +577,7 @@ impl SyntaxErrorKind {
             Self::MisplacedExistential { .. } => codes::expand::EXISTENTIAL_PLACEMENT,
             Self::InvalidSmtMetadata { .. } => codes::syntax::INVALID_SMT_METADATA,
             Self::InvalidUnderspecified { .. } => codes::syntax::INVALID_UNDERSPECIFIED,
+            Self::InvalidSkippedOperand { .. } => codes::syntax::INVALID_SKIPPED_OPERAND,
             Self::InvalidMatchRestriction { .. } => codes::syntax::INVALID_MATCH_RESTRICTION_KEY,
             Self::InvalidUnboundVariables { .. } => codes::syntax::INVALID_UNBOUND_VARIABLES,
             Self::InvalidSpecModule { .. } => codes::syntax::INVALID_SPEC_MODULE,
@@ -902,6 +908,7 @@ impl fmt::Display for SyntaxError {
             | SyntaxErrorKind::RawKShape { reason }
             | SyntaxErrorKind::InvalidSmtMetadata { reason }
             | SyntaxErrorKind::InvalidUnderspecified { reason }
+            | SyntaxErrorKind::InvalidSkippedOperand { reason }
             | SyntaxErrorKind::InvalidMatchRestriction { reason }
             | SyntaxErrorKind::InvalidUnboundVariables { reason }
             | SyntaxErrorKind::InvalidSpecModule { reason }

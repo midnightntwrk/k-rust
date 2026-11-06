@@ -97,6 +97,7 @@ fn syntax_categories_have_distinct_registered_codes() {
         SyntaxErrorKind::RawKShape { reason: example() },
         SyntaxErrorKind::InvalidSmtMetadata { reason: example() },
         SyntaxErrorKind::InvalidUnderspecified { reason: example() },
+        SyntaxErrorKind::InvalidSkippedOperand { reason: example() },
         SyntaxErrorKind::InvalidMatchRestriction { reason: example() },
         SyntaxErrorKind::InvalidUnboundVariables { reason: example() },
         SyntaxErrorKind::InvalidSpecModule { reason: example() },

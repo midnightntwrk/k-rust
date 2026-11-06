@@ -586,6 +586,37 @@ fn function_accepts_partial_and_rejects_missing_or_duplicate_totality() {
 }
 
 #[test]
+fn function_takes_a_skipped_operand_reason_on_a_total_or_partial_function() {
+    for totality in ["total", "partial"] {
+        let attribute = krs_syntax::FunctionAttribute::parse_source(&format!(
+            r#"{totality}, sort = Int, skipped_operand = "the strict value is the meaning""#
+        ))
+        .unwrap();
+        assert_eq!(
+            attribute
+                .skipped_operand()
+                .map(syn::LitStr::value)
+                .as_deref(),
+            Some("the strict value is the meaning")
+        );
+        assert!(attribute.skipped_operand_key().is_some());
+    }
+    for source in [
+        "total, sort = Int, skipped_operand",
+        "total, sort = Int, skipped_operand = true",
+        r#"total, sort = Int, skipped_operand = " ""#,
+        r#"total, sort = Int, skipped_operand = "a", skipped_operand = "b""#,
+    ] {
+        let error = krs_syntax::FunctionAttribute::parse_source(source).unwrap_err();
+        assert!(
+            matches!(error.kind(), SyntaxErrorKind::InvalidSkippedOperand { .. }),
+            "{source}: {:?}",
+            error.kind()
+        );
+    }
+}
+
+#[test]
 fn rule_accepts_an_exact_k_label_and_anchors_its_literal() {
     let attribute = krs_syntax::RuleAttribute::parse_source(r#"owise, label = "if-true""#).unwrap();
     assert_eq!(attribute.label().unwrap().value(), "if-true");

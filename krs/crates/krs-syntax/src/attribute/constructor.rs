@@ -493,12 +493,16 @@ pub struct FunctionAttribute {
     /// `underspecified = "reason"`: the equations leave some arguments of
     /// this total function without a value on purpose.
     underspecified: Option<LitStr>,
+    /// `skipped_operand = "reason"`: the author states that the function's
+    /// values may depend on an operand `&&`, `||` or `kequal::ite` skips.
+    skipped_operand: Option<LitStr>,
     totality_key: Option<ProvenanceKey>,
     memo_key: Option<ProvenanceKey>,
     fresh_generator_key: Option<ProvenanceKey>,
     hook_key: Option<ProvenanceKey>,
     smtlib_key: Option<ProvenanceKey>,
     underspecified_key: Option<ProvenanceKey>,
+    skipped_operand_key: Option<ProvenanceKey>,
     /// The anchors of the function's keying, which [`Self::provenance`]
     /// returns.
     anchors: Vec<ProvenanceAnchor>,
@@ -679,6 +683,13 @@ impl FunctionAttribute {
         self.underspecified.as_ref()
     }
 
+    /// The `skipped_operand = "reason"` statement that the function's values
+    /// may depend on an operand a short-circuit operator skips.
+    #[must_use]
+    pub const fn skipped_operand(&self) -> Option<&LitStr> {
+        self.skipped_operand.as_ref()
+    }
+
     /// The bare `fresh_generator` flag: K's `freshGenerator`, the function a
     /// fresh binder (`#[k::fresh(x: S)]`) of the result sort draws from.
     #[must_use]
@@ -740,6 +751,12 @@ impl FunctionAttribute {
         self.underspecified_key.as_ref()
     }
 
+    /// The key of the `skipped_operand` reason.
+    #[must_use]
+    pub const fn skipped_operand_key(&self) -> Option<&ProvenanceKey> {
+        self.skipped_operand_key.as_ref()
+    }
+
     /// The function keyed as a sentence of its own.
     fn keyed(mut self) -> Result<Self, SyntaxError> {
         self.rekey()?;
@@ -748,8 +765,8 @@ impl FunctionAttribute {
 
     /// Keys the function as a sentence of its own: its production's full
     /// view, then the totality marker, `memo`, `fresh_generator`, `hook`,
-    /// the SMT translation and `underspecified`. The production is keyed
-    /// alone, which gives its full and sort-argument views; its full view
+    /// the SMT translation, `underspecified` and `skipped_operand`. The
+    /// production is keyed alone, which gives its full and sort-argument views; its full view
     /// starts the function's sentence, whose keying records the keys the
     /// production's nodes hold and continues after them.
     fn rekey(&mut self) -> Result<(), SyntaxError> {
@@ -787,6 +804,11 @@ impl FunctionAttribute {
             &mut keys,
             ProvenanceRole::FunctionUnderspecified,
             self.underspecified.as_ref(),
+        )?;
+        self.skipped_operand_key = optional_key(
+            &mut keys,
+            ProvenanceRole::FunctionSkippedOperand,
+            self.skipped_operand.as_ref(),
         )?;
         self.anchors = keys.into_anchors();
         Ok(())
@@ -1566,6 +1588,7 @@ fn parse_function_keys(
     let mut hook = None;
     let mut smt = None;
     let mut underspecified: Option<LitStr> = None;
+    let mut skipped_operand: Option<LitStr> = None;
     let mut placement = PlacementFlags::default();
 
     while !input.is_empty() {
@@ -1670,6 +1693,16 @@ fn parse_function_keys(
                 .into());
             }
             "underspecified" => underspecified = Some(parse_underspecified(&key, input)?),
+            "skipped_operand" if skipped_operand.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::InvalidSkippedOperand {
+                        reason: "`skipped_operand` is given twice; state one reason".to_owned(),
+                    },
+                    key.span(),
+                )
+                .into());
+            }
+            "skipped_operand" => skipped_operand = Some(parse_skipped_operand(&key, input)?),
             "sort" => {
                 input.parse::<Token![=]>()?;
                 let (path, arguments) = parse_function_sort_value(input.parse()?)?;
@@ -1764,12 +1797,14 @@ fn parse_function_keys(
         hook,
         smt,
         underspecified,
+        skipped_operand,
         totality_key: None,
         memo_key: None,
         fresh_generator_key: None,
         hook_key: None,
         smtlib_key: None,
         underspecified_key: None,
+        skipped_operand_key: None,
         anchors: Vec::new(),
         production: 0,
     }
@@ -1807,6 +1842,48 @@ fn parse_function_sort_value(ty: syn::Type) -> Result<(Path, Vec<SortArgument>),
         }
     };
     Ok((parse_sort_value(value)?, Vec::new()))
+}
+
+/// Parses `skipped_operand = "reason"`, the key of `#[k::function(..)]`: a
+/// nonempty string literal.
+pub(crate) fn parse_skipped_operand(
+    key: &Ident,
+    input: ParseStream<'_>,
+) -> Result<LitStr, ParseError> {
+    let invalid = |reason: &str, span| {
+        ParseError::from(SyntaxError::new(
+            SyntaxErrorKind::InvalidSkippedOperand {
+                reason: reason.to_owned(),
+            },
+            span,
+        ))
+    };
+    if !input.peek(Token![=]) {
+        return Err(invalid(
+            "`skipped_operand` takes a reason: write `skipped_operand = \"why the strict meaning is intended\"`",
+            key.span(),
+        ));
+    }
+    input.parse::<Token![=]>()?;
+    let value: Expr = input.parse()?;
+    match &value {
+        Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Str(literal),
+            attrs,
+        }) if attrs.is_empty() => {
+            if literal.value().trim().is_empty() {
+                return Err(invalid(
+                    "a `skipped_operand` reason must not be empty; say why the value may depend on an operand that is not evaluated",
+                    literal.span(),
+                ));
+            }
+            Ok(literal.clone())
+        }
+        _ => Err(invalid(
+            "`skipped_operand` takes a string literal: write `skipped_operand = \"why the strict meaning is intended\"`",
+            value.span(),
+        )),
+    }
 }
 
 /// Parses `underspecified = "reason"`: a nonempty string literal.
@@ -2396,6 +2473,9 @@ mod keyed {
             }
             if let Some(underspecified) = &self.underspecified {
                 nodes.push_tokens(self.underspecified_key.as_ref(), underspecified)?;
+            }
+            if let Some(skipped_operand) = &self.skipped_operand {
+                nodes.push_tokens(self.skipped_operand_key.as_ref(), skipped_operand)?;
             }
             Ok(())
         }
