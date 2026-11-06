@@ -115,7 +115,8 @@
 //!   run the same states, leaves and lists, so an empty list is the same run in both readings and
 //!   the run is judged; an entry is no evidence that the readings differ (an entry can name a
 //!   place where they agree, such as a positive conjunct of a condition). The static analysis
-//!   below stays, as a clearance in two tiers and for the routes that judge without a run list:
+//!   ([`k_rust_backend::short_circuit`], which `krs check` reads too) stays, as a clearance in two
+//!   tiers and for the routes that judge without a run list:
 //!   - If it flags no rewrite rule ([`DefinitionExclusions::short_circuit_flagged`]), no run of
 //!     the definition depends on the reading through its rules, and the list is not read for
 //!     them.
@@ -158,17 +159,17 @@
 //!   a skippable operand counts only where one of its possibly undefined applications (of a
 //!   partial or reading-dependent function) is evaluated by no operand that runs whenever it is
 //!   skipped: where it is, both readings are undefined together (the must/may rule of
-//!   `ShortCircuitAnalysis::direct`, which reads no guard's truth; a recursive function's own
+//!   [`ShortCircuitAnalysis::direct`], which reads no guard's truth; a recursive function's own
 //!   calls are read under premise A1, termination). It clears the prelude's `findChar` and so the
 //!   stdin stream rules over it. Since CF-01 a condition's matching-logic connectives are walked
 //!   into down to their `\equals(C, true)` leaves, and a leaf whose `C` is a tree of
 //!   `andThenBool` and `andBool` over reading-independent atoms has the same truth value in both
 //!   readings, as has every connective over such leaves (the predicate-truth argument at
-//!   `ShortCircuitAnalysis::condition_side`, with its scope): an `owise` equation, whose guard
+//!   [`ShortCircuitAnalysis::condition_side`], with its scope): an `owise` equation, whose guard
 //!   negates its competitors' conditions under `\not`, `\or` and `\exists`, no longer depends on
 //!   the reading through such a condition. And a partial application that owes nothing beyond its
 //!   arguments under the definition's ceil theory (`bitRangeInt(X, 4, 4)`, `X /Int 16`) is no
-//!   possibly undefined term of a skipped operand (`ShortCircuitAnalysis::owes_nothing`). Each
+//!   possibly undefined term of a skipped operand ([`ShortCircuitAnalysis::owes_nothing`]). Each
 //!   flagged rule carries its cause ([`DefinitionExclusions::short_circuit_causes`]): the rule and
 //!   the leaf of its condition or its right-hand side, each function it applies with the equation
 //!   and leaf through which that function depends on the reading, and the operator and the
@@ -227,11 +228,14 @@ use k_rust::kore::{
     walk,
 };
 use k_rust::names::KoreAttribute;
+pub use k_rust_backend::short_circuit::{
+    CausePart, CeilMemo, ReadingDependence, SHORT_CIRCUIT_HOOKS, ShortCircuitEffect,
+    ShortCircuitOperator,
+};
+use k_rust_backend::short_circuit::{ShortCircuitAnalysis, Witness, rewrite_sides};
 use k_rust_backend::{
-    confluence::ViolationKind,
-    definition::BackendDefinition,
-    rule::TermIndex,
-    term::{CollectionMetadata, FunctionType, SymbolType},
+    confluence::ViolationKind, definition::BackendDefinition, rule::TermIndex,
+    term::CollectionMetadata,
 };
 
 use crate::execution::{AdaptedExecution, AdaptedLeaf, HaltClass, RunFacts};
@@ -897,80 +901,6 @@ pub fn census_hook(hook: &str) -> bool {
         && !K_RUST_IMPLEMENTATION_CHOSEN_HOOKS.contains(&hook)
 }
 
-/// An operator whose operands a backend may or may not skip ([`SHORT_CIRCUIT_HOOKS`]).
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ShortCircuitOperator {
-    /// The operator's hook.
-    pub hook: &'static str,
-    /// The argument positions a short-circuiting reading may skip: the operands after the
-    /// deciding operand, which is position 0 and which every reading evaluates.
-    pub skippable: &'static [usize],
-    /// Whether some value of the deciding operand decides the application alone, so that a
-    /// short-circuiting reading may skip every skippable operand at once: the Boolean operators
-    /// (`false andBool _`, `true orBool _`, `false impliesBool _`), not `#if`, which evaluates the
-    /// branch its condition selects.
-    pub decides_alone: bool,
-}
-
-/// The operators whose operands a backend may or may not skip (domains.md 1115-1117: `andBool`
-/// and `orBool` "may be short-circuited in concrete backends", and `impliesBool` is `notBool P
-/// orBool Q`, 1110-1111; 2314-2317: `#if` "does not short-circuit on symbolic backends"; 1115
-/// calls `andThenBool` and `orElseBool` short-circuiting, but k-rust reads their skipped
-/// operand's definedness too, so a step through one over an undefined operand is undefined in
-/// k-rust where the text gives a value): re-pin decision 1 applied to the short-circuit reading
-/// ([`Exclusion::ShortCircuitReading`]). Each with the argument positions a backend may skip:
-/// the right operand of a Boolean operator and the branches of `#if`, the operands after the
-/// deciding left one. Since CF-03 the left operand of a Boolean operator is not skippable: a
-/// short-circuiting reading evaluates the deciding operand and may skip what follows it once that
-/// operand decides, and a `[simplification]` such as `_ andBool false => false` binds an element
-/// variable, which matches only a defined value, so it licenses no skip of an undefined left
-/// operand (k-rust lists only these readings, `shortCircuitReadings`). The short-circuit analysis
-/// needs every operator here to evaluate every position that is not skippable, and, unless the
-/// deciding operand can decide alone, at least one skippable position (KINK-SC-DEFINED; the
-/// kink-native test `every_short_circuit_operator_evaluates_a_skippable_operand_and_every_other_one`
-/// checks it from each operator's meaning and fails on an operator it has none for).
-pub const SHORT_CIRCUIT_HOOKS: &[ShortCircuitOperator] = &[
-    ShortCircuitOperator {
-        hook: "BOOL.and",
-        skippable: &[1],
-        decides_alone: true,
-    },
-    ShortCircuitOperator {
-        hook: "BOOL.or",
-        skippable: &[1],
-        decides_alone: true,
-    },
-    ShortCircuitOperator {
-        hook: "BOOL.implies",
-        skippable: &[1],
-        decides_alone: true,
-    },
-    ShortCircuitOperator {
-        hook: "BOOL.andThen",
-        skippable: &[1],
-        decides_alone: true,
-    },
-    ShortCircuitOperator {
-        hook: "BOOL.orElse",
-        skippable: &[1],
-        decides_alone: true,
-    },
-    ShortCircuitOperator {
-        hook: "KEQUAL.ite",
-        skippable: &[1, 2],
-        decides_alone: false,
-    },
-];
-
-/// The conjunctions whose operands, at the top of the Bool term `C` of a condition's leaf
-/// `\equals(C, true)`, may be undefined without making the leaf's truth value depend on the
-/// reading: a skipped operand makes `C` `false` where k-rust's reading makes it undefined, and
-/// the leaf is `\bottom` in both. The leaf may sit under any matching-logic connective of the
-/// condition (`\and`, `\or`, `\not`, `\implies`, `\iff`, `\exists`, `\forall`), whose truth
-/// value is a function of its operands' (the predicate-truth argument at
-/// `ShortCircuitAnalysis::condition_side`).
-const CONJUNCTION_HOOKS: [&str; 2] = ["BOOL.and", "BOOL.andThen"];
-
 /// The hooks whose result size the process's memory allowance caps (k-rust `bytes.rs`, the only
 /// readers of `Allowance::of_process`): a refusal of one depends on the host.
 pub const ALLOWANCE_HOOKS: [&str; 3] = ["BYTES.padRight", "BYTES.padLeft", "BYTES.int2bytes"];
@@ -1063,46 +993,6 @@ pub struct SymbolLink {
     pub source: Option<String>,
     /// The span the `Location` attribute of its declaration names, if it has one.
     pub location: Option<Location>,
-}
-
-/// How a rewrite rule that excludes the definition depends on the short-circuit reading
-/// ([`Exclusion::ShortCircuitReading`]).
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub enum ShortCircuitEffect {
-    /// Whether the rule applies can differ between the readings: its condition depends on the
-    /// reading, or its right-hand side applies a function whose own condition does
-    /// ([`DefinitionExclusions::short_circuit_conditions`]).
-    Applicability,
-    /// The rule's result can be undefined in k-rust's reading where a short-circuiting backend
-    /// gives a value ([`DefinitionExclusions::short_circuit_results`]).
-    Result,
-}
-
-/// How a function depends on the short-circuit reading.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub enum ReadingDependence {
-    /// An application can be undefined in k-rust's reading where a short-circuiting backend gives
-    /// a value: an equation's right-hand side can be.
-    Undefined,
-    /// An application's value can differ between the readings with no undefined step: an
-    /// equation's condition depends on the reading, so k-rust may apply another equation (or
-    /// its right-hand side applies a function for which this holds).
-    Valued,
-}
-
-/// The part of a sentence at which the next link of a cause chain sits.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub enum CausePart {
-    /// A leaf of the sentence's condition (a rewrite rule's `requires` and left-hand side, an
-    /// equation's antecedent, an `owise` equation's guard included): the Bool term `C` of a leaf
-    /// `\equals(C, true)`, or a part the analysis reads as a whole (a configuration, `\in`,
-    /// `\ceil`, an `\equals` of two terms).
-    Condition {
-        /// The leaf's Bool term, or the part read as a whole.
-        leaf: Pattern,
-    },
-    /// The sentence's right-hand side.
-    RightSide,
 }
 
 /// A short-circuit operator over an operand a backend may skip that may be undefined: the last
@@ -1394,51 +1284,42 @@ impl DefinitionExclusions {
         let mut equals_conditions = BTreeSet::new();
         for module in &kore.modules {
             for sentence in &module.sentences {
-                let Sentence::Axiom {
+                if let Sentence::Axiom {
                     pattern,
                     attributes,
                     ..
                 } = sentence
-                else {
-                    continue;
-                };
-                if holds_condition_equality(pattern) {
+                    && holds_condition_equality(pattern)
+                {
                     equals_conditions.insert(sentence_name(attributes));
                 }
-                let Some((conditions, left, right)) = rewrite_sides(pattern) else {
-                    continue;
-                };
-                let applicability = conditions
-                    .iter()
-                    .chain([&left])
-                    .find_map(|side| short_circuit.condition_side(side))
-                    .map(|(leaf, witness)| (CausePart::Condition { leaf }, witness))
-                    .or_else(|| {
-                        short_circuit
-                            .applies_dependent(right, ReadingDependence::Valued)
-                            .map(|witness| (CausePart::RightSide, witness))
-                    });
-                if let Some((part, witness)) = applicability {
-                    short_circuit_conditions.insert(sentence_name(attributes));
-                    short_circuit_causes.insert(ShortCircuitCause {
-                        rule: sentence_link(&module.name, attributes),
-                        effect: ShortCircuitEffect::Applicability,
-                        part,
-                        links: short_circuit.links(&witness, &declarations),
-                    });
+            }
+        }
+        for reading in short_circuit.rule_readings(kore) {
+            let Some((module, Sentence::Axiom { attributes, .. })) = reading.rule.resolve(kore)
+            else {
+                continue;
+            };
+            if let Some((part, witness)) = reading.applicability {
+                short_circuit_conditions.insert(sentence_name(attributes));
+                short_circuit_causes.insert(ShortCircuitCause {
+                    rule: sentence_link(&module.name, attributes),
+                    effect: ShortCircuitEffect::Applicability,
+                    part,
+                    links: links(&short_circuit, kore, &witness, &declarations),
+                });
+            }
+            if let Some(witness) = reading.result {
+                short_circuit_results.insert(sentence_name(attributes));
+                if let Some(id) = string_attribute(attributes, KoreAttribute::UniqueId) {
+                    short_circuit_rules.insert(id.to_owned());
                 }
-                if let Some(witness) = short_circuit.result(right) {
-                    short_circuit_results.insert(sentence_name(attributes));
-                    if let Some(id) = string_attribute(attributes, KoreAttribute::UniqueId) {
-                        short_circuit_rules.insert(id.to_owned());
-                    }
-                    short_circuit_causes.insert(ShortCircuitCause {
-                        rule: sentence_link(&module.name, attributes),
-                        effect: ShortCircuitEffect::Result,
-                        part: CausePart::RightSide,
-                        links: short_circuit.links(&witness, &declarations),
-                    });
-                }
+                short_circuit_causes.insert(ShortCircuitCause {
+                    rule: sentence_link(&module.name, attributes),
+                    effect: ShortCircuitEffect::Result,
+                    part: CausePart::RightSide,
+                    links: links(&short_circuit, kore, &witness, &declarations),
+                });
             }
         }
         let named = implementation_chosen
@@ -1470,8 +1351,8 @@ impl DefinitionExclusions {
             short_circuit_rules,
             short_circuit_results: short_circuit_results.into_iter().collect(),
             short_circuit_symbols: short_circuit
-                .undefined
-                .union(&short_circuit.valued)
+                .undefined()
+                .union(short_circuit.valued())
                 .cloned()
                 .collect(),
             short_circuit_causes: short_circuit_causes.into_iter().collect(),
@@ -1911,91 +1792,12 @@ impl DefinitionExclusions {
         state: &Pattern,
         memo: &mut CeilMemo,
     ) -> bool {
-        let mut reading = ShortCircuitAnalysis::of(definition);
-        reading.owes_nothing = std::cell::RefCell::new(std::mem::take(&mut memo.owes_nothing));
-        reading.undefined.clone_from(&self.short_circuit_symbols);
+        let mut reading = ShortCircuitAnalysis::of(definition).with_memo(std::mem::take(memo));
+        reading.assume_undefined(self.short_circuit_symbols.clone());
         let depends = reading.applies(state, &self.short_circuit_symbols) || reading.direct(state);
-        memo.owes_nothing = reading.owes_nothing.into_inner();
+        *memo = reading.into_memo();
         depends
     }
-}
-
-/// The ceil-theory judgements of the short-circuit analysis on one loaded definition
-/// (`ShortCircuitAnalysis::owes_nothing` of each application judged so far), kept across
-/// [`DefinitionExclusions::state_exclusion_memoized`] and
-/// [`DefinitionExclusions::static_state_exclusion_memoized`] calls on that definition. A judgement
-/// depends only on the application and the definition, so a memo is valid for exactly the
-/// definition it was filled on.
-#[derive(Debug, Default)]
-pub struct CeilMemo {
-    /// Whether each application judged owes nothing beyond its arguments.
-    owes_nothing: std::collections::BTreeMap<Pattern, bool>,
-}
-
-/// The short-circuit reading of one loaded definition ([`Exclusion::ShortCircuitReading`]): its
-/// operators, its partial functions, and, once closed over the definition's equations, the
-/// functions whose value depends on the reading.
-struct ShortCircuitAnalysis<'d> {
-    /// The loaded definition, whose ceil theory says which partial applications owe nothing
-    /// beyond their arguments ([`Self::owes_nothing`]).
-    definition: &'d BackendDefinition,
-    /// [`Self::owes_nothing`] of each application asked so far.
-    owes_nothing: std::cell::RefCell<std::collections::BTreeMap<Pattern, bool>>,
-    /// Each short-circuit operator symbol with its operator ([`SHORT_CIRCUIT_HOOKS`]).
-    operators: std::collections::BTreeMap<String, &'static ShortCircuitOperator>,
-    /// The conjunction operator symbols ([`CONJUNCTION_HOOKS`]).
-    conjunctions: BTreeSet<String>,
-    /// The function symbols not declared `total`: an application of one may be undefined.
-    partial: BTreeSet<String>,
-    /// Functions that can be undefined in k-rust's reading where a short-circuiting backend gives
-    /// a value: an equation's right-hand side skips an operand that may be undefined.
-    undefined: BTreeSet<String>,
-    /// Functions whose value can differ between the readings with no undefined step: an
-    /// equation's condition depends on the reading, so k-rust may apply another equation.
-    valued: BTreeSet<String>,
-    /// The functions of [`Self::undefined`], not of [`Self::valued`], every equation of which is
-    /// a conjunction (`andBool`, `andThenBool`) of terms that do not depend on the reading and of
-    /// calls of such functions: where k-rust's reading makes a call undefined, the other makes
-    /// it `false` (a skipped conjunct makes its conjunction `false`), and nowhere else do the
-    /// readings differ. At the top of a condition such a call, like a conjunct, makes the rule
-    /// inapplicable in both readings (a guard such as `lengthBytes(B) ==Int 1 andBool B[0] ==Int
-    /// 128`).
-    conjunctive: BTreeSet<String>,
-    /// Why each function of [`Self::undefined`] and of [`Self::valued`] is there, recorded by
-    /// [`Self::close_over`] when it inserts the function: the equation, its part and the witness
-    /// found there. A witness names only functions inserted before, so following the reasons
-    /// from any witness ends ([`Self::links`]).
-    reasons: std::collections::BTreeMap<(String, ReadingDependence), Reason>,
-}
-
-/// Where a pattern depends on the short-circuit reading, as [`ShortCircuitAnalysis`]'s
-/// predicates find it.
-#[derive(Clone, Debug)]
-enum Witness {
-    /// A short-circuit operator whose argument at `position`, `operand`, a backend may skip and
-    /// holds `term`, a possibly undefined application ([`ShortCircuitAnalysis::may`]) no operand
-    /// evaluated whenever it is skipped evaluates. `through` is how `term`'s head depends on the
-    /// reading when the witness was found, if it does.
-    Operator {
-        operator: String,
-        position: usize,
-        operand: Pattern,
-        term: Pattern,
-        through: Option<ReadingDependence>,
-    },
-    /// An application of a function that depends on the reading as `dependence` says.
-    Function {
-        symbol: String,
-        dependence: ReadingDependence,
-    },
-}
-
-/// Why a function depends on the reading ([`ShortCircuitAnalysis::reasons`]).
-#[derive(Clone, Debug)]
-struct Reason {
-    equation: SentenceLink,
-    part: CausePart,
-    witness: Witness,
 }
 
 /// The symbol declarations of a KORE definition, by symbol name, with their modules.
@@ -2039,496 +1841,61 @@ impl<'k> SymbolDeclarations<'k> {
     }
 }
 
-impl<'d> ShortCircuitAnalysis<'d> {
-    fn of(definition: &'d BackendDefinition) -> Self {
-        let mut operators = std::collections::BTreeMap::new();
-        let mut conjunctions = BTreeSet::new();
-        let mut partial = BTreeSet::new();
-        for symbol in definition.symbols().values() {
-            let name = symbol.name.to_string();
-            if let Some(hook) = symbol.attributes.hook.as_deref() {
-                if let Some(operator) = SHORT_CIRCUIT_HOOKS
-                    .iter()
-                    .find(|operator| operator.hook == hook)
-                {
-                    operators.insert(name.clone(), operator);
-                }
-                if CONJUNCTION_HOOKS.contains(&hook) {
-                    conjunctions.insert(name.clone());
-                }
-            }
-            if symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Partial) {
-                partial.insert(name);
-            }
-        }
-        Self {
-            definition,
-            owes_nothing: std::cell::RefCell::default(),
-            operators,
-            conjunctions,
-            partial,
-            undefined: BTreeSet::new(),
-            valued: BTreeSet::new(),
-            conjunctive: BTreeSet::new(),
-            reasons: std::collections::BTreeMap::new(),
-        }
-    }
-
-    /// Close [`Self::undefined`] and [`Self::valued`] over every equation of `kore`, whatever its
-    /// source (a prelude function can depend on the reading too), recording why each function is
-    /// inserted ([`Self::reasons`]).
-    fn close_over(&mut self, kore: &Definition) {
-        let mut equations = Vec::new();
-        for module in &kore.modules {
-            for sentence in &module.sentences {
-                if let Sentence::Axiom {
-                    pattern,
-                    attributes,
-                    ..
-                } = sentence
-                    && let Some((head, condition, right)) = equation_parts(pattern)
-                {
-                    equations.push((module.name.as_str(), attributes, head, condition, right));
-                }
-            }
-        }
-        loop {
-            let mut changed = false;
-            for (module, attributes, head, condition, right) in &equations {
-                if !self.undefined.contains(*head)
-                    && let Some(witness) = self.result(right)
-                {
-                    self.undefined.insert((*head).to_owned());
-                    self.reasons.insert(
-                        ((*head).to_owned(), ReadingDependence::Undefined),
-                        Reason {
-                            equation: sentence_link(module, attributes),
-                            part: CausePart::RightSide,
-                            witness,
-                        },
-                    );
-                    changed = true;
-                }
-                if !self.valued.contains(*head)
-                    && let Some((part, witness)) = condition
-                        .and_then(|condition| self.condition_side(condition))
-                        .map(|(leaf, witness)| (CausePart::Condition { leaf }, witness))
-                        .or_else(|| {
-                            self.applies_dependent(right, ReadingDependence::Valued)
-                                .map(|witness| (CausePart::RightSide, witness))
-                        })
-                {
-                    self.valued.insert((*head).to_owned());
-                    self.reasons.insert(
-                        ((*head).to_owned(), ReadingDependence::Valued),
-                        Reason {
-                            equation: sentence_link(module, attributes),
-                            part,
-                            witness,
-                        },
-                    );
-                    changed = true;
-                }
-            }
-            if !changed {
-                break;
-            }
-        }
-        // The greatest set of conjunctive functions: start from every function that can be
-        // undefined and does not depend on the reading otherwise, and drop each one an equation
-        // of which is not a conjunction of reading-independent terms and conjunctive calls.
-        self.conjunctive = self.undefined.difference(&self.valued).cloned().collect();
-        loop {
-            let dropped = self
-                .conjunctive
-                .iter()
-                .filter(|function| {
-                    equations
-                        .iter()
-                        .any(|(_, _, head, _, right)| head == function && self.condition(right))
-                })
-                .cloned()
-                .collect::<Vec<_>>();
-            if dropped.is_empty() {
-                break;
-            }
-            for function in dropped {
-                self.conjunctive.remove(&function);
-            }
-        }
-    }
-
-    /// Whether `pattern` applies a symbol of `symbols`.
-    fn applies(&self, pattern: &Pattern, symbols: &BTreeSet<String>) -> bool {
-        applied(pattern, symbols).is_some()
-    }
-
-    /// The first application in `pattern` (in post-order) of a function that depends on the
-    /// reading as `dependence` says ([`Self::undefined`], [`Self::valued`]).
-    fn applies_dependent(
-        &self,
-        pattern: &Pattern,
-        dependence: ReadingDependence,
-    ) -> Option<Witness> {
-        let functions = match dependence {
-            ReadingDependence::Undefined => &self.undefined,
-            ReadingDependence::Valued => &self.valued,
-        };
-        applied(pattern, functions).map(|symbol| Witness::Function { symbol, dependence })
-    }
-
-    /// How `term`'s head depends on the reading now, if it does: [`Self::undefined`] before
-    /// [`Self::valued`].
-    fn dependence(&self, term: &Pattern) -> Option<ReadingDependence> {
-        let Pattern::Application { symbol, .. } = term else {
-            return None;
-        };
-        let name = symbol.name.as_str();
-        if self.undefined.contains(name) {
-            Some(ReadingDependence::Undefined)
-        } else if self.valued.contains(name) {
-            Some(ReadingDependence::Valued)
-        } else {
-            None
-        }
-    }
-
-    /// The cause chain from `witness` ([`ShortCircuitCause::links`]): its operator, or the
-    /// function it applies, then the reasons ([`Self::reasons`]) from there. A function is
-    /// followed once, so the chain is finite whatever the reasons hold.
-    fn links(&self, witness: &Witness, declarations: &SymbolDeclarations<'_>) -> Vec<CauseLink> {
-        let mut links = Vec::new();
-        let mut followed = BTreeSet::new();
-        let mut witness = witness;
-        loop {
-            let next = match witness {
-                Witness::Operator {
-                    operator,
-                    position,
-                    operand,
-                    term,
-                    through,
-                } => {
-                    let head = match term {
-                        Pattern::Application { symbol, .. } => symbol.name.as_str(),
-                        _ => "",
-                    };
-                    links.push(CauseLink::Operator(OperatorLink {
-                        operator: declarations.link(operator),
-                        position: *position,
-                        operand: operand.clone(),
-                        term: term.clone(),
-                        term_symbol: declarations.link(head),
-                    }));
-                    match through {
-                        Some(dependence) => (head.to_owned(), *dependence),
-                        None => break,
-                    }
-                }
-                Witness::Function { symbol, dependence } => (symbol.clone(), *dependence),
-            };
-            let Some(reason) = self.reasons.get(&next) else {
-                break;
-            };
-            if !followed.insert(next.clone()) {
-                break;
-            }
-            links.push(CauseLink::Function {
-                function: declarations.link(&next.0),
-                dependence: next.1,
-                equation: reason.equation.clone(),
-                part: reason.part.clone(),
-            });
-            witness = &reason.witness;
-        }
-        links
-    }
-
-    /// Whether `symbol` depends on the reading ([`Self::undefined`], [`Self::valued`]).
-    fn reading_dependent(&self, symbol: &str) -> bool {
-        self.undefined.contains(symbol) || self.valued.contains(symbol)
-    }
-
-    /// `May(pattern)`: the applications anywhere in `pattern` that may be undefined, of a
-    /// function that can be undefined in k-rust's reading ([`Self::undefined`]), or of a partial
-    /// function unless the application owes nothing beyond its arguments under the definition's
-    /// ceil theory ([`Self::owes_nothing`]; CF-01). Where `pattern` is undefined on an instance,
-    /// one of them is. Every symbol is strict, so on that instance some application is undefined
-    /// while all its arguments are defined (an innermost undefined one); its symbol is not total,
-    /// a constructor or a domain value, and it is no application that owes nothing beyond its
-    /// arguments, since that one is defined wherever its arguments are. (An application of a
-    /// total function of [`Self::valued`] is flagged by every caller wherever it occurs.)
-    fn may(&self, pattern: &Pattern) -> BTreeSet<Pattern> {
-        let mut out = BTreeSet::new();
-        walk::for_each_post_order(pattern, |node| {
-            if let Pattern::Application { symbol, .. } = node {
-                let name = symbol.name.as_str();
-                if self.undefined.contains(name)
-                    || (self.partial.contains(name)
-                        && (self.reading_dependent(name) || !self.owes_nothing(node)))
-                {
-                    out.insert(node.clone());
-                }
-            }
-        });
-        out
-    }
-
-    /// Whether the application `node`, of a partial function that does not depend on the reading,
-    /// owes nothing beyond the definedness of its arguments under the loaded definition's ceil
-    /// theory (CF-01): k-rust-backend's `application_owes_nothing` of `node` internalized as a
-    /// term, which holds when `apply_ceil_equation` discharges the node's own obligation, such as
-    /// an unconditional ceil equation whose condition, instantiated at the node, simplifies to
-    /// `\top`. The judgement is made once, over the node's variables, so it holds on every
-    /// instance: `bitRangeInt(X, 4, 4)` owes nothing (domains.md `INT-SYMBOLIC-KORE-AMENDMENTS`,
-    /// AM-10: `4 >=Int 0 andBool 4 >=Int 0`), `X /Int 16` owes nothing (`INT-SYMBOLIC-KORE`:
-    /// `16 =/=Int 0`), and `X /Int Y` owes `Y =/=Int 0`. It reads the ceil theory of the
-    /// definition the side runs, so it covers every hook with a ceil equation and a definition's
-    /// own `#Ceil` lemmas, and it trusts the ceil equations that definition keeps as the analysis
-    /// trusts its `total` declarations (a mutant's claim removal deletes the lemmas that mention
-    /// an edited symbol). A node that does not internalize on the definition (one under a sort
-    /// variable, or holding a literal the definition leaves open) owes its `\ceil`.
-    fn owes_nothing(&self, node: &Pattern) -> bool {
-        if let Some(known) = self.owes_nothing.borrow().get(node) {
-            return *known;
-        }
-        let owes_nothing = self
-            .definition
-            .admit_unverified(node, &[])
-            .internalize_term()
-            .is_ok_and(|term| {
-                k_rust_backend::definedness::application_owes_nothing(self.definition, &term)
-            });
-        self.owes_nothing
-            .borrow_mut()
-            .insert(node.clone(), owes_nothing);
-        owes_nothing
-    }
-
-    /// `Must(pattern)`: applications of partial functions that do not depend on the reading
-    /// which every evaluation of `pattern` evaluates, under every order a short-circuit operator
-    /// may take. A short-circuit operator contributes its other operands' `Must` (it evaluates
-    /// every operand that is not skippable) and, unless its deciding operand can decide alone
-    /// (`ShortCircuitOperator::decides_alone`, the Boolean operators, which may skip their one
-    /// skippable operand), the intersection of its skippable operands' (`#if` evaluates the
-    /// branch its condition selects): `SHORT_CIRCUIT_HOOKS`, pinned by the test
-    /// `every_short_circuit_operator_evaluates_a_skippable_operand_and_every_other_one`. Any
-    /// other application contributes its arguments' `Must` and, for such a partial function,
-    /// itself. An
-    /// application of a reading-dependent function is left out, so each term of `Must` is
-    /// undefined in one reading exactly where it is in the other (for its arguments, see
-    /// [`Self::direct`]). It is an under-approximation: a pattern that is no application
-    /// contributes nothing.
-    fn must(&self, pattern: &Pattern) -> BTreeSet<Pattern> {
-        let Pattern::Application { symbol, arguments } = pattern else {
-            return BTreeSet::new();
-        };
-        let mut out = BTreeSet::new();
-        if let Some(operator) = self.operators.get(symbol.name.as_str()) {
-            let mut skippable: Option<BTreeSet<Pattern>> = None;
-            for (index, argument) in arguments.iter().enumerate() {
-                let evaluated = self.must(argument);
-                if operator.skippable.contains(&index) {
-                    skippable = Some(match skippable {
-                        None => evaluated,
-                        Some(common) => common.intersection(&evaluated).cloned().collect(),
-                    });
-                } else {
-                    out.extend(evaluated);
-                }
-            }
-            if !operator.decides_alone {
-                out.extend(skippable.unwrap_or_default());
-            }
-            return out;
-        }
-        for argument in arguments {
-            out.extend(self.must(argument));
-        }
-        let name = symbol.name.as_str();
-        if self.partial.contains(name) && !self.reading_dependent(name) {
-            out.insert(pattern.clone());
-        }
-        out
-    }
-
-    /// Whether `pattern` applies a short-circuit operator with an operand a backend may skip
-    /// whose value can differ between the readings: for some skippable position `i`,
-    /// `May(arg_i)` is not contained in the union of `Must(arg_j)` over the other positions `j`
-    /// (KINK-SC-DEFINED, fz26 `P7-SIMPLE-KINK-design.md`). The readings differ at an operator
-    /// only on an instance where a skipped operand `arg_i` is undefined while the operands
-    /// evaluated are defined. There some `t` of `May(arg_i)` is undefined; if `t` is in
-    /// `Must(arg_j)`, the same pattern over the same variables, hence the same value, is
-    /// evaluated by an operand evaluated whenever `arg_i` is skipped, so both readings are
-    /// undefined there. No guard's truth is read, only the definedness of terms both readings
-    /// evaluate (`#if A >=Int 0 #then A #else pd(A) #fi` stays flagged where `pd(A)` occurs in no
-    /// other operand). The callers flag an application of a reading-dependent function wherever
-    /// it occurs, and the walk visits every operator node, so below a node they do not flag every
-    /// subterm has the same value and definedness in both readings.
-    ///
-    /// The reading-dependent functions are the least fixed point of [`Self::close_over`], so a
-    /// recursive function is read as independent while its own equations are checked (the
-    /// greatest fixed point of independence: `findChar`'s skipped recursive calls each occur in
-    /// `Must` of the condition or of the other branch). That is sound by induction on the depth
-    /// of evaluation, which needs evaluation to terminate (premise A1, k-rust `data_term`).
-    fn direct(&self, pattern: &Pattern) -> bool {
-        self.direct_witness(pattern).is_some()
-    }
-
-    /// [`Self::direct`]'s witness: the first such operator node in post-order, at its first such
-    /// position, with the first term of `May(arg_i)` outside the other positions' `Must`.
-    fn direct_witness(&self, pattern: &Pattern) -> Option<Witness> {
-        let mut found = None;
-        walk::for_each_post_order(pattern, |node| {
-            if found.is_none()
-                && let Pattern::Application { symbol, arguments } = node
-                && let Some(operator) = self.operators.get(symbol.name.as_str())
-            {
-                found = operator.skippable.iter().find_map(|position| {
-                    let skipped = arguments.get(*position)?;
-                    let mut evaluated = BTreeSet::new();
-                    for (index, other) in arguments.iter().enumerate() {
-                        if index != *position {
-                            evaluated.extend(self.must(other));
-                        }
-                    }
-                    let term = self
-                        .may(skipped)
-                        .into_iter()
-                        .find(|term| !evaluated.contains(term))?;
-                    Some(Witness::Operator {
-                        operator: symbol.name.clone(),
-                        position: *position,
-                        operand: skipped.clone(),
-                        through: self.dependence(&term),
-                        term,
-                    })
-                });
-            }
-        });
-        found
-    }
-
-    /// Where a rule's or an equation's right-hand side `right` can be undefined in k-rust's
-    /// reading where a short-circuiting backend gives a value, if it can.
-    fn result(&self, right: &Pattern) -> Option<Witness> {
-        self.direct_witness(right)
-            .or_else(|| self.applies_dependent(right, ReadingDependence::Undefined))
-    }
-
-    /// Whether a condition term (a `requires` clause, `Bool`) can be true in one reading and
-    /// not in the other: below its top-level conjunctions, it applies a short-circuit operator
-    /// over an operand that may be undefined, or a function that depends on the reading, other
-    /// than as a conjunctive call ([`Self::conjunctive`]). A top-level conjunct or conjunctive
-    /// call that is undefined in k-rust's reading is `false` or undefined in the other, and the
-    /// rule applies in neither.
-    fn condition(&self, condition: &Pattern) -> bool {
-        self.condition_witness(condition).is_some()
-    }
-
-    /// [`Self::condition`]'s witness: that of the first conjunct, or of the first argument of a
-    /// conjunctive call, that has one; at any other term, a short-circuit operator
-    /// ([`Self::direct_witness`]), else an application of a function of [`Self::undefined`],
-    /// else of [`Self::valued`].
-    fn condition_witness(&self, condition: &Pattern) -> Option<Witness> {
-        let term = |term: &Pattern| {
-            self.direct_witness(term)
-                .or_else(|| self.applies_dependent(term, ReadingDependence::Undefined))
-                .or_else(|| self.applies_dependent(term, ReadingDependence::Valued))
-        };
-        match condition {
-            // An equation's right-hand side `\and(term, ensures)`.
-            Pattern::And { arguments, .. } => arguments
-                .iter()
-                .find_map(|argument| self.condition_witness(argument)),
-            Pattern::Application { symbol, arguments }
-                if self.conjunctions.contains(symbol.name.as_str()) =>
-            {
-                arguments
-                    .iter()
-                    .find_map(|argument| self.condition_witness(argument))
-            }
-            // A conjunctive call is `false` where k-rust's reading makes it undefined, as a
-            // conjunct is, so only its arguments can make the condition depend on the reading.
-            Pattern::Application { symbol, arguments }
-                if self.conjunctive.contains(symbol.name.as_str()) =>
-            {
-                arguments.iter().find_map(term)
-            }
-            _ => term(condition),
-        }
-    }
-
-    /// [`Self::condition`] of the side of an axiom that holds its condition: a rewrite rule's
-    /// left-hand side (its configuration and `\equals(requires, true)`), or an equation's
-    /// antecedent (`\equals(requires, true)` and its argument constraints, or, for an `owise`
-    /// equation, also k-rust's guard `\not(\or(\exists.(\equals(C_i, true) /\ match_i), ...,
-    /// \bottom))` over the conditions `C_i` of its competitors, kompile `equations.rs`). The
-    /// matching-logic connectives (`\and`, `\or`, `\not`, `\implies`, `\iff`, `\exists`,
-    /// `\forall`) are walked into, a leaf `\equals(C, true)` is read by [`Self::condition`] of
-    /// its Bool term `C`, and any other part (a configuration, `\in`, `\ceil`, an `\equals` of
-    /// two terms) counts as a whole.
-    ///
-    /// The predicate-truth argument (CF-01), which holds exactly for such a leaf whose `C`
-    /// [`Self::condition`] passes: a tree of `andThenBool` and `andBool` over atoms that do not
-    /// depend on the reading (conjunctive calls included). The two readings kink admits are the
-    /// short-circuiting one and k-rust's strict one, in which every application is strict. In
-    /// both, such a `C` is `true` exactly where every atom is `true`: a skipped conjunct makes
-    /// its conjunction `false` in the short-circuiting reading and `\bottom` in k-rust's where
-    /// it is undefined, and a conjunction whose conjuncts are all evaluated is the same in both.
-    /// So the readings differ there only as `false` versus `\bottom`, and `\equals(false, true)`
-    /// and `\equals(\bottom, true)` are both `\bottom`: the leaf has the same truth value in
-    /// both readings on every instance, and so has every connective over such leaves, since a
-    /// connective over predicates is a function of its operands' truth values. The argument
-    /// does not cover a leaf whose `C` has a skippable operand under `orElseBool`, `notBool`,
-    /// `impliesBool` or `#if` (or under any operator other than the conjunctions at its top):
-    /// there the readings can differ as `true` versus `\bottom` (`true orElseBool u`, `notBool
-    /// (false andThenBool u)`), so `\equals(C, true)` itself differs. Such a leaf keeps the
-    /// operand-definedness analysis ([`Self::direct`] in [`Self::condition`]): it counts unless
-    /// every skippable operand's possibly undefined applications are evaluated by an operand
-    /// that runs whenever it is skipped, or owe nothing under the ceil theory ([`Self::may`]).
-    /// Before CF-01 only the top-level `\and` and `\implies` were walked into, so an `owise`
-    /// guard over an `andThenBool` condition with a partial skippable operand (SM83's
-    /// `decode`, whose conditions apply `bitRangeInt`) excluded the definition.
-    ///
-    /// It returns the first leaf that depends on the reading, in the order the connectives hold
-    /// their operands, with [`Self::condition_witness`] of it: the leaf is the Bool term `C` of a
-    /// leaf `\equals(C, true)`, or the part read as a whole.
-    fn condition_side(&self, side: &Pattern) -> Option<(Pattern, Witness)> {
-        match side {
-            Pattern::And { arguments, .. } | Pattern::Or { arguments, .. } => arguments
-                .iter()
-                .find_map(|argument| self.condition_side(argument)),
-            Pattern::Not { argument, .. } => self.condition_side(argument),
-            Pattern::Implies { left, right, .. } | Pattern::Iff { left, right, .. } => self
-                .condition_side(left)
-                .or_else(|| self.condition_side(right)),
-            Pattern::Exists { body, .. } | Pattern::Forall { body, .. } => {
-                self.condition_side(body)
-            }
-            Pattern::Equals { left, right, .. } if is_true(right) => self
-                .condition_witness(left)
-                .map(|witness| ((**left).clone(), witness)),
-            Pattern::Top { .. } | Pattern::Bottom { .. } => None,
-            other => self
-                .condition_witness(other)
-                .map(|witness| (other.clone(), witness)),
-        }
-    }
-}
-
-/// The first application in `pattern` (in post-order) of a symbol of `symbols`.
-fn applied(pattern: &Pattern, symbols: &BTreeSet<String>) -> Option<String> {
-    let mut found = None;
-    walk::for_each_post_order(pattern, |node| {
-        if found.is_none()
-            && let Pattern::Application { symbol, .. } = node
-            && symbols.contains(symbol.name.as_str())
+/// The cause chain from `witness` ([`ShortCircuitCause::links`]): its operator, or the
+/// function it applies, then the reasons of `analysis` (closed over `kore`) from there. A function
+/// is followed once, so the chain is finite whatever the reasons hold.
+fn links(
+    analysis: &ShortCircuitAnalysis<'_>,
+    kore: &Definition,
+    witness: &Witness,
+    declarations: &SymbolDeclarations<'_>,
+) -> Vec<CauseLink> {
+    let mut links = Vec::new();
+    let mut followed = BTreeSet::new();
+    let mut witness = witness;
+    loop {
+        if let Witness::Operator {
+            operator,
+            position,
+            operand,
+            term,
+            ..
+        } = witness
         {
-            found = Some(symbol.name.clone());
+            let head = match term {
+                Pattern::Application { symbol, .. } => symbol.name.as_str(),
+                _ => "",
+            };
+            links.push(CauseLink::Operator(OperatorLink {
+                operator: declarations.link(operator),
+                position: *position,
+                operand: operand.clone(),
+                term: term.clone(),
+                term_symbol: declarations.link(head),
+            }));
         }
-    });
-    found
+        let Some((next, reason)) = analysis.next_reason(witness) else {
+            break;
+        };
+        if !followed.insert(next.clone()) {
+            break;
+        }
+        let equation = match reason.equation.resolve(kore) {
+            Some((module, sentence)) => sentence_attributes(sentence).map_or_else(
+                || sentence_link(&module.name, &Attributes::default()),
+                |attributes| sentence_link(&module.name, attributes),
+            ),
+            None => sentence_link("", &Attributes::default()),
+        };
+        links.push(CauseLink::Function {
+            function: declarations.link(&next.0),
+            dependence: next.1,
+            equation,
+            part: reason.part.clone(),
+        });
+        witness = &reason.witness;
+    }
+    links
 }
 
 /// The attributes of `sentence`, for every kind that carries a position or an id.
@@ -2587,26 +1954,6 @@ fn parse_location(location: &str) -> Option<Location> {
 /// Whether `sentence` is a rewrite axiom ([`rewrite_sides`]).
 fn is_rewrite_axiom(sentence: &Sentence) -> bool {
     matches!(sentence, Sentence::Axiom { pattern, .. } if rewrite_sides(pattern).is_some())
-}
-
-/// Whether `pattern` is the Bool domain value `true`.
-fn is_true(pattern: &Pattern) -> bool {
-    matches!(pattern, Pattern::DomainValue { value, .. } if value.as_bytes() == b"true")
-}
-
-/// A rewrite axiom's conditions (the antecedents of any `\implies` around it), left-hand side
-/// and right-hand side, under its binders; `None` for every other axiom.
-fn rewrite_sides(pattern: &Pattern) -> Option<(Vec<&Pattern>, &Pattern, &Pattern)> {
-    match pattern {
-        Pattern::Forall { body, .. } | Pattern::Exists { body, .. } => rewrite_sides(body),
-        Pattern::Implies { left, right, .. } => {
-            let (mut conditions, lhs, rhs) = rewrite_sides(right)?;
-            conditions.push(left);
-            Some((conditions, lhs, rhs))
-        }
-        Pattern::Rewrites { left, right, .. } => Some((Vec::new(), left, right)),
-        _ => None,
-    }
 }
 
 /// Whether an axiom's conditions hold an `\equals` other than the Bool reading, whatever its
@@ -2680,23 +2027,6 @@ fn holds_term_equality(condition: &Pattern) -> bool {
         }
     });
     found
-}
-
-/// An equation axiom's head symbol, antecedent (its `requires` and argument constraints) and
-/// right-hand side, under its binders: `\implies(antecedent, \equals(head(..), right))` or
-/// `\equals(head(..), right)`; `None` for every other axiom.
-fn equation_parts(pattern: &Pattern) -> Option<(&str, Option<&Pattern>, &Pattern)> {
-    match pattern {
-        Pattern::Forall { body, .. } | Pattern::Exists { body, .. } => equation_parts(body),
-        Pattern::Implies { left, right, .. } => match &**right {
-            Pattern::Equals {
-                left: head, right, ..
-            } => Some((term_head(head)?, Some(&**left), &**right)),
-            _ => None,
-        },
-        Pattern::Equals { left, right, .. } => Some((term_head(left)?, None, &**right)),
-        _ => None,
-    }
 }
 
 /// Whether `leaf` reports an allowance hook left unevaluated, on the leaf, a candidate or the

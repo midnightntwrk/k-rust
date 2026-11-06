@@ -36,6 +36,7 @@ pub mod rewrite;
 pub mod rule;
 pub mod search;
 pub mod session;
+pub mod short_circuit;
 pub mod simplify;
 pub mod smt;
 pub mod stop;
