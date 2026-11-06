@@ -4,7 +4,7 @@
     "krs-configuration-cells-framing": "d9a5290eb395a6b5ab902ba91ecca13876feac75298604831ae04b18604f48c6",
     "krs-configuration-cells-groups": "4356208416999b6e65356cb7924b087c7c0e9174b1f756ea9cd45732f2dfdb1b",
     "krs-configuration-cells-optional": "bd2e39e25c7987a08eceb5354ae2b395c2360d4b19eab0ebcaa78084b9394158",
-    "krs-configuration-cells-threads": "8612c4c4eb470da1da715c2d975bb418256d64e49379c2ce3ec6c9fb0f5b4c9a",
+    "krs-configuration-cells-threads": "97e5b796fdcf965f625c74a2afa26f1b74b4220a262cd2943b38e4ddfe8f1928",
     "krs-configuration-cells-objects": "e60a026ac976ef090b3b932caed7a4e7a78d270885ed78b88454c5f2ef7c7608",
     "krs-configuration-cells-queue": "b7333be7960aaaad489bb4ca598976001bf3ebc48f6eb028137c6362038ef4da",
     "krs-configuration-cells-optional-config-var-initial": "ffc1563c9909faec3ea3ba9814effb44066b38e9f62df901d926cc048e74f8fc",
@@ -12,7 +12,7 @@
     "krs-configuration-cells-group-small": "07780af01b8e8d5af90827c33c638d701b45ff042ebb010fe67329efde5d2d6f",
     "krs-configuration-cells-group-board": "4b97ddaf69a9df729209d5198bb8341b9de63dd53d55c0ea601d49b6d35abcf1",
     "krs-configuration-cells-group-harts-smp": "f6a2063e67982273c4f93318e426e8aa6661ad5e83cf37d8d3b7ebc173950073",
-    "krs-configuration-cells-group-harts-nested": "8def2157b3430429735f42ead79174eab76d35f5877383089ce4706d115caae6",
+    "krs-configuration-cells-group-harts-nested": "16c1b27b8bb2d498ac69978c96ba390b9baeb74a0c27cea38894f826ef0f589e",
     "krs-configuration-cells-group-harts-opt": "5ca444c1bd6ac460211d02ee9bf1d45ca26c7e1c65ade8eaa2fa7282de560274"
   },
   "emitted": {
@@ -673,8 +673,5 @@
       "guarded": []
     }
   },
-  "known_round_trip_failures": {
-    "krs-configuration-cells-threads": "check: krs::analysis::collection-entry",
-    "krs-configuration-cells-group-harts-nested": "check: krs::analysis::collection-entry"
-  }
+  "known_round_trip_failures": {}
 }

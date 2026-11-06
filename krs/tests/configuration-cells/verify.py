@@ -99,10 +99,9 @@ the outcomes must agree:
   of the hart it is evaluated in, and a rule `leap` for `Hart` that applies
   it: the function receives the hart's key and its cluster's, so two harts
   that leap each read their own counter, and every order of their steps
-  reaches one final state on both routes. `nested`'s round trip is
-  a known failure (`known_round_trip_failures`): `krs expand` prints its rules
-  for `Cluster` as `cells!` rules typed by the configuration, which name the
-  harts of a cluster flat;
+  reaches one final state on both routes. `krs expand` prints its rules for
+  `Cluster` and for `Hart` as `cells!` rules typed by the group, as it prints
+  every rule for a group, and the print emits the readable K;
 - negative fixtures: a rule without the computation cell whose only pattern
   is an unguarded variable (`krs::analysis::always-enabled-rule`), one
   that writes its cell back unchanged (`krs::analysis::rule-changes-no-cell`),
@@ -265,11 +264,8 @@ OPTIONAL_REFERENCE = (
 )
 
 THREADS = Fixture(MANIFEST, "krs-configuration-cells-threads")
-# The threads round trip is a known failure (`known_round_trip_failures` in pins.json, owned by
-# S5.6): `krs expand` prints the sort rules `add` (`for Exp`) and `seq` (`for Stmt`) as `cells!`
-# rules naming `crate::Thread::k` by its path, a cell below the `*` collection `thread`, which
-# S1 (b) refuses (`collection-without-instances`). The printer must print a sort rule whose main
-# cell lies below `*` or `?` through the instance record, as it prints `spawn` and `join`.
+# The sort rules `add` (`for Exp`) and `seq` (`for Stmt`) run at the main cell, a thread's `k`, so
+# each is a step of one thread: `krs expand` prints them as `cells!` rules typed `crate::Thread`.
 THREADS_PROGRAMS = (
     Program("spawn-join", "a = spawn {return 1 + 2;}; b = join a; return b;", "accepted", "return 3;"),
     Program(
