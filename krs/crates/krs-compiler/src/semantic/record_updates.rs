@@ -19,7 +19,9 @@ use krs_ir::{
     ProtocolCellContent, ProvenanceKey, SemanticId, StableItemId,
 };
 
-use super::catalog::ProductionSignature;
+use krs_ir_levels::SemanticSortRef;
+
+use super::catalog::{ProductionSignature, semantic_sort_ref};
 use super::error::DescriptorLoweringError;
 
 /// The record a base alias matched and an update builds.
@@ -52,6 +54,9 @@ struct Alias {
     /// The `#[k::cell]` group the record is, for a group record.
     group: Option<StableItemId>,
     fills: BTreeMap<ProductionFieldId, Fill>,
+    /// The sort each hidden binder is declared at: its field's declared sort, or `None` for a
+    /// field of a parametric production, whose sort is its instance's.
+    hidden_sorts: BTreeMap<SemanticId, Option<SemanticSortRef>>,
 }
 
 /// The record updates of one sentence, read before its terms are inferred.
@@ -378,6 +383,7 @@ fn alias_fills(
     for (name, base) in bases {
         let children = record_children(&base.record, catalog, declarations)?;
         let mut fills = BTreeMap::new();
+        let mut hidden_sorts = BTreeMap::new();
         for (field, nested) in children {
             if !base.needed.contains(&field) {
                 continue;
@@ -392,7 +398,14 @@ fn alias_fills(
                 (Some(DescriptorTerm::Cell { .. }), Some(_)) => {
                     Fill::Group(format!("{name}.{}", field.as_str()))
                 }
-                _ => Fill::Hidden(names.allocate(name, &field)?),
+                _ => {
+                    let id = names.allocate(name, &field)?;
+                    hidden_sorts.insert(
+                        id.clone(),
+                        field_sort(&base.record, &field, catalog, declarations)?,
+                    );
+                    Fill::Hidden(id)
+                }
             };
             fills.insert(field, fill);
         }
@@ -405,6 +418,7 @@ fn alias_fills(
                     Record::Production(_) => None,
                 },
                 fills,
+                hidden_sorts,
             },
         );
     }
@@ -621,6 +635,45 @@ fn record_children(
         .collect()
 }
 
+/// The sort `field` of `record` is declared at, the sort a hidden binder of it matches: a
+/// production field's sort, a group leaf child's content sort, or a nested group child's cell
+/// sort. `None` for a field of a parametric production, whose sort is that of the record's
+/// instance, which the declaration alone does not fix.
+fn field_sort(
+    record: &Record,
+    field: &ProductionFieldId,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
+    declarations: &DescriptorIndex<'_>,
+) -> Result<Option<SemanticSortRef>, DescriptorLoweringError> {
+    match record {
+        Record::Production(id) => Ok(catalog.get(id).and_then(|signature| {
+            if signature.parameters.is_empty() {
+                signature
+                    .fields
+                    .iter()
+                    .find(|(declared, _)| declared == field)
+                    .map(|(_, sort)| sort.clone())
+            } else {
+                None
+            }
+        })),
+        Record::Cell(id) => {
+            for declared in &declarations.cell(id)?.fields {
+                if ProductionFieldId::new(&declared.rust_field)? != *field {
+                    continue;
+                }
+                return Ok(Some(match &declared.content {
+                    ProtocolCellContent::Leaf { sort, .. } => semantic_sort_ref(&sort.sort),
+                    ProtocolCellContent::Nested { declaration } => {
+                        SemanticSortRef::Cell(declaration.declaration.clone())
+                    }
+                }));
+            }
+            Ok(None)
+        }
+    }
+}
+
 /// One `name @ pattern` occurrence.
 struct AliasOccurrence<'a> {
     key: ProvenanceKey,
@@ -824,6 +877,23 @@ impl RecordUpdates {
 
     /// The hidden binders the long form names, with the alias each belongs
     /// to, in a stable order.
+    /// Each hidden binder with the sort its field is declared at (`None`: a parametric
+    /// production's field, whose sort is its instance's), in [`Self::hidden_binders`]' order.
+    pub(super) fn hidden_binder_sorts(&self) -> Vec<(SemanticId, Option<SemanticSortRef>)> {
+        self.hidden_binders()
+            .into_iter()
+            .map(|id| {
+                let sort = self
+                    .aliases
+                    .values()
+                    .find_map(|alias| alias.hidden_sorts.get(&id))
+                    .cloned()
+                    .flatten();
+                (id, sort)
+            })
+            .collect()
+    }
+
     pub(super) fn hidden_binders(&self) -> Vec<SemanticId> {
         self.aliases
             .values()
@@ -1178,17 +1248,18 @@ pub(crate) fn head_rule_long_form(
     let descriptors = bundle.descriptors().iter().collect::<Vec<_>>();
     let catalog = super::catalog::build_production_catalog(&descriptors)?;
     let declarations = DescriptorIndex::new(bundle);
-    head_rule_long_form_in(descriptor, rule, &catalog, &declarations)
+    head_rule_long_form_in(descriptor, rule, &catalog, &declarations).map(|(rule, _)| rule)
 }
 
 /// [`head_rule_long_form`] over a package's production catalog and
-/// declarations, as the lowering holds them.
+/// declarations, as the lowering holds them, with the declared sort of each
+/// hidden binder it names ([`RecordUpdates::hidden_binder_sorts`]).
 pub(super) fn head_rule_long_form_in(
     descriptor: &Descriptor,
     rule: &krs_ir::DescriptorHeadRule,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
     declarations: &DescriptorIndex<'_>,
-) -> Result<krs_ir::DescriptorHeadRule, DescriptorLoweringError> {
+) -> Result<HeadRuleLongForm, DescriptorLoweringError> {
     let updates = RecordUpdates::scan(
         descriptor,
         &super::rules::head_rule_terms(rule),
@@ -1258,8 +1329,15 @@ pub(super) fn head_rule_long_form_in(
                     refinement: None,
                 }),
         );
-    Ok(rule)
+    let hidden_sorts = updates.hidden_binder_sorts().into_iter().collect();
+    Ok((rule, hidden_sorts))
 }
+
+/// A readable rule in long form, with the declared sort of each hidden binder it names.
+pub(super) type HeadRuleLongForm = (
+    krs_ir::DescriptorHeadRule,
+    BTreeMap<SemanticId, Option<SemanticSortRef>>,
+);
 
 /// The long form of a structured rule's terms, as [`head_rule_long_form`].
 ///

@@ -53,23 +53,30 @@ pub(super) fn shadow() -> Option<Shadow> {
 #[derive(Debug)]
 pub(super) struct Unelaborated(&'static str);
 
-/// The `cells!` rule `rule` means, its binders at the sorts `readable` (its readable lowering)
-/// inferred: the rule `krs expand` prints for it (`reference.rs` `render_rule`), taken in the
-/// long form of its record updates.
+/// The `cells!` rule `rule` means, its binders at the sorts `inferred` (inference's, before any
+/// state is lowered): the rule `krs expand` prints for it (`reference.rs` `render_rule`), taken
+/// in the long form of its record updates, whose hidden binders are declared at their fields'
+/// declared sorts.
 pub(super) fn elaborate(
     descriptor: &Descriptor,
     rule: &DescriptorHeadRule,
-    readable: &SemanticRule,
+    inferred: &BTreeMap<String, SemanticSortRef>,
     declarations: &DescriptorIndex<'_>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
 ) -> Result<Result<DescriptorConfigurationRule, Unelaborated>, DescriptorLoweringError> {
-    let rule =
+    let (rule, hidden) =
         super::record_updates::head_rule_long_form_in(descriptor, rule, catalog, declarations)?;
-    let sorts = readable
-        .variables()
-        .iter()
-        .map(|variable| (variable.id().as_str().to_owned(), variable.sort().clone()))
-        .collect::<BTreeMap<_, _>>();
+    let mut sorts = inferred.clone();
+    for (id, sort) in hidden {
+        // A parametric production's field has its instance's sort, which only the lowering of
+        // the occurrence fixes.
+        let Some(sort) = sort else {
+            return Ok(Err(Unelaborated(
+                "a hidden binder of a parametric production's field",
+            )));
+        };
+        sorts.insert(id.as_str().to_owned(), sort);
+    }
     Ok(Elaborator {
         rule: &rule,
         declarations,
@@ -113,9 +120,10 @@ impl Elaborator<'_> {
         let mut bindings = Vec::new();
         let mut universals = Vec::new();
         for binding in &rule.bindings {
-            let sort = self.sorts.get(&binding.name).ok_or(Unelaborated(
-                "a binding the readable lowering declared no variable for",
-            ))?;
+            let sort = self
+                .sorts
+                .get(&binding.name)
+                .ok_or(Unelaborated("a binding inference gave no sort"))?;
             // A `where` sort is the binder's declaration; an inferred one is declared where the
             // rule's subject is written, the nearest node holding its first occurrence.
             let key = binding.refinement.as_ref().map_or_else(
@@ -422,11 +430,16 @@ fn descriptor_sort(sort: &SemanticSortRef) -> DescriptorSortRef {
 
 /// Lowers `rule`'s elaboration through the `cells!` lowering and refuses the rule where it
 /// differs from `readable`, the readable lowering of the same rule.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Scaffolding: the readable lowering's inputs and both of its outputs."
+)]
 pub(super) fn shadow_check(
     shadow: Shadow,
     descriptor: &Descriptor,
     rule: &DescriptorHeadRule,
     readable: &SemanticRule,
+    inferred: &BTreeMap<String, SemanticSortRef>,
     declarations: &DescriptorIndex<'_>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
@@ -440,7 +453,7 @@ pub(super) fn shadow_check(
         ),
         range: key_range(descriptor, &rule.pattern_key).map(Box::new),
     };
-    let elaborated = match elaborate(descriptor, rule, readable, declarations, catalog)? {
+    let elaborated = match elaborate(descriptor, rule, inferred, declarations, catalog)? {
         Ok(elaborated) => elaborated,
         Err(Unelaborated(form)) => return Err(disagreement(format!("has no elaboration: {form}"))),
     };

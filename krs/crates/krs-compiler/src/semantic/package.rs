@@ -25,7 +25,7 @@ use super::configuration_rules::{
 use super::error::DescriptorLoweringError;
 use super::grammar::lower_grammar_descriptor;
 use super::origin::{item_range, role_key, semantic_origin, semantic_origin_from_primary};
-use super::rules::{lower_head_rule_descriptor, lower_structured_rule_descriptor};
+use super::rules::lower_structured_rule_descriptor;
 
 /// Sentences of one package module, accumulated in descriptor order and
 /// sorted canonically when the module is built.
@@ -284,7 +284,7 @@ fn lower_module_descriptor(
             )?);
         }
         DescriptorPayload::HeadRule(rule) => {
-            let lowered = lower_head_rule_descriptor(
+            let (lowered, inferred) = super::rules::lower_head_rule_descriptor(
                 descriptor,
                 rule,
                 declarations.descriptors,
@@ -300,6 +300,7 @@ fn lower_module_descriptor(
                     descriptor,
                     rule,
                     &lowered,
+                    &inferred,
                     declarations.descriptors,
                     semantic_sort_parents,
                     production_catalog,

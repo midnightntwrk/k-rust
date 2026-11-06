@@ -486,13 +486,16 @@ fn head_rule_extra_cell(extra: &DescriptorHeadRuleExtra) -> &DescriptorCellRefer
     clippy::too_many_lines,
     reason = "The completed rewrite, its conditions, and its binders are lowered in one ordered pass."
 )]
+/// Lowers a readable rule, and returns with it the sort inference gave each
+/// binder (`where` binders, existentials and fresh binders at their declared
+/// sorts) before any state was lowered.
 pub(super) fn lower_head_rule_descriptor(
     descriptor: &Descriptor,
     rule: &krs_ir::DescriptorHeadRule,
     declarations: &DescriptorIndex<'_>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
-) -> Result<SemanticRule, DescriptorLoweringError> {
+) -> Result<(SemanticRule, BTreeMap<String, SemanticSortRef>), DescriptorLoweringError> {
     let configuration = head_rule_configuration(rule, declarations)?;
     let seeds = seed_head_rule_sorts(descriptor, rule, declarations, sort_parents)?;
     let typing = head_rule_typing(descriptor, rule, declarations, catalog, sort_parents)?;
@@ -565,6 +568,7 @@ pub(super) fn lower_head_rule_descriptor(
         .as_ref()
         .map(|sort| semantic_sort_ref(&sort.sort));
     infer_head_rule(&mut builder, rule, head_sort.as_ref(), &seeds)?;
+    let inferred = builder.binding_sorts.clone();
 
     let mut clauses = Vec::new();
     let mut selected = BTreeSet::new();
@@ -703,7 +707,7 @@ pub(super) fn lower_head_rule_descriptor(
         .as_ref()
         .map(|claim| lower_head_rule_claim(descriptor, claim))
         .transpose()?;
-    Ok(SemanticRule::new_configuration(
+    let rule = SemanticRule::new_configuration(
         semantic_origin(descriptor, role_key(declaration, 0), "head-anchored-rule")?,
         descriptor.id().clone(),
         rule.sentence_kind,
@@ -718,7 +722,8 @@ pub(super) fn lower_head_rule_descriptor(
     .with_ensures(ensures)
     .with_fresh(fresh)
     .with_evaluation(lower_rule_evaluation(descriptor, rule.evaluation.as_ref())?)
-    .with_requires(requires)?)
+    .with_requires(requires)?;
+    Ok((rule, inferred))
 }
 
 /// Lowers a readable claim's modality and flags (F7). Its binders are the
