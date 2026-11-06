@@ -588,6 +588,16 @@ pub enum ProductionAttribute<S, D> {
         /// Why the gap is intended, as written.
         reason: String,
     },
+    /// `skipped_operand = ".."` of a function: the author states that its
+    /// values may depend on an operand `&&`, `||` or `kequal::ite` does not
+    /// evaluate, which silences `krs::analysis::skipped-operand` at its
+    /// equations. KRS-only: nothing is emitted to K.
+    SkippedOperand {
+        /// Attribute provenance.
+        origin: NodeOrigin,
+        /// Why the strict meaning is intended, as written.
+        reason: String,
+    },
     /// Declares a constructor production as a one-way static desugar, K's
     /// `macro` (`macro-rec` when `recursive`), expanded before anything runs
     /// and never printed backwards (KF-028).
@@ -639,7 +649,8 @@ impl<S, D> ProductionAttribute<S, D> {
             | Self::FreshGenerator { origin }
             | Self::Smtlib { origin, .. }
             | Self::SmtHook { origin, .. }
-            | Self::Underspecified { origin, .. } => origin,
+            | Self::Underspecified { origin, .. }
+            | Self::SkippedOperand { origin, .. } => origin,
         }
     }
 
@@ -677,6 +688,7 @@ impl<S, D> ProductionAttribute<S, D> {
             }
             Self::Desugar { .. } => Some(crate::ProductionAttributeFamily::Desugar),
             Self::Underspecified { .. } => Some(crate::ProductionAttributeFamily::Underspecified),
+            Self::SkippedOperand { .. } => Some(crate::ProductionAttributeFamily::SkippedOperand),
         }
     }
 }

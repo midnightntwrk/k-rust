@@ -94,6 +94,7 @@ details! {
         Smt => "smt",
         Desugar => "desugar",
         Underspecified => "underspecified",
+        SkippedOperand => "skipped operand",
     }
 }
 

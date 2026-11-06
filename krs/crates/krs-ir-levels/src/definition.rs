@@ -2613,7 +2613,8 @@ fn validate_production(
             }
             ProductionAttribute::Internal { .. }
             | ProductionAttribute::Program { .. }
-            | ProductionAttribute::Underspecified { .. } => {
+            | ProductionAttribute::Underspecified { .. }
+            | ProductionAttribute::SkippedOperand { .. } => {
                 return Err(DefinitionValidationError::SemanticOnlyProductionAttribute(
                     sentence.symbol.id.clone(),
                 ));

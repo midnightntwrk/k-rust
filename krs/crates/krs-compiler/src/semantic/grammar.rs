@@ -597,6 +597,12 @@ fn lower_production_attribute(
                 reason: reason.clone(),
             }
         }
+        DescriptorProductionAttribute::SkippedOperand { key, reason } => {
+            ProductionAttribute::SkippedOperand {
+                origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
+                reason: reason.clone(),
+            }
+        }
         DescriptorProductionAttribute::Smtlib { key, symbol } => ProductionAttribute::Smtlib {
             origin: semantic_origin(descriptor, key.clone(), "production-attribute")?,
             symbol: symbol.clone(),

@@ -461,10 +461,11 @@ fn emit_production_attribute(
         }
         ProductionAttribute::Internal { .. }
         | ProductionAttribute::Program { .. }
-        | ProductionAttribute::Underspecified { .. } => {
+        | ProductionAttribute::Underspecified { .. }
+        | ProductionAttribute::SkippedOperand { .. } => {
             return Err(EmitError::UnsupportedShape {
                 node: "production attribute",
-                detail: "`internal`, `program`, and `underspecified` are consumed by lowering"
+                detail: "`internal`, `program`, `underspecified`, and `skipped_operand` are consumed by lowering"
                     .to_owned(),
             });
         }

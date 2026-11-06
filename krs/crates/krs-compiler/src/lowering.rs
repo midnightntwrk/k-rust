@@ -3219,13 +3219,15 @@ fn lower_authored_production_attributes(
         .iter()
         .enumerate()
         // `internal` and `program` select the module a production is placed
-        // in, and `underspecified` silences a KRS lint; none is a K attribute.
+        // in, and `underspecified` and `skipped_operand` silence KRS lints; none is a K
+        // attribute.
         .filter(|(_, attribute)| {
             !matches!(
                 attribute,
                 ProductionAttribute::Internal { .. }
                     | ProductionAttribute::Program { .. }
                     | ProductionAttribute::Underspecified { .. }
+                    | ProductionAttribute::SkippedOperand { .. }
             )
         })
         .map(|(index, attribute)| {
@@ -3328,7 +3330,8 @@ fn lower_authored_production_attributes(
                 },
                 ProductionAttribute::Internal { .. }
                 | ProductionAttribute::Program { .. }
-                | ProductionAttribute::Underspecified { .. } => {
+                | ProductionAttribute::Underspecified { .. }
+                | ProductionAttribute::SkippedOperand { .. } => {
                     unreachable!("KRS-only attributes are filtered above")
                 }
                 ProductionAttribute::Private { .. } => {

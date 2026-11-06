@@ -399,7 +399,8 @@ impl Adapter<'_> {
             }
             DefinitionProductionAttribute::Internal { .. }
             | DefinitionProductionAttribute::Program { .. }
-            | DefinitionProductionAttribute::Underspecified { .. } => {
+            | DefinitionProductionAttribute::Underspecified { .. }
+            | DefinitionProductionAttribute::SkippedOperand { .. } => {
                 unreachable!("Definition IR validation rejects Semantic-only attributes")
             }
             DefinitionProductionAttribute::Strictness {

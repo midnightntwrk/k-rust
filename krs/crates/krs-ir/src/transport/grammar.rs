@@ -837,6 +837,14 @@ stage_shape! {
             /// The stated reason, nonempty.
             reason: String => [keep],
         },
+        /// A function's statement that its values may depend on an operand a
+        /// short-circuit operator skips (`skipped_operand = ".."`).
+        SkippedOperand {
+            /// Reason-string provenance.
+            key: ProvenanceKey => [keep],
+            /// The stated reason, nonempty.
+            reason: String => [keep],
+        },
         /// Marks a constructor production as a one-way static desugar (K's `macro`).
         Desugar {
             /// Desugar-marker provenance.
@@ -3347,6 +3355,15 @@ impl DescriptorProduction {
                     }
                     "underspecified"
                 }
+                DescriptorProductionAttribute::SkippedOperand { key, reason } => {
+                    require_key(key, provenance)?;
+                    if reason.trim().is_empty() {
+                        return Err(GrammarTransportError::InvalidProduction(
+                            GrammarProductionReason::EmptySkippedOperandReason,
+                        ));
+                    }
+                    "skipped_operand"
+                }
                 DescriptorProductionAttribute::ListCons {
                     key,
                     separator_key,
@@ -3423,6 +3440,11 @@ impl DescriptorProduction {
         if families.contains("underspecified") && !families.contains("total") {
             return Err(GrammarTransportError::InvalidProduction(
                 GrammarProductionReason::UnderspecifiedWithoutTotal,
+            ));
+        }
+        if families.contains("skipped_operand") && !families.contains("function") {
+            return Err(GrammarTransportError::InvalidProduction(
+                GrammarProductionReason::SkippedOperandWithoutFunction,
             ));
         }
         if families.contains("smt") && !families.contains("function") {
@@ -4000,6 +4022,9 @@ impl DescriptorProduction {
                 }
                 DescriptorProductionAttribute::Underspecified { key, .. } => {
                     keys.define(key, ProvenanceRole::FunctionUnderspecified)?;
+                }
+                DescriptorProductionAttribute::SkippedOperand { key, .. } => {
+                    keys.define(key, ProvenanceRole::FunctionSkippedOperand)?;
                 }
                 DescriptorProductionAttribute::SmtHook { key, template } => {
                     keys.define(key, ProvenanceRole::FunctionSmtHook)?;

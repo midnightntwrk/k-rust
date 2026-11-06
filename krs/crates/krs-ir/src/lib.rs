@@ -220,7 +220,7 @@ pub struct SchemaVersion(pub u32);
 
 impl SchemaVersion {
     /// The only version this release reads and writes.
-    pub const CURRENT: Self = Self(80);
+    pub const CURRENT: Self = Self(81);
 }
 
 impl Default for SchemaVersion {
