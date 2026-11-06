@@ -50,7 +50,7 @@
       "definition.k": "d40a2470af309172a5892a7af3db03a9b2cbe7f856092492a5c4e55b39b3ec5b"
     },
     "krs-configuration-cells-group-harts-nested": {
-      "definition.k": "7e4a9384aa05a6b980f8f2983ce229efb112f37dd385174d82a5516d11a12223"
+      "definition.k": "adb4ede98f9f67e5611b972ec3f06a9094c1775400df6c549159fa7e46af757e"
     },
     "krs-configuration-cells-group-harts-opt": {
       "definition.k": "bb4257c8a0a9ac54ea5bf7de63f90d91b489cb842df38264ebfb182ee00b7c3f"
@@ -68,7 +68,7 @@
     "krs-configuration-cells-group-small": "134ae54726e3144ddb7fa800f5d668064d8d9d137f8894a15b6be239836e3614",
     "krs-configuration-cells-group-board": "655fa6eb4d1d23aa15acf43094d042a76129fbe7a0e6786f199b0c3d36c8e72b",
     "krs-configuration-cells-group-harts-smp": "b3151fe157d8e904dba1e53b3cd7bb7a2f01987d276d2603543b7798c1b59976",
-    "krs-configuration-cells-group-harts-nested": "d40e12b008502040271155818e35c7861656f833a1aea6a1468114a1f618e572",
+    "krs-configuration-cells-group-harts-nested": "c10a687a2d9650d0676c6478ab2521b79a20962638d37fe5fc923708b5e76211",
     "krs-configuration-cells-group-harts-opt": "8f26a2088670b2cba4674a5f0998964ca318b1a4052df8c347341ba1173718f0"
   },
   "outcomes": {
