@@ -485,8 +485,8 @@ pub struct LaidOutCell {
     /// as their result sort, sorted ([`UnobservedPosition::heads`]).
     pub heads: Vec<String>,
     /// For a `*` cell, how its collection holds its instances; `None` for any other cell, and
-    /// for a `*` cell whose collection sort `definition.kore` declares no element, concatenation
-    /// and unit for (no position below it can then be reached).
+    /// for a `*` cell whose collection sort's hooked symbols do not hold its instances as a
+    /// collection reads them ([`collection`]; no position below it can then be reached).
     pub collection: Option<Collection>,
     /// For a `*` cell of a Map, the index in [`CellLayout::cells`] of its key: the child whose
     /// sort is the Map element's first argument sort, which the element holds beside the
@@ -768,7 +768,8 @@ impl CellLayout {
     ///
     /// Refused ([`CellLayoutRefusal::MapKeyLeftOut`]) when `cell` is or lies inside the key of a
     /// Map, and ([`CellLayoutRefusal::Layout`]) for the top cell, whose position is the whole end,
-    /// and below a `*` cell whose collection sort declares no element, concatenation and unit.
+    /// and below a `*` cell whose collection sort's hooked symbols do not hold its instances as a
+    /// collection reads them ([`LaidOutCell::collection`] is `None`).
     pub fn position(&self, cell: usize) -> Result<UnobservedPosition, CellLayoutRefusal> {
         let layout = |detail: &str| CellLayoutRefusal::Layout {
             cell: Some(self.cells[cell].name.clone()),
@@ -798,7 +799,9 @@ impl CellLayout {
             let collection = held.collection.clone().ok_or_else(|| {
                 layout(&format!(
                     "the collection sort {} of the * cell <{}> declares no element, \
-                     concatenation and unit",
+                     concatenation and unit of one MAP, SET or LIST hook whose element holds \
+                     the cell as its instance (a Map's as the second of two arguments, a Set's \
+                     or a List's as its only one), so no instance can be reached",
                     held.sort, held.name
                 ))
             })?;
@@ -867,8 +870,9 @@ impl CellLayout {
 
 /// The collection a `*` cell whose application has the sort `cell_sort` sits in, read from the
 /// hooked symbols of its collection sort, `(hook, symbol, argument sorts)`, with the sort of a
-/// Map's key; `None` when they declare no element holding the instance, concatenation and unit
-/// of one kind.
+/// Map's key; `None` unless they declare an element, a concatenation and a unit of one MAP, SET
+/// or LIST hook, the element holding an argument of `cell_sort` as its instance: a Map's as the
+/// second of two arguments, a Set's or a List's as its only one.
 fn collection<'k>(
     hooked: &[(&str, &str, &'k [Sort])],
     cell_sort: &Sort,
