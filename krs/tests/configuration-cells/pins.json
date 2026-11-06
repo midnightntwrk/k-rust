@@ -17,59 +17,59 @@
   },
   "emitted": {
     "krs-configuration-cells-framing": {
-      "definition.k": "66f56074e5c3f8ba649be74335def3be6b960928b6ee7f97d30f98c9b5a1a3b8"
+      "definition.k": "2c61fad5a0d447ed704fd942ef56ea609e194e8f0d8f2a36a951ac4fa252549e"
     },
     "krs-configuration-cells-groups": {
-      "definition.k": "f2dbad5b762646cedf4398c263417c86e18879fbeb92bd0b7e023e14a3b5b578"
+      "definition.k": "4d8329a75ee7d603963f009048649546143f6d5798979282b8a8811242895635"
     },
     "krs-configuration-cells-optional": {
-      "definition.k": "9035618d94e66216217db0a4f2d9cdd7328c2777ff0a8580ad01dc457ce4cf71"
+      "definition.k": "2757836c14e7ccb4adacebfa381786b9b02ef783e2734942c803d54db03e2569"
     },
     "krs-configuration-cells-threads": {
-      "definition.k": "a9eda5ad96b398a8edf293bfbf62d19da3c4f3170f821e73e67de5a12c82b172"
+      "definition.k": "715a59abb56a091e034fbf7f82ee374608ea6be491bca72ceb6c156e95dec614"
     },
     "krs-configuration-cells-objects": {
-      "definition.k": "cb550845f2b7e095617bdce2388d0886ae193da709745a44a5ff740d2d390810"
+      "definition.k": "2c5e7a8aec2bd65eb38c6d708e2d8486a4191be9fc2d7d272d0b7275213869be"
     },
     "krs-configuration-cells-queue": {
-      "definition.k": "cd7769bed2ddafa4d670d3724fbeb92f640f833e8f3540c0e0695759ee636f12"
+      "definition.k": "b34c52f7badc9bc81f1fd54ad34b9d189818be00996df31a2c0be267f6b8ef9a"
     },
     "krs-configuration-cells-optional-config-var-initial": {
-      "definition.k": "1dcca5ee37f2d46f9146bcdd77b7db59eb542eef596e703b79db5972b8fe3660"
+      "definition.k": "b7861dba9220cc029f9f62f7b4daf06e49b0b40b8828974ef33bdaf4677e5d50"
     },
     "krs-configuration-cells-set-instances": {
-      "definition.k": "500cd0bdbd5a65d73757e1906b64f03ec7ad47bd99dd3bae54a302e0973036af"
+      "definition.k": "c47c7b018acb760e8c1a6bc71130dc9823b31b3ca4e99e2498a7831bad8b90c9"
     },
     "krs-configuration-cells-group-small": {
-      "definition.k": "1ee86b716e7d91a3de5770758c1e1a709ba572324ce92d05d281c84f930dcb57"
+      "definition.k": "083ffadaf4ac571f7d3d0a2973cd6dcb04faa841c6b635be13b20fe5e9fbc3a3"
     },
     "krs-configuration-cells-group-board": {
-      "definition.k": "5f47f228b50fe35a4e29806108419cade59cc3f273847341c9b719a9110dc94e"
+      "definition.k": "e50bbe1c73b19b3dcfa20fe89a55b7b7d923d0e3b9811dd01da1691584dfd0fc"
     },
     "krs-configuration-cells-group-harts-smp": {
-      "definition.k": "d40a2470af309172a5892a7af3db03a9b2cbe7f856092492a5c4e55b39b3ec5b"
+      "definition.k": "094a63ab71d085fb809d4d6ed21894ced9fd80e570f6cb630d4b1201ada3e357"
     },
     "krs-configuration-cells-group-harts-nested": {
-      "definition.k": "adb4ede98f9f67e5611b972ec3f06a9094c1775400df6c549159fa7e46af757e"
+      "definition.k": "d72c23e47f29827aa9bd3b4acf6e102ff59efb5e3b9ef66efe357eb54ae3c5ec"
     },
     "krs-configuration-cells-group-harts-opt": {
-      "definition.k": "bb4257c8a0a9ac54ea5bf7de63f90d91b489cb842df38264ebfb182ee00b7c3f"
+      "definition.k": "7776767f7c2057b66fdf25c5818255516f1dcc4c223376c006cd67b7de706d3c"
     }
   },
   "reference_sha256": {
-    "krs-configuration-cells-framing": "e15b15718fa460eb33a0c0d0e1bdb225ca72346273047d3d4b6e44c8df7b6526",
-    "krs-configuration-cells-groups": "5125857d1e3e4b1c9c31438b9c79c86964bc5477d084d7a56899a556ce6bfd55",
-    "krs-configuration-cells-optional": "956f652f51e7cfc6595333587305b607aad71dcf48961ed84c8e789bff3363a4",
-    "krs-configuration-cells-objects": "328cc16da98fbbb80a18b05b2a9972ab91d7505f92b1905187160a2951451e9c",
-    "krs-configuration-cells-queue": "b7db00a509a1368f549eef7c0f29d4568a046f4b5c421ed2059724a61d7a6dee",
-    "krs-configuration-cells-optional-config-var-initial": "927678a7469786d3479d0f971ebf574fb9f7c12a24586291dc58399b4d026dce",
-    "krs-configuration-cells-set-instances": "7e1ab1bc23c589f969788d4ced5c8ae2e5b0ab90fb14597aacaa681825389ee2",
-    "krs-configuration-cells-threads": "7ddcacbefae7ab7383f99a7ac9edad13110d5dd1b93049d02e678c98279a4d7f",
-    "krs-configuration-cells-group-small": "134ae54726e3144ddb7fa800f5d668064d8d9d137f8894a15b6be239836e3614",
-    "krs-configuration-cells-group-board": "655fa6eb4d1d23aa15acf43094d042a76129fbe7a0e6786f199b0c3d36c8e72b",
-    "krs-configuration-cells-group-harts-smp": "b3151fe157d8e904dba1e53b3cd7bb7a2f01987d276d2603543b7798c1b59976",
-    "krs-configuration-cells-group-harts-nested": "c10a687a2d9650d0676c6478ab2521b79a20962638d37fe5fc923708b5e76211",
-    "krs-configuration-cells-group-harts-opt": "8f26a2088670b2cba4674a5f0998964ca318b1a4052df8c347341ba1173718f0"
+    "krs-configuration-cells-framing": "def9e9f69d34b911259aadf9fe43c4382bde2bfc2c8e71d80d324950f064042a",
+    "krs-configuration-cells-groups": "394912230818c7b95423405e16666ee3c06d99585edfd871ff1bcc76f022c823",
+    "krs-configuration-cells-optional": "6ff619eafff726d5caed53bf740e48df26a0eb70646b22c965e21306b5860265",
+    "krs-configuration-cells-objects": "a2e57b610063b589381c23a060550b030a1fcef1ba975016a2cdc5156af3708f",
+    "krs-configuration-cells-queue": "f4a76dec58fa4aff3461bcf9d357eed8b59eaa289e8caaa3670fe989fffd224c",
+    "krs-configuration-cells-optional-config-var-initial": "bd24d9a3a51960bb5fd15c8f9ed614b63d1e4fc172fd596c54740152a3cfddec",
+    "krs-configuration-cells-set-instances": "39b7a1d491587c41c53b114a55c491955bdbbb6442f87d7368c6ebfda4cf302e",
+    "krs-configuration-cells-threads": "4dba6235bd7a88626224b5d0aac5d11807977a1a302b6ed0fb163e8afe216f23",
+    "krs-configuration-cells-group-small": "3361be0af6671d106ff2b0a1bbb3e2832dffdbac6019821ca74ee2914549ed63",
+    "krs-configuration-cells-group-board": "4fcceea4aabf4bc90ae3356248ad8e1d9ae8186a8e68324fcf087c78ed4856b3",
+    "krs-configuration-cells-group-harts-smp": "4228020dba4dc30cf48be03049d3672b38b698631dd45cd8ac6c7507cee2e008",
+    "krs-configuration-cells-group-harts-nested": "43fc9c435f777473b2a67ea8c554c87420603c205d0df30475ea265b47f7faca",
+    "krs-configuration-cells-group-harts-opt": "73cbe8cc2077694ccbc8b4ac350d91c2eb0a88f88192b02f21ecada3dad9bc3c"
   },
   "outcomes": {
     "krs-configuration-cells-framing": {

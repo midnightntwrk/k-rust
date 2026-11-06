@@ -1,11 +1,11 @@
 {
   "artifact_sha256": {
     "definition-ir.json": "fd779f5681f749f1aada0d2498429fee881402b4bd6d4dd036877896222e2fd3",
-    "definition.k": "122ee5ed3ff2783ba8cca54304cefc6c8831396037c16ae01914c6238ab11d10",
+    "definition.k": "88a73e8fb4bf10f3e0c5bf6bea8314be09a03d0101f7a99492fd91392182c12b",
     "descriptor-bundle.json": "0fe19595faff644e572a3138cf7661c2d87fd268bf218c836e673f614dee23db",
     "native-source.txt": "c7155e1734bdb10f22a172e151839158808a035182b708a4e13fcf3c2f7302ee",
     "semantic-ir.json": "38d70c690e55a405629f8a7a88996184a65af7ab6d86694bc5a2b582f7c112a5",
-    "sources.json": "956a286721c6a1b42c8733b635108425c0f5bfdbc2683b2feb4f2ce62f17f1c8",
+    "sources.json": "3ceadffb69df9bf88132d343c76bc66930b37f2d196e6ae1298a1551d772da1e",
     "symbols.json": "dfb6778c9bf4ec49600fa16e8cbb763673da71a3581d86f171340a6a135087db",
     "spec.k": "6dfc7298b0607c89534a7221f5ca413e9ea4df5247bc8e4e7262e7794135a772"
   },
@@ -2049,12 +2049,12 @@
     "status": "ready"
   },
   "reference_sha256": {
-    "kompile-tests": "fc06dab66a779d6e418b14a916138b054e15b5a3558249524968b2b6b725cd6f",
-    "source-definitions": "ba99ddb32c79b524d46c4abd10d780d871a1f190066f9597695a49c67b1dc3c7",
-    "native-claims": "20534da652def037ee13db194f8ad86342752bcbc7c79d8173a4b0c46fcd8264",
-    "behavior": "f80aab62a7f44753c9912f2f9999d4d67158dae1aee7d42643defb995e5590a4",
-    "proofs": "c743e0b4e134c5f959025c6159ee124ae49e7f1ea37c484db8f3fd670488905c",
-    "frontend-diagnostic": "c97f7a93634051d4ff7e47a32d671f280f09b198ec4cb0303b9ea7f20bf1120b"
+    "kompile-tests": "151800e83f8d2d35dcf57f5d956f3a749a8070880640d4fab2861651ffc2d5d1",
+    "source-definitions": "58d23fb8bdc8e7e261eddae8c80480a28083c4af8c3263e59845d55bdf52d484",
+    "native-claims": "abf680faf7622195b345d366b59af3ac9e4f42fffc69ea492a1220b6da710185",
+    "behavior": "d5a2a2595110bc524c09961166eb9609377e1ac32bc768e3e874ba1387807560",
+    "proofs": "86c1bd22331116e91ea505ebfb2303a8ca3d56cfcbeac144ce5af11e823907b6",
+    "frontend-diagnostic": "66c5be8348af30f773e1344a49dfbad4b3713c565ec83bdc4d11b0c5e7a1438c"
   },
   "native_proof_divergences": {
     "bmc-loop-concrete": {

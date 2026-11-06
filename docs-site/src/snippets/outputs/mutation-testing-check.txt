@@ -1,0 +1,201 @@
+$ krs kink --package story-plus --definition main check --corpus guide --locked  # the document's "mutations"
+[
+  {
+    "digest": "f3806852eb23d4af39e3dd2b9eb5f002a1e7a1797297671efde5f19f83980b64",
+    "id": "correlated/off-by-one",
+    "krs": {
+      "edits": [
+        {
+          "edit": 0,
+          "item": "crate::plus_zero",
+          "judged": "authored",
+          "label": "nat--plus_zero",
+          "rust": [
+            {
+              "column": 4,
+              "end_column": 62,
+              "end_line": 31,
+              "file": "src/lib.rs",
+              "line": 31,
+              "text": "plus_zero(k::term![Plus(NatSyntax::Zero(), n)]: Term<Nat>)"
+            }
+          ]
+        },
+        {
+          "edit": 1,
+          "item": "crate::plus_succ",
+          "judged": "authored",
+          "label": "nat--plus_succ",
+          "rust": [
+            {
+              "column": 5,
+              "end_column": 32,
+              "end_line": 39,
+              "file": "src/lib.rs",
+              "line": 39,
+              "text": "NatSyntax::Succ(Plus(m, n))"
+            }
+          ]
+        }
+      ]
+    },
+    "misunderstanding": "counts from one: the base case adds one and each step drops one",
+    "outcome": "ok",
+    "refusals": [],
+    "rules": [
+      {
+        "after": "rule plus ( s ( M:Nat ) , N:Nat ) => plus ( M:Nat , N:Nat ) [label(nat--plus_succ)]",
+        "before": "rule plus ( s ( M:Nat ) , N:Nat ) => s ( plus ( M:Nat , N:Nat ) ) [label(nat--plus_succ)]",
+        "edits": [
+          1
+        ],
+        "end_line": 36,
+        "file": "definition.k",
+        "index": 1,
+        "krs": {
+          "claim_helper": false,
+          "column": 4,
+          "file": "src/lib.rs",
+          "item": "crate::plus_succ",
+          "kind": "equation",
+          "line": 38,
+          "package": "story-plus",
+          "source_item": "plus_succ"
+        },
+        "label": "nat--plus_succ",
+        "module": "NAT",
+        "start_line": 36
+      },
+      {
+        "after": "rule plus ( zero , N:Nat ) => s ( N:Nat ) [label(nat--plus_zero)]",
+        "before": "rule plus ( zero , N:Nat ) => N:Nat [label(nat--plus_zero)]",
+        "edits": [
+          0
+        ],
+        "end_line": 38,
+        "file": "definition.k",
+        "index": 2,
+        "krs": {
+          "claim_helper": false,
+          "column": 4,
+          "file": "src/lib.rs",
+          "item": "crate::plus_zero",
+          "kind": "equation",
+          "line": 31,
+          "package": "story-plus",
+          "source_item": "plus_zero"
+        },
+        "label": "nat--plus_zero",
+        "module": "NAT",
+        "start_line": 38
+      }
+    ],
+    "warnings": []
+  },
+  {
+    "digest": "8b57af483df6e4b5d09178a09300e0081f62baae8c98ca1e242970118125cc39",
+    "id": "survivors/one",
+    "krs": {
+      "edits": [
+        {
+          "edit": 0,
+          "item": "crate::plus_succ",
+          "judged": "authored",
+          "label": "nat--plus_succ",
+          "rust": [
+            {
+              "column": 21,
+              "end_column": 31,
+              "end_line": 39,
+              "file": "src/lib.rs",
+              "line": 39,
+              "text": "Plus(m, n)"
+            }
+          ]
+        }
+      ]
+    },
+    "misunderstanding": "passes one instead of n to the recursive call",
+    "outcome": "ok",
+    "refusals": [],
+    "rules": [
+      {
+        "after": "rule plus ( s ( M:Nat ) , N:Nat ) => s ( plus ( M:Nat , s ( zero ) ) ) [label(nat--plus_succ)]",
+        "before": "rule plus ( s ( M:Nat ) , N:Nat ) => s ( plus ( M:Nat , N:Nat ) ) [label(nat--plus_succ)]",
+        "edits": [
+          0
+        ],
+        "end_line": 36,
+        "file": "definition.k",
+        "index": 1,
+        "krs": {
+          "claim_helper": false,
+          "column": 4,
+          "file": "src/lib.rs",
+          "item": "crate::plus_succ",
+          "kind": "equation",
+          "line": 38,
+          "package": "story-plus",
+          "source_item": "plus_succ"
+        },
+        "label": "nat--plus_succ",
+        "module": "NAT",
+        "start_line": 36
+      }
+    ],
+    "warnings": []
+  },
+  {
+    "digest": "da37192c4c880256cdb6e874242bb38564cefe0edcf4b7355583a230116f01a5",
+    "id": "survivors/swap",
+    "krs": {
+      "edits": [
+        {
+          "edit": 0,
+          "item": "crate::plus_succ",
+          "judged": "authored",
+          "label": "nat--plus_succ",
+          "rust": [
+            {
+              "column": 21,
+              "end_column": 31,
+              "end_line": 39,
+              "file": "src/lib.rs",
+              "line": 39,
+              "text": "Plus(m, n)"
+            }
+          ]
+        }
+      ]
+    },
+    "misunderstanding": "swaps the arguments of the recursive call; plus is commutative, so this is an equivalent mutant",
+    "outcome": "ok",
+    "refusals": [],
+    "rules": [
+      {
+        "after": "rule plus ( s ( M:Nat ) , N:Nat ) => s ( plus ( N:Nat , M:Nat ) ) [label(nat--plus_succ)]",
+        "before": "rule plus ( s ( M:Nat ) , N:Nat ) => s ( plus ( M:Nat , N:Nat ) ) [label(nat--plus_succ)]",
+        "edits": [
+          0
+        ],
+        "end_line": 36,
+        "file": "definition.k",
+        "index": 1,
+        "krs": {
+          "claim_helper": false,
+          "column": 4,
+          "file": "src/lib.rs",
+          "item": "crate::plus_succ",
+          "kind": "equation",
+          "line": 38,
+          "package": "story-plus",
+          "source_item": "plus_succ"
+        },
+        "label": "nat--plus_succ",
+        "module": "NAT",
+        "start_line": 36
+      }
+    ],
+    "warnings": []
+  }
+]

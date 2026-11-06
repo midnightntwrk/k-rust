@@ -1,0 +1,209 @@
+$ krs kink --package story-plus --definition main check --corpus guide --mutations guide/refused.toml --locked  # the document's "mutations"
+[
+  {
+    "digest": null,
+    "id": "renamed-anchor",
+    "misunderstanding": "forgets what the base case returns",
+    "outcome": "refused",
+    "refusals": [
+      {
+        "detail": "no rule is labelled \"plus_one\", and no label ends with it as a whole component",
+        "edit": 0,
+        "next": "the rule was renamed or removed, or the anchor is misspelt: find the rule's current label in the K (the detail lists near labels) and rewrite `rule`, or drop the mutation if the rule is gone",
+        "reason": "unknown-label",
+        "rule": null
+      }
+    ],
+    "rules": null,
+    "warnings": []
+  },
+  {
+    "digest": null,
+    "id": "stale-text",
+    "misunderstanding": "swaps the arguments of the recursive call",
+    "outcome": "refused",
+    "refusals": [
+      {
+        "detail": "\"s ( plus ( N:Nat , M:Nat ) )\" does not occur in nat--plus_succ (definition.k:36)",
+        "edit": 0,
+        "next": "the rule's text changed or `find` is misspelt: copy `find` from the rule's current K text, or drop the mutation if what it changed is gone",
+        "reason": "find-not-found",
+        "rule": {
+          "index": 1,
+          "krs": {
+            "claim_helper": false,
+            "column": 4,
+            "file": "src/lib.rs",
+            "item": "crate::plus_succ",
+            "kind": "equation",
+            "line": 38,
+            "package": "story-plus",
+            "source_item": "plus_succ"
+          },
+          "label": "nat--plus_succ",
+          "module": "NAT"
+        }
+      }
+    ],
+    "rules": null,
+    "warnings": []
+  },
+  {
+    "digest": "1741d2c345201ed9514ac8c406b31528c84078c58120ef8a9b5feebca458a81f",
+    "id": "renamed-variables",
+    "krs": {
+      "edits": [
+        {
+          "edit": 0,
+          "item": "crate::plus_zero",
+          "judged": "authored",
+          "label": "nat--plus_zero",
+          "rust": [
+            {
+              "column": 47,
+              "end_column": 48,
+              "end_line": 31,
+              "file": "src/lib.rs",
+              "line": 31,
+              "text": "n"
+            },
+            {
+              "column": 5,
+              "end_column": 6,
+              "end_line": 32,
+              "file": "src/lib.rs",
+              "line": 32,
+              "text": "n"
+            }
+          ]
+        }
+      ]
+    },
+    "misunderstanding": "names the second argument differently",
+    "outcome": "refused",
+    "refusals": [
+      {
+        "detail": "every edited sentence is the specification's up to a renaming of variables and brackets, so the mutant is the specification",
+        "edit": 0,
+        "next": "change what the rule says: the edited rule is the specification's rule up to names and brackets",
+        "reason": "no-change",
+        "rule": {
+          "index": 2,
+          "krs": {
+            "claim_helper": false,
+            "column": 4,
+            "file": "src/lib.rs",
+            "item": "crate::plus_zero",
+            "kind": "equation",
+            "line": 31,
+            "package": "story-plus",
+            "source_item": "plus_zero"
+          },
+          "module": "NAT"
+        }
+      }
+    ],
+    "rules": [
+      {
+        "after": "rule plus ( zero , X:Nat ) => X:Nat [label(nat--plus_zero)]",
+        "before": "rule plus ( zero , N:Nat ) => N:Nat [label(nat--plus_zero)]",
+        "edits": [
+          0
+        ],
+        "end_line": 38,
+        "file": "definition.k",
+        "index": 2,
+        "krs": {
+          "claim_helper": false,
+          "column": 4,
+          "file": "src/lib.rs",
+          "item": "crate::plus_zero",
+          "kind": "equation",
+          "line": 31,
+          "package": "story-plus",
+          "source_item": "plus_zero"
+        },
+        "label": "nat--plus_zero",
+        "module": "NAT",
+        "start_line": 38
+      }
+    ],
+    "warnings": []
+  },
+  {
+    "digest": "e2f8f1888e49e406ec24c701da9febb4e4709c5f47ae6008a374001c52ec724b",
+    "id": "overlap",
+    "krs": {
+      "edits": [
+        {
+          "edit": 0,
+          "item": "crate::plus_zero",
+          "judged": "authored",
+          "label": "nat--plus_zero",
+          "rust": [
+            {
+              "column": 28,
+              "end_column": 43,
+              "end_line": 31,
+              "file": "src/lib.rs",
+              "line": 31,
+              "text": "NatSyntax::Zero"
+            }
+          ]
+        }
+      ],
+      "siblings": []
+    },
+    "misunderstanding": "returns the second argument whatever the first is",
+    "outcome": "refused",
+    "refusals": [
+      {
+        "detail": "KRS refuses the Rust source this mutation stands for: krs::analysis::overlapping-equations: equations `plus_succ` and `plus_zero` of `Plus` both apply to `Plus(NatSyntax::Succ(_), _)` at the same priority and give it different results, `NatSyntax::Succ(Plus(_, _))` and `_`; equations are unordered, so the definition would state that these are equal. Make the equations disjoint (a pattern, or a `requires` that excludes the argument), or give one of them another priority (`owise` or `priority = N`). Sentences: `nat--plus_succ` (crate::plus_succ, src/lib.rs:38), not edited; `nat--plus_zero` (crate::plus_zero, src/lib.rs:31), edited. No sentence KRS names holds another rendering of a construct this mutation edits, so no Rust edit of these constructs avoids the refusal by itself",
+        "edit": 0,
+        "next": "two equations now give different results at the argument the detail names: also make the edits the detail lists as siblings (an if/else condition is rendered, negated, in every later branch), or make the equations disjoint",
+        "reason": "krs::analysis::overlapping-equations",
+        "rule": {
+          "index": 2,
+          "krs": {
+            "claim_helper": false,
+            "column": 4,
+            "file": "src/lib.rs",
+            "item": "crate::plus_zero",
+            "kind": "equation",
+            "line": 31,
+            "package": "story-plus",
+            "source_item": "plus_zero"
+          },
+          "module": "NAT"
+        }
+      }
+    ],
+    "rules": [
+      {
+        "after": "rule plus ( M:Nat , N:Nat ) => N:Nat [label(nat--plus_zero)]",
+        "before": "rule plus ( zero , N:Nat ) => N:Nat [label(nat--plus_zero)]",
+        "edits": [
+          0
+        ],
+        "end_line": 38,
+        "file": "definition.k",
+        "index": 2,
+        "krs": {
+          "claim_helper": false,
+          "column": 4,
+          "file": "src/lib.rs",
+          "item": "crate::plus_zero",
+          "kind": "equation",
+          "line": 31,
+          "package": "story-plus",
+          "source_item": "plus_zero"
+        },
+        "label": "nat--plus_zero",
+        "module": "NAT",
+        "start_line": 38
+      }
+    ],
+    "warnings": []
+  }
+]
+exit status 2

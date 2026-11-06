@@ -1,0 +1,27 @@
+$ krs kink --package story-plus --definition main run --corpus guide --mutations guide/refused.toml --output verdicts --locked
+schema = "kink-flow-verdicts"
+version = 4
+document = "run"
+schedule = "first-kill"
+profile = "z3"
+krs_annotation = 2
+
+[spec]
+outcome = "admitted"
+
+[[mutation]]
+id = "renamed-anchor"
+status = "invalid-mutation"
+
+[[mutation]]
+id = "stale-text"
+status = "invalid-mutation"
+
+[[mutation]]
+id = "renamed-variables"
+status = "invalid-mutation"
+
+[[mutation]]
+id = "overlap"
+status = "invalid-mutation"
+exit status 2

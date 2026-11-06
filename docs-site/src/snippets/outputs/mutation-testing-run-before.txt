@@ -1,0 +1,23 @@
+$ krs kink --package story-plus --definition main run --mutations guide/mutations --full --output verdicts --locked
+schema = "kink-flow-verdicts"
+version = 4
+document = "run"
+schedule = "full"
+profile = "z3"
+krs_annotation = 2
+
+[spec]
+outcome = "admitted"
+
+[[mutation]]
+id = "correlated/off-by-one"
+status = "killed"
+killed_by = ["t1", "t2", "t4"]
+
+[[mutation]]
+id = "survivors/one"
+status = "survived"
+
+[[mutation]]
+id = "survivors/swap"
+status = "survived"

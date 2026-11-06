@@ -1,0 +1,39 @@
+$ krs kink --package story-plus --definition main results --corpus guide --output verdicts --locked
+schema = "kink-flow-verdicts"
+version = 4
+document = "results"
+profile = "z3"
+krs_annotation = 2
+
+[spec]
+outcome = "admitted"
+
+[[case]]
+id = "t1"
+class = "comparable"
+fired = ["crate::plus_zero"]
+matched = ["crate::plus_zero"]
+
+[[case]]
+id = "t2"
+class = "comparable"
+fired = ["crate::plus_zero"]
+matched = ["crate::plus_zero"]
+
+[[case]]
+id = "t3"
+class = "comparable"
+fired = ["crate::plus_succ", "crate::plus_zero"]
+matched = ["crate::plus_succ", "crate::plus_zero"]
+
+[[case]]
+id = "t4"
+class = "comparable"
+fired = ["crate::plus_succ", "crate::plus_zero"]
+matched = ["crate::plus_succ", "crate::plus_zero"]
+
+[[case]]
+id = "t5"
+class = "comparable"
+fired = ["crate::plus_succ", "crate::plus_zero"]
+matched = ["crate::plus_succ", "crate::plus_zero"]

@@ -12,62 +12,62 @@
   },
   "emitted": {
     "krs-verification-surface-l21": {
-      "definition.k": "591748272c4cc08da97c4e2f905779492a6dc0319aaf730829c71c809dc782bc",
+      "definition.k": "b9d7581f9a18be7987ba73b0a77aad501fee87002e035e29e621d74f39d2df81",
       "spec.k": "d7c7058cb39831b026aa1aad7097de7160eb14afb4d44b683daf8d5e8a22d4a2"
     },
     "krs-verification-surface-l21-readable": {
-      "definition.k": "35fcf686054a2f22595afed8c5cafcdbd35dd4821011f50d6725b490df7251bf"
+      "definition.k": "ceefcf56a094cf9d0beae9fc1bfe313d35ade7b7cf7c92b8fd3d0d6b4f934009"
     },
     "krs-verification-surface-trusted": {
-      "definition.k": "3287aaab14bc0e969f67a3666b2728b8bb48337b6c1ed008dc7abbdea97cf5b6",
+      "definition.k": "cb16e0a38b35d49be0454a9b6e1e464ffec29aa2c35daa8395a4b31d9c9ff0b1",
       "spec.k": "35d95ff3263558db3b695bfe4d885647abc9916cd23dff0af8948c69402c0aab"
     },
     "krs-verification-surface-trusted-ablation": {
-      "definition.k": "ef438b036d18538d88d51720efc2f940a17e83c4adfd505442f24fc32ab5cc9d",
+      "definition.k": "4cd7ec29f1a395ea2c323e414296609bc9fb5affb075e7db556b67aed228237d",
       "spec.k": "53fbfe6d1e333399612ac4040df5325077c8ebe923aff85f0a779797fd676c5d"
     },
     "krs-verification-surface-hook": {
-      "definition.k": "06bb79ea1bc1bb57f57c78ee061ed9fc7e12f0bd3cd6c5bbe32f8215456e290f",
+      "definition.k": "a532b4fe906ddeb70a8b33b76f4868d3025c6755c2c60f21265ff6df542109b7",
       "spec.k": "e1edf298d0350832537a1cf91f4cdbd8325c43e394b26a78ce4bbe452267d73c"
     },
     "krs-verification-surface-hook-ablation": {
-      "definition.k": "b19f2ae27574c044899fbdef6ee82fad5788c4c91012e7a2b72db0a78f7d49c3",
+      "definition.k": "8b1d93a19f2a0cdc70a3a65a20a85a4003a4c51e19d22b0b0d91bbe68e0872e5",
       "spec.k": "917e59ed10ce970baab4229c99a3fbb75c5cf5e4ca98a6784f9ad0b410904b54"
     },
     "krs-verification-surface-conc": {
-      "definition.k": "33ce8e97dd7f047b0739503794017cc4daf04364384440d06d8e4c1d67d6ec74",
+      "definition.k": "94971f5ce7f6311da99926a0e4739e5d6f613dcb6a17db348578ee61d0e42aff",
       "spec.k": "7addeb4f23dfbc6e774e1d4f9454eca8bd6d4e97aad0d1cbf53dadde3286633b"
     },
     "krs-verification-surface-conc-smt-lemma": {
-      "definition.k": "7a98b383c2f309a4ee98782c3bca17c99795b7273822f2ad2e2f106a0c0ae252",
+      "definition.k": "3e01ca1b1f9bc751d4efa52d548455984640290dd528ff256e456ce75932cc4e",
       "spec.k": "e7cf91b89dc9ad285087fa0629c42207b3e0c71ec0eeb9912a91c7bfb9d025d8"
     },
     "krs-verification-surface-imp-sum": {
-      "definition.k": "8bd2a57af83dd7e3cdf8d2dabd9cdf38a4fa56006ccb4251648ddc80b719a78a",
+      "definition.k": "5d0a0c1fd01afd8a672269cc31f0ba7b1f4bc9658f1b3cd4237a67dca009ccc5",
       "spec.k": "f91cbee22a9abb9d8afa5fe4f45f2700a57ad652f51f581dc99e83753e37518a"
     },
     "krs-verification-surface-l22-verification": {
-      "definition.k": "a594cf4b7df4220b733463cd175e80ce0e2d1e5d8b0040902c3739c0b264f694",
+      "definition.k": "a0f4d7206d4ebcac68a610cb8bf2b224e18986b2a6ab14f076b3164eb9959ec9",
       "spec.k": "b5723412c918dbe8c6cb94f136c547a70621a4bcb2e4212892eaf86e485f9ed3"
     },
     "krs-verification-surface-l22-lesson": {
-      "definition.k": "e63af277a80ccdc3f0577e60d26016c12102ce3b8891340ad75f966a0323d193",
+      "definition.k": "6c1122b3a1c6a34d974dddb373443612bc0c3988723334c1f80668c6475c7a00",
       "spec.k": "67c1725b5b056495c79e0eac07c8c0ddeba7226cf710d9537684345406049556"
     },
     "krs-verification-surface-cell-maps": {
-      "definition.k": "06b2f6193940949e9f0528ce366bea8572d3fe0e4420a1d46288f65f1a1e4f98",
+      "definition.k": "87637b44dc72e141f9f6801a0ba83e8074d533e30725acad18ccb76e0c44a43d",
       "spec.k": "64850034d30c311b28a7d507e8d7782fa75ff7968d2e71b473a33fb6622b5cf3"
     },
     "krs-verification-surface-set-instance-claims": {
-      "definition.k": "e7605a15df40f87859239b299a72107c61203a5aa10642f232c4c07c40b49a75",
+      "definition.k": "05d3c65f2cbffd1ffa985591ebff27cb384b80297516e295c539714deda30bbf",
       "spec.k": "6cd32b6bbb8ce08f942af82542559846df13e0f9736a6d6ff2a0c3807a9bcff8"
     },
     "krs-verification-surface-local-function-claims": {
-      "definition.k": "7524f26ecf31e6ba9f6e4f9e56b43bab57e490fa409c71958b0ead2772e3f070",
+      "definition.k": "561425b1ce8dd8a3cc78eff875b1ac376b0d1586d9df0d68aad7de91cb163238",
       "spec.k": "9d586a9333a9900b650f6dd59304808060f24065c21746945a0ed87b161025f9"
     },
     "krs-verification-surface-owise": {
-      "definition.k": "93e2bde645e9fbd4d8255f1a3dfd2942ca6f516cf69a25d3ae77899fc029d9ba",
+      "definition.k": "571e67fe0248a3c30d4e9fda80e4d76f6957c92c318fb6a8266eeb7f73fd4af6",
       "spec.k": "05f10766841e63a70986795992462628290e203ec6b7bac8fd85e4e60c89256e"
     }
   },
@@ -76,21 +76,21 @@
     "krs-verification-surface-l21-readable": "error[krs::capability::unavailable]: route `native-llvm` refuses this definition: definition contains rules that introduce symbolic values [zero-to-unknown]; concrete (LLVM) execution cannot run a rule whose result is a symbolic value; build with --backend haskell"
   },
   "reference_sha256": {
-    "krs-verification-surface-l21": "a5b2d59e7f42ebffa70e84f6664999cabf6fa84506ae9c7ead7fe6248bfcb4ca",
-    "krs-verification-surface-l21-readable": "6c96d82a6ee8335e7b6ffd63f8f59ccf3cffb449f592e5a6034a470a69d64333",
-    "krs-verification-surface-trusted": "b548ae318302a99eb1ddda2542f78ee032eb1d7eecbfd9177635faf9d0b0fb63",
-    "krs-verification-surface-trusted-ablation": "875bc9a2758fe9150d05c56faadeabf5dd65b8ee0b4a1bf88d4138374c2e0881",
-    "krs-verification-surface-hook": "ac23baf7d8ad3f23762e26b1a01d459dd6f64a8f93c9b6b470aa03673ce0120b",
-    "krs-verification-surface-hook-ablation": "6bd9e856663faeb16a9340f3de4b274485525359e9ca50f975efdedb226078e4",
-    "krs-verification-surface-conc": "8f816c6b0e32cfa532c42e7709d93a457e41a42d5b353a5fca3f96d5e8b80f55",
-    "krs-verification-surface-conc-smt-lemma": "24284d3e1d51432170291fed848cec0e2ec550e824bbf4314e51cf08966dd8b4",
-    "krs-verification-surface-imp-sum": "6ebed5145dcb6e31228c2b478f9ba55ecc45db34765f63629f0ead3abb198b86",
-    "krs-verification-surface-l22-verification": "4ce1b3dce35900a96251d871f9aed92841392be52974cdc11841a0d490e12550",
-    "krs-verification-surface-l22-lesson": "dd96473fd269c056e6ee0a3702ca630ccb716ab14d5041ae83fda6c4be575251",
-    "krs-verification-surface-set-instance-claims": "a6889dc7cfc1f329fd8e705794ac547185794642a30d6bab06bf2d4088142b84",
-    "krs-verification-surface-local-function-claims": "f949b0a8f3bbe0ce42910f5b6d2fe8617742bf86e9ee5569b3726a430c2735a7",
-    "krs-verification-surface-owise": "33f5727be430348fe31322f09442efafb3348ae27bab848d7abc818d6d6348cb",
-    "krs-verification-surface-cell-maps": "ca4015dc126fc77128c330d8ea32e263fcba28f74af63770e0c56d115606196b"
+    "krs-verification-surface-l21": "a0f273c020127ed6e6f882cf910866a1541b0b4157fc220efc3237ae7e67b3bd",
+    "krs-verification-surface-l21-readable": "b49f8ca443f122e16f3594fa574b7fd7af594e19a6ad5de638bd1ea81dd4d093",
+    "krs-verification-surface-trusted": "10241eac8dad56d22d57a08fa2efe82da9c8173aba197cd393189c678fe47b2e",
+    "krs-verification-surface-trusted-ablation": "99969dafecb08e9292266e32feb25d49fa510b1bf6b468b68ed70c161402af65",
+    "krs-verification-surface-hook": "fd50c8eb503a9dd026b1046fe3de0b88c3845720827ed0db6731b2021fdb800a",
+    "krs-verification-surface-hook-ablation": "61c0328464901ae5b1869721fa655df07ea02de5052c21875c52a4f15e792436",
+    "krs-verification-surface-conc": "79a92fb2ecda693ed2f895564a0effb4c8fa05df2caf4dd13ac9216efb14f52d",
+    "krs-verification-surface-conc-smt-lemma": "b69b5d71aea083270726c336f71ca7fc19e820dd2d0501866e29e99e6241f63d",
+    "krs-verification-surface-imp-sum": "afcb1dc44aa07dcbda59755e6a4c91a8a9a7d1118b7c19a1087e437ad2edcdb5",
+    "krs-verification-surface-l22-verification": "b667a437c67620942674b013f68af30451bae6827d07e1c03b7bbaadd37ab33c",
+    "krs-verification-surface-l22-lesson": "e6142d56e8173e7a6eb02b4f9983d4aa08ea00e3b92e67d13d41d59822caa8d7",
+    "krs-verification-surface-set-instance-claims": "d2bd720894cdee6f80a4952fe4188fbbafb00172ec6e32d8e76a4108936b90c6",
+    "krs-verification-surface-local-function-claims": "3aab4544c2426929a5d9b86c471a4cc86a150f022d90915c05069db80db5b619",
+    "krs-verification-surface-owise": "5ce793580453bbbfe4f6c2ff51d61b46163f7a41cc18b4f77801b60341fa52b9",
+    "krs-verification-surface-cell-maps": "943bec886b7d047aed6f6ce4398ce1b3506ae022770596de9a53d998fbd277f4"
   },
   "outcomes": {
     "krs-verification-surface-l21": {

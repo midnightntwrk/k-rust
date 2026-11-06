@@ -1,0 +1,11 @@
+$ krs kink --package story-plus --definition main emit --corpus guide --check
+{
+  "check": true,
+  "definition": {
+    "path": "guide/definition.k",
+    "status": "unchanged"
+  },
+  "refusal": null,
+  "schema": "krs-kink-emit",
+  "version": 1
+}

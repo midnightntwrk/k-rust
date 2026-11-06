@@ -17,49 +17,49 @@
   },
   "emitted": {
     "krs-grammar-partition": {
-      "definition.k": "cad871c89bbce8429062d3223a46299ccbc49ea64bfd406040216d8cdd885a2f"
+      "definition.k": "5d9d5db3ab4c751647536c42c592b56435127bce505680dfaa00829ca92a78c9"
     },
     "krs-grammar-kevm-case": {
-      "definition.k": "d0cc0ef3c88d49a8d7e84cb06e7c48c701507323daaa844c00fb2426e08ea46c"
+      "definition.k": "5fcca39c2bbe1fdda56da0d52785b533bb850567d0ed6b1933b34965fd7d4282"
     },
     "krs-grammar-format": {
-      "definition.k": "25f520e9eef733fc148fbb1bb5d814ff498f2bd1b95420e0a9576622c4913629"
+      "definition.k": "1b7e2a5085eba5afccd2d99b7af10370a7984efa0cfe19cdf5c5ddb4ba602468"
     },
     "krs-grammar-prefer": {
-      "definition.k": "f5d24bc14bb03b4b6f92c9155ab9d09091e32065c4717b001ae570d15d62a0c8"
+      "definition.k": "e5ca465281d6f9179a7e7ae5f66f621fff72060c08f830a9d59319afff78f63d"
     },
     "krs-grammar-overload": {
-      "definition.k": "25982af51145eedc1b8fd05ef7d28742bfa0b1f392e4d4e9710bcd7a329acfec"
+      "definition.k": "6996a436f661f3f032dc0f736fb92c00911306afe6602d696739883d7b638a75"
     },
     "krs-grammar-overload-ambiguous": {
-      "definition.k": "0af488dff9a9ac55827ec747e89d1a6a439eb573de07d08ddf3d7903d6ed2887"
+      "definition.k": "c9952f1453b63ed6f57b8115a7d4e67d4b83c46b6a1681fd64fa6a906bd863dc"
     },
     "krs-grammar-visibility": {
-      "definition.k": "725752539319c26de79e87827c38fb5c89a7a10a96011ff5d4d77c88df989713"
+      "definition.k": "7ede956b048552bb0613d604ec07d8ef085853526dfa6902c5ec7906e298c0f5"
     },
     "krs-grammar-memo": {
-      "definition.k": "5f8e1e9be78723b4c139d2a19b17a47ef9f3dc1b999c798edde584020441b9eb"
+      "definition.k": "f25c50d7bd381030c05cdf11eea6b6c08637f821273bd37920965be6f46fa3e9"
     },
     "krs-grammar-tokens": {
-      "definition.k": "3b3b712c12fe8b8ae1299a41421ccee3a04f1b7a3c3619c91fa227baef79b6d4"
+      "definition.k": "9a47b82d0d8ccc520f5b18f5a91ec7e2fe4a299a158c542181fe00df570ccd38"
     },
     "krs-grammar-token-id": {
-      "definition.k": "5e04d6baf2826f841c7e992350cc487631f0c248b2947189a6892ae42cf04dc7"
+      "definition.k": "e00e08e372cdd31bf6b351bf9eb7d23d9afc7308927a61eac730228de6b8ff68"
     },
     "krs-grammar-layout": {
-      "definition.k": "445a5edf2418ca9b598f8b5e6c76855a6a414392b72f66f86fd8f6f5565dca35"
+      "definition.k": "7a4cdf1abf72b32619b17b51ec751147e665d7de9b772ac7e73b74db1a861afb"
     },
     "krs-grammar-lists": {
-      "definition.k": "45ee85e2abe079ddb7f5b8e1b8e41be6dd8b6483df75e0c317b72b48c34d6b8a"
+      "definition.k": "ec6b057290b49858aec3fc191afefe31fe904d3f2f9fe6ce3bfaedbaded07b9b"
     },
     "krs-grammar-strict-lists": {
-      "definition.k": "58fac543223dca1521adfaca5482930a6c9815a03d0f93d4df9ce5eb7dded527"
+      "definition.k": "85853da27051e65f85e1a84f7ca3527c77a87f7b9d7acb9745b2609332a95305"
     },
     "krs-grammar-dependency-rules": {
-      "definition.k": "b14ea484c395b10d352c9d0eaf6b5ac78c2f6cefa11284ca717a32bcae43b879"
+      "definition.k": "30dd78d7d3ec7d9a9d521a92265d2f94b25103530bc1b0bdc9a256e41cd06081"
     },
     "krs-grammar-symbols": {
-      "definition.k": "a4df8e05c3f0acbff2a167728347f6b07cf82a44d11dd2040730d5629f2c4550"
+      "definition.k": "41415ab309d137c5ac479fea132e64374d28ca2c1d7c045d5a4da06a6b1a5286"
     }
   },
   "partition": {
@@ -75,21 +75,21 @@
     ]
   },
   "reference_sha256": {
-    "krs-grammar-partition": "267272776d814e4bf818b94a5c5c85740bd60440119c8a8a641608d83b508393",
-    "krs-grammar-kevm-case": "4245374d41312e3a1a6cbad99174a7946bdbf162720752272d7bb399066541d5",
-    "krs-grammar-format": "278aca2b1cc59e4525fceae936e2985fcc9c64933b583c04ed07d8cf3a3ab6a8",
-    "krs-grammar-prefer": "daa6e0188df136ce20ce3b384c71cf0962c8a7989747627b44dbed0932a10b9b",
-    "krs-grammar-overload": "422e4ca31f13a5656d62d0a089a9b78c2ad25281d95fa766868a45d5eaab58a8",
-    "krs-grammar-overload-ambiguous": "509adb7709702c9871b23fbd98e58b99b12bd330fe5310efc32cb281e5c66871",
-    "krs-grammar-visibility": "79d6bd050b0d86647fc086b6c179b6327adddff2d5df33bae771d7d804bff1a9",
-    "visibility-induced": "6e91e77b96f88aec81989173b57c933d165c29e230bd8d2013462c2b517c0aeb",
-    "krs-grammar-memo": "1b050f6ba2643bbe805511cb97a4863f931936e656a38df0826bd21ca57f5b8e",
-    "krs-grammar-tokens": "5cc8526eceae57c34b335c72ba836f6de0b0c1ce07fc348cea29b05531203093",
-    "krs-grammar-token-id": "7aba518e4283c4483162123c9d8be38e0731827c102e5e3adcdd88802af96065",
-    "krs-grammar-layout": "205e2010f5bf7742ff9e601f4b5917f472bee40f9416dab944386eefe8944774",
-    "krs-grammar-lists": "7d5a7503473c7e6896b67f6f1247e43e82d30c6aa569db9842e4712557e7919f",
-    "krs-grammar-strict-lists": "c12927f8d5be810279efdd85040e5f0325adaf35192b9127064f1d8c875b4178",
-    "krs-grammar-dependency-rules": "c8d88f1d809842560e407b3309ba42c18f164627b51b18672945e3522b99d37f"
+    "krs-grammar-partition": "bfabfbe44889d74916138055900587343579f8b416152f4f6a8811015851ffd5",
+    "krs-grammar-kevm-case": "76c03b0598a4d4ccb1e7a3358bcba595a429033e3e681e2dc531f991a3318e22",
+    "krs-grammar-format": "8459c2293770c3e8a7fa67fc2bb9adc9660027fc60c13b3d8bd030eb439efa85",
+    "krs-grammar-prefer": "f62550261795845486eb2e7496db08435a4940c8d32a953de01731d8612a3c90",
+    "krs-grammar-overload": "c68fa530c60c0927ca89a54b78a48e0219d910af8abb221598890bac01ac36d9",
+    "krs-grammar-overload-ambiguous": "49643e47eef5aeb167076515242a872cc5bf54e5b35e7c76289a5c72bf4d8f33",
+    "krs-grammar-visibility": "091fadb0aed29a91f4ddbf9798dc255e7bc66486ad7f0bb127286c25e960bf6c",
+    "visibility-induced": "0044c62c96f29eec216dbb57f2b23598671e3d0a47f7d8d3fb9276456d621033",
+    "krs-grammar-memo": "e91431d8f564ec8abe5061253ebc4963ad849ac0ca7694268dcf93cb0f68664b",
+    "krs-grammar-tokens": "cef4671c30c40e5aa2076673db37a1d3697a0121a2b5c83d8df804271e6e0872",
+    "krs-grammar-token-id": "df0814a7b58a73e649c8eb71da4e08e8e66f17c18057360e970d876dc7b35411",
+    "krs-grammar-layout": "b9e816c30b1e320b6e3ea7526e47cebfd7c2eb7f91e1a2c1fadeda9aea8df3c0",
+    "krs-grammar-lists": "60cb85c1bae770aca7a0f25076bb29737b6c0f9ffc9c7e634f571e46fba0a1fe",
+    "krs-grammar-strict-lists": "3cd8d75b011bf54ef631763a84ab2dddc1e455b6cdeec01d64d828cc123fa2d7",
+    "krs-grammar-dependency-rules": "36700e1df13ca6f00b7d203d10403fa051ae26670fba5cd3e65e6a205d4ea439"
   },
   "outcomes": {
     "krs-grammar-partition": {
