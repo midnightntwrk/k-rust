@@ -1082,6 +1082,7 @@ fn prepare_observer(
 /// [`prepare_observer`] prepares it for `krs run --case` (`None` when `name` is that definition),
 /// or its refusal as text, each diagnostic rendered with `sources` (the command's) and the
 /// observer's source roots: for `krs kink`, which reports a case's refusal in its document.
+#[cfg(feature = "kink")]
 pub(crate) fn observer_definition(
     request: &CommandRequest,
     name: &str,
