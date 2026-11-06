@@ -25,7 +25,7 @@ use crate::{
     LoweredDefinition, SourceMap, SymbolMap,
     sidecar::{GeneratedRanges, SidecarError},
 };
-use annotation::header;
+use annotation::{HeaderArtifact, header};
 pub use annotation::{SentenceSource, SentenceSources};
 use sentence::emit_sentence;
 use term::Rendered;
@@ -245,7 +245,7 @@ pub fn emit_k(lowered: &LoweredDefinition) -> Result<EmittedK, EmitError> {
         spec_modules.push(module.clone());
         Some(module)
     };
-    spec_writer.prepend_header()?;
+    spec_writer.prepend_header(HeaderArtifact::Spec)?;
     let source_map = lowered.source_map().clone().with_generated_ranges(&[
         (DEFINITION_ARTIFACT, &writer.source, &writer.ranges),
         (SPEC_ARTIFACT, &spec_writer.source, &spec_writer.ranges),
@@ -297,7 +297,7 @@ fn emit_definition_modules<'a>(
     if !writer.source.ends_with('\n') {
         writer.push("\n");
     }
-    writer.prepend_header()
+    writer.prepend_header(HeaderArtifact::Definition)
 }
 
 /// The author spec modules (KF-041), each after every spec module it imports,
@@ -810,10 +810,11 @@ impl Writer {
         }
     }
 
-    /// Writes the [`header`] before everything written so far, shifting every recorded range.
-    fn prepend_header(&mut self) -> Result<(), EmitError> {
+    /// Writes the [`header`] of `artifact` before everything written so far, shifting every
+    /// recorded range.
+    fn prepend_header(&mut self, artifact: HeaderArtifact) -> Result<(), EmitError> {
         let packages = self.packages.iter().map(String::as_str).collect::<Vec<_>>();
-        let header = header(&packages);
+        let header = header(&packages, artifact);
         self.source.insert_str(0, &header);
         for range in self.ranges.values_mut() {
             *range = range
