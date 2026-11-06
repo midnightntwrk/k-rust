@@ -202,8 +202,9 @@ fn field_sorts(production: &crate::SemanticProduction) -> Vec<SemanticSortRef> {
 }
 
 /// Whether a production builds values of its sort: neither a function nor a hook, an alias, a
-/// desugar or a bracket.
-fn builds_values(production: &crate::SemanticProduction) -> bool {
+/// desugar or a bracket, each of which stands for a term another production builds.
+#[must_use]
+pub fn builds_values(production: &crate::SemanticProduction) -> bool {
     !production.attributes().iter().any(|attribute| {
         matches!(
             attribute,
@@ -231,8 +232,13 @@ pub(crate) fn framework_k_item(modules: &[SemanticModule]) -> Option<SemanticSor
 
 /// Recognises the framework's `KItem` sort declaration (`k::KItem`).
 pub(crate) fn is_framework_k_item(id: &StableItemId) -> bool {
+    is_framework_sort(id) && id.item_name() == "KItem"
+}
+
+/// Recognises a sort the framework declares (`k::KItem`, `k::KResult`).
+#[must_use]
+pub fn is_framework_sort(id: &StableItemId) -> bool {
     id.item_kind() == ItemKind::Sort
-        && id.item_name() == "KItem"
         && id.package().k_namespace() == "KRS-FRAMEWORK"
         && id.package().cargo_name() == "krs"
         && id.package().cargo_source() == "framework"
