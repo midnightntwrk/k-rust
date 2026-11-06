@@ -52,31 +52,35 @@
     "output": "b15fcaaa3fcd07e2b556091bd0c18895fb2bf9bf4e79484c3bf31518a7134f11"
   },
   "mutation-testing-check": {
-    "inputs": "a1b6eb348ad3fb7cb6e8bef1a28ebfd0663e0eead10c11f70e94d0c98783253f",
+    "inputs": "43dcd5575d5ee011fbbd42712ee2f9fb6f86dc9193fe428c66fba087cba08844",
     "output": "f6854e71c309c9c0e1c3eeb0fd449b9aace7276c5b6eafb7cecdc3c38cd01b4d"
   },
   "mutation-testing-check-refused": {
-    "inputs": "7dcea452c49d8e5dd147657a2a7110d708a757783191d37cc5da2b20855eb123",
+    "inputs": "def826219ea1896e936c9ccd0bbb17d9b3e06f62515877a8b92c95a0bff89a3c",
     "output": "9390115aca55cc2d2f9c0b9e614185ca56c21b8e3504f30b800f72f7deed702c"
   },
   "mutation-testing-emit-check": {
-    "inputs": "62fde7066c588d2fd3f36f2d759c997efb2f4e047c0180e05dec4620d11da88c",
+    "inputs": "bff7ade436814b8d1b1c3c9803bd615dbc3342474fc27f48ebd30d2475dbc04a",
     "output": "9876fb332bdbcc489aae3f86633fad02d8e421e25f53536cfdc2133c34b8703b"
   },
+  "mutation-testing-fuzz": {
+    "inputs": "04ad7a18206ae94ea9360cfdc2c9fbaa1663ee5ae0162be9a24e30d7f9b8939a",
+    "output": "1cb5be946364b4ab1a9ca5d094872c4dde03dd70919b079d83b29a520111ead8"
+  },
   "mutation-testing-results": {
-    "inputs": "5bbcdcd6e5c78822086d562f02194137013ca44a762e1235499a5c036bcaa1bb",
+    "inputs": "5829a6a3ed2896651a6a9e060898798e221a55f22151d836d3c5508d007e7f8e",
     "output": "9414a515daba50e691fa87db59bc4515cbe54dc4ab17be7df1e51d7b0a5200f0"
   },
   "mutation-testing-run-after": {
-    "inputs": "a6a48245411d4fe53e2d8a7fa0310ae940157b15e6696623dd56c5cb24f13c9a",
+    "inputs": "fa7f3e44cc5d7dbc9cf77b6868cd8a32bfad32d6442553445677a5b6be41119e",
     "output": "275f3a6a1e2b52b1f040c4613fb14468e725f6cd7d94ad4f19593d1bdb495969"
   },
   "mutation-testing-run-before": {
-    "inputs": "bc28f3755d5f8f092a817f6eb63bcc1ec514674286216a5a701f74e5b4c65285",
+    "inputs": "d664dac5ad46ad0cff26380aab71c4cb22dc7a62ac91ddaa20b461669a180f7c",
     "output": "7349bb948e5be79884c4ce51b47396106a9b248ac7e84e930bd0f8f6ba5237f4"
   },
   "mutation-testing-run-refused": {
-    "inputs": "2c3c812d2181f6b303bafe0d96353c6bc8a9f26e1b1c257513de635500fcda4f",
+    "inputs": "751d5baf03de3a6c7cfae155e0ea12efff570bf010f2ab8e4a15e4d4022feab7",
     "output": "5d60344fbdeed30767facac6fcb4c84398b9726fd2ec02562b5e82cffe9d41df"
   },
   "patterns-and-substitution-emit-k": {
@@ -144,19 +148,19 @@
     "output": "109a73ae914de407bccc610f7945de7e5c976689712b8f47e993de3b49c74d74"
   },
   "story-base-t1": {
-    "inputs": "096119e88c1908a5adb1fcec5ba9358bf8bed3cba103d2b6efd3d9c299e84843",
+    "inputs": "a2f3d7b1b8e2e82ad72398bec9d6a0b3d6f3ec0f57ad4da77b98076a7aedbb40",
     "output": "020f7f0dcbc6b34f64b043b5c8c2606b8f195ad197c39691fe91e2e2476e5e3f"
   },
   "story-base-t2": {
-    "inputs": "68e81f78f06a1b4308edae2e420917a059d81ed519da9f6a7754bda8347826d9",
+    "inputs": "b29481a71c0bac63d8efec23f45cca3975f71602c73ca6bebbc99c89eeef5562",
     "output": "efe4d427eba16c2cb97499acb62e7de3873eeb2984c52a4b1aac9a533cec9d33"
   },
   "story-base-t3": {
-    "inputs": "63b69ca5114dde5e5a58d5cfc08c683b62bc3dd633f5db1cd5856ae95d876cb9",
+    "inputs": "2f99dd7d463b6775493343a02edad3f8c0b31cc053d9530cdb0e31052e2cbdc0",
     "output": "789c9b32c47d89ba2d980bff534a92004e2cfb9bebdbcf652719b346267b4512"
   },
   "story-base-t4": {
-    "inputs": "ad574ab63558bb9801a723ae0005c7627241b110958d5c893e0268253dfb7964",
+    "inputs": "7456f21e5f86fe3dbd8f336202ee9b96808eec53c4b6b888e4747a567be2727b",
     "output": "c2581d9c46f1abf6ce3c2b61afe791aed567e71ca8d9bcca89c28621d69fb99d"
   },
   "story-c-t1": {
@@ -176,11 +180,11 @@
     "output": "fd4cdeec7d1f7d67317605bfe3c67cefe9ec794a3c8c7e0e3acb228ce603ee58"
   },
   "story-check": {
-    "inputs": "40434de664a4e6b6359a1ac3880d8681447eede6f0edbc484ff8c93f45f0282f",
+    "inputs": "e48f9acd5dcb461dfd8de454501ac5344d0991f489a72558125fb769a0d1a220",
     "output": "24cd61b9680e34d74ce4c1c1c11e91b94c313e8b19046f5ffb04fb164f7bab33"
   },
   "story-emit-k": {
-    "inputs": "a3c8f2ff4ad175cbfe168cfacf285d87c14640573ee6233d146122bfa5887927",
+    "inputs": "96e41cce5477c50fd5a7a12e99486ab923eaa2c0cb152ca44b5cc086211bcf00",
     "output": "f7437ff72afe0ed34ffbd5689a85597ba29fc051abc1295aff6a38a3fa75ab3d"
   },
   "story-emit-k-a": {
@@ -196,27 +200,27 @@
     "output": "e4f8c79c6da31f09c3435a3b0423d97d169affee2dc993b1069a0349a87c50ce"
   },
   "story-kink-check": {
-    "inputs": "2ad63b03f5559cbacaf139eedd412d26721e05c435dbaf6b653e9c509d64466a",
+    "inputs": "9981e1d7fe556b96905ca5a1b1427564c6f9d42817d712e65f0c9a6091353c9d",
     "output": "981c2dfe0c17c86bbdccbd430b4adcaf9047077702b2fe40a6abc70e268e288e"
   },
   "story-kink-results": {
-    "inputs": "a29208b3af3ea0091e5ecf313dcb23307b1c64eb9900fb9b5b90f066248b6a06",
+    "inputs": "cbd2c95597c71df59517d7d17d0856c9e7b20b962616a50520e1a01cc8c21e87",
     "output": "e4089f2f34c207809b68ca8a37a73f1efc3fdca0a3312fae9ebe0d9fc6f8861a"
   },
   "story-kink-run": {
-    "inputs": "2ea6ac6559ca337cc905804b6dc040d0f03db8324a3342aa5c02941939f36977",
+    "inputs": "d1b1baa665284b49b7e4de1b5a16f0a4db3f359f22da179e2800e3922b5cddbf",
     "output": "dd2f206825123b1a4ec9e7b7cd204149186bb85a56dff160087d9e585481f09d"
   },
   "story-parse": {
-    "inputs": "2dcf35ee823c791e71e46f29a9ead791fd3fd50d240b53e7ce6b481c11699fe1",
+    "inputs": "6a09c3c4e9df9295376b45ee0850cd7c13df27285c55b427305bdeef91d823f0",
     "output": "e2a7d6b8346bb96906c20bb15e2043962d8ed85aea0c741821a952852358b296"
   },
   "story-prove": {
-    "inputs": "007a0ae4be61bf8a6225269d49c1e660405c419de79511a179a745c8712fe0af",
+    "inputs": "dc08e6ec13bd71b57646b15648c3e3f30cc78b4748252d6d6483b5113553e157",
     "output": "8c98514144063d2433a5e958200e77bd2b290f2df5d3e271635d37b25c2fa1a4"
   },
   "story-search": {
-    "inputs": "44e00ac1597a7beb45230456c7ac7758211a4c9efa82871b8c42f5c956a25e6b",
+    "inputs": "aa53b57004d5dccb2e423b48d6c6d85bec49bbfba6c8d013f3fde0a21fb70349",
     "output": "a93378b39088e12b88415d89bf6336a155727ef1b1a6a04422cc8092c3fea12f"
   },
   "tour-minimal-depth-0": {
