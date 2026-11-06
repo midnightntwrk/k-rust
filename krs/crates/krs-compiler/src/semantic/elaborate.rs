@@ -64,8 +64,13 @@ pub(super) fn elaborate(
     declarations: &DescriptorIndex<'_>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
 ) -> Result<Result<DescriptorConfigurationRule, Unelaborated>, DescriptorLoweringError> {
-    let (rule, hidden) =
+    let (mut rule, hidden) =
         super::record_updates::head_rule_long_form_in(descriptor, rule, catalog, declarations)?;
+    let closing = Closing {
+        catalog,
+        key: &rule.pattern_key.clone(),
+    };
+    closing.rule(&mut rule);
     let mut sorts = inferred.clone();
     for (id, sort) in hidden {
         // A parametric production's field has its instance's sort, which only the lowering of
@@ -419,6 +424,306 @@ impl Elaborator<'_> {
     }
 }
 
+/// Closes a rule's constructor records, as the print writes them: a constructor applied to named
+/// fields is applied to every field in declaration order, and in a pattern each field the record
+/// leaves out (`Ctor { a, .. }`, `Ctor { .. }`) is `_`, which matches it whatever it holds. A
+/// `cells!` term names a constructor's arguments by position, so an open constructor record is
+/// no `cells!` term. A group record stays open: `cells!` writes `G { a, .. }`.
+struct Closing<'a> {
+    catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
+    /// Where a field a pattern leaves out is located: the rule's pattern, as the readable
+    /// lowering locates such a field's wildcard.
+    key: &'a ProvenanceKey,
+}
+
+impl Closing<'_> {
+    fn rule(&self, rule: &mut DescriptorHeadRule) {
+        let close = |term: &mut DescriptorTerm, pattern: bool| {
+            let open = std::mem::replace(
+                term,
+                DescriptorTerm::Wildcard {
+                    key: self.key.clone(),
+                },
+            );
+            *term = self.term(open, pattern);
+        };
+        if let Some(head) = &mut rule.head {
+            for item in &mut head.items {
+                close(item, true);
+            }
+            match &mut head.result {
+                Some(ProtocolHeadRuleResult::Replace(term)) => close(term, false),
+                Some(ProtocolHeadRuleResult::Splice(splice)) => {
+                    for term in splice.terms_mut() {
+                        close(term, false);
+                    }
+                }
+                Some(ProtocolHeadRuleResult::Erase) | None => {}
+            }
+        }
+        let state = |state: &mut ProtocolRuleStateTerm<DescriptorTerm>, pattern: bool| {
+            Self::state(state, &mut |term| close(term, pattern));
+        };
+        for extra in &mut rule.extras {
+            match extra {
+                ProtocolHeadRuleExtra::HaveMap { entries, .. } => {
+                    for entry in entries {
+                        close(&mut entry.key, true);
+                    }
+                }
+                ProtocolHeadRuleExtra::UpdateMap { update, .. } => close(update, false),
+                ProtocolHeadRuleExtra::RewriteCell { before, after, .. } => {
+                    close(before, true);
+                    if let Some(after) = after {
+                        close(after, false);
+                    }
+                }
+                ProtocolHeadRuleExtra::RewriteState { before, after, .. } => {
+                    state(before, true);
+                    if let Some(after) = after {
+                        state(after, false);
+                    }
+                }
+                ProtocolHeadRuleExtra::RewriteList { before, after, .. } => {
+                    for term in before.terms_mut() {
+                        close(term, true);
+                    }
+                    for term in after
+                        .iter_mut()
+                        .flat_map(krs_ir::ProtocolHeadRuleList::terms_mut)
+                    {
+                        close(term, false);
+                    }
+                }
+            }
+        }
+        for condition in rule.requires.iter_mut().chain(&mut rule.ensures) {
+            close(&mut condition.term, false);
+        }
+    }
+
+    fn state(
+        state: &mut ProtocolRuleStateTerm<DescriptorTerm>,
+        close: &mut impl FnMut(&mut DescriptorTerm),
+    ) {
+        match state {
+            ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term) => close(term),
+            ProtocolRuleStateTerm::Present { value } => Self::state(value, close),
+            ProtocolRuleStateTerm::KSequence(sequence) => {
+                for item in &mut sequence.items {
+                    close(&mut item.value);
+                }
+            }
+            ProtocolRuleStateTerm::Instances(instances) => {
+                for instance in instances.front.iter_mut().chain(&mut instances.back) {
+                    for field in &mut instance.fields {
+                        Self::state(&mut field.value, close);
+                    }
+                }
+            }
+            ProtocolRuleStateTerm::Map(_) | ProtocolRuleStateTerm::Absent => {}
+        }
+    }
+
+    /// `term` with its constructor records closed; `pattern` says whether it matches.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One arm per term form, each rebuilding it around its closed subterms."
+    )]
+    fn term(&self, term: DescriptorTerm, pattern: bool) -> DescriptorTerm {
+        let nested = |term: Box<DescriptorTerm>, pattern| Box::new(self.term(*term, pattern));
+        match term {
+            DescriptorTerm::Application {
+                head_class,
+                reference,
+                path_key,
+                arguments,
+                instance,
+                update,
+                open,
+            } => {
+                let update = update.map(|update| nested(update, false));
+                let arguments = match arguments {
+                    krs_ir::Arguments::Positional(values) => krs_ir::Arguments::Positional(
+                        values
+                            .into_iter()
+                            .map(|value| nested(value, pattern))
+                            .collect(),
+                    ),
+                    krs_ir::Arguments::Named(values) => krs_ir::Arguments::Named(
+                        values
+                            .try_map(|argument| {
+                                Ok::<_, std::convert::Infallible>(krs_ir::NamedTermArgument {
+                                    value: nested(argument.value, pattern),
+                                    ..argument
+                                })
+                            })
+                            .unwrap_or_else(|never| match never {}),
+                    ),
+                };
+                let fields = match &reference.application {
+                    krs_ir::DescriptorApplicationRef::Declared(id) if update.is_none() => {
+                        self.catalog.get(id).map(|signature| &signature.fields)
+                    }
+                    _ => None,
+                };
+                let named = matches!(arguments, krs_ir::Arguments::Named(_));
+                let (arguments, open) = match fields {
+                    Some(fields) if named || (open && pattern) => {
+                        let mut supplied = match &arguments {
+                            krs_ir::Arguments::Named(values) => values
+                                .iter()
+                                .map(|argument| (argument.field.clone(), argument.value.clone()))
+                                .collect::<BTreeMap<_, _>>(),
+                            krs_ir::Arguments::Positional(_) => BTreeMap::new(),
+                        };
+                        let closed = fields
+                            .iter()
+                            .map(|(field, _)| {
+                                supplied.remove(field).or_else(|| {
+                                    pattern.then(|| {
+                                        Box::new(DescriptorTerm::Wildcard {
+                                            key: self.key.clone(),
+                                        })
+                                    })
+                                })
+                            })
+                            .collect::<Option<Vec<_>>>();
+                        // A record expression that leaves a field out, or names one the
+                        // constructor lacks, stays as written: both lowerings refuse it.
+                        match closed {
+                            Some(closed) if supplied.is_empty() => {
+                                (krs_ir::Arguments::Positional(closed), false)
+                            }
+                            _ => (arguments, open),
+                        }
+                    }
+                    _ => (arguments, open),
+                };
+                DescriptorTerm::Application {
+                    head_class,
+                    reference,
+                    path_key,
+                    arguments,
+                    instance,
+                    update,
+                    open,
+                }
+            }
+            DescriptorTerm::OrBool { key, arguments } => DescriptorTerm::OrBool {
+                key,
+                arguments: arguments
+                    .try_map(|term| Ok::<_, std::convert::Infallible>(self.term(term, pattern)))
+                    .unwrap_or_else(|never| match never {}),
+            },
+            DescriptorTerm::Or { key, alternatives } => DescriptorTerm::Or {
+                key,
+                alternatives: alternatives
+                    .try_map(|term| Ok::<_, std::convert::Infallible>(self.term(term, pattern)))
+                    .unwrap_or_else(|never| match never {}),
+            },
+            DescriptorTerm::Cell {
+                key,
+                path_key,
+                declaration,
+                fields,
+                open,
+                update,
+            } => DescriptorTerm::Cell {
+                key,
+                path_key,
+                declaration,
+                fields: fields
+                    .into_iter()
+                    .map(|field| krs_ir::CellTermField {
+                        value: nested(field.value, pattern),
+                        ..field
+                    })
+                    .collect(),
+                open,
+                update: update.map(|update| nested(update, false)),
+            },
+            DescriptorTerm::SortTest {
+                key,
+                kind,
+                sort,
+                operand,
+            } => DescriptorTerm::SortTest {
+                key,
+                kind,
+                sort,
+                operand: nested(operand, pattern),
+            },
+            DescriptorTerm::As {
+                key,
+                binding_key,
+                name,
+                pattern: inner,
+            } => DescriptorTerm::As {
+                key,
+                binding_key,
+                name,
+                pattern: nested(inner, pattern),
+            },
+            DescriptorTerm::Matches {
+                key,
+                subject,
+                pattern: inner,
+            } => DescriptorTerm::Matches {
+                key,
+                subject: nested(subject, pattern),
+                pattern: nested(inner, true),
+            },
+            DescriptorTerm::Let {
+                key,
+                pattern: inner,
+                sort,
+                value,
+                body,
+            } => DescriptorTerm::Let {
+                key,
+                pattern: nested(inner, true),
+                sort,
+                value: nested(value, pattern),
+                body: nested(body, pattern),
+            },
+            DescriptorTerm::Closure {
+                key,
+                binder_key,
+                name,
+                sort,
+                body,
+            } => DescriptorTerm::Closure {
+                key,
+                binder_key,
+                name,
+                sort,
+                body: nested(body, pattern),
+            },
+            DescriptorTerm::Rewrite {
+                key,
+                from_key,
+                to_key,
+                from,
+                to,
+            } => DescriptorTerm::Rewrite {
+                key,
+                from_key,
+                to_key,
+                from: nested(from, pattern),
+                to: to.map(|to| nested(to, false)),
+            },
+            term @ (DescriptorTerm::Variable { .. }
+            | DescriptorTerm::Literal { .. }
+            | DescriptorTerm::Wildcard { .. }
+            | DescriptorTerm::KeptRest { .. }
+            | DescriptorTerm::BuiltinToken { .. }
+            | DescriptorTerm::Anonymous { .. }
+            | DescriptorTerm::Lexeme { .. }) => term,
+        }
+    }
+}
+
 fn descriptor_sort(sort: &SemanticSortRef) -> DescriptorSortRef {
     match sort {
         SemanticSortRef::Declared(id) => DescriptorSortRef::Declared(id.clone()),
@@ -465,18 +770,63 @@ pub(super) fn shadow_check(
         catalog,
     )
     .map_err(|error| {
+        dump(
+            descriptor,
+            rule,
+            &elaborated,
+            &normalized(readable, false, shadow),
+            &Value::String(error.to_string()),
+        );
         disagreement(format!(
             "is accepted by the readable lowering and refused by the `cells!` one: {error}"
         ))
     })?;
     let readable = normalized(readable, false, shadow);
     let cells = normalized(&cells, true, shadow);
-    match first_difference(&readable, &cells, "rule") {
+    let difference = first_difference(&readable, &cells, "rule");
+    if difference.is_some() {
+        dump(descriptor, rule, &elaborated, &readable, &cells);
+    }
+    match difference {
         None => Ok(()),
         Some((path, left, right)) => Err(disagreement(format!(
             "lowers differently at `{path}`: readable {left}, `cells!` {right}"
         ))),
     }
+}
+
+/// Under `KRS_READABLE_SHADOW_DUMP=<directory>`, writes a disagreeing rule's elaboration and both
+/// compared lowerings there, one file each, named by the item and the rule's pattern key.
+fn dump(
+    descriptor: &Descriptor,
+    rule: &DescriptorHeadRule,
+    elaborated: &DescriptorConfigurationRule,
+    readable: &Value,
+    cells: &Value,
+) {
+    let Some(directory) = std::env::var_os("KRS_READABLE_SHADOW_DUMP") else {
+        return;
+    };
+    let stem = format!(
+        "{}-{}{}",
+        descriptor.id(),
+        rule.pattern_key.role().as_str(),
+        rule.pattern_key.ordinal()
+    )
+    .replace(|c: char| !c.is_ascii_alphanumeric() && c != '-', "_");
+    let directory = std::path::Path::new(&directory);
+    let pretty = |value: &Value| serde_json::to_string_pretty(value).unwrap_or_default();
+    // Best effort: a dump that cannot be written leaves the disagreement itself reported.
+    let _ = std::fs::create_dir_all(directory);
+    let _ = std::fs::write(
+        directory.join(format!("{stem}.elaborated.txt")),
+        format!("{elaborated:#?}"),
+    );
+    let _ = std::fs::write(
+        directory.join(format!("{stem}.readable.json")),
+        pretty(readable),
+    );
+    let _ = std::fs::write(directory.join(format!("{stem}.cells.json")), pretty(cells));
 }
 
 /// `rule` as data, with what carries no meaning made comparable:
