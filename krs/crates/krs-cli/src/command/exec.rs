@@ -951,11 +951,21 @@ pub(super) fn configure(
             .iter()
             .map(|(name, text)| (name.clone(), text.as_str().into())),
     );
-    Ok(semantics.configure(&ConfigInputs {
+    let state = semantics.configure(&ConfigInputs {
         program,
         variables: bindings,
         stdin,
-    })?)
+    })?;
+    // The case's instances replace their cells' starts in the configuration its inputs build.
+    match case {
+        Some(case) => semantics
+            .state_instances(state, &case.case, &mut case.files())
+            .map_err(|error| match error {
+                ExecError::Case(message) => Failure::Exec(case.refusal(&message)),
+                error => error.into(),
+            }),
+        None => Ok(state),
+    }
 }
 
 /// Standard input for the stdin stream cell, read to end of file before the first step, as krun does.

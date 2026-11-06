@@ -95,8 +95,9 @@ Options:
   --case FILE                Bind the inputs a case document (.toml or .json) gives by
                              parameter name; its file paths are relative to FILE's directory.
                              A case's run table gives the depth, stop rules and stop count,
-                             in place of the flags; its expect table is checked: met, unmet
-                             or inconclusive
+                             in place of the flags; its instances table gives the starting
+                             instances of optional and repeated cells; its expect table is
+                             checked: met, unmet or inconclusive
   --case-name NAME           With --case, the case of that name in a document of named cases
   CASES...                   With cases, the case documents (.toml or .json) whose cases run,
                              reported in this order: one verdict per case (met, unmet,
