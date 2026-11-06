@@ -280,7 +280,7 @@ THREADS_K = (
     "      <thread multiplicity=\"*\" type=\"Map\" initial=\"\">\n",
     "  rule [spawn]:\n"
     "    <thread>\n"
-    "        <k> spawn { Body:Stmt } => N:Int ... </k>\n"
+    "        <k> spawn { Body:Stmt } ~> Tail0:K => N:Int ~> Tail0:K </k>\n"
     "        ...\n"
     "    </thread>\n"
     "    (.Bag => <thread>\n"
