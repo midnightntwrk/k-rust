@@ -5,7 +5,8 @@
 //! The fixture is testdata/flow/unobservable: `unobs.k`, whose program `emit(1) ; note(2)` writes
 //! the observed `<out>` and the unobservable `<scratch>`; `plain.k`, the same definition without
 //! the declaration; `nested.k`, the same with both cells inside a wrapper cell `<state>`;
-//! `collection.k`, an unobservable cell inside the instances of a Map collection; and
+//! `collection.k`, an unobservable cell beside a compared one inside the instances of a Map
+//! collection; and
 //! `collectionkey.k`, the same Map with its key declared unobservable. Its mutations change only
 //! `<scratch>` (`note-offset`) or `<out>` (`emit-offset`). The one-sided kill under a `cells` slot
 //! runs on `testdata/k/l1/onesidedcell.k`.
@@ -256,9 +257,10 @@ fn a_narrowing_that_compares_an_unobservable_cell_or_names_no_cell_is_refused() 
 }
 
 /// An unobservable cell inside a collection's instances is left out of each instance: a mutant
-/// that changes only `<tmp>` survives, one that changes a thread's key is killed. Narrowed to a
-/// cell inside the instances, the slot compares that cell and the key the Map holds the instance
-/// by; narrowed to cells outside, it leaves the whole collection out.
+/// that changes only `<tmp>` survives, one that changes a thread's key or its compared `<val>` is
+/// killed. Narrowed to a cell inside the instances, the slot compares that cell and the key the
+/// Map holds the instance by, and leaves the instances' other cells out; narrowed to cells
+/// outside, it leaves the whole collection out.
 #[test]
 fn an_unobservable_cell_inside_a_collection_is_left_out_of_each_instance() {
     let collection = |result: &str| {
@@ -273,6 +275,7 @@ fn an_unobservable_cell_inside_a_collection_is_left_out_of_each_instance() {
         &[
             ("collection", &collection("")),
             ("inside", &collection("[result]\ncells = [\"id\"]\n")),
+            ("val", &collection("[result]\ncells = [\"val\"]\n")),
             (
                 "outside",
                 &collection("[result]\ncells = [\"k\", \"out\"]\n"),
@@ -291,12 +294,17 @@ fn an_unobservable_cell_inside_a_collection_is_left_out_of_each_instance() {
     };
     assert_eq!(
         result_of("collection"),
-        result("cells", &["k", "out", "id"], &["tmp"], &["tmp"])
+        result("cells", &["k", "out", "id", "val"], &["tmp"], &["tmp"])
     );
     // Narrowed to the key, every other cell is left out, in each instance too.
     assert_eq!(
         result_of("inside"),
-        result("cells", &["id"], &["k", "out", "tmp"], &["tmp"])
+        result("cells", &["id"], &["k", "out", "val", "tmp"], &["tmp"])
+    );
+    // Narrowed to a cell of the instances, the key the Map holds each instance by is compared.
+    assert_eq!(
+        result_of("val"),
+        result("cells", &["id", "val"], &["k", "out", "tmp"], &["tmp"])
     );
     // Leaving the enclosing <threads> out leaves <tmp> out with it.
     assert_eq!(
@@ -311,25 +319,54 @@ fn an_unobservable_cell_inside_a_collection_is_left_out_of_each_instance() {
          rule = \"spawn\"\n  find = \"<tmp> I </tmp>\"\n  replace = \"<tmp> I +Int 1 </tmp>\"\n\n\
          [[mutation]]\nid = \"spawn-id\"\nmisunderstanding = \"a thread is keyed one more than \
          asked\"\n\n  [[mutation.edit]]\n  rule = \"spawn\"\n  find = \"<id> I </id>\"\n  \
-         replace = \"<id> I +Int 1 </id>\"\n",
+         replace = \"<id> I +Int 1 </id>\"\n\n\
+         [[mutation]]\nid = \"spawn-val\"\nmisunderstanding = \"a thread starts with val one \
+         more than its key: the compared <val> differs\"\n\n  [[mutation.edit]]\n  \
+         rule = \"spawn\"\n  find = \"<val> I </val>\"\n  replace = \"<val> I +Int 1 </val>\"\n",
     )
     .unwrap();
     let document = search(&manifest("collection"));
     assert_eq!(
         statuses(&document),
-        pairs(&[("spawn-tmp", "survived"), ("spawn-id", "killed")]),
+        pairs(&[
+            ("spawn-tmp", "survived"),
+            ("spawn-id", "killed"),
+            ("spawn-val", "killed")
+        ]),
         "{document:#}"
     );
     assert_eq!(
         document["result"],
-        result("cells", &["k", "out", "id"], &["tmp"], &["tmp"])
+        result("cells", &["k", "out", "id", "val"], &["tmp"], &["tmp"])
     );
-    // Narrowed to the key, the slot still tells the threads apart by it.
+    // Narrowed to the key, the slot still tells the threads apart by it, and leaves <val> out of
+    // each instance.
     let document = search(&manifest("inside"));
     assert_eq!(
         statuses(&document),
-        pairs(&[("spawn-tmp", "survived"), ("spawn-id", "killed")]),
+        pairs(&[
+            ("spawn-tmp", "survived"),
+            ("spawn-id", "killed"),
+            ("spawn-val", "survived")
+        ]),
         "{document:#}"
+    );
+    // Narrowed to <val>, a change to it inside an instance kills the mutant; the key is compared
+    // with it.
+    let document = search(&manifest("val"));
+    assert_eq!(
+        statuses(&document),
+        pairs(&[
+            ("spawn-tmp", "survived"),
+            ("spawn-id", "killed"),
+            ("spawn-val", "killed")
+        ]),
+        "{document:#}"
+    );
+    let killed = &document["mutations"][2]["executed"][0];
+    assert_eq!(
+        killed["slots"]["cells"]["outcome"], "distinguish",
+        "{killed:#}"
     );
 }
 
