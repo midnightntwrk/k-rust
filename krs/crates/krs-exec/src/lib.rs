@@ -555,6 +555,9 @@ pub enum UnknownCrate {
     /// The root package's own crate name, or `self`: names of the root package, whose items a
     /// stop names `crate::` and their path.
     Root(String),
+    /// The crate name of a dependency none of whose items writes a rule or an equation of the
+    /// definition: the package is the definition's, and no item path below it names a sentence.
+    NoItem(String),
 }
 
 /// A failure of a `krs-exec` operation.
@@ -948,6 +951,10 @@ fn write_unknown_item(
                 formatter,
                 ", and the definition records no package by the name `{krate}`: a dependency's item is named by its Cargo package name with `-` written `_`, never by a name a depending package's manifest renames it to or a library name its `[lib]` section gives it"
             )?,
+            Some(UnknownCrate::NoItem(krate)) => write!(
+                formatter,
+                ", and no item of the package `{krate}` writes a rule or an equation of the definition"
+            )?,
             Some(UnknownCrate::Root(name)) => write!(
                 formatter,
                 ", and `{name}` names the root package, whose items are named `crate::` and their path"
@@ -1202,9 +1209,10 @@ impl Semantics {
             .collect::<Vec<_>>();
         let spec_definition = (!spec_modules.is_empty()).then(|| Box::new(definition.clone()));
         let main_cell = main_cell_name(definition);
-        let rules = rules::Rules::new(&backend, &main_module, |id| {
-            origin::item_path(sentence_provenance.get(id))
-        })?;
+        let rules =
+            rules::Rules::new(&backend, &main_module, origin::packages(definition), |id| {
+                origin::item_path(sentence_provenance.get(id))
+            })?;
         Ok(Self {
             backend,
             sort_hooks,

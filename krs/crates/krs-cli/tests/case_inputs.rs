@@ -986,6 +986,25 @@ fn a_case_names_its_rules_as_the_stop_flags_do() {
         assert_eq!(refused.status.code(), Some(2), "{}", stderr(&refused));
         assert!(stderr(&refused).contains(hint), "{}", stderr(&refused));
     }
+    // The root package's own crate name names the root package, read from the definition's
+    // packages.
+    let rooted = project.krs(
+        "run",
+        &[
+            "--case",
+            "unstopped.json",
+            "--stop-before",
+            "krs_cli_case_ends_fixture::finish",
+        ],
+    );
+    assert_eq!(rooted.status.code(), Some(2), "{}", stderr(&rooted));
+    assert!(
+        stderr(&rooted).contains(
+            "`krs_cli_case_ends_fixture` names the root package, whose items are named `crate::` and their path; did you mean `crate::finish`?"
+        ),
+        "{}",
+        stderr(&rooted)
+    );
 }
 
 /// A run that stops at a rule it does not name has no end class to compare, so its expectation is

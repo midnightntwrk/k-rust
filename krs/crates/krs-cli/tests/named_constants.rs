@@ -480,6 +480,91 @@ k::rules! {
     );
 }
 
+/// A stop named by the crate name of a dependency none of whose items writes a rule or an
+/// equation, here one that declares only a sort and its constructors, is refused saying so: the
+/// package is the definition's, as its packages say, though the rule catalog holds nothing of
+/// it. A name no package has, such as the root manifest's rename of the dependency, is still
+/// one the definition records no package by.
+#[test]
+fn a_stop_in_a_dependency_that_writes_no_rule_says_so() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    write_package(
+        temporary.path(),
+        "base",
+        r#"
+use k::{KItem, KItemSort, Term};
+
+#[k::sort(alias = Common, parents = [KItem])]
+pub trait CommonSort: KItemSort {}
+pub type Common = Term<dyn CommonSort>;
+
+#[k::constructor(sort = Common, syntax = "same")]
+pub struct Same;
+
+#[k::constructor(sort = Common, syntax = "unit")]
+pub struct Unit;
+"#,
+        "",
+    );
+    let root = write_package(
+        temporary.path(),
+        "root",
+        r"
+use k::builtin::KSequence;
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init() -> Self {
+        Self { k: k::k![semantic_base::Unit] }
+    }
+}
+
+k::rules! {
+    for semantic_base::Common;
+    cross: semantic_base::Unit => semantic_base::Same;
+}
+",
+        "semantic_base = { package = \"base\", path = \"../base\" }\n",
+    );
+    fs::write(
+        temporary.path().join("Cargo.toml"),
+        "[workspace]\nmembers = [\"base\", \"root\"]\nresolver = \"3\"\n",
+    )
+    .unwrap();
+    let stop = |name: &str| {
+        krs(
+            target.path(),
+            &root,
+            "root",
+            "run",
+            &["--dependency", "base:main", "--stop-before", name],
+        )
+    };
+    let (success, _, stderr) = stop("base::cross");
+    assert!(!success, "{stderr}");
+    assert!(
+        stderr.contains(
+            "no rewrite rule is written by KRS item `base::cross`: no sentence of the definition is the item's, and no item of the package `base` writes a rule or an equation of the definition; did you mean `crate::cross`?"
+        ),
+        "{stderr}"
+    );
+    let (success, _, stderr) = stop("semantic_base::cross");
+    assert!(!success, "{stderr}");
+    assert!(
+        stderr.contains("the definition records no package by the name `semantic_base`"),
+        "{stderr}"
+    );
+    let (success, _, stderr) = stop("crate::cross");
+    assert!(success, "{stderr}");
+}
+
 /// `krs expand` prints a readable clause over a dependency package's sort with each of the
 /// dependency's declarations by the crate name the source gives it (here a Cargo rename), and the
 /// printed source checks and emits the clause's rewrite.

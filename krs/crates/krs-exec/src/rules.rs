@@ -29,14 +29,19 @@ pub(crate) struct Rules {
     /// The K namespace of the root package: the package whose module is the definition's main
     /// module, which the backend runs, so every other package's rules run only as its imports.
     root: String,
+    /// The definition's packages by K namespace, each with its crate name as a stop names it
+    /// ([`ItemPath::krate`]), whether or not any of its items wrote an identity of the catalog.
+    packages: BTreeMap<String, String>,
 }
 
 impl Rules {
-    /// The catalog of the definition `backend` runs, whose main module is `main_module`, each
-    /// identity with the item `item_of` names.
+    /// The catalog of the definition `backend` runs, whose main module is `main_module` and
+    /// whose packages are `packages` (crate name by K namespace), each identity with the item
+    /// `item_of` names.
     pub(crate) fn new(
         backend: &Backend,
         main_module: &str,
+        packages: BTreeMap<String, String>,
         item_of: impl Fn(&str) -> Option<ItemPath>,
     ) -> Result<Self, ExecError> {
         let mut by_id = BTreeMap::new();
@@ -59,6 +64,7 @@ impl Rules {
         Ok(Self {
             by_id,
             root: main_module.to_owned(),
+            packages,
         })
     }
 
@@ -67,10 +73,25 @@ impl Rules {
         root: &str,
         entries: impl IntoIterator<Item = (String, CatalogRule)>,
     ) -> Self {
+        let by_id: BTreeMap<_, _> = entries.into_iter().collect();
+        let packages = by_id
+            .values()
+            .filter_map(|rule| rule.item.as_ref())
+            .map(|item| (item.namespace.clone(), item.krate.clone()))
+            .collect();
         Self {
-            by_id: entries.into_iter().collect(),
+            by_id,
             root: root.to_owned(),
+            packages,
         }
+    }
+
+    /// This catalog with the package of K namespace `namespace` and crate name `krate` too,
+    /// whether or not an identity's item is of it.
+    #[cfg(test)]
+    pub(crate) fn with_package(mut self, namespace: &str, krate: &str) -> Self {
+        self.packages.insert(namespace.to_owned(), krate.to_owned());
+        self
     }
 
     /// The identity `id`, when the catalog holds it.
@@ -175,9 +196,13 @@ impl Rules {
     }
 
     /// The first segment of `requested` where it is neither `crate` nor the crate name of a
-    /// dependency ([`ItemPath::krate`]) nor a module of the root package's items: the root
-    /// package's own crate name or `self`, which name the root package but are not how a stop
-    /// names its items, or else a name the definition records no package by.
+    /// dependency ([`ItemPath::krate`]) one of whose items wrote an identity of the catalog nor a
+    /// module of the root package's items: the root package's own crate name or `self`, which
+    /// name the root package but are not how a stop names its items; the crate name of a
+    /// dependency none of whose items wrote one, which no item path below it can name; or else a
+    /// name the definition records no package by. Which packages the definition holds is read
+    /// from its packages, not from the catalog, since a package whose items write no rule or
+    /// equation (one that declares only sorts and constructors) has no identity in it.
     fn unknown_crate(&self, requested: &str) -> Option<UnknownCrate> {
         let (first, _) = requested.split_once("::")?;
         let module = format!("{first}::");
@@ -191,11 +216,21 @@ impl Rules {
                 }
             });
         if known {
-            None
-        } else if first == "self"
-            || items().any(|item| item.namespace == self.root && item.krate == first)
+            return None;
+        }
+        let dependency = self
+            .packages
+            .iter()
+            .any(|(namespace, krate)| *namespace != self.root && krate == first);
+        if first == "self"
+            || self
+                .packages
+                .get(&self.root)
+                .is_some_and(|krate| krate == first)
         {
             Some(UnknownCrate::Root(first.to_owned()))
+        } else if dependency {
+            Some(UnknownCrate::NoItem(first.to_owned()))
         } else {
             Some(UnknownCrate::Unrecorded(first.to_owned()))
         }
@@ -742,6 +777,50 @@ mod tests {
         assert_eq!(
             missing.to_string(),
             "no rewrite rule is written by KRS item `gb_sm83_core::tock`: no sentence of the definition is the item's (an item is named by its Rust path: `crate::` and its path in the root package, or a dependency's own crate name and its path there)"
+        );
+    }
+
+    /// Which packages the definition holds is read from its packages, not from the catalog: a
+    /// dependency whose items write no rule or equation (it declares only sorts and
+    /// constructors) is a package of the definition with no item a path below it can name, and
+    /// the root's crate name is known from the root package even where no root item is in the
+    /// catalog.
+    #[test]
+    fn a_package_with_no_sentence_is_still_a_package() {
+        let rules = Rules::from_entries(
+            "VM",
+            [by(
+                rule("c1", Some("CORE.step"), RuleKind::Rule),
+                "CORE",
+                "gb_sm83_core",
+                "step",
+            )],
+        )
+        .with_package("VM", "vm")
+        .with_package("TYPES", "sm83_types");
+        let empty = rules.resolve_item("sm83_types::step").unwrap_err();
+        assert!(
+            matches!(&empty, ExecError::UnknownItem { unknown_crate: Some(UnknownCrate::NoItem(krate)), suggestions, .. }
+                if krate == "sm83_types" && suggestions == &["gb_sm83_core::step"]),
+            "{empty:?}"
+        );
+        assert_eq!(
+            empty.to_string(),
+            "no rewrite rule is written by KRS item `sm83_types::step`: no sentence of the definition is the item's, and no item of the package `sm83_types` writes a rule or an equation of the definition; did you mean `gb_sm83_core::step`?"
+        );
+        // The root package writes no identity here, and its crate name still names it.
+        let rooted = rules.resolve_item("vm::step").unwrap_err();
+        assert!(
+            matches!(&rooted, ExecError::UnknownItem { unknown_crate: Some(UnknownCrate::Root(name)), .. }
+                if name == "vm"),
+            "{rooted:?}"
+        );
+        // A name no package has stays unrecorded.
+        let renamed = rules.resolve_item("types::step").unwrap_err();
+        assert!(
+            matches!(&renamed, ExecError::UnknownItem { unknown_crate: Some(UnknownCrate::Unrecorded(krate)), .. }
+                if krate == "types"),
+            "{renamed:?}"
         );
     }
 

@@ -161,6 +161,51 @@ pub(crate) fn item_path(provenance: Option<&EmittedProvenance>) -> Option<ItemPa
     })
 }
 
+/// The packages of `definition` by K namespace, each with the name a stop gives its crate
+/// ([`ItemPath::krate`]): the package of each module's and each sentence's origin
+/// ([`packages_of`]). KRS generates a package's module from the items it declares, with the
+/// origin of one of them, so every package of the definition is found here, whether or not any
+/// of its items writes a rule or an equation.
+pub(crate) fn packages(definition: &krs_ir_levels::DefinitionIr) -> BTreeMap<String, String> {
+    packages_of(definition.modules().iter().flat_map(|module| {
+        std::iter::once(module.origin()).chain(
+            module
+                .sentences()
+                .iter()
+                .map(krs_ir_levels::DefinitionSentence::origin),
+        )
+    }))
+}
+
+/// The packages `origins` name by K namespace, each with its crate name as a stop names it: of
+/// each origin, the package of the first frame that names one, the package of its item, or else
+/// the package of the source its range is in.
+fn packages_of<'o>(origins: impl Iterator<Item = &'o NodeOrigin>) -> BTreeMap<String, String> {
+    let mut packages = BTreeMap::new();
+    for origin in origins {
+        let package = origin
+            .origin()
+            .frames()
+            .iter()
+            .find_map(|frame| match frame {
+                OriginFrame::Ranged { item, range, .. } => Some(
+                    item.as_ref()
+                        .map_or_else(|| range.file.package(), |item| item.package()),
+                ),
+                OriginFrame::Transformation { item, .. } => {
+                    item.as_ref().map(krs_ir::StableItemId::package)
+                }
+                OriginFrame::Inserted { .. } => None,
+            });
+        if let Some(package) = package {
+            packages
+                .entry(package.k_namespace().to_owned())
+                .or_insert_with(|| package.cargo_name().replace('-', "_"));
+        }
+    }
+    packages
+}
+
 /// The Rust path below its crate root of the KRS item that wrote an emitted rule identity
 /// ([`item_path`]).
 pub(crate) fn item(provenance: Option<&EmittedProvenance>) -> Option<String> {
@@ -195,4 +240,31 @@ pub(crate) fn authored_range(origin: &NodeOrigin) -> Option<&SourceRange> {
             OriginFrame::Ranged { range, .. } if frame.is_authored() => Some(range),
             _ => None,
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use krs_ir::testing::{digest, origin_in, package};
+
+    use super::packages_of;
+
+    /// Every package an origin is in is a package, by K namespace, with its crate name as a stop
+    /// names it, whatever else the origins say of it.
+    #[test]
+    fn the_packages_are_those_the_origins_are_in() {
+        let core = package("ORG-CORE", "gb-sm83-core");
+        let types = package("ORG-TYPES", "sm83-types");
+        let origins = [
+            origin_in("a", core.clone(), "src/lib.rs", digest(), 0, 3),
+            origin_in("b", types, "src/lib.rs", digest(), 0, 3),
+            origin_in("c", core, "src/ops.rs", digest(), 4, 9),
+        ];
+        assert_eq!(
+            packages_of(origins.iter()).into_iter().collect::<Vec<_>>(),
+            [
+                ("ORG-CORE".to_owned(), "gb_sm83_core".to_owned()),
+                ("ORG-TYPES".to_owned(), "sm83_types".to_owned()),
+            ]
+        );
+    }
 }
