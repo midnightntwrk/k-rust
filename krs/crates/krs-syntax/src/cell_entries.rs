@@ -436,7 +436,7 @@ impl Refusal {
                 "the entry of the cell `{cell}` updates a record (`..base`) whose base the sentence does not match: an update takes the fields of a record of its own constructor that the subject names `base @ ..`, such as an instance its subject's instance list labels"
             ),
             Self::RecordRemainderInCellsTerm => format!(
-                "the `cells!` entry of the cell `{cell}` takes a record's other children from a base (`..base`) that is no instance its subject labels: `cells!` is the reference notation, which names every child, and its one update rewrites in place the instance of a collection its subject labels"
+                "the `cells!` entry of the cell `{cell}` takes a record's other children from a base (`..base`) that is no instance its subject labels: `cells!` is the reference notation, which names every child, and its one update rewrites in place the instance of a collection its subject labels; write each other child the record takes, and a group's children as their own entries"
             ),
             Self::MapReadInResult => format!(
                 "the entry of the cell `{cell}` reads a map (`{{ k -> v, .. }}`) in a result: a map read is a pattern, and a readable record's result has no map write yet (a stated limitation; a `cells!` result has `Cell(k::map![k -> v, ..])`)"
