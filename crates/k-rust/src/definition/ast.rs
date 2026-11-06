@@ -309,14 +309,171 @@ impl Attributes {
 
     /// The value of a well-known key: what [`Self::get`] gives for its spelling, without
     /// searching the entries for a key they do not hold.
+    ///
+    /// Every key is named: `Origin` and `InputAddresses` may be held outside `entries`, so a key
+    /// added later must say here where its value is held.
     pub fn value(&self, key: AttributeKey) -> Option<&Value> {
+        use AttributeKey as K;
         match key {
-            AttributeKey::Origin => self.origin.as_deref().map(OriginReceipt::value),
-            AttributeKey::InputAddresses if self.inputs.is_some() => {
-                self.inputs.as_deref().map(InputAddresses::value)
-            }
-            key if self.present.may_contain(key) => self.entries.get(key.as_str()),
-            _ => None,
+            K::Origin => self.origin.as_deref().map(OriginReceipt::value),
+            K::InputAddresses => match self.inputs.as_deref() {
+                Some(inputs) => Some(inputs.value()),
+                None => self.entry(key),
+            },
+            K::Group
+            | K::Label
+            | K::AllPath
+            | K::OnePath
+            | K::Concrete
+            | K::Symbolic
+            | K::CellCollection
+            | K::Token
+            | K::Hook
+            | K::Comm
+            | K::Initializer
+            | K::Priority
+            | K::Result
+            | K::Private
+            | K::Public
+            | K::Stream
+            | K::UnboundVariables
+            | K::Circularity
+            | K::Trusted
+            | K::Depends
+            | K::Context
+            | K::Cool
+            | K::Heat
+            | K::NonExecutable
+            | K::Owise
+            | K::PreservesDefinedness
+            | K::SmtLemma
+            | K::Anywhere
+            | K::Simplification
+            | K::Syntactic
+            | K::Haskell
+            | K::NotLr1
+            | K::Locations
+            | K::ApplyPriority
+            | K::CellName
+            | K::Color
+            | K::Colors
+            | K::Element
+            | K::Format
+            | K::Index
+            | K::Klabel
+            | K::Latex
+            | K::Multiplicity
+            | K::Overload
+            | K::Parser
+            | K::Prec
+            | K::Smtlib
+            | K::SmtHook
+            | K::TerminatorSymbol
+            | K::Type
+            | K::Unit
+            | K::Update
+            | K::WrapElement
+            | K::Hybrid
+            | K::Seqstrict
+            | K::Strict
+            | K::Symbol
+            | K::Alias
+            | K::AliasRec
+            | K::Assoc
+            | K::Avoid
+            | K::Bag
+            | K::Binder
+            | K::Bracket
+            | K::Cell
+            | K::Constructor
+            | K::Deprecated
+            | K::Exit
+            | K::FreshGenerator
+            | K::Function
+            | K::Functional
+            | K::Idem
+            | K::Impure
+            | K::Initial
+            | K::Injective
+            | K::Internal
+            | K::Left
+            | K::Macro
+            | K::MacroRec
+            | K::Maincell
+            | K::Memo
+            | K::MlBinder
+            | K::MlOp
+            | K::NonAssoc
+            | K::NoEvaluators
+            | K::Prefer
+            | K::ReturnsUnit
+            | K::Right
+            | K::Total
+            | K::UnparseAvoid
+            | K::Unused
+            | K::Unobservable
+            | K::Anonymous
+            | K::BracketLabel
+            | K::CellFragment
+            | K::CellOptAbsent
+            | K::CellSort
+            | K::Concat
+            | K::ContentStartColumn
+            | K::ContentStartLine
+            | K::ContentStartOffset
+            | K::CoolLike
+            | K::Denormal
+            | K::Digest
+            | K::DummyCell
+            | K::FilterElement
+            | K::Fresh
+            | K::HasDomainValues
+            | K::Nat
+            | K::NotInjection
+            | K::NotLr1Modules
+            | K::OriginalPrd
+            | K::Predicate
+            | K::PrettyPrintWithSortAnnotation
+            | K::Priorities
+            | K::ProductionClass
+            | K::Projection
+            | K::RecordPrd
+            | K::RecordPrdZero
+            | K::RecordPrdOne
+            | K::RecordPrdMain
+            | K::RecordPrdEmpty
+            | K::RecordPrdSubsort
+            | K::RecordPrdRepeat
+            | K::RecordPrdItem
+            | K::Refreshed
+            | K::SmtPrelude
+            | K::SortClass
+            | K::SortParams
+            | K::Source
+            | K::SourceId
+            | K::Location
+            | K::SymbolOverload
+            | K::SyntaxModule
+            | K::TemporaryCellSortDecl
+            | K::Terminals
+            | K::UniqueId
+            | K::UserList
+            | K::UserListTerminator
+            | K::WithConfig
+            | K::SentenceStartOffset
+            | K::SentenceEndOffset
+            | K::GeneratedRuleSyntax
+            | K::BisonParsingOnlySubsort
+            | K::LambdaRefutation => self.entry(key),
+        }
+    }
+
+    /// The value `entries` holds for a well-known key, answered from `present` when it is absent.
+    fn entry(&self, key: AttributeKey) -> Option<&Value> {
+        if self.present.may_contain(key) {
+            self.entries.get(key.as_str())
+        } else {
+            None
         }
     }
 
