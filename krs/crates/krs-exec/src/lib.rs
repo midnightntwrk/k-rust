@@ -909,8 +909,6 @@ impl fmt::Display for ExecError {
 /// Why a definition takes no program file.
 const NO_MAIN_PARAMETER: &str = "the #[k::init] has no main parameter (none is marked #[k::config_var(main)] or read in the computation cell)";
 
-/// The value of an `initGeneratedTopCell` map entry: the map holds each value boxed as one
-/// `KItem`, `#KConfigValue(V ~> .K)`, and `V` is the sequence's one item.
 /// Each configuration variable of `pattern`, an assembled `initGeneratedTopCell`, by name without
 /// `$` in name order, with its value unboxed ([`unboxed_configuration_value`]).
 fn configuration_bindings<'p>(
@@ -943,6 +941,8 @@ fn configuration_bindings<'p>(
     bindings
 }
 
+/// The value of an `initGeneratedTopCell` map entry: the map holds each value boxed as one
+/// `KItem`, `#KConfigValue(V ~> .K)`, and `V` is the sequence's one item.
 fn unboxed_configuration_value(boxed: &Pattern) -> &Pattern {
     let box_symbol = k_rust::kompile::encode_kore_label(&k_rust::kast::Label::new("#KConfigValue"));
     let Pattern::Application { symbol, arguments } = boxed else {
