@@ -826,6 +826,9 @@ fn check_rule_instances(
     modules: &[SemanticModule],
     declarations: &DescriptorIndex<'_>,
 ) -> Result<(), DescriptorLoweringError> {
+    // One tree serves every rule: `modules` are one definition's, lowering refuses a definition
+    // that selects other than exactly one configuration (`ConfigurationCount`), and
+    // [`check_subjects`] refused a sentence typed by any other configuration identity.
     let mut tree = None;
     for rule in modules.iter().flat_map(SemanticModule::rules) {
         let Some(descriptor) = declarations.get(rule.id()) else {
