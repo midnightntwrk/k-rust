@@ -64,10 +64,10 @@ pub struct ResultProjection {
     pub state: StateProjection,
     /// The maximal cells compared, in configuration preorder: the cells of `[result] cells` and
     /// the key of each Map that encloses one when the manifest narrows them, otherwise the
-    /// outermost cells neither left out nor enclosing a cell left out. A cell listed here is compared except for the cells of
-    /// [`Self::not_compared`] inside it. `None` when the second slot compares the whole term of a
-    /// configuration whose cells cannot be placed (kink-campaign `cell-layout`), so no cell can
-    /// be named.
+    /// outermost cells neither left out nor enclosing a cell left out. A cell listed here is
+    /// compared except for the cells of [`Self::not_compared`] inside it. `None` when the second
+    /// slot compares the whole term of a configuration whose cells cannot be placed
+    /// (kink-campaign `cell-layout`), so no cell can be named.
     pub compared: Option<Vec<String>>,
     /// The cells whose content the second slot leaves out, in configuration preorder.
     pub not_compared: Vec<String>,
