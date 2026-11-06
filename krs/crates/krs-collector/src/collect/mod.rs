@@ -626,6 +626,7 @@ fn resolve_pending_descriptors(
             .collect::<Result<Vec<_>, _>>()?;
         let settings = contexts.iter().map(|context| PackageSettings {
             package: context.package.clone(),
+            crate_name: Some(context.crate_root.clone()),
             int_literals: context.int_literals,
             allow_raw_k: context.allow_raw_k,
             profile: context.profile,
@@ -779,6 +780,7 @@ fn prepare_contexts(
     let mut prepared = Vec::new();
     let mut lookup = BTreeMap::new();
     let mut namespaces = BTreeSet::new();
+    let mut crate_names = BTreeMap::<String, PackageId>::new();
     for context in contexts {
         if !namespaces.insert(context.package.k_namespace().to_owned()) {
             return Err(CollectionError::new(
@@ -820,6 +822,22 @@ fn prepare_contexts(
                     context.package.cargo_name(),
                     context.package.cargo_version(),
                     package_dir.display()
+                ),
+            ));
+        }
+        // A KRS document names a package's items by its crate name, the crate name of its
+        // library, so a crate name two packages share would name neither's items alone.
+        if let Some(other) = crate_names.insert(context.crate_root.clone(), context.package.clone())
+        {
+            return Err(CollectionError::new(
+                CollectionErrorKind::DuplicateCrateName,
+                format!(
+                    "Cargo packages `{} {}` and `{} {}` both have the crate name `{}`: a KRS definition names a package's items by its library's crate name, so no two of its packages may share one; give one library another name in its package's `[lib]` section",
+                    other.cargo_name(),
+                    other.cargo_version(),
+                    context.package.cargo_name(),
+                    context.package.cargo_version(),
+                    context.crate_root
                 ),
             ));
         }

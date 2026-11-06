@@ -219,6 +219,7 @@ pub(super) fn resolve_imports(
     package: &PackageId,
     specs: &[SpecDeclaration<'_>],
     definition_modules: &BTreeMap<PackageId, ModuleId>,
+    crate_name: &dyn Fn(&PackageId) -> String,
     main: &ModuleId,
     reserved: &BTreeSet<String>,
 ) -> Result<Vec<Vec<ModuleId>>, DescriptorLoweringError> {
@@ -249,7 +250,14 @@ pub(super) fn resolve_imports(
         let parent = &spec.path[..spec.path.len().saturating_sub(1)];
         let mut imports = Vec::new();
         for import in spec.imports {
-            let target = resolve_import(package, &import.path, parent, &spec_paths, definition_modules)
+            let target = resolve_import(
+                package,
+                &import.path,
+                parent,
+                &spec_paths,
+                definition_modules,
+                crate_name,
+            )
                 .map_or_else(
                     || {
                         Err(fail_at(
@@ -361,9 +369,10 @@ fn resolve_import(
     parent: &[String],
     specs: &[(&[String], &ModuleId)],
     definition_modules: &BTreeMap<PackageId, ModuleId>,
+    crate_name: &dyn Fn(&PackageId) -> String,
 ) -> Option<ModuleId> {
     if let Some(dependency) = path.strip_prefix("::") {
-        return dependency_module(package, dependency, definition_modules);
+        return dependency_module(package, dependency, definition_modules, crate_name);
     }
     let segments = path.split("::").collect::<Vec<_>>();
     let (base, rest) = match segments.first().copied()? {
@@ -389,22 +398,21 @@ fn resolve_import(
         return Some((*name).clone());
     }
     if segments.len() == 1 && !matches!(segments[0], "crate" | "self" | "super") {
-        return dependency_module(package, segments[0], definition_modules);
+        return dependency_module(package, segments[0], definition_modules, crate_name);
     }
     None
 }
 
-/// A dependency crate root: the package whose default library crate name is `name`.
+/// A dependency crate root: the package whose library's crate name (`crate_name`) is `name`.
 fn dependency_module(
     package: &PackageId,
     name: &str,
     definition_modules: &BTreeMap<PackageId, ModuleId>,
+    crate_name: &dyn Fn(&PackageId) -> String,
 ) -> Option<ModuleId> {
     definition_modules
         .iter()
-        .find(|(candidate, _)| {
-            *candidate != package && candidate.cargo_name().replace('-', "_") == name
-        })
+        .find(|(candidate, _)| *candidate != package && crate_name(candidate) == name)
         .map(|(_, module)| module.clone())
 }
 
@@ -606,7 +614,15 @@ mod tests {
                 .iter()
                 .map(|segment| (*segment).to_owned())
                 .collect::<Vec<_>>();
-            resolve_import(&own, path, &parent, &specs, &modules).map(|id| id.as_str().to_owned())
+            resolve_import(
+                &own,
+                path,
+                &parent,
+                &specs,
+                &modules,
+                &|package: &PackageId| package.default_crate_name(),
+            )
+            .map(|id| id.as_str().to_owned())
         };
         assert_eq!(resolve("crate", &[]).as_deref(), Some("IMP-VERIFICATION"));
         assert_eq!(resolve("lemmas", &[]).as_deref(), Some("LEMMAS"));
@@ -631,5 +647,20 @@ mod tests {
         assert_eq!(resolve("missing", &[]), None);
         assert_eq!(resolve("crate::missing", &[]), None);
         assert_eq!(resolve("super::lemmas", &[]), None);
+        // A dependency whose `[lib]` section names its library `imp_language` is that crate,
+        // and its package name is no crate root.
+        let library = |path: &str| {
+            resolve_import(&own, path, &[], &specs, &modules, &|package: &PackageId| {
+                if package.cargo_name() == "krs-imp-definition" {
+                    "imp_language".to_owned()
+                } else {
+                    package.default_crate_name()
+                }
+            })
+            .map(|id| id.as_str().to_owned())
+        };
+        assert_eq!(library("imp_language").as_deref(), Some("KRS-IMP"));
+        assert_eq!(library("::imp_language").as_deref(), Some("KRS-IMP"));
+        assert_eq!(library("krs_imp_definition"), None);
     }
 }

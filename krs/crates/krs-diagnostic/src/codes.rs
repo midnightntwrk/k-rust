@@ -187,6 +187,7 @@ register_codes! {
         HOST_IO: "krs::collect::host-io" [Environment] => "A host path could not be canonicalized or read.",
         DUPLICATE_PACKAGE_CONTEXT: "krs::collect::duplicate-package-context" [Internal] => "More than one context claimed the same host package lookup key.",
         DUPLICATE_KNAMESPACE: "krs::collect::duplicate-knamespace" => "More than one package claimed the same immutable K namespace.",
+        DUPLICATE_CRATE_NAME: "krs::collect::duplicate-crate-name" => "Two packages of a definition have libraries with the same crate name.",
         UNSUPPORTED_SCHEMA_VERSION: "krs::collect::unsupported-schema-version" [Environment] => "A descriptor carried a schema version other than the current one.",
         INVALID_BUILTIN_REGISTRY: "krs::collect::invalid-builtin-registry" [Internal] => "The compiler-provided builtin marker catalog was incomplete or ambiguous.",
         PACKAGE_NOT_SELECTED: "krs::collect::package-not-selected" => "No selected Cargo package matched a descriptor's host lookup key.",

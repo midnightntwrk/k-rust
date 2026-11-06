@@ -426,6 +426,7 @@ fn lower_bundle(
                 &package,
                 &declarations,
                 &module_ids,
+                &|package: &PackageId| bundle.crate_name(package),
                 &main,
                 &reserved,
             )?;
@@ -476,7 +477,13 @@ fn lower_bundle(
     let pre_derivation = if retain { modules.clone() } else { Vec::new() };
     let modules = local_functions::lift_local_functions(modules)?;
     let modules = definedness::guard_conditions(modules)?;
-    let theory = checked_theory(modules)?;
+    // A package's items are named by its library's crate name, which the bundle records where
+    // it is not the package's default.
+    let theory = checked_theory(modules)?
+        .with_crate_names(bundle.crate_names())
+        .map_err(|error| {
+            DescriptorLoweringError::unsupported_shape("package crate names", error.to_string())
+        })?;
     Ok(RetainedLowering {
         pre_derivation,
         admitted,

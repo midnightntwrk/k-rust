@@ -653,6 +653,33 @@ fn rejects_duplicate_contexts_namespaces_and_missing_type_declarations() {
         CollectionErrorKind::DuplicateKNamespace,
     );
 
+    // Two packages whose libraries have one crate name, such as `foo-bar` and `foo_bar`, or a
+    // package whose `[lib]` section gives its library another package's crate name, are refused:
+    // a KRS document names a package's items by its library's crate name.
+    let shared = |package: &TestPackage, namespace: &str| {
+        PackageContext::new(
+            namespace,
+            &package.name,
+            "0.1.0",
+            "workspace",
+            "shared_library",
+            package.root().join("Cargo.toml"),
+        )
+        .unwrap()
+    };
+    let error = collect_descriptors(
+        [shared(&package, "ORG-ONE"), shared(&other, "ORG-TWO")],
+        std::iter::empty(),
+    )
+    .unwrap_err();
+    assert_eq!(error.kind(), CollectionErrorKind::DuplicateCrateName);
+    assert!(
+        error.to_string().contains(
+            "Cargo packages `contexts 0.1.0` and `other_context 0.1.0` both have the crate name `shared_library`"
+        ),
+        "{error}"
+    );
+
     let mut missing_type = package.sort("Expr", expr_type, vec![]);
     missing_type.declared_type = None;
     assert_kind(

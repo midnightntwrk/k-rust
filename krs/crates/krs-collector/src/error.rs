@@ -16,6 +16,8 @@ pub enum CollectionErrorKind {
     DuplicatePackageContext,
     /// More than one package claimed the same immutable K namespace.
     DuplicateKNamespace,
+    /// More than one package's library has the same crate name.
+    DuplicateCrateName,
     /// A descriptor carried a schema version other than the current one.
     UnsupportedSchemaVersion,
     /// The compiler-provided builtin marker catalog was incomplete or ambiguous.
@@ -217,6 +219,7 @@ impl ToDiagnostic for CollectionError {
                 codes::collect::DUPLICATE_PACKAGE_CONTEXT
             }
             CollectionErrorKind::DuplicateKNamespace => codes::collect::DUPLICATE_KNAMESPACE,
+            CollectionErrorKind::DuplicateCrateName => codes::collect::DUPLICATE_CRATE_NAME,
             CollectionErrorKind::UnsupportedSchemaVersion => {
                 codes::collect::UNSUPPORTED_SCHEMA_VERSION
             }
@@ -331,6 +334,10 @@ mod tests {
             (
                 CollectionErrorKind::DuplicateKNamespace,
                 codes::collect::DUPLICATE_KNAMESPACE,
+            ),
+            (
+                CollectionErrorKind::DuplicateCrateName,
+                codes::collect::DUPLICATE_CRATE_NAME,
             ),
             (
                 CollectionErrorKind::UnsupportedSchemaVersion,

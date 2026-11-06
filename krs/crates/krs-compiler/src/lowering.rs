@@ -515,6 +515,11 @@ pub fn lower_semantic_theory(theory: &SemanticTheory) -> Result<LoweredDefinitio
                 item: item.map(Box::new),
             }
         })?;
+    let definition = definition
+        .with_crate_names(theory.crate_names().iter().cloned())
+        .map_err(|error| {
+            LoweringError::unsupported_shape("package crate names", error.to_string())
+        })?;
     let symbol_map = SymbolMap::from_definition(&definition)
         .map_err(|error| LoweringError::InvalidSidecar(error.to_string()))?;
     let source_map = SourceMap::from_definition(&definition)
@@ -814,7 +819,7 @@ impl NamingPass {
                 pass.sorts.insert(
                     sort.id().clone(),
                     SymbolIdentity::new(id, name, SymbolKind::Sort)?
-                        .with_declaration(declaration_path(sort.id())?),
+                        .with_declaration(declaration_path(theory, sort.id())?),
                 );
             }
             for production in module.productions() {
@@ -874,7 +879,7 @@ impl NamingPass {
                     if production.id().is_generated_production() {
                         symbol
                     } else {
-                        symbol.with_declaration(declaration_path(production.id())?)
+                        symbol.with_declaration(declaration_path(theory, production.id())?)
                     },
                 );
             }
@@ -3901,8 +3906,11 @@ fn list_enum_name(production: &krs_ir_levels::SemanticProduction) -> Option<&str
 /// same-named declarations of one package in different modules.
 /// The KRS declaration path of an authored item: its crate, module path, and
 /// name, with an enum variant's enum before the variant.
-fn declaration_path(id: &StableItemId) -> Result<DeclarationPath, LoweringError> {
-    let crate_name = id.package().cargo_name().replace('-', "_");
+fn declaration_path(
+    theory: &SemanticTheory,
+    id: &StableItemId,
+) -> Result<DeclarationPath, LoweringError> {
+    let crate_name = theory.crate_name(id.package());
     let segments = id
         .module_path()
         .iter()
