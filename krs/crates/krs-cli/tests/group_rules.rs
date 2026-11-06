@@ -2329,7 +2329,8 @@ fn hart_eval(
 "#;
 
 /// A configuration whose only computation cell sits in a Set collection's
-/// instance, so the program starts there.
+/// instance, so the program starts there; `list-main` holds the same
+/// instances as a List.
 const SET_MAIN: &str = r#"
 use k::builtin::{Int, KSequence};
 
@@ -2584,6 +2585,92 @@ impl Pool {
 }
 "#;
 
+/// `solo`: the one hart in an optional cell, present from the start, so the
+/// main cell, the hart's `k`, sits in the optional instance; `rules` is
+/// appended.
+fn solo(rules: &str) -> String {
+    format!(
+        r#"
+#[k::configuration]
+pub struct Solo {{
+    #[k::cell(multiplicity = "?", nested)]
+    pub hart: Option<lib::Hart>,
+}}
+
+impl Solo {{
+    #[k::init]
+    pub fn init(pgm: lib::Instr) -> Self {{
+        Self {{
+            hart: Some(lib::Hart {{ id: 0, k: k::k![pgm], pc: 0 }}),
+        }}
+    }}
+}}
+
+{rules}
+"#
+    )
+}
+
+/// A main cell inside a Map collection's instance (`smp`) or an optional
+/// cell's (`solo`) is accepted: each holder keeps the identity of the one
+/// instance that steps, so a table clause, which names no cell and runs at
+/// the main cell, is a local step of that hart. Each definition checks, emits
+/// `tick` inside `<hart>`, and runs `tick` to `pc` 1 through the hart's `inc`.
+#[test]
+fn a_main_cell_in_a_map_or_an_optional_instance_is_accepted() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let packages = [
+        ("smp", smp("Map", HOLDER_HART_RULES)),
+        ("solo", solo(HOLDER_HART_RULES)),
+    ];
+    let sources = packages
+        .iter()
+        .map(|(name, source)| (*name, source.as_str()))
+        .collect::<Vec<_>>();
+    let manifests = instance_definitions(temporary.path(), "", &sources);
+    let whitespace = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let outcomes = manifests
+        .iter()
+        .zip(&packages)
+        .map(|(manifest, (package, _))| {
+            let (success, _, stderr) = krs_on(target.path(), manifest, package, "check", &[]);
+            assert!(success, "{package}:\n{stderr}");
+            let flat = emitted(target.path(), manifest, package);
+            let path = manifest.with_file_name("program.txt");
+            fs::write(&path, "tick").unwrap();
+            let (success, stdout, stderr) = krs_on(
+                target.path(),
+                manifest,
+                package,
+                "run",
+                &[path.to_str().unwrap()],
+            );
+            assert!(success, "{package}:\n{stdout}\n{stderr}");
+            vec![
+                (*package).to_owned(),
+                sentence(&flat, "rule [tick]:").to_owned(),
+                harts(&whitespace(&stdout)).join(" | "),
+            ]
+        })
+        .collect::<Vec<_>>();
+    expect_test::expect![[r#"
+        [
+            [
+                "smp",
+                "rule [tick]: <hart> <k> tick => inc ... </k> ... </hart>",
+                "<id> 0 </id> <k> .K </k> <pc> 1 </pc>",
+            ],
+            [
+                "solo",
+                "rule [tick]: <hart> <k> tick => inc ... </k> ... </hart>",
+                "<id> 0 </id> <k> .K </k> <pc> 1 </pc>",
+            ],
+        ]
+    "#]]
+    .assert_debug_eq(&outcomes);
+}
+
 /// The outcome of `krs check` on each case: its name, then each diagnostic's
 /// headline, location and help. A case is its name, the source of its one
 /// package beside `lib` and that package's name; the holder cases take the
@@ -2644,6 +2731,11 @@ fn meaning_cases() -> Vec<(&'static str, String, &'static str)> {
         ),
         ("set-main", SET_MAIN.to_owned(), "pool"),
         (
+            "list-main",
+            SET_MAIN.replace(r#"cell_type = "Set""#, r#"cell_type = "List""#),
+            "pool",
+        ),
+        (
             "initializer",
             smp("Map", PC_PLUS).replace("pc: 0 },", "pc: crate::PcPlus(0) },"),
             "smp",
@@ -2664,7 +2756,9 @@ fn meaning_cases() -> Vec<(&'static str, String, &'static str)> {
 /// - a function whose context reads one hart, applied by a rule for the
 ///   configuration, directly or through a function without a context of its
 ///   own, is `instance-context-caller`, at the application;
-/// - a main cell inside a Set instance is `main-cell`;
+/// - a main cell inside a Set instance is `main-cell`, with the Set's reason,
+///   and one inside a List instance (`list-main`, [`SET_MAIN`] held as a
+///   List) is too, with the List's gap;
 /// - the initializer, which builds the configuration and so is evaluated in
 ///   no hart, applying that function is `instance-context-caller`, at the
 ///   application.
@@ -2741,6 +2835,11 @@ fn a_sentence_about_one_instance_is_refused_where_its_meaning_does_not_hold() {
             [
                 "set-main",
                 "error[krs::analysis::main-cell]: the computation cell `k` sits in an instance of the Set collection cell `obj` of configuration `Pool`: a sentence that names no cell (a term rule, a context, a strict production's heating) runs at the computation cell, so it is a local step of the instance that holds it, and a Set identifies an instance by its whole content, so a step that makes that instance equal to another merges the two, removing an instance the step never touched; hold the instances in a Map collection keyed by an id",
+                "--> pool/src/lib.rs: `obj: Obj,`",
+            ],
+            [
+                "list-main",
+                "error[krs::analysis::main-cell]: the computation cell `k` sits in an instance of the List collection cell `obj` of configuration `Pool`: a sentence that names no cell (a term rule, a context, a strict production's heating) runs at the computation cell, so it is a local step of the instance that holds it, which in a List is the instance at any position, and matching one instance between others is not supported yet; hold the instances in a Map collection keyed by an id",
                 "--> pool/src/lib.rs: `obj: Obj,`",
             ],
             [
