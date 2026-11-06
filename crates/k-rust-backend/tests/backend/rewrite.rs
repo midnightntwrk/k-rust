@@ -59,6 +59,10 @@ use crate::support::{
 /// (`ExecutionResult::passed_stops`) and its list of the short-circuit readings its work rests
 /// on (`short_circuit_readings`) were added later as well. Both are empty in each of these
 /// results, so their empty lines are left out alike; a listed entry would still move a pin.
+/// A term node's stored head shape (`shape` in its attributes) was added later too, and it is
+/// present on every node, so no line filter can leave it out. It is a function of the node's
+/// kind, which the rendering already shows, so the pins were re-taken with it and still state
+/// the results they were taken from.
 fn assert_be08_capture(name: &str, value: &impl Debug, expected_sha256: &str) {
     let rendered = format!("{value:#?}")
         .lines()
@@ -3334,7 +3338,7 @@ fn cascades_a_remainder_through_every_lower_priority_group() {
     assert_be08_capture(
         "T1 complete ExecutionResult",
         &result,
-        "570df6b8a99a38aba28604720f7ae2c19beba6ea8112b1a7ea2e84e8e5836986",
+        "5e6e831d09feb01540a900f964b5be52cd7d58c54f353a006a1d54b4531847a7",
     );
 }
 
@@ -3375,7 +3379,7 @@ fn stopped_branch_reports_lower_groups_before_the_first_productive_group() {
     assert_be08_capture(
         "T2 complete ExecutionResult",
         &result,
-        "4647430a9fd3f7a39c936288f61592bde44974cbcb63d43f300f1e03304f4058",
+        "a9023501d57213e0aa5f578f5f60dce3c5735bf8cd0c3bdfea5af7209b8731de",
     );
 }
 
@@ -3432,7 +3436,7 @@ fn cascade_keeps_the_remainder_when_lower_groups_are_stuck() {
     assert_be08_capture(
         "T7 complete ExecutionResult",
         &result,
-        "26020220f73eedad1979a0f52a0a0d5d938626badfa5f7e4dfe45626ed6d19cd",
+        "8c0dcacd8a8cdaf6fd8725d8016eda1eb5df510f42822717bf6f3a825e364bce",
     );
 }
 
@@ -3493,7 +3497,7 @@ fn any_mode_stopped_branch_uses_the_steps_remainder() {
     assert_be08_capture(
         "T15 complete ExecutionResult",
         &result,
-        "2dd3b89e41216249358b012dac350b4617983e0ad434c47876ae993c893a44e6",
+        "908772f1a7600466981b2069bead1fca9f34981f3959564fec491fa7b812227c",
     );
 }
 
@@ -3566,7 +3570,7 @@ fn later_group_simplification_error_is_reported_on_the_remainder() {
     assert_be08_capture(
         "T8 result and solver transcript",
         &(&result, &transcript),
-        "0dd743cbdb43b46ea06d3544954c831f26409159df1b61ab1e116e874f25659a",
+        "cb1f920314851bd56eae1655a1531a67bcfb57de1f2816e3c811d830586fbbf6",
     );
 }
 
@@ -3636,7 +3640,7 @@ fn cancellation_during_lower_group_work_is_observed_after_the_step() {
     assert_be08_capture(
         "T9 result and solver transcript",
         &(&result, &transcript),
-        "26e3695c0adbe8f6e2eadedbf082ba6bce15dff9c6c5fb02d76728dd2d10053d",
+        "c58eb30281578c2fc9df618d435293597f6b310dda61f25aef53eb974f01be31",
     );
     assert_eq!(leaf.halt_reason, HaltReason::Stopped(StopCause::Cancelled));
     assert!(result.discarded.is_empty(), "{result:#?}");
@@ -3786,7 +3790,7 @@ fn lower_group_budget_exhaustion_keeps_partial_successors_under_diagnostic_colle
     assert_be08_capture(
         "T12 result, diagnostics, and solver transcript",
         &(&result, &diagnostics, &transcript),
-        "4da30228891a2d56896ef203bc306223f2ffdf2a40e024f3cb7a0fbf7f09f2a9",
+        "acdb91b2491a585c83229facebc92005782dce335b90029a90d09af794ad485d",
     );
 }
 
@@ -3850,7 +3854,7 @@ fn complete_step_classifies_effects_from_every_group() {
     assert_be08_capture(
         "T13 result and solver transcript",
         &(&result, &transcript),
-        "ed6779eb3e3fcec528cc778fcf2514a2ecca6353efcb8cef04707f73a88e7b74",
+        "ba89f72b73f5b46f5895e2ac94be4a1cf17f859011bd49688a02a01d4fa83a76",
     );
 }
 
@@ -3912,7 +3916,7 @@ fn ground_io_candidates_are_rejected_without_touching_the_retained_cursor_across
     assert_be08_capture(
         "T14 result and solver transcript",
         &(&result, &transcript),
-        "5371b54c750acbcf5f385efd87fdb68a207b5c8f7f7bea0bfb5b8a8c8eebcc09",
+        "409a9fc591a632e71e16f11ebda163618d0c76768738f5f7feca87b15f1626a8",
     );
 }
 
@@ -3975,7 +3979,7 @@ fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
             &terminal,
             &*terminal_solver.transcript.borrow(),
         ),
-        "60b671bcc824735b2c02752fc3d176bc3d1f3f7f03593949ef017264f946275a",
+        "5309fe23b4342952c87c7995a240e564a39b6ebcf31faa9e03a280a7be75fdd5",
     );
     assert!(cut_solver.answers.borrow().is_empty());
     assert!(cut_solver.validity.borrow().is_empty());
