@@ -221,6 +221,7 @@ A batch exits 2 when a member is refused or fails, since its answer is then inco
 - `prove` is a batch of its claims: a claim `proven` or `trusted` counts 0 (a `trusted` claim is assumed, never proven, and the summary line counts it separately), `disproved` or `failed` 1, `indeterminate`, `depth-bound`, `breadth-bound` or `timeout` 3, and `crashed` 2, since the process proving it failed and gave no answer; a failure of the batch itself, such as a definition with no claims, a `--claim` that names none, or a crash after the last claim, which leaves the batch's own checks and output unfinished, exits 2.
 - `cases` is a batch of its cases: `met` counts 0, `unmet` 1, `inconclusive` 3, `refused` 2, and `ran` 0, or 3 when the case's run has no end (it halted `indeterminate`, `timeout` or another inconclusive halt, or has no one path); its JSON summary's `status` is the exit status.
 - `compare` exits 0 when the sides are equal (with `--expect`, when the expectation is met), 1 when they differ (unmet), 3 when the comparison is inconclusive, and 2 when a side or the comparison is refused.
+  With `--pairs`, it is a batch of its pairs, each counting what it would exit alone, and a refused pair 2; its JSON summary's `status` is the exit status.
 
 Every other command exits 0 on success, 2 on a usage error and 1 otherwise; `krs kink` exits as kink-flow does ([the corpus loop](#the-corpus-loop)).
 
@@ -727,6 +728,44 @@ The side may be an end document: an end another implementation reached, checked 
 `krs compare` prints `krs compare: equal`, or the first difference as `krs run --case` prints an unmet expectation's: where the sides differ, each side's value labelled `left` and `right`, the other compared cells that differ, and the views it applied; with `--expect`, the lines of `krs run --case`.
 `--output json` prints one document instead, `{"schema": "krs-compare/1", "verdict", ...}`: `verdict` is `equal`, `differs` or `inconclusive` (`met`, `unmet` or `inconclusive` with `--expect`), with `difference` (`krs-difference/3`, the left side on its `left`) or `reason`, and `views` and `observer` when views were applied.
 It exits by the verdict ([exit status](#exit-status)).
+
+### Compare many pairs
+
+```console
+krs compare --package my-semantics --definition main --pairs pairs.toml --jobs 4 --output json
+```
+
+```toml
+[[pair]]
+left = "ends/emulator-ld-a.json"
+right = "cases/steps.toml#ld-a"
+compare = ["pc", "regs", "bus"]
+views = { bus = "WritesView" }
+observer = "my-semantics-views:main"
+
+[[pair]]
+expect = "cases/steps.toml#ld-b"
+actual = "ends/emulator-ld-b.json"
+```
+
+`krs compare --pairs FILE` asks every question the document FILE lists, each one `krs compare` question:
+`left` and `right`, with the `compare`, `views` and `observer` that `--compare`, `--view` and `--observer` would give it, or `expect` and `actual`, as `--expect CASE ACTUAL`.
+A side is spelled as on the command line (`FILE` or `FILE#NAME`), relative to the directory of FILE, as every path a document names is relative to that document.
+FILE lists its pairs under `pair` as a case document of named cases lists its cases under `case`, an array of tables in a `.toml` file or of objects in a `.json` file, read by its extension, and holds nothing else; a document that lists no pair is refused.
+Since every pair states its own question, `--pairs` takes no sides, `--expect`, `--compare`, `--view` or `--observer`; `--view-budget` and the solver options apply to every pair.
+
+A batch costs what `krs cases` costs: the package is read and the stage restored once, the definition is loaded once per worker (`--jobs N`, by default the available parallelism), each observer a pair names is prepared once and loaded once per worker that uses it, and memory grows with N in the same way.
+A case side's end, and whether it is its case's only end, depend on the case and the definition alone, not on the comparison, its views or its observer, so each case the pairs name is run once for the whole batch and followed again at most once, whichever pairs and workers use it.
+Each pair's verdict is then the one `krs compare` gives for that pair alone, with the exceptions `krs cases` states for a verdict a resource stop decides.
+
+A pair's record is printed as soon as the pairs before it are.
+By default it is the lines `krs compare` prints for the pair, headed by `pair N` and its sides as written in place of `krs compare` (`pair 3 (ends/a.json, cases/steps.toml#ld-a): equal`), or `refused:` and the reason for a pair that is no question (an unknown key, a missing side, a `compare` or `views` beside `expect`), whose side cannot be read or is refused, or whose observer cannot be prepared;
+and `inconclusive:` and the reason where following a case side's run again reaches several states under conditions it cannot decide, where `krs compare` alone exits 3 with that reason.
+A last line counts the verdicts.
+`--output json` prints one `krs-compare/1` document per line instead:
+each pair's is the document `krs compare` prints for it alone with one more member, `pair`, which holds its `number` (its place in FILE, counting from 1) and its sides as written (`left` and `right`, or `expect` and `actual`); a refused pair has `verdict` `refused` and its `reason`;
+then the summary, `{"schema": "krs-compare/1", "summary": {"pairs", "equal", "differs", "met", "unmet", "inconclusive", "refused"}, "status"}`, `status` being the exit status.
+A reader of a single comparison's document reads each pair's alike: `pair` is the only member added, and `refused` the only verdict a single comparison never prints, since it exits 2 with its diagnostic instead.
 
 ## The corpus loop
 
