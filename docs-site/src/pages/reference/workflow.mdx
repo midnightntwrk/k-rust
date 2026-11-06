@@ -256,6 +256,23 @@ entry = { Load = { addr = 2, len = 3 } }        # the constructor Instr::Load of
 # pc = { "$call" = { "Boot" = { n = 0 } } }     # Boot(0), evaluated before the first step
 ```
 
+A case may also state the instances its run starts with: its `instances` table names optional (`?`) and repeated (`*`) cells by Rust field path, as an end document's `cells` does, each stated as an end document states it, `[]` or `[content]` for an optional cell and the array of its instances for a repeated one.
+The initializer states every fixed cell's start and one instance's template for each optional and repeated cell, so the case states how many instances there are and what each holds: a cell an instance states is read at its declared type (or as K text, `$text`, parsed at the cell's sort), and a cell it does not state starts as the template says, under the case's inputs.
+A Map collection's instance states its key, and no two share one; a fixed cell starts as the initializer says, so a case that names one is refused (bind other inputs to start it otherwise).
+`run`, `search`, `cases` and a case side of `compare` all start from the stated instances, and a case that states none starts from the initializer's own.
+
+```toml
+inputs.pgm = { "$text-file" = "boot.s" }  # every hart runs this program
+
+[[instances.harts.hart]]                   # two harts, keyed by their first cell `id`
+id = 0
+pc = 0x1000
+
+[[instances.harts.hart]]
+id = 1
+pc = 0x2000
+```
+
 A case may also say how it is run and what end it expects.
 Its `run` table gives the depth bound, the stop rules and the stop count (`depth`, `stop_before`, `stop_after`, `stop_count`), each rule named as `--stop-before` names one, by KRS item (`crate::machine::boundary`) or K label; `--depth` with a case's `run.depth` is refused, since only one may bound the run, and so are the stop flags with a case's stops, since only one may say where it ends.
 The count is the case's, beside its rules, since where a run is observed depends on the program it runs.
@@ -363,8 +380,8 @@ form, `[["$x", 1]]`, and the refusal of the object says so.
 
 | form | value | where |
 |---|---|---|
-| `{"$text": "K text"}` | the text, parsed at the parameter's sort as `-c` parses it | a whole input only |
-| `{"$text-file": "path"}` | the file's UTF-8 text, as `$text`; parse locations carry the file's name | a whole input only |
+| `{"$text": "K text"}` | the text, parsed at the parameter's sort as `-c` parses it, or at a stated cell's sort | a whole input, and a whole cell a case's `instances` states |
+| `{"$text-file": "path"}` | the file's UTF-8 text, as `$text`; parse locations carry the file's name | as `$text` |
 | `{"$file": "path"}` | a `Bytes` of the file's bytes, unchanged | anywhere `Bytes` fits |
 | `{"$hex": "00ff1a"}` | a `Bytes` of the bytes the hex digits spell (an even count, either case, no separators) | anywhere `Bytes` fits |
 | `{"$data-file": "path"}` | the document the file holds (`.json` or `.toml`, by extension), decoded at this position | anywhere |
@@ -456,7 +473,7 @@ its sort to be at most the variable's declared sort, and every part of a collect
 declared element types. The decoder's own checks make the refusal earlier and name the
 position inside the document.
 
-Not in the encoding: `$text` inside a value, sort-parametric productions (refused as
+Not in the encoding: `$text` inside a value (below a whole input or a whole stated cell), sort-parametric productions (refused as
 `ValueIndex::ctor` refuses them), and console input.
 
 #### The canonical document of a value
@@ -558,7 +575,7 @@ so that it is byte-identical across runs and hosts.
 
 A *case document* is a TOML or a JSON document, by its file's extension,
 that states one case or several named cases (`CaseDocument`).
-A *case* is a table of three keys, each of which may be absent:
+A *case* is a table of four keys, each of which may be absent:
 
 - `inputs`: a value for each input, by name
   (a parameter's Rust name, or its configuration variable's K name with or without `$`),
@@ -576,6 +593,8 @@ A *case* is a table of three keys, each of which may be absent:
   which needs a stop rule to count arrivals at.
   The count belongs to the case, beside its rules,
   since where a run is observed depends on the program it runs.
+- `instances`: the instances the run starts with, of the optional and repeated cells it names
+  ("Instances", below).
 - `expect`: the end the case expects of its run ("Expectations", below).
 
 A document of one case holds these keys at its top, and no other.
@@ -599,6 +618,57 @@ the cases of included files included,
 so that the document and the name identify a case (`<document>#<name>`).
 A front end selects a case of a document of named cases by its name;
 the one case of a document has no name, and is selected by none.
+
+#### Instances
+
+The initializer states every fixed cell's start as a function of the inputs,
+and one instance's template for each optional (`?`) and repeated (`*`) cell;
+how many instances such a cell starts with is what it cannot state.
+`instances` states exactly that: the starting instances of the cells it names.
+A fixed cell starts as the initializer says, and a case that needs another start binds other inputs.
+
+`instances` nests by group field as an end document's `cells` does
+(`instances.harts.hart` is the cell `hart` of the group `harts`),
+down to an optional or a repeated cell, which it states in the encoding an end document uses:
+an optional cell as `[]` (absent) or `[content]` (present),
+a repeated cell as the array of its instances, in order for a `List` collection.
+An instance is the table of its cells by Rust field (a document for an optional leaf cell),
+read as an instance a rule creates is:
+
+- a stated leaf cell is read at its declared type, element types included,
+  as an input's value is, and may be K text (`$text`, `$text-file`), parsed at the cell's sort;
+- a stated group cell is the table of its cells, read the same way;
+- a stated optional or repeated cell inside an instance states that cell's instances, as above;
+- a cell the instance does not state takes the template's start, evaluated under the case's inputs,
+  as the initializer's own instance takes it.
+  The template is a function of the inputs, which the case binds, so every cell has one.
+
+An instance of a `Map` collection states its whole key, its first cell,
+as a value (no function application):
+the key is the instance's identity,
+and two instances with one key are refused, naming the key, since a map holds one instance per key.
+Two instances of a `Set` collection stated alike are refused too: a set holds an instance once.
+The stated instances of a cell replace the ones the initializer starts it with,
+the instance `initial` starts included; a cell `instances` does not name starts as the initializer says.
+A path that names a fixed cell is refused, listing the optional and repeated cells a case may state,
+and a path the configuration does not declare is refused, listing the cells there, as an end document's is.
+A function evaluated in one instance of a Map collection is refused in a stated cell's value or text,
+as it is in an input's: it receives an instance's key, and the case's values are evaluated in no instance.
+
+```toml
+inputs.pgm = { "$text-file" = "boot.s" }
+
+[[instances.harts.hart]]
+id = 0
+pc = 0x1000
+
+[[instances.harts.hart]]
+id = 1
+pc = 0x2000
+```
+
+states two harts, keyed `0` and `1`, each with the program counter it gives
+and every other cell as the template starts it (both run the program `pgm` binds).
 
 #### Expectations
 
