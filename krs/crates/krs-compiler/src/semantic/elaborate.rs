@@ -123,7 +123,10 @@ struct Names {
     reserved: BTreeSet<String>,
     /// Instance `k` tails named so far (`tail0`, `tail1`, ..), across the rule's entries.
     tails: usize,
-    /// The frames these names bind, in the order named.
+    /// Sorted wildcards declared so far.
+    wildcards: usize,
+    /// The frames these names bind, and the sorted wildcards of a `for Sort` head, in the order
+    /// named.
     frames: Vec<ProtocolRuleBinding<DescriptorSortReference>>,
 }
 
@@ -155,6 +158,35 @@ impl Names {
             kind,
         });
         name
+    }
+
+    /// A head `_` of a `for Sort` clause, which matches any one item of that sort: a wildcard
+    /// declared at it. `cells!` source writes no sorted `_`, so the binding takes the reserved
+    /// wildcard id a lowered `_` bears, unique among the rule's ids (the `cells!` lowering
+    /// numbers its own wildcards past every declared one); how the print spells it is S6-2c's.
+    fn sorted_wildcard(
+        &mut self,
+        key: &ProvenanceKey,
+        sort: &DescriptorSortReference,
+    ) -> DescriptorTerm {
+        let name = krs_ir::SemanticId::wildcard(self.wildcards)
+            .as_str()
+            .to_owned();
+        self.wildcards += 1;
+        self.frames.push(ProtocolRuleBinding {
+            name: name.clone(),
+            kind: ProtocolRuleBindingKind::Term {
+                sort: DescriptorSortReference {
+                    key: key.clone(),
+                    sort: sort.sort.clone(),
+                },
+            },
+        });
+        DescriptorTerm::Variable {
+            key: key.clone(),
+            path_key: key.clone(),
+            name,
+        }
     }
 }
 
@@ -236,6 +268,7 @@ impl Elaborator<'_> {
                 .map(str::to_owned)
                 .collect(),
             tails: 0,
+            wildcards: 0,
             frames: Vec::new(),
         };
         let state = names.fresh("state");
@@ -344,10 +377,17 @@ impl Elaborator<'_> {
                 };
             // The readable lowering locates the computation's subject at the pattern and its
             // result at the result expression.
-            subject.push(sequence(
-                rule.pattern_key.clone(),
-                head.items.iter().collect(),
-            ));
+            let items = head
+                .items
+                .iter()
+                .map(|item| match (item, &rule.head_sort) {
+                    (DescriptorTerm::Wildcard { key }, Some(sort)) => {
+                        names.sorted_wildcard(key, sort)
+                    }
+                    _ => item.clone(),
+                })
+                .collect::<Vec<_>>();
+            subject.push(sequence(rule.pattern_key.clone(), items.iter().collect()));
             if let Some(after) = &head.result {
                 let items = match after {
                     ProtocolHeadRuleResult::Replace(term) => vec![term],

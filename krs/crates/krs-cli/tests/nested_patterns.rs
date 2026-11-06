@@ -1117,3 +1117,70 @@ fn alternatives_a_cell_term_distributes_over_stand() {
             <outer> _ <flag> ( 0 #Or 1 ) </flag> </outer>"]]
     .assert_eq(rule(&emitted_k(target.path(), &manifest), "pick"));
 }
+
+const SORTED_HEAD_WILDCARD: &str = r#"
+use k::KResult;
+use k::builtin::KSequence;
+
+k::sorts! {
+    Stmt;
+    Tag;
+}
+
+#[k::constructors(sort = Stmt, result = KResult)]
+pub enum Cmd {
+    #[k::syntax("go")]
+    Go(),
+}
+
+#[k::constructors(sort = Tag, result = KResult)]
+pub enum Marker {
+    #[k::syntax("marked")]
+    Marked(),
+}
+
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+}
+
+impl Machine {
+    #[k::init]
+    pub fn init(pgm: Stmt) -> Self {
+        Self {
+            k: k::k![pgm, Marker::Marked()],
+        }
+    }
+}
+
+k::rules! {
+    for Stmt;
+    drop: _ => ();
+}
+"#;
+
+/// A head `_` of a `for Sort` clause is any one item of that sort, and no
+/// item of another: `drop` erases the program's `go` and leaves the `Tag`
+/// behind it.
+#[test]
+fn a_head_wildcard_matches_only_its_clauses_sort() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = library_package(temporary.path(), "sorted-wildcard", SORTED_HEAD_WILDCARD);
+    expect_test::expect![[r"
+        rule [drop]:
+            <k> _:Stmt => .K ... </k>"]]
+    .assert_eq(rule(&emitted_k(target.path(), &manifest), "drop"));
+    let program = manifest.with_file_name("program.txt");
+    fs::write(&program, "go").unwrap();
+    let (success, stdout, stderr) = krs(
+        target.path(),
+        &manifest,
+        "run",
+        &[program.to_str().unwrap()],
+    );
+    assert!(success, "{stdout}\n{stderr}");
+    expect_test::expect!["<k> marked ~> .K </k>"]
+        .assert_eq(&stdout.split_whitespace().collect::<Vec<_>>().join(" "));
+}

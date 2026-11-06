@@ -186,7 +186,7 @@ pub(crate) fn guard_rule(
 }
 
 /// The ordinal of a wildcard's identity.
-fn wildcard_ordinal(id: &SemanticId) -> Option<usize> {
+pub(super) fn wildcard_ordinal(id: &SemanticId) -> Option<usize> {
     (id.kind() == SemanticIdKind::Wildcard)
         .then(|| id.as_str().rsplit('_').next()?.parse().ok())
         .flatten()

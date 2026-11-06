@@ -790,8 +790,16 @@ pub(super) fn lower_configuration_rule_descriptor(
             (semantic_sort_ref(&sort.sort), sort.key.clone()),
         ))
     }));
+    // A binding may itself be a wildcard (an elaborated readable rule's sorted `_`); the
+    // wildcards the terms make are numbered past it, so no two of them are one variable.
+    let wildcard_ordinal = variables
+        .iter()
+        .filter_map(|variable| super::definedness::wildcard_ordinal(variable.id()))
+        .max()
+        .map_or(0, |ordinal| ordinal + 1);
     let mut terms = StateRuleTerms {
         declared_binders,
+        wildcard_ordinal,
         variables,
         ..StateRuleTerms::new(descriptor, declarations, sort_parents, catalog, &typing)
     };
