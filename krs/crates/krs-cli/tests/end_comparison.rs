@@ -3051,3 +3051,228 @@ fn krs_run_output_end_refuses_a_constraint_and_keeps_the_console_off_stdout() {
         "{stderr}"
     );
 }
+
+/// The pair `index` of the batch below: case `c{i}` beside the next case, compared on `bus`
+/// under the observer's `WithRead` (equal: `finish` leaves `bus` alone), or beside `end.toml`,
+/// `finish(3)`'s end, on every cell, `bus` under the observer's `LogShape` (equal only for
+/// `c3`). Every pair names the observer, and the 40 pairs name 20 cases.
+fn batch_pair(index: usize, observer: &str) -> (Json, Vec<String>) {
+    let case = index / 2;
+    let left = format!("many.toml#c{case}");
+    if index.is_multiple_of(2) {
+        let right = format!("many.toml#c{}", (case + 1) % 20);
+        (
+            json!({
+                "left": format!("../{left}"),
+                "right": format!("../{right}"),
+                "compare": ["bus"],
+                "views": {"bus": "WithRead"},
+                "observer": observer,
+            }),
+            vec![
+                left,
+                right,
+                "--compare".into(),
+                "bus".into(),
+                "--view".into(),
+                "bus=WithRead".into(),
+                "--observer".into(),
+                observer.into(),
+            ],
+        )
+    } else {
+        (
+            json!({
+                "left": format!("../{left}"),
+                "right": "../end.toml",
+                "views": {"bus": "LogShape"},
+                "observer": observer,
+            }),
+            vec![
+                left,
+                "end.toml".into(),
+                "--view".into(),
+                "bus=LogShape".into(),
+                "--observer".into(),
+                observer.into(),
+            ],
+        )
+    }
+}
+
+/// `krs compare --pairs FILE` compares every pair the document lists, its sides relative to the
+/// document: 40 pairs over 20 cases under one observer load the definition and the observer once
+/// per worker, prepare the observer once, and run each case once (the `krs-timings/1` spans
+/// count them), and each pair's record is the document `krs compare` prints for that pair alone,
+/// with its `pair`, in the pairs' order, then a summary; the exit status joins the pairs'. A
+/// JSON pairs document reads alike, an expectation pair checks its side, and a pair that cannot
+/// be read is refused in its own record, which makes the batch's status 2.
+#[test]
+fn krs_compare_pairs_runs_each_case_once_and_agrees_with_each_comparison_alone() {
+    let workspace = CompareWorkspace::new();
+    let language = workspace.directory.path().join("language");
+    let cases = (0..20)
+        .map(|case| {
+            let pgm = json!({"Finish": {"value": case}});
+            format!(
+                "[[case]]\n{}",
+                toml_table(&json!({"name": format!("c{case}"), "inputs": reference_inputs(&pgm)}))
+            )
+        })
+        .collect::<Vec<_>>();
+    fs::write(language.join("many.toml"), cases.join("\n")).unwrap();
+    let observer = format!("{OBSERVER_PACKAGE}:main");
+    let pairs = (0..40)
+        .map(|index| batch_pair(index, &observer))
+        .collect::<Vec<_>>();
+    fs::create_dir(language.join("pairs")).unwrap();
+    let document = pairs
+        .iter()
+        .map(|(pair, _)| format!("[[pair]]\n{}", toml_table(pair)))
+        .collect::<Vec<_>>();
+    fs::write(language.join("pairs/batch.toml"), document.join("\n")).unwrap();
+
+    let timings = workspace.directory.path().join("timings.json");
+    let timings_argument = timings.to_str().unwrap();
+    let (code, stdout, stderr) = workspace.compare(&[
+        "--pairs",
+        "pairs/batch.toml",
+        "--jobs",
+        "2",
+        "--output",
+        "json",
+        "--timings",
+        timings_argument,
+    ]);
+    // 21 pairs are equal and 19 differ: a finding.
+    assert_eq!(code, Some(1), "{stderr}");
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 41, "{stdout}");
+    let summary: Json = serde_json::from_str(lines[40]).unwrap();
+    assert_eq!(
+        summary,
+        json!({
+            "schema": "krs-compare/1",
+            "summary": {"pairs": 40, "equal": 21, "differs": 19, "met": 0, "unmet": 0, "inconclusive": 0, "refused": 0},
+            "status": 1,
+        })
+    );
+    let timings: Json = serde_json::from_str(&fs::read_to_string(&timings).unwrap()).unwrap();
+    let spans = |id: &str| {
+        timings["spans"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|span| span["id"] == id)
+            .count()
+    };
+    assert_eq!(spans("compare.run"), 20, "{timings}");
+    assert_eq!(spans("compare.observer"), 1, "{timings}");
+    assert!((1..=2).contains(&spans("compare.load")), "{timings}");
+    assert!(
+        (1..=2).contains(&spans("compare.observer_load")),
+        "{timings}"
+    );
+
+    // Each record is the pair's own comparison, run alone; four processes at a time.
+    let records = lines[..40]
+        .iter()
+        .map(|line| serde_json::from_str::<Json>(line).unwrap())
+        .collect::<Vec<_>>();
+    let indexed = records.iter().enumerate().collect::<Vec<_>>();
+    std::thread::scope(|scope| {
+        for chunk in indexed.chunks(10) {
+            let (workspace, pairs) = (&workspace, &pairs);
+            scope.spawn(move || {
+                for &(index, record) in chunk {
+                    let (pair, arguments) = &pairs[index];
+                    let mut expected_pair = json!({"number": index + 1});
+                    expected_pair["left"] = pair["left"].clone();
+                    expected_pair["right"] = pair["right"].clone();
+                    assert_eq!(record["pair"], expected_pair, "{record}");
+                    let mut arguments = arguments.iter().map(String::as_str).collect::<Vec<_>>();
+                    arguments.extend(["--output", "json"]);
+                    let (code, stdout, stderr) = workspace.compare(&arguments);
+                    let alone: Json = serde_json::from_str(&stdout)
+                        .unwrap_or_else(|error| panic!("{error}: {stdout}{stderr}"));
+                    let mut record = record.clone();
+                    record.as_object_mut().unwrap().remove("pair");
+                    assert_eq!(record, alone, "pair {}", index + 1);
+                    let expected = i32::from(alone["verdict"] != "equal");
+                    assert_eq!(code, Some(expected), "{stderr}");
+                }
+            });
+        }
+    });
+    assert_eq!(records[7]["verdict"], "equal", "{}", records[7]);
+    assert_eq!(
+        records[1]["difference"]["path"], "k[0].Done.value",
+        "{}",
+        records[1]
+    );
+    compare_mixed_pairs(&workspace, &language);
+}
+
+/// A JSON pairs document: an expectation pair, a side that cannot be read, a pair with an
+/// unknown key; the refused pairs join as 2, printed in order with the human lines. A document
+/// that lists no pair is no batch.
+fn compare_mixed_pairs(workspace: &CompareWorkspace, language: &Path) {
+    fs::write(
+        language.join("pairs/mixed.json"),
+        json!({"pair": [
+            {"expect": "../expect.json", "actual": "../many.toml#c3"},
+            {"left": "../missing.json", "right": "../end.toml"},
+            {"left": "../end.toml", "right": "../end.toml", "views": {"bus": "LogShape"}, "observe": "x"},
+            {"left": "../end.toml", "right": "../many.toml#c3"},
+        ]})
+        .to_string(),
+    )
+    .unwrap();
+    let (code, stdout, stderr) = workspace.compare(&["--pairs", "pairs/mixed.json", "--jobs", "1"]);
+    assert_eq!(code, Some(2), "{stderr}");
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert_eq!(
+        lines[0], "pair 1 (--expect ../expect.json, ../many.toml#c3): expectation met",
+        "{stdout}"
+    );
+    assert!(
+        lines[1].starts_with("pair 2 (../missing.json, ../end.toml): refused: could not read `"),
+        "{stdout}"
+    );
+    assert_eq!(
+        lines[2],
+        "pair 3 (../end.toml, ../end.toml): refused: `observe`: a pair holds `left`, `right`, `compare`, `views` and `observer`, or `expect` and `actual`",
+        "{stdout}"
+    );
+    assert_eq!(
+        lines[3], "pair 4 (../end.toml, ../many.toml#c3): equal",
+        "{stdout}"
+    );
+    assert_eq!(
+        lines[4],
+        "krs compare: 4 pairs: 1 equal, 0 differs, 1 met, 0 unmet, 0 inconclusive, 2 refused",
+        "{stdout}"
+    );
+    assert_eq!(lines.len(), 5, "{stdout}");
+    let (code, stdout, stderr) =
+        workspace.compare(&["--pairs", "pairs/mixed.json", "--output", "json"]);
+    assert_eq!(code, Some(2), "{stderr}");
+    let refused: Json = serde_json::from_str(stdout.lines().nth(2).unwrap()).unwrap();
+    assert_eq!(
+        refused,
+        json!({
+            "schema": "krs-compare/1",
+            "verdict": "refused",
+            "reason": "`observe`: a pair holds `left`, `right`, `compare`, `views` and `observer`, or `expect` and `actual`",
+            "pair": {"number": 3, "left": "../end.toml", "right": "../end.toml"},
+        })
+    );
+
+    fs::write(language.join("pairs/empty.toml"), "pair = []\n").unwrap();
+    let (code, _, stderr) = workspace.compare(&["--pairs", "pairs/empty.toml"]);
+    assert_eq!(code, Some(2), "{stderr}");
+    assert!(
+        stderr.contains("the pairs document `pairs/empty.toml` lists no pair under `pair`"),
+        "{stderr}"
+    );
+}

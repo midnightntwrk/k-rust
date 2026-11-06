@@ -77,6 +77,10 @@
 //! | `stage.reuse` | `parse`, `run`, `search`, `prove`: validate and restore the cached compiled stage, in place of the `native.*` spans |
 //! | `stage.store` | `parse`, `run`, `search`, `prove`, after the `native.*` spans: encode and store the compiled stage |
 //! | `exec.configuration`, `exec.unparser`, `exec.backend` | `parse`, `run`, `search`, `prove`: build the program grammar, the printer, and the backend from the compiled stage |
+//! | `compare.run` | `compare`: run a case side, once per case in a `--pairs` batch |
+//! | `compare.batch` | `compare --pairs`: compare the pairs, with `compare.observer` and each worker's spans below it; the workers' spans are appended once they end and ran in parallel, so the children may sum to more than it |
+//! | `compare.observer` | `compare --pairs`: prepare and compile an observer, once per observer the pairs name |
+//! | `compare.load`, `compare.observer_load` | `compare --pairs`: a worker loads the definition or an observer, its `exec.*` spans below |
 //! | `release` | drop the in-memory bundle, theory, and Definition IR |
 //!
 //! `emit_k.render` measures the JSON rendering alone. A document written

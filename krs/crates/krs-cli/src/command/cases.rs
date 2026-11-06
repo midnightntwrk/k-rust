@@ -368,7 +368,7 @@ impl Printer {
 }
 
 /// Write `text` to standard output now, so that each record reaches a reader as it is decided.
-fn write_stdout(text: &str) -> Result<(), Failure> {
+pub(super) fn write_stdout(text: &str) -> Result<(), Failure> {
     let mut stdout = std::io::stdout().lock();
     stdout
         .write_all(text.as_bytes())

@@ -747,28 +747,17 @@ fn exec_command(
             measurement,
         )
     } else if let Command::Compare(compare) = &request.command {
-        compare::read(compare)
-            .map_err(|failure| failure.into_command_error(prepared))
-            .and_then(|read| {
-                let observer = compare::observer_name(compare, &read)
-                    .map(|name| prepare_observer(request, name, workspace_root))
-                    .transpose()
-                    .map_err(|failure| failure.into_error(sources))?
-                    .flatten();
-                let composed = observer
-                    .as_ref()
-                    .map_or(&[][..], |observer| &observer.composed);
-                refuse_unused_observer_dependencies(request, observer_dependencies, composed)?;
-                compare::execute(
-                    prepared,
-                    compare,
-                    sources,
-                    stage_reuse,
-                    read,
-                    observer.map(|observer| observer.definition),
-                    measurement,
-                )
-            })
+        execute_compare(
+            prepared,
+            request,
+            compare,
+            observer_dependencies,
+            sources,
+            workspace_root,
+            stage_reuse,
+            &mut warnings,
+            measurement,
+        )
     } else {
         read_case(request, observer_dependencies, workspace_root, sources)
             .map_err(|error| error.warned(warnings.clone()))
@@ -792,9 +781,66 @@ fn exec_command(
     }
 }
 
-/// `krs cases`: each case's observer prepared on first use, composing the dependency facets its
-/// closure holds; a facet of `observer_dependencies` that no prepared observer composed is a
-/// warning in `warnings`, since the verdicts are printed as the cases run.
+/// `krs compare`: the sides read, and the observer the views are evaluated in prepared, before
+/// the comparison; with `--pairs`, each pair's observer prepared on first use
+/// ([`with_observers`]).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The comparison takes exec_command's prepared definition, request and observers' inputs."
+)]
+fn execute_compare(
+    prepared: &PreparedDefinition,
+    request: &CommandRequest,
+    compare: &CompareRequest,
+    observer_dependencies: &[FacetSelector],
+    sources: &mut crate::DiagnosticSources,
+    workspace_root: Option<&Path>,
+    stage_reuse: exec::StageReuse<'_>,
+    warnings: &mut crate::DiagnosticReports,
+    measurement: &mut Measurement,
+) -> Result<CommandOutcome, CommandError> {
+    if let CompareSides::Pairs { .. } = compare.sides {
+        let sources = &*sources;
+        return with_observers(
+            request,
+            observer_dependencies,
+            sources,
+            workspace_root,
+            warnings,
+            |observers| {
+                compare::execute_pairs(
+                    prepared,
+                    compare,
+                    sources,
+                    stage_reuse,
+                    observers,
+                    measurement,
+                )
+            },
+        );
+    }
+    let read = compare::read(compare).map_err(|failure| failure.into_command_error(prepared))?;
+    let observer = compare::observer_name(compare, &read)
+        .map(|name| prepare_observer(request, name, workspace_root))
+        .transpose()
+        .map_err(|failure| failure.into_error(sources))?
+        .flatten();
+    let composed = observer
+        .as_ref()
+        .map_or(&[][..], |observer| &observer.composed);
+    refuse_unused_observer_dependencies(request, observer_dependencies, composed)?;
+    compare::execute(
+        prepared,
+        compare,
+        sources,
+        stage_reuse,
+        read,
+        observer.map(|observer| observer.definition),
+        measurement,
+    )
+}
+
+/// `krs cases`: each case's observer prepared on first use ([`with_observers`]).
 #[expect(
     clippy::too_many_arguments,
     reason = "The batch takes exec_command's prepared definition, request and observers' inputs."
@@ -809,6 +855,37 @@ fn execute_cases(
     stage_reuse: exec::StageReuse<'_>,
     warnings: &mut crate::DiagnosticReports,
     measurement: &mut Measurement,
+) -> Result<CommandOutcome, CommandError> {
+    with_observers(
+        request,
+        observer_dependencies,
+        sources,
+        workspace_root,
+        warnings,
+        |observers| {
+            cases::execute(
+                prepared,
+                cases,
+                sources,
+                stage_reuse,
+                observers,
+                measurement,
+            )
+        },
+    )
+}
+
+/// A batch (`krs cases`, `krs compare --pairs`) run by `batch`, which prepares each observer on
+/// first use, composing the dependency facets its closure holds; a facet of
+/// `observer_dependencies` that no prepared observer composed is a warning in `warnings`, since
+/// the verdicts are printed as the batch runs.
+fn with_observers(
+    request: &CommandRequest,
+    observer_dependencies: &[FacetSelector],
+    sources: &crate::DiagnosticSources,
+    workspace_root: Option<&Path>,
+    warnings: &mut crate::DiagnosticReports,
+    batch: impl FnOnce(&cases::PrepareObserver<'_>) -> Result<CommandOutcome, CommandError>,
 ) -> Result<CommandOutcome, CommandError> {
     let composed = std::sync::Mutex::new(Vec::new());
     let failed = std::sync::Mutex::new(Vec::new());
@@ -828,18 +905,11 @@ fn execute_cases(
             observer.definition
         }))
     };
-    let result = cases::execute(
-        prepared,
-        cases,
-        sources,
-        stage_reuse,
-        &observers,
-        measurement,
-    );
-    // The verdicts are printed as the cases run, so a facet that no observer of the batch
+    let result = batch(&observers);
+    // The verdicts are printed as the batch runs, so a facet that no observer of the batch
     // composed is reported once they are, as a warning: no verdict rests on it. A facet that an
-    // observer which could not be prepared would have composed is that observer's: the cases
-    // that name it are refused, saying why.
+    // observer which could not be prepared would have composed is that observer's: the cases or
+    // pairs that name it are refused, saying why.
     let composed = composed
         .into_inner()
         .unwrap_or_else(std::sync::PoisonError::into_inner);

@@ -46,6 +46,9 @@ Usage:
   krs compare --package P --definition D --expect CASE ACTUAL [--output human|json]
              [--view-budget POLLS]
              [--smt-resource-limit UNITS | --smt-clock-ms MS] [--smt-retries N]
+  krs compare --package P --definition D --pairs FILE [--jobs N] [--output human|json]
+             [--view-budget POLLS]
+             [--smt-resource-limit UNITS | --smt-clock-ms MS] [--smt-retries N]
   krs prove  --package P --definition D [--spec-module NAME] [--claim LABEL]... [--depth N]
              [--claim-timeout SECONDS] [--output pretty|kast|json|jsonl|kore]
              [--color auto|always|never]
@@ -99,12 +102,13 @@ Options:
                              reported in this order: one verdict per case (met, unmet,
                              inconclusive, refused, or ran for a case with no expectation),
                              then a summary
-  --jobs N                   With cases, run the cases on N workers (default: the available
-                             parallelism), each loading its own copy of the definition and of
-                             each observer it uses, so memory grows with N; the output is the
-                             same for every N but for a verdict a resource stop decides: the
-                             simplifier's stack budget, which workers share, or the solver's
-                             limits, whose answers a worker's earlier cases may have decided
+  --jobs N                   With cases and compare --pairs, run the cases or pairs on N
+                             workers (default: the available parallelism), each loading its
+                             own copy of the definition and of each observer it uses, so
+                             memory grows with N; the output is the same for every N but for
+                             a verdict a resource stop decides: the simplifier's stack budget,
+                             which workers share, or the solver's limits, whose answers a
+                             worker's earlier cases may have decided
   --name PATTERN             With cases, only the named cases whose name PATTERN matches
                              (`*` any text, `?` any one character)
   LEFT RIGHT                 With compare, the two sides, each an end document (halt, rule,
@@ -114,6 +118,11 @@ Options:
   --expect CASE              With compare, check the one side ACTUAL against the expectation of
                              CASE (FILE or FILE#NAME), as run --case checks a run's end, on the
                              cells, views and observer it names: met, unmet or inconclusive
+  --pairs FILE               With compare, compare each pair the document FILE (.toml or
+                             .json) lists under `pair`: {left, right, compare, views,
+                             observer} or {expect, actual}, its side paths relative to FILE's
+                             directory; a case side is run once for the whole batch. Prints a
+                             verdict per pair, then a summary
   --compare CELL,...         With compare, compare only these cells, by declared path (a group
                              names its leaves); repeatable (default: every leaf cell that is
                              not unobservable)
@@ -183,8 +192,8 @@ Exit status of run, search, prove, cases and compare, by what the caller does ne
      input, case, expectation, view or definition, or any other error
   3  no answer, retry with more budget or another approach: an inconclusive halt, search or
      verdict, a run with no one path, a claim indeterminate, bounded or timed out
-A batch (cases, or prove of several claims) exits 2 when a case is refused or a claim crashed,
-else 1 when one is a finding, else 3 when one has no answer (in cases, a case with no
+A batch (cases, compare --pairs, or prove of several claims) exits 2 when a case or a pair is
+refused or a claim crashed, else 1 when one is a finding, else 3 when one has no answer (in cases, a case with no
 expectation whose run has no end included), else 0. A completed run of a definition with an
 exit cell exits with that cell's value instead, the program's own status, which shares these
 numbers: --output json tells them apart. Every other command exits 0 on success, 2 on a usage
@@ -544,6 +553,8 @@ struct ExecOptions {
     views: std::collections::BTreeMap<String, String>,
     /// `--observer`.
     observer: Option<String>,
+    /// `--pairs`.
+    pairs: Option<PathBuf>,
 }
 
 impl ExecOptions {
@@ -756,7 +767,7 @@ fn parse_run(parser: &mut lexopt::Parser, kind: CommandKind) -> Result<ParseResu
 const HIDDEN_OPTIONS: [&str; 3] = ["--worker-protocol", "--worker-claim", "--worker-color"];
 
 /// Long options of the run-family commands, without their leading dashes.
-const EXEC_LONG_OPTIONS: [&str; 29] = [
+const EXEC_LONG_OPTIONS: [&str; 30] = [
     "case",
     "case-name",
     "jobs",
@@ -766,6 +777,7 @@ const EXEC_LONG_OPTIONS: [&str; 29] = [
     "compare",
     "view",
     "observer",
+    "pairs",
     "input",
     "depth",
     "stop-before",
@@ -787,6 +799,9 @@ const EXEC_LONG_OPTIONS: [&str; 29] = [
     "worker-claim",
     "worker-color",
 ];
+
+/// The options of `krs compare` alone, which [`compare_option`] parses.
+const COMPARE_OPTIONS: [&str; 5] = ["expect", "compare", "view", "observer", "pairs"];
 
 /// Parse one run-family option (`-c` or a member of [`EXEC_LONG_OPTIONS`]).
 fn exec_option(
@@ -831,7 +846,7 @@ fn exec_option(
         }
         "stop-before" | "stop-after" | "stop-count" => stop_option(parser, exec, option)?,
         "jobs" | "name" | "view-budget" => cases_option(parser, exec, option)?,
-        "expect" | "compare" | "view" | "observer" => compare_option(parser, exec, option)?,
+        option if COMPARE_OPTIONS.contains(&option) => compare_option(parser, exec, option)?,
         "max-solutions" => {
             exec.note("--max-solutions");
             let value = option_value(parser, "maximum solution count")?;
@@ -935,7 +950,7 @@ fn cases_option(
     Ok(())
 }
 
-/// Parse `--expect`, `--compare`, `--view` or `--observer`.
+/// Parse `--expect`, `--compare`, `--view`, `--observer` or `--pairs`.
 fn compare_option(
     parser: &mut lexopt::Parser,
     exec: &mut ExecOptions,
@@ -986,8 +1001,13 @@ fn compare_option(
             let observer = option_value(parser, "observer")?;
             set_once(&mut exec.observer, observer, "--observer")?;
         }
+        "pairs" => {
+            exec.note("--pairs");
+            let file = option_value(parser, "pairs file")?;
+            set_once(&mut exec.pairs, PathBuf::from(file), "--pairs")?;
+        }
         _ => unreachable!(
-            "compare_option is called only for --expect, --compare, --view and --observer"
+            "compare_option is called only for --expect, --compare, --view, --observer and --pairs"
         ),
     }
     Ok(())
@@ -1254,6 +1274,50 @@ fn compare_command(
     output: Option<&Path>,
     solver: krs_exec::BackendOptions,
 ) -> Result<Command, UsageError> {
+    let output = compare_output(output)?;
+    let view_budget = exec.view_budget.unwrap_or(DEFAULT_VIEW_BUDGET);
+    if let Some(file) = exec.pairs {
+        // Each pair states its own sides and comparison; options of one comparison would give
+        // every pair the same, which a pair's own keys already say.
+        if let Some(option) = exec.given.iter().find(|option| {
+            ["FILE", "--expect", "--compare", "--view", "--observer"].contains(option)
+        }) {
+            let option = if *option == "FILE" {
+                "LEFT RIGHT"
+            } else {
+                option
+            };
+            return Err(usage(format!(
+                "{option} does not apply with --pairs: each pair of the file states its sides and its `compare`, `views` and `observer`"
+            )));
+        }
+        let document = file
+            .extension()
+            .is_some_and(|extension| extension == "toml" || extension == "json");
+        if !document {
+            return Err(usage(format!(
+                "--pairs `{}` is not a `.toml` or `.json` file, which its extension says",
+                file.display()
+            )));
+        }
+        return Ok(Command::Compare(CompareRequest {
+            sides: CompareSides::Pairs {
+                file,
+                jobs: exec.jobs,
+            },
+            compare: None,
+            views: std::collections::BTreeMap::new(),
+            observer: None,
+            output,
+            solver,
+            view_budget,
+        }));
+    }
+    if exec.jobs.is_some() {
+        return Err(usage(
+            "--jobs applies to krs compare with --pairs, whose pairs the workers share",
+        ));
+    }
     let mut files = exec
         .inputs
         .into_iter()
@@ -1294,16 +1358,6 @@ fn compare_command(
             "--observer names the definition the views are evaluated in, and no --view names a view",
         ));
     }
-    let output = match output.map(Path::to_string_lossy) {
-        None => CompareOutput::Human,
-        Some(value) if value == "human" => CompareOutput::Human,
-        Some(value) if value == "json" => CompareOutput::Json,
-        Some(value) => {
-            return Err(usage(format!(
-                "unknown --output format `{value}` for krs compare; it prints human or json"
-            )));
-        }
-    };
     Ok(Command::Compare(CompareRequest {
         sides,
         compare: exec.compare,
@@ -1311,8 +1365,20 @@ fn compare_command(
         observer: exec.observer,
         output,
         solver,
-        view_budget: exec.view_budget.unwrap_or(DEFAULT_VIEW_BUDGET),
+        view_budget,
     }))
+}
+
+/// The `--output` format of `krs compare`.
+fn compare_output(output: Option<&Path>) -> Result<CompareOutput, UsageError> {
+    match output.map(Path::to_string_lossy) {
+        None => Ok(CompareOutput::Human),
+        Some(value) if value == "human" => Ok(CompareOutput::Human),
+        Some(value) if value == "json" => Ok(CompareOutput::Json),
+        Some(value) => Err(usage(format!(
+            "unknown --output format `{value}` for krs compare; it prints human or json"
+        ))),
+    }
 }
 
 /// The input name and the JSON document of `--input NAME=JSON`.
@@ -1379,6 +1445,8 @@ fn exec_options(kind: CommandKind) -> &'static [&'static str] {
             "--compare",
             "--view",
             "--observer",
+            "--pairs",
+            "--jobs",
             "--view-budget",
             "--smt-resource-limit",
             "--smt-clock-ms",
@@ -3315,6 +3383,18 @@ mod tests {
                 actual: side("end.json", None),
             }
         );
+        // A batch of pairs, on workers.
+        let pairs = with(&["--pairs", "pairs.toml", "--jobs", "3", "--output", "json"]);
+        assert_eq!(
+            pairs.sides,
+            CompareSides::Pairs {
+                file: PathBuf::from("pairs.toml"),
+                jobs: std::num::NonZeroUsize::new(3),
+            }
+        );
+        assert_eq!(pairs.output, CompareOutput::Json);
+        assert_eq!(pairs.compare, None);
+        assert!(pairs.views.is_empty() && pairs.observer.is_none());
     }
 
     /// `krs compare` refuses a wrong number of sides, the comparison options beside
@@ -3359,11 +3439,7 @@ mod tests {
             failure(&["a.json", "b.json", "--output", "pretty"]),
             "unknown --output format `pretty` for krs compare; it prints human or json"
         );
-        for option in [
-            &["--case", "a.toml"][..],
-            &["--depth", "1"],
-            &["--jobs", "2"],
-        ] {
+        for option in [&["--case", "a.toml"][..], &["--depth", "1"]] {
             let mut extra = vec!["a.json", "b.json"];
             extra.extend(option);
             assert_eq!(
@@ -3371,13 +3447,38 @@ mod tests {
                 format!("{} does not apply to krs compare", option[0])
             );
         }
+        // Workers share the pairs of a batch; a pair states its own sides and comparison.
+        assert_eq!(
+            failure(&["a.json", "b.json", "--jobs", "2"]),
+            "--jobs applies to krs compare with --pairs, whose pairs the workers share"
+        );
+        for (extra, option) in [
+            (&["a.json", "b.json"][..], "LEFT RIGHT"),
+            (&["--expect", "a.toml"], "--expect"),
+            (&["--compare", "pc"], "--compare"),
+            (&["--view", "bus=V"], "--view"),
+            (&["--observer", "o:main"], "--observer"),
+        ] {
+            let mut arguments = vec!["--pairs", "pairs.toml"];
+            arguments.extend(extra);
+            assert_eq!(
+                failure(&arguments),
+                format!(
+                    "{option} does not apply with --pairs: each pair of the file states its sides and its `compare`, `views` and `observer`"
+                )
+            );
+        }
+        assert_eq!(
+            failure(&["--pairs", "pairs.txt"]),
+            "--pairs `pairs.txt` is not a `.toml` or `.json` file, which its extension says"
+        );
         let mut args = vec!["run"];
         args.extend(COMPARE_BASE);
         args.extend(["--view", "bus=V"]);
         assert_eq!(error(&args), "--view does not apply to krs run");
     }
 
-    /// The two synopses of `krs compare` list every option it accepts and the `--output` formats.
+    /// The three synopses of `krs compare` list every option it accepts and the `--output` formats.
     #[test]
     fn compare_usage_synopsis_matches_the_parser() {
         let lines: Vec<&str> = USAGE.lines().collect();

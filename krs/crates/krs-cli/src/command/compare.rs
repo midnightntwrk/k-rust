@@ -23,24 +23,37 @@
 //!
 //! The case of a case side is run, never checked: its own `expect` table is not part of the
 //! comparison.
+//!
+//! With `--pairs FILE`, the document FILE lists comparisons, each one `krs compare` question:
+//! `LEFT RIGHT` with its own `compare`, `views` and `observer`, or `--expect CASE ACTUAL`. A case
+//! side's end and whether it is the case's only end depend on the case and the definition alone,
+//! never on the comparison it is used in, so a case that several pairs name is run once for the
+//! whole batch and followed again at most once, and each pair's verdict is the one `krs compare`
+//! gives for it alone. As in `krs cases`, the definition is loaded once per worker and each
+//! observer prepared once and loaded once per worker that uses it.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::{self, Write as _};
+use std::num::NonZeroUsize;
+use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError, mpsc};
 
 use krs_exec::{
-    BackendOptions, CaseDocument, CellViews, Compared, Comparison, Difference, EndError, Ends,
-    ExecError, RunOptions, RunReport, Semantics, Side, SourceText, State, StopCriterion,
-    json_document, toml_text_document,
+    BackendOptions, CaseDocument, CellViews, Compared, Comparison, CompiledStage, Difference,
+    EndError, Ends, ExecError, RunOptions, RunReport, Semantics, Side, SourceText, State,
+    StopCriterion, json_document, toml_text_document,
 };
-use krs_ir::measure::Measurement;
+use krs_ir::measure::{Measurement, Span, Timings};
+use krs_ir_levels::DefinitionIr;
 use serde_json::{Value as Json, json};
 
+use super::cases::{PrepareObserver, write_stdout};
 use super::exec::{
     self, CaseFiles, Checked, Failure, Inputs, ObserverDefinition, SelectedCase, StageReuse,
     WORKER_STACK,
 };
-use super::{CommandError, CommandOutcome, PreparedDefinition, compared_status};
+use super::{CommandError, CommandOutcome, PreparedDefinition, compared_status, exit_status};
 use crate::DiagnosticSources;
 
 /// The schema `krs compare --output json` names.
@@ -52,7 +65,8 @@ pub enum CompareOutput {
     /// The verdict's lines.
     #[default]
     Human,
-    /// One [`COMPARE_SCHEMA`] JSON document.
+    /// One [`COMPARE_SCHEMA`] JSON document; with `--pairs`, one per pair and a summary, each
+    /// on its own line.
     Json,
 }
 
@@ -130,6 +144,14 @@ pub enum CompareSides {
         /// The side checked against it.
         actual: SideFile,
     },
+    /// `--pairs FILE`: the comparisons the document `file` lists, each of these two kinds.
+    Pairs {
+        /// The pairs document, `.toml` or `.json`.
+        file: PathBuf,
+        /// `--jobs`: the worker threads, each with the definition loaded once; the available
+        /// parallelism by default.
+        jobs: Option<NonZeroUsize>,
+    },
 }
 
 /// `krs compare` inputs.
@@ -189,6 +211,7 @@ pub(super) fn read(request: &CompareRequest) -> Result<ReadSides, Failure> {
     let (first, second) = match &request.sides {
         CompareSides::Ends { left, right } => (left, right),
         CompareSides::Expectation { case, actual } => (case, actual),
+        CompareSides::Pairs { .. } => unreachable!("a batch reads each of its pairs' sides"),
     };
     let first = read_side(first)?;
     if let CompareSides::Expectation { case, .. } = &request.sides {
@@ -350,7 +373,24 @@ pub(super) fn execute(
                     })
                     .transpose()
                     .map_err(Failure::Exec)?;
-                compare(&mut semantics, observer.as_mut(), request, read)
+                let runs = CaseRuns::default();
+                let verdict = compare(
+                    &mut semantics,
+                    observer.as_mut(),
+                    request,
+                    read,
+                    &runs,
+                    timings,
+                )?;
+                let stdout = match request.output {
+                    CompareOutput::Human => {
+                        let mut text = String::new();
+                        verdict.write(&mut text, "krs compare");
+                        text
+                    }
+                    CompareOutput::Json => format!("{}\n", verdict.document()),
+                };
+                Ok(exec::outcome(stdout, String::new(), verdict.exit_code()))
             })
             .map_err(|error| {
                 CommandError::InvalidRequest(format!("could not start the compare worker: {error}"))
@@ -359,7 +399,7 @@ pub(super) fn execute(
             .map_err(|_| CommandError::InvalidRequest("the compare worker panicked".into()))
     })?;
     measurement.counters.set("stage.reused", u64::from(reused));
-    result.map_err(|failure| failure.into_command_error(prepared))
+    result.map_err(|failure: Failure| failure.into_command_error(prepared))
 }
 
 /// The verdict of two sets of ends, with the views it applied.
@@ -400,19 +440,63 @@ impl EndsVerdict {
         document
     }
 
-    fn write(&self, output: &mut String) {
+    /// The verdict's lines, headed by `label`.
+    fn write(&self, output: &mut String, label: &str) {
         match &self.verdict {
-            Compared::Equal => output.push_str("krs compare: equal\n"),
+            Compared::Equal => {
+                let _ = writeln!(output, "{label}: equal");
+            }
             Compared::Inconclusive(reason) => {
-                let _ = writeln!(output, "krs compare: inconclusive: {reason}");
+                let _ = writeln!(output, "{label}: inconclusive: {reason}");
             }
             Compared::Differs(difference) => {
-                exec::write_difference(output, "krs compare: differs", difference);
+                exec::write_difference(output, &format!("{label}: differs"), difference);
                 write_pair_note(output, difference);
             }
         }
         let observer = self.observer.as_deref().filter(|_| !self.views.is_empty());
         exec::write_views(output, &self.views, observer);
+    }
+}
+
+/// One comparison's verdict: two sets of ends compared, or a side checked against a case's
+/// expectation.
+enum Verdict {
+    Ends(EndsVerdict),
+    Expectation(Checked),
+}
+
+impl Verdict {
+    /// The exit status the verdict gives ([`exit_status`]).
+    const fn exit_code(&self) -> i32 {
+        match self {
+            Self::Ends(verdict) => verdict.exit_code(),
+            Self::Expectation(checked) => checked.exit_code(),
+        }
+    }
+
+    /// The [`COMPARE_SCHEMA`] document.
+    fn document(&self) -> Json {
+        match self {
+            Self::Ends(verdict) => verdict.document(),
+            Self::Expectation(checked) => {
+                let mut document = json!({"schema": COMPARE_SCHEMA});
+                if let (Json::Object(target), Json::Object(members)) =
+                    (&mut document, checked.document())
+                {
+                    target.extend(members);
+                }
+                document
+            }
+        }
+    }
+
+    /// The verdict's lines, headed by `label`.
+    fn write(&self, output: &mut String, label: &str) {
+        match self {
+            Self::Ends(verdict) => verdict.write(output, label),
+            Self::Expectation(checked) => checked.write(output, label),
+        }
     }
 }
 
@@ -449,13 +533,103 @@ fn write_pair_note(output: &mut String, difference: &Difference) {
     );
 }
 
-/// A side's ends, and the run they are of until its completeness is known.
-struct Produced {
-    name: &'static str,
+/// A failure recorded for every comparison that uses what failed, beyond the first, which gets
+/// the failure itself.
+#[derive(Clone)]
+enum Recorded {
+    /// A run that reached several states under conditions it cannot decide.
+    Undecided(String),
+    /// Any other failure, as its reason.
+    Refused(String),
+}
+
+impl Recorded {
+    fn of(failure: &Failure) -> Self {
+        match failure {
+            Failure::Exec(ExecError::Undecided(message)) => Self::Undecided(message.clone()),
+            failure => Self::Refused(failure.reason()),
+        }
+    }
+
+    fn failure(self) -> Failure {
+        match self {
+            Self::Undecided(message) => Failure::Exec(ExecError::Undecided(message)),
+            Self::Refused(reason) => Failure::Read(reason),
+        }
+    }
+}
+
+/// The value `slot` holds, computed by `compute` when it holds none; a failure of `compute` is
+/// returned to its caller as it is and recorded for every later one.
+fn once<T>(
+    slot: &OnceLock<Result<T, Recorded>>,
+    compute: impl FnOnce() -> Result<T, Failure>,
+) -> Result<&T, Failure> {
+    let mut original = None;
+    let stored = slot.get_or_init(|| {
+        compute().map_err(|failure| {
+            let recorded = Recorded::of(&failure);
+            original = Some(failure);
+            recorded
+        })
+    });
+    match original {
+        Some(failure) => Err(failure),
+        None => stored
+            .as_ref()
+            .map_err(|recorded| recorded.clone().failure()),
+    }
+}
+
+/// The run of each case a comparison's sides name, by its document and name: a case's end, and
+/// whether it is the case's only end, are facts of the case and the definition, which no
+/// comparison changes, so a batch runs each case once whichever pairs and workers use it.
+#[derive(Default)]
+struct CaseRuns {
+    #[expect(
+        clippy::type_complexity,
+        reason = "A slot per case, each computed once by whichever worker needs it first."
+    )]
+    slots: Mutex<HashMap<(PathBuf, Option<String>), Arc<OnceLock<Result<Arc<CaseRun>, Recorded>>>>>,
+}
+
+impl CaseRuns {
+    /// The run of `case`, run on `semantics` the first time a side names it.
+    fn get(
+        &self,
+        semantics: &mut Semantics,
+        case: &SelectedCase,
+        timings: &mut Timings,
+    ) -> Result<Arc<CaseRun>, Failure> {
+        let document = case
+            .path
+            .canonicalize()
+            .unwrap_or_else(|_| case.path.clone());
+        let slot = Arc::clone(
+            self.slots
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .entry((document, case.case.name.clone()))
+                .or_default(),
+        );
+        once(&slot, || {
+            timings.span("compare.run", |_| {
+                CaseRun::run(semantics, case).map(Arc::new)
+            })
+        })
+        .map(Arc::clone)
+    }
+}
+
+/// A case's run: its ends, the run they are of, and once the run is followed again, whether
+/// its end is the case's only one.
+struct CaseRun {
     ends: Ends,
-    /// The run of a case side whose end may not be its case's only one, until
-    /// [`Self::settle`] follows it again.
-    unsettled: Option<RunOf>,
+    /// The run, when it has an end whose completeness following it again could change.
+    run: Option<RunOf>,
+    /// Once followed again: the ends with why they are incomplete, or `None` when they are
+    /// complete.
+    followed: OnceLock<Result<Option<Ends>, Recorded>>,
 }
 
 /// A case's run: the state it ran from, its options and its report.
@@ -465,11 +639,95 @@ struct RunOf {
     report: RunReport,
 }
 
+impl CaseRun {
+    /// The end of `case`'s run, as `krs run --case` runs it: its inputs bound, its `run` table's
+    /// depth and stops.
+    fn run(semantics: &mut Semantics, case: &SelectedCase) -> Result<Self, Failure> {
+        let stop = case.stop(&StopCriterion::None)?;
+        let depth = case.depth(None)?;
+        let state = exec::configure(semantics, Inputs::of_case(case), false)?;
+        let options = RunOptions {
+            depth,
+            stop,
+            ..RunOptions::default()
+        };
+        let report = match semantics.run(&state, options.clone()) {
+            Ok(report) => report,
+            // A run that cannot decide which of several states it reaches has no one end.
+            Err(error @ ExecError::Undecided { .. }) => {
+                return Ok(Self {
+                    ends: Ends::none(format!("the run has no one end: {error}")),
+                    run: None,
+                    followed: OnceLock::new(),
+                });
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let ends = semantics
+            .end_of(&report)
+            .map_err(|error| exec::end_failure(&error))?;
+        // A run with no end has nothing a completeness could change.
+        let run = (!ends.ends.is_empty()).then_some(RunOf {
+            state,
+            options,
+            report,
+        });
+        Ok(Self {
+            ends,
+            run,
+            followed: OnceLock::new(),
+        })
+    }
+
+    /// Follow the run again, once, for whether its end is its case's only one: the ends with
+    /// why they are incomplete when it is not.
+    fn follow(&self, semantics: &mut Semantics) -> Result<Option<&Ends>, Failure> {
+        let Some(run) = &self.run else {
+            return Ok(None);
+        };
+        let followed = once(&self.followed, || {
+            Ok(semantics
+                .other_ends(&run.state, &run.options, &run.report)?
+                .map(|reason| Ends {
+                    incomplete: Some(reason),
+                    ..self.ends.clone()
+                }))
+        })?;
+        Ok(followed.as_ref())
+    }
+}
+
+/// A side's ends: an end document's one end, or a case's run, until its completeness is known.
+struct Produced {
+    name: &'static str,
+    source: Source,
+}
+
+enum Source {
+    End(Ends),
+    /// A case's run, and whether this comparison followed it again ([`Produced::settle`]).
+    Run {
+        run: Arc<CaseRun>,
+        followed: bool,
+    },
+}
+
 impl Produced {
+    fn ends(&self) -> &Ends {
+        match &self.source {
+            Source::End(ends) => ends,
+            Source::Run { run, followed } => (*followed)
+                .then(|| run.followed.get())
+                .flatten()
+                .and_then(|followed| followed.as_ref().ok().and_then(Option::as_ref))
+                .unwrap_or(&run.ends),
+        }
+    }
+
     fn side(&self) -> Side<'_> {
         Side {
             name: self.name,
-            ends: &self.ends,
+            ends: self.ends(),
         }
     }
 
@@ -490,103 +748,62 @@ impl Produced {
             .map_err(|error| refuse(file, &error.to_string()))?;
         Ok(Self {
             name,
-            ends: Ends::one(end),
-            unsettled: None,
+            source: Source::End(Ends::one(end)),
         })
     }
 
-    /// The end of `case`'s run, as `krs run --case` runs it: its inputs bound, its `run` table's
-    /// depth and stops.
+    /// The end of `case`'s run, run once for every comparison of `runs`.
     fn run(
+        runs: &CaseRuns,
         semantics: &mut Semantics,
         name: &'static str,
         case: &SelectedCase,
+        timings: &mut Timings,
     ) -> Result<Self, Failure> {
-        let stop = case.stop(&StopCriterion::None)?;
-        let depth = case.depth(None)?;
-        let state = exec::configure(semantics, Inputs::of_case(case), false)?;
-        let options = RunOptions {
-            depth,
-            stop,
-            ..RunOptions::default()
-        };
-        let report = match semantics.run(&state, options.clone()) {
-            Ok(report) => report,
-            // A run that cannot decide which of several states it reaches has no one end.
-            Err(error @ ExecError::Undecided { .. }) => {
-                return Ok(Self {
-                    name,
-                    ends: Ends::none(format!("the run has no one end: {error}")),
-                    unsettled: None,
-                });
-            }
-            Err(error) => return Err(error.into()),
-        };
-        let ends = semantics
-            .end_of(&report)
-            .map_err(|error| exec::end_failure(&error))?;
-        // A run with no end has nothing a completeness could change.
-        let unsettled = (!ends.ends.is_empty()).then_some(RunOf {
-            state,
-            options,
-            report,
-        });
         Ok(Self {
             name,
-            ends,
-            unsettled,
+            source: Source::Run {
+                run: runs.get(semantics, case, timings)?,
+                followed: false,
+            },
         })
     }
 
     /// Follow the side's run again for whether its end is its case's only one; true when it is
-    /// not, which makes the side's set incomplete. Each run is followed again once.
+    /// not, which makes the side's set incomplete. Each comparison follows a run at most once,
+    /// and a batch follows each case's run at most once.
     fn settle(&mut self, semantics: &mut Semantics) -> Result<bool, Failure> {
-        let Some(run) = self.unsettled.take() else {
+        let Source::Run { run, followed } = &mut self.source else {
             return Ok(false);
         };
-        match semantics.other_ends(&run.state, &run.options, &run.report)? {
-            Some(reason) => {
-                self.ends.incomplete = Some(reason);
-                Ok(true)
-            }
-            None => Ok(false),
+        if *followed {
+            return Ok(false);
         }
+        *followed = true;
+        Ok(run.follow(semantics)?.is_some())
     }
 }
 
 /// Compare the sides `read` of `request`, the views evaluated in `observer` (the compared
-/// definition when `None`), and print the verdict.
+/// definition when `None`), each case side's run taken from `runs`.
 fn compare(
     semantics: &mut Semantics,
     observer: Option<&mut Semantics>,
     request: &CompareRequest,
     read: ReadSides,
-) -> Result<CommandOutcome, Failure> {
-    let (text, document, exit_code) = match &request.sides {
+    runs: &CaseRuns,
+    timings: &mut Timings,
+) -> Result<Verdict, Failure> {
+    match &request.sides {
         CompareSides::Ends { .. } => {
-            let verdict = compare_ends(semantics, observer, request, read)?;
-            let mut text = String::new();
-            verdict.write(&mut text);
-            (text, verdict.document(), verdict.exit_code())
+            compare_ends(semantics, observer, request, read, runs, timings).map(Verdict::Ends)
         }
         CompareSides::Expectation { .. } => {
-            let checked = check_expectation(semantics, observer, request, read)?;
-            let mut text = String::new();
-            checked.write(&mut text, "krs compare");
-            let mut document = json!({"schema": COMPARE_SCHEMA});
-            if let (Json::Object(target), Json::Object(members)) =
-                (&mut document, checked.document())
-            {
-                target.extend(members);
-            }
-            (text, document, checked.exit_code())
+            check_expectation(semantics, observer, request, read, runs, timings)
+                .map(Verdict::Expectation)
         }
-    };
-    let stdout = match request.output {
-        CompareOutput::Human => text,
-        CompareOutput::Json => format!("{document}\n"),
-    };
-    Ok(exec::outcome(stdout, String::new(), exit_code))
+        CompareSides::Pairs { .. } => unreachable!("a batch compares each of its pairs"),
+    }
 }
 
 /// A refusal of the comparison itself: its compared cells or its views.
@@ -602,6 +819,8 @@ fn compare_ends(
     observer: Option<&mut Semantics>,
     request: &CompareRequest,
     read: ReadSides,
+    runs: &CaseRuns,
+    timings: &mut Timings,
 ) -> Result<EndsVerdict, Failure> {
     let mut comparison = Comparison {
         compare: request.compare.clone(),
@@ -634,7 +853,7 @@ fn compare_ends(
     let right = read_end("right", &second)?;
     let mut produce = |name, end: Option<Produced>, document: &SideDocument| match (end, document) {
         (Some(end), _) => Ok(end),
-        (None, SideDocument::Case(case)) => Produced::run(semantics, name, case),
+        (None, SideDocument::Case(case)) => Produced::run(runs, semantics, name, case, timings),
         (None, SideDocument::End { .. }) => unreachable!("an end document is read before"),
     };
     let mut left = produce("left", left, &first)?;
@@ -688,6 +907,8 @@ fn check_expectation(
     mut observer: Option<&mut Semantics>,
     request: &CompareRequest,
     read: ReadSides,
+    runs: &CaseRuns,
+    timings: &mut Timings,
 ) -> Result<Checked, Failure> {
     let ReadSides { first, second } = read;
     let SideDocument::Case(case) = first else {
@@ -708,7 +929,7 @@ fn check_expectation(
             (file, document, base.clone()),
             &expectation.comparison,
         )?,
-        SideDocument::Case(actual) => Produced::run(semantics, "actual", actual)?,
+        SideDocument::Case(actual) => Produced::run(runs, semantics, "actual", actual, timings)?,
     };
     let budget = request.view_budget;
     let checked = exec::check(
@@ -716,7 +937,7 @@ fn check_expectation(
         observer.as_deref_mut(),
         &case,
         &mut expectation,
-        &actual.ends,
+        actual.ends(),
         budget,
     )?;
     // One end that differs is unmet; one that agrees meets the expectation only where it is the
@@ -727,11 +948,808 @@ fn check_expectation(
             observer,
             &case,
             &mut expectation,
-            &actual.ends,
+            actual.ends(),
             budget,
         );
     }
     Ok(checked)
+}
+
+/// The keys a pair holds: `LEFT RIGHT` with its comparison's options, or `--expect CASE ACTUAL`.
+const PAIR_KEYS: [&str; 7] = [
+    "left", "right", "compare", "views", "observer", "expect", "actual",
+];
+
+/// One pair of a pairs document: its record's `pair` member, the label its human lines carry,
+/// and its comparison, or why it is none.
+struct Pair {
+    member: Json,
+    label: String,
+    request: Result<CompareRequest, String>,
+}
+
+/// The pairs the document `file` lists under `pair`, as a case document of named cases lists
+/// its cases under `case`: a TOML array of tables or a JSON array of objects, read by the file's
+/// extension. A pair's side paths are relative to the document's directory, as every path a
+/// document names is.
+///
+/// # Errors
+///
+/// Fails for a document that cannot be read, holds another key than `pair`, or lists no pair; a
+/// pair that is no comparison is refused in its own record ([`Pair::request`]).
+fn read_pairs(file: &Path, template: &CompareRequest) -> Result<Vec<Pair>, Failure> {
+    let shown = file.display();
+    let text = std::fs::read_to_string(file)
+        .map_err(|error| Failure::Read(format!("could not read `{shown}`: {error}")))?;
+    let json = file
+        .extension()
+        .is_some_and(|extension| extension == "json");
+    let document = if json {
+        json_document(&text)
+    } else {
+        toml_text_document(&text)
+    }
+    .map_err(|error| Failure::Usage(format!("the pairs document `{shown}`: {error}")))?;
+    let Json::Object(mut table) = document else {
+        return Err(Failure::Usage(format!(
+            "the pairs document `{shown}` is no table of `pair`"
+        )));
+    };
+    if let Some(key) = table.keys().find(|key| *key != "pair") {
+        return Err(Failure::Usage(format!(
+            "the pairs document `{shown}` holds `{key}`; it lists its pairs under `pair` and holds nothing else"
+        )));
+    }
+    let records = match table.remove("pair") {
+        Some(Json::Array(records)) if !records.is_empty() => records,
+        Some(Json::Array(_)) | None => {
+            return Err(Failure::Usage(format!(
+                "the pairs document `{shown}` lists no pair under `pair`"
+            )));
+        }
+        Some(_) => {
+            return Err(Failure::Usage(format!(
+                "the pairs document `{shown}`: `pair` is an array of pairs"
+            )));
+        }
+    };
+    let base = file.parent().map_or_else(PathBuf::new, Path::to_path_buf);
+    Ok(records
+        .iter()
+        .enumerate()
+        .map(|(index, record)| Pair::read(index + 1, record, &base, template))
+        .collect())
+}
+
+impl Pair {
+    /// The pair `record`, the `number`th of its document (counting from 1), its side paths
+    /// relative to `base`, with the output, solver and view budget of `template`.
+    fn read(number: usize, record: &Json, base: &Path, template: &CompareRequest) -> Self {
+        let mut member = json!({"number": number});
+        let spelled = |key: &str| record.get(key).and_then(Json::as_str);
+        for key in ["left", "right", "expect", "actual"] {
+            if let Some(side) = spelled(key) {
+                member[key] = json!(side);
+            }
+        }
+        let label = match (
+            spelled("left"),
+            spelled("right"),
+            spelled("expect"),
+            spelled("actual"),
+        ) {
+            (Some(left), Some(right), _, _) => format!("pair {number} ({left}, {right})"),
+            (_, _, Some(case), Some(actual)) => {
+                format!("pair {number} (--expect {case}, {actual})")
+            }
+            _ => format!("pair {number}"),
+        };
+        Self {
+            member,
+            label,
+            request: Self::request(record, base, template),
+        }
+    }
+
+    /// The comparison `record` states, as `krs compare` reads the same question from its
+    /// arguments.
+    fn request(
+        record: &Json,
+        base: &Path,
+        template: &CompareRequest,
+    ) -> Result<CompareRequest, String> {
+        let Json::Object(table) = record else {
+            return Err(
+                "a pair is a table of `left` and `right`, or of `expect` and `actual`".to_owned(),
+            );
+        };
+        if let Some(key) = table.keys().find(|key| !PAIR_KEYS.contains(&key.as_str())) {
+            return Err(format!(
+                "`{key}`: a pair holds `left`, `right`, `compare`, `views` and `observer`, or `expect` and `actual`"
+            ));
+        }
+        let side = |key: &str| match table.get(key) {
+            None => Ok(None),
+            Some(Json::String(spelling)) => {
+                let mut side =
+                    SideFile::parse(spelling).map_err(|error| format!("`{key}`: {error}"))?;
+                side.path = base.join(&side.path);
+                Ok(Some(side))
+            }
+            Some(_) => Err(format!(
+                "`{key}` is a side, a string naming a document as `FILE` or `FILE#NAME`"
+            )),
+        };
+        let sides = match (
+            side("left")?,
+            side("right")?,
+            side("expect")?,
+            side("actual")?,
+        ) {
+            (Some(left), Some(right), None, None) => CompareSides::Ends { left, right },
+            (None, None, Some(case), Some(actual)) => {
+                if let Some(key) = ["compare", "views", "observer"]
+                    .into_iter()
+                    .find(|key| table.contains_key(*key))
+                {
+                    return Err(format!(
+                        "`{key}` does not apply with `expect`: the case's `expect` table states the compared cells, the views and the observer"
+                    ));
+                }
+                CompareSides::Expectation { case, actual }
+            }
+            _ => {
+                return Err("a pair states `left` and `right`, or `expect` and `actual`".to_owned());
+            }
+        };
+        let compare = pair_compare(table.get("compare"))?;
+        let views = pair_views(table.get("views"))?;
+        let observer = match table.get("observer") {
+            None => None,
+            Some(Json::String(observer)) if !observer.is_empty() => Some(observer.clone()),
+            Some(_) => {
+                return Err("`observer` names a definition, `PACKAGE:DEFINITION`".to_owned());
+            }
+        };
+        if observer.is_some() && views.is_empty() {
+            return Err(
+                "`observer` names the definition the views are evaluated in, and `views` names no view"
+                    .to_owned(),
+            );
+        }
+        Ok(CompareRequest {
+            sides,
+            compare,
+            views,
+            observer,
+            output: template.output,
+            solver: template.solver,
+            view_budget: template.view_budget,
+        })
+    }
+}
+
+/// A pair's `compare`: the compared cells, a non-empty array of cell paths.
+fn pair_compare(compare: Option<&Json>) -> Result<Option<Vec<String>>, String> {
+    match compare {
+        None => Ok(None),
+        Some(Json::Array(cells)) if !cells.is_empty() => cells
+            .iter()
+            .map(|cell| match cell {
+                Json::String(cell) if !cell.is_empty() => Ok(cell.clone()),
+                _ => Err(format!("`compare` holds `{cell}`, which is no cell path")),
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(Some),
+        Some(_) => Err(
+            "`compare` is a non-empty array of cell paths; leave it out to compare every leaf cell that is not unobservable"
+                .to_owned(),
+        ),
+    }
+}
+
+/// A pair's `views`: a table of a function by cell.
+fn pair_views(views: Option<&Json>) -> Result<BTreeMap<String, String>, String> {
+    let named = match views {
+        None => return Ok(BTreeMap::new()),
+        Some(Json::Object(named)) => named,
+        Some(_) => return Err("`views` is a table of a function by cell".to_owned()),
+    };
+    named
+        .iter()
+        .map(|(cell, function)| match function {
+            Json::String(function) if !cell.is_empty() && !function.is_empty() => {
+                Ok((cell.clone(), function.clone()))
+            }
+            _ => Err(format!(
+                "`views`: `{cell}` = `{function}` is no view; a view names a cell and a function"
+            )),
+        })
+        .collect()
+}
+
+/// What a pair came to: a verdict, or no verdict and why.
+enum Outcome {
+    Verdict(Verdict),
+    /// The question could not be asked: a pair that is no comparison, a side or an observer
+    /// that is refused, a run that fails.
+    Refused(String),
+    /// No answer: a side's run reached several states under conditions it cannot decide.
+    Unanswered(String),
+}
+
+impl Outcome {
+    fn of(failure: &Failure) -> Self {
+        match failure {
+            Failure::Exec(ExecError::Undecided(_)) => Self::Unanswered(failure.reason()),
+            failure => Self::Refused(failure.reason()),
+        }
+    }
+}
+
+/// One pair's record.
+struct PairRecord {
+    member: Json,
+    label: String,
+    outcome: Outcome,
+}
+
+impl PairRecord {
+    /// The record's exit status ([`exit_status`]): its verdict's, the question not asked for a
+    /// refused pair, and no answer for one whose run has no one end.
+    const fn status(&self) -> i32 {
+        match &self.outcome {
+            Outcome::Verdict(verdict) => verdict.exit_code(),
+            Outcome::Refused(_) => exit_status::UNASKED,
+            Outcome::Unanswered(_) => exit_status::UNANSWERED,
+        }
+    }
+
+    /// The pair's [`COMPARE_SCHEMA`] document, the one `krs compare` prints for it alone, with
+    /// its `pair`.
+    fn json(&self) -> Json {
+        let mut document = match &self.outcome {
+            Outcome::Verdict(verdict) => verdict.document(),
+            Outcome::Refused(reason) => {
+                json!({"schema": COMPARE_SCHEMA, "verdict": "refused", "reason": reason})
+            }
+            Outcome::Unanswered(reason) => {
+                json!({"schema": COMPARE_SCHEMA, "verdict": "inconclusive", "reason": reason})
+            }
+        };
+        document["pair"] = self.member.clone();
+        document
+    }
+
+    fn human(&self) -> String {
+        let mut text = String::new();
+        match &self.outcome {
+            Outcome::Verdict(verdict) => verdict.write(&mut text, &self.label),
+            Outcome::Refused(reason) => {
+                let _ = writeln!(text, "{}: refused: {reason}", self.label);
+            }
+            Outcome::Unanswered(reason) => {
+                let _ = writeln!(text, "{}: inconclusive: {reason}", self.label);
+            }
+        }
+        text
+    }
+}
+
+/// The verdicts counted, for the summary and the exit status.
+#[derive(Default)]
+struct Tally {
+    equal: usize,
+    differs: usize,
+    met: usize,
+    unmet: usize,
+    inconclusive: usize,
+    refused: usize,
+    /// The [`exit_status::join`] of the records' statuses.
+    status: i32,
+}
+
+impl Tally {
+    fn count(&mut self, record: &PairRecord) {
+        let counter = match &record.outcome {
+            Outcome::Verdict(Verdict::Ends(verdict)) => match verdict.verdict {
+                Compared::Equal => &mut self.equal,
+                Compared::Differs(_) => &mut self.differs,
+                Compared::Inconclusive(_) => &mut self.inconclusive,
+            },
+            Outcome::Verdict(Verdict::Expectation(checked)) => match checked.verdict {
+                Compared::Equal => &mut self.met,
+                Compared::Differs(_) => &mut self.unmet,
+                Compared::Inconclusive(_) => &mut self.inconclusive,
+            },
+            Outcome::Refused(_) => &mut self.refused,
+            Outcome::Unanswered(_) => &mut self.inconclusive,
+        };
+        *counter += 1;
+        self.status = exit_status::join(self.status, record.status());
+    }
+
+    const fn pairs(&self) -> usize {
+        self.equal + self.differs + self.met + self.unmet + self.inconclusive + self.refused
+    }
+
+    fn json(&self) -> Json {
+        json!({
+            "schema": COMPARE_SCHEMA,
+            "summary": {
+                "pairs": self.pairs(),
+                "equal": self.equal,
+                "differs": self.differs,
+                "met": self.met,
+                "unmet": self.unmet,
+                "inconclusive": self.inconclusive,
+                "refused": self.refused,
+            },
+            "status": self.status,
+        })
+    }
+
+    fn human(&self) -> String {
+        let pairs = self.pairs();
+        format!(
+            "krs compare: {pairs} pair{}: {} equal, {} differs, {} met, {} unmet, {} inconclusive, {} refused\n",
+            if pairs == 1 { "" } else { "s" },
+            self.equal,
+            self.differs,
+            self.met,
+            self.unmet,
+            self.inconclusive,
+            self.refused
+        )
+    }
+}
+
+/// Prints records in the pairs' order as they arrive in any.
+struct Printer {
+    next: usize,
+    pending: BTreeMap<usize, PairRecord>,
+    output: CompareOutput,
+    tally: Tally,
+}
+
+impl Printer {
+    fn put(&mut self, index: usize, record: PairRecord) -> Result<(), Failure> {
+        self.pending.insert(index, record);
+        while let Some(record) = self.pending.remove(&self.next) {
+            self.tally.count(&record);
+            let text = match self.output {
+                CompareOutput::Json => format!("{}\n", record.json()),
+                CompareOutput::Human => record.human(),
+            };
+            write_stdout(&text)?;
+            self.next += 1;
+        }
+        Ok(())
+    }
+}
+
+/// How many pairs may be compared ahead of the first one not yet printed, per worker: the bound
+/// on the records held back for printing in the pairs' order.
+const AHEAD_PER_WORKER: usize = 4;
+
+/// An observer definition, prepared and compiled once, which each worker loads on first use.
+struct Observer {
+    definition: DefinitionIr,
+    stage: CompiledStage,
+}
+
+/// One pair to compare: its place, its record's member and label, its comparison, its sides'
+/// documents, and its observer when it names one other than the compared definition.
+struct Job {
+    index: usize,
+    member: Json,
+    label: String,
+    request: CompareRequest,
+    read: ReadSides,
+    observer: Option<Arc<Observer>>,
+}
+
+/// Compare the pairs of the document `request` names (`--pairs`) on the prepared definition, its
+/// stage restored or compiled once, each observer prepared by `observers` the first time a pair
+/// names it.
+pub(super) fn execute_pairs(
+    prepared: &PreparedDefinition,
+    request: &CompareRequest,
+    sources: &DiagnosticSources,
+    reuse: StageReuse<'_>,
+    observers: &PrepareObserver<'_>,
+    measurement: &mut Measurement,
+) -> Result<CommandOutcome, CommandError> {
+    let CompareSides::Pairs { file, jobs } = &request.sides else {
+        unreachable!("execute_pairs is called for --pairs")
+    };
+    // The document is read before the definition is loaded, as a single comparison's sides are.
+    let pairs =
+        read_pairs(file, request).map_err(|failure| failure.into_command_error(prepared))?;
+    let definition = prepared.lowered.definition();
+    let timings = &mut measurement.timings;
+    let mut reused = false;
+    let reused_flag = &mut reused;
+    let result = std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .name("krs-compare".into())
+            .stack_size(WORKER_STACK)
+            .spawn_scoped(scope, move || {
+                let (stage, restored) =
+                    exec::compiled_stage(definition, reuse, timings).map_err(Failure::Exec)?;
+                *reused_flag = restored;
+                let batch = Batch {
+                    definition,
+                    stage: &stage,
+                    sources,
+                    output: request.output,
+                    solver: request.solver,
+                    restore: reuse.restore,
+                    runs: CaseRuns::default(),
+                };
+                let workers = jobs
+                    .or_else(|| std::thread::available_parallelism().ok())
+                    .map_or(1, NonZeroUsize::get)
+                    .min(pairs.len());
+                timings.span("compare.batch", |timings| {
+                    batch.run(pairs, workers, observers, timings)
+                })
+            })
+            .map_err(|error| {
+                CommandError::InvalidRequest(format!("could not start the compare worker: {error}"))
+            })?
+            .join()
+            .map_err(|_| CommandError::InvalidRequest("the compare worker panicked".into()))
+    })?;
+    measurement.counters.set("stage.reused", u64::from(reused));
+    result.map_err(|failure| failure.into_command_error(prepared))
+}
+
+/// The batch: the definition and its compiled stage, which every worker loads once, and the
+/// case runs every worker shares.
+struct Batch<'a> {
+    definition: &'a DefinitionIr,
+    stage: &'a CompiledStage,
+    sources: &'a DiagnosticSources,
+    output: CompareOutput,
+    solver: BackendOptions,
+    restore: bool,
+    runs: CaseRuns,
+}
+
+impl Batch<'_> {
+    fn run(
+        &self,
+        pairs: Vec<Pair>,
+        workers: usize,
+        observers: &PrepareObserver<'_>,
+        timings: &mut Timings,
+    ) -> Result<CommandOutcome, Failure> {
+        let (job_sender, job_receiver) = mpsc::channel::<Job>();
+        let job_receiver = Mutex::new(job_receiver);
+        let (record_sender, record_receiver) = mpsc::channel::<(usize, PairRecord)>();
+        let mut printer = Printer {
+            next: 0,
+            pending: BTreeMap::new(),
+            output: self.output,
+            tally: Tally::default(),
+        };
+        let measured = timings.is_enabled();
+        let spans = std::thread::scope(|scope| {
+            let mut handles = Vec::new();
+            for worker in 0..workers {
+                let records = record_sender.clone();
+                let job_receiver = &job_receiver;
+                let handle = std::thread::Builder::new()
+                    .name(format!("krs-compare-{worker}"))
+                    .stack_size(WORKER_STACK)
+                    .spawn_scoped(scope, move || {
+                        let mut state = Worker::new(self, measured);
+                        loop {
+                            let job = job_receiver
+                                .lock()
+                                .unwrap_or_else(PoisonError::into_inner)
+                                .recv();
+                            let Ok(job) = job else { break };
+                            let index = job.index;
+                            if records.send((index, state.record(job))).is_err() {
+                                break;
+                            }
+                        }
+                        state.timings.take_spans()
+                    })
+                    .map_err(|error| {
+                        Failure::Read(format!("could not start a compare worker: {error}"))
+                    })?;
+                handles.push(handle);
+            }
+            drop(record_sender);
+            let mut feed = Feed {
+                batch: self,
+                observers,
+                prepared: BTreeMap::new(),
+                timings: &mut *timings,
+                dispatched: 0,
+                ahead: workers.saturating_mul(AHEAD_PER_WORKER),
+                jobs: job_sender,
+                records: &record_receiver,
+                printer: &mut printer,
+            };
+            let handed = feed.pairs(pairs);
+            let dispatched = feed.dispatched;
+            // Every worker ends once the jobs are taken and the channel closes.
+            drop(feed);
+            handed?;
+            while printer.next < dispatched {
+                let (index, record) = record_receiver.recv().map_err(|_| {
+                    Failure::Read(
+                        "a compare worker ended before its pairs were compared".to_owned(),
+                    )
+                })?;
+                printer.put(index, record)?;
+            }
+            Ok::<_, Failure>(
+                handles
+                    .into_iter()
+                    .filter_map(|handle| handle.join().ok())
+                    .collect::<Vec<Vec<Span>>>(),
+            )
+        })?;
+        // The workers' spans, which ran in parallel with each other and with the pairs' feed.
+        for worker in spans {
+            timings.import(worker);
+        }
+        let summary = match self.output {
+            CompareOutput::Json => format!("{}\n", printer.tally.json()),
+            CompareOutput::Human => printer.tally.human(),
+        };
+        write_stdout(&summary)?;
+        Ok(exec::outcome(
+            String::new(),
+            String::new(),
+            printer.tally.status,
+        ))
+    }
+}
+
+/// The coordinator's side of the batch: reads each pair's sides, prepares observers, hands out
+/// the pairs, and prints the records as they come back.
+struct Feed<'f, 'b> {
+    batch: &'f Batch<'b>,
+    observers: &'f PrepareObserver<'f>,
+    /// Each observer named so far, prepared and compiled, or why it is not.
+    prepared: BTreeMap<String, Result<Option<Arc<Observer>>, String>>,
+    timings: &'f mut Timings,
+    dispatched: usize,
+    ahead: usize,
+    jobs: mpsc::Sender<Job>,
+    records: &'f mpsc::Receiver<(usize, PairRecord)>,
+    printer: &'f mut Printer,
+}
+
+impl Feed<'_, '_> {
+    fn pairs(&mut self, pairs: Vec<Pair>) -> Result<(), Failure> {
+        for pair in pairs {
+            let Pair {
+                member,
+                label,
+                request,
+            } = pair;
+            let refused = |reason| PairRecord {
+                member: member.clone(),
+                label: label.clone(),
+                outcome: Outcome::Refused(reason),
+            };
+            let request = match request {
+                Ok(request) => request,
+                Err(reason) => {
+                    self.settle(refused(reason))?;
+                    continue;
+                }
+            };
+            let read = match read(&request) {
+                Ok(read) => read,
+                Err(failure) => {
+                    self.settle(PairRecord {
+                        outcome: Outcome::of(&failure),
+                        ..refused(String::new())
+                    })?;
+                    continue;
+                }
+            };
+            let observer = match observer_name(&request, &read).map(str::to_owned) {
+                Some(name) => match self.observer(&name) {
+                    Ok(observer) => observer,
+                    Err(reason) => {
+                        self.settle(refused(reason))?;
+                        continue;
+                    }
+                },
+                None => None,
+            };
+            self.wait_for_room()?;
+            let job = Job {
+                index: self.dispatched,
+                member,
+                label,
+                request,
+                read,
+                observer,
+            };
+            self.jobs.send(job).map_err(|_| {
+                Failure::Read(
+                    "every compare worker ended before the pairs were compared".to_owned(),
+                )
+            })?;
+            self.dispatched += 1;
+        }
+        Ok(())
+    }
+
+    /// Print `record` at the next place, after the pairs handed out before it.
+    fn settle(&mut self, record: PairRecord) -> Result<(), Failure> {
+        self.wait_for_room()?;
+        let index = self.dispatched;
+        self.dispatched += 1;
+        self.printer.put(index, record)
+    }
+
+    /// Wait until fewer than [`Self::ahead`] pairs are compared ahead of the first one not
+    /// printed.
+    fn wait_for_room(&mut self) -> Result<(), Failure> {
+        while self.dispatched - self.printer.next >= self.ahead {
+            let (index, record) = self.records.recv().map_err(|_| {
+                Failure::Read(
+                    "every compare worker ended before the pairs were compared".to_owned(),
+                )
+            })?;
+            self.printer.put(index, record)?;
+        }
+        Ok(())
+    }
+
+    /// The observer `name`, prepared and compiled the first time a pair names it.
+    fn observer(&mut self, name: &str) -> Result<Option<Arc<Observer>>, String> {
+        if let Some(prepared) = self.prepared.get(name) {
+            return prepared.clone();
+        }
+        let restore = self.batch.restore;
+        let observers = self.observers;
+        let prepared = self.timings.span("compare.observer", |timings| {
+            observers(name).and_then(|observer| {
+                observer
+                    .map(|observer| {
+                        let reuse = StageReuse {
+                            cache: observer.cache.as_ref(),
+                            restore,
+                        };
+                        let (stage, _) = exec::compiled_stage(&observer.definition, reuse, timings)
+                            .map_err(|error| {
+                                format!("the observer `{name}` cannot be compiled: {error}")
+                            })?;
+                        Ok(Arc::new(Observer {
+                            definition: observer.definition,
+                            stage,
+                        }))
+                    })
+                    .transpose()
+            })
+        });
+        self.prepared.insert(name.to_owned(), prepared.clone());
+        prepared
+    }
+}
+
+/// A worker's definitions, each loaded on its first pair, and the spans it records.
+struct Worker<'a> {
+    batch: &'a Batch<'a>,
+    subject: Option<Result<Semantics, String>>,
+    /// The observers loaded, by the prepared observer they were loaded from.
+    observers: Vec<(Arc<Observer>, Result<Semantics, String>)>,
+    timings: Timings,
+}
+
+impl<'a> Worker<'a> {
+    fn new(batch: &'a Batch<'a>, measured: bool) -> Self {
+        Self {
+            batch,
+            subject: None,
+            observers: Vec::new(),
+            timings: if measured {
+                Timings::enabled()
+            } else {
+                Timings::disabled()
+            },
+        }
+    }
+
+    /// The record of `job`; a panic while comparing refuses the pair and reloads the
+    /// definitions for the next one, since their state is then unknown.
+    fn record(&mut self, job: Job) -> PairRecord {
+        let member = job.member.clone();
+        let label = job.label.clone();
+        let outcome = match std::panic::catch_unwind(AssertUnwindSafe(|| self.compare(job))) {
+            Ok(Ok(verdict)) => Outcome::Verdict(verdict),
+            Ok(Err(outcome)) => outcome,
+            Err(_) => {
+                self.subject = None;
+                self.observers.clear();
+                Outcome::Refused("krs panicked while comparing the pair".to_owned())
+            }
+        };
+        PairRecord {
+            member,
+            label,
+            outcome,
+        }
+    }
+
+    fn compare(&mut self, job: Job) -> Result<Verdict, Outcome> {
+        let Self {
+            batch,
+            subject,
+            observers,
+            timings,
+        } = self;
+        let subject = subject
+            .get_or_insert_with(|| {
+                let sources = batch.sources.clone();
+                let provider: SourceText = Box::new(move |file| sources.source_text(file));
+                timings
+                    .span("compare.load", |timings| {
+                        Semantics::from_stage_with_solver(
+                            batch.definition,
+                            batch.stage.clone(),
+                            Some(provider),
+                            batch.solver,
+                            timings,
+                        )
+                    })
+                    .map_err(|error| format!("krs cannot load the definition: {error}"))
+            })
+            .as_mut()
+            .map_err(|reason| Outcome::Refused(reason.clone()))?;
+        let observer = match &job.observer {
+            None => None,
+            Some(observer) => {
+                let position = if let Some(position) = observers
+                    .iter()
+                    .position(|(loaded, _)| Arc::ptr_eq(loaded, observer))
+                {
+                    position
+                } else {
+                    let semantics = timings
+                        .span("compare.observer_load", |timings| {
+                            Semantics::from_stage_with_solver(
+                                &observer.definition,
+                                observer.stage.clone(),
+                                None,
+                                batch.solver,
+                                timings,
+                            )
+                        })
+                        .map_err(|error| format!("krs cannot load the observer: {error}"));
+                    observers.push((Arc::clone(observer), semantics));
+                    observers.len() - 1
+                };
+                Some(
+                    observers[position]
+                        .1
+                        .as_mut()
+                        .map_err(|reason| Outcome::Refused(reason.clone()))?,
+                )
+            }
+        };
+        compare(
+            subject,
+            observer,
+            &job.request,
+            job.read,
+            &batch.runs,
+            timings,
+        )
+        .map_err(|failure| Outcome::of(&failure))
+    }
 }
 
 #[cfg(test)]
